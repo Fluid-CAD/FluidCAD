@@ -11,6 +11,8 @@ import loft from "../../core/loft.js";
 import revolve from "../../core/revolve.js";
 import axis from "../../core/axis.js";
 import helix from "../../core/helix.js";
+import chamfer from "../../core/chamfer.js";
+import repeat from "../../core/repeat.js";
 import { circle, move, project, rect, vLine } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Scene } from "../../rendering/scene.js";
@@ -363,6 +365,88 @@ describe("feature sources (edit-dialog seeding)", () => {
     if (result.ok && result.feature === "revolve") {
       expect(result.profile).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 });
       expect(result.axis).toEqual({ kind: "opaque" });
+    }
+  });
+
+  /**
+   * A repeat that names no targets replays whatever came before it, so its
+   * edit dialog has no argument text to seed the Features slot with — the
+   * feature it consumes has to come from here, or the slot opens empty over a
+   * statement that plainly repeats something.
+   */
+  it("resolves an implicit repeat's target by call site", () => {
+    sketch("xy", () => {
+      rect(40, 40);
+    });
+    const e = extrude(10) as Extrude;
+    setLocation(e, 4);
+    const r = repeat("linear", "x", { count: 3, offset: 60 });
+    setLocation(r as never, 6);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "repeat-linear", 6));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "repeat") {
+      expect(result.targets).toEqual([
+        { kind: "sketch", filePath: "/ws/model.fluid.js", line: 4, column: 0 },
+      ]);
+      // A world-axis literal builds no statement to point at.
+      expect(result.axes).toEqual([{ kind: "opaque" }]);
+    }
+  });
+
+  it("resolves a repeat's axis statement and its named targets", () => {
+    const a = axis("y");
+    setLocation(a as never, 2);
+    sketch("xy", () => {
+      rect(40, 40);
+    });
+    const e = extrude(10) as Extrude;
+    setLocation(e, 5);
+    const f = chamfer(2, (e as never as { endEdges: () => unknown }).endEdges() as never);
+    setLocation(f as never, 7);
+    const r = repeat("circular", a as never, { count: 4, angle: 360 }, f as never);
+    setLocation(r as never, 9);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "repeat-circular", 9));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "repeat") {
+      expect(result.targets).toEqual([
+        { kind: "sketch", filePath: "/ws/model.fluid.js", line: 7, column: 0 },
+      ]);
+      expect(result.axes).toEqual([
+        { kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 },
+      ]);
+    }
+  });
+
+  /** A mirror written from the dialog's face mode resolves to that face. */
+  it("resolves a mirror plane picked as a face", () => {
+    sketch("xy", () => {
+      rect(40, 40);
+    });
+    const e = extrude(10) as Extrude;
+    setLocation(e, 4);
+    const r = repeat("mirror", e.endFaces() as never);
+    setLocation(r as never, 6);
+
+    const scene = render();
+    // The mirror cloned the extrude, so the scene holds two of them; the
+    // pre-statement solid the picks resolve against is the original's.
+    const original = scene.getAllSceneObjects()
+      .find(o => o.getType() === "extrude" && !o.getCloneSource())!;
+    const box = original.getAddedShapes().filter(s => s.getType() === "solid")[0];
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "mirror", 6));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "repeat") {
+      expect(result.plane).toEqual({
+        kind: "entities",
+        entities: faceRefsWhere(box, m => Math.abs(m.z - 10) < 1e-6),
+      });
     }
   });
 

@@ -12,18 +12,27 @@ import {
   HelixSourceKind, resolveHelixEdgeSource, resolveHelixFaceSource,
 } from "../features/helix-geometry.js";
 import { buildLoftGhostSolids, LoftGhostProfile } from "../features/loft-ghost.js";
+import { PlaneObjectBase } from "../features/plane-renderable-base.js";
+import {
+  buildCircularGhostMatrices, buildLinearGhostMatrices, buildMirrorGhostMatrices,
+  buildRotateGhostMatrices, linearGhostInstanceCount, RepeatGhostDirection, RepeatGhostSweep,
+} from "../features/repeat-ghost.js";
 import { buildRevolveGhostSolids } from "../features/revolve-ghost.js";
 import { buildSweepGhostSolids } from "../features/sweep-ghost.js";
 import { Extrudable, BoundingBox } from "../helpers/types.js";
 import { Axis, StandardAxis, toAxis } from "../math/axis.js";
-import { Plane } from "../math/plane.js";
+import { Matrix4 } from "../math/matrix4.js";
+import { Plane, toPlane } from "../math/plane.js";
+import { BooleanOps } from "../oc/boolean-ops.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
+import { FaceQuery } from "../oc/face-query.js";
 import type { LoftEndCondition } from "../oc/loft-ops.js";
 import type { MeshConfig } from "../oc/mesh.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
 import { MeshBuilder } from "./mesh-builder.js";
+import { transformMeshes } from "./mesh-transform.js";
 import { renderFacePatch } from "./render-face.js";
 import { Scene, SceneObjectMesh } from "./scene.js";
 
@@ -38,7 +47,8 @@ export type FeatureGhostRequest =
   | SweepGhostRequest
   | LoftGhostRequest
   | FilletGhostRequest
-  | HelixGhostRequest;
+  | HelixGhostRequest
+  | RepeatGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -179,6 +189,60 @@ export type GhostHelixSourceRef =
   | { kind: 'face'; shapeId: string; index: number };
 
 /**
+ * The repeat. Alone among the features it builds nothing: the instances it
+ * places are the target features themselves, moved — so the ghost stamps the
+ * targets' *already meshed* shapes at each instance transform instead of
+ * replaying the feature per instance, which would cost what the apply costs.
+ *
+ * That makes it honest about position and approximate about the result: a
+ * repeated cut ghosts its tool body at each new place rather than the material
+ * it removes, which is both what SolidWorks shows for a pattern preview and
+ * the thing the dialog's numbers actually steer.
+ */
+export type RepeatGhostRequest = {
+  feature: 'repeat';
+  kind: 'linear' | 'circular' | 'mirror' | 'rotate';
+  /** The timeline rows being replayed, by call site — the repeat's targets. */
+  targets: { filePath: string; line: number }[];
+  /** Linear: one per direction (1–2). Circular and rotate: one. Mirror: none. */
+  axes: GhostAxisRef[];
+  /** The mirror plane; null for every other kind. */
+  plane: GhostPlaneRef | null;
+  /** Linear: count and spacing per direction, parallel to {@link axes}. */
+  directions: GhostRepeatDirection[];
+  /** Linear: center the pattern on the original instead of starting there. */
+  centered: boolean;
+  /** Circular: instances around the axis, the original included. */
+  count: number | null;
+  /** Circular: the whole sweep to distribute, or the step between neighbours. */
+  sweep: RepeatGhostSweep | null;
+  /** Rotate: how far the single clone turns, in degrees. */
+  angle: number | null;
+};
+
+/**
+ * One linear direction on the wire: how many instances, and how far apart —
+ * either directly (`offset`) or as the span they share (`length`), the two
+ * forms the dialog's spacing mode writes.
+ */
+export type GhostRepeatDirection = {
+  count: number;
+  offset: number | null;
+  length: number | null;
+};
+
+/**
+ * The mirror dialog's plane slot on the wire, the plane sibling of
+ * {@link GhostAxisRef}: an origin plane from its viewport quad, a `plane()`
+ * statement by call site, or a planar face picked in the viewport. As with the
+ * axis, "keep the current plane" never travels — the client resolves it first.
+ */
+export type GhostPlaneRef =
+  | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
+  | { kind: 'plane'; filePath: string; line: number }
+  | { kind: 'face'; shapeId: string; index: number };
+
+/**
  * One ghost body, in the same mesh wire format a rendered solid uses. `kind`
  * overrides the overlay's per-dialog color for this body alone — a fillet's
  * picks can take material away at one edge and put it back at the next, so the
@@ -189,13 +253,31 @@ export type GhostSolid = { meshes: SceneObjectMesh[]; kind?: 'add' | 'remove' };
 
 export type FeatureGhostResult =
   | { ok: true; solids: GhostSolid[] }
-  | { ok: false; reason: string };
+  | {
+    ok: false;
+    reason: string;
+    /**
+     * This refusal is worth putting in front of the user. Almost none are:
+     * a scene that moved on, a pick that went stale, values still being typed
+     * — all ordinary mid-composition states a dialog would only flash noise
+     * about. It is set for a *limit* instead, something the user can act on
+     * by changing a number, where a silently blank viewport reads as a bug.
+     */
+    surface?: boolean;
+  };
 
 /** How far past the model a through-all ghost runs, as a fraction of its reach. */
 const THROUGH_ALL_MARGIN = 1.1;
 
 /** Through-all ghost length when the scene offers nothing to size against. */
 const THROUGH_ALL_FALLBACK = 100;
+
+/**
+ * How many instances a repeat ghost will draw. Past it the answer is a
+ * refusal carrying the count, not silence: a pattern that simply vanished
+ * when the count grew would read as a bug rather than a limit.
+ */
+const MAX_REPEAT_GHOST_INSTANCES = 200;
 
 /**
  * Mesh the geometry a feature dialog would produce, without touching the
@@ -225,6 +307,9 @@ export function buildFeatureGhost(
   }
   if (request.feature === 'helix') {
     return meshGhostBodies(buildHelixGhost(scene, request), meshConfig);
+  }
+  if (request.feature === 'repeat') {
+    return buildRepeatGhost(scene, request, meshConfig);
   }
   return buildBandGhost(scene, request, meshConfig);
 }
@@ -380,6 +465,349 @@ function resolvePickedEdgeGroups(
     }
   }
   return resolved;
+}
+
+/**
+ * The repeat branch: no geometry is built at all. The instances a repeat
+ * places are its target features, moved — so the targets' meshes are read
+ * once (the last render already made them) and stamped at each instance
+ * transform. Per keystroke that is N array transforms and no OCC work, which
+ * is the only reason a pattern of two hundred bodies can live on a 250 ms
+ * debounce; replaying the feature per instance is what the apply does.
+ *
+ * The origin instance is never drawn — it is the geometry already on screen.
+ */
+function buildRepeatGhost(
+  scene: Scene,
+  request: RepeatGhostRequest,
+  meshConfig: MeshConfig,
+): FeatureGhostResult {
+  // Only the mirror's face pick opens shapes here; the axis forms clean up
+  // after themselves and the instances are plain numbers.
+  const scratch: Shape[] = [];
+  try {
+    const placed = repeatGhostMatrices(scene, request, scratch);
+    if ('reason' in placed) {
+      return { ok: false, reason: placed.reason, surface: placed.surface };
+    }
+    if (placed.matrices.length === 0) {
+      // A count still at one, a spacing still at zero — states the dialog
+      // passes through while the user types. Nothing to draw, nothing wrong.
+      return { ok: true, solids: [] };
+    }
+    const targets = repeatTargetObjects(scene, request.targets);
+    if (targets.length === 0) {
+      return { ok: false, reason: 'That feature is not in the rendered scene.' };
+    }
+    const solids = repeatTargetSolids(targets);
+    if (solids.length === 0) {
+      return { ok: false, reason: 'That feature has no solid to preview.' };
+    }
+    const stamps = repeatStamps(scene, targets, solids, meshConfig, scratch);
+    return {
+      ok: true,
+      solids: placed.matrices.flatMap(matrix => stamps.map(stamp => ({
+        meshes: transformMeshes(stamp.meshes, matrix),
+        kind: stamp.kind,
+      }))),
+    };
+  } finally {
+    for (const shape of scratch) {
+      shape.dispose();
+    }
+  }
+}
+
+/**
+ * Where the instances land, or why the request names something the scene no
+ * longer holds. The cap is applied to the *stated* count first, before a grid
+ * is materialized — a mistyped count must refuse, not allocate.
+ */
+function repeatGhostMatrices(
+  scene: Scene,
+  request: RepeatGhostRequest,
+  scratch: Shape[],
+): { matrices: Matrix4[] } | { reason: string; surface?: boolean } {
+  const total = requestedInstanceCount(request);
+  if (total > MAX_REPEAT_GHOST_INSTANCES) {
+    // The one refusal here the user can do something about, and the one where
+    // drawing nothing would look broken rather than unfinished.
+    return { reason: `${total} instances is more than the preview draws.`, surface: true };
+  }
+  if (request.kind === 'mirror') {
+    const plane = request.plane && resolveGhostPlane(scene, request.plane, scratch);
+    return plane
+      ? { matrices: buildMirrorGhostMatrices(plane) }
+      : { reason: 'That mirror plane is not in the rendered scene.' };
+  }
+
+  const axes: Axis[] = [];
+  for (const ref of request.axes) {
+    const axis = resolveGhostAxis(scene, ref);
+    if (!axis) {
+      return { reason: 'That axis is not in the rendered scene.' };
+    }
+    axes.push(axis);
+  }
+  if (axes.length === 0) {
+    return { matrices: [] };
+  }
+  if (request.kind === 'rotate') {
+    return { matrices: buildRotateGhostMatrices(axes[0], request.angle ?? 0) };
+  }
+  if (request.kind === 'circular') {
+    return {
+      matrices: request.sweep
+        ? buildCircularGhostMatrices(axes[0], request.count ?? 0, request.sweep, request.centered)
+        : [],
+    };
+  }
+  // Linear: one axis per direction. A mismatch is a malformed request the
+  // route rejects; here it simply lays nothing out.
+  if (axes.length !== request.directions.length) {
+    return { matrices: [] };
+  }
+  const directions: RepeatGhostDirection[] = request.directions.map((direction, i) => ({
+    axis: axes[i],
+    count: direction.count,
+    offset: directionOffset(direction),
+  }));
+  return { matrices: buildLinearGhostMatrices(directions, request.centered) };
+}
+
+/**
+ * A direction's step between neighbours. The dialog's Total spacing mode
+ * states the whole span instead, which `repeat()` divides across the gaps
+ * (repeat.ts:153) — one fewer than the instances, the original holding the
+ * first place.
+ */
+function directionOffset(direction: GhostRepeatDirection): number {
+  if (direction.offset !== null) {
+    return direction.offset;
+  }
+  return direction.length !== null ? direction.length / (direction.count - 1) : NaN;
+}
+
+/** How many bodies the request describes, read off its numbers alone. */
+function requestedInstanceCount(request: RepeatGhostRequest): number {
+  if (request.kind === 'linear') {
+    return linearGhostInstanceCount(request.directions);
+  }
+  if (request.kind === 'circular') {
+    return Math.max(0, Math.floor(request.count ?? 0) - 1);
+  }
+  return 1;
+}
+
+/**
+ * The objects the target rows name. Two wrinkles no other ghost has:
+ *
+ * - **A clone stamps its original's call site** (repeat-targets.ts:20-24), so
+ *   a line an earlier repeat already replayed holds the original *and* every
+ *   clone of it. The original alone is the target: a new repeat replays the
+ *   statement, not the pattern that came out of it.
+ * - **A target can be a container** — repeating a `repeat()` or a `part()` row
+ *   is legal, and `getShapes` gathers a container's children for us.
+ */
+function repeatTargetObjects(
+  scene: Scene,
+  refs: { filePath: string; line: number }[],
+): SceneObject[] {
+  const targets: SceneObject[] = [];
+  for (const ref of refs) {
+    const objects = objectsAt(scene, ref);
+    const originals = objects.filter(obj => obj.getCloneSource() === null);
+    targets.push(...(originals.length > 0 ? originals : objects));
+  }
+  return targets;
+}
+
+/** One body stamped at every instance: its meshes, and what it stands for. */
+type RepeatStamp = { meshes: SceneObjectMesh[]; kind?: 'add' | 'remove' };
+
+/**
+ * What one instance actually puts on screen.
+ *
+ * The obvious answer — the target's body — is only right when the instance
+ * brings that whole body with it. It often doesn't: a boss sketched on a
+ * plate's face *fuses into the plate*, so the target's solid is plate-plus-boss
+ * while each new instance contributes the boss alone (the plate is built
+ * outside the chain the repeat clones, and the clone's own fuse merges into
+ * the one already there). Stamping the fused body would draw a plate per
+ * instance — geometry the apply never produces.
+ *
+ * So where a body IS carried in from outside the chain, the stamp is the
+ * *difference*: what the target's chain adds to it (green), and what it takes
+ * away (red — a repeated cut previews as the holes it will make). Two booleans
+ * per ghost, not per instance; with nothing carried in, none at all and the
+ * scene's cached meshes go straight through.
+ *
+ * A difference OCC refuses to compute draws nothing rather than falling back
+ * to the whole body — being silent beats being wrong about what an apply does.
+ */
+function repeatStamps(
+  scene: Scene,
+  targets: SceneObject[],
+  solids: Shape[],
+  meshConfig: MeshConfig,
+  scratch: Shape[],
+): RepeatStamp[] {
+  const builder = new MeshBuilder(meshConfig);
+  const bases = unclonedBases(scene, targets);
+  if (bases.length === 0) {
+    return [{ meshes: stampMeshes(solids, builder) }];
+  }
+  let added: Shape[];
+  let removed: Shape[];
+  try {
+    added = solidDifference(solids, bases, scratch);
+    removed = solidDifference(bases, solids, scratch);
+  } catch {
+    return [];
+  }
+  const stamps: RepeatStamp[] = [];
+  if (added.length > 0) {
+    stamps.push({ meshes: stampMeshes(added, builder), kind: 'add' });
+  }
+  if (removed.length > 0) {
+    stamps.push({ meshes: stampMeshes(removed, builder), kind: 'remove' });
+  }
+  return stamps;
+}
+
+/**
+ * The bodies an instance will NOT bring with it: the ones a member of the
+ * cloned chain fused into (or cut from) that the chain itself doesn't build.
+ * They are exactly the solids an *outside* object recorded as removed by an
+ * *inside* one — the plate, when a boss on it is repeated.
+ */
+function unclonedBases(scene: Scene, targets: SceneObject[]): Shape[] {
+  const chain = repeatCloneSet(targets);
+  const bases = new Set<Shape>();
+  for (const obj of allObjects(scene)) {
+    if (chain.has(obj)) {
+      continue;
+    }
+    for (const removal of obj.getRemovedShapes()) {
+      if (chain.has(removal.removedBy) && removal.shape.getType() === 'solid') {
+        bases.add(removal.shape);
+      }
+    }
+  }
+  return [...bases];
+}
+
+/**
+ * The objects a repeat would clone, gathered exactly as `cloneWithTransform`
+ * gathers them (clone-transform.ts:14-40): each target's dependency closure,
+ * plus every descendant. Nothing is cloned here and no transform is resolved —
+ * the ghost only needs to know *which* objects an instance rebuilds.
+ */
+function repeatCloneSet(targets: SceneObject[]): Set<SceneObject> {
+  const chain = new Set<SceneObject>();
+  const addChildren = (obj: SceneObject): void => {
+    for (const child of obj.getChildren()) {
+      if (!chain.has(child)) {
+        chain.add(child);
+        addChildren(child);
+      }
+    }
+  };
+  const walk = (obj: SceneObject): void => {
+    if (chain.has(obj)) {
+      return;
+    }
+    chain.add(obj);
+    for (const dep of obj.getDependencies()) {
+      walk(dep);
+    }
+    addChildren(obj);
+  };
+  for (const target of targets) {
+    walk(target);
+  }
+  return chain;
+}
+
+/**
+ * `stocks` minus `tools`, as solids. The result is explored raw rather than
+ * wrapped whole: a difference that comes back **empty** is an ordinary answer
+ * here — a cut adds nothing, a boss removes nothing — and `ShapeFactory` would
+ * throw "Unknown shape type" on that empty compound instead of reporting it.
+ * Exploring also keeps every piece of a difference that falls apart into
+ * several, which wrapping would silently narrow to the first.
+ *
+ * Each wrapped piece joins the scratch; the stocks and tools are the scene's
+ * and are left alone.
+ */
+function solidDifference(stocks: Shape[], tools: Shape[], scratch: Shape[]): Shape[] {
+  let current = stocks;
+  for (const tool of tools) {
+    const next: Shape[] = [];
+    for (const stock of current) {
+      const raw = BooleanOps.cutShapesRaw(stock.getShape(), tool.getShape());
+      try {
+        for (const found of Explorer.findShapes(raw, Explorer.getOcShapeType('solid'))) {
+          const piece = Solid.fromTopoDSSolid(Explorer.toSolid(found));
+          scratch.push(piece);
+          next.push(piece);
+        }
+      } finally {
+        // The container handle is this function's alone — the pieces carry
+        // their own, the way every wrapper does.
+        raw.delete();
+      }
+    }
+    current = next;
+    if (current.length === 0) {
+      break;
+    }
+  }
+  // `current` is still `stocks` only when there was nothing to cut with, and
+  // callers never reach that: an empty base list takes the fast path instead.
+  return current;
+}
+
+/**
+ * The meshes of the bodies to stamp. A scene shape was meshed by the last
+ * render, so that is a read; a body built here (a difference) is meshed now —
+ * either way WITHOUT writing back onto the shape, since ghost code never
+ * touches scene state.
+ */
+function stampMeshes(solids: Shape[], builder: MeshBuilder): SceneObjectMesh[] {
+  const meshes: SceneObjectMesh[] = [];
+  for (const solid of solids) {
+    const cached = solid.getMeshes();
+    const built = cached && cached.length > 0 ? cached : builder.build(solid);
+    if (built) {
+      meshes.push(...built);
+    }
+  }
+  return meshes;
+}
+
+/** Every target's solids, deduped — one body may back several target rows. */
+function repeatTargetSolids(targets: SceneObject[]): Shape[] {
+  const solids = new Set<Shape>();
+  for (const target of targets) {
+    for (const solid of targetSolids(target)) {
+      solids.add(solid);
+    }
+  }
+  return [...solids];
+}
+
+/**
+ * A target's solids — one a consumer has taken included. A cut fused into the
+ * base reads back empty through the normal accessor, and in the edit dialog
+ * that consumer is the very statement being edited; re-reading with an empty
+ * removal scope means "no removal applies" and brings the body back, the same
+ * recovery {@link profileEdges} makes for a consumed sketch. For a repeated
+ * cut it is exactly right: the tool body is what the pattern replays.
+ */
+function targetSolids(target: SceneObject): Shape[] {
+  const live = target.getShapes(undefined, 'solid');
+  return live.length > 0 ? live : target.getShapes(undefined, 'solid', new Set<SceneObject>());
 }
 
 /** The bodies to mesh, or why the request names something the scene lost. */
@@ -847,6 +1275,36 @@ function resolveGhostAxis(scene: Scene, ref: GhostAxisRef): Axis | null {
     for (const edge of edges) {
       edge.dispose();
     }
+  }
+}
+
+/**
+ * The plane a mirror ghost reflects across — the plane sibling of
+ * {@link resolveGhostAxis}, and its three slot states resolve the same way: an
+ * origin plane is a constant, a `plane()` statement is read off the scene
+ * object at its call site (including one the edited repeat has consumed, since
+ * consumption removes its quad but not its stored plane), and a picked face
+ * gives up its own plane, the way `repeat('mirror', select(face(…)))` reads it
+ * at build time (plane-from-object.ts:175). Null means the scene no longer
+ * holds what the slot names — or the face is curved, and has no plane to
+ * mirror across at all.
+ */
+function resolveGhostPlane(scene: Scene, ref: GhostPlaneRef, scratch: Shape[]): Plane | null {
+  if (ref.kind === 'standard') {
+    return toPlane(ref.plane);
+  }
+  if (ref.kind === 'plane') {
+    const obj = findByLocation(scene, ref, o => o instanceof PlaneObjectBase);
+    return (obj as PlaneObjectBase | null)?.getPlane() ?? null;
+  }
+  const face = resolvePickedFace(scene, ref, scratch);
+  if (!face || !FaceQuery.isPlanarFace(face)) {
+    return null;
+  }
+  try {
+    return face.getPlane();
+  } catch {
+    return null;
   }
 }
 

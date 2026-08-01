@@ -933,7 +933,7 @@ type RepeatRequest = {
   angle?: ValueExpr;
 };
 
-const MAX_REPEAT_TARGETS = 16;
+export const MAX_REPEAT_TARGETS = 16;
 const MAX_REPEAT_DIRECTIONS = 3;
 
 /**

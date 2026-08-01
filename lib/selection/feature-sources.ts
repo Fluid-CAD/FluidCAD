@@ -13,6 +13,13 @@ import { Revolve } from "../features/revolve.js";
 import { Wrap } from "../features/wrap.js";
 import { Helix } from "../features/helix.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
+import { MirrorFeature } from "../features/mirror-feature.js";
+import { PlaneFromObject } from "../features/plane-from-object.js";
+import { PlaneObjectBase } from "../features/plane-renderable-base.js";
+import { RepeatAxisSource } from "../features/repeat-base.js";
+import { RepeatCircular } from "../features/repeat-circular.js";
+import { RepeatLinear } from "../features/repeat-linear.js";
+import { RepeatMatrix } from "../features/repeat-matrix.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { Projection } from "../features/2d/projection.js";
 import {
@@ -47,7 +54,14 @@ export type FeatureSources =
   | { feature: 'helix'; source: SourceSlot }
   | { feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlot }
   /** The projected 3D sources, as entities on the pre-statement solids. */
-  | { feature: 'projection'; selection: SourceSlot };
+  | { feature: 'projection'; selection: SourceSlot }
+  /**
+   * A repeat: the features it replays, by call site, plus what it replays them
+   * along — an axis per linear direction (one for circular and rotate), or the
+   * mirror plane. A world-axis or origin-plane literal is `opaque`: it names no
+   * statement, and the dialog reads it straight off the argument text.
+   */
+  | { feature: 'repeat'; targets: SourceSlot[]; axes: SourceSlot[]; plane?: SourceSlot };
 
 export type FeatureSourcesResult =
   | ({ ok: true } & FeatureSources)
@@ -130,6 +144,42 @@ export function resolveFeatureSources(
           : resolver.entitiesSlot([feature.source]),
       };
     }
+    // The repeat family, each kind holding its own inputs. `RepeatMatrix`
+    // backs both `rotate` and the raw-matrix overload — the latter names no
+    // axis at all, and its empty list says so.
+    if (feature instanceof RepeatLinear) {
+      return {
+        ok: true,
+        feature: 'repeat',
+        targets: resolver.statementSlots(feature.targetObjects),
+        axes: feature.axes.map(axis => resolver.repeatAxisSlot(axis)),
+      };
+    }
+    if (feature instanceof RepeatCircular) {
+      return {
+        ok: true,
+        feature: 'repeat',
+        targets: resolver.statementSlots(feature.targetObjects),
+        axes: [resolver.repeatAxisSlot(feature.axis)],
+      };
+    }
+    if (feature instanceof RepeatMatrix) {
+      return {
+        ok: true,
+        feature: 'repeat',
+        targets: resolver.statementSlots(feature.targetObjects),
+        axes: feature.sources.map(source => resolver.axisSlot(source)),
+      };
+    }
+    if (feature instanceof MirrorFeature) {
+      return {
+        ok: true,
+        feature: 'repeat',
+        targets: resolver.statementSlots(feature.targetObjects),
+        axes: [],
+        plane: resolver.planeSlot(feature.plane),
+      };
+    }
     if (feature instanceof ExtrudeBase) {
       const kind = feature.getType() === 'cut' ? 'cut' as const : 'extrude' as const;
       if (feature instanceof ExtrudeToFace) {
@@ -187,6 +237,41 @@ class SourceResolver {
    */
   axisSlot(obj: SceneObject | null): SourceSlot {
     return obj instanceof AxisObjectBase ? this.callSiteSlot(obj) : OPAQUE;
+  }
+
+  /**
+   * A repeat's axis input. A world-axis literal (`repeat('linear', 'x', …)`)
+   * builds no scene object at all and stays opaque — nothing to re-target, and
+   * the dialog reads `'x'` straight off the argument text.
+   */
+  repeatAxisSlot(source: RepeatAxisSource): SourceSlot {
+    return source instanceof AxisObjectBase ? this.callSiteSlot(source) : OPAQUE;
+  }
+
+  /**
+   * A mirror's plane input, by call site — the plane sibling of
+   * {@link axisSlot}. A plane built inline in the repeat's own arguments has
+   * no standalone statement to re-target, but one inline form still resolves:
+   * the bare `plane(<face>)` the dialog's face mode writes
+   * (`repeat('mirror', select(face(…)))`) resolves to that face, the pick the
+   * slot holds. A plane carrying its own offset or rotation does not — the
+   * face alone would name a different plane than the statement builds.
+   */
+  planeSlot(obj: PlaneObjectBase): SourceSlot {
+    const slot = this.callSiteSlot(obj);
+    if (slot.kind !== 'opaque') {
+      return slot;
+    }
+    if (obj instanceof PlaneFromObject && obj.optionsOrPosition == null
+      && !(obj.sourceObject instanceof PlaneObjectBase)) {
+      return this.entitiesSlot([obj.sourceObject]);
+    }
+    return OPAQUE;
+  }
+
+  /** Statements by call site — a repeat's targets are features, not sketches. */
+  statementSlots(objects: SceneObject[] | null): SourceSlot[] {
+    return (objects ?? []).map(obj => this.callSiteSlot(obj));
   }
 
   /** An input statement by call site — opaque when binding it could mis-target. */

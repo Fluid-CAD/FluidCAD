@@ -8,18 +8,21 @@ import plane from "../core/plane.js";
 import revolve from "../core/revolve.js";
 import sweep from "../core/sweep.js";
 import helix from "../core/helix.js";
+import chamfer from "../core/chamfer.js";
+import repeat from "../core/repeat.js";
 import { bezier, circle, move, rect, vLine } from "../core/2d/index.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
+import { FaceQuery } from "../oc/face-query.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import {
   buildFeatureGhost, ExtrudeGhostRequest, FeatureGhostResult, GhostPathRef, GhostSectionRef,
-  LoftGhostRequest, RevolveGhostRequest, SweepGhostRequest,
+  LoftGhostRequest, RepeatGhostRequest, RevolveGhostRequest, SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
-import { Scene } from "../rendering/scene.js";
+import { Scene, SceneObjectMesh } from "../rendering/scene.js";
 
 const FILE = '/tmp/ghost-test.fluid.js';
 
@@ -85,6 +88,37 @@ function bounds(result: FeatureGhostResult, solid = 0) {
     minY: Math.min(...ys), maxY: Math.max(...ys),
     minZ: Math.min(...zs), maxZ: Math.max(...zs),
   };
+}
+
+/** Why a ghost refused, or '' when it didn't. */
+function refusal(result: FeatureGhostResult): string {
+  return 'reason' in result ? result.reason : '';
+}
+
+/** The scene box's top face, as a viewport pick names it. */
+function topFace(scene: Scene): { shapeId: string; index: number } {
+  for (const obj of scene.getAllSceneObjects()) {
+    for (const shape of obj.getAddedShapes()) {
+      if (!shape.isSolid()) {
+        continue;
+      }
+      const top = ShapeOps.getBoundingBox(shape).maxZ;
+      const faces = Explorer.findFacesWrapped(shape);
+      try {
+        for (let index = 0; index < faces.length; index++) {
+          const box = ShapeOps.getBoundingBox(faces[index]);
+          if (Math.abs(box.minZ - top) < 1e-6 && Math.abs(box.maxZ - top) < 1e-6) {
+            return { shapeId: shape.id, index };
+          }
+        }
+      } finally {
+        for (const face of faces) {
+          face.dispose();
+        }
+      }
+    }
+  }
+  throw new Error('no top face in the scene');
 }
 
 describe("feature ghost", () => {
@@ -474,32 +508,6 @@ describe("feature ghost — loft", () => {
 
     expect(result.ok).toBe(false);
   });
-
-  /** The scene box's top face, as a viewport pick names it. */
-  function topFace(scene: Scene): { shapeId: string; index: number } {
-    for (const obj of scene.getAllSceneObjects()) {
-      for (const shape of obj.getAddedShapes()) {
-        if (!shape.isSolid()) {
-          continue;
-        }
-        const top = ShapeOps.getBoundingBox(shape).maxZ;
-        const faces = Explorer.findFacesWrapped(shape);
-        try {
-          for (let index = 0; index < faces.length; index++) {
-            const box = ShapeOps.getBoundingBox(faces[index]);
-            if (Math.abs(box.minZ - top) < 1e-6 && Math.abs(box.maxZ - top) < 1e-6) {
-              return { shapeId: shape.id, index };
-            }
-          }
-        } finally {
-          for (const face of faces) {
-            face.dispose();
-          }
-        }
-      }
-    }
-    throw new Error('no top face in the scene');
-  }
 });
 
 /**
@@ -680,3 +688,527 @@ describe("feature ghost — sweep", () => {
     throw new Error('no vertical edge in the scene');
   }
 });
+
+/**
+ * The repeat branch, the odd one out: it builds no geometry at all. What it
+ * draws is the target features themselves, stamped at each instance transform
+ * — so the fixtures keep a 20 × 20 × 10 box at the origin (x and y from -10 to
+ * 10) and every assertion reads that box back somewhere else.
+ */
+describe("feature ghost — repeat", () => {
+  setupOC();
+
+  const REPEAT_BASE: Omit<RepeatGhostRequest, 'targets'> = {
+    feature: 'repeat',
+    kind: 'linear',
+    axes: [{ kind: 'standard', axis: 'x' }],
+    plane: null,
+    directions: [{ count: 3, offset: 40, length: null }],
+    centered: false,
+    count: null,
+    sweep: null,
+    angle: null,
+  };
+
+  function repeatGhost(
+    scene: Scene,
+    lines: number[],
+    overrides: Partial<RepeatGhostRequest> = {},
+  ): FeatureGhostResult {
+    return buildFeatureGhost(
+      scene,
+      {
+        ...REPEAT_BASE,
+        ...overrides,
+        targets: lines.map(line => ({ filePath: FILE, line })),
+      },
+      DEFAULT_MESH_CONFIG,
+    );
+  }
+
+  /** A box built by an `extrude()` addressable at `line`, like the parser's. */
+  function locatedBox(line: number, draw = () => { rect(20, 20); }, height = 10): SceneObject {
+    sketch("xy", draw);
+    const solid = extrude(height).new() as unknown as SceneObject;
+    solid.setSourceLocation({ filePath: FILE, line, column: 0 });
+    return solid;
+  }
+
+  /**
+   * Put every clone of `source` on `line`. The parser stamps a repeat's clones
+   * with the statement that made them (index.ts:78) — this is how a test says
+   * "an earlier repeat already replayed this line".
+   */
+  function stampClones(scene: Scene, source: SceneObject, line: number): void {
+    for (const obj of scene.getAllSceneObjects()) {
+      if (obj.getCloneSource() === source) {
+        obj.setSourceLocation({ filePath: FILE, line, column: 0 });
+      }
+    }
+  }
+
+  function solidsOf(result: FeatureGhostResult) {
+    if (!result.ok) {
+      throw new Error(`ghost refused: ${'reason' in result ? result.reason : ''}`);
+    }
+    return result.solids;
+  }
+
+  it("stamps a body at every instance but the original", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = repeatGhost(scene, [5]);
+
+    expect(solidsOf(result)).toHaveLength(2);
+    expect(bounds(result, 0).minX).toBeCloseTo(40, 3);
+    expect(bounds(result, 0).maxX).toBeCloseTo(60, 3);
+    expect(bounds(result, 1).minX).toBeCloseTo(80, 3);
+    expect(bounds(result, 1).maxX).toBeCloseTo(100, 3);
+  });
+
+  it("lays out the grid two directions describe", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = repeatGhost(scene, [5], {
+      axes: [{ kind: 'standard', axis: 'x' }, { kind: 'standard', axis: 'y' }],
+      directions: [
+        { count: 2, offset: 40, length: null },
+        { count: 2, offset: 30, length: null },
+      ],
+    });
+
+    // 2 × 2 cells, the origin corner left to the box already on screen.
+    expect(solidsOf(result)).toHaveLength(3);
+  });
+
+  it("centers the pattern on the original", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = repeatGhost(scene, [5], { centered: true });
+
+    expect(solidsOf(result)).toHaveLength(2);
+    expect(bounds(result, 0).minX).toBeCloseTo(-40, 3);
+    expect(bounds(result, 1).minX).toBeCloseTo(40, 3);
+  });
+
+  it("spreads a total span across the gaps", () => {
+    locatedBox(5);
+    const scene = render();
+
+    // 3 instances over 80 mm = the same 40 mm step the offset form states.
+    const result = repeatGhost(scene, [5], {
+      directions: [{ count: 3, offset: null, length: 80 }],
+    });
+
+    expect(bounds(result, 0).minX).toBeCloseTo(40, 3);
+    expect(bounds(result, 1).minX).toBeCloseTo(80, 3);
+  });
+
+  it("spins the instances around a circular axis", () => {
+    // Off the axis, so the rotation is visible in the bounds at all.
+    locatedBox(5, () => { rect([40, -10], 20, 20); });
+    const scene = render();
+
+    const result = repeatGhost(scene, [5], {
+      kind: 'circular',
+      axes: [{ kind: 'standard', axis: 'z' }],
+      directions: [],
+      count: 4,
+      sweep: { mode: 'angle', value: 360 },
+    });
+
+    expect(solidsOf(result)).toHaveLength(3);
+    // A quarter turn carries the box from +x round to +y.
+    const first = bounds(result, 0);
+    expect(first.minY).toBeCloseTo(40, 3);
+    expect(first.maxY).toBeCloseTo(60, 3);
+    expect(first.minX).toBeCloseTo(-10, 3);
+  });
+
+  it("turns a single rotate clone around the axis", () => {
+    locatedBox(5, () => { rect([40, -10], 20, 20); });
+    const scene = render();
+
+    const result = repeatGhost(scene, [5], {
+      kind: 'rotate',
+      axes: [{ kind: 'standard', axis: 'z' }],
+      directions: [],
+      angle: 90,
+    });
+
+    expect(solidsOf(result)).toHaveLength(1);
+    expect(bounds(result, 0).minY).toBeCloseTo(40, 3);
+  });
+
+  it("mirrors across an origin plane", () => {
+    locatedBox(5, () => { rect([-10, 20], 20, 20); });
+    const scene = render();
+
+    const result = repeatGhost(scene, [5], {
+      kind: 'mirror',
+      axes: [],
+      directions: [],
+      plane: { kind: 'standard', plane: 'xz' },
+    });
+
+    expect(solidsOf(result)).toHaveLength(1);
+    const box = bounds(result, 0);
+    expect(box.minY).toBeCloseTo(-40, 3);
+    expect(box.maxY).toBeCloseTo(-20, 3);
+  });
+
+  it("mirrors across a plane() statement named by call site", () => {
+    const p = plane("xy", { offset: 20 }) as unknown as SceneObject;
+    p.setSourceLocation({ filePath: FILE, line: 3, column: 0 });
+    locatedBox(5);
+    const scene = render();
+
+    const result = repeatGhost(scene, [5], {
+      kind: 'mirror',
+      axes: [],
+      directions: [],
+      plane: { kind: 'plane', filePath: FILE, line: 3 },
+    });
+
+    // The box stands z 0…10; reflected in z = 20 it hangs from 40 down to 30.
+    const box = bounds(result, 0);
+    expect(box.minZ).toBeCloseTo(30, 3);
+    expect(box.maxZ).toBeCloseTo(40, 3);
+  });
+
+  it("mirrors across a face picked in the viewport", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = repeatGhost(scene, [5], {
+      kind: 'mirror',
+      axes: [],
+      directions: [],
+      plane: { kind: 'face', ...topFace(scene) },
+    });
+
+    // Reflected in its own top face, the box sits on top of itself.
+    const box = bounds(result, 0);
+    expect(box.minZ).toBeCloseTo(10, 3);
+    expect(box.maxZ).toBeCloseTo(20, 3);
+  });
+
+  /**
+   * A mirror flips triangle winding, and a body whose winding no longer agrees
+   * with its normals renders inside-out. `transformMeshes` swaps the indices
+   * back; this is the guard that the ghost actually goes through it.
+   */
+  it("keeps a mirrored body's winding facing outward", () => {
+    locatedBox(5, () => { rect([-10, 20], 20, 20); });
+    const scene = render();
+
+    const result = repeatGhost(scene, [5], {
+      kind: 'mirror',
+      axes: [],
+      directions: [],
+      plane: { kind: 'standard', plane: 'xz' },
+    });
+
+    const faces = solidsOf(result)[0].meshes.find(m => m.label === 'solid-faces')!;
+    expect(windingFollowsNormals(faces)).toBe(true);
+  });
+
+  it("refuses a curved face as a mirror plane", () => {
+    sketch("xy", () => { circle(40); });
+    const round = extrude(10).new() as unknown as SceneObject;
+    round.setSourceLocation({ filePath: FILE, line: 5, column: 0 });
+    const scene = render();
+
+    const result = repeatGhost(scene, [5], {
+      kind: 'mirror',
+      axes: [],
+      directions: [],
+      plane: { kind: 'face', ...curvedFace(scene) },
+    });
+
+    expect(result.ok).toBe(false);
+  });
+
+  /**
+   * The edit dialog's own blind spot, and a plain fuse's: a target whose solid
+   * a later statement consumed reads back empty, so it is re-read as if no
+   * removal applied. Without that, repeating anything already fused into the
+   * model would silently draw nothing.
+   */
+  it("stamps a target a later statement already consumed", () => {
+    locatedBox(5);
+    sketch("xy", () => { rect([0, 0], 20, 20); });
+    extrude(10);
+    const scene = render();
+
+    const result = repeatGhost(scene, [5], {
+      directions: [{ count: 2, offset: 100, length: null }],
+    });
+
+    // The pre-fuse box, not the fused body it disappeared into.
+    const box = bounds(result, 0);
+    expect(box.minX).toBeCloseTo(100, 3);
+    expect(box.maxX).toBeCloseTo(120, 3);
+  });
+
+  /**
+   * The case a plain body stamp gets wrong. A boss sketched on a plate's face
+   * fuses into the plate, so the target's solid is plate-plus-boss — but the
+   * repeat clones only the boss's own chain, and each instance's fuse merges
+   * into the plate already there. What lands per instance is the boss alone.
+   */
+  it("stamps only the material a fused instance adds", () => {
+    sketch("xy", () => { rect(200, 100).centered(); });
+    const plate = extrude(20) as unknown as { endFaces: () => unknown };
+    sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
+    const boss = extrude(10) as unknown as SceneObject;
+    boss.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+
+    const result = repeatGhost(scene, [9], {
+      directions: [{ count: 2, offset: 50, length: null }],
+    });
+
+    expect(solidsOf(result)).toHaveLength(1);
+    const box = bounds(result, 0);
+    // The boss (Ø30 at x -80, standing on the plate's top face), moved 50
+    // along x — not the 200 × 100 plate it was fused into.
+    expect(box.minZ).toBeCloseTo(20, 3);
+    expect(box.maxZ).toBeCloseTo(30, 3);
+    expect(box.maxX - box.minX).toBeCloseTo(30, 1);
+    expect(box.minX).toBeCloseTo(-45, 1);
+  });
+
+  /**
+   * The whole chain, as a model is actually written: a plate, a boss fused
+   * onto its face, a chamfer on the boss, and a repeat of that chamfer. The
+   * chamfer consumed the boss's own solid — a removal INSIDE the cloned chain,
+   * which must not be mistaken for a body carried in from outside — so each
+   * instance is still the chamfered boss alone, not a plate.
+   */
+  it("follows a chain past a feature that consumed its own input", () => {
+    sketch("xy", () => { rect(200, 100).centered(); });
+    const plate = extrude(20) as unknown as { endFaces: () => unknown };
+    sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
+    const boss = extrude(10) as unknown as { endEdges: () => unknown };
+    const rounded = chamfer(2, boss.endEdges() as never) as unknown as SceneObject;
+    rounded.setSourceLocation({ filePath: FILE, line: 13, column: 0 });
+    const scene = render();
+
+    const result = repeatGhost(scene, [13], {
+      axes: [{ kind: 'standard', axis: 'x' }, { kind: 'standard', axis: 'y' }],
+      directions: [
+        { count: 4, offset: null, length: 160 },
+        { count: 2, offset: null, length: -60 },
+      ],
+    });
+
+    // 4 × 2 instances, the original excluded.
+    expect(solidsOf(result)).toHaveLength(7);
+    const box = bounds(result, 0);
+    expect(box.minZ).toBeCloseTo(20, 3);
+    expect(box.maxZ).toBeCloseTo(30, 3);
+    // The Ø30 boss, not the 200 × 100 plate it stands on.
+    expect(box.maxX - box.minX).toBeLessThan(31);
+    expect(box.maxY - box.minY).toBeLessThan(31);
+  });
+
+  /** The same rule the other way round: a repeated cut previews its pockets. */
+  it("stamps the material a repeated cut takes away", () => {
+    sketch("xy", () => { rect(200, 100).centered(); });
+    const plate = extrude(20) as unknown as { endFaces: () => unknown };
+    sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
+    const pocket = extrude(10).remove() as unknown as SceneObject;
+    pocket.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+
+    const result = repeatGhost(scene, [9], {
+      directions: [{ count: 2, offset: 50, length: null }],
+    });
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    // Material leaving, not arriving — the overlay paints this one red.
+    expect(solids[0].kind).toBe('remove');
+    const box = bounds(result, 0);
+    // The pocket the cut opens (Ø30, 10 deep in the plate's top), moved 50.
+    expect(box.maxX - box.minX).toBeCloseTo(30, 1);
+    expect(box.minX).toBeCloseTo(-45, 1);
+    expect(box.minZ).toBeCloseTo(10, 3);
+    expect(box.maxZ).toBeCloseTo(20, 3);
+  });
+
+  it("stamps every target the request names", () => {
+    locatedBox(5);
+    locatedBox(9, () => { rect([100, -10], 20, 20); });
+    const scene = render();
+
+    const result = repeatGhost(scene, [5, 9], {
+      directions: [{ count: 2, offset: 40, length: null }],
+    });
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    // One body per instance, carrying both targets' meshes.
+    expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(2);
+    const xs = solids[0].meshes.flatMap(m => m.vertices.filter((_, i) => i % 3 === 0));
+    expect(Math.min(...xs)).toBeCloseTo(40, 3);
+    expect(Math.max(...xs)).toBeCloseTo(160, 3);
+  });
+
+  /**
+   * A repeat's clones are stamped with the statement that made them, so a line
+   * an earlier repeat replayed holds the original AND every clone of it. The
+   * new repeat replays the statement, not the pattern that came out of it.
+   */
+  it("takes the original alone on a line an earlier repeat already replayed", () => {
+    const box = locatedBox(5);
+    repeat("linear", "x", { count: 2, offset: 200 }, box as never);
+    const scene = render();
+    stampClones(scene, box, 5);
+
+    const result = repeatGhost(scene, [5], {
+      directions: [{ count: 2, offset: 40, length: null }],
+    });
+
+    const solids = solidsOf(result);
+    expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(1);
+    expect(bounds(result, 0).minX).toBeCloseTo(40, 3);
+    expect(bounds(result, 0).maxX).toBeCloseTo(60, 3);
+  });
+
+  /** Repeating a repeat is legal — the container hands over its children. */
+  it("gathers a container target's children", () => {
+    const box = locatedBox(5);
+    const pattern = repeat("linear", "x", { count: 2, offset: 200 }, box as never) as unknown as SceneObject;
+    pattern.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+    stampClones(scene, box, 9);
+
+    const result = repeatGhost(scene, [9], {
+      directions: [{ count: 2, offset: 500, length: null }],
+    });
+
+    const solids = solidsOf(result);
+    // The pattern holds one clone (at x 200…220); the original at the origin
+    // belongs to line 5, not to the container.
+    expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(1);
+    expect(bounds(result, 0).minX).toBeCloseTo(700, 3);
+  });
+
+  it("refuses more instances than it draws", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = repeatGhost(scene, [5], {
+      directions: [{ count: 300, offset: 5, length: null }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(refusal(result)).toContain('299');
+    // A limit the user can act on — the dialog says this one out loud.
+    expect('surface' in result && result.surface).toBe(true);
+  });
+
+  it("draws nothing while the numbers are still being typed", () => {
+    locatedBox(5);
+    const scene = render();
+
+    for (const directions of [
+      [{ count: 1, offset: 40, length: null }],
+      [{ count: 3, offset: 0, length: null }],
+    ]) {
+      const result = repeatGhost(scene, [5], { directions });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.solids).toHaveLength(0);
+      }
+    }
+  });
+
+  it("refuses a target the scene doesn't hold", () => {
+    locatedBox(5);
+    const scene = render();
+
+    expect(repeatGhost(scene, [99]).ok).toBe(false);
+  });
+
+  it("refuses a target with nothing solid to stamp", () => {
+    locatedSketch(7, () => { rect(20, 20); });
+    const scene = render();
+
+    const result = repeatGhost(scene, [7]);
+
+    expect(result.ok).toBe(false);
+    expect(refusal(result)).toContain('no solid');
+    // Ordinary refusals stay silent — the dialog clears and says nothing.
+    expect('surface' in result && result.surface).toBeFalsy();
+  });
+
+  it("refuses an axis the scene doesn't hold", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = repeatGhost(scene, [5], {
+      axes: [{ kind: 'axis', filePath: FILE, line: 99 }],
+    });
+
+    expect(result.ok).toBe(false);
+  });
+
+  /** A round face of the scene's cylinder, as a viewport pick names it. */
+  function curvedFace(scene: Scene): { shapeId: string; index: number } {
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (!shape.isSolid()) {
+          continue;
+        }
+        const faces = Explorer.findFacesWrapped(shape);
+        try {
+          for (let index = 0; index < faces.length; index++) {
+            if (!FaceQuery.isPlanarFace(faces[index])) {
+              return { shapeId: shape.id, index };
+            }
+          }
+        } finally {
+          for (const face of faces) {
+            face.dispose();
+          }
+        }
+      }
+    }
+    throw new Error('no curved face in the scene');
+  }
+});
+
+/**
+ * Whether every triangle still winds the way its stored normals say it should
+ * — what a mirror breaks unless the indices are swapped with the vertices.
+ */
+function windingFollowsNormals(mesh: SceneObjectMesh): boolean {
+  const at = (values: number[], index: number) =>
+    [values[index * 3], values[index * 3 + 1], values[index * 3 + 2]];
+  for (let i = 0; i + 2 < mesh.indices.length; i += 3) {
+    const [a, b, c] = [mesh.indices[i], mesh.indices[i + 1], mesh.indices[i + 2]];
+    const [ax, ay, az] = at(mesh.vertices, a);
+    const [bx, by, bz] = at(mesh.vertices, b);
+    const [cx, cy, cz] = at(mesh.vertices, c);
+    const [ux, uy, uz] = [bx - ax, by - ay, bz - az];
+    const [vx, vy, vz] = [cx - ax, cy - ay, cz - az];
+    const cross = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+    const length = Math.hypot(cross[0], cross[1], cross[2]);
+    if (length < 1e-9) {
+      // A degenerate triangle winds neither way.
+      continue;
+    }
+    const normal = at(mesh.normals, a);
+    const dot = (cross[0] * normal[0] + cross[1] * normal[1] + cross[2] * normal[2]) / length;
+    if (dot < 0.5) {
+      return false;
+    }
+  }
+  return true;
+}

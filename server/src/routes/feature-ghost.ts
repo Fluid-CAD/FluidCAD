@@ -2,8 +2,9 @@ import { Router } from 'express';
 import { extractNumericParams, resolveParamValues } from '../apply-feature-edit.ts';
 import type {
   FeatureGhostRequest, FluidCadServer, GhostAxisRef, GhostEntityRef, GhostHelixSourceRef,
-  GhostPathRef, GhostSectionRef,
+  GhostPathRef, GhostPlaneRef, GhostRepeatDirection, GhostSectionRef,
 } from '../fluidcad-server.ts';
+import { MAX_REPEAT_TARGETS } from './apply-feature.ts';
 
 /** A dialog numeric slot on the wire: a number, or verbatim expression text. */
 type ValueExpr = number | string;
@@ -39,9 +40,17 @@ type GhostBody = {
   height?: unknown;
   startOffset?: unknown;
   endOffset?: unknown;
+  kind?: unknown;
+  targets?: unknown;
+  axes?: unknown;
+  plane?: unknown;
+  directions?: unknown;
+  centered?: unknown;
+  count?: unknown;
+  sweep?: unknown;
 };
 
-const FEATURES = ['extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix'];
+const FEATURES = ['extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat'];
 
 /** The features that modify edges of an existing solid rather than sweep a profile. */
 const BAND_FEATURES = ['fillet', 'chamfer'];
@@ -53,7 +62,17 @@ const OPS = ['add', 'remove', 'new'];
 
 const STANDARD_AXES = ['x', 'y', 'z'];
 
+const STANDARD_PLANES = ['xy', 'xz', 'yz'];
+
 const CONDITION_TYPES = ['normal', 'tangent'];
+
+const REPEAT_KINDS = ['linear', 'circular', 'mirror', 'rotate'];
+
+/** The circular dialog's two angle forms: the whole sweep, or one step of it. */
+const SWEEP_MODES = ['angle', 'offset'];
+
+/** Two directions is what the repeat dialog writes; more is hand-written code. */
+const MAX_GHOST_DIRECTIONS = 2;
 
 /** A bare JS identifier — the only expression form resolvable server-side. */
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -236,6 +255,176 @@ function parseSourceRefs(value: unknown): { filePath: string; line: number }[] |
   return refs;
 }
 
+/**
+ * The mirror dialog's plane slot, narrowed to the three forms the kernel
+ * resolves — the plane sibling of {@link parseAxis}. Anything else, a keep
+ * chip the client failed to resolve included, is a bad request rather than a
+ * silent fall back to an origin plane.
+ */
+function parsePlane(value: unknown): GhostPlaneRef | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const plane = value as { kind?: unknown; plane?: unknown; filePath?: unknown; line?: unknown; shapeId?: unknown; index?: unknown };
+  if (plane.kind === 'standard') {
+    return typeof plane.plane === 'string' && STANDARD_PLANES.includes(plane.plane)
+      ? { kind: 'standard', plane: plane.plane as 'xy' | 'xz' | 'yz' }
+      : null;
+  }
+  if (plane.kind === 'plane') {
+    return typeof plane.filePath === 'string' && typeof plane.line === 'number'
+      ? { kind: 'plane', filePath: plane.filePath, line: plane.line }
+      : null;
+  }
+  if (plane.kind === 'face') {
+    return typeof plane.shapeId === 'string' && typeof plane.index === 'number'
+      ? { kind: 'face', shapeId: plane.shapeId, index: plane.index }
+      : null;
+  }
+  return null;
+}
+
+/** The repeat's axis slots — one per linear direction, or one on its own. */
+function parseAxes(value: unknown): GhostAxisRef[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const axes: GhostAxisRef[] = [];
+  for (const raw of value) {
+    const axis = parseAxis(raw as GhostBody['axis']);
+    if (!axis) {
+      return null;
+    }
+    axes.push(axis);
+  }
+  return axes;
+}
+
+/** One linear direction before its numbers are resolved. */
+type RawDirection = { count: ValueExpr; offset: ValueExpr | null; length: ValueExpr | null };
+
+/**
+ * The linear directions, each carrying its own count and spacing. Exactly one
+ * spacing form per direction: the distance between neighbours, or the span
+ * they share — the dialog's Offset/Total mode picks which, and a direction
+ * stating both (or neither) is malformed.
+ */
+function parseDirections(value: unknown): RawDirection[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const directions: RawDirection[] = [];
+  for (const raw of value) {
+    const entry = raw as { count?: unknown; offset?: unknown; length?: unknown };
+    if (!entry || !isValueExpr(entry.count)
+      || !isValueExprOrNull(entry.offset) || !isValueExprOrNull(entry.length)) {
+      return null;
+    }
+    const offset = isValueExpr(entry.offset) ? entry.offset : null;
+    const length = isValueExpr(entry.length) ? entry.length : null;
+    if ((offset === null) === (length === null)) {
+      return null;
+    }
+    directions.push({ count: entry.count, offset, length });
+  }
+  return directions;
+}
+
+/** The circular dialog's angle field, before its value is resolved. */
+type RawSweep = { mode: 'angle' | 'offset'; value: ValueExpr };
+
+function parseSweep(value: unknown): RawSweep | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const sweep = value as { mode?: unknown; value?: unknown };
+  return typeof sweep.mode === 'string' && SWEEP_MODES.includes(sweep.mode)
+    && isValueExpr(sweep.value)
+    ? { mode: sweep.mode as RawSweep['mode'], value: sweep.value }
+    : null;
+}
+
+/** A repeat request's slots, before its numbers are resolved. */
+type RawRepeat = {
+  kind: 'linear' | 'circular' | 'mirror' | 'rotate';
+  targets: { filePath: string; line: number }[];
+  axes: GhostAxisRef[];
+  plane: GhostPlaneRef | null;
+  directions: RawDirection[];
+  centered: boolean;
+  count: ValueExpr | null;
+  sweep: RawSweep | null;
+  angle: ValueExpr | null;
+};
+
+/**
+ * The repeat dialog's slots, cross-checked kind by kind: a linear repeat needs
+ * an axis per direction, a circular one a count and an angle, a rotate its
+ * angle, a mirror its plane.
+ *
+ * Hand-written rather than shared with apply-feature's `validateRepeat` on
+ * purpose: that one validates a statement about to be written, this one a
+ * dialog mid-composition, and the two have different shapes and different
+ * nullability. They must not drift into each other.
+ */
+function parseRepeat(body: GhostBody): RawRepeat | string {
+  if (typeof body.kind !== 'string' || !REPEAT_KINDS.includes(body.kind)) {
+    return 'Invalid repeat kind';
+  }
+  const kind = body.kind as RawRepeat['kind'];
+  const targets = parseSourceRefs(body.targets);
+  if (!targets || targets.length === 0 || targets.length > MAX_REPEAT_TARGETS) {
+    return 'Invalid repeat targets';
+  }
+  const axes = parseAxes(body.axes ?? []);
+  if (!axes) {
+    return 'Invalid axis reference';
+  }
+  const directions = parseDirections(body.directions ?? []);
+  if (!directions || directions.length > MAX_GHOST_DIRECTIONS) {
+    return 'Invalid repeat directions';
+  }
+  const plane = body.plane == null ? null : parsePlane(body.plane);
+  const sweep = body.sweep == null ? null : parseSweep(body.sweep);
+  if ((body.plane != null && !plane) || (body.sweep != null && !sweep)) {
+    return 'Invalid repeat source';
+  }
+
+  if (kind === 'linear') {
+    // One axis per direction — the pairing IS the request; a mismatch would
+    // silently repeat along the wrong one.
+    if (directions.length === 0 || axes.length !== directions.length) {
+      return 'Invalid repeat directions';
+    }
+  } else if (kind === 'mirror') {
+    if (!plane) {
+      return 'Invalid mirror plane';
+    }
+  } else {
+    if (axes.length !== 1) {
+      return 'Invalid axis reference';
+    }
+    if (kind === 'circular' && (!isValueExpr(body.count) || !sweep)) {
+      return 'Invalid circular repeat';
+    }
+    if (kind === 'rotate' && !isValueExpr(body.angle)) {
+      return 'Invalid rotation angle';
+    }
+  }
+
+  return {
+    kind,
+    targets,
+    axes,
+    plane,
+    directions,
+    centered: body.centered === true,
+    count: isValueExpr(body.count) ? body.count : null,
+    sweep,
+    angle: isValueExpr(body.angle) ? body.angle : null,
+  };
+}
+
 /** A takeoff condition; 'none' never travels, so absent means unconstrained. */
 function parseCondition(value: unknown): RawCondition | null | 'invalid' {
   if (value === null || value === undefined) {
@@ -289,16 +478,19 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     }
     // Only the features that put material somewhere carry an op. A band's
     // direction is read off the geometry per edge rather than declared by the
-    // dialog, and a helix is a wire — it adds and removes nothing at all.
+    // dialog, a helix is a wire — it adds and removes nothing at all — and a
+    // repeat inherits whatever its targets already do.
     const isBand = BAND_FEATURES.includes(body.feature);
     const isHelix = body.feature === 'helix';
-    if (!isBand && !isHelix && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
+    const isRepeat = body.feature === 'repeat';
+    if (!isBand && !isHelix && !isRepeat && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
     }
     if (!isValueExprOrNull(body.distance) || !isValueExprOrNull(body.distance2)
       || !isValueExprOrNull(body.draft) || !isValueExprOrNull(body.angle)
-      || !isValueExprOrNull(body.value) || !isThin(body.thin)
+      || !isValueExprOrNull(body.value) || !isValueExprOrNull(body.count)
+      || !isThin(body.thin)
       || !isValueExprOrNull(body.radius) || !isValueExprOrNull(body.endRadius)
       || !isValueExprOrNull(body.pitch) || !isValueExprOrNull(body.turns)
       || !isValueExprOrNull(body.height) || !isValueExprOrNull(body.startOffset)
@@ -345,6 +537,15 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       res.status(400).json({ success: false, reason: 'Invalid loft sources' });
       return;
     }
+    let repeat: RawRepeat | null = null;
+    if (isRepeat) {
+      const parsed = parseRepeat(body);
+      if (typeof parsed === 'string') {
+        res.status(400).json({ success: false, reason: parsed });
+        return;
+      }
+      repeat = parsed;
+    }
     const startRaw = parseCondition(body.startCondition);
     const endRaw = parseCondition(body.endCondition);
     if (startRaw === 'invalid' || endRaw === 'invalid') {
@@ -387,6 +588,13 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const height = resolve(body.height);
     const startOffset = resolve(body.startOffset);
     const endOffset = resolve(body.endOffset);
+    const count = resolve(body.count);
+    const sweepValue = repeat?.sweep ? resolve(repeat.sweep.value) : null;
+    const directions = (repeat?.directions ?? []).map(direction => ({
+      count: resolve(direction.count),
+      offset: resolve(direction.offset),
+      length: resolve(direction.length),
+    }));
 
     if (values.some(v => v === null)) {
       // An expression this server can't evaluate — the client clears the ghost.
@@ -419,6 +627,20 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         height,
         startOffset,
         endOffset,
+      };
+    } else if (isRepeat) {
+      request = {
+        feature: 'repeat',
+        kind: repeat!.kind,
+        targets: repeat!.targets,
+        axes: repeat!.axes,
+        plane: repeat!.plane,
+        // Every value resolved above, or the request never reached here.
+        directions: directions as GhostRepeatDirection[],
+        centered: repeat!.centered,
+        count,
+        sweep: repeat!.sweep ? { mode: repeat!.sweep.mode, value: sweepValue! } : null,
+        angle,
       };
     } else if (isLoft) {
       const op = body.op as 'add' | 'remove' | 'new';
@@ -468,7 +690,13 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
 
     const result = await fluidCadServer.featureGhost(request);
     if (!result.solids) {
-      res.status(result.status).json({ success: false, reason: result.reason });
+      // `surface` marks the few refusals a dialog should say out loud; without
+      // it the client just clears the overlay.
+      res.status(result.status).json({
+        success: false,
+        reason: result.reason,
+        surface: result.surface,
+      });
       return;
     }
     res.json({ success: true, solids: result.solids });

@@ -7,7 +7,8 @@ export class RepeatMatrix extends SceneObject {
   constructor(
     private _matrix: LazyMatrix,
     public targetObjects: SceneObject[],
-    private sources: SceneObject[] = [],
+    /** The axis statement a `rotate` turns around, when it names one. */
+    public sources: SceneObject[] = [],
   ) {
     super();
     this.setAlwaysVisible();

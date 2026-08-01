@@ -135,7 +135,8 @@ export type FeatureGhostRequest =
   | SweepGhostRequest
   | LoftGhostRequest
   | FilletGhostRequest
-  | HelixGhostRequest;
+  | HelixGhostRequest
+  | RepeatGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -272,6 +273,54 @@ export type GhostHelixSourceRef =
   | { kind: 'face'; shapeId: string; index: number };
 
 /**
+ * The repeat. It builds nothing: the instances it places are the target
+ * features themselves, moved — so the ghost stamps the targets' already-meshed
+ * shapes at each instance transform rather than replaying the feature, which
+ * would cost what the apply costs.
+ */
+export type RepeatGhostRequest = {
+  feature: 'repeat';
+  kind: 'linear' | 'circular' | 'mirror' | 'rotate';
+  /** The timeline rows being replayed, by call site — the repeat's targets. */
+  targets: { filePath: string; line: number }[];
+  /** Linear: one per direction (1–2). Circular and rotate: one. Mirror: none. */
+  axes: GhostAxisRef[];
+  /** The mirror plane; null for every other kind. */
+  plane: GhostPlaneRef | null;
+  /** Linear: count and spacing per direction, parallel to `axes`. */
+  directions: GhostRepeatDirection[];
+  /** Linear: center the pattern on the original instead of starting there. */
+  centered: boolean;
+  /** Circular: instances around the axis, the original included. */
+  count: number | null;
+  /** Circular: the whole sweep to distribute, or the step between neighbours. */
+  sweep: { mode: 'angle' | 'offset'; value: number } | null;
+  /** Rotate: how far the single clone turns, in degrees. */
+  angle: number | null;
+};
+
+/**
+ * One linear direction on the wire: how many instances, and how far apart —
+ * either directly (`offset`) or as the span they share (`length`).
+ */
+export type GhostRepeatDirection = {
+  count: number;
+  offset: number | null;
+  length: number | null;
+};
+
+/**
+ * The mirror dialog's plane slot on the wire, the plane sibling of
+ * {@link GhostAxisRef}: an origin plane from its viewport quad, a `plane()`
+ * statement by call site, or a planar face picked in the viewport. As with the
+ * axis, "keep the current plane" never travels.
+ */
+export type GhostPlaneRef =
+  | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
+  | { kind: 'plane'; filePath: string; line: number }
+  | { kind: 'face'; shapeId: string; index: number };
+
+/**
  * One ghost body's meshes, in the same wire format a rendered solid uses.
  * `kind` overrides the overlay's per-dialog color for this body alone — a
  * fillet takes material away at one edge and puts it back at the next.
@@ -288,6 +337,12 @@ export type FeatureGhostOutcome = {
   status: number;
   solids?: GhostSolid[];
   reason?: string;
+  /**
+   * The reason is worth putting in front of the user — a limit they can act
+   * on, not one of the many ordinary mid-composition refusals a dialog would
+   * only flash noise about. Unset means the client clears and says nothing.
+   */
+  surface?: boolean;
 };
 
 /**
@@ -768,7 +823,11 @@ export class FluidCadServer {
         if (result?.ok) {
           return { status: 200, solids: (result.solids ?? []) as GhostSolid[] };
         }
-        return { status: 422, reason: result?.reason ?? 'Could not build the preview geometry.' };
+        return {
+          status: 422,
+          reason: result?.reason ?? 'Could not build the preview geometry.',
+          surface: result?.surface === true || undefined,
+        };
       } catch (err: any) {
         // A profile OCC can't sweep at the current values is an ordinary
         // mid-typing state — the dialog just shows no ghost.

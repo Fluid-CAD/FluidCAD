@@ -1,7 +1,8 @@
 import {
-  applyRepeat, applyRepeatEdit, FeatureEditTarget, ParsedFeatureStatement,
-  RepeatApplyOptions, RepeatDirectionRef, RepeatEditAxisRef, RepeatEditOptions, RepeatEditPlaneRef,
-  RepeatEditTargetRef,
+  applyRepeat, applyRepeatEdit, fetchFeatureGhostResult, fetchFeatureSources, FeatureEditTarget,
+  GhostAxisRef, GhostPlaneRef, GhostSolid, ParsedFeatureStatement, RepeatApplyOptions,
+  RepeatDirectionRef, RepeatEditAxisRef, RepeatEditOptions, RepeatEditPlaneRef, RepeatEditTargetRef,
+  RepeatGhostRequest, SourceSlotRef,
 } from '../../api';
 import { toggleEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
@@ -11,6 +12,7 @@ import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { RepeatDirection, RepeatPanel } from './repeat-panel';
 import { FeatureButton } from './feature-button';
+import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
@@ -24,6 +26,14 @@ import {
   planeOptionForLocation, planeOptionForShape, planeOptionsSignature, resolvePlaneByShapeId,
 } from './plane-bases';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
+
+/**
+ * The statement a resolved source slot names, or null when it names none —
+ * an inline argument, a clone, an expression the resolver can't address.
+ */
+function sourceStatement(slot: SourceSlotRef | undefined): { filePath: string; line: number } | null {
+  return slot?.kind === 'sketch' ? { filePath: slot.filePath, line: slot.line } : null;
+}
 
 /** What the seeding hook hands over when the dialog arms. */
 export type RepeatEnterSeed = {
@@ -55,8 +65,10 @@ type RepeatTargetChoice =
  * quad or timeline row), or a picked face. Arming with a selection already
  * highlighted seeds the dialog: one edge opens the Linear type with the edge
  * as the axis, one face (or a pending plane) the Mirror type with it as the
- * plane. Apply writes `repeat('<kind>', …)` — the re-render is the preview,
- * editor undo the rollback. No live geometry preview in this version.
+ * plane. A translucent ghost draws the instances as they are dialled in —
+ * each target's own body, stamped where the pattern would put it. Apply
+ * writes `repeat('<kind>', …)` — the re-render is the preview, editor undo
+ * the rollback.
  */
 export class RepeatFeatureService {
   private panel: RepeatPanel;
@@ -83,8 +95,29 @@ export class RepeatFeatureService {
   private session = new EditSession();
   /** A full render arrived mid-session — re-picked shape ids died. */
   private editSceneStale = false;
+  /**
+   * The edited statement names no targets of its own — `repeat('linear', …)`
+   * with nothing after the options, which replays whatever came before it. The
+   * slot still shows that feature (resolved through the sources query), and the
+   * statement stays implicit until the list is actually changed.
+   */
+  private implicitTargets = false;
+  /** The targets slot was edited — an implicit repeat becomes explicit. */
+  private targetsTouched = false;
+  /**
+   * Current sources of the edited statement, for the keep chips' ghost: the
+   * target features by call site, the axes each direction turns around, and
+   * the mirror plane. Null until the query lands (or when it can't answer).
+   */
+  private sourceSlots: {
+    targets: SourceSlotRef[];
+    axes: SourceSlotRef[];
+    plane: SourceSlotRef | null;
+  } | null = null;
   private runner: ApplyRunner<RepeatApplyOptions | RepeatEditOptions>;
   private relabeler: OptionRelabeler<{ axes: AxisOption[]; planes: PlaneOption[] }>;
+  /** The translucent instances the current pattern would place. */
+  private ghost: FeatureGhostOverlay;
 
   constructor(
     container: HTMLElement,
@@ -122,6 +155,7 @@ export class RepeatFeatureService {
       }
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
+    this.ghost = new FeatureGhostOverlay(viewer);
 
     this.panel = new RepeatPanel(container);
     this.panel.onApply = () => void this.runner.apply();
@@ -137,6 +171,7 @@ export class RepeatFeatureService {
     };
     this.panel.onRemoveTarget = (index) => {
       this.targets.splice(index, 1);
+      this.targetsTouched = true;
       this.panel.setMessage(null);
       this.refresh();
       this.runner.schedulePreview();
@@ -162,6 +197,22 @@ export class RepeatFeatureService {
         : applyRepeat({ ...(request as RepeatApplyOptions), ...extras }),
       onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
       failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the repeat.',
+      // The statement preview's geometric twin: the target features stamped
+      // where the pattern would put them, drawn translucent in the viewport.
+      // Same debounce, same abort scope.
+      ghost: {
+        fetch: (_request, signal) => this.fetchGhost(signal),
+        apply: (solids) => {
+          if (solids) {
+            // Every instance is material arriving, cut targets included — a
+            // pattern preview shows where the tool lands, not what it removes.
+            this.ghost.set(solids, 'add');
+          } else {
+            this.ghost.clear();
+          }
+        },
+      },
+      surfacePreviewReasons: () => this.surfaceReasons(),
     });
     this.relabeler = new OptionRelabeler({
       sign: ({ axes, planes }) => `${axisOptionsSignature(axes)}#${planeOptionsSignature(planes)}`,
@@ -236,12 +287,16 @@ export class RepeatFeatureService {
       return;
     }
     if (state === 'waiting') {
+      // Mid-flight to the boundary — whatever the ghost was drawn against is
+      // already gone from the view.
+      this.ghost.clear();
       if (!isRollback) {
         this.editSceneStale = true;
       }
       return;
     }
     // At the boundary: rebuild options from the pre-statement scene.
+    this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.targetOptions = collectRepeatTargets(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
@@ -249,7 +304,9 @@ export class RepeatFeatureService {
     if (this.editSceneStale) {
       this.editSceneStale = false;
       // A scene rebuild killed the re-picked shape ids; keep chips are
-      // text-addressed and survive.
+      // text-addressed and survive — but the entities their slots resolved to
+      // died with the render, so the statement's own sources re-fetch.
+      this.sourceSlots = null;
       let reset = false;
       for (const direction of [1, 2] as const) {
         if (this.axisEdgeEntities.get(direction)) {
@@ -280,7 +337,13 @@ export class RepeatFeatureService {
         o.filePath === target.option.filePath && o.line === target.option.line);
       return match ? [{ kind: 'option', option: match }] : [];
     });
+    // Options are rebuilt from the pre-statement scene now, so an implicit
+    // statement's chip can finally carry its feature's own timeline label.
+    this.seedImplicitTargets();
     this.sortTargets();
+    if (!this.sourceSlots) {
+      void this.loadEditSources();
+    }
     this.panel.setOptions(this.axes, this.planes);
     this.refreshLabels();
     this.syncViewport();
@@ -307,6 +370,9 @@ export class RepeatFeatureService {
       this.exit({ resume: 'lazy' });
       return;
     }
+    // The geometry under the ghost just changed — drop it now and let the
+    // debounce redraw it. Correctness over the flicker.
+    this.ghost.clear();
     // A render can put a sketch back in front (live editing) — the armed
     // dialog keeps the free 3D view.
     if (this.sceneSketchActive) {
@@ -364,6 +430,9 @@ export class RepeatFeatureService {
     this.editTarget = target;
     this.editStatement = parsed;
     this.editSceneStale = false;
+    this.sourceSlots = null;
+    this.implicitTargets = parsed.targetTexts.length === 0;
+    this.targetsTouched = false;
     this.axisEdgeEntities.set(1, null);
     this.axisEdgeEntities.set(2, null);
     this.planeFaceEntity = null;
@@ -379,6 +448,7 @@ export class RepeatFeatureService {
     this.syncButton();
     this.sketchUI.suspend();
     this.session.begin({ ...info, target });
+    void this.loadEditSources();
     void this.refreshScopeVariables();
     this.panel.showEdit({
       kind: parsed.kind,
@@ -404,6 +474,8 @@ export class RepeatFeatureService {
     const seeded = this.hooks.onEnter?.();
     this.armed = true;
     this.targets = [];
+    this.implicitTargets = false;
+    this.targetsTouched = false;
     this.axisEdgeEntities.set(1, null);
     this.axisEdgeEntities.set(2, null);
     this.planeFaceEntity = null;
@@ -479,11 +551,17 @@ export class RepeatFeatureService {
     this.editTarget = null;
     this.editStatement = null;
     this.editSceneStale = false;
+    this.sourceSlots = null;
+    this.implicitTargets = false;
+    this.targetsTouched = false;
     this.targets = [];
     this.axisEdgeEntities.set(1, null);
     this.axisEdgeEntities.set(2, null);
     this.planeFaceEntity = null;
     this.runner.cancelPreview();
+    // The overlay is a compiledMesh sibling, so no render tears it down —
+    // every way out of the dialog (apply, cancel, scene-driven) lands here.
+    this.ghost.clear();
     this.viewer.clearHighlight();
     this.viewer.hideStandardPlanes();
     this.viewer.pickFilter = 'all';
@@ -623,12 +701,39 @@ export class RepeatFeatureService {
       this.targets.push({ kind: 'option', option });
       this.sortTargets();
     }
+    this.targetsTouched = true;
     // The pick landed in the Features slot — it takes the armed border.
     this.panel.armSlot('targets');
     this.panel.setMessage(null);
     this.refresh();
     this.runner.schedulePreview();
     return true;
+  }
+
+  /**
+   * Fill the Features slot for a statement that names no targets of its own.
+   * `repeat('linear', ['x','y'], {…})` replays whatever came before it, so
+   * there is no argument to keep verbatim — but the sources query knows which
+   * feature that is, and leaving the slot on its "Pick features in the
+   * timeline" prompt makes an edit dialog look like it lost them.
+   *
+   * The chip is the feature's own timeline row, so it hovers, toggles and
+   * re-picks exactly like create mode. Applying it back unchanged still writes
+   * an implicit statement — {@link buildEditRequest} only spells the targets
+   * out once the list has actually been touched.
+   */
+  private seedImplicitTargets(): void {
+    if (!this.implicitTargets || this.targetsTouched || this.targets.length > 0) {
+      return;
+    }
+    for (const slot of this.sourceSlots?.targets ?? []) {
+      const loc = sourceStatement(slot);
+      const option = loc && this.targetOptions.find(o =>
+        o.filePath === loc.filePath && o.line === loc.line);
+      if (option) {
+        this.targets.push({ kind: 'option', option });
+      }
+    }
   }
 
   /**
@@ -713,6 +818,231 @@ export class RepeatFeatureService {
       () => this.armed && (this.editTarget?.line ?? null) === line);
   }
 
+  /**
+   * The edited statement's own sources, for the slots still on their "Current:
+   * …" chips: the features it replays, the axes it walks, its mirror plane.
+   * The panel already reads a world-axis or origin-plane literal straight off
+   * the argument text, so what this adds is everything else — an `axis()`
+   * variable, a `plane()` statement, the face a mirror was written from.
+   *
+   * A response landing after the dialog closed or re-targeted is dropped.
+   */
+  private async loadEditSources(): Promise<void> {
+    const boundary = this.session.boundary;
+    if (!boundary) {
+      return;
+    }
+    const result = await fetchFeatureSources(boundary);
+    if (!this.editTarget || this.session.boundary?.index !== boundary.index) {
+      return;
+    }
+    this.sourceSlots = result.ok && result.feature === 'repeat'
+      ? { targets: result.targets, axes: result.axes, plane: result.plane ?? null }
+      : { targets: [], axes: [], plane: null };
+    this.seedImplicitTargets();
+    this.sortTargets();
+    this.refresh();
+    // The ghost's keep slots read `sourceSlots`, which resolves after
+    // `enterEdit` already scheduled its preview — re-kick so the ghost appears
+    // now that the statement's own sources are known.
+    this.runner.schedulePreview();
+  }
+
+  // -------------------------------------------------------------------------
+  // Live geometry ("ghost")
+  // -------------------------------------------------------------------------
+
+  /**
+   * The live geometry for the current form state: each target feature's own
+   * body, stamped where the pattern would put it. Runs off the values the
+   * statement preview just validated, so all that is left is to resolve the
+   * slots — and that is where the create and edit dialogs converge: both hand
+   * the server explicit refs, so the endpoint never has to know which mode
+   * asked. A slot the ghost can't address (no targets yet, an axis still
+   * unpicked, a keep chip over an expression) means no ghost.
+   */
+  private async fetchGhost(signal: AbortSignal): Promise<GhostSolid[] | null> {
+    const values = this.panel.values();
+    if ('error' in values) {
+      return null;
+    }
+    const targets = this.ghostTargets();
+    if (!targets) {
+      return null;
+    }
+    const request: RepeatGhostRequest = {
+      feature: 'repeat',
+      kind: values.kind,
+      targets,
+      axes: [],
+      plane: null,
+      directions: [],
+      centered: false,
+      count: null,
+      sweep: null,
+      angle: null,
+    };
+    if (values.kind === 'mirror') {
+      const plane = this.ghostPlane();
+      if (!plane) {
+        return null;
+      }
+      request.plane = plane;
+    } else if (values.kind === 'linear') {
+      const active = this.panel.directions;
+      for (let i = 0; i < active.length; i++) {
+        const axis = this.ghostAxis(active[i]);
+        if (!axis) {
+          return null;
+        }
+        const { count, value } = values.directions[i];
+        request.axes.push(axis);
+        request.directions.push({
+          count,
+          offset: values.spacingMode === 'offset' ? value : null,
+          length: values.spacingMode === 'length' ? value : null,
+        });
+      }
+      request.centered = values.centered;
+    } else {
+      const axis = this.ghostAxis(1);
+      if (!axis) {
+        return null;
+      }
+      request.axes.push(axis);
+      if (values.kind === 'circular') {
+        request.count = values.count;
+        request.sweep = values.sweep;
+      } else {
+        request.angle = values.angle;
+      }
+    }
+    const result = await fetchFeatureGhostResult(request, signal);
+    // Only a limit the user can act on reaches the panel — never an ordinary
+    // refusal (a stale pick, an expression the server can't evaluate: those
+    // just leave the viewport as it was). A superseded fetch says nothing
+    // either: its answer is about a form state already typed past, or a
+    // dialog that has since closed.
+    if (result.notice && !signal.aborted && this.armed && this.surfaceReasons()) {
+      this.panel.setMessage(result.notice);
+    }
+    return result.solids;
+  }
+
+  /**
+   * Whether a refused preview is worth putting in front of the user. Editing,
+   * always — the dialog opened over a statement that exists. Composing, only
+   * once features have been picked: before that "nothing to repeat" is the
+   * prompt, not an error.
+   */
+  private surfaceReasons(): boolean {
+    return this.editTarget !== null || this.targets.length > 0;
+  }
+
+  /**
+   * The features being replayed, by call site. A kept chip travels as the
+   * timeline row its expression named, or — for one the parse couldn't
+   * address — as whatever the sources query resolved that argument to. A
+   * target neither could place means no ghost at all: a pattern missing one of
+   * its bodies is a different pattern, not a partial one.
+   *
+   * An implicit repeat (no target arguments at all, replaying the statement
+   * before it) has no chips to read, so its targets come from the query alone.
+   */
+  private ghostTargets(): { filePath: string; line: number }[] | null {
+    if (this.targets.length === 0) {
+      return this.editTarget ? this.resolvedTargets(this.sourceSlots?.targets) : null;
+    }
+    const refs: { filePath: string; line: number }[] = [];
+    for (const target of this.targets) {
+      const loc = target.kind === 'option'
+        ? target.option
+        : target.loc ?? sourceStatement(this.sourceSlots?.targets[target.sourceIndex]);
+      if (!loc) {
+        return null;
+      }
+      refs.push({ filePath: loc.filePath, line: loc.line });
+    }
+    return refs;
+  }
+
+  /** The statement call sites a resolved slot list names — all of them, or none. */
+  private resolvedTargets(slots: SourceSlotRef[] | undefined): { filePath: string; line: number }[] | null {
+    if (!slots || slots.length === 0) {
+      return null;
+    }
+    const refs: { filePath: string; line: number }[] = [];
+    for (const slot of slots) {
+      const loc = sourceStatement(slot);
+      if (!loc) {
+        return null;
+      }
+      refs.push(loc);
+    }
+    return refs;
+  }
+
+  /** One direction's axis slot, in the form the kernel resolves. */
+  private ghostAxis(direction: RepeatDirection): GhostAxisRef | null {
+    const selection = this.panel.axisSelection(direction);
+    if (!selection) {
+      return null;
+    }
+    if (selection.kind === 'standard') {
+      return { kind: 'standard', axis: selection.axis };
+    }
+    if (selection.kind === 'axis') {
+      const { filePath, line } = selection.option;
+      return { kind: 'axis', filePath, line };
+    }
+    if (selection.kind === 'edge') {
+      const entity = this.axisEdgeEntities.get(direction);
+      return entity ? { kind: 'edge', shapeId: entity.shapeId, index: entity.sub.index } : null;
+    }
+    // The kept statement axis, as the sources query resolved it — an `axis()`
+    // the statement names by variable. A world-axis literal never reaches here
+    // (the slot reads `'z'` as the standard selection itself), and anything
+    // else is an expression no ghost can stand in for.
+    const loc = sourceStatement(this.sourceSlots?.axes[selection.sourceIndex]);
+    return loc ? { kind: 'axis', filePath: loc.filePath, line: loc.line } : null;
+  }
+
+  /** The mirror plane slot, in the form the kernel resolves. */
+  private ghostPlane(): GhostPlaneRef | null {
+    const selection = this.panel.planeSelection();
+    if (!selection) {
+      return null;
+    }
+    if (selection.kind === 'standard') {
+      return { kind: 'standard', plane: selection.plane };
+    }
+    if (selection.kind === 'plane') {
+      const { filePath, line } = selection.option;
+      return { kind: 'plane', filePath, line };
+    }
+    if (selection.kind === 'face') {
+      return this.planeFaceEntity
+        ? {
+          kind: 'face',
+          shapeId: this.planeFaceEntity.shapeId,
+          index: this.planeFaceEntity.sub.index,
+        }
+        : null;
+    }
+    // The kept statement plane, as the sources query resolved it: a `plane()`
+    // the statement names, or the face a mirror was written from — the two
+    // things `repeat('mirror', …)` can hold that aren't an origin-plane
+    // literal (which the slot already reads as the standard selection).
+    const slot = this.sourceSlots?.plane;
+    if (slot?.kind === 'sketch') {
+      return { kind: 'plane', filePath: slot.filePath, line: slot.line };
+    }
+    const face = slot?.kind === 'entities' ? slot.entities[0] : null;
+    return face && face.sub.type === 'face'
+      ? { kind: 'face', shapeId: face.shapeId, index: face.sub.index }
+      : null;
+  }
+
   private buildRequest(): RepeatApplyOptions | { error: string } {
     const values = this.panel.values();
     if ('error' in values) {
@@ -786,7 +1116,10 @@ export class RepeatFeatureService {
     // implicit while the targets slot is untouched; explicit targets can be
     // re-picked but never all removed.
     let targets: RepeatEditTargetRef[] | undefined;
-    if (this.targets.length > 0) {
+    if (this.implicitTargets && !this.targetsTouched) {
+      // Untouched: the statement keeps consuming the feature before it, and
+      // the chip the slot shows is only telling the user which one that is.
+    } else if (this.targets.length > 0) {
       targets = this.targets.map(t => t.kind === 'keep'
         ? { kind: 'verbatim' as const, sourceIndex: t.sourceIndex }
         : {
@@ -795,7 +1128,10 @@ export class RepeatFeatureService {
           line: t.option.line,
           column: t.option.column,
         });
-    } else if ((this.editStatement?.targetTexts.length ?? 0) > 0) {
+    } else if ((this.editStatement?.targetTexts.length ?? 0) > 0 || this.implicitTargets) {
+      // Explicit targets can be re-picked but never all removed — and once an
+      // implicit statement's own chip has been taken away, an empty slot means
+      // what it says rather than quietly repeating the old feature.
       return { error: 'Pick the features to repeat in the timeline first.' };
     }
     const sessionFields = (needsBoundary: boolean) => ({

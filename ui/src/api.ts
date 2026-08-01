@@ -297,7 +297,8 @@ export type FeatureGhostRequest =
   | SweepGhostRequest
   | LoftGhostRequest
   | FilletGhostRequest
-  | HelixGhostRequest;
+  | HelixGhostRequest
+  | RepeatGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -436,6 +437,62 @@ export type GhostHelixSourceRef =
   | { kind: 'face'; shapeId: string; index: number };
 
 /**
+ * The repeat dialog on the ghost wire, and the one feature whose ghost builds
+ * nothing at all: the instances it places are the target features themselves,
+ * moved. What comes back is each target's own meshes, stamped at every
+ * instance transform — honest about where the pattern lands, approximate about
+ * the result, exactly as a pattern preview should be (a repeated cut shows its
+ * tool body at each new place, not the material it takes away).
+ *
+ * As everywhere else on this wire, the slots arrive resolved: targets as call
+ * sites, the axes and the mirror plane as the kernel can read them, so "keep
+ * the current axis" never travels.
+ */
+export type RepeatGhostRequest = {
+  feature: 'repeat';
+  kind: 'linear' | 'circular' | 'mirror' | 'rotate';
+  /** The timeline rows being replayed, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** Linear: one per direction (1–2). Circular and rotate: one. Mirror: none. */
+  axes: GhostAxisRef[];
+  /** The mirror plane; null for every other kind. */
+  plane: GhostPlaneRef | null;
+  /** Linear: count and spacing per direction, parallel to {@link axes}. */
+  directions: GhostRepeatDirection[];
+  /** Linear: center the pattern on the original instead of starting there. */
+  centered: boolean;
+  /** Circular: instances around the axis, the original included. */
+  count: ValueExpr | null;
+  /** Circular: the whole sweep to distribute, or the step between neighbours. */
+  sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
+  /** Rotate: how far the single clone turns, in degrees. */
+  angle: ValueExpr | null;
+};
+
+/**
+ * One linear direction on the ghost wire: how many instances, and how far
+ * apart — either directly (`offset`) or as the span they share (`length`), the
+ * two forms the dialog's spacing mode writes.
+ */
+export type GhostRepeatDirection = {
+  count: ValueExpr;
+  offset: ValueExpr | null;
+  length: ValueExpr | null;
+};
+
+/**
+ * The mirror dialog's plane slot on the ghost wire — the plane sibling of
+ * {@link GhostAxisRef}, flattened to what the kernel can resolve without
+ * reading code: an origin plane, a `plane()` statement's call site, or a
+ * picked face's `{shapeId, index}`. The keep chip resolves to one of the three
+ * before it ships, so "keep" itself never travels.
+ */
+export type GhostPlaneRef =
+  | { kind: 'standard'; plane: 'xy' | 'xz' | 'yz' }
+  | { kind: 'plane'; filePath: string; line: number }
+  | { kind: 'face'; shapeId: string; index: number };
+
+/**
  * One ghost body, in the mesh wire format the scene's solids already use.
  * `kind` overrides the overlay's per-dialog color for this body alone: a
  * fillet's picks can take material away at one edge and put it back at the
@@ -453,6 +510,23 @@ export async function fetchFeatureGhost(
   request: FeatureGhostRequest,
   signal: AbortSignal,
 ): Promise<GhostSolid[] | null> {
+  return (await fetchFeatureGhostResult(request, signal)).solids;
+}
+
+/**
+ * The same bodies, plus the one kind of refusal worth reading out loud.
+ *
+ * Nearly every ghost refusal is ordinary — a scene that moved on, a pick gone
+ * stale, an expression the server can't evaluate — and dialogs simply clear
+ * on those ({@link fetchFeatureGhost}); saying so per keystroke would be
+ * noise. `notice` carries only a refusal the server marked as a **limit the
+ * user can act on** (the repeat's cap on how many instances it draws, where a
+ * silently blank viewport reads as a bug), and is null for everything else.
+ */
+export async function fetchFeatureGhostResult(
+  request: FeatureGhostRequest,
+  signal: AbortSignal,
+): Promise<{ solids: GhostSolid[] | null; notice: string | null }> {
   try {
     const res = await fetch('/api/feature-ghost', {
       method: 'POST',
@@ -460,16 +534,17 @@ export async function fetchFeatureGhost(
       signal,
       body: JSON.stringify(request),
     });
-    if (!res.ok) {
-      return null;
-    }
     const body = await res.json().catch(() => null);
-    return body?.success === true ? body.solids ?? [] : null;
+    if (res.ok && body?.success === true) {
+      return { solids: body.solids ?? [], notice: null };
+    }
+    const notice = body?.surface === true && typeof body?.reason === 'string' ? body.reason : null;
+    return { solids: null, notice };
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
       throw err;
     }
-    return null;
+    return { solids: null, notice: null };
   }
 }
 
@@ -1570,6 +1645,13 @@ export type FeatureSourcesResult =
   | { ok: true; feature: 'helix'; source: SourceSlotRef }
   | { ok: true; feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlotRef }
   | { ok: true; feature: 'projection'; selection: SourceSlotRef }
+  /**
+   * A repeat: the features it replays, by call site, plus what it replays them
+   * along — an axis per linear direction (one for circular and rotate), or the
+   * mirror plane. A world-axis or origin-plane literal is `opaque`: it names no
+   * statement, and the dialog reads it straight off the argument text.
+   */
+  | { ok: true; feature: 'repeat'; targets: SourceSlotRef[]; axes: SourceSlotRef[]; plane?: SourceSlotRef }
   | { ok: false; reason: string };
 
 /** Current sources of the statement at `before`, for edit-dialog seeding. */

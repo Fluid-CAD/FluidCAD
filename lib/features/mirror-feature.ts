@@ -5,7 +5,12 @@ import { PlaneObjectBase } from "./plane-renderable-base.js";
 
 export class MirrorFeature extends SceneObject {
 
-  constructor(private plane: PlaneObjectBase, private _matrix: LazyMatrix) {
+  constructor(
+    public plane: PlaneObjectBase,
+    private _matrix: LazyMatrix,
+    /** The features being mirrored — read back when the dialog edits them. */
+    public targetObjects: SceneObject[] = [],
+  ) {
     super();
     this.setAlwaysVisible()
   }

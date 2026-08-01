@@ -1,8 +1,9 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { LazyMatrix } from "../math/lazy-matrix.js";
+import { RepeatBase } from "./repeat-base.js";
 
-export class RepeatMatrix extends SceneObject {
+export class RepeatMatrix extends RepeatBase {
 
   constructor(
     private _matrix: LazyMatrix,
@@ -19,10 +20,6 @@ export class RepeatMatrix extends SceneObject {
   }
 
   override isContainer(): boolean {
-    return true;
-  }
-
-  override hidesChildren(): boolean {
     return true;
   }
 
@@ -55,10 +52,6 @@ export class RepeatMatrix extends SceneObject {
 
   getUniqueType(): string {
     return "repeat-matrix";
-  }
-
-  getDisplayType(): string {
-    return "Repeat";
   }
 
   serialize() {

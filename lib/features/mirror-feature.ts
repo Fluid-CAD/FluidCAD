@@ -2,8 +2,9 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Matrix4 } from "../math/matrix4.js";
 import { LazyMatrix } from "../math/lazy-matrix.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
+import { RepeatBase } from "./repeat-base.js";
 
-export class MirrorFeature extends SceneObject {
+export class MirrorFeature extends RepeatBase {
 
   constructor(
     public plane: PlaneObjectBase,

@@ -42,6 +42,10 @@ export function isPlaneStatementRow(
  * its line holds no plane() call the transform could bind. (Only sketch lines
  * are filtered — a plane statement's own line legitimately hosts the
  * non-plane objects its selector arguments register.)
+ *
+ * The kernel flags the same case directly for planes written inline in another
+ * call's arguments — `repeat('mirror', 'yz', …)` — as internal; those are out
+ * for the same reason, whatever call registered them.
  */
 export function collectPlaneOptions(sceneObjects: SceneObjectRender[]): PlaneOption[] {
   const sketchLines = new Set(
@@ -51,7 +55,7 @@ export function collectPlaneOptions(sceneObjects: SceneObjectRender[]): PlaneOpt
   );
   const byLine = new Map<string, PlaneOption>();
   for (const obj of sceneObjects) {
-    if (obj.type !== 'plane' || !obj.sourceLocation) {
+    if (obj.type !== 'plane' || !obj.sourceLocation || obj.internal) {
       continue;
     }
     const loc = obj.sourceLocation;

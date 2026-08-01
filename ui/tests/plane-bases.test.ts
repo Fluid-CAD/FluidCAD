@@ -30,6 +30,12 @@ describe('isPlaneStatementRow', () => {
     expect(isPlaneStatementRow(planeRow, [planeRow, row('sketch', 4)])).toBe(false);
   });
 
+  it('rejects a plane written inline in another call, flagged internal', () => {
+    // `repeat('mirror', 'yz', …)` at line 7 synthesizes its plane there.
+    const planeRow = row('plane', 7, { internal: true });
+    expect(isPlaneStatementRow(planeRow, [planeRow, row('mirror', 7)])).toBe(false);
+  });
+
   it('rejects rows that are not planes, or carry no location', () => {
     const scene = [row('plane', 4), row('sketch', 4)];
     expect(isPlaneStatementRow(row('sketch', 4), scene)).toBe(false);
@@ -44,6 +50,15 @@ describe('collectPlaneOptions', () => {
       row('plane', 4),
       row('sketch', 4),
       row('extrude', 5),
+    ]);
+    expect(options).toEqual([{ label: 'Plane', filePath: FILE, line: 3, column: 0 }]);
+  });
+
+  it('excludes an internal plane a repeat spelled inline', () => {
+    const options = collectPlaneOptions([
+      row('plane', 3),
+      row('plane', 7, { internal: true }),
+      row('mirror', 7),
     ]);
     expect(options).toEqual([{ label: 'Plane', filePath: FILE, line: 3, column: 0 }]);
   });

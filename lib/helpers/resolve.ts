@@ -11,6 +11,13 @@ import { AxisObject } from "../features/axis.js";
 import { AxisFromEdge } from "../features/axis-from-edge.js";
 import { ISceneObject } from "../core/interfaces.js";
 
+/**
+ * The plane a statement's argument names. A `plane()` statement passed in is
+ * already in the scene under its own row and comes back untouched; a plane the
+ * call spells inline — `repeat('mirror', 'yz', …)`, or a picked face — is
+ * synthesized here to serve that one build, so it is marked internal and the
+ * timeline leaves it out. Same rule, same reason as `sketch('xy', …)`.
+ */
 export function resolvePlane(p: PlaneLike | ISceneObject, context: SceneParserContext): PlaneObjectBase {
   if (p instanceof PlaneObjectBase) {
     return p;
@@ -18,6 +25,7 @@ export function resolvePlane(p: PlaneLike | ISceneObject, context: SceneParserCo
 
   if (isPlaneLike(p)) {
     const planeObj = new PlaneObject(normalizePlane(p));
+    planeObj.markInternal();
     context.addSceneObject(planeObj);
     return planeObj;
   }
@@ -25,6 +33,7 @@ export function resolvePlane(p: PlaneLike | ISceneObject, context: SceneParserCo
   if ((p as any) instanceof SceneObject) {
     context.addSceneObject(p as SceneObject);
     const planeObj = new PlaneFromObject(p as SceneObject);
+    planeObj.markInternal();
     context.addSceneObject(planeObj);
     return planeObj;
   }

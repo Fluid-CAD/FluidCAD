@@ -71,10 +71,6 @@ export class RepeatCircular extends RepeatBase {
     return "repeat-circular";
   }
 
-  getDisplayType(): string {
-    return "Repeat";
-  }
-
   serialize() {
     return {
     }

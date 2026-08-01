@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { extractNumericParams, resolveParamValues } from '../apply-feature-edit.ts';
+import { getJavaScriptParser, type TSNode, type TSTree } from '../code-editor.ts';
 import type {
   FeatureGhostRequest, FluidCadServer, GhostAxisRef, GhostEntityRef, GhostHelixSourceRef,
   GhostPathRef, GhostPlaneRef, GhostRepeatDirection, GhostSectionRef,
@@ -74,8 +75,18 @@ const SWEEP_MODES = ['angle', 'offset'];
 /** Two directions is what the repeat dialog writes; more is hand-written code. */
 const MAX_GHOST_DIRECTIONS = 2;
 
-/** A bare JS identifier — the only expression form resolvable server-side. */
+/** A bare JS identifier — the expression form that resolves without a parse. */
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+/**
+ * Everything an arithmetic dimension can be made of. A cheap gate before the
+ * parser: a quote, a comma, a bracket means the text is something other than
+ * a sum over parameters, and nothing else here needs to look at it.
+ */
+const ARITHMETIC = /^[A-Za-z0-9_$.\s+\-*/%()]+$/;
+
+/** Just enough of the shared tree-sitter parser to read one expression. */
+type ExpressionParser = { parse(code: string): TSTree };
 
 function isValueExpr(value: unknown): value is ValueExpr {
   return (typeof value === 'number' && Number.isFinite(value))
@@ -440,21 +451,98 @@ function parseCondition(value: unknown): RawCondition | null | 'invalid' {
 
 /**
  * Resolve a dialog value to the number the kernel needs. A number passes
- * through; a bare identifier resolves against the file's top-level numeric
- * params, exactly as apply-feature's synthesis links dimensions. There is no
- * expression evaluator server-side, so arithmetic and unknown names resolve
- * to null — the ghost then simply doesn't show.
+ * through; a name resolves against the file's top-level numeric params,
+ * exactly as apply-feature's synthesis links dimensions; and arithmetic over
+ * those names is worked out here — `{ count: sides, offset: 360 / sides }` is
+ * how a parametric model is actually written, and refusing it left those
+ * dialogs with no ghost at all.
+ *
+ * Parsing goes through the server's own JavaScript grammar rather than a
+ * hand-rolled one, and only arithmetic survives {@link evaluateArithmetic}: a
+ * name that isn't a param, a call, anything with a side effect resolves to
+ * null and the dialog simply shows no ghost.
  */
-function resolveExpr(value: ValueExpr, params: Map<string, number>): number | null {
+function resolveExpr(
+  value: ValueExpr,
+  params: Map<string, number>,
+  parser: ExpressionParser,
+): number | null {
   if (typeof value === 'number') {
     return Number.isFinite(value) ? value : null;
   }
-  const name = value.trim();
-  if (!IDENTIFIER.test(name)) {
+  const text = value.trim();
+  if (IDENTIFIER.test(text)) {
+    // The common case — a bare name, no parse needed.
+    const resolved = params.get(text);
+    return resolved !== undefined && Number.isFinite(resolved) ? resolved : null;
+  }
+  if (!ARITHMETIC.test(text)) {
     return null;
   }
-  const resolved = params.get(name);
-  return resolved !== undefined && Number.isFinite(resolved) ? resolved : null;
+  const statements = parser.parse(text).rootNode.namedChildren;
+  if (statements.length !== 1 || statements[0].type !== 'expression_statement') {
+    return null;
+  }
+  const expression = statements[0].namedChild(0);
+  const result = expression ? evaluateArithmetic(expression, params) : null;
+  return result !== null && Number.isFinite(result) ? result : null;
+}
+
+/**
+ * An arithmetic expression's value, or null the moment it stops being
+ * arithmetic. Five node types survive — a number, a parameter name, a
+ * parenthesized group, and the unary and binary operators — so a call, a
+ * member access, an assignment resolves to nothing rather than running: this
+ * reads text a dialog typed, and it must not be able to *do* anything.
+ */
+function evaluateArithmetic(node: TSNode, params: Map<string, number>): number | null {
+  if (node.type === 'number') {
+    const value = Number(node.text);
+    return Number.isFinite(value) ? value : null;
+  }
+  if (node.type === 'identifier') {
+    const value = params.get(node.text);
+    return value !== undefined && Number.isFinite(value) ? value : null;
+  }
+  if (node.type === 'parenthesized_expression') {
+    const inner = node.namedChild(0);
+    return inner ? evaluateArithmetic(inner, params) : null;
+  }
+  if (node.type === 'unary_expression') {
+    const argument = node.childForFieldName('argument');
+    const value = argument ? evaluateArithmetic(argument, params) : null;
+    if (value === null) {
+      return null;
+    }
+    const operator = node.childForFieldName('operator')?.text;
+    return operator === '-' ? -value : operator === '+' ? value : null;
+  }
+  if (node.type !== 'binary_expression') {
+    return null;
+  }
+  const left = node.childForFieldName('left');
+  const right = node.childForFieldName('right');
+  const a = left ? evaluateArithmetic(left, params) : null;
+  const b = right ? evaluateArithmetic(right, params) : null;
+  if (a === null || b === null) {
+    return null;
+  }
+  switch (node.childForFieldName('operator')?.text) {
+    case '+':
+      return a + b;
+    case '-':
+      return a - b;
+    case '*':
+      return a * b;
+    case '/':
+      return b === 0 ? null : a / b;
+    case '%':
+      return b === 0 ? null : a % b;
+    case '**':
+      return a ** b;
+    default:
+      return null;
+  }
 }
 
 /**
@@ -561,12 +649,13 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         : [],
     );
 
+    const parser = await getJavaScriptParser();
     const values: (number | null)[] = [];
     const resolve = (value: unknown): number | null => {
       if (value === null || value === undefined) {
         return null;
       }
-      const resolved = resolveExpr(value as ValueExpr, params);
+      const resolved = resolveExpr(value as ValueExpr, params, parser);
       values.push(resolved);
       return resolved;
     };

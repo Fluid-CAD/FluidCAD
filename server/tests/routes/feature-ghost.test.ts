@@ -130,18 +130,81 @@ describe('feature-ghost route — repeat', () => {
     expect(received.directions[0].offset).toBe(25);
   });
 
-  it('refuses to guess at an expression it cannot evaluate', async () => {
+  /**
+   * How a parametric model is actually written — `{ count: sides, offset: 360
+   * / sides }`. The names come from the file's top-level params; the sum is
+   * worked out here so the dialog gets a ghost instead of nothing.
+   */
+  it('works out arithmetic over the file\'s parameters', async () => {
+    code = ['const sides = param("Sides", 6)', 'sketch("xy", () => {})'].join('\n');
+
+    await postGhost(linearBody({
+      kind: 'circular',
+      directions: [],
+      count: 'sides',
+      sweep: { mode: 'offset', value: '360 / sides' },
+    }));
+
+    expect(received.count).toBe(6);
+    expect(received.sweep).toEqual({ mode: 'offset', value: 60 });
+  });
+
+  it('handles the rest of the arithmetic a dimension is written with', async () => {
+    code = ['const width = 40', 'const gap = 10'].join('\n');
+
+    const cases: [string, number][] = [
+      ['width + gap', 50],
+      ['width - gap * 2', 20],
+      ['(width + gap) / 2', 25],
+      ['-gap', -10],
+      ['width % 30', 10],
+      ['2 ** 5', 32],
+    ];
+    for (const [expression, expected] of cases) {
+      await postGhost(linearBody({
+        directions: [{ count: 3, offset: expression, length: null }],
+      }));
+      expect(received?.directions?.[0]?.offset, expression).toBe(expected);
+      received = undefined;
+    }
+  });
+
+  it('refuses an expression whose names it cannot resolve', async () => {
     const { status, body } = await postGhost(linearBody({
       directions: [{ count: 3, offset: 'spacing * 2', length: null }],
     }));
 
     // Not an error — the statement preview still works, the ghost just clears.
-    // Arithmetic is a standing limitation, not something to tell the user
-    // about per keystroke, so the refusal is not marked to surface.
+    // Nor a notice: an unresolvable dimension is a limitation of the preview,
+    // not something to tell the user about per keystroke.
     expect(status).toBe(200);
     expect(body.success).toBe(false);
     expect(body.surface).toBeFalsy();
     expect(received).toBeUndefined();
+  });
+
+  /**
+   * The evaluator reads text a dialog typed. It must work sums out and
+   * nothing else — no call, no member access, no division by zero.
+   */
+  it('refuses anything that is not arithmetic', async () => {
+    code = 'const width = 40';
+
+    for (const expression of [
+      'Math.round(3.7)',
+      'width.toFixed(0)',
+      'width = 1',
+      'width / 0',
+      '[1][0]',
+      'width ? 1 : 2',
+    ]) {
+      const { status, body } = await postGhost(linearBody({
+        directions: [{ count: 3, offset: expression, length: null }],
+      }));
+      expect(status, expression).toBe(200);
+      expect(body.success, expression).toBe(false);
+      expect(received, expression).toBeUndefined();
+    }
   });
 
   it('marks the kernel refusals worth reading out loud', async () => {

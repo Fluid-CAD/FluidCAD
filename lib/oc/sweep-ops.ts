@@ -6,6 +6,7 @@ import { ShapeOps } from "./shape-ops.js";
 import { Solid } from "../common/solid.js";
 import { Wire } from "../common/wire.js";
 import { Face } from "../common/face.js";
+import { Plane } from "../math/plane.js";
 import { Vector3d } from "../math/vector3d.js";
 
 export interface SweepResult {
@@ -27,6 +28,12 @@ export class SweepOps {
   // build silently fails (BRepBuilderAPI_PipeNotDone). This only caps the
   // adaptive fit; simple spines converge far below it at no extra cost.
   private static readonly MAX_PIPE_SEGMENTS = 1000;
+
+  // How nearly a candidate binormal may line up with the spine's tangent
+  // before `Normal = BiNormal × Tangent` stops being a usable direction:
+  // |cos| = 0.999 is 2.6° apart. Anything looser would swap the section's
+  // roll out from under sweeps that build correctly today.
+  private static readonly MAX_BINORMAL_ALIGNMENT = 0.999;
 
   static makeSweep(spineWire: Wire, profileFaces: Face[]): SweepResult {
     const oc = getOC();
@@ -50,10 +57,11 @@ export class SweepOps {
     // A wrong (e.g. roughly horizontal) binormal lets the helix tangent rotate
     // into it, collapsing `Normal = BiNormal × Tangent` ~twice per turn and
     // shredding the section into a self-intersecting ribbon. A straight spine
-    // has no rotation axis (the cross products vanish); there the profile's up
-    // is well-defined and never aligns with the constant tangent, so use it.
+    // has no rotation axis (the cross products vanish); its binormal is picked
+    // off the profile plane instead — see `straightSpineBinormal`.
+    const spineTangent = SweepOps.getSpineTangent(spineWire.getShape() as TopoDS_Wire);
     const spineAxis = SweepOps.tangentRotationAxis(spineWire.getShape() as TopoDS_Wire);
-    const binormalVec = spineAxis ?? profilePlane.yDirection;
+    const binormalVec = spineAxis ?? SweepOps.straightSpineBinormal(profilePlane, spineTangent);
     const [binormalDir, disposeBinormal] = Convert.toGpDir(binormalVec);
 
     // `Add(_, false, true)` (no contact, with correction) rotates the profile
@@ -62,7 +70,6 @@ export class SweepOps {
     // anti-parallel — but then the profile plane is *already* perpendicular to
     // the spine (its normal is ∥ -tangent), so no correction is needed: skip it
     // and keep the profile's drawn position.
-    const spineTangent = SweepOps.getSpineTangent(spineWire.getShape() as TopoDS_Wire);
     const isAntiParallel = profilePlane.normal.dot(spineTangent) < -0.999;
     const withCorrection = !isAntiParallel;
 
@@ -226,6 +233,28 @@ export class SweepOps {
       return null;
     }
     return axis.normalize();
+  }
+
+  /**
+   * The fixed binormal for a straight spine, whose constant tangent turns
+   * around nothing and so names no axis of its own. Any direction the tangent
+   * isn't parallel to will serve, since OCC only needs `Normal = BiNormal ×
+   * Tangent` to be a direction — so the profile plane's own "up" is kept
+   * wherever it works, leaving the section's roll where every sweep built so
+   * far has had it.
+   *
+   * It stops working when the spine runs along that very "up" — a profile
+   * sketched on xy and swept along the y axis, say. The cross product then
+   * vanishes, and rather than fail, MakePipeShell returns a flat zero-volume
+   * sliver. The plane's normal takes over there, and is guaranteed to work:
+   * it is perpendicular to the "up" the tangent has just proved itself
+   * parallel to. It also keeps the drawn profile's footprint — its own "up"
+   * leaves the section plane along with the spine, and the normal is what
+   * arrives to replace it.
+   */
+  private static straightSpineBinormal(plane: Plane, tangent: Vector3d): Vector3d {
+    const up = plane.yDirection;
+    return Math.abs(up.dot(tangent)) < SweepOps.MAX_BINORMAL_ALIGNMENT ? up : plane.normal;
   }
 
   /** Unit tangent of the spine wire at its first parameter. */

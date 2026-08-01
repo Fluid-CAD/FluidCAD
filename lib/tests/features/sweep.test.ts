@@ -259,6 +259,75 @@ describe("sweep", () => {
     });
   });
 
+  /**
+   * A straight spine takes its binormal off the profile plane, and the plane's
+   * own "up" can't serve when the spine runs along it: `Normal = BiNormal ×
+   * Tangent` vanishes and MakePipeShell hands back a flat, zero-volume sliver
+   * instead of failing. The plane's normal stands in there.
+   */
+  describe("spine along the profile plane's own axes", () => {
+    it("sweeps a real solid along the plane's up direction", () => {
+      const profile = sketch("xy", () => {
+        circle(10);
+      });
+
+      const path = sketch("xy", () => {
+        move([-40, -40]);
+        vLine(20);
+      });
+
+      const s = sweep(path, profile) as Sweep;
+
+      render();
+
+      const props = ShapeProps.getProperties(s.getShapes()[0].getShape());
+      expect(props.volumeMm3).toBeCloseTo(Math.PI * 25 * 20, 0);
+    });
+
+    it("keeps the drawn profile's footprint when the plane's up is spent on the spine", () => {
+      const profile = sketch("xy", () => {
+        rect(20, 10).centered();
+      });
+
+      const path = sketch("xy", () => {
+        move([-40, -40]);
+        vLine(30);
+      });
+
+      const s = sweep(path, profile) as Sweep;
+
+      render();
+
+      // The section's own up leaves with the spine, and the plane's normal
+      // arrives in its place: 20 wide stays on x, 10 tall becomes 10 on z.
+      const bbox = ShapeOps.getBoundingBox(s.getShapes()[0]);
+      expect(bbox.maxX - bbox.minX).toBeCloseTo(20, 1);
+      expect(bbox.maxY - bbox.minY).toBeCloseTo(30, 1);
+      expect(bbox.maxZ - bbox.minZ).toBeCloseTo(10, 1);
+    });
+
+    it("leaves a spine across the plane on the profile's own up", () => {
+      const profile = sketch("xy", () => {
+        rect(20, 10).centered();
+      });
+
+      const path = sketch("xy", () => {
+        move([-40, -40]);
+        hLine(30);
+      });
+
+      const s = sweep(path, profile) as Sweep;
+
+      render();
+
+      // Unchanged by the fallback — the drawn height stays on y.
+      const bbox = ShapeOps.getBoundingBox(s.getShapes()[0]);
+      expect(bbox.maxX - bbox.minX).toBeCloseTo(30, 1);
+      expect(bbox.maxY - bbox.minY).toBeCloseTo(10, 1);
+      expect(bbox.maxZ - bbox.minZ).toBeCloseTo(20, 1);
+    });
+  });
+
   describe("startFaces / endFaces / sideFaces", () => {
     it("should expose start and end faces", () => {
       const profile = sketch("xy", () => {

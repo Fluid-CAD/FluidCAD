@@ -1,10 +1,10 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
-import { normalizeAxis, normalizePlane } from "../helpers/normalize.js";
+import { normalizeAxis } from "../helpers/normalize.js";
+import { resolvePlane } from "../helpers/resolve.js";
 import { SceneObject } from "../common/scene-object.js";
 import { PlaneLike } from "../math/plane.js";
 import { MirrorShape } from "../features/mirror-shape.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
-import { PlaneObject } from "../features/plane.js";
 import { AxisLike, isAxisLike, isStandardAxis } from "../math/axis.js";
 import { isPlaneLike } from "../math/plane.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
@@ -57,6 +57,11 @@ interface MirrorFunction {
 
 }
 
+/**
+ * The 2D mirror's axis. Kept local rather than shared with `resolveAxis` in
+ * helpers/resolve: a mirror line lives inside the active sketch already, and
+ * the shared helper would re-register it at scene level.
+ */
 function resolveAxis(arg: any, context: SceneParserContext): AxisObjectBase {
   if (arg instanceof AxisObjectBase) {
     return arg;
@@ -70,16 +75,6 @@ function resolveAxis(arg: any, context: SceneParserContext): AxisObjectBase {
   const axis = new AxisObject(a);
   context.addSceneObject(axis);
   return axis;
-}
-
-function resolvePlane(arg: any, context: SceneParserContext): PlaneObjectBase {
-  if (arg instanceof PlaneObjectBase) {
-    return arg;
-  }
-  const normalizedPlane = normalizePlane(arg);
-  const planeObj = new PlaneObject(normalizedPlane);
-  context.addSceneObject(planeObj);
-  return planeObj;
 }
 
 function build(context: SceneParserContext): MirrorFunction {

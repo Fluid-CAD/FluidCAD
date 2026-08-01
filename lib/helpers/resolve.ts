@@ -14,9 +14,10 @@ import { ISceneObject } from "../core/interfaces.js";
 /**
  * The plane a statement's argument names. A `plane()` statement passed in is
  * already in the scene under its own row and comes back untouched; a plane the
- * call spells inline — `repeat('mirror', 'yz', …)`, or a picked face — is
- * synthesized here to serve that one build, so it is marked internal and the
- * timeline leaves it out. Same rule, same reason as `sketch('xy', …)`.
+ * call spells inline — `mirror('yz', …)`, `repeat('mirror', 'yz', …)`, or a
+ * picked face — is synthesized here to serve that one build, so it is marked
+ * internal and the timeline leaves it out. Same rule, same reason as
+ * `sketch('xy', …)`.
  */
 export function resolvePlane(p: PlaneLike | ISceneObject, context: SceneParserContext): PlaneObjectBase {
   if (p instanceof PlaneObjectBase) {

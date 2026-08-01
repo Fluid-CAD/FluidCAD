@@ -91,6 +91,26 @@ describe("mirror (3D)", () => {
     });
   });
 
+  describe("the plane written inline", () => {
+    it("is internal — the mirror's own row is the only one it adds", () => {
+      sketch("xy", () => {
+        move([20, 0]);
+        rect(30, 30);
+      });
+      const e = extrude(10).new() as ExtrudeBase;
+
+      mirror("yz", e);
+
+      const scene = render();
+
+      // Both planes here are spelled inside another call — the sketch's 'xy'
+      // and the mirror's 'yz' — so neither stands for a plane() statement.
+      const planes = scene.getRenderedObjects().filter(r => r.type === "plane");
+      expect(planes.length).toBe(2);
+      expect(planes.every(r => r.internal === true)).toBe(true);
+    });
+  });
+
   describe("mirror all scene objects", () => {
     it("should mirror the last object when no target specified", () => {
       sketch("xy", () => {

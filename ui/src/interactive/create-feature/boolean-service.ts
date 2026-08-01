@@ -205,8 +205,9 @@ export class BooleanFeatureService {
     // Visible from the first solid, like Repeat/Copy — a boolean needs two,
     // but hiding at one made the button vanish right after an applied
     // boolean consumed its operands; the dialog explains when solids are
-    // missing instead.
-    this.available = this.targetOptions.length >= 1;
+    // missing instead — which is also what a blank document gets (see
+    // {@link Viewer.sceneIsEmpty}).
+    this.available = this.targetOptions.length >= 1 || this.viewer.sceneIsEmpty;
     this.navbar.setGroupVisible('boolean', this.available);
     this.button.setVisible(this.available);
     this.syncButton();

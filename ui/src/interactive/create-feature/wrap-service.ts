@@ -206,8 +206,9 @@ export class WrapFeatureService {
     this.hasSolid = sceneObjects.some(o =>
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
     // Offered whenever the scene has a solid to wrap onto — the target face
-    // lives on one. The dialog itself explains what else is missing.
-    this.available = this.hasSolid;
+    // lives on one — and on a blank document (see {@link Viewer.sceneIsEmpty}).
+    // The dialog itself explains what else is missing.
+    this.available = this.hasSolid || this.viewer.sceneIsEmpty;
     this.navbar.setGroupVisible('create', this.available, 'wrap');
     this.syncButton();
     if (!this.armed) {

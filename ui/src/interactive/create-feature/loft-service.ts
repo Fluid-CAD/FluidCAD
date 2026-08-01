@@ -282,9 +282,11 @@ export class LoftFeatureService {
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
     this.sceneSketchActive = this.profiles[0]?.kind === 'active';
     // A loft needs two profile sources: solid faces to pick, or two sketches
-    // (a helix can only ever be a guide, so it doesn't count here).
+    // (a helix can only ever be a guide, so it doesn't count here). A blank
+    // document shows the button regardless (see {@link Viewer.sceneIsEmpty}).
     this.available = this.hasSolid
-      || this.profiles.filter(o => o.feature === 'sketch').length >= 2;
+      || this.profiles.filter(o => o.feature === 'sketch').length >= 2
+      || this.viewer.sceneIsEmpty;
     this.navbar.setGroupVisible('create', this.available, 'loft');
     this.syncButton();
     if (!this.armed) {

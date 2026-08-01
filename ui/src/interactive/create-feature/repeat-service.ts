@@ -294,7 +294,9 @@ export class RepeatFeatureService {
     this.axes = collectAxisOptions(sceneObjects);
     this.planes = collectPlaneOptions(sceneObjects);
     this.sceneSketchActive = collectSketchProfiles(sceneObjects)[0]?.kind === 'active';
-    this.available = this.targetOptions.length > 0;
+    // A blank document offers the button too (see {@link Viewer.sceneIsEmpty});
+    // the dialog then opens on its empty target list.
+    this.available = this.targetOptions.length > 0 || this.viewer.sceneIsEmpty;
     this.navbar.setGroupVisible('repeat', this.available);
     this.button.setVisible(this.available);
     this.syncButton();

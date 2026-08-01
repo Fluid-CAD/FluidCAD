@@ -473,7 +473,11 @@ export class ModifyPickService {
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
     const active = this.findActiveObject(sceneObjects);
     const sketchMode = active?.type === 'sketch';
-    const modifyVisible = hasSolid && !sketchMode;
+    // Fillet/Chamfer/Shell need a solid to pick on, and stay out of the way
+    // while a sketch is being edited. A blank document is the exception: it
+    // shows the whole toolbar (see {@link Viewer.sceneIsEmpty}) and can't be
+    // in sketch mode anyway — an active sketch is scene content.
+    const modifyVisible = (hasSolid || this.viewer.sceneIsEmpty) && !sketchMode;
 
     this.tooltip.clearCache();
     this.tooltip.hide();

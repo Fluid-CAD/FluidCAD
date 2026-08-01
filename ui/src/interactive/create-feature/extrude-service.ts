@@ -249,8 +249,10 @@ export class ExtrudeFeatureService {
     this.hasSolid = sceneObjects.some(o =>
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
     // Offered whenever the scene has anything to work from — like Loft. With
-    // no unconsumed sketch the dialog opens on a placeholder dropdown.
-    this.available = this.hasSolid || this.options.length > 0;
+    // no unconsumed sketch the dialog opens on a placeholder dropdown, which
+    // is also what a blank document gets (see {@link Viewer.sceneIsEmpty}):
+    // there the whole toolbar shows rather than three buttons.
+    this.available = this.hasSolid || this.options.length > 0 || this.viewer.sceneIsEmpty;
     // The group is shared with the Sketch button — vote via our own slot and
     // hide our own button; the group shows while either contributor needs it.
     this.navbar.setGroupVisible('create', this.available, 'extrude');

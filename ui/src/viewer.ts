@@ -10,6 +10,7 @@ import { themeColors } from './scene/theme-colors';
 import { StandardPlaneId, StandardPlanes } from './scene/standard-planes';
 import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates } from './interactive/pick-candidates';
+import { isSceneEmpty } from './helpers/scene-utils';
 
 /** Recursively expand `box` to include `object`, skipping meta-shape subtrees. */
 function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
@@ -171,6 +172,21 @@ export class Viewer {
 
   get currentSceneObjects(): SceneObjectRender[] {
     return this.sceneObjects;
+  }
+
+  /**
+   * The document is blank — nothing modelled, only construction geometry at
+   * most. Every feature service ORs this into its own availability rule, so an
+   * empty scene offers the *whole* toolbar (each dialog then opens on its own
+   * empty prompt) instead of collapsing to Import / Sketch / Plane and hiding
+   * what FluidCAD can do from someone starting out.
+   *
+   * A rolled-back view is never empty: the services are handed an empty list
+   * on rollbacks (see their `handleSceneRendered`) to hide their buttons, and
+   * that truncated scene must keep hiding them.
+   */
+  get sceneIsEmpty(): boolean {
+    return !this.lastRenderIsRollback && isSceneEmpty(this.sceneObjects);
   }
 
   setSelectionHandler(fn: (shapeId: string | null, sub: SubSelection, modifiers: SelectionModifiers) => void): void {

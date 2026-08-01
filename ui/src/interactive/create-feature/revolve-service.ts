@@ -237,8 +237,9 @@ export class RevolveFeatureService {
     this.hasSolid = sceneObjects.some(o =>
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
     this.sceneSketchActive = this.profiles[0]?.kind === 'active';
-    // Offered whenever the scene has anything to work from — like Extrude.
-    this.available = this.hasSolid || this.profiles.length > 0;
+    // Offered whenever the scene has anything to work from — like Extrude —
+    // and on a blank document (see {@link Viewer.sceneIsEmpty}).
+    this.available = this.hasSolid || this.profiles.length > 0 || this.viewer.sceneIsEmpty;
     this.navbar.setGroupVisible('create', this.available, 'revolve');
     this.syncButton();
     if (!this.armed) {

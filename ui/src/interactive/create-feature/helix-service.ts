@@ -246,8 +246,9 @@ export class HelixFeatureService {
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
     this.sceneSketchActive = profiles[0]?.kind === 'active';
     // Offered whenever the scene has a solid (face mode + edge picks) or a
-    // sketch to sweep the helix with — like Revolve's availability signal.
-    this.available = this.hasSolid || this.hasSketch;
+    // sketch to sweep the helix with — like Revolve's availability signal —
+    // and on a blank document (see {@link Viewer.sceneIsEmpty}).
+    this.available = this.hasSolid || this.hasSketch || this.viewer.sceneIsEmpty;
     this.syncButton();
     if (!this.armed) {
       return;

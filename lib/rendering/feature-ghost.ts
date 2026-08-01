@@ -499,11 +499,11 @@ function buildRepeatGhost(
     if (targets.length === 0) {
       return { ok: false, reason: 'That feature is not in the rendered scene.' };
     }
-    const solids = repeatTargetSolids(targets);
-    if (solids.length === 0) {
+    const runs = repeatChainRuns(scene, targets);
+    if (runs.length === 0) {
       return { ok: false, reason: 'That feature has no solid to preview.' };
     }
-    const stamps = repeatStamps(scene, targets, solids, meshConfig, scratch);
+    const stamps = repeatStamps(runs, meshConfig, scratch);
     return {
       ok: true,
       solids: placed.matrices.flatMap(matrix => stamps.map(stamp => ({
@@ -632,39 +632,39 @@ type RepeatStamp = { meshes: SceneObjectMesh[]; kind?: 'add' | 'remove' };
  * brings that whole body with it. It often doesn't: a boss sketched on a
  * plate's face *fuses into the plate*, so the target's solid is plate-plus-boss
  * while each new instance contributes the boss alone (the plate is built
- * outside the chain the repeat clones, and the clone's own fuse merges into
- * the one already there). Stamping the fused body would draw a plate per
- * instance — geometry the apply never produces.
+ * outside the chain the repeat clones, and the clone's own fuse merges into the
+ * one already there). Stamping the fused body would draw a plate per instance —
+ * geometry the apply never produces.
  *
- * So where a body IS carried in from outside the chain, the stamp is the
- * *difference*: what the target's chain adds to it (green), and what it takes
- * away (red — a repeated cut previews as the holes it will make). Two booleans
- * per ghost, not per instance; with nothing carried in, none at all and the
- * scene's cached meshes go straight through.
+ * So each {@link RepeatChainRun} is stamped as the *difference* between what
+ * came out of it and what went in: material the chain adds (green) and material
+ * it takes away (red — a repeated cut previews as the pockets it will open). A
+ * run that consumed nothing is a standalone body and needs no boolean at all,
+ * which keeps the common case on the scene's cached meshes.
  *
- * A difference OCC refuses to compute draws nothing rather than falling back
- * to the whole body — being silent beats being wrong about what an apply does.
+ * A difference OCC refuses to compute draws nothing rather than falling back to
+ * the whole body — being silent beats being wrong about what an apply does.
  */
 function repeatStamps(
-  scene: Scene,
-  targets: SceneObject[],
-  solids: Shape[],
+  runs: RepeatChainRun[],
   meshConfig: MeshConfig,
   scratch: Shape[],
 ): RepeatStamp[] {
-  const builder = new MeshBuilder(meshConfig);
-  const bases = unclonedBases(scene, targets);
-  if (bases.length === 0) {
-    return [{ meshes: stampMeshes(solids, builder) }];
-  }
-  let added: Shape[];
-  let removed: Shape[];
+  const added: Shape[] = [];
+  const removed: Shape[] = [];
   try {
-    added = solidDifference(solids, bases, scratch);
-    removed = solidDifference(bases, solids, scratch);
+    for (const run of runs) {
+      if (run.inputs.length === 0) {
+        added.push(...run.outputs);
+        continue;
+      }
+      added.push(...solidDifference(run.outputs, run.inputs, scratch));
+      removed.push(...solidDifference(run.inputs, run.outputs, scratch));
+    }
   } catch {
     return [];
   }
+  const builder = new MeshBuilder(meshConfig);
   const stamps: RepeatStamp[] = [];
   if (added.length > 0) {
     stamps.push({ meshes: stampMeshes(added, builder), kind: 'add' });
@@ -676,25 +676,100 @@ function repeatStamps(
 }
 
 /**
- * The bodies an instance will NOT bring with it: the ones a member of the
- * cloned chain fused into (or cut from) that the chain itself doesn't build.
- * They are exactly the solids an *outside* object recorded as removed by an
- * *inside* one — the plate, when a boss on it is repeated.
+ * One unbroken stretch of the cloned chain: the bodies it hands on, and the
+ * bodies it took in from outside itself.
  */
-function unclonedBases(scene: Scene, targets: SceneObject[]): Shape[] {
+type RepeatChainRun = { outputs: Shape[]; inputs: Shape[] };
+
+/**
+ * How the solids flow through the chain a repeat clones, split into runs.
+ *
+ * A chain is rarely one feature. `repeat('mirror', 'front', e, f, c1, f2)`
+ * replays four of them, and the model may well have built something else in
+ * between — so the chain reaches the scene as separate stretches, each taking a
+ * body in and handing one on. A run's boundary is exactly that: an input owned
+ * by an object the chain doesn't hold, an output no chain member consumed.
+ *
+ * Pairing every output with *its own* run's input is what keeps the difference
+ * honest. Lumping them together would subtract a later stretch's input from an
+ * earlier stretch's output and attribute the features in between — which the
+ * repeat does not replay — to the pattern.
+ */
+function repeatChainRuns(scene: Scene, targets: SceneObject[]): RepeatChainRun[] {
   const chain = repeatCloneSet(targets);
-  const bases = new Set<Shape>();
-  for (const obj of allObjects(scene)) {
-    if (chain.has(obj)) {
+  const objects = allObjects(scene);
+  // Both directions of every solid consumption in the scene: who ate a body,
+  // and which bodies a given feature ate (with the object each came from).
+  const consumers = new Map<Shape, SceneObject>();
+  const eaten = new Map<SceneObject, { shape: Shape; owner: SceneObject }[]>();
+  for (const obj of objects) {
+    for (const removal of obj.getRemovedShapes()) {
+      if (removal.shape.getType() !== 'solid') {
+        continue;
+      }
+      consumers.set(removal.shape, removal.removedBy);
+      const list = eaten.get(removal.removedBy) ?? [];
+      list.push({ shape: removal.shape, owner: obj });
+      eaten.set(removal.removedBy, list);
+    }
+  }
+
+  const runs: RepeatChainRun[] = [];
+  // A container reports its children's solids as its own, so the same body
+  // reaches this loop through both — it may only be stamped once.
+  const stamped = new Set<Shape>();
+  for (const member of chain) {
+    for (const solid of memberSolids(member)) {
+      // A body another chain member went on to consume is internal — the run
+      // it belongs to hands on whatever that member produced instead.
+      const consumer = consumers.get(solid);
+      if (stamped.has(solid) || (consumer && chain.has(consumer))) {
+        continue;
+      }
+      stamped.add(solid);
+      runs.push({ outputs: [solid], inputs: runInputs(member, chain, eaten) });
+    }
+  }
+  return runs;
+}
+
+/**
+ * The bodies a run took in: walk back from its last member through everything
+ * the chain consumed, and stop at the first body built outside it. A chain that
+ * consumed nothing at all — a `.new()` extrude, a primitive — takes nothing in,
+ * and its output stands alone.
+ */
+function runInputs(
+  member: SceneObject,
+  chain: Set<SceneObject>,
+  eaten: Map<SceneObject, { shape: Shape; owner: SceneObject }[]>,
+): Shape[] {
+  const inputs = new Set<Shape>();
+  const seen = new Set<SceneObject>();
+  const stack = [member];
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (seen.has(current)) {
       continue;
     }
-    for (const removal of obj.getRemovedShapes()) {
-      if (chain.has(removal.removedBy) && removal.shape.getType() === 'solid') {
-        bases.add(removal.shape);
+    seen.add(current);
+    for (const { shape, owner } of eaten.get(current) ?? []) {
+      if (chain.has(owner)) {
+        stack.push(owner);
+      } else {
+        inputs.add(shape);
       }
     }
   }
-  return [...bases];
+  return [...inputs];
+}
+
+/**
+ * Every solid a chain member added, one a later feature consumed included —
+ * the flow is read from what was *built*, not from what still survives.
+ */
+function memberSolids(member: SceneObject): Shape[] {
+  return member.getShapes(undefined, 'solid', new Set<SceneObject>());
 }
 
 /**
@@ -764,7 +839,7 @@ function solidDifference(stocks: Shape[], tools: Shape[], scratch: Shape[]): Sha
     }
   }
   // `current` is still `stocks` only when there was nothing to cut with, and
-  // callers never reach that: an empty base list takes the fast path instead.
+  // callers never reach that: a run with no inputs is stamped whole instead.
   return current;
 }
 
@@ -784,30 +859,6 @@ function stampMeshes(solids: Shape[], builder: MeshBuilder): SceneObjectMesh[] {
     }
   }
   return meshes;
-}
-
-/** Every target's solids, deduped — one body may back several target rows. */
-function repeatTargetSolids(targets: SceneObject[]): Shape[] {
-  const solids = new Set<Shape>();
-  for (const target of targets) {
-    for (const solid of targetSolids(target)) {
-      solids.add(solid);
-    }
-  }
-  return [...solids];
-}
-
-/**
- * A target's solids — one a consumer has taken included. A cut fused into the
- * base reads back empty through the normal accessor, and in the edit dialog
- * that consumer is the very statement being edited; re-reading with an empty
- * removal scope means "no removal applies" and brings the body back, the same
- * recovery {@link profileEdges} makes for a consumed sketch. For a repeated
- * cut it is exactly right: the tool body is what the pattern replays.
- */
-function targetSolids(target: SceneObject): Shape[] {
-  const live = target.getShapes(undefined, 'solid');
-  return live.length > 0 ? live : target.getShapes(undefined, 'solid', new Set<SceneObject>());
 }
 
 /** The bodies to mesh, or why the request names something the scene lost. */

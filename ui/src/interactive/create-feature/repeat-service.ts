@@ -35,6 +35,36 @@ function sourceStatement(slot: SourceSlotRef | undefined): { filePath: string; l
   return slot?.kind === 'sketch' ? { filePath: slot.filePath, line: slot.line } : null;
 }
 
+/**
+ * The origin plane a plane-like literal names — `'front'`, `"top"`, `'-xy'`.
+ * The plane slot only reads back the three unsigned spellings it writes
+ * itself; every other wording has to stay a verbatim keep so an apply
+ * preserves the user's own text. A ghost only needs the plane, though, and for
+ * a mirror the normal's direction doesn't matter: reflecting in `'xy'` and in
+ * `'-xy'` is the same reflection.
+ */
+function standardPlaneFromText(text: string | null | undefined): 'xy' | 'xz' | 'yz' | null {
+  switch ((text ?? '').trim().match(/^['"]([a-z-]+)['"]$/)?.[1]) {
+    case 'xy':
+    case '-xy':
+    case 'top':
+    case 'bottom':
+      return 'xy';
+    case 'xz':
+    case '-xz':
+    case 'front':
+    case 'back':
+      return 'xz';
+    case 'yz':
+    case '-yz':
+    case 'right':
+    case 'left':
+      return 'yz';
+    default:
+      return null;
+  }
+}
+
 /** What the seeding hook hands over when the dialog arms. */
 export type RepeatEnterSeed = {
   /** The neutral-mode selection (faces/edges) at activation. */
@@ -1030,17 +1060,20 @@ export class RepeatFeatureService {
         : null;
     }
     // The kept statement plane, as the sources query resolved it: a `plane()`
-    // the statement names, or the face a mirror was written from — the two
-    // things `repeat('mirror', …)` can hold that aren't an origin-plane
-    // literal (which the slot already reads as the standard selection).
+    // the statement names, or the face a mirror was written from.
     const slot = this.sourceSlots?.plane;
     if (slot?.kind === 'sketch') {
       return { kind: 'plane', filePath: slot.filePath, line: slot.line };
     }
     const face = slot?.kind === 'entities' ? slot.entities[0] : null;
-    return face && face.sub.type === 'face'
-      ? { kind: 'face', shapeId: face.shapeId, index: face.sub.index }
-      : null;
+    if (face && face.sub.type === 'face') {
+      return { kind: 'face', shapeId: face.shapeId, index: face.sub.index };
+    }
+    // An origin plane written any other way — `'front'`, `'-xy'`. It builds
+    // no statement to point at, so the query can't reach it and the slot keeps
+    // the wording verbatim; the ghost reads the plane straight off that text.
+    const standard = standardPlaneFromText(this.editStatement?.planeText);
+    return standard ? { kind: 'standard', plane: standard } : null;
   }
 
   private buildRequest(): RepeatApplyOptions | { error: string } {

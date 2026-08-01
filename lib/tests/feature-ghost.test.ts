@@ -860,6 +860,31 @@ describe("feature ghost — repeat", () => {
     expect(box.maxY).toBeCloseTo(-20, 3);
   });
 
+  /** Mirror takes the difference too: a fused boss reflects alone. */
+  it("mirrors only the material a fused instance adds", () => {
+    sketch("xy", () => { rect(200, 100).centered(); });
+    const plate = extrude(20) as unknown as { endFaces: () => unknown };
+    sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
+    const boss = extrude(10) as unknown as SceneObject;
+    boss.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+
+    const result = repeatGhost(scene, [9], {
+      kind: 'mirror',
+      axes: [],
+      directions: [],
+      plane: { kind: 'standard', plane: 'yz' },
+    });
+
+    expect(solidsOf(result)).toHaveLength(1);
+    const box = bounds(result, 0);
+    // The boss alone, reflected in x — still standing on the plate's face.
+    expect(box.minX).toBeCloseTo(65, 1);
+    expect(box.maxX).toBeCloseTo(95, 1);
+    expect(box.minZ).toBeCloseTo(20, 3);
+    expect(box.maxZ).toBeCloseTo(30, 3);
+  });
+
   it("mirrors across a plane() statement named by call site", () => {
     const p = plane("xy", { offset: 20 }) as unknown as SceneObject;
     p.setSourceLocation({ filePath: FILE, line: 3, column: 0 });
@@ -1014,6 +1039,50 @@ describe("feature ghost — repeat", () => {
     // The Ø30 boss, not the 200 × 100 plate it stands on.
     expect(box.maxX - box.minX).toBeLessThan(31);
     expect(box.maxY - box.minY).toBeLessThan(31);
+  });
+
+  /**
+   * Several targets at once, with a feature the repeat does NOT replay built
+   * in between them — `repeat('mirror', 'front', e, c1, f)` over a model that
+   * also cut something else along the way. The chain reaches the scene as two
+   * separate stretches, and each one's difference has to be taken against its
+   * OWN input: pairing the later stretch's output with the earlier stretch's
+   * input would blame the pattern for the feature in between.
+   */
+  it("takes each stretch of a multi-target chain against its own input", () => {
+    sketch("xy", () => { rect(200, 100).centered(); });
+    const plate = extrude(20) as unknown as { endFaces: () => unknown };
+    // Run one: a boss fused onto the plate.
+    sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
+    const boss = extrude(10) as unknown as SceneObject;
+    boss.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    // Not repeated: a pocket sunk into the plate between the two stretches.
+    sketch(plate.endFaces() as never, () => { circle([80, -30], 30); });
+    extrude(10).remove();
+    // Run two: a chamfer on the boss's top edges.
+    const rounded = chamfer(2, (boss as never as { endEdges: () => unknown }).endEdges() as never) as unknown as SceneObject;
+    rounded.setSourceLocation({ filePath: FILE, line: 17, column: 0 });
+    const scene = render();
+
+    const result = repeatGhost(scene, [9, 17], {
+      kind: 'mirror',
+      axes: [],
+      directions: [],
+      plane: { kind: 'standard', plane: 'yz' },
+    });
+
+    const solids = solidsOf(result);
+    // The boss (added) and the chamfer's own sliver (removed) — never the
+    // unrelated pocket, which this repeat does not replay.
+    expect(solids.map(s => s.kind).sort()).toEqual(['add', 'remove']);
+    const added = solids.find(s => s.kind === 'add')!;
+    const addedXs = added.meshes.flatMap(m => m.vertices.filter((_, i) => i % 3 === 0));
+    // Mirrored in x: the boss alone, nowhere near the pocket at x 65…95.
+    expect(Math.min(...addedXs)).toBeCloseTo(65, 0);
+    expect(Math.max(...addedXs)).toBeCloseTo(95, 0);
+    const addedZs = added.meshes.flatMap(m => m.vertices.filter((_, i) => i % 3 === 2));
+    expect(Math.min(...addedZs)).toBeCloseTo(20, 1);
+    expect(Math.max(...addedZs)).toBeCloseTo(30, 1);
   });
 
   /** The same rule the other way round: a repeated cut previews its pockets. */

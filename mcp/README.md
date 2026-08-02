@@ -115,13 +115,20 @@ For a globally installed `fluidcad`, replace `npx -y fluidcad mcp` with
 `fluidcad mcp` in any of the configs above (the opencode `command` array
 becomes `["fluidcad", "mcp"]`).
 
-### Install the FluidCAD skill
+### Install the FluidCAD skills
 
-Install the companion skill so agents follow the FluidCAD workflow:
+Install the companion skills so agents follow the FluidCAD workflow:
 
 ```bash
 npx skills add Fluid-CAD/FluidCAD
 ```
+
+Two skills ship with the repo:
+
+- **FluidCAD** — the core modeling loop: read the docs, write the file, check
+  the render, verify visually.
+- **FluidCAD-from-drawing** — layered on top, for building a part from a 2D
+  engineering drawing, blueprint, or dimension sheet.
 
 ---
 

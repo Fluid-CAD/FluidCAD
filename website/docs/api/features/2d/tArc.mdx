@@ -53,6 +53,25 @@ flips the sweep direction. Supported targets: lines, circles, and arcs.
 ---
 
 ```ts
+tArc(radius: number, endPoint: Point2DLike): Geometry
+```
+
+Draws a tangent arc with the given radius, aimed at a given end point.
+Tangency to the chain is always preserved: the radius fixes the arc's
+circle (the end point picks which side of the tangent), and the arc ends
+at the point on that circle closest to the end point — a point lying on
+the circle is hit exactly, so passing the auto-solved radius reproduces
+`tArc(endPoint)`. A negative radius leaves the start against the current
+tangent, flipping the arc to the other side.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `radius` | number | The arc radius. A negative value reverses the start direction. |
+| `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The point the arc ends towards |
+
+---
+
+```ts
 tArc(radius?: number, endAngle?: number): Geometry
 ```
 

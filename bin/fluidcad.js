@@ -8,6 +8,7 @@ import { registerInitCommand } from './commands/init.js';
 import { registerServeCommand } from './commands/serve.js';
 import { registerMcpCommand } from './commands/mcp.js';
 import { registerPackCommand } from './commands/pack.js';
+import { registerExportCommand } from './commands/export.js';
 import { registerLoginCommand } from './commands/login.js';
 import { registerPublishCommand } from './commands/publish.js';
 
@@ -23,6 +24,7 @@ registerInitCommand(program);
 registerServeCommand(program);
 registerMcpCommand(program);
 registerPackCommand(program);
+registerExportCommand(program);
 registerLoginCommand(program);
 registerPublishCommand(program);
 

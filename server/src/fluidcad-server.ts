@@ -6,7 +6,7 @@ import { LocalSceneHost } from './host/local-scene-host.ts';
 import { normalizePath } from './normalize-path.ts';
 import { BreakpointHit } from '../../lib/dist/common/breakpoint-hit.js';
 import { createParamRegistry, getParamRegistry } from '../../lib/dist/index.js';
-import type { ParamDefinition } from '../../lib/dist/index.js';
+import type { ParamDefinition, ParamRegistry, ParamVal } from '../../lib/dist/index.js';
 import type { CompileError } from './ws-protocol.ts';
 
 type SceneManager = {
@@ -483,6 +483,11 @@ export class FluidCadServer {
   // same code+params, or hub clients re-emit the same param mutation.
   private lastRendered = new Map<string, { paramsHash: string; data: SceneRenderedData }>();
   private paramOverrides: Map<string, Map<string, any>> = new Map();
+  // Per session, the default each `param()` was authored with as of the last
+  // render — `label → the literal in the source`. An override is a delta over
+  // that default, so when the file re-declares it the override is stale and
+  // gets dropped instead of shadowing the value the code now asks for.
+  private lastParamDefaults = new Map<string, Map<string, ParamVal>>();
   // What file each session is rendering. For desktop, sessionId === filePath
   // (set lazily on first processFile call). For hub, set explicitly via
   // createSession with the bundle's manifest entry.
@@ -578,6 +583,7 @@ export class FluidCadServer {
     this.renderingCache.delete(sessionId);
     this.lastRendered.delete(sessionId);
     this.paramOverrides.delete(sessionId);
+    this.lastParamDefaults.delete(sessionId);
     this.sessionFiles.delete(sessionId);
   }
 
@@ -633,7 +639,7 @@ export class FluidCadServer {
         const registry = createParamRegistry();
         const overrides = this.paramOverrides.get(sessionId);
         if (overrides) {
-          registry.setOverrides(overrides);
+          registry.setOverrides(overrides, this.lastParamDefaults.get(sessionId));
         }
 
         let breakpointHit = false;
@@ -650,6 +656,7 @@ export class FluidCadServer {
         this.lastBreakpointHit = breakpointHit;
 
         const params = getParamRegistry().getDefinitions();
+        this.settleParamOverrides(sessionId, registry);
 
         if (this.previousScenes.has(sessionId)) {
           const previousScene = this.previousScenes.get(sessionId);
@@ -688,6 +695,36 @@ export class FluidCadServer {
         throw error;
       }
     });
+  }
+
+  /**
+   * Close the loop on a render's param bookkeeping: remember what each
+   * `param()` declared so the next render can tell an edited default from an
+   * unchanged one, and forget the overrides this render found stale.
+   *
+   * Baselines merge rather than replace — a param that didn't run this pass
+   * (breakpoint, untaken branch) keeps the default it last declared, so an
+   * edit to *its* literal is still recognized later. Absence alone never
+   * drops an override for the same reason: not running is not un-declaring.
+   */
+  private settleParamOverrides(sessionId: string, registry: ParamRegistry): void {
+    const baselines = this.lastParamDefaults.get(sessionId) ?? new Map<string, ParamVal>();
+    for (const [label, authored] of registry.getAuthoredDefaults()) {
+      baselines.set(label, authored);
+    }
+    this.lastParamDefaults.set(sessionId, baselines);
+
+    const discarded = registry.getDiscardedOverrides();
+    const overrides = this.paramOverrides.get(sessionId);
+    if (!overrides || discarded.length === 0) {
+      return;
+    }
+    for (const label of discarded) {
+      overrides.delete(label);
+    }
+    if (overrides.size === 0) {
+      this.paramOverrides.delete(sessionId);
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -732,7 +769,11 @@ export class FluidCadServer {
     this.sessionFiles.set(fileName, fileName);
     const result = await this.processFileInternal(fileName, id, true);
     if (result) {
-      this.lastRendered.set(fileName, { paramsHash, data: result });
+      // Re-hash after the render, not before: a render can drop param
+      // overrides the source re-declared, and a key cut from the pre-render
+      // overrides would never match again — every later keystroke on
+      // identical code would re-render.
+      this.lastRendered.set(fileName, { paramsHash: this.computeParamsHash(fileName, code), data: result });
     }
     return result;
   }

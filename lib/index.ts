@@ -124,7 +124,7 @@ export function registerBuilder<T extends Function>(builder: (context: ScenePars
 }
 
 export { createParamRegistry, getParamRegistry } from './param-registry.js';
-export type { ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamScalar } from './param-registry.js';
+export type { ParamRegistry, ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamScalar } from './param-registry.js';
 export { setAssetProvider } from './io/file-import.js';
 export type { AssetProvider } from './io/file-import.js';
 export { getSceneManager } from './scene-manager.js';

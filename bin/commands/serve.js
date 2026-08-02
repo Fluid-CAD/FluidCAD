@@ -3,13 +3,25 @@ import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import open from 'open';
 import { createFileWatcher, findFluidFiles } from '../watcher.js';
+import { findFreePort } from '../lib/server-client.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const serverEntry = resolve(__dirname, '..', '..', 'server', 'dist', 'index.js');
 
-function runServe(opts) {
+async function runServe(opts) {
   const workspacePath = resolve(opts.workspace);
-  const port = String(opts.port);
+  const requestedPort = Number(opts.port);
+  if (!Number.isInteger(requestedPort) || requestedPort < 1 || requestedPort > 65535) {
+    throw new Error(`Invalid --port "${opts.port}".`);
+  }
+
+  // Another workspace's server (or an editor extension) is often already on
+  // 3100; step aside instead of dying on EADDRINUSE.
+  const freePort = await findFreePort(requestedPort);
+  if (freePort !== requestedPort) {
+    console.log(`Port ${requestedPort} is in use — starting on ${freePort} instead.`);
+  }
+  const port = String(freePort);
 
   const server = fork(serverEntry, [], {
     env: {
@@ -71,7 +83,12 @@ export function registerServeCommand(program) {
     .command('serve')
     .description('Start the FluidCAD server and watch .fluid.js files')
     .option('-w, --workspace <path>', 'workspace directory', process.cwd())
-    .option('-p, --port <port>', 'server port', '3100')
+    .option('-p, --port <port>', 'server port (the first free port at or above it is used)', '3100')
     .option('--open', 'open the UI in the default browser when ready', false)
-    .action(runServe);
+    .action((opts) => {
+      runServe(opts).catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    });
 }

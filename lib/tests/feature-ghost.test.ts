@@ -1338,6 +1338,67 @@ describe("feature ghost — copy", () => {
     expect(bounds(result, 1).minX).toBeCloseTo(40, 3);
   });
 
+  /**
+   * The dialog's Skip field, drawn: the instances it names are the ones the
+   * apply won't place, so the ghost leaves exactly those holes
+   * (copy-linear.ts:82).
+   */
+  it("leaves out the instances the skip list names", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = copyGhost(scene, [5], {
+      directions: [{ count: 4, offset: 40, length: null }],
+      skip: [[2]],
+    });
+
+    // Instances 1, 2 and 3, less the skipped 2 — the original was never drawn.
+    expect(solidsOf(result)).toHaveLength(2);
+    expect(bounds(result, 0).minX).toBeCloseTo(40, 3);
+    expect(bounds(result, 1).minX).toBeCloseTo(120, 3);
+  });
+
+  /**
+   * A grid cell is named by its whole tuple; a shorter entry names every cell
+   * whose leading indices agree, which is how a statement leaves out a whole
+   * row (the kernel compares a coordinate only as far as it is stated).
+   */
+  it("leaves out a grid cell, and a bare index leaves out its row", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const grid: Partial<CopyGhostRequest> = {
+      axes: [{ kind: 'standard', axis: 'x' }, { kind: 'standard', axis: 'y' }],
+      directions: [
+        { count: 2, offset: 40, length: null },
+        { count: 2, offset: 30, length: null },
+      ],
+    };
+    // 2 × 2 less the original: cells (0,1), (1,0), (1,1).
+    expect(solidsOf(copyGhost(scene, [5], grid))).toHaveLength(3);
+    expect(solidsOf(copyGhost(scene, [5], { ...grid, skip: [[1, 0]] }))).toHaveLength(2);
+    // The whole row at index 1 along direction 1 — cells (1,0) and (1,1).
+    expect(solidsOf(copyGhost(scene, [5], { ...grid, skip: [[1]] }))).toHaveLength(1);
+  });
+
+  it("leaves out circular instances by index", () => {
+    locatedBox(5, () => { rect([40, -10], 20, 20); });
+    const scene = render();
+
+    const result = copyGhost(scene, [5], {
+      kind: 'circular',
+      axes: [{ kind: 'standard', axis: 'z' }],
+      directions: [],
+      count: 4,
+      sweep: { mode: 'angle', value: 360 },
+      skip: [[1], [3]],
+    });
+
+    // Of the three clones at 90/180/270°, only the half turn survives.
+    expect(solidsOf(result)).toHaveLength(1);
+    expect(bounds(result, 0).minX).toBeCloseTo(-60, 3);
+  });
+
   it("spreads a total span across the gaps", () => {
     locatedBox(5);
     const scene = render();

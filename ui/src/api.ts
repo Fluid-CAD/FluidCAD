@@ -509,6 +509,12 @@ export type CopyGhostRequest = {
   count: ValueExpr | null;
   /** Circular: the whole sweep to divide, or the step between neighbours. */
   sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
+  /**
+   * Instances the copy leaves out, one index per direction (circular carries
+   * a single index each); empty skips none. Plain numbers, never expressions
+   * — the dialog's Skip field takes literal positions.
+   */
+  skip: number[][];
 };
 
 /**
@@ -1620,6 +1626,11 @@ export type CopyApplyOptions = {
   sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
   /** Linear only: center the copies on the original instance. */
   centered?: boolean;
+  /**
+   * Instances to leave out, one index per direction (circular carries a
+   * single index each). Omitted writes no `skip` option at all.
+   */
+  skip?: number[][];
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
   newVariables?: NewVariable[];
   /** Render the statement preview without applying. */
@@ -1643,6 +1654,7 @@ export async function applyCopy(options: CopyApplyOptions): Promise<ApplyFeature
     count: options.count,
     sweep: options.sweep,
     centered: options.centered,
+    skip: options.skip,
     newVariables: options.newVariables,
     preview: options.preview,
   }, options.signal);
@@ -1961,6 +1973,11 @@ export type ParsedFeatureStatement =
       count: ValueExpr | null;
       /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
       sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
+      /**
+       * Instances the statement leaves out, one index per direction (a
+       * circular copy's entries carry one each); null when it names none.
+       */
+      skip: number[][] | null;
       /** Trailing target texts, verbatim; empty copies every active solid. */
       targetTexts: string[];
       /**
@@ -2348,6 +2365,12 @@ export type CopyEditOptions = EditSessionFields & {
   count?: ValueExpr;
   /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
   sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
+  /**
+   * Instances to leave out, one index per direction (circular carries a
+   * single index each). Like `centered` the dialog owns the option outright:
+   * omitted drops whatever skip list the statement had.
+   */
+  skip?: number[][];
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
   newVariables?: NewVariable[];
   /** Full replacement target list; omitted keeps the statement's own. */
@@ -2373,6 +2396,7 @@ export async function applyCopyEdit(
     axis: options.axis,
     count: options.count,
     sweep: options.sweep,
+    skip: options.skip,
     newVariables: options.newVariables,
     targets: options.targets,
     preview: options.preview,

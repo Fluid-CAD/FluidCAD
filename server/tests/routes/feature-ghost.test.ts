@@ -377,6 +377,49 @@ describe('feature-ghost route — copy', () => {
     });
   });
 
+  /**
+   * A skip list names literal positions, so it crosses as it stands — nothing
+   * here goes near the expression resolver.
+   */
+  it('carries the skip list through untouched', async () => {
+    await postGhost(copyBody({
+      axes: [{ kind: 'standard', axis: 'x' }, { kind: 'standard', axis: 'y' }],
+      directions: [
+        { count: 3, offset: 40, length: null },
+        { count: 2, offset: 30, length: null },
+      ],
+      skip: [[1, 0], [2]],
+    }));
+
+    expect(received.skip).toEqual([[1, 0], [2]]);
+  });
+
+  it('reads an absent skip list as skipping nothing', async () => {
+    await postGhost(copyBody());
+
+    expect(received.skip).toEqual([]);
+  });
+
+  it('refuses a skip list that is not whole index tuples', async () => {
+    const bodies: Record<string, unknown>[] = [
+      copyBody({ skip: [[1.5]] }),
+      copyBody({ skip: [[-1]] }),
+      copyBody({ skip: [[]] }),
+      // One direction, so no cell has a second index.
+      copyBody({ skip: [[1, 0]] }),
+      // The tuple form is the wire's, for both kinds.
+      copyBody({ skip: [1] }),
+      copyBody({ kind: 'circular', directions: [], count: 6, sweep: { mode: 'angle', value: 360 }, skip: [[1, 0]] }),
+    ];
+
+    for (const body of bodies) {
+      const result = await postGhost(body);
+      expect(result.status, JSON.stringify(body)).toBe(400);
+      expect(result.body.reason).toContain('skip');
+    }
+    expect(received).toBeUndefined();
+  });
+
   it('resolves a copy\'s dimensions against the file\'s parameters', async () => {
     code = ['const sides = param("Sides", 6)', 'sketch("xy", () => {})'].join('\n');
 

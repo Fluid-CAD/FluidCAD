@@ -56,6 +56,7 @@ type GhostBody = {
   rotateY?: unknown;
   rotateZ?: unknown;
   position?: unknown;
+  skip?: unknown;
 };
 
 const FEATURES = [
@@ -92,6 +93,9 @@ const SWEEP_MODES = ['angle', 'offset'];
  * hand-written code.
  */
 const MAX_GHOST_DIRECTIONS = 2;
+
+/** The ceiling on a copy's skip list — the dialog's own (copy-skip.ts). */
+const MAX_GHOST_SKIP = 256;
 
 /** A bare JS identifier — the expression form that resolves without a parse. */
 const IDENTIFIER = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -512,6 +516,8 @@ type RawCopy = {
   centered: boolean;
   count: ValueExpr | null;
   sweep: RawSweep | null;
+  /** Already numbers — a skip list names literal positions, never expressions. */
+  skip: number[][];
 };
 
 /**
@@ -545,6 +551,10 @@ function parseCopy(body: GhostBody): RawCopy | string {
   if (body.sweep != null && !sweep) {
     return 'Invalid copy sweep';
   }
+  const skip = parseSkip(body.skip, kind === 'linear' ? Math.max(1, directions.length) : 1);
+  if (!skip) {
+    return 'Invalid copy skip';
+  }
 
   if (kind === 'linear') {
     // One axis per direction — the pairing IS the request; a mismatch would
@@ -569,7 +579,34 @@ function parseCopy(body: GhostBody): RawCopy | string {
     centered: body.centered === true,
     count: isValueExpr(body.count) ? body.count : null,
     sweep,
+    skip,
   };
+}
+
+/**
+ * A copy's skip list: index tuples, one index per direction at most. Plain
+ * whole numbers only — a skip names literal positions, so nothing here goes
+ * through {@link resolveExpr}. Null on anything malformed; absent is the empty
+ * list, which skips nothing.
+ */
+function parseSkip(value: unknown, arity: number): number[][] | null {
+  if (value === null || value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value) || value.length > MAX_GHOST_SKIP) {
+    return null;
+  }
+  const entries: number[][] = [];
+  for (const raw of value) {
+    if (!Array.isArray(raw) || raw.length === 0 || raw.length > arity) {
+      return null;
+    }
+    if (!raw.every(index => Number.isSafeInteger(index) && index >= 0)) {
+      return null;
+    }
+    entries.push(raw as number[]);
+  }
+  return entries;
 }
 
 /** A takeoff condition; 'none' never travels, so absent means unconstrained. */
@@ -927,6 +964,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         centered: copy!.centered,
         count,
         sweep: copy!.sweep ? { mode: copy!.sweep.mode, value: sweepValue! } : null,
+        skip: copy!.skip,
       };
     } else if (isLoft) {
       const op = body.op as 'add' | 'remove' | 'new';

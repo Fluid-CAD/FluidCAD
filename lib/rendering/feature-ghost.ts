@@ -271,6 +271,12 @@ export type CopyGhostRequest = {
   count: number | null;
   /** Circular: the whole sweep to divide, or the step between neighbours. */
   sweep: RepeatGhostSweep | null;
+  /**
+   * Instances the copy leaves out, one index per direction — the statement's
+   * own `skip` option (copy-linear.ts:82, copy-circular.ts:55). A circular
+   * copy's entries carry a single index each; absent skips none.
+   */
+  skip?: number[][];
 };
 
 /**
@@ -1202,7 +1208,12 @@ function copyGhostMatrices(
   if (request.kind === 'circular') {
     return {
       matrices: request.sweep
-        ? buildCircularCopyGhostMatrices(axes[0], request.count ?? 0, request.sweep, request.centered)
+        ? buildCircularCopyGhostMatrices(
+          axes[0], request.count ?? 0, request.sweep, request.centered,
+          // A circular skip names one instance per entry — the tuple form the
+          // wire carries for both kinds, read back as the indices it is.
+          (request.skip ?? []).map(tuple => tuple[0]),
+        )
         : [],
     };
   }
@@ -1216,7 +1227,7 @@ function copyGhostMatrices(
     count: direction.count,
     offset: directionOffset(direction),
   }));
-  return { matrices: buildLinearCopyGhostMatrices(directions, request.centered) };
+  return { matrices: buildLinearCopyGhostMatrices(directions, request.centered, request.skip ?? []) };
 }
 
 /**

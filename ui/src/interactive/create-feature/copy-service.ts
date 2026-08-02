@@ -393,6 +393,7 @@ export class CopyFeatureService {
       centered: parsed.centered,
       count: parsed.count,
       sweep: parsed.sweep,
+      skip: parsed.skip,
       axisLabels: parsed.axisTexts,
     });
     this.syncViewport();
@@ -660,6 +661,7 @@ export class CopyFeatureService {
       centered: false,
       count: null,
       sweep: null,
+      skip: values.skip,
     };
     if (values.kind === 'linear') {
       const active = this.panel.directions;
@@ -783,6 +785,7 @@ export class CopyFeatureService {
       return {
         kind: 'linear', targets, directions, spacingMode: values.spacingMode,
         centered: values.centered || undefined,
+        skip: values.skip.length > 0 ? values.skip : undefined,
         newVariables: values.newVariables,
       };
     }
@@ -795,6 +798,7 @@ export class CopyFeatureService {
     }
     return {
       kind: 'circular', targets, axis, count: values.count, sweep: values.sweep,
+      skip: values.skip.length > 0 ? values.skip : undefined,
       newVariables: values.newVariables,
     };
   }
@@ -846,6 +850,9 @@ export class CopyFeatureService {
       return {
         kind: 'linear', targets, directions, spacingMode: values.spacingMode,
         centered: values.centered || undefined,
+        // Like `centered`, the field owns the option outright: an emptied
+        // Skip drops the statement's own list.
+        skip: values.skip.length > 0 ? values.skip : undefined,
         newVariables: values.newVariables,
         ...sessionFields(pickedEdge),
       };
@@ -856,6 +863,7 @@ export class CopyFeatureService {
     }
     return {
       kind: 'circular', targets, axis, count: values.count, sweep: values.sweep,
+      skip: values.skip.length > 0 ? values.skip : undefined,
       newVariables: values.newVariables, ...sessionFields(axis.kind === 'edge'),
     };
   }

@@ -4507,6 +4507,49 @@ describe('copy statement templates', () => {
     );
   });
 
+  it('closes a linear options object with the skip list, cells and all', async () => {
+    const single = await applyFeatureEdit(`${base}\n`, copySpec({
+      kind: 'linear',
+      spacingMode: 'offset',
+      directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 4, value: 40 }],
+      skip: [[1], [3]],
+      targets: [{ producer: 0 }],
+    }));
+    expect(single.error).toBeUndefined();
+    expect(single.newCode).toContain(
+      `copy('linear', 'x', { count: 4, offset: 40, skip: [[1], [3]] }, f)`,
+    );
+
+    const grid = await applyFeatureEdit(`${base}\n`, copySpec({
+      kind: 'linear',
+      spacingMode: 'offset',
+      directions: [
+        { axis: { kind: 'standard', axis: 'x' }, count: 3, value: 40 },
+        { axis: { kind: 'standard', axis: 'y' }, count: 2, value: 30 },
+      ],
+      skip: [[1, 0]],
+      targets: [{ producer: 0 }],
+    }));
+    expect(grid.error).toBeUndefined();
+    expect(grid.newCode).toContain(
+      `copy('linear', ['x', 'y'], { count: [3, 2], offset: [40, 30], skip: [[1, 0]] }, f)`,
+    );
+  });
+
+  /** The one place the two kinds spell a skip differently (copy-circular.ts:55). */
+  it('flattens a circular skip list to bare instance indices', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, copySpec({
+      kind: 'circular',
+      axis: { kind: 'standard', axis: 'z' },
+      count: 6,
+      sweep: { mode: 'angle', value: 360 },
+      skip: [[2], [4]],
+      targets: [{ producer: 0 }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`copy('circular', 'z', { count: 6, angle: 360, skip: [2, 4] }, f)`);
+  });
+
   it('renders a circular copy with angle and with offset sweeps', async () => {
     const withAngle = await applyFeatureEdit(`${base}\n`, copySpec({
       kind: 'circular',
@@ -4615,7 +4658,7 @@ describe('parseFeatureStatement — copy', () => {
       parsed: {
         feature: 'copy', kind: 'linear', axisTexts: [`'x'`],
         directions: [{ count: 3, value: 40 }], spacingMode: 'offset', centered: false,
-        count: null, sweep: null, targetTexts: ['e'],
+        count: null, sweep: null, skip: null, targetTexts: ['e'],
         // The bound extrude call's own position — the timeline row's location.
         targetRefs: [{ line: 4, column: 10 }],
       },
@@ -4677,11 +4720,11 @@ describe('parseFeatureStatement — copy', () => {
 
   it('refuses an option the dialog does not offer', async () => {
     const linear = await parseFeatureStatement(
-      `${copyEditBase}\ncopy('linear', 'x', { count: 3, offset: 40, skip: [[1]] }, e)\n`, 7,
+      `${copyEditBase}\ncopy('linear', 'x', { count: 3, offset: 40, spacing: 5 }, e)\n`, 7,
     );
     expect(linear).toMatchObject({ ok: false });
     if (linear.ok === false) {
-      expect(linear.reason).toContain(`'skip'`);
+      expect(linear.reason).toContain(`'spacing'`);
     }
     const circular = await parseFeatureStatement(
       `${copyEditBase}\ncopy('circular', 'z', { count: 6, angle: 360, centered: true }, e)\n`, 7,
@@ -4689,6 +4732,56 @@ describe('parseFeatureStatement — copy', () => {
     expect(circular).toMatchObject({ ok: false });
     if (circular.ok === false) {
       expect(circular.reason).toContain(`'centered'`);
+    }
+  });
+
+  it('reads a linear skip list as index tuples', async () => {
+    const code = `${copyEditBase}\ncopy('linear', 'x', { count: 4, offset: 40, skip: [[1], [3]] }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'copy', kind: 'linear', skip: [[1], [3]] },
+    });
+  });
+
+  it('reads a grid skip list, a whole-row entry included', async () => {
+    const code = `${copyEditBase}\ncopy('linear', ['x', 'y'], { count: [3, 2], offset: [40, 30], skip: [[1, 0], [2]] }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { skip: [[1, 0], [2]] },
+    });
+  });
+
+  it("reads a circular skip list as the dialog's single-index tuples", async () => {
+    const code = `${copyEditBase}\ncopy('circular', 'z', { count: 6, angle: 360, skip: [2, 4] }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'copy', kind: 'circular', skip: [[2], [4]] },
+    });
+  });
+
+  it('refuses a skip list that is not plain instance indices', async () => {
+    for (const statement of [
+      `copy('linear', 'x', { count: 3, offset: 40, skip: [[n]] }, e)`,
+      `copy('linear', 'x', { count: 3, offset: 40, skip: [1] }, e)`,
+      `copy('circular', 'z', { count: 6, angle: 360, skip: [[1]] }, e)`,
+    ]) {
+      const result = await parseFeatureStatement(`${copyEditBase}\n${statement}\n`, 7);
+      expect(result, statement).toMatchObject({ ok: false });
+      if (result.ok === false) {
+        expect(result.reason).toContain('skip');
+      }
+    }
+  });
+
+  it('refuses a skip entry wider than the copy has directions', async () => {
+    const code = `${copyEditBase}\ncopy('linear', 'x', { count: 3, offset: 40, skip: [[1, 2]] }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('more indices than the copy has directions');
     }
   });
 
@@ -4741,6 +4834,54 @@ describe('applyFeatureEdit (copy in-place statement edit)', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`copy('circular', 'z', { count: 6, angle: 360 }, e)\n`);
+  });
+
+  /**
+   * The Skip field owns the option outright, the way the Centered toggle does:
+   * a list edits the statement's own, and an emptied field drops it.
+   */
+  it('rewrites and drops the skip list', async () => {
+    const code = `${copyEditBase}\ncopy('linear', 'x', { count: 4, offset: 40, skip: [[1]] }, e)\n`;
+    const rewritten = await applyFeatureEdit(code, editSpec('copy', {
+      line: 7, column: 0,
+      copy: {
+        kind: 'linear',
+        spacingMode: 'offset',
+        directions: [{ axis: { kind: 'keep', sourceIndex: 0 }, count: 4, value: 40 }],
+        skip: [[1], [2]],
+      },
+    }));
+    expect(rewritten.error).toBeUndefined();
+    expect(rewritten.newCode).toBe(
+      `${copyEditBase}\ncopy('linear', 'x', { count: 4, offset: 40, skip: [[1], [2]] }, e)\n`,
+    );
+
+    const dropped = await applyFeatureEdit(code, editSpec('copy', {
+      line: 7, column: 0,
+      copy: {
+        kind: 'linear',
+        spacingMode: 'offset',
+        directions: [{ axis: { kind: 'keep', sourceIndex: 0 }, count: 4, value: 40 }],
+      },
+    }));
+    expect(dropped.error).toBeUndefined();
+    expect(dropped.newCode).toBe(
+      `${copyEditBase}\ncopy('linear', 'x', { count: 4, offset: 40 }, e)\n`,
+    );
+  });
+
+  it('refuses a skip entry wider than the directions it edits', async () => {
+    const code = `${copyEditBase}\ncopy('linear', 'x', { count: 4, offset: 40 }, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('copy', {
+      line: 7, column: 0,
+      copy: {
+        kind: 'linear',
+        spacingMode: 'offset',
+        directions: [{ axis: { kind: 'keep', sourceIndex: 0 }, count: 4, value: 40 }],
+        skip: [[1, 2]],
+      },
+    }));
+    expect(result.error).toBe('malformed copy edit spec: bad skip list');
   });
 
   it('preserves the binding and a chained suffix', async () => {

@@ -3192,6 +3192,41 @@ describe('apply-feature route validation', () => {
       expect(spec.copy.targets).toEqual([{ producer: 0 }]);
     });
 
+    it('writes the skip list each kind spells', async () => {
+      currentCode = CODE;
+      const linear = await post({
+        feature: 'copy', kind: 'linear', targets: [T1], spacingMode: 'offset',
+        directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 4, value: 40 }],
+        skip: [[1], [3]],
+        preview: true,
+      });
+      expect(linear.status).toBe(200);
+      expect(linear.body.preview).toBe("copy('linear', 'x', { count: 4, offset: 40, skip: [[1], [3]] }, f)");
+
+      const circular = await post({
+        feature: 'copy', kind: 'circular', targets: [T1],
+        axis: { kind: 'standard', axis: 'z' }, count: 6, sweep: { mode: 'angle', value: 360 },
+        skip: [[2]],
+        preview: true,
+      });
+      expect(circular.status).toBe(200);
+      expect(circular.body.preview).toBe("copy('circular', 'z', { count: 6, angle: 360, skip: [2] }, f)");
+    });
+
+    it('rejects skip entries that are not whole indices, or wider than the directions', async () => {
+      currentCode = CODE;
+      const base = {
+        feature: 'copy', kind: 'linear', targets: [T1], spacingMode: 'offset',
+        directions: [{ axis: { kind: 'standard', axis: 'x' }, count: 4, value: 40 }],
+        preview: true,
+      };
+      for (const skip of [[[1.5]], [[-1]], [['1']], [[]], [[1, 2]], [1]]) {
+        const { status, body } = await post({ ...base, skip });
+        expect(status, JSON.stringify(skip)).toBe(400);
+        expect(body.error).toContain('skip');
+      }
+    });
+
     it('synthesizes a picked axis edge through the revolve kind', async () => {
       currentCode = CODE;
       currentSynthesis = {
@@ -3273,6 +3308,19 @@ describe('apply-feature route validation', () => {
         },
         clearBreakpoints: true,
       });
+    });
+
+    it('relays the edited skip list onto the edit spec', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'copy', edit: EDIT, kind: 'linear', spacingMode: 'offset',
+        directions: [{ count: 4, value: 40 }],
+        skip: [[1], [3]],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("copy('linear', 'x', { count: 4, offset: 40, skip: [[1], [3]] }, e)");
+      expect(relayed[0].spec.edit.copy.skip).toEqual([[1], [3]]);
     });
 
     it('rewrites the kind to circular, replacing the target list', async () => {

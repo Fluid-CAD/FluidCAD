@@ -5,6 +5,8 @@ import { PickSlot, PickSlotChip } from '../pick-slot';
 import { NewVariable, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
+import { formatSkipEntries, parseSkipEntries, skipRangeError, SKIP_HELP_HTML } from './copy-skip';
+import { HelpPopover, helpIconHtml } from '../../ui/help-popover';
 
 export type CopyType = 'linear' | 'circular';
 
@@ -30,12 +32,16 @@ export type CopyValues =
       centered: boolean;
       /** Count/value per active direction; the axes ride the service. */
       directions: { count: ValueExpr; value: ValueExpr }[];
+      /** Instances to leave out, one index per direction; empty skips none. */
+      skip: number[][];
       newVariables?: NewVariable[];
     }
   | {
       kind: 'circular';
       count: ValueExpr;
       sweep: { mode: 'angle' | 'offset'; value: ValueExpr };
+      /** Instances to leave out, each a single index; empty skips none. */
+      skip: number[][];
       newVariables?: NewVariable[];
     }
   | { error: string };
@@ -50,12 +56,13 @@ export type CopyValues =
  * button revealing a Direction 2 group with its own axis, count and value
  * (its ✕ removes it); more axes stay a hand-written-code affair. Circular
  * reuses the Direction 1 axis slot alone with a count and a Total/Offset
- * angle. Exactly one slot is ARMED at a time — clicked to activate, marked
- * by the primary border (the sweep/loft idiom) — and the viewer's pick
- * channels follow it: the armed Solids slot takes whole-shape picks, an
- * armed axis slot takes axis lines and solid edges. Pure DOM + form state —
- * the service owns scene data, the picked entities, previews, and the apply
- * call.
+ * angle. Both kinds end on a Skip field naming the instances to leave out by
+ * index ({@link parseSkipEntries}). Exactly one slot is ARMED at a time —
+ * clicked to activate, marked by the primary border (the sweep/loft idiom) —
+ * and the viewer's pick channels follow it: the armed Solids slot takes
+ * whole-shape picks, an armed axis slot takes axis lines and solid edges.
+ * Pure DOM + form state — the service owns scene data, the picked entities,
+ * previews, and the apply call.
  */
 export class CopyPanel extends FeaturePanel {
   /** The type dropdown changed — the service re-aims the viewer pick channels. */
@@ -83,6 +90,8 @@ export class CopyPanel extends FeaturePanel {
   private addDirectionBtn: HTMLButtonElement;
   private centeredRow: HTMLElement;
   private centeredInput: HTMLInputElement;
+  private skipInput: HTMLInputElement;
+  private skipHelp: HelpPopover;
   private countField: ExpressionField;
   private spacingField: ExpressionField;
   private sweepField: ExpressionField;
@@ -166,6 +175,14 @@ export class CopyPanel extends FeaturePanel {
           <span class="text-base-content/70">Centered</span>
           <input data-role="centered" type="checkbox" class="toggle toggle-sm toggle-primary" />
         </label>
+        <div class="flex flex-col gap-1.5">
+          <div class="flex items-center gap-1.5">
+            <span class="text-base-content/70">Skip</span>
+            ${helpIconHtml('skip-help', 'How the Skip field works')}
+          </div>
+          <input data-role="skip" type="text" placeholder="e.g. 1, 3"
+            class="input input-sm input-bordered w-full text-xs" />
+        </div>
       `,
     });
 
@@ -232,6 +249,22 @@ export class CopyPanel extends FeaturePanel {
     });
     this.sweepModeSelect.addEventListener('change', () => this.onChange?.());
     this.centeredInput.addEventListener('change', () => this.onChange?.());
+    this.skipInput = this.role('skip');
+    this.skipInput.addEventListener('input', () => this.onChange?.());
+    // The examples open into the viewport beside the dialog: the panel body is
+    // a fixed-width scroller, which would clip them — and they clear the whole
+    // dialog, not just the icon sitting a label's width inside it.
+    this.skipHelp = new HelpPopover(
+      container, this.role('skip-help'), SKIP_HELP_HTML, { clearOf: this.body },
+    );
+    // The one plain text field in the dialog — no ExpressionField owns its
+    // keyboard, so Enter is wired to Apply the way every other field's is.
+    this.skipInput.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        this.onApply?.();
+      }
+    });
     this.countField = this.enhance('count');
     this.spacingField = this.enhance('spacing');
     this.sweepField = this.enhance('sweep');
@@ -283,6 +316,7 @@ export class CopyPanel extends FeaturePanel {
     this.count2Field.setValue(2);
     this.value2Field.setValue(20);
     this.centeredInput.checked = false;
+    this.skipInput.value = '';
     this.setTargets([]);
     // The empty solids list is the first thing to fill — its slot opens
     // armed, taking whole-shape picks right away.
@@ -290,6 +324,15 @@ export class CopyPanel extends FeaturePanel {
     this.syncSpacingLabels();
     this.syncType();
     this.shell.show();
+  }
+
+  /**
+   * Closing the dialog takes the help popover with it — an anchor hidden out
+   * from under the pointer never gets its `mouseleave`.
+   */
+  hide(): void {
+    this.skipHelp.hide();
+    super.hide();
   }
 
   /** Programmatic type choice (selection seeding); no change event fires. */
@@ -313,6 +356,8 @@ export class CopyPanel extends FeaturePanel {
     centered: boolean;
     count: ValueExpr | null;
     sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
+    /** The statement's own skip list; null when it names none. */
+    skip: number[][] | null;
     /** Keep-chip labels, one per statement axis (`axisTexts`). */
     axisLabels: string[];
   }): void {
@@ -329,6 +374,7 @@ export class CopyPanel extends FeaturePanel {
     this.count2Field.setValue(state.directions?.[1]?.count ?? 2);
     this.value2Field.setValue(state.directions?.[1]?.value ?? 20);
     this.centeredInput.checked = state.centered;
+    this.skipInput.value = state.skip ? formatSkipEntries(state.skip) : '';
     this.axisSlots.get(1)!.seedKeep(state.axisLabels[0] ?? null);
     this.axisSlots.get(2)!.seedKeep(state.axisLabels[1] ?? null);
     this.setTargets([]);
@@ -415,8 +461,12 @@ export class CopyPanel extends FeaturePanel {
         reads.push(count, value);
         directions.push({ count: count.value, value: value.value });
       }
+      const skip = this.readSkip(directions.map(d => typeof d.count === 'number' ? d.count : null));
+      if ('error' in skip) {
+        return skip;
+      }
       return {
-        kind, spacingMode, centered: this.centeredInput.checked, directions,
+        kind, spacingMode, centered: this.centeredInput.checked, directions, skip,
         newVariables: collectNewVariables(reads),
       };
     }
@@ -430,10 +480,29 @@ export class CopyPanel extends FeaturePanel {
       return { error: 'Enter a nonzero sweep angle in degrees.' };
     }
     const mode = this.sweepModeSelect.value === 'offset' ? 'offset' : 'angle';
+    const skip = this.readSkip([typeof count.value === 'number' ? count.value : null]);
+    if ('error' in skip) {
+      return skip;
+    }
     return {
-      kind, count: count.value, sweep: { mode, value: value.value },
+      kind, count: count.value, sweep: { mode, value: value.value }, skip,
       newVariables: collectNewVariables([count, value]),
     };
+  }
+
+  /**
+   * The Skip field as index tuples, checked against the counts beside it —
+   * naming an instance the pattern doesn't have is a typo, not a silent no-op.
+   * A count still being typed as an expression stands in as `null` and is left
+   * unchecked; the kernel ignores a stray index either way.
+   */
+  private readSkip(counts: (number | null)[]): number[][] | { error: string } {
+    const entries = parseSkipEntries(this.skipInput.value, counts.length);
+    if ('error' in entries) {
+      return entries;
+    }
+    const range = skipRangeError(entries, counts);
+    return range === null ? entries : { error: range };
   }
 
   /**
@@ -474,6 +543,9 @@ export class CopyPanel extends FeaturePanel {
     this.addDirectionBtn.classList.toggle('hidden', !(linear && !this.dir2));
     this.centeredRow.classList.toggle('hidden', !linear);
     this.centeredRow.classList.toggle('flex', linear);
+    // A grid skips cells, everything else skips instances — the placeholder
+    // says which the field is taking right now.
+    this.skipInput.placeholder = this.directions.length > 1 ? 'e.g. [1, 0], [2, 1]' : 'e.g. 1, 3';
     // An armed Direction 2 slot the circular kind hides falls to Direction 1.
     if (!linear && this.armedSlot === 'axis2') {
       this.armSlot('axis1');

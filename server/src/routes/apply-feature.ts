@@ -1111,10 +1111,41 @@ type CopyRequest = {
   count?: ValueExpr;
   sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
   centered?: boolean;
+  /** Instances to leave out, one index per direction; absent skips none. */
+  skip?: number[][];
 };
 
 export const MAX_COPY_TARGETS = 16;
 const MAX_COPY_DIRECTIONS = 3;
+/** The ceiling on one statement's skip list — the dialog's own (copy-skip.ts). */
+const MAX_COPY_SKIP = 256;
+
+/**
+ * A copy's `skip` option: index tuples naming the instances to leave out, one
+ * index per direction at most (a circular copy states one each). Plain whole
+ * numbers only — a skip names literal positions, never expressions, so the
+ * dialog can check them against the counts beside them. Absent or empty writes
+ * no option at all.
+ */
+function validateCopySkip(raw: unknown, arity: number): number[][] | { error: string } {
+  if (raw === undefined || raw === null) {
+    return [];
+  }
+  if (!Array.isArray(raw) || raw.length > MAX_COPY_SKIP) {
+    return { error: `skip must be at most ${MAX_COPY_SKIP} index tuples` };
+  }
+  const entries: number[][] = [];
+  for (const entry of raw) {
+    if (!Array.isArray(entry) || entry.length === 0 || entry.length > arity) {
+      return { error: `each skip entry must name 1-${arity} instance ${arity > 1 ? 'indices' : 'index'}` };
+    }
+    if (!entry.every(index => Number.isSafeInteger(index) && index >= 0)) {
+      return { error: 'each skip index must be a whole number counting from 0' };
+    }
+    entries.push(entry as number[]);
+  }
+  return entries;
+}
 
 /**
  * The copy request's shape, mirroring {@link validateRepeat} without the
@@ -1190,7 +1221,14 @@ function validateCopy(body: any): CopyRequest | { error: string } {
       }
       directions.push({ axis, count: entry.count, value: entry.value });
     }
-    return { kind, targets: targetLocs, directions, spacingMode, centered: centered === true };
+    const skip = validateCopySkip(body?.skip, directions.length);
+    if ('error' in skip) {
+      return skip;
+    }
+    return {
+      kind, targets: targetLocs, directions, spacingMode, centered: centered === true,
+      skip: skip.length > 0 ? skip : undefined,
+    };
   }
 
   if (body?.directions !== undefined && body?.directions !== null) {
@@ -1223,9 +1261,14 @@ function validateCopy(body: any): CopyRequest | { error: string } {
   if (!validValueExpr(sweep.value, { nonzero: true })) {
     return { error: 'sweep value must be a nonzero number or expression' };
   }
+  const skip = validateCopySkip(body?.skip, 1);
+  if ('error' in skip) {
+    return skip;
+  }
   return {
     kind, targets: targetLocs, axis, count,
     sweep: { mode: sweep.mode, value: sweep.value },
+    skip: skip.length > 0 ? skip : undefined,
   };
 }
 
@@ -2218,8 +2261,15 @@ function validateCopyEdit(
       result.needsPicks ||= axis.kind === 'edge';
       directions.push({ axis, count: entry.count, value: entry.value });
     }
+    const skip = validateCopySkip(body?.skip, directions.length);
+    if ('error' in skip) {
+      return skip;
+    }
     cp.spacingMode = spacingMode;
     cp.centered = centered === true ? true : undefined;
+    // The dialog owns the option outright: an absent list drops the
+    // statement's own, exactly as an unticked `centered` does.
+    cp.skip = skip.length > 0 ? skip : undefined;
     result.copyDirections = directions;
     return result;
   }
@@ -2256,8 +2306,13 @@ function validateCopyEdit(
   if (!validValueExpr(sweep.value, { nonzero: true })) {
     return { error: 'sweep value must be a nonzero number or expression' };
   }
+  const skip = validateCopySkip(body?.skip, 1);
+  if ('error' in skip) {
+    return skip;
+  }
   cp.count = count;
   cp.sweep = { mode: sweep.mode, value: sweep.value };
+  cp.skip = skip.length > 0 ? skip : undefined;
   return result;
 }
 
@@ -4372,6 +4427,7 @@ export function createApplyFeatureRouter(
           count: request.count,
           sweep: request.sweep,
           centered: request.centered === true ? true : undefined,
+          skip: request.skip,
           targets,
         };
         // Truthful preview: the same allocation walk the transform runs.

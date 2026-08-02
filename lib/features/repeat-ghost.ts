@@ -44,10 +44,16 @@ export type RepeatGhostSweep = { mode: 'angle' | 'offset'; value: number };
  * each cell offset by `direction · offset · index` (repeat.ts:157-208).
  * `centered` shifts every index by half its direction's count, which also
  * moves which cell *is* the original (repeat.ts:172-180).
+ *
+ * `skip` leaves cells out by index tuple, matched exactly as the statement
+ * matches them (repeat.ts:183, copy-linear.ts:82): a tuple is compared only as
+ * far as it is stated, so `[1]` in a two-direction grid leaves out the whole
+ * row at index 1.
  */
 export function buildLinearGhostMatrices(
   directions: RepeatGhostDirection[],
   centered: boolean,
+  skip: number[][] = [],
 ): Matrix4[] {
   if (directions.length === 0 || !directions.every(isUsableDirection)) {
     return [];
@@ -67,7 +73,7 @@ export function buildLinearGhostMatrices(
 
   const matrices: Matrix4[] = [];
   for (const cell of cells) {
-    if (isOriginCell(cell, directions, centered)) {
+    if (isOriginCell(cell, directions, centered) || isSkippedCell(cell, skip)) {
       continue;
     }
     let dx = 0, dy = 0, dz = 0;
@@ -165,6 +171,15 @@ function isOriginCell(cell: number[], directions: RepeatGhostDirection[], center
   return centered
     ? cell.every((index, d) => index === Math.floor(directions[d].count / 2))
     : cell.every(index => index === 0);
+}
+
+/**
+ * Whether a `skip` entry names this cell. A tuple is matched only as far as it
+ * is stated (repeat.ts:183, copy-linear.ts:82) — a short one names every cell
+ * whose leading indices agree, so `[1]` in a grid skips a whole row.
+ */
+function isSkippedCell(cell: number[], skip: number[][]): boolean {
+  return skip.some(tuple => tuple.length > 0 && tuple.every((index, d) => index === cell[d]));
 }
 
 /**

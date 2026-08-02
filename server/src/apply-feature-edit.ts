@@ -411,6 +411,12 @@ export type FeatureStatementEditTarget = {
     count?: ValueExpr;
     /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
     sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
+    /**
+     * Instances to leave out, one index per direction. The dialog owns the
+     * option outright — an absent list drops the statement's own, exactly as
+     * an unticked `centered` does.
+     */
+    skip?: number[][];
     /** Full replacement target list; absent keeps the statement's targets. */
     targets?: RepeatEditTargetSource[];
   };
@@ -723,6 +729,12 @@ export type CopyEditOptions = {
   sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
   /** Linear only: center the pattern on the original instance. */
   centered?: boolean;
+  /**
+   * Instances to leave out, one index per direction — the `skip` option
+   * (copy-linear.ts:82, copy-circular.ts:55). A circular copy's entries carry
+   * a single index each and render flat; absent writes no option.
+   */
+  skip?: number[][];
   /** The features being copied, in argument order — bound producers. */
   targets: { producer: number }[];
 };
@@ -2268,28 +2280,59 @@ export function renderRepeatPlaneExpr(
  * preview so the previewed text is exactly what the transform writes.
  */
 export function renderCopyStatement(
-  cp: Pick<CopyEditOptions, 'kind' | 'spacingMode' | 'centered' | 'count' | 'sweep'>
+  cp: Pick<CopyEditOptions, 'kind' | 'spacingMode' | 'centered' | 'count' | 'sweep' | 'skip'>
     & { directions?: { count: ValueExpr; value: ValueExpr }[] },
   inputExprs: string[],
   targetExprs: string[],
 ): string {
   const single = inputExprs.length === 1;
   const args = [`'${cp.kind}'`, single ? inputExprs[0] : `[${inputExprs.join(', ')}]`];
+  const skip = cp.skip && cp.skip.length > 0 ? renderCopySkip(cp.skip, cp.kind) : null;
+  const entries: string[] = [];
   if (cp.kind === 'linear') {
     const counts = cp.directions!.map(d => formatValue(d.count));
     const values = cp.directions!.map(d => formatValue(d.value));
-    const entries = [
+    entries.push(
       `count: ${single ? counts[0] : `[${counts.join(', ')}]`}`,
       `${cp.spacingMode}: ${single ? values[0] : `[${values.join(', ')}]`}`,
-    ];
+    );
     if (cp.centered) {
       entries.push('centered: true');
     }
-    args.push(`{ ${entries.join(', ')} }`);
   } else {
-    args.push(`{ count: ${formatValue(cp.count)}, ${cp.sweep!.mode}: ${formatValue(cp.sweep!.value)} }`);
+    entries.push(
+      `count: ${formatValue(cp.count)}`,
+      `${cp.sweep!.mode}: ${formatValue(cp.sweep!.value)}`,
+    );
   }
+  if (skip) {
+    entries.push(`skip: ${skip}`);
+  }
+  args.push(`{ ${entries.join(', ')} }`);
   return `copy(${[...args, ...targetExprs].join(', ')})`;
+}
+
+/**
+ * A skip list a copy statement can carry: index tuples of plain non-negative
+ * whole numbers, no wider than the copy has directions.
+ */
+function validCopySkip(skip: number[][], arity: number): boolean {
+  return Array.isArray(skip) && skip.every(tuple =>
+    Array.isArray(tuple) && tuple.length > 0 && tuple.length <= arity
+    && tuple.every(index => Number.isSafeInteger(index) && index >= 0));
+}
+
+/**
+ * A skip list in the form its kind reads: a linear copy matches index tuples
+ * against grid cells (copy-linear.ts:82) and takes `[[1], [3]]`; a circular one
+ * matches a single instance index (copy-circular.ts:55) and takes `[1, 3]` —
+ * the same tuples, flattened.
+ */
+function renderCopySkip(skip: number[][], kind: 'linear' | 'circular'): string {
+  const entries = kind === 'circular'
+    ? skip.map(tuple => String(tuple[0]))
+    : skip.map(tuple => `[${tuple.join(', ')}]`);
+  return `[${entries.join(', ')}]`;
 }
 
 /**
@@ -3351,6 +3394,12 @@ export type ParsedFeatureStatement =
     count: ValueExpr | null;
     /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
     sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
+    /**
+     * The instances the statement leaves out, one index per direction — a
+     * circular copy's flat indices come back as single-index tuples. Null when
+     * the statement names none.
+     */
+    skip: number[][] | null;
     /** Trailing target texts, verbatim; empty replays the previous feature. */
     targetTexts: string[];
     /**
@@ -4472,8 +4521,8 @@ function parseRepeatChain(
  * Axis and target expressions are preserved verbatim, numeric options must be
  * plain literals. A linear copy reads its options object — count and
  * offset/length as scalars or matched-arity arrays (a scalar broadcasts
- * across the directions, the kernel's own rule) — and refuses options the
- * dialog doesn't offer (`skip`, circular `centered`).
+ * across the directions, the kernel's own rule), plus a `skip` list of index
+ * tuples — and refuses options the dialog doesn't offer (circular `centered`).
  */
 function parseCopyChain(
   args: TSNode[],
@@ -4497,6 +4546,7 @@ function parseCopyChain(
     centered: false,
     count: null as ValueExpr | null,
     sweep: null as { mode: 'angle' | 'offset'; value: ValueExpr } | null,
+    skip: null as number[][] | null,
     targetTexts: [] as string[],
     targetRefs: [] as ({ line: number; column: number } | null)[],
   };
@@ -4524,9 +4574,13 @@ function parseCopyChain(
       return { error: 'a circular copy around a center point is not editable in the dialog — edit it in the source' };
     }
     for (const key of options.keys()) {
-      if (key !== 'count' && key !== 'angle' && key !== 'offset') {
+      if (key !== 'count' && key !== 'angle' && key !== 'offset' && key !== 'skip') {
         return { error: `the copy option '${key}' is not editable in the dialog — edit it in the source` };
       }
+    }
+    const skip = parseCopySkip(options.get('skip'), 'circular');
+    if ('error' in skip) {
+      return skip;
     }
     const countNode = options.get('count');
     const count = countNode ? anyValueArg(countNode) : null;
@@ -4544,7 +4598,11 @@ function parseCopyChain(
       return { error: `the copy ${mode} is not a plain number or expression — edit it in the source` };
     }
     return {
-      parsed: { ...base, axisTexts, count, sweep: { mode, value }, ...targets },
+      parsed: {
+        ...base, axisTexts, count, sweep: { mode, value },
+        skip: skip.entries.length > 0 ? skip.entries : null,
+        ...targets,
+      },
       start,
       end,
     };
@@ -4555,9 +4613,16 @@ function parseCopyChain(
     return { error: 'a linear copy over more than two directions is not editable in the dialog — edit it in the source' };
   }
   for (const key of options.keys()) {
-    if (key !== 'count' && key !== 'offset' && key !== 'length' && key !== 'centered') {
+    if (key !== 'count' && key !== 'offset' && key !== 'length' && key !== 'centered' && key !== 'skip') {
       return { error: `the copy option '${key}' is not editable in the dialog — edit it in the source` };
     }
+  }
+  const skip = parseCopySkip(options.get('skip'), 'linear');
+  if ('error' in skip) {
+    return skip;
+  }
+  if (skip.entries.some(tuple => tuple.length > axisTexts.length)) {
+    return { error: 'a copy skip names more indices than the copy has directions — edit it in the source' };
   }
   const countNode = options.get('count');
   const counts = countNode ? numericArrayValues(countNode) : null;
@@ -4611,11 +4676,70 @@ function parseCopyChain(
       directions: dirCounts.map((count, i) => ({ count, value: dirValues[i] })),
       spacingMode,
       centered,
+      skip: skip.entries.length > 0 ? skip.entries : null,
       ...targets,
     },
     start,
     end,
   };
+}
+
+/**
+ * A copy's `skip` option as index tuples. Both spellings the kernel takes are
+ * read into the one tuple form the dialog carries: a linear copy's array of
+ * arrays (copy-linear.ts:82), and a circular copy's flat instance indices
+ * (copy-circular.ts:55), which come back as single-index tuples. Plain
+ * non-negative integer literals only — anything else (an expression, a
+ * variable, a nested array in a circular list) belongs in the source.
+ */
+function parseCopySkip(
+  node: TSNode | undefined,
+  kind: 'linear' | 'circular',
+): { entries: number[][] } | { error: string } {
+  if (node === undefined) {
+    return { entries: [] };
+  }
+  const malformed = { error: 'the copy skip is not a plain list of instance indices — edit it in the source' };
+  if (node.type !== 'array') {
+    return malformed;
+  }
+  const readIndex = (child: TSNode): number | null => {
+    const value = numericArgValue(child);
+    return value !== null && Number.isSafeInteger(value) && value >= 0 ? value : null;
+  };
+  const entries: number[][] = [];
+  for (const child of node.namedChildren) {
+    if (child.type === 'comment') {
+      continue;
+    }
+    if (kind === 'circular') {
+      const index = readIndex(child);
+      if (index === null) {
+        return malformed;
+      }
+      entries.push([index]);
+      continue;
+    }
+    if (child.type !== 'array') {
+      return malformed;
+    }
+    const tuple: number[] = [];
+    for (const part of child.namedChildren) {
+      if (part.type === 'comment') {
+        continue;
+      }
+      const index = readIndex(part);
+      if (index === null) {
+        return malformed;
+      }
+      tuple.push(index);
+    }
+    if (tuple.length === 0) {
+      return malformed;
+    }
+    entries.push(tuple);
+  }
+  return { entries };
 }
 
 /**
@@ -5599,6 +5723,10 @@ function renderEditedCopy(
     }
     inputExprs = [expr];
   }
+  if (opts.skip !== undefined
+    && !validCopySkip(opts.skip, opts.kind === 'linear' ? inputExprs.length : 1)) {
+    return { error: 'malformed copy edit spec: bad skip list' };
+  }
 
   let targetExprs = parsed.targetTexts;
   if (opts.targets !== undefined) {
@@ -5639,6 +5767,7 @@ function renderEditedCopy(
         centered: opts.centered,
         count: opts.count,
         sweep: opts.sweep,
+        skip: opts.skip,
       },
       inputExprs,
       targetExprs,

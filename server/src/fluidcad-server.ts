@@ -332,6 +332,11 @@ export type CopyGhostRequest = {
   count: number | null;
   /** Circular: the whole sweep to divide, or the step between neighbours. */
   sweep: { mode: 'angle' | 'offset'; value: number } | null;
+  /**
+   * Instances the copy leaves out, one index per direction — a circular
+   * copy's entries carry a single index each. Absent skips none.
+   */
+  skip?: number[][];
 };
 
 /**

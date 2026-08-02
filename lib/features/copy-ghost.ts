@@ -27,13 +27,15 @@ import {
  * counts, each cell offset by `direction · offset · index`, `centered` shifting
  * every index by half its count (copy-linear.ts:64-98 statement for statement
  * against repeat.ts:157-208) — so the layout is the repeat's, under the copy's
- * name at the call site.
+ * name at the call site. `skip` leaves cells out by index tuple, matched as far
+ * as each tuple is stated (copy-linear.ts:82), which is the repeat's rule too.
  */
 export function buildLinearCopyGhostMatrices(
   directions: RepeatGhostDirection[],
   centered: boolean,
+  skip: number[][] = [],
 ): Matrix4[] {
-  return buildLinearGhostMatrices(directions, centered);
+  return buildLinearGhostMatrices(directions, centered, skip);
 }
 
 /**
@@ -47,12 +49,16 @@ export function buildLinearCopyGhostMatrices(
  * the original does not move, so index 0 is left alone as in the apply. The
  * copy dialog offers it for linear patterns only — a hand-written circular
  * statement can still carry it, and the ghost honors what the statement says.
+ *
+ * `skip` names instances by index, counting the original as 0
+ * (copy-circular.ts:55) — the same numbers the dialog's Skip field takes.
  */
 export function buildCircularCopyGhostMatrices(
   axis: Axis,
   count: number,
   sweep: RepeatGhostSweep,
   centered: boolean,
+  skip: number[] = [],
 ): Matrix4[] {
   if (!isUsableGhostCount(count) || !isUsableGhostAxis(axis) || !Number.isFinite(sweep.value)) {
     return [];
@@ -65,6 +71,9 @@ export function buildCircularCopyGhostMatrices(
   const start = centered ? -(count * step) / 2 : 0;
   const matrices: Matrix4[] = [];
   for (let i = 1; i < count; i++) {
+    if (skip.includes(i)) {
+      continue;
+    }
     matrices.push(ghostRotation(axis, start + step * i));
   }
   return matrices;

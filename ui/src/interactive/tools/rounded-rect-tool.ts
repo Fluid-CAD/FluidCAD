@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn, PickedPoint } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
@@ -30,12 +30,12 @@ export class RoundedRectTool extends SketchTool {
   readonly icon = ICON_ROUNDED_RECT;
 
   private startPoint: [number, number] | null = null;
+  /** The start corner as picked: same position, plus any typed axis expressions. */
+  private startPick: PickedPoint | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private readonly centered: boolean;
   private expressionInput: ExpressionInput;
-  private fetchVariables: FetchVariablesFn;
-  private cachedVariables: VariableInfo[] = [];
   private lastClientX = 0;
   private lastClientY = 0;
 
@@ -63,9 +63,8 @@ export class RoundedRectTool extends SketchTool {
     fetchVariables: FetchVariablesFn,
     centered: boolean,
   ) {
-    super(ctx, plane, snapController, insertGeometry);
+    super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.expressionInput = new ExpressionInput(container);
-    this.fetchVariables = fetchVariables;
     this.centered = centered;
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
@@ -73,16 +72,15 @@ export class RoundedRectTool extends SketchTool {
     this.boundKeyDown = this.handleKeyDown.bind(this);
   }
 
-  activate(): void {
+  protected onActivate(): void {
     this.addPreviewToScene();
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
-  deactivate(): void {
+  protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
@@ -94,11 +92,31 @@ export class RoundedRectTool extends SketchTool {
   onSceneUpdate(sceneObjects: SceneObjectRender[], sketchId: string): void {
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane, this.ctx);
     this.updateSnapManager(snapManager);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
+    this.refreshVariables();
+  }
+
+  /** The start corner is the point that lands in the source; the second click
+   * sizes the rectangle, which the expression input already covers. */
+  protected override awaitingPoint(): boolean {
+    return this.startPoint === null;
+  }
+
+  protected override onTypedPoint(point: PickedPoint): void {
+    this.consumeStart(point);
+  }
+
+  /** Single writer for both halves of the anchor, so the position the preview
+   * draws and the expressions the statement emits cannot drift. */
+  private consumeStart(start: PickedPoint): void {
+    this.startPick = start;
+    this.startPoint = start.value;
+    this.syncPointInput();
+    this.rebuildPreview();
   }
 
   private resetState(): void {
     this.startPoint = null;
+    this.startPick = null;
     this.mousePoint = null;
     this.expressionPhase = 'width';
     this.widthExpression = null;
@@ -131,8 +149,7 @@ export class RoundedRectTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (!this.startPoint) {
-      this.startPoint = point;
-      this.rebuildPreview();
+      this.consumeStart(this.applyPointInput(result.point2d));
       return;
     }
 
@@ -143,7 +160,7 @@ export class RoundedRectTool extends SketchTool {
     } else if (this.expressionPhase === 'radius') {
       const radius = this.computeRadiusFromMouse(point);
       this.commitRoundedRect(
-        this.startPoint,
+        this.startPick!,
         this.widthExpression!,
         this.heightExpression!,
         { expression: String(radius) },
@@ -174,6 +191,11 @@ export class RoundedRectTool extends SketchTool {
 
   private handleKeyDown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
+      // Typed coordinates clear first; only a clean pill lets Escape
+      // fall through to cancelling the in-progress shape.
+      if (this.handlePointInputEscape()) {
+        return;
+      }
       if (this.startPoint) {
         this.resetState();
         this.rebuildPreview();
@@ -431,7 +453,7 @@ export class RoundedRectTool extends SketchTool {
 
     const finalWidth = this.resolveSignedExpression(this.widthExpression, this.widthIsNumeric, this.lockedWidth, 0);
     const finalHeight = this.resolveSignedExpression(this.heightExpression, this.heightIsNumeric, this.lockedHeight, 1);
-    this.commitRoundedRect(this.startPoint, finalWidth, finalHeight, result);
+    this.commitRoundedRect(this.startPick!, finalWidth, finalHeight, result);
     this.resetState();
     this.rebuildPreview();
   }
@@ -504,28 +526,20 @@ export class RoundedRectTool extends SketchTool {
   }
 
   private commitRoundedRect(
-    start: [number, number],
+    start: PickedPoint,
     widthResult: CommitResult,
     heightResult: CommitResult,
     radiusResult: CommitResult,
   ): void {
-    const atCurrent = this.isAtCurrentPosition(start);
-    let statement: string;
-    if (atCurrent) {
-      statement = `rect(${widthResult.expression}, ${heightResult.expression})`;
-    } else {
-      statement = `rect(${this.formatPoint(start)}, ${widthResult.expression}, ${heightResult.expression})`;
-    }
-
-    statement += `.radius(${radiusResult.expression})`;
-
-    if (this.centered) {
-      statement += '.centered()';
-    }
-
+    const suffix = `.radius(${radiusResult.expression})${this.centered ? '.centered()' : ''}`;
     const newVariables = [widthResult.newVariable, heightResult.newVariable, radiusResult.newVariable]
       .filter((v): v is NonNullable<typeof v> => v !== undefined);
-    this.insertGeometry(statement, newVariables);
+    this.insertAtPoint(
+      start,
+      (point) => `rect(${point}, ${widthResult.expression}, ${heightResult.expression})${suffix}`,
+      () => `rect(${widthResult.expression}, ${heightResult.expression})${suffix}`,
+      newVariables,
+    );
   }
 
   private rebuildPreview(): void {

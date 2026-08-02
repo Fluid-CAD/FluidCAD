@@ -110,6 +110,20 @@ export function updatePosition(
   return postCodeEdit<CodeEditResult>(serverUrl, 'update-position', { code, sourceLine, newPosition, pointIndex }, logger);
 }
 
+export function updatePointExpression(
+  serverUrl: string, code: string, sourceLine: number,
+  xExpr: string, yExpr: string, logger: vscode.OutputChannel,
+  sketchSourceLine: number | null = null,
+  newVariable: { name: string; initializer: string }[] | null = null,
+  pointIndex = 0,
+) {
+  return postCodeEdit<CodeEditResult>(
+    serverUrl, 'update-point-expression',
+    { code, sourceLine, xExpr, yExpr, sketchSourceLine, newVariable, pointIndex },
+    logger,
+  );
+}
+
 export function setLinePosition(
   serverUrl: string, code: string, sourceLine: number,
   newStart: [number, number], newEnd: [number, number], logger: vscode.OutputChannel,

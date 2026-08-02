@@ -32,6 +32,11 @@ function makeTool(inserted: Inserted[]): { tool: any; input: HTMLInputElement } 
   tool.cachedVariables = [];
   tool.currentPosition = null;
   tool.startPoint = [0, 0];
+  // The anchor's two halves are written together by `consumeStart`; the
+  // harness skips that, so inject the pick the origin click would have made.
+  tool.startPick = {
+    value: [0, 0], xExpr: '0', yExpr: '0', newVariables: [], typed: false,
+  };
   tool.mousePoint = [30, 20];
   tool.lastClientX = 100;
   tool.lastClientY = 100;

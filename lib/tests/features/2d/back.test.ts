@@ -25,6 +25,21 @@ describe("back", () => {
     expect(bbox.minY).toBeCloseTo(20, 0);
   });
 
+  it("should count a relative move as one cursor change", () => {
+    sketch("xy", () => {
+      move([30, 20]);
+      move(100, 100);
+      back();
+      rect(10, 10);
+    });
+    const e = extrude(5) as ExtrudeBase;
+    render();
+
+    const bbox = ShapeOps.getBoundingBox(e.getShapes()[0]);
+    expect(bbox.minX).toBeCloseTo(30, 0);
+    expect(bbox.minY).toBeCloseTo(20, 0);
+  });
+
   it("should revert N positions back when given a count", () => {
     sketch("xy", () => {
       hMove(10);

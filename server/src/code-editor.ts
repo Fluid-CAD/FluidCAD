@@ -202,6 +202,26 @@ function isPointLikeArg(node: TSNode): boolean {
   return true;
 }
 
+/**
+ * An `[x, y]` array literal — the only point form with per-axis source text.
+ * `isPointLikeArg` deliberately also accepts identifiers and lazy accessors,
+ * which the expression editor must refuse rather than clobber.
+ */
+function isPointLiteral(node: TSNode): boolean {
+  return node.type === 'array' && node.namedChildren.length === 2;
+}
+
+/** The Nth chain point argument, when it is an editable `[x, y]` literal. */
+function pointLiteralAt(call: TSNode, pointIndex: number): TSNode | null {
+  const pointArgs = collectChainPointArgs(call);
+  const idx = pointIndex >= 0 ? pointIndex : pointArgs.length + pointIndex;
+  if (idx < 0 || idx >= pointArgs.length) {
+    return null;
+  }
+  const node = pointArgs[idx];
+  return isPointLiteral(node) ? node : null;
+}
+
 function collectChainPointArgs(call: TSNode): TSNode[] {
   const calls: TSNode[] = [];
   let current: TSNode | null = call;
@@ -1477,6 +1497,94 @@ export function insertGeometryCallWithVariable(
 ): Promise<CodeEditResult> {
   return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
     (c) => insertGeometryCall(c, sketchSourceLine, statement));
+}
+
+/**
+ * The two element expressions of a point argument, as authored. Only an
+ * `[x, y]` literal has them — a `Point2DLike` may also be an identifier or a
+ * lazy accessor (`circle(hole.center(), 5)`), which has no per-axis text.
+ */
+export async function getPointExpression(
+  code: string,
+  sourceLine: number,
+  pointIndex = 0,
+): Promise<{ x: string; y: string } | null> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const lines = splitLines(code);
+  const call = findEditableCallAt(tree, lines, sourceLine);
+  if (!call) {
+    return null;
+  }
+  const node = pointLiteralAt(call, pointIndex);
+  if (!node) {
+    return null;
+  }
+  return { x: node.namedChildren[0].text, y: node.namedChildren[1].text };
+}
+
+/**
+ * Rewrite a point argument from per-axis expressions, so a coordinate typed
+ * as `w / 2` reaches the source verbatim rather than as a number. The numeric
+ * sibling `updateGeometryPosition` stays the drag path.
+ *
+ * Refuses when the target is not an `[x, y]` literal: overwriting an
+ * identifier or a lazy accessor would silently drop a parametric reference.
+ * Inserts the argument when the call has no point yet, matching the numeric
+ * path's promotion of `circle(20)` to `circle([x, y], 20)`.
+ */
+export async function updatePointExpression(
+  code: string,
+  sourceLine: number,
+  xExpr: string,
+  yExpr: string,
+  pointIndex = 0,
+): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const pointText = `[${xExpr}, ${yExpr}]`;
+
+    const pointArgs = collectChainPointArgs(call);
+    const targetIdx = pointIndex >= 0 ? pointIndex : pointArgs.length + pointIndex;
+
+    if (targetIdx >= 0 && targetIdx < pointArgs.length) {
+      const target = pointArgs[targetIdx];
+      if (!isPointLiteral(target)) {
+        return null;
+      }
+      return spliceCode(code, target.startIndex, target.endIndex, pointText);
+    }
+
+    if (pointIndex === 0 && pointArgs.length === 0) {
+      const args = getArgumentsNode(call);
+      if (!args) {
+        return null;
+      }
+      const firstArg = args.namedChildren[0];
+      if (!firstArg) {
+        return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText);
+      }
+      return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText + ', ');
+    }
+
+    return null;
+  });
+}
+
+export function updatePointExpressionWithVariable(
+  code: string,
+  sourceLine: number,
+  xExpr: string,
+  yExpr: string,
+  sketchSourceLine: number,
+  newVariable: NewVariableDecl | NewVariableDecl[] | null,
+  pointIndex = 0,
+): Promise<CodeEditResult> {
+  return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
+    (c, shift) => updatePointExpression(c, sourceLine + shift, xExpr, yExpr, pointIndex));
 }
 
 export function updateDimensionExpressionWithVariable(

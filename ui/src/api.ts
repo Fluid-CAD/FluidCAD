@@ -649,6 +649,28 @@ export function updatePosition(
   postFireAndForget('/api/update-position', { newPosition, sourceLocation, pointIndex });
 }
 
+/**
+ * Rewrite a point from per-axis expressions — the coordinate pill's commit.
+ * `updatePosition` above stays the numeric drag path.
+ */
+export function updatePointExpression(
+  xExpr: string,
+  yExpr: string,
+  sourceLocation: SourceLocationParam,
+  sketchSourceLine: number | null,
+  newVariable?: { name: string; initializer: string }[] | null,
+  pointIndex?: number,
+): void {
+  postFireAndForget('/api/update-point-expression', {
+    xExpr,
+    yExpr,
+    sourceLocation,
+    sketchSourceLine,
+    newVariable: newVariable && newVariable.length > 0 ? newVariable : null,
+    pointIndex: pointIndex ?? 0,
+  });
+}
+
 export function setChainPositions(
   updates: { pointIndex: number; position: [number, number] }[],
   sourceLocation: SourceLocationParam,
@@ -690,6 +712,17 @@ export function updateDimensionExpression(
 // ---------------------------------------------------------------------------
 // Queries (async with response)
 // ---------------------------------------------------------------------------
+
+export async function getPointExpression(
+  sourceLine: number,
+  pointIndex?: number,
+): Promise<{ x: string; y: string } | null> {
+  const result = await postJson('/api/point-expression', {
+    sourceLine,
+    pointIndex: pointIndex ?? 0,
+  }) as { point: { x: string; y: string } | null };
+  return result.point;
+}
 
 export async function getDimensionExpression(
   sourceLine: number,

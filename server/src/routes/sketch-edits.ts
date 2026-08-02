@@ -22,6 +22,8 @@ import {
   updateDimension,
   updateDimensionExpressionWithVariable,
   getDimensionExpression,
+  getPointExpression,
+  updatePointExpressionWithVariable,
   extractVariablesInScope,
   setRectDimensions,
 } from '../code-editor.ts';
@@ -344,6 +346,36 @@ export function createSketchEditsRouter(
     res.json({ success: true });
   });
 
+  router.post('/update-point-expression', (req, res) => {
+    const { xExpr, yExpr, sourceLocation, sketchSourceLine, newVariable, pointIndex } = req.body;
+    if (
+      typeof xExpr !== 'string' || typeof yExpr !== 'string' ||
+      !sourceLocation || typeof sourceLocation.line !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const nv = validateNewVariable(newVariable);
+    if (nv === false) {
+      res.status(400).json({ error: 'Invalid newVariable' });
+      return;
+    }
+    if (nv && typeof sketchSourceLine !== 'number') {
+      res.status(400).json({ error: 'sketchSourceLine required when newVariable is provided' });
+      return;
+    }
+    sendToExtension({
+      type: 'update-point-expression',
+      xExpr,
+      yExpr,
+      sourceLocation,
+      sketchSourceLine: typeof sketchSourceLine === 'number' ? sketchSourceLine : null,
+      newVariable: nv,
+      pointIndex: typeof pointIndex === 'number' ? pointIndex : 0,
+    });
+    res.json({ success: true });
+  });
+
   router.post('/set-rect-dimensions', (req, res) => {
     const { startPoint, width, height, sourceLocation } = req.body;
     if (
@@ -388,6 +420,26 @@ export function createSketchEditsRouter(
         code, typeof sketchSourceLine === 'number' ? sketchSourceLine : Number.MAX_SAFE_INTEGER,
       );
       res.json({ variables });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/point-expression', async (req, res) => {
+    const { sourceLine, pointIndex } = req.body;
+    if (typeof sourceLine !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const code = fluidCadServer.getCurrentCode();
+    if (!code) {
+      res.json({ point: null });
+      return;
+    }
+    try {
+      const result = await getPointExpression(code, sourceLine,
+        typeof pointIndex === 'number' ? pointIndex : 0);
+      res.json({ point: result ?? null });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
     }
@@ -757,6 +809,37 @@ export function createSketchEditsRouter(
         typeof dimensionCall === 'string' ? dimensionCall : null,
         dimensionInsert === true,
         validPoint(dimensionPoint),
+      );
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/update-point-expression', async (req, res) => {
+    const { code, sourceLine, xExpr, yExpr, sketchSourceLine, newVariable, pointIndex } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      typeof xExpr !== 'string' || typeof yExpr !== 'string'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const nv = validateNewVariable(newVariable);
+    if (nv === false) {
+      res.status(400).json({ error: 'Invalid newVariable' });
+      return;
+    }
+    if (nv && typeof sketchSourceLine !== 'number') {
+      res.status(400).json({ error: 'sketchSourceLine required when newVariable is provided' });
+      return;
+    }
+    try {
+      const result = await updatePointExpressionWithVariable(
+        code, sourceLine, xExpr, yExpr,
+        typeof sketchSourceLine === 'number' ? sketchSourceLine : sourceLine,
+        nv,
+        typeof pointIndex === 'number' ? pointIndex : 0,
       );
       res.json(result);
     } catch (err: any) {

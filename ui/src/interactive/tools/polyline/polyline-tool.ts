@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn, PickedPoint } from '../../sketch-tool';
 import { SceneContext } from '../../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../../types';
 import { SnapController } from '../../../snapping/snap-controller';
@@ -38,8 +38,6 @@ export class PolylineTool extends SketchTool {
 
   private modes: SegmentMode[];
   private expressionInput: ExpressionInput;
-  private fetchVariables: FetchVariablesFn;
-  private cachedVariables: VariableInfo[] = [];
   private modeIndicator: ModeIndicator;
 
   private sceneObjects: SceneObjectRender[] = [];
@@ -68,9 +66,8 @@ export class PolylineTool extends SketchTool {
     container: HTMLElement,
     fetchVariables: FetchVariablesFn,
   ) {
-    super(ctx, plane, snapController, insertGeometry);
+    super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.expressionInput = new ExpressionInput(container);
-    this.fetchVariables = fetchVariables;
     this.modeIndicator = new ModeIndicator(container);
 
     this.modes = [
@@ -90,24 +87,28 @@ export class PolylineTool extends SketchTool {
     this.expressionInput.onSpaceOverride = () => {
       this.cycleMode(1);
     };
+    // Space keeps cycling modes while a coordinate field has focus, matching
+    // the dimension input — otherwise typing a start point would trap it.
+    this.pointInput.onSpaceOverride = () => {
+      this.cycleMode(1);
+    };
   }
 
   private get currentMode(): SegmentMode {
     return this.modes[this.currentModeIndex];
   }
 
-  activate(): void {
+  protected onActivate(): void {
     this.addPreviewToScene();
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
     window.addEventListener('keyup', this.boundKeyUp);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
     this.modeIndicator.show(this.currentMode.id);
   }
 
-  deactivate(): void {
+  protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
@@ -128,7 +129,7 @@ export class PolylineTool extends SketchTool {
     this.sketchId = sketchId;
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane, this.ctx);
     this.updateSnapManager(snapManager);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
+    this.refreshVariables();
 
     if (this.phase === PolylinePhase.DRAWING && this.startPoint) {
       this.resyncChainStateFromScene();
@@ -136,6 +137,11 @@ export class PolylineTool extends SketchTool {
   }
 
   override handleEscape(): boolean {
+    // Typed coordinates clear first; only a clean pill lets Escape fall
+    // through to backing out of the chain.
+    if (this.handlePointInputEscape()) {
+      return true;
+    }
     const ctx = this.buildModeContext();
     if (ctx && this.currentMode.handleEscape(ctx)) {
       this.rebuildPreview();
@@ -233,23 +239,7 @@ export class PolylineTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (this.phase === PolylinePhase.IDLE) {
-      // Continuing the existing chain anchors to the kernel's exact cursor,
-      // not the rounded click — a tArc emitted from an offset start would
-      // rebuild slightly away from the rendered chain end.
-      this.startPoint = this.currentPosition && this.isAtCurrentPosition(point)
-        ? [this.currentPosition[0], this.currentPosition[1]]
-        : point;
-      this.phase = PolylinePhase.DRAWING;
-      this.tangent = this.findTangentAtPoint(this.startPoint);
-
-      if (!this.isModeUsable(this.currentMode, this.buildModeContext())) {
-        this.advanceToNextValidMode();
-      }
-
-      const modeCtx = this.buildModeContext()!;
-      this.currentMode.enter(modeCtx);
-      this.modeIndicator.update(this.currentMode.id);
-      this.rebuildPreview();
+      this.beginChainAt(this.applyPointInput(result.point2d));
       return;
     }
 
@@ -265,6 +255,50 @@ export class PolylineTool extends SketchTool {
     } else {
       this.rebuildPreview();
     }
+  }
+
+  /** Only the first vertex of a fresh chain; every later click is a segment,
+   * whose dimension the mode's own input already covers. */
+  protected override awaitingPoint(): boolean {
+    return this.phase === PolylinePhase.IDLE;
+  }
+
+  protected override onTypedPoint(point: PickedPoint): void {
+    this.beginChainAt(point);
+  }
+
+  /**
+   * Open a chain at a picked point. A typed address is written out as its own
+   * `move(...)`: the modes emit chained forms off the cursor, which has no
+   * way to carry a typed expression, so the cursor has to go there for real.
+   */
+  private beginChainAt(picked: PickedPoint): void {
+    if (picked.typed) {
+      const statement = this.relativeMovePrefix(picked) ?? `move(${this.formatPoint(picked)})`;
+      this.insertGeometry(
+        statement,
+        picked.newVariables.length > 0 ? picked.newVariables : undefined,
+      );
+    }
+
+    // Continuing the existing chain anchors to the kernel's exact cursor,
+    // not the rounded click — a tArc emitted from an offset start would
+    // rebuild slightly away from the rendered chain end.
+    this.startPoint = this.currentPosition && !picked.typed && this.isAtCurrentPosition(picked.value)
+      ? [this.currentPosition[0], this.currentPosition[1]]
+      : picked.value;
+    this.phase = PolylinePhase.DRAWING;
+    this.tangent = this.findTangentAtPoint(this.startPoint);
+
+    if (!this.isModeUsable(this.currentMode, this.buildModeContext())) {
+      this.advanceToNextValidMode();
+    }
+
+    const modeCtx = this.buildModeContext()!;
+    this.currentMode.enter(modeCtx);
+    this.modeIndicator.update(this.currentMode.id);
+    this.syncPointInput();
+    this.rebuildPreview();
   }
 
   private handleMouseMove(e: MouseEvent): void {

@@ -528,6 +528,9 @@ describe('PolylineTool Escape delegation', () => {
     tool.startPoint = [0, 0];
     tool.tangent = null;
     tool.expressionInput = { hide: () => {} };
+    // The coordinate pill declines a clean Escape, so the chain-ending path
+    // below is reached exactly as it is with a real one.
+    tool.pointInput = { handleEscape: () => false };
     tool.buildModeContext = () => (tool.startPoint ? ctx : null);
     tool.rebuildPreview = () => {};
     return { tool, ctx };

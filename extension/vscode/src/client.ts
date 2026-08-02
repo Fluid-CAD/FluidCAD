@@ -32,6 +32,7 @@ import {
   handleSetChainPositions,
   handleUpdateDimension,
   handleUpdateDimensionExpression,
+  handleUpdatePointExpression,
   handleSetRectDimensions,
   handleApplyFeatureEdit,
   handleRemoveFeature,
@@ -202,6 +203,10 @@ export class Client {
       }
       case 'update-dimension-expression': {
         handleUpdateDimensionExpression(this, msg);
+        break;
+      }
+      case 'update-point-expression': {
+        handleUpdatePointExpression(this, msg);
         break;
       }
       case 'set-rect-dimensions': {

@@ -117,6 +117,12 @@ export class SketchToolbarService {
 
     this.shortcuts = new ShortcutManager();
     this.shortcuts.register('n', () => this.lookAlongSketchNormal());
+    // While an armed tool's coordinate pill is up it takes the next printable
+    // key to open itself, so both shortcut tries stand down — the pill is a
+    // visible field, and coordinates are expressions, not just digits.
+    const pillWantsKeys = () => this.activeDrawingTool?.wantsPrintableKeys() ?? false;
+    this.shortcuts.suspendWhile = pillWantsKeys;
+    this.toolbar.shortcutSuspend = pillWantsKeys;
 
     this.bezierHandles = new BezierHandlesOverlay(viewer.sceneContext);
 

@@ -309,6 +309,37 @@ export async function handleUpdateDimensionExpression(
   }
 }
 
+export async function handleUpdatePointExpression(
+  client: Client,
+  msg: {
+    xExpr: string;
+    yExpr: string;
+    sourceLocation: { line: number };
+    sketchSourceLine?: number | null;
+    newVariable?: { name: string; initializer: string }[] | null;
+    pointIndex?: number;
+  },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.updatePointExpression(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line,
+    msg.xExpr, msg.yExpr, client.logger,
+    msg.sketchSourceLine ?? null,
+    msg.newVariable ?? null,
+    msg.pointIndex ?? 0,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
 export async function handleUpdatePosition(
   client: Client,
   msg: { newPosition: [number, number]; sourceLocation: { line: number }; pointIndex?: number },

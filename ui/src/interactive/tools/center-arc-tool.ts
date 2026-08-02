@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn, PickedPoint } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
@@ -37,12 +37,14 @@ export class CenterArcTool extends SketchTool {
 
   private state: State = State.IDLE;
   private centerPoint: [number, number] | null = null;
+  /** The centre as picked, carrying any typed axis expressions. */
+  private centerPick: PickedPoint | null = null;
   private startPoint: [number, number] | null = null;
+  /** The start as picked, carrying any typed axis expressions. */
+  private startPick: PickedPoint | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private expressionInput: ExpressionInput;
-  private fetchVariables: FetchVariablesFn;
-  private cachedVariables: VariableInfo[] = [];
   private lastClientX = 0;
   private lastClientY = 0;
   private lastCCW = true;
@@ -62,25 +64,23 @@ export class CenterArcTool extends SketchTool {
     container: HTMLElement,
     fetchVariables: FetchVariablesFn,
   ) {
-    super(ctx, plane, snapController, insertGeometry);
+    super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.expressionInput = new ExpressionInput(container);
-    this.fetchVariables = fetchVariables;
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundKeyDown = this.handleKeyDown.bind(this);
   }
 
-  activate(): void {
+  protected onActivate(): void {
     this.addPreviewToScene();
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
-  deactivate(): void {
+  protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
@@ -93,13 +93,45 @@ export class CenterArcTool extends SketchTool {
   onSceneUpdate(sceneObjects: SceneObjectRender[], sketchId: string): void {
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane, this.ctx);
     this.updateSnapManager(snapManager);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
+    this.refreshVariables();
+  }
+
+  /** Both the centre and the start land in the source — the centre inside
+   * `.center(...)`, the start as the arc's own position. The third click is
+   * an angle, which the expression input already covers. */
+  protected override awaitingPoint(): boolean {
+    return this.state === State.IDLE || this.state === State.CENTER_PLACED;
+  }
+
+  protected override onTypedPoint(point: PickedPoint): void {
+    this.consumePoint(point);
+  }
+
+  /** Single writer for both halves of each anchor, so the position the
+   * preview draws and the expressions the statement emits cannot drift. */
+  private consumePoint(picked: PickedPoint): void {
+    if (this.state === State.IDLE) {
+      this.centerPick = picked;
+      this.centerPoint = picked.value;
+      this.state = State.CENTER_PLACED;
+    } else if (this.state === State.CENTER_PLACED) {
+      if (dist2D(this.centerPoint!, picked.value) <= 0) {
+        return;
+      }
+      this.startPick = picked;
+      this.startPoint = picked.value;
+      this.state = State.START_PLACED;
+    }
+    this.syncPointInput();
+    this.rebuildPreview();
   }
 
   private resetState(): void {
     this.state = State.IDLE;
     this.centerPoint = null;
+    this.centerPick = null;
     this.startPoint = null;
+    this.startPick = null;
     this.mousePoint = null;
   }
 
@@ -124,9 +156,7 @@ export class CenterArcTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (this.state === State.IDLE) {
-      this.centerPoint = point;
-      this.state = State.CENTER_PLACED;
-      this.rebuildPreview();
+      this.consumePoint(this.applyPointInput(result.point2d));
       return;
     }
 
@@ -134,9 +164,7 @@ export class CenterArcTool extends SketchTool {
       if (dist2D(this.centerPoint!, point) <= 0) {
         return;
       }
-      this.startPoint = point;
-      this.state = State.START_PLACED;
-      this.rebuildPreview();
+      this.consumePoint(this.applyPointInput(result.point2d));
       return;
     }
 
@@ -174,10 +202,12 @@ export class CenterArcTool extends SketchTool {
     if (e.key === 'Escape') {
       if (this.state === State.START_PLACED) {
         this.startPoint = null;
+        this.startPick = null;
         this.state = State.CENTER_PLACED;
         this.expressionInput.hide();
       } else if (this.state === State.CENTER_PLACED) {
         this.centerPoint = null;
+        this.centerPick = null;
         this.state = State.IDLE;
       }
       this.rebuildPreview();
@@ -239,7 +269,7 @@ export class CenterArcTool extends SketchTool {
     const radius = dist2D(this.centerPoint, this.startPoint);
     const endAngle = angleFromCenter(this.centerPoint, this.mousePoint);
     const endPoint = pointOnCircle(this.centerPoint, radius, endAngle);
-    this.emitArc(this.startPoint, endPoint, this.centerPoint, ccw);
+    this.emitArc(this.startPick!, endPoint, this.centerPick!, ccw);
   }
 
   private commitFromExpression(result: CommitResult): void {
@@ -257,24 +287,25 @@ export class CenterArcTool extends SketchTool {
     const direction = this.lastCCW ? 1 : -1;
     const endAngle = startAngle + direction * sweepRad;
     const endPoint = pointOnCircle(this.centerPoint, radius, endAngle);
-    this.emitArc(this.startPoint, endPoint, this.centerPoint, this.lastCCW, newVariable);
+    this.emitArc(this.startPick!, endPoint, this.centerPick!, this.lastCCW, newVariable);
   }
 
   private emitArc(
-    start: [number, number],
+    start: PickedPoint,
     end: [number, number],
-    center: [number, number],
+    center: PickedPoint,
     ccw: boolean,
     newVariable?: { name: string; initializer: string },
   ): void {
-    const rs = roundPoint(start);
     const re = roundPoint(end);
-    const rc = roundPoint(center);
     const cwSuffix = ccw ? '' : '.cw()';
-    const statement = this.isAtCurrentPosition(rs)
-      ? `arc(${this.formatPoint(re)}).center(${this.formatPoint(rc)})${cwSuffix}`
-      : `arc(${this.formatPoint(rs)}, ${this.formatPoint(re)}).center(${this.formatPoint(rc)})${cwSuffix}`;
-    this.insertGeometry(statement, newVariable);
+    const suffix = `.center(${this.formatPoint(center)})${cwSuffix}`;
+    this.insertAtPoint(
+      start,
+      (point) => `arc(${point}, ${this.formatPoint(re)})${suffix}`,
+      () => `arc(${this.formatPoint(re)})${suffix}`,
+      [...center.newVariables, ...(newVariable ? [newVariable] : [])],
+    );
     this.expressionInput.hide();
     this.resetState();
     this.rebuildPreview();

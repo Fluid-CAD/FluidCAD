@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn, PickedPoint } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
@@ -40,12 +40,14 @@ export class ThreePointArcTool extends SketchTool {
 
   private state: State = State.IDLE;
   private startPoint: [number, number] | null = null;
+  /** The start as picked, carrying any typed axis expressions. */
+  private startPick: PickedPoint | null = null;
   private endPoint: [number, number] | null = null;
+  /** The end as picked, carrying any typed axis expressions. */
+  private endPick: PickedPoint | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private expressionInput: ExpressionInput;
-  private fetchVariables: FetchVariablesFn;
-  private cachedVariables: VariableInfo[] = [];
   private lastClientX = 0;
   private lastClientY = 0;
   private lastCCW = true;
@@ -69,9 +71,8 @@ export class ThreePointArcTool extends SketchTool {
     container: HTMLElement,
     fetchVariables: FetchVariablesFn,
   ) {
-    super(ctx, plane, snapController, insertGeometry);
+    super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.expressionInput = new ExpressionInput(container);
-    this.fetchVariables = fetchVariables;
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
@@ -79,17 +80,16 @@ export class ThreePointArcTool extends SketchTool {
     this.boundKeyUp = this.handleKeyUp.bind(this);
   }
 
-  activate(): void {
+  protected onActivate(): void {
     this.addPreviewToScene();
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
     window.addEventListener('keyup', this.boundKeyUp);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
-  deactivate(): void {
+  protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
@@ -103,13 +103,44 @@ export class ThreePointArcTool extends SketchTool {
   onSceneUpdate(sceneObjects: SceneObjectRender[], sketchId: string): void {
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane, this.ctx);
     this.updateSnapManager(snapManager);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
+    this.refreshVariables();
+  }
+
+  /** Both endpoints land in the source; the third click is a bulge, which
+   * the expression input already covers. */
+  protected override awaitingPoint(): boolean {
+    return this.state === State.IDLE || this.state === State.START_PLACED;
+  }
+
+  protected override onTypedPoint(point: PickedPoint): void {
+    this.consumePoint(point);
+  }
+
+  /** Single writer for both halves of each anchor, so the position the
+   * preview draws and the expressions the statement emits cannot drift. */
+  private consumePoint(picked: PickedPoint): void {
+    if (this.state === State.IDLE) {
+      this.startPick = picked;
+      this.startPoint = picked.value;
+      this.state = State.START_PLACED;
+    } else if (this.state === State.START_PLACED) {
+      if (dist2D(this.startPoint!, picked.value) <= 0) {
+        return;
+      }
+      this.endPick = picked;
+      this.endPoint = picked.value;
+      this.state = State.END_PLACED;
+    }
+    this.syncPointInput();
+    this.rebuildPreview();
   }
 
   private resetState(): void {
     this.state = State.IDLE;
     this.startPoint = null;
+    this.startPick = null;
     this.endPoint = null;
+    this.endPick = null;
     this.mousePoint = null;
   }
 
@@ -135,8 +166,8 @@ export class ThreePointArcTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (this.state === State.IDLE) {
-      this.startPoint = point;
-      this.state = State.START_PLACED;
+      this.consumePoint(this.applyPointInput(result.point2d));
+      return;
       this.rebuildPreview();
       return;
     }
@@ -145,8 +176,8 @@ export class ThreePointArcTool extends SketchTool {
       if (dist2D(this.startPoint!, point) <= 0) {
         return;
       }
-      this.endPoint = point;
-      this.state = State.END_PLACED;
+      this.consumePoint(this.applyPointInput(result.point2d));
+      return;
       this.rebuildPreview();
       return;
     }
@@ -186,10 +217,12 @@ export class ThreePointArcTool extends SketchTool {
     if (e.key === 'Escape') {
       if (this.state === State.END_PLACED) {
         this.endPoint = null;
+        this.endPick = null;
         this.state = State.START_PLACED;
         this.expressionInput.hide();
       } else if (this.state === State.START_PLACED) {
         this.startPoint = null;
+        this.startPick = null;
         this.state = State.IDLE;
       }
       this.rebuildPreview();
@@ -320,7 +353,7 @@ export class ThreePointArcTool extends SketchTool {
     if (!center) {
       return;
     }
-    this.emitArc(this.startPoint, this.endPoint, center, this.isMouseCCW());
+    this.emitArc(this.startPick!, this.endPick!, center, this.isMouseCCW());
   }
 
   private commitFromExpression(result: CommitResult): void {
@@ -336,24 +369,25 @@ export class ThreePointArcTool extends SketchTool {
     if (!center) {
       return;
     }
-    this.emitArc(this.startPoint, this.endPoint, center, this.lastCCW, newVariable);
+    this.emitArc(this.startPick!, this.endPick!, center, this.lastCCW, newVariable);
   }
 
   private emitArc(
-    start: [number, number],
-    end: [number, number],
+    start: PickedPoint,
+    end: PickedPoint,
     center: [number, number],
     ccw: boolean,
     newVariable?: { name: string; initializer: string },
   ): void {
-    const rs = roundPoint(start);
-    const re = roundPoint(end);
     const rc = roundPoint(center);
     const cwSuffix = ccw ? '' : '.cw()';
-    const statement = this.isAtCurrentPosition(rs)
-      ? `arc(${this.formatPoint(re)}).center(${this.formatPoint(rc)})${cwSuffix}`
-      : `arc(${this.formatPoint(rs)}, ${this.formatPoint(re)}).center(${this.formatPoint(rc)})${cwSuffix}`;
-    this.insertGeometry(statement, newVariable);
+    const suffix = `.center(${this.formatPoint(rc)})${cwSuffix}`;
+    this.insertAtPoint(
+      start,
+      (point) => `arc(${point}, ${this.formatPoint(end)})${suffix}`,
+      () => `arc(${this.formatPoint(end)})${suffix}`,
+      [...end.newVariables, ...(newVariable ? [newVariable] : [])],
+    );
     this.expressionInput.hide();
     this.resetState();
     this.rebuildPreview();

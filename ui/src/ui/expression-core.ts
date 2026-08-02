@@ -112,6 +112,33 @@ export function classifyCommit(
   return { kind: 'expression', expression: raw };
 }
 
+/**
+ * Best-effort numeric value of a committed expression, for previews only: a
+ * plain number resolves to itself, a variable to its literal initializer.
+ * Null when the value can't be resolved statically (e.g. `w / 2`) — callers
+ * fall back to the live cursor value until the re-render lands.
+ */
+export function resolveExpressionValue(
+  expression: string,
+  variables: VariableInfo[],
+  newVariable?: { name: string; initializer: string } | null,
+): number | null {
+  const trimmed = expression.trim();
+  const direct = Number(trimmed);
+  if (trimmed && !isNaN(direct) && isFinite(direct)) {
+    return direct;
+  }
+
+  const initializer = newVariable?.initializer
+    ?? variables.find((v) => v.name === trimmed)?.initializer;
+  if (!initializer || !initializer.trim()) {
+    return null;
+  }
+
+  const parsed = Number(initializer.trim());
+  return isNaN(parsed) || !isFinite(parsed) ? null : parsed;
+}
+
 /** The identifier being typed at the end of the value, or null. */
 export function trailingIdentifier(value: string): string | null {
   const match = value.match(TRAILING_IDENT_RE);

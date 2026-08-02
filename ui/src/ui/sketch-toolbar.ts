@@ -86,6 +86,12 @@ export class SketchToolbar {
   private activeToolId: ToolId | null = null;
   private buttons = new Map<ToolId, HTMLButtonElement>();
   private shortcutManager: ShortcutManager;
+
+  /** See `ShortcutManager.suspendWhile` — set by the sketch toolbar service
+   * so the coordinate pill can claim printable keys. */
+  set shortcutSuspend(fn: (() => boolean) | null) {
+    this.shortcutManager.suspendWhile = fn;
+  }
   private visible = false;
 
   private boundKeyDown: (e: KeyboardEvent) => void;

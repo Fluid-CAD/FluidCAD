@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn, PickedPoint } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
@@ -29,14 +29,14 @@ export class SlotTool extends SketchTool {
   readonly icon = ICON_SLOT;
 
   private startPoint: [number, number] | null = null;
+  /** The start cap centre as picked, carrying any typed axis expressions. */
+  private startPick: PickedPoint | null = null;
   private endPoint: [number, number] | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private shiftHeld = false;
   private horizontalMode = false;
   private expressionInput: ExpressionInput;
-  private fetchVariables: FetchVariablesFn;
-  private cachedVariables: VariableInfo[] = [];
   private lastClientX = 0;
   private lastClientY = 0;
 
@@ -60,9 +60,8 @@ export class SlotTool extends SketchTool {
     container: HTMLElement,
     fetchVariables: FetchVariablesFn,
   ) {
-    super(ctx, plane, snapController, insertGeometry);
+    super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.expressionInput = new ExpressionInput(container);
-    this.fetchVariables = fetchVariables;
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
@@ -70,17 +69,16 @@ export class SlotTool extends SketchTool {
     this.boundKeyUp = this.handleKeyUp.bind(this);
   }
 
-  activate(): void {
+  protected onActivate(): void {
     this.addPreviewToScene();
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
     window.addEventListener('keyup', this.boundKeyUp);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
-  deactivate(): void {
+  protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
@@ -93,7 +91,7 @@ export class SlotTool extends SketchTool {
   onSceneUpdate(sceneObjects: SceneObjectRender[], sketchId: string): void {
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane, this.ctx);
     this.updateSnapManager(snapManager);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
+    this.refreshVariables();
   }
 
   override handleEscape(): boolean {
@@ -121,8 +119,35 @@ export class SlotTool extends SketchTool {
     return true;
   }
 
+  /** The start cap centre is the point that lands in the source; the second
+   * click sets the slot's length, which the expression input already covers. */
+  protected override awaitingPoint(): boolean {
+    return this.startPoint === null;
+  }
+
+  protected override onTypedPoint(point: PickedPoint): void {
+    this.consumeStart(point);
+  }
+
+  /**
+   * Single writer for both halves of the anchor. Reads the live modifier
+   * state rather than an event, so a typed start still enters horizontal
+   * mode when Shift is down — a typed commit carries no MouseEvent.
+   */
+  private consumeStart(start: PickedPoint): void {
+    this.startPick = start;
+    this.startPoint = start.value;
+    if (this.shiftHeld) {
+      this.horizontalMode = true;
+      this.expressionPhase = 'distance';
+    }
+    this.syncPointInput();
+    this.rebuildPreview();
+  }
+
   private resetState(): void {
     this.startPoint = null;
+    this.startPick = null;
     this.endPoint = null;
     this.mousePoint = null;
     this.expressionPhase = 'endpoint';
@@ -153,13 +178,8 @@ export class SlotTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (!this.startPoint) {
-      this.startPoint = point;
       this.syncModifiers(e);
-      if (this.shiftHeld) {
-        this.horizontalMode = true;
-        this.expressionPhase = 'distance';
-      }
-      this.rebuildPreview();
+      this.consumeStart(this.applyPointInput(result.point2d));
       return;
     }
 
@@ -403,9 +423,9 @@ export class SlotTool extends SketchTool {
     }
 
     if (this.horizontalMode && this.distanceExpression) {
-      this.commitHorizontalSlot(this.startPoint, this.distanceExpression, result);
+      this.commitHorizontalSlot(this.startPick!, this.distanceExpression, result);
     } else if (this.endPoint) {
-      this.commitTwoPointSlot(this.startPoint, this.endPoint, result);
+      this.commitTwoPointSlot(this.startPick!, this.endPoint, result);
     }
 
     this.resetState();
@@ -413,27 +433,29 @@ export class SlotTool extends SketchTool {
   }
 
   private commitTwoPointSlot(
-    start: [number, number],
+    start: PickedPoint,
     end: [number, number],
     radiusResult: CommitResult,
   ): void {
-    const statement = `slot(${this.formatPoint(start)}, ${this.formatPoint(end)}, ${radiusResult.expression})`;
-    this.insertGeometry(statement, radiusResult.newVariable);
+    const statement =
+      `slot(${this.formatPoint(start)}, ${this.formatPoint(end)}, ${radiusResult.expression})`;
+    const newVariables = [...start.newVariables, ...(radiusResult.newVariable ? [radiusResult.newVariable] : [])];
+    this.insertGeometry(statement, newVariables.length > 0 ? newVariables : undefined);
   }
 
   private commitHorizontalSlot(
-    start: [number, number],
+    start: PickedPoint,
     distanceResult: CommitResult,
     radiusResult: CommitResult,
   ): void {
-    const atCurrent = this.isAtCurrentPosition(start);
-    const statement = atCurrent
-      ? `slot(${distanceResult.expression}, ${radiusResult.expression})`
-      : `slot(${this.formatPoint(start)}, ${distanceResult.expression}, ${radiusResult.expression})`;
-
     const newVariables = [distanceResult.newVariable, radiusResult.newVariable]
       .filter((v): v is NonNullable<typeof v> => v !== undefined);
-    this.insertGeometry(statement, newVariables);
+    this.insertAtPoint(
+      start,
+      (point) => `slot(${point}, ${distanceResult.expression}, ${radiusResult.expression})`,
+      () => `slot(${distanceResult.expression}, ${radiusResult.expression})`,
+      newVariables,
+    );
   }
 
   private rebuildPreview(): void {

@@ -12,6 +12,7 @@ import { findHitGeometry } from './hit-detection';
 import { rebuildDragPreview, disposePreviewGroup } from './drag-preview';
 import { commitPositionMove } from './commit-position';
 import { DimensionInputController } from './dimension-input';
+import { PointEditController } from './point-edit-controller';
 import { solveTarcEdgeSnap, TarcEdgeSnap } from './tarc-edge-snap';
 import { SnapHintLabel } from './snap-hint-label';
 import {
@@ -49,6 +50,7 @@ export class DragMoveHandler {
   private pendingHit: PendingHit | null = null;
 
   private dimensionInput: DimensionInputController;
+  private pointEdit: PointEditController;
   private getSketchSourceLine: GetSketchSourceLineFn;
   /** tArc end drags only: snap candidates (built at drag start) + live snap. */
   private tarcTargets: TarcTargetEntry[] | null = null;
@@ -86,6 +88,7 @@ export class DragMoveHandler {
       this.dimensionInput.closeStandalone();
       this.hitResult = null;
     };
+    this.pointEdit = new PointEditController(container, getSketchSourceLine);
 
     this.boundCanvasPointerDown = this.handleCanvasPointerDown.bind(this);
     this.boundPointerMove = this.handlePointerMove.bind(this);
@@ -115,6 +118,7 @@ export class DragMoveHandler {
     window.removeEventListener('keydown', this.boundKeyDown);
     this.endResize();
     this.dimensionInput.closeStandalone();
+    this.pointEdit.hide();
     this.pendingHit = null;
     this.ctx.scene.remove(this.previewGroup);
     disposePreviewGroup(this.previewGroup);
@@ -143,6 +147,14 @@ export class DragMoveHandler {
     }
     if (this.dimensionInput.standaloneInputActive && this.dimensionInput.containsElement(e.target)) {
       return;
+    }
+    if (this.pointEdit.isVisible) {
+      if (this.pointEdit.containsElement(e.target)) {
+        return;
+      }
+      // Clicking away from the pill abandons the edit, the same as Escape.
+      this.pointEdit.hide();
+      this.hitResult = null;
     }
 
     const point2d = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
@@ -240,7 +252,9 @@ export class DragMoveHandler {
     if (e.key !== 'Escape') {
       return;
     }
-    if (this._isResizing) {
+    if (this.pointEdit.handleEscape()) {
+      this.hitResult = null;
+    } else if (this._isResizing) {
       this.endResize();
     } else if (this.dimensionInput.standaloneInputActive) {
       this.dimensionInput.closeStandalone();
@@ -388,13 +402,17 @@ export class DragMoveHandler {
     if (!hit) {
       return;
     }
-    if (hit.uniqueType === 'line-two-points') {
-      return;
-    }
 
     this.hitResult = hit;
     this.startPoint = null;
     this.currentPoint = null;
+
+    // A body carries the shape's own dimension; an endpoint, centre, corner
+    // or pole carries that point's coordinates. The point editor claims the
+    // latter, and everything it declines falls through to the dimension one.
+    if (this.pointEdit.showForDoubleClick(hit, e.clientX, e.clientY)) {
+      return;
+    }
     if (!this.dimensionInput.showForDoubleClick(hit, e.clientX, e.clientY)) {
       this.hitResult = null;
     }

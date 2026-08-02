@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn, PickedPoint } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
@@ -35,11 +35,11 @@ export class PolygonTool extends SketchTool {
   readonly icon = ICON_POLYGON;
 
   private centerPoint: [number, number] | null = null;
+  /** The centre as picked: same position, plus any typed axis expressions. */
+  private centerPick: PickedPoint | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private expressionInput: ExpressionInput;
-  private fetchVariables: FetchVariablesFn;
-  private cachedVariables: VariableInfo[] = [];
   private lastClientX = 0;
   private lastClientY = 0;
 
@@ -63,25 +63,23 @@ export class PolygonTool extends SketchTool {
     container: HTMLElement,
     fetchVariables: FetchVariablesFn,
   ) {
-    super(ctx, plane, snapController, insertGeometry);
+    super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.expressionInput = new ExpressionInput(container);
-    this.fetchVariables = fetchVariables;
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundKeyDown = this.handleKeyDown.bind(this);
   }
 
-  activate(): void {
+  protected onActivate(): void {
     this.addPreviewToScene();
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
-  deactivate(): void {
+  protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
@@ -93,11 +91,31 @@ export class PolygonTool extends SketchTool {
   onSceneUpdate(sceneObjects: SceneObjectRender[], sketchId: string): void {
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane, this.ctx);
     this.updateSnapManager(snapManager);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
+    this.refreshVariables();
+  }
+
+  /** The centre is the point that lands in the source; later clicks set the
+   * side count and diameter, which the expression input already covers. */
+  protected override awaitingPoint(): boolean {
+    return this.centerPoint === null;
+  }
+
+  protected override onTypedPoint(point: PickedPoint): void {
+    this.consumeCenter(point);
+  }
+
+  /** Single writer for both halves of the anchor, so the position the preview
+   * draws and the expressions the statement emits cannot drift. */
+  private consumeCenter(center: PickedPoint): void {
+    this.centerPick = center;
+    this.centerPoint = center.value;
+    this.syncPointInput();
+    this.rebuildPreview();
   }
 
   private resetState(): void {
     this.centerPoint = null;
+    this.centerPick = null;
     this.mousePoint = null;
     this.expressionPhase = 'diameter';
     this.diameterExpression = null;
@@ -139,8 +157,7 @@ export class PolygonTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (!this.centerPoint) {
-      this.centerPoint = point;
-      this.rebuildPreview();
+      this.consumeCenter(this.applyPointInput(result.point2d));
       return;
     }
 
@@ -187,6 +204,11 @@ export class PolygonTool extends SketchTool {
 
   private handleKeyDown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
+      // Typed coordinates clear first; only a clean pill lets Escape
+      // fall through to cancelling the in-progress shape.
+      if (this.handlePointInputEscape()) {
+        return;
+      }
       if (this.centerPoint) {
         this.resetState();
         this.rebuildPreview();
@@ -280,24 +302,24 @@ export class PolygonTool extends SketchTool {
       return;
     }
 
-    this.commitPolygon(this.centerPoint, this.diameterExpression, result);
+    this.commitPolygon(this.centerPick!, this.diameterExpression, result);
     this.resetState();
     this.rebuildPreview();
   }
 
   private commitPolygon(
-    center: [number, number],
+    center: PickedPoint,
     diameterResult: CommitResult,
     sidesResult: CommitResult,
   ): void {
-    const atCurrent = this.isAtCurrentPosition(center);
-    const statement = atCurrent
-      ? `polygon(${sidesResult.expression}, ${diameterResult.expression})`
-      : `polygon(${this.formatPoint(center)}, ${sidesResult.expression}, ${diameterResult.expression})`;
-
     const newVariables = [sidesResult.newVariable, diameterResult.newVariable]
       .filter((v): v is NonNullable<typeof v> => v !== undefined);
-    this.insertGeometry(statement, newVariables);
+    this.insertAtPoint(
+      center,
+      (point) => `polygon(${point}, ${sidesResult.expression}, ${diameterResult.expression})`,
+      () => `polygon(${sidesResult.expression}, ${diameterResult.expression})`,
+      newVariables,
+    );
   }
 
   private rebuildPreview(): void {

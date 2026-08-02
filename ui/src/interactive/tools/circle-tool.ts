@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn, PickedPoint } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
@@ -11,7 +11,7 @@ import {
   dist2D,
 } from '../sketch-plane-utils';
 import { ICON_CIRCLE } from '../../ui/icons';
-import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
+import { ExpressionInput, CommitResult } from '../../ui/expression-input';
 import {
   START_POINT_COLOR,
   SNAP_VERTEX_COLOR,
@@ -26,11 +26,11 @@ export class CircleTool extends SketchTool {
   readonly icon = ICON_CIRCLE;
 
   private centerPoint: [number, number] | null = null;
+  /** The centre as picked: same position, plus any typed axis expressions. */
+  private centerPick: PickedPoint | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private expressionInput: ExpressionInput;
-  private fetchVariables: FetchVariablesFn;
-  private cachedVariables: VariableInfo[] = [];
   private lastClientX = 0;
   private lastClientY = 0;
 
@@ -49,39 +49,48 @@ export class CircleTool extends SketchTool {
     container: HTMLElement,
     fetchVariables: FetchVariablesFn,
   ) {
-    super(ctx, plane, snapController, insertGeometry);
+    super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.expressionInput = new ExpressionInput(container);
-    this.fetchVariables = fetchVariables;
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundKeyDown = this.handleKeyDown.bind(this);
   }
 
-  activate(): void {
+  protected onActivate(): void {
     this.addPreviewToScene();
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
-  deactivate(): void {
+  protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
     window.removeEventListener('keydown', this.boundKeyDown);
     this.centerPoint = null;
+    this.centerPick = null;
     this.mousePoint = null;
     this.expressionInput.hide();
     this.removePreviewFromScene();
   }
 
+  /** The centre is the point that lands in the source; the rim click is a
+   * diameter, which the expression input already covers. */
+  protected override awaitingPoint(): boolean {
+    return this.centerPoint === null;
+  }
+
+  protected override onTypedPoint(point: PickedPoint): void {
+    this.consumeCenter(point);
+  }
+
   onSceneUpdate(sceneObjects: SceneObjectRender[], sketchId: string): void {
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane, this.ctx);
     this.updateSnapManager(snapManager);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
+    this.refreshVariables();
   }
 
   private handleMouseDown(e: MouseEvent): void {
@@ -102,14 +111,15 @@ export class CircleTool extends SketchTool {
     }
 
     const result = this.snapController.snap(raw);
-    const point = roundPoint(result.point2d);
 
     if (!this.centerPoint) {
-      this.centerPoint = point;
-      this.rebuildPreview();
+      // The pill contributes any axis the user typed; free axes come from the
+      // cursor, so a plain click behaves exactly as it always did.
+      this.consumeCenter(this.applyPointInput(result.point2d));
       return;
     }
 
+    const point = roundPoint(result.point2d);
     if (this.expressionInput.isVisible) {
       this.expressionInput.commitCurrentValue();
     } else {
@@ -117,10 +127,18 @@ export class CircleTool extends SketchTool {
       if (diameter <= 0) {
         return;
       }
-      this.commitCircle(this.centerPoint, { expression: String(diameter) });
+      this.commitCircle(this.centerPick!, { expression: String(diameter) });
     }
     this.expressionInput.hide();
-    this.centerPoint = null;
+    this.consumeCenter(null);
+  }
+
+  private consumeCenter(center: PickedPoint | null): void {
+    // Single writer for both halves of the anchor, so the position the
+    // preview draws and the expressions the statement emits cannot drift.
+    this.centerPick = center;
+    this.centerPoint = center ? center.value : null;
+    this.syncPointInput();
     this.rebuildPreview();
   }
 
@@ -145,10 +163,14 @@ export class CircleTool extends SketchTool {
 
   private handleKeyDown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
+      // A pill holding typed coordinates clears first; only a clean pill lets
+      // Escape fall through to cancelling the in-progress circle.
+      if (this.handlePointInputEscape()) {
+        return;
+      }
       if (this.centerPoint) {
-        this.centerPoint = null;
         this.expressionInput.hide();
-        this.rebuildPreview();
+        this.consumeCenter(null);
       }
     }
   }
@@ -172,10 +194,9 @@ export class CircleTool extends SketchTool {
         variables: this.cachedVariables,
         onCommit: (result) => {
           if (this.centerPoint) {
-            this.commitCircle(this.centerPoint, result);
+            this.commitCircle(this.centerPick!, result);
             this.expressionInput.hide();
-            this.centerPoint = null;
-            this.rebuildPreview();
+            this.consumeCenter(null);
           }
         },
       });
@@ -185,13 +206,14 @@ export class CircleTool extends SketchTool {
     }
   }
 
-  private commitCircle(center: [number, number], result: CommitResult): void {
+  private commitCircle(center: PickedPoint, result: CommitResult): void {
     const { expression, newVariable } = result;
-    const atCurrent = this.isAtCurrentPosition(center);
-    const statement = atCurrent
-      ? `circle(${expression})`
-      : `circle(${this.formatPoint(center)}, ${expression})`;
-    this.insertGeometry(statement, newVariable);
+    this.insertAtPoint(
+      center,
+      (point) => `circle(${point}, ${expression})`,
+      () => `circle(${expression})`,
+      newVariable ? [newVariable] : [],
+    );
   }
 
   private rebuildPreview(): void {

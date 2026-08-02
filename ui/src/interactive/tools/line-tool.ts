@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn, PickedPoint } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
@@ -31,13 +31,13 @@ export class LineTool extends SketchTool {
   readonly icon = ICON_LINE;
 
   private startPoint: [number, number] | null = null;
+  /** The start as picked: same position, plus any typed axis expressions. */
+  private startPick: PickedPoint | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private shiftHeld = false;
   private ctrlHeld = false;
   private expressionInput: ExpressionInput;
-  private fetchVariables: FetchVariablesFn;
-  private cachedVariables: VariableInfo[] = [];
   private lastClientX = 0;
   private lastClientY = 0;
   private sceneObjects: SceneObjectRender[] = [];
@@ -59,9 +59,8 @@ export class LineTool extends SketchTool {
     container: HTMLElement,
     fetchVariables: FetchVariablesFn,
   ) {
-    super(ctx, plane, snapController, insertGeometry);
+    super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.expressionInput = new ExpressionInput(container);
-    this.fetchVariables = fetchVariables;
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
@@ -69,23 +68,23 @@ export class LineTool extends SketchTool {
     this.boundKeyUp = this.handleKeyUp.bind(this);
   }
 
-  activate(): void {
+  protected onActivate(): void {
     this.addPreviewToScene();
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
     window.addEventListener('keyup', this.boundKeyUp);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
-  deactivate(): void {
+  protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
     window.removeEventListener('keydown', this.boundKeyDown);
     window.removeEventListener('keyup', this.boundKeyUp);
     this.startPoint = null;
+    this.startPick = null;
     this.mousePoint = null;
     this.shiftHeld = false;
     this.ctrlHeld = false;
@@ -98,7 +97,7 @@ export class LineTool extends SketchTool {
     this.sketchId = sketchId;
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane, this.ctx);
     this.updateSnapManager(snapManager);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
+    this.refreshVariables();
   }
 
   private handleMouseDown(e: MouseEvent): void {
@@ -124,8 +123,7 @@ export class LineTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (!this.startPoint) {
-      this.startPoint = point;
-      this.rebuildPreview();
+      this.consumeStart(this.applyPointInput(result.point2d));
       return;
     }
 
@@ -136,10 +134,31 @@ export class LineTool extends SketchTool {
     } else if (this.expressionInput.isVisible) {
       this.expressionInput.commitCurrentValue();
     } else {
-      this.commitLine(this.startPoint, point);
+      this.commitLine(this.startPick!, point);
     }
     this.expressionInput.hide();
     this.startPoint = null;
+    this.startPick = null;
+    this.rebuildPreview();
+  }
+
+  /** The start is the point that lands in the source. The end is covered by
+   * the H:/V:/T: dimension input when it applies, and by re-picking the
+   * endpoint afterwards when it does not. */
+  protected override awaitingPoint(): boolean {
+    return this.startPoint === null;
+  }
+
+  protected override onTypedPoint(point: PickedPoint): void {
+    this.consumeStart(point);
+  }
+
+  /** Single writer for both halves of the anchor, so the position the preview
+   * draws and the expressions the statement emits cannot drift. */
+  private consumeStart(start: PickedPoint): void {
+    this.startPick = start;
+    this.startPoint = start.value;
+    this.syncPointInput();
     this.rebuildPreview();
   }
 
@@ -179,8 +198,14 @@ export class LineTool extends SketchTool {
       this.updateDimensionInput();
     }
     if (e.key === 'Escape') {
+      // Typed coordinates clear first; only a clean pill lets Escape fall
+      // through to cancelling the in-progress line.
+      if (this.handlePointInputEscape()) {
+        return;
+      }
       if (this.startPoint) {
         this.startPoint = null;
+        this.startPick = null;
         this.expressionInput.hide();
         this.rebuildPreview();
       }
@@ -341,8 +366,6 @@ export class LineTool extends SketchTool {
       return;
     }
     const { expression, newVariable } = result;
-    const roundedStart = roundPoint(this.startPoint);
-    const atCurrent = this.isAtCurrentPosition(roundedStart);
     const dx = this.mousePoint[0] - this.startPoint[0];
     const dy = this.mousePoint[1] - this.startPoint[1];
     const isHorizontal = Math.abs(dx) >= Math.abs(dy);
@@ -350,13 +373,16 @@ export class LineTool extends SketchTool {
     const dimExpr = SketchTool.applySignedDimension(expression, sign);
 
     const fn = isHorizontal ? 'hLine' : 'vLine';
-    const statement = atCurrent
-      ? `${fn}(${dimExpr})`
-      : `${fn}(${this.formatPoint(roundedStart)}, ${dimExpr})`;
-    this.insertGeometry(statement, newVariable);
+    this.insertAtPoint(
+      this.startPick!,
+      (point) => `${fn}(${point}, ${dimExpr})`,
+      () => `${fn}(${dimExpr})`,
+      newVariable ? [newVariable] : [],
+    );
 
     this.expressionInput.hide();
     this.startPoint = null;
+    this.startPick = null;
     this.rebuildPreview();
   }
 
@@ -371,6 +397,7 @@ export class LineTool extends SketchTool {
     this.insertGeometry(`tLine(${dimExpr})`, newVariable);
     this.expressionInput.hide();
     this.startPoint = null;
+    this.startPick = null;
     this.rebuildPreview();
   }
 
@@ -388,43 +415,41 @@ export class LineTool extends SketchTool {
     this.insertGeometry(`tLine(${distance})`);
     this.expressionInput.hide();
     this.startPoint = null;
+    this.startPick = null;
     this.rebuildPreview();
   }
 
-  private commitLine(start: [number, number], end: [number, number]): void {
-    const roundedStart = roundPoint(start);
+  private commitLine(start: PickedPoint, end: [number, number]): void {
     const roundedEnd = roundPoint(end);
-    const atCurrent = this.isAtCurrentPosition(roundedStart);
-
-    const dx = roundedEnd[0] - roundedStart[0];
-    const dy = roundedEnd[1] - roundedStart[1];
+    const dx = roundedEnd[0] - start.value[0];
+    const dy = roundedEnd[1] - start.value[1];
     const dir = this.classifyDelta(dx, dy);
 
     if (dir === 'horizontal') {
       const distance = roundPoint([dx, 0])[0];
-      if (atCurrent) {
-        this.insertGeometry(`hLine(${distance})`);
-      } else {
-        this.insertGeometry(`hLine(${this.formatPoint(roundedStart)}, ${distance})`);
-      }
+      this.insertAtPoint(
+        start,
+        (point) => `hLine(${point}, ${distance})`,
+        () => `hLine(${distance})`,
+      );
       return;
     }
 
     if (dir === 'vertical') {
       const distance = roundPoint([0, dy])[1];
-      if (atCurrent) {
-        this.insertGeometry(`vLine(${distance})`);
-      } else {
-        this.insertGeometry(`vLine(${this.formatPoint(roundedStart)}, ${distance})`);
-      }
+      this.insertAtPoint(
+        start,
+        (point) => `vLine(${point}, ${distance})`,
+        () => `vLine(${distance})`,
+      );
       return;
     }
 
-    if (atCurrent) {
-      this.insertGeometry(`line(${this.formatPoint(roundedEnd)})`);
-    } else {
-      this.insertGeometry(`line(${this.formatPoint(roundedStart)}, ${this.formatPoint(roundedEnd)})`);
-    }
+    this.insertAtPoint(
+      start,
+      (point) => `line(${point}, ${this.formatPoint(roundedEnd)})`,
+      () => `line(${this.formatPoint(roundedEnd)})`,
+    );
   }
 
   private rebuildPreview(): void {

@@ -1,10 +1,10 @@
 import { Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn } from '../sketch-tool';
+import { SketchTool, InsertGeometryFn, PickedPoint } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
 import { SnapManager } from '../../snapping/snap-manager';
-import { projectToSketch, roundPoint } from '../sketch-plane-utils';
+import { projectToSketch } from '../sketch-plane-utils';
 import { ICON_TEXT } from '../../ui/icons';
 import { getTextPreview, TextOptionValues } from '../../api';
 import { TextPanel } from './text-panel';
@@ -30,6 +30,9 @@ export class TextTool extends SketchTool {
   private panel: TextPanel;
   private onRequestExit: () => void;
   private anchor: [number, number];
+  /** The anchor as picked, carrying any typed axis expressions. Null until
+   * the user places it — the tool opens at the sketch cursor. */
+  private anchorPick: PickedPoint | null = null;
   /** True once the user clicked an anchor; stops cursor-following. */
   private placed = false;
 
@@ -59,7 +62,7 @@ export class TextTool extends SketchTool {
     container: HTMLElement,
     onRequestExit: () => void,
   ) {
-    super(ctx, plane, snapController, insertGeometry);
+    super(ctx, plane, snapController, insertGeometry, container);
     this.onRequestExit = onRequestExit;
     this.anchor = this.currentPosition ?? [0, 0];
     this.panel = new TextPanel(container);
@@ -74,7 +77,7 @@ export class TextTool extends SketchTool {
     this.boundMouseUp = this.handleMouseUp.bind(this);
   }
 
-  activate(): void {
+  protected onActivate(): void {
     this.addPreviewToScene();
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
@@ -85,7 +88,7 @@ export class TextTool extends SketchTool {
     this.schedulePreview();
   }
 
-  deactivate(): void {
+  protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.cancelPreview();
@@ -130,7 +133,7 @@ export class TextTool extends SketchTool {
       return;
     }
     const result = this.snapController.snap(raw);
-    this.anchor = roundPoint(result.point2d);
+    this.setAnchor(this.applyPointInput(result.point2d));
     this.placed = true;
     this.syncStatementPreview();
     this.schedulePreview();
@@ -168,6 +171,30 @@ export class TextTool extends SketchTool {
     return statement;
   }
 
+  /** The anchor is re-placeable for as long as the tool is armed. Numbers
+   * only: the text panel owns the tool's dialog, so there is no in-scope
+   * variable list to autocomplete against. */
+  protected override awaitingPoint(): boolean {
+    return true;
+  }
+
+  protected override pointInputNumericOnly(): boolean {
+    return true;
+  }
+
+  protected override onTypedPoint(point: PickedPoint): void {
+    this.setAnchor(point);
+    this.placed = true;
+    this.syncStatementPreview();
+    this.schedulePreview();
+  }
+
+  /** Single writer for both halves of the anchor. */
+  private setAnchor(picked: PickedPoint): void {
+    this.anchorPick = picked;
+    this.anchor = picked.value;
+  }
+
   /** `move(…)` first when the anchor is away from the sketch cursor. */
   private needsMove(): boolean {
     if (this.currentPosition) {
@@ -178,9 +205,15 @@ export class TextTool extends SketchTool {
 
   private fullStatement(values: TextOptionValues): string {
     const statement = this.buildStatement(values);
-    return this.needsMove()
-      ? `move(${this.formatPoint(this.anchor)});\n${statement}`
-      : statement;
+    if (!this.needsMove()) {
+      return statement;
+    }
+    // A relative pick already expresses the position as an offset.
+    const anchor = this.anchorPick;
+    if (anchor?.relative) {
+      return `move(${anchor.relative.dx}, ${anchor.relative.dy});\n${statement}`;
+    }
+    return `move(${anchor ? this.formatPoint(anchor) : this.formatPoint(this.anchor)});\n${statement}`;
   }
 
   private syncStatementPreview(): void {

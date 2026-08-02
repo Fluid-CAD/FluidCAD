@@ -197,6 +197,24 @@ export type UpdatePositionMessage = {
   pointIndex?: number;
 };
 
+/**
+ * A point rewritten from per-axis expressions rather than numbers — the
+ * coordinate pill's commit. `update-position` stays the numeric drag path.
+ */
+export type UpdatePointExpressionMessage = {
+  type: 'update-point-expression';
+  xExpr: string;
+  yExpr: string;
+  sourceLocation: { line: number; column: number };
+  /** Anchor for any declarations this commit introduces (up to one per axis). */
+  sketchSourceLine?: number | null;
+  newVariable?:
+    | { name: string; initializer: string }
+    | { name: string; initializer: string }[]
+    | null;
+  pointIndex?: number;
+};
+
 export type SetLinePositionMessage = {
   type: 'set-line-position';
   newStart: [number, number];
@@ -259,6 +277,7 @@ export type ServerToExtensionMessage =
   | ExportCompleteMessage
   | InsertGeometryMessage
   | UpdatePositionMessage
+  | UpdatePointExpressionMessage
   | SetLinePositionMessage
   | SetChainPositionsMessage
   | UpdateDimensionMessage

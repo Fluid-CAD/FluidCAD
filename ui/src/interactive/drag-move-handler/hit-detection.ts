@@ -62,7 +62,7 @@ export function findHitGeometry(
         }
       }
       if (allVerts.length > 0) {
-        const result = hitTestPolygon(point2d, allVerts, sourceLocation, child, thresholdSq, bestDistSq);
+        const result = hitTestPolygon(point2d, allVerts, sourceLocation, child, thresholdSq, bestDistSq, includeDimensionZones);
         if (result) {
           bestHit = result.hit;
           bestDistSq = result.distSq;
@@ -137,7 +137,7 @@ export function findHitGeometry(
         }
 
         if (uniqueType === 'circle') {
-          const result = hitTestCircle(point2d, verts2d, sourceLocation, thresholdSq, bestDistSq);
+          const result = hitTestCircle(point2d, verts2d, sourceLocation, thresholdSq, bestDistSq, includeDimensionZones);
           if (result) {
             bestHit = result.hit;
             bestDistSq = result.distSq;
@@ -147,7 +147,7 @@ export function findHitGeometry(
             // the plain numeric-length chained form is draggable — a target
             // geometry or .centered() has different arg semantics.
             || (uniqueType === 'aline' && typeof child.object?.length === 'number' && child.object?.centered !== true)) {
-          const result = hitTestLine(point2d, verts2d, sourceLocation, uniqueType, child, thresholdSq, bestDistSq);
+          const result = hitTestLine(point2d, verts2d, sourceLocation, uniqueType, child, thresholdSq, bestDistSq, includeDimensionZones);
           if (result) {
             bestHit = result.hit;
             bestDistSq = result.distSq;
@@ -191,6 +191,7 @@ function hitTestCircle(
   sourceLocation: { line: number; column: number },
   thresholdSq: number,
   bestDistSq: number,
+  includeDimensionZones = false,
 ): HitTestResult | null {
   const uniqueVerts: [number, number][] = [];
   const DUP_EPS_SQ = 1e-6;
@@ -239,6 +240,25 @@ function hitTestCircle(
       bestDistSq = d;
     }
   }
+
+  // The centre is the circle's position argument. Double-click only: adding
+  // it to the drag path would capture drags that today translate the circle.
+  if (includeDimensionZones) {
+    const cdx = cx - point2d[0];
+    const cdy = cy - point2d[1];
+    const centreDist = cdx * cdx + cdy * cdy;
+    if (centreDist < thresholdSq && centreDist < bestDistSq) {
+      result = {
+        hit: {
+          sourceLocation, uniqueType: 'circle', hitZone: 'center',
+          anchorPoint: [cx, cy],
+          initialValue: diameter,
+        },
+        distSq: centreDist,
+      };
+    }
+  }
+
   return result;
 }
 
@@ -250,6 +270,7 @@ function hitTestLine(
   child: SceneObjectRender,
   thresholdSq: number,
   bestDistSq: number,
+  includeDimensionZones = false,
 ): HitTestResult | null {
   const startV = verts2d[0];
   const endV = verts2d[verts2d.length - 1];
@@ -342,7 +363,14 @@ function hitTestLine(
     bestDistSq = startDist;
   }
 
-  if (!nearAnyEndpoint && uniqueType === 'line-two-points') {
+  // A body zone for the constrained lines exists only on the double-click
+  // path: it carries the segment's own dimension (H:/V:/T:/L:), freeing the
+  // endpoints to mean positions. Gating it keeps pointer-down dragging
+  // exactly as it was — body-dragging these has never been a gesture.
+  const wantsBody = uniqueType === 'line-two-points'
+    || (includeDimensionZones && isConstrained);
+
+  if (!nearAnyEndpoint && wantsBody) {
     const bodyDist = pointToSegmentDist(
       point2d[0], point2d[1],
       startV[0], startV[1],
@@ -812,6 +840,31 @@ function hitTestRect(
     }
   }
 
+  // The rect's `start` argument, on the double-click path only. It sits on
+  // one of the corners (or the centre, for a `.centered()` rect), so it has
+  // to win over the corner's resize zone — at equal distance it takes it.
+  // Rounded rects skip the corner loop entirely, so this is their only zone.
+  if (includeEdges) {
+    const start = rectStartPoint(child, uniqueVerts, isCentered, center);
+    const sdx = start[0] - point2d[0];
+    const sdy = start[1] - point2d[1];
+    const d = sdx * sdx + sdy * sdy;
+    if (d < thresholdSq && d <= bestDistSq) {
+      result = {
+        hit: {
+          sourceLocation,
+          uniqueType: 'rect',
+          hitZone: 'start',
+          anchorPoint: start,
+          draggedVertices: [start],
+          rectCentered: isCentered,
+        },
+        distSq: d,
+      };
+      bestDistSq = d;
+    }
+  }
+
   if (includeEdges && !result) {
     const edgeResult = hitTestRectEdges(point2d, uniqueVerts, sourceLocation, child, isCentered, thresholdSq, bestDistSq);
     if (edgeResult) {
@@ -820,6 +873,33 @@ function hitTestRect(
   }
 
   return result;
+}
+
+/**
+ * Where a rect's `start` argument sits. A `.centered()` rect is positioned by
+ * its centre; otherwise it is the corner the source counts from — the one
+ * `rectCornerInfos` calls semantic index 0, which lands on the visually
+ * opposite side when the width or height is negative.
+ */
+function rectStartPoint(
+  child: SceneObjectRender,
+  uniqueVerts: [number, number][],
+  isCentered: boolean,
+  center: [number, number] | undefined,
+): [number, number] {
+  if (isCentered && center) {
+    return center;
+  }
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const v of uniqueVerts) {
+    minX = Math.min(minX, v[0]);
+    maxX = Math.max(maxX, v[0]);
+    minY = Math.min(minY, v[1]);
+    maxY = Math.max(maxY, v[1]);
+  }
+  const signW = typeof child.object?.width === 'number' && child.object.width < 0 ? -1 : 1;
+  const signH = typeof child.object?.height === 'number' && child.object.height < 0 ? -1 : 1;
+  return [signW > 0 ? minX : maxX, signH > 0 ? minY : maxY];
 }
 
 type RectCornerInfo = {
@@ -987,6 +1067,7 @@ function hitTestPolygon(
   child: SceneObjectRender,
   thresholdSq: number,
   bestDistSq: number,
+  includeDimensionZones = false,
 ): HitTestResult | null {
   const DUP_EPS_SQ = 1e-6;
   const uniqueVerts: [number, number][] = [];
@@ -1042,6 +1123,29 @@ function hitTestPolygon(
       bestDistSq = d;
     }
   }
+
+  // The centre is the polygon's position argument. Double-click only, so
+  // pointer-down drags that translate the polygon are unaffected.
+  if (includeDimensionZones) {
+    const cdx = cx - point2d[0];
+    const cdy = cy - point2d[1];
+    const centreDist = cdx * cdx + cdy * cdy;
+    if (centreDist < thresholdSq && centreDist < bestDistSq) {
+      result = {
+        hit: {
+          sourceLocation,
+          uniqueType: 'polygon',
+          hitZone: 'center',
+          anchorPoint: [cx, cy],
+          initialValue: diameter,
+          originalDistance: circumscribedRadius,
+          polygonSides: sides,
+        },
+        distSq: centreDist,
+      };
+    }
+  }
+
   return result;
 }
 

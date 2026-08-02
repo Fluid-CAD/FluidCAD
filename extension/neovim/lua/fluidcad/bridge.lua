@@ -272,6 +272,21 @@ function M.handle_message(msg)
           sketch_line, new_var, dim_offset, dim_call, dim_insert, dim_point
         )
       end)
+    elseif msg.type == 'update-point-expression' then
+      local new_var = msg.newVariable
+      if new_var == vim.NIL then
+        new_var = nil
+      end
+      local sketch_line = msg.sketchSourceLine
+      if sketch_line == vim.NIL then
+        sketch_line = nil
+      end
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.update_point_expression(
+          code, msg.sourceLocation.line, msg.xExpr, msg.yExpr,
+          sketch_line, new_var, msg.pointIndex or 0
+        )
+      end)
     elseif msg.type == 'remove-feature' then
       M.apply_code_edit(msg.filePath, function(code_api, code)
         return code_api.remove_statement(code, msg.line)

@@ -19,6 +19,9 @@ import {
   updateDimension,
   updateDimensionExpression,
   getDimensionExpression,
+  getPointExpression,
+  updatePointExpression,
+  updatePointExpressionWithVariable,
   extractVariablesInScope,
 } from '../src/code-editor.ts';
 
@@ -602,6 +605,106 @@ describe('updateGeometryPosition', () => {
     const code = `tArc(l1.start())\n`;
     const result = await updateGeometryPosition(code, 1, [100, 100]);
     expect(result.newCode).toBe(`tArc([100, 100])\n`);
+  });
+});
+
+describe('updatePointExpression', () => {
+  it('writes per-axis expressions verbatim', async () => {
+    const code = `circle([5, 10], 20)\n`;
+    const result = await updatePointExpression(code, 1, 'w / 2', 'holeY');
+    expect(result.newCode).toBe(`circle([w / 2, holeY], 20)\n`);
+  });
+
+  it('promotes to the positioned overload when the call has no point yet', async () => {
+    const code = `circle(20)\n`;
+    const result = await updatePointExpression(code, 1, '100', '103');
+    expect(result.newCode).toBe(`circle([100, 103], 20)\n`);
+  });
+
+  it('targets the Nth point of a two-point call', async () => {
+    const code = `line([0, 0], [20, 30])\n`;
+    const result = await updatePointExpression(code, 1, 'a', 'b', 1);
+    expect(result.newCode).toBe(`line([0, 0], [a, b])\n`);
+  });
+
+  it('reaches a point inside a longer chain', async () => {
+    const code = `arc([0, 0], [10, 10]).center([5, 5])\n`;
+    const result = await updatePointExpression(code, 1, 'cx', 'cy', 2);
+    expect(result.newCode).toBe(`arc([0, 0], [10, 10]).center([cx, cy])\n`);
+  });
+
+  // A Point2DLike may be a lazy accessor; overwriting it would silently drop
+  // a parametric reference, so the expression editor declines instead.
+  it('refuses a lazy-vertex point rather than clobbering it', async () => {
+    const code = `circle(hole.center(), 5)\n`;
+    const result = await updatePointExpression(code, 1, '1', '2');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a point held in a variable', async () => {
+    const code = `line(origin, [10, 10])\n`;
+    const result = await updatePointExpression(code, 1, '1', '2');
+    expect(result.newCode).toBe(code);
+  });
+});
+
+describe('updatePointExpressionWithVariable', () => {
+  it('declares one variable per axis above the edited statement', async () => {
+    const code = [
+      'sketch("xy", () => {',
+      '  circle([5, 10], 20)',
+      '})',
+      '',
+    ].join('\n');
+    const result = await updatePointExpressionWithVariable(
+      code, 2, 'cx', 'cy', 1,
+      [{ name: 'cx', initializer: '100' }, { name: 'cy', initializer: '103' }],
+    );
+    expect(result.newCode).toBe([
+      'sketch("xy", () => {',
+      '  const cx = 100;',
+      '  const cy = 103;',
+      '  circle([cx, cy], 20)',
+      '})',
+      '',
+    ].join('\n'));
+  });
+
+  it('lands a param() at top level and keeps the edit anchored', async () => {
+    const code = [
+      'import { circle, sketch } from "fluidcad/core";',
+      'sketch("xy", () => {',
+      '  circle([5, 10], 20)',
+      '})',
+      '',
+    ].join('\n');
+    const result = await updatePointExpressionWithVariable(
+      code, 3, 'cx', '10', 2,
+      [{ name: 'cx', initializer: 'param("Centre X", 100)' }],
+    );
+    expect(result.newCode).toContain('const cx = param("Centre X", 100);');
+    expect(result.newCode).toContain('circle([cx, 10], 20)');
+    expect(result.newCode).toContain('param');
+  });
+});
+
+describe('getPointExpression', () => {
+  it('reads back both axes as authored', async () => {
+    const code = `circle([w / 2, holeY], 20)\n`;
+    expect(await getPointExpression(code, 1)).toEqual({ x: 'w / 2', y: 'holeY' });
+  });
+
+  it('reads the Nth point of a chain', async () => {
+    const code = `arc([0, 0], [10, 10]).center([cx, cy])\n`;
+    expect(await getPointExpression(code, 1, 2)).toEqual({ x: 'cx', y: 'cy' });
+  });
+
+  it('returns null when the call has no point argument', async () => {
+    expect(await getPointExpression(`circle(20)\n`, 1)).toBeNull();
+  });
+
+  it('returns null for a point that is not an [x, y] literal', async () => {
+    expect(await getPointExpression(`circle(hole.center(), 5)\n`, 1)).toBeNull();
   });
 });
 

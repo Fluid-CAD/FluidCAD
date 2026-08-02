@@ -133,6 +133,18 @@ function M.update_dimension_expression(code, source_line, expression, sketch_sou
   })
 end
 
+function M.update_point_expression(code, source_line, x_expr, y_expr, sketch_source_line, new_variable, point_index)
+  return post('update-point-expression', {
+    code = code,
+    sourceLine = source_line,
+    xExpr = x_expr,
+    yExpr = y_expr,
+    sketchSourceLine = sketch_source_line,
+    newVariable = new_variable,
+    pointIndex = point_index or 0,
+  })
+end
+
 function M.apply_feature(code, spec)
   return post('apply-feature', { code = code, spec = spec })
 end

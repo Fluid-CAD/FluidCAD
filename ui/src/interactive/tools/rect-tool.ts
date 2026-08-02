@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn, PickedPoint } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
@@ -28,12 +28,12 @@ export class RectTool extends SketchTool {
   readonly icon = ICON_RECT;
 
   private startPoint: [number, number] | null = null;
+  /** The start corner as picked: same position, plus any typed axis expressions. */
+  private startPick: PickedPoint | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private readonly centered: boolean;
   private expressionInput: ExpressionInput;
-  private fetchVariables: FetchVariablesFn;
-  private cachedVariables: VariableInfo[] = [];
   private lastClientX = 0;
   private lastClientY = 0;
 
@@ -58,9 +58,8 @@ export class RectTool extends SketchTool {
     fetchVariables: FetchVariablesFn,
     centered: boolean,
   ) {
-    super(ctx, plane, snapController, insertGeometry);
+    super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.expressionInput = new ExpressionInput(container);
-    this.fetchVariables = fetchVariables;
     this.centered = centered;
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
@@ -68,16 +67,15 @@ export class RectTool extends SketchTool {
     this.boundKeyDown = this.handleKeyDown.bind(this);
   }
 
-  activate(): void {
+  protected onActivate(): void {
     this.addPreviewToScene();
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
-  deactivate(): void {
+  protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
@@ -89,11 +87,31 @@ export class RectTool extends SketchTool {
   onSceneUpdate(sceneObjects: SceneObjectRender[], sketchId: string): void {
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane, this.ctx);
     this.updateSnapManager(snapManager);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
+    this.refreshVariables();
+  }
+
+  /** The start corner is the point that lands in the source; the second click
+   * sizes the rectangle, which the expression input already covers. */
+  protected override awaitingPoint(): boolean {
+    return this.startPoint === null;
+  }
+
+  protected override onTypedPoint(point: PickedPoint): void {
+    this.consumeStart(point);
+  }
+
+  /** Single writer for both halves of the anchor, so the position the preview
+   * draws and the expressions the statement emits cannot drift. */
+  private consumeStart(start: PickedPoint): void {
+    this.startPick = start;
+    this.startPoint = start.value;
+    this.syncPointInput();
+    this.rebuildPreview();
   }
 
   private resetState(): void {
     this.startPoint = null;
+    this.startPick = null;
     this.mousePoint = null;
     this.expressionPhase = 'width';
     this.widthExpression = null;
@@ -123,8 +141,7 @@ export class RectTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (!this.startPoint) {
-      this.startPoint = point;
-      this.rebuildPreview();
+      this.consumeStart(this.applyPointInput(result.point2d));
       return;
     }
 
@@ -156,6 +173,11 @@ export class RectTool extends SketchTool {
 
   private handleKeyDown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
+      // Typed coordinates clear first; only a clean pill lets Escape
+      // fall through to cancelling the in-progress shape.
+      if (this.handlePointInputEscape()) {
+        return;
+      }
       if (this.startPoint) {
         this.resetState();
         this.rebuildPreview();
@@ -303,9 +325,10 @@ export class RectTool extends SketchTool {
 
     const heightResult = this.resolveSignedDim(result, isNumeric, isNumeric ? num : null, 1);
 
-    this.commitRect(this.startPoint, widthResult, heightResult);
+    this.commitRect(this.startPick!, widthResult, heightResult);
     this.expressionInput.hide();
     this.startPoint = null;
+    this.startPick = null;
     this.expressionPhase = 'width';
     this.widthExpression = null;
     this.lockedWidth = null;
@@ -324,12 +347,13 @@ export class RectTool extends SketchTool {
     }
 
     this.commitRect(
-      this.startPoint,
+      this.startPick!,
       { expression: String(width) },
       { expression: String(height) },
     );
     this.expressionInput.hide();
     this.startPoint = null;
+    this.startPick = null;
     this.expressionPhase = 'width';
     this.widthExpression = null;
     this.lockedWidth = null;
@@ -369,24 +393,19 @@ export class RectTool extends SketchTool {
   }
 
   protected commitRect(
-    start: [number, number],
+    start: PickedPoint,
     widthResult: CommitResult,
     heightResult: CommitResult,
   ): void {
-    const atCurrent = this.isAtCurrentPosition(start);
-    let statement: string;
-    if (atCurrent) {
-      statement = `rect(${widthResult.expression}, ${heightResult.expression})`;
-    } else {
-      statement = `rect(${this.formatPoint(start)}, ${widthResult.expression}, ${heightResult.expression})`;
-    }
-    if (this.centered) {
-      statement += '.centered()';
-    }
-
+    const suffix = this.centered ? '.centered()' : '';
     const newVariables = [widthResult.newVariable, heightResult.newVariable]
       .filter((v): v is NonNullable<typeof v> => v !== undefined);
-    this.insertGeometry(statement, newVariables);
+    this.insertAtPoint(
+      start,
+      (point) => `rect(${point}, ${widthResult.expression}, ${heightResult.expression})${suffix}`,
+      () => `rect(${widthResult.expression}, ${heightResult.expression})${suffix}`,
+      newVariables,
+    );
   }
 
   protected rebuildPreview(): void {

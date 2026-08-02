@@ -10,6 +10,7 @@ import sweep from "../core/sweep.js";
 import helix from "../core/helix.js";
 import chamfer from "../core/chamfer.js";
 import repeat from "../core/repeat.js";
+import copy from "../core/copy.js";
 import { bezier, circle, move, rect, vLine } from "../core/2d/index.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
@@ -18,8 +19,8 @@ import { Explorer } from "../oc/explorer.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import {
-  buildFeatureGhost, ExtrudeGhostRequest, FeatureGhostResult, GhostPathRef, GhostSectionRef,
-  LoftGhostRequest, RepeatGhostRequest, RevolveGhostRequest, SweepGhostRequest,
+  buildFeatureGhost, CopyGhostRequest, ExtrudeGhostRequest, FeatureGhostResult, GhostPathRef,
+  GhostSectionRef, LoftGhostRequest, RepeatGhostRequest, RevolveGhostRequest, SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { Scene, SceneObjectMesh } from "../rendering/scene.js";
@@ -1251,6 +1252,293 @@ describe("feature ghost — repeat", () => {
     }
     throw new Error('no curved face in the scene');
   }
+});
+
+describe("feature ghost — copy", () => {
+  setupOC();
+
+  const COPY_BASE: Omit<CopyGhostRequest, 'targets'> = {
+    feature: 'copy',
+    kind: 'linear',
+    axes: [{ kind: 'standard', axis: 'x' }],
+    directions: [{ count: 3, offset: 40, length: null }],
+    centered: false,
+    count: null,
+    sweep: null,
+  };
+
+  function copyGhost(
+    scene: Scene,
+    lines: number[],
+    overrides: Partial<CopyGhostRequest> = {},
+  ): FeatureGhostResult {
+    return buildFeatureGhost(
+      scene,
+      {
+        ...COPY_BASE,
+        ...overrides,
+        targets: lines.map(line => ({ filePath: FILE, line })),
+      },
+      DEFAULT_MESH_CONFIG,
+    );
+  }
+
+  /** A box built by an `extrude()` addressable at `line`, like the parser's. */
+  function locatedBox(line: number, draw = () => { rect(20, 20); }, height = 10): SceneObject {
+    sketch("xy", draw);
+    const solid = extrude(height).new() as unknown as SceneObject;
+    solid.setSourceLocation({ filePath: FILE, line, column: 0 });
+    return solid;
+  }
+
+  function solidsOf(result: FeatureGhostResult) {
+    if (!result.ok) {
+      throw new Error(`ghost refused: ${'reason' in result ? result.reason : ''}`);
+    }
+    return result.solids;
+  }
+
+  it("clones a body at every instance but the original", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = copyGhost(scene, [5]);
+
+    expect(solidsOf(result)).toHaveLength(2);
+    expect(bounds(result, 0).minX).toBeCloseTo(40, 3);
+    expect(bounds(result, 0).maxX).toBeCloseTo(60, 3);
+    expect(bounds(result, 1).minX).toBeCloseTo(80, 3);
+    expect(bounds(result, 1).maxX).toBeCloseTo(100, 3);
+  });
+
+  it("lays out the grid two directions describe", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = copyGhost(scene, [5], {
+      axes: [{ kind: 'standard', axis: 'x' }, { kind: 'standard', axis: 'y' }],
+      directions: [
+        { count: 2, offset: 40, length: null },
+        { count: 2, offset: 30, length: null },
+      ],
+    });
+
+    // 2 × 2 cells, the origin corner left to the box already on screen.
+    expect(solidsOf(result)).toHaveLength(3);
+  });
+
+  it("centers the clones on the original", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = copyGhost(scene, [5], { centered: true });
+
+    expect(solidsOf(result)).toHaveLength(2);
+    expect(bounds(result, 0).minX).toBeCloseTo(-40, 3);
+    expect(bounds(result, 1).minX).toBeCloseTo(40, 3);
+  });
+
+  it("spreads a total span across the gaps", () => {
+    locatedBox(5);
+    const scene = render();
+
+    // 3 instances over 80 mm = the same 40 mm step the offset form states.
+    const result = copyGhost(scene, [5], {
+      directions: [{ count: 3, offset: null, length: 80 }],
+    });
+
+    expect(bounds(result, 0).minX).toBeCloseTo(40, 3);
+    expect(bounds(result, 1).minX).toBeCloseTo(80, 3);
+  });
+
+  it("spins the clones around a circular axis", () => {
+    // Off the axis, so the rotation is visible in the bounds at all.
+    locatedBox(5, () => { rect([40, -10], 20, 20); });
+    const scene = render();
+
+    const result = copyGhost(scene, [5], {
+      kind: 'circular',
+      axes: [{ kind: 'standard', axis: 'z' }],
+      directions: [],
+      count: 4,
+      sweep: { mode: 'angle', value: 360 },
+    });
+
+    expect(solidsOf(result)).toHaveLength(3);
+    // A quarter turn carries the box from +x round to +y.
+    const first = bounds(result, 0);
+    expect(first.minY).toBeCloseTo(40, 3);
+    expect(first.maxY).toBeCloseTo(60, 3);
+    expect(first.minX).toBeCloseTo(-10, 3);
+  });
+
+  /**
+   * The one placement rule a copy does not share with a repeat: a partial
+   * sweep is divided by the instance count (copy-circular.ts:48), not by the
+   * gaps between them, so the last clone stops short of the stated angle.
+   */
+  it("divides a partial sweep by the count, not the gaps", () => {
+    locatedBox(5, () => { rect([40, -10], 20, 20); });
+    const scene = render();
+
+    const result = copyGhost(scene, [5], {
+      kind: 'circular',
+      axes: [{ kind: 'standard', axis: 'z' }],
+      directions: [],
+      count: 2,
+      sweep: { mode: 'angle', value: 180 },
+    });
+
+    // 180 / 2 = a single clone at 90°, where a repeat would put it at 180°.
+    expect(solidsOf(result)).toHaveLength(1);
+    const box = bounds(result, 0);
+    expect(box.minY).toBeCloseTo(40, 3);
+    expect(box.maxY).toBeCloseTo(60, 3);
+  });
+
+  /**
+   * Where the repeat and the copy part company. A boss sketched on a plate's
+   * face fuses into the plate, so the statement's body is plate-plus-boss —
+   * and `copy()` clones the body its target holds, so that whole fused body is
+   * what lands per instance (the repeat replays the boss's chain instead, and
+   * stamps the boss alone).
+   */
+  it("clones the whole body its target holds, fused plate and all", () => {
+    sketch("xy", () => { rect(200, 100).centered(); });
+    const plate = extrude(20) as unknown as { endFaces: () => unknown };
+    sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
+    const boss = extrude(10) as unknown as SceneObject;
+    boss.setSourceLocation({ filePath: FILE, line: 9, column: 0 });
+    const scene = render();
+
+    const result = copyGhost(scene, [9], {
+      directions: [{ count: 2, offset: 300, length: null }],
+    });
+
+    expect(solidsOf(result)).toHaveLength(1);
+    const box = bounds(result, 0);
+    // The plate spans x -100…100 and stands z 0…20, the boss on top of it —
+    // all of it moved 300 mm along x.
+    expect(box.minX).toBeCloseTo(200, 1);
+    expect(box.maxX).toBeCloseTo(400, 1);
+    expect(box.minZ).toBeCloseTo(0, 3);
+    expect(box.maxZ).toBeCloseTo(30, 3);
+  });
+
+  it("clones every target the request names", () => {
+    locatedBox(5);
+    locatedBox(9, () => { rect([100, -10], 20, 20); });
+    const scene = render();
+
+    const result = copyGhost(scene, [5, 9], {
+      directions: [{ count: 2, offset: 40, length: null }],
+    });
+
+    const solids = solidsOf(result);
+    expect(solids).toHaveLength(1);
+    // One body per instance, carrying both targets' meshes.
+    expect(solids[0].meshes.filter(m => m.label === 'solid-faces')).toHaveLength(2);
+    const xs = solids[0].meshes.flatMap(m => m.vertices.filter((_, i) => i % 3 === 0));
+    expect(Math.min(...xs)).toBeCloseTo(40, 3);
+    expect(Math.max(...xs)).toBeCloseTo(160, 3);
+  });
+
+  /**
+   * The edit dialog's own blind spot: a copy takes its targets' shapes over
+   * (copy-linear.ts:33-38), so re-previewing the statement being edited finds
+   * them already consumed — by itself. Re-reading as if no removal applied
+   * brings the body back, and without it editing any copy would draw nothing.
+   */
+  it("clones a target the copy being edited already took over", () => {
+    const box = locatedBox(5);
+    copy("linear", "x", { count: 2, offset: 200 }, box as never);
+    const scene = render();
+
+    const result = copyGhost(scene, [5], {
+      directions: [{ count: 2, offset: 40, length: null }],
+    });
+
+    // The target's own body at its own place, not the copy's clone at x 200.
+    const stamped = bounds(result, 0);
+    expect(stamped.minX).toBeCloseTo(40, 3);
+    expect(stamped.maxX).toBeCloseTo(60, 3);
+  });
+
+  it("clones along an axis() statement named by call site", () => {
+    const a = axis("y") as unknown as SceneObject;
+    a.setSourceLocation({ filePath: FILE, line: 3, column: 0 });
+    locatedBox(5);
+    const scene = render();
+
+    const result = copyGhost(scene, [5], {
+      axes: [{ kind: 'axis', filePath: FILE, line: 3 }],
+      directions: [{ count: 2, offset: 40, length: null }],
+    });
+
+    const box = bounds(result, 0);
+    expect(box.minY).toBeCloseTo(40, 3);
+    expect(box.maxY).toBeCloseTo(60, 3);
+  });
+
+  it("refuses more instances than it draws", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = copyGhost(scene, [5], {
+      directions: [{ count: 300, offset: 5, length: null }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(refusal(result)).toContain('299');
+    // A limit the user can act on — the dialog says this one out loud.
+    expect('surface' in result && result.surface).toBe(true);
+  });
+
+  it("draws nothing while the numbers are still being typed", () => {
+    locatedBox(5);
+    const scene = render();
+
+    for (const directions of [
+      [{ count: 1, offset: 40, length: null }],
+      [{ count: 3, offset: 0, length: null }],
+    ]) {
+      const result = copyGhost(scene, [5], { directions });
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.solids).toHaveLength(0);
+      }
+    }
+  });
+
+  it("refuses a target the scene doesn't hold", () => {
+    locatedBox(5);
+    const scene = render();
+
+    expect(copyGhost(scene, [99]).ok).toBe(false);
+  });
+
+  it("refuses a target with nothing solid to clone", () => {
+    locatedSketch(7, () => { rect(20, 20); });
+    const scene = render();
+
+    const result = copyGhost(scene, [7]);
+
+    expect(result.ok).toBe(false);
+    expect(refusal(result)).toContain('no solid');
+    // Ordinary refusals stay silent — the dialog clears and says nothing.
+    expect('surface' in result && result.surface).toBeFalsy();
+  });
+
+  it("refuses an axis the scene doesn't hold", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = copyGhost(scene, [5], {
+      axes: [{ kind: 'axis', filePath: FILE, line: 99 }],
+    });
+
+    expect(result.ok).toBe(false);
+  });
 });
 
 /**

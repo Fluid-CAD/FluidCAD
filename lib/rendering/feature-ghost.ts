@@ -5,6 +5,9 @@ import { Shape } from "../common/shape.js";
 import { Wire } from "../common/wire.js";
 import { Solid } from "../common/solid.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
+import {
+  buildCircularCopyGhostMatrices, buildLinearCopyGhostMatrices,
+} from "../features/copy-ghost.js";
 import { buildExtrudeGhostSolids } from "../features/extrude-ghost.js";
 import { buildFilletGhostBands } from "../features/fillet-ghost.js";
 import { buildHelixGhostWires } from "../features/helix-ghost.js";
@@ -51,6 +54,7 @@ export type FeatureGhostRequest =
   | FilletGhostRequest
   | HelixGhostRequest
   | RepeatGhostRequest
+  | CopyGhostRequest
   | PlaneGhostRequest;
 
 export type ExtrudeGhostRequest = {
@@ -226,12 +230,47 @@ export type RepeatGhostRequest = {
 /**
  * One linear direction on the wire: how many instances, and how far apart —
  * either directly (`offset`) or as the span they share (`length`), the two
- * forms the dialog's spacing mode writes.
+ * forms the dialog's spacing mode writes. Shared with the copy, which states a
+ * direction exactly as the repeat does.
  */
 export type GhostRepeatDirection = {
   count: number;
   offset: number | null;
   length: number | null;
+};
+
+/**
+ * The copy — the repeat's quieter twin, and the second feature whose ghost
+ * builds no geometry of its own.
+ *
+ * Where a repeat *replays* the features it names, `copy()` clones the shapes
+ * its targets already hold and moves them (copy-linear.ts:32-97): what an
+ * instance puts on screen IS the target's body, no boolean and no re-run. So
+ * the ghost stamps that body — whole, a boss fused into its plate included,
+ * because that whole fused body is precisely what the apply will clone.
+ *
+ * A copy also takes solids rather than timeline rows, and the ghost reads that
+ * literally: `targets` name the statements whose solids are being cloned, and
+ * their meshes (made by the last render) are stamped at each instance
+ * transform. Per keystroke that is N array transforms and no OCC work.
+ *
+ * The origin instance is never drawn — it is the geometry already on screen.
+ */
+export type CopyGhostRequest = {
+  feature: 'copy';
+  kind: 'linear' | 'circular';
+  /** The solid-bearing statements being cloned, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** Linear: one per direction (1–2). Circular: one. */
+  axes: GhostAxisRef[];
+  /** Linear: count and spacing per direction, parallel to {@link axes}. */
+  directions: GhostRepeatDirection[];
+  /** Linear: center the copies on the original instead of starting there. */
+  centered: boolean;
+  /** Circular: instances around the axis, the original included. */
+  count: number | null;
+  /** Circular: the whole sweep to divide, or the step between neighbours. */
+  sweep: RepeatGhostSweep | null;
 };
 
 /**
@@ -325,11 +364,11 @@ const THROUGH_ALL_MARGIN = 1.1;
 const THROUGH_ALL_FALLBACK = 100;
 
 /**
- * How many instances a repeat ghost will draw. Past it the answer is a
+ * How many instances a repeat or copy ghost will draw. Past it the answer is a
  * refusal carrying the count, not silence: a pattern that simply vanished
  * when the count grew would read as a bug rather than a limit.
  */
-const MAX_REPEAT_GHOST_INSTANCES = 200;
+const MAX_GHOST_INSTANCES = 200;
 
 /**
  * Mesh the geometry a feature dialog would produce, without touching the
@@ -362,6 +401,9 @@ export function buildFeatureGhost(
   }
   if (request.feature === 'repeat') {
     return buildRepeatGhost(scene, request, meshConfig);
+  }
+  if (request.feature === 'copy') {
+    return buildCopyGhost(scene, request, meshConfig);
   }
   if (request.feature === 'plane') {
     return buildPlaneGhost(scene, request, meshConfig);
@@ -714,7 +756,7 @@ function buildRepeatGhost(
       // passes through while the user types. Nothing to draw, nothing wrong.
       return { ok: true, solids: [] };
     }
-    const targets = repeatTargetObjects(scene, request.targets);
+    const targets = targetObjectsAt(scene, request.targets);
     if (targets.length === 0) {
       return { ok: false, reason: 'That feature is not in the rendered scene.' };
     }
@@ -748,7 +790,7 @@ function repeatGhostMatrices(
   scratch: Shape[],
 ): { matrices: Matrix4[] } | { reason: string; surface?: boolean } {
   const total = requestedInstanceCount(request);
-  if (total > MAX_REPEAT_GHOST_INSTANCES) {
+  if (total > MAX_GHOST_INSTANCES) {
     // The one refusal here the user can do something about, and the one where
     // drawing nothing would look broken rather than unfinished.
     return { reason: `${total} instances is more than the preview draws.`, surface: true };
@@ -807,8 +849,12 @@ function directionOffset(direction: GhostRepeatDirection): number {
   return direction.length !== null ? direction.length / (direction.count - 1) : NaN;
 }
 
-/** How many bodies the request describes, read off its numbers alone. */
-function requestedInstanceCount(request: RepeatGhostRequest): number {
+/**
+ * How many bodies the request describes, read off its numbers alone — the
+ * repeat's four kinds and the copy's two, which state their instances the
+ * same way.
+ */
+function requestedInstanceCount(request: RepeatGhostRequest | CopyGhostRequest): number {
   if (request.kind === 'linear') {
     return linearGhostInstanceCount(request.directions);
   }
@@ -819,16 +865,19 @@ function requestedInstanceCount(request: RepeatGhostRequest): number {
 }
 
 /**
- * The objects the target rows name. Two wrinkles no other ghost has:
+ * The objects a target ref names — a repeat's timeline row, a copy's picked
+ * solid. Two wrinkles no other ghost has:
  *
  * - **A clone stamps its original's call site** (repeat-targets.ts:20-24), so
  *   a line an earlier repeat already replayed holds the original *and* every
  *   clone of it. The original alone is the target: a new repeat replays the
- *   statement, not the pattern that came out of it.
- * - **A target can be a container** — repeating a `repeat()` or a `part()` row
- *   is legal, and `getShapes` gathers a container's children for us.
+ *   statement, and a new copy clones the body that statement bound to its
+ *   variable — neither takes the pattern that came out of it.
+ * - **A target can be a container** — repeating or copying a `repeat()` or a
+ *   `part()` row is legal, and `getShapes` gathers a container's children for
+ *   us.
  */
-function repeatTargetObjects(
+function targetObjectsAt(
   scene: Scene,
   refs: { filePath: string; line: number }[],
 ): SceneObject[] {
@@ -1078,6 +1127,117 @@ function stampMeshes(solids: Shape[], builder: MeshBuilder): SceneObjectMesh[] {
     }
   }
   return meshes;
+}
+
+/**
+ * The copy branch: no geometry is built here either, and unlike the repeat
+ * none has to be worked out. A repeat replays the features it names, so what
+ * one instance contributes is the *difference* its chain makes; a copy clones
+ * the bodies its targets already hold and moves them (copy-linear.ts:32-97),
+ * so what one instance contributes is those bodies, unchanged. The stamp is
+ * therefore the targets' own meshes — a boss fused into its plate stamps the
+ * fused body, because that is exactly what the apply will clone.
+ *
+ * Nothing here opens a shape: the axes resolve to plain values (a picked edge's
+ * wrappers are the resolver's own and go back before it returns) and the
+ * meshes are read off the scene, so there is no scratch to free.
+ */
+function buildCopyGhost(
+  scene: Scene,
+  request: CopyGhostRequest,
+  meshConfig: MeshConfig,
+): FeatureGhostResult {
+  const placed = copyGhostMatrices(scene, request);
+  if ('reason' in placed) {
+    return { ok: false, reason: placed.reason, surface: placed.surface };
+  }
+  if (placed.matrices.length === 0) {
+    // A count still at one, a spacing still at zero — states the dialog
+    // passes through while the user types. Nothing to draw, nothing wrong.
+    return { ok: true, solids: [] };
+  }
+  const targets = targetObjectsAt(scene, request.targets);
+  if (targets.length === 0) {
+    return { ok: false, reason: 'That solid is not in the rendered scene.' };
+  }
+  const meshes = stampMeshes(copyTargetSolids(targets), new MeshBuilder(meshConfig));
+  if (meshes.length === 0) {
+    return { ok: false, reason: 'That statement has no solid to copy.' };
+  }
+  // Every target rides in one body per instance: they move together, and the
+  // overlay draws a mesh list whatever it was gathered from.
+  return {
+    ok: true,
+    solids: placed.matrices.map(matrix => ({ meshes: transformMeshes(meshes, matrix) })),
+  };
+}
+
+/**
+ * Where the clones land, or why the request names an axis the scene no longer
+ * holds. As with the repeat, the cap is applied to the *stated* count first,
+ * before a grid is materialized — a mistyped count must refuse, not allocate.
+ */
+function copyGhostMatrices(
+  scene: Scene,
+  request: CopyGhostRequest,
+): { matrices: Matrix4[] } | { reason: string; surface?: boolean } {
+  const total = requestedInstanceCount(request);
+  if (total > MAX_GHOST_INSTANCES) {
+    // The one refusal here the user can do something about, and the one where
+    // drawing nothing would look broken rather than unfinished.
+    return { reason: `${total} instances is more than the preview draws.`, surface: true };
+  }
+
+  const axes: Axis[] = [];
+  for (const ref of request.axes) {
+    const axis = resolveGhostAxis(scene, ref);
+    if (!axis) {
+      return { reason: 'That axis is not in the rendered scene.' };
+    }
+    axes.push(axis);
+  }
+  if (axes.length === 0) {
+    return { matrices: [] };
+  }
+  if (request.kind === 'circular') {
+    return {
+      matrices: request.sweep
+        ? buildCircularCopyGhostMatrices(axes[0], request.count ?? 0, request.sweep, request.centered)
+        : [],
+    };
+  }
+  // Linear: one axis per direction. A mismatch is a malformed request the
+  // route rejects; here it simply lays nothing out.
+  if (axes.length !== request.directions.length) {
+    return { matrices: [] };
+  }
+  const directions: RepeatGhostDirection[] = request.directions.map((direction, i) => ({
+    axis: axes[i],
+    count: direction.count,
+    offset: directionOffset(direction),
+  }));
+  return { matrices: buildLinearCopyGhostMatrices(directions, request.centered) };
+}
+
+/**
+ * The bodies a copy's targets hand it. `copy()` reads `getShapes()` at its own
+ * point in the file, but the ghost reads the finished scene — where a feature
+ * FURTHER DOWN may already have consumed the very body the copy would clone,
+ * and in an edit dialog that consumer is often the copy itself. Re-reading with
+ * an empty removal scope means "no removal applies" and brings those bodies
+ * back, the same blind spot {@link profileEdges} works around for the swept
+ * features. The Set dedupes a container target, which reports its children's
+ * solids as its own.
+ */
+function copyTargetSolids(targets: SceneObject[]): Shape[] {
+  const solids: Shape[] = [];
+  for (const target of targets) {
+    const live = target.getShapes(undefined, 'solid');
+    solids.push(...(live.length > 0
+      ? live
+      : target.getShapes(undefined, 'solid', new Set<SceneObject>())));
+  }
+  return [...new Set(solids)];
 }
 
 /** The bodies to mesh, or why the request names something the scene lost. */

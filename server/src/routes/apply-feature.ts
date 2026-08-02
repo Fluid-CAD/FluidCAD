@@ -1113,7 +1113,7 @@ type CopyRequest = {
   centered?: boolean;
 };
 
-const MAX_COPY_TARGETS = 16;
+export const MAX_COPY_TARGETS = 16;
 const MAX_COPY_DIRECTIONS = 3;
 
 /**

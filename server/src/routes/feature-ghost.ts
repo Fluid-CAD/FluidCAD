@@ -5,7 +5,7 @@ import type {
   FeatureGhostRequest, FluidCadServer, GhostAxisRef, GhostEntityRef, GhostHelixSourceRef,
   GhostPathRef, GhostPlaneBaseRef, GhostPlaneRef, GhostRepeatDirection, GhostSectionRef,
 } from '../fluidcad-server.ts';
-import { MAX_REPEAT_TARGETS } from './apply-feature.ts';
+import { MAX_COPY_TARGETS, MAX_REPEAT_TARGETS } from './apply-feature.ts';
 
 /** A dialog numeric slot on the wire: a number, or verbatim expression text. */
 type ValueExpr = number | string;
@@ -58,7 +58,9 @@ type GhostBody = {
   position?: unknown;
 };
 
-const FEATURES = ['extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'plane'];
+const FEATURES = [
+  'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'plane',
+];
 
 /** The features that modify edges of an existing solid rather than sweep a profile. */
 const BAND_FEATURES = ['fillet', 'chamfer'];
@@ -76,13 +78,19 @@ const CONDITION_TYPES = ['normal', 'tangent'];
 
 const REPEAT_KINDS = ['linear', 'circular', 'mirror', 'rotate'];
 
+/** The copy's two: it walks an axis or spins around one, and mirrors nothing. */
+const COPY_KINDS = ['linear', 'circular'];
+
 /** The plane dialog's three forms; the base count follows from the type. */
 const PLANE_TYPES = ['offset', 'mid', 'edge'];
 
 /** The circular dialog's two angle forms: the whole sweep, or one step of it. */
 const SWEEP_MODES = ['angle', 'offset'];
 
-/** Two directions is what the repeat dialog writes; more is hand-written code. */
+/**
+ * Two directions is what the repeat and copy dialogs write; more is
+ * hand-written code.
+ */
 const MAX_GHOST_DIRECTIONS = 2;
 
 /** A bare JS identifier — the expression form that resolves without a parse. */
@@ -495,6 +503,75 @@ function parseRepeat(body: GhostBody): RawRepeat | string {
   };
 }
 
+/** A copy request's slots, before its numbers are resolved. */
+type RawCopy = {
+  kind: 'linear' | 'circular';
+  targets: { filePath: string; line: number }[];
+  axes: GhostAxisRef[];
+  directions: RawDirection[];
+  centered: boolean;
+  count: ValueExpr | null;
+  sweep: RawSweep | null;
+};
+
+/**
+ * The copy dialog's slots, cross-checked kind by kind: a linear copy needs an
+ * axis per direction, a circular one a single axis with a count and an angle.
+ * It carries no plane and no rotate angle — a copy walks or spins, and mirrors
+ * nothing.
+ *
+ * Hand-written rather than shared with {@link parseRepeat}, for the reason
+ * that one isn't shared with apply-feature's `validateCopy`: near-identical
+ * shapes validated for different purposes must not drift into each other.
+ */
+function parseCopy(body: GhostBody): RawCopy | string {
+  if (typeof body.kind !== 'string' || !COPY_KINDS.includes(body.kind)) {
+    return 'Invalid copy kind';
+  }
+  const kind = body.kind as RawCopy['kind'];
+  const targets = parseSourceRefs(body.targets);
+  if (!targets || targets.length === 0 || targets.length > MAX_COPY_TARGETS) {
+    return 'Invalid copy targets';
+  }
+  const axes = parseAxes(body.axes ?? []);
+  if (!axes) {
+    return 'Invalid axis reference';
+  }
+  const directions = parseDirections(body.directions ?? []);
+  if (!directions || directions.length > MAX_GHOST_DIRECTIONS) {
+    return 'Invalid copy directions';
+  }
+  const sweep = body.sweep == null ? null : parseSweep(body.sweep);
+  if (body.sweep != null && !sweep) {
+    return 'Invalid copy sweep';
+  }
+
+  if (kind === 'linear') {
+    // One axis per direction — the pairing IS the request; a mismatch would
+    // silently copy along the wrong one.
+    if (directions.length === 0 || axes.length !== directions.length) {
+      return 'Invalid copy directions';
+    }
+  } else {
+    if (axes.length !== 1) {
+      return 'Invalid axis reference';
+    }
+    if (!isValueExpr(body.count) || !sweep) {
+      return 'Invalid circular copy';
+    }
+  }
+
+  return {
+    kind,
+    targets,
+    axes,
+    directions,
+    centered: body.centered === true,
+    count: isValueExpr(body.count) ? body.count : null,
+    sweep,
+  };
+}
+
 /** A takeoff condition; 'none' never travels, so absent means unconstrained. */
 function parseCondition(value: unknown): RawCondition | null | 'invalid' {
   if (value === null || value === undefined) {
@@ -626,12 +703,13 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     // Only the features that put material somewhere carry an op. A band's
     // direction is read off the geometry per edge rather than declared by the
     // dialog, a helix is a wire — it adds and removes nothing at all — and a
-    // repeat inherits whatever its targets already do.
+    // repeat or a copy inherits whatever its targets already do.
     const isBand = BAND_FEATURES.includes(body.feature);
     const isHelix = body.feature === 'helix';
     const isRepeat = body.feature === 'repeat';
+    const isCopy = body.feature === 'copy';
     const isPlane = body.feature === 'plane';
-    if (!isBand && !isHelix && !isRepeat && !isPlane
+    if (!isBand && !isHelix && !isRepeat && !isCopy && !isPlane
       && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
@@ -698,6 +776,15 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       }
       repeat = parsed;
     }
+    let copy: RawCopy | null = null;
+    if (isCopy) {
+      const parsed = parseCopy(body);
+      if (typeof parsed === 'string') {
+        res.status(400).json({ success: false, reason: parsed });
+        return;
+      }
+      copy = parsed;
+    }
     let planeType: 'offset' | 'mid' | 'edge' | null = null;
     let planeBases: GhostPlaneBaseRef[] = [];
     if (isPlane) {
@@ -762,8 +849,11 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const rotateY = resolve(body.rotateY);
     const rotateZ = resolve(body.rotateZ);
     const position = resolve(body.position);
-    const sweepValue = repeat?.sweep ? resolve(repeat.sweep.value) : null;
-    const directions = (repeat?.directions ?? []).map(direction => ({
+    // The repeat and the copy state their instances identically — one pass
+    // resolves whichever of the two asked.
+    const rawSweep = repeat?.sweep ?? copy?.sweep ?? null;
+    const sweepValue = rawSweep ? resolve(rawSweep.value) : null;
+    const directions = (repeat?.directions ?? copy?.directions ?? []).map(direction => ({
       count: resolve(direction.count),
       offset: resolve(direction.offset),
       length: resolve(direction.length),
@@ -825,6 +915,18 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         count,
         sweep: repeat!.sweep ? { mode: repeat!.sweep.mode, value: sweepValue! } : null,
         angle,
+      };
+    } else if (isCopy) {
+      request = {
+        feature: 'copy',
+        kind: copy!.kind,
+        targets: copy!.targets,
+        axes: copy!.axes,
+        // Every value resolved above, or the request never reached here.
+        directions: directions as GhostRepeatDirection[],
+        centered: copy!.centered,
+        count,
+        sweep: copy!.sweep ? { mode: copy!.sweep.mode, value: sweepValue! } : null,
       };
     } else if (isLoft) {
       const op = body.op as 'add' | 'remove' | 'new';

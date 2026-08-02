@@ -299,6 +299,7 @@ export type FeatureGhostRequest =
   | FilletGhostRequest
   | HelixGhostRequest
   | RepeatGhostRequest
+  | CopyGhostRequest
   | PlaneGhostRequest;
 
 export type ExtrudeGhostRequest = {
@@ -473,12 +474,41 @@ export type RepeatGhostRequest = {
 /**
  * One linear direction on the ghost wire: how many instances, and how far
  * apart — either directly (`offset`) or as the span they share (`length`), the
- * two forms the dialog's spacing mode writes.
+ * two forms the dialog's spacing mode writes. Shared with the copy, which
+ * states a direction exactly as the repeat does.
  */
 export type GhostRepeatDirection = {
   count: ValueExpr;
   offset: ValueExpr | null;
   length: ValueExpr | null;
+};
+
+/**
+ * The copy dialog on the ghost wire — the repeat's quieter twin. Where a
+ * repeat *replays* the features it names, `copy()` clones the bodies its
+ * targets already hold and moves them, so what comes back is those bodies
+ * stamped at every instance transform: whole, a boss fused into its plate
+ * included, because that fused body is exactly what the apply clones.
+ *
+ * As everywhere else on this wire the slots arrive resolved — targets as call
+ * sites, the axes as the kernel can read them — so "keep the current axis"
+ * never travels.
+ */
+export type CopyGhostRequest = {
+  feature: 'copy';
+  kind: 'linear' | 'circular';
+  /** The solid-bearing statements being cloned, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** Linear: one per direction (1–2). Circular: one. */
+  axes: GhostAxisRef[];
+  /** Linear: count and spacing per direction, parallel to {@link axes}. */
+  directions: GhostRepeatDirection[];
+  /** Linear: center the copies on the original instead of starting there. */
+  centered: boolean;
+  /** Circular: instances around the axis, the original included. */
+  count: ValueExpr | null;
+  /** Circular: the whole sweep to divide, or the step between neighbours. */
+  sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
 };
 
 /**
@@ -1697,6 +1727,13 @@ export type FeatureSourcesResult =
    * statement, and the dialog reads it straight off the argument text.
    */
   | { ok: true; feature: 'repeat'; targets: SourceSlotRef[]; axes: SourceSlotRef[]; plane?: SourceSlotRef }
+  /**
+   * A copy: the solids it clones, by call site, plus the axis each direction
+   * walks (one for circular). A world-axis literal is `opaque` as it is for a
+   * repeat, and an implicit copy — one naming no targets at all — reports an
+   * empty target list.
+   */
+  | { ok: true; feature: 'copy'; targets: SourceSlotRef[]; axes: SourceSlotRef[] }
   /**
    * A construction plane, by its bases in argument order — one for the offset
    * and edge forms, two for a mid plane. An origin-plane literal is `opaque`:

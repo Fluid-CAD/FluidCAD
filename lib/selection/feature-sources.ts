@@ -21,6 +21,9 @@ import { RepeatAxisSource } from "../features/repeat-base.js";
 import { RepeatCircular } from "../features/repeat-circular.js";
 import { RepeatLinear } from "../features/repeat-linear.js";
 import { RepeatMatrix } from "../features/repeat-matrix.js";
+import { CopyAxisSource } from "../features/copy-base.js";
+import { CopyCircular } from "../features/copy-circular.js";
+import { CopyLinear } from "../features/copy-linear.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { Projection } from "../features/2d/projection.js";
 import {
@@ -63,6 +66,14 @@ export type FeatureSources =
    * statement, and the dialog reads it straight off the argument text.
    */
   | { feature: 'repeat'; targets: SourceSlot[]; axes: SourceSlot[]; plane?: SourceSlot }
+  /**
+   * A copy: the solids it clones, by call site, plus the axis each direction
+   * walks (one for circular). A world-axis literal is `opaque` as it is for a
+   * repeat, and an implicit copy — one naming no targets at all, cloning every
+   * active solid — reports an empty target list, which is what "implicit"
+   * looks like from here.
+   */
+  | { feature: 'copy'; targets: SourceSlot[]; axes: SourceSlot[] }
   /**
    * A construction plane, by its bases in argument order — one for the offset
    * and edge forms, two for a mid plane. An origin-plane literal names nothing
@@ -159,7 +170,7 @@ export function resolveFeatureSources(
         ok: true,
         feature: 'repeat',
         targets: resolver.statementSlots(feature.targetObjects),
-        axes: feature.axes.map(axis => resolver.repeatAxisSlot(axis)),
+        axes: feature.axes.map(axis => resolver.axisSourceSlot(axis)),
       };
     }
     if (feature instanceof RepeatCircular) {
@@ -167,7 +178,7 @@ export function resolveFeatureSources(
         ok: true,
         feature: 'repeat',
         targets: resolver.statementSlots(feature.targetObjects),
-        axes: [resolver.repeatAxisSlot(feature.axis)],
+        axes: [resolver.axisSourceSlot(feature.axis)],
       };
     }
     if (feature instanceof RepeatMatrix) {
@@ -185,6 +196,25 @@ export function resolveFeatureSources(
         targets: resolver.statementSlots(feature.targetObjects),
         axes: [],
         plane: resolver.planeSlot(feature.plane),
+      };
+    }
+    // The copy family: the repeat's shape without a mirror. Its targets are
+    // solids rather than features, but they are named the same way — by the
+    // statement that built them — so they resolve through the same slots.
+    if (feature instanceof CopyLinear) {
+      return {
+        ok: true,
+        feature: 'copy',
+        targets: resolver.statementSlots(feature.targetObjects),
+        axes: feature.axes.map(axis => resolver.axisSourceSlot(axis)),
+      };
+    }
+    if (feature instanceof CopyCircular) {
+      return {
+        ok: true,
+        feature: 'copy',
+        targets: resolver.statementSlots(feature.targetObjects),
+        axes: [resolver.axisSourceSlot(feature.axis)],
       };
     }
     // The plane family, each form holding its own bases. All three extend
@@ -263,11 +293,12 @@ class SourceResolver {
   }
 
   /**
-   * A repeat's axis input. A world-axis literal (`repeat('linear', 'x', …)`)
-   * builds no scene object at all and stays opaque — nothing to re-target, and
-   * the dialog reads `'x'` straight off the argument text.
+   * A repeat's or a copy's axis input. A world-axis literal
+   * (`repeat('linear', 'x', …)`) builds no scene object at all and stays
+   * opaque — nothing to re-target, and the dialog reads `'x'` straight off the
+   * argument text.
    */
-  repeatAxisSlot(source: RepeatAxisSource): SourceSlot {
+  axisSourceSlot(source: RepeatAxisSource | CopyAxisSource): SourceSlot {
     return source instanceof AxisObjectBase ? this.callSiteSlot(source) : OPAQUE;
   }
 

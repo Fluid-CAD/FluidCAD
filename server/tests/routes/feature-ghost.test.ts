@@ -3,8 +3,8 @@ import express from 'express';
 import http from 'http';
 import { createFeatureGhostRouter } from '../../src/routes/feature-ghost.ts';
 
-// The repeat arm of the live-geometry endpoint: the contract between the
-// dialog's slots and the request the kernel receives. The kernel itself is
+// The repeat and copy arms of the live-geometry endpoint: the contract between
+// each dialog's slots and the request the kernel receives. The kernel itself is
 // covered by lib's ghost tests — what matters here is that the dialog's body
 // arrives as resolved numbers and explicit refs, and that a body no kind
 // accepts is refused instead of half-built.
@@ -43,6 +43,21 @@ function linearBody(overrides: Record<string, unknown> = {}) {
   };
 }
 
+/** A linear copy exactly as the dialog sends it. */
+function copyBody(overrides: Record<string, unknown> = {}) {
+  return {
+    feature: 'copy',
+    kind: 'linear',
+    targets: [{ filePath: FILE, line: 7 }],
+    axes: [{ kind: 'standard', axis: 'x' }],
+    directions: [{ count: 3, offset: 40, length: null }],
+    centered: false,
+    count: null,
+    sweep: null,
+    ...overrides,
+  };
+}
+
 async function postGhost(body: unknown): Promise<{ status: number; body: any }> {
   const res = await fetch(`${baseUrl}/api/feature-ghost`, {
     method: 'POST',
@@ -52,7 +67,8 @@ async function postGhost(body: unknown): Promise<{ status: number; body: any }> 
   return { status: res.status, body: await res.json() };
 }
 
-describe('feature-ghost route — repeat', () => {
+/** The route on a throwaway port, fresh per block — every dialog shares it. */
+function useGhostRoute(): void {
   beforeAll(async () => {
     const app = express();
     app.use(express.json());
@@ -77,6 +93,10 @@ describe('feature-ghost route — repeat', () => {
     received = undefined;
     code = '';
   });
+}
+
+describe('feature-ghost route — repeat', () => {
+  useGhostRoute();
 
   it('passes a linear repeat through as resolved numbers', async () => {
     const { status, body } = await postGhost(linearBody());
@@ -284,6 +304,110 @@ describe('feature-ghost route — repeat', () => {
       linearBody({ kind: 'rotate', directions: [], angle: null }),
       // A mirror with no plane to reflect across.
       linearBody({ kind: 'mirror', axes: [], directions: [] }),
+    ];
+
+    for (const body of bodies) {
+      const result = await postGhost(body);
+      expect(result.status, JSON.stringify(body)).toBe(400);
+      expect(result.body.success).toBe(false);
+    }
+    expect(received).toBeUndefined();
+  });
+});
+
+describe('feature-ghost route — copy', () => {
+  useGhostRoute();
+
+  it('passes a linear copy through as resolved numbers', async () => {
+    const { status, body } = await postGhost(copyBody());
+
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(received).toMatchObject({
+      feature: 'copy',
+      kind: 'linear',
+      targets: [{ filePath: FILE, line: 7 }],
+      axes: [{ kind: 'standard', axis: 'x' }],
+      directions: [{ count: 3, offset: 40, length: null }],
+      centered: false,
+    });
+  });
+
+  it('carries the total-span spacing form as it stands', async () => {
+    await postGhost(copyBody({
+      directions: [{ count: 4, offset: null, length: 120 }],
+      centered: true,
+    }));
+
+    // The kernel divides the span across the gaps — the route only resolves.
+    expect(received.directions).toEqual([{ count: 4, offset: null, length: 120 }]);
+    expect(received.centered).toBe(true);
+  });
+
+  it('pairs each direction with its own axis', async () => {
+    await postGhost(copyBody({
+      axes: [{ kind: 'standard', axis: 'x' }, { kind: 'edge', shapeId: 's1', index: 4 }],
+      directions: [
+        { count: 2, offset: 40, length: null },
+        { count: 3, offset: 10, length: null },
+      ],
+    }));
+
+    expect(received.axes).toEqual([
+      { kind: 'standard', axis: 'x' },
+      { kind: 'edge', shapeId: 's1', index: 4 },
+    ]);
+    expect(received.directions).toHaveLength(2);
+  });
+
+  it('passes a circular copy with its count and sweep', async () => {
+    await postGhost(copyBody({
+      kind: 'circular',
+      axes: [{ kind: 'axis', filePath: FILE, line: 3 }],
+      directions: [],
+      count: 6,
+      sweep: { mode: 'angle', value: 360 },
+    }));
+
+    expect(received).toMatchObject({
+      kind: 'circular',
+      count: 6,
+      sweep: { mode: 'angle', value: 360 },
+      axes: [{ kind: 'axis', filePath: FILE, line: 3 }],
+    });
+  });
+
+  it('resolves a copy\'s dimensions against the file\'s parameters', async () => {
+    code = ['const sides = param("Sides", 6)', 'sketch("xy", () => {})'].join('\n');
+
+    await postGhost(copyBody({
+      kind: 'circular',
+      directions: [],
+      count: 'sides',
+      sweep: { mode: 'offset', value: '360 / sides' },
+    }));
+
+    expect(received.count).toBe(6);
+    expect(received.sweep).toEqual({ mode: 'offset', value: 60 });
+  });
+
+  it('refuses a body no kind accepts', async () => {
+    const bodies: Record<string, unknown>[] = [
+      // A repeat kind the copy doesn't have — copy walks or spins, nothing else.
+      copyBody({ kind: 'mirror', axes: [], directions: [] }),
+      copyBody({ kind: 'rotate', directions: [], angle: 45 }),
+      // Nothing to copy.
+      copyBody({ targets: [] }),
+      // A direction with no axis to walk along.
+      copyBody({ axes: [] }),
+      // Two spacings for one direction, and none at all.
+      copyBody({ directions: [{ count: 3, offset: 40, length: 120 }] }),
+      copyBody({ directions: [{ count: 3, offset: null, length: null }] }),
+      // A circular copy missing the angle it divides, and its count.
+      copyBody({ kind: 'circular', directions: [], count: 6, sweep: null }),
+      copyBody({
+        kind: 'circular', directions: [], count: null, sweep: { mode: 'angle', value: 360 },
+      }),
     ];
 
     for (const body of bodies) {

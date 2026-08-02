@@ -1,6 +1,7 @@
 import {
   applyCopy, applyCopyEdit, CopyApplyOptions, CopyDirectionRef, CopyEditAxisRef, CopyEditOptions,
-  CopyEditTargetRef, FeatureEditTarget, ParsedFeatureStatement,
+  CopyEditTargetRef, CopyGhostRequest, FeatureEditTarget, fetchFeatureGhostResult,
+  fetchFeatureSources, GhostAxisRef, GhostSolid, ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
 import { toggleEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
@@ -10,6 +11,7 @@ import { EditSession, EditSessionInfo } from '../edit-session';
 import { SolidPickSelection } from '../solid-pick';
 import { CopyDirection, CopyPanel } from './copy-panel';
 import { FeatureButton } from './feature-button';
+import { FeatureGhostOverlay } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
@@ -39,6 +41,14 @@ type CopyTargetChoice =
   | { kind: 'keep'; sourceIndex: number; label: string; loc?: { filePath: string; line: number; column: number } };
 
 /**
+ * The statement a resolved source slot names, or null when it names none —
+ * an inline argument, a clone, an expression the resolver can't address.
+ */
+function sourceStatement(slot: SourceSlotRef | undefined): { filePath: string; line: number } | null {
+  return slot?.kind === 'sketch' ? { filePath: slot.filePath, line: slot.line } : null;
+}
+
+/**
  * The Copy dialog on the create rails: clone one or more solids linearly or
  * circularly. The solids are picked in the viewport — any face or edge
  * click while the Solids slot is armed selects the owning solid whole (the
@@ -46,9 +56,10 @@ type CopyTargetChoice =
  * or by their timeline rows; the axis comes from the X/Y/Z quick buttons,
  * an axis statement (its dashed line in 3D or its timeline row), or a
  * picked solid edge. Arming with a selection already highlighted seeds the
- * dialog: the selected entities' solids open as target chips. Apply writes
- * `copy('<kind>', …)` — the re-render is the preview, editor undo the
- * rollback. No live geometry preview in this version.
+ * dialog: the selected entities' solids open as target chips. A translucent
+ * ghost draws the clones as they are dialled in — each target's own body,
+ * stamped where the copy would put it. Apply writes `copy('<kind>', …)` —
+ * the re-render is the preview, editor undo the rollback.
  */
 export class CopyFeatureService {
   private panel: CopyPanel;
@@ -74,8 +85,16 @@ export class CopyFeatureService {
   private session = new EditSession();
   /** A full render arrived mid-session — re-picked shape ids died. */
   private editSceneStale = false;
+  /**
+   * Current sources of the edited statement, for the keep chips' ghost: the
+   * copied solids by call site, and the axis each direction walks. Null until
+   * the query lands (or when it can't answer).
+   */
+  private sourceSlots: { targets: SourceSlotRef[]; axes: SourceSlotRef[] } | null = null;
   private runner: ApplyRunner<CopyApplyOptions | CopyEditOptions>;
   private relabeler: OptionRelabeler<AxisOption[]>;
+  /** The translucent clones the current copy would place. */
+  private ghost: FeatureGhostOverlay;
 
   constructor(
     container: HTMLElement,
@@ -113,6 +132,7 @@ export class CopyFeatureService {
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
     this.solidPick = new SolidPickSelection(viewer, { multiple: true });
+    this.ghost = new FeatureGhostOverlay(viewer);
 
     this.panel = new CopyPanel(container);
     this.panel.onApply = () => void this.runner.apply();
@@ -149,6 +169,20 @@ export class CopyFeatureService {
         : applyCopy({ ...(request as CopyApplyOptions), ...extras }),
       onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
       failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not apply the copy.',
+      // The statement preview's geometric twin: the target solids stamped
+      // where the copy would put them, drawn translucent in the viewport.
+      // Same debounce, same abort scope.
+      ghost: {
+        fetch: (_request, signal) => this.fetchGhost(signal),
+        apply: (solids) => {
+          if (solids) {
+            // Every clone is material arriving — a copy takes nothing away.
+            this.ghost.set(solids, 'add');
+          } else {
+            this.ghost.clear();
+          }
+        },
+      },
     });
     this.relabeler = new OptionRelabeler({
       sign: (axes) => axisOptionsSignature(axes),
@@ -210,19 +244,25 @@ export class CopyFeatureService {
       return;
     }
     if (state === 'waiting') {
+      // Mid-flight to the boundary — whatever the ghost was drawn against is
+      // already gone from the view.
+      this.ghost.clear();
       if (!isRollback) {
         this.editSceneStale = true;
       }
       return;
     }
     // At the boundary: rebuild options from the pre-statement scene.
+    this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.targetOptions = collectSolidTargets(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
     if (this.editSceneStale) {
       this.editSceneStale = false;
       // A scene rebuild killed the re-picked shape ids; keep chips are
-      // text-addressed and survive.
+      // text-addressed and survive — but the entities their slots resolved to
+      // died with the render, so the statement's own sources re-fetch.
+      this.sourceSlots = null;
       let reset = false;
       for (const direction of [1, 2] as const) {
         if (this.axisEdgeEntities.get(direction)) {
@@ -248,6 +288,9 @@ export class CopyFeatureService {
         o.filePath === target.option.filePath && o.line === target.option.line);
       return match ? [{ kind: 'option', option: match }] : [];
     });
+    if (!this.sourceSlots) {
+      void this.loadEditSources();
+    }
     this.panel.setOptions(this.axes);
     this.refreshLabels();
     this.syncViewport();
@@ -273,6 +316,9 @@ export class CopyFeatureService {
       this.exit({ resume: 'lazy' });
       return;
     }
+    // The geometry under the ghost just changed — drop it now and let the
+    // debounce redraw it. Correctness over the flicker.
+    this.ghost.clear();
     // A render can put a sketch back in front (live editing) — the armed
     // dialog keeps the free 3D view.
     if (this.sceneSketchActive) {
@@ -324,6 +370,7 @@ export class CopyFeatureService {
     this.editTarget = target;
     this.editStatement = parsed;
     this.editSceneStale = false;
+    this.sourceSlots = null;
     this.axisEdgeEntities.set(1, null);
     this.axisEdgeEntities.set(2, null);
     this.targets = parsed.targetTexts.map((label, sourceIndex) => {
@@ -416,11 +463,13 @@ export class CopyFeatureService {
     this.editTarget = null;
     this.editStatement = null;
     this.editSceneStale = false;
+    this.sourceSlots = null;
     this.targets = [];
     this.axisEdgeEntities.set(1, null);
     this.axisEdgeEntities.set(2, null);
     this.solidPick.set([]);
     this.runner.cancelPreview();
+    this.ghost.clear();
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
     this.viewer.pickAxes = false;
@@ -554,6 +603,156 @@ export class CopyFeatureService {
     const line = this.editTarget?.line ?? null;
     await refreshScopeVariables(line, this.panel,
       () => this.armed && (this.editTarget?.line ?? null) === line);
+  }
+
+  /**
+   * The edited statement's own sources, resolved against the pre-statement
+   * scene: what its kept chips actually name. Only the ghost reads them — the
+   * apply rewrites a keep verbatim, by position — so a query that can't answer
+   * costs a preview, never a correct statement.
+   */
+  private async loadEditSources(): Promise<void> {
+    const boundary = this.session.boundary;
+    if (!boundary) {
+      return;
+    }
+    const result = await fetchFeatureSources(boundary);
+    if (!this.editTarget || this.session.boundary?.index !== boundary.index) {
+      return;
+    }
+    this.sourceSlots = result.ok && result.feature === 'copy'
+      ? { targets: result.targets, axes: result.axes }
+      : { targets: [], axes: [] };
+    // The ghost's keep slots read `sourceSlots`, which resolves after
+    // `enterEdit` already scheduled its preview — re-kick so the ghost appears
+    // now that the statement's own sources are known.
+    this.runner.schedulePreview();
+  }
+
+  // -------------------------------------------------------------------------
+  // Live geometry ("ghost")
+  // -------------------------------------------------------------------------
+
+  /**
+   * The live geometry for the current form state: each target solid's own
+   * body, stamped where the copy would put it. Runs off the values the
+   * statement preview just validated, so all that is left is to resolve the
+   * slots — and that is where the create and edit dialogs converge: both hand
+   * the server explicit refs, so the endpoint never has to know which mode
+   * asked. A slot the ghost can't address (no solids yet, an axis still
+   * unpicked, a keep chip over an expression) means no ghost.
+   */
+  private async fetchGhost(signal: AbortSignal): Promise<GhostSolid[] | null> {
+    const values = this.panel.values();
+    if ('error' in values) {
+      return null;
+    }
+    const targets = this.ghostTargets();
+    if (!targets) {
+      return null;
+    }
+    const request: CopyGhostRequest = {
+      feature: 'copy',
+      kind: values.kind,
+      targets,
+      axes: [],
+      directions: [],
+      centered: false,
+      count: null,
+      sweep: null,
+    };
+    if (values.kind === 'linear') {
+      const active = this.panel.directions;
+      for (let i = 0; i < active.length; i++) {
+        const axis = this.ghostAxis(active[i]);
+        if (!axis) {
+          return null;
+        }
+        const { count, value } = values.directions[i];
+        request.axes.push(axis);
+        request.directions.push({
+          count,
+          offset: values.spacingMode === 'offset' ? value : null,
+          length: values.spacingMode === 'length' ? value : null,
+        });
+      }
+      request.centered = values.centered;
+    } else {
+      const axis = this.ghostAxis(1);
+      if (!axis) {
+        return null;
+      }
+      request.axes.push(axis);
+      request.count = values.count;
+      request.sweep = values.sweep;
+    }
+    const result = await fetchFeatureGhostResult(request, signal);
+    // Only a limit the user can act on reaches the panel — never an ordinary
+    // refusal (a stale pick, an expression the server can't evaluate: those
+    // just leave the viewport as it was). A superseded fetch says nothing
+    // either: its answer is about a form state already typed past, or a
+    // dialog that has since closed.
+    if (result.notice && !signal.aborted && this.armed) {
+      this.panel.setMessage(result.notice);
+    }
+    return result.solids;
+  }
+
+  /**
+   * The solids being cloned, by call site. A kept chip travels as the
+   * statement its expression named, or — for one the parse couldn't address —
+   * as whatever the sources query resolved that argument to. A target neither
+   * could place means no ghost at all: a copy missing one of its bodies is a
+   * different copy, not a partial one.
+   *
+   * An implicit copy (no target arguments at all) clones every solid active at
+   * its own line, which in an edit session's rolled-back scene is exactly the
+   * statements the targets slot is offering — so those are what it ghosts.
+   */
+  private ghostTargets(): { filePath: string; line: number }[] | null {
+    if (this.targets.length === 0) {
+      if (!this.editTarget || (this.editStatement?.targetTexts.length ?? 0) > 0) {
+        return null;
+      }
+      const implicit = this.targetOptions.map(o => ({ filePath: o.filePath, line: o.line }));
+      return implicit.length > 0 ? implicit : null;
+    }
+    const refs: { filePath: string; line: number }[] = [];
+    for (const target of this.targets) {
+      const loc = target.kind === 'option'
+        ? target.option
+        : target.loc ?? sourceStatement(this.sourceSlots?.targets[target.sourceIndex]);
+      if (!loc) {
+        return null;
+      }
+      refs.push({ filePath: loc.filePath, line: loc.line });
+    }
+    return refs;
+  }
+
+  /** One direction's axis slot, in the form the kernel resolves. */
+  private ghostAxis(direction: CopyDirection): GhostAxisRef | null {
+    const selection = this.panel.axisSelection(direction);
+    if (!selection) {
+      return null;
+    }
+    if (selection.kind === 'standard') {
+      return { kind: 'standard', axis: selection.axis };
+    }
+    if (selection.kind === 'axis') {
+      const { filePath, line } = selection.option;
+      return { kind: 'axis', filePath, line };
+    }
+    if (selection.kind === 'edge') {
+      const entity = this.axisEdgeEntities.get(direction);
+      return entity ? { kind: 'edge', shapeId: entity.shapeId, index: entity.sub.index } : null;
+    }
+    // The kept statement axis, as the sources query resolved it — an `axis()`
+    // the statement names by variable. A world-axis literal never reaches here
+    // (the slot reads `'z'` as the standard selection itself), and anything
+    // else is an expression no ghost can stand in for.
+    const loc = sourceStatement(this.sourceSlots?.axes[selection.sourceIndex]);
+    return loc ? { kind: 'axis', filePath: loc.filePath, line: loc.line } : null;
   }
 
   private buildRequest(): CopyApplyOptions | { error: string } {

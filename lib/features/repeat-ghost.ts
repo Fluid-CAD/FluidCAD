@@ -99,7 +99,7 @@ export function buildCircularGhostMatrices(
   sweep: RepeatGhostSweep,
   centered: boolean,
 ): Matrix4[] {
-  if (!isUsableCount(count) || !isUsableAxis(axis) || !Number.isFinite(sweep.value)) {
+  if (!isUsableGhostCount(count) || !isUsableGhostAxis(axis) || !Number.isFinite(sweep.value)) {
     return [];
   }
   const step = sweep.mode === 'offset'
@@ -112,7 +112,7 @@ export function buildCircularGhostMatrices(
   const start = centered ? -(count * step) / 2 : 0;
   const matrices: Matrix4[] = [];
   for (let i = 1; i < count; i++) {
-    matrices.push(rotation(axis, start + step * i));
+    matrices.push(ghostRotation(axis, start + step * i));
   }
   return matrices;
 }
@@ -128,10 +128,10 @@ export function buildMirrorGhostMatrices(plane: Plane): Matrix4[] {
  * the instance back onto the original, so it draws nothing instead.
  */
 export function buildRotateGhostMatrices(axis: Axis, angle: number): Matrix4[] {
-  if (!isUsableAxis(axis) || !Number.isFinite(angle) || angle % 360 === 0) {
+  if (!isUsableGhostAxis(axis) || !Number.isFinite(angle) || angle % 360 === 0) {
     return [];
   }
-  return [rotation(axis, angle)];
+  return [ghostRotation(axis, angle)];
 }
 
 /**
@@ -147,7 +147,12 @@ export function linearGhostInstanceCount(directions: { count: number }[]): numbe
   return Math.max(0, cells - 1);
 }
 
-function rotation(axis: Axis, degrees: number): Matrix4 {
+/**
+ * One instance's turn about an axis. Exported for the copy ghost, which places
+ * its clones with the same three primitives this file's builders do — see
+ * `lib/features/copy-ghost.ts`.
+ */
+export function ghostRotation(axis: Axis, degrees: number): Matrix4 {
   return Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(degrees));
 }
 
@@ -168,18 +173,19 @@ function isOriginCell(cell: number[], directions: RepeatGhostDirection[], center
  * apart, and every direction needs a real axis to walk along.
  */
 function isUsableDirection(direction: RepeatGhostDirection): boolean {
-  if (!Number.isInteger(direction.count) || direction.count < 1 || !isUsableAxis(direction.axis)) {
+  if (!Number.isInteger(direction.count) || direction.count < 1 || !isUsableGhostAxis(direction.axis)) {
     return false;
   }
   return direction.count === 1
     || (Number.isFinite(direction.offset) && direction.offset !== 0);
 }
 
-function isUsableCount(count: number): boolean {
+/** A count that describes a pattern at all — shared with the copy ghost. */
+export function isUsableGhostCount(count: number): boolean {
   return Number.isInteger(count) && count >= 2;
 }
 
 /** A zero-length direction spins and translates nothing. */
-function isUsableAxis(axis: Axis): boolean {
+export function isUsableGhostAxis(axis: Axis): boolean {
   return axis.direction.length() > 0;
 }

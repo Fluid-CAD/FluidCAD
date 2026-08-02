@@ -137,6 +137,7 @@ export type FeatureGhostRequest =
   | FilletGhostRequest
   | HelixGhostRequest
   | RepeatGhostRequest
+  | CopyGhostRequest
   | PlaneGhostRequest;
 
 export type ExtrudeGhostRequest = {
@@ -302,12 +303,35 @@ export type RepeatGhostRequest = {
 
 /**
  * One linear direction on the wire: how many instances, and how far apart —
- * either directly (`offset`) or as the span they share (`length`).
+ * either directly (`offset`) or as the span they share (`length`). Shared with
+ * the copy, which states a direction exactly as the repeat does.
  */
 export type GhostRepeatDirection = {
   count: number;
   offset: number | null;
   length: number | null;
+};
+
+/**
+ * The copy. It builds nothing either, but where a repeat replays the features
+ * it names, a copy clones the bodies its targets already hold — so the ghost
+ * stamps those bodies whole, which is exactly what the apply will clone.
+ */
+export type CopyGhostRequest = {
+  feature: 'copy';
+  kind: 'linear' | 'circular';
+  /** The solid-bearing statements being cloned, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** Linear: one per direction (1–2). Circular: one. */
+  axes: GhostAxisRef[];
+  /** Linear: count and spacing per direction, parallel to `axes`. */
+  directions: GhostRepeatDirection[];
+  /** Linear: center the copies on the original instead of starting there. */
+  centered: boolean;
+  /** Circular: instances around the axis, the original included. */
+  count: number | null;
+  /** Circular: the whole sweep to divide, or the step between neighbours. */
+  sweep: { mode: 'angle' | 'offset'; value: number } | null;
 };
 
 /**

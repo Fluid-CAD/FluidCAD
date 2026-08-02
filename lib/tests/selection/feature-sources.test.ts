@@ -13,6 +13,7 @@ import axis from "../../core/axis.js";
 import helix from "../../core/helix.js";
 import chamfer from "../../core/chamfer.js";
 import repeat from "../../core/repeat.js";
+import copy from "../../core/copy.js";
 import { circle, move, project, rect, vLine } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Scene } from "../../rendering/scene.js";
@@ -433,6 +434,60 @@ describe("feature sources (edit-dialog seeding)", () => {
       expect(result.axes).toEqual([
         { kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 },
       ]);
+    }
+  });
+
+  /**
+   * The copy's keep chips, which only its ghost reads: the apply rewrites a
+   * kept axis verbatim by position, so this is what tells the preview WHICH
+   * axis that text names.
+   */
+  it("resolves a copy's axis statement and its named targets", () => {
+    const a = axis("y");
+    setLocation(a as never, 2);
+    sketch("xy", () => {
+      rect(40, 40);
+    });
+    const e = extrude(10) as Extrude;
+    setLocation(e, 5);
+    const c = copy("circular", a as never, { count: 4, angle: 360 }, e as never);
+    setLocation(c as never, 7);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "copy-circular", 7));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "copy") {
+      expect(result.targets).toEqual([
+        { kind: "sketch", filePath: "/ws/model.fluid.js", line: 5, column: 0 },
+      ]);
+      expect(result.axes).toEqual([
+        { kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 },
+      ]);
+    }
+  });
+
+  /**
+   * An implicit copy names no targets at all — it clones every active solid —
+   * and reports the empty list that says so. Its world-axis literals build no
+   * statement to point at, one per direction.
+   */
+  it("resolves an implicit two-direction copy's axes, targets and all", () => {
+    sketch("xy", () => {
+      rect(40, 40);
+    });
+    const e = extrude(10) as Extrude;
+    setLocation(e, 4);
+    const c = copy("linear", ["x", "y"] as never, { count: [2, 2], offset: [60, 60] });
+    setLocation(c as never, 6);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "copy-linear", 6));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "copy") {
+      expect(result.targets).toEqual([]);
+      expect(result.axes).toEqual([{ kind: "opaque" }, { kind: "opaque" }]);
     }
   });
 

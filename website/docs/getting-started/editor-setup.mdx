@@ -53,35 +53,13 @@ Interactive features like region picking, trimming, and interactive bezier drawi
 | `-p, --port <port>` | Server port — if it's already taken, the next free one is used | `3100` |
 | `--open` | Open the viewport in your default browser when the server is ready | _off_ |
 
-Run `npx fluidcad --help` to list every command, or `npx fluidcad serve --help` for the full flag reference.
+## Beyond `serve`
 
-## Exporting from the CLI
-
-`fluidcad export` writes a STEP, STL, or PNG file straight from your project:
+The same CLI writes STEP, STL, and PNG files without opening the UI, and runs the MCP server that lets AI agents drive your workspace:
 
 ```bash
 npx fluidcad export step                     # every shape → <entry>.step
-npx fluidcad export stl --resolution fine -o parts/bracket.stl
 npx fluidcad export png --view front --open
 ```
 
-If a server is already running for the workspace — from `fluidcad serve` or an editor extension — the CLI exports the scene that server is showing, without starting a second one. Otherwise it spins up its own server, renders your entry file, exports, and shuts down.
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `-w, --workspace <path>` | Path to your project | Current directory |
-| `-e, --entry <file>` | Which `.fluid.js` to render | The workspace's only one |
-| `-o, --out <path>` | Output file | `<entry>.<ext>` in the current directory |
-| `-p, --port <port>` | Export from the running server on this port | Auto-discovered |
-| `--timeout <sec>` | Seconds to wait for the server (and, for `png`, for a browser) | `60` |
-
-Per format:
-
-- **`step`** — `--no-colors` writes plain geometry instead of per-shape colors.
-- **`stl`** — `--resolution coarse|medium|fine|custom`; `custom` needs both `--linear-deflection <mm>` and `--angular-deflection <deg>`.
-- **`step` / `stl`** — `--list-shapes` prints what the scene contains; `--shapes` exports a subset, selected by position (`--shapes 1 2`), feature name (`--shapes Extrude`), or shape id.
-- **`png`** — `--view` (`current` or a named view like `front`, `top`, `iso-ftr`), `--width`, `--height`, `--margin`, `--transparent`, `--show-axes`, `--no-grid`, `--no-auto-crop`, `--no-fit`.
-
-:::note
-PNG capture is rendered by the FluidCAD viewport, so a browser must be connected to the server. Pass `--open` and the CLI opens one and waits for it; without a browser the command times out.
-:::
+See the [CLI Reference](/docs/guides/cli) for every command and flag, or run `npx fluidcad --help`.

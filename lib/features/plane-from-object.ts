@@ -188,7 +188,12 @@ export class PlaneFromObject extends PlaneObjectBase {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    return new PlaneFromObject(this, this.optionsOrPosition);
+    // The copy wraps this (already-built) plane as its source and applies the
+    // clone transform on top of the resolved plane. optionsOrPosition must NOT
+    // be passed along: the resolved plane already includes the offset/rotation
+    // (or edge position), so re-applying it would double it — e.g. a mirrored
+    // clone of plane(face, 6.3) landing 6.3 below the mirrored source plane.
+    return new PlaneFromObject(this);
   }
 
   compareTo(other: PlaneFromObject): boolean {

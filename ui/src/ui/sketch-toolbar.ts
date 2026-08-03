@@ -195,6 +195,10 @@ export class SketchToolbar {
     checkbox.addEventListener('change', () => onChange(checkbox.checked));
     const label = document.createElement('label');
     label.className = 'flex items-center gap-2 cursor-pointer';
+    // Toggle without taking keyboard focus: the coordinate chip listens at the
+    // window and ignores keystrokes targeted at an <input>, so a focused
+    // checkbox would swallow the digits meant for the X field.
+    label.addEventListener('mousedown', (e) => e.preventDefault());
     label.appendChild(checkbox);
     const span = document.createElement('span');
     span.className = 'text-xs text-base-content/70';

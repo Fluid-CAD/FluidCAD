@@ -108,7 +108,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'rib';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -124,6 +124,8 @@ export type ApplyFeatureEditSpec = {
   sketchOnPlane?: boolean;
   /** Extrude-only payload; the profile is a sketch, not a pick selection. */
   extrude?: ExtrudeEditOptions;
+  /** Rib-only payload; the spine is a sketch, the scope bound solid statements. */
+  rib?: RibEditOptions;
   /** Sweep-only payload; `parts` (if any) render the path selector. */
   sweep?: SweepEditOptions;
   /** Wrap-only payload; the single `parts` entry renders the target face. */
@@ -285,6 +287,22 @@ export type FeatureStatementEditTarget = {
      * (dropping any target the statement had).
      */
     toFace?: { kind: 'keep' | ExtrudeTargetKind };
+  };
+  rib?: {
+    op: 'add' | 'remove' | 'new';
+    thickness: ValueExpr;
+    parallel: boolean;
+    extend: boolean;
+    draft: ValueExpr | null;
+    /** Re-sourced spine; absent keeps the statement's spine text. */
+    spine?: EditSketchSource;
+    /**
+     * Full replacement `.scope(…)` list — `verbatim` keeps by position in the
+     * statement's own argument texts, re-picked solid statements by bound
+     * producer. Absent keeps the statement's scope chain; an empty list drops
+     * it (back to whole-scene fusion).
+     */
+    scope?: RepeatEditTargetSource[];
   };
   sweep?: {
     op: 'add' | 'remove' | 'new';
@@ -519,6 +537,32 @@ export type ExtrudeEditOptions = {
    * `distance`/`distance2`/`symmetric`.
    */
   toFace?: ExtrudeTargetKind;
+};
+
+/**
+ * How a rib statement is rendered and placed: `rib(<thickness>[, <spine>])`
+ * plus `.parallel()` / `.extend()` / `.draft(…)` / `.remove()` / `.new()` /
+ * `.scope(…)` chains. The spine is a sketch — `implicit` consumes the last
+ * sketch, `bound` binds it to a variable (always producers[0]). Scope entries
+ * are the solid-bearing statements the rib conforms to and fuses with, each
+ * bound to a variable (featureType `feature` producers, following the spine
+ * in the list). With a bound spine the statement inserts right after the
+ * latest of its input statements so a later active sketch stays active; an
+ * implicit spine inserts at end of scope.
+ */
+export type RibEditOptions = {
+  op: 'add' | 'remove' | 'new';
+  /** Wall thickness; the sign picks the side of the sketch plane. */
+  thickness: ValueExpr;
+  /** `.parallel()` — extrude in-plane, perpendicular to the spine. */
+  parallel: boolean;
+  /** `.extend()` — push the spine endpoints out into the surrounding walls. */
+  extend: boolean;
+  /** `.draft(angle)` taper in degrees, or null for straight walls. */
+  draft: ValueExpr | null;
+  spine: 'implicit' | 'bound';
+  /** Producer indices of the `.scope(…)` targets, in pick order. */
+  scope: number[];
 };
 
 /**
@@ -1030,6 +1074,20 @@ export async function applyFeatureEdit(
         : spec.producers.length === 1 && spec.parts.length === 0);
     if (!valid) {
       return { newCode: code, error: 'malformed extrude edit spec' };
+    }
+  } else if (spec.feature === 'rib') {
+    // The spine sketch (implicit consumption or a bound variable) is always
+    // producers[0]; the scope targets are bound feature producers following
+    // it. A rib carries no selector parts.
+    const rb = spec.rib;
+    const valid = rb !== undefined && spec.producers.length >= 1
+      && spec.producers[0].featureType === 'sketch'
+      && validValueExpr(rb.thickness, { nonzero: true })
+      && (rb.draft === null || validValueExpr(rb.draft, { nonzero: true }))
+      && spec.parts.length === 0
+      && rb.scope.every(p => isFeatureProducer(spec, p));
+    if (!valid) {
+      return { newCode: code, error: 'malformed rib edit spec' };
     }
   } else if (spec.feature === 'sweep') {
     const sw = spec.sweep;
@@ -2469,6 +2527,43 @@ export function renderExtrudeStatement(
 }
 
 /**
+ * Render a rib statement from its options: `rib(5)` for an implicit spine /
+ * `rib(5, s)` for a bound one — plus `.parallel()` / `.extend()` /
+ * `.draft(…)` / `.remove()` / `.new()` / `.scope(…)` chains, in that order
+ * (the docs' canonical shape). Shared with the route's preview so the
+ * previewed text is exactly what the transform writes.
+ */
+export function renderRibStatement(
+  rib: Pick<RibEditOptions, 'op' | 'thickness' | 'parallel' | 'extend' | 'draft'>,
+  spineVar: string | null,
+  scopeExprs: string[],
+): string {
+  const callArgs = [formatValue(rib.thickness)];
+  if (spineVar !== null) {
+    callArgs.push(spineVar);
+  }
+  let statement = `rib(${callArgs.join(', ')})`;
+  if (rib.parallel) {
+    statement += '.parallel()';
+  }
+  if (rib.extend) {
+    statement += '.extend()';
+  }
+  if (rib.draft !== null) {
+    statement += `.draft(${formatValue(rib.draft)})`;
+  }
+  if (rib.op === 'remove') {
+    statement += '.remove()';
+  } else if (rib.op === 'new') {
+    statement += '.new()';
+  }
+  if (scopeExprs.length > 0) {
+    statement += `.scope(${scopeExprs.join(', ')})`;
+  }
+  return statement;
+}
+
+/**
  * Render a plane statement from its rendered base expressions:
  * `plane('xy')` / `plane('xy', 10)` (offset only keeps the bare-number
  * shorthand) / `plane(e.endFaces(), { offset: 10, rotateX: 15 })` /
@@ -2563,6 +2658,11 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
       faceExpr = renderFaceTargetExpr(target);
     }
     return renderExtrudeStatement(spec.extrude!, bindings[0].varName, faceExpr);
+  }
+  if (spec.feature === 'rib') {
+    const rb = spec.rib!;
+    const spineVar = rb.spine === 'bound' ? bindings[0].varName : null;
+    return renderRibStatement(rb, spineVar, rb.scope.map(p => bindings[p].varName!));
   }
   if (spec.feature === 'sweep') {
     const sw = spec.sweep!;
@@ -2963,6 +3063,16 @@ function resolveInsertion(
   if (spec.feature === 'extrude' && spec.extrude!.profile === 'bound' && !spec.extrude!.toFace) {
     return afterStatementInsertion(bindings[0].statement, lines);
   }
+  if (spec.feature === 'rib' && spec.rib!.spine === 'bound') {
+    // The statement references the spine and every scope variable — insert
+    // right after the latest of those statements so a later active sketch
+    // stays active. An implicit spine falls through to end-of-scope, where
+    // the last sketch is what the rib consumes.
+    const latest = [bindings[0], ...spec.rib!.scope.map(p => bindings[p])]
+      .map(binding => binding.statement)
+      .reduce((a, b) => (b.endIndex >= a.endIndex ? b : a));
+    return afterStatementInsertion(latest, lines);
+  }
   if (spec.feature === 'sweep') {
     const sw = spec.sweep!;
     if (sw.path.kind === 'sketch' && sw.profile !== 'implicit') {
@@ -3177,7 +3287,7 @@ function enclosingSketchStatement(node: TSNode): TSNode | null {
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'plane' | 'offset' | 'slot' | 'project';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'plane' | 'offset' | 'slot' | 'project' | 'rib';
 
 /**
  * One base argument of a parsed plane statement. `kind` is what the base
@@ -3232,6 +3342,27 @@ export type ParsedFeatureStatement =
      * literal; null for a distance extrude.
      */
     toFaceKind: ExtrudeTargetKind | null;
+  }
+  | {
+    feature: 'rib';
+    op: 'add' | 'remove' | 'new';
+    /** Wall thickness; the sign picks the side of the sketch plane. */
+    thickness: ValueExpr;
+    parallel: boolean;
+    extend: boolean;
+    /** `.draft(angle)` taper in degrees, or null when the chain is absent. */
+    draft: ValueExpr | null;
+    /** Trailing spine argument text (`s`), or null for implicit consumption. */
+    spineText: string | null;
+    /** `.scope(…)` argument texts, verbatim; empty when the chain is absent. */
+    scopeTexts: string[];
+    /**
+     * Source location of the feature statement each scope argument references
+     * (a plain identifier's bound call), or null when it names none. Same
+     * length as `scopeTexts`; lets the edit dialog seed scope chips as their
+     * solid rows.
+     */
+    scopeRefs: ({ line: number; column: number } | null)[];
   }
   | {
     feature: 'sweep';
@@ -3460,6 +3591,7 @@ export type ParsedFeatureStatement =
 const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   extrude: 'extrude',
   cut: 'extrude',
+  rib: 'rib',
   sweep: 'sweep',
   loft: 'loft',
   shell: 'shell',
@@ -3490,6 +3622,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
  */
 const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   extrude: new Set(['symmetric', 'draft', 'drill', 'thin', 'remove', 'new']),
+  rib: new Set(['parallel', 'extend', 'draft', 'remove', 'new', 'scope']),
   sweep: new Set(['thin', 'remove', 'new']),
   loft: new Set(['guides', 'startCondition', 'endCondition', 'thin', 'remove', 'new']),
   shell: new Set(['join']),
@@ -4067,6 +4200,66 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
     return {
       parsed: {
         feature, op, distance, distance2, symmetric, draft, drill, thin, profileText, toFaceText, toFaceKind,
+      },
+      start,
+      end,
+    };
+  }
+
+  if (feature === 'rib') {
+    // rib(<thickness>[, <spine>]): the thickness is a numeric literal, a
+    // known numeric variable, or arithmetic; a single trailing non-numeric
+    // argument is the bound spine expression, kept verbatim.
+    if (args.length < 1 || args.length > 2) {
+      return { error: 'the rib has an argument shape the dialog cannot edit' };
+    }
+    const thickness = numericValueArg(args[0], numericVars);
+    if (thickness === null) {
+      return { error: 'the rib thickness is not a plain number or expression — edit it in the source' };
+    }
+    let spineText: string | null = null;
+    if (args.length === 2) {
+      if (numericValueArg(args[1], numericVars) !== null) {
+        return { error: 'the rib has arguments the dialog does not understand' };
+      }
+      spineText = args[1].text;
+    }
+
+    const parallelSeg = recognized.get('parallel');
+    if (parallelSeg && parallelSeg.args.length > 0) {
+      return { error: 'the .parallel() chain takes no arguments — edit the statement in the source' };
+    }
+    const extendSeg = recognized.get('extend');
+    if (extendSeg && extendSeg.args.length > 0) {
+      return { error: 'the .extend() chain takes no arguments — edit the statement in the source' };
+    }
+
+    let draft: ValueExpr | null = null;
+    const draftSeg = recognized.get('draft');
+    if (draftSeg) {
+      if (draftSeg.args.length !== 1) {
+        return { error: 'the .draft() chain has an argument shape the dialog cannot edit' };
+      }
+      draft = anyValueArg(draftSeg.args[0]);
+      if (draft === null) {
+        return { error: 'the .draft() angle is not a plain number or expression — edit it in the source' };
+      }
+    }
+
+    const scopeSeg = recognized.get('scope');
+    const scopeNodes = scopeSeg ? scopeSeg.args : [];
+
+    return {
+      parsed: {
+        feature,
+        op,
+        thickness,
+        parallel: parallelSeg !== undefined,
+        extend: extendSeg !== undefined,
+        draft,
+        spineText,
+        scopeTexts: scopeNodes.map(n => n.text),
+        scopeRefs: scopeNodes.map(n => resolveRepeatTargetRef(n, start)),
       },
       start,
       end,
@@ -6022,6 +6215,59 @@ export function renderEditedStatement(
         profileText,
         faceExpr,
       ),
+    };
+  }
+  if (parsed.feature === 'rib') {
+    const opts = spec.edit?.rib;
+    if (!opts || !validEditOp(opts.op)
+      || !validValueExpr(opts.thickness, { nonzero: true })
+      || !validNonzeroOrNull(opts.draft)
+      || typeof opts.parallel !== 'boolean' || typeof opts.extend !== 'boolean') {
+      return { error: 'malformed rib edit spec' };
+    }
+    if (spec.parts.length > 0) {
+      return { error: 'malformed rib edit spec: a rib takes no selector parts' };
+    }
+    let spineText = parsed.spineText;
+    if (opts.spine !== undefined && opts.spine.kind !== 'keep') {
+      const varName = editSourceVar(spec, opts.spine.producer, varFor);
+      if (typeof varName !== 'string') {
+        return varName;
+      }
+      spineText = varName;
+    }
+    // The scope list mirrors an edited copy's targets: `verbatim` keeps
+    // re-read the statement's own argument texts by position, re-picked
+    // solids render their bound producers' variables. Unlike a copy an
+    // EMPTY list is legal — it drops the chain (whole-scene fusion).
+    let scopeExprs = parsed.scopeTexts;
+    if (opts.scope !== undefined) {
+      if (!Array.isArray(opts.scope)) {
+        return { error: 'malformed rib edit spec' };
+      }
+      const usedVerbatim = new Set<number>();
+      const exprs: string[] = [];
+      for (const target of opts.scope) {
+        if (target?.kind === 'verbatim') {
+          if (!Number.isInteger(target.sourceIndex) || target.sourceIndex < 0
+            || target.sourceIndex >= parsed.scopeTexts.length || usedVerbatim.has(target.sourceIndex)) {
+            return { error: 'malformed rib edit spec: a kept scope target no longer matches the statement' };
+          }
+          usedVerbatim.add(target.sourceIndex);
+          exprs.push(parsed.scopeTexts[target.sourceIndex]);
+        } else if (target?.kind === 'feature') {
+          if (!isFeatureProducer(spec as ApplyFeatureEditSpec, target.producer)) {
+            return { error: 'malformed rib edit spec: a scope target references a non-feature producer' };
+          }
+          exprs.push(varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f');
+        } else {
+          return { error: 'malformed rib edit spec: unknown scope target kind' };
+        }
+      }
+      scopeExprs = exprs;
+    }
+    return {
+      statement: renderRibStatement(opts, spineText, scopeExprs),
     };
   }
   if (parsed.feature === 'sweep') {

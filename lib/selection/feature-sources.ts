@@ -24,6 +24,7 @@ import { RepeatMatrix } from "../features/repeat-matrix.js";
 import { CopyAxisSource } from "../features/copy-base.js";
 import { CopyCircular } from "../features/copy-circular.js";
 import { CopyLinear } from "../features/copy-linear.js";
+import { Rib } from "../features/rib.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { Projection } from "../features/2d/projection.js";
 import {
@@ -50,6 +51,12 @@ export type FeatureSources =
     /** Up-to-face target; absent for a distance extrude. */
     toFace?: SourceSlot;
   }
+  /**
+   * A rib: its spine sketch, plus the solid statements its `.scope(…)` names
+   * — empty when the rib fuses with the whole scene (no scope chain, or a
+   * `'none'` scope that names no statements).
+   */
+  | { feature: 'rib'; spine: SourceSlot; scope: SourceSlot[] }
   | { feature: 'sweep'; profile: SourceSlot; path: SourceSlot }
   | { feature: 'loft'; profiles: SourceSlot[]; guides: SourceSlot[] }
   | { feature: 'revolve'; profile: SourceSlot; axis: SourceSlot }
@@ -131,6 +138,19 @@ export function resolveFeatureSources(
         feature: 'loft',
         profiles: feature.profiles.map(p => resolver.mixedSlot(p)),
         guides: feature.guideObjects.map(g => resolver.wireSlot(g)),
+      };
+    }
+    // Rib extends ExtrudeBase — its case must come first.
+    if (feature instanceof Rib) {
+      const fusionScope = feature.getFusionScope();
+      const scopeObjects = fusionScope instanceof SceneObject
+        ? [fusionScope]
+        : Array.isArray(fusionScope) ? fusionScope : [];
+      return {
+        ok: true,
+        feature: 'rib',
+        spine: resolver.sketchSlot(feature.spine instanceof Sketch ? feature.spine : null),
+        scope: resolver.statementSlots(scopeObjects),
       };
     }
     // Wrap extends ExtrudeBase — its case must come first.

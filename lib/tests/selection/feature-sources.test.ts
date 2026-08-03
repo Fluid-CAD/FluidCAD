@@ -14,7 +14,8 @@ import helix from "../../core/helix.js";
 import chamfer from "../../core/chamfer.js";
 import repeat from "../../core/repeat.js";
 import copy from "../../core/copy.js";
-import { circle, move, project, rect, vLine } from "../../core/2d/index.js";
+import rib from "../../core/rib.js";
+import { circle, hLine, move, project, rect, vLine } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Scene } from "../../rendering/scene.js";
 import { Shape } from "../../common/shape.js";
@@ -168,6 +169,55 @@ describe("feature sources (edit-dialog seeding)", () => {
       expect(result.profile).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 6, column: 0 });
       const topFace = faceRefsWhere(box, m => Math.abs(m.z - 50) < 1e-6);
       expect(result.toFace).toEqual({ kind: "entities", entities: topFace });
+    }
+  });
+
+  it("resolves a rib's spine sketch and scope statements by call site", () => {
+    sketch("top", () => {
+      rect(100, 50).centered();
+    });
+    const box = extrude(30);
+    const sh = shell(-4, box.endFaces());
+    setLocation(sh, 4);
+    const sp = sketch("front", () => {
+      move([-20, 15]);
+      hLine(40);
+    });
+    setLocation(sp, 6);
+    const r = rib(5, sp).extend().scope(sh);
+    setLocation(r, 9);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "rib", 9));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "rib") {
+      expect(result.spine).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 6, column: 0 });
+      expect(result.scope).toEqual([{ kind: "sketch", filePath: "/ws/model.fluid.js", line: 4, column: 0 }]);
+    }
+  });
+
+  it("reports an empty scope for a whole-scene rib", () => {
+    sketch("top", () => {
+      rect(100, 50).centered();
+    });
+    const box = extrude(30);
+    shell(-4, box.endFaces());
+    const sp = sketch("front", () => {
+      move([-20, 15]);
+      hLine(40);
+    });
+    setLocation(sp, 6);
+    const r = rib(5);
+    setLocation(r, 9);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "rib", 9));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "rib") {
+      expect(result.spine).toEqual({ kind: "sketch", filePath: "/ws/model.fluid.js", line: 6, column: 0 });
+      expect(result.scope).toEqual([]);
     }
   });
 

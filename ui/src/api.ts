@@ -293,6 +293,7 @@ export async function getTextPreview(
  */
 export type FeatureGhostRequest =
   | ExtrudeGhostRequest
+  | RibGhostRequest
   | RevolveGhostRequest
   | SweepGhostRequest
   | LoftGhostRequest
@@ -313,6 +314,25 @@ export type ExtrudeGhostRequest = {
   drill: boolean;
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { filePath: string; line: number };
+};
+
+export type RibGhostRequest = {
+  feature: 'rib';
+  op: 'add' | 'remove' | 'new';
+  /** Wall thickness; the sign picks the side of the sketch plane. */
+  thickness: ValueExpr;
+  parallel: boolean;
+  extend: boolean;
+  draft: ValueExpr | null;
+  /** The producing statement of the spine sketch. */
+  spine: { filePath: string; line: number };
+  /** The `.scope(…)` solids by producing statement; empty means every solid. */
+  scope: { filePath: string; line: number }[];
+  /**
+   * Edit mode: the edited rib's own call site — the scene already contains
+   * that rib, so the kernel unwinds its fusion before conforming the ghost.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 export type RevolveGhostRequest = {
@@ -1299,6 +1319,51 @@ export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyF
 /** A sketch input addressed by its rendered source location. */
 export type SketchSourceRef = { filePath: string; line: number; column: number };
 
+/** The rib options the dialog edits, shared by create and edit applies. */
+export type RibOptionValues = {
+  op: 'add' | 'remove' | 'new';
+  /** Wall thickness; the sign picks the side of the sketch plane. */
+  thickness: ValueExpr;
+  /** `.parallel()` — extrude in-plane, perpendicular to the spine. */
+  parallel: boolean;
+  /** `.extend()` — push the spine endpoints out into the surrounding walls. */
+  extend: boolean;
+  /** `.draft(angle)` taper in degrees, or null for straight walls. */
+  draft: ValueExpr | null;
+  /** Declarations the dialog's expression fields committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+};
+
+export type RibApplyOptions = RibOptionValues & {
+  spine: ExtrudeProfileRef;
+  /** The solid statements the rib's `.scope(…)` names; empty writes no chain. */
+  scope: SketchSourceRef[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a rib statement
+ * consuming a sketch spine. Same endpoint and response shape as
+ * {@link applyFeature}; no picks are involved — the scope targets are
+ * whole-solid statements addressed by call site.
+ */
+export async function applyRib(options: RibApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'rib',
+    op: options.op,
+    thickness: options.thickness,
+    parallel: options.parallel,
+    extend: options.extend,
+    draft: options.draft,
+    newVariables: options.newVariables,
+    spine: options.spine,
+    scope: options.scope,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** The revolve options the dialog edits, shared by create and edit applies. */
 export type RevolveOptionValues = {
   op: 'add' | 'remove' | 'new';
@@ -1768,6 +1833,11 @@ export type SourceSlotRef =
 
 export type FeatureSourcesResult =
   | { ok: true; feature: 'extrude' | 'cut'; profile: SourceSlotRef; toFace?: SourceSlotRef }
+  /**
+   * A rib: its spine sketch, plus the solid statements its `.scope(…)` names
+   * — empty when the rib fuses with the whole scene.
+   */
+  | { ok: true; feature: 'rib'; spine: SourceSlotRef; scope: SourceSlotRef[] }
   | { ok: true; feature: 'sweep'; profile: SourceSlotRef; path: SourceSlotRef }
   | { ok: true; feature: 'wrap'; sketch: SourceSlotRef; face: SourceSlotRef }
   | { ok: true; feature: 'loft'; profiles: SourceSlotRef[]; guides: SourceSlotRef[] }
@@ -1862,6 +1932,25 @@ export type ParsedFeatureStatement =
        * literal; null for a distance extrude.
        */
       toFaceKind: 'selector' | ExtrudeFaceTarget | null;
+    }
+  | {
+      feature: 'rib';
+      op: FeatureOpKind;
+      /** Wall thickness; the sign picks the side of the sketch plane. */
+      thickness: ValueExpr;
+      parallel: boolean;
+      extend: boolean;
+      draft: ValueExpr | null;
+      /** Trailing spine argument text (`s`), or null for implicit consumption. */
+      spineText: string | null;
+      /** `.scope(…)` argument texts, verbatim; empty when the chain is absent. */
+      scopeTexts: string[];
+      /**
+       * Source location of the statement each scope argument references, or
+       * null when it names none. Same length as `scopeTexts`; seeds the scope
+       * chips as their solid rows.
+       */
+      scopeRefs: ({ line: number; column: number } | null)[];
     }
   | {
       feature: 'sweep';
@@ -2134,6 +2223,49 @@ export async function applyExtrudeEdit(
     newVariables: options.newVariables,
     profile: options.profile,
     toFace: options.toFace,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
+ * One scope target of an edited rib, in argument order: an untouched target
+ * by its position in the statement's own `.scope(…)` argument list, or a
+ * re-picked solid statement by call site.
+ */
+export type RibEditScopeRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
+export type RibEditOptions = RibOptionValues & EditSessionFields & {
+  /** Re-sourced spine sketch; omitted keeps the statement's own. */
+  spine?: { mode: 'bound' } & SketchSourceRef;
+  /**
+   * Full replacement scope list; omitted keeps the statement's own chain,
+   * an empty list drops it (back to whole-scene fusion).
+   */
+  scope?: RibEditScopeRef[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the rib statement at `edit` in place. */
+export async function applyRibEdit(
+  edit: FeatureEditTarget,
+  options: RibEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'rib',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    op: options.op,
+    thickness: options.thickness,
+    parallel: options.parallel,
+    extend: options.extend,
+    draft: options.draft,
+    newVariables: options.newVariables,
+    spine: options.spine,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }

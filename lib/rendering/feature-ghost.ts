@@ -9,6 +9,7 @@ import {
   buildCircularCopyGhostMatrices, buildLinearCopyGhostMatrices,
 } from "../features/copy-ghost.js";
 import { buildExtrudeGhostSolids } from "../features/extrude-ghost.js";
+import { buildRibGhostSolids } from "../features/rib-ghost.js";
 import { buildFilletGhostBands } from "../features/fillet-ghost.js";
 import { buildHelixGhostWires } from "../features/helix-ghost.js";
 import {
@@ -48,6 +49,7 @@ import { Scene, SceneObjectMesh } from "./scene.js";
  */
 export type FeatureGhostRequest =
   | ExtrudeGhostRequest
+  | RibGhostRequest
   | RevolveGhostRequest
   | SweepGhostRequest
   | LoftGhostRequest
@@ -68,6 +70,31 @@ export type ExtrudeGhostRequest = {
   thin: [number] | [number, number] | null;
   /** The producing statement of the profile to extrude. */
   profile: { filePath: string; line: number };
+};
+
+export type RibGhostRequest = {
+  feature: 'rib';
+  op: 'add' | 'remove' | 'new';
+  /** Wall thickness; the sign picks the side of the sketch plane. Nonzero. */
+  thickness: number;
+  parallel: boolean;
+  extend: boolean;
+  draft: number | null;
+  /** The producing statement of the spine sketch. */
+  spine: { filePath: string; line: number };
+  /**
+   * The `.scope(…)` solids by producing statement; empty means the rib
+   * conforms to every solid in the scene (the kernel's own default).
+   */
+  scope: { filePath: string; line: number }[];
+  /**
+   * Edit mode: the edited rib statement's own call site. The scene already
+   * contains that rib — built and fused — so the scope solids are read as of
+   * just before it (its consumption and its own body unwound); conforming
+   * the new prism against a body that already contains the applied rib
+   * leaves only boundary slivers.
+   */
+  exclude?: { filePath: string; line: number };
 };
 
 export type RevolveGhostRequest = {
@@ -395,6 +422,9 @@ export function buildFeatureGhost(
   // is keyed on TWO literals, which a negative test can't rule out.
   if (request.feature === 'extrude' || request.feature === 'revolve') {
     return meshGhostBodies(buildProfileGhost(scene, request), meshConfig);
+  }
+  if (request.feature === 'rib') {
+    return meshGhostBodies(buildRibGhost(scene, request), meshConfig);
   }
   if (request.feature === 'sweep') {
     return meshGhostBodies(buildSweepGhost(scene, request), meshConfig);
@@ -1293,6 +1323,72 @@ function buildProfileGhost(
     thin: request.thin,
     throughAllLength: throughAllGhostLength(scene, geometries, plane),
   });
+}
+
+/**
+ * The rib branch: the spine sketch, plus the scope solids the wall conforms
+ * to — named statements when the dialog holds scope chips, every scene solid
+ * otherwise (the kernel's own default). The scope solids are read through the
+ * {@link copyTargetSolids} blind-spot fallback: in an edit dialog the rib
+ * being edited has already fused with (and consumed) the very solids its
+ * scope names.
+ */
+function buildRibGhost(scene: Scene, request: RibGhostRequest): GhostBuild {
+  const spine = findProfile(scene, request.spine);
+  if (!spine) {
+    return { reason: 'That sketch is not in the rendered scene.' };
+  }
+  const plane = spine.getPlane();
+  if (!plane) {
+    return { reason: 'The spine has no plane.' };
+  }
+
+  // Edit mode: the scene holds the applied rib itself, fused into the very
+  // solids the scope names. Read the scope as of just before that statement —
+  // a removal scope of every OTHER object applies the earlier features'
+  // consumption (box → shell → fillet) but unwinds the rib's own.
+  const excluded = request.exclude
+    ? new Set(objectsAt(scene, request.exclude))
+    : null;
+  const removalScope = excluded && excluded.size > 0
+    ? new Set(allObjects(scene).filter(obj => !excluded.has(obj)))
+    : undefined;
+
+  let scopeShapes: Shape[];
+  if (request.scope.length > 0) {
+    const targets: SceneObject[] = [];
+    for (const ref of request.scope) {
+      const objects = objectsAt(scene, ref).filter(obj => !obj.isContainer());
+      if (objects.length === 0) {
+        return { reason: 'That scope solid is not in the rendered scene.' };
+      }
+      targets.push(...objects);
+    }
+    scopeShapes = removalScope
+      ? [...new Set(targets.flatMap(t => t.getShapes(undefined, 'solid', removalScope)))]
+      : copyTargetSolids(targets);
+  } else if (removalScope) {
+    scopeShapes = scene.getSceneObjects()
+      .filter(obj => !obj.isContainer() && !excluded!.has(obj))
+      .flatMap(obj => obj.getShapes(undefined, 'solid', removalScope));
+  } else {
+    scopeShapes = sceneSolids(scene);
+  }
+  if (scopeShapes.length === 0) {
+    return { reason: 'The rib has no solids to conform to.' };
+  }
+
+  const geometries = profileEdges(spine);
+  return buildRibGhostSolids(
+    { getGeometries: () => geometries, getPlane: () => plane },
+    scopeShapes,
+    {
+      thickness: request.thickness,
+      parallel: request.parallel,
+      extend: request.extend,
+      draft: request.draft,
+    },
+  );
 }
 
 /**

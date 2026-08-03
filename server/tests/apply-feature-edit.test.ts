@@ -6661,3 +6661,249 @@ describe('applyFeatureEdit (slot in-place statement edit)', () => {
     }
   });
 });
+
+describe('rib statement templates', () => {
+  function ribSpec(
+    rib: Partial<NonNullable<ApplyFeatureEditSpec['rib']>> = {},
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'rib',
+      filePath: '/ws/model.fluid.js',
+      rib: {
+        op: 'add', thickness: 5, parallel: false, extend: false, draft: null,
+        spine: 'implicit', scope: [], ...rib,
+      },
+      producers: [{ line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: false }],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  const ribBase = [
+    `import { sketch, rect, extrude, aLine } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { rect(100, 50) })`,
+    `extrude(30)`,
+    `sketch('front', () => { aLine(45, 20) })`,
+    ``,
+  ].join('\n');
+
+  it('appends an implicit-spine rib at end of scope and imports rib', async () => {
+    const result = await applyFeatureEdit(ribBase, ribSpec());
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const sketchRow = lines.findIndex(l => l.startsWith(`sketch('front'`));
+    expect(lines[sketchRow + 1]).toBe(`rib(5)`);
+    expect(result.newCode).toMatch(/import \{.*\brib\b.*\} from 'fluidcad\/core'/);
+  });
+
+  it('chains .parallel(), .extend(), .draft() and .new() in canonical order', async () => {
+    const result = await applyFeatureEdit(ribBase, ribSpec({
+      op: 'new', parallel: true, extend: true, draft: -3,
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rib(5).parallel().extend().draft(-3).new()`);
+  });
+
+  it('renders the remove op as a .remove() chain', async () => {
+    const result = await applyFeatureEdit(ribBase, ribSpec({ op: 'remove', thickness: 4 }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rib(4).remove()`);
+  });
+
+  it('binds a bound-spine sketch and inserts directly after it', async () => {
+    const result = await applyFeatureEdit(ribBase, ribSpec(
+      { spine: 'bound' },
+      { producers: [{ line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: true }] },
+    ));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const boundRow = lines.findIndex(l => l === `const s = sketch('front', () => { aLine(45, 20) })`);
+    expect(boundRow).toBeGreaterThan(-1);
+    expect(lines[boundRow + 1]).toBe(`rib(5, s)`);
+  });
+
+  it('binds scope solids and renders the .scope() chain', async () => {
+    const result = await applyFeatureEdit(ribBase, ribSpec(
+      { spine: 'bound', scope: [1] },
+      {
+        producers: [
+          { line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+          { line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+        ],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    expect(lines).toContain(`const f = extrude(30)`);
+    const boundRow = lines.findIndex(l => l === `const s = sketch('front', () => { aLine(45, 20) })`);
+    // Inserted after the LATEST referenced statement (the spine here).
+    expect(lines[boundRow + 1]).toBe(`rib(5, s).scope(f)`);
+  });
+
+  it('refuses a scope index that is not a feature producer', async () => {
+    const result = await applyFeatureEdit(ribBase, ribSpec({ scope: [0] }));
+    expect(result.error).toContain('malformed rib edit spec');
+    expect(result.newCode).toBe(ribBase);
+  });
+});
+
+describe('parseFeatureStatement — rib', () => {
+  const ribEditBase = [
+    `import { sketch, rect, extrude, rib, aLine } from 'fluidcad/core'`,
+    ``,
+    `const body = extrude(30)`,
+    `const s = sketch('front', () => { aLine(45, 20) })`,
+  ].join('\n');
+
+  it('reads a plain rib', async () => {
+    const code = `${ribEditBase}\nrib(6)\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'rib', op: 'add', thickness: 6, parallel: false, extend: false,
+        draft: null, spineText: null, scopeTexts: [], scopeRefs: [],
+      },
+      statement: 'rib(6)',
+    });
+  });
+
+  it('reads a fully chained rib with a bound spine and scope refs', async () => {
+    const code = `${ribEditBase}\nrib(-5, s).parallel().extend().draft(2).new().scope(body)\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'rib', op: 'new', thickness: -5, parallel: true, extend: true,
+        draft: 2, spineText: 's', scopeTexts: ['body'],
+      },
+      statement: 'rib(-5, s).parallel().extend().draft(2).new().scope(body)',
+    });
+    if (result.ok === true && result.parsed.feature === 'rib') {
+      expect(result.parsed.scopeRefs).toHaveLength(1);
+      expect(result.parsed.scopeRefs[0]?.line).toBe(3);
+    }
+  });
+
+  it('reads a remove rib', async () => {
+    const code = `${ribEditBase}\nrib(4).remove()\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({ ok: true, parsed: { feature: 'rib', op: 'remove', thickness: 4 } });
+  });
+
+  it('refuses a non-numeric thickness', async () => {
+    const code = `${ribEditBase}\nrib(t)\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('thickness');
+    }
+  });
+
+  it('refuses a three-argument rib', async () => {
+    const code = `${ribEditBase}\nrib(5, s, extra)\n`;
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({ ok: false });
+  });
+});
+
+describe('applyFeatureEdit (rib in-place statement edit)', () => {
+  const ribEditBase = [
+    `import { sketch, rect, extrude, rib, aLine } from 'fluidcad/core'`,
+    ``,
+    `const body = extrude(30)`,
+    `const tower = extrude(50).new()`,
+    `const s = sketch('front', () => { aLine(45, 20) })`,
+  ].join('\n');
+
+  function ribEditOptions(
+    overrides: Partial<NonNullable<FeatureStatementEditTarget['rib']>> = {},
+  ): NonNullable<FeatureStatementEditTarget['rib']> {
+    return {
+      op: 'add', thickness: 5, parallel: false, extend: false, draft: null, ...overrides,
+    };
+  }
+
+  it('replaces the thickness in place', async () => {
+    const code = `${ribEditBase}\nrib(5, s)\n`;
+    const result = await applyFeatureEdit(code, editSpec('rib', {
+      line: 6, column: 0,
+      rib: ribEditOptions({ thickness: 8 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`${ribEditBase}\nrib(8, s)\n`);
+  });
+
+  it('adds and drops chains in place', async () => {
+    const code = `${ribEditBase}\nrib(5, s).parallel()\n`;
+    const result = await applyFeatureEdit(code, editSpec('rib', {
+      line: 6, column: 0,
+      rib: ribEditOptions({ extend: true, draft: 2, op: 'new' }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rib(5, s).extend().draft(2).new()\n`);
+  });
+
+  it('keeps the scope chain verbatim when the edit omits it', async () => {
+    const code = `${ribEditBase}\nrib(5, s).scope(body)\n`;
+    const result = await applyFeatureEdit(code, editSpec('rib', {
+      line: 6, column: 0,
+      rib: ribEditOptions({ thickness: 7 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rib(7, s).scope(body)\n`);
+  });
+
+  it('drops the scope chain on an empty replacement list', async () => {
+    const code = `${ribEditBase}\nrib(5, s).scope(body)\n`;
+    const result = await applyFeatureEdit(code, editSpec('rib', {
+      line: 6, column: 0,
+      rib: ribEditOptions({ scope: [] }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rib(5, s)\n`);
+    expect(result.newCode).not.toContain(`.scope(`);
+  });
+
+  it('mixes kept and re-picked scope targets', async () => {
+    const code = `${ribEditBase}\nrib(5, s).scope(body)\n`;
+    const result = await applyFeatureEdit(code, editSpec('rib', {
+      line: 6, column: 0,
+      rib: ribEditOptions({
+        scope: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'feature', producer: 0 },
+        ],
+      }),
+    }, {
+      producers: [{ line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rib(5, s).scope(body, tower)\n`);
+  });
+
+  it('re-sources the spine to a picked sketch', async () => {
+    const code = `${ribEditBase}\nconst s2 = sketch('front', () => { aLine(30, 10) })\nrib(5, s)\n`;
+    const result = await applyFeatureEdit(code, editSpec('rib', {
+      line: 7, column: 0,
+      rib: ribEditOptions({ spine: { kind: 'sketch', producer: 0 } }),
+    }, {
+      producers: [{ line: 6, column: 0, featureType: 'sketch', nameHint: 's', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rib(5, s2)\n`);
+  });
+
+  it('preserves an unrecognized suffix chain', async () => {
+    const code = `${ribEditBase}\nrib(5, s).color('red')\n`;
+    const result = await applyFeatureEdit(code, editSpec('rib', {
+      line: 6, column: 0,
+      rib: ribEditOptions({ thickness: 9 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rib(9, s).color('red')\n`);
+  });
+});

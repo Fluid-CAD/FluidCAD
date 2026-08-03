@@ -151,6 +151,7 @@ export type SceneRenderedData = {
  */
 export type FeatureGhostRequest =
   | ExtrudeGhostRequest
+  | RibGhostRequest
   | RevolveGhostRequest
   | SweepGhostRequest
   | LoftGhostRequest
@@ -172,6 +173,22 @@ export type ExtrudeGhostRequest = {
   thin: [number] | [number, number] | null;
   /** The producing statement of the profile to extrude. */
   profile: { filePath: string; line: number };
+};
+
+export type RibGhostRequest = {
+  feature: 'rib';
+  op: 'add' | 'remove' | 'new';
+  /** Wall thickness; the sign picks the side of the sketch plane. Nonzero. */
+  thickness: number;
+  parallel: boolean;
+  extend: boolean;
+  draft: number | null;
+  /** The producing statement of the spine sketch. */
+  spine: { filePath: string; line: number };
+  /** The `.scope(…)` solids by producing statement; empty means every solid. */
+  scope: { filePath: string; line: number }[];
+  /** Edit mode: the edited rib's call site — its fusion is unwound. */
+  exclude?: { filePath: string; line: number };
 };
 
 export type RevolveGhostRequest = {

@@ -29,6 +29,12 @@ type GhostBody = {
   edges?: unknown;
   axis?: { kind?: unknown; axis?: unknown; filePath?: unknown; line?: unknown; shapeId?: unknown; index?: unknown };
   profile?: { filePath?: unknown; line?: unknown };
+  thickness?: unknown;
+  parallel?: unknown;
+  extend?: unknown;
+  spine?: { filePath?: unknown; line?: unknown };
+  scope?: unknown;
+  exclude?: { filePath?: unknown; line?: unknown };
   path?: unknown;
   profiles?: unknown;
   guides?: unknown;
@@ -60,7 +66,7 @@ type GhostBody = {
 };
 
 const FEATURES = [
-  'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'plane',
+  'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'plane', 'rib',
 ];
 
 /** The features that modify edges of an existing solid rather than sweep a profile. */
@@ -761,7 +767,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       || !isValueExprOrNull(body.endOffset)
       || !isValueExprOrNull(body.offset) || !isValueExprOrNull(body.rotateX)
       || !isValueExprOrNull(body.rotateY) || !isValueExprOrNull(body.rotateZ)
-      || !isValueExprOrNull(body.position)) {
+      || !isValueExprOrNull(body.position) || !isValueExprOrNull(body.thickness)) {
       res.status(400).json({ success: false, reason: 'Invalid dimension' });
       return;
     }
@@ -782,6 +788,31 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         return;
       }
       profileRef = { filePath: profile.filePath, line: profile.line };
+    }
+    const isRib = body.feature === 'rib';
+    let spineRef: { filePath: string; line: number } | null = null;
+    let ribScope: { filePath: string; line: number }[] = [];
+    let ribExclude: { filePath: string; line: number } | undefined;
+    if (isRib) {
+      const spine = body.spine;
+      if (typeof spine?.filePath !== 'string' || typeof spine?.line !== 'number') {
+        res.status(400).json({ success: false, reason: 'Invalid spine reference' });
+        return;
+      }
+      spineRef = { filePath: spine.filePath, line: spine.line };
+      const scope = parseSourceRefs(body.scope ?? []);
+      if (!scope || scope.length > MAX_COPY_TARGETS) {
+        res.status(400).json({ success: false, reason: 'Invalid scope references' });
+        return;
+      }
+      ribScope = scope;
+      if (body.exclude !== undefined && body.exclude !== null) {
+        if (typeof body.exclude.filePath !== 'string' || typeof body.exclude.line !== 'number') {
+          res.status(400).json({ success: false, reason: 'Invalid exclude reference' });
+          return;
+        }
+        ribExclude = { filePath: body.exclude.filePath, line: body.exclude.line };
+      }
     }
     const helixSource = isHelix ? parseHelixSource(body.source) : null;
     if (isHelix && !helixSource) {
@@ -866,6 +897,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const distance = resolve(body.distance);
     const distance2 = resolve(body.distance2);
     const draft = resolve(body.draft);
+    const thickness = resolve(body.thickness);
     const angle = resolve(body.angle);
     const value = resolve(body.value);
     const thin = Array.isArray(body.thin)
@@ -984,6 +1016,22 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         thin,
         profile: profileRef!,
         path: path!,
+      };
+    } else if (isRib) {
+      if (thickness === null || thickness === 0) {
+        res.status(400).json({ success: false, reason: 'Invalid thickness' });
+        return;
+      }
+      request = {
+        feature: 'rib',
+        op: body.op as 'add' | 'remove' | 'new',
+        thickness,
+        parallel: body.parallel === true,
+        extend: body.extend === true,
+        draft,
+        spine: spineRef!,
+        scope: ribScope,
+        exclude: ribExclude,
       };
     } else if (body.feature === 'revolve') {
       if (angle === null) {

@@ -9,7 +9,7 @@ import {
   renderEditedStatement,
   renderExtrudeStatement, renderHelixStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
   renderRepeatAxisExpr, renderRepeatPlaneExpr, renderRepeatStatement,
-  renderRevolveStatement,
+  renderRevolveStatement, renderRibStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
   renderChamferValueArgs, renderFaceTargetExpr, renderOffsetStatement, renderSlotStatement, renderTarcStatement,
@@ -19,7 +19,8 @@ import {
   type HelixEditOptions,
   type HelixSourceSpec, type LoftEditOptions,
   type PlaneEditOptions, type RepeatAxisSpec, type RepeatEditAxis, type RepeatEditOptions,
-  type RevolveEditOptions, type ShellJoinKind, type SweepEditOptions, type ValueExpr, type WrapEditOptions,
+  type RevolveEditOptions, type RibEditOptions, type ShellJoinKind, type SweepEditOptions, type ValueExpr,
+  type WrapEditOptions,
 } from '../apply-feature-edit.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { CHAIN_CALLEES } from '../segment-swap.ts';
@@ -305,6 +306,91 @@ function validateExtrudeOptions(body: any, toFace = false): ExtrudeOptionSet | {
     drill: drill !== false,
     thin: thinResult.offsets,
   };
+}
+
+/** How many solid statements a rib's `.scope(…)` can name. */
+export const MAX_RIB_SCOPE = 16;
+
+/** The dialog-editable rib options, shared by the create and edit paths. */
+type RibOptionSet = {
+  op: 'add' | 'remove' | 'new';
+  thickness: ValueExpr;
+  parallel: boolean;
+  extend: boolean;
+  draft: ValueExpr | null;
+};
+
+/**
+ * The rib request's shape. The spine is a sketch — `active` consumes it
+ * implicitly, `bound` binds it to a variable. `scope` names the solid-bearing
+ * statements the rib conforms to and fuses with (whole-solid picks); empty
+ * writes no `.scope(…)` chain and the rib fuses with the whole scene.
+ */
+type RibRequest = RibOptionSet & {
+  spine: { mode: 'active' | 'bound' } & SketchLoc;
+  scope: SketchLoc[];
+};
+
+/**
+ * Validate the option fields both rib requests carry: the boolean op, the
+ * signed nonzero thickness (the sign picks the side of the sketch plane),
+ * the parallel / extend toggles and the draft chain.
+ */
+function validateRibOptions(body: any): RibOptionSet | { error: string } {
+  const { op, thickness, parallel, extend, draft } = body ?? {};
+  if (op !== 'add' && op !== 'remove' && op !== 'new') {
+    return { error: 'op must be "add", "remove" or "new"' };
+  }
+  if (!validValueExpr(thickness, { nonzero: true })) {
+    return { error: 'thickness must be a nonzero number or expression (negative ribs the other way)' };
+  }
+  if (parallel !== undefined && typeof parallel !== 'boolean') {
+    return { error: 'parallel must be a boolean' };
+  }
+  if (extend !== undefined && typeof extend !== 'boolean') {
+    return { error: 'extend must be a boolean' };
+  }
+  if (draft !== undefined && draft !== null && !validValueExpr(draft, { nonzero: true })) {
+    return { error: 'draft must be a nonzero taper angle in degrees' };
+  }
+  return {
+    op,
+    thickness,
+    parallel: parallel === true,
+    extend: extend === true,
+    draft: draft ?? null,
+  };
+}
+
+function validateRib(body: any): RibRequest | { error: string } {
+  const options = validateRibOptions(body);
+  if ('error' in options) {
+    return options;
+  }
+  const mode = body?.spine?.mode;
+  const loc = validateSketchLoc(body?.spine);
+  if ((mode !== 'active' && mode !== 'bound') || !loc) {
+    return { error: 'spine must be {mode: "active"|"bound", filePath, line} of the sketch' };
+  }
+  const rawScope = body?.scope ?? [];
+  if (!Array.isArray(rawScope) || rawScope.length > MAX_RIB_SCOPE) {
+    return { error: `scope must be 0-${MAX_RIB_SCOPE} solid statements` };
+  }
+  const scope: SketchLoc[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawScope) {
+    const target = validateSketchLoc(raw);
+    if (!target) {
+      return { error: 'each scope target must be the {filePath, line} of a solid statement' };
+    }
+    const key = `${target.filePath}:${target.line}`;
+    if (seen.has(key)) {
+      return { error: 'the same solid was picked twice — each scope target must be different' };
+    }
+    seen.add(key);
+    scope.push(target);
+  }
+  return { ...options, spine: { mode, ...loc }, scope };
 }
 
 function validateExtrude(body: any): ExtrudeRequest | { error: string } {
@@ -1388,7 +1474,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'boolean', 'helix', 'plane', 'offset', 'slot', 'project']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'boolean', 'helix', 'plane', 'offset', 'slot', 'project', 'rib']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -1420,6 +1506,10 @@ type StatementEditRequest = {
   extrudeProfile?: SketchLoc;
   /** Re-picked extrude up-to-face target; the keep case rides the edit target. */
   extrudeToFace?: Pick;
+  /** Re-sourced rib spine sketch; absent keeps the statement's. */
+  ribSpine?: SketchLoc;
+  /** Full replacement rib scope list; absent keeps the statement's own. */
+  ribScope?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Re-sourced sweep path; absent keeps the statement's. */
   sweepPath?: ({ kind: 'sketch' } & SketchLoc)
     | { kind: 'edges'; picks: Pick[]; chains: { seed: Pick; members: Pick[] }[] };
@@ -1502,7 +1592,7 @@ function isKeepSlot(raw: any): boolean {
 function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "boolean", "offset" or "project" for an edit' };
+    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "boolean", "offset" or "project" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -1554,6 +1644,57 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       return { error: 'an edited profile must be {mode: "bound", filePath, line} of the sketch' };
     }
     return { ...result, extrudeProfile: loc };
+  }
+
+  if (feature === 'rib') {
+    const options = validateRibOptions(body);
+    if ('error' in options) {
+      return options;
+    }
+    edit.rib = options;
+    const result: StatementEditRequest = base;
+    // The scope field owns the chain outright when present: an empty list
+    // drops the statement's `.scope(…)` (back to whole-scene fusion); absent
+    // keeps it verbatim.
+    if (body?.scope !== undefined && body?.scope !== null) {
+      if (!Array.isArray(body.scope) || body.scope.length > MAX_RIB_SCOPE) {
+        return { error: `scope must be 0-${MAX_RIB_SCOPE} kept or re-picked solid statements` };
+      }
+      const scope: NonNullable<StatementEditRequest['ribScope']> = [];
+      const seenIndices = new Set<number>();
+      const seenLocs = new Set<string>();
+      for (const raw of body.scope) {
+        if (raw?.kind === 'verbatim') {
+          if (!Number.isInteger(raw.sourceIndex) || raw.sourceIndex < 0 || seenIndices.has(raw.sourceIndex)) {
+            return { error: 'each kept scope target must carry a distinct {sourceIndex} into the statement' };
+          }
+          seenIndices.add(raw.sourceIndex);
+          scope.push({ kind: 'verbatim', sourceIndex: raw.sourceIndex });
+        } else if (raw?.kind === 'feature') {
+          const loc = validateSketchLoc(raw);
+          if (!loc) {
+            return { error: 'each re-picked scope target must be the {filePath, line} of a solid statement' };
+          }
+          const key = `${loc.filePath}:${loc.line}`;
+          if (seenLocs.has(key)) {
+            return { error: 'the same solid was picked twice — each scope target must be different' };
+          }
+          seenLocs.add(key);
+          scope.push({ kind: 'feature', loc });
+        } else {
+          return { error: 'each scope target must be {kind: "verbatim"|"feature", …}' };
+        }
+      }
+      result.ribScope = scope;
+    }
+    if (isKeepSlot(body?.spine)) {
+      return result;
+    }
+    const loc = validateSketchLoc(body.spine);
+    if (body.spine?.mode !== 'bound' || !loc) {
+      return { error: 'an edited spine must be {mode: "bound", filePath, line} of the sketch' };
+    }
+    return { ...result, ribSpine: loc };
   }
 
   if (feature === 'wrap') {
@@ -2611,6 +2752,8 @@ export function createApplyFeatureRouter(
         }
         const sketchLocs: SketchLoc[] = [
           ...(request.extrudeProfile ? [request.extrudeProfile] : []),
+          ...(request.ribSpine ? [request.ribSpine] : []),
+          ...(request.ribScope ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
           ...(request.sweepPath?.kind === 'sketch' ? [request.sweepPath] : []),
           ...(request.sweepProfile ? [request.sweepProfile] : []),
           ...(request.wrapSketch ? [request.wrapSketch] : []),
@@ -2725,6 +2868,20 @@ export function createApplyFeatureRouter(
           }
           foldSynthesis(synthesis);
           edit.extrude!.toFace = { kind: 'selector' };
+        }
+        if (request.ribSpine) {
+          edit.rib!.spine = { kind: 'sketch', producer: sketchRef(request.ribSpine, 's') };
+        }
+        if (request.ribScope) {
+          edit.rib!.scope = request.ribScope.map(target => target.kind === 'verbatim'
+            ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
+            : {
+              kind: 'feature' as const,
+              producer: mergeProducer({
+                line: target.loc.line, column: target.loc.column,
+                featureType: 'feature', nameHint: 'f', bind: true,
+              }),
+            });
         }
         if (request.sweepPath) {
           if (request.sweepPath.kind === 'sketch') {
@@ -3305,6 +3462,67 @@ export function createApplyFeatureRouter(
           producers,
           parts,
           imports,
+          newVariables,
+        }, { success: true, preview: statement });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
+    if (feature === 'rib') {
+      const request = validateRib(req.body);
+      if ('error' in request) {
+        res.status(400).json({ error: request.error });
+        return;
+      }
+      for (const loc of request.scope) {
+        if (normalizePath(loc.filePath) !== normalizePath(request.spine.filePath)) {
+          res.status(422).json({ success: false, reason: 'a scope solid and the spine sketch come from different files' });
+          return;
+        }
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        // The spine stays producers[0] in both modes — the transform's rib
+        // contract; the scope solids' producers follow it.
+        const { producers, merge: mergeProducer } = makeProducerMerger();
+        mergeProducer({
+          line: request.spine.line, column: request.spine.column,
+          featureType: 'sketch', nameHint: 's', bind: request.spine.mode === 'bound',
+        });
+        const scope = request.scope.map(loc => mergeProducer({
+          line: loc.line, column: loc.column,
+          featureType: 'feature', nameHint: 'f', bind: true,
+        }));
+        const options: RibEditOptions = {
+          op: request.op,
+          thickness: request.thickness,
+          parallel: request.parallel,
+          extend: request.extend,
+          draft: request.draft,
+          spine: request.spine.mode === 'bound' ? 'bound' : 'implicit',
+          scope,
+        };
+        // Truthful preview names: the same resolution the transform runs
+        // (reused consts, collision-suffixed hints).
+        const names = await allocateProducerVars(producers, code);
+        const statement = renderRibStatement(
+          options,
+          request.spine.mode === 'bound' ? names[0] ?? 's' : null,
+          scope.map(index => names[index] ?? 'f'),
+        );
+        if (preview === true) {
+          res.json({ success: true, preview: statement });
+          return;
+        }
+        await dispatcher.dispatch(res, {
+          feature: 'rib',
+          rib: options,
+          filePath: request.spine.filePath,
+          producers,
+          parts: [],
+          imports: [],
           newVariables,
         }, { success: true, preview: statement });
       } catch (err: any) {
@@ -4779,7 +4997,7 @@ export function createApplyFeatureRouter(
       return;
     }
     if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch') {
-      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "sweep", "wrap", "loft", "revolve", "plane", "project", "repeat", "copy" or "boolean"' });
+      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "rib", "sweep", "wrap", "loft", "revolve", "plane", "project", "repeat", "copy" or "boolean"' });
       return;
     }
     // Per-feature numeric parameter: fillet/chamfer need a positive radius or

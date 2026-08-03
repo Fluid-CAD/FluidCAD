@@ -9,9 +9,12 @@ import revolve from "../core/revolve.js";
 import sweep from "../core/sweep.js";
 import helix from "../core/helix.js";
 import chamfer from "../core/chamfer.js";
+import fillet from "../core/fillet.js";
+import rib from "../core/rib.js";
 import repeat from "../core/repeat.js";
 import copy from "../core/copy.js";
-import { bezier, circle, move, rect, vLine } from "../core/2d/index.js";
+import shell from "../core/shell.js";
+import { aLine, bezier, circle, hLine, move, rect, vLine } from "../core/2d/index.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
 import { EdgeOps } from "../oc/edge-ops.js";
@@ -20,7 +23,8 @@ import { FaceQuery } from "../oc/face-query.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import {
   buildFeatureGhost, CopyGhostRequest, ExtrudeGhostRequest, FeatureGhostResult, GhostPathRef,
-  GhostSectionRef, LoftGhostRequest, RepeatGhostRequest, RevolveGhostRequest, SweepGhostRequest,
+  GhostSectionRef, LoftGhostRequest, RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest,
+  SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { Scene, SceneObjectMesh } from "../rendering/scene.js";
@@ -1630,3 +1634,151 @@ function windingFollowsNormals(mesh: SceneObjectMesh): boolean {
   }
   return true;
 }
+
+describe("feature ghost — rib", () => {
+  setupOC();
+
+  const RIB_BASE: Omit<RibGhostRequest, 'spine' | 'scope'> = {
+    feature: 'rib',
+    op: 'add',
+    thickness: 5,
+    parallel: false,
+    extend: false,
+    draft: null,
+  };
+
+  function ribGhost(
+    scene: Scene,
+    spineLine: number,
+    overrides: Partial<RibGhostRequest> = {},
+  ) {
+    return buildFeatureGhost(
+      scene,
+      {
+        ...RIB_BASE,
+        scope: [],
+        ...overrides,
+        spine: { filePath: FILE, line: spineLine },
+      },
+      DEFAULT_MESH_CONFIG,
+    );
+  }
+
+  /** The shelled box every rib test walls up, plus its front spine sketch. */
+  function shelledBoxWithSpine(): { box: SceneObject } {
+    locatedSketch(3, () => { rect(100, 50).centered(); }, 'xy');
+    const box = extrude(30) as unknown as SceneObject;
+    box.setSourceLocation({ filePath: FILE, line: 4, column: 0 });
+    const sh = shell(-4, (box as any).endFaces()) as unknown as SceneObject;
+    sh.setSourceLocation({ filePath: FILE, line: 5, column: 0 });
+    const spine = sketch("front", () => {
+      move([-20, 15]);
+      hLine(40);
+    }) as Sketch;
+    spine.setSourceLocation({ filePath: FILE, line: 7, column: 0 });
+    return { box: sh };
+  }
+
+  it("meshes the conformed wall inside the cavity", () => {
+    shelledBoxWithSpine();
+    const scene = render();
+
+    const result = ribGhost(scene, 7);
+    expect(refusal(result)).toBe('');
+    if (result.ok) {
+      expect(result.solids.length).toBeGreaterThan(0);
+      const box = bounds(result);
+      // Conformance keeps the wall inside the shelled box.
+      expect(box.minX).toBeGreaterThanOrEqual(-50 - 0.1);
+      expect(box.maxX).toBeLessThanOrEqual(50 + 0.1);
+      expect(box.minY).toBeGreaterThanOrEqual(-25 - 0.1);
+      expect(box.maxY).toBeLessThanOrEqual(25 + 0.1);
+      expect(box.minZ).toBeGreaterThanOrEqual(-0.1);
+      expect(box.maxZ).toBeLessThanOrEqual(30 + 0.1);
+    }
+  });
+
+  it("resolves an explicit scope statement, parallel and extended", () => {
+    shelledBoxWithSpine();
+    const scene = render();
+
+    const result = ribGhost(scene, 7, {
+      parallel: true,
+      extend: true,
+      scope: [{ filePath: FILE, line: 5 }],
+    });
+    expect(refusal(result)).toBe('');
+    if (result.ok) {
+      expect(result.solids.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("builds the exact tapered prism for a parallel draft", () => {
+    shelledBoxWithSpine();
+    const scene = render();
+
+    const result = ribGhost(scene, 7, { parallel: true, draft: 3 });
+    expect(refusal(result)).toBe('');
+  });
+
+  it("refuses a spine the scene does not hold", () => {
+    shelledBoxWithSpine();
+    const scene = render();
+
+    expect(refusal(ribGhost(scene, 99))).toContain('not in the rendered scene');
+  });
+
+  it("refuses a scope statement the scene does not hold", () => {
+    shelledBoxWithSpine();
+    const scene = render();
+
+    const result = ribGhost(scene, 7, { scope: [{ filePath: FILE, line: 99 }] });
+    expect(refusal(result)).toContain('scope solid is not in the rendered scene');
+  });
+
+  it("refuses when the scene has no solids to conform to", () => {
+    locatedSketch(7, () => {
+      move([-20, 15]);
+      hLine(40);
+    }, 'xz');
+    const scene = render();
+
+    expect(refusal(ribGhost(scene, 7))).toContain('no solids to conform to');
+  });
+
+  it("edit mode: conforms against the pre-statement bodies via `exclude`", () => {
+    // The rib3 repro: the statement being edited is APPLIED — built and fused
+    // into the model. Without `exclude` the ghost prism is cut against a body
+    // that already contains the rib, leaving only boundary slivers (the
+    // flat-sheet bug); with it, the scope reads as of just before the rib.
+    sketch("top", () => { rect(100, 50).centered(); }, );
+    const box = extrude(30);
+    const sh = shell(-4, (box as any).endFaces());
+    fillet(2, (sh as any).internalEdges());
+    const spine = locatedSketch(15, () => {
+      move([-50 + 4, 20]);
+      aLine(-45, 20);
+    }, 'xz');
+    void spine;
+    const r = rib(5).parallel() as unknown as SceneObject;
+    r.setSourceLocation({ filePath: FILE, line: 20, column: 0 });
+    const scene = render();
+
+    // Sketch line 15 sits on the 'front' plane in the repro; locatedSketch
+    // draws on xz which shares the geometry for this purpose.
+    const result = ribGhost(scene, 15, {
+      parallel: true,
+      exclude: { filePath: FILE, line: 20 },
+    });
+    expect(refusal(result)).toBe('');
+    if (result.ok) {
+      expect(result.solids).toHaveLength(1);
+      const wall = bounds(result);
+      // The proper gusset: full 5-thickness slab under the spine, inside the
+      // cavity — never buried in the wall (x < -46) or under the floor (z < 4).
+      expect(wall.maxY - wall.minY).toBeGreaterThan(4.9);
+      expect(wall.minX).toBeGreaterThanOrEqual(-46 - 0.1);
+      expect(wall.minZ).toBeGreaterThanOrEqual(4 - 0.1);
+    }
+  });
+});

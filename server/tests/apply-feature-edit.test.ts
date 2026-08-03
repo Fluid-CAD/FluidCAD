@@ -61,6 +61,42 @@ describe('applyFeatureEdit', () => {
     expect(result.newCode.match(/fillet/g)!.length).toBe(2);
   });
 
+  it('reuses the variable of a whole assignment statement', async () => {
+    const code = [
+      `import { sketch, rect, extrude, fillet } from 'fluidcad/core'`,
+      ``,
+      `let base`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `base = extrude(30)`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, spec({
+      producers: [{ line: 5, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`base = extrude(30)`);
+    expect(result.newCode).toContain(`fillet(3, base.endEdges(2))`);
+    expect(result.newCode).not.toContain(`const base = extrude`);
+  });
+
+  it('refuses to reuse a variable reassigned after the producing call', async () => {
+    const code = [
+      `import { sketch, rect, extrude, shell, fillet } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `let s = extrude(30)`,
+      `s = shell(-4, s.endFaces())`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, spec({
+      producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+    }));
+    expect(result.error).toContain('reassigned');
+    expect(result.newCode).toBe(code);
+  });
+
   it('matches the file semicolon style', async () => {
     const code = [
       `import { sketch, rect, extrude } from 'fluidcad/core';`,
@@ -6895,6 +6931,31 @@ describe('applyFeatureEdit (rib in-place statement edit)', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`rib(5, s2)\n`);
+  });
+
+  it('re-picks a scope solid held by an assignment statement, reusing its variable', async () => {
+    const code = [
+      `import { sketch, rect, extrude, shell, fillet, rib, aLine } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const box = extrude(30)`,
+      `let s`,
+      `s = shell(-4, box.endFaces())`,
+      `s = fillet(2, s.internalEdges())`,
+      `sketch('front', () => { aLine(-45, 20) })`,
+      `rib(5).scope(s)`,
+      '',
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('rib', {
+      line: 9, column: 0,
+      rib: ribEditOptions({ scope: [{ kind: 'feature', producer: 0 }] }),
+    }, {
+      producers: [{ line: 7, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rib(5).scope(s)\n`);
+    expect(result.newCode).toContain(`\ns = fillet(2, s.internalEdges())\n`);
+    expect(result.newCode).not.toContain(`const f = `);
   });
 
   it('preserves an unrecognized suffix chain', async () => {

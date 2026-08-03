@@ -1842,10 +1842,16 @@ function chainRootCallee(call: TSNode): string | null {
  * Locate the statement holding the producer call and how to bind it:
  * - `const x = <call>` → reuse `x` (statement is the declaration, or the
  *   `export` statement wrapping it);
+ * - `x = <call>` as a whole assignment statement → reuse `x`;
  * - `<call>;` as a bare expression statement → prepend `const <name> = `
  *   (same-row prepend, so later source lines don't shift);
  * - anything else (the call is nested inside another expression) → refuse
  *   rather than rewrite user code speculatively.
+ *
+ * Reusing a name is only sound while this statement is its LAST write in
+ * the scope — a later reassignment would make references resolve to the
+ * newer value, silently sourcing the wrong feature — so both reuse arms
+ * refuse when one exists.
  */
 function resolveStatement(call: TSNode): Omit<ProducerBinding, 'bind'> | { error: string } {
   const parent = call.parent;
@@ -1865,7 +1871,24 @@ function resolveStatement(call: TSNode): Omit<ProducerBinding, 'bind'> | { error
       statement = statement.parent;
     }
     const scope = enclosingScope(statement);
+    if (isReassignedAfter(scope, nameNode.text, statement.endIndex)) {
+      return { error: reassignedError(nameNode.text) };
+    }
     return { call, statement, scope, varName: nameNode.text, needsBinding: false };
+  }
+
+  if (parent && parent.type === 'assignment_expression'
+    && parent.parent && parent.parent.type === 'expression_statement') {
+    const left = parent.childForFieldName('left');
+    const right = parent.childForFieldName('right');
+    if (left && left.type === 'identifier' && right && sameNode(right, call)) {
+      const statement = parent.parent;
+      const scope = enclosingScope(statement);
+      if (isReassignedAfter(scope, left.text, statement.endIndex)) {
+        return { error: reassignedError(left.text) };
+      }
+      return { call, statement, scope, varName: left.text, needsBinding: false };
+    }
   }
 
   if (parent && parent.type === 'expression_statement') {
@@ -1877,6 +1900,32 @@ function resolveStatement(call: TSNode): Omit<ProducerBinding, 'bind'> | { error
     error: 'the producing call is nested inside another expression — '
       + 'assign it to a variable first, then retry',
   };
+}
+
+function reassignedError(name: string): string {
+  return `'${name}' is reassigned after the producing call, so a reference would `
+    + 'read the newer value — assign this call to its own variable first, then retry';
+}
+
+/**
+ * Whether `name` is written again anywhere in `scope` past `afterIndex`.
+ * Assignments in nested blocks rebind the same variable (barring a shadowing
+ * redeclaration, rare enough to ignore), so the whole subtree is walked.
+ */
+function isReassignedAfter(scope: TSNode, name: string, afterIndex: number): boolean {
+  for (const node of walkTree(scope)) {
+    if (node.endIndex <= afterIndex) {
+      continue;
+    }
+    if (node.type !== 'assignment_expression' && node.type !== 'augmented_assignment_expression') {
+      continue;
+    }
+    const left = node.childForFieldName('left');
+    if (left && left.type === 'identifier' && left.text === name) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

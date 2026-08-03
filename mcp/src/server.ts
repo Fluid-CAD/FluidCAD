@@ -110,6 +110,14 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         '`render.state === "rendered"` before calling screenshot or',
         'inspection. On `compile-error`, the previous scene is still being',
         'served; fix the source and retry.',
+        '',
+        'A render can finish and still be wrong: a feature whose build fails is',
+        'skipped, not fatal. That is `state: "build-error"`, with every failed',
+        'feature listed under `objectErrors` (name, message, 1-based',
+        'sourceLocation). recompute and rollback_to report the same two fields.',
+        'Never report a model as done on a build-error — fix the listed',
+        'features or tell the user what failed.',
+        '',
         'write_file and edit_range refuse to clobber a buffer the editor has',
         'unsaved changes for (code: "dirty-buffer"). Surface the conflicting',
         'paths to the user before retrying with `force: true`.',
@@ -566,7 +574,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a file inside the workspace (atomic)',
       description:
-        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | compile-error | superseded | no-scene-manager | render-failed, plus `version`, `durationMs`, optional `compileError`). For `.fluid.js` files, refuses writes that use a known FluidCAD symbol without an `import { … } from "fluidcad/…"` line — fails with code `missing-imports` and `details.suggestion` shows the imports to add. Also refuses to clobber a file the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override either guard.',
+        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | build-error | compile-error | superseded | no-scene-manager | render-failed, plus `version`, `durationMs`, optional `compileError`). `build-error` means the file ran but one or more features failed to build — `render.objectErrors` lists each one (`name`, `uniqueKind`, `message`, 1-based `sourceLocation`) and the scene is missing their geometry; only `rendered` means the model matches the source. For `.fluid.js` files, refuses writes that use a known FluidCAD symbol without an `import { … } from "fluidcad/…"` line — fails with code `missing-imports` and `details.suggestion` shows the imports to add. Also refuses to clobber a file the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override either guard.',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,
@@ -606,7 +614,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Force a full recompute of the current file',
       description:
-        'Discards the cached scene and re-runs the current `.fluid.js` file. Synchronous — returns once the render settles.',
+        'Discards the cached scene and re-runs the current `.fluid.js` file. Synchronous — returns once the render settles. Reports `state` (rendered | build-error) and `objectErrors` for any feature that failed to build.',
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await recompute({ workspace })),
@@ -617,7 +625,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Temporarily roll back the rendered scene to a feature index',
       description:
-        'Stops rendering at scene-object `index` so the UI shows the model up to that step. Mutates only UI/render state — the source file is unchanged, and the next `recompute` or live-update resets to the full scene. Synchronous — returns once the rollback render settles.',
+        'Stops rendering at scene-object `index` so the UI shows the model up to that step. Mutates only UI/render state — the source file is unchanged, and the next `recompute` or live-update resets to the full scene. Synchronous — returns once the rollback render settles, reporting `state` (rendered | build-error) and `objectErrors` for failed features still inside the rollback scope.',
       inputSchema: {
         ...workspaceArg,
         index: z

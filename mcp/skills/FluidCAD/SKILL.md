@@ -49,8 +49,9 @@ Before writing any code, agree with the user on the plan:
 `write_file` and `edit_range` are synchronous — they return once the render settles. Check the outcome carefully:
 
 1. **Check the render state.** If `render.state !== "rendered"`, the scene is not yet showing your change. On `compile-error`, the previous scene is still being served — read `get_compile_error`, fix the source, and retry. Do not call `screenshot` or inspection tools on a broken compile; you will be looking at the old scene.
-2. **Verify visually.** Once the file compiles cleanly, take a `screenshot` (or `screenshot_multi` from several angles, or `screenshot_shape` for a specific shape) and confirm the geometry matches intent. "It compiled" is not the same as "it looks right."
-3. **Use shape volume only as a regression check.** `get_shape_properties` (volume/mass/etc.) is the right tool when you want to compare against a previous state to confirm a change had — or did not have — the effect you expected. It is not a substitute for actually looking at the screenshot.
+2. **Check for failed features.** On `build-error` the file ran, but a feature's build threw and its geometry is missing from the scene — `render.objectErrors` names each one with a message and a 1-based `sourceLocation`. The render "succeeding" says nothing here: a fillet that could not be applied, a shell whose selection matched no faces, a cut that missed all fail this way while everything else renders. Fix them, or tell the user exactly what failed — never report the model as done. `recompute` and `rollback_to` report the same `objectErrors`, and `get_scene_summary` flags the objects with `hasError`.
+3. **Verify visually.** Once the file compiles cleanly, take a `screenshot` (or `screenshot_multi` from several angles, or `screenshot_shape` for a specific shape) and confirm the geometry matches intent. "It compiled" is not the same as "it looks right."
+4. **Use shape volume only as a regression check.** `get_shape_properties` (volume/mass/etc.) is the right tool when you want to compare against a previous state to confirm a change had — or did not have — the effect you expected. It is not a substitute for actually looking at the screenshot.
 
 ## Inspecting geometry you are about to operate on
 
@@ -94,7 +95,7 @@ For every modeling step, the rhythm is:
 1. Read the relevant docs (`search_docs` / `read_doc` / `get_api_signature` / `get_type_definition`).
 2. Agree on the step with the user.
 3. Write the code with all required imports.
-4. Check `render.state` — fix compile errors before going further.
+4. Check `render.state` — fix compile errors, and any `objectErrors` a `build-error` lists, before going further.
 5. Screenshot and verify visually.
 6. Use temporary `select` / `color` to sanity-check filters before depending on them.
 7. Move on to the next feature.

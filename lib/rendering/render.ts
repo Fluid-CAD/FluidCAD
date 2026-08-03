@@ -125,10 +125,16 @@ export class SceneRenderer {
       const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false }, scope);
       const renderedSceneShapes = sceneShapes.map(s => this.toRenderedShape(s));
 
+      // A rollback re-emits already-built objects rather than rebuilding them,
+      // but an object that failed to build still carries its error — dropping
+      // it here would report a clean scene for a broken feature that happens
+      // to sit inside the rollback scope.
+      const errorMessage = obj.getError();
       this.emitRendered(obj, scene, {
         sceneShapes: renderedSceneShapes,
         visible: this.computeVisibility(obj, scene, sceneShapes.length, scope),
-        hasError: false,
+        hasError: !!errorMessage,
+        errorMessage: errorMessage || undefined,
         scope,
       });
     }

@@ -115,12 +115,32 @@ type SceneManager = {
   ): { data: string | Uint8Array; fileName: string };
 };
 
+/**
+ * A single feature that failed to build during an otherwise successful render.
+ * `line`/`column` are 1-based, matching every other `sourceLocation` on the
+ * wire.
+ */
+export type ObjectBuildError = {
+  /** Index into the render result — same numbering as `SceneSummary.objects`. */
+  index: number;
+  id: string;
+  name: string;
+  uniqueKind: string;
+  message: string;
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
 export type SceneRenderedData = {
   absPath: string;
   result: any[];
   rollbackStop: number;
   breakpointHit?: boolean;
   params?: ParamDefinition[];
+  /**
+   * Features whose `build()` threw. Non-empty means the render completed but
+   * the scene is wrong — see `FluidCadServer.collectObjectErrors`.
+   */
+  objectErrors: ObjectBuildError[];
 };
 
 /**
@@ -627,6 +647,7 @@ export class FluidCadServer {
             result: fromCache,
             rollbackStop: fromCache.length - 1,
             breakpointHit: this.lastBreakpointHit,
+            objectErrors: FluidCadServer.collectObjectErrors(fromCache),
           };
         }
       }
@@ -687,6 +708,7 @@ export class FluidCadServer {
           rollbackStop: result.length - 1,
           breakpointHit,
           params,
+          objectErrors: FluidCadServer.collectObjectErrors(result),
         };
       }
       catch (error) {
@@ -830,6 +852,7 @@ export class FluidCadServer {
       rollbackStop: index,
       // A rollback doesn't re-run the module — the paused state persists.
       breakpointHit: this.lastBreakpointHit,
+      objectErrors: FluidCadServer.collectObjectErrors(result),
     };
   }
 
@@ -1224,6 +1247,34 @@ export class FluidCadServer {
     this.currentFileName = fileName;
     this.previousScenes.set(fileName, scene);
     this.lastRollbackStop = rollbackStop;
+  }
+
+  /**
+   * Pull the per-object build failures out of a render result.
+   *
+   * A feature whose `build()` throws does NOT abort the render: the renderer
+   * catches it, records the message on that object, and carries on with the
+   * rest of the scene. So "the render resolved" says nothing about whether the
+   * model is right — every caller that reports a render outcome has to fold
+   * these in, or it reports success over a scene that is missing features.
+   */
+  static collectObjectErrors(result: any[]): ObjectBuildError[] {
+    const errors: ObjectBuildError[] = [];
+    for (let index = 0; index < result.length; index++) {
+      const obj = result[index];
+      if (!obj?.hasError) {
+        continue;
+      }
+      errors.push({
+        index,
+        id: obj.id,
+        name: obj.name,
+        uniqueKind: obj.uniqueType,
+        message: obj.errorMessage || 'Build failed.',
+        sourceLocation: obj.sourceLocation,
+      });
+    }
+    return errors;
   }
 
   getSceneSummary(): SceneSummary | null {

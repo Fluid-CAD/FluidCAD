@@ -263,6 +263,39 @@ describe('write_file', () => {
     });
   });
 
+  it('returns the build-error outcome when a feature fails to build', async () => {
+    // The file ran, the render settled, and the scene is still served — but
+    // a feature produced no geometry. Reporting that as `rendered` is what
+    // lets an agent screenshot a broken model and call it done.
+    renderResponse = {
+      status: 200,
+      body: {
+        state: 'build-error',
+        version: 4,
+        absPath: '/ws/part.fluid.js',
+        durationMs: 30,
+        objectErrors: [
+          {
+            index: 2,
+            id: 'obj-3',
+            name: 'Fillet',
+            uniqueKind: 'fillet-1',
+            message: 'Failed to fillet edges',
+            sourceLocation: { filePath: '/ws/part.fluid.js', line: 7, column: 1 },
+          },
+        ],
+      },
+    };
+    const result = await writeFile({ path: 'part.fluid.js', content: 'fillet(99);' });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(result.data.render.state).toBe('build-error');
+    expect(result.data.render).toMatchObject({
+      version: 4,
+      objectErrors: [{ name: 'Fillet', message: 'Failed to fillet edges' }],
+    });
+  });
+
   it('refuses a .fluid.js write that uses FluidCAD symbols without imports', async () => {
     lintResponse = {
       status: 200,

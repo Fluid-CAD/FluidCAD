@@ -163,12 +163,36 @@ async function assertImportsPresent(
 }
 
 /**
+ * One feature that failed to build during an otherwise completed render.
+ * `line`/`column` are 1-based.
+ */
+export type ObjectBuildError = {
+  index: number;
+  id: string;
+  name: string;
+  uniqueKind: string;
+  message: string;
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
+/**
  * Render outcome as reported by `POST /api/render`. Mirrored from
  * `server/src/routes/render.ts` — kept hand-typed here so the MCP package
  * doesn't take a build-time dep on the server package.
+ *
+ * `build-error` is the "the code ran, the model is wrong" case: a feature's
+ * build threw, the renderer recorded it on that object and carried on, so a
+ * scene is being served but it's missing whatever that feature produced.
  */
 export type RenderOutcome =
   | { state: 'rendered'; version: number; absPath: string; durationMs: number }
+  | {
+      state: 'build-error';
+      version: number;
+      absPath: string;
+      durationMs: number;
+      objectErrors: ObjectBuildError[];
+    }
   | {
       state: 'compile-error';
       version: number;

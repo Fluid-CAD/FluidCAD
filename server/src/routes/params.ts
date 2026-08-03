@@ -27,7 +27,13 @@ export function createParamsRouter(
       breakpointHit: data.breakpointHit,
       params: data.params,
     });
-    res.json({ success: true });
+    // A recompute that runs to completion can still leave features broken —
+    // report which ones instead of a bare success. See `RenderOutcome`.
+    res.json({
+      success: true,
+      state: data.objectErrors.length > 0 ? 'build-error' : 'rendered',
+      objectErrors: data.objectErrors,
+    });
   });
 
   router.post('/set-param', async (req, res) => {

@@ -34,7 +34,13 @@ export function createTimelineRouter(
       // scene message went out last, and the indicator must survive it.
       breakpointHit: data.breakpointHit,
     });
-    res.json({ success: true });
+    // Features inside the rollback scope that failed to build are still
+    // broken — a rollback re-emits them, it doesn't repair them.
+    res.json({
+      success: true,
+      state: data.objectErrors.length > 0 ? 'build-error' : 'rendered',
+      objectErrors: data.objectErrors,
+    });
   });
 
   router.post('/remove-feature', (req, res) => {

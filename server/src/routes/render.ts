@@ -1,8 +1,16 @@
 import { Router } from 'express';
 import type { CompileError } from '../ws-protocol.ts';
+import type { ObjectBuildError } from '../fluidcad-server.ts';
 
 export type RenderOutcome =
   | { state: 'rendered'; version: number; absPath: string; durationMs: number }
+  | {
+      state: 'build-error';
+      version: number;
+      absPath: string;
+      durationMs: number;
+      objectErrors: ObjectBuildError[];
+    }
   | { state: 'compile-error'; version: number; durationMs: number; compileError: CompileError }
   | { state: 'superseded'; version: number; durationMs: number }
   | { state: 'no-scene-manager'; version: number; durationMs: number };
@@ -11,8 +19,12 @@ export type RenderOutcome =
  * `POST /api/render` — synchronous render trigger used by the MCP server
  * after it writes a `.fluid.js` file. The body carries the post-write
  * contents so the server doesn't need to re-read disk and so dedup against
- * `lastRendered` is exact. Returns the render outcome (rendered / compile-
- * error / superseded / no-scene-manager) once the OCC pass settles.
+ * `lastRendered` is exact. Returns the render outcome (rendered / build-error
+ * / compile-error / superseded / no-scene-manager) once the OCC pass settles.
+ *
+ * `compile-error` and `build-error` are different failures: the module didn't
+ * run at all vs. it ran and one of its features failed to build. The second
+ * still produces a scene, just not the one the source describes.
  *
  * Whoever invokes this is responsible for the on-disk write — we only run
  * the render. Pairing both in one HTTP round-trip is what lets MCP

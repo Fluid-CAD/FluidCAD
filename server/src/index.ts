@@ -215,6 +215,19 @@ async function runLiveRender(fileName: string, code: string): Promise<RenderOutc
       return { state: 'no-scene-manager', version: myVersion, durationMs: Date.now() - startedAt };
     }
     emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit, data.params);
+    // The scene is served either way — a feature that fails to build doesn't
+    // abort the render, it just leaves its geometry out. But that is NOT a
+    // successful render as far as the caller is concerned, so it gets its own
+    // state rather than being reported as `rendered`.
+    if (data.objectErrors.length > 0) {
+      return {
+        state: 'build-error',
+        version: myVersion,
+        absPath: data.absPath,
+        durationMs: Date.now() - startedAt,
+        objectErrors: data.objectErrors,
+      };
+    }
     return {
       state: 'rendered',
       version: myVersion,

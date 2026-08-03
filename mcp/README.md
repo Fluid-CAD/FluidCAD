@@ -160,6 +160,20 @@ settles. `write_file` and `edit_range` additionally carry the render outcome
 under `render`. The agent should inspect `render.state` and surface any
 `compile-error` to the user before retrying.
 
+Two failures are reported, and they are not the same thing:
+
+| `state` | What happened | What is being served |
+| --- | --- | --- |
+| `compile-error` | The module never ran | The **previous** scene |
+| `build-error` | The module ran; one or more features' `build()` threw | The new scene, **missing** that geometry |
+
+A failing feature does not abort the render — the renderer records the message
+on that object and carries on — so only `rendered` means the scene matches the
+source. On `build-error`, `render.objectErrors` lists every failed feature
+(`index`, `id`, `name`, `uniqueKind`, `message`, 1-based `sourceLocation`).
+`recompute` and `rollback_to` report the same `state` / `objectErrors` pair
+alongside `success`.
+
 ---
 
 ## Test locally

@@ -84,6 +84,10 @@ export abstract class SketchTool {
     this.lockMarkerGroup.renderOrder = 2;
 
     this.pointInput = new PointInput(container);
+    this.pointInput.onRelativeToggle = (relative) => {
+      this.relativeMode = relative;
+      this.onRelativeModeChange?.(relative);
+    };
     this.boundPointKeyDown = this.handlePointKeyDown.bind(this);
     this.boundPointMouseMove = this.handlePointMouseMove.bind(this);
   }
@@ -127,6 +131,19 @@ export abstract class SketchTool {
   protected awaitingPoint(): boolean {
     return false;
   }
+
+  /** Absolute vs offsets-from-the-cursor, owned by the viewport's Δ button. */
+  private relativeMode = false;
+
+  /** Switch the coordinate pill between absolute and relative entry. */
+  setRelativeMode(relative: boolean): void {
+    this.relativeMode = relative;
+    this.pointInput.setRelative(relative);
+  }
+
+  /** Fired when the pill's Δ button is clicked, so the host can remember the
+   * mode across tool changes. */
+  onRelativeModeChange: ((relative: boolean) => void) | null = null;
 
   /**
    * True while the coordinate pill is showing: it claims the next printable
@@ -226,11 +243,10 @@ export abstract class SketchTool {
     if (!this.pointInput.isVisible) {
       this.pointInput.show({
         value: point,
-        clientX,
-        clientY,
         variables: this.cachedVariables,
         origin: this.currentPosition,
         numericOnly: this.pointInputNumericOnly(),
+        relative: this.relativeMode,
         onCommit: (result) => {
           this.pointInput.hide();
           this.clearLockMarker();
@@ -240,7 +256,6 @@ export abstract class SketchTool {
     } else {
       this.pointInput.setOrigin(this.currentPosition);
       this.pointInput.updateValue(point);
-      this.pointInput.updatePosition(clientX, clientY);
     }
     this.renderLockMarker(point);
   }

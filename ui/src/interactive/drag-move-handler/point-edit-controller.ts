@@ -49,7 +49,7 @@ export class PointEditController {
    * Open the pill for a double-clicked point zone. Returns false when the hit
    * is not a point — the caller then tries the dimension editor.
    */
-  showForDoubleClick(hit: DragHitResult, clientX: number, clientY: number): boolean {
+  showForDoubleClick(hit: DragHitResult): boolean {
     const target = pointTargetFor(hit);
     if (!target) {
       return false;
@@ -65,8 +65,6 @@ export class PointEditController {
 
     this.pointInput.show({
       value: seed,
-      clientX,
-      clientY,
       variables: this.variables,
       // Relative-to-the-pen has no meaning when editing an existing point.
       origin: null,

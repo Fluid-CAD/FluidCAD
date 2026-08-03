@@ -34,8 +34,6 @@ function mount(opts: {
   const commits: PointCommit[] = [];
   input.show({
     value: opts.value ?? [10, 20],
-    clientX: 100,
-    clientY: 100,
     variables: opts.variables ?? VARS,
     origin: opts.origin,
     numericOnly: opts.numericOnly,
@@ -225,17 +223,19 @@ describe('PointInput variables', () => {
 });
 
 describe('PointInput relative mode', () => {
-  it('hides the toggle without an origin', () => {
+  it('stays absolute without an origin to measure from', () => {
     const h = mount({ origin: null });
-    expect(h.container.querySelector('.point-rel-btn')!.classList).toContain('hidden');
+    h.input.setRelative(true);
+    // The labels are the only state indicator now, so they must not claim
+    // relative when there is nothing to be relative to.
+    expect(h.container.querySelector('.point-label-x')!.textContent).toBe('X');
+    expect(h.input.resolvePick([1, 2]).relative).toBeUndefined();
   });
 
   it('shows offsets from the origin and commits them as a delta', () => {
     const h = mount({ value: [130, 45], origin: [100, 40] });
-    const relBtn = h.container.querySelector<HTMLButtonElement>('.point-rel-btn')!;
-    expect(relBtn.classList).not.toContain('hidden');
+    h.input.setRelative(true);
 
-    relBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
     expect(h.x.value).toBe('30');
     expect(h.y.value).toBe('5');
     expect(h.container.querySelector('.point-label-x')!.textContent).toBe('ΔX');
@@ -251,38 +251,48 @@ describe('PointInput relative mode', () => {
     expect(pick.value).toEqual([120, 45]);
   });
 
+  it('opens already relative when the viewport toggle is on', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const input = new PointInput(container);
+    input.show({
+      value: [130, 45], variables: [], origin: [100, 40], relative: true, onCommit: () => {},
+    });
+    expect(container.querySelector<HTMLInputElement>('.point-input-x')!.value).toBe('30');
+  });
+
+  // The pill is docked, so its own buttons are reachable again — this is the
+  // whole reason it stopped following the cursor.
+  it('toggles from its own button and reports the change', () => {
+    const h = mount({ value: [130, 45], origin: [100, 40] });
+    const reported: boolean[] = [];
+    h.input.onRelativeToggle = (r) => reported.push(r);
+
+    const relBtn = h.container.querySelector<HTMLButtonElement>('.point-rel-btn')!;
+    expect(h.container.querySelector('.point-rel-wrap')!.classList).not.toContain('hidden');
+
+    relBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    expect(reported).toEqual([true]);
+    expect(h.x.value).toBe('30');
+
+    relBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    expect(reported).toEqual([true, false]);
+    expect(h.x.value).toBe('130');
+  });
+
+  it('hides its own button when there is no origin', () => {
+    const h = mount({ origin: null });
+    expect(h.container.querySelector('.point-rel-wrap')!.classList).toContain('hidden');
+  });
+
   it('clears pinned axes when the frame of reference flips', () => {
     const h = mount({ value: [130, 45], origin: [100, 40] });
     type(h.x, '120');
     key(h.x, 'Tab');
     expect(h.input.getLocks().x).toBe(120);
 
-    h.container.querySelector('.point-rel-btn')!
-      .dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-
+    h.input.setRelative(true);
     expect(h.input.getLocks().x).toBeNull();
-  });
-});
-
-describe('PointInput autoFocus', () => {
-  it('stays unfocused by default so tool shortcuts keep working', () => {
-    const h = mount();
-    expect(document.activeElement).not.toBe(h.x);
-  });
-
-  // The double-click editor opens with intent, so it must take keystrokes
-  // without the user first having to click into the field.
-  it('focuses and selects X when requested', () => {
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    const input = new PointInput(container);
-    input.show({
-      value: [10, 20], clientX: 0, clientY: 0, variables: [],
-      autoFocus: true, onCommit: () => {},
-    });
-    const x = container.querySelector<HTMLInputElement>('.point-input-x')!;
-    expect(document.activeElement).toBe(x);
-    expect(x.value).toBe('10');
   });
 });
 

@@ -70,6 +70,8 @@ export class SketchToolbarService {
   private activeHoverSelectHandler: SketchHoverSelectHandler | null = null;
   private bezierHandles: BezierHandlesOverlay;
   private shortcuts: ShortcutManager;
+  /** Sticky across tool changes: the coordinate pill is rebuilt per tool. */
+  private relativeCoords = false;
   private opMessageToast: HTMLDivElement | null = null;
   private opMessageTimer: number | null = null;
   // Snap options, owned here; the sketch dialog's toggles write them via the
@@ -701,6 +703,8 @@ export class SketchToolbarService {
       tool.updateCurrentTangent(this.activeSketchInfo.sketchObj.object.currentTangent ?? null);
     }
 
+    tool.setRelativeMode(this.relativeCoords);
+    tool.onRelativeModeChange = (relative) => { this.relativeCoords = relative; };
     tool.activate();
     this.activeDrawingTool = tool;
   }
@@ -738,6 +742,8 @@ export class SketchToolbarService {
         tool.updateCurrentPosition(this.activeSketchInfo.sketchObj.object.currentPosition);
         tool.updateCurrentTangent(this.activeSketchInfo.sketchObj.object.currentTangent ?? null);
       }
+      tool.setRelativeMode(this.relativeCoords);
+    tool.onRelativeModeChange = (relative) => { this.relativeCoords = relative; };
       tool.activate();
       this.activeDrawingTool = tool;
       return;

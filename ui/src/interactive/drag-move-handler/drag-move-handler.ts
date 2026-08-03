@@ -410,7 +410,7 @@ export class DragMoveHandler {
     // A body carries the shape's own dimension; an endpoint, centre, corner
     // or pole carries that point's coordinates. The point editor claims the
     // latter, and everything it declines falls through to the dimension one.
-    if (this.pointEdit.showForDoubleClick(hit, e.clientX, e.clientY)) {
+    if (this.pointEdit.showForDoubleClick(hit)) {
       return;
     }
     if (!this.dimensionInput.showForDoubleClick(hit, e.clientX, e.clientY)) {

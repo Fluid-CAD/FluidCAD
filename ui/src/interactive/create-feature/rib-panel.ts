@@ -36,7 +36,7 @@ export class RibPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-rib-panel',
       title: 'Rib',
-      icon: '/icons/box.png',
+      icon: '/icons/rib.png',
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="spine-slot"></div>

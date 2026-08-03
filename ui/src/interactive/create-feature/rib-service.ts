@@ -93,7 +93,7 @@ export class RibFeatureService {
     // Extrude in main.ts, so the group exists and the button lands beside it.
     const group = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     this.button = new FeatureButton(group, {
-      icon: '/icons/box.png',
+      icon: '/icons/rib.png',
       label: 'Rib',
       tip: 'Rib from a sketch spine',
       ariaLabel: 'Rib from a sketch spine',

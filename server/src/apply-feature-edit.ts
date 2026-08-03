@@ -13,6 +13,7 @@ import {
   type TSTree,
 } from './code-editor.ts';
 import { applySegmentSwap, type SegmentSwapSpec } from './segment-swap.ts';
+import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
 
 /**
  * A dialog numeric slot: a plain number, or verbatim expression text
@@ -199,6 +200,13 @@ export type ApplyFeatureEditSpec = {
    * apply-feature-edit round trip; every other spec field is ignored.
    */
   segmentSwap?: SegmentSwapSpec;
+  /**
+   * Parameters-panel declaration edit: add, retype/rename, or delete a
+   * `param()` call. Rides the same round trip for the same reason a segment
+   * swap does — the transform is pure and the host stays generic; every other
+   * spec field is ignored.
+   */
+  paramEdit?: ParamEditSpec;
   /**
    * Strip every `breakpoint();` after the rewrite. Set when an edit dialog
    * applies: the double-click that opened it placed a breakpoint, and
@@ -1001,6 +1009,9 @@ export async function applyFeatureEdit(
 ): Promise<ApplyFeatureEditResult> {
   if (spec.segmentSwap) {
     return applySegmentSwap(code, spec.segmentSwap);
+  }
+  if (spec.paramEdit) {
+    return ParamEditor.apply(code, spec.paramEdit);
   }
   if (spec.edit) {
     return applyStatementEdit(code, spec);

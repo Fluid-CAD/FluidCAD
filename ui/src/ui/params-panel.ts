@@ -1,15 +1,16 @@
 import type { UIParamDefinition } from '../types';
+import type { ParamEditorDialog } from './param-editor-dialog';
+import { ICON_PENCIL } from './icons';
 
 export class ParamsPanel {
   private root: HTMLDivElement;
   private body: HTMLDivElement;
-  private hasParams = false;
   private visible = false;
   private currentParams: UIParamDefinition[] = [];
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private collapsedGroups = new Set<string>();
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, private editor: ParamEditorDialog) {
     this.root = document.createElement('div');
     this.root.className = 'w-[220px] mt-2 select-none hidden';
     container.appendChild(this.root);
@@ -22,17 +23,27 @@ export class ParamsPanel {
     header.className = 'flex items-center justify-between px-3 pt-2 pb-1';
     header.innerHTML = `
       <span class="text-xs font-medium text-base-content/50 uppercase tracking-wider">Parameters</span>
-      <button class="btn btn-ghost btn-xs btn-circle text-base-content/40 hover:text-base-content/70" title="Reset all to defaults" data-reset-params>
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
-          <path fill-rule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H4.598a.75.75 0 00-.75.75v3.634a.75.75 0 001.5 0v-2.09l.312.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm-10.624-2.85a5.5 5.5 0 019.201-2.465l.312.31H11.77a.75.75 0 000 1.5h3.634a.75.75 0 00.75-.75V3.535a.75.75 0 00-1.5 0v2.09l-.312-.31A7 7 0 002.63 8.453a.75.75 0 001.449.39z" clip-rule="evenodd" />
-        </svg>
-      </button>
+      <span class="flex items-center">
+        <button class="btn btn-ghost btn-xs btn-circle text-base-content/40 hover:text-base-content/70" title="Add parameter" data-add-param>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+            <path d="M10 4.25a.75.75 0 01.75.75v4.25H15a.75.75 0 010 1.5h-4.25V15a.75.75 0 01-1.5 0v-4.25H5a.75.75 0 010-1.5h4.25V5a.75.75 0 01.75-.75z" />
+          </svg>
+        </button>
+        <button class="btn btn-ghost btn-xs btn-circle text-base-content/40 hover:text-base-content/70" title="Reset all to defaults" data-reset-params>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+            <path fill-rule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H4.598a.75.75 0 00-.75.75v3.634a.75.75 0 001.5 0v-2.09l.312.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm-10.624-2.85a5.5 5.5 0 019.201-2.465l.312.31H11.77a.75.75 0 000 1.5h3.634a.75.75 0 00.75-.75V3.535a.75.75 0 00-1.5 0v2.09l-.312-.31A7 7 0 002.63 8.453a.75.75 0 001.449.39z" clip-rule="evenodd" />
+          </svg>
+        </button>
+      </span>
     `;
     panel.appendChild(header);
 
     header.querySelector('[data-reset-params]')!.addEventListener('click', () => {
       fetch('/api/reset-params', { method: 'POST' })
         .catch(err => console.error('Reset params failed:', err));
+    });
+    header.querySelector('[data-add-param]')!.addEventListener('click', () => {
+      this.editor.openForCreate();
     });
 
     this.body = document.createElement('div');
@@ -43,7 +54,6 @@ export class ParamsPanel {
   update(params: UIParamDefinition[]): void {
     const prev = this.currentParams;
     this.currentParams = params;
-    this.hasParams = params.length > 0;
     if (this.canUpdateInPlace(prev, params)) {
       this.updateValuesInPlace(params);
     } else {
@@ -60,22 +70,30 @@ export class ParamsPanel {
     return this.visible;
   }
 
-  get hasAnyParams(): boolean {
-    return this.hasParams;
-  }
-
   private canUpdateInPlace(prev: UIParamDefinition[], next: UIParamDefinition[]): boolean {
     if (prev.length !== next.length || prev.length === 0) {
       return false;
     }
     for (let i = 0; i < prev.length; i++) {
-      if (prev[i].label !== next[i].label ||
-          prev[i].controlType !== next[i].controlType ||
-          prev[i].group !== next[i].group) {
+      if (ParamsPanel.controlSignature(prev[i]) !== ParamsPanel.controlSignature(next[i])) {
         return false;
       }
     }
     return true;
+  }
+
+  /**
+   * Everything about a definition that decides what its control looks like.
+   * A value-only change (dragging a slider) leaves this identical and takes
+   * the cheap in-place path; a declaration edit that only moved a slider's
+   * bounds changes it, so the redrawn control actually honours them.
+   */
+  private static controlSignature(p: UIParamDefinition): string {
+    return JSON.stringify([
+      p.label, p.controlType, p.group ?? null, p.description ?? null,
+      p.min ?? null, p.max ?? null, p.step ?? null,
+      p.options ?? null, p.multi ?? false, p.multiControlType ?? null,
+    ]);
   }
 
   private updateValuesInPlace(params: UIParamDefinition[]): void {
@@ -104,7 +122,7 @@ export class ParamsPanel {
   }
 
   private applyVisibility(): void {
-    this.root.classList.toggle('hidden', !this.visible || !this.hasParams);
+    this.root.classList.toggle('hidden', !this.visible);
   }
 
   private renderParams(): void {
@@ -112,7 +130,11 @@ export class ParamsPanel {
 
     this.applyVisibility();
 
+    // The panel is reachable with nothing in it — adding the model's first
+    // parameter is one of the things it is for.
     if (params.length === 0) {
+      this.body.innerHTML =
+        '<div class="text-[11px] text-base-content/40 py-1.5">No parameters yet.</div>';
       return;
     }
 
@@ -219,14 +241,13 @@ export class ParamsPanel {
       case 'checkbox': {
         const checked = p.currentValue ? ' checked' : '';
         const px = grouped ? 'px-3' : '';
+        const toggle = `
+          <input type="checkbox" class="toggle toggle-xs toggle-primary"
+            ${checked}
+            data-param-label="${escapedLabel}" data-param-type="checkbox" />`;
         return `
-          <div class="${px} py-1.5">
-            <div class="flex items-center gap-2">
-              <label class="text-xs text-base-content/60">${escapedLabel}</label>
-              <input type="checkbox" class="toggle toggle-xs toggle-primary"
-                ${checked}
-                data-param-label="${escapedLabel}" data-param-type="checkbox" />
-            </div>
+          <div class="${px} py-1.5 group">
+            ${this.renderLabelRow(p, toggle)}
             ${descHtml}
           </div>
         `;
@@ -310,15 +331,43 @@ export class ParamsPanel {
 
     const px = grouped ? 'px-3' : '';
     return `
-      <div class="${px} py-1.5">
-        <label class="text-xs text-base-content/60">${escapedLabel}</label>
+      <div class="${px} py-1.5 group">
+        ${this.renderLabelRow(p, '')}
         ${descHtml}
         ${controlHtml}
       </div>
     `;
   }
 
+  /**
+   * A parameter's name plus the pencil that opens its declaration. The pencil
+   * only fades in on hover — the panel is a value surface first, and every row
+   * carrying a permanent button would read as a toolbar.
+   */
+  private renderLabelRow(p: UIParamDefinition, trailing: string): string {
+    const escapedLabel = this.escapeHtml(p.label);
+    return `
+      <div class="flex items-center gap-1">
+        <label class="text-xs text-base-content/60 flex-1 truncate">${escapedLabel}</label>
+        ${trailing}
+        <button class="btn btn-ghost btn-xs btn-square h-4 min-h-0 w-4 opacity-0 group-hover:opacity-100 focus:opacity-100 text-base-content/40 hover:text-base-content/70"
+          data-param-edit="${escapedLabel}" title="Edit parameter">
+          <span class="[&>svg]:size-3">${ICON_PENCIL}</span>
+        </button>
+      </div>
+    `;
+  }
+
   private bindParamHandlers(): void {
+    this.body.querySelectorAll<HTMLElement>('[data-param-edit]').forEach((el) => {
+      el.addEventListener('click', () => {
+        const def = this.currentParams.find(p => p.label === el.dataset.paramEdit);
+        if (def) {
+          this.editor.openForEdit(def);
+        }
+      });
+    });
+
     this.body.querySelectorAll<HTMLElement>('[data-param-label]').forEach((el) => {
       const label = el.dataset.paramLabel!;
       const type = el.dataset.paramType!;
@@ -348,7 +397,7 @@ export class ParamsPanel {
 
       if (type === 'slider') {
         el.addEventListener('input', () => {
-          const display = this.body.querySelector(`[data-param-display="${label}"]`);
+          const display = this.body.querySelector(`[data-param-display="${CSS.escape(label)}"]`);
           if (display) {
             display.textContent = (el as HTMLInputElement).value;
           }
@@ -429,9 +478,16 @@ export class ParamsPanel {
     }
   }
 
+  /**
+   * Safe for both text and attribute positions. Labels are user-authored and
+   * now user-editable from this panel, so a quote in one has to stay inside
+   * the `data-param-label="…"` it lands in rather than ending it.
+   */
   private escapeHtml(text: string): string {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    return text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
   }
 }

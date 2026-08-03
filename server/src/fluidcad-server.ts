@@ -1228,6 +1228,42 @@ export class FluidCadServer {
     this.lastRendered.delete(sessionId);
   }
 
+  /**
+   * Follow a label rename in the source. Both the override and the baseline
+   * it was set against are keyed by label, so without this the renamed param
+   * would come back at its declared default while a ghost entry kept holding
+   * the value under the old name. Only ever called after the source edit
+   * landed, and that edit refuses a rename onto a label the file already
+   * declares — so anything sitting under `to` here belongs to a param that no
+   * longer exists.
+   */
+  renameParam(sessionId: string, from: string, to: string): void {
+    sessionId = normalizePath(sessionId);
+    FluidCadServer.moveKey(this.paramOverrides.get(sessionId), from, to);
+    FluidCadServer.moveKey(this.lastParamDefaults.get(sessionId), from, to);
+    this.lastRendered.delete(sessionId);
+  }
+
+  /** Forget a deleted param's override and the baseline behind it. */
+  forgetParam(sessionId: string, label: string): void {
+    sessionId = normalizePath(sessionId);
+    const overrides = this.paramOverrides.get(sessionId);
+    overrides?.delete(label);
+    if (overrides?.size === 0) {
+      this.paramOverrides.delete(sessionId);
+    }
+    this.lastParamDefaults.get(sessionId)?.delete(label);
+    this.lastRendered.delete(sessionId);
+  }
+
+  private static moveKey<T>(map: Map<string, T> | undefined, from: string, to: string): void {
+    if (!map || !map.has(from)) {
+      return;
+    }
+    map.set(to, map.get(from)!);
+    map.delete(from);
+  }
+
   getParamOverrides(sessionId: string): Record<string, any> {
     const map = this.paramOverrides.get(normalizePath(sessionId));
     if (!map) return {};

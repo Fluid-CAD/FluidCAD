@@ -142,3 +142,62 @@ describe('param overrides vs. edited defaults', () => {
       .toEqual({ width: 300, height: 50 });
   });
 });
+
+// The panel can now rewrite the declarations themselves, and both the override
+// and the baseline behind it are keyed by label. A rename that didn't move
+// them would silently reset the user's value; a delete that didn't drop them
+// would leave a ghost waiting to re-attach to a later param of the same name.
+describe('overrides following a declaration edit', () => {
+  /** `depth`/`height` under a renamed first label. */
+  const renamed = (depth: number, height: number) => [
+    `const depth = param("depth", ${depth})`,
+    `const height = param("height", ${height})`,
+  ].join('\n');
+
+  it('carries the override across a label rename', async () => {
+    await render(source(300, 50, 10));
+    server.setParam(FILE, 'width', 250);
+    await server.recomputeCurrentFile();
+
+    server.renameParam(FILE, 'width', 'depth');
+
+    // Same declared default, new label — the value the user set follows it
+    // instead of snapping back to 300.
+    expect(await values(renamed(300, 50))).toEqual({ depth: 250, height: 50 });
+  });
+
+  it('keeps the renamed override honest about a later default edit', async () => {
+    await render(source(300, 50, 10));
+    server.setParam(FILE, 'width', 250);
+    await server.recomputeCurrentFile();
+    server.renameParam(FILE, 'width', 'depth');
+    await render(renamed(300, 50));
+
+    // Editing the literal under the new label still wins, because the baseline
+    // moved with the override rather than being left behind under `width`.
+    expect(await values(renamed(120, 50))).toEqual({ depth: 120, height: 50 });
+  });
+
+  it('forgets a deleted param, leaving the others alone', async () => {
+    await render(source(300, 50, 10));
+    server.setParam(FILE, 'width', 250);
+    server.setParam(FILE, 'height', 80);
+    await server.recomputeCurrentFile();
+
+    server.forgetParam(FILE, 'width');
+
+    expect(server.getParamOverrides(FILE)).toEqual({ height: 80 });
+  });
+
+  it('does not let a deleted param\'s override haunt a later one of the same name', async () => {
+    await render(source(300, 50, 10));
+    server.setParam(FILE, 'width', 250);
+    await server.recomputeCurrentFile();
+
+    server.forgetParam(FILE, 'width');
+    await render(`const height = param("height", 50)`);
+
+    // `width` comes back — as a fresh declaration, at its declared default.
+    expect(await values(source(300, 50, 10))).toEqual({ width: 300, height: 50 });
+  });
+});

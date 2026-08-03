@@ -2764,6 +2764,101 @@ export async function exportShapes(body: Record<string, unknown>): Promise<Blob>
 }
 
 // ---------------------------------------------------------------------------
+// Parameter declarations — the panel editing `param()` calls in the source
+// ---------------------------------------------------------------------------
+
+/** The control types a parameter's declaration can name. */
+export type ParamType = 'number' | 'slider' | 'text' | 'select' | 'checkbox' | 'color';
+
+export type ParamSelectOption = { label: string; value: string | number };
+
+/** One `param()` declaration as the editor dialog wants it written. */
+export type ParamSpec = {
+  label: string;
+  defaultValue: string | number | boolean | (string | number)[];
+  type: ParamType;
+  description?: string;
+  group?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: ParamSelectOption[];
+  multi?: boolean;
+  multiControlType?: 'select' | 'checkboxes' | 'chips';
+};
+
+/** What deleting a parameter would cost — see `GET /api/params/usage`. */
+export type ParamUsage = {
+  label: string;
+  variable: string | null;
+  references: number;
+  referenceLines: number[];
+  editable: boolean;
+  reason?: string;
+};
+
+export type ParamEditResponse = { success: boolean; reason?: string };
+
+/** Shared POST for the declaration edits: failure bodies surface their reason. */
+async function postParamEdit(url: string, body: unknown): Promise<ParamEditResponse> {
+  try {
+    const res = await fetch(url, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
+    const parsed = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: parsed?.reason ?? parsed?.error ?? `Request failed (${res.status})` };
+    }
+    return parsed ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/**
+ * Which declaration an edit means: its label is the key, and the location it
+ * was captured at follows so a model spread over several `.fluid.js` files
+ * edits the right one (and a label declared twice still resolves).
+ */
+export type ParamTarget = { label: string; line?: number; filePath?: string };
+
+/**
+ * The variable a parameter binds and how much of the model reads it — what the
+ * dialog warns with before deleting, and how it learns a declaration is one it
+ * cannot rewrite.
+ */
+export function getParamUsage(target: ParamTarget): Promise<ParamUsage | null> {
+  const query: Record<string, string | number> = { label: target.label };
+  if (target.line != null) {
+    query.line = target.line;
+  }
+  if (target.filePath) {
+    query.filePath = target.filePath;
+  }
+  return getJson('/api/params/usage', query);
+}
+
+/**
+ * Declare a new parameter below the file's imports. The variable it binds is
+ * derived from the label server-side — only the file knows what names are
+ * free, so a clashing one gets a numeric suffix rather than a refusal.
+ */
+export function addParam(param: ParamSpec): Promise<ParamEditResponse> {
+  return postParamEdit('/api/params/add', { param });
+}
+
+/**
+ * Rewrite the declaration `target` names. Renaming the label is part of this —
+ * the variable the model reads is never touched.
+ */
+export function updateParam(target: ParamTarget, param: ParamSpec): Promise<ParamEditResponse> {
+  return postParamEdit('/api/params/update', { ...target, param });
+}
+
+/** Delete a parameter's declaration; references to its variable stay behind. */
+export function removeParam(target: ParamTarget): Promise<ParamEditResponse> {
+  return postParamEdit('/api/params/remove', { ...target });
+}
+
+// ---------------------------------------------------------------------------
 // Preferences
 // ---------------------------------------------------------------------------
 

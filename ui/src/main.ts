@@ -3,6 +3,7 @@ import { ShapePropertiesModal } from './ui/shape-properties-modal';
 import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 import { TimelinePanel } from './ui/timeline-panel';
 import { ParamsPanel } from './ui/params-panel';
+import { ParamEditorDialog } from './ui/param-editor-dialog';
 import { ExportDialog } from './ui/export-dialog';
 import { BreakpointIndicator } from './ui/breakpoint-indicator';
 import { ErrorBanner } from './ui/error-banner';
@@ -106,7 +107,7 @@ importBtnWrap.dataset.tip = 'Import file';
 importBtnWrap.appendChild(importBtn);
 importGroup.appendChild(importBtnWrap);
 
-const paramsPanel = new ParamsPanel(viewer.settingsPanelHost);
+const paramsPanel = new ParamsPanel(viewer.settingsPanelHost, new ParamEditorDialog(container));
 
 viewer.setParamsToggleHandler(() => {
   paramsPanel.toggle();
@@ -1193,7 +1194,9 @@ function connectWebSocket() {
         timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1);
         if (msg.params !== undefined) {
           paramsPanel.update(msg.params);
-          viewer.setParamsButtonVisible(paramsPanel.hasAnyParams);
+          // Reachable from the first render on, params or not — an empty panel
+          // is where the model's first parameter gets added.
+          viewer.setParamsButtonVisible(true);
         }
         errorBanner.update(msg.result, msg.compileError ?? null);
         // Only update the breakpoint indicator when the server sends an

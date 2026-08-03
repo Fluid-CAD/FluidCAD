@@ -1,3 +1,5 @@
+import type { SourceLocation } from './common/scene-object.js';
+
 export type ControlType = 'auto' | 'text' | 'number' | 'slider' | 'select' | 'checkbox' | 'color';
 
 export type MultiControlType = 'select' | 'checkboxes' | 'chips';
@@ -20,6 +22,14 @@ export type ParamDefinition = {
   options?: SelectOption[];
   multi?: boolean;
   multiControlType?: MultiControlType;
+  /**
+   * Where the `param()` call itself was authored. The params panel edits
+   * declarations in place (rename, retype, delete), and a label alone cannot
+   * address a call across a multi-file model. Absent when the stack carried
+   * no `.fluid.js` frame (a param declared from a plain `.js` helper), which
+   * the panel reads as "not editable from here".
+   */
+  sourceLocation?: SourceLocation;
 };
 
 export class ParamRegistry {

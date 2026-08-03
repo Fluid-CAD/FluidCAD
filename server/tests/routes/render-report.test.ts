@@ -8,6 +8,7 @@ import express from 'express';
 import http from 'http';
 import { createParamsRouter } from '../../src/routes/params.ts';
 import { createTimelineRouter } from '../../src/routes/timeline.ts';
+import { FeatureEditDispatcher } from '../../src/edit-dispatch.ts';
 import type { FluidCadServer, ObjectBuildError, SceneRenderedData } from '../../src/fluidcad-server.ts';
 
 const BUILD_ERROR: ObjectBuildError = {
@@ -42,7 +43,12 @@ describe('render reporting on scene-mutating routes', () => {
 
     const app = express();
     app.use(express.json());
-    app.use('/api', createParamsRouter(engine, () => {}, () => {}));
+    app.use('/api', createParamsRouter(
+      engine,
+      () => {},
+      () => {},
+      new FeatureEditDispatcher(engine, () => {}),
+    ));
     app.use('/api', createTimelineRouter(engine, () => {}, () => {}));
 
     server = http.createServer(app);

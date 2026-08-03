@@ -22,6 +22,7 @@ import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
 import { createTextRouter } from './routes/text.ts';
 import { createFeatureGhostRouter } from './routes/feature-ghost.ts';
+import { FeatureEditDispatcher } from './edit-dispatch.ts';
 import { normalizePath } from './normalize-path.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
@@ -83,18 +84,23 @@ const broadcastToUI = core.broadcastToUI;
 const requestScreenshot = core.requestScreenshot;
 const getLastCameraState = core.getLastCameraState;
 
+// Every router that writes source dispatches through this one instance: the
+// ack that settles a dispatch arrives at /code/apply-feature, so a router with
+// its own registry would never hear about its own edits.
+const editDispatcher = new FeatureEditDispatcher(fluidCadServer, sendToExtension);
+
 app.use('/api', createHealthRouter({
   version: PACKAGE_VERSION,
   workspacePath: WORKSPACE_PATH,
   startedAt: STARTED_AT,
 }));
 app.use('/api', createPropertiesRouter(fluidCadServer));
-app.use('/api', createParamsRouter(fluidCadServer, sendToExtension, broadcastToUI));
+app.use('/api', createParamsRouter(fluidCadServer, sendToExtension, broadcastToUI, editDispatcher));
 app.use('/api', createHitTestRouter(fluidCadServer));
 app.use('/api', createMeasureRouter(fluidCadServer));
 app.use('/api', createTimelineRouter(fluidCadServer, sendToExtension, broadcastToUI));
 app.use('/api', createSketchEditsRouter(fluidCadServer, sendToExtension, WORKSPACE_PATH));
-app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToExtension));
+app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToExtension, { dispatcher: editDispatcher }));
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createScreenshotRouter(requestScreenshot));
 app.use('/api', createPreferencesRouter());

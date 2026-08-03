@@ -196,6 +196,12 @@ export type UIParamDefinition = {
   options?: { label: string; value: string | number }[];
   multi?: boolean;
   multiControlType?: 'select' | 'checkboxes' | 'chips';
+  /**
+   * Where the `param()` call was authored. The panel's editor addresses a
+   * declaration by label and only needs this to disambiguate a label declared
+   * twice; absent for a param whose call the engine could not attribute.
+   */
+  sourceLocation?: SourceLocation;
 };
 
 // ---------------------------------------------------------------------------

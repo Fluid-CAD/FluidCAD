@@ -1039,12 +1039,12 @@ export async function insertGeometryCall(
 // ---------------------------------------------------------------------------
 
 /** Escape a file name for embedding in a single-quoted JS string literal. */
-function quoteForSingleQuotes(value: string): string {
+export function quoteForSingleQuotes(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
 /** The text a string literal node denotes, with its surrounding quotes dropped. */
-function stringLiteralValue(node: TSNode): string | null {
+export function stringLiteralValue(node: TSNode): string | null {
   if (node.type !== 'string') {
     return null;
   }
@@ -1426,7 +1426,7 @@ export async function declareSketchVariable(
  * import (or as the file's first line). Param declarations land here — one
  * shared spot right under the imports — rather than inside a sketch body.
  */
-async function declareTopLevelVariable(
+export async function declareTopLevelVariable(
   code: string,
   name: string,
   initializer: string,

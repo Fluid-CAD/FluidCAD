@@ -99,8 +99,8 @@ function M.insert_load(code, file_name)
   return post('insert-load', { code = code, fileName = file_name })
 end
 
-function M.update_position(code, source_line, new_position, point_index)
-  return post('update-position', { code = code, sourceLine = source_line, newPosition = new_position, pointIndex = point_index or 0 })
+function M.update_position(code, source_line, new_position, point_index, old_position)
+  return post('update-position', { code = code, sourceLine = source_line, newPosition = new_position, pointIndex = point_index or 0, oldPosition = old_position })
 end
 
 function M.set_line_position(code, source_line, new_start, new_end)
@@ -111,8 +111,8 @@ function M.set_chain_positions(code, source_line, updates)
   return post('set-chain-positions', { code = code, sourceLine = source_line, updates = updates })
 end
 
-function M.set_rect_dimensions(code, source_line, start_point, width, height)
-  return post('set-rect-dimensions', { code = code, sourceLine = source_line, startPoint = start_point, width = width, height = height })
+function M.set_rect_dimensions(code, source_line, start_point, width, height, old_start_point)
+  return post('set-rect-dimensions', { code = code, sourceLine = source_line, startPoint = start_point, width = width, height = height, oldStartPoint = old_start_point })
 end
 
 function M.update_dimension(code, source_line, new_value)
@@ -133,7 +133,7 @@ function M.update_dimension_expression(code, source_line, expression, sketch_sou
   })
 end
 
-function M.update_point_expression(code, source_line, x_expr, y_expr, sketch_source_line, new_variable, point_index)
+function M.update_point_expression(code, source_line, x_expr, y_expr, sketch_source_line, new_variable, point_index, old_position)
   return post('update-point-expression', {
     code = code,
     sourceLine = source_line,
@@ -142,6 +142,7 @@ function M.update_point_expression(code, source_line, x_expr, y_expr, sketch_sou
     sketchSourceLine = sketch_source_line,
     newVariable = new_variable,
     pointIndex = point_index or 0,
+    oldPosition = old_position,
   })
 end
 

@@ -23,6 +23,7 @@ import {
   updatePointExpression,
   updatePointExpressionWithVariable,
   extractVariablesInScope,
+  setRectDimensions,
 } from '../src/code-editor.ts';
 
 describe('addBreakpoint', () => {
@@ -606,6 +607,42 @@ describe('updateGeometryPosition', () => {
     const result = await updateGeometryPosition(code, 1, [100, 100]);
     expect(result.newCode).toBe(`tArc([100, 100])\n`);
   });
+
+  it('folds a chained reposition into the preceding relative move', async () => {
+    const code = [
+      'sketch("xy", () => {',
+      '  move(5, 3)',
+      '  circle(40)',
+      '})',
+      '',
+    ].join('\n');
+    const result = await updateGeometryPosition(code, 3, [12, 1], 0, [10, 6]);
+    expect(result.newCode).toBe([
+      'sketch("xy", () => {',
+      '  move(7, -2)',
+      '  circle(40)',
+      '})',
+      '',
+    ].join('\n'));
+  });
+
+  it('promotes when no relative move precedes the chained call', async () => {
+    const code = [
+      'sketch("xy", () => {',
+      '  line([0, 0], [10, 6])',
+      '  circle(40)',
+      '})',
+      '',
+    ].join('\n');
+    const result = await updateGeometryPosition(code, 3, [12, 1], 0, [10, 6]);
+    expect(result.newCode).toBe([
+      'sketch("xy", () => {',
+      '  line([0, 0], [10, 6])',
+      '  circle([12, 1], 40)',
+      '})',
+      '',
+    ].join('\n'));
+  });
 });
 
 describe('updatePointExpression', () => {
@@ -645,6 +682,178 @@ describe('updatePointExpression', () => {
     const code = `line(origin, [10, 10])\n`;
     const result = await updatePointExpression(code, 1, '1', '2');
     expect(result.newCode).toBe(code);
+  });
+
+  // The relative form the drawing tools emit: repositioning must fold the
+  // delta into the preceding move() rather than converting to absolute.
+  it('folds a numeric reposition into the preceding relative move', async () => {
+    const code = [
+      'sketch("xy", () => {',
+      '  move(5, 3)',
+      '  polygon(6, 8.2)',
+      '})',
+      '',
+    ].join('\n');
+    const result = await updatePointExpression(code, 3, '10', '7', 0, [8, 3]);
+    expect(result.newCode).toBe([
+      'sketch("xy", () => {',
+      '  move(7, 7)',
+      '  polygon(6, 8.2)',
+      '})',
+      '',
+    ].join('\n'));
+  });
+
+  it('folds a reposition into a move with negative offsets', async () => {
+    const code = [
+      'sketch("xy", () => {',
+      '  move(-11.82, -6.73)',
+      '  polygon(6, 8.2)',
+      '})',
+      '',
+    ].join('\n');
+    const result = await updatePointExpression(code, 3, '7.18', '2.27', 0, [8.18, 3.27]);
+    expect(result.newCode).toBe([
+      'sketch("xy", () => {',
+      '  move(-12.82, -7.73)',
+      '  polygon(6, 8.2)',
+      '})',
+      '',
+    ].join('\n'));
+  });
+
+  it('keeps the source untouched when the reposition lands on the old point', async () => {
+    const code = [
+      'sketch("xy", () => {',
+      '  move(5, 3)',
+      '  polygon(6, 8.2)',
+      '})',
+      '',
+    ].join('\n');
+    const result = await updatePointExpression(code, 3, '8', '3', 0, [8, 3]);
+    expect(result.newCode).toBe(code);
+  });
+
+  it('promotes instead of folding when the move offsets are expressions', async () => {
+    const code = [
+      'sketch("xy", () => {',
+      '  move(dx, 3)',
+      '  polygon(6, 8.2)',
+      '})',
+      '',
+    ].join('\n');
+    const result = await updatePointExpression(code, 3, '10', '7', 0, [8, 3]);
+    expect(result.newCode).toBe([
+      'sketch("xy", () => {',
+      '  move(dx, 3)',
+      '  polygon([10, 7], 6, 8.2)',
+      '})',
+      '',
+    ].join('\n'));
+  });
+
+  it('promotes an expression commit even when a numeric move precedes', async () => {
+    const code = [
+      'sketch("xy", () => {',
+      '  move(5, 3)',
+      '  polygon(6, 8.2)',
+      '})',
+      '',
+    ].join('\n');
+    const result = await updatePointExpression(code, 3, 'w / 2', '7', 0, [8, 3]);
+    expect(result.newCode).toBe([
+      'sketch("xy", () => {',
+      '  move(5, 3)',
+      '  polygon([w / 2, 7], 6, 8.2)',
+      '})',
+      '',
+    ].join('\n'));
+  });
+});
+
+describe('setRectDimensions', () => {
+  it('rewrites signed dimensions and the start of a positioned rect', async () => {
+    const code = `rect([2, 5], 10, -8)\n`;
+    const result = await setRectDimensions(code, 1, [3, 6], 12, -9);
+    expect(result.newCode).toBe(`rect([3, 6], 12, -9)\n`);
+  });
+
+  it('folds a chained rect start move into the preceding relative move', async () => {
+    const code = [
+      'sketch("xy", () => {',
+      '  move(5, 3)',
+      '  rect(10, -8)',
+      '})',
+      '',
+    ].join('\n');
+    const result = await setRectDimensions(code, 3, [9, 4], 12, -9, [8, 3]);
+    expect(result.newCode).toBe([
+      'sketch("xy", () => {',
+      '  move(6, 4)',
+      '  rect(12, -9)',
+      '})',
+      '',
+    ].join('\n'));
+  });
+
+  it('keeps a chained rect in place when only the dimensions change', async () => {
+    const code = [
+      'sketch("xy", () => {',
+      '  move(5, 3)',
+      '  rect(10, -8)',
+      '})',
+      '',
+    ].join('\n');
+    const result = await setRectDimensions(code, 3, [8, 3], 12, -9, [8, 3]);
+    expect(result.newCode).toBe([
+      'sketch("xy", () => {',
+      '  move(5, 3)',
+      '  rect(12, -9)',
+      '})',
+      '',
+    ].join('\n'));
+  });
+
+  it('promotes a chained rect to the positioned form when no move precedes', async () => {
+    const code = [
+      'sketch("xy", () => {',
+      '  line([0, 0], [8, 3])',
+      '  rect(10, -8)',
+      '})',
+      '',
+    ].join('\n');
+    const result = await setRectDimensions(code, 3, [9, 4], 12, -9, [8, 3]);
+    expect(result.newCode).toBe([
+      'sketch("xy", () => {',
+      '  line([0, 0], [8, 3])',
+      '  rect([9, 4], 12, -9)',
+      '})',
+      '',
+    ].join('\n'));
+  });
+
+  it('leaves the start alone for a chained rect when the old start is unknown', async () => {
+    const code = [
+      'sketch("xy", () => {',
+      '  move(5, 3)',
+      '  rect(10, -8)',
+      '})',
+      '',
+    ].join('\n');
+    const result = await setRectDimensions(code, 3, [9, 4], 12, -9);
+    expect(result.newCode).toBe([
+      'sketch("xy", () => {',
+      '  move(5, 3)',
+      '  rect(12, -9)',
+      '})',
+      '',
+    ].join('\n'));
+  });
+
+  it('rewrites dimensions through a chained .centered()', async () => {
+    const code = `rect(10, 8).centered()\n`;
+    const result = await setRectDimensions(code, 1, null, 12, 9);
+    expect(result.newCode).toBe(`rect(12, 9).centered()\n`);
   });
 });
 

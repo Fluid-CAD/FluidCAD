@@ -195,6 +195,9 @@ export type UpdatePositionMessage = {
   newPosition: [number, number];
   sourceLocation: { line: number; column: number };
   pointIndex?: number;
+  /** The point's current position, so a chained statement's reposition can
+   * fold the delta into its preceding relative `move(dx, dy)`. */
+  oldPosition?: [number, number] | null;
 };
 
 /**
@@ -213,6 +216,9 @@ export type UpdatePointExpressionMessage = {
     | { name: string; initializer: string }[]
     | null;
   pointIndex?: number;
+  /** The point's current position, so a chained statement's reposition can
+   * fold the delta into its preceding relative `move(dx, dy)`. */
+  oldPosition?: [number, number] | null;
 };
 
 export type SetLinePositionMessage = {
@@ -255,6 +261,9 @@ export type SetRectDimensionsMessage = {
   width: number;
   height: number;
   sourceLocation: { line: number; column: number };
+  /** The rect's current start corner, so a chained rect's start move can
+   * fold into its preceding relative `move(dx, dy)`. */
+  oldStartPoint?: [number, number] | null;
 };
 
 

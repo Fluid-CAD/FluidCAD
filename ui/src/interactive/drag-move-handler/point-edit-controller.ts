@@ -91,6 +91,10 @@ export class PointEditController {
   }
 
   private commit(hit: DragHitResult, target: PointTarget, result: PointCommit): void {
+    // The zone's current position: for a chained statement (no point
+    // argument in the source) the server folds the reposition delta into the
+    // preceding relative move() instead of promoting the call to absolute.
+    const oldPosition = this.seedPosition(hit);
     updatePointExpression(
       result.xExpr,
       result.yExpr,
@@ -98,6 +102,7 @@ export class PointEditController {
       this.getSketchSourceLine(),
       result.newVariables,
       target.pointIndex,
+      oldPosition ?? undefined,
     );
   }
 }

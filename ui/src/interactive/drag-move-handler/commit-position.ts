@@ -100,12 +100,20 @@ export function commitPositionMove(
       const newHeight = Math.round(Math.abs(newPos[1] - anchorPoint[1]) * 2 * 100) / 100;
       setRectDimensions(newWidth, newHeight, sourceLocation);
     } else {
+      // Keep the statement's own frame: the dimensions keep their signs and
+      // the start stays the corner the source counts from, so a rect drawn
+      // top-left → bottom-right doesn't flip when a corner is dragged.
+      const signW = (hitResult.rectSignW ?? 1) < 0 ? -1 : 1;
+      const signH = (hitResult.rectSignH ?? 1) < 0 ? -1 : 1;
       const minX = Math.min(anchorPoint[0], newPos[0]);
+      const maxX = Math.max(anchorPoint[0], newPos[0]);
       const minY = Math.min(anchorPoint[1], newPos[1]);
-      const newWidth = Math.round(Math.abs(newPos[0] - anchorPoint[0]) * 100) / 100;
-      const newHeight = Math.round(Math.abs(newPos[1] - anchorPoint[1]) * 100) / 100;
-      const newStart = roundPoint([minX, minY]);
-      setRectDimensions(newWidth, newHeight, sourceLocation, newStart);
+      const maxY = Math.max(anchorPoint[1], newPos[1]);
+      const newWidth = Math.round(signW * (maxX - minX) * 100) / 100;
+      const newHeight = Math.round(signH * (maxY - minY) * 100) / 100;
+      const newStart = roundPoint([signW > 0 ? minX : maxX, signH > 0 ? minY : maxY]);
+      const oldStart = hitResult.rectStart ? roundPoint(hitResult.rectStart) : undefined;
+      setRectDimensions(newWidth, newHeight, sourceLocation, newStart, oldStart);
     }
   } else if (uniqueType === 'tarc-radius-to-point') {
     if (hitZone === 'center' && fixedVertex) {
@@ -169,6 +177,7 @@ export function commitPositionMove(
   } else if (uniqueType.startsWith('bezier-') && hitResult.bezierPoleIndex !== undefined) {
     updatePosition(newPos, sourceLocation, hitResult.bezierPoleIndex);
   } else {
-    updatePosition(newPos, sourceLocation);
+    const grabbed = hitResult.draggedVertices?.[0];
+    updatePosition(newPos, sourceLocation, undefined, grabbed ? roundPoint(grabbed) : undefined);
   }
 }

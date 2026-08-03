@@ -219,8 +219,12 @@ function M.handle_message(msg)
         return code_api.insert_load(code, msg.fileName)
       end)
     elseif msg.type == 'update-position' then
+      local old_position = msg.oldPosition
+      if old_position == vim.NIL then
+        old_position = nil
+      end
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
-        return code_api.update_position(code, msg.sourceLocation.line, msg.newPosition, msg.pointIndex or 0)
+        return code_api.update_position(code, msg.sourceLocation.line, msg.newPosition, msg.pointIndex or 0, old_position)
       end)
     elseif msg.type == 'set-line-position' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
@@ -231,8 +235,12 @@ function M.handle_message(msg)
         return code_api.set_chain_positions(code, msg.sourceLocation.line, msg.updates)
       end)
     elseif msg.type == 'set-rect-dimensions' then
+      local old_start = msg.oldStartPoint
+      if old_start == vim.NIL then
+        old_start = nil
+      end
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
-        return code_api.set_rect_dimensions(code, msg.sourceLocation.line, msg.startPoint, msg.width, msg.height)
+        return code_api.set_rect_dimensions(code, msg.sourceLocation.line, msg.startPoint, msg.width, msg.height, old_start)
       end)
     elseif msg.type == 'apply-feature-edit' then
       M.apply_code_edit(msg.spec and msg.spec.filePath, function(code_api, code)
@@ -281,10 +289,14 @@ function M.handle_message(msg)
       if sketch_line == vim.NIL then
         sketch_line = nil
       end
+      local old_position = msg.oldPosition
+      if old_position == vim.NIL then
+        old_position = nil
+      end
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.update_point_expression(
           code, msg.sourceLocation.line, msg.xExpr, msg.yExpr,
-          sketch_line, new_var, msg.pointIndex or 0
+          sketch_line, new_var, msg.pointIndex or 0, old_position
         )
       end)
     elseif msg.type == 'remove-feature' then

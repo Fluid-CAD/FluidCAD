@@ -21,6 +21,12 @@ export type DragHitResult = {
   rectCentered?: boolean;
   rectDim?: 'width' | 'height' | 'radius';
   rectRadiusArgOffset?: number;
+  /** Sign of the statement's width/height args — the rect's own frame, so a
+   * resize keeps its orientation instead of normalising to positive dims. */
+  rectSignW?: number;
+  rectSignH?: number;
+  /** The corner the source counts from (or the pen, for a chained rect). */
+  rectStart?: [number, number];
   bezierPoleIndex?: number;
   bezierPoles?: [number, number][];
   polygonSides?: number;

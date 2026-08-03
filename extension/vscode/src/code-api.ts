@@ -106,8 +106,9 @@ export function insertGeometry(
 export function updatePosition(
   serverUrl: string, code: string, sourceLine: number, newPosition: [number, number], logger: vscode.OutputChannel,
   pointIndex: number = 0,
+  oldPosition: [number, number] | null = null,
 ) {
-  return postCodeEdit<CodeEditResult>(serverUrl, 'update-position', { code, sourceLine, newPosition, pointIndex }, logger);
+  return postCodeEdit<CodeEditResult>(serverUrl, 'update-position', { code, sourceLine, newPosition, pointIndex, oldPosition }, logger);
 }
 
 export function updatePointExpression(
@@ -116,10 +117,11 @@ export function updatePointExpression(
   sketchSourceLine: number | null = null,
   newVariable: { name: string; initializer: string }[] | null = null,
   pointIndex = 0,
+  oldPosition: [number, number] | null = null,
 ) {
   return postCodeEdit<CodeEditResult>(
     serverUrl, 'update-point-expression',
-    { code, sourceLine, xExpr, yExpr, sketchSourceLine, newVariable, pointIndex },
+    { code, sourceLine, xExpr, yExpr, sketchSourceLine, newVariable, pointIndex, oldPosition },
     logger,
   );
 }
@@ -141,8 +143,9 @@ export function setChainPositions(
 export function setRectDimensions(
   serverUrl: string, code: string, sourceLine: number,
   startPoint: [number, number] | null, width: number, height: number, logger: vscode.OutputChannel,
+  oldStartPoint: [number, number] | null = null,
 ) {
-  return postCodeEdit<CodeEditResult>(serverUrl, 'set-rect-dimensions', { code, sourceLine, startPoint, width, height }, logger);
+  return postCodeEdit<CodeEditResult>(serverUrl, 'set-rect-dimensions', { code, sourceLine, startPoint, width, height, oldStartPoint }, logger);
 }
 
 export function updateDimension(

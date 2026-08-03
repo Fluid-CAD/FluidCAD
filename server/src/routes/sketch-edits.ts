@@ -244,7 +244,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/update-position', (req, res) => {
-    const { newPosition, sourceLocation, pointIndex } = req.body;
+    const { newPosition, sourceLocation, pointIndex, oldPosition } = req.body;
     if (
       !Array.isArray(newPosition) || newPosition.length !== 2 ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -257,6 +257,7 @@ export function createSketchEditsRouter(
       newPosition: newPosition as [number, number],
       sourceLocation,
       pointIndex: typeof pointIndex === 'number' ? pointIndex : undefined,
+      oldPosition: validPoint(oldPosition),
     });
     res.json({ success: true });
   });
@@ -347,7 +348,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/update-point-expression', (req, res) => {
-    const { xExpr, yExpr, sourceLocation, sketchSourceLine, newVariable, pointIndex } = req.body;
+    const { xExpr, yExpr, sourceLocation, sketchSourceLine, newVariable, pointIndex, oldPosition } = req.body;
     if (
       typeof xExpr !== 'string' || typeof yExpr !== 'string' ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -372,12 +373,13 @@ export function createSketchEditsRouter(
       sketchSourceLine: typeof sketchSourceLine === 'number' ? sketchSourceLine : null,
       newVariable: nv,
       pointIndex: typeof pointIndex === 'number' ? pointIndex : 0,
+      oldPosition: validPoint(oldPosition),
     });
     res.json({ success: true });
   });
 
   router.post('/set-rect-dimensions', (req, res) => {
-    const { startPoint, width, height, sourceLocation } = req.body;
+    const { startPoint, width, height, sourceLocation, oldStartPoint } = req.body;
     if (
       typeof width !== 'number' || typeof height !== 'number' ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -392,6 +394,7 @@ export function createSketchEditsRouter(
       width,
       height,
       sourceLocation,
+      oldStartPoint: validPoint(oldStartPoint),
     });
     res.json({ success: true });
   });
@@ -706,7 +709,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/code/update-position', async (req, res) => {
-    const { code, sourceLine, newPosition, pointIndex } = req.body;
+    const { code, sourceLine, newPosition, pointIndex, oldPosition } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       !Array.isArray(newPosition) || newPosition.length !== 2
@@ -718,6 +721,7 @@ export function createSketchEditsRouter(
       const result = await updateGeometryPosition(
         code, sourceLine, newPosition as [number, number],
         typeof pointIndex === 'number' ? pointIndex : 0,
+        validPoint(oldPosition),
       );
       res.json(result);
     } catch (err: any) {
@@ -817,7 +821,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/code/update-point-expression', async (req, res) => {
-    const { code, sourceLine, xExpr, yExpr, sketchSourceLine, newVariable, pointIndex } = req.body;
+    const { code, sourceLine, xExpr, yExpr, sketchSourceLine, newVariable, pointIndex, oldPosition } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       typeof xExpr !== 'string' || typeof yExpr !== 'string'
@@ -840,6 +844,7 @@ export function createSketchEditsRouter(
         typeof sketchSourceLine === 'number' ? sketchSourceLine : sourceLine,
         nv,
         typeof pointIndex === 'number' ? pointIndex : 0,
+        validPoint(oldPosition),
       );
       res.json(result);
     } catch (err: any) {
@@ -848,7 +853,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/code/set-rect-dimensions', async (req, res) => {
-    const { code, sourceLine, startPoint, width, height } = req.body;
+    const { code, sourceLine, startPoint, width, height, oldStartPoint } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       typeof width !== 'number' || typeof height !== 'number'
@@ -859,7 +864,7 @@ export function createSketchEditsRouter(
     const sp = Array.isArray(startPoint) && startPoint.length === 2 ? startPoint as [number, number] : null;
     try {
       const result = await setRectDimensions(
-        code, sourceLine, sp, width, height,
+        code, sourceLine, sp, width, height, validPoint(oldStartPoint),
       );
       res.json(result);
     } catch (err: any) {

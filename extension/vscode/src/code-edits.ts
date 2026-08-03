@@ -318,6 +318,7 @@ export async function handleUpdatePointExpression(
     sketchSourceLine?: number | null;
     newVariable?: { name: string; initializer: string }[] | null;
     pointIndex?: number;
+    oldPosition?: [number, number] | null;
   },
 ) {
   const editor = findEditorForCurrentFile(client);
@@ -331,6 +332,7 @@ export async function handleUpdatePointExpression(
     msg.sketchSourceLine ?? null,
     msg.newVariable ?? null,
     msg.pointIndex ?? 0,
+    msg.oldPosition ?? null,
   );
   if (!result) {
     return;
@@ -342,7 +344,12 @@ export async function handleUpdatePointExpression(
 
 export async function handleUpdatePosition(
   client: Client,
-  msg: { newPosition: [number, number]; sourceLocation: { line: number }; pointIndex?: number },
+  msg: {
+    newPosition: [number, number];
+    sourceLocation: { line: number };
+    pointIndex?: number;
+    oldPosition?: [number, number] | null;
+  },
 ) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
@@ -352,6 +359,7 @@ export async function handleUpdatePosition(
   const result = await codeApi.updatePosition(
     client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.newPosition, client.logger,
     msg.pointIndex ?? 0,
+    msg.oldPosition ?? null,
   );
   if (!result) {
     return;
@@ -403,7 +411,13 @@ export async function handleSetChainPositions(
 
 export async function handleSetRectDimensions(
   client: Client,
-  msg: { startPoint: [number, number] | null; width: number; height: number; sourceLocation: { line: number } },
+  msg: {
+    startPoint: [number, number] | null;
+    width: number;
+    height: number;
+    sourceLocation: { line: number };
+    oldStartPoint?: [number, number] | null;
+  },
 ) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
@@ -412,6 +426,7 @@ export async function handleSetRectDimensions(
   const doc = editor.document;
   const result = await codeApi.setRectDimensions(
     client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.startPoint, msg.width, msg.height, client.logger,
+    msg.oldStartPoint ?? null,
   );
   if (!result) {
     return;

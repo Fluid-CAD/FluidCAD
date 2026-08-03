@@ -833,6 +833,9 @@ function hitTestRect(
           fixedVertex: anchor,
           draggedVertices: [corner],
           rectCentered: isCentered,
+          rectSignW: typeof child.object?.width === 'number' && child.object.width < 0 ? -1 : 1,
+          rectSignH: typeof child.object?.height === 'number' && child.object.height < 0 ? -1 : 1,
+          rectStart: rectStartPoint(child, uniqueVerts, isCentered, center),
         },
         distSq: d,
       };

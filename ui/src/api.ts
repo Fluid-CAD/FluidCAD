@@ -645,8 +645,11 @@ export function updatePosition(
   newPosition: [number, number],
   sourceLocation: SourceLocationParam,
   pointIndex?: number,
+  oldPosition?: [number, number],
 ): void {
-  postFireAndForget('/api/update-position', { newPosition, sourceLocation, pointIndex });
+  postFireAndForget('/api/update-position', {
+    newPosition, sourceLocation, pointIndex, oldPosition: oldPosition ?? null,
+  });
 }
 
 /**
@@ -660,6 +663,7 @@ export function updatePointExpression(
   sketchSourceLine: number | null,
   newVariable?: { name: string; initializer: string }[] | null,
   pointIndex?: number,
+  oldPosition?: [number, number],
 ): void {
   postFireAndForget('/api/update-point-expression', {
     xExpr,
@@ -668,6 +672,7 @@ export function updatePointExpression(
     sketchSourceLine,
     newVariable: newVariable && newVariable.length > 0 ? newVariable : null,
     pointIndex: pointIndex ?? 0,
+    oldPosition: oldPosition ?? null,
   });
 }
 
@@ -683,8 +688,13 @@ export function setRectDimensions(
   height: number,
   sourceLocation: SourceLocationParam,
   startPoint?: [number, number],
+  oldStartPoint?: [number, number],
 ): void {
-  postFireAndForget('/api/set-rect-dimensions', { width, height, sourceLocation, startPoint: startPoint ?? null });
+  postFireAndForget('/api/set-rect-dimensions', {
+    width, height, sourceLocation,
+    startPoint: startPoint ?? null,
+    oldStartPoint: oldStartPoint ?? null,
+  });
 }
 
 export function updateDimensionExpression(

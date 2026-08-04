@@ -407,12 +407,20 @@ describe('apply-feature route validation', () => {
     expect(body.preview).toBe('extrude(10, 20)');
   });
 
-  it('previews symmetric, draft and drill chains', async () => {
+  it('previews symmetric, draft, endOffset and drill chains', async () => {
     const { body } = await post({
-      feature: 'extrude', op: 'add', distance: 30, symmetric: true, draft: 5, drill: false,
-      profile: PROFILE, preview: true,
+      feature: 'extrude', op: 'add', distance: 30, symmetric: true, draft: 5, endOffset: 2,
+      drill: false, profile: PROFILE, preview: true,
     });
-    expect(body.preview).toBe('extrude(30).symmetric().draft(5).drill(false)');
+    expect(body.preview).toBe('extrude(30).symmetric().draft(5).endOffset(2).drill(false)');
+  });
+
+  it('rejects a zero endOffset — no chain is the way to write none', async () => {
+    const { status, body } = await post({
+      feature: 'extrude', op: 'add', distance: 30, endOffset: 0, profile: PROFILE,
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('endOffset');
   });
 
   it('rejects a two-distance symmetric extrude', async () => {
@@ -1595,7 +1603,8 @@ describe('apply-feature route validation', () => {
         ok: true,
         parsed: {
           feature: 'extrude', op: 'add', distance: 30, distance2: null, symmetric: false,
-          draft: null, drill: true, thin: null, profileText: null, toFaceText: null, toFaceKind: null,
+          draft: null, endOffset: null, drill: true, thin: null, profileText: null,
+          toFaceText: null, toFaceKind: null,
         },
         statement: 'extrude(30)',
       });

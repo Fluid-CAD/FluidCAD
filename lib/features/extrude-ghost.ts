@@ -20,6 +20,8 @@ export type ExtrudeGhostOptions = {
   symmetric: boolean;
   /** Draft angle in degrees, or null for straight walls. */
   draft: number | null;
+  /** `.endOffset()` — pulls each swept end back by this much; null for none. */
+  endOffset: number | null;
   /** Treat inner closed regions of the profile as holes. */
   drill: boolean;
   /** `.thin()` offsets, or null for a solid profile. */
@@ -116,6 +118,10 @@ function buildSolids(
  * `ExtrudeTwoDistances.build`.
  */
 function ghostSpan(options: ExtrudeGhostOptions): GhostSpan | null {
+  return trimSpan(rawSpan(options), options.endOffset);
+}
+
+function rawSpan(options: ExtrudeGhostOptions): GhostSpan | null {
   const throughAll = options.distance === null;
   if (throughAll && options.op !== 'remove') {
     return null;
@@ -139,6 +145,23 @@ function ghostSpan(options: ExtrudeGhostOptions): GhostSpan | null {
     return depth === 0 ? null : { from: 0, to: -depth };
   }
   return options.distance ? { from: 0, to: options.distance } : null;
+}
+
+/**
+ * `.endOffset()` shortens every sweep the statement makes, each toward the
+ * sketch plane it left from — `Extruder` subtracts it from the signed distance
+ * (simple-extruder.ts:47), and the kernel hands the same offset to both halves
+ * of a symmetric or two-distance extrude, so both ends pull in. An end sitting
+ * *on* the plane stays there, and an offset that eats the whole span leaves
+ * nothing to show.
+ */
+function trimSpan(span: GhostSpan | null, endOffset: number | null): GhostSpan | null {
+  if (!span || !endOffset) {
+    return span;
+  }
+  const pull = (end: number) => end - Math.sign(end) * endOffset;
+  const trimmed = { from: pull(span.from), to: pull(span.to) };
+  return trimmed.from === trimmed.to ? null : trimmed;
 }
 
 /** One sweep covering the whole span, from a copy of the profile at its near end. */

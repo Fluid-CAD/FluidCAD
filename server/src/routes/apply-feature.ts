@@ -225,6 +225,7 @@ type ExtrudeOptionSet = {
   distance2: ValueExpr | null;
   symmetric: boolean;
   draft: ValueExpr | null;
+  endOffset: ValueExpr | null;
   drill: boolean;
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
 };
@@ -245,14 +246,15 @@ type ExtrudeRequest = ExtrudeOptionSet & {
 /**
  * Validate the option fields both extrude requests carry: the boolean op,
  * the distance(s) — one, two (asymmetric both-ways), or null for a
- * through-all remove — plus the symmetric / draft / drill / thin chains.
- * `symmetric` and `distance2` are competing direction modes and exclude
- * each other; a through-all remove has no explicit distances to pair.
+ * through-all remove — plus the symmetric / draft / endOffset / drill / thin
+ * chains. `symmetric` and `distance2` are competing direction modes and
+ * exclude each other; a through-all remove has no explicit distances to pair.
  * `toFace` (the create path's up-to-face mode) replaces the distances
- * entirely and excludes the symmetric direction mode.
+ * entirely and excludes the symmetric direction mode; `endOffset` survives it
+ * — it shifts the target face the extrusion stops on.
  */
 function validateExtrudeOptions(body: any, toFace = false): ExtrudeOptionSet | { error: string } {
-  const { op, distance, distance2, symmetric, draft, drill, thin } = body ?? {};
+  const { op, distance, distance2, symmetric, draft, endOffset, drill, thin } = body ?? {};
   if (op !== 'add' && op !== 'remove' && op !== 'new') {
     return { error: 'op must be "add", "remove" or "new"' };
   }
@@ -290,6 +292,9 @@ function validateExtrudeOptions(body: any, toFace = false): ExtrudeOptionSet | {
   if (draft !== undefined && draft !== null && !validValueExpr(draft, { nonzero: true })) {
     return { error: 'draft must be a nonzero taper angle in degrees' };
   }
+  if (endOffset !== undefined && endOffset !== null && !validValueExpr(endOffset, { nonzero: true })) {
+    return { error: 'endOffset must be a nonzero pull-back distance' };
+  }
   if (drill !== undefined && typeof drill !== 'boolean') {
     return { error: 'drill must be a boolean' };
   }
@@ -303,6 +308,7 @@ function validateExtrudeOptions(body: any, toFace = false): ExtrudeOptionSet | {
     distance2: distance2 ?? null,
     symmetric: symmetric === true,
     draft: draft ?? null,
+    endOffset: endOffset ?? null,
     drill: drill !== false,
     thin: thinResult.offsets,
   };
@@ -3438,6 +3444,7 @@ export function createApplyFeatureRouter(
           distance2: request.distance2,
           symmetric: request.symmetric,
           draft: request.draft,
+          endOffset: request.endOffset,
           drill: request.drill,
           thin: request.thin,
           profile: request.profile.mode === 'bound' ? 'bound' : 'implicit',

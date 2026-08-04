@@ -311,6 +311,8 @@ export type ExtrudeGhostRequest = {
   distance2: ValueExpr | null;
   symmetric: boolean;
   draft: ValueExpr | null;
+  /** `.endOffset()` — pulls each swept end back by this much; null for none. */
+  endOffset: ValueExpr | null;
   drill: boolean;
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { filePath: string; line: number };
@@ -1269,6 +1271,12 @@ export type ExtrudeOptionValues = {
   symmetric: boolean;
   /** `.draft(angle)` taper in degrees, or null for a straight extrude. */
   draft: ValueExpr | null;
+  /**
+   * `.endOffset(value)` — pulls the swept end back by that much (negative
+   * pushes it past), the target face of an up-to-face extrude included. Null
+   * writes no chain.
+   */
+  endOffset: ValueExpr | null;
   /** False writes `.drill(false)` — inner closed regions extrude as solid. */
   drill: boolean;
   /** `.thin()` offsets, or null for a plain extrude. */
@@ -1307,6 +1315,7 @@ export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyF
     distance2: options.distance2,
     symmetric: options.symmetric,
     draft: options.draft,
+    endOffset: options.endOffset,
     drill: options.drill,
     thin: options.thin,
     newVariables: options.newVariables,
@@ -1922,6 +1931,8 @@ export type ParsedFeatureStatement =
       distance2: ValueExpr | null;
       symmetric: boolean;
       draft: ValueExpr | null;
+      /** `.endOffset(value)` pull-back, or null when the chain is absent. */
+      endOffset: ValueExpr | null;
       drill: boolean;
       thin: [ValueExpr] | null;
       profileText: string | null;
@@ -2218,6 +2229,7 @@ export async function applyExtrudeEdit(
     distance2: options.distance2,
     symmetric: options.symmetric,
     draft: options.draft,
+    endOffset: options.endOffset,
     drill: options.drill,
     thin: options.thin,
     newVariables: options.newVariables,

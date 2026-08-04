@@ -16,6 +16,7 @@ const BASE: ExtrudeGhostOptions = {
   distance2: null,
   symmetric: false,
   draft: null,
+  endOffset: null,
   drill: true,
   thin: null,
   throughAllLength: 60,
@@ -134,6 +135,57 @@ describe("extrude ghost", () => {
         const bbox = getBoundingBoxOfShapes(solids);
         expect(bbox.minZ).toBeCloseTo(-4, 3);
         expect(bbox.maxZ).toBeCloseTo(10, 3);
+      });
+    });
+  });
+
+  describe("end offset", () => {
+    it("pulls the swept end back toward the sketch plane", () => {
+      const s = profile(() => { rect(100, 50); });
+
+      withGhost(s, { distance: 10, endOffset: 3 }, (solids) => {
+        expect(volumeOf(solids)).toBeCloseTo(100 * 50 * 7, 0);
+        const bbox = getBoundingBoxOfShapes(solids);
+        expect(bbox.minZ).toBeCloseTo(0, 3);
+        expect(bbox.maxZ).toBeCloseTo(7, 3);
+      });
+    });
+
+    it("pushes it past the distance when negative", () => {
+      const s = profile(() => { rect(100, 50); });
+
+      withGhost(s, { distance: 10, endOffset: -2 }, (solids) => {
+        const bbox = getBoundingBoxOfShapes(solids);
+        expect(bbox.minZ).toBeCloseTo(0, 3);
+        expect(bbox.maxZ).toBeCloseTo(12, 3);
+      });
+    });
+
+    it("pulls both ends of a symmetric extrude in — one offset per sweep", () => {
+      const s = profile(() => { rect(100, 50); });
+
+      withGhost(s, { distance: 30, symmetric: true, endOffset: 5 }, (solids) => {
+        const bbox = getBoundingBoxOfShapes(solids);
+        expect(bbox.minZ).toBeCloseTo(-10, 3);
+        expect(bbox.maxZ).toBeCloseTo(10, 3);
+      });
+    });
+
+    it("pulls a cut's end back — the tool sweeps anti-normal", () => {
+      const s = profile(() => { rect(100, 50); });
+
+      withGhost(s, { op: 'remove', distance: 10, endOffset: 4 }, (solids) => {
+        const bbox = getBoundingBoxOfShapes(solids);
+        expect(bbox.minZ).toBeCloseTo(-6, 3);
+        expect(bbox.maxZ).toBeCloseTo(0, 3);
+      });
+    });
+
+    it("shows nothing once the offset eats the whole distance", () => {
+      const s = profile(() => { rect(100, 50); });
+
+      withGhost(s, { distance: 10, endOffset: 10 }, (solids) => {
+        expect(solids).toHaveLength(0);
       });
     });
   });

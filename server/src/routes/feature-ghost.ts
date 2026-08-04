@@ -1054,6 +1054,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         distance2,
         symmetric: body.symmetric === true,
         draft,
+        endOffset,
         drill: body.drill !== false,
         thin,
         profile: profileRef!,

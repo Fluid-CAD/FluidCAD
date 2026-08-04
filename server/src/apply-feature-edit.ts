@@ -276,6 +276,8 @@ export type FeatureStatementEditTarget = {
     distance2: ValueExpr | null;
     symmetric: boolean;
     draft: ValueExpr | null;
+    /** `.endOffset(value)` pull-back, or null for no chain. */
+    endOffset: ValueExpr | null;
     drill: boolean;
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     /** Re-sourced profile; absent keeps the statement's profile text. */
@@ -524,6 +526,12 @@ export type ExtrudeEditOptions = {
   symmetric: boolean;
   /** `.draft(angle)` taper in degrees, or null for a straight extrude. */
   draft: ValueExpr | null;
+  /**
+   * `.endOffset(value)` — pulls the swept end back by that much (negative
+   * pushes it past), including the face an up-to-face extrude stops on. Null
+   * renders no chain.
+   */
+  endOffset: ValueExpr | null;
   /** False renders `.drill(false)` — inner closed regions extrude as solid. */
   drill: boolean;
   /** `.thin(a)` / `.thin(a, b)` offsets, or null for a plain extrude. */
@@ -2533,9 +2541,9 @@ export function renderSelectorPartExpr(
  * (through-all) / `extrude(10, 20)` (two distances) / `extrude(25, s)` for a
  * bound profile / `extrude(<faceExpr>)` for an up-to-face extrude — a picked
  * face's selector or a `'first-face'` / `'last-face'` literal — plus
- * `.symmetric()` / `.draft(…)` / `.drill(false)` / `.thin(…)` / `.new()`
- * chains. Shared with the route's preview so the previewed text is exactly
- * what the transform writes.
+ * `.symmetric()` / `.draft(…)` / `.endOffset(…)` / `.drill(false)` /
+ * `.thin(…)` / `.new()` chains. Shared with the route's preview so the
+ * previewed text is exactly what the transform writes.
  */
 export function renderExtrudeStatement(
   ext: ExtrudeEditOptions,
@@ -2561,6 +2569,9 @@ export function renderExtrudeStatement(
   }
   if (ext.draft !== null) {
     statement += `.draft(${formatValue(ext.draft)})`;
+  }
+  if (ext.endOffset !== null) {
+    statement += `.endOffset(${formatValue(ext.endOffset)})`;
   }
   if (!ext.drill) {
     // True is the API default, so only the opt-out is written.
@@ -3380,6 +3391,8 @@ export type ParsedFeatureStatement =
     symmetric: boolean;
     /** `.draft(angle)` taper in degrees, or null when the chain is absent. */
     draft: ValueExpr | null;
+    /** `.endOffset(value)` pull-back, or null when the chain is absent. */
+    endOffset: ValueExpr | null;
     drill: boolean;
     thin: [ValueExpr] | null;
     /** Trailing profile argument text (`s`), or null for implicit consumption. */
@@ -3670,7 +3683,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
  * statement, so that shape refuses to parse.
  */
 const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
-  extrude: new Set(['symmetric', 'draft', 'drill', 'thin', 'remove', 'new']),
+  extrude: new Set(['symmetric', 'draft', 'endOffset', 'drill', 'thin', 'remove', 'new']),
   rib: new Set(['parallel', 'extend', 'draft', 'remove', 'new', 'scope']),
   sweep: new Set(['thin', 'remove', 'new']),
   loft: new Set(['guides', 'startCondition', 'endCondition', 'thin', 'remove', 'new']),
@@ -4230,6 +4243,18 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       }
     }
 
+    let endOffset: ValueExpr | null = null;
+    const endOffsetSeg = recognized.get('endOffset');
+    if (endOffsetSeg) {
+      if (endOffsetSeg.args.length !== 1) {
+        return { error: 'the .endOffset() chain has an argument shape the dialog cannot edit' };
+      }
+      endOffset = anyValueArg(endOffsetSeg.args[0]);
+      if (endOffset === null) {
+        return { error: 'the .endOffset() value is not a plain number or expression — edit it in the source' };
+      }
+    }
+
     let drill = true;
     const drillSeg = recognized.get('drill');
     if (drillSeg) {
@@ -4248,7 +4273,8 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
 
     return {
       parsed: {
-        feature, op, distance, distance2, symmetric, draft, drill, thin, profileText, toFaceText, toFaceKind,
+        feature, op, distance, distance2, symmetric, draft, endOffset, drill, thin,
+        profileText, toFaceText, toFaceKind,
       },
       start,
       end,
@@ -6200,6 +6226,7 @@ export function renderEditedStatement(
     const opts = spec.edit?.extrude;
     if (!opts || !validEditOp(opts.op) || !validEditThin(opts.thin)
       || !validNonzeroOrNull(opts.distance2) || !validNonzeroOrNull(opts.draft)
+      || !validNonzeroOrNull(opts.endOffset)
       || typeof opts.symmetric !== 'boolean' || typeof opts.drill !== 'boolean') {
       return { error: 'malformed extrude edit spec' };
     }

@@ -66,6 +66,8 @@ export type ExtrudeGhostRequest = {
   distance2: number | null;
   symmetric: boolean;
   draft: number | null;
+  /** `.endOffset()` — pulls each swept end back by this much; null for none. */
+  endOffset: number | null;
   drill: boolean;
   thin: [number] | [number, number] | null;
   /** The producing statement of the profile to extrude. */
@@ -1328,6 +1330,7 @@ function buildProfileGhost(
     distance2: request.distance2,
     symmetric: request.symmetric,
     draft: request.draft,
+    endOffset: request.endOffset,
     drill: request.drill,
     thin: request.thin,
     throughAllLength: throughAllGhostLength(scene, geometries, plane),

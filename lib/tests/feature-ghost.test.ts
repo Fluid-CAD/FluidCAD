@@ -38,6 +38,7 @@ const BASE: Omit<ExtrudeGhostRequest, 'profile'> = {
   distance2: null,
   symmetric: false,
   draft: null,
+  endOffset: null,
   drill: true,
   thin: null,
 };

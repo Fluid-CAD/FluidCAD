@@ -169,6 +169,8 @@ export type ExtrudeGhostRequest = {
   distance2: number | null;
   symmetric: boolean;
   draft: number | null;
+  /** `.endOffset()` — pulls each swept end back by this much; null for none. */
+  endOffset: number | null;
   drill: boolean;
   thin: [number] | [number, number] | null;
   /** The producing statement of the profile to extrude. */

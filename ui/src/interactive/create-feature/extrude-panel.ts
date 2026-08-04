@@ -23,9 +23,10 @@ export type ExtrudeValues = ExtrudeOptionValues | { error: string };
  * timeline or its wires in 3D), the direction mode (one direction, symmetric,
  * two distances, or up to a face — picked, first or last), the distance
  * fields (through-all on the Remove tab disables them; every up-to-face mode
- * replaces them, the picked one with a face pick slot), a draft angle, a
- * drill-holes toggle, and a thin() toggle with its thickness. Pure DOM + form
- * state — the service owns scene data, previews, and the apply call.
+ * replaces them, the picked one with a face pick slot), a draft angle, an end
+ * offset that pulls the far end back, a drill-holes toggle, and a thin()
+ * toggle with its thickness. Pure DOM + form state — the service owns scene
+ * data, previews, and the apply call.
  */
 export class ExtrudePanel extends FeaturePanel {
   /** The face chip's ✕ — the service owns the picked entity. */
@@ -46,6 +47,8 @@ export class ExtrudePanel extends FeaturePanel {
   private distanceField: ExpressionField;
   private distance2Field: ExpressionField;
   private draftField: ExpressionField;
+  private endOffsetInput: HTMLInputElement;
+  private endOffsetField: ExpressionField;
   private drillCheckbox: HTMLInputElement;
 
   constructor(container: HTMLElement) {
@@ -90,6 +93,12 @@ export class ExtrudePanel extends FeaturePanel {
           <input data-role="draft" type="number" step="0.5" value="0"
             class="input input-sm input-bordered w-full text-xs" />
         </label>
+        <label class="flex flex-col gap-1.5"
+          title="Pull the far end back by this much — positive stops short of the distance (or the target face), negative overshoots it">
+          <span class="text-base-content/70">End offset</span>
+          <input data-role="end-offset" type="number" step="0.5" placeholder="0"
+            class="input input-sm input-bordered w-full text-xs" />
+        </label>
         <label class="flex items-center justify-between cursor-pointer"
           title="Treat inner closed regions of the profile as holes — off extrudes them solid">
           <span class="text-base-content/70">Drill holes</span>
@@ -131,6 +140,7 @@ export class ExtrudePanel extends FeaturePanel {
     this.distance2Wrap = this.role('distance2-wrap');
     this.throughWrap = this.role('through-wrap');
     this.throughCheckbox = this.role('through');
+    this.endOffsetInput = this.role('end-offset');
     this.drillCheckbox = this.role('drill');
 
     this.directionSelect.addEventListener('change', () => {
@@ -145,6 +155,7 @@ export class ExtrudePanel extends FeaturePanel {
     this.distanceField = this.enhance('distance');
     this.distance2Field = this.enhance('distance2');
     this.draftField = this.enhance('draft');
+    this.endOffsetField = this.enhance('end-offset');
   }
 
   /** The variables the fields' dropdowns offer (thin thickness included). */
@@ -152,6 +163,7 @@ export class ExtrudePanel extends FeaturePanel {
     this.distanceField.setVariables(variables);
     this.distance2Field.setVariables(variables);
     this.draftField.setVariables(variables);
+    this.endOffsetField.setVariables(variables);
     this.thin.setVariables(variables);
   }
 
@@ -175,7 +187,8 @@ export class ExtrudePanel extends FeaturePanel {
    * direction with its target on the same kind of keep chip — picking a face
    * in 3D re-sources it; a first/last-face statement opens on its own
    * direction, which carries no target to keep. The op tabs, direction,
-   * distances, through-all, draft, drill and thin controls edit in place.
+   * distances, through-all, draft, end offset, drill and thin controls edit
+   * in place.
    */
   showEdit(state: ExtrudeOptionValues & {
     thin: [ValueExpr] | null;
@@ -200,6 +213,9 @@ export class ExtrudePanel extends FeaturePanel {
     // An up-to-face statement has no distance, but it is not a through-all.
     this.throughCheckbox.checked = state.distance === null && state.toFaceKind === null;
     this.draftField.setValue(state.draft ?? 0);
+    // No chain means no pull-back — an empty field, not a literal 0, so
+    // leaving it untouched re-emits the statement without one.
+    this.endOffsetField.setValue(state.endOffset ?? '');
     this.drillCheckbox.checked = state.drill;
     this.thin.setValues(state.thin);
     this.syncControls();
@@ -291,17 +307,29 @@ export class ExtrudePanel extends FeaturePanel {
       return { error: `Draft angle: ${draftRead.error}.` };
     }
     const draft = 'error' in draftRead ? 0 : draftRead.value;
+    // A through-all cut has no end to pull back — the field is disabled there,
+    // and its value stays out of the statement.
+    let endOffsetRead: ReturnType<ExpressionField['read']> | null = null;
+    let endOffset: ValueExpr = 0;
+    if (!throughAll) {
+      endOffsetRead = this.endOffsetField.read();
+      if ('error' in endOffsetRead && endOffsetRead.error !== 'empty') {
+        return { error: `End offset: ${endOffsetRead.error}.` };
+      }
+      endOffset = 'error' in endOffsetRead ? 0 : endOffsetRead.value;
+    }
     const thin = this.thin.values();
     if ('error' in thin) {
       return thin;
     }
-    const reads = [distanceRead, distance2Read, draftRead, thin];
+    const reads = [distanceRead, distance2Read, draftRead, endOffsetRead, thin];
     return {
       op,
       distance,
       distance2,
       symmetric: direction === 'symmetric',
       draft: draft === 0 ? null : draft,
+      endOffset: endOffset === 0 ? null : endOffset,
       drill: this.drillCheckbox.checked,
       thin: thin.thin,
       newVariables: collectNewVariables(reads.map(r => r && !('error' in r) ? r : null)),
@@ -326,9 +354,10 @@ export class ExtrudePanel extends FeaturePanel {
   /**
    * Per-op and per-direction control states: the second distance belongs to
    * the two-directions mode, through-all to one-direction/symmetric on the
-   * Remove tab (where it parks the depth), the up-to-face modes drop every
-   * distance control — the picked one for its face pick slot, first/last-face
-   * for nothing at all — and labels follow the mode.
+   * Remove tab (where it parks the depth — and the end offset with it, since
+   * the cut runs past everything), the up-to-face modes drop every distance
+   * control — the picked one for its face pick slot, first/last-face for
+   * nothing at all — and labels follow the mode.
    */
   private syncControls(): void {
     const removing = this.tabs.op === 'remove';
@@ -348,6 +377,7 @@ export class ExtrudePanel extends FeaturePanel {
     this.throughWrap.classList.toggle('hidden', !throughOffered);
     this.throughWrap.classList.toggle('flex', throughOffered);
     this.distanceInput.disabled = this.throughAllActive();
+    this.endOffsetInput.disabled = this.throughAllActive();
   }
 }
 

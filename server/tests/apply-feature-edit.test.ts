@@ -952,8 +952,8 @@ describe('extrude statement templates', () => {
       feature: 'extrude',
       filePath: '/ws/model.fluid.js',
       extrude: {
-        op: 'add', distance: 25, distance2: null, symmetric: false, draft: null, drill: true,
-        thin: null, profile: 'implicit', ...extrude,
+        op: 'add', distance: 25, distance2: null, symmetric: false, draft: null, endOffset: null,
+        drill: true, thin: null, profile: 'implicit', ...extrude,
       },
       producers: [{ line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: false }],
       parts: [],
@@ -1006,11 +1006,18 @@ describe('extrude statement templates', () => {
     expect(result.newCode).toContain(`extrude(10, 20)`);
   });
 
-  it('chains .symmetric(), .draft() and .drill(false) before thin and new', async () => {
+  it('chains .symmetric(), .draft(), .endOffset() and .drill(false) before thin and new', async () => {
     const result = await applyFeatureEdit(activeSketchCode, extrudeSpec({
-      op: 'new', distance: 10, symmetric: true, draft: -2.5, drill: false, thin: [1],
+      op: 'new', distance: 10, symmetric: true, draft: -2.5, endOffset: 1.5, drill: false, thin: [1],
     }));
-    expect(result.newCode).toContain(`extrude(10).symmetric().draft(-2.5).drill(false).thin(1).new()`);
+    expect(result.newCode).toContain(
+      `extrude(10).symmetric().draft(-2.5).endOffset(1.5).drill(false).thin(1).new()`);
+  });
+
+  it('chains .endOffset() on an up-to-face extrude — it shifts the target face', async () => {
+    const result = await applyFeatureEdit(activeSketchCode, extrudeSpec(
+      { distance: null, endOffset: 2, toFace: 'first-face' }));
+    expect(result.newCode).toContain(`extrude('first-face').endOffset(2)`);
   });
 
   it('renders a symmetric through-all cut', async () => {
@@ -1821,8 +1828,8 @@ function extrudeEditOptions(
   overrides: Partial<NonNullable<FeatureStatementEditTarget['extrude']>> = {},
 ): NonNullable<FeatureStatementEditTarget['extrude']> {
   return {
-    op: 'add', distance: 25, distance2: null, symmetric: false, draft: null, drill: true,
-    thin: null, ...overrides,
+    op: 'add', distance: 25, distance2: null, symmetric: false, draft: null, endOffset: null,
+    drill: true, thin: null, ...overrides,
   };
 }
 
@@ -1834,7 +1841,8 @@ describe('parseFeatureStatement', () => {
       ok: true,
       parsed: {
         feature: 'extrude', op: 'add', distance: 30, distance2: null, symmetric: false,
-        draft: null, drill: true, thin: null, profileText: null, toFaceText: null, toFaceKind: null,
+        draft: null, endOffset: null, drill: true, thin: null, profileText: null,
+        toFaceText: null, toFaceKind: null,
       },
       statement: 'extrude(30)',
     });
@@ -1847,7 +1855,8 @@ describe('parseFeatureStatement', () => {
       ok: true,
       parsed: {
         feature: 'extrude', op: 'new', distance: 25, distance2: null, symmetric: false,
-        draft: null, drill: true, thin: [2], profileText: 's', toFaceText: null, toFaceKind: null,
+        draft: null, endOffset: null, drill: true, thin: [2], profileText: 's',
+        toFaceText: null, toFaceKind: null,
       },
       statement: 'extrude(25, s).thin(2).new()',
     });
@@ -1860,7 +1869,8 @@ describe('parseFeatureStatement', () => {
       ok: true,
       parsed: {
         feature: 'extrude', op: 'remove', distance: null, distance2: null, symmetric: false,
-        draft: null, drill: true, thin: null, profileText: 's', toFaceText: null, toFaceKind: null,
+        draft: null, endOffset: null, drill: true, thin: null, profileText: 's',
+        toFaceText: null, toFaceKind: null,
       },
       statement: 'cut(s)',
     });
@@ -1873,10 +1883,40 @@ describe('parseFeatureStatement', () => {
       ok: true,
       parsed: {
         feature: 'extrude', op: 'add', distance: 10, distance2: 20, symmetric: false,
-        draft: 5, drill: false, thin: null, profileText: 's', toFaceText: null, toFaceKind: null,
+        draft: 5, endOffset: null, drill: false, thin: null, profileText: 's',
+        toFaceText: null, toFaceKind: null,
       },
       statement: 'extrude(10, 20, s).draft(5).drill(false)',
     });
+  });
+
+  it('reads an .endOffset() chain', async () => {
+    const code = `${editBase}\ncut(20).endOffset(1.5)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'extrude', op: 'remove', distance: 20, distance2: null, symmetric: false,
+        draft: null, endOffset: 1.5, drill: true, thin: null, profileText: null,
+        toFaceText: null, toFaceKind: null,
+      },
+      statement: 'cut(20).endOffset(1.5)',
+    });
+  });
+
+  it('reads an .endOffset() expression as verbatim text', async () => {
+    const code = `${editBase}\nextrude(10).endOffset(gap)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: true, parsed: { feature: 'extrude', endOffset: 'gap' } });
+  });
+
+  it('refuses an argument-less .endOffset() chain', async () => {
+    const code = `${editBase}\nextrude(10).endOffset()\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('endOffset');
+    }
   });
 
   it('reads a symmetric extrude and a bare .drill() as true', async () => {
@@ -2082,8 +2122,8 @@ describe('parseFeatureStatement', () => {
       ok: true,
       parsed: {
         feature: 'extrude', op: 'add', distance: null, distance2: null, symmetric: false,
-        draft: 3, drill: true, thin: null, profileText: 's', toFaceText: 'e.endFaces()',
-        toFaceKind: 'selector',
+        draft: 3, endOffset: null, drill: true, thin: null, profileText: 's',
+        toFaceText: 'e.endFaces()', toFaceKind: 'selector',
       },
       statement: 'extrude(e.endFaces(), s).draft(3)',
     });
@@ -5736,7 +5776,7 @@ describe('expression values in dialog slots', () => {
       filePath: '/ws/model.fluid.js',
       extrude: {
         op: 'add', distance: 'depth', distance2: null, symmetric: false, draft: null,
-        drill: true, thin: null, profile: 'implicit',
+        endOffset: null, drill: true, thin: null, profile: 'implicit',
       },
       producers: [{ line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: false }],
       parts: [],
@@ -5759,7 +5799,7 @@ describe('expression values in dialog slots', () => {
       filePath: '/ws/model.fluid.js',
       extrude: {
         op: 'add', distance: 'depth', distance2: 'taper', symmetric: false, draft: null,
-        drill: true, thin: null, profile: 'implicit',
+        endOffset: null, drill: true, thin: null, profile: 'implicit',
       },
       producers: [{ line: 3, column: 0, featureType: 'sketch', nameHint: 's', bind: false }],
       parts: [],

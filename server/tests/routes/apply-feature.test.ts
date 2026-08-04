@@ -2021,6 +2021,105 @@ describe('apply-feature route validation', () => {
       });
     });
 
+    describe('fillet (2D) edits', () => {
+      const FILLET_CODE = [
+        `import { sketch, rect, fillet } from 'fluidcad/core'`,
+        ``,
+        `sketch('xy', () => {`,
+        `  const r = rect(100, 50)`,
+        `  fillet(2, r.edge('top'))`,
+        `})`,
+        ``,
+      ].join('\n');
+      const FILLET_EDIT = { filePath: '/ws/m.fluid.js', line: 5, column: 2 };
+
+      beforeEach(() => {
+        currentCode = FILLET_CODE;
+        currentFileName = '/ws/m.fluid.js';
+      });
+
+      it('rewrites the radius, keeping the targets verbatim', async () => {
+        const { status, body } = await post({
+          feature: 'fillet', edit: FILLET_EDIT, value: 5,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`fillet(5, r.edge('top'))`);
+        expect(sketchSynthesizeCalls).toHaveLength(0);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'fillet',
+          value: 5,
+          edit: { line: 5, column: 2 },
+          parts: [],
+          clearBreakpoints: true,
+        });
+      });
+
+      it('synthesizes re-picked sketch edges without a boundary', async () => {
+        currentSynthesis = {
+          ok: true,
+          spec: {
+            feature: 'fillet', value: 5, filePath: '/ws/m.fluid.js',
+            producers: [{ line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true }],
+            parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: `'left'` }],
+            imports: [],
+          },
+          preview: `fillet(5, r.edge('left'))`,
+          args: `r.edge('left')`,
+          alternatives: [`r.edge(3)`],
+        };
+        const { status, body } = await post({
+          feature: 'fillet', edit: FILLET_EDIT, value: 5,
+          sketchEntities: [{ shapeId: 'edge-7' }], preview: true,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`fillet(5, r.edge('left'))`);
+        expect(body.args).toBe(`r.edge('left')`);
+        expect(sketchSynthesizeCalls).toEqual([
+          {
+            picks: [{ shapeId: 'edge-7' }],
+            feature: 'fillet',
+            value: 5,
+          },
+        ]);
+        expect(relayed).toHaveLength(0);
+      });
+
+      it('rejects mixing 3D entities with sketchEntities', async () => {
+        const { status, body } = await post({
+          feature: 'fillet', edit: FILLET_EDIT, value: 5,
+          entities: [PICK], sketchEntities: [{ shapeId: 'edge-7' }],
+        });
+        expect(status).toBe(400);
+        expect(body.error).toContain('not both');
+      });
+
+      it('rejects a non-positive radius', async () => {
+        const { status } = await post({ feature: 'fillet', edit: FILLET_EDIT, value: 0 });
+        expect(status).toBe(400);
+      });
+
+      it('heals the edit line when the pause-before breakpoint shifted the statement', async () => {
+        currentCode = [
+          `import { sketch, rect, fillet, breakpoint } from 'fluidcad/core'`,
+          ``,
+          `sketch('xy', () => {`,
+          `  const r = rect(100, 50)`,
+          `  breakpoint();`,
+          ``,
+          `  fillet(2, r.edge('top'))`,
+          `})`,
+          ``,
+        ].join('\n');
+        const { status, body } = await post({
+          feature: 'fillet', edit: FILLET_EDIT, value: 5,
+          expectedStatement: `fillet(2, r.edge('top'))`,
+        });
+        expect(status).toBe(200);
+        expect(body.preview).toBe(`fillet(5, r.edge('top'))`);
+        expect(relayed[0].spec.edit).toMatchObject({ line: 7, column: 2 });
+      });
+    });
+
     describe('offset edit target seeding (/sketch/feature-sources)', () => {
       const SEED_CODE = [
         `import {breakpoint, sketch, rect, offset } from 'fluidcad/core'`,
@@ -2058,6 +2157,19 @@ describe('apply-feature route validation', () => {
         expect(status).toBe(200);
         expect(body).toEqual({ ok: true, shapeIds: ['edge-1'] });
         expect(sketchTargetCalls).toEqual([[{ kind: 'accessor', line: 4, args: ['top'] }]]);
+      });
+
+      it('parses a 2D fillet statement’s targets the same way', async () => {
+        currentCode = SEED_CODE.replace(`offset(2, r.edge('top'))`, `fillet(2, r.edge('top'), r)`);
+        const { status, body } = await postSources({
+          edit: { filePath: '/ws/m.fluid.js', line: 7, column: 2 },
+        });
+        expect(status).toBe(200);
+        expect(body).toEqual({ ok: true, shapeIds: ['edge-1'] });
+        expect(sketchTargetCalls).toEqual([[
+          { kind: 'accessor', line: 4, args: ['top'] },
+          { kind: 'owner', line: 4 },
+        ]]);
       });
 
       it('resolves a whole-sketch offset to no seeds without touching the kernel', async () => {

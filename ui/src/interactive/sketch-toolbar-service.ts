@@ -253,6 +253,34 @@ export class SketchToolbarService {
   }
 
   /**
+   * Open the fillet dialog over the 2D `fillet()` statement at `target`
+   * (timeline double-click) — the same pause-before contract as the offset
+   * edit: the sketch on screen is the one the fillet's arguments see, its
+   * corner arcs absent and the original corner edges re-pickable.
+   */
+  enterFilletEdit(
+    target: FeatureEditTarget,
+    parsed: Extract<ParsedFeatureStatement, { feature: 'fillet' }>,
+    expectedStatement: string,
+  ): void {
+    const service = this.opServices.fillet;
+    if (!service) {
+      return;
+    }
+    // Same contract as the offset edit: never disarm an already-editing
+    // dialog here — that would cancel it and clear the fresh breakpoint.
+    if (!service.isEditing) {
+      this.handleToolSelect(null);
+    }
+    this.toolbar.setActiveTool('fillet');
+    service.enterEdit(target, parsed, expectedStatement);
+    if (this.activeSketchInfo) {
+      service.noteSketchActive();
+      this.activateDragHandler();
+    }
+  }
+
+  /**
    * Open the slot dialog over the `slot(<source>, <radius>)` statement at
    * `target` (timeline double-click) — the same pause-before contract as the
    * offset edit: the sketch on screen is the one the slot's arguments see,

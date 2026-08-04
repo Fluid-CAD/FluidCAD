@@ -427,7 +427,7 @@ timelinePanel.isFeatureEditable = (obj) =>
 timelinePanel.managesOwnBreakpoint = (obj) => obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type);
 
 /** Rows whose edit dialog pauses the build before its own statement. */
-const PAUSE_BEFORE_ROW_TYPES = new Set(['offset', 'slot']);
+const PAUSE_BEFORE_ROW_TYPES = new Set(['offset', 'slot', 'fillet2d']);
 
 /**
  * Timeline `type` → the dialog that edits it (cut is extrude's remove op;
@@ -441,11 +441,12 @@ const EDITABLE_ROW_TYPES = new Set([
   'copy-linear', 'copy-circular',
   'fuse', 'subtract', 'common',
   'plane',
-  // 2D: an offset/slot/projection row sits under its sketch, and its dialog
-  // re-opens over it. (A from-dimensions slot statement parse-refuses with a
-  // drag-to-edit hint — only the from-edge form has a dialog.)
+  // 2D: an offset/slot/fillet/projection row sits under its sketch, and its
+  // dialog re-opens over it. (A from-dimensions slot statement parse-refuses
+  // with a drag-to-edit hint — only the from-edge form has a dialog.)
   'offset',
   'slot',
+  'fillet2d',
   'projection',
 ]);
 
@@ -495,7 +496,8 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     showEditRefusal(result.reason);
     return;
   }
-  if (deferredBreakpoint && result.parsed.feature !== 'offset' && result.parsed.feature !== 'slot') {
+  if (deferredBreakpoint && result.parsed.feature !== 'offset' && result.parsed.feature !== 'slot'
+    && result.parsed.feature !== 'fillet') {
     addBreakpoint(target);
   }
   if (result.parsed.feature === 'sketch') {
@@ -547,6 +549,13 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     closeFeatureDialogs();
     pauseBeforeSketchStatement(obj, index);
     sketchService.enterSlotEdit(target, parsed, result.statement);
+  } else if (parsed.feature === 'fillet' && obj.type === 'fillet2d') {
+    // A fillet statement parses identically in 2D and 3D — the row's type
+    // tells them apart. The 2D one follows the offset's pause-before
+    // contract: the paused sketch shows the corners before their arcs.
+    closeFeatureDialogs();
+    pauseBeforeSketchStatement(obj, index);
+    sketchService.enterFilletEdit(target, parsed, result.statement);
   } else if (parsed.feature === 'project') {
     // A projection lives inside a sketch body but reads the 3D scene before
     // it: its edit session rolls the viewport back to just before its row

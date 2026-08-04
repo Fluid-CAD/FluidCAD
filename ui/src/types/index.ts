@@ -44,6 +44,7 @@ export type ObjectType =
   | 'helix'
   // Modification operations
   | 'fillet'
+  | 'fillet2d'
   | 'chamfer'
   | 'draft'
   | 'thickness'

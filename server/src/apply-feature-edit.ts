@@ -5470,12 +5470,13 @@ export type SketchTargetDescriptor =
   | { kind: 'filter'; calls: { name: string; dim: number | null }[] };
 
 /**
- * Parse the 2D statement (offset or slot-from-edge) at `line` into target
- * descriptors for the edit dialog's edge seeding: bare producer variables,
- * `r.edge(…)` accessor calls with literal arguments, and `edge().<kind>(…)`
- * filter chains — the forms selector synthesis emits. Anything else refuses
- * (the dialog then keeps its keep chip, exactly the unseeded behavior). An
- * empty target list (the whole-sketch offset) resolves to no descriptors.
+ * Parse the 2D statement (offset, slot-from-edge or fillet) at `line` into
+ * target descriptors for the edit dialog's edge seeding: bare producer
+ * variables, `r.edge(…)` accessor calls with literal arguments, and
+ * `edge().<kind>(…)` filter chains — the forms selector synthesis emits.
+ * Anything else refuses (the dialog then keeps its keep chip, exactly the
+ * unseeded behavior). An empty target list (the whole-sketch offset, a
+ * last-selection fillet) resolves to no descriptors.
  */
 export async function parseOffsetTargetDescriptors(
   code: string,
@@ -5489,8 +5490,8 @@ export async function parseOffsetTargetDescriptors(
     return { ok: false, reason: `no call found at line ${line} — is the file in sync with the last render?` };
   }
   const chain = decomposeChain(call);
-  if (!chain || (chain.root.name !== 'offset' && chain.root.name !== 'slot')) {
-    return { ok: false, reason: 'the statement at that line is not an offset or slot' };
+  if (!chain || (chain.root.name !== 'offset' && chain.root.name !== 'slot' && chain.root.name !== 'fillet')) {
+    return { ok: false, reason: 'the statement at that line is not an offset, slot or fillet' };
   }
   const args = chain.root.args;
   const numericVars = numericVarNames(tree);

@@ -6333,6 +6333,59 @@ describe('applyFeatureEdit (offset in-place statement edit)', () => {
   });
 });
 
+describe('applyFeatureEdit (2D fillet in-place statement edit)', () => {
+  // The 2D fillet reuses the shared value+selector tail of the edit
+  // transform; the 2D-specific part is the producers living inside the
+  // sketch body — the same-scope rule the offset edit exercises.
+  const base = [
+    `import { sketch, rect, fillet } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => {`,
+    `  const r = rect(100, 50)`,
+  ].join('\n');
+  const codeWith = (statement: string) => `${base}\n  ${statement}\n})\n`;
+
+  it('replaces the radius and keeps the targets verbatim', async () => {
+    const result = await applyFeatureEdit(
+      codeWith(`fillet(2, r.edge('top'), r.edge('left'))`),
+      editSpec('fillet', { line: 5, column: 2 }, { value: 4 }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  fillet(4, r.edge('top'), r.edge('left'))\n`);
+  });
+
+  it('renders re-picked targets from a producer inside the sketch body', async () => {
+    const result = await applyFeatureEdit(
+      codeWith(`fillet(2, r.edge('top'))`),
+      editSpec('fillet', { line: 5, column: 2 }, {
+        value: 4,
+        producers: [{ line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true }],
+        parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: `'left'` }],
+      }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  fillet(4, r.edge('left'))\n`);
+  });
+
+  it('honors a user-edited raw argument list', async () => {
+    const result = await applyFeatureEdit(
+      codeWith(`fillet(2, r.edge('top'))`),
+      editSpec('fillet', { line: 5, column: 2 }, { value: 4, rawArgs: `r.edge('bottom')` }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  fillet(4, r.edge('bottom'))\n`);
+  });
+
+  it('keeps the target-less (last selection) form', async () => {
+    const result = await applyFeatureEdit(
+      codeWith(`fillet(2)`),
+      editSpec('fillet', { line: 5, column: 2 }, { value: 4 }),
+    );
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  fillet(4)\n`);
+  });
+});
+
 describe('parseFeatureStatement — project', () => {
   it('reads the source arguments verbatim', async () => {
     const code = [
@@ -6506,6 +6559,25 @@ describe('parseOffsetTargetDescriptors (offset edit seeding)', () => {
   it('refuses a from-dimensions slot — it has no source to seed', async () => {
     const result = await parseOffsetTargetDescriptors(codeWith(`slot(40, 8)`), 6);
     expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('dimensions') });
+  });
+
+  it('parses a 2D fillet statement’s targets, skipping the radius slot', async () => {
+    const result = await parseOffsetTargetDescriptors(
+      codeWith(`fillet(2, r.edge('top'), c, edge().arc(4))`), 6,
+    );
+    expect(result).toEqual({
+      ok: true,
+      descriptors: [
+        { kind: 'accessor', line: 4, args: ['top'] },
+        { kind: 'owner', line: 5 },
+        { kind: 'filter', calls: [{ name: 'arc', dim: 4 }] },
+      ],
+    });
+  });
+
+  it('resolves a target-less fillet to no descriptors', async () => {
+    const result = await parseOffsetTargetDescriptors(codeWith(`fillet(2)`), 6);
+    expect(result).toEqual({ ok: true, descriptors: [] });
   });
 });
 

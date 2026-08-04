@@ -1110,6 +1110,36 @@ export async function applyOffsetEdit(
   }, options.signal);
 }
 
+export type Fillet2DEditOptions = EditSessionFields & {
+  value: ValueExpr;
+  /** Edited target argument list; omitted keeps the statement's verbatim. */
+  selectorOverride?: string;
+  /** Re-picked sketch edges; omitted keeps the statement's own targets. */
+  entities?: SketchApplyEntity[];
+  /** Declarations the dialog's expression field committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the 2D `fillet()` statement (inside a sketch body) at `edit` in place. */
+export async function applyFillet2DEdit(
+  edit: FeatureEditTarget,
+  options: Fillet2DEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'fillet',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    value: options.value,
+    selectorOverride: options.selectorOverride,
+    sketchEntities: options.entities,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
 export type SlotEditOptions = SlotOptionValues & EditSessionFields & {
   value: ValueExpr;
   /** Edited source argument; omitted keeps the statement's verbatim. */

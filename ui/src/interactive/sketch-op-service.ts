@@ -1,7 +1,7 @@
 import {
-  applyOffsetEdit, applySketchOp, applySlotDrawEdit, applySlotEdit, clearBreakpoints, fetchSketchFeatureSources,
-  FeatureEditTarget, NewVariable, OffsetOptionValues, ParsedFeatureStatement, SketchApplyEntity, SketchOpFeature,
-  SlotOptionValues, ValueExpr,
+  applyFillet2DEdit, applyOffsetEdit, applySketchOp, applySlotDrawEdit, applySlotEdit, clearBreakpoints,
+  fetchSketchFeatureSources, FeatureEditTarget, NewVariable, OffsetOptionValues, ParsedFeatureStatement,
+  SketchApplyEntity, SketchOpFeature, SlotOptionValues, ValueExpr,
 } from '../api';
 import { ExpressionRow } from './modify-pick/expression-row';
 import { PickSlot, PickSlotChip } from './pick-slot';
@@ -81,8 +81,8 @@ export type SketchOpConfig = {
   };
 };
 
-/** An `offset()` or `slot()` statement as the parse route reads it. */
-type ParsedSketchOp = Extract<ParsedFeatureStatement, { feature: 'offset' } | { feature: 'slot' }>;
+/** An `offset()`, `slot()` or 2D `fillet()` statement as the parse route reads it. */
+type ParsedSketchOp = Extract<ParsedFeatureStatement, { feature: 'offset' } | { feature: 'slot' } | { feature: 'fillet' }>;
 
 const SLOT_ROW_BASE = 'flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 cursor-pointer transition-colors';
 const SLOT_ROW_ARMED = `${SLOT_ROW_BASE} border-primary/60 bg-primary/10`;
@@ -99,7 +99,7 @@ const SLOT_ROW_IDLE = `${SLOT_ROW_BASE} border-base-300 hover:border-base-conten
  * verified alternatives.
  *
  * The same dialog edits an existing statement in place ({@link enterEdit},
- * offset and slot today): the timeline double-click's breakpoint pauses the build
+ * offset, slot and fillet today): the timeline double-click's breakpoint pauses the build
  * just BEFORE that statement, so the sketch on screen is the one its
  * arguments see — the statement's own result absent, a removed original
  * visible again — its options seed the fields, its targets seed the
@@ -492,7 +492,9 @@ export class SketchOpService {
     this.valueField?.setValue(parsed.value);
     this.setToggles(parsed.feature === 'offset'
       ? { removeOriginal: parsed.removeOriginal, close: parsed.close }
-      : { removeOriginal: parsed.removeOriginal });
+      : parsed.feature === 'slot'
+        ? { removeOriginal: parsed.removeOriginal }
+        : {});
     // An edit opens on the pick tab; switching to Draw stays available —
     // drawing there replaces the statement with the drawn form (see
     // {@link applyDrawnStatement}).
@@ -828,6 +830,9 @@ export class SketchOpService {
       };
       if (this.config.feature === 'slot') {
         return applySlotEdit(this.editTarget, { ...this.slotOptions()!, ...editOptions });
+      }
+      if (this.config.feature === 'fillet') {
+        return applyFillet2DEdit(this.editTarget, editOptions);
       }
       return applyOffsetEdit(this.editTarget, { ...this.offsetOptions()!, ...editOptions });
     }

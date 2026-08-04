@@ -2117,6 +2117,20 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     value,
     rawArgs: typeof selectorOverride === 'string' ? selectorOverride.trim() : undefined,
   };
+  // A 2D fillet (inside a sketch body) re-picks sketch edges instead of 3D
+  // entities — the offset edit's contract: the picks carry no boundary, since
+  // the double-click paused the build at the edited statement.
+  if (feature === 'fillet' && body?.sketchEntities !== undefined && body?.sketchEntities !== null) {
+    if (body?.entities !== undefined && body?.entities !== null) {
+      return { error: 'a fillet edit carries entities (3D) or sketchEntities (2D), not both' };
+    }
+    const picks = validateSketchPicks(body.sketchEntities);
+    if (!picks) {
+      return { error: 'sketchEntities must be a non-empty array of {shapeId} picks' };
+    }
+    result.sketchPicks = picks;
+    return result;
+  }
   if (body?.entities !== undefined && body?.entities !== null) {
     const picks = validatePicks(body.entities);
     if (!picks) {
@@ -3272,7 +3286,7 @@ export function createApplyFeatureRouter(
           // (a slot's single source renders as its bare variable).
           const synthesis = fluidCadServer.synthesizeSketchApplyFeature(
             request.sketchPicks,
-            request.feature === 'slot' ? 'slot' : 'offset',
+            request.feature === 'slot' ? 'slot' : request.feature === 'fillet' ? 'fillet' : 'offset',
             request.value,
             { ...synthOptions, offset: request.offset, slot: request.slot },
           );
@@ -5201,15 +5215,15 @@ export function createApplyFeatureRouter(
     });
   };
 
-  // Current target edges of the 2D offset statement being edited, resolved
-  // for edit-dialog seeding. The edit's pause-before means the offset object
-  // itself is absent from the paused scene, so the targets re-resolve from
-  // the statement's own argument forms against the active sketch — after
-  // healing the line the pause's breakpoint shifted.
+  // Current target edges of the 2D statement (offset, slot, fillet) being
+  // edited, resolved for edit-dialog seeding. The edit's pause-before means
+  // the statement's own object is absent from the paused scene, so the
+  // targets re-resolve from the statement's own argument forms against the
+  // active sketch — after healing the line the pause's breakpoint shifted.
   router.post('/sketch/feature-sources', async (req, res) => {
     const edit = validateSketchLoc(req.body?.edit);
     if (!edit) {
-      res.status(400).json({ error: 'edit must be the {filePath, line, column} of the offset statement' });
+      res.status(400).json({ error: 'edit must be the {filePath, line, column} of the statement' });
       return;
     }
     const expected = req.body?.expectedStatement;

@@ -293,6 +293,18 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return [];
   }
 
+  /**
+   * Dependencies that are boundary references: selections the feature resolves
+   * *against* (a cut's up-to-face target), as opposed to geometry it is built
+   * *from*. Cloning copies these so consumed selection shapes re-resolve per
+   * instance, but never walks their own dependencies — following them would
+   * pull the referenced body's producer chain into the clone set and rebuild
+   * the shared base once per instance.
+   */
+  getBoundaryDependencies(): SceneObject[] {
+    return [];
+  }
+
   createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     throw new Error("createCopy() not implemented for " + this.getType());
   }

@@ -15,7 +15,6 @@ import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { ShapeFilter } from "../filters/filter.js";
-import { FromSceneObjectFilter } from "../filters/from-object.js";
 
 export class ExtrudeToFace extends ExtrudeBase {
   constructor(
@@ -321,33 +320,21 @@ export class ExtrudeToFace extends ExtrudeBase {
     return result;
   }
 
-  private collectFromSceneObjects(): SceneObject[] {
-    const objects: SceneObject[] = [];
-    for (const builder of this.faceFilters) {
-      for (const filter of builder.getFilters()) {
-        if (filter instanceof FromSceneObjectFilter) {
-          for (const obj of filter.getSceneObjects()) {
-            if (!objects.includes(obj)) {
-              objects.push(obj);
-            }
-          }
-        }
-      }
-    }
-    return objects;
+  override getDependencies(): SceneObject[] {
+    return [...this.getSourceDependencies()];
   }
 
-  override getDependencies(): SceneObject[] {
-    const deps: SceneObject[] = [...this.getSourceDependencies()];
-    if (this.face instanceof SceneObject) {
-      deps.push(this.face);
-    }
-    for (const obj of this.collectFromSceneObjects()) {
-      if (!deps.includes(obj)) {
-        deps.push(obj);
-      }
-    }
-    return deps;
+  // The up-to-face selection bounds the extrusion against a body that is NOT
+  // rebuilt per clone. It must still be copied (build consumes the original
+  // selection's shapes via removeShapes), so a clone re-resolves the faces —
+  // but as a boundary: traversing into its producer would drag the whole base
+  // body chain into every repeat instance, which then re-extrudes the base
+  // over the previous instances' results (one hole left instead of N).
+  // Face-filter `.from(obj)` references aren't listed at all: FilterBuilder
+  // remap falls back to the original object, which is the body the boundary
+  // should resolve against.
+  override getBoundaryDependencies(): SceneObject[] {
+    return this.face instanceof SceneObject ? [this.face] : [];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {

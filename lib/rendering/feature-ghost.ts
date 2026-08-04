@@ -1100,6 +1100,15 @@ function repeatCloneSet(targets: SceneObject[]): Set<SceneObject> {
     for (const dep of obj.getDependencies()) {
       walk(dep);
     }
+    // Boundary references join the set without their own dependencies —
+    // mirroring collectBoundary, so the ghost doesn't treat the referenced
+    // base body as rebuilt per instance.
+    for (const dep of obj.getBoundaryDependencies()) {
+      if (!chain.has(dep)) {
+        chain.add(dep);
+        addChildren(dep);
+      }
+    }
     addChildren(obj);
   };
   for (const target of targets) {

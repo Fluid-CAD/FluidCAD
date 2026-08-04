@@ -1,5 +1,6 @@
 import { WireOps } from "../../oc/wire-ops.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
+import { ShapeOps } from "../../oc/shape-ops.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { Edge } from "../../common/edge.js";
@@ -24,6 +25,21 @@ export class Offset extends ExtrudableGeometryBase {
   close(): this {
     this._close = true;
     return this;
+  }
+
+  /**
+   * Endpoint-connect tolerance for chaining the target edges: 1/1000 of the
+   * largest single-edge extent, floored at 1e-6. Relative to edge size so
+   * tiny sketches don't get unrelated geometry merged, while a few
+   * hundredths of drawing slop on a normal-sized profile still chains.
+   */
+  private static connectTolerance(edges: Edge[]): number {
+    let size = 0;
+    for (const edge of edges) {
+      const bbox = ShapeOps.getBoundingBox(edge);
+      size = Math.max(size, bbox.maxX - bbox.minX, bbox.maxY - bbox.minY, bbox.maxZ - bbox.minZ);
+    }
+    return Math.max(1e-6, size * 1e-3);
   }
 
   build() {
@@ -67,12 +83,23 @@ export class Offset extends ExtrudableGeometryBase {
       edges: Map<Edge, SceneObject>,
     }[] = [];
 
-    const groups = WireOps.groupConnectedEdges(allEdges);
+    // Hand-drawn profiles routinely have endpoints that only nearly meet.
+    // Exact-tolerance grouping split such profiles into fragments that each
+    // offset to a side chosen by their own orientation — visibly
+    // inconsistent. Chain edges with a tolerance proportional to their size.
+    const connectTolerance = Offset.connectTolerance(allEdges);
+    const groups = WireOps.groupConnectedEdges(allEdges, connectTolerance);
     for (const group of groups) {
-      const wire = WireOps.makeWireFromEdges(group);
-      wires.push({
-        wire,
-        edges: new Map(group.map(edge => [edge, sourceObjects.get(edge)]))
+      const groupWires = WireOps.makeChainWires(group, connectTolerance);
+      groupWires.forEach((wire, index) => {
+        wires.push({
+          wire,
+          // The group's originals ride on the first wire only, so
+          // removeOriginal strips each edge exactly once.
+          edges: index === 0
+            ? new Map(group.map(edge => [edge, sourceObjects.get(edge)]))
+            : new Map(),
+        });
       });
     }
 

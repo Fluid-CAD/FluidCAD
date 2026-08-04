@@ -252,7 +252,24 @@ export class WireOps {
     return null;
   }
 
-  static groupConnectedEdges(edges: Edge[]): Edge[][] {
+  /**
+   * Builds one or more wires from a connected edge group. Edges that share
+   * exact vertices go through `BRepBuilderAPI_MakeWire`, preserving the
+   * incoming order/orientation semantics. When that fails — edges that only
+   * meet within `tolerance`, e.g. hand-drawn sketch profiles whose endpoints
+   * miss by a few hundredths — the group is chained tolerantly via
+   * `ShapeAnalysis_FreeBounds.ConnectEdgesToWires`, which also reorients
+   * edges consistently along the chain.
+   */
+  static makeChainWires(edges: Edge[], tolerance: number): Wire[] {
+    try {
+      return [WireOps.makeWireFromEdges(edges)];
+    } catch {
+      return WireOps.connectEdgesToWires(edges, tolerance);
+    }
+  }
+
+  static groupConnectedEdges(edges: Edge[], tolerance = 1e-7): Edge[][] {
     if (edges.length === 0) {
       return [];
     }
@@ -285,8 +302,8 @@ export class WireOps {
           const ov2 = edges[j].getLastVertex();
 
           if (
-            WireOps.verticesMatch(v1, ov1) || WireOps.verticesMatch(v1, ov2) ||
-            WireOps.verticesMatch(v2, ov1) || WireOps.verticesMatch(v2, ov2)
+            WireOps.verticesMatch(v1, ov1, tolerance) || WireOps.verticesMatch(v1, ov2, tolerance) ||
+            WireOps.verticesMatch(v2, ov1, tolerance) || WireOps.verticesMatch(v2, ov2, tolerance)
           ) {
             visited.add(j);
             queue.push(j);
@@ -300,7 +317,7 @@ export class WireOps {
     return groups;
   }
 
-  private static verticesMatch(v1: Vertex, v2: Vertex): boolean {
+  private static verticesMatch(v1: Vertex, v2: Vertex, tolerance = 1e-7): boolean {
     if (v1.compareTo(v2)) {
       return true;
     }
@@ -309,7 +326,7 @@ export class WireOps {
     const dx = p1.x - p2.x;
     const dy = p1.y - p2.y;
     const dz = p1.z - p2.z;
-    return (dx * dx + dy * dy + dz * dz) < 1e-14;
+    return (dx * dx + dy * dy + dz * dz) < tolerance * tolerance;
   }
 
   static offsetWireRaw(wire: TopoDS_Wire, distance: number, isOpen: boolean, plane?: Plane): TopoDS_Wire {

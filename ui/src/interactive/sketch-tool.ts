@@ -7,7 +7,7 @@ import {
   worldToSketch2D, pixelToSketchThreshold, dist2D, projectToSketch, roundPoint,
 } from './sketch-plane-utils';
 import { PointInput, PointCommit } from '../ui/point-input';
-import { VariableInfo } from '../ui/expression-core';
+import { resolveExpressionValue, VariableInfo } from '../ui/expression-core';
 import { addDot, START_POINT_COLOR } from './tools/tool-preview-utils';
 
 export type ToolId = 'line' | 'polyline' | 'circle' | 'polygon' | 'arc3' | 'arc2' | 'rect' | 'rounded-rect' | 'slot' | 'trim' | 'fillet' | 'offset' | 'fuse' | 'subtract' | 'common' | 'bezier' | 'text' | 'project';
@@ -434,24 +434,14 @@ export abstract class SketchTool {
     return isIdentifier ? `-${expression}` : `-(${expression})`;
   }
 
-  // Best-effort numeric value of a committed variable dimension, for preview
-  // purposes only: a newly declared variable carries its initializer, an
-  // existing one may have a literal initializer. Null when the value can't
-  // be resolved statically (e.g. the initializer is itself an expression).
+  // Best-effort numeric value of a committed dimension, for preview purposes
+  // only: arithmetic over the in-scope variables, resolved recursively through
+  // their initializers. Null when the value can't be resolved statically.
   static resolveCommittedValue(
     result: { expression: string; newVariable?: { name: string; initializer: string } },
     variables: { name: string; initializer?: string }[],
   ): number | null {
-    const initializer = result.newVariable?.initializer
-      ?? variables.find((v) => v.name === result.expression)?.initializer;
-    if (!initializer || !initializer.trim()) {
-      return null;
-    }
-    const parsed = Number(initializer.trim());
-    if (isNaN(parsed) || !isFinite(parsed)) {
-      return null;
-    }
-    return parsed;
+    return resolveExpressionValue(result.expression, variables, result.newVariable ?? null);
   }
 
   static resolveCommittedMagnitude(

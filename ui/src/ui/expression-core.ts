@@ -112,31 +112,165 @@ export function classifyCommit(
   return { kind: 'expression', expression: raw };
 }
 
+type ArithToken =
+  | { kind: 'num'; value: number }
+  | { kind: 'name'; name: string }
+  | { kind: 'op'; op: string };
+
+function tokenizeArithmetic(text: string): ArithToken[] | null {
+  const tokens: ArithToken[] = [];
+  const re = /(\d+(?:\.\d*)?(?:[eE][+-]?\d+)?|\.\d+(?:[eE][+-]?\d+)?)|([a-zA-Z_$][\w$]*)|([()+\-*/%])|(\s+)|(.)/g;
+  for (const match of text.matchAll(re)) {
+    if (match[1] !== undefined) {
+      tokens.push({ kind: 'num', value: parseFloat(match[1]) });
+    } else if (match[2] !== undefined) {
+      tokens.push({ kind: 'name', name: match[2] });
+    } else if (match[3] !== undefined) {
+      tokens.push({ kind: 'op', op: match[3] });
+    } else if (match[5] !== undefined) {
+      return null;
+    }
+  }
+  return tokens;
+}
+
 /**
- * Best-effort numeric value of a committed expression, for previews only: a
- * plain number resolves to itself, a variable to its literal initializer.
- * Null when the value can't be resolved statically (e.g. `w / 2`) — callers
- * fall back to the live cursor value until the re-render lands.
+ * Evaluate arithmetic — numbers, `+ - * / %`, parentheses, unary sign —
+ * with identifiers supplied by `lookup`. Null when the text reaches beyond
+ * that grammar or an identifier doesn't resolve.
+ */
+function evaluateArithmetic(
+  text: string,
+  lookup: (name: string) => number | null,
+): number | null {
+  const tokens = tokenizeArithmetic(text);
+  if (!tokens || tokens.length === 0) {
+    return null;
+  }
+  let pos = 0;
+
+  const nextOp = (...ops: string[]): string | null => {
+    const token = tokens[pos];
+    if (token && token.kind === 'op' && ops.includes(token.op)) {
+      return token.op;
+    }
+    return null;
+  };
+
+  const parsePrimary = (): number | null => {
+    const token = tokens[pos];
+    if (!token) {
+      return null;
+    }
+    if (token.kind === 'num') {
+      pos += 1;
+      return token.value;
+    }
+    if (token.kind === 'name') {
+      pos += 1;
+      return lookup(token.name);
+    }
+    if (token.op === '(') {
+      pos += 1;
+      const inner = parseAdditive();
+      if (inner === null || nextOp(')') === null) {
+        return null;
+      }
+      pos += 1;
+      return inner;
+    }
+    return null;
+  };
+
+  const parseUnary = (): number | null => {
+    const sign = nextOp('+', '-');
+    if (sign !== null) {
+      pos += 1;
+      const operand = parseUnary();
+      if (operand === null) {
+        return null;
+      }
+      return sign === '-' ? -operand : operand;
+    }
+    return parsePrimary();
+  };
+
+  const parseMultiplicative = (): number | null => {
+    let left = parseUnary();
+    while (left !== null) {
+      const op = nextOp('*', '/', '%');
+      if (op === null) {
+        break;
+      }
+      pos += 1;
+      const right = parseUnary();
+      if (right === null) {
+        return null;
+      }
+      left = op === '*' ? left * right : op === '/' ? left / right : left % right;
+    }
+    return left;
+  };
+
+  const parseAdditive = (): number | null => {
+    let left = parseMultiplicative();
+    while (left !== null) {
+      const op = nextOp('+', '-');
+      if (op === null) {
+        break;
+      }
+      pos += 1;
+      const right = parseMultiplicative();
+      if (right === null) {
+        return null;
+      }
+      left = op === '+' ? left + right : left - right;
+    }
+    return left;
+  };
+
+  const result = parseAdditive();
+  return pos === tokens.length ? result : null;
+}
+
+const PARAM_INIT_RE = /^param\(\s*(['"`])[^'"`]*\1\s*,\s*([\s\S]+)\)\s*;?\s*$/;
+
+/** A `param("name", value)` initializer contributes its value expression. */
+function unwrapParam(initializer: string): string {
+  const match = initializer.trim().match(PARAM_INIT_RE);
+  return match ? match[2] : initializer;
+}
+
+/**
+ * Best-effort numeric value of a committed expression, for previews only:
+ * arithmetic over the in-scope variables, with identifiers resolved
+ * recursively through their initializers (`param()` wrappers unwrapped).
+ * Null when the expression reaches beyond plain arithmetic (function calls,
+ * unknown names, non-numeric initializers, cycles) or doesn't yield a finite
+ * number — callers fall back to the live cursor value until the re-render
+ * lands.
  */
 export function resolveExpressionValue(
   expression: string,
   variables: VariableInfo[],
   newVariable?: { name: string; initializer: string } | null,
 ): number | null {
-  const trimmed = expression.trim();
-  const direct = Number(trimmed);
-  if (trimmed && !isNaN(direct) && isFinite(direct)) {
-    return direct;
-  }
+  const evaluate = (text: string, seen: Set<string>): number | null =>
+    evaluateArithmetic(text, (name) => {
+      if (seen.has(name)) {
+        return null;
+      }
+      const initializer = newVariable?.name === name
+        ? newVariable.initializer
+        : variables.find((v) => v.name === name)?.initializer;
+      if (!initializer || !initializer.trim()) {
+        return null;
+      }
+      return evaluate(unwrapParam(initializer), new Set(seen).add(name));
+    });
 
-  const initializer = newVariable?.initializer
-    ?? variables.find((v) => v.name === trimmed)?.initializer;
-  if (!initializer || !initializer.trim()) {
-    return null;
-  }
-
-  const parsed = Number(initializer.trim());
-  return isNaN(parsed) || !isFinite(parsed) ? null : parsed;
+  const value = evaluate(expression, new Set());
+  return value !== null && isFinite(value) ? value : null;
 }
 
 /** The identifier being typed at the end of the value, or null. */

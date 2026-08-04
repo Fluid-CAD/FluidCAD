@@ -143,14 +143,26 @@ describe('PointInput axis lock', () => {
     expect(h.input.getLocks().x).toBe(100);
   });
 
-  it('reports no lock for an axis whose value is not statically resolvable', () => {
+  it('resolves an arithmetic expression over variables for the lock', () => {
     const h = mount();
     type(h.x, 'width / 2');
     key(h.x, 'Tab');
 
+    expect(h.input.getLocks().x).toBe(25);
+    const pick = h.input.resolvePick([1, 2]);
+    expect(pick.xExpr).toBe('width / 2');
+    expect(pick.value).toEqual([25, 2]);
+  });
+
+  it('reports no lock for an axis whose value is not statically resolvable', () => {
+    const h = mount();
+    // `plate` holds a feature result, so the expression has no numeric value.
+    type(h.x, 'plate * 2');
+    key(h.x, 'Tab');
+
     // The expression is still committed, it just cannot drive a guide line.
     expect(h.input.getLocks().x).toBeNull();
-    expect(h.input.resolvePick([1, 2]).xExpr).toBe('width / 2');
+    expect(h.input.resolvePick([1, 2]).xExpr).toBe('plate * 2');
   });
 });
 

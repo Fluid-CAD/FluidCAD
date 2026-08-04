@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  applyVariableName, classifyCommit, declaredVariableName, filterSuggestions, trailingIdentifier,
+  applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
+  resolveExpressionValue, trailingIdentifier,
 } from '../src/ui/expression-core';
 
 const VARS = [
@@ -102,5 +103,54 @@ describe('trailing identifier helpers', () => {
     expect(trailingIdentifier('25')).toBeNull();
     expect(applyVariableName('2 * hei', 'height')).toBe('2 * height');
     expect(applyVariableName('2 * ', 'height')).toBe('2 * height');
+  });
+});
+
+describe('resolveExpressionValue', () => {
+  it('resolves numbers, negatives and scientific notation', () => {
+    expect(resolveExpressionValue('20', VARS)).toBe(20);
+    expect(resolveExpressionValue('-12.5', VARS)).toBe(-12.5);
+    expect(resolveExpressionValue('1.5e2', VARS)).toBe(150);
+  });
+
+  it('evaluates arithmetic with precedence, parens and unary sign', () => {
+    expect(resolveExpressionValue('5*4', VARS)).toBe(20);
+    expect(resolveExpressionValue('2 + 3 * 4', VARS)).toBe(14);
+    expect(resolveExpressionValue('(2 + 3) * 4', VARS)).toBe(20);
+    expect(resolveExpressionValue('10 % 3', VARS)).toBe(1);
+    expect(resolveExpressionValue('-(2 + 3)', VARS)).toBe(-5);
+  });
+
+  it('resolves variables through their initializers', () => {
+    expect(resolveExpressionValue('width', VARS)).toBe(100);
+    expect(resolveExpressionValue('width / 2', VARS)).toBe(50);
+    expect(resolveExpressionValue('width / 2 - holeDia', VARS)).toBe(44);
+  });
+
+  it('resolves chained and param()-wrapped initializers', () => {
+    const vars = [
+      { name: 'w', initializer: 'param("w", 40)' },
+      { name: 'half', initializer: 'w / 2' },
+    ];
+    expect(resolveExpressionValue('w', vars)).toBe(40);
+    expect(resolveExpressionValue('half + 1', vars)).toBe(21);
+  });
+
+  it('uses the pending declaration for its own name', () => {
+    expect(resolveExpressionValue('cx', VARS, { name: 'cx', initializer: '25' })).toBe(25);
+    expect(resolveExpressionValue('cx', VARS, { name: 'cx', initializer: 'param("cx", 7)' })).toBe(7);
+  });
+
+  it('returns null for calls, unknown names, cycles and non-finite results', () => {
+    expect(resolveExpressionValue('housing', VARS)).toBeNull();
+    expect(resolveExpressionValue('Math.max(2, 3)', VARS)).toBeNull();
+    expect(resolveExpressionValue('nope + 1', VARS)).toBeNull();
+    expect(resolveExpressionValue('1 / 0', VARS)).toBeNull();
+    expect(resolveExpressionValue('', VARS)).toBeNull();
+    const cyclic = [
+      { name: 'a', initializer: 'b + 1' },
+      { name: 'b', initializer: 'a + 1' },
+    ];
+    expect(resolveExpressionValue('a', cyclic)).toBeNull();
   });
 });

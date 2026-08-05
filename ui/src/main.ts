@@ -12,6 +12,7 @@ import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
 import { Navbar } from './ui/navbar';
 import { ICON_IMG_FALLBACK } from './ui/object-icons';
+import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
 import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
 import { ProjectionPickService } from './interactive/projection-pick-service';
@@ -96,11 +97,11 @@ const navbar = new Navbar(container);
 // Import group — always visible for now.
 const importGroup = navbar.addGroup('import');
 const importBtn = document.createElement('button');
-importBtn.className = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 shrink-0 text-base-content/60';
+importBtn.className = TOOLBAR_BTN_BASE;
 importBtn.setAttribute('aria-label', 'Import file');
 importBtn.innerHTML =
-  `<img src="/icons/load.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain shrink-0" alt="" />`
-  + `<span class="text-[10px] leading-none text-base-content/50">Import</span>`;
+  `<img src="/icons/load.png" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`
+  + `<span class="${TOOLBAR_BTN_LABEL}">Import</span>`;
 importBtn.addEventListener('click', () => fileImporter.openPicker());
 const importBtnWrap = document.createElement('span');
 importBtnWrap.className = 'tooltip tooltip-bottom shrink-0';

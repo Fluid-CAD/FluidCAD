@@ -1,3 +1,5 @@
+import { ToolbarScroller } from './toolbar-scroller';
+
 interface ToolbarGroup {
   key: string;
   host: HTMLDivElement;
@@ -35,10 +37,17 @@ interface ToolbarGroup {
  * {@link setGroupVisible}) as its activation conditions change — e.g. the
  * sketch group appears only while a sketch is active. Dividers between groups
  * are managed automatically so only visible groups are separated.
+ *
+ * The groups do not sit on the bar directly but on a {@link ToolbarScroller}
+ * track, which lets the bar hold more tools than the window is wide and offers
+ * scroll arrows when it does.
  */
 export class Navbar {
   private el: HTMLDivElement;
+  private scroller: ToolbarScroller;
   private groups: ToolbarGroup[] = [];
+  /** The visible groups behind the last reflow, to spot a wholesale swap. */
+  private visibleSignature = '';
 
   constructor(container: HTMLElement) {
     this.el = document.createElement('div');
@@ -46,6 +55,7 @@ export class Navbar {
       'absolute top-12 left-0 right-0 h-14 z-[120] flex items-center px-2 ' +
       'panel-bg border-b border-base-content/10 select-none';
     container.appendChild(this.el);
+    this.scroller = new ToolbarScroller(this.el);
   }
 
   /**
@@ -60,8 +70,10 @@ export class Navbar {
     const divider = document.createElement('div');
     divider.className = 'w-px h-8 bg-base-content/[0.12] mx-1 shrink-0 hidden';
 
+    // Buttons sit close together inside a group; the dividers carry the
+    // separation between groups, so the bar fits more tools before it scrolls.
     const host = document.createElement('div');
-    host.className = 'flex items-center gap-2 shrink-0';
+    host.className = 'flex items-center gap-0.5 shrink-0';
 
     const group: ToolbarGroup = {
       key,
@@ -80,14 +92,15 @@ export class Navbar {
     const firstEnd = group.anchor === 'start'
       ? this.groups.find((g) => g.anchor === 'end')
       : undefined;
+    const track = this.scroller.track;
     if (firstEnd) {
       this.groups.splice(this.groups.indexOf(firstEnd), 0, group);
-      this.el.insertBefore(divider, firstEnd.divider);
-      this.el.insertBefore(host, firstEnd.divider);
+      track.insertBefore(divider, firstEnd.divider);
+      track.insertBefore(host, firstEnd.divider);
     } else {
       this.groups.push(group);
-      this.el.appendChild(divider);
-      this.el.appendChild(host);
+      track.appendChild(divider);
+      track.appendChild(host);
     }
     this.reflow();
     return host;
@@ -136,13 +149,27 @@ export class Navbar {
    *  for visible groups that follow another visible group. */
   private reflow(): void {
     let seenVisible = false;
+    const visibleKeys: string[] = [];
     for (const group of this.groups) {
       const visible = this.isEffectivelyVisible(group);
       group.host.classList.toggle('hidden', !visible);
       group.divider.classList.toggle('hidden', !(visible && seenVisible));
       if (visible) {
         seenVisible = true;
+        visibleKeys.push(group.key);
       }
+    }
+
+    // A different set of groups is a different toolbar — entering sketch mode
+    // swaps the bar wholesale — so show it from the start rather than stranding
+    // the user mid-scroll in tools they have never seen. Buttons appearing and
+    // disappearing *within* the same groups only re-measures.
+    const signature = visibleKeys.join(',');
+    if (signature === this.visibleSignature) {
+      this.scroller.refresh();
+    } else {
+      this.visibleSignature = signature;
+      this.scroller.reset();
     }
   }
 }

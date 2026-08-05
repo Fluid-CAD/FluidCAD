@@ -1,6 +1,7 @@
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { ToolId } from '../interactive/sketch-tool';
 import { ShortcutManager } from './shortcut-manager';
+import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './toolbar-styles';
 
 /**
  * Each tool renders a PNG from `/icons` (the same artwork the timeline uses —
@@ -72,11 +73,6 @@ const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   text: 'x',
   project: 'pj',
 };
-
-const BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 shrink-0 text-base-content/60';
-const BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1 shrink-0';
-/** Small muted caption under the toolbar icon. */
-const BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
 
 export class SketchToolbar {
   private host: HTMLElement;
@@ -294,9 +290,9 @@ export class SketchToolbar {
     wrapper.className = 'relative group shrink-0';
 
     const btn = document.createElement('button');
-    btn.className = tool.id === this.activeToolId ? BTN_ACTIVE : BTN_BASE;
-    btn.innerHTML = `<img src="/icons/${tool.iconPng}.png" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain shrink-0" alt="" />`
-      + `<span class="${BTN_LABEL}">${tool.caption ?? tool.label}</span>`;
+    btn.className = tool.id === this.activeToolId ? TOOLBAR_BTN_ACTIVE : TOOLBAR_BTN_BASE;
+    btn.innerHTML = `<img src="/icons/${tool.iconPng}.png" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`
+      + `<span class="${TOOLBAR_BTN_LABEL}">${tool.caption ?? tool.label}</span>`;
     if (tool.id === 'rect') {
       btn.addEventListener('click', () => this.handleRectButtonClick(wrapper));
     } else {
@@ -324,7 +320,7 @@ export class SketchToolbar {
   private syncButtonStates(): void {
     const highlighted = SketchToolbar.isRectVariant(this.activeToolId) ? 'rect' : this.activeToolId;
     for (const [id, btn] of this.buttons) {
-      btn.className = id === highlighted ? BTN_ACTIVE : BTN_BASE;
+      btn.className = id === highlighted ? TOOLBAR_BTN_ACTIVE : TOOLBAR_BTN_BASE;
     }
   }
 

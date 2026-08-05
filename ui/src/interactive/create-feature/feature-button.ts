@@ -1,9 +1,5 @@
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
-
-export const TOOLBAR_BTN_BASE = 'btn btn-ghost btn-sm h-auto flex-col gap-0.5 px-2 py-1 shrink-0 text-base-content/60';
-export const TOOLBAR_BTN_ACTIVE = 'btn btn-soft btn-primary btn-sm h-auto flex-col gap-0.5 px-2 py-1 shrink-0';
-/** Small muted caption under the toolbar icon. */
-export const TOOLBAR_BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
+import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from '../../ui/toolbar-styles';
 
 /**
  * The toolbar button every feature service registers: an icon with a muted
@@ -49,7 +45,7 @@ export class FeatureButton {
     this.button = document.createElement('button');
     this.button.className = TOOLBAR_BTN_BASE;
     this.button.setAttribute('aria-label', opts.ariaLabel);
-    this.button.innerHTML = `<img src="${opts.icon}" ${ICON_IMG_FALLBACK} class="w-8 h-8 object-contain shrink-0" alt="" /><span class="${TOOLBAR_BTN_LABEL}">${opts.label}</span>`;
+    this.button.innerHTML = `<img src="${opts.icon}" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" /><span class="${TOOLBAR_BTN_LABEL}">${opts.label}</span>`;
     this.button.addEventListener('click', () => this.onClick?.());
     this.wrap = document.createElement('span');
     this.wrap.className = 'tooltip tooltip-bottom shrink-0';

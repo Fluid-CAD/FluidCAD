@@ -30,6 +30,8 @@ import iconLinear from 'iconoir/icons/regular/linear.svg?raw';
 import iconOnePointCircle from 'iconoir/icons/regular/one-point-circle.svg?raw';
 import iconTypography from '@tabler/icons/outline/typography.svg?raw';
 import iconPencil from '@tabler/icons/outline/pencil.svg?raw';
+import iconChevronLeft from '@tabler/icons/outline/chevron-left.svg?raw';
+import iconChevronRight from '@tabler/icons/outline/chevron-right.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -75,6 +77,11 @@ export const ICON_BEZIER = '<svg width="24" height="24" viewBox="0 0 24 24" fill
 
 export const ICON_CHEVRON_RIGHT = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
 export const ICON_CHEVRON_DOWN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+
+/** Toolbar scroll arrows — stroked chevrons, distinct from the filled
+ *  disclosure caret {@link ICON_CHEVRON_RIGHT} the tree panels use. */
+export const ICON_SCROLL_LEFT = iconChevronLeft;
+export const ICON_SCROLL_RIGHT = iconChevronRight;
 export const ICON_DOTS_VERTICAL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
 export const ICON_CUBE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
 export const ICON_CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';

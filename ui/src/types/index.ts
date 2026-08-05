@@ -45,6 +45,7 @@ export type ObjectType =
   // Modification operations
   | 'fillet'
   | 'fillet2d'
+  | 'offset'
   | 'chamfer'
   | 'draft'
   | 'thickness'

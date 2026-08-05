@@ -14,7 +14,7 @@ import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
-  collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
+  collectExtrudeProfiles, labelWithSketchNames, optionsSignature, resolveProfileByShapeId, resolveProfileRow,
   SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
 
@@ -216,7 +216,7 @@ export class ExtrudeFeatureService {
     // At the boundary: rebuild options from the pre-statement scene.
     this.ghost.clear();
     this.sceneObjects = sceneObjects;
-    this.options = collectSketchProfiles(sceneObjects);
+    this.options = collectExtrudeProfiles(sceneObjects);
     if (this.editSceneStale) {
       this.editSceneStale = false;
       // A scene rebuild killed the re-picked face's shape id; the keep chip
@@ -228,6 +228,7 @@ export class ExtrudeFeatureService {
       }
     }
     this.viewer.pickSketchWires = true;
+    this.viewer.pickProfileWires = true;
     this.panel.setOptions(this.options);
     this.syncFacePickMode();
     if (!this.sourceProfile) {
@@ -244,7 +245,7 @@ export class ExtrudeFeatureService {
    */
   update(sceneObjects: SceneObjectRender[]): void {
     this.sceneObjects = sceneObjects;
-    this.options = collectSketchProfiles(sceneObjects);
+    this.options = collectExtrudeProfiles(sceneObjects);
     this.sceneSketchActive = this.options[0]?.kind === 'active';
     this.hasSolid = sceneObjects.some(o =>
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
@@ -279,6 +280,7 @@ export class ExtrudeFeatureService {
       this.panel.setFaceChip(null);
     }
     this.viewer.pickSketchWires = true;
+    this.viewer.pickProfileWires = true;
     this.panel.setOptions(this.options);
     this.syncFacePickMode();
     void this.relabeler.refresh(this.options);
@@ -312,6 +314,7 @@ export class ExtrudeFeatureService {
     this.syncButton();
     this.sketchUI.suspend();
     this.viewer.pickSketchWires = true;
+    this.viewer.pickProfileWires = true;
     this.session.begin({ ...info, target });
     void this.loadEditSources();
     void this.refreshScopeVariables();
@@ -378,6 +381,7 @@ export class ExtrudeFeatureService {
     }
     // Clicking a sketch's wires in the 3D view selects it as the profile.
     this.viewer.pickSketchWires = true;
+    this.viewer.pickProfileWires = true;
     this.syncButton();
     void this.refreshScopeVariables();
     this.panel.show(this.options);
@@ -414,6 +418,7 @@ export class ExtrudeFeatureService {
     this.editSceneStale = false;
     this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
+    this.viewer.pickProfileWires = false;
     this.viewer.clearHighlight();
     this.syncButton();
     this.runner.cancelPreview();
@@ -482,7 +487,7 @@ export class ExtrudeFeatureService {
     if (!this.armed) {
       return false;
     }
-    const sketch = resolveSketchRow(obj, this.sceneObjects);
+    const sketch = resolveProfileRow(obj, this.sceneObjects);
     if (!sketch?.sourceLocation) {
       return false;
     }
@@ -495,7 +500,7 @@ export class ExtrudeFeatureService {
     if (!this.armed) {
       return false;
     }
-    const sketch = resolveSketchByShapeId(shapeId, this.sceneObjects);
+    const sketch = resolveProfileByShapeId(shapeId, this.sceneObjects);
     if (!sketch?.sourceLocation) {
       return false;
     }
@@ -644,6 +649,7 @@ export class ExtrudeFeatureService {
     const profile = selection?.kind === 'sketch'
       ? {
         mode: 'bound' as const,
+        feature: selection.option.feature === 'offset' ? 'offset' as const : undefined,
         filePath: selection.option.filePath,
         line: selection.option.line,
         column: selection.option.column,
@@ -671,6 +677,7 @@ export class ExtrudeFeatureService {
 function profileRef(option: SketchProfileOption): ExtrudeProfileRef {
   return {
     mode: option.kind === 'active' ? 'active' : 'bound',
+    feature: option.feature === 'offset' ? 'offset' : undefined,
     filePath: option.filePath,
     line: option.line,
     column: option.column,

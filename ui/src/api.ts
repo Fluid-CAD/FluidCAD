@@ -1285,6 +1285,12 @@ export async function convertSegment(
 export type ExtrudeProfileRef = {
   /** `active` consumes the sketch implicitly; `bound` binds it to a variable. */
   mode: 'active' | 'bound';
+  /**
+   * The producing statement's callee — a sketch, or a top-level face offset
+   * (extrude only; absent reads as sketch). Drives the bound variable's
+   * callee guard and name hint server-side.
+   */
+  feature?: 'sketch' | 'offset';
   filePath: string;
   line: number;
   column: number;
@@ -2232,8 +2238,8 @@ export type EditSessionFields = {
 };
 
 export type ExtrudeEditOptions = ExtrudeOptionValues & EditSessionFields & {
-  /** Re-sourced profile sketch; omitted keeps the statement's own. */
-  profile?: { mode: 'bound' } & SketchSourceRef;
+  /** Re-sourced profile (a sketch or a top-level offset); omitted keeps the statement's own. */
+  profile?: { mode: 'bound'; feature?: 'sketch' | 'offset' } & SketchSourceRef;
   /**
    * Up-to-face target: `keep` re-emits the statement's own target text,
    * `face` re-picks it, `first-face`/`last-face` swap it for that literal.
@@ -2778,7 +2784,7 @@ export async function applyValueFeatureEdit(
  */
 export async function fetchSketchNames(
   lines: number[],
-  callee: 'sketch' | 'plane' | 'axis' | 'helix' = 'sketch',
+  callee: 'sketch' | 'plane' | 'axis' | 'helix' | 'offset' = 'sketch',
 ): Promise<(string | null)[]> {
   try {
     const res = await fetch('/api/sketch-names', {

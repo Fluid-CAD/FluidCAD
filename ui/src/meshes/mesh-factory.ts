@@ -91,6 +91,13 @@ export function buildObjectMesh(
     result = new ShapeGroup(obj, isRegionPicking, options);
   }
 
+  // A top-level offset's edges are extrudable profile wires: mark them for
+  // the extrude dialog's opt-in profile pick channel (in-sketch offsets
+  // render under their SketchMesh, which stamps its own wires).
+  if (obj.type === 'offset') {
+    result.traverse(child => { child.userData.isProfileWire = true; });
+  }
+
   // Select overlays render last so they always appear on top.
   if (isSelect) {
     result.traverse(child => { child.renderOrder = 999; });

@@ -5668,15 +5668,20 @@ function editedSelectorArgs(
 /**
  * Variable text of a re-sourced sketch/wire slot: the binding's name, else
  * the hint. The route types each slot's producer ('sketch' for profiles,
- * 'wire' for paths/guides), so accepting both here stays sound — the callee
- * check happens where the producer binds.
+ * 'wire' for paths/guides, 'offset' for an extrude's face-offset profile —
+ * `allowOffset` opts that in for exactly that slot), so accepting these here
+ * stays sound — the callee check happens where the producer binds.
  */
 function editSourceVar(
   spec: EditRenderSpec,
   producer: number,
   varFor: (producer: number) => string | null,
+  allowOffset = false,
 ): string | { error: string } {
-  if (!isWireProducer(spec as ApplyFeatureEditSpec, producer)) {
+  const offsetProducer = allowOffset
+    && Number.isInteger(producer) && producer >= 0 && producer < spec.producers.length
+    && spec.producers[producer].featureType === 'offset';
+  if (!offsetProducer && !isWireProducer(spec as ApplyFeatureEditSpec, producer)) {
     return { error: 'malformed edit spec: a re-sourced slot references a non-sketch producer' };
   }
   return varFor(producer) ?? spec.producers[producer].nameHint ?? 's';
@@ -6279,7 +6284,7 @@ export function renderEditedStatement(
     }
     let profileText = parsed.profileText;
     if (opts.profile !== undefined && opts.profile.kind !== 'keep') {
-      const varName = editSourceVar(spec, opts.profile.producer, varFor);
+      const varName = editSourceVar(spec, opts.profile.producer, varFor, true);
       if (typeof varName !== 'string') {
         return varName;
       }

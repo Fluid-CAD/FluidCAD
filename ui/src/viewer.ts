@@ -102,6 +102,12 @@ export class Viewer {
    */
   pickSketchWires = false;
   /**
+   * Opt-in: top-level offset outlines resolve as profile picks (the extrude
+   * dialog). Separate from `pickSketchWires` so the other wire-arming dialogs
+   * (sweep, loft) keep offset edges pickable as plain edges.
+   */
+  pickProfileWires = false;
+  /**
    * Makes axis lines (the dashed `axis(…)` guides) pickable, independent of
    * `pickFilter` — the armed revolve dialog enables it so clicking an axis
    * selects it as the revolve axis. A hit returns the line's shapeId with
@@ -403,6 +409,7 @@ export class Viewer {
 
     const candidates = collectPickCandidates(this.ctx.scene, {
       sketchWires: this.pickSketchWires,
+      profileWires: this.pickProfileWires,
       axes: this.pickAxes,
       planes: this.pickPlanes,
     });

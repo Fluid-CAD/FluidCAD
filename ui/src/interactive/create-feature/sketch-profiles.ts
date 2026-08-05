@@ -3,16 +3,17 @@ import { isTopLevel } from '../../helpers/scene-utils';
 import { SceneObjectPart, SceneObjectRender } from '../../types';
 import { PickSlotChip } from '../pick-slot';
 
-/** A sketch or helix a create-feature dialog can consume (profile or path). */
+/** A sketch, helix or offset a create-feature dialog can consume (profile or path). */
 export type SketchProfileOption = {
   /** `active` is the sketch being edited (implicit consumption). */
   kind: 'active' | 'other';
   /**
-   * The producing statement: a sketch, or a helix. A helix is a bare wire —
-   * offered only where a wire is valid (a sweep path, a loft guide), never as
-   * a planar profile.
+   * The producing statement: a sketch, a helix, or a top-level face offset.
+   * A helix is a bare wire — offered only where a wire is valid (a sweep
+   * path, a loft guide), never as a planar profile. An offset is a planar
+   * profile — offered only where one is extruded, never as a wire.
    */
-  feature: 'sketch' | 'helix';
+  feature: 'sketch' | 'helix' | 'offset';
   label: string;
   filePath: string;
   line: number;
@@ -50,6 +51,35 @@ export function collectSketchProfiles(sceneObjects: SceneObjectRender[]): Sketch
       continue;
     }
     options.push(toOption(obj, 'other', sceneObjects));
+  }
+  return options;
+}
+
+/**
+ * The profiles an extrude can consume right now: every offered sketch (see
+ * {@link collectSketchProfiles}) plus every top-level face offset still
+ * rendering its outline — an offset is extrudable exactly like a sketch,
+ * with the face plane as its plane. In-sketch offsets ride their sketch.
+ */
+export function collectExtrudeProfiles(sceneObjects: SceneObjectRender[]): SketchProfileOption[] {
+  const options = collectSketchProfiles(sceneObjects);
+  for (const obj of sceneObjects) {
+    if (obj.type !== 'offset' || !obj.sourceLocation || !isTopLevel(obj, sceneObjects)) {
+      continue;
+    }
+    if (!hasRenderedGeometry(obj, sceneObjects)) {
+      continue;
+    }
+    const loc = obj.sourceLocation;
+    options.push({
+      kind: 'other',
+      feature: 'offset',
+      label: 'Offset',
+      filePath: loc.filePath,
+      line: loc.line,
+      column: loc.column,
+      hasGeometry: true,
+    });
   }
   return options;
 }
@@ -96,7 +126,7 @@ export async function labelWithSketchNames(options: SketchProfileOption[]): Prom
     return options;
   }
   const names = new Array<string | null>(options.length).fill(null);
-  await Promise.all((['sketch', 'helix'] as const).map(async (feature) => {
+  await Promise.all((['sketch', 'helix', 'offset'] as const).map(async (feature) => {
     const indexes = options.flatMap((o, i) => o.feature === feature ? [i] : []);
     if (indexes.length === 0) {
       return;
@@ -196,6 +226,35 @@ export function resolveSketchByShapeId(
 }
 
 /**
+ * Resolve a timeline row to the extrudable profile it belongs to: a
+ * top-level offset row is its own source (it carries its outline on itself;
+ * an in-sketch offset row resolves to its sketch); anything else resolves
+ * like a sketch row. For the extrude profile slot.
+ */
+export function resolveProfileRow(
+  obj: SceneObjectRender,
+  sceneObjects: SceneObjectRender[],
+): SceneObjectRender | undefined {
+  if (obj.type === 'offset' && isTopLevel(obj, sceneObjects)) {
+    return obj;
+  }
+  return resolveSketchRow(obj, sceneObjects);
+}
+
+/**
+ * Resolve a picked wire shape to its extrudable profile: a top-level offset
+ * owns its outline edges directly; sketch wires resolve through their entity
+ * object's parent.
+ */
+export function resolveProfileByShapeId(
+  shapeId: string,
+  sceneObjects: SceneObjectRender[],
+): SceneObjectRender | undefined {
+  const owner = sceneObjects.find(o => o.sceneShapes?.some(s => s.shapeId === shapeId));
+  return owner ? resolveProfileRow(owner, sceneObjects) : undefined;
+}
+
+/**
  * Resolve a timeline row to the wire source it belongs to: a helix row is
  * its own source (it carries its wire on itself); anything else resolves
  * like a sketch row. For the wire-consuming slots (sweep path, loft guides).
@@ -232,15 +291,16 @@ function wireShapeParts(
   option: { filePath: string; line: number },
   sceneObjects: SceneObjectRender[],
 ): SceneObjectPart[] {
-  const source = sceneObjects.find(o => (o.type === 'sketch' || o.type === 'helix')
+  const source = sceneObjects.find(o => (o.type === 'sketch' || o.type === 'helix' || o.type === 'offset')
     && o.sourceLocation?.filePath === option.filePath && o.sourceLocation?.line === option.line);
   if (!source) {
     return [];
   }
   const drawn = (parts: SceneObjectPart[] | undefined): SceneObjectPart[] =>
     (parts ?? []).filter(s => !s.isMetaShape && !s.isGuide && s.shapeId);
-  // A helix carries its wire on its own object — there are no children.
-  if (source.type === 'helix') {
+  // A helix (or a top-level offset) carries its wires on its own object —
+  // there are no children.
+  if (source.type === 'helix' || source.type === 'offset') {
     return drawn(source.sceneShapes);
   }
   return sceneObjects.flatMap(obj => obj.parentId === source.id ? drawn(obj.sceneShapes) : []);

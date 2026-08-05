@@ -238,9 +238,20 @@ type ExtrudeOptionSet = {
  * the kernel resolves itself.
  */
 type ExtrudeRequest = ExtrudeOptionSet & {
-  profile: { mode: 'active' | 'bound' } & SketchLoc;
+  profile: { mode: 'active' | 'bound'; feature: 'sketch' | 'offset' } & SketchLoc;
   toFace?: Pick | ExtrudeFaceTarget;
 };
+
+/**
+ * The extrude profile's callee: a sketch (the default), or a top-level face
+ * offset — extrudable exactly like a sketch, bound with its own hint.
+ */
+function validateProfileFeature(raw: unknown): 'sketch' | 'offset' | null {
+  if (raw === undefined || raw === null || raw === 'sketch') {
+    return 'sketch';
+  }
+  return raw === 'offset' ? 'offset' : null;
+}
 
 
 /**
@@ -408,10 +419,14 @@ function validateExtrude(body: any): ExtrudeRequest | { error: string } {
   }
   const mode = body?.profile?.mode;
   const loc = validateSketchLoc(body?.profile);
-  if ((mode !== 'active' && mode !== 'bound') || !loc) {
-    return { error: 'profile must be {mode: "active"|"bound", filePath, line} of the sketch' };
+  const profileFeature = validateProfileFeature(body?.profile?.feature);
+  if ((mode !== 'active' && mode !== 'bound') || !loc || !profileFeature) {
+    return { error: 'profile must be {mode: "active"|"bound", filePath, line} of the sketch or offset' };
   }
-  const profile = { mode, ...loc };
+  if (profileFeature === 'offset' && mode !== 'bound') {
+    return { error: 'an offset profile is always bound to a variable' };
+  }
+  const profile = { mode, feature: profileFeature, ...loc };
   if (!hasToFace) {
     return { ...options, profile };
   }
@@ -1509,7 +1524,7 @@ type StatementEditRequest = {
   /** Re-picked sketch edges for a 2D offset; absent keeps the args. */
   sketchPicks?: { shapeId: string }[];
   /** Re-sourced extrude profile sketch; absent keeps the statement's. */
-  extrudeProfile?: SketchLoc;
+  extrudeProfile?: SketchLoc & { feature: 'sketch' | 'offset' };
   /** Re-picked extrude up-to-face target; the keep case rides the edit target. */
   extrudeToFace?: Pick;
   /** Re-sourced rib spine sketch; absent keeps the statement's. */
@@ -1646,10 +1661,11 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       return result;
     }
     const loc = validateSketchLoc(body.profile);
-    if (body.profile?.mode !== 'bound' || !loc) {
-      return { error: 'an edited profile must be {mode: "bound", filePath, line} of the sketch' };
+    const profileFeature = validateProfileFeature(body.profile?.feature);
+    if (body.profile?.mode !== 'bound' || !loc || !profileFeature) {
+      return { error: 'an edited profile must be {mode: "bound", filePath, line} of the sketch or offset' };
     }
-    return { ...result, extrudeProfile: loc };
+    return { ...result, extrudeProfile: { ...loc, feature: profileFeature } };
   }
 
   if (feature === 'rib') {
@@ -2887,7 +2903,14 @@ export function createApplyFeatureRouter(
 
         const edit = request.edit;
         if (request.extrudeProfile) {
-          edit.extrude!.profile = { kind: 'sketch', producer: sketchRef(request.extrudeProfile, 's') };
+          // An offset profile binds under its own callee guard and hint.
+          const producer = request.extrudeProfile.feature === 'offset'
+            ? mergeProducer({
+              line: request.extrudeProfile.line, column: request.extrudeProfile.column,
+              featureType: 'offset', nameHint: 'o', bind: true,
+            })
+            : sketchRef(request.extrudeProfile, 's');
+          edit.extrude!.profile = { kind: 'sketch', producer };
         }
         if (request.extrudeToFace) {
           const synthesis = synthesizeSlot([request.extrudeToFace], 'extrude', undefined, []);
@@ -3410,12 +3433,15 @@ export function createApplyFeatureRouter(
       try {
         const code = fluidCadServer.getCurrentCode();
         // The profile stays producers[0] in both modes — the transform's
-        // extrude contract; the face selector's producers follow it.
+        // extrude contract; the face selector's producers follow it. An
+        // offset profile binds under its own callee guard and hint.
+        const profileType = request.profile.feature;
+        const profileHint = profileType === 'offset' ? 'o' : 's';
         const producers: ApplyFeatureEditSpec['producers'] = [{
           line: request.profile.line,
           column: request.profile.column,
-          featureType: 'sketch',
-          nameHint: 's',
+          featureType: profileType,
+          nameHint: profileHint,
           bind: request.profile.mode === 'bound',
         }];
         let parts: ApplyFeatureEditSpec['parts'] = [];
@@ -3483,7 +3509,7 @@ export function createApplyFeatureRouter(
         let profileVar: string | null = null;
         if (request.profile.mode === 'bound' && code) {
           const namer = await makeProducerNamer(code);
-          profileVar = namer([{ line: request.profile.line, nameHint: 's', featureType: 'sketch' }])[0];
+          profileVar = namer([{ line: request.profile.line, nameHint: profileHint, featureType: profileType }])[0];
         }
         const statement = renderExtrudeStatement(options, profileVar, faceArgs);
         if (preview === true) {
@@ -5183,8 +5209,9 @@ export function createApplyFeatureRouter(
       res.status(400).json({ error: 'lines must be up to 64 positive integers' });
       return;
     }
-    if (callee !== undefined && callee !== 'sketch' && callee !== 'plane' && callee !== 'axis' && callee !== 'helix') {
-      res.status(400).json({ error: 'callee must be "sketch", "plane", "axis" or "helix"' });
+    if (callee !== undefined && callee !== 'sketch' && callee !== 'plane' && callee !== 'axis'
+      && callee !== 'helix' && callee !== 'offset') {
+      res.status(400).json({ error: 'callee must be "sketch", "plane", "axis", "helix" or "offset"' });
       return;
     }
     const lineNumbers = lines as number[];

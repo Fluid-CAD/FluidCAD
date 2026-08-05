@@ -401,6 +401,49 @@ describe('select→apply-feature end to end', () => {
     }
   });
 
+  it('extrudes a bound face-offset profile through the offset callee guard', async () => {
+    const code = [
+      `import { sketch, rect, extrude, offset } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      `offset(-5, e.endFaces())`,
+      ``,
+    ].join('\n');
+
+    // The extrude create spec the route builds for an offset profile: one
+    // bound producer under the 'offset' callee guard, no selector parts.
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'extrude',
+      extrude: {
+        op: 'new', distance: 10, distance2: null, symmetric: false,
+        draft: null, endOffset: null, drill: true, thin: null, profile: 'bound',
+      },
+      filePath: '/ws/model.fluid.js',
+      producers: [{ line: 5, column: 0, featureType: 'offset', nameHint: 'o', bind: true }],
+      parts: [],
+      imports: [],
+    };
+    const edited = await applyFeatureEdit(code, spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain('const o = offset(-5, e.endFaces())');
+    expect(edited.newCode).toContain('extrude(10, o).new()');
+
+    // Executing the edit builds the rim solid on the top plane.
+    const rerun = runFluid(edited.newCode);
+    const errors = rerun.getAllSceneObjects().map(o => o.getError()).filter(Boolean);
+    expect(errors).toEqual([]);
+    const rim = rerun.getAllSceneObjects()
+      .filter(o => o.getType() === 'extrude')
+      .flatMap(o => o.getShapes())
+      .filter(s => s.getType() === 'solid')
+      .map(s => ShapeOps.getBoundingBox(s))
+      .find(b => b.maxZ > 35);
+    expect(rim).toBeDefined();
+    expect(rim!.minZ).toBeCloseTo(30, 0);
+    expect(rim!.maxZ).toBeCloseTo(40, 0);
+  });
+
   it('refuses an offset over edge picks', () => {
     sketch('xy', () => { rect(100, 50) });
     const e = extrude(30);

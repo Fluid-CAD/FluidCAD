@@ -3,7 +3,7 @@
 // with the SKETCH call's own source location, so its line holds no plane()
 // call to reference as a base or open an edit dialog on.
 import { describe, it, expect } from 'vitest';
-import { collectPlaneOptions, isPlaneStatementRow } from '../src/interactive/create-feature/plane-bases';
+import { collectPlaneOptions, isPlaneStatementRow, planeQuadShapeIds } from '../src/interactive/create-feature/plane-bases';
 import type { SceneObjectRender } from '../src/types';
 
 const FILE = '/ws/model.fluid.js';
@@ -73,5 +73,29 @@ describe('collectPlaneOptions', () => {
     ]);
     expect(options).toHaveLength(1);
     expect(options[0].line).toBe(6);
+  });
+});
+
+describe('planeQuadShapeIds', () => {
+  const shapes = (...ids: string[]) =>
+    ({ sceneShapes: ids.map(shapeId => ({ shapeId })) }) as Partial<SceneObjectRender>;
+
+  it('returns the statement result quad — the last plane row at the line', () => {
+    // A mid plane's two inputs share the call site; only the result's quad
+    // should highlight.
+    const ids = planeQuadShapeIds({ filePath: FILE, line: 6 }, [
+      row('plane', 6, { id: 'input-1', ...shapes('quad-1') }),
+      row('plane', 6, { id: 'input-2', ...shapes('quad-2') }),
+      row('plane', 6, { id: 'result', ...shapes('quad-3') }),
+    ]);
+    expect(ids).toEqual(['quad-3']);
+  });
+
+  it('skips internal planes and other lines, and tolerates missing shapes', () => {
+    expect(planeQuadShapeIds({ filePath: FILE, line: 7 }, [
+      row('plane', 7, { internal: true, ...shapes('quad-1') }),
+      row('plane', 3, shapes('quad-2')),
+    ])).toEqual([]);
+    expect(planeQuadShapeIds({ filePath: FILE, line: 3 }, [row('plane', 3)])).toEqual([]);
   });
 });

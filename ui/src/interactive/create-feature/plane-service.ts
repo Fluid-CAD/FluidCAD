@@ -16,8 +16,8 @@ import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
 import {
-  collectPlaneOptions, labelWithPlaneNames, PlaneOption, planeOptionForLocation, planeOptionsSignature,
-  resolvePlaneRow,
+  collectPlaneOptions, labelWithPlaneNames, PlaneOption, planeOptionForLocation, planeOptionForShape,
+  planeOptionsSignature, planeQuadShapeIds, resolvePlaneRow,
 } from './plane-bases';
 import {
   collectWireSources, isSingleEdgeWire, keepChip, labelWithSketchNames, optionsSignature,
@@ -58,8 +58,8 @@ type PlaneBaseItem =
  * only for the edge type — a helix's wire counts and lands as the named
  * helix source; clicking a picked entity removes it), the standard
  * origin planes are shown in the viewport as pick targets (the
- * sketch-on-plane mechanism), and existing plane features come from timeline
- * clicks. Arming with a selection already highlighted seeds the dialog: one
+ * sketch-on-plane mechanism), and existing plane features are picked on
+ * their rendered quads or from timeline clicks. Arming with a selection already highlighted seeds the dialog: one
  * edge opens the edge type, one face the offset type, two faces the mid
  * type — each with the selection as base(s). Apply writes `plane(…)` — the
  * re-render is the preview, editor undo the rollback.
@@ -100,8 +100,12 @@ export class PlaneFeatureService {
     private viewer: Viewer,
     private navbar: Navbar,
     private hooks: {
-      /** May return the current neutral selection — it seeds the dialog. */
-      onEnter?: () => SelectedEntity[] | void;
+      /**
+       * Returns the current neutral selection and/or the pending plane
+       * quad's shape id — they seed the dialog. (A plane pick is never a
+       * {@link SelectedEntity}, so the plane rides its own field.)
+       */
+      onEnter?: () => { entities?: SelectedEntity[]; planeShapeId?: string | null };
       /** Armed or disarmed — lets the Sketch button owner re-check `isActive`. */
       onActiveChange?: () => void;
       onSuspendSketchUI?: () => void;
@@ -220,6 +224,11 @@ export class PlaneFeatureService {
   /** Picks are live the whole time armed — the viewer routes clicks here. */
   get isPicking(): boolean {
     return this.armed;
+  }
+
+  /** Plane-quad clicks route here — the offset and mid types take planes. */
+  get isPlanePicking(): boolean {
+    return this.armed && this.panel.planeType !== 'edge';
   }
 
   /** True while the armed dialog has suspended sketch editing. */
@@ -381,8 +390,7 @@ export class PlaneFeatureService {
       return;
     }
     this.session.end('continue');
-    const seeded = this.hooks.onEnter?.();
-    const seed = Array.isArray(seeded) ? seeded : [];
+    const seeded = this.hooks.onEnter?.() ?? {};
     this.armed = true;
     this.bases = [];
     // Composing a plane means looking at the whole scene, not down the
@@ -394,7 +402,7 @@ export class PlaneFeatureService {
     this.syncButton();
     void this.refreshScopeVariables();
     this.panel.show();
-    this.seedFromSelection(seed);
+    this.seedFromSelection(seeded.entities ?? [], seeded.planeShapeId ?? null);
     void this.relabeler.refresh(this.planes);
     this.refresh();
     this.runner.schedulePreview();
@@ -402,10 +410,16 @@ export class PlaneFeatureService {
 
   /**
    * Arm the dialog around whatever was already selected: one edge opens the
-   * edge type on it, one face the offset type, two faces the mid type. Any
-   * other selection starts blank.
+   * edge type on it, one face the offset type, two faces the mid type, and a
+   * selected plane quad (the neutral-mode pending plane) the offset type on
+   * that plane. Any other selection starts blank.
    */
-  private seedFromSelection(seed: SelectedEntity[]): void {
+  private seedFromSelection(seed: SelectedEntity[], planeShapeId: string | null): void {
+    if (planeShapeId) {
+      const option = planeOptionForShape(planeShapeId, this.sceneObjects, this.planes);
+      this.bases = option ? [{ kind: 'plane', option }] : [];
+      return;
+    }
     const faces = seed.filter(e => e.sub.type === 'face');
     const edges = seed.filter(e => e.sub.type === 'edge');
     if (seed.length === 1 && edges.length === 1) {
@@ -521,6 +535,24 @@ export class PlaneFeatureService {
     this.panel.setMessage(null);
     this.toggleBase({ kind: 'wire', option });
     return true;
+  }
+
+  /**
+   * A plane feature's quad was clicked (the offset and mid types open the
+   * viewer's plane-quad channel — see {@link syncViewport}): the plane joins
+   * the base list, and clicking a chosen plane's quad removes it.
+   */
+  handlePlanePick(shapeId: string): void {
+    if (!this.isPlanePicking) {
+      return;
+    }
+    const option = planeOptionForShape(shapeId, this.sceneObjects, this.planes);
+    if (!option) {
+      this.panel.setMessage('That plane cannot be referenced — only plane() features can be a base.');
+      return;
+    }
+    this.panel.setMessage(null);
+    this.toggleBase({ kind: 'plane', option });
   }
 
   /** The picked shape's owning sketch or helix as a wire base, when offered. */
@@ -846,7 +878,8 @@ export class PlaneFeatureService {
    * scene) and the pick filter narrows scene picks to faces (offset/mid) or
    * edges (edge type). The edge type also opens the sketch-wire channel, so a
    * bare sketch curve — which renders as a wire, outside the solid-edge bucket
-   * — can be picked.
+   * — can be picked. The face types open the plane-quad channel instead, so
+   * an existing plane() feature can be picked as a base right on its quad.
    *
    * Called from {@link refresh}, so the quads always follow the chips.
    */
@@ -857,6 +890,10 @@ export class PlaneFeatureService {
     const edgeType = this.panel.planeType === 'edge';
     this.viewer.pickFilter = edgeType ? 'edge' : 'face';
     this.viewer.pickSketchWires = edgeType;
+    // No exit reset needed: leaving the dialog runs the modify service's
+    // neutral-mode restore (via syncButton's onActiveChange), which owns
+    // the plane-quad channel from there.
+    this.viewer.pickPlanes = !edgeType;
     // The edge type's only base is a curve, so its quads never help.
     if (edgeType || this.standardBaseFills()) {
       this.viewer.hideStandardPlanes();
@@ -909,8 +946,10 @@ export class PlaneFeatureService {
     const picked = this.bases.flatMap(b => (b.kind === 'pick' ? [b.entity] : []));
     const wireIds = this.bases.flatMap(b =>
       b.kind === 'wire' ? sketchWireShapeIds(b.option, this.sceneObjects) : []);
-    if (picked.length > 0 || wireIds.length > 0) {
-      this.viewer.highlightEntities(picked, wireIds);
+    const quadIds = this.bases.flatMap(b =>
+      b.kind === 'plane' ? planeQuadShapeIds(b.option, this.sceneObjects) : []);
+    if (picked.length > 0 || wireIds.length > 0 || quadIds.length > 0) {
+      this.viewer.highlightEntities(picked, wireIds, [], quadIds);
     } else {
       this.viewer.clearHighlight();
     }

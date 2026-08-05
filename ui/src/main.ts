@@ -349,8 +349,12 @@ const ribService = new RibFeatureService(container, viewer, navbar, {
 // the group reads Sketch, Plane, Extrude, Sweep, Loft.
 const planeService = new PlaneFeatureService(container, viewer, navbar, {
   // The current highlight seeds the dialog (one edge → edge type, one face →
-  // offset, two faces → mid), like the modify tools.
+  // offset, two faces → mid, a selected plane quad → offset on that plane),
+  // like the modify tools.
   onEnter: () => {
+    // The neutral-mode pending plane (a clicked quad, held for the Sketch
+    // button) — captured before the exits below clear it.
+    const pendingPlane = modifyService.pendingPlane;
     projectionService.exit({ resume: 'lazy' });
     modifyService.displaceSketchSession();
     modifyService.exit();
@@ -364,12 +368,14 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
     repeatService.exit();
     copyService.exit();
     booleanService.exit();
-    const seed = [...measureController.selection];
+    const entities = [...measureController.selection];
     textEditService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
-    return seed;
+    // Pending plane and measure selection are mutually exclusive (each click
+    // kind clears the other), so at most one of the two seeds is non-empty.
+    return { entities, planeShapeId: pendingPlane };
   },
   onActiveChange: syncSketchButtonBlocked,
   onSuspendSketchUI: suspendSketchForFeature,
@@ -974,12 +980,17 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   }
   // A plane-quad pick exists while the sketch mode is armed (sketch on that
   // plane right away), while the repeat dialog's Mirror type is up (the quad
-  // is the mirror plane), or in neutral mode (hold it as the pending sketch
+  // is the mirror plane), while the plane dialog's offset/mid types are up
+  // (the quad is a base), or in neutral mode (hold it as the pending sketch
   // plane — the Sketch button consumes it). Never part of the measure set.
   if (sub?.type === 'plane') {
     if (shapeId) {
       if (repeatService.isPlanePicking) {
         repeatService.handlePlanePick(shapeId);
+        return;
+      }
+      if (planeService.isPlanePicking) {
+        planeService.handlePlanePick(shapeId);
         return;
       }
       if (!modifyService.isActive) {

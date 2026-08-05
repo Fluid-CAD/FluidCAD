@@ -118,6 +118,23 @@ export function planeOptionForLocation(
 }
 
 /**
+ * The rendered quad shapes behind a plane option, for highlighting a chosen
+ * base in the viewport. Several plane objects can share the option's line (a
+ * mid plane registers its two inputs too) — the LAST one is the statement's
+ * result, the same reading as {@link collectPlaneOptions}.
+ */
+export function planeQuadShapeIds(
+  option: { filePath: string; line: number },
+  sceneObjects: SceneObjectRender[],
+): string[] {
+  const rows = sceneObjects.filter(o => o.type === 'plane' && !o.internal
+    && o.sourceLocation?.filePath === option.filePath
+    && o.sourceLocation.line === option.line);
+  const result = rows[rows.length - 1];
+  return result?.sceneShapes?.flatMap(s => s.shapeId ? [s.shapeId] : []) ?? [];
+}
+
+/**
  * Resolve a picked plane-quad shape to its offered option; undefined means
  * the plane cannot back the slot (not a plane() feature).
  */

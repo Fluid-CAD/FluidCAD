@@ -77,6 +77,7 @@ export class Viewer {
   private highlightedShapeId: string | null = null;
   private highlightedSolidShapeIds: string[] = [];
   private highlightedSketchWires: string[] = [];
+  private highlightedPlaneQuads: string[] = [];
   private faceHighlightMeshes: Mesh[] = [];
   private hasRendered = false;
   private lastFitBox: Box3 | null = null;
@@ -639,6 +640,7 @@ export class Viewer {
     this.highlightedShapeId = null;
     this.highlightedSolidShapeIds = [];
     this.highlightedEntities = [];
+    this.highlightedPlaneQuads = [];
     this.faceHighlightMeshes = [];
     this.hoverState = null;
     this.hoverFaceOverlayMeshes = [];
@@ -762,7 +764,7 @@ export class Viewer {
   clearHighlight(): void {
     if (!this.highlightedShapeId && this.highlightedEntities.length === 0
       && this.highlightedSketchWires.length === 0 && this.faceHighlightMeshes.length === 0
-      && this.highlightedSolidShapeIds.length === 0) {
+      && this.highlightedSolidShapeIds.length === 0 && this.highlightedPlaneQuads.length === 0) {
       return;
     }
 
@@ -796,19 +798,22 @@ export class Viewer {
     this.highlightedSolidShapeIds = [];
     this.highlightedEntities = [];
     this.highlightedSketchWires = [];
+    this.highlightedPlaneQuads = [];
     this.ctx.render();
   }
 
   /**
    * Highlight a set of faces/edges at once (e.g. a measure selection), plus
    * optionally whole sketch wires by shape id (a create dialog's selected
-   * sketch inputs) and whole solids by shape id (a copy dialog's selected
-   * targets). Replaces any previous highlight.
+   * sketch inputs), whole solids by shape id (a copy dialog's selected
+   * targets) and construction-plane quads by shape id (a plane dialog's
+   * chosen plane bases). Replaces any previous highlight.
    */
   highlightEntities(
     entities: SelectedEntity[],
     sketchWireShapeIds: string[] = [],
     solidShapeIds: string[] = [],
+    planeQuadShapeIds: string[] = [],
   ): void {
     this.clearHighlight();
     for (const entity of entities) {
@@ -824,9 +829,13 @@ export class Viewer {
     for (const shapeId of solidShapeIds) {
       this.applyShapeHighlight(shapeId);
     }
+    for (const shapeId of planeQuadShapeIds) {
+      this.applyPlaneQuadHighlight(shapeId);
+    }
     this.highlightedEntities = entities;
     this.highlightedSketchWires = sketchWireShapeIds;
     this.highlightedSolidShapeIds = solidShapeIds;
+    this.highlightedPlaneQuads = planeQuadShapeIds;
     this.ctx.render();
   }
 
@@ -838,6 +847,13 @@ export class Viewer {
    */
   highlightPlaneQuad(shapeId: string): void {
     this.clearHighlight();
+    this.applyPlaneQuadHighlight(shapeId);
+    this.highlightedPlaneQuads = [shapeId];
+    this.ctx.render();
+  }
+
+  /** Tint one plane quad in place: highlight color plus an opacity raise. */
+  private applyPlaneQuadHighlight(shapeId: string): void {
     const quad = this.findMeshByShapeId(shapeId);
     const mat = (quad as any)?.material;
     if (!quad || !mat) {
@@ -847,9 +863,6 @@ export class Viewer {
     quad.userData.originalOpacity = mat.opacity;
     mat.color.set(themeColors.highlightColor);
     mat.opacity = 0.3;
-    // Tracked as a shape-level highlight so clearHighlight's restore walk runs.
-    this.highlightedShapeId = shapeId;
-    this.ctx.render();
   }
 
   highlightFace(shapeId: string, faceIndex: number): void {

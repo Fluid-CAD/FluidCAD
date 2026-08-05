@@ -1,12 +1,14 @@
 ---
 sidebar_position: 22
 title: "connect"
-description: "Connects the current position back to the start to close the sketch."
+description: "Closes the current polyline: draws a bridge from the current position back to the polyline's start (the last absolutely-positioned statement — an absolute move() or an explicit-start segment)."
 ---
 
 # connect()
 
-Connects the current position back to the start to close the sketch.
+Closes the current polyline: draws a bridge from the current position
+back to the polyline's start (the last absolutely-positioned statement —
+an absolute move() or an explicit-start segment).
 
 **Returns**: [**`Geometry`**](/docs/api/types/geometry)
 
@@ -16,7 +18,9 @@ Connects the current position back to the start to close the sketch.
 connect(mode?: ConnectMode): Geometry
 ```
 
-Connects the current position back to the start to close the sketch.
+Closes the current polyline: draws a bridge from the current position
+back to the polyline's start (the last absolutely-positioned statement —
+an absolute move() or an explicit-start segment).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

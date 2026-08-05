@@ -250,23 +250,25 @@ describe("edge roles", () => {
   });
 
   describe("connect provenance", () => {
-    it("stamps bridges and keeps body roles on re-emitted edges", () => {
+    it("stamps the closing bridge and leaves body roles on the source features", () => {
+      let h: HorizontalLine;
       let c: Connect;
       sketch("xy", () => {
-        hLine(80);
-        move([90, 20]);
+        move([10, 0]);
+        h = hLine(80) as HorizontalLine;
         vLine(40);
         c = connect() as Connect;
       });
       render();
 
       const edges = edgesOf(c);
-      expect(edges).toHaveLength(4);
+      expect(edges).toHaveLength(1);
+      expect(edges[0].provenance).toBe('bridge');
+      expect(edges[0].role).toBeUndefined();
 
-      const bridges = edges.filter(edge => edge.provenance === 'bridge');
-      expect(bridges).toHaveLength(2);
-
-      const bodies = edges.filter(edge => edge.provenance !== 'bridge');
+      // Source segments are not consumed — they keep their own body edges.
+      const bodies = edgesOf(h);
+      expect(bodies).toHaveLength(1);
       bodies.forEach(edge => expect(edge.role).toBe('body'));
     });
   });

@@ -4,7 +4,9 @@ import { IGeometry } from "../interfaces.js";
 
 interface ConnectFunction {
   /**
-   * Connects the current position back to the start to close the sketch.
+   * Closes the current polyline: draws a bridge from the current position
+   * back to the polyline's start (the last absolutely-positioned statement —
+   * an absolute move() or an explicit-start segment).
    * @param mode - The connection mode
    */
   (mode?: ConnectMode): IGeometry;

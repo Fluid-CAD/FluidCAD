@@ -1,13 +1,24 @@
-import { Edge } from "../../common/edge.js";
 import { SceneObject } from "../../common/scene-object.js";
-import { GeometrySceneObject } from "./geometry.js";
-import { EdgeQuery } from "../../oc/edge-query.js";
-import { EdgeOps } from "../../oc/edge-ops.js";
-import { WireOps } from "../../oc/wire-ops.js";
+import { Vertex } from "../../common/vertex.js";
+import { Point2D } from "../../math/point.js";
 import { Geometry } from "../../oc/geometry.js";
+import { GeometrySceneObject } from "./geometry.js";
+import { Move } from "./move.js";
 
 export type ConnectMode = 'line' | 'arc';
 
+const CLOSED_EPSILON = 1e-9;
+
+/**
+ * Closes the current polyline: emits a single bridge edge from the last
+ * segment's end back to the start of the polyline's first segment. The
+ * first segment is found by walking the previous siblings backwards to the
+ * last statement that does not use relative positioning — the segment after
+ * an absolute move(), or an explicit-start segment (`line([a], [b])` forms,
+ * the two-point arc). Chained statements (tLine, tArc, hLine, relative
+ * moves, ...) derive their position from the cursor and are walked past.
+ * Falls back to the sketch's start point when the whole sketch is one chain.
+ */
 export class Connect extends GeometrySceneObject {
 
   constructor(private mode: ConnectMode = 'line') {
@@ -15,106 +26,120 @@ export class Connect extends GeometrySceneObject {
   }
 
   build() {
+    const plane = this.sketch.getPlane();
+    const { from: startPos, to: endPos } = this.resolveBridgeEndpoints();
+
+    // Already closed — a zero-length bridge aborts in OCCT.
+    if (startPos.equals(endPos, CLOSED_EPSILON)) {
+      return;
+    }
+
+    const start = plane.localToWorld(startPos);
+    const end = plane.localToWorld(endPos);
+    const bridgeDir = start.vectorTo(end);
+    const chordTangent = endPos.subtract(startPos).normalize();
+
+    let edge = null;
+    let endTangent = chordTangent;
+
+    if (this.mode === 'arc') {
+      const tangent2d = this.sketch.getTangentAt(this).normalize();
+      const edgeTangent = start.vectorTo(plane.localToWorld(startPos.add(tangent2d)));
+
+      // If the incoming tangent is collinear with the bridge direction, an
+      // arc degenerates into a semicircle. Fall back to a straight line.
+      if (!edgeTangent.isParallelTo(bridgeDir)) {
+        // Negate the tangent only if it points away from the endpoint
+        // (would create a looping arc).
+        const flip = edgeTangent.dot(bridgeDir) < 0;
+        const tangent = flip ? edgeTangent.negate() : edgeTangent;
+        edge = Geometry.makeEdgeFromCurve(Geometry.makeArcFromTangent(start, end, tangent));
+
+        // The chord makes equal angles with a tangent arc's start and end
+        // tangents: the end tangent is the start tangent reflected across
+        // the chord direction.
+        const startTangent2d = flip ? tangent2d.multiplyScalar(-1) : tangent2d;
+        const dot = startTangent2d.x * chordTangent.x + startTangent2d.y * chordTangent.y;
+        endTangent = chordTangent.multiplyScalar(2 * dot).subtract(startTangent2d).normalize();
+      }
+    }
+
+    if (!edge) {
+      edge = Geometry.makeEdge(Geometry.makeSegment(start, end));
+    }
+
+    edge.setProvenance('bridge');
+
+    this.setState('start', Vertex.fromPoint2D(startPos));
+    this.setState('end', Vertex.fromPoint2D(endPos));
+    this.setTangent(endTangent);
+    this.addShape(edge);
+    this.setCurrentPosition(endPos);
+  }
+
+  /**
+   * The bridge runs from the last segment's recorded end to the first
+   * segment's recorded start. The first segment is the one right after the
+   * nearest absolute move(), or the nearest explicit-start segment,
+   * whichever comes last; relative positioning statements (hMove and
+   * friends) stay inside the chain and are walked past, closed shapes
+   * (circle, rect, ...) record no segment endpoints and are skipped. The
+   * segments' own 'start'/'end' states are the authority, never the cursor
+   * position — arc(r) is centered on the cursor, so neither of its
+   * endpoints is where the cursor sits.
+   */
+  private resolveBridgeEndpoints(): { from: Point2D, to: Point2D } {
     const siblings = this.sketch.getPreviousSiblings(this);
+    let from: Point2D | null = null;
+    let to: Point2D | null = null;
 
-    const edges: Edge[] = [];
-    for (const obj of siblings) {
-      const shapes = obj.getShapes().filter(s => s instanceof Edge) as Edge[];
-      for (const edge of shapes) {
-        if (EdgeQuery.isEdgeClosedCurve(edge)) {
-          continue;
+    for (let i = siblings.length - 1; i >= 0; i--) {
+      const obj = siblings[i];
+      if (!(obj instanceof GeometrySceneObject)) {
+        continue;
+      }
+
+      if (obj instanceof Move) {
+        // Relative moves (rMove semantics) stay inside the chain.
+        if (obj.delta === null) {
+          if (to === null) {
+            // connect() right after a bare move(): close onto the cursor.
+            to = obj.getState('current-position') as Point2D ?? null;
+          }
+          break;
         }
+        continue;
+      }
 
-        edges.push(edge);
-        obj.removeShape(edge, this);
+      const start = obj.getState('start') as Vertex | undefined;
+      const end = obj.getState('end') as Vertex | undefined;
+      if (!start || !end) {
+        continue;
+      }
+
+      if (from === null) {
+        from = end.toPoint2D();
+      }
+      to = start.toPoint2D();
+
+      if (Connect.hasExplicitStart(obj)) {
+        break;
       }
     }
 
-    // Unify edge orientations to match the first edge's winding direction.
-    const normal = this.sketch.getPlane().normal;
-
-    const windingSigns: number[] = [];
-    for (const edge of edges) {
-      const start = EdgeOps.getVertexPoint(EdgeOps.getFirstVertex(edge));
-      const end = EdgeOps.getVertexPoint(EdgeOps.getLastVertex(edge));
-      const mid = EdgeOps.getEdgeMidPoint(edge);
-
-      const toMid = start.vectorTo(mid);
-      const toEnd = start.vectorTo(end);
-      windingSigns.push(toMid.cross(toEnd).dot(normal));
-    }
-
-    // Reverse edges whose winding doesn't match the first edge.
-    const refSign = windingSigns[0];
-    for (let i = 1; i < edges.length; i++) {
-      if ((windingSigns[i] > 0) !== (refSign > 0)) {
-        edges[i] = EdgeOps.reverseEdge(edges[i]);
-      }
-    }
-
-    const useArc = this.mode === 'arc';
-
-    const makeBridgeEdge = (curve: any, v1: any, v2: any): Edge => {
-      const edge = EdgeOps.makeEdgeFromCurveAndVertices(curve, v1, v2);
-      edge.setProvenance('bridge');
-      return edge;
+    return {
+      from: from ?? this.getCurrentPosition(),
+      to: to ?? this.sketch.getStartPoint(),
     };
+  }
 
-    const makeBridge = (edge1: Edge, edge2: Edge): Edge => {
-      const v1 = EdgeOps.getLastVertex(edge1);
-      const v2 = EdgeOps.getFirstVertex(edge2);
-
-      const startPt = EdgeOps.getVertexPoint(v1);
-      const endPt = EdgeOps.getVertexPoint(v2);
-
-      if (useArc) {
-        const edgeTangent = EdgeOps.getEdgeTangentAtEnd(edge1);
-        const bridgeDir = startPt.vectorTo(endPt);
-
-        // If tangent is nearly collinear with the bridge direction, an arc
-        // degenerates into a semicircle. Fall back to a straight line.
-        if (edgeTangent.isParallelTo(bridgeDir)) {
-          return makeBridgeEdge(Geometry.makeSegment(startPt, endPt), v1, v2);
-        }
-
-        // Negate tangent only if it points away from the endpoint (would create looping arc).
-        const tangent = edgeTangent.dot(bridgeDir) < 0 ? edgeTangent.negate() : edgeTangent;
-        return makeBridgeEdge(Geometry.makeArcFromTangent(startPt, endPt, tangent), v1, v2);
-      } else {
-        return makeBridgeEdge(Geometry.makeSegment(startPt, endPt), v1, v2);
-      }
-    };
-
-    // Build wire: edge[0], bridge, edge[1], bridge, edge[2], ..., closing bridge
-    const wireEdges: Edge[] = [];
-    wireEdges.push(edges[0]);
-
-    for (let i = 1; i < edges.length; i++) {
-      wireEdges.push(makeBridge(edges[i - 1], edges[i]));
-      wireEdges.push(edges[i]);
+  /** Serialized explicit-start signal per feature form. */
+  private static hasExplicitStart(obj: GeometrySceneObject): boolean {
+    const payload = obj.serialize() as Record<string, unknown>;
+    if (obj.getUniqueType() === 'arc') {
+      return payload.startPoint !== undefined;
     }
-
-    // Close the loop: bridge from last edge back to first
-    wireEdges.push(makeBridge(edges[edges.length - 1], edges[0]));
-
-    let wire = WireOps.buildWire(wireEdges);
-
-    // Ensure the wire is CCW relative to the sketch plane normal.
-    if (wire.isCW(this.sketch.getPlane().normal)) {
-      wire = WireOps.reverseWire(wire);
-    }
-
-    // Emit individual edges, never the wire: sketch feature shapes are edges
-    // (1 shapeId = 1 edge). Consumers re-derive wires/regions on demand.
-    // Wire edges are fresh wrappers — recover role/provenance (source edge
-    // roles, 'bridge' stamps) from the input edge sharing the same TShape.
-    for (const edge of wire.getEdges()) {
-      const source = wireEdges.find(input => edge.isSame(input) || edge.isPartner(input));
-      if (source) {
-        edge.copyRoleFrom(source);
-      }
-      this.addShape(edge);
-    }
+    return payload.hasExplicitStart === true;
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {

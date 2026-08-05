@@ -1,64 +1,144 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../../setup.js";
 import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import revolve from "../../../core/revolve.js";
 import sweep from "../../../core/sweep.js";
 import { mirror } from "../../../core/index.js";
-import { hLine, vLine, move, connect, offset, circle } from "../../../core/2d/index.js";
+import { line, hLine, vLine, hMove, move, connect, offset, circle } from "../../../core/2d/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { Connect } from "../../../features/2d/connect.js";
 import { MirrorShape2D } from "../../../features/mirror-shape2d.js";
 import { Extrude } from "../../../features/extrude.js";
 import { Revolve } from "../../../features/revolve.js";
 import { Sweep } from "../../../features/sweep.js";
+import { Edge } from "../../../common/edge.js";
+import { EdgeOps } from "../../../oc/edge-ops.js";
+import { EdgeQuery } from "../../../oc/edge-query.js";
 import { ShapeProps } from "../../../oc/props.js";
 
-// Stage 0 invariant (plans/sketch-edge-selection): every sketch feature shape
-// is an individual Edge — connect was the only wire emitter.
-//
-// Note: consecutive source edges must not touch — connect always builds a
-// bridge between consecutive edges, and a zero-length bridge aborts in OCCT
-// (pre-existing limitation, unrelated to edge emission). All profiles here
-// leave gaps: (0,0)→(80,0) line, gap, (90,20)→(90,60) line, closed by two
-// bridges into the quad (0,0),(80,0),(90,20),(90,60) — shoelace area 2600.
+// connect() closes the current polyline: it emits ONE bridge edge from the
+// cursor's current position back to the polyline's start — the last
+// absolutely-positioned statement (absolute move() or explicit-start
+// segment), or the sketch start point when the whole sketch is one chain.
+// Earlier geometry is never consumed or re-emitted.
 describe("connect", () => {
   setupOC();
 
-  afterEach(() => {
-    vi.restoreAllMocks();
+  const endpoints = (edge: Edge) => ({
+    start: EdgeOps.getVertexPoint(EdgeOps.getFirstVertex(edge)),
+    end: EdgeOps.getVertexPoint(EdgeOps.getLastVertex(edge)),
   });
 
-  describe("edge emission invariant", () => {
-    it("emits individual edges, never a wire", () => {
+  describe("closing bridge", () => {
+    it("closes a chain back to the sketch start point", () => {
       let c: Connect;
       const s = sketch("xy", () => {
         hLine(80);
-        move([90, 20]);
         vLine(40);
         c = connect() as Connect;
       }) as Sketch;
 
       render();
 
-      // Two lines + two closing bridges, each an individual Edge.
       const shapes = c.getShapes();
-      expect(shapes).toHaveLength(4);
-      for (const shape of shapes) {
-        expect(shape.getType()).toBe("edge");
-      }
+      expect(shapes).toHaveLength(1);
+      expect(shapes[0].getType()).toBe("edge");
 
+      const { start, end } = endpoints(shapes[0] as Edge);
+      expect(start.x).toBeCloseTo(80);
+      expect(start.y).toBeCloseTo(40);
+      expect(end.x).toBeCloseTo(0);
+      expect(end.y).toBeCloseTo(0);
+
+      // Source edges stay with their own features; nothing is a wire.
       const sketchShapes = s.getShapes();
+      expect(sketchShapes.filter(shape => shape.getType() === "edge")).toHaveLength(3);
       expect(sketchShapes.every(shape => shape.getType() !== "wire")).toBe(true);
     });
 
-    it("maps every connect edge to the connect object in getEdgesWithOwner without warnings", () => {
-      const warn = vi.spyOn(console, "warn");
+    it("closes back to the last absolute move", () => {
+      let c: Connect;
+      sketch("xy", () => {
+        hLine(20); // stray open chain from the sketch start — not part of the polyline
+        move([50, 0]);
+        hLine(30);
+        vLine(30);
+        c = connect() as Connect;
+      });
 
+      render();
+
+      const shapes = c.getShapes();
+      expect(shapes).toHaveLength(1);
+
+      const { start, end } = endpoints(shapes[0] as Edge);
+      expect(start.x).toBeCloseTo(80);
+      expect(start.y).toBeCloseTo(30);
+      expect(end.x).toBeCloseTo(50);
+      expect(end.y).toBeCloseTo(0);
+    });
+
+    it("closes back to an explicit-start segment", () => {
+      let c: Connect;
+      sketch("xy", () => {
+        line([10, 5], [40, 5]);
+        vLine(20);
+        c = connect() as Connect;
+      });
+
+      render();
+
+      const shapes = c.getShapes();
+      expect(shapes).toHaveLength(1);
+
+      const { start, end } = endpoints(shapes[0] as Edge);
+      expect(start.x).toBeCloseTo(40);
+      expect(start.y).toBeCloseTo(25);
+      expect(end.x).toBeCloseTo(10);
+      expect(end.y).toBeCloseTo(5);
+    });
+
+    it("walks past relative moves — they stay inside the chain", () => {
+      let c: Connect;
+      sketch("xy", () => {
+        move([10, 0]);
+        hLine(30);
+        hMove(10); // gap, but still the same polyline
+        vLine(25);
+        c = connect() as Connect;
+      });
+
+      render();
+
+      const shapes = c.getShapes();
+      expect(shapes).toHaveLength(1);
+
+      const { start, end } = endpoints(shapes[0] as Edge);
+      expect(start.x).toBeCloseTo(50);
+      expect(start.y).toBeCloseTo(25);
+      expect(end.x).toBeCloseTo(10);
+      expect(end.y).toBeCloseTo(0);
+    });
+
+    it("emits nothing when the chain is already closed", () => {
+      let c: Connect;
+      sketch("xy", () => {
+        hLine(40);
+        vLine(30);
+        line([0, 0]); // manual close
+        c = connect() as Connect;
+      });
+
+      render();
+
+      expect(c.getShapes()).toHaveLength(0);
+    });
+
+    it("maps the bridge edge to the connect object in getEdgesWithOwner", () => {
       let c: Connect;
       const s = sketch("xy", () => {
         hLine(80);
-        move([90, 20]);
         vLine(40);
         c = connect() as Connect;
       }) as Sketch;
@@ -66,40 +146,54 @@ describe("connect", () => {
       render();
 
       const edgeMap = s.getEdgesWithOwner();
-      expect(edgeMap.size).toBe(4);
-      for (const owner of edgeMap.values()) {
-        expect(owner).toBe(c);
-      }
-
-      const wireWarnings = warn.mock.calls.filter(args =>
-        String(args[0]).includes("emitted a Wire shape"));
-      expect(wireWarnings).toHaveLength(0);
+      expect(edgeMap.size).toBe(3);
+      const owners = Array.from(edgeMap.values());
+      expect(owners.filter(owner => owner === c)).toHaveLength(1);
     });
+  });
 
-    it("emits edges for arc mode bridges too", () => {
+  describe("arc mode", () => {
+    it("bridges with a circular arc", () => {
       let c: Connect;
       sketch("xy", () => {
-        hLine(80);
-        move([90, 20]);
-        vLine(40);
+        hLine(40);
+        vLine(30);
         c = connect("arc") as Connect;
       });
 
       render();
 
       const shapes = c.getShapes();
-      expect(shapes).toHaveLength(4);
-      for (const shape of shapes) {
-        expect(shape.getType()).toBe("edge");
-      }
+      expect(shapes).toHaveLength(1);
+      expect(EdgeQuery.getEdgeCurveType(shapes[0] as Edge)).toBe("circle");
+
+      const { start, end } = endpoints(shapes[0] as Edge);
+      expect(start.x).toBeCloseTo(40);
+      expect(start.y).toBeCloseTo(30);
+      expect(end.x).toBeCloseTo(0);
+      expect(end.y).toBeCloseTo(0);
+    });
+
+    it("falls back to a line when the incoming tangent is collinear with the bridge", () => {
+      let c: Connect;
+      sketch("xy", () => {
+        move([10, 0]);
+        hLine(30);
+        c = connect("arc") as Connect;
+      });
+
+      render();
+
+      const shapes = c.getShapes();
+      expect(shapes).toHaveLength(1);
+      expect(EdgeQuery.getEdgeCurveType(shapes[0] as Edge)).toBe("line");
     });
   });
 
-  describe("extrude over a connect profile", () => {
+  describe("extrude over a connect-closed profile", () => {
     it("produces a solid with the exact profile volume", () => {
       sketch("xy", () => {
         hLine(80);
-        move([90, 20]);
         vLine(40);
         connect();
       });
@@ -112,18 +206,17 @@ describe("connect", () => {
       expect(shapes).toHaveLength(1);
       expect(shapes[0].getType()).toBe("solid");
 
-      // Quad (0,0),(80,0),(90,20),(90,60): shoelace area 2600, height 10.
+      // Right triangle (0,0),(80,0),(80,40): area 1600, height 10.
       const props = ShapeProps.getProperties(shapes[0].getShape());
-      expect(props.volumeMm3).toBeCloseTo(2600 * 10, 3);
+      expect(props.volumeMm3).toBeCloseTo(1600 * 10, 3);
     });
   });
 
-  describe("revolve over a connect profile", () => {
+  describe("revolve over a connect-closed profile", () => {
     it("produces a solid with positive volume", () => {
       sketch("xz", () => {
         move([20, 0]);
         hLine(10);
-        move([35, 10]);
         vLine(20);
         connect();
       });
@@ -141,11 +234,10 @@ describe("connect", () => {
     });
   });
 
-  describe("sweep over a connect profile", () => {
+  describe("sweep over a connect-closed profile", () => {
     it("produces a solid", () => {
       const profile = sketch("xy", () => {
         hLine(20);
-        move([25, 5]);
         vLine(10);
         connect();
       });
@@ -164,11 +256,10 @@ describe("connect", () => {
     });
   });
 
-  describe("offset of a connect result", () => {
-    it("produces offset edges alongside the connect edges", () => {
+  describe("offset of a connect-closed profile", () => {
+    it("produces offset edges alongside the profile edges", () => {
       const s = sketch("xy", () => {
         hLine(80);
-        move([90, 20]);
         vLine(40);
         connect();
         offset(5);
@@ -176,20 +267,19 @@ describe("connect", () => {
 
       render();
 
-      // 4 connect edges + offset ring edges, all individual edges.
+      // 3 profile edges + offset ring edges, all individual edges.
       const shapes = s.getShapes();
-      expect(shapes.length).toBeGreaterThan(4);
+      expect(shapes.length).toBeGreaterThan(3);
       expect(shapes.every(shape => shape.getType() !== "wire")).toBe(true);
     });
   });
 
-  describe("mirror of a connect result", () => {
-    it("copies the connect edges as edges, not a wire", () => {
+  describe("mirror of a connect-closed profile", () => {
+    it("copies the profile edges including the bridge", () => {
       let m: MirrorShape2D;
       sketch("xy", () => {
         move([10, 0]);
         hLine(80);
-        move([95, 20]);
         vLine(40);
         connect();
         m = mirror("y") as MirrorShape2D;
@@ -198,32 +288,31 @@ describe("connect", () => {
       render();
 
       const shapes = m.getShapes().filter(shape => !shape.isMetaShape() && !shape.isGuideShape());
-      expect(shapes).toHaveLength(4);
+      expect(shapes).toHaveLength(3);
       for (const shape of shapes) {
         expect(shape.getType()).toBe("edge");
       }
     });
   });
 
-  describe("closed curves are skipped", () => {
-    it("leaves a full circle untouched while closing the open edges", () => {
+  describe("earlier closed geometry is untouched", () => {
+    it("leaves a full circle in place while closing the polyline", () => {
       let c: Connect;
       const s = sketch("xy", () => {
         circle(10);
         move([30, 0]);
         hLine(20);
-        move([55, 10]);
         vLine(20);
         c = connect() as Connect;
       }) as Sketch;
 
       render();
 
-      expect(c.getShapes()).toHaveLength(4);
+      expect(c.getShapes()).toHaveLength(1);
 
-      // Circle edge stays with its own feature; nothing is a wire.
+      // Circle edge + two lines + one bridge; nothing is a wire.
       const shapes = s.getShapes();
-      expect(shapes).toHaveLength(5);
+      expect(shapes.filter(shape => shape.getType() === "edge")).toHaveLength(4);
       expect(shapes.every(shape => shape.getType() !== "wire")).toBe(true);
     });
   });

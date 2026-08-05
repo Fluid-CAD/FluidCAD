@@ -4,6 +4,8 @@ import { ShapeOps } from "../../oc/shape-ops.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { Edge } from "../../common/edge.js";
+import { Face } from "../../common/face.js";
+import { Plane } from "../../math/plane.js";
 import { Vertex } from "../../common/vertex.js";
 import { Wire } from "../../common/wire.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
@@ -56,14 +58,22 @@ export class Offset extends ExtrudableGeometryBase {
         : this.sketch.getEdgesWithOwner();
     }
     else {
+      if (!this.sourceGeometries?.length) {
+        throw new Error("Offset outside a sketch requires face or geometry targets");
+      }
+
       sourceObjects = new Map<Edge, SceneObject>();
+      const faces: Face[] = [];
       for (const obj of this.sourceGeometries) {
         if (!(obj instanceof SceneObject)) {
           throw new Error("Offset: edge filters are only supported inside a sketch");
         }
         const shapes = obj.getShapes();
         for (const shape of shapes) {
-          if (shape instanceof Edge) {
+          if (shape instanceof Face) {
+            faces.push(shape);
+          }
+          else if (shape instanceof Edge) {
             sourceObjects.set(shape, obj);
           }
           else if (shape instanceof Wire) {
@@ -74,7 +84,15 @@ export class Offset extends ExtrudableGeometryBase {
         }
       }
 
-      this.targetPlane.removeShapes(this);
+      if (faces.length > 0) {
+        if (sourceObjects.size > 0) {
+          throw new Error("Offset: face and edge targets cannot be mixed");
+        }
+        this.buildFromFaces(faces);
+        return;
+      }
+
+      this.targetPlane?.removeShapes(this);
     }
 
     const allEdges = Array.from(sourceObjects.keys());
@@ -155,6 +173,54 @@ export class Offset extends ExtrudableGeometryBase {
       this.setState('start', Vertex.fromPoint2D(localStart));
       this.setState('end', Vertex.fromPoint2D(localEnd));
     }
+  }
+
+  /**
+   * Face-target mode: offsets the outlines of one or more coplanar faces on
+   * the faces' own plane. All wires of a face offset together (region
+   * semantics — a positive distance grows the outline, holes shrink), and the
+   * result behaves like sketch geometry with the face plane as its plane, so
+   * it can be extruded like any other profile.
+   */
+  private buildFromFaces(faces: Face[]) {
+    if (this.removeOriginal) {
+      throw new Error("Offset: removeOriginal is not supported for face targets");
+    }
+    if (this._close) {
+      throw new Error("Offset.close() is not supported for face targets — face outlines are already closed");
+    }
+
+    const plane = faces[0].getPlane();
+    for (const face of faces.slice(1)) {
+      if (!plane.isCoplanarWith(face.getPlane(), 1e-6, 1e-6)) {
+        throw new Error("Offset: face targets must be coplanar");
+      }
+    }
+    this.setState('plane', plane);
+
+    let lastWire: Wire = null;
+    for (const face of faces) {
+      const offsetWires = WireOps.offsetFaceOutline(face.getShape(), this.distance);
+      for (const wire of offsetWires) {
+        lastWire = wire;
+        for (const edge of wire.getEdges()) {
+          edge.setProvenance('offset-of');
+          this.addShape(edge);
+        }
+      }
+    }
+
+    if (lastWire) {
+      const localStart = plane.worldToLocal(lastWire.getFirstVertex().toPoint());
+      const localEnd = plane.worldToLocal(lastWire.getLastVertex().toPoint());
+      this.setState('start', Vertex.fromPoint2D(localStart));
+      this.setState('end', Vertex.fromPoint2D(localEnd));
+    }
+  }
+
+  /** In face-target mode the plane is derived from the faces, not a sketch. */
+  override getPlane(): Plane {
+    return (this.getState('plane') as Plane) ?? super.getPlane();
   }
 
   override getDependencies(): SceneObject[] {

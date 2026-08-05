@@ -20,8 +20,16 @@ interface OffsetFunction {
   (distance?: NumberParam, removeOriginal?: BooleanParam, ...targets: (ISceneObject | EdgeFilterBuilder)[]): IOffset;
   /**
    * Offsets the given targets by the given distance.
+   *
+   * Outside a sketch, targets may be one or more coplanar faces (a
+   * `select(face()...)` result or a solid op's face accessor like
+   * `body.endFaces()`); with no targets the preceding `select(...)` is used.
+   * The offset outlines are created on the face plane — a positive distance
+   * offsets outward and shrinks holes — and the result is extrudable like
+   * any sketch.
    * @param distance - The offset distance
-   * @param targets - Geometries, edge accessors, or edge filters to offset
+   * @param targets - Geometries, edge accessors, edge filters, or (outside a
+   *   sketch) coplanar face selections to offset
    */
   (distance: NumberParam, ...targets: (ISceneObject | EdgeFilterBuilder)[]): IOffset;
 }
@@ -36,8 +44,17 @@ function build(context: SceneParserContext): OffsetFunction {
     );
 
     const activeSketch = context.getActiveSketch();
-    if (targets.length === 0 && activeSketch) {
-      targets = sketchLastSelection(context, activeSketch);
+    if (targets.length === 0) {
+      if (activeSketch) {
+        targets = sketchLastSelection(context, activeSketch);
+      } else {
+        // Outside a sketch, mirror the 3D ops' implicit-target contract:
+        // a preceding `select(face()...)` is the offset target.
+        const lastSelection = context.getLastSelection();
+        if (lastSelection) {
+          targets = [lastSelection];
+        }
+      }
     }
 
     addTargetObjects(targets, context);

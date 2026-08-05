@@ -329,6 +329,42 @@ export class WireOps {
     return (dx * dx + dy * dy + dz * dz) < tolerance * tolerance;
   }
 
+  static offsetFaceOutline(face: TopoDS_Face, distance: number): Wire[] {
+    return WireOps.offsetFaceOutlineRaw(face, distance).map(w => Wire.fromTopoDSWire(w));
+  }
+
+  /**
+   * Offsets ALL wires of a planar face together by initializing
+   * BRepOffsetAPI_MakeOffset with the face itself. Unlike per-wire offsets,
+   * this gives region semantics: a positive distance grows the face outline
+   * outward while holes shrink, and colliding offset wires merge instead of
+   * self-intersecting.
+   */
+  static offsetFaceOutlineRaw(face: TopoDS_Face, distance: number): TopoDS_Wire[] {
+    const oc = getOC();
+    const maker = new oc.BRepOffsetAPI_MakeOffset();
+    maker.Init(face, oc.GeomAbs_JoinType.GeomAbs_Arc, false);
+    maker.Perform(distance, 0);
+
+    if (!maker.IsDone()) {
+      maker.delete();
+      throw new Error("Failed to offset face outline");
+    }
+
+    const result = maker.Shape();
+    maker.delete();
+
+    if (Explorer.isWire(result)) {
+      return [oc.TopoDS.Wire(result)];
+    }
+
+    const wires = Explorer.findShapes<TopoDS_Wire>(result, oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum);
+    if (wires.length === 0) {
+      throw new Error("Offset produced no wires");
+    }
+    return wires.map(w => oc.TopoDS.Wire(w));
+  }
+
   static offsetWireRaw(wire: TopoDS_Wire, distance: number, isOpen: boolean, plane?: Plane): TopoDS_Wire {
     const oc = getOC();
     const maker = new oc.BRepOffsetAPI_MakeOffset();

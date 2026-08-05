@@ -164,6 +164,32 @@ describe('apply-feature route validation', () => {
     expect(body.error).toContain('nonzero');
   });
 
+  it('accepts a negative offset distance (the offset-inward idiom)', async () => {
+    const { status } = await post({ feature: 'offset', value: -5, entities: [PICK], preview: true });
+    expect(status).toBe(200);
+    expect(synthesizeCalls).toEqual([{ feature: 'offset', value: -5 }]);
+  });
+
+  it('rejects a zero offset distance', async () => {
+    const { status, body } = await post({ feature: 'offset', value: 0, entities: [PICK] });
+    expect(status).toBe(400);
+    expect(body.error).toContain('nonzero');
+  });
+
+  it('relays a face-picked offset spec to the extension', async () => {
+    currentSynthesis = {
+      ...fakeSynthesis,
+      spec: { ...fakeSynthesis.spec, feature: 'offset', value: 5 },
+      preview: 'offset(5, e.endFaces())',
+      args: 'e.endFaces()',
+    };
+    const { status, body } = await post({ feature: 'offset', value: 5, entities: [PICK] });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('offset(5, e.endFaces())');
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0].spec.feature).toBe('offset');
+  });
+
   it('rejects an unknown shell join type', async () => {
     const { status, body } = await post({ feature: 'shell', value: -2, entities: [PICK], joinType: 'bevel' });
     expect(status).toBe(400);
@@ -2470,6 +2496,51 @@ describe('apply-feature route validation', () => {
           clearBreakpoints: true,
         });
         expect(relayed[0].spec.rawArgs).toBeUndefined();
+      });
+
+      it('re-picks a face offset selection: synthesis with the boundary, parts on the spec', async () => {
+        currentCode = [
+          `import { sketch, rect, extrude, offset } from 'fluidcad/core'`,
+          ``,
+          `sketch('xy', () => { rect(100, 50) })`,
+          `const e = extrude(30)`,
+          `offset(-5, e.endFaces())`,
+          ``,
+        ].join('\n');
+        currentSynthesis = {
+          ok: true,
+          spec: {
+            feature: 'offset',
+            value: -5,
+            filePath: '/ws/m.fluid.js',
+            producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+            parts: [{ producer: 0, accessor: 'startFaces', indices: null, filterArgs: null }],
+            imports: [],
+          },
+          preview: 'offset(-5, e.startFaces())',
+          args: 'e.startFaces()',
+          alternatives: [],
+        };
+        const offsetBefore = { index: 2, type: 'offset', line: 5, column: 0 };
+        const { status, body } = await post({
+          feature: 'offset',
+          edit: { filePath: '/ws/m.fluid.js', line: 5, column: 0 },
+          value: -5,
+          entities: [FACE_PICK],
+          before: offsetBefore,
+        });
+        expect(status).toBe(200);
+        expect(body.success).toBe(true);
+        expect(synthesizeCalls).toEqual([{ feature: 'offset', value: -5 }]);
+        expect(synthesizeBoundaries).toEqual([offsetBefore]);
+        expect(relayed[0].spec).toMatchObject({
+          feature: 'offset',
+          value: -5,
+          producers: [{ line: 4, featureType: 'extrude', bind: true }],
+          parts: [{ producer: 0, accessor: 'startFaces' }],
+          edit: { line: 5, column: 0 },
+          clearBreakpoints: true,
+        });
       });
 
       it('sets clearBreakpoints on a value-only edit spec too', async () => {

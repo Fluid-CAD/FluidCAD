@@ -537,13 +537,24 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
   } else if (parsed.feature === 'plane') {
     planeService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'offset') {
-    // A 2D op lives inside a sketch body: pausing the build just BEFORE its
-    // statement puts the sketch its arguments see on screen — the offset's
-    // result absent, a removed original visible and re-pickable — the 2D
-    // counterpart of EditSession's pre-statement rollback.
-    closeFeatureDialogs();
-    pauseBeforeSketchStatement(obj, index);
-    sketchService.enterOffsetEdit(target, parsed, result.statement);
+    const parentSketch = viewer.currentSceneObjects.find(o =>
+      o.id != null && o.id === obj.parentId && o.type === 'sketch');
+    if (parentSketch) {
+      // A 2D op lives inside a sketch body: pausing the build just BEFORE its
+      // statement puts the sketch its arguments see on screen — the offset's
+      // result absent, a removed original visible and re-pickable — the 2D
+      // counterpart of EditSession's pre-statement rollback.
+      closeFeatureDialogs();
+      pauseBeforeSketchStatement(obj, index);
+      sketchService.enterOffsetEdit(target, parsed, result.statement, { insideSketch: true });
+    } else {
+      // A top-level (face-target) offset edits on the modify rails like
+      // fillet/shell — real 3D face re-picking against the pre-statement
+      // rollback. The gesture owes the classic after-the-statement pause the
+      // timeline deferred for offset rows.
+      addBreakpoint(target);
+      modifyService.enterEdit(target, parsed, info);
+    }
   } else if (parsed.feature === 'slot') {
     // Same pause-before contract as the offset edit: the slot's consumed
     // source edge is visible and re-pickable in the paused sketch.
@@ -1068,6 +1079,8 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
 });
 
 measureController.onSelectionChanged = (selection) => {
+  // The Offset toolbar button shows exactly while a face is highlighted.
+  modifyService.noteNeutralSelection(selection);
   if (selection.length === 1) {
     const entity = selection[0];
     shapePropertiesModal.setSelectedShape(entity.shapeId);

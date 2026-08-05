@@ -1,6 +1,6 @@
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 
-export type ModifyFeatureKind = 'sketch' | 'fillet' | 'chamfer' | 'shell';
+export type ModifyFeatureKind = 'sketch' | 'fillet' | 'chamfer' | 'shell' | 'offset';
 
 /**
  * The chamfer dialog's type dropdown — which `chamfer()` overload the
@@ -18,6 +18,8 @@ export type FeatureConfig = {
   pickFilter: 'all' | 'face';
   /** Positive-only value, or any nonzero (shell hollows inward with a negative). */
   valueSign: 'positive' | 'nonzero' | null;
+  /** What a negative value means — the nonzero features' value-error hint. */
+  negativeHint?: string;
   /** Show the join-type dropdown (shell's arc/intersection/tangent). */
   joinRow: boolean;
   /** Static text after the editable args in the expression row. */
@@ -25,11 +27,12 @@ export type FeatureConfig = {
 };
 
 /**
- * Toolbar order — Sketch first, then Fillet, Chamfer, Shell. Sketch renders
- * in the create group (shared with Extrude, immune to the sketch-toolbar
- * takeover); the rest form the modify group.
+ * Toolbar order — Sketch first, then Fillet, Chamfer, Shell, Offset. Sketch
+ * renders in the create group (shared with Extrude, immune to the
+ * sketch-toolbar takeover); the rest form the modify group. Offset only
+ * shows while a face is highlighted (its kernel form takes faces).
  */
-export const FEATURE_ORDER: ModifyFeatureKind[] = ['sketch', 'fillet', 'chamfer', 'shell'];
+export const FEATURE_ORDER: ModifyFeatureKind[] = ['sketch', 'fillet', 'chamfer', 'shell', 'offset'];
 
 export const FEATURES: Record<ModifyFeatureKind, FeatureConfig> = {
   // Sketch never enters the shared value/expression bar — only its label,
@@ -49,6 +52,12 @@ export const FEATURES: Record<ModifyFeatureKind, FeatureConfig> = {
   shell: {
     label: 'Shell', buttonTitle: 'Shell', valueLabel: 'Thickness', defaultValue: -2,
     pickFilter: 'face', valueSign: 'nonzero', joinRow: true, exprSuffix: ')',
+    negativeHint: 'negative hollows inward',
+  },
+  offset: {
+    label: 'Offset', buttonTitle: 'Offset the outlines of the highlighted faces', valueLabel: 'Distance', defaultValue: 1,
+    pickFilter: 'face', valueSign: 'nonzero', joinRow: false, exprSuffix: ')',
+    negativeHint: 'negative offsets inward',
   },
 };
 

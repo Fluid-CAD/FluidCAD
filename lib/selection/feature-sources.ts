@@ -26,6 +26,7 @@ import { CopyCircular } from "../features/copy-circular.js";
 import { CopyLinear } from "../features/copy-linear.js";
 import { Rib } from "../features/rib.js";
 import { Sketch } from "../features/2d/sketch.js";
+import { Offset } from "../features/2d/offset.js";
 import { Projection } from "../features/2d/projection.js";
 import {
   PickRef, SelectionBoundary, SelectionScene, resolveScopedScene,
@@ -63,7 +64,7 @@ export type FeatureSources =
   | { feature: 'wrap'; sketch: SourceSlot; face: SourceSlot }
   /** The single source: an axis statement (axis mode) or a face (face mode). */
   | { feature: 'helix'; source: SourceSlot }
-  | { feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlot }
+  | { feature: 'shell' | 'fillet' | 'chamfer' | 'offset'; selection: SourceSlot }
   /** The projected 3D sources, as entities on the pre-statement solids. */
   | { feature: 'projection'; selection: SourceSlot }
   /**
@@ -123,6 +124,12 @@ export function resolveFeatureSources(
     }
     if (feature instanceof Projection) {
       return { ok: true, feature: 'projection', selection: resolver.entitiesSlot(feature.sources) };
+    }
+    // A top-level (face-target) offset: its targets are face selections, the
+    // same shape as shell's. In-sketch offsets never reach here — their edit
+    // dialog seeds through the 2D sketch-feature-sources route instead.
+    if (feature instanceof Offset) {
+      return { ok: true, feature: 'offset', selection: resolver.entitiesSlot(feature.targetObjects) };
     }
     if (feature instanceof Sweep) {
       return {

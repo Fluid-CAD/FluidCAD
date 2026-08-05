@@ -233,6 +233,7 @@ export class SketchToolbarService {
     target: FeatureEditTarget,
     parsed: Extract<ParsedFeatureStatement, { feature: 'offset' }>,
     expectedStatement: string,
+    opts: { insideSketch?: boolean } = {},
   ): void {
     const service = this.opServices.offset;
     if (!service) {
@@ -245,7 +246,11 @@ export class SketchToolbarService {
       this.handleToolSelect(null);
     }
     this.toolbar.setActiveTool('offset');
-    service.enterEdit(target, parsed, expectedStatement);
+    // A face offset outside a sketch takes neither removeOriginal nor close
+    // (the kernel refuses both) — those rows hide for this opening.
+    service.enterEdit(target, parsed, expectedStatement, {
+      hideToggles: opts.insideSketch === false ? ['removeOriginal', 'close'] : [],
+    });
     if (this.activeSketchInfo) {
       service.noteSketchActive();
       this.activateDragHandler();

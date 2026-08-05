@@ -223,6 +223,11 @@ export class Offset extends ExtrudableGeometryBase {
     return (this.getState('plane') as Plane) ?? super.getPlane();
   }
 
+  /** The SceneObject targets (selections, accessors), for edit-dialog seeding. */
+  get targetObjects(): SceneObject[] {
+    return GeometrySceneObject.sceneObjectTargets(this.sourceGeometries);
+  }
+
   override getDependencies(): SceneObject[] {
     const deps: SceneObject[] = [];
     if (this.targetPlane) {

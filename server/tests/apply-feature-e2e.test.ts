@@ -22,6 +22,7 @@ import { PlaneObjectBase } from '../../lib/features/plane-renderable-base.js';
 import { Explorer } from '../../lib/oc/explorer.js';
 import { EdgeOps } from '../../lib/oc/edge-ops.js';
 import { FaceProps } from '../../lib/oc/face-props.js';
+import { ShapeOps } from '../../lib/oc/shape-ops.js';
 import { ShapeProps } from '../../lib/oc/props.js';
 import { synthesizeApplyFeature } from '../../lib/selection/explain.js';
 import { synthesizeSketchApplyFeature } from '../../lib/selection/sketch-apply.js';
@@ -268,6 +269,154 @@ describe('select→apply-feature end to end', () => {
     const newSolid = findSolid(rerun) as Solid;
     expect(ShapeProps.getProperties(newSolid.getShape()).volumeMm3).toBeLessThan(100 * 50 * 30);
     expect(newSolid.getFaces().length).toBeGreaterThan(6);
+  });
+
+  it('offsets the picked top face outline through synthesized code', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+
+    sketch('xy', () => { rect(100, 50) });
+    const e = extrude(30);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const picks: PickRef[] = [];
+    Explorer.findFacesWrapped(solid).forEach((f, index) => {
+      const mids = f.getEdges().map(eg => EdgeOps.getEdgeMidPoint(eg));
+      if (mids.every(m => Math.abs(m.z - 30) < 1e-6)) {
+        picks.push({ shapeId: solid.id, sub: { type: 'face', index } });
+      }
+    });
+    expect(picks).toHaveLength(1);
+
+    const synthesis = synthesizeApplyFeature(scene, picks, 'offset', 5);
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    expect(synthesis.preview).toBe('offset(5, e.endFaces())');
+
+    const edited = await applyFeatureEdit(code, synthesis.spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain('const e = extrude(30)');
+    expect(edited.newCode).toContain('offset(5, e.endFaces())');
+
+    // Executing the edit traces the top outline 5 outside the face, on the
+    // face plane (z = 30): the rect grows from 100×50 to 110×60.
+    const rerun = runFluid(edited.newCode);
+    const off = rerun.getAllSceneObjects().find(o => o.getType() === 'offset');
+    expect(off).toBeDefined();
+    expect(off!.getError?.()).toBeFalsy();
+    const edges = off!.getShapes().filter((s): s is Edge => s instanceof Edge);
+    expect(edges.length).toBeGreaterThan(0);
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const edge of edges) {
+      const b = ShapeOps.getBoundingBox(edge.getShape());
+      minX = Math.min(minX, b.minX);
+      maxX = Math.max(maxX, b.maxX);
+      minZ = Math.min(minZ, b.minZ);
+      maxZ = Math.max(maxZ, b.maxZ);
+    }
+    // BRepBndLib folds edge tolerances into the box (~0.1 per side on
+    // MakeOffset output) — assert within ±0.5.
+    expect(maxX - minX).toBeCloseTo(110, 0);
+    expect(minZ).toBeCloseTo(30, 0);
+    expect(maxZ).toBeCloseTo(30, 0);
+  });
+
+  it('re-picks an offset face against the pre-offset world and re-executes', async () => {
+    const code = [
+      `import { sketch, rect, extrude, offset } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      `offset(-5, e.endFaces())`,
+      ``,
+    ].join('\n');
+
+    sketch('xy', () => { rect(100, 50) });
+    const e = extrude(30);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
+    const off = core.offset(-5, (e as any).endFaces());
+    (off as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 5, column: 0 });
+
+    const scene = render();
+    const offsetIndex = scene.getAllSceneObjects().findIndex(o => o.getType() === 'offset');
+    expect(offsetIndex).toBeGreaterThan(0);
+    const box = scene.getAllSceneObjects()
+      .find(o => o.getType() === 'extrude')!
+      .getAddedShapes()
+      .find(s => s.getType() === 'solid')!;
+
+    // Re-pick: the START face (all edge mids at z = 0) instead of the top.
+    const picks: PickRef[] = [];
+    Explorer.findFacesWrapped(box).forEach((f, index) => {
+      const mids = f.getEdges().map(eg => EdgeOps.getEdgeMidPoint(eg));
+      if (mids.every(m => Math.abs(m.z) < 1e-6)) {
+        picks.push({ shapeId: box.id, sub: { type: 'face', index } });
+      }
+    });
+    expect(picks).toHaveLength(1);
+
+    const synthesis = synthesizeApplyFeature(
+      scopedSceneBefore(scene, offsetIndex), picks, 'offset', -5,
+    );
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'offset',
+      value: -5,
+      filePath: '/ws/model.fluid.js',
+      producers: synthesis.spec.producers,
+      parts: synthesis.spec.parts,
+      imports: synthesis.spec.imports,
+      offset: { removeOriginal: false, close: false },
+      edit: { line: 5, column: 0, expectedStatement: 'offset(-5, e.endFaces())' },
+    };
+    const edited = await applyFeatureEdit(code, spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).not.toContain('endFaces');
+    expect(edited.newCode).toMatch(/offset\(-5, e\.startFaces\(\)\)/);
+
+    // Executing the edit moves the outline to the bottom plane (z = 0).
+    const rerun = runFluid(edited.newCode);
+    const errors = rerun.getAllSceneObjects().map(o => o.getError()).filter(Boolean);
+    expect(errors).toEqual([]);
+    const newOffset = rerun.getAllSceneObjects().find(o => o.getType() === 'offset')!;
+    const edges = newOffset.getShapes().filter((s): s is Edge => s instanceof Edge);
+    expect(edges.length).toBeGreaterThan(0);
+    for (const edge of edges) {
+      const b = ShapeOps.getBoundingBox(edge.getShape());
+      expect(Math.abs(b.minZ)).toBeLessThan(0.5);
+      expect(Math.abs(b.maxZ)).toBeLessThan(0.5);
+    }
+  });
+
+  it('refuses an offset over edge picks', () => {
+    sketch('xy', () => { rect(100, 50) });
+    const e = extrude(30);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const picks = topEdgeRefs(solid, 30);
+    expect(picks.length).toBeGreaterThan(0);
+
+    const synthesis = synthesizeApplyFeature(scene, picks, 'offset', 5);
+    expect(synthesis.ok).toBe(false);
+    if (synthesis.ok !== false) {
+      return;
+    }
+    expect(synthesis.reason).toContain('faces');
   });
 
   it('inserts an empty sketch on the picked face and the model still renders green', async () => {

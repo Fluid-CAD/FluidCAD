@@ -2005,10 +2005,12 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     return result;
   }
 
-  // Offset (2D): the distance, both toggles, and either an edited target list
-  // (the expression row) or a re-picked set of sketch edges. The 2D picks
-  // carry no boundary — the double-click paused the build at the edited
-  // statement, so the rendered sketch already IS the world it sees.
+  // Offset: the distance, both toggles, and either an edited target list
+  // (the expression row) or a re-picked selection. A sketch offset re-picks
+  // sketch edges (`sketchEntities` — no boundary: the double-click paused the
+  // build at the edited statement, so the rendered sketch already IS the
+  // world it sees); a top-level face offset re-picks 3D faces (`entities`),
+  // synthesized boundary-scoped like the fillet/shell edit dialogs'.
   if (feature === 'offset') {
     const { value } = body ?? {};
     if (!validValueExpr(value, { nonzero: true })) {
@@ -2034,6 +2036,18 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
         return { error: 'sketchEntities must be a non-empty array of {shapeId} picks' };
       }
       result.sketchPicks = picks;
+    } else if (body?.entities !== undefined && body?.entities !== null) {
+      const picks = validatePicks(body.entities);
+      if (!picks) {
+        return { error: 'entities must be a non-empty array of {shapeId, sub:{type, index}} picks' };
+      }
+      const chains = validateChains(body?.chains);
+      if (!chains) {
+        return { error: 'chains must be {seed, members} pick groups' };
+      }
+      result.picks = picks;
+      result.chains = chains;
+      result.needsPicks = true;
     }
     return result;
   }
@@ -2834,7 +2848,7 @@ export function createApplyFeatureRouter(
         /** Synthesize one re-picked slot against the pre-statement scene. */
         const synthesizeSlot = (
           picks: Pick[],
-          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project',
+          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset',
           value: ValueExpr | undefined,
           chains: { seed: Pick; members: Pick[] }[],
         ): any | null => {
@@ -3067,7 +3081,7 @@ export function createApplyFeatureRouter(
         if (request.picks) {
           const synthesis = synthesizeSlot(
             request.picks,
-            request.feature as 'fillet' | 'chamfer' | 'shell' | 'project',
+            request.feature as 'fillet' | 'chamfer' | 'shell' | 'project' | 'offset',
             request.value,
             request.chains ?? [],
           );
@@ -5017,14 +5031,16 @@ export function createApplyFeatureRouter(
       res.status(400).json({ error: 'chains must be {seed, members} pick groups' });
       return;
     }
-    if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch') {
-      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "extrude", "rib", "sweep", "wrap", "loft", "revolve", "plane", "project", "repeat", "copy" or "boolean"' });
+    if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch'
+      && feature !== 'offset') {
+      res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "offset", "extrude", "rib", "sweep", "wrap", "loft", "revolve", "plane", "project", "repeat", "copy" or "boolean"' });
       return;
     }
     // Per-feature numeric parameter: fillet/chamfer need a positive radius or
     // distance (chamfer optionally a second distance or angle); shell needs a
     // nonzero thickness (negative is the idiom — shell(-2, …) hollows inward)
-    // plus its join type; sketch has no numeric parameter at all.
+    // plus its join type; the face-target offset needs a nonzero distance
+    // (negative offsets inward); sketch has no numeric parameter at all.
     let shellJoin: ShellJoinKind = 'arc';
     let chamferOptions: ChamferEditOptions | undefined;
     if (feature === 'shell') {
@@ -5038,6 +5054,11 @@ export function createApplyFeatureRouter(
         return;
       }
       shellJoin = join.joinType;
+    } else if (feature === 'offset') {
+      if (!validValueExpr(value, { nonzero: true })) {
+        res.status(400).json({ error: 'value must be a nonzero number or expression (negative offsets inward)' });
+        return;
+      }
     } else if (feature !== 'sketch') {
       if (!validValueExpr(value, { positive: true })) {
         res.status(400).json({ error: 'value must be a positive number or expression' });

@@ -15,7 +15,7 @@ import chamfer from "../../core/chamfer.js";
 import repeat from "../../core/repeat.js";
 import copy from "../../core/copy.js";
 import rib from "../../core/rib.js";
-import { circle, hLine, move, project, rect, vLine } from "../../core/2d/index.js";
+import { circle, hLine, move, offset, project, rect, vLine } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Scene } from "../../rendering/scene.js";
 import { Shape } from "../../common/shape.js";
@@ -70,6 +70,26 @@ describe("feature sources (edit-dialog seeding)", () => {
 
     expect(result.ok).toBe(true);
     if (result.ok && result.feature === "shell") {
+      const topFace = faceRefsWhere(box, m => Math.abs(m.z - 50) < 1e-6);
+      expect(result.selection).toEqual({ kind: "entities", entities: topFace });
+    }
+  });
+
+  it("resolves a face offset's target faces onto the pre-offset solid", () => {
+    sketch("xy", () => {
+      rect(100, 100);
+    });
+    const e = extrude(50) as Extrude;
+    setLocation(e, 4);
+    const off = offset(-5, e.endFaces());
+    setLocation(off as any, 6);
+
+    const scene = render();
+    const box = solidOf(scene, "extrude");
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "offset", 6));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "offset") {
       const topFace = faceRefsWhere(box, m => Math.abs(m.z - 50) < 1e-6);
       expect(result.selection).toEqual({ kind: "entities", entities: topFace });
     }

@@ -452,6 +452,8 @@ export class SketchOpService {
     this.syncPickSlot();
     this.title.textContent = this.config.title;
     this.setToggles(this.defaultToggleValues());
+    // A fresh sketch-toolbar arming is always inside a sketch — every toggle applies.
+    this.setHiddenToggles([]);
     // A fresh tabbed dialog opens on the draw tab — unless the caller asks
     // for pick (an edge was already selected when the tool was armed). The
     // caller reads `mode` after entering and arms the viewport itself (no
@@ -477,7 +479,12 @@ export class SketchOpService {
    * the expression row seeds with its own target args (kept verbatim unless
    * edited), and picking edges re-targets it.
    */
-  enterEdit(target: FeatureEditTarget, parsed: ParsedSketchOp, expectedStatement: string): void {
+  enterEdit(
+    target: FeatureEditTarget,
+    parsed: ParsedSketchOp,
+    expectedStatement: string,
+    opts: { hideToggles?: SketchOpToggleKey[] } = {},
+  ): void {
     this.exit('reopen');
     this.active = true;
     this.editTarget = target;
@@ -495,6 +502,10 @@ export class SketchOpService {
       : parsed.feature === 'slot'
         ? { removeOriginal: parsed.removeOriginal }
         : {});
+    // Options the edited statement's context makes invalid (a face offset
+    // outside a sketch takes neither removeOriginal nor close) hide their
+    // rows; a hidden toggle also unchecks, so an apply writes the valid form.
+    this.setHiddenToggles(opts.hideToggles ?? []);
     // An edit opens on the pick tab; switching to Draw stays available —
     // drawing there replaces the statement with the drawn form (see
     // {@link applyDrawnStatement}).
@@ -518,6 +529,22 @@ export class SketchOpService {
   private setToggles(values: Partial<Record<SketchOpToggleKey, boolean>>): void {
     for (const [key, input] of this.toggles) {
       input.checked = values[key] === true;
+    }
+  }
+
+  /**
+   * Hide (and uncheck) the given toggle rows for this dialog opening —
+   * options the edited statement's context makes invalid. Openings that
+   * pass none restore every row.
+   */
+  private setHiddenToggles(keys: SketchOpToggleKey[]): void {
+    const hidden = new Set(keys);
+    for (const [key, input] of this.toggles) {
+      const row = input.closest('label');
+      row?.classList.toggle('hidden', hidden.has(key));
+      if (hidden.has(key)) {
+        input.checked = false;
+      }
     }
   }
 

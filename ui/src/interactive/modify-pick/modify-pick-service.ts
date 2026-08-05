@@ -180,6 +180,10 @@ export class ModifyPickService {
   private editSceneStale = false;
 
   private buttons = new Map<ModifyFeatureKind, FeatureButton>();
+  /** The last render's modify-group visibility — offset re-derives on highlight changes. */
+  private modifyVisible = false;
+  /** The neutral-mode selection holds a face — the Offset button's gate. */
+  private neutralFaceHighlighted = false;
   private sketchPanel: SketchStartPanel;
   private panel: ModifyPanel;
   /** The rendered selection chip rows — chip index to pick members. */
@@ -240,7 +244,9 @@ export class ModifyPickService {
         // Wrap: it keeps the modify group's activation condition, so it hides
         // itself (see update()) rather than riding that group's visibility —
         // hidden until the first render reports a solid, matching the modify
-        // group's own `visible: false` start.
+        // group's own `visible: false` start. Offset rides the modify group
+        // but stays hidden until a face is highlighted (its kernel form takes
+        // faces), so it too manages its own visibility.
         kind === 'sketch' || kind === 'shell' ? createHost : group,
         {
           icon: `/icons/${kind}.png`,
@@ -251,6 +257,7 @@ export class ModifyPickService {
           ...(kind === 'shell'
             ? { insertBefore: createHost.querySelector('[data-tool="wrap"]'), hidden: true }
             : {}),
+          ...(kind === 'offset' ? { hidden: true } : {}),
         },
       );
       button.onClick = () => {
@@ -514,6 +521,13 @@ export class ModifyPickService {
     this.navbar.setGroupVisible('modify', modifyVisible);
     // Shell rides the create group, so it can't inherit that visibility.
     this.buttons.get('shell')!.setVisible(modifyVisible);
+    // Offset needs a face to work on: hidden until one is highlighted (or
+    // its own mode is armed — the button must stay togglable while up). A
+    // render kills every highlight (measure drops its selection without
+    // notifying), so the face gate resets with it.
+    this.modifyVisible = modifyVisible;
+    this.neutralFaceHighlighted = false;
+    this.syncOffsetButton();
     this.navbar.setGroupVisible('create', true, 'sketch');
     this.syncButtons();
     if (this.feature) {
@@ -545,7 +559,7 @@ export class ModifyPickService {
    */
   enterEdit(
     target: FeatureEditTarget,
-    parsed: Extract<ParsedFeatureStatement, { feature: 'shell' | 'fillet' | 'chamfer' }>,
+    parsed: Extract<ParsedFeatureStatement, { feature: 'shell' | 'fillet' | 'chamfer' | 'offset' }>,
     info: Omit<EditSessionInfo, 'target'>,
   ): void {
     // A sketch dialog in any state steps aside; its sketch stays. Lazy —
@@ -617,7 +631,8 @@ export class ModifyPickService {
       return;
     }
     if (result.ok
-      && (result.feature === 'shell' || result.feature === 'fillet' || result.feature === 'chamfer')
+      && (result.feature === 'shell' || result.feature === 'fillet' || result.feature === 'chamfer'
+        || result.feature === 'offset')
       && result.selection.kind === 'entities') {
       this.selection.entities = result.selection.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub }));
       this.selection.chains = [];
@@ -1466,7 +1481,7 @@ export class ModifyPickService {
           && (config.valueSign === 'positive' ? read.value <= 0 : read.value === 0));
       if (invalid) {
         this.panel.setMessage(config.valueSign === 'nonzero'
-          ? `Enter a nonzero ${config.valueLabel.toLowerCase()} (negative hollows inward).`
+          ? `Enter a nonzero ${config.valueLabel.toLowerCase()} (${config.negativeHint}).`
           : `Enter a positive ${config.valueLabel.toLowerCase()}.`);
         return;
       }
@@ -1502,7 +1517,7 @@ export class ModifyPickService {
       this.panel.setApplyEnabled(false);
       try {
         const result = await applyValueFeatureEdit(
-          this.feature as 'shell' | 'fillet' | 'chamfer',
+          this.feature as 'shell' | 'fillet' | 'chamfer' | 'offset',
           this.editTarget,
           {
             value: value!,
@@ -1656,7 +1671,7 @@ export class ModifyPickService {
     let result: ApplyFeatureResponse;
     try {
       result = this.editTarget
-        ? await applyValueFeatureEdit(this.feature as 'shell' | 'fillet' | 'chamfer', this.editTarget, {
+        ? await applyValueFeatureEdit(this.feature as 'shell' | 'fillet' | 'chamfer' | 'offset', this.editTarget, {
           value: previewValue!,
           joinType: this.shellJoinType() ?? undefined,
           distance2: chamferPreview?.distance2,
@@ -1888,11 +1903,29 @@ export class ModifyPickService {
     this.ghostSeq++;
   }
 
+  /**
+   * The neutral-mode selection changed (measure owns it) — the Offset button
+   * shows exactly while a face is highlighted, so the tool is offered where
+   * it can act and stays out of the toolbar otherwise.
+   */
+  noteNeutralSelection(selection: SelectedEntity[]): void {
+    this.neutralFaceHighlighted = selection.some(e => e.sub.type === 'face');
+    this.syncOffsetButton();
+  }
+
+  /** Offset shows with the modify group, gated on a highlighted face (or its own armed mode). */
+  private syncOffsetButton(): void {
+    this.buttons.get('offset')!.setVisible(this.modifyVisible
+      && (this.neutralFaceHighlighted || this.feature === 'offset'));
+  }
+
   private syncButtons(): void {
     for (const [kind, btn] of this.buttons) {
       btn.setActive(this.feature === kind
         || (kind === 'sketch' && this.sketchSession !== null));
     }
+    // Arming/exiting offset changes its button's visibility gate.
+    this.syncOffsetButton();
     // The sketch button never hides (it votes its create group visible on
     // every render); it disables while another feature dialog is up — an
     // extrude/sweep/loft dialog, or this service's own fillet/chamfer/shell.

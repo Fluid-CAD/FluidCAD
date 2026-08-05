@@ -116,6 +116,14 @@ export function synthesizeApplyFeature(
       return { ok: false, reason: 'a loft profile is a face — pick faces only', pick: edge };
     }
   }
+  if (feature === 'offset') {
+    // The picks are the coplanar faces whose outlines the offset traces —
+    // the kernel's face-target overload takes no edges outside a sketch.
+    const edge = [...refs, ...chains.flatMap(c => c.members)].find(r => r.sub.type !== 'face');
+    if (edge) {
+      return { ok: false, reason: 'offset takes faces — pick faces only', pick: edge };
+    }
+  }
   if (feature === 'wrap') {
     // The pick is wrap's target: the single face the sketch wraps onto.
     if (chains.length > 0 || refs.length !== 1 || refs[0].sub.type !== 'face') {

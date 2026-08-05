@@ -877,7 +877,7 @@ export type ApplyFeatureOptions = {
  * reason the selection couldn't be expressed as code.
  */
 export async function applyFeature(
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch',
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'offset',
   value: ValueExpr | null,
   entities: ApplyFeatureEntity[],
   options: ApplyFeatureOptions = {},
@@ -1882,7 +1882,7 @@ export type FeatureSourcesResult =
   | { ok: true; feature: 'loft'; profiles: SourceSlotRef[]; guides: SourceSlotRef[] }
   | { ok: true; feature: 'revolve'; profile: SourceSlotRef; axis: SourceSlotRef }
   | { ok: true; feature: 'helix'; source: SourceSlotRef }
-  | { ok: true; feature: 'shell' | 'fillet' | 'chamfer'; selection: SourceSlotRef }
+  | { ok: true; feature: 'shell' | 'fillet' | 'chamfer' | 'offset'; selection: SourceSlotRef }
   | { ok: true; feature: 'projection'; selection: SourceSlotRef }
   /**
    * A repeat: the features it replays, by call site, plus what it replays them
@@ -2750,7 +2750,7 @@ export type ValueFeatureEditOptions = EditSessionFields & {
 
 /** Rewrite the shell/fillet/chamfer statement at `edit` in place. */
 export async function applyValueFeatureEdit(
-  feature: 'shell' | 'fillet' | 'chamfer',
+  feature: 'shell' | 'fillet' | 'chamfer' | 'offset',
   edit: FeatureEditTarget,
   options: ValueFeatureEditOptions,
 ): Promise<ApplyFeatureResponse> {

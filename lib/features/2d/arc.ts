@@ -2,6 +2,7 @@ import { Vertex } from "../../common/vertex.js";
 import { Geometry } from "../../oc/geometry.js";
 import { rad } from "../../helpers/math-helpers.js";
 import { type Point, Point2D, Point2DLike } from "../../math/point.js";
+import { type Plane } from "../../math/plane.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { GeometrySceneObject } from "./geometry.js";
 import { LazyVertex } from "../lazy-vertex.js";
@@ -121,40 +122,7 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcRadius, 
       ? this._centerPoint.asPoint2D()
       : new Point2D((startPt.x + endPt.x) / 2, (startPt.y + endPt.y) / 2);
 
-    const dx = startPt.x - centerPt.x;
-    const dy = startPt.y - centerPt.y;
-    const radius = Math.sqrt(dx * dx + dy * dy);
-
-    const endAngle = Math.atan2(endPt.y - centerPt.y, endPt.x - centerPt.x);
-
-    const normal = this._clockwise ? plane.normal.negate() : plane.normal;
-
-    const center = plane.localToWorld(centerPt);
-    const start = plane.localToWorld(startPt);
-    const end = plane.localToWorld(endPt);
-
-    const arc = Geometry.makeArc(center, radius, normal, start, end);
-    const edge = Geometry.makeEdgeFromCurve(arc);
-
-    const sign = this._clockwise ? -1 : 1;
-    const tx = sign * (-Math.sin(endAngle));
-    const ty = sign * Math.cos(endAngle);
-    this.setTangent(new Point2D(tx, ty));
-
-    this.setState('start', Vertex.fromPoint2D(startPt));
-    this.setState('end', Vertex.fromPoint2D(endPt));
-    const centerVertex = Vertex.fromPoint(center);
-    centerVertex.markAsMetaShape();
-    this.addShape(centerVertex);
-    this.addShape(edge);
-
-    if (this.sketch) {
-      this.setCurrentPosition(endPt);
-    }
-
-    if (this._targetPlane) {
-      this._targetPlane.removeShapes(this);
-    }
+    this.buildCenterArc(plane, startPt, endPt, centerPt);
   }
 
   private buildTwoPointsBulge(): void {
@@ -317,9 +285,18 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcRadius, 
       ? plane.worldToLocal(this._targetPlane.getPlaneCenter())
       : this.getCurrentPosition();
 
-    const endPt = this._endPoint.asPoint2D();
-    const centerPt = this._centerPoint.asPoint2D();
+    this.buildCenterArc(plane, startPt, this._endPoint.asPoint2D(), this._centerPoint.asPoint2D());
+  }
 
+  /**
+   * Arc through both authored endpoints, sweeping around centerPt in the
+   * requested direction. The authored center only picks the sweep side and
+   * nominal radius: the actual circle is fitted through start/mid/end, so an
+   * authored endpoint slightly off the center's circle (rounded coordinates)
+   * still lands exactly on the built edge — downstream chaining and closing
+   * rely on the endpoints being exact.
+   */
+  private buildCenterArc(plane: Plane, startPt: Point2D, endPt: Point2D, centerPt: Point2D): void {
     const aStart = Math.atan2(startPt.y - centerPt.y, startPt.x - centerPt.x);
     const aEnd = Math.atan2(endPt.y - centerPt.y, endPt.x - centerPt.x);
     let sweep = this._clockwise ? aStart - aEnd : aEnd - aStart;

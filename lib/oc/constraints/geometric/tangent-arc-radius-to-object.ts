@@ -3,10 +3,21 @@ import { QualifiedShape } from "../../../features/2d/constraints/qualified-geome
 import { Plane } from "../../../math/plane.js";
 import { Point2D } from "../../../math/point.js";
 import { Convert } from "../../convert.js";
+import { EdgeQuery } from "../../edge-query.js";
 import { Geometry } from "../../geometry.js";
 import { getOC } from "../../init.js";
 
 const EPS = 1e-10;
+
+/**
+ * Rounded authored inputs (the sketcher emits 2dp coordinates) land the
+ * tangency near — but not exactly on — the target edge's endpoint. Within
+ * this tolerance the arc end snaps to the vertex so a loop closed through
+ * the target's endpoint is exactly closed; landing just outside the target's
+ * trimmed span otherwise leaves a micro-gap that silently kills region
+ * detection.
+ */
+const ENDPOINT_SNAP_TOLERANCE = 0.02;
 
 type TargetGeom =
   | { type: 'line'; pointOnLine: Point2D; direction: Point2D }
@@ -66,20 +77,67 @@ export function solveTangentArcRadiusToObject(
     throw new Error('tArc(radius, target): no intersection reachable in the arc direction');
   }
 
-  const normal = ccw ? plane.normal : plane.normal.negate();
-  const worldCenter = plane.localToWorld(center);
+  const snapped = snapToTargetVertex(plane, best.endPoint, target);
+  const endPoint = snapped ?? best.endPoint;
+  const endAngle = snapped
+    ? Math.atan2(endPoint.y - Oy, endPoint.x - Ox)
+    : best.endAngle;
+
   const worldStart = plane.localToWorld(startPoint);
-  const worldEnd = plane.localToWorld(best.endPoint);
-  const arc = Geometry.makeArc(worldCenter, radius, normal, worldStart, worldEnd);
-  const edge = Geometry.makeEdgeFromCurve(arc);
+  const worldEnd = plane.localToWorld(endPoint);
+
+  let edge: Edge;
+  if (snapped) {
+    // The snapped endpoint sits slightly off the solved tangent circle, so
+    // refit the arc through the exact endpoints (mid point of the solved
+    // sweep as the third point) — exact closure over exact tangency.
+    const midAngle = startAngle + best.sweep / 2;
+    const midPoint = new Point2D(Ox + radius * Math.cos(midAngle), Oy + radius * Math.sin(midAngle));
+    const arc = Geometry.makeArcThreePoints(worldStart, plane.localToWorld(midPoint), worldEnd);
+    edge = Geometry.makeEdgeFromCurve(arc);
+  } else {
+    const normal = ccw ? plane.normal : plane.normal.negate();
+    const worldCenter = plane.localToWorld(center);
+    const arc = Geometry.makeArc(worldCenter, radius, normal, worldStart, worldEnd);
+    edge = Geometry.makeEdgeFromCurve(arc);
+  }
 
   const sign = ccw ? 1 : -1;
   const endTangent = new Point2D(
-    sign * (-Math.sin(best.endAngle)),
-    sign * Math.cos(best.endAngle)
+    sign * (-Math.sin(endAngle)),
+    sign * Math.cos(endAngle)
   );
 
   return { edges: [edge], endTangent };
+}
+
+/** The target edge vertex within snap tolerance of the solved end, if any. */
+function snapToTargetVertex(
+  plane: Plane,
+  endPoint: Point2D,
+  target: QualifiedShape
+): Point2D | null {
+  const shape = target.shape;
+  if (!(shape instanceof Edge)) {
+    return null;
+  }
+
+  // A closed target (full circle) has no real endpoints — only a seam vertex.
+  if (EdgeQuery.isEdgeClosedCurve(shape)) {
+    return null;
+  }
+
+  let bestVertex: Point2D | null = null;
+  let bestDistance = ENDPOINT_SNAP_TOLERANCE;
+  for (const vertex of [shape.getFirstVertex(), shape.getLastVertex()]) {
+    const point = plane.worldToLocal(vertex.toPoint());
+    const distance = point.distanceTo(endPoint);
+    if (distance > EPS && distance <= bestDistance) {
+      bestDistance = distance;
+      bestVertex = point;
+    }
+  }
+  return bestVertex;
 }
 
 function extractTargetGeometry(plane: Plane, target: QualifiedShape): TargetGeom {

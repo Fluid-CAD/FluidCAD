@@ -530,6 +530,29 @@ describe("tArc", () => {
       expect(dist).toBeCloseTo(40, 6);
     });
 
+    it("snaps the tangency onto the target's endpoint and closes the loop", () => {
+      // User regression: rounded 2dp coordinates land the tangency ~0.005
+      // outside the target arc's trimmed span (just past its start vertex).
+      // Within snap tolerance the arc end must attach to the vertex exactly,
+      // or the loop stays open by a hair and extrude silently finds no
+      // region.
+      sketch("xy", () => {
+        const a = arc([-205.71, -75.22], [-130.5, 124.58]).center([-176.56, 27.86]).cw();
+        tArc(183.42, [83.83, 166.52]);
+        tArc(113.82, [280.76, 75.12]);
+        tArc(233.12, [110, -120]);
+        tArc(110.67, [28.19, -233.25]);
+        tArc(-177.52, a);
+      });
+
+      const e = extrude(10) as ExtrudeBase;
+
+      render();
+
+      const solids = e.getShapes().filter(sh => sh instanceof Solid);
+      expect(solids).toHaveLength(1);
+    });
+
     it("negative radius flips the sweep direction", () => {
       // Same line, same start, same tangent — only the sign of the radius
       // differs. Positive radius (CCW) curves to the left of the tangent;

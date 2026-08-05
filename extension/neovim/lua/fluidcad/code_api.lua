@@ -65,6 +65,10 @@ function M.remove_pick(code, source_line)
   return post('remove-pick', { code = code, sourceLine = source_line })
 end
 
+function M.add_guide(code, source_line)
+  return post('add-guide', { code = code, sourceLine = source_line })
+end
+
 function M.remove_statement(code, source_line)
   return post('remove-statement', { code = code, sourceLine = source_line })
 end

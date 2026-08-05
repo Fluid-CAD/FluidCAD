@@ -6,6 +6,7 @@ import {
   clearBreakpoints,
   insertPoint,
   removePoint,
+  addGuide,
   addPick,
   removePick,
   removeStatement,
@@ -235,6 +236,26 @@ describe('addPick', () => {
   it('is a no-op when .pick( already exists on the line', async () => {
     const code = `line([0, 0]).pick()\n`;
     const result = await addPick(code, 1);
+    expect(result.newCode).toBe(code);
+  });
+});
+
+describe('addGuide', () => {
+  it('appends .guide() after the last close paren on the line', async () => {
+    const code = `rect([0, 0], 10, 5)\n`;
+    const result = await addGuide(code, 1);
+    expect(result.newCode).toBe(`rect([0, 0], 10, 5).guide()\n`);
+  });
+
+  it('appends after an existing chained call', async () => {
+    const code = `rect([0, 0], 10, 5).centered()\n`;
+    const result = await addGuide(code, 1);
+    expect(result.newCode).toBe(`rect([0, 0], 10, 5).centered().guide()\n`);
+  });
+
+  it('is a no-op when .guide( already exists on the line', async () => {
+    const code = `line([0, 0], [1, 1]).guide()\n`;
+    const result = await addGuide(code, 1);
     expect(result.newCode).toBe(code);
   });
 });

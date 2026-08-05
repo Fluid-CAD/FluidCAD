@@ -8,6 +8,7 @@ import {
   clearBreakpoints,
   insertPoint,
   removePoint,
+  addGuide,
   addPick,
   removePick,
   removeStatement,
@@ -168,6 +169,21 @@ export function createSketchEditsRouter(
     }
     sendToExtension({
       type: 'remove-pick',
+      sourceLocation,
+    });
+    res.json({ success: true });
+  });
+
+  router.post('/add-guide', (req, res) => {
+    const { sourceLocation } = req.body;
+    if (
+      !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    sendToExtension({
+      type: 'add-guide',
       sourceLocation,
     });
     res.json({ success: true });
@@ -587,6 +603,20 @@ export function createSketchEditsRouter(
     }
     try {
       const result = await removePick(code, sourceLine);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/add-guide', async (req, res) => {
+    const { code, sourceLine } = req.body;
+    if (typeof code !== 'string' || typeof sourceLine !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await addGuide(code, sourceLine);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

@@ -16,6 +16,13 @@ export const TOOLBAR_BTN_BASE = `${TOOLBAR_BTN_SHAPE} btn-ghost text-base-conten
 /** A toolbar button whose tool is armed. */
 export const TOOLBAR_BTN_ACTIVE = `${TOOLBAR_BTN_SHAPE} btn-soft btn-primary`;
 
+/**
+ * A toolbar button whose *mode* is latched on (Guide). Louder than the armed
+ * state — a solid primary ring on top of the soft fill — so a sticky mode
+ * that recolors everything drawn next reads differently from an armed tool.
+ */
+export const TOOLBAR_BTN_ACTIVE_STRONG = `${TOOLBAR_BTN_SHAPE} btn-soft btn-primary ring-2 ring-primary`;
+
 /** The small muted caption under a toolbar icon. */
 export const TOOLBAR_BTN_LABEL = 'text-[10px] leading-none text-base-content/50';
 

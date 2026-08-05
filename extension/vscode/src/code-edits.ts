@@ -67,6 +67,24 @@ export async function handleAddPick(client: Client, msg: { sourceLocation: { lin
   }
 }
 
+export async function handleAddGuide(client: Client, msg: { sourceLocation: { line: number } }) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    client.logger.appendLine(`[add-guide] No editor found for ${client.currentFileName}`);
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.addGuide(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
 export async function handleRemovePick(client: Client, msg: { sourceLocation: { line: number } }) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {

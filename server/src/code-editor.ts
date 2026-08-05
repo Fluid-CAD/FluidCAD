@@ -661,6 +661,21 @@ export function addPick(code: string, sourceLine: number): Promise<CodeEditResul
 }
 
 /**
+ * Append `.guide()` to the call chain on the resolved row — the Guide
+ * toolbar toggle converting an already-drawn statement to construction
+ * geometry.
+ */
+export function addGuide(code: string, sourceLine: number): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call || findMemberCallInChain(call, 'guide')) {
+      return null;
+    }
+    return spliceCode(code, call.endIndex, call.endIndex, '.guide()');
+  });
+}
+
+/**
  * Remove an empty `.pick()` call from the chain on the resolved row.
  * Calls with points are left untouched so concurrent/stale edits cannot
  * discard user data.

@@ -17,7 +17,7 @@ import { BezierHandlesOverlay } from './bezier-handles-overlay';
 import { SnapManager } from '../snapping/snap-manager';
 import { SnapController } from '../snapping/snap-controller';
 import {
-  insertGeometry, getScopeVariables, applySketchOp, gotoSource, FeatureEditTarget, ParsedFeatureStatement,
+  insertGeometry, addGuide, getScopeVariables, applySketchOp, gotoSource, FeatureEditTarget, ParsedFeatureStatement,
 } from '../api';
 import { isTopLevel } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData } from '../types';
@@ -115,6 +115,7 @@ export class SketchToolbarService {
       sketchGroup,
       (toolId) => this.handleToolSelect(toolId),
       (visible) => navbar.setGroupVisible('sketch', visible),
+      (active) => this.handleGuideToggle(active),
     );
 
     this.shortcuts = new ShortcutManager();
@@ -534,6 +535,53 @@ export class SketchToolbarService {
     return getScopeVariables(this.activeSketchInfo.sourceLocation.line);
   }
 
+  /**
+   * Append `.guide()` to a statement drawn while the Guide latch is on. A
+   * multi-line emission (`move(...)\nline(...)`, the text tool's
+   * `move(...);\ntext(...)`) suffixes only its last line — the geometry
+   * call; the leading cursor move is not geometry.
+   */
+  private withGuideSuffix(statement: string): string {
+    if (!this.toolbar.guideModeChecked || statement.includes('.guide(')) {
+      return statement;
+    }
+    const nl = statement.lastIndexOf('\n');
+    const head = nl === -1 ? '' : statement.slice(0, nl + 1);
+    let tail = nl === -1 ? statement : statement.slice(nl + 1);
+    const semi = tail.endsWith(';');
+    if (semi) {
+      tail = tail.slice(0, -1);
+    }
+    return `${head}${tail}.guide()${semi ? ';' : ''}`;
+  }
+
+  /**
+   * The Guide latch flipped. Arming it over a live selection converts the
+   * selected edges' owning statements to construction geometry on the spot —
+   * one `.guide()` splice per statement (a rect is many edges but one line),
+   * fanned out through the same code-edit rail as `.pick()`.
+   */
+  private handleGuideToggle(active: boolean): void {
+    if (!active || !this.activeSketchInfo) {
+      return;
+    }
+    const seen = new Set<string>();
+    for (const shapeId of this.activeHoverSelectHandler?.selectedIds ?? []) {
+      const owner = this.viewer.currentSceneObjects.find(obj =>
+        obj.sceneShapes?.some(shape => shape.shapeId === shapeId));
+      const location = owner?.sourceLocation;
+      if (!location) {
+        continue;
+      }
+      const key = `${location.filePath}:${location.line}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      addGuide(location);
+    }
+  }
+
   private createTool(
     toolId: ToolId,
     plane: PlaneData,
@@ -553,7 +601,7 @@ export class SketchToolbarService {
       if (!this.activeSketchInfo) {
         return;
       }
-      insertGeometry(statement, this.activeSketchInfo.sourceLocation, newVariable);
+      insertGeometry(this.withGuideSuffix(statement), this.activeSketchInfo.sourceLocation, newVariable);
     });
 
     const fetchVars = () => this.fetchScopeVariables();

@@ -1,7 +1,9 @@
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { ToolId } from '../interactive/sketch-tool';
 import { ShortcutManager } from './shortcut-manager';
-import { TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './toolbar-styles';
+import {
+  TOOLBAR_BTN_ACTIVE, TOOLBAR_BTN_ACTIVE_STRONG, TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL,
+} from './toolbar-styles';
 
 /**
  * Each tool renders a PNG from `/icons` (the same artwork the timeline uses —
@@ -100,12 +102,24 @@ export class SketchToolbar {
   private rectButtonImg: HTMLImageElement | null = null;
   private rectTooltip: HTMLDivElement | null = null;
 
+  /**
+   * Guide mode: a latch, not a tool — it rides alongside whatever tool is
+   * armed instead of joining the radio group, and every statement drawn while
+   * it is on gains a `.guide()` suffix. Dropped when the toolbar hides so a
+   * new sketch session never starts silently in construction mode.
+   */
+  private guideModeState = false;
+  private guideButton: HTMLButtonElement | null = null;
+  private onGuideToggle: (active: boolean) => void;
+
   constructor(
     host: HTMLElement,
     onToolSelect: (toolId: ToolId | null) => void,
     setGroupVisible: (visible: boolean) => void,
+    onGuideToggle: (active: boolean) => void,
   ) {
     this.onToolSelect = onToolSelect;
+    this.onGuideToggle = onGuideToggle;
     this.host = host;
     this.setGroupVisible = setGroupVisible;
 
@@ -125,6 +139,7 @@ export class SketchToolbar {
     for (const [toolId, keys] of Object.entries(TOOL_SHORTCUTS)) {
       this.shortcutManager.register(keys, () => this.handleToolClick(toolId as ToolId));
     }
+    this.shortcutManager.register('g', () => this.toggleGuideMode());
   }
 
   show(): void {
@@ -142,6 +157,12 @@ export class SketchToolbar {
     this.shortcutManager.disable();
     if (this.activeToolId) {
       this.setActiveTool(null);
+    }
+    if (this.guideModeState) {
+      // Silent reset — the sketch is going away, so there is no selection to
+      // convert and no service state to unwind.
+      this.guideModeState = false;
+      this.syncGuideButtonState();
     }
   }
 
@@ -166,6 +187,10 @@ export class SketchToolbar {
 
   get rectCenteredChecked(): boolean {
     return this.rectCenteredState;
+  }
+
+  get guideModeChecked(): boolean {
+    return this.guideModeState;
   }
 
   private static isRectVariant(toolId: ToolId | null): boolean {
@@ -282,6 +307,45 @@ export class SketchToolbar {
       for (const tool of tools) {
         this.inner.appendChild(this.createToolButton(tool));
       }
+    }
+
+    // The Guide latch lives in its own trailing group — it is a mode over the
+    // other tools, not a member of their radio.
+    const sep = document.createElement('div');
+    sep.className = 'w-px h-8 bg-base-content/[0.12] mx-0.5 shrink-0';
+    this.inner.appendChild(sep);
+    this.inner.appendChild(this.createGuideButton());
+  }
+
+  private createGuideButton(): HTMLElement {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'relative group shrink-0';
+
+    const btn = document.createElement('button');
+    btn.className = this.guideModeState ? TOOLBAR_BTN_ACTIVE_STRONG : TOOLBAR_BTN_BASE;
+    btn.innerHTML = `<img src="/icons/guide.png" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`
+      + `<span class="${TOOLBAR_BTN_LABEL}">Guide</span>`;
+    btn.addEventListener('click', () => this.toggleGuideMode());
+
+    const tip = document.createElement('div');
+    tip.className = 'absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 rounded bg-base-300 text-base-content text-xs whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity flex items-center gap-1.5 z-[200]';
+    tip.innerHTML = 'Guide mode (construction geometry) <kbd class="kbd kbd-xs">g</kbd>';
+
+    wrapper.appendChild(btn);
+    wrapper.appendChild(tip);
+    this.guideButton = btn;
+    return wrapper;
+  }
+
+  private toggleGuideMode(): void {
+    this.guideModeState = !this.guideModeState;
+    this.syncGuideButtonState();
+    this.onGuideToggle(this.guideModeState);
+  }
+
+  private syncGuideButtonState(): void {
+    if (this.guideButton) {
+      this.guideButton.className = this.guideModeState ? TOOLBAR_BTN_ACTIVE_STRONG : TOOLBAR_BTN_BASE;
     }
   }
 

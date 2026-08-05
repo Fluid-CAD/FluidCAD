@@ -194,6 +194,10 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.remove_pick(code, msg.sourceLocation.line)
       end)
+    elseif msg.type == 'add-guide' then
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.add_guide(code, msg.sourceLocation.line)
+      end)
     elseif msg.type == 'set-trim-targets' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.set_trim_targets(code, msg.sourceLocation.line, msg.args)

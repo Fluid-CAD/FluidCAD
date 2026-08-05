@@ -19,6 +19,7 @@ import {
 } from './breakpoints';
 import {
   handleInsertPoint,
+  handleAddGuide,
   handleAddPick,
   handleRemovePick,
   handleSetTrimTargets,
@@ -165,6 +166,10 @@ export class Client {
       }
       case 'add-pick': {
         handleAddPick(this, msg);
+        break;
+      }
+      case 'add-guide': {
+        handleAddGuide(this, msg);
         break;
       }
       case 'remove-pick': {

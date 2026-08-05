@@ -209,6 +209,11 @@ export function removePick(sourceLocation: SourceLocationParam): void {
   postFireAndForget('/api/remove-pick', { sourceLocation });
 }
 
+/** Append `.guide()` to the statement at `sourceLocation` (Guide toggle). */
+export function addGuide(sourceLocation: SourceLocationParam): void {
+  postFireAndForget('/api/add-guide', { sourceLocation });
+}
+
 export function insertGeometry(
   statement: string,
   sketchSourceLocation: SourceLocationParam,

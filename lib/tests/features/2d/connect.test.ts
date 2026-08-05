@@ -5,7 +5,7 @@ import extrude from "../../../core/extrude.js";
 import revolve from "../../../core/revolve.js";
 import sweep from "../../../core/sweep.js";
 import { mirror } from "../../../core/index.js";
-import { line, hLine, vLine, hMove, move, connect, offset, circle } from "../../../core/2d/index.js";
+import { arc, line, hLine, vLine, hMove, move, connect, offset, circle } from "../../../core/2d/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { Connect } from "../../../features/2d/connect.js";
 import { MirrorShape2D } from "../../../features/mirror-shape2d.js";
@@ -292,6 +292,34 @@ describe("connect", () => {
       for (const shape of shapes) {
         expect(shape.getType()).toBe("edge");
       }
+    });
+  });
+
+  describe("authored endpoints off the true curve", () => {
+    it("closes and extrudes an arc whose authored end is rounded off its circle", () => {
+      // The two-point arc takes its radius from the start point; the authored
+      // end here sits ~0.005 off that circle, so the built arc's end vertex
+      // deviates from the authored coordinates. The bridge must attach to the
+      // segments' real vertices — bridging the authored points leaves a
+      // micro-gap and the extrude silently finds no region.
+      let c: Connect;
+      sketch("xy", () => {
+        arc([-205.71, -75.22], [-130.5, 124.58]).center([-176.56, 27.86]).cw();
+        c = connect() as Connect;
+      });
+
+      const e = extrude(10) as Extrude;
+
+      render();
+
+      expect(c.getAddedShapes()).toHaveLength(1);
+
+      const shapes = e.getShapes();
+      expect(shapes).toHaveLength(1);
+      expect(shapes[0].getType()).toBe("solid");
+
+      const props = ShapeProps.getProperties(shapes[0].getShape());
+      expect(props.volumeMm3).toBeGreaterThan(0);
     });
   });
 

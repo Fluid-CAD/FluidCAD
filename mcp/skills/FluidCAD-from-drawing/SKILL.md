@@ -9,62 +9,97 @@ This skill layers on top of the **FluidCAD** skill. That one owns everything gen
 
 The governing principle: **a drawing is a specification you are transcribing, not a picture you are approximating.** Every number in the model should trace back to a number on the sheet.
 
-## 1. Read the entire drawing before modeling anything
+## 1. Every read of the drawing is whole — no cropping, ever
 
 Open the drawing with whatever file/image reading tool your client provides — and for a multi-page PDF, read every page, not just the first.
 
-**Read the original image, whole.** Do not crop it, tile it into quadrants, split out a region, zoom-and-slice, or otherwise preprocess it into sub-images to pull the dimensions out. It feels like it should help; it does not:
+**Whoever reads the sheet reads the original image, whole** — you and every transcriber alike. Do not crop it, tile it into quadrants, split out a region, zoom-and-slice, or otherwise preprocess it into sub-images to pull the dimensions out. It feels like it should help; it does not:
 
 - **Cropping strips the context that gives a number its meaning.** A dimension is defined by the extension lines it spans, the arrowheads at its ends, and the view it sits in. Isolated in a tile, `24` is just a number with no referent — and that is exactly how a width gets modeled as a depth.
 - **Splitting causes both double-counting and omission.** The same dimension shows up in two tiles and gets modeled twice, or it lands on a seam and vanishes from both. Neither failure announces itself.
 - **Re-encoding adds no information.** Enlarging a blurry region does not recover pixels the original never had; it produces confident-looking digits that were never on the sheet. A misread you invented this way is indistinguishable from a real reading.
 
-If something is genuinely unreadable at full size, that is a question for the user (§2), not a problem to solve with image processing.
+If something is genuinely unreadable at full size, that is a question for the user (§4), not a problem to solve with image processing.
 
-- **Start with the title block.** Units (mm or inch), scale, projection angle (first vs third), general tolerance note, material, revision. These change how you interpret every view. FluidCAD works in millimetres; if the drawing is in inches, decide the conversion policy with the user up front.
-- **Inventory the views.** Which are orthographic (front/top/right), which are sections, which are detail blow-ups. For a section, note where the cutting plane is — a section shows internal geometry, not an outer face.
-- **Dashed lines are hidden geometry.** They are bores, pockets, and counterbores seen through material — internal features to cut, never outlines to extrude.
-- **Decode the callouts** before you rely on them: `⌀` diameter, `R` radius, `SR` spherical radius, `□` square, `⌴` counterbore, `⌵` countersink, `↧` depth, `THRU`, `TYP`, `4X`, `±`, bolt-circle notation, thread callouts (`M6×1`, `1/4-20 UNC`).
-- **Build a dimension inventory.** List every dimension on the sheet: its value, the view it came from, and the feature it will drive. This list doubles as the completion checklist — at the end, every entry must be consumed by a modeled feature or explicitly waived with the user.
-- **Check the arithmetic.** Chained dimensions should sum to the stated overall; hole positions should fall inside the outline; a bolt circle should clear the edge. A mismatch means either you misread a digit or the drawing is wrong. Both need the user, not a guess.
+## 2. One structural glance, then a parallel consensus read
 
-Before settling into the careful pass, take one **glance** at the sheet — just enough to see what kinds of features the part has — and launch the baseline doc sub-agents (FluidCAD skill, "Send sub-agents into the docs") so they read while you read.
+Do not transcribe the digits alone, one long careful pass at a time. The read splits into a structural pass you do and a digit-level pass several independent readers do in parallel.
 
-## 2. Ask about anything you cannot read — batched into one round
+**Your structural glance.** Read the sheet once for what it is, not yet for its numbers:
+
+- **Title block:** units (mm or inch), scale, projection angle (first vs third), general tolerance note, material, revision. These change how you interpret every view. FluidCAD works in millimetres; if the drawing is in inches, decide the conversion policy with the user up front.
+- **Views:** which are orthographic (front/top/right), which are sections, which are detail blow-ups. For a section, note where the cutting plane is — a section shows internal geometry, not an outer face.
+- **Dashed lines are hidden geometry** — bores, pockets, and counterbores seen through material; internal features to cut, never outlines to extrude.
+- **Callouts** you'll need decoded: `⌀` diameter, `R` radius, `SR` spherical radius, `□` square, `⌴` counterbore, `⌵` countersink, `↧` depth, `THRU`, `TYP`, `4X`, `±`, bolt-circle notation, thread callouts (`M6×1`, `1/4-20 UNC`).
+
+That glance is enough to launch the baseline doc sub-agents (FluidCAD skill, "Send sub-agents into the docs") and to start thinking about the plan.
+
+**The transcribers.** In the same message as those doc agents, launch **three transcriber sub-agents** (two is acceptable for a small, cleanly rendered sheet):
+
+- each gets the drawing's **file path** and reads the whole image itself
+- each is told to first read `references/transcription-contract.md` in this skill's folder and follow it exactly — it defines the JSON they produce and the reading rules that bind them
+- each gets a reader label (A, B, C) and a distinct output path in your scratch directory (`drawing-read-a.json`, …)
+- they work independently — never show one reader another's output
+
+**The merge.** When they return, run the bundled script (no dependencies, Node ≥ 18):
+
+```bash
+node <this skill's folder>/scripts/merge-drawing-reads.mjs \
+  drawing-read-a.json drawing-read-b.json drawing-read-c.json \
+  -o <part>.drawing.json --source <drawing file>
+```
+
+It aligns the reads by view + sheet position + callout text and gives every dimension a status:
+
+- **agreed** — every reader, same value. Model from it without re-reading the image.
+- **majority** — one dissent, recorded under `variants`. Usable; mention it in the question batch when it drives a functional dimension (a bore, a mating distance).
+- **partial** — a reader missed it, or a reader invented it. Verify with one targeted look at the full sheet before modeling it.
+- **conflict** — no majority; the entry carries variants and **no value**. Never model it: resolve it with your own whole-sheet look or put it in the question batch.
+
+The merged `<part>.drawing.json` **is the dimension inventory.** Save it next to the model file: the plan's steps cite its ids (`d3`, `d7`), the close-out in §9 walks it entry by entry, and a future session starts from it instead of re-reading the sheet.
+
+**Check the arithmetic on the merged table.** Chained dimensions should sum to the stated overall; hole positions should fall inside the outline; a bolt circle should clear the edge. Reader agreement means the digits were printed that way — not that the sheet is consistent. A mismatch is a §4 question, not something to reconcile by guessing.
+
+**Fallback.** If your client cannot run sub-agents, or the drawing exists only as a pasted conversation image you cannot hand to one, first ask the user for the file path — a file on disk is what makes the parallel read possible. Failing that, do the full careful read yourself as a single reader and still write the same `<part>.drawing.json` by hand, contract schema and honest confidences included. Everything downstream consumes that file either way.
+
+## 3. What sub-agents may and may not do with the drawing
+
+The FluidCAD skill's sub-agent rules apply as written — doc agents are read-only, verbatim signatures, verify anything surprising. On top of them:
+
+- **Doc agents never get the image.** They read the API docs; the drawing is not their input.
+- **Transcribers get the image whole, or not at all.** Never a crop, a single view, or "just read the top half" — §1 binds them identically.
+- **Dimensions never cross an agent boundary as prose.** A summarized dimension is a number stripped of the extension lines, arrowheads, and view that gave it meaning — the same failure that makes cropping unsafe, with a lossy retelling on top. Numbers move between agents only as contract JSON, and only merged statuses reach the model.
+- **Transcribers write exactly one file: their own output path.** Never the model, and never the MCP scene tools (`write_file`, `edit_range`, `recompute`, `rollback_to`).
+
+## 4. Ask about anything unresolved — batched into one round
 
 **Never guess.** Not a digit, not a unit, not whether a line is a hidden edge or a centerline. An 8 read as a 3 propagates silently through every downstream feature and is expensive to unwind. Guessing is the single most costly failure mode in this workflow.
 
-But do not block on each unknown one at a time either. Read the whole drawing, collect every ambiguity, then ask **one consolidated set of questions**. Typical items:
+The merge report writes most of the batch for you: every **conflict**, the **partial** entries a targeted look did not settle, **low-confidence** values on functional dimensions, **title-block conflicts**, and the readers' own `questions`. Add what only you can see:
 
-- illegible, cut-off, or ambiguous numbers — ask the user for a better scan or a higher-resolution copy of the sheet, and read that new source whole. Never try to recover the digits yourself by cropping or upscaling the drawing you already have (§1).
+- illegible, cut-off, or ambiguous numbers — ask for a better scan or a higher-resolution copy, and put that new source through the same consensus read, whole. Never try to recover the digits yourself by cropping or upscaling the copy you already have (§1).
 - dimensions that are missing entirely, or chains that do not close
 - whether threads should be modeled as real geometry or left as plain holes at nominal/tap-drill size
 - whether to model nominal dimensions or a specific fit
 - features the drawing shows but does not dimension
 - which revision governs, if more than one drawing was supplied
 
-Anything the user answers, write into the code as a comment next to the feature it decided. The next reader will have the same question.
+Ask it all as **one consolidated set of questions**, not one unknown at a time. Anything the user answers, write into the code as a comment next to the feature it decided. The next reader will have the same question.
 
-## 3. Turn the drawing into the build plan
+## 5. Turn the drawing into the build plan
 
 The FluidCAD skill defines the plan and how to write it — generic CAD terms, design intent, datums, ordered steps each with its reason, pitfalls called against this specific part, shown to the user before any code exists. Write that plan. What the drawing contributes to it:
 
-- **The dimension inventory is the input to the steps.** Each step names which inventory entries drive it, so the plan and the checklist stay the same document. A dimension that no step claims is a dimension you have not understood yet.
-- **The datums come from the sheet, stated in drawing terms** — "datum A is the bottom mounting face; the part is symmetric about the vertical centerline of the front view." §4 turns that into FluidCAD's coordinate system.
+- **The dimension inventory is the input to the steps.** Each step names the inventory ids that drive it (`drives: d3, d7`), so the plan and `<part>.drawing.json` stay one checklist. An id no step claims is a dimension you have not understood yet.
+- **The datums come from the sheet, stated in drawing terms** — "datum A is the bottom mounting face; the part is symmetric about the vertical centerline of the front view." §6 turns that into FluidCAD's coordinate system.
 - **The base feature is normally the outline of the most informative view**, extruded through the overall thickness.
 - **Two extra pitfalls to watch for, both particular to drawings:**
   - **Modeling from the pictorial view.** The isometric shows shape; only the dimensioned orthographic views carry the numbers.
-  - **Treating a cosmetic thread callout as real helical geometry** when a plain hole is what is wanted — that is a §2 question, and its answer belongs in the plan.
+  - **Treating a cosmetic thread callout as real helical geometry** when a plain hole is what is wanted — that is a §4 question, and its answer belongs in the plan.
 
-Show the plan and pause for the user. It is the cheapest artifact in the project to change, and if the user does CAD they can correct the whole approach in one message. From there the plan is the script: it names the operations for the second wave of doc agents, and §5 builds its steps in order.
+Show the plan and pause for the user. It is the cheapest artifact in the project to change, and if the user does CAD they can correct the whole approach in one message. From there the plan is the script: it names the operations for the second wave of doc agents, and §7 builds its steps in order.
 
-## 4. The drawing never leaves the main agent
-
-The FluidCAD skill's sub-agent rules apply as written — one agent per API area, read-only, verbatim signatures, verify anything surprising. One rule is specific to this workflow and is absolute:
-
-**Do not hand the image to a sub-agent to "extract the dimensions."** A sub-agent returns a summary, and a summarized dimension is a number stripped of the extension lines, arrowheads, and view that gave it meaning — the same failure that makes cropping unsafe, with a lossy retelling on top. You read the sheet; they read the docs.
-
-## 5. Fix the origin and orientation on the drawing's datums
+## 6. Fix the origin and orientation on the drawing's datums
 
 The FluidCAD skill covers why the origin choice matters and how symmetry pays for itself. Two things are set by the drawing:
 
@@ -73,20 +108,20 @@ The FluidCAD skill covers why the origin choice matters and how symmetry pays fo
 
 State the choice in one line before modeling. Correcting it now is free; correcting it after four features is not.
 
-## 6. Build the minimum viable solid first, then show it
+## 7. Build the minimum viable solid first, then show it
 
 The first goal is **not** a finished part. It is the smallest solid that proves **you read the drawing correctly** — normally just the base outline extruded to the overall thickness, and nothing else. Write it, confirm `render.state === "rendered"`, screenshot, and show the user. If the outline or the orientation is wrong, it costs one line to fix at this point.
 
 From there, work down the plan's steps at the cadence the FluidCAD skill sets: one step per write, complex features gated by a screenshot before anything depends on them, simple ones batched two or three at a time. Say what is coming next in drawing terms — "base plate matches the front view; next is the 4× ⌀5 bolt pattern" — so the user can catch a misread before it has dependents.
 
-## 7. Make the code read like the drawing
+## 8. Make the code read like the drawing
 
-- **Name each `const` after the drawing's callout or feature**, so the file reads as a transcription anyone can diff against the sheet.
+- **Name each `const` after the drawing's callout or feature**, and comment the inventory id it consumes — the file then reads as a transcription anyone can diff against the sheet.
 - **Derive dependent dimensions instead of retyping them** — `const boltCircleR = plateDia / 2 - edgeMargin;`. A retyped number is a number that will drift from the sheet.
 - **Model nominal.** Where a tolerance or fit actually matters, note it in a comment rather than baking a mid-tolerance value into the geometry — unless the user asks for the fit dimension.
 - **Comment what you deliberately did not model** — thread forms, surface finish, GD&T, knurls. Silence reads as an oversight; a comment reads as a decision.
 
-## 8. Verify against the drawing, not against your intent
+## 9. Verify against the drawing, not against your intent
 
 "It compiled" and "it looks plausible" are both weaker than "it measures what the sheet says."
 
@@ -94,12 +129,12 @@ From there, work down the plan's steps at the cadence the FluidCAD skill sets: o
 - **Measure the sheet's numbers**, not just the ones a later feature depends on: `measure` between parallel faces for overalls and wall thicknesses, `get_face_properties` on a cylindrical face for a hole radius, `get_edge_properties` for a fillet radius or edge length.
 - **If the user also supplied a STEP reference**, `import_step` it and compare visually against your model.
 - **Rolling back is often the right comparison.** A drawing's views and sections frequently correspond to a mid-build state, before fillets, chamfers, and shells cover the underlying geometry — `rollback_to` that index and the comparison against the sheet becomes direct.
-- **Close the loop at the end.** Walk the dimension inventory from §1 and tick each entry against a measured value or a modeled feature. Report anything left unaccounted for rather than letting it pass silently.
+- **Close the loop at the end.** Walk `<part>.drawing.json` and tick every id against a measured value, a modeled feature, or an explicit waiver agreed with the user. Report anything left unaccounted for rather than letting it pass silently.
 
 ## Traps specific to drawings
 
 - **Projection angle flips sides.** In first-angle the view placed to the right shows the *left* side; in third-angle it shows the right. Get this from the title block before deciding which side a feature lives on.
-- **Never scale off the image.** On a scan, a photo, or a rendered PDF, only the written dimensions are authoritative. If a dimension is missing, ask — do not measure pixels.
+- **Never scale off the image.** On a scan, a photo, or a rendered PDF, only the written dimensions are authoritative. If a dimension is missing, ask — do not measure pixels. (The `loc` fields in the inventory align readers; they are never geometry.)
 - **Section hatching is material, not a face.** Do not model the cutting plane.
 - **Dual-unit drawings**: one unit governs (usually the un-bracketed one). Pick it, say which, and stay in it.
 - **`TYP` means it applies to every like feature** — find how many before assuming one.
@@ -116,13 +151,13 @@ Say so before starting, not after three features:
 
 ## Quick reference: the drawing loop
 
-1. Glance at the drawing; launch the baseline doc sub-agents in one message.
-2. Read the whole sheet yourself while they run — title block, views, callouts — and build the dimension inventory. Never split the image up.
-3. Ask every open question in one batch. Never guess a number.
-4. Write the build plan (FluidCAD skill) with the inventory driving its steps and the drawing's datums as its setup; show it to the user.
-5. Launch the plan-derived doc agents: one per operation the plan names. The drawing itself never goes to a sub-agent.
+1. Glance at the sheet — structure, not digits — then in one message launch the baseline doc agents **and** three whole-image transcribers (contract: `references/transcription-contract.md`; distinct scratch output paths; independent).
+2. While they run, keep reading the title block and views yourself and start shaping the plan.
+3. Merge with `scripts/merge-drawing-reads.mjs` into `<part>.drawing.json`, saved next to the model. Check the arithmetic on the merged table.
+4. Ask every open question in one batch — conflicts, unresolved partials, low-confidence functional dims, title-block conflicts, reader questions. Never guess a number.
+5. Write the build plan with steps citing inventory ids; show it. Launch the plan-derived doc agents — the drawing never goes to them.
 6. Fix origin and orientation on the drawing's datums; align the front view.
 7. Build the minimum viable solid, screenshot, show it.
 8. Work down the plan's steps at the FluidCAD skill's cadence — one step per write, screenshot-gated where the feature earns it.
 9. Verify with `screenshot_multi` plus `measure` / `get_face_properties` against the sheet, rolling back to a mid-build state where the sheet's views correspond to one.
-10. Close out the dimension inventory; report anything not modeled.
+10. Close out `<part>.drawing.json` — every id measured, modeled, or explicitly waived.

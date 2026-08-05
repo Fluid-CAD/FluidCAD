@@ -69,6 +69,10 @@ function M.add_guide(code, source_line)
   return post('add-guide', { code = code, sourceLine = source_line })
 end
 
+function M.remove_guide(code, source_line)
+  return post('remove-guide', { code = code, sourceLine = source_line })
+end
+
 function M.remove_statement(code, source_line)
   return post('remove-statement', { code = code, sourceLine = source_line })
 end

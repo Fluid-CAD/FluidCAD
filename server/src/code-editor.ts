@@ -676,6 +676,34 @@ export function addGuide(code: string, sourceLine: number): Promise<CodeEditResu
 }
 
 /**
+ * Remove the `.guide()` call from the chain on the resolved row — the Guide
+ * toggle converting selected construction geometry back to real geometry.
+ * Only an argument-less `.guide()` is stripped, mirroring `removePick`.
+ */
+export function removeGuide(code: string, sourceLine: number): Promise<CodeEditResult> {
+  return withParsedCode(code, (tree, lines) => {
+    const call = findEditableCallAt(tree, lines, sourceLine);
+    if (!call) {
+      return null;
+    }
+    const guideCall = findMemberCallInChain(call, 'guide');
+    if (!guideCall) {
+      return null;
+    }
+    const guideArgs = getArgumentsNode(guideCall);
+    if (!guideArgs || guideArgs.namedChildren.length !== 0) {
+      return null;
+    }
+    const member = guideCall.childForFieldName('function');
+    const object = member ? member.childForFieldName('object') : null;
+    if (!object) {
+      return null;
+    }
+    return spliceCode(code, object.endIndex, guideCall.endIndex, '');
+  });
+}
+
+/**
  * Remove an empty `.pick()` call from the chain on the resolved row.
  * Calls with points are left untouched so concurrent/stale edits cannot
  * discard user data.

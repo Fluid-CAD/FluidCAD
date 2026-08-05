@@ -67,9 +67,12 @@ export function createDashDotLine(
   color: Color | { r: number; g: number; b: number },
   materialParams: DashDotMaterialParams = {},
 ): Line {
+  // Each line owns its color: the caller usually passes a shared theme Color,
+  // and the hover/selection highlight recolors the uniform value in place.
+  const ownColor = color instanceof Color ? color.clone() : new Color(color.r, color.g, color.b);
   const material = new ShaderMaterial({
     uniforms: {
-      color: { value: color },
+      color: { value: ownColor },
       dashLength: { value: DASH_LENGTH_PX },
       gapLength: { value: GAP_LENGTH_PX },
       dotLength: { value: DOT_LENGTH_PX },

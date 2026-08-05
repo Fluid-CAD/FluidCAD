@@ -7,6 +7,7 @@ import {
   insertPoint,
   removePoint,
   addGuide,
+  removeGuide,
   addPick,
   removePick,
   removeStatement,
@@ -256,6 +257,26 @@ describe('addGuide', () => {
   it('is a no-op when .guide( already exists on the line', async () => {
     const code = `line([0, 0], [1, 1]).guide()\n`;
     const result = await addGuide(code, 1);
+    expect(result.newCode).toBe(code);
+  });
+});
+
+describe('removeGuide', () => {
+  it('removes .guide() from the line', async () => {
+    const code = `rect([0, 0], 10, 5).guide();\n`;
+    const result = await removeGuide(code, 1);
+    expect(result.newCode).toBe(`rect([0, 0], 10, 5);\n`);
+  });
+
+  it('removes a mid-chain .guide(), keeping later calls', async () => {
+    const code = `rect([0, 0], 10, 5).guide().centered()\n`;
+    const result = await removeGuide(code, 1);
+    expect(result.newCode).toBe(`rect([0, 0], 10, 5).centered()\n`);
+  });
+
+  it('is a no-op when there is no .guide() on the line', async () => {
+    const code = `rect([0, 0], 10, 5)\n`;
+    const result = await removeGuide(code, 1);
     expect(result.newCode).toBe(code);
   });
 });

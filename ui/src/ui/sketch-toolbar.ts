@@ -106,20 +106,22 @@ export class SketchToolbar {
    * Guide mode: a latch, not a tool — it rides alongside whatever tool is
    * armed instead of joining the radio group, and every statement drawn while
    * it is on gains a `.guide()` suffix. Dropped when the toolbar hides so a
-   * new sketch session never starts silently in construction mode.
+   * new sketch session never starts silently in construction mode. The press
+   * itself is delegated: with edges selected, the service converts them
+   * one-shot instead of flipping the latch.
    */
   private guideModeState = false;
   private guideButton: HTMLButtonElement | null = null;
-  private onGuideToggle: (active: boolean) => void;
+  private onGuidePress: () => void;
 
   constructor(
     host: HTMLElement,
     onToolSelect: (toolId: ToolId | null) => void,
     setGroupVisible: (visible: boolean) => void,
-    onGuideToggle: (active: boolean) => void,
+    onGuidePress: () => void,
   ) {
     this.onToolSelect = onToolSelect;
-    this.onGuideToggle = onGuideToggle;
+    this.onGuidePress = onGuidePress;
     this.host = host;
     this.setGroupVisible = setGroupVisible;
 
@@ -139,7 +141,7 @@ export class SketchToolbar {
     for (const [toolId, keys] of Object.entries(TOOL_SHORTCUTS)) {
       this.shortcutManager.register(keys, () => this.handleToolClick(toolId as ToolId));
     }
-    this.shortcutManager.register('g', () => this.toggleGuideMode());
+    this.shortcutManager.register('g', () => this.onGuidePress());
   }
 
   show(): void {
@@ -191,6 +193,15 @@ export class SketchToolbar {
 
   get guideModeChecked(): boolean {
     return this.guideModeState;
+  }
+
+  /** Latch (or release) guide mode; the service owns the press decision. */
+  setGuideMode(active: boolean): void {
+    if (this.guideModeState === active) {
+      return;
+    }
+    this.guideModeState = active;
+    this.syncGuideButtonState();
   }
 
   private static isRectVariant(toolId: ToolId | null): boolean {
@@ -325,7 +336,7 @@ export class SketchToolbar {
     btn.className = this.guideModeState ? TOOLBAR_BTN_ACTIVE_STRONG : TOOLBAR_BTN_BASE;
     btn.innerHTML = `<img src="/icons/guide.png" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`
       + `<span class="${TOOLBAR_BTN_LABEL}">Guide</span>`;
-    btn.addEventListener('click', () => this.toggleGuideMode());
+    btn.addEventListener('click', () => this.onGuidePress());
 
     const tip = document.createElement('div');
     tip.className = 'absolute top-full left-1/2 -translate-x-1/2 mt-2 px-2 py-1 rounded bg-base-300 text-base-content text-xs whitespace-nowrap opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity flex items-center gap-1.5 z-[200]';
@@ -335,12 +346,6 @@ export class SketchToolbar {
     wrapper.appendChild(tip);
     this.guideButton = btn;
     return wrapper;
-  }
-
-  private toggleGuideMode(): void {
-    this.guideModeState = !this.guideModeState;
-    this.syncGuideButtonState();
-    this.onGuideToggle(this.guideModeState);
   }
 
   private syncGuideButtonState(): void {

@@ -1,5 +1,6 @@
 import {
   CircleGeometry,
+  Color,
   DoubleSide,
   Group,
   LineSegments,
@@ -75,7 +76,10 @@ export class SketchHoverSelectHandler {
   }
 
   updateSceneData(sceneObjects: SceneObjectRender[], sketchId: string): void {
-    this.edges = buildEdgeIndex(sceneObjects, sketchId, this.plane);
+    // Guides are hover/selectable here — the Guide toggle converts a selected
+    // construction statement back to real geometry (they still don't snap,
+    // drag-resize, or grow vertex dots).
+    this.edges = buildEdgeIndex(sceneObjects, sketchId, this.plane, { includeGuides: true });
     this.centers = buildCenterIndex(sceneObjects, sketchId, this.plane);
     const validIds = new Set(this.edges.map(e => e.shapeId));
     for (const c of this.centers) {
@@ -231,23 +235,43 @@ export class SketchHoverSelectHandler {
       : { shapeId: bestId, isCenter };
   }
 
+  /**
+   * The line's color wherever the material keeps it: plain line materials
+   * expose `.color`, the guide dash-dot ShaderMaterial carries it as the
+   * `color` uniform. Returns the live Color object, so mutating it recolors
+   * the line in place.
+   */
+  private static lineColor(line: LineSegments): Color | null {
+    const mat = (line as any).material;
+    if (!mat) {
+      return null;
+    }
+    if (mat.color instanceof Color) {
+      return mat.color;
+    }
+    const uniform = mat.uniforms?.color?.value;
+    return uniform instanceof Color ? uniform : null;
+  }
+
   private applyHoverHighlight(shapeId: string): void {
     if (this.selectedShapeIds.has(shapeId)) {
       return;
     }
     this.traverseShapeEdges(shapeId, (line) => {
-      if (line.userData.selectOriginalColor !== undefined) {
+      const color = SketchHoverSelectHandler.lineColor(line);
+      if (!color || line.userData.selectOriginalColor !== undefined) {
         return;
       }
-      line.userData.hoverOriginalColor = (line as any).material.color.getHex();
-      (line as any).material.color.set(themeColors.highlightColor);
+      line.userData.hoverOriginalColor = color.getHex();
+      color.set(themeColors.highlightColor);
     });
   }
 
   private removeHoverHighlight(shapeId: string): void {
     this.traverseShapeEdges(shapeId, (line) => {
-      if (line.userData.hoverOriginalColor !== undefined) {
-        (line as any).material.color.setHex(line.userData.hoverOriginalColor);
+      const color = SketchHoverSelectHandler.lineColor(line);
+      if (color && line.userData.hoverOriginalColor !== undefined) {
+        color.setHex(line.userData.hoverOriginalColor);
         delete line.userData.hoverOriginalColor;
       }
     });
@@ -255,20 +279,25 @@ export class SketchHoverSelectHandler {
 
   private applySelectionHighlight(shapeId: string): void {
     this.traverseShapeEdges(shapeId, (line) => {
+      const color = SketchHoverSelectHandler.lineColor(line);
+      if (!color) {
+        return;
+      }
       if (line.userData.hoverOriginalColor !== undefined) {
         line.userData.selectOriginalColor = line.userData.hoverOriginalColor;
         delete line.userData.hoverOriginalColor;
       } else {
-        line.userData.selectOriginalColor = (line as any).material.color.getHex();
+        line.userData.selectOriginalColor = color.getHex();
       }
-      (line as any).material.color.set(themeColors.highlightColor);
+      color.set(themeColors.highlightColor);
     });
   }
 
   private removeSelectionHighlight(shapeId: string): void {
     this.traverseShapeEdges(shapeId, (line) => {
-      if (line.userData.selectOriginalColor !== undefined) {
-        (line as any).material.color.setHex(line.userData.selectOriginalColor);
+      const color = SketchHoverSelectHandler.lineColor(line);
+      if (color && line.userData.selectOriginalColor !== undefined) {
+        color.setHex(line.userData.selectOriginalColor);
         delete line.userData.selectOriginalColor;
       }
     });
@@ -349,7 +378,7 @@ export class SketchHoverSelectHandler {
 
   private traverseShapeEdges(shapeId: string, fn: (line: LineSegments) => void): void {
     this.ctx.scene.traverse((obj: Object3D) => {
-      if (obj.userData.isMetaShape) {
+      if (obj.userData.isMetaShape && !obj.userData.isGuideShape) {
         return;
       }
       if (((obj as LineSegments).isLine || obj.userData.isEdgeLine) && this.findShapeId(obj) === shapeId) {
@@ -361,7 +390,9 @@ export class SketchHoverSelectHandler {
   private findShapeId(obj: Object3D): string | null {
     let cur: Object3D | null = obj;
     while (cur) {
-      if (cur.userData.shapeId && !cur.userData.isMetaShape) {
+      // Guide groups carry isMetaShape (they share the dash-dot meta
+      // rendering) but are selectable — their shapeId counts.
+      if (cur.userData.shapeId && (!cur.userData.isMetaShape || cur.userData.isGuideShape)) {
         return cur.userData.shapeId as string;
       }
       cur = cur.parent;

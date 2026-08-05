@@ -214,6 +214,11 @@ export function addGuide(sourceLocation: SourceLocationParam): void {
   postFireAndForget('/api/add-guide', { sourceLocation });
 }
 
+/** Strip the `.guide()` from the statement at `sourceLocation` (Guide toggle). */
+export function removeGuide(sourceLocation: SourceLocationParam): void {
+  postFireAndForget('/api/remove-guide', { sourceLocation });
+}
+
 export function insertGeometry(
   statement: string,
   sketchSourceLocation: SourceLocationParam,

@@ -17,7 +17,8 @@ import { BezierHandlesOverlay } from './bezier-handles-overlay';
 import { SnapManager } from '../snapping/snap-manager';
 import { SnapController } from '../snapping/snap-controller';
 import {
-  insertGeometry, addGuide, getScopeVariables, applySketchOp, gotoSource, FeatureEditTarget, ParsedFeatureStatement,
+  insertGeometry, addGuide, removeGuide, getScopeVariables, applySketchOp, gotoSource, FeatureEditTarget,
+  ParsedFeatureStatement,
 } from '../api';
 import { isTopLevel } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData } from '../types';
@@ -115,7 +116,7 @@ export class SketchToolbarService {
       sketchGroup,
       (toolId) => this.handleToolSelect(toolId),
       (visible) => navbar.setGroupVisible('sketch', visible),
-      (active) => this.handleGuideToggle(active),
+      () => this.handleGuidePress(),
     );
 
     this.shortcuts = new ShortcutManager();
@@ -556,17 +557,24 @@ export class SketchToolbarService {
   }
 
   /**
-   * The Guide latch flipped. Arming it over a live selection converts the
-   * selected edges' owning statements to construction geometry on the spot —
-   * one `.guide()` splice per statement (a rect is many edges but one line),
-   * fanned out through the same code-edit rail as `.pick()`.
+   * The Guide button (or `g`). With edges selected it is a one-shot converter:
+   * each selected statement's guide state flips — real geometry gains
+   * `.guide()`, construction geometry loses it — one splice per statement (a
+   * rect is many edges but one line), fanned out through the same code-edit
+   * rail as `.pick()`. The latch is untouched, so un-guiding never silently
+   * arms construction mode. Without a selection it flips the latch.
    */
-  private handleGuideToggle(active: boolean): void {
-    if (!active || !this.activeSketchInfo) {
+  private handleGuidePress(): void {
+    if (this.keepToolbar && !this.activeSketchInfo) {
+      return;
+    }
+    const ids = [...(this.activeHoverSelectHandler?.selectedIds ?? [])];
+    if (ids.length === 0 || !this.activeSketchInfo) {
+      this.toolbar.setGuideMode(!this.toolbar.guideModeChecked);
       return;
     }
     const seen = new Set<string>();
-    for (const shapeId of this.activeHoverSelectHandler?.selectedIds ?? []) {
+    for (const shapeId of ids) {
       const owner = this.viewer.currentSceneObjects.find(obj =>
         obj.sceneShapes?.some(shape => shape.shapeId === shapeId));
       const location = owner?.sourceLocation;
@@ -578,7 +586,12 @@ export class SketchToolbarService {
         continue;
       }
       seen.add(key);
-      addGuide(location);
+      const shape = owner!.sceneShapes.find(s => s.shapeId === shapeId);
+      if (shape?.isGuide) {
+        removeGuide(location);
+      } else {
+        addGuide(location);
+      }
     }
   }
 

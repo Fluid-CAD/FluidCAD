@@ -76,6 +76,12 @@ export class SketchMesh extends Group {
             if (shape.shapeId) {
               metaMesh.userData.shapeId = shape.shapeId;
             }
+            // Guide geometry shares the dash-dot rendering with true meta
+            // shapes but stays hover/selectable (un-guiding picks it), so the
+            // select handler needs to tell the two apart.
+            if (shape.isGuide && !shape.isMetaShape) {
+              metaMesh.userData.isGuideShape = true;
+            }
             this.add(metaMesh);
           } else if (shape.shapeType === 'face' && shape.metaType === 'trim-region') {
             // By-region trim: the region partition's hover/click cells.

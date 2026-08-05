@@ -20,6 +20,7 @@ import {
 import {
   handleInsertPoint,
   handleAddGuide,
+  handleRemoveGuide,
   handleAddPick,
   handleRemovePick,
   handleSetTrimTargets,
@@ -170,6 +171,10 @@ export class Client {
       }
       case 'add-guide': {
         handleAddGuide(this, msg);
+        break;
+      }
+      case 'remove-guide': {
+        handleRemoveGuide(this, msg);
         break;
       }
       case 'remove-pick': {

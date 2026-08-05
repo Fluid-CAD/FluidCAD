@@ -237,6 +237,11 @@ export class ModifyPickService {
     const group = navbar.addGroup('modify', { visible: false });
     const createHost = navbar.getGroup('create') ?? navbar.addGroup('create', { visible: false, immune: true });
     for (const kind of FEATURE_ORDER) {
+      if (kind === 'offset') {
+        // Offset mounts later ({@link mountOffsetButton}) — its group sits
+        // after the boolean group, which doesn't exist yet at this point.
+        continue;
+      }
       const config = FEATURES[kind];
       const button = new FeatureButton(
         // Sketch sits ahead of the Extrude button, so the create group reads
@@ -244,9 +249,7 @@ export class ModifyPickService {
         // Wrap: it keeps the modify group's activation condition, so it hides
         // itself (see update()) rather than riding that group's visibility —
         // hidden until the first render reports a solid, matching the modify
-        // group's own `visible: false` start. Offset rides the modify group
-        // but stays hidden until a face is highlighted (its kernel form takes
-        // faces), so it too manages its own visibility.
+        // group's own `visible: false` start.
         kind === 'sketch' || kind === 'shell' ? createHost : group,
         {
           icon: `/icons/${kind}.png`,
@@ -257,7 +260,6 @@ export class ModifyPickService {
           ...(kind === 'shell'
             ? { insertBefore: createHost.querySelector('[data-tool="wrap"]'), hidden: true }
             : {}),
-          ...(kind === 'offset' ? { hidden: true } : {}),
         },
       );
       button.onClick = () => {
@@ -1904,6 +1906,31 @@ export class ModifyPickService {
   }
 
   /**
+   * Create the Offset button in its own toolbar group. Called from main.ts
+   * AFTER the boolean service registers its group — navbar groups render in
+   * registration order, and Offset sits right after the boolean tools.
+   */
+  mountOffsetButton(): void {
+    const host = this.navbar.addGroup('offset', { visible: false });
+    const config = FEATURES.offset;
+    const button = new FeatureButton(host, {
+      icon: '/icons/offset.png',
+      label: config.label,
+      tip: config.buttonTitle,
+      ariaLabel: config.buttonTitle,
+    });
+    button.onClick = () => {
+      if (this.feature === 'offset') {
+        this.exit();
+      } else {
+        this.enter('offset');
+      }
+    };
+    this.buttons.set('offset', button);
+    this.syncOffsetButton();
+  }
+
+  /**
    * The neutral-mode selection changed (measure owns it) — the Offset button
    * shows exactly while a face is highlighted, so the tool is offered where
    * it can act and stays out of the toolbar otherwise.
@@ -1913,9 +1940,9 @@ export class ModifyPickService {
     this.syncOffsetButton();
   }
 
-  /** Offset shows with the modify group, gated on a highlighted face (or its own armed mode). */
+  /** Offset's group shows with the modify tools, gated on a highlighted face (or its own armed mode). */
   private syncOffsetButton(): void {
-    this.buttons.get('offset')!.setVisible(this.modifyVisible
+    this.navbar.setGroupVisible('offset', this.modifyVisible
       && (this.neutralFaceHighlighted || this.feature === 'offset'));
   }
 

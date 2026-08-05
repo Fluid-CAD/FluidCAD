@@ -817,6 +817,10 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
   onResumeSketchUI: resumeSketchForFeature,
 });
 
+// The Offset button's group renders right after the boolean group — navbar
+// groups sit in registration order, so it mounts here.
+modifyService.mountOffsetButton();
+
 // While a sketch is active, the create-feature buttons collapse into a single
 // "Finish Sketch" button whose popup grid mirrors them and delegates clicks
 // straight back to them. Constructed after every create service so its button

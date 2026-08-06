@@ -64,11 +64,12 @@ export class ArcMode implements SegmentMode {
     const roundedEnd = roundPoint(this.endPoint);
     const roundedCenter = roundPoint(center);
     const cwSuffix = ccw ? '' : '.cw()';
-    const atCurrent = ctx.isAtCurrentPosition(roundedStart);
+    const pendingStart = ctx.pendingStartText();
+    const atCurrent = pendingStart === null && ctx.isAtCurrentPosition(roundedStart);
 
     const statement = atCurrent
       ? `arc(${ctx.formatPoint(roundedEnd)}).center(${ctx.formatPoint(roundedCenter)})${cwSuffix}`
-      : `arc(${ctx.formatPoint(roundedStart)}, ${ctx.formatPoint(roundedEnd)}).center(${ctx.formatPoint(roundedCenter)})${cwSuffix}`;
+      : `arc(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${ctx.formatPoint(roundedEnd)}).center(${ctx.formatPoint(roundedCenter)})${cwSuffix}`;
     ctx.insertGeometry(statement);
 
     const exitTangent = this.computeExitTangent(roundedEnd, roundedCenter, ccw);

@@ -44,7 +44,9 @@ export class LineMode implements SegmentMode {
     const dx = roundedEnd[0] - roundedStart[0];
     const dy = roundedEnd[1] - roundedStart[1];
     const dir = classifyDelta(dx, dy, ctx.isOrthoOverride());
-    const atCurrent = ctx.isAtCurrentPosition(roundedStart);
+    const pendingStart = ctx.pendingStartText();
+    const atCurrent = pendingStart === null && ctx.isAtCurrentPosition(roundedStart);
+    const startText = pendingStart ?? ctx.formatPoint(roundedStart);
 
     if (dir === 'horizontal' || dir === 'vertical') {
       const isHorizontal = dir === 'horizontal';
@@ -56,7 +58,7 @@ export class LineMode implements SegmentMode {
       const fn = isHorizontal ? 'hLine' : 'vLine';
       const statement = atCurrent
         ? `${fn}(${rounded})`
-        : `${fn}(${ctx.formatPoint(roundedStart)}, ${rounded})`;
+        : `${fn}(${startText}, ${rounded})`;
       ctx.insertGeometry(statement);
       ctx.hideExpressionInput();
 
@@ -79,7 +81,7 @@ export class LineMode implements SegmentMode {
 
     const statement = atCurrent
       ? `line(${ctx.formatPoint(roundedEnd)})`
-      : `line(${ctx.formatPoint(roundedStart)}, ${ctx.formatPoint(roundedEnd)})`;
+      : `line(${startText}, ${ctx.formatPoint(roundedEnd)})`;
     ctx.insertGeometry(statement);
 
     const len = Math.sqrt(dx * dx + dy * dy);
@@ -142,11 +144,12 @@ export class LineMode implements SegmentMode {
     const sign = Math.sign(rawDistance);
     const dimExpr = SketchTool.applySignedDimension(expression, sign);
 
-    const atCurrent = ctx.isAtCurrentPosition(roundedStart);
+    const pendingStart = ctx.pendingStartText();
+    const atCurrent = pendingStart === null && ctx.isAtCurrentPosition(roundedStart);
     const fn = isHorizontal ? 'hLine' : 'vLine';
     const statement = atCurrent
       ? `${fn}(${dimExpr})`
-      : `${fn}(${ctx.formatPoint(roundedStart)}, ${dimExpr})`;
+      : `${fn}(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${dimExpr})`;
     ctx.insertGeometry(statement, newVariable);
     ctx.hideExpressionInput();
 

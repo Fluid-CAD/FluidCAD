@@ -40,6 +40,13 @@ export type ModeContext = {
   readonly sketchId: string;
   readonly startPoint: Point2D;
   isAtCurrentPosition(point: Point2D): boolean;
+  /**
+   * A typed chain-start address not yet written to the source, formatted as a
+   * point argument (`[w / 2, 10]`), or null. Non-null means the segment must
+   * write the start itself via its explicit-start overload — never the
+   * chained form, even when the address lands on the cursor.
+   */
+  pendingStartText(): string | null;
   /** Convert a pixel distance to sketch units at the current zoom. */
   pixelThreshold(px: number): number;
   /** Show (or clear, with null) a hint line under the cursor's mode badge. */

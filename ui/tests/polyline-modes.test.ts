@@ -37,6 +37,7 @@ type CtxOptions = {
   atCurrent?: boolean;
   orthoOverride?: boolean;
   sceneObjects?: unknown[];
+  pendingStartText?: string | null;
 };
 
 // The XY plane in scene-payload shape, enough for the 2D edge index.
@@ -60,6 +61,7 @@ function makeCtx(opts: CtxOptions = {}) {
   const state = {
     atCurrent: opts.atCurrent ?? true,
     orthoOverride: opts.orthoOverride ?? false,
+    pendingStartText: opts.pendingStartText ?? null,
   };
 
   const ctx = {
@@ -72,6 +74,7 @@ function makeCtx(opts: CtxOptions = {}) {
     sketchId: 'sketch',
     startPoint: opts.startPoint ?? [0, 0],
     isAtCurrentPosition: () => state.atCurrent,
+    pendingStartText: () => state.pendingStartText,
     pixelThreshold: (px: number) => px,
     setSnapHint: (hint: string | null) => hints.push(hint),
     formatPoint: (p: Point2D) => `[${p[0]}, ${p[1]}]`,
@@ -173,6 +176,38 @@ describe('LineMode H/V auto-snap', () => {
     expect(inserted).toEqual([{ statement: 'hLine([10, 20], 50)', newVariable: undefined }]);
   });
 
+  it('spends a pending typed start as hLine(start, distance), even at the cursor', () => {
+    const { ctx, inserted } = makeCtx({ atCurrent: true, pendingStartText: '[w / 2, 10]' });
+    const mode = new LineMode();
+    mode.enter(ctx);
+
+    mode.handleClick([50, 0], SNAP, ctx);
+
+    expect(inserted).toEqual([{ statement: 'hLine([w / 2, 10], 50)', newVariable: undefined }]);
+  });
+
+  it('spends a pending typed start on the free-line form', () => {
+    const { ctx, inserted } = makeCtx({ pendingStartText: '[a, b]' });
+    const mode = new LineMode();
+    mode.enter(ctx);
+
+    mode.handleClick([30, 40], SNAP, ctx);
+
+    expect(inserted).toEqual([{ statement: 'line([a, b], [30, 40])', newVariable: undefined }]);
+  });
+
+  it('a typed H: commit with a pending start emits the positioned form', () => {
+    const { ctx, input, inserted } = makeCtx({ pendingStartText: '[w, 0]' });
+    const mode = new LineMode();
+    mode.enter(ctx);
+
+    mode.handleMouseMove([50, 1], SNAP, 0, 0, ctx);
+    type(input, '60');
+    pressEnter(input);
+
+    expect(inserted).toEqual([{ statement: 'hLine([w, 0], 60)', newVariable: undefined }]);
+  });
+
   it('keeps the legacy free emission for a zero-delta click', () => {
     const { ctx, inserted } = makeCtx();
     const mode = new LineMode();
@@ -218,16 +253,41 @@ describe('LineMode H/V auto-snap', () => {
 });
 
 describe('ALineMode', () => {
-  it('is unavailable away from the current position', () => {
-    const { ctx } = makeCtx({ atCurrent: false });
+  it('emits the explicit-start form away from the current position', () => {
+    const { ctx, inserted } = makeCtx({ startPoint: [10, 20], atCurrent: false });
     const mode = new ALineMode();
-    expect(mode.isAvailable(ctx)).toBe(false);
+    mode.enter(ctx);
+
+    // No mouse move, so no expression input: the clicks lock directly.
+    expect(mode.handleClick([20, 20], SNAP, ctx).kind).toBe('consumed'); // 0° from +X
+    mode.handleClick([20, 20], SNAP, ctx);                              // length 10
+
+    expect(inserted).toEqual([{ statement: 'aLine([10, 20], 0, 10)', newVariable: undefined }]);
   });
 
-  it('is available at the current position', () => {
-    const { ctx } = makeCtx();
+  it('spends a pending typed start as the explicit-start form', () => {
+    const { ctx, inserted } = makeCtx({ atCurrent: true, pendingStartText: '[w / 2, 10]' });
     const mode = new ALineMode();
-    expect(mode.isAvailable(ctx)).toBe(true);
+    mode.enter(ctx);
+
+    expect(mode.handleClick([10, 0], SNAP, ctx).kind).toBe('consumed');
+    mode.handleClick([10, 0], SNAP, ctx);
+
+    expect(inserted).toEqual([{ statement: 'aLine([w / 2, 10], 0, 10)', newVariable: undefined }]);
+  });
+
+  it('keeps the chained form when a tangent exists, even away from the cursor', () => {
+    // Mid-chain render lag: the tool is ahead of the rendered cursor but the
+    // angle was measured from the chain tangent — the absolute-angle
+    // explicit-start overload would change the drawn direction.
+    const { ctx, inserted } = makeCtx({ atCurrent: false, tangent: { direction: [1, 0], point: [0, 0] } });
+    const mode = new ALineMode();
+    mode.enter(ctx);
+
+    expect(mode.handleClick([10, 0], SNAP, ctx).kind).toBe('consumed');
+    mode.handleClick([10, 0], SNAP, ctx);
+
+    expect(inserted).toEqual([{ statement: 'aLine(0, 10)', newVariable: undefined }]);
   });
 
   it('snaps the angle to 15-degree multiples within tolerance', () => {
@@ -515,6 +575,114 @@ describe('TArcMode edge snap', () => {
     expect(inserted).toEqual([{ statement: 'tArc(30, [80, 30])', newVariable: undefined }]);
     expect(committed[0].endpoint[0]).toBeCloseTo(80);
     expect(committed[0].endpoint[1]).toBeCloseTo(30);
+  });
+});
+
+describe('ArcMode explicit start', () => {
+  it('spends a pending typed start on the explicit-start arc form', () => {
+    const { ctx, inserted } = makeCtx({ atCurrent: true, pendingStartText: '[p, q]' });
+    const mode = new ArcMode();
+    mode.enter(ctx);
+
+    expect(mode.handleClick([10, 0], SNAP, ctx).kind).toBe('consumed'); // end point
+    mode.handleClick([5, -5], SNAP, ctx);                               // through point
+
+    expect(inserted).toEqual([{ statement: 'arc([p, q], [10, 0]).center([5, 0])', newVariable: undefined }]);
+  });
+});
+
+describe('PolylineTool typed chain start', () => {
+  function makeBareTool() {
+    const inserted: Inserted[] = [];
+    const tool: any = Object.create(PolylineTool.prototype);
+    tool.phase = PolylinePhase.IDLE;
+    tool.startPoint = null;
+    tool.tangent = null;
+    tool.pendingStart = null;
+    tool.currentPosition = null;
+    tool.currentTangent = null;
+    tool.modes = [new LineMode()];
+    tool.currentModeIndex = 0;
+    tool.modeIndicator = { update: () => {}, setHint: () => {} };
+    tool.sceneObjects = [];
+    tool.sketchId = 's';
+    tool.ctx = { camera: {} };
+    tool.plane = PLANE;
+    tool.previewGroup = {};
+    tool.expressionInput = { hide: () => {}, get isVisible() { return false; } };
+    tool.pointInput = { handleEscape: () => false };
+    tool.insertGeometry = (statement: string, newVariable?: unknown) => {
+      inserted.push({ statement, newVariable });
+    };
+    tool.syncPointInput = () => {};
+    tool.rebuildPreview = () => {};
+    return { tool, inserted };
+  }
+
+  it('defers an absolute typed start into the first segment insert', () => {
+    const { tool, inserted } = makeBareTool();
+
+    tool.beginChainAt({
+      value: [5, 10],
+      xExpr: 'w / 2',
+      yExpr: '10',
+      newVariables: [{ name: 'w', initializer: '10' }],
+      typed: true,
+    });
+
+    // Nothing written yet: no move(...) statement, and tangent modes are off.
+    expect(inserted).toHaveLength(0);
+    expect(tool.phase).toBe(PolylinePhase.DRAWING);
+    expect(tool.tangent).toBeNull();
+
+    // Modes see the typed address and route inserts through the tool.
+    const ctx = tool.buildModeContext();
+    expect(ctx.pendingStartText()).toBe('[w / 2, 10]');
+
+    ctx.insertGeometry('hLine([w / 2, 10], 30)');
+    expect(inserted).toEqual([{
+      statement: 'hLine([w / 2, 10], 30)',
+      newVariable: [{ name: 'w', initializer: '10' }],
+    }]);
+
+    // The start is spent: later segments chain plainly.
+    expect(ctx.pendingStartText()).toBeNull();
+    ctx.insertGeometry('hLine(5)');
+    expect(inserted[1]).toEqual({ statement: 'hLine(5)', newVariable: undefined });
+  });
+
+  it('keeps the immediate move(dx, dy) for a relative typed start', () => {
+    const { tool, inserted } = makeBareTool();
+
+    tool.beginChainAt({
+      value: [5, 10],
+      xExpr: '5',
+      yExpr: '10',
+      newVariables: [],
+      typed: true,
+      relative: { dx: '5', dy: '10' },
+    });
+
+    expect(inserted).toEqual([{ statement: 'move(5, 10)', newVariable: undefined }]);
+    expect(tool.pendingStart).toBeNull();
+  });
+
+  it('drops an unspent typed start when Escape ends the chain', () => {
+    const { tool, inserted } = makeBareTool();
+
+    tool.beginChainAt({
+      value: [5, 10],
+      xExpr: '5',
+      yExpr: '10',
+      newVariables: [],
+      typed: true,
+    });
+    expect(tool.pendingStart).not.toBeNull();
+
+    expect(tool.handleEscape()).toBe(true);
+    expect(tool.phase).toBe(PolylinePhase.IDLE);
+    expect(tool.pendingStart).toBeNull();
+    expect(inserted).toHaveLength(0);
   });
 });
 

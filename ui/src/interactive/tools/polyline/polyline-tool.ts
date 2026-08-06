@@ -1,12 +1,12 @@
 import { Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn, FetchVariablesFn, PickedPoint } from '../../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn, NewVariable, PickedPoint } from '../../sketch-tool';
 import { SceneContext } from '../../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../../types';
 import { SnapController } from '../../../snapping/snap-controller';
 import { SnapManager } from '../../../snapping/snap-manager';
 import { pixelToSketchThreshold, projectToSketch, roundPoint } from '../../sketch-plane-utils';
 import { ICON_POLYLINE } from '../../../ui/icons';
-import { ExpressionInput, VariableInfo } from '../../../ui/expression-input';
+import { ExpressionInput } from '../../../ui/expression-input';
 import { CONNECTABLE_TYPES, meshToSketch2D, tangentFromVertices } from '../tangent-utils';
 import { SNAP_VERTEX_COLOR, SNAP_GRID_COLOR, addDot } from '../tool-preview-utils';
 import { ModeIndicator } from './mode-indicator';
@@ -35,6 +35,8 @@ export class PolylineTool extends SketchTool {
   private startPoint: Point2D | null = null;
   private currentModeIndex = 0;
   private tangent: TangentInfo | null = null;
+  /** A typed absolute chain start, held until the first segment writes it. */
+  private pendingStart: PickedPoint | null = null;
 
   private modes: SegmentMode[];
   private expressionInput: ExpressionInput;
@@ -119,6 +121,7 @@ export class PolylineTool extends SketchTool {
     this.phase = PolylinePhase.IDLE;
     this.startPoint = null;
     this.tangent = null;
+    this.pendingStart = null;
     this.ctrlHeld = false;
 
     this.removePreviewFromScene();
@@ -155,6 +158,7 @@ export class PolylineTool extends SketchTool {
       this.phase = PolylinePhase.IDLE;
       this.startPoint = null;
       this.tangent = null;
+      this.pendingStart = null;
       this.rebuildPreview();
       return true;            // chain ended; tool stays armed for a new chain
     }
@@ -178,10 +182,11 @@ export class PolylineTool extends SketchTool {
       sketchId: this.sketchId,
       startPoint: this.startPoint,
       isAtCurrentPosition: (p) => this.isAtCurrentPosition(p),
+      pendingStartText: () => this.pendingStart ? this.formatPoint(this.pendingStart) : null,
       pixelThreshold: (px) => pixelToSketchThreshold(this.ctx, px),
       setSnapHint: (hint) => this.modeIndicator.setHint(hint),
       formatPoint: (p) => this.formatPoint(p),
-      insertGeometry: (stmt, nv) => this.insertGeometry(stmt, nv),
+      insertGeometry: (stmt, nv) => this.insertSegment(stmt, nv),
       requestRender: () => this.requestRender(),
       isOrthoOverride: () => this.ctrlHeld,
       showExpressionInput: (opts) => {
@@ -268,17 +273,25 @@ export class PolylineTool extends SketchTool {
   }
 
   /**
-   * Open a chain at a picked point. A typed address is written out as its own
-   * `move(...)`: the modes emit chained forms off the cursor, which has no
-   * way to carry a typed expression, so the cursor has to go there for real.
+   * Open a chain at a picked point. A typed absolute address is deferred and
+   * rides on the first segment as its explicit start argument
+   * (`hLine(start, d)`, `line(start, end)`, ...) — one statement, not a
+   * `move(...)` plus a chained form. A typed relative offset keeps its own
+   * `move(dx, dy)`: the chained forms that follow are exactly the relative
+   * emission the offset asks for.
    */
   private beginChainAt(picked: PickedPoint): void {
+    this.pendingStart = null;
     if (picked.typed) {
-      const statement = this.relativeMovePrefix(picked) ?? `move(${this.formatPoint(picked)})`;
-      this.insertGeometry(
-        statement,
-        picked.newVariables.length > 0 ? picked.newVariables : undefined,
-      );
+      if (picked.relative) {
+        const statement = this.relativeMovePrefix(picked) ?? `move(${this.formatPoint(picked)})`;
+        this.insertGeometry(
+          statement,
+          picked.newVariables.length > 0 ? picked.newVariables : undefined,
+        );
+      } else {
+        this.pendingStart = picked;
+      }
     }
 
     // Continuing the existing chain anchors to the kernel's exact cursor,
@@ -288,7 +301,10 @@ export class PolylineTool extends SketchTool {
       ? [this.currentPosition[0], this.currentPosition[1]]
       : picked.value;
     this.phase = PolylinePhase.DRAWING;
-    this.tangent = this.findTangentAtPoint(this.startPoint);
+    // A deferred typed start is an explicit re-anchor, not a chain
+    // continuation: tangent modes don't apply, even when the address lands
+    // on the cursor.
+    this.tangent = this.pendingStart ? null : this.findTangentAtPoint(this.startPoint);
 
     if (!this.isModeUsable(this.currentMode, this.buildModeContext())) {
       this.advanceToNextValidMode();
@@ -299,6 +315,21 @@ export class PolylineTool extends SketchTool {
     this.modeIndicator.update(this.currentMode.id);
     this.syncPointInput();
     this.rebuildPreview();
+  }
+
+  /**
+   * Mode insertions funnel through here so the first segment of a chain
+   * opened at a typed address spends the pending start: its declarations ride
+   * along, and later segments chain off the cursor as usual.
+   */
+  private insertSegment(statement: string, newVariable?: NewVariable | NewVariable[]): void {
+    const pending = this.pendingStart;
+    this.pendingStart = null;
+    const modeVars = newVariable === undefined
+      ? []
+      : Array.isArray(newVariable) ? newVariable : [newVariable];
+    const variables = [...(pending?.newVariables ?? []), ...modeVars];
+    this.insertGeometry(statement, variables.length > 0 ? variables : undefined);
   }
 
   private handleMouseMove(e: MouseEvent): void {
@@ -480,6 +511,11 @@ export class PolylineTool extends SketchTool {
    * compounding across segments.
    */
   private resyncChainStateFromScene(): void {
+    // An unwritten typed start isn't in the scene: there is no rendered chain
+    // end to adopt, and adopting a tangent would re-arm the tangent modes.
+    if (this.pendingStart) {
+      return;
+    }
     if (!this.startPoint || !this.currentPosition
       || !this.isAtCurrentPosition(roundPoint(this.startPoint))) {
       return;

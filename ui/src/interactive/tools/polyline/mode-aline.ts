@@ -26,7 +26,9 @@ const ANGLE_ARC_RADIUS_FRACTION = 0.35;
 /**
  * Two-stage angled-line mode: the first click locks the angle (degrees,
  * measured from the previous segment's end tangent, CCW positive), the second
- * locks the length. Emits the kernel's `aLine(angle, length)`.
+ * locks the length. Emits the kernel's `aLine(angle, length)`, or the
+ * explicit-start `aLine(start, angle, length)` when the chain opens away from
+ * the cursor — there the angle reference is +X on both sides.
  */
 export class ALineMode implements SegmentMode {
   readonly id = 'aLine' as const;
@@ -45,12 +47,6 @@ export class ALineMode implements SegmentMode {
   private angleVariable: NewVariable | null = null;
   /** Live mouse-derived length while in AWAITING_LENGTH. */
   private previewLength = 0;
-
-  // aLine has no explicit-start overload: it always draws from the sketch's
-  // current position, so the mode is only offered when the chain is there.
-  isAvailable(ctx: ModeContext): boolean {
-    return ctx.isAtCurrentPosition(ctx.startPoint);
-  }
 
   enter(_ctx: ModeContext): void {
     this.reset();
@@ -223,7 +219,17 @@ export class ALineMode implements SegmentMode {
 
   private emit(lengthExpr: string, numericLength: number, lengthVariable: NewVariable | null, ctx: ModeContext): SegmentCommitResult {
     const angleArg = this.angleExpr ?? String(this.lockedAngle ?? 0);
-    const statement = `aLine(${angleArg}, ${lengthExpr})`;
+    // The explicit-start overload's angle is absolute (from +X): only correct
+    // when the preview measured from +X too, i.e. the chain has no tangent
+    // here. With a tangent the angle is relative, so the chained form stays
+    // even mid-render-lag when the cursor hasn't caught up yet.
+    const pendingStart = ctx.pendingStartText();
+    const roundedStart = roundPoint(ctx.startPoint);
+    const explicitStart = ctx.tangent === null
+      && (pendingStart !== null || !ctx.isAtCurrentPosition(roundedStart));
+    const statement = explicitStart
+      ? `aLine(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${angleArg}, ${lengthExpr})`
+      : `aLine(${angleArg}, ${lengthExpr})`;
 
     const vars: NewVariable[] = [];
     if (this.angleVariable) {

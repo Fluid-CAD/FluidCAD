@@ -1,7 +1,7 @@
 import type { SceneObjectRender } from '../types';
 import { isTopLevel } from '../helpers/scene-utils';
 import { savePreference, recompute, rollback, addBreakpoint, gotoSource, removeFeature, renameFeature } from '../api';
-import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_TRASH } from './icons';
+import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 
@@ -328,7 +328,7 @@ export class TimelinePanel {
 
   /**
    * The enter-breakpoint gesture, shared by row double-click and the context
-   * menu's "Breakpoint here": place the breakpoint after the row (unless the
+   * menu's "Edit feature": place the breakpoint after the row (unless the
    * feature's edit manages its own pause), jump to the source line, and open
    * the feature's edit dialog when it has one.
    */
@@ -545,11 +545,12 @@ export class TimelinePanel {
 
   /**
    * Right-click menu on a timeline row: "Rename" swaps the menu for an
-   * inline input editing the feature's chained `.name('…')`, "Breakpoint
-   * here" runs the double-click gesture (breakpoint after the row plus the
-   * feature's edit dialog when it has one) and "Remove" deletes the
-   * feature's statement from the code. Rows without a source location get
-   * no menu — none of the actions can target them.
+   * inline input editing the feature's chained `.name('…')`, "Edit feature"
+   * runs the double-click gesture (breakpoint after the row plus the
+   * feature's edit dialog), "Breakpoint here" places the breakpoint after
+   * the row without opening a dialog and "Remove" deletes the feature's
+   * statement from the code. Rows without a source location get no menu —
+   * none of the actions can target them.
    */
   private showRowContextMenu(e: MouseEvent, index: number): void {
     this.closeDropdown();
@@ -565,14 +566,20 @@ export class TimelinePanel {
     dropdown.style.left = `${e.clientX - panelRect.left}px`;
     dropdown.style.top = `${e.clientY - panelRect.top}px`;
 
+    // The edit action mirrors double-click: only rows with an edit dialog
+    // offer it, and those work even while sketching — the dialog suspends
+    // the sketch UI itself and restores it on exit.
+    const editItem = this.isFeatureEditable?.(obj) !== true ? '' : `
+        <li><button data-action="edit" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_ADJUSTMENTS}</span>
+          <span>Edit feature</span>
+        </button></li>`;
     // The breakpoint action is timeline navigation — absent while sketching,
-    // except on rows the double-click gesture still serves: the active
-    // sketch's own children (a breakpoint there replays the sketch up to
-    // that shape without leaving sketch mode) and rows with an edit dialog
-    // (the dialog suspends the sketch UI itself and restores it on exit).
+    // except on the active sketch's own children: a breakpoint there replays
+    // the sketch up to that shape without leaving sketch mode.
     const activeSketchChild = this.sketchActive && obj.parentId != null
       && this.findActiveObject(this.sceneObjects)?.id === obj.parentId;
-    const breakpointItem = this.sketchActive && !activeSketchChild && this.isFeatureEditable?.(obj) !== true ? '' : `
+    const breakpointItem = this.sketchActive && !activeSketchChild ? '' : `
         <li><button data-action="rollback" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PAUSE}</span>
           <span>Breakpoint here</span>
@@ -582,7 +589,7 @@ export class TimelinePanel {
         <li><button data-action="rename" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PENCIL}</span>
           <span>Rename</span>
-        </button></li>${breakpointItem}
+        </button></li>${editItem}${breakpointItem}
         <li><button data-action="remove" class="flex items-center gap-2 text-error">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_TRASH}</span>
           <span>Remove</span>
@@ -601,9 +608,15 @@ export class TimelinePanel {
       this.showRenameInput(dropdown, obj);
     });
 
-    dropdown.querySelector('[data-action="rollback"]')?.addEventListener('click', () => {
+    dropdown.querySelector('[data-action="edit"]')?.addEventListener('click', () => {
       this.closeDropdown();
       this.enterBreakpointAt(index);
+    });
+
+    dropdown.querySelector('[data-action="rollback"]')?.addEventListener('click', () => {
+      this.closeDropdown();
+      this.addBreakpointAfter(index);
+      this.goToSource(obj);
     });
 
     dropdown.querySelector('[data-action="remove"]')!.addEventListener('click', () => {

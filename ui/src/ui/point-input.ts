@@ -154,6 +154,7 @@ export class PointInput {
   private numericOnly = false;
   private errorVisible = false;
   private onCommit: ((result: PointCommit) => void) | null = null;
+  private readonly unsubscribeChrome: () => void;
 
   onSpaceOverride: (() => void) | null = null;
   /** Reports a Δ click so the host can keep the mode across tool changes. */
@@ -226,7 +227,7 @@ export class PointInput {
 
     // A dialog opening or closing while the pill is up moves the sheet edge
     // the pill docks above (phone layout) — re-measure.
-    viewportChrome.subscribe(() => this.syncDock());
+    this.unsubscribeChrome = viewportChrome.subscribe(() => this.syncDock());
   }
 
   /**
@@ -238,7 +239,9 @@ export class PointInput {
    */
   private syncDock(): void {
     let lift = 0;
-    if (!window.matchMedia('(min-width: 40rem)').matches) {
+    // jsdom has no matchMedia — treat a missing implementation as the
+    // desktop layout (no lift).
+    if (!(window.matchMedia?.('(min-width: 40rem)').matches ?? true)) {
       const containerBottom = this.container.getBoundingClientRect().bottom;
       for (const dialog of viewportChrome.openDialogElements) {
         const rect = dialog.getBoundingClientRect();
@@ -251,6 +254,12 @@ export class PointInput {
   }
 
   // ---------------------------------------------------------------- lifecycle
+
+  /** Release the viewport-chrome subscription and remove the pill. */
+  destroy(): void {
+    this.unsubscribeChrome();
+    this.el.remove();
+  }
 
   show(opts: PointInputOptions): void {
     this.onCommit = opts.onCommit;

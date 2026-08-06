@@ -42,9 +42,12 @@ class ViewportChrome {
   }
 
   /** Subscribe and receive the current state immediately. */
-  subscribe(fn: Listener): void {
+  subscribe(fn: Listener): () => void {
     this.listeners.add(fn);
     fn(this.dialogOpen);
+    return () => {
+      this.listeners.delete(fn);
+    };
   }
 }
 

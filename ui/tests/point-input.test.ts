@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { PointInput, PointCommit } from '../src/ui/point-input';
 import { VariableInfo } from '../src/ui/expression-core';
 
@@ -22,6 +22,17 @@ type Harness = {
   commits: PointCommit[];
 };
 
+// The suite runs with isolate: false — destroy every pill so its
+// viewportChrome subscription doesn't fire in later test files.
+const mounted: Harness[] = [];
+afterEach(() => {
+  for (const h of mounted) {
+    h.input.destroy();
+    h.container.remove();
+  }
+  mounted.length = 0;
+});
+
 function mount(opts: {
   value?: [number, number];
   origin?: [number, number] | null;
@@ -39,13 +50,15 @@ function mount(opts: {
     numericOnly: opts.numericOnly,
     onCommit: (r) => commits.push(r),
   });
-  return {
+  const harness: Harness = {
     input,
     container,
     x: container.querySelector('.point-input-x')!,
     y: container.querySelector('.point-input-y')!,
     commits,
   };
+  mounted.push(harness);
+  return harness;
 }
 
 function type(field: HTMLInputElement, text: string): void {

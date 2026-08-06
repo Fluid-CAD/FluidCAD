@@ -1,15 +1,16 @@
-import { Vector3 } from 'three';
+import { Group, Vector3 } from 'three';
 import { SketchTool, InsertGeometryFn, PickedPoint } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
 import { SnapManager } from '../../snapping/snap-manager';
+import { SnapType } from '../../snapping/types';
 import { projectToSketch } from '../sketch-plane-utils';
 import { ICON_TEXT } from '../../ui/icons';
 import { getTextPreview, TextOptionValues } from '../../api';
 import { TextPanel } from './text-panel';
 import { TextPreviewMesh } from './text-preview-mesh';
-import { START_POINT_COLOR, addDot } from './tool-preview-utils';
+import { START_POINT_COLOR, addDot, snapDotColor } from './tool-preview-utils';
 
 const PREVIEW_DEBOUNCE_MS = 200;
 
@@ -40,8 +41,15 @@ export class TextTool extends SketchTool {
   private previewAbort: AbortController | null = null;
   private previewSeq = 0;
 
+  private mousePoint: [number, number] | null = null;
+  private lastSnapType: SnapType = 'none';
+  /** The hover snap dot, kept out of `previewGroup` so mouse moves don't
+   * force a rebuild of the server-fetched glyph outline mesh. */
+  private snapDotGroup: Group;
+
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
+  private boundMouseMove: (e: MouseEvent) => void;
   private downX = 0;
   private downY = 0;
 
@@ -73,14 +81,20 @@ export class TextTool extends SketchTool {
     };
     this.panel.onApply = () => this.commit();
     this.panel.onExit = () => this.onRequestExit();
+    this.snapDotGroup = new Group();
+    this.snapDotGroup.userData.isMetaShape = true;
+    this.snapDotGroup.renderOrder = 3;
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
+    this.boundMouseMove = this.handleMouseMove.bind(this);
   }
 
   protected onActivate(): void {
     this.addPreviewToScene();
+    this.ctx.scene.add(this.snapDotGroup);
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
+    this.canvas.addEventListener('mousemove', this.boundMouseMove);
     this.anchor = this.currentPosition ?? [0, 0];
     this.panel.show();
     void TextPanel.loadFontFamilies().then((families) => this.panel.setFonts(families));
@@ -91,6 +105,9 @@ export class TextTool extends SketchTool {
   protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
+    this.canvas.removeEventListener('mousemove', this.boundMouseMove);
+    this.clearSnapDot();
+    this.ctx.scene.remove(this.snapDotGroup);
     this.cancelPreview();
     this.panel.destroy();
     this.removePreviewFromScene();
@@ -120,6 +137,43 @@ export class TextTool extends SketchTool {
   private handleMouseDown(e: MouseEvent): void {
     this.downX = e.clientX;
     this.downY = e.clientY;
+  }
+
+  private handleMouseMove(e: MouseEvent): void {
+    const raw = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
+    if (!raw) {
+      this.mousePoint = null;
+      this.lastSnapType = 'none';
+      this.renderSnapDot();
+      return;
+    }
+    const result = this.snapController.snap(raw);
+    this.mousePoint = result.point2d;
+    this.lastSnapType = result.snapType;
+    this.renderSnapDot();
+  }
+
+  private clearSnapDot(): void {
+    while (this.snapDotGroup.children.length > 0) {
+      const child = this.snapDotGroup.children[0];
+      this.snapDotGroup.remove(child);
+      const obj = child as any;
+      obj.geometry?.dispose();
+      obj.material?.dispose();
+    }
+  }
+
+  /** The dot marking where a click would land while a snap is active. */
+  private renderSnapDot(): void {
+    this.clearSnapDot();
+    if (this.mousePoint && this.lastSnapType !== 'none') {
+      const planeNormal = new Vector3(this.plane.normal.x, this.plane.normal.y, this.plane.normal.z);
+      addDot(
+        this.snapDotGroup, this.mousePoint, snapDotColor(this.lastSnapType),
+        this.ctx.camera, planeNormal, this.plane, 0.6,
+      );
+    }
+    this.requestRender();
   }
 
   private handleMouseUp(e: MouseEvent): void {

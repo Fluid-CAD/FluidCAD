@@ -21,7 +21,10 @@ export class ExpressionRow {
   constructor(host: HTMLElement) {
     this.row = document.createElement('div');
     this.row.dataset.role = 'expr-row';
-    this.row.className = 'hidden relative items-center bg-base-100 border border-base-300 rounded-lg pl-2.5 pr-1 py-1.5 text-xs shadow-md';
+    // max-sm:hidden: the code-transparency row is desktop-only — on the mobile
+    // bottom sheet it would eat scarce vertical space (matches the statement
+    // preview in PanelShell).
+    this.row.className = 'hidden max-sm:hidden relative items-center bg-base-100 border border-base-300 rounded-lg pl-2.5 pr-1 py-1.5 text-xs shadow-md';
     this.row.innerHTML = `
       <span data-role="expr-prefix" class="font-mono text-base-content/50 select-none whitespace-pre"></span>
       <input data-role="expr" type="text" spellcheck="false" autocomplete="off"

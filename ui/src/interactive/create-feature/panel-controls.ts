@@ -177,6 +177,38 @@ export class ThinControl {
 }
 
 /**
+ * The docked-dialog positioning every create/edit/modify dialog shares. From
+ * `sm:` up the dialog floats at top-[196px] right-4 — just below the viewport
+ * gizmo (~y 102–182), in the spot the settings/fit-to-view/params stack
+ * (right-7) vacates while a dialog is open (see viewportChrome). Below `sm:`
+ * it becomes a full-width bottom sheet. daisyUI's modal-bottom and drawer are
+ * both modal overlays, and these dialogs must leave the viewport pickable
+ * while open, so the sheet is plain positioning over the same daisyUI tokens.
+ */
+export const DIALOG_DOCK_CLASS =
+  'absolute z-[999] pointer-events-auto inset-x-0 bottom-0 sm:inset-x-auto sm:bottom-auto sm:top-[196px] sm:right-4 '
+  + 'max-sm:animate-[dialog-slide-up_0.25s_ease-out] motion-reduce:animate-none';
+
+/**
+ * The dock's inner stack: the body plus the rows docked around it (statement
+ * preview, error message, expression row). Reversed on the sheet so those
+ * rows stack above the body instead of running off the bottom edge.
+ */
+export const DIALOG_COLUMN_CLASS =
+  'flex flex-col-reverse items-stretch gap-1.5 sm:flex-col sm:items-end';
+
+/**
+ * The dialog body box. The sheet spans the full width, caps at half the
+ * screen and scrolls (the bottom padding rides above a phone's home
+ * indicator); the float keeps the fixed w-60 column capped just above the
+ * screen bottom.
+ */
+export const DIALOG_BODY_CLASS =
+  'flex flex-col items-stretch gap-3.5 overflow-y-auto bg-base-100 text-base-content text-xs select-none shadow-md '
+  + 'border-t border-base-300 rounded-t-xl px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] max-h-[50dvh] '
+  + 'sm:w-60 sm:border sm:rounded-lg sm:pb-4 sm:max-h-[calc(100vh-260px)]';
+
+/**
  * The floating dialog chrome the create-feature panels share: the docked
  * container, title row, and the statement-preview and error rows below the
  * body. Panels append their controls to `body`.
@@ -199,21 +231,17 @@ export class PanelShell {
     this.defaultTitle = title;
     this.root = document.createElement('div');
     this.root.id = id;
-    // top-[196px] sits just below the viewport gizmo (~y 102–182) with a bit of
-    // breathing room; right-4 tucks the dialog closer to the viewport edge than
-    // the settings/fit-to-view/params stack (right-7), which normally occupies
-    // this spot and hides itself while a dialog is open (see viewportChrome).
-    this.root.className = 'absolute top-[196px] right-4 z-[999] pointer-events-auto hidden';
+    this.root.className = `${DIALOG_DOCK_CLASS} hidden`;
     this.root.innerHTML = `
-      <div data-role="column" class="flex flex-col items-end gap-1.5">
-        <div data-role="body" class="flex flex-col items-stretch gap-3.5 w-60 max-h-[calc(100vh-260px)] overflow-y-auto bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
+      <div data-role="column" class="${DIALOG_COLUMN_CLASS}">
+        <div data-role="body" class="${DIALOG_BODY_CLASS}">
           <div class="flex items-center gap-2.5">
             <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
             <span data-role="title" class="font-medium text-sm">${title}</span>
           </div>
         </div>
-        <div data-role="preview" class="hidden max-w-[380px] bg-base-100 border border-base-300 rounded-lg px-3 py-1.5 font-mono text-[11px] text-base-content shadow-md"></div>
-        <div data-role="message" class="hidden max-w-[380px] bg-error text-error-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md"></div>
+        <div data-role="preview" class="hidden max-sm:hidden sm:max-w-[380px] bg-base-100 border border-base-300 rounded-lg px-3 py-1.5 font-mono text-[11px] text-base-content shadow-md"></div>
+        <div data-role="message" class="hidden sm:max-w-[380px] bg-error text-error-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md"></div>
       </div>
     `;
     container.appendChild(this.root);

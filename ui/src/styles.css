@@ -130,3 +130,15 @@ html {
 #fluidcad-scene canvas {
   display: block;
 }
+
+/* The mobile bottom-sheet entrance (see DIALOG_DOCK_CLASS): re-runs each time
+   the dialog's `hidden` class is removed, since display:none restarts CSS
+   animations. */
+@keyframes dialog-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}

@@ -3,6 +3,7 @@ import {
   resolveExpressionValue, suggestionItemHtml, trailingIdentifier, Suggestion, VariableInfo,
 } from './expression-core';
 import { isEditableTarget } from '../keyboard-bridge';
+import { viewportChrome } from './viewport-chrome';
 
 export type { VariableInfo };
 
@@ -13,7 +14,10 @@ export type { VariableInfo };
  * the numbers jitter while being read. The locked-point marker in the scene
  * is what ties it back to where the geometry will land.
  */
-const DOCK = 'absolute bottom-6 right-[72px] z-[1000] pointer-events-auto';
+// right-[72px] keeps the pill left of the shape-properties button; on the
+// phone layout that spot is behind the bottom sheet the pill rides above
+// (see syncDock), so it hugs the right edge instead.
+const DOCK = 'absolute bottom-6 right-2 sm:right-[72px] z-[1000] pointer-events-auto';
 
 /**
  * Keys that never open the pill: Space cycles the polyline mode, and the
@@ -155,7 +159,7 @@ export class PointInput {
   /** Reports a Δ click so the host can keep the mode across tool changes. */
   onRelativeToggle: ((relative: boolean) => void) | null = null;
 
-  constructor(container: HTMLElement) {
+  constructor(private readonly container: HTMLElement) {
     ensureTipStyle();
     this.el = document.createElement('div');
     this.el.className = `${DOCK} hidden`;
@@ -219,6 +223,31 @@ export class PointInput {
     }
 
     this.dropdown.addEventListener('mousedown', (e) => e.stopPropagation());
+
+    // A dialog opening or closing while the pill is up moves the sheet edge
+    // the pill docks above (phone layout) — re-measure.
+    viewportChrome.subscribe(() => this.syncDock());
+  }
+
+  /**
+   * On the phone layout an open dialog is a full-width bottom sheet
+   * (DIALOG_DOCK_CLASS) sharing the pill's bottom-of-viewport dock — lift the
+   * pill just above the tallest open sheet. From `sm:` up (Tailwind's 40rem)
+   * dialogs float top-right, clear of the pill, and the inline style resets so
+   * the DOCK class's bottom-6 applies.
+   */
+  private syncDock(): void {
+    let lift = 0;
+    if (!window.matchMedia('(min-width: 40rem)').matches) {
+      const containerBottom = this.container.getBoundingClientRect().bottom;
+      for (const dialog of viewportChrome.openDialogElements) {
+        const rect = dialog.getBoundingClientRect();
+        if (rect.height > 0) {
+          lift = Math.max(lift, containerBottom - rect.top);
+        }
+      }
+    }
+    this.el.style.bottom = lift > 0 ? `${Math.round(lift) + 8}px` : '';
   }
 
   // ---------------------------------------------------------------- lifecycle
@@ -236,6 +265,7 @@ export class PointInput {
     this.axes.x.reset();
     this.axes.y.reset();
     this.el.classList.remove('hidden');
+    this.syncDock();
     this.updateValue(opts.value);
     this.clearInlineError();
     this.renderChrome();

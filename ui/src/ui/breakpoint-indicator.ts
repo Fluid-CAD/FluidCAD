@@ -7,7 +7,9 @@ export class BreakpointIndicator {
   constructor(container: HTMLElement, onContinue?: () => void) {
     this.element = document.createElement('div');
     this.element.id = 'fluidcad-breakpoint-indicator';
-    this.element.className = 'absolute bottom-6 left-1/2 -translate-x-1/2 z-[999] pointer-events-auto hidden';
+    // z-[998]: one step under the feature dialogs, so the mobile bottom sheet
+    // (which shares the indicator's screen-bottom spot) covers it while open.
+    this.element.className = 'absolute bottom-6 left-1/2 -translate-x-1/2 z-[998] pointer-events-auto hidden';
     this.element.innerHTML = `
       <div class="flex items-center gap-3 panel-bg border border-warning/40 rounded-lg px-5 py-2.5 text-sm leading-none select-none">
         <span class="text-warning [&>svg]:size-5">${ICON_PAUSE}</span>

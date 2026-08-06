@@ -17,6 +17,16 @@ class ViewportChrome {
     return this.openDialogs.size > 0;
   }
 
+  /**
+   * The open dialogs' root elements — for overlays that share screen space
+   * with the mobile bottom sheet and need to measure clear of it.
+   */
+  get openDialogElements(): HTMLElement[] {
+    return [...this.openDialogs]
+      .map(id => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+  }
+
   setDialogOpen(id: string, open: boolean): void {
     const wasOpen = this.dialogOpen;
     if (open) {

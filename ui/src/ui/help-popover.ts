@@ -46,7 +46,7 @@ export class HelpPopover {
       return;
     }
     const el = document.createElement('div');
-    el.className = 'absolute z-[1002] w-[300px] bg-base-100 border border-base-300 '
+    el.className = 'absolute z-[1002] w-[300px] max-w-[calc(100%-16px)] bg-base-100 border border-base-300 '
       + 'text-base-content rounded-lg shadow-lg px-3 py-2.5 text-[11px] leading-snug '
       + 'select-none pointer-events-none';
     el.setAttribute('role', 'tooltip');
@@ -79,6 +79,13 @@ export class HelpPopover {
     const anchor = this.anchor.getBoundingClientRect();
     const clear = (this.opts.clearOf ?? this.anchor).getBoundingClientRect();
     const host = this.host.getBoundingClientRect();
+    // On the bottom-sheet layout (see DIALOG_DOCK_CLASS) the dialog spans the
+    // full width, so there is no room beside it — open above the sheet instead.
+    if (Math.min(anchor.left, clear.left) - host.left < el.offsetWidth + 16) {
+      el.style.right = '8px';
+      el.style.top = `${Math.max(8, clear.top - host.top - el.offsetHeight - 10)}px`;
+      return;
+    }
     el.style.right = `${Math.max(8, host.right - Math.min(anchor.left, clear.left) + 10)}px`;
     const top = anchor.top - host.top - 6;
     const maxTop = Math.max(8, host.height - el.offsetHeight - 8);

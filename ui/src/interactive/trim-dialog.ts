@@ -1,4 +1,4 @@
-import { ChoiceTabs } from './create-feature/panel-controls';
+import { ChoiceTabs, DIALOG_DOCK_CLASS, DIALOG_BODY_CLASS } from './create-feature/panel-controls';
 import { viewportChrome } from '../ui/viewport-chrome';
 
 export type TrimMode = 'region' | 'point';
@@ -30,11 +30,9 @@ export class TrimDialog {
   constructor(container: HTMLElement, onCancel: () => void) {
     this.panel = document.createElement('div');
     this.panel.id = 'fluidcad-sketch-trim-panel';
-    // top-[196px] right-4 matches the other sketch op dialogs (see
-    // SketchOpService): the spot the settings/fit-to-view stack vacates.
-    this.panel.className = 'hidden absolute top-[196px] right-4 z-[999] pointer-events-auto';
+    this.panel.className = `hidden ${DIALOG_DOCK_CLASS}`;
     this.panel.innerHTML = `
-      <div class="flex flex-col items-stretch gap-3.5 w-60 bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
+      <div class="${DIALOG_BODY_CLASS}">
         <div class="flex items-center gap-2.5">
           <span class="font-medium text-sm">Trim</span>
         </div>

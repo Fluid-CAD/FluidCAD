@@ -4,6 +4,7 @@ import { PickSlot, PickSlotChip } from '../pick-slot';
 import { ExpressionField } from '../../ui/expression-field';
 import { ShellJoinType } from '../../api';
 import { viewportChrome } from '../../ui/viewport-chrome';
+import { DIALOG_DOCK_CLASS, DIALOG_COLUMN_CLASS, DIALOG_BODY_CLASS } from '../create-feature/panel-controls';
 
 /**
  * The fillet/chamfer/shell dialog: the title row, the multi-pick selection
@@ -53,13 +54,10 @@ export class ModifyPanel {
   constructor(container: HTMLElement) {
     this.root = document.createElement('div');
     this.root.id = 'fluidcad-modify-pick-active';
-    // top-[196px] right-4 matches the create-feature dialog: just below the
-    // viewport gizmo, in the spot the settings/fit-to-view button stack vacates
-    // while a dialog is open (see viewportChrome).
-    this.root.className = 'absolute top-[196px] right-4 z-[999] pointer-events-auto hidden';
+    this.root.className = `${DIALOG_DOCK_CLASS} hidden`;
     this.root.innerHTML = `
-      <div data-role="column" class="flex flex-col items-end gap-1.5">
-        <div class="flex flex-col items-stretch gap-3.5 w-60 max-h-[calc(100vh-260px)] overflow-y-auto bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
+      <div data-role="column" class="${DIALOG_COLUMN_CLASS}">
+        <div class="${DIALOG_BODY_CLASS}">
           <div class="flex items-center gap-2.5">
             <span class="flex items-center [&>svg]:size-4" data-role="icon"></span>
             <span data-role="title" class="font-medium text-sm">Fillet</span>
@@ -127,7 +125,7 @@ export class ModifyPanel {
     // The expression row and the message dock under the dialog body.
     this.expression = new ExpressionRow(column);
     this.message = document.createElement('div');
-    this.message.className = 'hidden max-w-[380px] bg-error text-error-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md';
+    this.message.className = 'hidden sm:max-w-[380px] bg-error text-error-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md';
     column.appendChild(this.message);
 
     this.applyBtn.addEventListener('click', () => this.onApply?.());

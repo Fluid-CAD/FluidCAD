@@ -6,7 +6,7 @@ import {
 import { ExpressionRow } from './modify-pick/expression-row';
 import { PickSlot, PickSlotChip } from './pick-slot';
 import { keepChip } from './create-feature/sketch-profiles';
-import { ChoiceTabs } from './create-feature/panel-controls';
+import { ChoiceTabs, DIALOG_DOCK_CLASS, DIALOG_COLUMN_CLASS, DIALOG_BODY_CLASS } from './create-feature/panel-controls';
 import { ExpressionField } from '../ui/expression-field';
 import { VariableInfo } from '../ui/expression-core';
 import { viewportChrome } from '../ui/viewport-chrome';
@@ -175,10 +175,7 @@ export class SketchOpService {
   ) {
     this.panel = document.createElement('div');
     this.panel.id = `fluidcad-sketch-${config.feature}-panel`;
-    // top-[196px] right-4 matches the 3D dialogs (ModifyPanel and the
-    // create-feature dialogs): just below the viewport gizmo, in the spot the
-    // settings/fit-to-view button stack vacates while a dialog is open.
-    this.panel.className = 'hidden absolute top-[196px] right-4 z-[999] pointer-events-auto';
+    this.panel.className = `hidden ${DIALOG_DOCK_CLASS}`;
     const valueRow = config.value
       ? `
           <label class="flex flex-col gap-1.5">
@@ -221,8 +218,8 @@ export class SketchOpService {
           <div data-role="tabs" class="join w-full"></div>
           <div data-role="draw-hint" class="text-base-content/50">${config.tabs.draw.hint}</div>` : '';
     this.panel.innerHTML = `
-      <div data-role="column" class="flex flex-col items-end gap-1.5">
-        <div class="flex flex-col items-stretch gap-3.5 w-60 max-h-[calc(100vh-260px)] overflow-y-auto bg-base-100 border border-base-300 text-base-content rounded-lg px-4 py-4 text-xs select-none shadow-md">
+      <div data-role="column" class="${DIALOG_COLUMN_CLASS}">
+        <div class="${DIALOG_BODY_CLASS}">
           <div class="flex items-center gap-2.5">
             <span data-role="title" class="font-medium text-sm">${config.title}</span>
           </div>${tabsRow}
@@ -282,7 +279,7 @@ export class SketchOpService {
     const column = this.panel.querySelector<HTMLElement>('[data-role="column"]')!;
     this.expression = new ExpressionRow(column);
     this.errorLine = document.createElement('div');
-    this.errorLine.className = 'hidden max-w-[380px] bg-error text-error-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md';
+    this.errorLine.className = 'hidden sm:max-w-[380px] bg-error text-error-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md';
     column.appendChild(this.errorLine);
 
     this.expression.setSuffix(')');

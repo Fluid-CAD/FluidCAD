@@ -1,5 +1,6 @@
 import { Box3, BufferAttribute, BufferGeometry, Color, Intersection, LineSegments, Mesh, MeshPhongMaterial, Object3D, Raycaster, Vector3 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
+import { DialogViewOffset } from './scene/dialog-view-offset';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
 import { PlaneData, SceneObjectPart, SceneObjectRender, SubSelection } from './types';
@@ -163,6 +164,7 @@ export class Viewer {
     const sceneContainer = document.getElementById('fluidcad-scene') ?? container;
     this.ctx = new SceneContext(sceneContainer);
     this.modeManager = new SceneModeManager(this.ctx);
+    new DialogViewOffset(this.ctx);
     this.settingsPanel = new SettingsPanel(container, (mode) => this.ctx.switchCamera(mode));
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());
     if (viewerSettings.current.cameraMode === 'perspective') {

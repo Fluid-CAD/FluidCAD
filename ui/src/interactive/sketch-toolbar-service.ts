@@ -141,7 +141,7 @@ export class SketchToolbarService {
     const opVars = () => this.fetchScopeVariables();
     const opDone = () => this.handleToolSelect(null);
     // One shared overlay for the op dialogs' live geometry — only one dialog
-    // is ever open, and today only offset draws into it.
+    // is ever open; offset and fillet draw into it.
     const opGhost = new FeatureGhostOverlay(viewer);
     const opService = (config: ConstructorParameters<typeof SketchOpService>[1]) =>
       new SketchOpService(container, config, opSelection, opVars, opDone, opGhost);

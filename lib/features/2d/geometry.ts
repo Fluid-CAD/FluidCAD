@@ -229,7 +229,13 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
     return unmatched;
   }
 
-  private static findRoleSource(output: Edge, inputs: Edge[]): Edge | null {
+  /**
+   * The input edge that accounts for an op output — same TShape, partner, or
+   * the same underlying curve — or null for geometry the op invented (a
+   * fillet's corner arc). Public because the fillet2d ghost classifies its
+   * result edges with the very test the build uses.
+   */
+  static findRoleSource(output: Edge, inputs: Edge[]): Edge | null {
     for (const input of inputs) {
       if (output.isSame(input) || output.isPartner(input)) {
         return input;

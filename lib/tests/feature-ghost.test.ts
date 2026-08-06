@@ -22,9 +22,9 @@ import { Explorer } from "../oc/explorer.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import {
-  buildFeatureGhost, CopyGhostRequest, ExtrudeGhostRequest, FeatureGhostResult, GhostPathRef,
-  GhostSectionRef, LoftGhostRequest, OffsetGhostRequest, RepeatGhostRequest, RevolveGhostRequest,
-  RibGhostRequest, SweepGhostRequest,
+  buildFeatureGhost, CopyGhostRequest, ExtrudeGhostRequest, FeatureGhostResult,
+  Fillet2DGhostRequest, GhostPathRef, GhostSectionRef, LoftGhostRequest, OffsetGhostRequest,
+  RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { Scene, SceneObjectMesh } from "../rendering/scene.js";
@@ -1917,6 +1917,139 @@ describe("offset ghost", () => {
     const edge = [...s.getEdgesWithOwner().keys()][0];
 
     const result = offsetGhost(scene, [{ shapeId: edge.id }], { distance: 0 });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.solids).toHaveLength(0);
+    }
+  });
+});
+
+const FILLET2D_BASE: Omit<Fillet2DGhostRequest, 'entities'> = {
+  feature: 'fillet2d',
+  radius: 5,
+};
+
+function fillet2dGhost(
+  scene: Scene,
+  entities: { shapeId: string }[],
+  overrides: Partial<Fillet2DGhostRequest> = {},
+) {
+  return buildFeatureGhost(scene, { ...FILLET2D_BASE, ...overrides, entities }, DEFAULT_MESH_CONFIG);
+}
+
+describe("fillet2d ghost", () => {
+  setupOC();
+
+  it("draws one arc at the corner two picked edges share, on the sketch plane", () => {
+    const s = locatedSketch(5, () => { rect(100, 50); });
+    const scene = render();
+    // Any horizontal and any vertical edge of a rect share exactly one
+    // corner: where the vertical's x meets the horizontal's y. OCC boxes
+    // carry a ±0.1 gap, so "flat" means thinner than that padding and the
+    // midline is the exact coordinate.
+    const edges = [...s.getEdgesWithOwner().keys()];
+    const horizontal = edges.find(e => {
+      const box = ShapeOps.getBoundingBox(e);
+      return box.maxY - box.minY < 0.3 && box.maxX - box.minX > 1;
+    })!;
+    const vertical = edges.find(e => {
+      const box = ShapeOps.getBoundingBox(e);
+      return box.maxX - box.minX < 0.3 && box.maxY - box.minY > 1;
+    })!;
+    const hBox = ShapeOps.getBoundingBox(horizontal);
+    const vBox = ShapeOps.getBoundingBox(vertical);
+    const corner = { x: (vBox.minX + vBox.maxX) / 2, y: (hBox.minY + hBox.maxY) / 2 };
+
+    const result = fillet2dGhost(scene, [{ shapeId: horizontal.id }, { shapeId: vertical.id }]);
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    // Only the new arc — the trimmed survivors stay off the ghost.
+    expect(result.solids).toHaveLength(1);
+    for (const [x, y, z] of wireVertices(result)) {
+      // A radius-5 arc hugs its corner: every point sits between the arc's
+      // sagitta (~0.41·r) and the tangent points (r away).
+      const distance = Math.hypot(x - corner.x, y - corner.y);
+      expect(distance).toBeLessThanOrEqual(5.01);
+      expect(distance).toBeGreaterThan(1.5);
+      expect(z).toBeCloseTo(0, 3);
+    }
+  });
+
+  it("an empty pick list fillets the whole active (last) sketch", () => {
+    locatedSketch(5, () => { rect(100, 50); });
+    const active = locatedSketch(8, () => { rect(20, 10); });
+    const scene = render();
+    // The active rect's own bounds — the arcs must land inside it, never on
+    // the first sketch's 100-wide rect.
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const edge of active.getEdgesWithOwner().keys()) {
+      const box = ShapeOps.getBoundingBox(edge);
+      minX = Math.min(minX, box.minX); maxX = Math.max(maxX, box.maxX);
+      minY = Math.min(minY, box.minY); maxY = Math.max(maxY, box.maxY);
+    }
+
+    const result = fillet2dGhost(scene, [], { radius: 2 });
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    expect(result.solids).toHaveLength(4);
+    for (let solid = 0; solid < result.solids.length; solid++) {
+      for (const [x, y] of wireVertices(result, solid)) {
+        expect(x).toBeGreaterThan(minX - 0.5);
+        expect(x).toBeLessThan(maxX + 0.5);
+        expect(y).toBeGreaterThan(minY - 0.5);
+        expect(y).toBeLessThan(maxY + 0.5);
+      }
+    }
+  });
+
+  it("a single picked edge has no corner to round", () => {
+    const s = locatedSketch(5, () => { hLine(40); });
+    const scene = render();
+    const edge = [...s.getEdgesWithOwner().keys()][0];
+
+    const result = fillet2dGhost(scene, [{ shapeId: edge.id }]);
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.solids).toHaveLength(0);
+    }
+  });
+
+  it("a corner the radius can't take contributes no arc", () => {
+    // Two collinear segments meet at 180° — no circle is tangent to both,
+    // the maker skips the corner, and the ghost mirrors the apply: nothing.
+    const s = locatedSketch(5, () => { hLine(20); hLine(20); });
+    const scene = render();
+    const edges = [...s.getEdgesWithOwner().keys()];
+
+    const result = fillet2dGhost(scene, edges.map(e => ({ shapeId: e.id })));
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.solids).toHaveLength(0);
+    }
+  });
+
+  it("refuses a pick the scene doesn't hold", () => {
+    locatedSketch(5, () => { rect(100, 50); });
+    const scene = render();
+
+    expect(fillet2dGhost(scene, [{ shapeId: 'not-a-shape' }]).ok).toBe(false);
+  });
+
+  it("draws nothing at a radius still being typed", () => {
+    const s = locatedSketch(5, () => { rect(100, 50); });
+    const scene = render();
+    const edge = [...s.getEdgesWithOwner().keys()][0];
+
+    const result = fillet2dGhost(scene, [{ shapeId: edge.id }], { radius: 0 });
 
     expect(result.ok).toBe(true);
     if (result.ok) {

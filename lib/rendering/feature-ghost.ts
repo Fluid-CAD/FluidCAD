@@ -17,6 +17,7 @@ import {
 } from "../features/helix-geometry.js";
 import { buildLoftGhostSolids, LoftGhostProfile } from "../features/loft-ghost.js";
 import { buildOffsetGhostWires } from "../features/2d/offset-ghost.js";
+import { buildFillet2DGhostArcs } from "../features/fillet2d-ghost.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { buildPlaneGhostQuad, PlaneGhostBase, PlaneGhostSource } from "../features/plane-ghost.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
@@ -60,7 +61,8 @@ export type FeatureGhostRequest =
   | RepeatGhostRequest
   | CopyGhostRequest
   | PlaneGhostRequest
-  | OffsetGhostRequest;
+  | OffsetGhostRequest
+  | Fillet2DGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -384,6 +386,28 @@ export type OffsetGhostRequest = {
 };
 
 /**
+ * The 2D fillet — the second sketch-op ghost, keyed `fillet2d` on the wire
+ * because plain `fillet` already names the 3D band ghost. What comes back is
+ * only the new corner arcs, in the same blue every curve ghost wears: the
+ * trimmed survivors lie on the sketch's own lines, so ghosting them would
+ * just repaint the profile — the arcs ARE the change, the way the 3D fillet
+ * ghosts its band and not its whole result.
+ *
+ * The targets are addressed the way every sketch-op apply addresses them:
+ * one `shapeId` names one sketch edge (the Stage 0 emission invariant — no
+ * sub-shape indices in 2D). An empty list is the `fillet(r)` form, which
+ * fillets the whole active sketch; only the edit dialog produces it, for a
+ * statement that names no targets of its own.
+ */
+export type Fillet2DGhostRequest = {
+  feature: 'fillet2d';
+  /** Corner radius. Positive. */
+  radius: number;
+  /** The picked sketch edges (1 shapeId = 1 edge); empty fillets the whole sketch. */
+  entities: { shapeId: string }[];
+};
+
+/**
  * One ghost body, in the same mesh wire format a rendered solid uses. `kind`
  * overrides the overlay's per-dialog color for this body alone — a fillet's
  * picks can take material away at one edge and put it back at the next, so the
@@ -475,6 +499,9 @@ export function buildFeatureGhost(
   }
   if (request.feature === 'offset') {
     return meshGhostBodies(buildOffsetGhost(scene, request), meshConfig);
+  }
+  if (request.feature === 'fillet2d') {
+    return meshGhostBodies(buildFillet2DGhost(scene, request), meshConfig);
   }
   return buildBandGhost(scene, request, meshConfig);
 }
@@ -799,22 +826,59 @@ function toVector3Wire(value: { x: number; y: number; z: number }): Vector3Wire 
 /**
  * The 2D offset branch: resolve the picked sketch edges and hand them to the
  * ghost builder, which chains and offsets them exactly as `Offset.build`
- * would. Resolution mirrors the apply's own (`resolvePicks`,
- * sketch-apply.ts): each shapeId names one edge in one sketch's
- * `getEdgesWithOwner` index — guides excluded, as on the apply path — and
- * picks straddling two sketches refuse, because the apply refuses them too.
- *
- * An empty pick list is the `offset(d)` form: the whole active (last) sketch,
- * the same edge set `Offset.build` reads when it has no targets. In the edit
- * dialog the build is paused just BEFORE the statement, so unlike the swept
- * features nothing here needs the empty-removal-scope fallback — the
- * statement's own consumption hasn't happened yet.
+ * would.
  */
 function buildOffsetGhost(scene: Scene, request: OffsetGhostRequest): GhostBuild {
   if (request.distance === 0) {
     // A distance still being typed — nothing to draw, nothing wrong.
     return { solids: [], scratch: [] };
   }
+  const resolved = resolveSketchOpTargets(scene, request.entities);
+  if ('reason' in resolved) {
+    return resolved;
+  }
+  return buildOffsetGhostWires(resolved.edges, resolved.plane, {
+    distance: request.distance,
+    close: request.close,
+  });
+}
+
+/**
+ * The 2D fillet branch: resolve the picked sketch edges and hand them to the
+ * ghost builder, which chains and fillets them exactly as `Fillet2D.build`
+ * would. What comes back is only the new corner arcs — the trimmed survivors
+ * lie on the sketch's own lines and would just repaint the profile.
+ */
+function buildFillet2DGhost(scene: Scene, request: Fillet2DGhostRequest): GhostBuild {
+  if (request.radius <= 0) {
+    // A radius still being typed — nothing to draw, nothing wrong.
+    return { solids: [], scratch: [] };
+  }
+  const resolved = resolveSketchOpTargets(scene, request.entities);
+  if ('reason' in resolved) {
+    return resolved;
+  }
+  return buildFillet2DGhostArcs(resolved.edges, resolved.plane, request.radius);
+}
+
+/**
+ * Resolve a sketch-op dialog's picks to their edges and sketch plane, shared
+ * by every 2D ghost. Resolution mirrors the apply's own (`resolvePicks`,
+ * sketch-apply.ts): each shapeId names one edge in one sketch's
+ * `getEdgesWithOwner` index — guides excluded, as on the apply path — and
+ * picks straddling two sketches refuse, because the apply refuses them too.
+ *
+ * An empty pick list is the target-less statement form (`offset(d)`,
+ * `fillet(r)`): the whole active (last) sketch, the same edge set the builds
+ * read when they have no targets. In the edit dialog the build is paused just
+ * BEFORE the statement, so unlike the swept features nothing here needs the
+ * empty-removal-scope fallback — the statement's own consumption hasn't
+ * happened yet.
+ */
+function resolveSketchOpTargets(
+  scene: Scene,
+  entities: { shapeId: string }[],
+): { edges: Edge[]; plane: Plane } | { reason: string } {
   // The registration list, NOT `allObjects` — its stack walk reorders, and
   // the whole-sketch form needs "last" to mean last in the document, the way
   // `resolveSketchStatementTargets` reads the active sketch.
@@ -825,14 +889,14 @@ function buildOffsetGhost(scene: Scene, request: OffsetGhostRequest): GhostBuild
 
   let sketch: Sketch;
   let edges: Edge[];
-  if (request.entities.length === 0) {
+  if (entities.length === 0) {
     sketch = sketches[sketches.length - 1];
     edges = [...sketch.getEdgesWithOwner().keys()];
   } else {
     let picked: Sketch | null = null;
     const resolved: Edge[] = [];
     const seen = new Set<string>();
-    for (const entity of request.entities) {
+    for (const entity of entities) {
       if (seen.has(entity.shapeId)) {
         continue;
       }
@@ -851,17 +915,14 @@ function buildOffsetGhost(scene: Scene, request: OffsetGhostRequest): GhostBuild
     edges = resolved;
   }
   if (edges.length === 0) {
-    return { reason: 'The sketch has no edges to offset.' };
+    return { reason: 'The sketch has no edges to work on.' };
   }
 
   const plane = sketch.getPlane();
   if (!plane) {
     return { reason: 'The sketch has no plane.' };
   }
-  return buildOffsetGhostWires(edges, plane, {
-    distance: request.distance,
-    close: request.close,
-  });
+  return { edges, plane };
 }
 
 /** The sketch edge a pick's shapeId names, with the sketch it lives in. */

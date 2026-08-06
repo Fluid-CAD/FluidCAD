@@ -1,7 +1,7 @@
 import {
   applyFillet2DEdit, applyOffsetEdit, applySketchOp, applySlotDrawEdit, applySlotEdit, clearBreakpoints,
-  fetchFeatureGhost, fetchSketchFeatureSources, FeatureEditTarget, GhostSolid, NewVariable,
-  OffsetGhostRequest, OffsetOptionValues, ParsedFeatureStatement,
+  fetchFeatureGhost, fetchSketchFeatureSources, FeatureEditTarget, Fillet2DGhostRequest, GhostSolid,
+  NewVariable, OffsetGhostRequest, OffsetOptionValues, ParsedFeatureStatement,
   SketchApplyEntity, SketchOpFeature, SlotOptionValues, ValueExpr,
 } from '../api';
 import { ExpressionRow } from './modify-pick/expression-row';
@@ -174,7 +174,7 @@ export class SketchOpService {
     private readonly selection: SketchOpSelection,
     private fetchVariables: () => Promise<VariableInfo[]>,
     private onDone: () => void,
-    /** The live viewport geometry overlay; only offset draws into it today. */
+    /** The live viewport geometry overlay; offset and fillet draw into it. */
     private readonly ghost?: FeatureGhostOverlay,
   ) {
     this.panel = document.createElement('div');
@@ -839,10 +839,11 @@ export class SketchOpService {
   }
 
   /**
-   * Draw the live offset wires for the just-previewed values, or clear the
-   * overlay when the request can't be addressed. Runs on the statement
-   * preview's own abort signal, so a superseded preview also supersedes its
-   * ghost; a stale answer is dropped rather than drawn.
+   * Draw the live ghost curves (offset wires, fillet arcs) for the
+   * just-previewed values, or clear the overlay when the request can't be
+   * addressed. Runs on the statement preview's own abort signal, so a
+   * superseded preview also supersedes its ghost; a stale answer is dropped
+   * rather than drawn.
    */
   private async runGhost(value: ValueExpr | undefined, signal: AbortSignal): Promise<void> {
     if (!this.ghost) {
@@ -871,25 +872,32 @@ export class SketchOpService {
 
   /**
    * The live geometry request for the current dialog state, or null when this
-   * op has none (only offset ghosts today) or the targets can't be addressed.
-   * The picks travel as they are; with none picked, an edit whose keep chip
-   * stands over an EMPTY argument list is the whole-sketch `offset(d)` form
-   * (entities: []), while one standing over real target args has nothing
-   * addressable to preview — its seed either failed or was cleared.
+   * op has none (offset and fillet ghost today) or the targets can't be
+   * addressed. The picks travel as they are; with none picked, an edit whose
+   * keep chip stands over an EMPTY argument list is the whole-sketch
+   * `offset(d)` / `fillet(r)` form (entities: []), while one standing over
+   * real target args has nothing addressable to preview — its seed either
+   * failed or was cleared.
    */
-  private ghostRequest(value: ValueExpr | undefined): OffsetGhostRequest | null {
-    if (this.config.feature !== 'offset' || value === undefined) {
+  private ghostRequest(value: ValueExpr | undefined): OffsetGhostRequest | Fillet2DGhostRequest | null {
+    if ((this.config.feature !== 'offset' && this.config.feature !== 'fillet')
+      || value === undefined) {
       return null;
     }
     const ids = this.selection.ids();
     if (ids.length === 0 && (!this.editTarget || this.editArgsText.trim() !== '')) {
       return null;
     }
+    const entities = ids.map(shapeId => ({ shapeId }));
+    if (this.config.feature === 'fillet') {
+      // `fillet2d` on the wire — plain `fillet` names the 3D band ghost.
+      return { feature: 'fillet2d', radius: value, entities };
+    }
     return {
       feature: 'offset',
       distance: value,
       close: this.offsetOptions()?.close === true,
-      entities: ids.map(shapeId => ({ shapeId })),
+      entities,
     };
   }
 

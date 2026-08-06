@@ -160,7 +160,8 @@ export type FeatureGhostRequest =
   | RepeatGhostRequest
   | CopyGhostRequest
   | PlaneGhostRequest
-  | OffsetGhostRequest;
+  | OffsetGhostRequest
+  | Fillet2DGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -436,6 +437,21 @@ export type OffsetGhostRequest = {
   /** `.close()` — cap an open offset back onto its source with two straight edges. */
   close: boolean;
   /** The picked sketch edges (1 shapeId = 1 edge); empty offsets the whole sketch. */
+  entities: { shapeId: string }[];
+};
+
+/**
+ * The 2D fillet — keyed `fillet2d` on the wire because plain `fillet` already
+ * names the 3D band ghost. What comes back is only the new corner arcs: the
+ * trimmed survivors lie on the sketch's own lines. The targets are the
+ * dialog's picked sketch edges (one shapeId names one sketch edge); an empty
+ * list is the `fillet(r)` form, which fillets the whole active sketch.
+ */
+export type Fillet2DGhostRequest = {
+  feature: 'fillet2d';
+  /** Corner radius. Positive. */
+  radius: number;
+  /** The picked sketch edges (1 shapeId = 1 edge); empty fillets the whole sketch. */
   entities: { shapeId: string }[];
 };
 

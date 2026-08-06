@@ -357,6 +357,8 @@ export type FeatureStatementEditTarget = {
     op: 'add' | 'remove' | 'new';
     /** Sweep angle in degrees; 360 renders no angle argument. */
     angle: ValueExpr;
+    /** `.symmetric()` — the sweep splits equally across the sketch plane. */
+    symmetric: boolean;
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     /** Re-sourced profile; absent keeps the statement's profile text. */
     profile?: EditSketchSource;
@@ -645,6 +647,8 @@ export type RevolveEditOptions = {
   op: 'add' | 'remove' | 'new';
   /** Sweep angle in degrees; 360 renders no angle argument. */
   angle: ValueExpr;
+  /** `.symmetric()` — the sweep splits equally across the sketch plane. */
+  symmetric: boolean;
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: 'implicit' | 'bound';
   axis: RevolveAxisSpec;
@@ -2201,12 +2205,12 @@ export function renderTextStatement(
 
 /**
  * Render a revolve statement: `revolve(<axis>[, <angle>][, <profile>])` plus
- * `.thin(…)` and the `.remove()` / `.new()` operation chains. The 360° API
- * default renders no angle argument. Shared with the route's preview so the
- * previewed text is exactly what the transform writes.
+ * `.symmetric()`, `.thin(…)` and the `.remove()` / `.new()` operation chains.
+ * The 360° API default renders no angle argument. Shared with the route's
+ * preview so the previewed text is exactly what the transform writes.
  */
 export function renderRevolveStatement(
-  rev: Pick<RevolveEditOptions, 'op' | 'angle' | 'thin'>,
+  rev: Pick<RevolveEditOptions, 'op' | 'angle' | 'symmetric' | 'thin'>,
   axisExpr: string,
   profileExpr: string | null,
 ): string {
@@ -2217,7 +2221,8 @@ export function renderRevolveStatement(
   if (profileExpr) {
     args.push(profileExpr);
   }
-  return `revolve(${args.join(', ')})` + renderOpChains(rev);
+  const symmetric = rev.symmetric ? '.symmetric()' : '';
+  return `revolve(${args.join(', ')})` + symmetric + renderOpChains(rev);
 }
 
 /**
@@ -3448,6 +3453,8 @@ export type ParsedFeatureStatement =
     op: 'add' | 'remove' | 'new';
     /** Sweep angle in degrees; null = omitted (the 360° API default). */
     angle: ValueExpr | null;
+    /** `.symmetric()` chained on the statement. */
+    symmetric: boolean;
     thin: [ValueExpr] | null;
     /** Axis argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`). */
     axisText: string;
@@ -3690,10 +3697,7 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   shell: new Set(['join']),
   fillet: new Set(),
   chamfer: new Set(),
-  // `.symmetric()` is deliberately absent — symmetric revolve is broken in
-  // the OC binding (SetRotation overload), so the dialog never writes it; a
-  // trailing `.symmetric()` chain is preserved verbatim like any other.
-  revolve: new Set(['thin', 'remove', 'new']),
+  revolve: new Set(['symmetric', 'thin', 'remove', 'new']),
   // Path-only chains (.offset/.flip/.startAt) are deliberately absent — the
   // dialog doesn't edit them, so they survive verbatim after the prefix.
   text: new Set(['font', 'size', 'weight', 'bold', 'italic', 'align', 'lineSpacing', 'letterSpacing']),
@@ -4393,8 +4397,13 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
     if (rest.length > 1 || (rest.length === 1 && numericValueArg(rest[0], numericVars) !== null)) {
       return { error: 'the revolve has more arguments than the dialog understands' };
     }
+    const symmetricSeg = recognized.get('symmetric');
+    if (symmetricSeg && symmetricSeg.args.length > 0) {
+      return { error: 'the .symmetric() chain has arguments the dialog cannot edit' };
+    }
+    const symmetric = symmetricSeg !== undefined;
     return {
-      parsed: { feature, op, angle, thin, axisText, profileText: rest[0]?.text ?? null },
+      parsed: { feature, op, angle, symmetric, thin, axisText, profileText: rest[0]?.text ?? null },
       start,
       end,
     };
@@ -6417,7 +6426,8 @@ export function renderEditedStatement(
   if (parsed.feature === 'revolve') {
     const opts = spec.edit?.revolve;
     if (!opts || !validEditOp(opts.op) || !validEditThin(opts.thin)
-      || !validValueExpr(opts.angle, { nonzero: true })) {
+      || !validValueExpr(opts.angle, { nonzero: true })
+      || typeof opts.symmetric !== 'boolean') {
       return { error: 'malformed revolve edit spec' };
     }
     let axisExpr = parsed.axisText;
@@ -6446,7 +6456,7 @@ export function renderEditedStatement(
     }
     return {
       statement: renderRevolveStatement(
-        { op: opts.op, angle: opts.angle, thin: opts.thin }, axisExpr, profileText,
+        { op: opts.op, angle: opts.angle, symmetric: opts.symmetric, thin: opts.thin }, axisExpr, profileText,
       ),
     };
   }

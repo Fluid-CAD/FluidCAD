@@ -1042,6 +1042,7 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         feature: 'revolve',
         op: body.op as 'add' | 'remove' | 'new',
         angle,
+        symmetric: body.symmetric === true,
         thin,
         profile: profileRef!,
         axis: axis!,

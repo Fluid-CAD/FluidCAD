@@ -545,6 +545,8 @@ type RevolveAxisInput =
 type RevolveRequest = {
   op: 'add' | 'remove' | 'new';
   angle: ValueExpr;
+  /** `.symmetric()` — the sweep splits equally across the sketch plane. */
+  symmetric: boolean;
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { mode: 'active' | 'bound' } & SketchLoc;
   axis: RevolveAxisInput;
@@ -576,12 +578,15 @@ function validateRevolveAxis(raw: any): RevolveAxisInput | { error: string } {
 }
 
 function validateRevolve(body: any): RevolveRequest | { error: string } {
-  const { op, angle, thin, profile } = body ?? {};
+  const { op, angle, symmetric, thin, profile } = body ?? {};
   if (op !== 'add' && op !== 'remove' && op !== 'new') {
     return { error: 'op must be "add", "remove" or "new"' };
   }
   if (!validValueExpr(angle, { nonzero: true })) {
     return { error: 'angle must be a nonzero sweep angle in degrees' };
+  }
+  if (symmetric !== undefined && typeof symmetric !== 'boolean') {
+    return { error: 'symmetric must be a boolean' };
   }
   const thinResult = validateThinOffsets(thin);
   if ('error' in thinResult) {
@@ -599,7 +604,10 @@ function validateRevolve(body: any): RevolveRequest | { error: string } {
   if (axis.kind === 'axis' && axis.loc.filePath !== profileLoc.filePath) {
     return { error: 'the axis and the profile sketch live in different files' };
   }
-  return { op, angle, thin: thinResult.offsets, profile: { mode, ...profileLoc }, axis };
+  return {
+    op, angle, symmetric: symmetric === true,
+    thin: thinResult.offsets, profile: { mode, ...profileLoc }, axis,
+  };
 }
 
 /**
@@ -1783,18 +1791,21 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
   }
 
   if (feature === 'revolve') {
-    const { op, angle } = body ?? {};
+    const { op, angle, symmetric } = body ?? {};
     if (op !== 'add' && op !== 'remove' && op !== 'new') {
       return { error: 'op must be "add", "remove" or "new"' };
     }
     if (!validValueExpr(angle, { nonzero: true })) {
       return { error: 'angle must be a nonzero sweep angle in degrees' };
     }
+    if (symmetric !== undefined && typeof symmetric !== 'boolean') {
+      return { error: 'symmetric must be a boolean' };
+    }
     const thin = validateThinOffsets(body?.thin);
     if ('error' in thin) {
       return thin;
     }
-    edit.revolve = { op, angle, thin: thin.offsets };
+    edit.revolve = { op, angle, symmetric: symmetric === true, thin: thin.offsets };
     const result: StatementEditRequest = base;
     if (!isKeepSlot(body?.axis)) {
       const axis = validateRevolveAxis(body.axis);
@@ -3885,6 +3896,7 @@ export function createApplyFeatureRouter(
         const options: RevolveEditOptions = {
           op: request.op,
           angle: request.angle,
+          symmetric: request.symmetric,
           thin: request.thin,
           profile: request.profile.mode === 'bound' ? 'bound' : 'implicit',
           axis,

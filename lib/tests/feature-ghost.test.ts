@@ -55,6 +55,7 @@ const REVOLVE_BASE: Omit<RevolveGhostRequest, 'profile'> = {
   feature: 'revolve',
   op: 'add',
   angle: 360,
+  symmetric: false,
   thin: null,
   axis: { kind: 'standard', axis: 'y' },
 };
@@ -254,6 +255,19 @@ describe("feature ghost — revolve", () => {
     expect(box.minX).toBeCloseTo(0, 0);
     expect(box.maxZ).toBeCloseTo(0, 0);
     expect(box.minZ).toBeCloseTo(-80, 0);
+  });
+
+  it("splits a symmetric sweep across the sketch plane", () => {
+    ringSection();
+    const scene = render();
+
+    const box = bounds(revolveGhost(scene, 5, { angle: 90, symmetric: true }));
+
+    // The same quarter turn, rotated back 45° — ±80·sin45° either side of +x.
+    expect(box.maxZ).toBeCloseTo(80 * Math.SQRT1_2, 0);
+    expect(box.minZ).toBeCloseTo(-80 * Math.SQRT1_2, 0);
+    // The body straddles the sketch plane instead of merely ending at it.
+    expect(box.maxX).toBeGreaterThan(70);
   });
 
   it("sweeps around an axis() statement named by call site", () => {

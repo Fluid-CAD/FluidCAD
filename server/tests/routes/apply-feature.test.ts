@@ -866,6 +866,16 @@ describe('apply-feature route validation', () => {
     expect(relayed).toHaveLength(0);
   });
 
+  it('previews a symmetric partial revolve', async () => {
+    const { body } = await post({
+      feature: 'revolve', op: 'add', angle: 90, symmetric: true,
+      profile: REVOLVE_PROFILE, axis: { kind: 'standard', axis: 'x' },
+      preview: true,
+    });
+    expect(body.preview).toBe(`revolve('x', 90).symmetric()`);
+    expect(relayed).toHaveLength(0);
+  });
+
   it('relays an axis-statement revolve binding the axis after the profile', async () => {
     const { status, body } = await post({
       feature: 'revolve', op: 'add', angle: 360,

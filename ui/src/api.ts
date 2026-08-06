@@ -352,6 +352,8 @@ export type RevolveGhostRequest = {
   op: 'add' | 'remove' | 'new';
   /** Sweep angle in degrees. */
   angle: ValueExpr;
+  /** `.symmetric()` — the sweep splits equally across the sketch plane. */
+  symmetric: boolean;
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { filePath: string; line: number };
   axis: GhostAxisRef;
@@ -1424,6 +1426,8 @@ export type RevolveOptionValues = {
   op: 'add' | 'remove' | 'new';
   /** Sweep angle in degrees; 360 (the API default) writes no argument. */
   angle: ValueExpr;
+  /** `.symmetric()` — the sweep splits equally across the sketch plane. */
+  symmetric: boolean;
   /** `.thin()` offsets, or null for a plain revolve. */
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   /** Declarations the dialog's expression fields committed (`myVar = 50`). */
@@ -1458,6 +1462,7 @@ export async function applyRevolve(options: RevolveApplyOptions): Promise<ApplyF
     feature: 'revolve',
     op: options.op,
     angle: options.angle,
+    symmetric: options.symmetric,
     thin: options.thin,
     newVariables: options.newVariables,
     profile: options.profile,
@@ -2031,6 +2036,8 @@ export type ParsedFeatureStatement =
       op: FeatureOpKind;
       /** Sweep angle in degrees; null = omitted (the 360° API default). */
       angle: ValueExpr | null;
+      /** `.symmetric()` chained on the statement. */
+      symmetric: boolean;
       thin: [ValueExpr] | null;
       /** Axis argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`). */
       axisText: string;
@@ -2413,6 +2420,7 @@ export async function applyRevolveEdit(
     before: options.before,
     op: options.op,
     angle: options.angle,
+    symmetric: options.symmetric,
     thin: options.thin,
     newVariables: options.newVariables,
     profile: options.profile,

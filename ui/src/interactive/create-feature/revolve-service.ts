@@ -301,6 +301,7 @@ export class RevolveFeatureService {
     this.panel.showEdit({
       op: parsed.op,
       angle: parsed.angle ?? 360,
+      symmetric: parsed.symmetric,
       thin: parsed.thin,
       axisLabel: parsed.axisText,
       profileLabel: parsed.profileText,
@@ -507,6 +508,7 @@ export class RevolveFeatureService {
       feature: 'revolve',
       op: values.op,
       angle: values.angle,
+      symmetric: values.symmetric,
       thin: values.thin,
       profile,
       axis,
@@ -597,6 +599,7 @@ export class RevolveFeatureService {
     return {
       op: values.op,
       angle: values.angle,
+      symmetric: values.symmetric,
       thin: values.thin,
       profile: {
         mode: profile.kind === 'active' ? 'active' : 'bound',
@@ -643,6 +646,7 @@ export class RevolveFeatureService {
     return {
       op: values.op,
       angle: values.angle,
+      symmetric: values.symmetric,
       thin: values.thin,
       profile,
       axis,

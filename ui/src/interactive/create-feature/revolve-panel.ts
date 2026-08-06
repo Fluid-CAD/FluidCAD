@@ -40,6 +40,7 @@ export class RevolvePanel extends FeaturePanel {
   private profileSlot: SketchSlotControl;
   private axisSlot: AxisSlotControl;
   private angleField: ExpressionField;
+  private symmetricCheckbox: HTMLInputElement;
 
   constructor(container: HTMLElement) {
     super(container, {
@@ -57,6 +58,11 @@ export class RevolvePanel extends FeaturePanel {
           <span class="text-base-content/70">Angle (°)</span>
           <input data-role="angle" type="number" step="5" value="360"
             class="input input-sm input-bordered w-full text-xs" />
+        </label>
+        <label class="flex items-center justify-between cursor-pointer"
+          title="Split the sweep angle equally across both sides of the sketch plane — revolve().symmetric()">
+          <span class="text-base-content/70">Symmetric</span>
+          <input data-role="symmetric" type="checkbox" class="toggle toggle-sm toggle-primary" />
         </label>
         <div data-role="thin-host" class="contents"></div>
       `,
@@ -84,6 +90,8 @@ export class RevolvePanel extends FeaturePanel {
     this.axisSlot.onModeChange = () => this.onAxisModeChange?.();
 
     this.angleField = this.enhance('angle');
+    this.symmetricCheckbox = this.role('symmetric');
+    this.symmetricCheckbox.addEventListener('change', () => this.onChange?.());
   }
 
   /** The variables the fields' dropdowns offer (thin thickness included). */
@@ -99,6 +107,7 @@ export class RevolvePanel extends FeaturePanel {
     // on the pick prompt — an axis is an explicit choice.
     this.shell.setTitle(null);
     this.angleField.setValue(360);
+    this.symmetricCheckbox.checked = false;
     this.profileSlot.reset(profiles);
     this.axisSlot.reset();
     this.axisSlot.setOptions(axes);
@@ -122,6 +131,7 @@ export class RevolvePanel extends FeaturePanel {
     this.shell.setTitle('Edit revolve');
     this.tabs.setOp(state.op);
     this.angleField.setValue(state.angle);
+    this.symmetricCheckbox.checked = state.symmetric;
     this.thin.setValues(state.thin);
     this.profileSlot.seedKeep(state.profileLabel);
     this.axisSlot.seedKeep(state.axisLabel);
@@ -195,6 +205,7 @@ export class RevolvePanel extends FeaturePanel {
     return {
       op: this.tabs.op,
       angle: angleRead.value,
+      symmetric: this.symmetricCheckbox.checked,
       thin: thin.thin,
       newVariables: collectNewVariables([angleRead, thin]),
     };

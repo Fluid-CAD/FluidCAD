@@ -3139,7 +3139,7 @@ describe('revolve statement templates', () => {
       feature: 'revolve',
       filePath: '/ws/model.fluid.js',
       revolve: {
-        op: 'add', angle: 360, thin: null, profile: 'implicit',
+        op: 'add', angle: 360, symmetric: false, thin: null, profile: 'implicit',
         axis: { kind: 'standard', axis: 'z' },
         ...revolve,
       },
@@ -3249,6 +3249,11 @@ describe('revolve statement templates', () => {
   it('chains .thin() and .remove()', async () => {
     const result = await applyFeatureEdit(oneSketchCode, revolveSpec({ op: 'remove', angle: 90, thin: [2] }));
     expect(result.newCode).toContain(`revolve('z', 90).thin(2).remove()`);
+  });
+
+  it('chains .symmetric() before the thin and operation chains', async () => {
+    const result = await applyFeatureEdit(oneSketchCode, revolveSpec({ op: 'remove', angle: 90, symmetric: true, thin: [2] }));
+    expect(result.newCode).toContain(`revolve('z', 90).symmetric().thin(2).remove()`);
   });
 
   it('chains .new()', async () => {
@@ -3492,7 +3497,7 @@ describe('parseFeatureStatement — revolve', () => {
     expect(result).toEqual({
       ok: true,
       parsed: {
-        feature: 'revolve', op: 'add', angle: null, thin: null,
+        feature: 'revolve', op: 'add', angle: null, symmetric: false, thin: null,
         axisText: `'z'`, profileText: null,
       },
       statement: `revolve('z')`,
@@ -3514,7 +3519,7 @@ describe('parseFeatureStatement — revolve', () => {
     expect(result).toEqual({
       ok: true,
       parsed: {
-        feature: 'revolve', op: 'remove', angle: null, thin: null,
+        feature: 'revolve', op: 'remove', angle: null, symmetric: false, thin: null,
         axisText: 'a', profileText: 's',
       },
       statement: `revolve(a, s).remove()`,
@@ -3530,13 +3535,13 @@ describe('parseFeatureStatement — revolve', () => {
     });
   });
 
-  it('keeps a trailing .symmetric() chain out of the statement span', async () => {
+  it('reads a .symmetric() chain into the statement span', async () => {
     const code = `${editBase}\nrevolve('z', 180).symmetric()\n`;
     const result = await parseFeatureStatement(code, 4);
     expect(result).toMatchObject({
       ok: true,
-      parsed: { feature: 'revolve', angle: 180 },
-      statement: `revolve('z', 180)`,
+      parsed: { feature: 'revolve', angle: 180, symmetric: true },
+      statement: `revolve('z', 180).symmetric()`,
     });
   });
 
@@ -3559,7 +3564,7 @@ describe('applyFeatureEdit (revolve in-place statement edit)', () => {
   function revolveEditOptions(
     overrides: Partial<NonNullable<FeatureStatementEditTarget['revolve']>> = {},
   ): NonNullable<FeatureStatementEditTarget['revolve']> {
-    return { op: 'add', angle: 360, thin: null, ...overrides };
+    return { op: 'add', angle: 360, symmetric: false, thin: null, ...overrides };
   }
 
   it('replaces the angle in place', async () => {
@@ -3590,6 +3595,23 @@ describe('applyFeatureEdit (revolve in-place statement edit)', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`revolve(axis(e.endEdges(2)), 45, s).thin(2).remove()`);
+  });
+
+  it('adds and drops the .symmetric() chain in place', async () => {
+    const code = `${revolveEditBase}\nrevolve('z', 90)\n`;
+    const added = await applyFeatureEdit(code, editSpec('revolve', {
+      line: 4, column: 0,
+      revolve: revolveEditOptions({ angle: 90, symmetric: true }),
+    }));
+    expect(added.error).toBeUndefined();
+    expect(added.newCode).toBe(`${revolveEditBase}\nrevolve('z', 90).symmetric()\n`);
+
+    const dropped = await applyFeatureEdit(added.newCode!, editSpec('revolve', {
+      line: 4, column: 0,
+      revolve: revolveEditOptions({ angle: 90 }),
+    }));
+    expect(dropped.error).toBeUndefined();
+    expect(dropped.newCode).toBe(code);
   });
 
   it('re-sources the axis to a standard world axis', async () => {

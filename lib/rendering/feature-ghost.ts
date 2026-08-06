@@ -104,6 +104,8 @@ export type RevolveGhostRequest = {
   op: 'add' | 'remove' | 'new';
   /** Sweep angle in degrees. */
   angle: number;
+  /** `.symmetric()` — the sweep splits equally across the sketch plane. */
+  symmetric: boolean;
   thin: [number] | [number, number] | null;
   /** The producing statement of the profile to revolve. */
   profile: { filePath: string; line: number };
@@ -1320,6 +1322,7 @@ function buildProfileGhost(
     return buildRevolveGhostSolids(source, {
       op: request.op,
       angle: request.angle,
+      symmetric: request.symmetric,
       thin: request.thin,
       axis,
     });

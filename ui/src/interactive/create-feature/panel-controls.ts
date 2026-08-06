@@ -104,7 +104,7 @@ export class ThinControl {
     this.valueWrap.className = 'hidden flex-col gap-1.5';
     this.valueWrap.innerHTML = `
       <span class="text-base-content/70">Wall thickness</span>
-      <input data-role="thin-value" type="number" step="0.5" min="0.05" value="2"
+      <input data-role="thin-value" type="number" step="0.5" value="2"
         class="input input-sm input-bordered w-full text-xs" />
     `;
     container.appendChild(this.valueWrap);
@@ -161,10 +161,10 @@ export class ThinControl {
     }
     const read = this.field.read();
     if ('error' in read) {
-      return { error: read.error === 'empty' ? 'Enter a positive wall thickness.' : read.error };
+      return { error: read.error === 'empty' ? 'Enter a wall thickness.' : read.error };
     }
-    if (typeof read.value === 'number' && read.value <= 0) {
-      return { error: 'Enter a positive wall thickness.' };
+    if (typeof read.value === 'number' && read.value === 0) {
+      return { error: 'Wall thickness cannot be zero.' };
     }
     return { thin: [read.value], newVariable: read.newVariable };
   }

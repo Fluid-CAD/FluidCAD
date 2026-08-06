@@ -21,7 +21,7 @@ import {
 /** A sketch edge pick: 1 shapeId = 1 edge (the Stage 0 emission invariant). */
 export type SketchPickRef = { shapeId: string };
 
-export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc';
+export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'text';
 
 export type SketchSynthesizeOptions = SynthesizeOptions & {
   /**
@@ -94,6 +94,10 @@ export function synthesizeSketchApplyFeature(
 
   if (feature === 'tarc') {
     return synthesizeSketchTarc(scene, refs, value, options);
+  }
+
+  if (feature === 'text') {
+    return synthesizeSketchTextPath(scene, refs, options);
   }
 
   const resolution = resolvePicks(scene, refs);
@@ -429,6 +433,90 @@ function synthesizeSketchTarc(
 }
 
 /**
+ * A text path (`text("Hi", path)`) is owner-level like slot and tArc: the
+ * path argument is ONE whole geometry (Text chains ALL of the target's edges
+ * into a wire and lays the glyphs along it), so any picked edge stands for
+ * its producing primitive and the emitted argument is a bare variable —
+ * `text("Hi", c)`. Unlike tArc, multi-edge owners (rect, polygon, slot) are
+ * valid paths, as long as their edges chain into one connected run — a
+ * disconnected owner would throw at build time, so it is refused here.
+ * Guide edges are valid: marking the path `.guide()` is the classic way to
+ * keep it out of the extruded profile. The route renders the full statement
+ * from the dialog's option values; the synthesis owns only the path argument.
+ */
+function synthesizeSketchTextPath(
+  scene: SelectionScene,
+  refs: SketchPickRef[],
+  options: SketchSynthesizeOptions,
+): ApplyFeatureSynthesis {
+  const resolution = resolvePicks(scene, refs, { includeGuides: true });
+  if ('reason' in resolution) {
+    return { ok: false, reason: resolution.reason };
+  }
+
+  const owners: SceneObject[] = [];
+  for (const pick of resolution.picks) {
+    if (!owners.includes(pick.owner)) {
+      owners.push(pick.owner);
+    }
+  }
+  if (owners.length > 1) {
+    return { ok: false, reason: 'text follows one path geometry — pick edges of a single geometry' };
+  }
+  const owner = owners[0];
+  const bindFailure = checkSketchBindable(scene, owner);
+  if (bindFailure) {
+    return { ok: false, reason: bindFailure };
+  }
+
+  // Text chains every edge of the path into a single wire; edges that do not
+  // connect would fail the build, so refuse them before writing the statement.
+  const shapes = owner.getShapes({ excludeGuide: false });
+  const edges = shapes.filter((s): s is Edge => s instanceof Edge);
+  if (edges.length === 0) {
+    return { ok: false, reason: `a ${owner.getType()}() has no edges for text to follow` };
+  }
+  if (WireOps.groupConnectedEdges(edges).length !== 1) {
+    return {
+      ok: false,
+      reason: `the ${owner.getType()}()'s edges do not form one connected path`,
+    };
+  }
+
+  const names = allocateNames([owner], options.namer);
+  const parts = [part(owner, '', null, null, 0)];
+  const args = renderPartArgs(parts[0], names);
+
+  const loc = owner.getSourceLocation()!;
+  const spec: ApplyFeatureEditSpec = {
+    feature: 'text',
+    filePath: loc.filePath,
+    producers: [{
+      line: loc.line,
+      column: loc.column,
+      featureType: owner.getType(),
+      nameHint: nameHintFor(owner.getType()),
+      bind: true,
+    }],
+    parts: parts.map(p => ({
+      producer: 0,
+      accessor: p.accessor,
+      indices: p.indices,
+      filterArgs: p.filterArgs,
+    })),
+    imports: [],
+  };
+
+  return {
+    ok: true,
+    spec,
+    preview: `text("…", ${args})`,
+    args,
+    alternatives: [],
+  };
+}
+
+/**
  * The 2D booleans (fuse/subtract/common) are owner-level: their operands are
  * whole geometries (Fuse2D & co. build closed REGIONS from each operand's
  * edges — a lone edge forms none), so any picked edge stands for its producing
@@ -599,17 +687,23 @@ export type SketchTargetDescriptor =
  * evaluated exactly as the emitted code would (the synthesis evaluators).
  * All-or-nothing: one unresolvable argument yields a refusal, never a
  * silently smaller highlight.
+ *
+ * `includeGuides` widens the index to construction geometry — a text
+ * statement's path is classically a `.guide()` curve; the op targets it
+ * seeds by default stay real-edge-only, matching the applies.
  */
 export function resolveSketchStatementTargets(
   scene: SelectionScene,
   descriptors: SketchTargetDescriptor[],
+  options: { includeGuides?: boolean } = {},
 ): { ok: true; shapeIds: string[] } | { ok: false; reason: string } {
   const sketches = scene.getAllSceneObjects().filter((o): o is Sketch => o instanceof Sketch);
   const sketch = sketches[sketches.length - 1];
   if (!sketch) {
     return { ok: false, reason: 'no sketch is active' };
   }
-  const index = sketch.getEdgesWithOwner();
+  const filter = options.includeGuides ? { excludeGuide: false } : undefined;
+  const index = sketch.getEdgesWithOwner(filter);
   const universe = [...index.keys()];
   const knownIds = new Set(universe.map(e => e.id));
 
@@ -639,7 +733,7 @@ export function resolveSketchStatementTargets(
       if ('reason' in owner) {
         return { ok: false, reason: owner.reason };
       }
-      const ownerEdges = ownerRealEdges(owner);
+      const ownerEdges = owner.getShapes(filter).filter((s): s is Edge => s instanceof Edge);
       if (descriptor.kind === 'owner') {
         edges = ownerEdges;
       } else if (typeof descriptor.args[0] === 'string') {

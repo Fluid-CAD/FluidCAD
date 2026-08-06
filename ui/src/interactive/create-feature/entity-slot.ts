@@ -14,18 +14,24 @@ export type EntitySlotSelection = { kind: 'picked' } | { kind: 'keep' };
 export class EntitySlotControl {
   /** The slot was clicked — the panel arms it as the pick target. */
   onArm?: () => void;
-  /** The picked chip's ✕ — the service owns the entity. */
+  /** The picked chip's ✕ — the service owns the entity. With
+   * `keepRemovable`, also the keep chip's ✕; the owner tells them apart by
+   * its own state (a live pick means the picked chip was showing). */
   onRemove?: () => void;
 
   private readonly slot: PickSlot;
   private readonly prompt: string;
+  /** Slots whose statement argument is droppable (a text path) offer the ✕
+   * on the keep chip too; the default keeps it un-removable. */
+  private readonly keepRemovable: boolean;
   /** Picked chip label (the service owns the entity), or null. */
   private pickedLabel: string | null = null;
   /** Edit mode: the statement's own target text; null when it has none. */
   private keepLabel: string | null = null;
 
-  constructor(host: HTMLElement, opts: { label: string; prompt: string }) {
+  constructor(host: HTMLElement, opts: { label: string; prompt: string; keepRemovable?: boolean }) {
     this.prompt = opts.prompt;
+    this.keepRemovable = opts.keepRemovable === true;
     this.slot = new PickSlot(host, { label: opts.label, multiple: false });
     this.slot.onArm = () => this.onArm?.();
     this.slot.onRemove = () => this.onRemove?.();
@@ -78,7 +84,7 @@ export class EntitySlotControl {
       this.slot.setChips([{ label: this.pickedLabel, badge: '●', removable: true }]);
       this.slot.setPrompt(null);
     } else if (this.keepLabel !== null) {
-      this.slot.setChips([keepChip(this.keepLabel)]);
+      this.slot.setChips([{ ...keepChip(this.keepLabel), removable: this.keepRemovable }]);
       this.slot.setPrompt(null);
     } else {
       this.slot.setChips([]);

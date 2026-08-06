@@ -1,5 +1,9 @@
 import { PanelShell, ChoiceTabs } from '../create-feature/panel-controls';
+import { EntitySlotControl } from '../create-feature/entity-slot';
 import { getFontFamilies, TextAlignOption, TextOptionValues } from '../../api';
+
+/** The Distribute row's choices: off = the Align tabs stand. */
+type TextDistributeOption = 'off' | 'space-between' | 'space-around';
 
 const WEIGHT_CHOICES: { value: number; label: string }[] = [
   { value: 100, label: 'Thin' },
@@ -16,14 +20,23 @@ const WEIGHT_CHOICES: { value: number; label: string }[] = [
 /**
  * The Text tool's options dialog: the string, typeface (family / weight /
  * italic), size, alignment and spacing controls behind `text()`'s chain
- * methods. Pure DOM + form state — the tool owns the anchor point, the
- * viewport preview and the insert. Every edit fires `onChange`, which the
- * tool answers with a fresh outline preview, so changes render live.
+ * methods, plus the path slot for the `text("…", path)` overload. Pure DOM +
+ * form state — the tool owns the anchor point, the viewport preview, the
+ * path pick and the insert. Every edit fires `onChange`, which the tool
+ * answers with a fresh outline preview, so changes render live.
  */
 export class TextPanel {
   onChange?: () => void;
   onApply?: () => void;
   onExit?: () => void;
+
+  /**
+   * The path slot (`text("…", path)`): the owner arms picking via its
+   * `onArm`, pushes/clears the chip, and seeds the edit-mode keep chip. The
+   * keep chip is removable — dropping the statement's path is a real edit
+   * (back to plain anchored text).
+   */
+  readonly pathSlot: EntitySlotControl;
 
   private shell: PanelShell;
   private textInput: HTMLTextAreaElement;
@@ -35,6 +48,18 @@ export class TextPanel {
   private lineSpacingInput: HTMLInputElement;
   private letterSpacingInput: HTMLInputElement;
   private applyBtn: HTMLButtonElement;
+  /** The path-only controls (`.offset()`, `.startAt()`, `.flip()`), shown
+   * under the path slot while a path is selected. */
+  private pathOptions: HTMLDivElement;
+  private pathOffsetInput: HTMLInputElement;
+  private startAtInput: HTMLInputElement;
+  private flipToggle: HTMLInputElement;
+  /** The Distribute row beside Align, path mode only; ≠ off grays Align. */
+  private distributeRow: HTMLDivElement;
+  private distributeTabs: ChoiceTabs<TextDistributeOption>;
+  private alignJoin: HTMLDivElement;
+  /** True while a path is selected — the path-only options apply. */
+  private pathMode = false;
   /** Family chosen before the font list arrived; applied by setFonts. */
   private pendingFont: string | null = null;
 
@@ -47,6 +72,26 @@ export class TextPanel {
         <textarea data-role="text" rows="2" placeholder="Text"
           class="textarea textarea-sm textarea-bordered w-full text-xs leading-snug resize-y">Text</textarea>
       </label>
+      <div data-role="path-slot"></div>
+      <div data-role="path-options" class="hidden flex-col gap-3.5">
+        <div class="flex items-center gap-1.5">
+          <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="Shift off the path in mm; negative moves to the other side">
+            <span class="text-base-content/70">Offset</span>
+            <input data-role="path-offset" type="number" step="0.5" value="0"
+              class="input input-sm input-bordered w-full min-w-0 text-xs" />
+          </label>
+          <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="Distance along the path before the text starts, in mm">
+            <span class="text-base-content/70">Start at</span>
+            <input data-role="path-start-at" type="number" step="1" min="0" value="0"
+              class="input input-sm input-bordered w-full min-w-0 text-xs" />
+          </label>
+        </div>
+        <label class="flex items-center justify-between cursor-pointer"
+          title="Place the text on the other side of the path (inside, on a closed loop)">
+          <span class="text-base-content/70">Flip</span>
+          <input data-role="path-flip" type="checkbox" class="toggle toggle-sm toggle-primary" />
+        </label>
+      </div>
       <label class="flex flex-col gap-1.5">
         <span class="text-base-content/70">Font</span>
         <select data-role="font" class="select select-sm select-bordered w-full text-xs">
@@ -72,6 +117,11 @@ export class TextPanel {
         <span class="text-base-content/70">Align</span>
         <div data-role="align" class="join w-full"></div>
       </div>
+      <div data-role="distribute-row" class="hidden flex-col gap-1.5"
+        title="Spread the glyphs across the whole path; overrides Align">
+        <span class="text-base-content/70">Distribute</span>
+        <div data-role="distribute" class="join w-full"></div>
+      </div>
       <div class="flex items-center gap-1.5">
         <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="Multiplier on the font's natural line height">
           <span class="text-base-content/70">Line spacing</span>
@@ -90,6 +140,10 @@ export class TextPanel {
       </div>
     `);
 
+    this.pathSlot = new EntitySlotControl(
+      this.shell.body.querySelector('[data-role="path-slot"]')!,
+      { label: 'Follow path', prompt: 'Pick an edge', keepRemovable: true },
+    );
     this.textInput = this.shell.body.querySelector('[data-role="text"]')!;
     this.fontSelect = this.shell.body.querySelector('[data-role="font"]')!;
     this.sizeInput = this.shell.body.querySelector('[data-role="size"]')!;
@@ -98,6 +152,12 @@ export class TextPanel {
     this.lineSpacingInput = this.shell.body.querySelector('[data-role="line-spacing"]')!;
     this.letterSpacingInput = this.shell.body.querySelector('[data-role="letter-spacing"]')!;
     this.applyBtn = this.shell.body.querySelector('[data-role="apply"]')!;
+    this.pathOptions = this.shell.body.querySelector('[data-role="path-options"]')!;
+    this.pathOffsetInput = this.shell.body.querySelector('[data-role="path-offset"]')!;
+    this.startAtInput = this.shell.body.querySelector('[data-role="path-start-at"]')!;
+    this.flipToggle = this.shell.body.querySelector('[data-role="path-flip"]')!;
+    this.distributeRow = this.shell.body.querySelector('[data-role="distribute-row"]')!;
+    this.alignJoin = this.shell.body.querySelector('[data-role="align"]')!;
 
     for (const { value, label } of WEIGHT_CHOICES) {
       const option = document.createElement('option');
@@ -108,7 +168,7 @@ export class TextPanel {
     }
 
     this.alignTabs = new ChoiceTabs<TextAlignOption>(
-      this.shell.body.querySelector('[data-role="align"]')!,
+      this.alignJoin,
       [
         { key: 'left', label: 'Left', title: 'Baseline starts at the anchor' },
         { key: 'center', label: 'Center', title: 'Line centered on the anchor' },
@@ -118,14 +178,30 @@ export class TextPanel {
     );
     this.alignTabs.onChange = () => this.onChange?.();
 
+    this.distributeTabs = new ChoiceTabs<TextDistributeOption>(
+      this.shell.body.querySelector('[data-role="distribute"]')!,
+      [
+        { key: 'off', label: 'Off', title: 'Align places the text at the path start/center/end' },
+        { key: 'space-between', label: 'Between', title: 'First and last glyph pinned to the path ends, the rest spread evenly' },
+        { key: 'space-around', label: 'Around', title: 'Glyphs spread evenly with half-gaps at the path ends' },
+      ],
+      'off',
+    );
+    this.distributeTabs.onChange = () => {
+      this.syncAlignEnabled();
+      this.onChange?.();
+    };
+
     this.textInput.addEventListener('input', () => this.onChange?.());
-    for (const input of [this.sizeInput, this.lineSpacingInput, this.letterSpacingInput]) {
+    for (const input of [this.sizeInput, this.lineSpacingInput, this.letterSpacingInput,
+      this.pathOffsetInput, this.startAtInput]) {
       input.addEventListener('input', () => this.onChange?.());
     }
     for (const select of [this.fontSelect, this.weightSelect]) {
       select.addEventListener('change', () => this.onChange?.());
     }
     this.italicToggle.addEventListener('change', () => this.onChange?.());
+    this.flipToggle.addEventListener('change', () => this.onChange?.());
 
     // Typing in the dialog must not trigger the single-letter tool shortcuts
     // (window-level). Enter in a single-line field applies; the textarea
@@ -133,6 +209,7 @@ export class TextPanel {
     const fields: HTMLElement[] = [
       this.textInput, this.fontSelect, this.sizeInput, this.weightSelect,
       this.lineSpacingInput, this.letterSpacingInput,
+      this.pathOffsetInput, this.startAtInput,
     ];
     for (const field of fields) {
       field.addEventListener('keydown', (e) => {
@@ -171,6 +248,30 @@ export class TextPanel {
     this.shell.setTitle(title);
   }
 
+  /**
+   * Show/hide the path-only controls (Offset, Start at, Flip, Distribute).
+   * The owner flips this with the path slot's state; while off, {@link values}
+   * reports their defaults so an anchored statement renders no path chains.
+   */
+  setPathMode(active: boolean): void {
+    if (this.pathMode === active) {
+      return;
+    }
+    this.pathMode = active;
+    this.pathOptions.classList.toggle('hidden', !active);
+    this.pathOptions.classList.toggle('flex', active);
+    this.distributeRow.classList.toggle('hidden', !active);
+    this.distributeRow.classList.toggle('flex', active);
+    this.syncAlignEnabled();
+  }
+
+  /** A distribution overrides Align — gray the tabs while one is chosen. */
+  private syncAlignEnabled(): void {
+    const overridden = this.pathMode && this.distributeTabs.value !== 'off';
+    this.alignJoin.classList.toggle('opacity-40', overridden);
+    this.alignJoin.classList.toggle('pointer-events-none', overridden);
+  }
+
   /** Programmatic option values (edit-mode prefill); no change event fires. */
   setValues(values: TextOptionValues): void {
     this.textInput.value = values.text;
@@ -187,9 +288,19 @@ export class TextPanel {
     this.pendingFont = values.font;
     this.weightSelect.value = String(values.weight);
     this.italicToggle.checked = values.italic;
-    this.alignTabs.setValue(values.align);
+    if (values.align === 'space-between' || values.align === 'space-around') {
+      this.distributeTabs.setValue(values.align);
+      this.alignTabs.setValue('left');
+    } else {
+      this.distributeTabs.setValue('off');
+      this.alignTabs.setValue(values.align);
+    }
     this.lineSpacingInput.value = String(values.lineSpacing);
     this.letterSpacingInput.value = String(values.letterSpacing);
+    this.pathOffsetInput.value = String(values.offset);
+    this.startAtInput.value = String(values.startAt);
+    this.flipToggle.checked = values.flip;
+    this.syncAlignEnabled();
   }
 
   show(): void {
@@ -261,15 +372,36 @@ export class TextPanel {
     if (!Number.isFinite(letterSpacing)) {
       return { error: 'Enter a letter spacing in mm.' };
     }
+    // The path-only options read as their defaults while no path is
+    // selected — an anchored statement renders no path chains, whatever the
+    // hidden fields still hold from an earlier pick.
+    let offset = 0;
+    let startAt = 0;
+    let flip = false;
+    if (this.pathMode) {
+      offset = parseFloat(this.pathOffsetInput.value);
+      if (!Number.isFinite(offset)) {
+        return { error: 'Enter a path offset in mm.' };
+      }
+      startAt = parseFloat(this.startAtInput.value);
+      if (!Number.isFinite(startAt) || startAt < 0) {
+        return { error: 'Enter a non-negative start distance in mm.' };
+      }
+      flip = this.flipToggle.checked;
+    }
+    const distribute = this.pathMode ? this.distributeTabs.value : 'off';
     return {
       text: this.textInput.value,
       size,
       font: this.fontSelect.value || null,
       weight: parseInt(this.weightSelect.value, 10) || 400,
       italic: this.italicToggle.checked,
-      align: this.alignTabs.value,
+      align: distribute === 'off' ? this.alignTabs.value : distribute,
       lineSpacing,
       letterSpacing,
+      offset,
+      startAt,
+      flip,
     };
   }
 }

@@ -5,9 +5,11 @@ import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
 import { SnapManager } from '../../snapping/snap-manager';
 import { SnapType } from '../../snapping/types';
-import { projectToSketch } from '../sketch-plane-utils';
+import { pixelToSketchThreshold, projectToSketch } from '../sketch-plane-utils';
+import { buildPathTargetIndex, hitTestPathTargets, PathTargetEntry } from '../sketch-edge-utils';
 import { ICON_TEXT } from '../../ui/icons';
-import { getTextPreview, TextOptionValues } from '../../api';
+import { applyTextToPath, getTextPreview, TextOptionValues } from '../../api';
+import { PathHighlight } from './path-highlight';
 import { TextPanel } from './text-panel';
 import { TextPreviewMesh } from './text-preview-mesh';
 import { START_POINT_COLOR, addDot, snapDotColor } from './tool-preview-utils';
@@ -22,6 +24,13 @@ const PREVIEW_DEBOUNCE_MS = 200;
  * moves the anchor (snapped); Apply inserts the `text(…)` statement —
  * prefixed with `move(…)` when the anchor left the sketch cursor — and
  * the scene re-render replaces the preview with the real feature.
+ *
+ * The dialog's Path slot picks the `text("…", path)` overload instead:
+ * arming it turns viewport clicks into whole-geometry picks (text lays its
+ * glyphs along ALL edges of the picked curve), the anchor and its outline
+ * preview stand down (the path owns placement; the layout needs the path's
+ * geometry), and Apply goes through `/api/apply-feature` — the server binds
+ * the picked statement to a variable and writes `text("Hi", c)`.
  */
 export class TextTool extends SketchTool {
   readonly id = 'text' as const;
@@ -36,6 +45,17 @@ export class TextTool extends SketchTool {
   private anchorPick: PickedPoint | null = null;
   /** True once the user clicked an anchor; stops cursor-following. */
   private placed = false;
+
+  /** The picked path geometry (`text("…", path)`), or null for anchored text.
+   * The shape ids are re-resolved by owner line on every scene update —
+   * shape ids are per-render. */
+  private path: { shapeId: string; shapeIds: string[]; line: number; label: string } | null = null;
+  /** True while the Path slot awaits a viewport pick. */
+  private pathArmed = false;
+  /** Whole-geometry pick candidates of the current sketch scene. */
+  private pathIndex: PathTargetEntry[] = [];
+  /** The picked geometry's selection tint in the viewport. */
+  private pathHighlight: PathHighlight;
 
   private previewTimer: number | null = null;
   private previewAbort: AbortController | null = null;
@@ -79,8 +99,11 @@ export class TextTool extends SketchTool {
       this.syncStatementPreview();
       this.schedulePreview();
     };
-    this.panel.onApply = () => this.commit();
+    this.panel.onApply = () => void this.commit();
     this.panel.onExit = () => this.onRequestExit();
+    this.panel.pathSlot.onArm = () => this.togglePathArmed();
+    this.panel.pathSlot.onRemove = () => this.clearPath();
+    this.pathHighlight = new PathHighlight(ctx);
     this.snapDotGroup = new Group();
     this.snapDotGroup.userData.isMetaShape = true;
     this.snapDotGroup.renderOrder = 3;
@@ -106,6 +129,8 @@ export class TextTool extends SketchTool {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
+    this.pathHighlight.clear();
+    this.setPickCursor(false);
     this.clearSnapDot();
     this.ctx.scene.remove(this.snapDotGroup);
     this.cancelPreview();
@@ -116,6 +141,20 @@ export class TextTool extends SketchTool {
   onSceneUpdate(sceneObjects: SceneObjectRender[], sketchId: string): void {
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane, this.ctx);
     this.updateSnapManager(snapManager);
+    this.pathIndex = buildPathTargetIndex(sceneObjects, sketchId, this.plane);
+    if (this.path) {
+      // Shape ids are per-render — re-resolve the held pick by its owner's
+      // source line, and drop it when the statement is gone. The render also
+      // replaced the line meshes, so the highlight re-applies either way.
+      const entry = this.pathIndex.find(e => e.owner.sourceLocation!.line === this.path!.line);
+      if (entry) {
+        this.path.shapeId = entry.shapeId;
+        this.path.shapeIds = entry.shapeIds;
+        this.pathHighlight.set(entry.shapeIds);
+      } else {
+        this.clearPath();
+      }
+    }
   }
 
   override updatePlane(plane: PlaneData): void {
@@ -144,13 +183,27 @@ export class TextTool extends SketchTool {
     if (!raw) {
       this.mousePoint = null;
       this.lastSnapType = 'none';
+      this.setPickCursor(false);
       this.renderSnapDot();
       return;
     }
+    // An armed Path slot: the hand cursor marks a pickable curve under the
+    // mouse — the click affordance the snap dot is not.
+    if (this.pathArmed) {
+      const hit = hitTestPathTargets(this.pathIndex, raw, pixelToSketchThreshold(this.ctx, 12));
+      this.setPickCursor(hit !== null);
+      return;
+    }
+    this.setPickCursor(false);
     const result = this.snapController.snap(raw);
     this.mousePoint = result.point2d;
     this.lastSnapType = result.snapType;
     this.renderSnapDot();
+  }
+
+  /** The hand cursor while a pickable path is hovered (armed slot only). */
+  private setPickCursor(active: boolean): void {
+    this.canvas.style.cursor = active ? 'pointer' : '';
   }
 
   private clearSnapDot(): void {
@@ -163,10 +216,11 @@ export class TextTool extends SketchTool {
     }
   }
 
-  /** The dot marking where a click would land while a snap is active. */
+  /** The dot marking where a click would land while a snap is active. The
+   * anchor has no meaning while a path is armed or picked, so no dot then. */
   private renderSnapDot(): void {
     this.clearSnapDot();
-    if (this.mousePoint && this.lastSnapType !== 'none') {
+    if (this.mousePoint && this.lastSnapType !== 'none' && !this.pathArmed && !this.path) {
       const planeNormal = new Vector3(this.plane.normal.x, this.plane.normal.y, this.plane.normal.z);
       addDot(
         this.snapDotGroup, this.mousePoint, snapDotColor(this.lastSnapType),
@@ -186,9 +240,66 @@ export class TextTool extends SketchTool {
     if (!raw) {
       return;
     }
+    // An armed Path slot owns the click: a hit picks the whole geometry, a
+    // miss keeps the slot armed (and moves no anchor).
+    if (this.pathArmed) {
+      const hit = hitTestPathTargets(this.pathIndex, raw, pixelToSketchThreshold(this.ctx, 12));
+      if (hit) {
+        this.setPath(hit);
+      }
+      return;
+    }
+    // With a path picked, the path owns placement — clicks move no anchor.
+    if (this.path) {
+      return;
+    }
     const result = this.snapController.snap(raw);
     this.setAnchor(this.applyPointInput(result.point2d));
     this.placed = true;
+    this.syncStatementPreview();
+    this.schedulePreview();
+  }
+
+  // ---------------------------------------------------------------------
+  // Path pick (`text("…", path)`)
+  // ---------------------------------------------------------------------
+
+  private togglePathArmed(): void {
+    this.pathArmed = !this.pathArmed;
+    this.panel.pathSlot.setArmed(this.pathArmed);
+    if (!this.pathArmed) {
+      this.setPickCursor(false);
+    }
+    this.renderSnapDot();
+  }
+
+  private setPath(entry: PathTargetEntry): void {
+    this.path = {
+      shapeId: entry.shapeId,
+      shapeIds: entry.shapeIds,
+      line: entry.owner.sourceLocation!.line,
+      label: entry.owner.name || 'Curve',
+    };
+    this.pathArmed = false;
+    this.panel.pathSlot.setArmed(false);
+    this.panel.pathSlot.setChip(this.path.label);
+    this.panel.setPathMode(true);
+    this.pathHighlight.set(entry.shapeIds);
+    this.setPickCursor(false);
+    this.panel.setMessage(null);
+    this.syncStatementPreview();
+    this.schedulePreview();
+  }
+
+  private clearPath(): void {
+    if (!this.path) {
+      return;
+    }
+    this.path = null;
+    this.pathHighlight.clear();
+    this.panel.pathSlot.setChip(null);
+    this.panel.setPathMode(false);
+    this.panel.setMessage(null);
     this.syncStatementPreview();
     this.schedulePreview();
   }
@@ -225,11 +336,12 @@ export class TextTool extends SketchTool {
     return statement;
   }
 
-  /** The anchor is re-placeable for as long as the tool is armed. Numbers
-   * only: the text panel owns the tool's dialog, so there is no in-scope
-   * variable list to autocomplete against. */
+  /** The anchor is re-placeable for as long as the tool is armed — unless a
+   * path is picked, which owns placement. Numbers only: the text panel owns
+   * the tool's dialog, so there is no in-scope variable list to autocomplete
+   * against. */
   protected override awaitingPoint(): boolean {
-    return true;
+    return this.path === null;
   }
 
   protected override pointInputNumericOnly(): boolean {
@@ -237,6 +349,9 @@ export class TextTool extends SketchTool {
   }
 
   protected override onTypedPoint(point: PickedPoint): void {
+    if (this.path) {
+      return;
+    }
     this.setAnchor(point);
     this.placed = true;
     this.syncStatementPreview();
@@ -276,10 +391,15 @@ export class TextTool extends SketchTool {
       this.panel.setPreview(null);
       return;
     }
+    if (this.path) {
+      // The path variable is the server's to name — the debounced preview
+      // round-trip fills the statement in.
+      return;
+    }
     this.panel.setPreview(this.fullStatement(values));
   }
 
-  private commit(): void {
+  private async commit(): Promise<void> {
     const values = this.panel.values();
     if ('error' in values) {
       this.panel.setMessage(values.error);
@@ -287,6 +407,17 @@ export class TextTool extends SketchTool {
     }
     if (values.text.trim() === '') {
       this.panel.setMessage('Enter the text to render.');
+      return;
+    }
+    if (this.path) {
+      // The server binds the picked statement to a variable and writes
+      // `text("…", c)` into the sketch body; the re-render is the result.
+      const result = await applyTextToPath(this.path.shapeId, values);
+      if (!result.success) {
+        this.panel.setMessage(result.reason ?? 'Could not apply the text.');
+        return;
+      }
+      this.onRequestExit();
       return;
     }
     this.insertGeometry(this.fullStatement(values));
@@ -319,6 +450,35 @@ export class TextTool extends SketchTool {
     this.previewAbort?.abort();
     const abort = new AbortController();
     this.previewAbort = abort;
+
+    if (this.path) {
+      // Path mode: the statement preview comes from the server (it names the
+      // path variable the transform will bind), then the glyph outlines laid
+      // along the picked geometry — both under the same cancellation scope.
+      let result: Awaited<ReturnType<typeof applyTextToPath>>;
+      try {
+        result = await applyTextToPath(this.path.shapeId, values, { preview: true, signal: abort.signal });
+      } catch {
+        return; // aborted
+      }
+      if (seq !== this.previewSeq) {
+        return;
+      }
+      this.panel.setPreview(result.success ? result.preview ?? null : null);
+      if (!result.success && result.reason) {
+        this.panel.setMessage(result.reason);
+      }
+      const { text, ...options } = values;
+      const outline = await getTextPreview(
+        { text, path: { shapeId: this.path.shapeId }, options },
+        abort.signal,
+      );
+      if (seq !== this.previewSeq) {
+        return;
+      }
+      this.renderPreview(outline?.polylines ?? []);
+      return;
+    }
 
     const { text, ...options } = values;
     const result = await getTextPreview({
@@ -356,8 +516,11 @@ export class TextTool extends SketchTool {
       this.previewGroup.add(mesh);
     }
 
-    const planeNormal = new Vector3(this.plane.normal.x, this.plane.normal.y, this.plane.normal.z);
-    addDot(this.previewGroup, this.anchor, START_POINT_COLOR, this.ctx.camera, planeNormal, this.plane);
+    // The anchor dot only means something for anchored text.
+    if (!this.path) {
+      const planeNormal = new Vector3(this.plane.normal.x, this.plane.normal.y, this.plane.normal.z);
+      addDot(this.previewGroup, this.anchor, START_POINT_COLOR, this.ctx.camera, planeNormal, this.plane);
+    }
 
     this.requestRender();
   }

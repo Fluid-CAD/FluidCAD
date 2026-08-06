@@ -720,6 +720,72 @@ describe("sketch apply-feature synthesis", () => {
     });
   });
 
+  describe("text path (owner-level, multi-edge owners allowed)", () => {
+    it("renders the picked edge's owner as the bare path variable", () => {
+      let c: SceneObject;
+      sketch("xy", () => {
+        c = circle(40) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(c!, 3);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(edgesOf(c!)[0])], 'text',
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('c');
+      expect(result.spec.feature).toBe('text');
+      expect(result.spec.producers).toEqual([
+        { line: 3, column: 0, featureType: 'circle', nameHint: 'c', bind: true },
+      ]);
+      expect(result.spec.parts).toEqual([
+        { producer: 0, accessor: '', indices: null, filterArgs: null },
+      ]);
+    });
+
+    it("accepts a multi-edge owner whose edges form one connected run", () => {
+      let r: Rect;
+      sketch("xy", () => {
+        r = rect(80, 60) as Rect;
+      });
+      const scene = render();
+      setLocation(r!, 3);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(roleEdge(r!, 'top'))], 'text',
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('r');
+    });
+
+    it("refuses picks spanning two geometries", () => {
+      let l: SceneObject;
+      let c: SceneObject;
+      sketch("xy", () => {
+        l = hLine(60) as unknown as SceneObject;
+        move([100, 0]);
+        c = circle(20) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(l!, 3);
+      setLocation(c!, 5);
+
+      expect(synthesizeSketchApplyFeature(
+        scene,
+        [refFor(edgesOf(l!)[0]), refFor(edgesOf(c!)[0])],
+        'text',
+      )).toMatchObject({ ok: false, reason: expect.stringMatching(/one path geometry/) });
+    });
+  });
+
   it("refuses picks spanning different sketches", () => {
     let r1: Rect;
     let r2: Rect;

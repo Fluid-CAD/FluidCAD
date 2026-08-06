@@ -618,6 +618,41 @@ export class Viewer {
   }
 
   /**
+   * Aim the camera down a sketch plane and hold it there while a 2D edit
+   * dialog owns the view (the text edit): sketch editing itself stays
+   * suspended — no toolbar, no sketch dialog — but the camera behaves like
+   * sketch mode's, swung along the normal with rotation locked per the
+   * user's "Lock camera" setting. {@link releaseSketchCamera} undoes the
+   * hold; the render that follows the edit re-runs the real mode transition.
+   */
+  holdSketchCamera(plane: PlaneData): void {
+    const cc = this.ctx.cameraControls;
+    const normal = new Vector3(plane.normal.x, plane.normal.y, plane.normal.z);
+    const yDir = new Vector3(plane.yDirection.x, plane.yDirection.y, plane.yDirection.z);
+
+    const tgt = new Vector3();
+    cc.getTarget(tgt);
+    const camPos = tgt.clone().add(normal.clone().multiplyScalar(50));
+
+    this.ctx.camera.up.copy(yDir);
+    cc.updateCameraUp();
+    cc.normalizeRotations();
+    cc.setLookAt(camPos.x, camPos.y, camPos.z, tgt.x, tgt.y, tgt.z, true);
+
+    cc.getTarget(this.ctx.controls.target);
+    this.ctx.gizmo.target = this.ctx.controls.target;
+
+    this.ctx.setRotationLocked(viewerSettings.current.sketchLockCamera);
+  }
+
+  /** Undo {@link holdSketchCamera}: unlock rotation and restore the world up. */
+  releaseSketchCamera(): void {
+    this.ctx.setRotationLocked(false);
+    this.ctx.camera.up.copy(Object3D.DEFAULT_UP);
+    this.ctx.cameraControls.updateCameraUp();
+  }
+
+  /**
    * Re-enable sketch editing after {@link suspendSketchEditing}. With
    * `immediate`, re-run the mode transition against the current scene now
    * (the cancel path); without, the next scene render performs it (the

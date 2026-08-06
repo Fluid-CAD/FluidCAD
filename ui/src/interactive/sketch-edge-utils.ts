@@ -192,6 +192,86 @@ export function buildTarcTargetIndex(
   return result;
 }
 
+/** A text-path pick candidate: one whole sketch geometry, hit-tested by all its edges. */
+export type PathTargetEntry = {
+  /** One shapeId of the owner — the server resolves the pick owner-level. */
+  shapeId: string;
+  /** Every edge shapeId of the owner — the viewport highlight tints them all. */
+  shapeIds: string[];
+  /** Every segment of the owner's edges, in sketch-plane 2D. */
+  segments: EdgeEntry['segments'];
+  /** The owning statement row; chip labels and ordering checks read it. */
+  owner: SceneObjectRender;
+};
+
+/**
+ * Pick candidates for a text path (`text("Hi", path)`): whole sketch
+ * geometries — text chains ALL edges of the picked geometry into a wire, so
+ * hits are owner-level, and multi-edge owners (rect, polygon, slot) are
+ * valid. Guide edges are included — marking the path `.guide()` is the
+ * classic way to keep it out of the extruded profile. Owners without a
+ * source location can't be bound to a variable and are excluded.
+ */
+export function buildPathTargetIndex(
+  sceneObjects: SceneObjectRender[],
+  sketchId: string,
+  plane: PlaneData,
+): PathTargetEntry[] {
+  const ownerByShapeId = new Map<string, SceneObjectRender>();
+  for (const obj of sceneObjects) {
+    if (obj.parentId !== sketchId) {
+      continue;
+    }
+    for (const shape of obj.sceneShapes) {
+      if (shape.shapeId) {
+        ownerByShapeId.set(shape.shapeId, obj);
+      }
+    }
+  }
+
+  const entries = buildEdgeIndex(sceneObjects, sketchId, plane, { includeGuides: true });
+  const grouped = new Map<SceneObjectRender, PathTargetEntry>();
+  for (const entry of entries) {
+    const owner = ownerByShapeId.get(entry.shapeId);
+    if (!owner || !owner.sourceLocation) {
+      continue;
+    }
+    const existing = grouped.get(owner);
+    if (existing) {
+      existing.shapeIds.push(entry.shapeId);
+      existing.segments.push(...entry.segments);
+    } else {
+      grouped.set(owner, {
+        shapeId: entry.shapeId,
+        shapeIds: [entry.shapeId],
+        segments: [...entry.segments],
+        owner,
+      });
+    }
+  }
+  return [...grouped.values()];
+}
+
+/** The nearest path candidate within `threshold` of a sketch-plane point, or null. */
+export function hitTestPathTargets(
+  entries: PathTargetEntry[],
+  point2d: [number, number],
+  threshold: number,
+): PathTargetEntry | null {
+  let best: PathTargetEntry | null = null;
+  let bestDist = threshold;
+  for (const entry of entries) {
+    for (const s of entry.segments) {
+      const d = pointToSegmentDist(point2d[0], point2d[1], s.ax, s.ay, s.bx, s.by);
+      if (d < bestDist) {
+        bestDist = d;
+        best = entry;
+      }
+    }
+  }
+  return best;
+}
+
 export type CenterEntry = {
   shapeId: string;
   point2d: [number, number];

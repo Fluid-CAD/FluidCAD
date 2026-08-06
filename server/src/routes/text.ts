@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { FluidCadServer } from '../fluidcad-server.ts';
 import { getOC } from '../../../lib/dist/oc/init.js';
 import { FontRegistry } from '../../../lib/dist/io/font-registry.js';
 import { TextOutline, type TextAlign } from '../../../lib/dist/oc/text-outline.js';
@@ -27,9 +28,13 @@ function readNumber(value: unknown, fallback: number): number {
  * Font + text-outline queries backing the UI's Text tool: the font-family
  * list for the options dialog, and a layout preview — the same glyph edges
  * `text()` would build, discretized to world-space polylines the viewport
- * can draw while the user tweaks options, without touching the code.
+ * can draw while the user tweaks options, without touching the code. A
+ * request carrying `path` lays the glyphs along a picked sketch geometry
+ * instead of a straight baseline; that variant resolves against the rendered
+ * scene, so it runs through the workspace's own fluidcad (the scene manager),
+ * never this repo's lib.
  */
-export function createTextRouter(): Router {
+export function createTextRouter(fluidCadServer: FluidCadServer): Router {
   const router = Router();
 
   router.get('/fonts', async (_req, res) => {
@@ -42,11 +47,56 @@ export function createTextRouter(): Router {
   });
 
   router.post('/text-preview', async (req, res) => {
-    const { text, position, plane, options } = req.body ?? {};
+    const { text, position, plane, options, path } = req.body ?? {};
     if (typeof text !== 'string') {
       res.status(400).json({ error: 'Invalid request body: text must be a string' });
       return;
     }
+    const opts = options ?? {};
+    const align = ALIGN_VALUES.includes(opts.align) ? opts.align as TextAlign : 'left';
+    const size = readNumber(opts.size, 10);
+    if (size <= 0) {
+      res.status(400).json({ error: 'Invalid request body: size must be positive' });
+      return;
+    }
+
+    // Path variant: lay the glyphs along the picked geometry, resolved
+    // against the rendered scene through the workspace's fluidcad.
+    if (path !== undefined && path !== null) {
+      if (typeof path.shapeId !== 'string' || path.shapeId.length === 0) {
+        res.status(400).json({ error: 'Invalid request body: path must be {shapeId}' });
+        return;
+      }
+      try {
+        const result = fluidCadServer.buildTextPathPreview({
+          shapeId: path.shapeId,
+          text,
+          font: typeof opts.font === 'string' && opts.font.trim() !== '' ? opts.font : undefined,
+          weight: readNumber(opts.weight, 400),
+          italic: opts.italic === true,
+          size,
+          align,
+          lineSpacing: readNumber(opts.lineSpacing, 1),
+          letterSpacing: readNumber(opts.letterSpacing, 0),
+          offset: readNumber(opts.offset, 0),
+          startAt: readNumber(opts.startAt, 0),
+          flip: opts.flip === true,
+        });
+        if (!result) {
+          res.status(404).json({ error: 'No rendered scene' });
+          return;
+        }
+        if ('reason' in result) {
+          res.status(422).json({ error: result.reason });
+          return;
+        }
+        res.json({ polylines: result.polylines });
+      } catch (err: any) {
+        res.status(422).json({ error: err?.message ?? 'Could not lay out the text' });
+      }
+      return;
+    }
+
     if (!Array.isArray(position) || position.length !== 2
       || typeof position[0] !== 'number' || typeof position[1] !== 'number') {
       res.status(400).json({ error: 'Invalid request body: position must be [x, y]' });
@@ -57,13 +107,6 @@ export function createTextRouter(): Router {
     const xDirection = readVec(plane?.xDirection);
     if (!origin || !normal || !xDirection) {
       res.status(400).json({ error: 'Invalid request body: plane needs origin, normal and xDirection' });
-      return;
-    }
-    const opts = options ?? {};
-    const align = ALIGN_VALUES.includes(opts.align) ? opts.align as TextAlign : 'left';
-    const size = readNumber(opts.size, 10);
-    if (size <= 0) {
-      res.status(400).json({ error: 'Invalid request body: size must be positive' });
       return;
     }
 

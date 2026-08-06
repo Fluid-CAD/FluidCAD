@@ -246,7 +246,12 @@ export function insertGeometry(
 
 export type TextAlignOption = 'left' | 'center' | 'right';
 
-/** The `text()` chain options the Text tool's dialog edits. */
+/** With a path, the two distributed alignments join the align values. */
+export type TextAlignValue = TextAlignOption | 'space-between' | 'space-around';
+
+/** The `text()` chain options the Text tool's dialog edits. The distributed
+ * alignments and the trailing three options only apply with a path — the
+ * dialog sends defaults for them in anchored mode. */
 export type TextOptionValues = {
   text: string;
   size: number;
@@ -254,20 +259,29 @@ export type TextOptionValues = {
   font: string | null;
   weight: number;
   italic: boolean;
-  align: TextAlignOption;
+  align: TextAlignValue;
   lineSpacing: number;
   letterSpacing: number;
+  /** `.offset()` — normal shift off the path in mm; 0 renders no chain. */
+  offset: number;
+  /** `.startAt()` — arc-length start shift in mm; 0 renders no chain. */
+  startAt: number;
+  /** `.flip()` — inside/mirrored placement; false renders no chain. */
+  flip: boolean;
 };
 
 export type TextPreviewRequest = {
   text: string;
-  /** Baseline start in sketch-plane 2D coordinates. */
-  position: [number, number];
-  plane: {
+  /** Baseline start in sketch-plane 2D coordinates (anchored form). */
+  position?: [number, number];
+  plane?: {
     origin: { x: number; y: number; z: number };
     normal: { x: number; y: number; z: number };
     xDirection: { x: number; y: number; z: number };
   };
+  /** Lay the glyphs along this picked sketch geometry instead of a straight
+   * baseline; the server resolves it against the rendered scene. */
+  path?: { shapeId: string };
   options: Omit<TextOptionValues, 'text'>;
 };
 
@@ -2767,12 +2781,22 @@ export async function applyPlaneEdit(
   }, options.signal);
 }
 
+/**
+ * The text edit dialog's path outcome: `none` drops the statement's path
+ * argument (back to plain anchored text), `picked` re-sources it from a
+ * picked sketch geometry. Keeping the statement's own path is expressed by
+ * omitting the field.
+ */
+export type TextEditPath = { kind: 'none' } | { kind: 'picked'; shapeId: string };
+
 export type TextEditOptions = TextOptionValues & EditSessionFields & {
+  /** Path re-target; omitted keeps the statement's own path argument. */
+  path?: TextEditPath;
   preview?: boolean;
   signal?: AbortSignal;
 };
 
-/** Rewrite the text statement at `edit` in place (pick-less, no boundary). */
+/** Rewrite the text statement at `edit` in place (no boundary). */
 export async function applyTextEdit(
   edit: FeatureEditTarget,
   options: TextEditOptions,
@@ -2789,8 +2813,42 @@ export async function applyTextEdit(
     align: options.align,
     lineSpacing: options.lineSpacing,
     letterSpacing: options.letterSpacing,
+    offset: options.offset,
+    startAt: options.startAt,
+    flip: options.flip,
+    path: options.path && { kind: options.path.kind },
+    sketchEntities: options.path?.kind === 'picked' ? [{ shapeId: options.path.shapeId }] : undefined,
     preview: options.preview,
   }, options.signal);
+}
+
+/**
+ * Synthesize (and, unless `preview` is set, insert) a `text("…", path)`
+ * statement following the picked sketch geometry: the server binds the
+ * picked edge's producing statement to a variable and writes the statement —
+ * with the dialog's option chains — into the sketch body.
+ */
+export async function applyTextToPath(
+  shapeId: string,
+  options: TextOptionValues,
+  extras: { preview?: boolean; signal?: AbortSignal } = {},
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'text',
+    sketchEntities: [{ shapeId }],
+    text: options.text,
+    size: options.size,
+    font: options.font,
+    weight: options.weight,
+    italic: options.italic,
+    align: options.align,
+    lineSpacing: options.lineSpacing,
+    letterSpacing: options.letterSpacing,
+    offset: options.offset,
+    startAt: options.startAt,
+    flip: options.flip,
+    preview: extras.preview,
+  }, extras.signal);
 }
 
 export type ValueFeatureEditOptions = EditSessionFields & {

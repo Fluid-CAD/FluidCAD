@@ -142,6 +142,12 @@ export type ApplyFeatureEditSpec = {
   slot?: SlotEditOptions;
   /** tArc-only payload; present for an in-place retarget instead of a create. */
   tarc?: TarcEditOptions;
+  /**
+   * Text-on-path create payload: the dialog's option values, rendered around
+   * the single `parts` entry (the path's bare variable). In-place edits ride
+   * `edit.text` instead.
+   */
+  text?: TextStatementOptions;
   /** Loft-only payload; each `parts` entry renders one profile's selector. */
   loft?: LoftEditOptions;
   /** Plane-only payload; each `parts` entry renders one base's selector. */
@@ -473,20 +479,42 @@ export type FeatureStatementEditTarget = {
     bases?: PlaneEditBase[];
   };
   /**
-   * Text options, pick-less. The statement's path argument (when present)
-   * is re-read at apply time and preserved verbatim; defaults render no
-   * chain (size 10, weight 400, upright, left, spacing 1/0).
+   * Text options. Without `path`, the statement's path argument (when
+   * present) is re-read at apply time and preserved verbatim; defaults
+   * render no chain (size 10, weight 400, upright, left, spacing 1/0).
    */
-  text?: {
-    text: string;
-    size: number;
-    font: string | null;
-    weight: number;
-    italic: boolean;
-    align: 'left' | 'center' | 'right';
-    lineSpacing: number;
-    letterSpacing: number;
+  text?: TextStatementOptions & {
+    /**
+     * The path argument: absent keeps the statement's own path text
+     * verbatim, `none` drops it (back to plain anchored text), `selector`
+     * renders the re-picked path geometry from the single `parts` entry (a
+     * bare variable, bound like create mode).
+     */
+    path?: { kind: 'none' } | { kind: 'selector' };
   };
+};
+
+/**
+ * The `text()` chain options the dialog owns — shared by the in-place edit
+ * (under `edit.text`) and the create-on-path spec payload (`spec.text`).
+ * The distributed alignments and the trailing three options only apply to
+ * text following a path; the render refuses them on a path-less statement.
+ */
+export type TextStatementOptions = {
+  text: string;
+  size: number;
+  font: string | null;
+  weight: number;
+  italic: boolean;
+  align: 'left' | 'center' | 'right' | 'space-between' | 'space-around';
+  lineSpacing: number;
+  letterSpacing: number;
+  /** `.offset()` — normal shift off the path in mm; 0 renders no chain. */
+  offset: number;
+  /** `.startAt()` — arc-length start shift in mm; 0 renders no chain. */
+  startAt: number;
+  /** `.flip()` — inside/mirrored placement; false renders no chain. */
+  flip: boolean;
 };
 
 /**
@@ -1400,6 +1428,16 @@ export async function applyFeatureEdit(
     if (!valid) {
       return { newCode: code, error: 'malformed tArc edit spec' };
     }
+  } else if (spec.feature === 'text') {
+    // Text-on-path takes ONE whole path geometry: exactly one bound producer
+    // rendered as a bare variable, plus the dialog's full option payload.
+    if (spec.producers.length !== 1 || spec.parts.length !== 1
+      || !validTextStatementOptions(spec.text)) {
+      return { newCode: code, error: 'malformed text edit spec' };
+    }
+    if (spec.text!.text.trim() === '') {
+      return { newCode: code, error: 'the text string is empty' };
+    }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
   }
@@ -2163,13 +2201,39 @@ export function renderWrapStatement(
 }
 
 /**
+ * Structural validity of a text option payload — the create-on-path spec's
+ * `text` and the in-place edit's `edit.text` share the shape. The empty-string
+ * check stays at the call sites, which owe it a friendlier message.
+ */
+function validTextStatementOptions(opts: TextStatementOptions | undefined): opts is TextStatementOptions {
+  return opts !== undefined && typeof opts.text === 'string'
+    && typeof opts.size === 'number' && Number.isFinite(opts.size) && opts.size > 0
+    && (opts.font === null || typeof opts.font === 'string')
+    && typeof opts.weight === 'number' && opts.weight % 100 === 0 && opts.weight >= 100 && opts.weight <= 900
+    && typeof opts.italic === 'boolean'
+    && TEXT_PATH_ALIGNS.has(opts.align)
+    && typeof opts.lineSpacing === 'number' && Number.isFinite(opts.lineSpacing) && opts.lineSpacing > 0
+    && typeof opts.letterSpacing === 'number' && Number.isFinite(opts.letterSpacing)
+    && typeof opts.offset === 'number' && Number.isFinite(opts.offset)
+    && typeof opts.startAt === 'number' && Number.isFinite(opts.startAt) && opts.startAt >= 0
+    && typeof opts.flip === 'boolean';
+}
+
+/** Whether the options carry anything only a path layout can express. */
+function textOptionsNeedPath(opts: TextStatementOptions): boolean {
+  return opts.align === 'space-between' || opts.align === 'space-around'
+    || opts.offset !== 0 || opts.startAt !== 0 || opts.flip;
+}
+
+/**
  * Render a text statement: `text("…"[, <path>])` plus the option chains, in
- * the Text tool's canonical order, defaults omitted. `pathExpr` is the
- * statement's own path argument text, preserved verbatim. Shared with the
- * route's preview so the previewed text is exactly what the transform writes.
+ * the Text tool's canonical order, defaults omitted. `pathExpr` is the path
+ * argument — the statement's own text preserved verbatim, or the re-picked
+ * geometry's variable. Shared with the route's preview so the previewed text
+ * is exactly what the transform writes.
  */
 export function renderTextStatement(
-  opts: NonNullable<FeatureStatementEditTarget['text']>,
+  opts: TextStatementOptions,
   pathExpr: string | null,
 ): string {
   const args = [JSON.stringify(opts.text)];
@@ -2199,6 +2263,15 @@ export function renderTextStatement(
   }
   if (opts.letterSpacing !== 0) {
     statement += `.letterSpacing(${formatNumber(opts.letterSpacing)})`;
+  }
+  if (opts.offset !== 0) {
+    statement += `.offset(${formatNumber(opts.offset)})`;
+  }
+  if (opts.startAt !== 0) {
+    statement += `.startAt(${formatNumber(opts.startAt)})`;
+  }
+  if (opts.flip) {
+    statement += '.flip()';
   }
   return statement;
 }
@@ -2819,6 +2892,9 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   }
   if (spec.feature === 'tarc') {
     return renderTarcStatement(spec.value, args);
+  }
+  if (spec.feature === 'text') {
+    return renderTextStatement(spec.text!, args);
   }
   const joinChain = spec.feature === 'shell' ? renderShellJoinChain(spec.shell?.joinType) : '';
   return `${spec.feature}(${formatValue(spec.value)}, ${args})${joinChain}`;
@@ -3548,9 +3624,13 @@ export type ParsedFeatureStatement =
     font: string | null;
     weight: number;
     italic: boolean;
-    align: 'left' | 'center' | 'right';
+    align: 'left' | 'center' | 'right' | 'space-between' | 'space-around';
     lineSpacing: number;
     letterSpacing: number;
+    /** The path-only chains; defaults when absent (0 / 0 / false). */
+    offset: number;
+    startAt: number;
+    flip: boolean;
     /** Second argument (a path expression), verbatim; null for plain text. */
     pathText: string | null;
   }
@@ -3698,9 +3778,7 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   fillet: new Set(),
   chamfer: new Set(),
   revolve: new Set(['symmetric', 'thin', 'remove', 'new']),
-  // Path-only chains (.offset/.flip/.startAt) are deliberately absent — the
-  // dialog doesn't edit them, so they survive verbatim after the prefix.
-  text: new Set(['font', 'size', 'weight', 'bold', 'italic', 'align', 'lineSpacing', 'letterSpacing']),
+  text: new Set(['font', 'size', 'weight', 'bold', 'italic', 'align', 'lineSpacing', 'letterSpacing', 'offset', 'startAt', 'flip']),
   // Wrap has no thin mode — only the boolean-operation chains.
   wrap: new Set(['remove', 'new']),
   // The dialog edits only the target argument; `.name()` and friends are
@@ -3932,6 +4010,8 @@ const TEXT_WEIGHT_NAMES: Record<string, number> = {
 
 /** Alignments the text dialog offers (start/end normalize onto them). */
 const TEXT_DIALOG_ALIGNS = new Set(['left', 'center', 'right']);
+/** With a path, the distributed alignments join the dialog's set. */
+const TEXT_PATH_ALIGNS = new Set([...TEXT_DIALOG_ALIGNS, 'space-between', 'space-around']);
 
 type ChainParse =
   | { parsed: ParsedFeatureStatement; start: number; end: number }
@@ -5294,15 +5374,18 @@ function parseTextChain(
     }
   }
 
-  let align: 'left' | 'center' | 'right' = 'left';
+  // The distributed alignments only lay out along a path; a path-less
+  // statement chaining one is a build error the dialog cannot express.
+  let align: 'left' | 'center' | 'right' | 'space-between' | 'space-around' = 'left';
   const alignSeg = recognized.get('align');
   if (alignSeg) {
     const raw = alignSeg.args.length === 1 ? stringArgValue(alignSeg.args[0]) : null;
     const normalized = raw === 'start' ? 'left' : raw === 'end' ? 'right' : raw;
-    if (normalized === null || !TEXT_DIALOG_ALIGNS.has(normalized)) {
+    const allowed = pathText !== null ? TEXT_PATH_ALIGNS : TEXT_DIALOG_ALIGNS;
+    if (normalized === null || !allowed.has(normalized)) {
       return { error: `the .align() value is not one the dialog offers — edit it in the source` };
     }
-    align = normalized as 'left' | 'center' | 'right';
+    align = normalized as typeof align;
   }
 
   let lineSpacing = 1;
@@ -5325,9 +5408,50 @@ function parseTextChain(
     letterSpacing = value;
   }
 
+  // The path-only chains (`.offset()`, `.startAt()`, `.flip()`) — parsed
+  // whenever present so the dialog can edit them; the render refuses
+  // non-defaults on a statement whose path is dropped.
+  let offset = 0;
+  const offsetSeg = recognized.get('offset');
+  if (offsetSeg) {
+    const value = offsetSeg.args.length === 1 ? numericArgValue(offsetSeg.args[0]) : null;
+    if (value === null) {
+      return { error: 'the .offset() value is not a plain number — edit it in the source' };
+    }
+    offset = value;
+  }
+
+  let startAt = 0;
+  const startAtSeg = recognized.get('startAt');
+  if (startAtSeg) {
+    const value = startAtSeg.args.length === 1 ? numericArgValue(startAtSeg.args[0]) : null;
+    if (value === null || value < 0) {
+      return { error: 'the .startAt() value is not a plain non-negative number — edit it in the source' };
+    }
+    startAt = value;
+  }
+
+  let flip = false;
+  const flipSeg = recognized.get('flip');
+  if (flipSeg) {
+    if (flipSeg.args.length > 1) {
+      return { error: 'the .flip() chain has more arguments than the dialog understands' };
+    }
+    if (flipSeg.args.length === 1) {
+      const value = booleanArgValue(flipSeg.args[0]);
+      if (value === null) {
+        return { error: 'the .flip() argument is not a plain boolean — edit it in the source' };
+      }
+      flip = value;
+    } else {
+      flip = true;
+    }
+  }
+
   return {
     parsed: {
-      feature: 'text', text, size, font, weight, italic, align, lineSpacing, letterSpacing, pathText,
+      feature: 'text', text, size, font, weight, italic, align, lineSpacing, letterSpacing,
+      offset, startAt, flip, pathText,
     },
     start,
     end,
@@ -5490,7 +5614,7 @@ export type SketchTargetDescriptor =
 export async function parseOffsetTargetDescriptors(
   code: string,
   line: number,
-): Promise<{ ok: true; descriptors: SketchTargetDescriptor[] } | { ok: false; reason: string }> {
+): Promise<{ ok: true; descriptors: SketchTargetDescriptor[]; feature: string } | { ok: false; reason: string }> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
   const lines = splitLines(code);
@@ -5499,14 +5623,20 @@ export async function parseOffsetTargetDescriptors(
     return { ok: false, reason: `no call found at line ${line} — is the file in sync with the last render?` };
   }
   const chain = decomposeChain(call);
-  if (!chain || (chain.root.name !== 'offset' && chain.root.name !== 'slot' && chain.root.name !== 'fillet')) {
-    return { ok: false, reason: 'the statement at that line is not an offset, slot or fillet' };
+  if (!chain || (chain.root.name !== 'offset' && chain.root.name !== 'slot' && chain.root.name !== 'fillet'
+    && chain.root.name !== 'text')) {
+    return { ok: false, reason: 'the statement at that line is not an offset, slot, fillet or text' };
   }
   const args = chain.root.args;
   const numericVars = numericVarNames(tree);
   let selectorsFrom = 0;
   let selectorsTo = args.length;
-  if (chain.root.name === 'slot') {
+  if (chain.root.name === 'text') {
+    // `text("…"[, <path>])` — only the path argument seeds; a plain anchored
+    // text has nothing nameable (descriptors: [], like a whole-sketch offset).
+    selectorsFrom = 1;
+    selectorsTo = Math.min(args.length, 2);
+  } else if (chain.root.name === 'slot') {
     // `slot(<source>, <radius>[, <deleteSource>])` — the source alone is the
     // target; the trailing value/flag slots never seed.
     if (args.length === 0 || numericValueArg(args[0], numericVars) !== null || args[0].type === 'array') {
@@ -5592,7 +5722,7 @@ export async function parseOffsetTargetDescriptors(
     }
     descriptors.push({ kind: 'accessor', line: declLine, args: accessorArgs });
   }
-  return { ok: true, descriptors };
+  return { ok: true, descriptors, feature: chain.root.name };
 }
 
 /**
@@ -6560,20 +6690,32 @@ export function renderEditedStatement(
   }
   if (parsed.feature === 'text') {
     const opts = spec.edit?.text;
-    if (!opts || typeof opts.text !== 'string'
-      || typeof opts.size !== 'number' || !Number.isFinite(opts.size) || opts.size <= 0
-      || (opts.font !== null && typeof opts.font !== 'string')
-      || typeof opts.weight !== 'number' || opts.weight % 100 !== 0 || opts.weight < 100 || opts.weight > 900
-      || typeof opts.italic !== 'boolean'
-      || !TEXT_DIALOG_ALIGNS.has(opts.align)
-      || typeof opts.lineSpacing !== 'number' || !Number.isFinite(opts.lineSpacing) || opts.lineSpacing <= 0
-      || typeof opts.letterSpacing !== 'number' || !Number.isFinite(opts.letterSpacing)) {
+    if (!validTextStatementOptions(opts)) {
       return { error: 'malformed text edit spec' };
     }
     if (opts.text.trim() === '') {
       return { error: 'the text string is empty' };
     }
-    return { statement: renderTextStatement(opts, parsed.pathText) };
+    // The path argument: the statement's own text stands unless the dialog
+    // re-picked a geometry (the single folded part, a bare variable) or
+    // dropped the path outright.
+    const pathField = spec.edit!.text!.path;
+    let pathExpr: string | null;
+    if (pathField === undefined) {
+      pathExpr = parsed.pathText;
+    } else if (pathField.kind === 'none') {
+      pathExpr = null;
+    } else {
+      if (spec.parts.length !== 1) {
+        return { error: 'a re-picked text path is exactly one geometry' };
+      }
+      const part = spec.parts[0];
+      pathExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+    }
+    if (pathExpr === null && textOptionsNeedPath(opts)) {
+      return { error: 'the distributed alignments, offset, start-at and flip only apply to text following a path' };
+    }
+    return { statement: renderTextStatement(opts, pathExpr) };
   }
   if (parsed.feature === 'project') {
     // No value slot: the args are the whole statement — the edited expression

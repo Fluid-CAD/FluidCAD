@@ -1,3 +1,4 @@
+import type { Font } from "fontkit";
 import { Sketch } from "./sketch.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
@@ -54,6 +55,131 @@ function fitPathPlane(samples: Point[], startTangent: Vector3d, pathLength: numb
     .subtract(normal.multiply(startTangent.dot(normal)))
     .normalize();
   return new Plane(samples[0], xDirection, normal);
+}
+
+/** The `text()` options a path layout reads; the chained path-only modifiers
+ * (`.offset()`, `.startAt()`, `.flip()`) default to off. */
+export type TextPathLayoutOptions = {
+  size: number;
+  align: TextAlign;
+  lineSpacing: number;
+  letterSpacing: number;
+  offset?: number;
+  startAt?: number;
+  flip?: boolean;
+};
+
+/** The plane a path object carries of its own, or null (a plane is fitted
+ * through the samples instead). */
+function pathOwnPlane(path: SceneObject): Plane | null {
+  if (path instanceof Sketch) {
+    return path.getPlane();
+  }
+  if (path instanceof ExtrudableGeometryBase) {
+    try {
+      return path.getPlane();
+    } catch {
+      return null;
+    }
+  }
+  // Plain sketch geometry (arc, line, …) lies in its sketch's plane.
+  if (path instanceof GeometrySceneObject) {
+    const sketch = path.sketch;
+    return sketch ? sketch.getPlane() : null;
+  }
+  return null;
+}
+
+/**
+ * The plane the text lies in: the path object's own plane when it has one
+ * (sketch, planar primitive), otherwise a plane fitted through the path.
+ * Also verifies the path actually is planar.
+ */
+function resolveTextPathPlane(path: SceneObject, sampler: PathSampler): Plane {
+  const samples = sampler.sample(64);
+
+  let plane = pathOwnPlane(path);
+  if (!plane) {
+    plane = fitPathPlane(samples, sampler.evalAt(0).tangent, sampler.length);
+  }
+  if (!plane) {
+    throw new BuildError(
+      "text: cannot derive the path's orientation — a straight-line path carries no plane of its own.",
+      "Draw the path in a sketch (or use a planar primitive) so the text knows which way is up.",
+    );
+  }
+
+  const tol = Math.max(1e-5, sampler.length * 1e-6);
+  for (const p of samples) {
+    if (plane.distanceToPoint(p) > tol) {
+      throw new BuildError(
+        "text: path must be planar.",
+        "Text can only follow a curve lying in a single plane (e.g. a sketch curve or a planar edge loop).",
+      );
+    }
+  }
+  return plane;
+}
+
+/**
+ * Lay `text` along `path` — the layout core `Text.build` and the dialogs'
+ * glyph preview share: chain ALL of the path's edges (guides included —
+ * marking the path `.guide()` is the natural way to keep it out of the
+ * sketch profile) into a wire, resolve the plane the text lies in, normalize
+ * closed-loop winding so text sits on the OUTSIDE by default, and place the
+ * glyph outlines at arc-length stations. Throws {@link BuildError} on empty,
+ * disconnected or non-planar paths.
+ */
+export function buildTextEdgesAlongPath(
+  path: SceneObject,
+  text: string,
+  font: Font,
+  options: TextPathLayoutOptions,
+): { edges: Edge[]; plane: Plane } {
+  const shapes = path.getShapes({ excludeMeta: false, excludeGuide: false });
+  const pathEdges = shapes.flatMap(s => s.getSubShapes('edge')) as Edge[];
+  if (pathEdges.length === 0) {
+    throw new BuildError("text: path contains no edges.");
+  }
+
+  const wire = WireOps.makeWireFromEdges(pathEdges);
+  const sampler = new PathSampler(wire);
+  try {
+    const plane = resolveTextPathPlane(path, sampler);
+
+    // On a closed loop, normalize the (arbitrary) wire winding so text
+    // sits on the OUTSIDE by default; `.flip()` then moves it inside.
+    // A clockwise loop (w.r.t. the plane normal) already has its glyph
+    // "up" (normal × tangent) pointing outward.
+    let flip = options.flip === true;
+    if (sampler.closed && !WireOps.isCW(wire, plane.normal)) {
+      flip = !flip;
+    }
+
+    const edges: Edge[] = TextOutline.buildEdgesAlongPath(
+      font,
+      text,
+      {
+        size: options.size,
+        align: options.align,
+        lineSpacing: options.lineSpacing,
+        letterSpacing: options.letterSpacing,
+      },
+      {
+        evalAt: (s) => sampler.evalAt(s),
+        length: sampler.length,
+        normal: plane.normal,
+        offset: options.offset ?? 0,
+        startAt: options.startAt ?? 0,
+        flip,
+        closed: sampler.closed,
+      },
+    );
+
+    return { edges, plane };
+  } finally {
+    sampler.dispose();
+  }
 }
 
 /**
@@ -128,105 +254,18 @@ export class Text extends ExtrudableGeometryBase implements IText {
   }
 
   private buildAlongPath(): void {
-    // Guide curves are included: marking the path `.guide()` is the natural
-    // way to keep it out of the sketch profile while text follows it.
-    const shapes = this.path.getShapes({ excludeMeta: false, excludeGuide: false });
-    const pathEdges = shapes.flatMap(s => s.getSubShapes('edge')) as Edge[];
-    if (pathEdges.length === 0) {
-      throw new BuildError("text: path contains no edges.");
-    }
-
-    const wire = WireOps.makeWireFromEdges(pathEdges);
-    const sampler = new PathSampler(wire);
-    try {
-      const plane = this.resolvePathPlane(sampler);
-      this._pathPlane = plane;
-
-      // On a closed loop, normalize the (arbitrary) wire winding so text
-      // sits on the OUTSIDE by default; `.flip()` then moves it inside.
-      // A clockwise loop (w.r.t. the plane normal) already has its glyph
-      // "up" (normal × tangent) pointing outward.
-      let flip = this._flip;
-      if (sampler.closed && !WireOps.isCW(wire, plane.normal)) {
-        flip = !flip;
-      }
-
-      const font = FontRegistry.resolve({ font: this._font, weight: this._weight, italic: this._italic });
-
-      const edges: Edge[] = TextOutline.buildEdgesAlongPath(
-        font,
-        this.text,
-        {
-          size: this._size,
-          align: this._align,
-          lineSpacing: this._lineSpacing,
-          letterSpacing: this._letterSpacing,
-        },
-        {
-          evalAt: (s) => sampler.evalAt(s),
-          length: sampler.length,
-          normal: plane.normal,
-          offset: this._pathOffset,
-          startAt: this._startAt,
-          flip,
-          closed: sampler.closed,
-        },
-      );
-
-      this.addShapes(edges);
-    } finally {
-      sampler.dispose();
-    }
-  }
-
-  /**
-   * The plane the text lies in: the path object's own plane when it has one
-   * (sketch, planar primitive), otherwise a plane fitted through the path.
-   * Also verifies the path actually is planar.
-   */
-  private resolvePathPlane(sampler: PathSampler): Plane {
-    const samples = sampler.sample(64);
-
-    let plane = this.pathOwnPlane();
-    if (!plane) {
-      plane = fitPathPlane(samples, sampler.evalAt(0).tangent, sampler.length);
-    }
-    if (!plane) {
-      throw new BuildError(
-        "text: cannot derive the path's orientation — a straight-line path carries no plane of its own.",
-        "Draw the path in a sketch (or use a planar primitive) so the text knows which way is up.",
-      );
-    }
-
-    const tol = Math.max(1e-5, sampler.length * 1e-6);
-    for (const p of samples) {
-      if (plane.distanceToPoint(p) > tol) {
-        throw new BuildError(
-          "text: path must be planar.",
-          "Text can only follow a curve lying in a single plane (e.g. a sketch curve or a planar edge loop).",
-        );
-      }
-    }
-    return plane;
-  }
-
-  private pathOwnPlane(): Plane | null {
-    if (this.path instanceof Sketch) {
-      return this.path.getPlane();
-    }
-    if (this.path instanceof ExtrudableGeometryBase) {
-      try {
-        return this.path.getPlane();
-      } catch {
-        return null;
-      }
-    }
-    // Plain sketch geometry (arc, line, …) lies in its sketch's plane.
-    if (this.path instanceof GeometrySceneObject) {
-      const sketch = this.path.sketch;
-      return sketch ? sketch.getPlane() : null;
-    }
-    return null;
+    const font = FontRegistry.resolve({ font: this._font, weight: this._weight, italic: this._italic });
+    const { edges, plane } = buildTextEdgesAlongPath(this.path, this.text, font, {
+      size: this._size,
+      align: this._align,
+      lineSpacing: this._lineSpacing,
+      letterSpacing: this._letterSpacing,
+      offset: this._pathOffset,
+      startAt: this._startAt,
+      flip: this._flip,
+    });
+    this._pathPlane = plane;
+    this.addShapes(edges);
   }
 
   override getPlane(): Plane {

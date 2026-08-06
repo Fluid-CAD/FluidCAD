@@ -1,11 +1,14 @@
 import { Group, LineSegments } from 'three';
 import {
-  applyTextEdit, FeatureEditTarget, getTextPreview, ParsedFeatureStatement, TextEditOptions,
+  applyTextEdit, FeatureEditTarget, fetchSketchFeatureSources, getTextPreview, ParsedFeatureStatement,
+  TextEditOptions, TextEditPath,
 } from '../../api';
 import { DebouncedTask } from '../../helpers/debounced-task';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { Viewer } from '../../viewer';
-import { worldToSketch2D } from '../sketch-plane-utils';
+import { pixelToSketchThreshold, projectToSketch, worldToSketch2D } from '../sketch-plane-utils';
+import { buildPathTargetIndex, hitTestPathTargets, PathTargetEntry } from '../sketch-edge-utils';
+import { PathHighlight } from '../tools/path-highlight';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { TextPanel } from '../tools/text-panel';
 import { TextPreviewMesh } from '../tools/text-preview-mesh';
@@ -20,17 +23,47 @@ const PREVIEW_DEBOUNCE_MS = 250;
  * vanish and the live outline preview renders in their place, so edits show
  * against exactly the scene the statement builds in. The preview frame
  * comes from the paused parent sketch: its plane, and its cursor — where
- * the text statement starts. Text following a path previews as the
- * statement text only (the path layout needs the path's geometry).
- * Apply rewrites the statement in place; the rebuild is the confirmation.
+ * the text statement starts. While the session holds an in-sketch boundary,
+ * the camera is held down the sketch plane like sketch mode's (the sketch
+ * UI itself stays suspended). Apply rewrites the statement in place; the
+ * rebuild is the confirmation.
+ *
+ * The dialog's Path slot edits the `text("…", path)` overload: the
+ * statement's own path seeds the keep chip (its ✕ drops the path — back to
+ * plain anchored text), and arming the slot turns viewport clicks into
+ * whole-geometry picks over the paused sketch, re-targeting the statement.
+ * The effective path — the statement's own (server-resolved onto the paused
+ * sketch's shapes) or the re-pick — is tinted in the viewport, and the
+ * glyph outlines preview laid along it.
  */
 export class TextEditService {
   private panel: TextPanel;
   private session = new EditSession();
   private editTarget: FeatureEditTarget | null = null;
   private armed = false;
-  /** The statement's own path argument; suppresses the outline preview. */
+  /** The statement's own path argument; seeds the keep chip. */
   private pathText: string | null = null;
+  /** The keep chip's ✕ was clicked — the statement's path drops on apply. */
+  private keepRemoved = false;
+  /** The re-picked path geometry, or null. The shape ids are re-resolved by
+   * owner line on every render — shape ids are per-render. */
+  private pickedPath: { shapeId: string; shapeIds: string[]; line: number; label: string } | null = null;
+  /** The statement's own path resolved onto the paused sketch's shapes —
+   * the keep chip's highlight and glyph preview. Null when the server can't
+   * resolve it (an exotic expression, an old workspace kernel). */
+  private seededPath: { shapeId: string; shapeIds: string[] } | null = null;
+  /** True while the Path slot awaits a viewport pick. */
+  private pathArmed = false;
+  /** Whole-geometry pick candidates of the paused sketch, statements
+   * preceding the edited one only. */
+  private pathIndex: PathTargetEntry[] = [];
+  /** The effective path geometry's selection tint in the viewport. */
+  private pathHighlight: PathHighlight;
+  private boundPathMouseDown: (e: MouseEvent) => void;
+  private boundPathMouseUp: (e: MouseEvent) => void;
+  private boundPathMouseMove: (e: MouseEvent) => void;
+  private pathDownX = 0;
+  private pathDownY = 0;
   private plane: PlaneData | null = null;
   private anchor: [number, number] | null = null;
   private previewGroup = new Group();
@@ -56,6 +89,7 @@ export class TextEditService {
     } = {},
   ) {
     this.sketchUI = new SketchUISuspender(viewer, hooks);
+    this.pathHighlight = new PathHighlight(viewer.sceneContext);
     this.previewGroup.userData.isMetaShape = true;
     this.previewGroup.renderOrder = 3;
     this.panel = new TextPanel(container);
@@ -65,6 +99,14 @@ export class TextEditService {
       this.panel.setMessage(null);
       this.schedulePreview();
     };
+    this.panel.pathSlot.onArm = () => this.togglePathArmed();
+    this.panel.pathSlot.onRemove = () => this.handlePathRemove();
+    this.boundPathMouseDown = (e: MouseEvent) => {
+      this.pathDownX = e.clientX;
+      this.pathDownY = e.clientY;
+    };
+    this.boundPathMouseUp = this.handlePathMouseUp.bind(this);
+    this.boundPathMouseMove = this.handlePathMouseMove.bind(this);
 
     this.runner = new ApplyRunner({
       panel: this.panel,
@@ -107,6 +149,15 @@ export class TextEditService {
     this.armed = true;
     this.editTarget = target;
     this.pathText = parsed.pathText;
+    this.keepRemoved = false;
+    this.pickedPath = null;
+    this.seededPath = null;
+    this.pathIndex = [];
+    if (parsed.pathText !== null) {
+      this.panel.pathSlot.seedKeep(parsed.pathText);
+    } else {
+      this.panel.pathSlot.reset();
+    }
     this.plane = null;
     this.anchor = null;
     this.sketchUI.suspend();
@@ -122,7 +173,11 @@ export class TextEditService {
       align: parsed.align,
       lineSpacing: parsed.lineSpacing,
       letterSpacing: parsed.letterSpacing,
+      offset: parsed.offset,
+      startAt: parsed.startAt,
+      flip: parsed.flip,
     });
+    this.panel.setPathMode(this.hasEffectivePath());
     this.panel.show();
     void TextPanel.loadFontFamilies().then((families) => {
       if (this.armed) {
@@ -166,6 +221,7 @@ export class TextEditService {
   private resolvePreviewFrame(sceneObjects: SceneObjectRender[]): void {
     this.plane = null;
     this.anchor = null;
+    this.pathIndex = [];
     const index = this.session.boundary?.index ?? -1;
     const row = sceneObjects[index];
     const parent = row?.parentId
@@ -173,11 +229,194 @@ export class TextEditService {
       : null;
     const plane: PlaneData | undefined = parent?.object?.plane;
     if (!plane) {
+      this.refreshPathPick();
+      this.syncPathHighlight();
       return;
     }
     this.plane = plane;
     const cursor = parent!.object?.currentPosition;
     this.anchor = cursor ? worldToSketch2D(cursor, plane) : [0, 0];
+    // The dialog reads a paused in-sketch statement — hold the camera down
+    // the sketch plane like sketch mode would (the suspension freed it).
+    this.viewer.holdSketchCamera(plane);
+    // Path pick candidates: the paused sketch's geometries whose statements
+    // precede the edited one (a statement cannot consume later results).
+    this.pathIndex = buildPathTargetIndex(sceneObjects, parent!.id!, plane)
+      .filter(e => e.owner.sourceLocation!.line < this.editTarget!.line);
+    this.refreshPathPick();
+    this.syncPathHighlight();
+    void this.seedKeepPath();
+  }
+
+  // ---------------------------------------------------------------------
+  // Path slot (`text("…", path)`)
+  // ---------------------------------------------------------------------
+
+  /** Whether the statement will render with a path argument as things stand. */
+  private hasEffectivePath(): boolean {
+    return this.pickedPath !== null || (!this.keepRemoved && this.pathText !== null);
+  }
+
+  /** The shapeId the glyph preview lays text along, or null (statement-only). */
+  private effectivePathShapeId(): string | null {
+    if (this.pickedPath) {
+      return this.pickedPath.shapeId;
+    }
+    if (!this.keepRemoved && this.pathText !== null) {
+      return this.seededPath?.shapeId ?? null;
+    }
+    return null;
+  }
+
+  /** Tint whichever geometry the statement would follow as things stand. */
+  private syncPathHighlight(): void {
+    if (this.pickedPath) {
+      this.pathHighlight.set(this.pickedPath.shapeIds);
+    } else if (!this.keepRemoved && this.pathText !== null && this.seededPath) {
+      this.pathHighlight.set(this.seededPath.shapeIds);
+    } else {
+      this.pathHighlight.clear();
+    }
+  }
+
+  /**
+   * Resolve the statement's own path argument onto the paused sketch's
+   * shapes — the keep chip's viewport highlight and the glyph preview's
+   * addressable geometry. Re-runs on every settle (shape ids are
+   * per-render); a refusal leaves the keep chip standing without either.
+   */
+  private async seedKeepPath(): Promise<void> {
+    const target = this.editTarget;
+    if (!target || this.pathText === null || this.keepRemoved) {
+      return;
+    }
+    const result = await fetchSketchFeatureSources(target, this.session.expectedStatement);
+    if (this.editTarget !== target || !this.armed || this.keepRemoved) {
+      return;
+    }
+    this.seededPath = result.ok && result.shapeIds.length > 0
+      ? { shapeId: result.shapeIds[0], shapeIds: result.shapeIds }
+      : null;
+    this.syncPathHighlight();
+    if (this.seededPath && !this.pickedPath) {
+      // The keep path just became addressable — draw its glyph preview.
+      this.schedulePreview();
+    }
+  }
+
+  /** The path field of an edit request; undefined keeps the statement's own. */
+  private pathRequest(): TextEditPath | undefined {
+    if (this.pickedPath) {
+      return { kind: 'picked', shapeId: this.pickedPath.shapeId };
+    }
+    if (this.keepRemoved && this.pathText !== null) {
+      return { kind: 'none' };
+    }
+    return undefined;
+  }
+
+  /** Re-resolve the held pick after a render — shape ids are per-render. */
+  private refreshPathPick(): void {
+    if (!this.pickedPath) {
+      return;
+    }
+    const entry = this.pathIndex.find(e => e.owner.sourceLocation!.line === this.pickedPath!.line);
+    if (entry) {
+      this.pickedPath.shapeId = entry.shapeId;
+      this.pickedPath.shapeIds = entry.shapeIds;
+    } else {
+      // The picked statement vanished with a re-render — back to the keep chip.
+      this.pickedPath = null;
+      this.panel.pathSlot.setChip(null);
+      this.panel.setPathMode(this.hasEffectivePath());
+    }
+  }
+
+  private togglePathArmed(): void {
+    if (this.pathArmed) {
+      this.disarmPathPick();
+      return;
+    }
+    if (!this.armed) {
+      return;
+    }
+    if (this.plane === null) {
+      // Standalone text (no parent sketch): there is no sketch to pick in.
+      this.panel.setMessage('Re-picking a path needs the parent sketch on screen.');
+      return;
+    }
+    this.pathArmed = true;
+    this.panel.pathSlot.setArmed(true);
+    const canvas = this.viewer.sceneContext.renderer.domElement;
+    canvas.addEventListener('mousedown', this.boundPathMouseDown);
+    canvas.addEventListener('mouseup', this.boundPathMouseUp);
+    canvas.addEventListener('mousemove', this.boundPathMouseMove);
+  }
+
+  private disarmPathPick(): void {
+    if (!this.pathArmed) {
+      return;
+    }
+    this.pathArmed = false;
+    this.panel.pathSlot.setArmed(false);
+    const canvas = this.viewer.sceneContext.renderer.domElement;
+    canvas.removeEventListener('mousedown', this.boundPathMouseDown);
+    canvas.removeEventListener('mouseup', this.boundPathMouseUp);
+    canvas.removeEventListener('mousemove', this.boundPathMouseMove);
+    canvas.style.cursor = '';
+  }
+
+  /** The hand cursor while a pickable path is hovered (armed slot only). */
+  private handlePathMouseMove(e: MouseEvent): void {
+    const ctx = this.viewer.sceneContext;
+    const raw = this.plane ? projectToSketch(ctx, this.plane, e.clientX, e.clientY) : null;
+    const hit = raw ? hitTestPathTargets(this.pathIndex, raw, pixelToSketchThreshold(ctx, 12)) : null;
+    ctx.renderer.domElement.style.cursor = hit ? 'pointer' : '';
+  }
+
+  private handlePathMouseUp(e: MouseEvent): void {
+    const dx = e.clientX - this.pathDownX;
+    const dy = e.clientY - this.pathDownY;
+    if (dx * dx + dy * dy > 64 || !this.plane) {
+      return;
+    }
+    const ctx = this.viewer.sceneContext;
+    const raw = projectToSketch(ctx, this.plane, e.clientX, e.clientY);
+    if (!raw) {
+      return;
+    }
+    const hit = hitTestPathTargets(this.pathIndex, raw, pixelToSketchThreshold(ctx, 12));
+    if (!hit) {
+      return;
+    }
+    this.pickedPath = {
+      shapeId: hit.shapeId,
+      shapeIds: hit.shapeIds,
+      line: hit.owner.sourceLocation!.line,
+      label: hit.owner.name || 'Curve',
+    };
+    this.panel.pathSlot.setChip(this.pickedPath.label);
+    this.panel.setPathMode(true);
+    this.syncPathHighlight();
+    this.disarmPathPick();
+    this.panel.setMessage(null);
+    this.schedulePreview();
+  }
+
+  /** The ✕ on the picked chip reverts to the statement's own path; the ✕ on
+   * the keep chip drops the path outright — plain anchored text on apply. */
+  private handlePathRemove(): void {
+    if (this.pickedPath) {
+      this.pickedPath = null;
+      this.panel.pathSlot.setChip(null);
+    } else if (!this.keepRemoved && this.pathText !== null) {
+      this.keepRemoved = true;
+      this.panel.pathSlot.seedKeep(null);
+    }
+    this.panel.setPathMode(this.hasEffectivePath());
+    this.syncPathHighlight();
+    this.panel.setMessage(null);
+    this.schedulePreview();
   }
 
   /** The edit request for the current form state, or the blocking message. */
@@ -186,7 +425,11 @@ export class TextEditService {
     if ('error' in values) {
       return values;
     }
-    return { ...values, expectedStatement: this.session.expectedStatement };
+    return {
+      ...values,
+      path: this.pathRequest(),
+      expectedStatement: this.session.expectedStatement,
+    };
   }
 
   exit(editEnd: 'apply' | 'cancel' | 'continue' | 'gone' = 'cancel'): void {
@@ -196,7 +439,16 @@ export class TextEditService {
     this.armed = false;
     this.session.end(editEnd);
     this.editTarget = null;
+    this.disarmPathPick();
+    this.pathHighlight.clear();
+    this.viewer.releaseSketchCamera();
     this.pathText = null;
+    this.keepRemoved = false;
+    this.pickedPath = null;
+    this.seededPath = null;
+    this.pathIndex = [];
+    this.panel.pathSlot.reset();
+    this.panel.setPathMode(false);
     this.preview.cancel();
     this.panel.hide();
     this.panel.setTitle(null);
@@ -228,6 +480,7 @@ export class TextEditService {
     try {
       const result = await applyTextEdit(this.editTarget, {
         ...values,
+        path: this.pathRequest(),
         expectedStatement: this.session.expectedStatement,
         preview: true,
         signal,
@@ -245,11 +498,38 @@ export class TextEditService {
       return; // aborted
     }
 
-    if (!this.plane || this.anchor === null || this.pathText !== null || values.text === '') {
+    if (values.text === '') {
       this.renderPreviewMesh([]);
       return;
     }
     const { text, ...options } = values;
+
+    // An effective path lays the glyphs along its geometry; unresolvable
+    // paths (a keep whose seed refused, standalone text) keep the statement
+    // preview only.
+    if (this.hasEffectivePath()) {
+      const shapeId = this.effectivePathShapeId();
+      if (shapeId === null) {
+        this.renderPreviewMesh([]);
+        return;
+      }
+      let geometry: Awaited<ReturnType<typeof getTextPreview>>;
+      try {
+        geometry = await getTextPreview({ text, path: { shapeId }, options }, signal);
+      } catch {
+        return; // aborted
+      }
+      if (!isCurrent() || !this.armed) {
+        return;
+      }
+      this.renderPreviewMesh(geometry?.polylines ?? []);
+      return;
+    }
+
+    if (!this.plane || this.anchor === null) {
+      this.renderPreviewMesh([]);
+      return;
+    }
     let geometry: Awaited<ReturnType<typeof getTextPreview>>;
     try {
       geometry = await getTextPreview({

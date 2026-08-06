@@ -3718,7 +3718,8 @@ function textEditOptions(
 ): NonNullable<FeatureStatementEditTarget['text']> {
   return {
     text: 'Hello', size: 10, font: null, weight: 400, italic: false,
-    align: 'left', lineSpacing: 1, letterSpacing: 0, ...overrides,
+    align: 'left', lineSpacing: 1, letterSpacing: 0,
+    offset: 0, startAt: 0, flip: false, ...overrides,
   };
 }
 
@@ -3730,7 +3731,8 @@ describe('parseFeatureStatement — text', () => {
       ok: true,
       parsed: {
         feature: 'text', text: 'Hello', size: 10, font: null, weight: 400,
-        italic: false, align: 'left', lineSpacing: 1, letterSpacing: 0, pathText: null,
+        italic: false, align: 'left', lineSpacing: 1, letterSpacing: 0,
+        offset: 0, startAt: 0, flip: false, pathText: null,
       },
       statement: 'text("Hello")',
     });
@@ -3767,13 +3769,16 @@ describe('parseFeatureStatement — text', () => {
     }
   });
 
-  it('keeps a path argument verbatim and stops before path-only chains', async () => {
-    const code = `${textEditBase}\n  text("Hi", p.arc).size(5).offset(2)\n})\n`;
+  it('keeps a path argument verbatim and reads the path-only chains', async () => {
+    const code = `${textEditBase}\n  text("Hi", p.arc).size(5).offset(2).startAt(10).flip()\n})\n`;
     const result = await parseFeatureStatement(code, 4);
     expect(result.ok).toBe(true);
     if (result.ok && result.parsed.feature === 'text') {
       expect(result.parsed.pathText).toBe('p.arc');
-      expect(result.statement).toBe('text("Hi", p.arc).size(5)');
+      expect(result.parsed.offset).toBe(2);
+      expect(result.parsed.startAt).toBe(10);
+      expect(result.parsed.flip).toBe(true);
+      expect(result.statement).toBe('text("Hi", p.arc).size(5).offset(2).startAt(10).flip()');
     }
   });
 
@@ -3795,8 +3800,17 @@ describe('parseFeatureStatement — text', () => {
     expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('.weight() and .bold()') });
   });
 
-  it('refuses the path-only distributed alignments', async () => {
+  it('reads the distributed alignments on a path statement', async () => {
     const code = `${textEditBase}\n  text("Hi", p).align('space-between')\n})\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result.ok).toBe(true);
+    if (result.ok && result.parsed.feature === 'text') {
+      expect(result.parsed.align).toBe('space-between');
+    }
+  });
+
+  it('refuses the distributed alignments on a path-less statement', async () => {
+    const code = `${textEditBase}\n  text("Hi").align('space-between')\n})\n`;
     const result = await parseFeatureStatement(code, 4);
     expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('.align()') });
   });
@@ -3825,14 +3839,58 @@ describe('applyFeatureEdit (text in-place statement edit)', () => {
     expect(result.newCode).toContain(`  text("Hi")\n`);
   });
 
-  it('keeps the path argument and trailing path-only chains verbatim', async () => {
+  it('keeps the path argument verbatim and rewrites the path-only chains', async () => {
     const code = `${textEditBase}\n  text("Hi", p.arc).size(5).offset(2).flip()\n})\n`;
     const result = await applyFeatureEdit(code, editSpec('text', {
       line: 4, column: 2,
-      text: textEditOptions({ text: 'New', size: 8 }),
+      text: textEditOptions({ text: 'New', size: 8, offset: 3, startAt: 5, flip: true }),
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  text("New", p.arc).size(8).offset(2).flip()\n`);
+    expect(result.newCode).toContain(`  text("New", p.arc).size(8).offset(3).startAt(5).flip()\n`);
+  });
+
+  it('refuses path-only options when the path is dropped', async () => {
+    const code = `${textEditBase}\n  text("Hi", p.arc).flip()\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('text', {
+      line: 4, column: 2,
+      text: { ...textEditOptions({ text: 'Hi', flip: true }), path: { kind: 'none' } },
+    }));
+    expect(result.error).toContain('only apply to text following a path');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('drops the path argument on path: none', async () => {
+    const code = `${textEditBase}\n  text("Hi", p.arc).size(5)\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('text', {
+      line: 4, column: 2,
+      text: { ...textEditOptions({ text: 'Hi', size: 5 }), path: { kind: 'none' } },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  text("Hi").size(5)\n`);
+  });
+
+  it('re-targets the path onto a picked geometry, binding its statement', async () => {
+    const code = `${textEditBase.replace("{ sketch, text }", "{ sketch, text, arc }")}\n  arc([0, 0], [60, 0], 40)\n  text("Hi", p.arc)\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('text', {
+      line: 5, column: 2,
+      text: { ...textEditOptions({ text: 'Hi' }), path: { kind: 'selector' } },
+    }, {
+      producers: [{ line: 4, column: 2, featureType: 'arc', nameHint: 'a', bind: true }],
+      parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const a = arc([0, 0], [60, 0], 40)\n`);
+    expect(result.newCode).toContain(`  text("Hi", a)\n`);
+  });
+
+  it('refuses a selector path without exactly one part', async () => {
+    const code = `${textEditBase}\n  text("Hi", p.arc)\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('text', {
+      line: 4, column: 2,
+      text: { ...textEditOptions({ text: 'Hi' }), path: { kind: 'selector' } },
+    }));
+    expect(result.error).toContain('exactly one geometry');
+    expect(result.newCode).toBe(code);
   });
 
   it('escapes the new string as a double-quoted literal', async () => {
@@ -6540,6 +6598,7 @@ describe('parseOffsetTargetDescriptors (offset edit seeding)', () => {
         { kind: 'owner', line: 5 },
         { kind: 'filter', calls: [{ name: 'arc', dim: 4 }] },
       ],
+      feature: 'offset',
     });
   });
 
@@ -6553,12 +6612,13 @@ describe('parseOffsetTargetDescriptors (offset edit seeding)', () => {
         { kind: 'accessor', line: 4, args: ['side', 1] },
         { kind: 'accessor', line: 4, args: [3] },
       ],
+      feature: 'offset',
     });
   });
 
   it('resolves a whole-sketch offset to no descriptors', async () => {
     const result = await parseOffsetTargetDescriptors(codeWith(`offset(2)`), 6);
-    expect(result).toEqual({ ok: true, descriptors: [] });
+    expect(result).toEqual({ ok: true, descriptors: [], feature: 'offset' });
   });
 
   it('refuses target forms it cannot resolve', async () => {
@@ -6575,6 +6635,7 @@ describe('parseOffsetTargetDescriptors (offset edit seeding)', () => {
     expect(result).toEqual({
       ok: true,
       descriptors: [{ kind: 'owner', line: 5 }],
+      feature: 'slot',
     });
   });
 
@@ -6594,12 +6655,27 @@ describe('parseOffsetTargetDescriptors (offset edit seeding)', () => {
         { kind: 'owner', line: 5 },
         { kind: 'filter', calls: [{ name: 'arc', dim: 4 }] },
       ],
+      feature: 'fillet',
     });
   });
 
   it('resolves a target-less fillet to no descriptors', async () => {
     const result = await parseOffsetTargetDescriptors(codeWith(`fillet(2)`), 6);
-    expect(result).toEqual({ ok: true, descriptors: [] });
+    expect(result).toEqual({ ok: true, descriptors: [], feature: 'fillet' });
+  });
+
+  it("parses a text statement's path argument alone", async () => {
+    const result = await parseOffsetTargetDescriptors(codeWith(`text("Hi", c)`), 6);
+    expect(result).toEqual({
+      ok: true,
+      descriptors: [{ kind: 'owner', line: 5 }],
+      feature: 'text',
+    });
+  });
+
+  it('resolves a plain anchored text to no descriptors', async () => {
+    const result = await parseOffsetTargetDescriptors(codeWith(`text("Hi").size(5)`), 6);
+    expect(result).toEqual({ ok: true, descriptors: [], feature: 'text' });
   });
 });
 

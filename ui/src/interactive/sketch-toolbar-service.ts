@@ -656,9 +656,14 @@ export class SketchToolbarService {
         return new RoundedRectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.rectCenteredChecked);
       case 'slot':
         return new SlotTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
-      case 'text':
-        return new TextTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container,
+      case 'text': {
+        const tool = new TextTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container,
           () => this.handleToolSelect(null));
+        // Seed the path-pick index — without a scene re-render during the
+        // dialog session, onSceneUpdate would otherwise never fire.
+        tool.onSceneUpdate(sceneObjects, sketchId);
+        return tool;
+      }
       default:
         return null;
     }

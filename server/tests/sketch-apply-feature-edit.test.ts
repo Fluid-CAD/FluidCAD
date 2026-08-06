@@ -386,6 +386,82 @@ describe('applyFeatureEdit — sketch-body tArc to target (2D)', () => {
   });
 });
 
+describe('applyFeatureEdit — sketch-body text on path (2D)', () => {
+  const textSpec = (overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec => sketchSpec({
+    feature: 'text',
+    value: undefined,
+    text: {
+      text: 'Hello', size: 10, font: null, weight: 400, italic: false,
+      align: 'left', lineSpacing: 1, letterSpacing: 0, offset: 0, startAt: 0, flip: false,
+    },
+    producers: [{ line: 4, column: 0, featureType: 'arc', nameHint: 'a', bind: true }],
+    parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
+    ...overrides,
+  });
+
+  it('binds the path statement and appends the text at end of the sketch body', async () => {
+    const code = [
+      `import { sketch, arc, rect } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  arc([0, 0], [60, 0], 40)`,
+      `  rect(80, 60)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, textSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import {text, sketch, arc, rect } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const a = arc([0, 0], [60, 0], 40)`,
+      `  rect(80, 60)`,
+      `  text("Hello", a)`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('renders the option chains around the path argument', async () => {
+    const code = [
+      `import { sketch, arc } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  arc([0, 0], [60, 0], 40)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, textSpec({
+      text: {
+        text: 'Hi', size: 14, font: 'Georgia', weight: 700, italic: false,
+        align: 'space-around', lineSpacing: 1, letterSpacing: 0, offset: 2, startAt: 0, flip: true,
+      },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `  text("Hi", a).font('Georgia').size(14).bold().align('space-around').offset(2).flip()\n`,
+    );
+  });
+
+  it('refuses a spec without the option payload as malformed', async () => {
+    const result = await applyFeatureEdit(`sketch('xy', () => {})\n`, textSpec({ text: undefined }));
+    expect(result.error).toBe('malformed text edit spec');
+  });
+
+  it('refuses an empty text string', async () => {
+    const result = await applyFeatureEdit(`sketch('xy', () => {})\n`, textSpec({
+      text: {
+        text: '   ', size: 10, font: null, weight: 400, italic: false,
+        align: 'left', lineSpacing: 1, letterSpacing: 0, offset: 0, startAt: 0, flip: false,
+      },
+    }));
+    expect(result.error).toBe('the text string is empty');
+  });
+});
+
 describe('applyFeatureEdit — tArc retarget (end-drag edge snap)', () => {
   const retargetSpec = (
     line: number,

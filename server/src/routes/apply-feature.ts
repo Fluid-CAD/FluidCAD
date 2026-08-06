@@ -13,6 +13,7 @@ import {
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
   renderChamferValueArgs, renderFaceTargetExpr, renderOffsetStatement, renderSlotStatement, renderTarcStatement,
+  renderTextStatement, type TextStatementOptions,
   type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions, type CopyEditOptions,
   type OffsetEditOptions, type SlotEditOptions,
   type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
@@ -178,6 +179,55 @@ function validateSlotOptions(body: any): { options: SlotEditOptions } | { error:
     return { error: 'close only applies to offset' };
   }
   return { options: { removeOriginal } };
+}
+
+/**
+ * The text dialog's full option payload, riding a create-on-path or edit
+ * request: the string plus every chain option the dialog owns, validated
+ * field by field so a refusal names the offending one.
+ */
+function validateTextOptions(body: any): { options: TextStatementOptions } | { error: string } {
+  const { text, size, font, weight, italic, align, lineSpacing, letterSpacing } = body ?? {};
+  // The path-only options default off, so a caller that predates them keeps
+  // the plain statement form.
+  const offset = body?.offset ?? 0;
+  const startAt = body?.startAt ?? 0;
+  const flip = body?.flip ?? false;
+  if (typeof text !== 'string' || text.trim() === '' || text.length > 4000) {
+    return { error: 'text must be a non-empty string' };
+  }
+  if (typeof size !== 'number' || !Number.isFinite(size) || size <= 0) {
+    return { error: 'size must be a positive number' };
+  }
+  if (font !== null && (typeof font !== 'string' || font.length > 300)) {
+    return { error: 'font must be a family name string or null' };
+  }
+  if (typeof weight !== 'number' || weight % 100 !== 0 || weight < 100 || weight > 900) {
+    return { error: 'weight must be one of 100–900 in hundreds' };
+  }
+  if (typeof italic !== 'boolean') {
+    return { error: 'italic must be a boolean' };
+  }
+  if (align !== 'left' && align !== 'center' && align !== 'right'
+    && align !== 'space-between' && align !== 'space-around') {
+    return { error: 'align must be "left", "center", "right", "space-between" or "space-around"' };
+  }
+  if (typeof lineSpacing !== 'number' || !Number.isFinite(lineSpacing) || lineSpacing <= 0) {
+    return { error: 'lineSpacing must be a positive number' };
+  }
+  if (typeof letterSpacing !== 'number' || !Number.isFinite(letterSpacing)) {
+    return { error: 'letterSpacing must be a number' };
+  }
+  if (typeof offset !== 'number' || !Number.isFinite(offset)) {
+    return { error: 'offset must be a number' };
+  }
+  if (typeof startAt !== 'number' || !Number.isFinite(startAt) || startAt < 0) {
+    return { error: 'startAt must be a non-negative number' };
+  }
+  if (typeof flip !== 'boolean') {
+    return { error: 'flip must be a boolean' };
+  }
+  return { options: { text, size, font, weight, italic, align, lineSpacing, letterSpacing, offset, startAt, flip } };
 }
 
 /**
@@ -1957,33 +2007,37 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
   }
 
   if (feature === 'text') {
-    const { text, size, font, weight, italic, align, lineSpacing, letterSpacing } = body ?? {};
-    if (typeof text !== 'string' || text.trim() === '' || text.length > 4000) {
-      return { error: 'text must be a non-empty string' };
+    const options = validateTextOptions(body);
+    if ('error' in options) {
+      return options;
     }
-    if (typeof size !== 'number' || !Number.isFinite(size) || size <= 0) {
-      return { error: 'size must be a positive number' };
+    edit.text = options.options;
+    // The path argument: absent keeps the statement's own text verbatim,
+    // `none` drops it, `picked` re-sources it from the sketch-edge picks
+    // (no boundary — the double-click paused the build at the edited
+    // statement, so the rendered sketch already IS the world it sees).
+    const path = body?.path;
+    if (path === undefined || path === null) {
+      return base;
     }
-    if (font !== null && (typeof font !== 'string' || font.length > 300)) {
-      return { error: 'font must be a family name string or null' };
+    if (path.kind === 'none') {
+      if (body?.sketchEntities !== undefined) {
+        return { error: 'a removed path takes no sketchEntities' };
+      }
+      edit.text.path = { kind: 'none' };
+      return base;
     }
-    if (typeof weight !== 'number' || weight % 100 !== 0 || weight < 100 || weight > 900) {
-      return { error: 'weight must be one of 100–900 in hundreds' };
+    if (path.kind !== 'picked') {
+      return { error: 'path must be {kind: "none"} or {kind: "picked"}' };
     }
-    if (typeof italic !== 'boolean') {
-      return { error: 'italic must be a boolean' };
+    const picks = validateSketchPicks(body?.sketchEntities);
+    if (!picks) {
+      return { error: 'sketchEntities must be a non-empty array of {shapeId} picks' };
     }
-    if (align !== 'left' && align !== 'center' && align !== 'right') {
-      return { error: 'align must be "left", "center" or "right"' };
-    }
-    if (typeof lineSpacing !== 'number' || !Number.isFinite(lineSpacing) || lineSpacing <= 0) {
-      return { error: 'lineSpacing must be a positive number' };
-    }
-    if (typeof letterSpacing !== 'number' || !Number.isFinite(letterSpacing)) {
-      return { error: 'letterSpacing must be a number' };
-    }
-    edit.text = { text, size, font, weight, italic, align, lineSpacing, letterSpacing };
-    return base;
+    edit.text.path = { kind: 'selector' };
+    const result: StatementEditRequest = base;
+    result.sketchPicks = picks;
+    return result;
   }
 
   if (feature === 'repeat') {
@@ -3334,7 +3388,9 @@ export function createApplyFeatureRouter(
           // (a slot's single source renders as its bare variable).
           const synthesis = fluidCadServer.synthesizeSketchApplyFeature(
             request.sketchPicks,
-            request.feature === 'slot' ? 'slot' : request.feature === 'fillet' ? 'fillet' : 'offset',
+            request.feature === 'slot' ? 'slot'
+              : request.feature === 'fillet' ? 'fillet'
+                : request.feature === 'text' ? 'text' : 'offset',
             request.value,
             { ...synthOptions, offset: request.offset, slot: request.slot },
           );
@@ -3344,6 +3400,17 @@ export function createApplyFeatureRouter(
           }
           if (!synthesis.ok) {
             res.status(422).json({ success: false, reason: synthesis.reason });
+            return;
+          }
+          // A text path must be ONE whole geometry referenced by a bare
+          // variable — a workspace kernel predating the 'text' kind falls
+          // through to its accessor synthesis and returns forms the text
+          // build cannot consume; refuse those honestly.
+          if (request.feature === 'text' && !/^[A-Za-z_$][\w$]*$/.test(synthesis.args)) {
+            res.status(422).json({
+              success: false,
+              reason: "the workspace's FluidCAD version does not support picking a text path — update its fluidcad dependency",
+            });
             return;
           }
           foldSynthesis(synthesis);
@@ -4894,13 +4961,16 @@ export function createApplyFeatureRouter(
         return;
       }
       if (feature !== 'fillet' && feature !== 'offset' && feature !== 'slot' && feature !== 'trim'
-        && feature !== 'fuse' && feature !== 'subtract' && feature !== 'common' && feature !== 'tarc') {
-        res.status(400).json({ error: 'feature must be "fillet", "offset", "slot", "trim", "fuse", "subtract", "common" or "tarc" for sketch-edge selections' });
+        && feature !== 'fuse' && feature !== 'subtract' && feature !== 'common' && feature !== 'tarc'
+        && feature !== 'text') {
+        res.status(400).json({ error: 'feature must be "fillet", "offset", "slot", "trim", "fuse", "subtract", "common", "tarc" or "text" for sketch-edge selections' });
         return;
       }
-      // Trim and the booleans carry no numeric parameter.
+      // Trim, the booleans and text carry no numeric parameter (text rides
+      // its full option payload instead).
       const sketchValueless = feature === 'trim'
-        || feature === 'fuse' || feature === 'subtract' || feature === 'common';
+        || feature === 'fuse' || feature === 'subtract' || feature === 'common'
+        || feature === 'text';
       // Fillet and slot need a positive radius; offset allows a negative
       // distance (the inward idiom) but not zero; the booleans carry no value
       // at all.
@@ -4930,6 +5000,17 @@ export function createApplyFeatureRouter(
         && !validValueExpr(value, { nonzero: true })) {
         res.status(400).json({ error: 'value must be a nonzero number or expression' });
         return;
+      }
+      // Text-on-path: the dialog's full option payload rides the body; the
+      // synthesized bare variable becomes the statement's path argument.
+      let textOptions: TextStatementOptions | undefined;
+      if (feature === 'text') {
+        const parsed = validateTextOptions(req.body);
+        if ('error' in parsed) {
+          res.status(400).json({ error: parsed.error });
+          return;
+        }
+        textOptions = parsed.options;
       }
       // Offset's dialog toggles: the `removeOriginal` argument and `.close()`.
       // Slot's single toggle: the trailing `deleteSource` argument.
@@ -5016,6 +5097,15 @@ export function createApplyFeatureRouter(
           });
           return;
         }
+        // And for a text path: the argument is ONE whole geometry, so only a
+        // bare variable works.
+        if (feature === 'text' && !/^[A-Za-z_$][\w$]*$/.test(synthesis.args)) {
+          res.status(422).json({
+            success: false,
+            reason: "the workspace's FluidCAD version does not support picking a text path — update its fluidcad dependency",
+          });
+          return;
+        }
         // The toggles are statement shape, not selection knowledge: re-attach
         // them here so a workspace kernel predating them still writes (and
         // previews) the form the dialog asked for.
@@ -5023,11 +5113,13 @@ export function createApplyFeatureRouter(
           ? renderOffsetStatement(value, synthesis.args, offsetOptions)
           : feature === 'slot'
             ? renderSlotStatement(value, synthesis.args, slotOptions)
-            : feature === 'tarc'
-              // The retarget keeps the statement's own radius argument, so
-              // its preview can only name the target.
-              ? (tarcRetarget ? `tArc(<radius>, ${synthesis.args})` : renderTarcStatement(value, synthesis.args))
-              : synthesis.preview;
+            : feature === 'text'
+              ? renderTextStatement(textOptions!, synthesis.args)
+              : feature === 'tarc'
+                // The retarget keeps the statement's own radius argument, so
+                // its preview can only name the target.
+                ? (tarcRetarget ? `tArc(<radius>, ${synthesis.args})` : renderTarcStatement(value, synthesis.args))
+                : synthesis.preview;
         if (preview === true) {
           res.json({
             success: true,
@@ -5045,6 +5137,9 @@ export function createApplyFeatureRouter(
         }
         if (slotOptions) {
           spec = { ...spec, slot: slotOptions };
+        }
+        if (textOptions) {
+          spec = { ...spec, text: textOptions };
         }
         if (tarcRetarget) {
           spec = { ...spec, tarc: { retarget: tarcRetarget } };
@@ -5304,11 +5399,15 @@ export function createApplyFeatureRouter(
         return;
       }
       if (parsed.descriptors.length === 0) {
-        // A whole-sketch offset targets nothing nameable — nothing to seed.
+        // A whole-sketch offset (or a plain anchored text) targets nothing
+        // nameable — nothing to seed.
         res.json({ ok: true, shapeIds: [] });
         return;
       }
-      const result = fluidCadServer.resolveSketchStatementTargets(parsed.descriptors);
+      // A text statement's path is classically a `.guide()` curve — widen
+      // the resolution to construction geometry for that feature alone.
+      const result = fluidCadServer.resolveSketchStatementTargets(
+        parsed.descriptors, { includeGuides: parsed.feature === 'text' });
       if (!result) {
         res.status(404).json({ error: 'No rendered scene' });
         return;

@@ -4,6 +4,8 @@ import { SceneCompare } from "./rendering/scene-compare.js";
 import { SceneDisposal } from "./rendering/scene-disposal.js";
 import { buildFeatureGhost } from "./rendering/feature-ghost.js";
 import type { FeatureGhostRequest, FeatureGhostResult } from "./rendering/feature-ghost.js";
+import { buildTextPathPreview } from "./rendering/text-path-preview.js";
+import type { TextPathPreviewRequest } from "./rendering/text-path-preview.js";
 import { DEFAULT_MESH_CONFIG } from "./oc/mesh.js";
 import type { MeshConfig } from "./oc/mesh.js";
 import type { FluidCADOptions } from "./index.js";
@@ -189,6 +191,14 @@ class SceneManager {
     return synthesizeSketchApplyFeature(scene, refs, feature, value, options);
   }
 
+  /** Glyph outlines laid along a picked path geometry — the text dialogs' preview. */
+  buildTextPathPreview(
+    scene: Scene,
+    request: TextPathPreviewRequest,
+  ): { polylines: number[][] } | { reason: string } {
+    return buildTextPathPreview(scene, request);
+  }
+
   /** By-region trim: synthesize filter args for a clicked region's boundary segments. */
   synthesizeTrimRegionTargets(
     scene: Scene,
@@ -232,8 +242,9 @@ class SceneManager {
   resolveSketchStatementTargets(
     scene: Scene,
     descriptors: SketchTargetDescriptor[],
+    options: { includeGuides?: boolean } = {},
   ): { ok: true; shapeIds: string[] } | { ok: false; reason: string } {
-    return resolveSketchStatementTargets(scene, descriptors);
+    return resolveSketchStatementTargets(scene, descriptors, options);
   }
 
   hitTest(

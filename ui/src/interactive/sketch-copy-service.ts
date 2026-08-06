@@ -1,10 +1,12 @@
 import {
-  applySketchCopy, applySketchCopyEdit, clearBreakpoints, fetchSketchFeatureSources,
-  ApplyFeatureResponse, FeatureEditTarget, ParsedFeatureStatement,
+  applySketchCopy, applySketchCopyEdit, clearBreakpoints, fetchFeatureGhost,
+  fetchSketchFeatureSources, ApplyFeatureResponse, Copy2DGhostRequest, FeatureEditTarget,
+  GhostSketchAxisRef, GhostSolid, ParsedFeatureStatement,
   SketchApplyEntity, SketchCopyAxis, SketchCopyEditAxis, ValueExpr,
 } from '../api';
 import { SketchOpSelection } from './sketch-op-service';
 import { keepChip } from './create-feature/sketch-profiles';
+import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { PickSlotChip } from './pick-slot';
 import { VariableInfo } from '../ui/expression-core';
 import { SketchCopyDirection, SketchCopyPanel, SketchCopyArmedSlot } from './sketch-copy-panel';
@@ -74,6 +76,8 @@ export class SketchCopyService {
     private readonly selection: SketchOpSelection,
     private fetchVariables: () => Promise<VariableInfo[]>,
     private onDone: () => void,
+    /** The live viewport geometry overlay, shared with the other 2D op dialogs. */
+    private readonly ghost?: FeatureGhostOverlay,
   ) {
     this.panel = new SketchCopyPanel(container);
     this.panel.onApply = () => void this.apply();
@@ -222,6 +226,7 @@ export class SketchCopyService {
     this.axisEntities.set(1, null);
     this.axisEntities.set(2, null);
     this.cancelPreview();
+    this.ghost?.clear();
     this.panel.hide();
     this.panel.setApplyEnabled(false);
     this.onVisibilityChange?.(false);
@@ -451,22 +456,135 @@ export class SketchCopyService {
         // Incomplete form — the hint already sits in the message row.
         this.panel.setPreview(null);
         this.panel.setApplyEnabled(false);
+        this.ghost?.clear();
         return;
       }
       if (result.success) {
         this.panel.setPreview(result.preview ?? null);
         this.panel.setMessage(null);
         this.panel.setApplyEnabled(true);
+        // The statement preview's geometric twin, chained under the same
+        // abort scope — the way the shared op dialog chains its ghost.
+        await this.runGhost(abort.signal);
       } else {
         this.panel.setPreview(null);
         this.panel.setApplyEnabled(false);
         this.panel.setMessage(result.reason ?? 'Could not synthesize the copy for this selection');
+        // A statement the apply would refuse must not keep its geometry up.
+        this.ghost?.clear();
       }
     } catch (err) {
       if (!(err instanceof DOMException && err.name === 'AbortError')) {
         this.panel.setMessage('Could not reach the FluidCAD server');
+        this.ghost?.clear();
       }
     }
+  }
+
+  /**
+   * Draw the live ghost clones for the just-previewed values, or clear the
+   * overlay when the request can't be addressed. Runs on the statement
+   * preview's own abort signal, so a superseded preview also supersedes its
+   * ghost; a stale answer is dropped rather than drawn.
+   */
+  private async runGhost(signal: AbortSignal): Promise<void> {
+    if (!this.ghost) {
+      return;
+    }
+    const request = this.ghostRequest();
+    if (!request) {
+      this.ghost.clear();
+      return;
+    }
+    let solids: GhostSolid[] | null;
+    try {
+      solids = await fetchFeatureGhost(request, signal);
+    } catch {
+      return; // aborted
+    }
+    if (signal.aborted || !this.active) {
+      return;
+    }
+    if (solids) {
+      this.ghost.set(solids, 'wire');
+    } else {
+      this.ghost.clear();
+    }
+  }
+
+  /**
+   * The live geometry request for the current dialog state, or null when it
+   * can't be addressed. The target picks travel as they are; with none
+   * picked, an edit whose keep chip stands over an EMPTY argument list is
+   * the whole-sketch form (entities: []), while one standing over real
+   * target args has nothing addressable to preview — its seed either failed
+   * or was cleared. A direction slot resolves like the 3D dialogs' axis
+   * slots: the quick buttons are the sketch-local axes, a picked line ships
+   * its shapeId, and a kept `axis(v)` text is unaddressable — no ghost until
+   * it is re-chosen (a kept `local('x')` already reads back as its button).
+   */
+  private ghostRequest(): Copy2DGhostRequest | null {
+    const values = this.panel.values();
+    if ('error' in values) {
+      return null;
+    }
+    const ids = this.targetIds();
+    if (ids.length === 0
+      && (!this.editTarget || (this.editStatement?.targetTexts ?? []).length > 0)) {
+      return null;
+    }
+    const entities = ids.map(shapeId => ({ shapeId }));
+
+    if (values.kind === 'circular') {
+      return {
+        feature: 'copy2d',
+        kind: 'circular',
+        entities,
+        axes: [],
+        directions: [],
+        // The circular form never writes `centered` from this dialog.
+        centered: false,
+        center: values.center,
+        count: values.count,
+        sweep: values.sweep,
+        skip: values.skip,
+      };
+    }
+
+    const axes: GhostSketchAxisRef[] = [];
+    const active = this.panel.directions;
+    for (const direction of active) {
+      const selection = this.panel.axisSelection(direction);
+      if (!selection || selection.kind === 'keep' || selection.kind === 'axis') {
+        return null;
+      }
+      if (selection.kind === 'standard') {
+        // The quick buttons are the sketch-local axes in this dialog.
+        axes.push({ kind: 'local', axis: selection.axis as 'x' | 'y' });
+      } else {
+        const shapeId = this.axisEntities.get(direction);
+        if (!shapeId) {
+          return null;
+        }
+        axes.push({ kind: 'edge', shapeId });
+      }
+    }
+    return {
+      feature: 'copy2d',
+      kind: 'linear',
+      entities,
+      axes,
+      directions: values.directions.map(direction => ({
+        count: direction.count,
+        offset: values.spacingMode === 'offset' ? direction.value : null,
+        length: values.spacingMode === 'length' ? direction.value : null,
+      })),
+      centered: values.centered,
+      center: null,
+      count: null,
+      sweep: null,
+      skip: values.skip,
+    };
   }
 
   /**

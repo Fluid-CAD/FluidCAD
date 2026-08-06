@@ -31,9 +31,10 @@ import { Extrudable, BoundingBox } from "../helpers/types.js";
 import { Axis, StandardAxis, toAxis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { Plane, toPlane } from "../math/plane.js";
-import { Point } from "../math/point.js";
+import { Point, Point2D } from "../math/point.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { EdgeOps } from "../oc/edge-ops.js";
+import { EdgeQuery } from "../oc/edge-query.js";
 import { Explorer } from "../oc/explorer.js";
 import { FaceQuery } from "../oc/face-query.js";
 import type { LoftEndCondition } from "../oc/loft-ops.js";
@@ -62,7 +63,8 @@ export type FeatureGhostRequest =
   | CopyGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
-  | Fillet2DGhostRequest;
+  | Fillet2DGhostRequest
+  | Copy2DGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -408,6 +410,57 @@ export type Fillet2DGhostRequest = {
 };
 
 /**
+ * The in-sketch copy — keyed `copy2d` on the wire because plain `copy`
+ * already names the 3D body-stamping ghost. Like its 3D twin it builds
+ * nothing: the clones a `copy()` places inside a sketch are its targets' own
+ * curves, moved (copy-linear2d.ts:82-100), so the ghost stamps those curves'
+ * meshes at each instance transform, drawn in the blue every curve ghost
+ * wears.
+ *
+ * The targets are addressed the way every sketch-op apply addresses them
+ * (1 shapeId = 1 sketch edge), and each pick stands for its whole producing
+ * primitive — the statement the apply will name, whose every edge the copy
+ * clones. An empty list is the target-less statement form, which copies the
+ * whole active sketch; only the edit dialog produces it.
+ */
+export type Copy2DGhostRequest = {
+  feature: 'copy2d';
+  kind: 'linear' | 'circular';
+  /** The picked sketch edges; empty copies the whole active sketch. */
+  entities: { shapeId: string }[];
+  /** Linear: one per direction (1–2). Circular: none — the center serves. */
+  axes: GhostSketchAxisRef[];
+  /** Linear: count and spacing per direction, parallel to {@link axes}. */
+  directions: GhostRepeatDirection[];
+  /** Linear: center the copies on the original instead of starting there. */
+  centered: boolean;
+  /** Circular: the rotation center, in sketch coordinates. */
+  center: [number, number] | null;
+  /** Circular: instances around the center, the original included. */
+  count: number | null;
+  /** Circular: the whole sweep to divide, or the step between neighbours. */
+  sweep: RepeatGhostSweep | null;
+  /**
+   * Instances the copy leaves out, one index per direction — the statement's
+   * own `skip` option. A circular copy's entries carry a single index each;
+   * absent skips none.
+   */
+  skip?: number[][];
+};
+
+/**
+ * The 2D copy dialog's direction slot on the wire: a sketch-local axis from
+ * the Local X / Local Y quick buttons (`local('x')`), or a picked sketch line
+ * the apply writes as `axis(<var>)`. A top-level `axis()` statement never
+ * appears here — it cannot bind into a sketch body — and "keep the current
+ * axis" only travels once the client reads it back as a local form; a kept
+ * `axis(v)` text is unaddressable and simply draws no ghost.
+ */
+export type GhostSketchAxisRef =
+  | { kind: 'local'; axis: 'x' | 'y' }
+  | { kind: 'edge'; shapeId: string };
+
+/**
  * One ghost body, in the same mesh wire format a rendered solid uses. `kind`
  * overrides the overlay's per-dialog color for this body alone — a fillet's
  * picks can take material away at one edge and put it back at the next, so the
@@ -502,6 +555,9 @@ export function buildFeatureGhost(
   }
   if (request.feature === 'fillet2d') {
     return meshGhostBodies(buildFillet2DGhost(scene, request), meshConfig);
+  }
+  if (request.feature === 'copy2d') {
+    return buildCopy2DGhost(scene, request, meshConfig);
   }
   return buildBandGhost(scene, request, meshConfig);
 }
@@ -862,6 +918,148 @@ function buildFillet2DGhost(scene: Scene, request: Fillet2DGhostRequest): GhostB
 }
 
 /**
+ * The 2D copy branch: nothing is built here either. The clones a `copy()`
+ * places inside a sketch are its targets' own curves, moved
+ * (copy-linear2d.ts:82-100, copy-circular2d.ts:54-65) — so the target edges'
+ * meshes are read once (the last render made them) and stamped at each
+ * instance transform, the 3D copy's mesh-once-stamp-N idiom on the sketch's
+ * curves. The placement math is shared with the 3D copy outright: the
+ * builders are plane-agnostic, and the one rule that separates a copy from a
+ * repeat (a total sweep divides by the instance count, always) lives in them.
+ */
+function buildCopy2DGhost(
+  scene: Scene,
+  request: Copy2DGhostRequest,
+  meshConfig: MeshConfig,
+): FeatureGhostResult {
+  // The cap reads the stated counts alone, before any grid or mesh work —
+  // a mistyped count must refuse, not allocate.
+  const total = requestedInstanceCount(request);
+  if (total > MAX_GHOST_INSTANCES) {
+    return { ok: false, reason: `${total} instances is more than the preview draws.`, surface: true };
+  }
+  const resolved = resolveSketchOpTargets(scene, request.entities);
+  if ('reason' in resolved) {
+    return { ok: false, reason: resolved.reason };
+  }
+  const placed = copy2DGhostMatrices(resolved.sketch, resolved.plane, request);
+  if ('reason' in placed) {
+    return { ok: false, reason: placed.reason };
+  }
+  if (placed.matrices.length === 0) {
+    // A count still at one, a spacing still at zero — states the dialog
+    // passes through while the user types. Nothing to draw, nothing wrong.
+    return { ok: true, solids: [] };
+  }
+  const edges = expandToOwnerEdges(resolved.sketch, resolved.edges);
+  const meshes = stampMeshes(edges, new MeshBuilder(meshConfig));
+  if (meshes.length === 0) {
+    return { ok: false, reason: 'That selection has no curves to copy.' };
+  }
+  // Every target rides in one body per instance: they move together, and the
+  // overlay draws a mesh list whatever it was gathered from.
+  return {
+    ok: true,
+    solids: placed.matrices.map(matrix => ({ meshes: transformMeshes(meshes, matrix) })),
+  };
+}
+
+/**
+ * Every edge the picked edges' producing primitives drew. A 2D copy target is
+ * a *statement*, not an edge: the apply synthesizes each pick's owner as a
+ * bare variable, and the copy's build clones all of that object's shapes
+ * (copy-linear2d.ts:25-31) — so one picked rect edge stamps the whole rect.
+ * The whole-sketch form arrives holding every edge already and expands to
+ * itself.
+ */
+function expandToOwnerEdges(sketch: Sketch, picked: Edge[]): Edge[] {
+  const withOwner = sketch.getEdgesWithOwner();
+  const pickedIds = new Set(picked.map(edge => edge.id));
+  const owners = new Set<SceneObject>();
+  for (const [edge, owner] of withOwner) {
+    if (pickedIds.has(edge.id)) {
+      owners.add(owner);
+    }
+  }
+  const edges: Edge[] = [];
+  for (const [edge, owner] of withOwner) {
+    if (owners.has(owner)) {
+      edges.push(edge);
+    }
+  }
+  return edges;
+}
+
+/**
+ * Where a 2D copy's clones land. The axes come from the sketch rather than
+ * the scene: `local('x')` / `local('y')` are the sketch plane's own axes
+ * (`plane.normalizeAxis`, exactly what `AxisFromSketch` resolves), a picked
+ * direction line contributes its axis the way `axis(v)` extracts it
+ * (`EdgeOps.edgeToAxis`), and a circular center is a sketch-plane point spun
+ * about the plane normal (copy-circular2d.ts:38-40).
+ */
+function copy2DGhostMatrices(
+  sketch: Sketch,
+  plane: Plane,
+  request: Copy2DGhostRequest,
+): { matrices: Matrix4[] } | { reason: string } {
+  if (request.kind === 'circular') {
+    if (!request.center || request.count === null || !request.sweep) {
+      return { matrices: [] };
+    }
+    const center = plane.localToWorld(new Point2D(request.center[0], request.center[1]));
+    return {
+      matrices: buildCircularCopyGhostMatrices(
+        new Axis(center, plane.normal), request.count, request.sweep, request.centered,
+        // A circular skip names one instance per entry — the tuple form the
+        // wire carries for both kinds, read back as the indices it is.
+        (request.skip ?? []).map(tuple => tuple[0]),
+      ),
+    };
+  }
+  // Linear: one axis per direction. A mismatch is a malformed request the
+  // route rejects; here it simply lays nothing out.
+  if (request.axes.length !== request.directions.length) {
+    return { matrices: [] };
+  }
+  const directions: RepeatGhostDirection[] = [];
+  for (let i = 0; i < request.axes.length; i++) {
+    const axis = resolveSketchAxis(sketch, plane, request.axes[i]);
+    if ('reason' in axis) {
+      return axis;
+    }
+    const direction = request.directions[i];
+    directions.push({ axis: axis.axis, count: direction.count, offset: directionOffset(direction) });
+  }
+  return { matrices: buildLinearCopyGhostMatrices(directions, request.centered, request.skip ?? []) };
+}
+
+/**
+ * One direction slot of the 2D copy, resolved against its sketch. Anything
+ * but a straight line refuses the edge form: an arc has no single direction,
+ * and the apply refuses to write it too.
+ */
+function resolveSketchAxis(
+  sketch: Sketch,
+  plane: Plane,
+  ref: GhostSketchAxisRef,
+): { axis: Axis } | { reason: string } {
+  if (ref.kind === 'local') {
+    const axis = plane.normalizeAxis(ref.axis);
+    return axis ? { axis } : { reason: 'That direction is not on the sketch plane.' };
+  }
+  for (const edge of sketch.getEdgesWithOwner().keys()) {
+    if (edge.id === ref.shapeId) {
+      if (EdgeQuery.getEdgeCurveType(edge) !== 'line') {
+        return { reason: 'The direction pick is not a straight line.' };
+      }
+      return { axis: EdgeOps.edgeToAxis(edge) };
+    }
+  }
+  return { reason: 'That direction line is not in the rendered scene.' };
+}
+
+/**
  * Resolve a sketch-op dialog's picks to their edges and sketch plane, shared
  * by every 2D ghost. Resolution mirrors the apply's own (`resolvePicks`,
  * sketch-apply.ts): each shapeId names one edge in one sketch's
@@ -878,7 +1076,7 @@ function buildFillet2DGhost(scene: Scene, request: Fillet2DGhostRequest): GhostB
 function resolveSketchOpTargets(
   scene: Scene,
   entities: { shapeId: string }[],
-): { edges: Edge[]; plane: Plane } | { reason: string } {
+): { sketch: Sketch; edges: Edge[]; plane: Plane } | { reason: string } {
   // The registration list, NOT `allObjects` — its stack walk reorders, and
   // the whole-sketch form needs "last" to mean last in the document, the way
   // `resolveSketchStatementTargets` reads the active sketch.
@@ -922,7 +1120,7 @@ function resolveSketchOpTargets(
   if (!plane) {
     return { reason: 'The sketch has no plane.' };
   }
-  return { edges, plane };
+  return { sketch, edges, plane };
 }
 
 /** The sketch edge a pick's shapeId names, with the sketch it lives in. */
@@ -1063,10 +1261,12 @@ function directionOffset(direction: GhostRepeatDirection): number {
 
 /**
  * How many bodies the request describes, read off its numbers alone — the
- * repeat's four kinds and the copy's two, which state their instances the
+ * repeat's four kinds and both copies' two, which state their instances the
  * same way.
  */
-function requestedInstanceCount(request: RepeatGhostRequest | CopyGhostRequest): number {
+function requestedInstanceCount(
+  request: RepeatGhostRequest | CopyGhostRequest | Copy2DGhostRequest,
+): number {
   if (request.kind === 'linear') {
     return linearGhostInstanceCount(request.directions);
   }

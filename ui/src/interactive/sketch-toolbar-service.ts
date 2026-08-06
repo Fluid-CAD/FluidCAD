@@ -155,7 +155,7 @@ export class SketchToolbarService {
       feature: 'fillet', title: 'Fillet', pickHint: 'Pick sketch edges to fillet',
       value: { label: 'Radius', defaultValue: '2', sign: 'positive' },
     });
-    this.copyOp = new SketchCopyService(container, opSelection, opVars, opDone);
+    this.copyOp = new SketchCopyService(container, opSelection, opVars, opDone, opGhost);
     this.offsetOp = opService({
       feature: 'offset', title: 'Offset', pickHint: 'Pick sketch edges to offset',
       value: { label: 'Distance', defaultValue: '2', sign: 'nonzero' },

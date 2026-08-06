@@ -22,7 +22,7 @@ import { Explorer } from "../oc/explorer.js";
 import { FaceQuery } from "../oc/face-query.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import {
-  buildFeatureGhost, CopyGhostRequest, ExtrudeGhostRequest, FeatureGhostResult,
+  buildFeatureGhost, Copy2DGhostRequest, CopyGhostRequest, ExtrudeGhostRequest, FeatureGhostResult,
   Fillet2DGhostRequest, GhostPathRef, GhostSectionRef, LoftGhostRequest, OffsetGhostRequest,
   RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
@@ -2055,5 +2055,258 @@ describe("fillet2d ghost", () => {
     if (result.ok) {
       expect(result.solids).toHaveLength(0);
     }
+  });
+});
+
+const COPY2D_BASE: Omit<Copy2DGhostRequest, 'entities'> = {
+  feature: 'copy2d',
+  kind: 'linear',
+  axes: [{ kind: 'local', axis: 'x' }],
+  directions: [{ count: 3, offset: 40, length: null }],
+  centered: false,
+  center: null,
+  count: null,
+  sweep: null,
+};
+
+function copy2dGhost(
+  scene: Scene,
+  entities: { shapeId: string }[],
+  overrides: Partial<Copy2DGhostRequest> = {},
+) {
+  return buildFeatureGhost(scene, { ...COPY2D_BASE, ...overrides, entities }, DEFAULT_MESH_CONFIG);
+}
+
+/** One ghost instance's extent, straight off its wire vertices (no box gap). */
+function instanceBounds(result: FeatureGhostResult, solid = 0) {
+  const points = wireVertices(result, solid);
+  const along = (i: number) => points.map(p => p[i]);
+  const [xs, ys] = [along(0), along(1)];
+  return {
+    minX: Math.min(...xs), maxX: Math.max(...xs),
+    minY: Math.min(...ys), maxY: Math.max(...ys),
+  };
+}
+
+describe("copy2d ghost", () => {
+  setupOC();
+
+  it("a picked edge stamps its whole producing primitive at every instance", () => {
+    const s = locatedSketch(5, () => { rect(100, 50); });
+    const scene = render();
+    const edge = [...s.getEdgesWithOwner().keys()][0];
+
+    const result = copy2dGhost(scene, [{ shapeId: edge.id }]);
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    // Three instances, the on-screen original never drawn.
+    expect(result.solids).toHaveLength(2);
+    // The whole rect rides in each instance — the target is the rect
+    // statement, not the one edge the pick landed on.
+    const first = instanceBounds(result, 0);
+    expect(first.maxX - first.minX).toBeCloseTo(100, 3);
+    expect(first.maxY - first.minY).toBeCloseTo(50, 3);
+    // And the second instance sits one more step along local x.
+    const second = instanceBounds(result, 1);
+    expect(second.minX - first.minX).toBeCloseTo(40, 3);
+    expect(second.minY).toBeCloseTo(first.minY, 3);
+  });
+
+  it("an empty pick list copies the whole active (last) sketch", () => {
+    locatedSketch(5, () => { rect(10, 10); });
+    const active = locatedSketch(8, () => { rect(100, 50); move(150, 0); vLine(30); });
+    const scene = render();
+    // The active sketch's own extent, with the OCC boxes' ±0.1 gap stripped.
+    const boxes = [...active.getEdgesWithOwner().keys()].map(e => ShapeOps.getBoundingBox(e));
+    const width = Math.max(...boxes.map(b => b.maxX)) - Math.min(...boxes.map(b => b.minX)) - 0.2;
+
+    const result = copy2dGhost(scene, [], {
+      directions: [{ count: 2, offset: 500, length: null }],
+    });
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    expect(result.solids).toHaveLength(1);
+    // The instance spans the whole active sketch — rect and standalone line
+    // both, wider than the rect alone — and never the first sketch's 10-wide
+    // rect.
+    const box = instanceBounds(result, 0);
+    expect(box.maxX - box.minX).toBeGreaterThan(100.5);
+    expect(box.maxX - box.minX).toBeCloseTo(width, 0);
+  });
+
+  it("centers the copies on the original", () => {
+    const s = locatedSketch(5, () => { rect(100, 50); });
+    const scene = render();
+    const edge = [...s.getEdgesWithOwner().keys()][0];
+
+    const result = copy2dGhost(scene, [{ shapeId: edge.id }], { centered: true });
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    // The original holds the middle cell, so the two clones sit a step to
+    // either side of it — two steps apart, not one.
+    expect(result.solids).toHaveLength(2);
+    expect(instanceBounds(result, 1).minX - instanceBounds(result, 0).minX).toBeCloseTo(80, 3);
+  });
+
+  it("leaves out the instances the skip list names", () => {
+    const s = locatedSketch(5, () => { rect(100, 50); });
+    const scene = render();
+    const picks = [{ shapeId: [...s.getEdgesWithOwner().keys()][0].id }];
+
+    const plain = copy2dGhost(scene, picks);
+    const skipped = copy2dGhost(scene, picks, { skip: [[1]] });
+
+    expect(refusal(plain)).toBe('');
+    expect(refusal(skipped)).toBe('');
+    if (!plain.ok || !skipped.ok) {
+      return;
+    }
+    // Index 1 gone, index 2 still standing where the unskipped run put it.
+    expect(skipped.solids).toHaveLength(1);
+    expect(instanceBounds(skipped, 0).minX).toBeCloseTo(instanceBounds(plain, 1).minX, 3);
+  });
+
+  it("walks a picked sketch line as the direction", () => {
+    const s = locatedSketch(5, () => { rect(100, 50); move(150, 0); vLine(30); });
+    const scene = render();
+    const edges = [...s.getEdgesWithOwner().keys()];
+    // The standalone vertical line: flat in x and shorter than the rect's
+    // 50-tall sides (OCC boxes carry a ±0.1 gap, so "flat" means < 0.3).
+    const vline = edges.find(e => {
+      const box = ShapeOps.getBoundingBox(e);
+      return box.maxX - box.minX < 0.3 && box.maxY - box.minY < 40;
+    })!;
+    const rectEdge = edges.find(e => ShapeOps.getBoundingBox(e).maxX - ShapeOps.getBoundingBox(e).minX > 1)!;
+
+    const result = copy2dGhost(scene, [{ shapeId: rectEdge.id }], {
+      axes: [{ kind: 'edge', shapeId: vline.id }],
+      directions: [{ count: 3, offset: 20, length: null }],
+    });
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    expect(result.solids).toHaveLength(2);
+    // The step runs along the picked line — pure y, whichever way it points.
+    const [a, b] = [instanceBounds(result, 0), instanceBounds(result, 1)];
+    expect(Math.abs(b.minY - a.minY)).toBeCloseTo(20, 3);
+    expect(b.minX).toBeCloseTo(a.minX, 3);
+  });
+
+  it("divides a circular total sweep by the count, not the gaps", () => {
+    const s = locatedSketch(5, () => { hLine(10); });
+    const scene = render();
+    const edge = [...s.getEdgesWithOwner().keys()][0];
+
+    const result = copy2dGhost(scene, [{ shapeId: edge.id }], {
+      kind: 'circular', axes: [], directions: [],
+      center: [0, 0], count: 4, sweep: { mode: 'angle', value: 90 },
+    });
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    expect(result.solids).toHaveLength(3);
+    // 90° across four instances = 22.5° steps (copy-circular2d.ts:49), not
+    // the repeat's 30° gaps: the first clone's far end lands at 22.5°.
+    const first = instanceBounds(result, 0);
+    expect(first.maxX).toBeCloseTo(10 * Math.cos(Math.PI / 8), 3);
+    expect(Math.max(Math.abs(first.minY), Math.abs(first.maxY)))
+      .toBeCloseTo(10 * Math.sin(Math.PI / 8), 3);
+  });
+
+  it("spins about the stated center on the sketch plane", () => {
+    const s = locatedSketch(5, () => { hLine(10); });
+    const scene = render();
+    const edge = [...s.getEdgesWithOwner().keys()][0];
+
+    const result = copy2dGhost(scene, [{ shapeId: edge.id }], {
+      kind: 'circular', axes: [], directions: [],
+      center: [10, 0], count: 2, sweep: { mode: 'angle', value: 360 },
+    });
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    // A half turn about (10, 0) carries the 0–10 line to 10–20 — about the
+    // origin it would land at -10–0 instead.
+    expect(result.solids).toHaveLength(1);
+    const box = instanceBounds(result, 0);
+    expect(box.minX).toBeCloseTo(10, 3);
+    expect(box.maxX).toBeCloseTo(20, 3);
+  });
+
+  it("refuses a direction pick that is not a straight line", () => {
+    const s = locatedSketch(5, () => { rect(100, 50); move(150, 0); circle(10); });
+    const scene = render();
+    const edges = [...s.getEdgesWithOwner().keys()];
+    const arc = edges.find(e => {
+      const box = ShapeOps.getBoundingBox(e);
+      return box.maxX - box.minX > 1 && box.maxX - box.minX < 20;
+    })!;
+    const rectEdge = edges.find(e => ShapeOps.getBoundingBox(e).maxX - ShapeOps.getBoundingBox(e).minX > 50)!;
+
+    const result = copy2dGhost(scene, [{ shapeId: rectEdge.id }], {
+      axes: [{ kind: 'edge', shapeId: arc.id }],
+    });
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("refuses more instances than it draws", () => {
+    const s = locatedSketch(5, () => { rect(100, 50); });
+    const scene = render();
+    const edge = [...s.getEdgesWithOwner().keys()][0];
+
+    const result = copy2dGhost(scene, [{ shapeId: edge.id }], {
+      directions: [{ count: 300, offset: 5, length: null }],
+    });
+
+    expect(result.ok).toBe(false);
+    expect(refusal(result)).toContain('299');
+    // A limit the user can act on — the dialog says this one out loud.
+    expect('surface' in result && result.surface).toBe(true);
+  });
+
+  it("draws nothing while the numbers are still being typed", () => {
+    const s = locatedSketch(5, () => { rect(100, 50); });
+    const scene = render();
+    const picks = [{ shapeId: [...s.getEdgesWithOwner().keys()][0].id }];
+
+    const typing: Partial<Copy2DGhostRequest>[] = [
+      { directions: [{ count: 1, offset: 40, length: null }] },
+      { directions: [{ count: 3, offset: 0, length: null }] },
+      { kind: 'circular', axes: [], directions: [], center: null, count: 4, sweep: { mode: 'angle', value: 360 } },
+    ];
+    for (const overrides of typing) {
+      const result = copy2dGhost(scene, picks, overrides);
+      expect(result.ok, JSON.stringify(overrides)).toBe(true);
+      if (result.ok) {
+        expect(result.solids).toHaveLength(0);
+      }
+    }
+  });
+
+  it("refuses a pick or a direction line the scene doesn't hold", () => {
+    const s = locatedSketch(5, () => { rect(100, 50); });
+    const scene = render();
+    const edge = [...s.getEdgesWithOwner().keys()][0];
+
+    expect(copy2dGhost(scene, [{ shapeId: 'not-a-shape' }]).ok).toBe(false);
+    expect(copy2dGhost(scene, [{ shapeId: edge.id }], {
+      axes: [{ kind: 'edge', shapeId: 'not-a-shape' }],
+    }).ok).toBe(false);
   });
 });

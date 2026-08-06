@@ -592,3 +592,139 @@ describe('feature-ghost route — fillet2d', () => {
     expect(received).toBeUndefined();
   });
 });
+
+/** A linear in-sketch copy exactly as the dialog sends it. */
+function copy2dBody(overrides: Record<string, unknown> = {}) {
+  return {
+    feature: 'copy2d',
+    kind: 'linear',
+    entities: [{ shapeId: 'e1' }],
+    axes: [{ kind: 'local', axis: 'x' }],
+    directions: [{ count: 3, offset: 40, length: null }],
+    centered: false,
+    center: null,
+    count: null,
+    sweep: null,
+    ...overrides,
+  };
+}
+
+describe('feature-ghost route — copy2d', () => {
+  useGhostRoute();
+
+  it('passes a linear in-sketch copy through as resolved numbers', async () => {
+    code = 'const spacing = 25';
+    const { status, body } = await postGhost(copy2dBody({
+      axes: [{ kind: 'local', axis: 'x' }, { kind: 'edge', shapeId: 'line1' }],
+      directions: [
+        { count: 3, offset: 'spacing', length: null },
+        { count: 2, offset: null, length: 90 },
+      ],
+      centered: true,
+      skip: [[1, 0]],
+    }));
+
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(received).toEqual({
+      feature: 'copy2d',
+      kind: 'linear',
+      entities: [{ shapeId: 'e1' }],
+      axes: [{ kind: 'local', axis: 'x' }, { kind: 'edge', shapeId: 'line1' }],
+      directions: [
+        { count: 3, offset: 25, length: null },
+        { count: 2, offset: null, length: 90 },
+      ],
+      centered: true,
+      center: null,
+      count: null,
+      sweep: null,
+      skip: [[1, 0]],
+    });
+  });
+
+  it('passes a circular copy with its center resolved, empty picks allowed', async () => {
+    code = 'const cx = 15';
+    const { status, body } = await postGhost(copy2dBody({
+      kind: 'circular',
+      // The whole-sketch (target-less) statement form the edit dialog sends.
+      entities: [],
+      axes: [],
+      directions: [],
+      center: ['cx', '-cx / 3'],
+      count: 6,
+      sweep: { mode: 'angle', value: 360 },
+      skip: [[2]],
+    }));
+
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(received).toEqual({
+      feature: 'copy2d',
+      kind: 'circular',
+      entities: [],
+      axes: [],
+      directions: [],
+      centered: false,
+      center: [15, -5],
+      count: 6,
+      sweep: { mode: 'angle', value: 360 },
+      skip: [[2]],
+    });
+  });
+
+  it('refuses a body no kind accepts', async () => {
+    const bodies = [
+      // Kinds the in-sketch copy doesn't have.
+      copy2dBody({ kind: 'mirror', axes: [], directions: [] }),
+      // Malformed picks: not a list, and an entry without a shapeId.
+      copy2dBody({ entities: undefined }),
+      copy2dBody({ entities: [{ index: 1 }] }),
+      // Axis forms only the 3D family carries, and an axis/direction mismatch.
+      copy2dBody({ axes: [{ kind: 'standard', axis: 'x' }] }),
+      copy2dBody({ axes: [{ kind: 'axis', filePath: FILE, line: 3 }] }),
+      copy2dBody({ axes: [] }),
+      // Two spacings for one direction, and none at all.
+      copy2dBody({ directions: [{ count: 3, offset: 40, length: 120 }] }),
+      copy2dBody({ directions: [{ count: 3, offset: null, length: null }] }),
+      // A circular copy missing its center, its count, and its sweep.
+      copy2dBody({
+        kind: 'circular', axes: [], directions: [],
+        count: 6, sweep: { mode: 'angle', value: 360 },
+      }),
+      copy2dBody({
+        kind: 'circular', axes: [], directions: [],
+        center: [0, 0], sweep: { mode: 'angle', value: 360 },
+      }),
+      copy2dBody({
+        kind: 'circular', axes: [], directions: [], center: [0, 0], count: 6,
+      }),
+      // A circular copy spins about a center, never an axis.
+      copy2dBody({
+        kind: 'circular', axes: [{ kind: 'local', axis: 'x' }], directions: [],
+        center: [0, 0], count: 6, sweep: { mode: 'angle', value: 360 },
+      }),
+      // A skip tuple wider than the directions it names.
+      copy2dBody({ skip: [[1, 0]] }),
+    ];
+
+    for (const body of bodies) {
+      const result = await postGhost(body);
+      expect(result.status, JSON.stringify(body)).toBe(400);
+      expect(result.body.success).toBe(false);
+    }
+    expect(received).toBeUndefined();
+  });
+
+  it('clears the ghost on an expression the file cannot resolve', async () => {
+    code = '';
+    const { status, body } = await postGhost(copy2dBody({
+      directions: [{ count: 3, offset: 'spacing', length: null }],
+    }));
+
+    // A 200 refusal: the dialog silently clears rather than erroring.
+    expect(status).toBe(200);
+    expect(body.success).toBe(false);
+    expect(received).toBeUndefined();
+  });
+});

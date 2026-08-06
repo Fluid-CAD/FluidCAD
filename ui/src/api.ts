@@ -327,7 +327,8 @@ export type FeatureGhostRequest =
   | CopyGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
-  | Fillet2DGhostRequest;
+  | Fillet2DGhostRequest
+  | Copy2DGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -651,6 +652,52 @@ export type Fillet2DGhostRequest = {
   /** The picked sketch edges (1 shapeId = 1 edge); empty fillets the whole sketch. */
   entities: SketchApplyEntity[];
 };
+
+/**
+ * The in-sketch copy dialog on the ghost wire — keyed `copy2d` because plain
+ * `copy` already names the 3D body-stamping ghost. Like its 3D twin it builds
+ * nothing: the clones a `copy()` places inside a sketch are its targets' own
+ * curves, moved, so what comes back is those curves stamped at each instance
+ * transform, drawn in the ghost wire's blue. Targets travel as on the apply
+ * path (1 shapeId = 1 edge), each pick standing for its whole producing
+ * primitive; an empty list is the target-less (whole sketch) statement form,
+ * which only an edit dialog produces.
+ */
+export type Copy2DGhostRequest = {
+  feature: 'copy2d';
+  kind: 'linear' | 'circular';
+  /** The picked sketch edges; empty copies the whole active sketch. */
+  entities: SketchApplyEntity[];
+  /** Linear: one per direction (1–2). Circular: none — the center serves. */
+  axes: GhostSketchAxisRef[];
+  /** Linear: count and spacing per direction, parallel to {@link axes}. */
+  directions: GhostRepeatDirection[];
+  /** Linear: center the copies on the original instead of starting there. */
+  centered: boolean;
+  /** Circular: the rotation center, in sketch coordinates. */
+  center: [ValueExpr, ValueExpr] | null;
+  /** Circular: instances around the center, the original included. */
+  count: ValueExpr | null;
+  /** Circular: the whole sweep to divide, or the step between neighbours. */
+  sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
+  /**
+   * Instances the copy leaves out, one index per direction (circular carries
+   * a single index each); empty skips none. Plain numbers, never expressions
+   * — the dialog's Skip field takes literal positions.
+   */
+  skip: number[][];
+};
+
+/**
+ * The 2D copy dialog's direction slot on the ghost wire: a sketch-local axis
+ * from the Local X / Local Y quick buttons (`local('x')`), or a picked sketch
+ * line's shapeId — the pick the apply writes as `axis(<var>)`. A kept
+ * statement axis only travels once it reads back as a local form; a kept
+ * `axis(v)` text is unaddressable and draws no ghost.
+ */
+export type GhostSketchAxisRef =
+  | { kind: 'local'; axis: 'x' | 'y' }
+  | { kind: 'edge'; shapeId: string };
 
 /**
  * One ghost body, in the mesh wire format the scene's solids already use.

@@ -4,6 +4,7 @@ import { getJavaScriptParser, type TSNode, type TSTree } from '../code-editor.ts
 import type {
   FeatureGhostRequest, FluidCadServer, GhostAxisRef, GhostEntityRef, GhostHelixSourceRef,
   GhostPathRef, GhostPlaneBaseRef, GhostPlaneRef, GhostRepeatDirection, GhostSectionRef,
+  GhostSketchAxisRef,
 } from '../fluidcad-server.ts';
 import { MAX_COPY_TARGETS, MAX_REPEAT_TARGETS } from './apply-feature.ts';
 
@@ -65,11 +66,12 @@ type GhostBody = {
   skip?: unknown;
   close?: unknown;
   entities?: unknown;
+  center?: unknown;
 };
 
 const FEATURES = [
   'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'plane', 'rib',
-  'offset', 'fillet2d',
+  'offset', 'fillet2d', 'copy2d',
 ];
 
 /** The features that modify edges of an existing solid rather than sweep a profile. */
@@ -613,6 +615,113 @@ function parseCopy(body: GhostBody): RawCopy | string {
   };
 }
 
+/** A 2D copy request's slots, before its numbers are resolved. */
+type RawCopy2D = {
+  kind: 'linear' | 'circular';
+  entities: { shapeId: string }[];
+  axes: GhostSketchAxisRef[];
+  directions: RawDirection[];
+  centered: boolean;
+  center: [ValueExpr, ValueExpr] | null;
+  count: ValueExpr | null;
+  sweep: RawSweep | null;
+  skip: number[][];
+};
+
+/**
+ * The in-sketch copy dialog's slots, cross-checked kind by kind: a linear
+ * copy needs a sketch axis per direction, a circular one a center point with
+ * a count and an angle. The targets are sketch-edge picks, and an empty list
+ * is valid — the target-less (whole sketch) statement form only the edit
+ * dialog produces. Hand-written rather than shared with {@link parseCopy} for
+ * the same reason that one isn't shared with {@link parseRepeat}:
+ * near-identical shapes validated for different purposes must not drift into
+ * each other.
+ */
+function parseCopy2D(body: GhostBody): RawCopy2D | string {
+  if (typeof body.kind !== 'string' || !COPY_KINDS.includes(body.kind)) {
+    return 'Invalid copy kind';
+  }
+  const kind = body.kind as RawCopy2D['kind'];
+  const entities = parseSketchEntityRefs(body.entities);
+  if (!entities) {
+    return 'Invalid copy targets';
+  }
+  const axes = parseSketchAxes(body.axes ?? []);
+  if (!axes) {
+    return 'Invalid axis reference';
+  }
+  const directions = parseDirections(body.directions ?? []);
+  if (!directions || directions.length > MAX_GHOST_DIRECTIONS) {
+    return 'Invalid copy directions';
+  }
+  const sweep = body.sweep == null ? null : parseSweep(body.sweep);
+  if (body.sweep != null && !sweep) {
+    return 'Invalid copy sweep';
+  }
+  const skip = parseSkip(body.skip, kind === 'linear' ? Math.max(1, directions.length) : 1);
+  if (!skip) {
+    return 'Invalid copy skip';
+  }
+
+  let center: [ValueExpr, ValueExpr] | null = null;
+  if (kind === 'linear') {
+    // One axis per direction — the pairing IS the request; a mismatch would
+    // silently copy along the wrong one.
+    if (directions.length === 0 || axes.length !== directions.length) {
+      return 'Invalid copy directions';
+    }
+  } else {
+    // A circular in-sketch copy spins about a center point, never an axis.
+    if (axes.length !== 0) {
+      return 'Invalid axis reference';
+    }
+    if (!Array.isArray(body.center) || body.center.length !== 2
+      || !isValueExpr(body.center[0]) || !isValueExpr(body.center[1])) {
+      return 'Invalid copy center';
+    }
+    center = [body.center[0], body.center[1]];
+    if (!isValueExpr(body.count) || !sweep) {
+      return 'Invalid circular copy';
+    }
+  }
+
+  return {
+    kind,
+    entities,
+    axes,
+    directions,
+    centered: body.centered === true,
+    center,
+    count: isValueExpr(body.count) ? body.count : null,
+    sweep,
+    skip,
+  };
+}
+
+/**
+ * The 2D copy's direction slots: sketch-local axes (the Local X / Local Y
+ * quick buttons) and picked sketch lines by shapeId. The 3D family's
+ * axis-statement and standard-axis forms never appear here.
+ */
+function parseSketchAxes(value: unknown): GhostSketchAxisRef[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const axes: GhostSketchAxisRef[] = [];
+  for (const raw of value) {
+    const axis = raw as { kind?: unknown; axis?: unknown; shapeId?: unknown };
+    if (axis?.kind === 'local' && (axis.axis === 'x' || axis.axis === 'y')) {
+      axes.push({ kind: 'local', axis: axis.axis });
+    } else if (axis?.kind === 'edge' && typeof axis.shapeId === 'string') {
+      axes.push({ kind: 'edge', shapeId: axis.shapeId });
+    } else {
+      return null;
+    }
+  }
+  return axes;
+}
+
 /**
  * A copy's skip list: index tuples, one index per direction at most. Plain
  * whole numbers only — a skip names literal positions, so nothing here goes
@@ -779,8 +888,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     // The 2D ops rework curves inside their sketch — there is no add/remove/new.
     const isOffset = body.feature === 'offset';
     const isFillet2D = body.feature === 'fillet2d';
+    const isCopy2D = body.feature === 'copy2d';
     if (!isBand && !isHelix && !isRepeat && !isCopy && !isPlane && !isOffset && !isFillet2D
-      && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
+      && !isCopy2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
     }
@@ -888,6 +998,15 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
       }
       copy = parsed;
     }
+    let copy2d: RawCopy2D | null = null;
+    if (isCopy2D) {
+      const parsed = parseCopy2D(body);
+      if (typeof parsed === 'string') {
+        res.status(400).json({ success: false, reason: parsed });
+        return;
+      }
+      copy2d = parsed;
+    }
     let planeType: 'offset' | 'mid' | 'edge' | null = null;
     let planeBases: GhostPlaneBaseRef[] = [];
     if (isPlane) {
@@ -953,15 +1072,18 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const rotateY = resolve(body.rotateY);
     const rotateZ = resolve(body.rotateZ);
     const position = resolve(body.position);
-    // The repeat and the copy state their instances identically — one pass
-    // resolves whichever of the two asked.
-    const rawSweep = repeat?.sweep ?? copy?.sweep ?? null;
+    // The repeat and both copies state their instances identically — one pass
+    // resolves whichever of the three asked.
+    const rawSweep = repeat?.sweep ?? copy?.sweep ?? copy2d?.sweep ?? null;
     const sweepValue = rawSweep ? resolve(rawSweep.value) : null;
-    const directions = (repeat?.directions ?? copy?.directions ?? []).map(direction => ({
+    const directions = (repeat?.directions ?? copy?.directions ?? copy2d?.directions ?? []).map(direction => ({
       count: resolve(direction.count),
       offset: resolve(direction.offset),
       length: resolve(direction.length),
     }));
+    const center2d = copy2d?.center
+      ? [resolve(copy2d.center[0]), resolve(copy2d.center[1])]
+      : null;
 
     if (values.some(v => v === null)) {
       // An expression this server can't evaluate — the client clears the ghost.
@@ -1032,6 +1154,20 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         count,
         sweep: copy!.sweep ? { mode: copy!.sweep.mode, value: sweepValue! } : null,
         skip: copy!.skip,
+      };
+    } else if (isCopy2D) {
+      request = {
+        feature: 'copy2d',
+        kind: copy2d!.kind,
+        entities: copy2d!.entities,
+        axes: copy2d!.axes,
+        // Every value resolved above, or the request never reached here.
+        directions: directions as GhostRepeatDirection[],
+        centered: copy2d!.centered,
+        center: center2d ? [center2d[0]!, center2d[1]!] : null,
+        count,
+        sweep: copy2d!.sweep ? { mode: copy2d!.sweep.mode, value: sweepValue! } : null,
+        skip: copy2d!.skip,
       };
     } else if (isLoft) {
       const op = body.op as 'add' | 'remove' | 'new';

@@ -461,3 +461,70 @@ describe('feature-ghost route — copy', () => {
     expect(received).toBeUndefined();
   });
 });
+
+describe('feature-ghost route — offset', () => {
+  useGhostRoute();
+
+  it('passes the offset dialog through as a resolved number and explicit picks', async () => {
+    code = 'const wall = 3';
+    const { status, body } = await postGhost({
+      feature: 'offset',
+      distance: 'wall',
+      close: true,
+      entities: [{ shapeId: 'e1' }, { shapeId: 'e2' }],
+    });
+
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(received).toEqual({
+      feature: 'offset',
+      distance: 3,
+      close: true,
+      entities: [{ shapeId: 'e1' }, { shapeId: 'e2' }],
+    });
+  });
+
+  it('carries the whole-sketch form as an empty pick list', async () => {
+    await postGhost({ feature: 'offset', distance: -2, close: false, entities: [] });
+
+    expect(received).toEqual({
+      feature: 'offset',
+      distance: -2,
+      close: false,
+      entities: [],
+    });
+  });
+
+  it('refuses a missing, zero, or unresolvable-pick body', async () => {
+    const bodies = [
+      // No distance at all, and one the sign check refuses.
+      { feature: 'offset', entities: [{ shapeId: 'e1' }] },
+      { feature: 'offset', distance: 0, entities: [{ shapeId: 'e1' }] },
+      // Malformed picks: not a list, and an entry without a shapeId.
+      { feature: 'offset', distance: 2 },
+      { feature: 'offset', distance: 2, entities: [{ index: 1 }] },
+    ];
+
+    for (const body of bodies) {
+      const result = await postGhost(body);
+      expect(result.status, JSON.stringify(body)).toBe(400);
+      expect(result.body.success).toBe(false);
+    }
+    expect(received).toBeUndefined();
+  });
+
+  it('clears the ghost on an expression the file cannot resolve', async () => {
+    code = '';
+    const { status, body } = await postGhost({
+      feature: 'offset',
+      distance: 'wall',
+      close: false,
+      entities: [{ shapeId: 'e1' }],
+    });
+
+    // A 200 refusal: the dialog silently clears rather than erroring.
+    expect(status).toBe(200);
+    expect(body.success).toBe(false);
+    expect(received).toBeUndefined();
+  });
+});

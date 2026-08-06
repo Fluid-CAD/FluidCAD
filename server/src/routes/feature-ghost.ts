@@ -63,10 +63,13 @@ type GhostBody = {
   rotateZ?: unknown;
   position?: unknown;
   skip?: unknown;
+  close?: unknown;
+  entities?: unknown;
 };
 
 const FEATURES = [
   'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'plane', 'rib',
+  'offset',
 ];
 
 /** The features that modify edges of an existing solid rather than sweep a profile. */
@@ -274,6 +277,27 @@ function parseEntityRefs(value: unknown): GhostEntityRef[] | null {
       return null;
     }
     refs.push({ shapeId: entity.shapeId, index: entity.index, kind: entity.kind });
+  }
+  return refs;
+}
+
+/**
+ * The offset dialog's picked sketch edges: one shapeId names one sketch edge,
+ * no sub-shape indices (the 2D pick invariant). An EMPTY list is valid — the
+ * `offset(d)` form, which offsets the whole active sketch — so only a missing
+ * or malformed entry refuses.
+ */
+function parseSketchEntityRefs(value: unknown): { shapeId: string }[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const refs: { shapeId: string }[] = [];
+  for (const raw of value) {
+    const entity = raw as { shapeId?: unknown };
+    if (!entity || typeof entity.shapeId !== 'string') {
+      return null;
+    }
+    refs.push({ shapeId: entity.shapeId });
   }
   return refs;
 }
@@ -752,7 +776,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const isRepeat = body.feature === 'repeat';
     const isCopy = body.feature === 'copy';
     const isPlane = body.feature === 'plane';
-    if (!isBand && !isHelix && !isRepeat && !isCopy && !isPlane
+    // A 2D offset adds curves to its sketch — there is no add/remove/new.
+    const isOffset = body.feature === 'offset';
+    if (!isBand && !isHelix && !isRepeat && !isCopy && !isPlane && !isOffset
       && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
@@ -775,6 +801,14 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     if (isBand) {
       edgeRefs = parseEntityRefs(body.edges);
       if (!edgeRefs || edgeRefs.length === 0) {
+        res.status(400).json({ success: false, reason: 'Invalid edge selection' });
+        return;
+      }
+    }
+    let sketchEntities: { shapeId: string }[] | null = null;
+    if (isOffset) {
+      sketchEntities = parseSketchEntityRefs(body.entities);
+      if (!sketchEntities) {
         res.status(400).json({ success: false, reason: 'Invalid edge selection' });
         return;
       }
@@ -1032,6 +1066,19 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         spine: spineRef!,
         scope: ribScope,
         exclude: ribExclude,
+      };
+    } else if (isOffset) {
+      // A zero distance never leaves the dialog (its sign check refuses it);
+      // an absent one is a malformed request rather than a silent no-ghost.
+      if (distance === null || distance === 0) {
+        res.status(400).json({ success: false, reason: 'Invalid distance' });
+        return;
+      }
+      request = {
+        feature: 'offset',
+        distance,
+        close: body.close === true,
+        entities: sketchEntities!,
       };
     } else if (body.feature === 'revolve') {
       if (angle === null) {

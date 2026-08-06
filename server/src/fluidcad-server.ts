@@ -159,7 +159,8 @@ export type FeatureGhostRequest =
   | HelixGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
-  | PlaneGhostRequest;
+  | PlaneGhostRequest
+  | OffsetGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -420,6 +421,23 @@ export type GhostPlaneBaseRef =
   | GhostPlaneRef
   | { kind: 'wire'; filePath: string; line: number }
   | { kind: 'edge'; shapeId: string; index: number };
+
+/**
+ * The 2D offset — the first sketch-op ghost. What an `offset()` adds is
+ * curves, so its ghost is the offset wires themselves. The targets are the
+ * dialog's picked sketch edges, addressed the way every sketch-op apply
+ * addresses them: one shapeId names one sketch edge. An empty list is the
+ * `offset(d)` form, which offsets the whole active sketch.
+ */
+export type OffsetGhostRequest = {
+  feature: 'offset';
+  /** Signed offset distance. Nonzero. */
+  distance: number;
+  /** `.close()` — cap an open offset back onto its source with two straight edges. */
+  close: boolean;
+  /** The picked sketch edges (1 shapeId = 1 edge); empty offsets the whole sketch. */
+  entities: { shapeId: string }[];
+};
 
 /**
  * One ghost body's meshes, in the same wire format a rendered solid uses.

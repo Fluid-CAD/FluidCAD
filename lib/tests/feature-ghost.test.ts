@@ -23,8 +23,8 @@ import { FaceQuery } from "../oc/face-query.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import {
   buildFeatureGhost, CopyGhostRequest, ExtrudeGhostRequest, FeatureGhostResult, GhostPathRef,
-  GhostSectionRef, LoftGhostRequest, RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest,
-  SweepGhostRequest,
+  GhostSectionRef, LoftGhostRequest, OffsetGhostRequest, RepeatGhostRequest, RevolveGhostRequest,
+  RibGhostRequest, SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { Scene, SceneObjectMesh } from "../rendering/scene.js";
@@ -1794,6 +1794,133 @@ describe("feature ghost — rib", () => {
       expect(wall.maxY - wall.minY).toBeGreaterThan(4.9);
       expect(wall.minX).toBeGreaterThanOrEqual(-46 - 0.1);
       expect(wall.minZ).toBeGreaterThanOrEqual(4 - 0.1);
+    }
+  });
+});
+
+const OFFSET_BASE: Omit<OffsetGhostRequest, 'entities'> = {
+  feature: 'offset',
+  distance: 5,
+  close: false,
+};
+
+function offsetGhost(
+  scene: Scene,
+  entities: { shapeId: string }[],
+  overrides: Partial<OffsetGhostRequest> = {},
+) {
+  return buildFeatureGhost(scene, { ...OFFSET_BASE, ...overrides, entities }, DEFAULT_MESH_CONFIG);
+}
+
+/** Every vertex across a ghost body's meshes, as [x, y, z] triples. */
+function wireVertices(result: FeatureGhostResult, solid = 0): [number, number, number][] {
+  if (!result.ok) {
+    throw new Error(`ghost refused: ${refusal(result)}`);
+  }
+  const points: [number, number, number][] = [];
+  for (const mesh of result.solids[solid].meshes) {
+    for (let i = 0; i < mesh.vertices.length; i += 3) {
+      points.push([mesh.vertices[i], mesh.vertices[i + 1], mesh.vertices[i + 2]]);
+    }
+  }
+  return points;
+}
+
+describe("offset ghost", () => {
+  setupOC();
+
+  it("offsets a picked straight edge parallel to itself, on the sketch plane", () => {
+    const s = locatedSketch(5, () => { rect(100, 50); });
+    const scene = render();
+    // OCC boxes carry a ±0.1 gap, so "flat" means thinner than that padding
+    // and the midline is the exact coordinate.
+    const horizontal = [...s.getEdgesWithOwner().keys()].find(e => {
+      const box = ShapeOps.getBoundingBox(e);
+      return box.maxY - box.minY < 0.3 && box.maxX - box.minX > 1;
+    })!;
+    const edgeBox = ShapeOps.getBoundingBox(horizontal);
+    const edgeY = (edgeBox.minY + edgeBox.maxY) / 2;
+
+    const result = offsetGhost(scene, [{ shapeId: horizontal.id }]);
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    expect(result.solids).toHaveLength(1);
+    for (const [, y, z] of wireVertices(result)) {
+      expect(Math.abs(y - edgeY)).toBeCloseTo(5, 3);
+      expect(z).toBeCloseTo(0, 3);
+    }
+  });
+
+  it("close caps the open offset back onto its source", () => {
+    const s = locatedSketch(5, () => { hLine(40); });
+    const scene = render();
+    const edge = [...s.getEdgesWithOwner().keys()][0];
+
+    const result = offsetGhost(scene, [{ shapeId: edge.id }], { close: true });
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    // The offset wire plus the two straight caps back onto the original.
+    expect(result.solids).toHaveLength(3);
+  });
+
+  it("an empty pick list offsets the whole active (last) sketch", () => {
+    locatedSketch(5, () => { rect(100, 50); });
+    const active = locatedSketch(8, () => { circle(10); });
+    const scene = render();
+    const circleEdge = [...active.getEdgesWithOwner().keys()][0];
+    const circleBox = ShapeOps.getBoundingBox(circleEdge);
+    // Strip the box's ±0.1 gap to get the circle's true width.
+    const circleWidth = circleBox.maxX - circleBox.minX - 0.2;
+
+    const result = offsetGhost(scene, []);
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    expect(result.solids).toHaveLength(1);
+    const xs = wireVertices(result).map(([x]) => x);
+    const width = Math.max(...xs) - Math.min(...xs);
+    // The circle's outline ±5 whichever side the sign lands on — never the
+    // first sketch's 100-wide rect.
+    expect(Math.abs(Math.abs(width - circleWidth) - 10)).toBeLessThan(0.5);
+  });
+
+  it("refuses picks that live in different sketches", () => {
+    const a = locatedSketch(5, () => { rect(100, 50); });
+    const b = locatedSketch(8, () => { circle(10); });
+    const scene = render();
+    const edgeA = [...a.getEdgesWithOwner().keys()][0];
+    const edgeB = [...b.getEdgesWithOwner().keys()][0];
+
+    const result = offsetGhost(scene, [{ shapeId: edgeA.id }, { shapeId: edgeB.id }]);
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("refuses a pick the scene doesn't hold", () => {
+    locatedSketch(5, () => { rect(100, 50); });
+    const scene = render();
+
+    expect(offsetGhost(scene, [{ shapeId: 'not-a-shape' }]).ok).toBe(false);
+  });
+
+  it("draws nothing at a zero distance", () => {
+    const s = locatedSketch(5, () => { rect(100, 50); });
+    const scene = render();
+    const edge = [...s.getEdgesWithOwner().keys()][0];
+
+    const result = offsetGhost(scene, [{ shapeId: edge.id }], { distance: 0 });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.solids).toHaveLength(0);
     }
   });
 });

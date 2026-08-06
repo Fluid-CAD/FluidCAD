@@ -16,6 +16,8 @@ import {
   HelixSourceKind, resolveHelixEdgeSource, resolveHelixFaceSource,
 } from "../features/helix-geometry.js";
 import { buildLoftGhostSolids, LoftGhostProfile } from "../features/loft-ghost.js";
+import { buildOffsetGhostWires } from "../features/2d/offset-ghost.js";
+import { Sketch } from "../features/2d/sketch.js";
 import { buildPlaneGhostQuad, PlaneGhostBase, PlaneGhostSource } from "../features/plane-ghost.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import {
@@ -57,7 +59,8 @@ export type FeatureGhostRequest =
   | HelixGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
-  | PlaneGhostRequest;
+  | PlaneGhostRequest
+  | OffsetGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -359,6 +362,28 @@ export type GhostPlaneBaseRef =
   | { kind: 'edge'; shapeId: string; index: number };
 
 /**
+ * The 2D offset — the first sketch-op ghost, and the third feature (after the
+ * helix and the plane) that puts no material anywhere: what an `offset()`
+ * adds is curves, so its ghost is the offset wires themselves, drawn in the
+ * same blue a ghost helix wears.
+ *
+ * The targets are the dialog's picked sketch edges, addressed the way every
+ * sketch-op apply addresses them: one `shapeId` names one sketch edge (the
+ * Stage 0 emission invariant — no sub-shape indices in 2D). An empty list is
+ * the `offset(d)` form, which offsets the whole active sketch; only the edit
+ * dialog produces it, for a statement that names no targets of its own.
+ */
+export type OffsetGhostRequest = {
+  feature: 'offset';
+  /** Signed offset distance — the kernel's own side convention. Nonzero. */
+  distance: number;
+  /** `.close()` — cap an open offset back onto its source with two straight edges. */
+  close: boolean;
+  /** The picked sketch edges (1 shapeId = 1 edge); empty offsets the whole sketch. */
+  entities: { shapeId: string }[];
+};
+
+/**
  * One ghost body, in the same mesh wire format a rendered solid uses. `kind`
  * overrides the overlay's per-dialog color for this body alone — a fillet's
  * picks can take material away at one edge and put it back at the next, so the
@@ -447,6 +472,9 @@ export function buildFeatureGhost(
   }
   if (request.feature === 'plane') {
     return buildPlaneGhost(scene, request, meshConfig);
+  }
+  if (request.feature === 'offset') {
+    return meshGhostBodies(buildOffsetGhost(scene, request), meshConfig);
   }
   return buildBandGhost(scene, request, meshConfig);
 }
@@ -766,6 +794,89 @@ function resolvePlaneGhostEdge(
 /** A point or direction, flattened to what the wire carries. */
 function toVector3Wire(value: { x: number; y: number; z: number }): Vector3Wire {
   return { x: value.x, y: value.y, z: value.z };
+}
+
+/**
+ * The 2D offset branch: resolve the picked sketch edges and hand them to the
+ * ghost builder, which chains and offsets them exactly as `Offset.build`
+ * would. Resolution mirrors the apply's own (`resolvePicks`,
+ * sketch-apply.ts): each shapeId names one edge in one sketch's
+ * `getEdgesWithOwner` index — guides excluded, as on the apply path — and
+ * picks straddling two sketches refuse, because the apply refuses them too.
+ *
+ * An empty pick list is the `offset(d)` form: the whole active (last) sketch,
+ * the same edge set `Offset.build` reads when it has no targets. In the edit
+ * dialog the build is paused just BEFORE the statement, so unlike the swept
+ * features nothing here needs the empty-removal-scope fallback — the
+ * statement's own consumption hasn't happened yet.
+ */
+function buildOffsetGhost(scene: Scene, request: OffsetGhostRequest): GhostBuild {
+  if (request.distance === 0) {
+    // A distance still being typed — nothing to draw, nothing wrong.
+    return { solids: [], scratch: [] };
+  }
+  // The registration list, NOT `allObjects` — its stack walk reorders, and
+  // the whole-sketch form needs "last" to mean last in the document, the way
+  // `resolveSketchStatementTargets` reads the active sketch.
+  const sketches = scene.getAllSceneObjects().filter((o): o is Sketch => o instanceof Sketch);
+  if (sketches.length === 0) {
+    return { reason: 'No sketch is active.' };
+  }
+
+  let sketch: Sketch;
+  let edges: Edge[];
+  if (request.entities.length === 0) {
+    sketch = sketches[sketches.length - 1];
+    edges = [...sketch.getEdgesWithOwner().keys()];
+  } else {
+    let picked: Sketch | null = null;
+    const resolved: Edge[] = [];
+    const seen = new Set<string>();
+    for (const entity of request.entities) {
+      if (seen.has(entity.shapeId)) {
+        continue;
+      }
+      seen.add(entity.shapeId);
+      const hit = findSketchEdge(sketches, entity.shapeId);
+      if (!hit) {
+        return { reason: 'That edge is not in the rendered scene.' };
+      }
+      if (picked && hit.sketch !== picked) {
+        return { reason: 'The picked edges live in different sketches.' };
+      }
+      picked = hit.sketch;
+      resolved.push(hit.edge);
+    }
+    sketch = picked!;
+    edges = resolved;
+  }
+  if (edges.length === 0) {
+    return { reason: 'The sketch has no edges to offset.' };
+  }
+
+  const plane = sketch.getPlane();
+  if (!plane) {
+    return { reason: 'The sketch has no plane.' };
+  }
+  return buildOffsetGhostWires(edges, plane, {
+    distance: request.distance,
+    close: request.close,
+  });
+}
+
+/** The sketch edge a pick's shapeId names, with the sketch it lives in. */
+function findSketchEdge(
+  sketches: Sketch[],
+  shapeId: string,
+): { sketch: Sketch; edge: Edge } | null {
+  for (const sketch of sketches) {
+    for (const edge of sketch.getEdgesWithOwner().keys()) {
+      if (edge.id === shapeId) {
+        return { sketch, edge };
+      }
+    }
+  }
+  return null;
 }
 
 /**

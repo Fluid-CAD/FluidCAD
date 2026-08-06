@@ -27,6 +27,7 @@ import { TrimPickService } from './trim-pick-service';
 import { TrimDialog } from './trim-dialog';
 import { ProjectionPickService } from './projection-pick-service';
 import { SketchOpMode, SketchOpService, SketchOpSelection, SketchPickDescription } from './sketch-op-service';
+import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { ConstraintToolbarService } from './constraint-toolbar';
 import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
@@ -139,8 +140,11 @@ export class SketchToolbarService {
     };
     const opVars = () => this.fetchScopeVariables();
     const opDone = () => this.handleToolSelect(null);
+    // One shared overlay for the op dialogs' live geometry — only one dialog
+    // is ever open, and today only offset draws into it.
+    const opGhost = new FeatureGhostOverlay(viewer);
     const opService = (config: ConstructorParameters<typeof SketchOpService>[1]) =>
-      new SketchOpService(container, config, opSelection, opVars, opDone);
+      new SketchOpService(container, config, opSelection, opVars, opDone, opGhost);
     this.opServices = {
       fillet: opService({
         feature: 'fillet', title: 'Fillet', pickHint: 'Pick sketch edges to fillet',

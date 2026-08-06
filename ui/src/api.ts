@@ -311,7 +311,8 @@ export type FeatureGhostRequest =
   | HelixGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
-  | PlaneGhostRequest;
+  | PlaneGhostRequest
+  | OffsetGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -597,6 +598,27 @@ export type GhostPlaneBaseRef =
   | GhostPlaneRef
   | { kind: 'wire'; filePath: string; line: number }
   | { kind: 'edge'; shapeId: string; index: number };
+
+/**
+ * The 2D offset dialog on the ghost wire — the first sketch-op ghost, and the
+ * third feature (after the helix and the plane) that puts no material
+ * anywhere: what an `offset()` adds is curves, so what comes back is the
+ * offset wires themselves, drawn in the ghost wire's blue.
+ *
+ * The targets are the dialog's picked sketch edges, exactly as the apply
+ * addresses them (1 shapeId = 1 edge, no sub refs in 2D). An empty list is
+ * the `offset(d)` whole-sketch form, which only an edit dialog produces —
+ * for a statement that names no targets of its own.
+ */
+export type OffsetGhostRequest = {
+  feature: 'offset';
+  /** Signed offset distance — an expression resolves server-side. */
+  distance: ValueExpr;
+  /** `.close()` — cap an open offset back onto its source with two straight edges. */
+  close: boolean;
+  /** The picked sketch edges (1 shapeId = 1 edge); empty offsets the whole sketch. */
+  entities: SketchApplyEntity[];
+};
 
 /**
  * One ghost body, in the mesh wire format the scene's solids already use.

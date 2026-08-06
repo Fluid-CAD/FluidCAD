@@ -1,10 +1,12 @@
 import {
   applyFillet2DEdit, applyOffsetEdit, applySketchOp, applySlotDrawEdit, applySlotEdit, clearBreakpoints,
-  fetchSketchFeatureSources, FeatureEditTarget, NewVariable, OffsetOptionValues, ParsedFeatureStatement,
+  fetchFeatureGhost, fetchSketchFeatureSources, FeatureEditTarget, GhostSolid, NewVariable,
+  OffsetGhostRequest, OffsetOptionValues, ParsedFeatureStatement,
   SketchApplyEntity, SketchOpFeature, SlotOptionValues, ValueExpr,
 } from '../api';
 import { ExpressionRow } from './modify-pick/expression-row';
 import { PickSlot, PickSlotChip } from './pick-slot';
+import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { keepChip } from './create-feature/sketch-profiles';
 import { ChoiceTabs, DIALOG_DOCK_CLASS, DIALOG_COLUMN_CLASS, DIALOG_BODY_CLASS } from './create-feature/panel-controls';
 import { ExpressionField } from '../ui/expression-field';
@@ -172,6 +174,8 @@ export class SketchOpService {
     private readonly selection: SketchOpSelection,
     private fetchVariables: () => Promise<VariableInfo[]>,
     private onDone: () => void,
+    /** The live viewport geometry overlay; only offset draws into it today. */
+    private readonly ghost?: FeatureGhostOverlay,
   ) {
     this.panel = document.createElement('div');
     this.panel.id = `fluidcad-sketch-${config.feature}-panel`;
@@ -336,6 +340,7 @@ export class SketchOpService {
     this.syncModeUI();
     if (mode === 'draw') {
       this.cancelPreview();
+      this.ghost?.clear();
       this.expression.hide();
       this.setError(null);
     } else {
@@ -625,6 +630,7 @@ export class SketchOpService {
     this.panel.classList.add('hidden');
     viewportChrome.setDialogOpen(this.panel.id, false);
     this.cancelPreview();
+    this.ghost?.clear();
     this.expression.hide();
     this.expression.setSuffix(')');
     this.setError(null);
@@ -791,6 +797,7 @@ export class SketchOpService {
       // only carries what the slot can't say (value errors).
       this.setHint(this.pickSlot && incomplete.kind === 'picks' ? null : incomplete.message);
       this.setError(null);
+      this.ghost?.clear();
       return;
     }
 
@@ -813,16 +820,77 @@ export class SketchOpService {
         this.syncExpressionPrefix(value);
         this.expression.show(args, result.alternatives ?? []);
         this.applyBtn.disabled = false;
+        // The statement preview's geometric twin, chained under the same
+        // abort scope — the way ApplyRunner chains its ghost hook.
+        await this.runGhost(value, abort.signal);
       } else {
         this.expression.hide();
         this.applyBtn.disabled = true;
         this.setError(result.reason ?? 'Could not synthesize a selector for this selection');
+        // A statement the apply would refuse must not keep its geometry up.
+        this.ghost?.clear();
       }
     } catch (err) {
       if (!(err instanceof DOMException && err.name === 'AbortError')) {
         this.setError('Could not reach the FluidCAD server');
+        this.ghost?.clear();
       }
     }
+  }
+
+  /**
+   * Draw the live offset wires for the just-previewed values, or clear the
+   * overlay when the request can't be addressed. Runs on the statement
+   * preview's own abort signal, so a superseded preview also supersedes its
+   * ghost; a stale answer is dropped rather than drawn.
+   */
+  private async runGhost(value: ValueExpr | undefined, signal: AbortSignal): Promise<void> {
+    if (!this.ghost) {
+      return;
+    }
+    const request = this.ghostRequest(value);
+    if (!request) {
+      this.ghost.clear();
+      return;
+    }
+    let solids: GhostSolid[] | null;
+    try {
+      solids = await fetchFeatureGhost(request, signal);
+    } catch {
+      return; // aborted
+    }
+    if (signal.aborted || !this.active) {
+      return;
+    }
+    if (solids) {
+      this.ghost.set(solids, 'wire');
+    } else {
+      this.ghost.clear();
+    }
+  }
+
+  /**
+   * The live geometry request for the current dialog state, or null when this
+   * op has none (only offset ghosts today) or the targets can't be addressed.
+   * The picks travel as they are; with none picked, an edit whose keep chip
+   * stands over an EMPTY argument list is the whole-sketch `offset(d)` form
+   * (entities: []), while one standing over real target args has nothing
+   * addressable to preview — its seed either failed or was cleared.
+   */
+  private ghostRequest(value: ValueExpr | undefined): OffsetGhostRequest | null {
+    if (this.config.feature !== 'offset' || value === undefined) {
+      return null;
+    }
+    const ids = this.selection.ids();
+    if (ids.length === 0 && (!this.editTarget || this.editArgsText.trim() !== '')) {
+      return null;
+    }
+    return {
+      feature: 'offset',
+      distance: value,
+      close: this.offsetOptions()?.close === true,
+      entities: ids.map(shapeId => ({ shapeId })),
+    };
   }
 
   /**

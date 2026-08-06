@@ -2,14 +2,14 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Axis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { ShapeOps } from "../oc/shape-ops.js";
-import { GeometrySceneObject } from "./2d/geometry.js";
+import { Copy2DBase } from "./copy2d-base.js";
 import { LinearCopyOptions } from "./copy-linear.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
 import { type NumberParam, resolveParam } from "../core/param.js";
 
 export type CopyLinear2DAxis = Axis | AxisObjectBase;
 
-export class CopyLinear2D extends GeometrySceneObject {
+export class CopyLinear2D extends Copy2DBase {
   constructor(
     public axes: CopyLinear2DAxis[],
     public options: LinearCopyOptions,
@@ -19,6 +19,7 @@ export class CopyLinear2D extends GeometrySceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
+    this.resetInstances();
     let objects: SceneObject[];
     const allSiblings = this.sketch.getPreviousSiblings(this);
 
@@ -67,6 +68,16 @@ export class CopyLinear2D extends GeometrySceneObject {
       centered ? Math.floor(counts[a] / 2) : 0
     );
 
+    // Grid slots linearize the position tuple axis-major (axis 0 slowest),
+    // matching the generation order below. The original block sits at ITS
+    // grid position — slot 0 uncentered, the center slot when centered.
+    const slotIndex = (pos: number[]) =>
+      pos.reduce((acc, v, a) => acc * counts[a] + v, 0);
+    const originalSlot = slotIndex(centerIndices);
+    for (const shape of originalShapes) {
+      this.recordInstanceShape(shape, originalSlot);
+    }
+
     // Build grid positions as cartesian product of per-axis indices (0..counts[a]-1)
     let positions: number[][] = [[]];
     for (let a = 0; a < resolvedAxes.length; a++) {
@@ -96,6 +107,7 @@ export class CopyLinear2D extends GeometrySceneObject {
         const transformed = ShapeOps.transform(shape, matrix);
         transformed.setMeshSource(shape, matrix);
         this.addShape(transformed);
+        this.recordInstanceShape(transformed, slotIndex(pos));
       }
     }
   }

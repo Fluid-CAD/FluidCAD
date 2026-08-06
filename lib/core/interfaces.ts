@@ -919,6 +919,21 @@ export interface ISweep extends IBooleanOperation {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
+export interface ICopy extends ISceneObject {
+  /**
+   * Selects one grid slot of a 2D (in-sketch) copy as a whole geometry —
+   * every edge the copy stamped at that position, usable wherever a whole
+   * geometry operand is accepted (e.g. `fuse(cp.instance(0), cp.instance(3))`).
+   * Linear copies linearize the grid in axis order (the first axis varies
+   * slowest), with the original at its own slot — 0 when not centered, the
+   * center slot when centered. Circular copies count rotation steps with the
+   * original at 0, the same numbering the `skip` option uses. 3D copies do
+   * not support this accessor.
+   * @param index - The grid-slot index.
+   */
+  instance(index: number): ISceneObject;
+}
+
 export interface IMirror extends IBooleanOperation {
   /**
    * Excludes the given objects from the mirror operation. Useful when

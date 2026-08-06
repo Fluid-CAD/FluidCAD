@@ -11,7 +11,7 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { CopyAxisSource } from "../features/copy-base.js";
 import { Axis } from "../math/axis.js";
 import { resolveAxis } from "../helpers/resolve.js";
-import { ISceneObject } from "./interfaces.js";
+import { ICopy, ISceneObject } from "./interfaces.js";
 
 export type CopyType = 'linear' | 'circular';
 
@@ -42,7 +42,7 @@ interface CopyFunction {
    * @param options - Copy count, spacing, etc.
    * @param objects - The objects to copy (defaults to last object)
    */
-  (type: 'linear', axis: AxisLike, options: LinearCopyOptions, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'linear', axis: AxisLike, options: LinearCopyOptions, ...objects: ISceneObject[]): ICopy;
   /**
    * [2D] Creates linear copies along multiple axes inside a sketch.
    * @param type - Must be `'linear'`
@@ -50,7 +50,7 @@ interface CopyFunction {
    * @param options - Copy count, spacing, etc.
    * @param objects - The objects to copy (defaults to last object)
    */
-  (type: 'linear', axis: AxisLike[], options: LinearCopyOptions, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'linear', axis: AxisLike[], options: LinearCopyOptions, ...objects: ISceneObject[]): ICopy;
 
   /**
    * [3D] Creates linear copies along an axis.
@@ -59,7 +59,7 @@ interface CopyFunction {
    * @param options - Copy count, spacing, etc.
    * @param objects - The objects to copy (defaults to last object)
    */
-  (type: 'linear', axis: AxisLike, options: LinearCopyOptions, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'linear', axis: AxisLike, options: LinearCopyOptions, ...objects: ISceneObject[]): ICopy;
   /**
    * [3D] Creates linear copies along multiple axes.
    * @param type - Must be `'linear'`
@@ -67,7 +67,7 @@ interface CopyFunction {
    * @param options - Copy count, spacing, etc.
    * @param objects - The objects to copy (defaults to last object)
    */
-  (type: 'linear', axis: AxisLike[], options: LinearCopyOptions, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'linear', axis: AxisLike[], options: LinearCopyOptions, ...objects: ISceneObject[]): ICopy;
 
   /**
    * [2D] Creates circular copies around a center point inside a sketch.
@@ -76,7 +76,7 @@ interface CopyFunction {
    * @param options - Copy count, angle, etc.
    * @param objects - The objects to copy (defaults to last object)
    */
-  (type: 'circular', center: Point2DLike, options: CircularCopyOptions, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'circular', center: Point2DLike, options: CircularCopyOptions, ...objects: ISceneObject[]): ICopy;
 
   /**
    * [3D] Creates circular copies around an axis.
@@ -85,7 +85,7 @@ interface CopyFunction {
    * @param options - Copy count, angle, etc.
    * @param objects - The objects to copy (defaults to last object)
    */
-  (type: 'circular', axis: AxisLike, options: CircularCopyOptions, ...objects: ISceneObject[]): ISceneObject;
+  (type: 'circular', axis: AxisLike, options: CircularCopyOptions, ...objects: ISceneObject[]): ICopy;
 }
 
 function build(context: SceneParserContext): CopyFunction {

@@ -1,6 +1,7 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Edge } from "../common/edge.js";
 import { Sketch } from "../features/2d/sketch.js";
+import { Copy2DBase } from "../features/copy2d-base.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { EdgeQuery } from "../oc/edge-query.js";
@@ -529,15 +530,26 @@ function synthesizeSketchTextPath(
   };
 }
 
+/** One boolean operand: a whole geometry, or one grid slot of a 2D copy. */
+type SketchBooleanOperand = {
+  owner: SceneObject;
+  /** The copy grid slot, or null for a whole-owner operand. */
+  instance: number | null;
+};
+
 /**
  * The 2D booleans (fuse/subtract/common) are owner-level: their operands are
  * whole geometries (Fuse2D & co. build closed REGIONS from each operand's
  * edges — a lone edge forms none), so any picked edge stands for its producing
  * primitive and the emitted args are bare variables (`fuse(r, c)`,
- * `subtract(r, c)`). Subtract is slot-addressed: `refs` is the base pick set,
- * `options.toolRefs` the tool's; Subtract2D takes exactly one geometry per
- * slot. Owners that cannot bind to a variable (clones, loops) are refused
- * honestly — a filter arg cannot promise a closed region.
+ * `subtract(r, c)`). One exception: a 2D copy owns EVERY instance it stamps
+ * (the original included), so a pick on one narrows to its grid slot and
+ * emits the instance accessor (`fuse(cp.instance(0), cp.instance(3))`) — a
+ * slot is a whole copied geometry, so it still promises a closed region.
+ * Subtract is slot-addressed: `refs` is the base pick set, `options.toolRefs`
+ * the tool's; Subtract2D takes exactly one geometry per slot. Owners that
+ * cannot bind to a variable (clones, loops) are refused honestly — a filter
+ * arg cannot promise a closed region.
  */
 function synthesizeSketchBoolean(
   scene: SelectionScene,
@@ -557,30 +569,40 @@ function synthesizeSketchBoolean(
   }
 
   const baseIds = new Set(refs.map(r => r.shapeId));
-  const baseOwners: SceneObject[] = [];
-  const toolOwners: SceneObject[] = [];
+  const baseOperands: SketchBooleanOperand[] = [];
+  const toolOperands: SketchBooleanOperand[] = [];
   for (const pick of resolution.picks) {
-    const slot = baseIds.has(pick.ref.shapeId) ? baseOwners : toolOwners;
-    if (!slot.includes(pick.owner)) {
-      slot.push(pick.owner);
+    const slot = baseIds.has(pick.ref.shapeId) ? baseOperands : toolOperands;
+    const instance = pick.owner instanceof Copy2DBase
+      ? pick.owner.getInstanceIndex(pick.edge)
+      : null;
+    if (!slot.some(op => op.owner === pick.owner && op.instance === instance)) {
+      slot.push({ owner: pick.owner, instance });
     }
   }
 
   if (feature === 'subtract') {
-    if (baseOwners.some(o => toolOwners.includes(o))) {
+    if (baseOperands.some(b =>
+      toolOperands.some(t => t.owner === b.owner && t.instance === b.instance))) {
       return { ok: false, reason: 'the base and the tool are the same geometry' };
     }
-    if (baseOwners.length > 1 || toolOwners.length > 1) {
+    if (baseOperands.length > 1 || toolOperands.length > 1) {
       return {
         ok: false,
         reason: 'subtract takes one base and one tool geometry — fuse geometries first to combine them',
       };
     }
-  } else if (baseOwners.length < 2) {
+  } else if (baseOperands.length < 2) {
     return { ok: false, reason: `pick edges of at least two geometries to ${feature}` };
   }
 
-  const owners = [...baseOwners, ...toolOwners];
+  const operands = [...baseOperands, ...toolOperands];
+  const owners: SceneObject[] = [];
+  for (const op of operands) {
+    if (!owners.includes(op.owner)) {
+      owners.push(op.owner);
+    }
+  }
   for (const owner of owners) {
     const bindFailure = checkSketchBindable(scene, owner);
     if (bindFailure) {
@@ -594,7 +616,9 @@ function synthesizeSketchBoolean(
   }
 
   const names = allocateNames(owners, options.namer);
-  const parts = owners.map(owner => part(owner, '', null, null, 0));
+  const parts = operands.map(op => op.instance === null
+    ? part(op.owner, '', null, null, 0)
+    : part(op.owner, 'instance', [op.instance], null, 0));
   const args = parts.map(p => renderPartArgs(p, names)).join(', ');
 
   const spec: ApplyFeatureEditSpec = {

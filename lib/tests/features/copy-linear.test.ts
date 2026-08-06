@@ -33,7 +33,7 @@ describe("copy linear", () => {
     });
     const e = extrude(10).new() as ExtrudeBase;
 
-    const c = copy("linear", "x", { count: 3, offset: 50 }, e) as SceneObject;
+    const c = copy("linear", "x", { count: 3, offset: 50 }, e) as unknown as SceneObject;
 
     render();
 
@@ -53,7 +53,7 @@ describe("copy linear", () => {
     });
     const e = extrude(10).new() as ExtrudeBase;
 
-    const c = copy("linear", "y", { count: 2, offset: 60 }, e) as SceneObject;
+    const c = copy("linear", "y", { count: 2, offset: 60 }, e) as unknown as SceneObject;
 
     render();
 
@@ -70,7 +70,7 @@ describe("copy linear", () => {
     });
     const e = extrude(10).new() as ExtrudeBase;
 
-    const c = copy("linear", "z", { count: 2, offset: 30 }, e) as SceneObject;
+    const c = copy("linear", "z", { count: 2, offset: 30 }, e) as unknown as SceneObject;
 
     render();
 
@@ -88,7 +88,7 @@ describe("copy linear", () => {
     const e = extrude(10).new() as ExtrudeBase;
 
     // 4 copies over length 120 → offset = 120/(4-1) = 40
-    const c = copy("linear", "x", { count: 4, length: 120 }, e) as SceneObject;
+    const c = copy("linear", "x", { count: 4, length: 120 }, e) as unknown as SceneObject;
 
     render();
 
@@ -121,7 +121,7 @@ describe("copy linear", () => {
     const e = extrude(10).new() as ExtrudeBase;
     const a = axis("x");
 
-    const c = copy("linear", a, { count: 3, offset: 50 }, e) as SceneObject;
+    const c = copy("linear", a, { count: 3, offset: 50 }, e) as unknown as SceneObject;
 
     render();
 

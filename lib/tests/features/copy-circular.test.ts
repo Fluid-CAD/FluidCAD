@@ -35,7 +35,7 @@ describe("copy circular", () => {
     const e = extrude(10).new() as ExtrudeBase;
     const a = axis("z");
 
-    const c = copy("circular", a, { count: 4, angle: 360 }, e) as SceneObject;
+    const c = copy("circular", a, { count: 4, angle: 360 }, e) as unknown as SceneObject;
 
     render();
 
@@ -51,7 +51,7 @@ describe("copy circular", () => {
     const e = extrude(10).new() as ExtrudeBase;
 
     // 3 copies over 180° → 60° each
-    const c = copy("circular", "z", { count: 3, angle: 180 }, e) as SceneObject;
+    const c = copy("circular", "z", { count: 3, angle: 180 }, e) as unknown as SceneObject;
 
     render();
 

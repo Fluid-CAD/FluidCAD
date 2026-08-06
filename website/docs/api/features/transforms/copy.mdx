@@ -8,7 +8,7 @@ description: "[2D] Creates linear copies along an axis inside a sketch."
 
 [2D] Creates linear copies along an axis inside a sketch.
 
-**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+**Returns**: **`ICopy`**
 
 :::tip
 See the [guide](/docs/guides/copying) for detailed usage examples.
@@ -17,7 +17,7 @@ See the [guide](/docs/guides/copying) for detailed usage examples.
 ## Signatures
 
 ```ts
-copy(type: "linear", axis: AxisLike, options: LinearCopyOptions, ...objects: SceneObject[]): SceneObject
+copy(type: "linear", axis: AxisLike, options: LinearCopyOptions, ...objects: SceneObject[]): ICopy
 ```
 
 [2D] Creates linear copies along an axis inside a sketch.
@@ -32,7 +32,7 @@ copy(type: "linear", axis: AxisLike, options: LinearCopyOptions, ...objects: Sce
 ---
 
 ```ts
-copy(type: "linear", axis: AxisLike[], options: LinearCopyOptions, ...objects: SceneObject[]): SceneObject
+copy(type: "linear", axis: AxisLike[], options: LinearCopyOptions, ...objects: SceneObject[]): ICopy
 ```
 
 [2D] Creates linear copies along multiple axes inside a sketch.
@@ -47,7 +47,7 @@ copy(type: "linear", axis: AxisLike[], options: LinearCopyOptions, ...objects: S
 ---
 
 ```ts
-copy(type: "linear", axis: AxisLike, options: LinearCopyOptions, ...objects: SceneObject[]): SceneObject
+copy(type: "linear", axis: AxisLike, options: LinearCopyOptions, ...objects: SceneObject[]): ICopy
 ```
 
 [3D] Creates linear copies along an axis.
@@ -62,7 +62,7 @@ copy(type: "linear", axis: AxisLike, options: LinearCopyOptions, ...objects: Sce
 ---
 
 ```ts
-copy(type: "linear", axis: AxisLike[], options: LinearCopyOptions, ...objects: SceneObject[]): SceneObject
+copy(type: "linear", axis: AxisLike[], options: LinearCopyOptions, ...objects: SceneObject[]): ICopy
 ```
 
 [3D] Creates linear copies along multiple axes.
@@ -77,7 +77,7 @@ copy(type: "linear", axis: AxisLike[], options: LinearCopyOptions, ...objects: S
 ---
 
 ```ts
-copy(type: "circular", center: Point2DLike, options: CircularCopyOptions, ...objects: SceneObject[]): SceneObject
+copy(type: "circular", center: Point2DLike, options: CircularCopyOptions, ...objects: SceneObject[]): ICopy
 ```
 
 [2D] Creates circular copies around a center point inside a sketch.
@@ -92,7 +92,7 @@ copy(type: "circular", center: Point2DLike, options: CircularCopyOptions, ...obj
 ---
 
 ```ts
-copy(type: "circular", axis: AxisLike, options: CircularCopyOptions, ...objects: SceneObject[]): SceneObject
+copy(type: "circular", axis: AxisLike, options: CircularCopyOptions, ...objects: SceneObject[]): ICopy
 ```
 
 [3D] Creates circular copies around an axis.

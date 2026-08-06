@@ -1016,4 +1016,44 @@ describe('select→apply-feature end to end', () => {
     expect(removed.newCode).not.toContain(`.close()`);
     expect(sketchEdgeIds(runFluid(removed.newCode)).size).toBe(2);
   });
+
+  it('fuses two 2D copy instances through the instance accessor', async () => {
+    const code = [
+      `import { sketch, circle, copy } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const c = circle(50)`,
+      `  copy('linear', 'x', { count: 3, offset: 40 }, c)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    let cp: SceneObject;
+    sketch('xy', () => {
+      const c = core.circle(50);
+      cp = core.copy('linear', 'x', { count: 3, offset: 40 }, c) as unknown as SceneObject;
+    });
+    cp!.setSourceLocation({ filePath: '/ws/model.fluid.js', line: 5, column: 2 });
+    const scene = render();
+
+    // The copy owns every instance's edge — slots 0..2 in grid order.
+    const edges = cp!.getShapes().filter((s): s is Edge => s instanceof Edge);
+    const synthesis = synthesizeSketchApplyFeature(
+      scene, [{ shapeId: edges[0].id }, { shapeId: edges[1].id }], 'fuse',
+    );
+    expect(synthesis.ok).toBe(true);
+    if (!synthesis.ok) {
+      return;
+    }
+    expect(synthesis.preview).toBe('fuse(cp.instance(0), cp.instance(1))');
+
+    const edited = await applyFeatureEdit(code, synthesis.spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`const cp = copy('linear', 'x', { count: 3, offset: 40 }, c)`);
+    expect(edited.newCode).toContain('fuse(cp.instance(0), cp.instance(1))');
+
+    // Slots 0+1 (overlapping) fuse into one 2-arc outline; slot 2 survives.
+    const fused = runFluid(edited.newCode);
+    expect(sketchEdgeIds(fused).size).toBe(3);
+  });
 });

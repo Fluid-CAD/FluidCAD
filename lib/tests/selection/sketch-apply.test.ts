@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import fillet from "../../core/fillet.js";
+import copy from "../../core/copy.js";
 import { rect, polygon, slot, circle, hLine, aLine, line, move } from "../../core/2d/index.js";
 import { Rect } from "../../features/2d/rect.js";
 import { Edge } from "../../common/edge.js";
@@ -463,6 +464,107 @@ describe("sketch apply-feature synthesis", () => {
         undefined,
         { toolRefs: [refFor(roleEdge(r!, 'left'))] },
       )).toMatchObject({ ok: false, reason: expect.stringMatching(/same geometry/) });
+    });
+
+    it("narrows same-copy picks to instance operands", () => {
+      let cp: SceneObject;
+      sketch("xy", () => {
+        const c = circle(40);
+        cp = copy("linear", "x", { count: 3, offset: 30 }, c) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(cp!, 4);
+
+      // Slots 0..2 in grid order — the original block first.
+      const edges = edgesOf(cp!);
+      const result = synthesizeSketchApplyFeature(
+        scene,
+        [refFor(edges[0]), refFor(edges[1])],
+        'fuse',
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('cp.instance(0), cp.instance(1)');
+      expect(result.preview).toBe('fuse(cp.instance(0), cp.instance(1))');
+      expect(result.spec.producers).toEqual([
+        { line: 4, column: 0, featureType: 'copy-linear', nameHint: 'cp', bind: true },
+      ]);
+      expect(result.spec.parts).toEqual([
+        { producer: 0, accessor: 'instance', indices: [0], filterArgs: null },
+        { producer: 0, accessor: 'instance', indices: [1], filterArgs: null },
+      ]);
+    });
+
+    it("mixes an instance operand with a whole-owner operand", () => {
+      let r: Rect;
+      let cp: SceneObject;
+      sketch("xy", () => {
+        r = rect(80, 60) as Rect;
+        move([120, 0]);
+        const c = circle(40);
+        cp = copy("linear", "x", { count: 2, offset: 30 }, c) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(r!, 3);
+      setLocation(cp!, 6);
+
+      const result = synthesizeSketchApplyFeature(
+        scene,
+        [refFor(roleEdge(r!, 'top')), refFor(edgesOf(cp!)[1])],
+        'fuse',
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.preview).toBe('fuse(r, cp.instance(1))');
+    });
+
+    it("slots subtract picks into two instances of one copy", () => {
+      let cp: SceneObject;
+      sketch("xy", () => {
+        const r = rect(20, 20);
+        cp = copy("linear", "x", { count: 2, offset: 15 }, r) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(cp!, 4);
+
+      // 8 edges: the original rect's 4 (slot 0), then slot 1's 4.
+      const edges = edgesOf(cp!);
+
+      const result = synthesizeSketchApplyFeature(
+        scene,
+        [refFor(edges[0])],
+        'subtract',
+        undefined,
+        { toolRefs: [refFor(edges[4])] },
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.preview).toBe('subtract(cp.instance(0), cp.instance(1))');
+
+      // Base and tool landing on the SAME slot is still the same geometry.
+      expect(synthesizeSketchApplyFeature(
+        scene,
+        [refFor(edges[0])],
+        'subtract',
+        undefined,
+        { toolRefs: [refFor(edges[1])] },
+      )).toMatchObject({ ok: false, reason: expect.stringMatching(/same geometry/) });
+
+      // Two picks inside one slot are ONE operand — not enough to fuse.
+      expect(synthesizeSketchApplyFeature(
+        scene,
+        [refFor(edges[0]), refFor(edges[1])],
+        'fuse',
+      )).toMatchObject({ ok: false, reason: expect.stringMatching(/at least two/) });
     });
 
     it("refuses unbindable boolean operands honestly", () => {

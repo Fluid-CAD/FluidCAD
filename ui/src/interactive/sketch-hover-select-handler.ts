@@ -34,6 +34,7 @@ export class SketchHoverSelectHandler {
   private hoveredCenterPoint: [number, number] | null = null;
   private selectedShapeIds = new Set<string>();
   private isExternalResizing: () => boolean;
+  private clickPolicy?: () => 'replace' | 'toggle';
 
   private boundMouseMove: (e: MouseEvent) => void;
   private boundMouseDown: (e: MouseEvent) => void;
@@ -45,11 +46,20 @@ export class SketchHoverSelectHandler {
     ctx: SceneContext,
     plane: PlaneData,
     isExternalResizing: () => boolean,
+    /**
+     * Per-click selection policy. `replace` is classic sketch editing: a
+     * plain click replaces the selection, an empty-space click clears it
+     * (Ctrl/Cmd toggles). `toggle` is the 3D create dialogs' pick contract —
+     * every click toggles membership and empty-space clicks keep the picks —
+     * for dialogs whose pick list is the dialog's own state (the 2D copy).
+     */
+    clickPolicy?: () => 'replace' | 'toggle',
   ) {
     this.ctx = ctx;
     this.plane = plane;
     this.canvas = ctx.renderer.domElement;
     this.isExternalResizing = isExternalResizing;
+    this.clickPolicy = clickPolicy;
 
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundMouseDown = this.handleMouseDown.bind(this);
@@ -167,7 +177,7 @@ export class SketchHoverSelectHandler {
       return;
     }
 
-    const isMulti = e.ctrlKey || e.metaKey;
+    const isMulti = e.ctrlKey || e.metaKey || this.clickPolicy?.() === 'toggle';
 
     if (!this.hoveredShapeId) {
       if (!isMulti) {

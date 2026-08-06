@@ -51,6 +51,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
     { id: 'trim', label: 'Trim', iconPng: 'trim' },
     { id: 'fillet', label: 'Fillet', iconPng: 'fillet2d' },
     { id: 'offset', label: 'Offset', iconPng: 'offset' },
+    { id: 'copy', label: 'Copy', iconPng: 'copy-linear2d' },
   ]},
   { tools: [
     { id: 'project', label: 'Project', iconPng: 'projection' },
@@ -69,6 +70,7 @@ const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   trim: 't',
   fillet: 'f',
   offset: 'o',
+  copy: 'cp',
   fuse: 'fu',
   subtract: 's',
   common: 'co',

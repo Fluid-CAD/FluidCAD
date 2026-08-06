@@ -26,7 +26,8 @@ import { Viewer } from '../viewer';
 import { TrimPickService } from './trim-pick-service';
 import { TrimDialog } from './trim-dialog';
 import { ProjectionPickService } from './projection-pick-service';
-import { SketchOpMode, SketchOpService, SketchOpSelection, SketchPickDescription } from './sketch-op-service';
+import { SketchOpDialog, SketchOpMode, SketchOpService, SketchOpSelection, SketchPickDescription } from './sketch-op-service';
+import { SketchCopyService } from './sketch-copy-service';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { ConstraintToolbarService } from './constraint-toolbar';
 import { VariableInfo } from '../ui/expression-input';
@@ -58,7 +59,12 @@ export class SketchToolbarService {
    * solid edges and faces, not sketch geometry.
    */
   private projectionService: ProjectionPickService;
-  private opServices: Partial<Record<ToolId, SketchOpService>> = {};
+  private opServices: Partial<Record<ToolId, SketchOpDialog>> = {};
+  /** Typed handles for the dialogs with members beyond the shared surface. */
+  private filletOp!: SketchOpService;
+  private offsetOp!: SketchOpService;
+  private slotOp!: SketchOpService;
+  private copyOp!: SketchCopyService;
   private toolbar: SketchToolbar;
   /** The floating segment-conversion mini bar below the main toolbar. */
   private constraintToolbar: ConstraintToolbarService;
@@ -145,60 +151,65 @@ export class SketchToolbarService {
     const opGhost = new FeatureGhostOverlay(viewer);
     const opService = (config: ConstructorParameters<typeof SketchOpService>[1]) =>
       new SketchOpService(container, config, opSelection, opVars, opDone, opGhost);
+    this.filletOp = opService({
+      feature: 'fillet', title: 'Fillet', pickHint: 'Pick sketch edges to fillet',
+      value: { label: 'Radius', defaultValue: '2', sign: 'positive' },
+    });
+    this.copyOp = new SketchCopyService(container, opSelection, opVars, opDone);
+    this.offsetOp = opService({
+      feature: 'offset', title: 'Offset', pickHint: 'Pick sketch edges to offset',
+      value: { label: 'Distance', defaultValue: '2', sign: 'nonzero' },
+      toggles: [
+        {
+          key: 'removeOriginal',
+          label: 'Remove original',
+          title: 'Keep only the offset — the geometry it was made from is removed',
+        },
+        {
+          key: 'close',
+          label: 'Close ends',
+          title: 'Cap an open offset back onto its original profile with two straight edges, '
+            + 'making a closed loop (no-op on already-closed profiles)',
+        },
+      ],
+    });
+    this.slotOp = opService({
+      feature: 'slot', title: 'Slot', pickHint: 'Pick an edge of the source geometry',
+      value: { label: 'Radius', defaultValue: '2', sign: 'positive' },
+      toggles: [
+        {
+          key: 'removeOriginal',
+          label: 'Remove original',
+          title: 'Keep only the slot — the edge it was built around is removed (the kernel default)',
+          defaultChecked: true,
+        },
+      ],
+      tabs: {
+        draw: {
+          label: 'Draw',
+          title: 'Draw the slot in the sketch',
+          hint: 'Draw the slot in the sketch: click the two cap centers, then set the radius. '
+            + 'Hold Shift for a horizontal slot.',
+        },
+        pick: { label: 'From edge', title: 'Build the slot around an existing sketch edge' },
+      },
+    });
     this.opServices = {
-      fillet: opService({
-        feature: 'fillet', title: 'Fillet', pickHint: 'Pick sketch edges to fillet',
-        value: { label: 'Radius', defaultValue: '2', sign: 'positive' },
-      }),
-      offset: opService({
-        feature: 'offset', title: 'Offset', pickHint: 'Pick sketch edges to offset',
-        value: { label: 'Distance', defaultValue: '2', sign: 'nonzero' },
-        toggles: [
-          {
-            key: 'removeOriginal',
-            label: 'Remove original',
-            title: 'Keep only the offset — the geometry it was made from is removed',
-          },
-          {
-            key: 'close',
-            label: 'Close ends',
-            title: 'Cap an open offset back onto its original profile with two straight edges, '
-              + 'making a closed loop (no-op on already-closed profiles)',
-          },
-        ],
-      }),
+      fillet: this.filletOp,
+      copy: this.copyOp,
+      offset: this.offsetOp,
       subtract: opService({
         feature: 'subtract', title: 'Subtract', pickHint: 'Pick the base geometry’s edges',
         slotted: true,
       }),
-      slot: opService({
-        feature: 'slot', title: 'Slot', pickHint: 'Pick an edge of the source geometry',
-        value: { label: 'Radius', defaultValue: '2', sign: 'positive' },
-        toggles: [
-          {
-            key: 'removeOriginal',
-            label: 'Remove original',
-            title: 'Keep only the slot — the edge it was built around is removed (the kernel default)',
-            defaultChecked: true,
-          },
-        ],
-        tabs: {
-          draw: {
-            label: 'Draw',
-            title: 'Draw the slot in the sketch',
-            hint: 'Draw the slot in the sketch: click the two cap centers, then set the radius. '
-              + 'Hold Shift for a horizontal slot.',
-          },
-          pick: { label: 'From edge', title: 'Build the slot around an existing sketch edge' },
-        },
-      }),
+      slot: this.slotOp,
     };
     for (const service of Object.values(this.opServices)) {
       service.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
     }
     // The slot dialog's tabs swap the viewport owner: From dimensions arms
     // the classic drawing tool, From edge the edge-pick handlers.
-    this.opServices.slot!.onModeChange = (mode) => this.applySlotMode(mode);
+    this.slotOp.onModeChange = (mode) => this.applySlotMode(mode);
 
     this.constraintToolbar = new ConstraintToolbarService(container, (message) => this.showOpMessage(message));
 
@@ -212,8 +223,8 @@ export class SketchToolbarService {
     return this.activeDrawingTool !== null;
   }
 
-  /** The op service (fillet, offset) of the currently armed toolbar tool. */
-  private activeOpService(): SketchOpService | undefined {
+  /** The op dialog (fillet, offset, copy) of the currently armed toolbar tool. */
+  private activeOpService(): SketchOpDialog | undefined {
     const tool = this.toolbar.activeTool;
     return tool ? this.opServices[tool] : undefined;
   }
@@ -241,10 +252,7 @@ export class SketchToolbarService {
     expectedStatement: string,
     opts: { insideSketch?: boolean } = {},
   ): void {
-    const service = this.opServices.offset;
-    if (!service) {
-      return;
-    }
+    const service = this.offsetOp;
     // Disarming leaves an armed tool cleanly — except when the dialog is
     // already editing: that path would cancel it, clearing the breakpoint the
     // new double-click just placed. Its own re-entry closes it instead.
@@ -274,16 +282,38 @@ export class SketchToolbarService {
     parsed: Extract<ParsedFeatureStatement, { feature: 'fillet' }>,
     expectedStatement: string,
   ): void {
-    const service = this.opServices.fillet;
-    if (!service) {
-      return;
-    }
+    const service = this.filletOp;
     // Same contract as the offset edit: never disarm an already-editing
     // dialog here — that would cancel it and clear the fresh breakpoint.
     if (!service.isEditing) {
       this.handleToolSelect(null);
     }
     this.toolbar.setActiveTool('fillet');
+    service.enterEdit(target, parsed, expectedStatement);
+    if (this.activeSketchInfo) {
+      service.noteSketchActive();
+      this.activateDragHandler();
+    }
+  }
+
+  /**
+   * Open the copy dialog over the 2D `copy()` statement at `target`
+   * (timeline double-click) — the same pause-before contract as the offset
+   * edit: the sketch on screen is the one the copy's arguments see, the
+   * originals visible and re-pickable, their copies absent.
+   */
+  enterCopyEdit(
+    target: FeatureEditTarget,
+    parsed: Extract<ParsedFeatureStatement, { feature: 'copy' }>,
+    expectedStatement: string,
+  ): void {
+    const service = this.copyOp;
+    // Same contract as the offset edit: never disarm an already-editing
+    // dialog here — that would cancel it and clear the fresh breakpoint.
+    if (!service.isEditing) {
+      this.handleToolSelect(null);
+    }
+    this.toolbar.setActiveTool('copy');
     service.enterEdit(target, parsed, expectedStatement);
     if (this.activeSketchInfo) {
       service.noteSketchActive();
@@ -302,10 +332,7 @@ export class SketchToolbarService {
     parsed: Extract<ParsedFeatureStatement, { feature: 'slot' }>,
     expectedStatement: string,
   ): void {
-    const service = this.opServices.slot;
-    if (!service) {
-      return;
-    }
+    const service = this.slotOp;
     // Same contract as the offset edit: never disarm an already-editing
     // dialog here — that would cancel it and clear the fresh breakpoint.
     if (!service.isEditing) {
@@ -692,6 +719,11 @@ export class SketchToolbarService {
       this.viewer.sceneContext,
       this.activeSketchInfo.plane,
       () => this.activeDragHandler?.isResizing ?? false,
+      // The copy dialog's picks accumulate like its 3D counterpart's: every
+      // click toggles a target in or out and an empty-space click keeps the
+      // list — a multi-slot dialog's pick set must not vanish under a stray
+      // click. The single-value ops keep the classic replace-and-clear rails.
+      () => (this.toolbar.activeTool === 'copy' ? 'toggle' : 'replace'),
     );
     this.activeHoverSelectHandler.onSelectionChange = () => {
       this.activeOpService()?.refresh();
@@ -828,7 +860,7 @@ export class SketchToolbarService {
       }
       // While the dialog edits an existing statement, the drawn slot
       // REPLACES it instead of inserting a new one.
-      const service = this.opServices.slot!;
+      const service = this.slotOp;
       const insertOverride = service.isEditing
         ? (statement: string, newVariable?: NewVariable | NewVariable[]) => {
           void service.applyDrawnStatement(statement, newVariable);

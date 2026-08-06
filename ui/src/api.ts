@@ -1080,6 +1080,106 @@ export async function applySketchOp(
   }, options.signal);
 }
 
+/** One 2D copy direction's axis: a sketch-local axis or a picked sketch edge. */
+export type SketchCopyAxis = { kind: 'local'; axis: 'x' | 'y' } | { kind: 'edge' };
+
+/**
+ * The in-sketch copy dialog's option payload: the kind plus its inputs —
+ * linear directions (each a sketch-local axis or an edge pick, with its own
+ * count and value, sharing one offset/length spacing mode) or a center
+ * point with count and sweep for circular. Target picks travel separately
+ * as sketch entities; each edge-kind direction consumes one axis pick, in
+ * direction order.
+ */
+export type SketchCopyOptions = {
+  kind: 'linear' | 'circular';
+  directions?: { axis: SketchCopyAxis; count: ValueExpr; value: ValueExpr }[];
+  spacingMode?: 'offset' | 'length';
+  centered?: boolean;
+  center?: [ValueExpr, ValueExpr];
+  count?: ValueExpr;
+  sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
+  skip?: number[][];
+};
+
+/**
+ * Ask the server to synthesize (and, unless `preview` is set, apply) a 2D
+ * copy for the picked sketch geometry: `copy('linear', local('x'), { count:
+ * 3, offset: 20 }, r)` inside the sketch body — targets rendered as bare
+ * variables, an edge-picked direction as `axis(<var>)`, a circular kind
+ * around its `[x, y]` center.
+ */
+export async function applySketchCopy(
+  entities: SketchApplyEntity[],
+  options: SketchCopyOptions & {
+    axisEntities?: SketchApplyEntity[];
+    newVariables?: NewVariable[];
+    preview?: boolean;
+    signal?: AbortSignal;
+  },
+): Promise<ApplyFeatureResponse> {
+  const { axisEntities, newVariables, preview, signal, ...copy2d } = options;
+  return postApplyFeature({
+    feature: 'copy',
+    sketchEntities: entities,
+    sketchAxisEntities: axisEntities,
+    copy2d,
+    newVariables,
+    preview,
+  }, signal);
+}
+
+/** One axis slot of an edited 2D copy: keep by position, or re-source. */
+export type SketchCopyEditAxis = { kind: 'keep'; sourceIndex: number } | SketchCopyAxis;
+
+export type SketchCopyEditOptions = EditSessionFields & {
+  kind: 'linear' | 'circular';
+  directions?: { axis: SketchCopyEditAxis; count: ValueExpr; value: ValueExpr }[];
+  spacingMode?: 'offset' | 'length';
+  centered?: boolean;
+  center?: [ValueExpr, ValueExpr];
+  count?: ValueExpr;
+  sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
+  skip?: number[][];
+  /** Re-picked targets replacing the whole list; omitted keeps the statement's. */
+  entities?: SketchApplyEntity[];
+  /** One pick per edge-kind direction, in direction order. */
+  axisEntities?: SketchApplyEntity[];
+  newVariables?: NewVariable[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the 2D `copy()` statement (inside a sketch body) at `edit` in place. */
+export async function applySketchCopyEdit(
+  edit: FeatureEditTarget,
+  options: SketchCopyEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'copy',
+    edit,
+    expectedStatement: options.expectedStatement,
+    kind: options.kind,
+    directions: options.directions?.map(d => ({
+      // The picked-edge kind travels as 'sketch-edge' — the 3D copy edit
+      // already claims 'edge' for viewport picks with sub refs.
+      axis: d.axis.kind === 'edge' ? { kind: 'sketch-edge' } : d.axis,
+      count: d.count,
+      value: d.value,
+    })),
+    spacingMode: options.spacingMode,
+    centered: options.centered,
+    center: options.center,
+    count: options.count,
+    sweep: options.sweep,
+    skip: options.skip,
+    sketchTargets: options.entities,
+    sketchAxisEntities: options.axisEntities,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /**
  * Commit the polyline tool's tangent-arc-to-edge snap: `tArc(<radius>,
  * <target>)`, where the picked edge's producing statement is bound to a
@@ -2223,6 +2323,11 @@ export type ParsedFeatureStatement =
       count: ValueExpr | null;
       /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
       sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
+      /**
+       * The 2D in-sketch circular form's center point, parsed from its
+       * `[x, y]` argument; null for every axis form.
+       */
+      center: [ValueExpr, ValueExpr] | null;
       /**
        * Instances the statement leaves out, one index per direction (a
        * circular copy's entries carry one each); null when it names none.

@@ -34,6 +34,24 @@ export type SketchPickDescription = {
   goTo?: () => void;
 };
 
+/**
+ * The surface the sketch toolbar drives on every 2D op dialog — the shared
+ * {@link SketchOpService} and the standalone dialogs (the in-sketch copy)
+ * alike: arming, teardown, selection-change refresh, and the edit dialog's
+ * sketch-arrival handshake.
+ */
+export type SketchOpDialog = {
+  onVisibilityChange?: (visible: boolean) => void;
+  readonly isActive: boolean;
+  readonly isEditing: boolean;
+  readonly isAwaitingSketch: boolean;
+  readonly mode: SketchOpMode;
+  enter(initialMode?: SketchOpMode): void;
+  exit(): void;
+  refresh(): void;
+  noteSketchActive(): void;
+};
+
 /** The dialog's window onto the sketch selection the hover handler owns. */
 export type SketchOpSelection = {
   /** The picked shape ids, in pick order. */

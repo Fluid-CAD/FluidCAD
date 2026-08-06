@@ -462,6 +462,100 @@ describe('applyFeatureEdit — sketch-body text on path (2D)', () => {
   });
 });
 
+describe('applyFeatureEdit — sketch-body copy (2D)', () => {
+  const copySpec = (overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec => sketchSpec({
+    feature: 'copy',
+    value: undefined,
+    producers: [{ line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true }],
+    parts: [],
+    imports: ['local'],
+    copy: {
+      kind: 'linear',
+      directions: [{ axis: { kind: 'local', axis: 'x' }, count: 3, value: 20 }],
+      spacingMode: 'offset',
+      targets: [{ producer: 0 }],
+    },
+    ...overrides,
+  });
+
+  it('binds the target and appends the copy at end of the sketch body', async () => {
+    const code = [
+      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  rect(20, 20)`,
+      `  circle([40, 0], 5)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, copySpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const r = rect(20, 20)`);
+    expect(result.newCode).toContain(`  copy('linear', local('x'), { count: 3, offset: 20 }, r)\n})`);
+    expect(result.newCode).toMatch(/import \{[^}]*copy[^}]*\} from 'fluidcad\/core'/);
+    expect(result.newCode).toMatch(/import \{[^}]*local[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('renders an edge-picked direction as axis(<var>)', async () => {
+    const code = [
+      `import { sketch, rect, aLine, move } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  rect(20, 20)`,
+      `  move([0, 40])`,
+      `  aLine(30, 50)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, copySpec({
+      producers: [
+        { line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true },
+        { line: 6, column: 0, featureType: 'line', nameHint: 'l', bind: true },
+      ],
+      parts: [{ producer: 1, accessor: '', indices: null, filterArgs: null }],
+      imports: ['axis'],
+      copy: {
+        kind: 'linear',
+        directions: [{ axis: { kind: 'selector', part: 0 }, count: 3, value: 20 }],
+        spacingMode: 'offset',
+        targets: [{ producer: 0 }],
+      },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const l = aLine(30, 50)`);
+    expect(result.newCode).toContain(`  copy('linear', axis(l), { count: 3, offset: 20 }, r)\n})`);
+    expect(result.newCode).toMatch(/import \{[^}]*axis[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('renders a circular copy around its center point', async () => {
+    const code = [
+      `import { sketch, circle } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  circle([30, 0], 5)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, copySpec({
+      producers: [{ line: 4, column: 0, featureType: 'circle', nameHint: 'c', bind: true }],
+      imports: [],
+      copy: {
+        kind: 'circular',
+        center: [0, 0],
+        count: 6,
+        sweep: { mode: 'angle', value: 360 },
+        targets: [{ producer: 0 }],
+      },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const c = circle([30, 0], 5)`);
+    expect(result.newCode).toContain(`  copy('circular', [0, 0], { count: 6, angle: 360 }, c)\n})`);
+  });
+});
+
 describe('applyFeatureEdit — tArc retarget (end-drag edge snap)', () => {
   const retargetSpec = (
     line: number,

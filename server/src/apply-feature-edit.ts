@@ -443,6 +443,11 @@ export type FeatureStatementEditTarget = {
     centered?: boolean;
     /** The copy axis (circular); linear carries axes per direction. */
     axis?: RepeatEditAxis;
+    /**
+     * The 2D circular form's center point (inside a sketch) — replaces the
+     * axis argument outright; the dialog always sends its field values.
+     */
+    center?: [ValueExpr, ValueExpr];
     /** Instance count, original included (circular). */
     count?: ValueExpr;
     /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
@@ -724,7 +729,9 @@ export type HelixEditOptions = {
 export type RepeatAxisSpec =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; producer: number }
-  | { kind: 'selector'; part: number };
+  | { kind: 'selector'; part: number }
+  /** Sketch-local axis (2D copy only) — renders `local('x')`. */
+  | { kind: 'local'; axis: 'x' | 'y' | 'z' };
 
 /**
  * The mirror plane of a `repeat('mirror', …)`: a standard origin plane
@@ -822,6 +829,11 @@ export type CopyEditOptions = {
   /** Linear only: center the pattern on the original instance. */
   centered?: boolean;
   /**
+   * The 2D circular form's center point (inside a sketch) — renders
+   * `[x, y]` in the axis argument's place. Mutually exclusive with `axis`.
+   */
+  center?: [ValueExpr, ValueExpr];
+  /**
    * Instances to leave out, one index per direction — the `skip` option
    * (copy-linear.ts:82, copy-circular.ts:55). A circular copy's entries carry
    * a single index each and render flat; absent writes no option.
@@ -830,6 +842,11 @@ export type CopyEditOptions = {
   /** The features being copied, in argument order — bound producers. */
   targets: { producer: number }[];
 };
+
+/** The 2D circular copy's center argument: `[x, y]`. */
+export function renderCopyCenterExpr(center: [ValueExpr, ValueExpr]): string {
+  return `[${formatValue(center[0])}, ${formatValue(center[1])}]`;
+}
 
 /** The three boolean operations — each its own callee, one shared dialog. */
 export type BooleanKind = 'fuse' | 'subtract' | 'common';
@@ -1055,6 +1072,11 @@ const SKETCH_PRODUCER_CALLEES: Record<string, string[]> = {
   fuse2d: ['fuse'],
   subtract2d: ['subtract'],
   common2d: ['common'],
+  // The 2D copies take ownership of their operands' edges, so picks on them
+  // attribute to the copy statement (the type collides with the 3D copies,
+  // which never produce sketch edges, so the entry is unambiguous here).
+  'copy-linear': ['copy'],
+  'copy-circular': ['copy'],
 };
 
 /** The chain-root callees producers of `featureType` may bind. */
@@ -1290,7 +1312,7 @@ export async function applyFeatureEdit(
         ? validPart(axis.part)
         : axis.kind === 'standard'
           ? axis.axis === 'x' || axis.axis === 'y' || axis.axis === 'z'
-          : isAxisProducer(spec, axis.producer));
+          : axis.kind === 'axis' && isAxisProducer(spec, axis.producer));
     const validPlane = (plane: RepeatPlaneSpec | undefined): boolean =>
       plane !== undefined && (plane.kind === 'selector'
         ? validPart(plane.part)
@@ -1348,9 +1370,9 @@ export async function applyFeatureEdit(
     const validAxis = (axis: RepeatAxisSpec | undefined): boolean =>
       axis !== undefined && (axis.kind === 'selector'
         ? validPart(axis.part)
-        : axis.kind === 'standard'
+        : axis.kind === 'standard' || axis.kind === 'local'
           ? axis.axis === 'x' || axis.axis === 'y' || axis.axis === 'z'
-          : isAxisProducer(spec, axis.producer));
+          : axis.kind === 'axis' && isAxisProducer(spec, axis.producer));
     const validSweep = cp?.sweep !== undefined
       && (cp.sweep.mode === 'angle' || cp.sweep.mode === 'offset')
       && validValueExpr(cp.sweep.value, { nonzero: true });
@@ -1360,13 +1382,19 @@ export async function applyFeatureEdit(
         && validValueExpr(d.value, { nonzero: true }));
     const valid = cp !== undefined
       && targets.length >= 1
-      && targets.every(t => isFeatureProducer(spec, t.producer))
+      && targets.every(t => isCopyTargetProducer(spec, t.producer))
       && new Set(targets.map(t => t.producer)).size === targets.length
       && (cp.kind === 'linear'
         ? validDirections && (cp.spacingMode === 'offset' || cp.spacingMode === 'length')
-          && cp.axis === undefined && cp.count === undefined && cp.sweep === undefined
+          && cp.axis === undefined && cp.center === undefined
+          && cp.count === undefined && cp.sweep === undefined
         : cp.kind === 'circular'
-          && validAxis(cp.axis) && cp.directions === undefined
+          // The 2D in-sketch form carries a center pair instead of an axis.
+          && (cp.center !== undefined
+            ? cp.axis === undefined && Array.isArray(cp.center) && cp.center.length === 2
+              && cp.center.every(v => validValueExpr(v))
+            : validAxis(cp.axis))
+          && cp.directions === undefined
           && validCountValue(cp.count) && validSweep
           && cp.spacingMode === undefined && cp.centered === undefined)
       // Every selector part belongs to exactly one axis input.
@@ -1835,6 +1863,18 @@ function isAxisProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
 function isFeatureProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
   return Number.isInteger(i) && i >= 0 && i < spec.producers.length
     && spec.producers[i].featureType === 'feature';
+}
+
+/**
+ * Whether producer index `i` may be a copy target: a 3D feature producer, or
+ * — the 2D in-sketch form — a sketch-geometry producer (rect, circle, …).
+ */
+function isCopyTargetProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
+  if (!Number.isInteger(i) || i < 0 || i >= spec.producers.length) {
+    return false;
+  }
+  const type = spec.producers[i].featureType;
+  return type === 'feature' || SKETCH_PRODUCER_CALLEES[type] !== undefined;
 }
 
 /**
@@ -2444,6 +2484,9 @@ export function renderRepeatAxisExpr(
   if (axis.kind === 'standard') {
     return `'${axis.axis}'`;
   }
+  if (axis.kind === 'local') {
+    return `local('${axis.axis}')`;
+  }
   if (axis.kind === 'axis') {
     return varFor(axis.producer) ?? 'a';
   }
@@ -2841,7 +2884,7 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     const varFor = (i: number): string | null => bindings[i].varName;
     const inputExprs = cp.kind === 'linear'
       ? cp.directions!.map(d => renderRepeatAxisExpr(d.axis, spec.parts, varFor))
-      : [renderRepeatAxisExpr(cp.axis!, spec.parts, varFor)];
+      : [cp.center ? renderCopyCenterExpr(cp.center) : renderRepeatAxisExpr(cp.axis!, spec.parts, varFor)];
     return renderCopyStatement(cp, inputExprs, cp.targets.map(t => bindings[t.producer].varName!));
   }
   if (spec.feature === 'boolean') {
@@ -3685,6 +3728,11 @@ export type ParsedFeatureStatement =
     count: ValueExpr | null;
     /** Circular sweep: total `angle` or per-instance `offset`, in degrees. */
     sweep: { mode: 'angle' | 'offset'; value: ValueExpr } | null;
+    /**
+     * The 2D in-sketch circular form's center point, parsed from its
+     * `[x, y]` argument; null for every axis form.
+     */
+    center: [ValueExpr, ValueExpr] | null;
     /**
      * The instances the statement leaves out, one index per direction — a
      * circular copy's flat indices come back as single-index tuples. Null when
@@ -4914,6 +4962,7 @@ function parseCopyChain(
     centered: false,
     count: null as ValueExpr | null,
     sweep: null as { mode: 'angle' | 'offset'; value: ValueExpr } | null,
+    center: null as [ValueExpr, ValueExpr] | null,
     skip: null as number[][] | null,
     targetTexts: [] as string[],
     targetRefs: [] as ({ line: number; column: number } | null)[],
@@ -4938,8 +4987,16 @@ function parseCopyChain(
   }
 
   if (kind === 'circular') {
+    // The 2D in-sketch form: `copy('circular', [x, y], …)` — the array is
+    // the center point, parsed into its two coordinate expressions.
+    let center: [ValueExpr, ValueExpr] | null = null;
     if (axisNode.type === 'array') {
-      return { error: 'a circular copy around a center point is not editable in the dialog — edit it in the source' };
+      const entries = axisNode.namedChildren.filter(a => a.type !== 'comment');
+      const coords = entries.map(anyValueArg);
+      if (coords.length !== 2 || coords.some(c => c === null)) {
+        return { error: 'the copy center is not a plain [x, y] point — edit it in the source' };
+      }
+      center = [coords[0]!, coords[1]!];
     }
     for (const key of options.keys()) {
       if (key !== 'count' && key !== 'angle' && key !== 'offset' && key !== 'skip') {
@@ -4967,7 +5024,7 @@ function parseCopyChain(
     }
     return {
       parsed: {
-        ...base, axisTexts, count, sweep: { mode, value },
+        ...base, axisTexts, count, sweep: { mode, value }, center,
         skip: skip.entries.length > 0 ? skip.entries : null,
         ...targets,
       },
@@ -5624,14 +5681,18 @@ export async function parseOffsetTargetDescriptors(
   }
   const chain = decomposeChain(call);
   if (!chain || (chain.root.name !== 'offset' && chain.root.name !== 'slot' && chain.root.name !== 'fillet'
-    && chain.root.name !== 'text')) {
-    return { ok: false, reason: 'the statement at that line is not an offset, slot, fillet or text' };
+    && chain.root.name !== 'text' && chain.root.name !== 'copy')) {
+    return { ok: false, reason: 'the statement at that line is not an offset, slot, fillet, text or copy' };
   }
   const args = chain.root.args;
   const numericVars = numericVarNames(tree);
   let selectorsFrom = 0;
   let selectorsTo = args.length;
-  if (chain.root.name === 'text') {
+  if (chain.root.name === 'copy') {
+    // `copy('<kind>', <axis|center>, {…}, …targets)` — only the trailing
+    // targets seed; a target-less copy seeds nothing (the whole-sketch form).
+    selectorsFrom = Math.min(args.length, 3);
+  } else if (chain.root.name === 'text') {
     // `text("…"[, <path>])` — only the path argument seeds; a plain anchored
     // text has nothing nameable (descriptors: [], like a whole-sketch offset).
     selectorsFrom = 1;
@@ -6109,7 +6170,7 @@ function renderEditedCopy(
       if (!isAxisProducer(spec as ApplyFeatureEditSpec, axis.producer)) {
         return { error: 'malformed copy edit spec: the axis references a non-axis producer' };
       }
-    } else if (axis?.kind !== 'standard'
+    } else if ((axis?.kind !== 'standard' && axis?.kind !== 'local')
       || (axis.axis !== 'x' && axis.axis !== 'y' && axis.axis !== 'z')) {
       return { error: 'malformed copy edit spec' };
     }
@@ -6141,11 +6202,20 @@ function renderEditedCopy(
       || !validValueExpr(opts.sweep.value, { nonzero: true })) {
       return { error: 'malformed copy edit spec' };
     }
-    const expr = resolveAxis(opts.axis);
-    if (typeof expr !== 'string') {
-      return expr;
+    if (opts.center !== undefined) {
+      // The 2D in-sketch form: the center pair replaces the axis argument.
+      if (!Array.isArray(opts.center) || opts.center.length !== 2
+        || !opts.center.every(v => validValueExpr(v))) {
+        return { error: 'malformed copy edit spec: bad center point' };
+      }
+      inputExprs = [renderCopyCenterExpr(opts.center)];
+    } else {
+      const expr = resolveAxis(opts.axis);
+      if (typeof expr !== 'string') {
+        return expr;
+      }
+      inputExprs = [expr];
     }
-    inputExprs = [expr];
   }
   if (opts.skip !== undefined
     && !validCopySkip(opts.skip, opts.kind === 'linear' ? inputExprs.length : 1)) {
@@ -6168,7 +6238,7 @@ function renderEditedCopy(
         usedVerbatim.add(target.sourceIndex);
         exprs.push(parsed.targetTexts[target.sourceIndex]);
       } else if (target?.kind === 'feature') {
-        if (!isFeatureProducer(spec as ApplyFeatureEditSpec, target.producer)) {
+        if (!isCopyTargetProducer(spec as ApplyFeatureEditSpec, target.producer)) {
           return { error: 'malformed copy edit spec: a target references a non-feature producer' };
         }
         exprs.push(varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f');

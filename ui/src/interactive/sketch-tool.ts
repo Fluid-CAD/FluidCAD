@@ -10,7 +10,7 @@ import { PointInput, PointCommit } from '../ui/point-input';
 import { resolveExpressionValue, VariableInfo } from '../ui/expression-core';
 import { addDot, START_POINT_COLOR } from './tools/tool-preview-utils';
 
-export type ToolId = 'line' | 'polyline' | 'circle' | 'polygon' | 'arc3' | 'arc2' | 'rect' | 'rounded-rect' | 'slot' | 'trim' | 'fillet' | 'offset' | 'fuse' | 'subtract' | 'common' | 'bezier' | 'text' | 'project';
+export type ToolId = 'line' | 'polyline' | 'circle' | 'polygon' | 'arc3' | 'arc2' | 'rect' | 'rounded-rect' | 'slot' | 'trim' | 'fillet' | 'offset' | 'copy' | 'fuse' | 'subtract' | 'common' | 'bezier' | 'text' | 'project';
 
 export type ToolConfig = {
   id: ToolId;

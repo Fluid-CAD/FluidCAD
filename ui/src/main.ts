@@ -431,10 +431,20 @@ timelinePanel.isFeatureEditable = (obj) =>
   && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects));
 // A 2D offset row's edit pauses the build BEFORE its statement (see
 // openFeatureEditor), so its double-click defers the generic breakpoint.
-timelinePanel.managesOwnBreakpoint = (obj) => obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type);
+timelinePanel.managesOwnBreakpoint = (obj) =>
+  (obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type)) || isCopy2DRow(obj);
 
 /** Rows whose edit dialog pauses the build before its own statement. */
 const PAUSE_BEFORE_ROW_TYPES = new Set(['offset', 'slot', 'fillet2d']);
+
+/**
+ * A copy statement parses identically in 2D and 3D — the row's unique type
+ * tells them apart. The 2D one lives inside a sketch body and follows the
+ * offset edit's pause-before contract.
+ */
+function isCopy2DRow(obj: SceneObjectRender): boolean {
+  return obj.uniqueType === 'copy-linear-2d' || obj.uniqueType === 'copy-circular-2d';
+}
 
 /**
  * Timeline `type` → the dialog that edits it (cut is extrude's remove op;
@@ -491,10 +501,12 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     return;
   }
   const target = obj.sourceLocation;
-  // A pause-before row (offset, slot) deferred the double-click's breakpoint
-  // so the parse above reads the unshifted buffer; every outcome except that
-  // row's own dialog owes the gesture its classic after-the-statement pause.
-  const deferredBreakpoint = obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type);
+  // A pause-before row (offset, slot, 2D copy) deferred the double-click's
+  // breakpoint so the parse above reads the unshifted buffer; every outcome
+  // except that row's own dialog owes the gesture its classic
+  // after-the-statement pause.
+  const deferredBreakpoint = (obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type))
+    || isCopy2DRow(obj);
   const result = await parseFeatureAt(target);
   if (result.ok === false) {
     if (deferredBreakpoint) {
@@ -504,7 +516,7 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     return;
   }
   if (deferredBreakpoint && result.parsed.feature !== 'offset' && result.parsed.feature !== 'slot'
-    && result.parsed.feature !== 'fillet') {
+    && result.parsed.feature !== 'fillet' && !(result.parsed.feature === 'copy' && isCopy2DRow(obj))) {
     addBreakpoint(target);
   }
   if (result.parsed.feature === 'sketch') {
@@ -537,7 +549,16 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
   } else if (parsed.feature === 'repeat') {
     repeatService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'copy') {
-    copyService.enterEdit(target, parsed, info);
+    if (isCopy2DRow(obj)) {
+      // A 2D copy lives inside a sketch body and edits on the sketch rails —
+      // the offset edit's pause-before contract, its originals visible and
+      // re-pickable in the paused sketch.
+      closeFeatureDialogs();
+      pauseBeforeSketchStatement(obj, index);
+      sketchService.enterCopyEdit(target, parsed, result.statement);
+    } else {
+      copyService.enterEdit(target, parsed, info);
+    }
   } else if (parsed.feature === 'boolean') {
     booleanService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'plane') {

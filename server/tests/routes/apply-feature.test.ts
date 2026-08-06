@@ -37,7 +37,8 @@ let currentQueryResult: any;
 
 /** Sketch-branch synthesis calls (2D {shapeId} picks). */
 let sketchSynthesizeCalls: {
-  picks: unknown; feature: string; value: number | string | undefined; offset?: unknown; slot?: unknown;
+  picks: unknown; feature: string; value: number | string | undefined;
+  offset?: unknown; slot?: unknown; axisRefs?: unknown;
 }[];
 
 /** Descriptor lists forwarded to the 2D target resolver (offset edit seeding). */
@@ -51,9 +52,12 @@ const fakeServer = {
   getParamDefinitions: () => [],
   synthesizeSketchApplyFeature: (
     picks: unknown, feature: string, value: number | string | undefined,
-    options?: { offset?: unknown; slot?: unknown },
+    options?: { offset?: unknown; slot?: unknown; axisRefs?: unknown },
   ) => {
-    sketchSynthesizeCalls.push({ picks, feature, value, offset: options?.offset, slot: options?.slot });
+    sketchSynthesizeCalls.push({
+      picks, feature, value,
+      offset: options?.offset, slot: options?.slot, axisRefs: options?.axisRefs,
+    });
     return currentSynthesis;
   },
   resolveSketchStatementTargets: (descriptors: unknown[]) => {
@@ -3618,6 +3622,253 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(422);
       expect(body.reason).toContain('not a copy');
       expect(relayed).toHaveLength(0);
+    });
+  });
+
+  // The in-sketch copy (sketchEntities branch): targets are whole geometries
+  // as bare variables, the quick buttons emit sketch-local axes, an
+  // edge-picked direction renders `axis(<var>)`, and the circular kind takes
+  // an [x, y] center. The kernel resolution is mocked; the statement
+  // rendering and spec assembly are the real route's.
+  describe('2D copy (sketch branch)', () => {
+    const CODE = [
+      "import { sketch, rect, aLine, move } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => {",
+      '  rect(20, 20)',
+      '  move([0, 40])',
+      '  aLine(30, 50)',
+      '})',
+      '',
+    ].join('\n');
+
+    const copySynthesis = (opts: {
+      producers: any[]; parts?: any[]; targets: number[]; axisParts?: number[]; args?: string;
+    }) => ({
+      ok: true,
+      spec: {
+        feature: 'copy', filePath: '/ws/m.fluid.js',
+        producers: opts.producers, parts: opts.parts ?? [], imports: [],
+      },
+      preview: '', args: opts.args ?? 'r', alternatives: [],
+      copySlots: { targets: opts.targets, axisParts: opts.axisParts ?? [] },
+    });
+
+    it('renders a linear copy along a sketch-local axis and imports local', async () => {
+      currentCode = CODE;
+      currentSynthesis = copySynthesis({
+        producers: [{ line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true }],
+        targets: [0],
+      });
+      const { status, body } = await post({
+        feature: 'copy', sketchEntities: [{ shapeId: 'e1' }],
+        copy2d: {
+          kind: 'linear', spacingMode: 'offset',
+          directions: [{ axis: { kind: 'local', axis: 'x' }, count: 3, value: 20 }],
+        },
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("copy('linear', local('x'), { count: 3, offset: 20 }, r)");
+      expect(sketchSynthesizeCalls).toEqual([{
+        picks: [{ shapeId: 'e1' }], feature: 'copy', value: undefined,
+        offset: undefined, slot: undefined, axisRefs: [],
+      }]);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'copy',
+        copy: {
+          kind: 'linear', spacingMode: 'offset',
+          directions: [{ axis: { kind: 'local', axis: 'x' }, count: 3, value: 20 }],
+          targets: [{ producer: 0 }],
+        },
+      });
+      expect(relayed[0].spec.imports).toContain('local');
+    });
+
+    it('renders an edge-picked direction as axis(<var>) and imports axis', async () => {
+      currentCode = CODE;
+      currentSynthesis = copySynthesis({
+        producers: [
+          { line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true },
+          { line: 6, column: 2, featureType: 'line', nameHint: 'l', bind: true },
+        ],
+        parts: [{ producer: 1, accessor: '', indices: null, filterArgs: null }],
+        targets: [0],
+        axisParts: [0],
+      });
+      const { status, body } = await post({
+        feature: 'copy', sketchEntities: [{ shapeId: 'e1' }],
+        sketchAxisEntities: [{ shapeId: 'l1' }],
+        copy2d: {
+          kind: 'linear', spacingMode: 'length', centered: true,
+          directions: [{ axis: { kind: 'edge' }, count: 4, value: 90 }],
+        },
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("copy('linear', axis(l), { count: 4, length: 90, centered: true }, r)");
+      expect(sketchSynthesizeCalls[0]).toMatchObject({ feature: 'copy', axisRefs: [{ shapeId: 'l1' }] });
+      expect(relayed[0].spec).toMatchObject({
+        copy: { directions: [{ axis: { kind: 'selector', part: 0 } }] },
+        parts: [{ producer: 1, accessor: '' }],
+      });
+      expect(relayed[0].spec.imports).toContain('axis');
+    });
+
+    it('renders a circular copy around its [x, y] center', async () => {
+      currentCode = CODE;
+      currentSynthesis = copySynthesis({
+        producers: [{ line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true }],
+        targets: [0],
+      });
+      const { status, body } = await post({
+        feature: 'copy', sketchEntities: [{ shapeId: 'e1' }],
+        copy2d: {
+          kind: 'circular', center: [0, 'w / 2'], count: 6,
+          sweep: { mode: 'angle', value: 360 }, skip: [[2]],
+        },
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("copy('circular', [0, w / 2], { count: 6, angle: 360, skip: [2] }, r)");
+      expect(relayed[0].spec).toMatchObject({
+        copy: { kind: 'circular', center: [0, 'w / 2'], count: 6, skip: [[2]] },
+      });
+    });
+
+    it('rejects axis picks that do not match the edge directions', async () => {
+      const { status, body } = await post({
+        feature: 'copy', sketchEntities: [{ shapeId: 'e1' }],
+        sketchAxisEntities: [{ shapeId: 'l1' }],
+        copy2d: {
+          kind: 'linear', spacingMode: 'offset',
+          directions: [{ axis: { kind: 'local', axis: 'x' }, count: 3, value: 20 }],
+        },
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('exactly one pick per edge-picked direction');
+      expect(sketchSynthesizeCalls).toHaveLength(0);
+    });
+
+    it('422s a kernel that predates the copy kind (no copySlots)', async () => {
+      currentCode = CODE;
+      currentSynthesis = {
+        ok: true,
+        spec: { feature: 'copy', filePath: '/ws/m.fluid.js', producers: [], parts: [], imports: [] },
+        preview: '', args: 'edge().line(20)', alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'copy', sketchEntities: [{ shapeId: 'e1' }],
+        copy2d: {
+          kind: 'linear', spacingMode: 'offset',
+          directions: [{ axis: { kind: 'local', axis: 'x' }, count: 3, value: 20 }],
+        },
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('update its fluidcad dependency');
+    });
+  });
+
+  describe('2D copy edit (sketch branch)', () => {
+    const EDIT_CODE = [
+      "import { sketch, rect, copy, local } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => {",
+      '  const r = rect(20, 20)',
+      "  copy('linear', local('x'), { count: 3, offset: 20 }, r)",
+      '})',
+      '',
+    ].join('\n');
+    const EDIT = { filePath: '/ws/m.fluid.js', line: 5, column: 2 };
+
+    it('rewrites the options keeping the local axis and targets verbatim', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'copy', edit: EDIT, kind: 'linear', spacingMode: 'offset',
+        directions: [{ count: 4, value: 25 }],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("copy('linear', local('x'), { count: 4, offset: 25 }, r)");
+      expect(sketchSynthesizeCalls).toEqual([]);
+      expect(relayed[0].spec).toMatchObject({
+        edit: {
+          copy: {
+            kind: 'linear',
+            directions: [{ axis: { kind: 'keep', sourceIndex: 0 }, count: 4, value: 25 }],
+          },
+        },
+      });
+    });
+
+    it('re-sources a direction to the other local axis', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'copy', edit: EDIT, kind: 'linear', spacingMode: 'offset',
+        directions: [{ axis: { kind: 'local', axis: 'y' }, count: 3, value: 20 }],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("copy('linear', local('y'), { count: 3, offset: 20 }, r)");
+      expect(relayed[0].spec.imports).toContain('local');
+    });
+
+    it('re-picks the targets through the sketch kernel (no boundary needed)', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'copy', filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 12, featureType: 'rect', nameHint: 'r', bind: true }],
+          parts: [], imports: [],
+        },
+        preview: '', args: 'r', alternatives: [],
+        copySlots: { targets: [0], axisParts: [] },
+      };
+      const { status, body } = await post({
+        feature: 'copy', edit: EDIT, kind: 'linear', spacingMode: 'offset',
+        directions: [{ count: 3, value: 20 }],
+        sketchTargets: [{ shapeId: 'e1' }],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("copy('linear', local('x'), { count: 3, offset: 20 }, r)");
+      expect(sketchSynthesizeCalls[0]).toMatchObject({
+        picks: [{ shapeId: 'e1' }], feature: 'copy', axisRefs: [],
+      });
+      expect(relayed[0].spec).toMatchObject({
+        edit: { copy: { targets: [{ kind: 'feature', producer: 0 }] } },
+      });
+    });
+
+    it('rewrites a circular copy center from the dialog fields', async () => {
+      const circularCode = [
+        "import { sketch, circle, copy } from 'fluidcad/core'",
+        '',
+        "sketch('xy', () => {",
+        '  const c = circle([30, 0], 5)',
+        "  copy('circular', [0, 0], { count: 4, angle: 360 }, c)",
+        '})',
+        '',
+      ].join('\n');
+      currentCode = circularCode;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'copy', edit: { filePath: '/ws/m.fluid.js', line: 5, column: 2 },
+        kind: 'circular', center: [5, 10], count: 4, sweep: { mode: 'angle', value: 360 },
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("copy('circular', [5, 10], { count: 4, angle: 360 }, c)");
+      expect(relayed[0].spec).toMatchObject({
+        edit: { copy: { kind: 'circular', center: [5, 10] } },
+      });
+    });
+
+    it('rejects a center on a linear copy edit', async () => {
+      const { status, body } = await post({
+        feature: 'copy', edit: EDIT, kind: 'linear', spacingMode: 'offset',
+        directions: [{ count: 3, value: 20 }],
+        center: [0, 0],
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('linear copy carries');
     });
   });
 

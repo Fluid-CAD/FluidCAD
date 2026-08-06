@@ -69,13 +69,15 @@ type SceneManager = {
   synthesizeSketchApplyFeature?(
     scene: any,
     refs: { shapeId: string }[],
-    feature: 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'text',
+    feature: 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'text' | 'copy',
     value: number | string | undefined,
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       params?: { name: string; value: number }[];
       /** Subtract only: the tool-slot picks (`refs` is the base slot). */
       toolRefs?: { shapeId: string }[];
+      /** Copy only: one pick per edge-picked direction, in direction order. */
+      axisRefs?: { shapeId: string }[];
       /**
        * Offset only: the dialog's `removeOriginal` argument and `.close()`
        * chain. A workspace kernel predating them ignores the field — the
@@ -1066,13 +1068,15 @@ export class FluidCadServer {
   /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */
   synthesizeSketchApplyFeature(
     refs: { shapeId: string }[],
-    feature: 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'text',
+    feature: 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'text' | 'copy',
     value: number | string | undefined,
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       params?: { name: string; value: number }[];
       /** Subtract only: the tool-slot picks (`refs` is the base slot). */
       toolRefs?: { shapeId: string }[];
+      /** Copy only: one pick per edge-picked direction, in direction order. */
+      axisRefs?: { shapeId: string }[];
       /** Offset only: the dialog's `removeOriginal` argument and `.close()` chain. */
       offset?: { removeOriginal: boolean; close: boolean };
       /** Slot only: the dialog's Remove-original toggle (`deleteSource`). */

@@ -103,7 +103,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'text';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'text' | 'copy';
 
 /**
  * A tangent chain from the "Select with tangents" gesture: the pick the user
@@ -196,6 +196,13 @@ export type ApplyFeatureSynthesis =
     args: string;
     /** Up to three verified alternative renderings of the argument list. */
     alternatives: string[];
+    /**
+     * 2D copy only: which producers are the copy's targets (in pick order)
+     * and which parts are its per-direction axis edges (in direction order).
+     * The route assembles the statement's option payload around these; its
+     * absence on a 'copy' synthesis marks a kernel predating the kind.
+     */
+    copySlots?: { targets: number[]; axisParts: number[] };
   }
   | { ok: false; reason: string; pick?: PickRef };
 
@@ -262,6 +269,8 @@ export function nameHintFor(featureType: string): string {
     case 'projection': return 'pj';
     case 'intersect': return 'ix';
     case 'text': return 'tx';
+    case 'copy-linear': return 'cp';
+    case 'copy-circular': return 'cp';
     default: return 'f';
   }
 }

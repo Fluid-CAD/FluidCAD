@@ -4814,7 +4814,7 @@ describe('parseFeatureStatement — copy', () => {
       parsed: {
         feature: 'copy', kind: 'linear', axisTexts: [`'x'`],
         directions: [{ count: 3, value: 40 }], spacingMode: 'offset', centered: false,
-        count: null, sweep: null, skip: null, targetTexts: ['e'],
+        count: null, sweep: null, center: null, skip: null, targetTexts: ['e'],
         // The bound extrude call's own position — the timeline row's location.
         targetRefs: [{ line: 4, column: 10 }],
       },
@@ -4856,12 +4856,24 @@ describe('parseFeatureStatement — copy', () => {
     });
   });
 
-  it('refuses the circular center-point form', async () => {
+  it('reads the circular center-point form (the 2D in-sketch copy)', async () => {
     const code = `${copyEditBase}\ncopy('circular', [10, 20], { count: 6, angle: 360 }, e)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: {
+        feature: 'copy', kind: 'circular', center: [10, 20],
+        count: 6, sweep: { mode: 'angle', value: 360 }, targetTexts: ['e'],
+      },
+    });
+  });
+
+  it('refuses a center point that is not a plain [x, y] pair', async () => {
+    const code = `${copyEditBase}\ncopy('circular', [10, 20, 30], { count: 6, angle: 360 }, e)\n`;
     const result = await parseFeatureStatement(code, 7);
     expect(result).toMatchObject({ ok: false });
     if (result.ok === false) {
-      expect(result.reason).toContain('center point');
+      expect(result.reason).toContain('[x, y]');
     }
   });
 

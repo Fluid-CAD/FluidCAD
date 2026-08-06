@@ -46,7 +46,24 @@ export class AxisSlotControl {
   constructor(
     slotHost: HTMLElement,
     buttonsHost: HTMLElement,
-    opts: { buttonTitle: (axis: string) => string; label?: string },
+    private readonly opts: {
+      buttonTitle: (axis: string) => string;
+      label?: string;
+      /** The quick buttons to offer; default the three world axes. */
+      axes?: readonly StandardAxis[];
+      /** Quick-button caption; default the axis letter (`X`). */
+      buttonLabel?: (axis: StandardAxis) => string;
+      /** The chosen-standard chip's label; default `World X axis`. */
+      chipLabel?: (axis: StandardAxis) => string;
+      /**
+       * How a kept statement axis reads back as a standard selection — the
+       * capture group is the axis letter. Default matches the world-axis
+       * string literals (`'z'`); the 2D copy passes a `local('x')` matcher.
+       */
+      keepMatcher?: RegExp;
+      /** The empty slot's pick prompt. */
+      prompt?: string;
+    },
   ) {
     this.slot = new PickSlot(slotHost, { label: opts.label ?? 'Axis', multiple: false });
     this.slot.onArm = () => this.onArm?.();
@@ -59,11 +76,11 @@ export class AxisSlotControl {
       this.onChange?.();
     };
 
-    // The world-axis quick row: one click sets the slot without a 3D pick.
-    for (const axis of STANDARD_AXES) {
+    // The standard-axis quick row: one click sets the slot without a 3D pick.
+    for (const axis of opts.axes ?? STANDARD_AXES) {
       const btn = document.createElement('button');
       btn.className = 'btn btn-sm join-item flex-1 font-normal';
-      btn.textContent = axis.toUpperCase();
+      btn.textContent = opts.buttonLabel?.(axis) ?? axis.toUpperCase();
       btn.title = opts.buttonTitle(axis.toUpperCase());
       btn.addEventListener('click', () => {
         this.state = { kind: 'standard', axis };
@@ -162,8 +179,9 @@ export class AxisSlotControl {
     if (this.keepLabel === null) {
       return null;
     }
-    const standard = this.keepLabel.trim().match(/^['"]([xyz])['"]$/);
-    if (standard) {
+    const matcher = this.opts.keepMatcher ?? /^['"]([xyz])['"]$/;
+    const standard = this.keepLabel.trim().match(matcher);
+    if (standard && this.buttons.has(standard[1] as StandardAxis)) {
       return { kind: 'standard', axis: standard[1] as StandardAxis };
     }
     return { kind: 'keep' };
@@ -177,7 +195,7 @@ export class AxisSlotControl {
       this.slot.setPrompt(null);
     } else if (state?.kind === 'standard') {
       this.slot.setChips([{
-        label: `World ${state.axis.toUpperCase()} axis`,
+        label: this.opts.chipLabel?.(state.axis) ?? `World ${state.axis.toUpperCase()} axis`,
         badge: '●',
         removable: true,
       }]);
@@ -190,7 +208,7 @@ export class AxisSlotControl {
       this.slot.setPrompt(null);
     } else {
       this.slot.setChips([]);
-      this.slot.setPrompt('Pick an axis or edge');
+      this.slot.setPrompt(this.opts.prompt ?? 'Pick an axis or edge');
     }
     for (const [axis, btn] of this.buttons) {
       const active = state?.kind === 'standard' && state.axis === axis;

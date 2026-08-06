@@ -5,6 +5,7 @@ import {
   applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderBooleanStatement,
   parseOffsetTargetDescriptors,
   resolveEditedStatementLine,
+  renderCopyCenterExpr,
   renderCopyStatement,
   renderEditedStatement,
   renderExtrudeStatement, renderHelixStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
@@ -1437,6 +1438,110 @@ function validateCopy(body: any): CopyRequest | { error: string } {
   };
 }
 
+/** One 2D copy direction's axis: a sketch-local axis or a picked line edge. */
+type SketchCopyAxisInput = { kind: 'local'; axis: 'x' | 'y' } | { kind: 'edge' };
+
+/**
+ * The in-sketch copy request's option payload (`copy2d`): the kind plus its
+ * inputs — linear directions (each a sketch-local axis or an edge pick,
+ * with its own count and value, sharing one offset/length spacing mode) or
+ * a center point with count and sweep for circular. The target picks ride
+ * `sketchEntities` and the per-direction edge picks `sketchAxisEntities`,
+ * both resolved by the sketch synthesis kernel.
+ */
+type SketchCopyRequest = {
+  kind: 'linear' | 'circular';
+  directions?: { axis: SketchCopyAxisInput; count: ValueExpr; value: ValueExpr }[];
+  spacingMode?: 'offset' | 'length';
+  centered?: boolean;
+  center?: [ValueExpr, ValueExpr];
+  count?: ValueExpr;
+  sweep?: { mode: 'angle' | 'offset'; value: ValueExpr };
+  skip?: number[][];
+};
+
+function validateSketchCopy(body: any): SketchCopyRequest | { error: string } {
+  const raw = body?.copy2d;
+  if (!raw || typeof raw !== 'object') {
+    return { error: 'copy2d must carry the copy options' };
+  }
+  const { kind, centered } = raw;
+  if (kind !== 'linear' && kind !== 'circular') {
+    return { error: 'copy2d.kind must be "linear" or "circular"' };
+  }
+  if (kind === 'linear') {
+    if (raw.center !== undefined || raw.count !== undefined || raw.sweep !== undefined) {
+      return { error: 'a linear copy carries its counts and values in the directions' };
+    }
+    if (centered !== undefined && typeof centered !== 'boolean') {
+      return { error: 'centered must be a boolean' };
+    }
+    if (raw.spacingMode !== 'offset' && raw.spacingMode !== 'length') {
+      return { error: 'spacingMode must be "offset" or "length"' };
+    }
+    const rawDirs = raw.directions;
+    if (!Array.isArray(rawDirs) || rawDirs.length < 1 || rawDirs.length > 2) {
+      return { error: 'directions must be 1-2 axis directions' };
+    }
+    const directions: NonNullable<SketchCopyRequest['directions']> = [];
+    for (const entry of rawDirs) {
+      const axis = entry?.axis;
+      const isLocal = axis?.kind === 'local' && (axis.axis === 'x' || axis.axis === 'y');
+      if (!isLocal && axis?.kind !== 'edge') {
+        return { error: 'each direction axis must be {kind: "local", axis: "x"|"y"} or {kind: "edge"}' };
+      }
+      if (!validCountValue(entry?.count)) {
+        return { error: 'each direction count must be an integer of at least 2 (the original included) or an expression' };
+      }
+      if (!validValueExpr(entry?.value, { nonzero: true })) {
+        return { error: 'each direction value must be a nonzero number or expression' };
+      }
+      directions.push({
+        axis: isLocal ? { kind: 'local', axis: axis.axis } : { kind: 'edge' },
+        count: entry.count,
+        value: entry.value,
+      });
+    }
+    const skip = validateCopySkip(raw.skip, directions.length);
+    if ('error' in skip) {
+      return skip;
+    }
+    return {
+      kind, directions, spacingMode: raw.spacingMode, centered: centered === true,
+      skip: skip.length > 0 ? skip : undefined,
+    };
+  }
+  if (raw.directions !== undefined || raw.spacingMode !== undefined) {
+    return { error: 'only a linear copy takes directions' };
+  }
+  if (centered === true) {
+    return { error: 'a circular copy takes no centered flag' };
+  }
+  const center = raw.center;
+  if (!Array.isArray(center) || center.length !== 2 || !center.every((v: unknown) => validValueExpr(v))) {
+    return { error: 'center must be an [x, y] pair of numbers or expressions' };
+  }
+  if (!validCountValue(raw.count)) {
+    return { error: 'count must be an integer of at least 2 (the original included) or an expression' };
+  }
+  const sweep = raw.sweep;
+  if (sweep?.mode !== 'angle' && sweep?.mode !== 'offset') {
+    return { error: 'sweep mode must be "angle" or "offset"' };
+  }
+  if (!validValueExpr(sweep.value, { nonzero: true })) {
+    return { error: 'sweep value must be a nonzero number or expression' };
+  }
+  const skip = validateCopySkip(raw.skip, 1);
+  if ('error' in skip) {
+    return skip;
+  }
+  return {
+    kind, center: [center[0], center[1]], count: raw.count,
+    sweep: { mode: sweep.mode, value: sweep.value },
+    skip: skip.length > 0 ? skip : undefined,
+  };
+}
+
 type BooleanRequest = {
   kind: BooleanKind;
   /** The feature statements being combined, in argument order. */
@@ -1625,11 +1730,19 @@ type StatementEditRequest = {
   /** Full replacement repeat target list; absent keeps the statement's. */
   repeatTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Edited copy's linear directions; keep axes stay by source position. */
-  copyDirections?: { axis: RepeatEditAxisInput; count: ValueExpr; value: ValueExpr }[];
+  copyDirections?: { axis: CopyEditAxisInput; count: ValueExpr; value: ValueExpr }[];
   /** Edited copy's axis (circular); keep stays by source position. */
-  copyAxis?: RepeatEditAxisInput;
+  copyAxis?: CopyEditAxisInput;
   /** Full replacement copy target list; absent keeps the statement's. */
   copyTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
+  /**
+   * Full replacement 2D copy target list — sketch-edge picks in argument
+   * order, resolved to whole geometries by the sketch synthesis kernel.
+   * The pause-before contract applies: no boundary rides along.
+   */
+  copySketchTargets?: { shapeId: string }[];
+  /** The 2D copy's axis edge picks, one per sketch-edge direction in order. */
+  copyAxisPicks?: { shapeId: string }[];
   /** Full replacement boolean target list; absent keeps the statement's. */
   booleanTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Full replacement plane base list; absent keeps the statement's. */
@@ -1653,6 +1766,28 @@ function validateRepeatEditAxis(raw: any): RepeatEditAxisInput | { error: string
     return { kind: 'keep', sourceIndex: raw.sourceIndex };
   }
   return validateRevolveAxis(raw);
+}
+
+/**
+ * One copy-edit axis field: the repeat shapes plus the 2D in-sketch forms —
+ * a sketch-local axis, or a picked sketch edge whose `{shapeId}` rides
+ * `sketchAxisEntities` in direction order.
+ */
+type CopyEditAxisInput = RepeatEditAxisInput
+  | { kind: 'local'; axis: 'x' | 'y' }
+  | { kind: 'sketch-edge' };
+
+function validateCopyEditAxis(raw: any): CopyEditAxisInput | { error: string } {
+  if (raw?.kind === 'local') {
+    if (raw.axis !== 'x' && raw.axis !== 'y') {
+      return { error: 'a local axis must be {kind: "local", axis: "x" | "y"}' };
+    }
+    return { kind: 'local', axis: raw.axis };
+  }
+  if (raw?.kind === 'sketch-edge') {
+    return { kind: 'sketch-edge' };
+  }
+  return validateRepeatEditAxis(raw);
 }
 
 /** A `keep`-or-absent slot value: true when the field re-sources nothing. */
@@ -2445,6 +2580,38 @@ function validateCopyEdit(
   const cp: NonNullable<FeatureStatementEditTarget['copy']> = { kind };
   edit.copy = cp;
 
+  // The 2D in-sketch edit re-picks its targets as sketch edges; the whole
+  // list replaces the statement's targets in pick order (the offset edit's
+  // contract — the pause-before render already shows the world they resolve
+  // against, so no boundary rides along).
+  if (body?.sketchTargets !== undefined && body?.sketchTargets !== null) {
+    if (body?.targets !== undefined && body?.targets !== null) {
+      return { error: 'a copy edit carries targets (3D) or sketchTargets (2D), not both' };
+    }
+    const picks = validateSketchPicks(body.sketchTargets);
+    if (!picks) {
+      return { error: 'sketchTargets must be a non-empty array of {shapeId} picks' };
+    }
+    if (picks.length > MAX_COPY_TARGETS) {
+      return { error: `sketchTargets must be 1-${MAX_COPY_TARGETS} picks` };
+    }
+    result.copySketchTargets = picks;
+  }
+
+  // The 2D axis edge picks, one per sketch-edge direction in order; checked
+  // against the direction list before each return.
+  if (body?.sketchAxisEntities !== undefined && body?.sketchAxisEntities !== null) {
+    const picks = validateSketchPicks(body.sketchAxisEntities);
+    if (!picks) {
+      return { error: 'sketchAxisEntities must be a non-empty array of {shapeId} picks' };
+    }
+    result.copyAxisPicks = picks;
+  }
+  const checkAxisPicks = (edgeCount: number): { error: string } | null =>
+    (result.copyAxisPicks?.length ?? 0) === edgeCount
+      ? null
+      : { error: 'sketchAxisEntities must carry exactly one pick per sketch-edge direction' };
+
   if (body?.targets !== undefined && body?.targets !== null) {
     if (!Array.isArray(body.targets) || body.targets.length < 1 || body.targets.length > MAX_COPY_TARGETS) {
       return { error: `targets must be 1-${MAX_COPY_TARGETS} kept or re-picked features` };
@@ -2482,7 +2649,7 @@ function validateCopyEdit(
   }
 
   if (kind === 'linear') {
-    for (const key of ['axis', 'count', 'sweep', 'angle'] as const) {
+    for (const key of ['axis', 'count', 'sweep', 'angle', 'center'] as const) {
       if (body?.[key] !== undefined && body?.[key] !== null) {
         return { error: `a linear copy carries its ${key === 'axis' ? 'axes' : 'counts and values'} in the directions` };
       }
@@ -2504,7 +2671,7 @@ function validateCopyEdit(
       // An absent axis keeps the statement's own axis at this position.
       const axis = entry?.axis === undefined || entry?.axis === null
         ? { kind: 'keep' as const, sourceIndex: i }
-        : validateRepeatEditAxis(entry.axis);
+        : validateCopyEditAxis(entry.axis);
       if ('error' in axis) {
         return axis;
       }
@@ -2521,6 +2688,10 @@ function validateCopyEdit(
     if ('error' in skip) {
       return skip;
     }
+    const axisPicks = checkAxisPicks(directions.filter(d => d.axis.kind === 'sketch-edge').length);
+    if (axisPicks) {
+      return axisPicks;
+    }
     cp.spacingMode = spacingMode;
     cp.centered = centered === true ? true : undefined;
     // The dialog owns the option outright: an absent list drops the
@@ -2536,15 +2707,34 @@ function validateCopyEdit(
   if (body?.spacingMode !== undefined && body?.spacingMode !== null) {
     return { error: 'only a linear copy takes a spacingMode' };
   }
-  // An absent axis keeps the statement's own (its single axis argument).
-  const axis = body?.axis === undefined || body?.axis === null
-    ? { kind: 'keep' as const, sourceIndex: 0 }
-    : validateRepeatEditAxis(body.axis);
-  if ('error' in axis) {
-    return axis;
+  if (body?.center !== undefined && body?.center !== null) {
+    // The 2D in-sketch form: the center pair replaces the axis argument
+    // outright — the dialog always sends its field values.
+    if (body?.axis !== undefined && body?.axis !== null) {
+      return { error: 'a copy edit carries an axis or a center, not both' };
+    }
+    const center = body.center;
+    if (!Array.isArray(center) || center.length !== 2 || !center.every((v: unknown) => validValueExpr(v))) {
+      return { error: 'center must be an [x, y] pair of numbers or expressions' };
+    }
+    cp.center = [center[0], center[1]];
+  } else {
+    // An absent axis keeps the statement's own (its single axis argument).
+    const axis = body?.axis === undefined || body?.axis === null
+      ? { kind: 'keep' as const, sourceIndex: 0 }
+      : validateCopyEditAxis(body.axis);
+    if ('error' in axis) {
+      return axis;
+    }
+    result.needsPicks ||= axis.kind === 'edge';
+    result.copyAxis = axis;
   }
-  result.needsPicks ||= axis.kind === 'edge';
-  result.copyAxis = axis;
+  {
+    const axisPicks = checkAxisPicks(result.copyAxis?.kind === 'sketch-edge' ? 1 : 0);
+    if (axisPicks) {
+      return axisPicks;
+    }
+  }
 
   if (!validCountValue(count)) {
     return { error: 'count must be an integer of at least 2 (the original included) or an expression' };
@@ -2916,7 +3106,8 @@ export function createApplyFeatureRouter(
           namer?: Awaited<ReturnType<typeof makeProducerNamer>>;
           params?: { name: string; value: number }[];
         } | undefined;
-        if ((request.needsPicks || request.sketchPicks) && code) {
+        if ((request.needsPicks || request.sketchPicks || request.copySketchTargets
+          || request.copyAxisPicks) && code) {
           synthOptions = {
             namer: await makeProducerNamer(code),
             params: resolveParamValues(
@@ -3281,16 +3472,62 @@ export function createApplyFeatureRouter(
         }
         if (request.feature === 'copy') {
           const cp = edit.copy!;
+          // 2D re-picks (sketch targets and/or axis edges) resolve through
+          // the sketch synthesis kernel against the CURRENT scene — the
+          // double-click paused the build just before the statement, so the
+          // rendered sketch already is the world the arguments see.
+          let sketchTargetProducers: number[] | null = null;
+          const sketchAxisParts: number[] = [];
+          if (request.copySketchTargets || (request.copyAxisPicks?.length ?? 0) > 0) {
+            const synthesis = fluidCadServer.synthesizeSketchApplyFeature(
+              request.copySketchTargets ?? [], 'copy', undefined,
+              { ...synthOptions, axisRefs: request.copyAxisPicks ?? [] },
+            );
+            if (!synthesis) {
+              res.status(404).json({ success: false, reason: 'No rendered scene' });
+              return;
+            }
+            if (!synthesis.ok) {
+              res.status(422).json({ success: false, reason: synthesis.reason });
+              return;
+            }
+            if (!synthesis.copySlots) {
+              res.status(422).json({
+                success: false,
+                reason: "the workspace's FluidCAD version does not support the 2D copy dialog — update its fluidcad dependency",
+              });
+              return;
+            }
+            const remap = synthesis.spec.producers.map(mergeProducer);
+            for (const part of synthesis.spec.parts) {
+              parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
+              sketchAxisParts.push(parts.length - 1);
+            }
+            if (request.copySketchTargets) {
+              sketchTargetProducers = synthesis.copySlots.targets.map((i: number) => remap[i]);
+            }
+          }
+          let sketchAxisIndex = 0;
           // One copy axis input as its edit spec form; null after refusing.
-          // Keeps and standard axes pass through; an axis statement binds a
-          // producer; a picked edge synthesizes its own selector part against
-          // the pre-statement boundary, wrapped in `axis(…)` at render time.
-          const resolveAxis = (input: RepeatEditAxisInput): RepeatEditAxis | null => {
+          // Keeps, standard and local axes pass through; an axis statement
+          // binds a producer; a picked 3D edge synthesizes its own selector
+          // part against the pre-statement boundary; a picked sketch edge
+          // claims the next kernel-synthesized part. Both render wrapped in
+          // `axis(…)`.
+          const resolveAxis = (input: CopyEditAxisInput): RepeatEditAxis | null => {
             if (input.kind === 'keep') {
               return { kind: 'keep', sourceIndex: input.sourceIndex };
             }
             if (input.kind === 'standard') {
               return { kind: 'standard', axis: input.axis };
+            }
+            if (input.kind === 'local') {
+              importSet.add('local');
+              return { kind: 'local', axis: input.axis };
+            }
+            if (input.kind === 'sketch-edge') {
+              importSet.add('axis');
+              return { kind: 'selector', part: sketchAxisParts[sketchAxisIndex++] };
             }
             if (input.kind === 'axis') {
               return {
@@ -3333,7 +3570,10 @@ export function createApplyFeatureRouter(
             }
             cp.axis = axis;
           }
-          if (request.copyTargets) {
+          if (sketchTargetProducers) {
+            // The 2D re-pick replaces the whole target list, in pick order.
+            cp.targets = sketchTargetProducers.map(producer => ({ kind: 'feature' as const, producer }));
+          } else if (request.copyTargets) {
             cp.targets = request.copyTargets.map(target => target.kind === 'verbatim'
               ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
               : {
@@ -4609,7 +4849,7 @@ export function createApplyFeatureRouter(
       return;
     }
 
-    if (feature === 'copy') {
+    if (feature === 'copy' && req.body?.sketchEntities === undefined) {
       const request = validateCopy(req.body);
       if ('error' in request) {
         res.status(400).json({ error: request.error });
@@ -4962,8 +5202,124 @@ export function createApplyFeatureRouter(
       }
       if (feature !== 'fillet' && feature !== 'offset' && feature !== 'slot' && feature !== 'trim'
         && feature !== 'fuse' && feature !== 'subtract' && feature !== 'common' && feature !== 'tarc'
-        && feature !== 'text') {
-        res.status(400).json({ error: 'feature must be "fillet", "offset", "slot", "trim", "fuse", "subtract", "common", "tarc" or "text" for sketch-edge selections' });
+        && feature !== 'text' && feature !== 'copy') {
+        res.status(400).json({ error: 'feature must be "fillet", "offset", "slot", "trim", "fuse", "subtract", "common", "tarc", "text" or "copy" for sketch-edge selections' });
+        return;
+      }
+      // The 2D copy: whole-geometry targets rendered as bare variables plus
+      // the statement's option payload; an edge-picked direction rides its
+      // own pick list. Self-contained — none of the value/toggle ladder below
+      // applies to it.
+      if (feature === 'copy') {
+        const request = validateSketchCopy(req.body);
+        if ('error' in request) {
+          res.status(400).json({ error: request.error });
+          return;
+        }
+        const edgeDirections = request.kind === 'linear'
+          ? request.directions!.filter(d => d.axis.kind === 'edge').length
+          : 0;
+        let axisPicks: { shapeId: string }[] = [];
+        if (req.body?.sketchAxisEntities !== undefined) {
+          const picks = validateSketchPicks(req.body.sketchAxisEntities);
+          if (!picks) {
+            res.status(400).json({ error: 'sketchAxisEntities must be a non-empty array of {shapeId} picks' });
+            return;
+          }
+          axisPicks = picks;
+        }
+        if (axisPicks.length !== edgeDirections) {
+          res.status(400).json({ error: 'sketchAxisEntities must carry exactly one pick per edge-picked direction' });
+          return;
+        }
+        try {
+          const code = fluidCadServer.getCurrentCode();
+          const options = {
+            ...(code
+              ? {
+                namer: await makeProducerNamer(code),
+                params: resolveParamValues(
+                  await extractNumericParams(code),
+                  fluidCadServer.getParamDefinitions(),
+                ),
+              }
+              : {}),
+            axisRefs: axisPicks,
+          };
+          const synthesis = fluidCadServer.synthesizeSketchApplyFeature(sketchPicks, 'copy', undefined, options);
+          if (!synthesis) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return;
+          }
+          if (!synthesis.ok) {
+            res.status(422).json({ success: false, reason: synthesis.reason });
+            return;
+          }
+          // A workspace kernel predating the 'copy' kind falls through to the
+          // accessor synthesis, which reports no operand slots.
+          const slots = synthesis.copySlots;
+          if (!slots) {
+            res.status(422).json({
+              success: false,
+              reason: "the workspace's FluidCAD version does not support the 2D copy dialog — update its fluidcad dependency",
+            });
+            return;
+          }
+          let axisPartIndex = 0;
+          const copyOptions: CopyEditOptions = {
+            kind: request.kind,
+            directions: request.kind === 'linear'
+              ? request.directions!.map(d => ({
+                axis: d.axis.kind === 'edge'
+                  ? { kind: 'selector' as const, part: slots.axisParts[axisPartIndex++] }
+                  : { kind: 'local' as const, axis: d.axis.axis },
+                count: d.count,
+                value: d.value,
+              }))
+              : undefined,
+            spacingMode: request.spacingMode,
+            centered: request.centered === true ? true : undefined,
+            center: request.center,
+            count: request.count,
+            sweep: request.sweep,
+            skip: request.skip,
+            targets: slots.targets.map((producer: number) => ({ producer })),
+          };
+          const imports = new Set<string>(synthesis.spec.imports);
+          if (copyOptions.directions?.some(d => d.axis.kind === 'local')) {
+            imports.add('local');
+          }
+          if (copyOptions.directions?.some(d => d.axis.kind === 'selector')) {
+            imports.add('axis');
+          }
+          const spec: ApplyFeatureEditSpec = {
+            ...synthesis.spec,
+            copy: copyOptions,
+            imports: [...imports],
+            newVariables,
+          };
+          // Truthful preview: the same allocation walk the transform runs.
+          const producerVars = await allocateProducerVars(spec.producers, code);
+          const varFor = (i: number): string | null => producerVars[i];
+          const inputExprs = request.kind === 'linear'
+            ? copyOptions.directions!.map(d => renderRepeatAxisExpr(d.axis, spec.parts, varFor))
+            : [renderCopyCenterExpr(request.center!)];
+          const statement = renderCopyStatement(
+            copyOptions, inputExprs,
+            copyOptions.targets.map(t => producerVars[t.producer] ?? spec.producers[t.producer].nameHint ?? 'g'),
+          );
+          if (preview === true) {
+            res.json({ success: true, preview: statement });
+            return;
+          }
+          await dispatcher.dispatch(res, spec, { success: true, preview: statement });
+        } catch (err: any) {
+          res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+        }
+        return;
+      }
+      if (req.body?.copy2d !== undefined || req.body?.sketchAxisEntities !== undefined) {
+        res.status(400).json({ error: 'copy2d and sketchAxisEntities only apply to copy' });
         return;
       }
       // Trim, the booleans and text carry no numeric parameter (text rides

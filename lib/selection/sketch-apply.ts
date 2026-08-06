@@ -21,7 +21,7 @@ import {
 /** A sketch edge pick: 1 shapeId = 1 edge (the Stage 0 emission invariant). */
 export type SketchPickRef = { shapeId: string };
 
-export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'text';
+export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'text' | 'copy';
 
 export type SketchSynthesizeOptions = SynthesizeOptions & {
   /**
@@ -40,6 +40,13 @@ export type SketchSynthesizeOptions = SynthesizeOptions & {
    * `deleteSource` argument, whose kernel default is true.
    */
   slot?: SlotEditOptions;
+  /**
+   * 2D copy only: one pick per edge-picked direction, in direction order.
+   * Each resolves to its producing single-line geometry, referenced as
+   * `axis(<var>)` in the emitted statement. `refs` is the target pick set —
+   * it may be empty for an edit that re-picks only the axis.
+   */
+  axisRefs?: SketchPickRef[];
 };
 
 type ResolvedSketchPick = {
@@ -80,12 +87,18 @@ export function synthesizeSketchApplyFeature(
   value?: number | string,
   options: SketchSynthesizeOptions = {},
 ): ApplyFeatureSynthesis {
-  if (refs.length === 0) {
+  // Copy alone tolerates an empty target set: an edit may re-pick only its
+  // axis edge while the statement's own targets stand verbatim.
+  if (refs.length === 0 && !(feature === 'copy' && (options.axisRefs?.length ?? 0) > 0)) {
     return { ok: false, reason: 'nothing selected' };
   }
 
   if (feature === 'fuse' || feature === 'subtract' || feature === 'common') {
     return synthesizeSketchBoolean(scene, refs, feature, options);
+  }
+
+  if (feature === 'copy') {
+    return synthesizeSketchCopy(scene, refs, options);
   }
 
   if (feature === 'slot') {
@@ -612,6 +625,123 @@ function synthesizeSketchBoolean(
     preview: `${feature}(${args})`,
     args,
     alternatives: [],
+  };
+}
+
+/**
+ * The 2D copy is owner-level like the booleans: its targets are whole
+ * geometries (CopyLinear2D/CopyCircular2D filter their previous siblings by
+ * identity), so any picked edge stands for its producing primitive and the
+ * emitted target args are bare variables — `copy('linear', local('x'),
+ * {…}, r, c)`. An edge-picked direction resolves the same way, but its owner
+ * must be a single straight line (the direction the copy walks), referenced
+ * as `axis(<var>)`. The route owns the statement's option payload; this
+ * synthesis owns the operands, reporting them through `copySlots` — whose
+ * absence tells the route the workspace kernel predates the kind.
+ */
+function synthesizeSketchCopy(
+  scene: SelectionScene,
+  refs: SketchPickRef[],
+  options: SketchSynthesizeOptions,
+): ApplyFeatureSynthesis {
+  const axisRefs = options.axisRefs ?? [];
+
+  // One resolution over both slots keeps the same-sketch rule airtight.
+  const resolution = resolvePicks(scene, [...refs, ...axisRefs]);
+  if ('reason' in resolution) {
+    return { ok: false, reason: resolution.reason };
+  }
+
+  const targetIds = new Set(refs.map(r => r.shapeId));
+  const targetOwners: SceneObject[] = [];
+  for (const pick of resolution.picks) {
+    if (targetIds.has(pick.ref.shapeId) && !targetOwners.includes(pick.owner)) {
+      targetOwners.push(pick.owner);
+    }
+  }
+
+  // Each direction's pick resolves independently — two directions may pick
+  // the same line, and a target may double as an axis.
+  const axisOwners: SceneObject[] = [];
+  for (const ref of axisRefs) {
+    const pick = resolution.picks.find(p => p.ref.shapeId === ref.shapeId);
+    if (!pick) {
+      return { ok: false, reason: 'an axis pick does not resolve to a sketch edge in the current scene' };
+    }
+    // The direction is the picked line's own: the kernel resolves
+    // `axis(<var>)` through the owner's edge, so it must be exactly one
+    // straight segment — an arc or a multi-edge owner has no single direction.
+    const shapes = pick.owner.getShapes({ excludeGuide: false });
+    const edges = shapes.filter((s): s is Edge => s instanceof Edge);
+    if (edges.length !== 1 || shapes[0] !== edges[0] || classifyEdge(edges[0]) !== 'line') {
+      return {
+        ok: false,
+        reason: `a copy direction follows a single straight line — not a ${pick.owner.getType()}()`,
+      };
+    }
+    axisOwners.push(pick.owner);
+  }
+
+  const owners: SceneObject[] = [...targetOwners];
+  for (const owner of axisOwners) {
+    if (!owners.includes(owner)) {
+      owners.push(owner);
+    }
+  }
+  for (const owner of owners) {
+    const bindFailure = checkSketchBindable(scene, owner);
+    if (bindFailure) {
+      return { ok: false, reason: bindFailure };
+    }
+  }
+
+  const filePaths = new Set(owners.map(o => o.getSourceLocation()!.filePath));
+  if (filePaths.size > 1) {
+    return { ok: false, reason: 'the picked edges come from statements in different files' };
+  }
+
+  const names = allocateNames(owners, options.namer);
+  const targetParts = targetOwners.map(owner => part(owner, '', null, null, 0));
+  const axisParts = axisOwners.map(owner => part(owner, '', null, null, 0));
+  const args = targetParts.map(p => renderPartArgs(p, names)).join(', ');
+
+  const spec: ApplyFeatureEditSpec = {
+    feature: 'copy',
+    filePath: filePaths.values().next().value!,
+    producers: owners.map(owner => {
+      const loc = owner.getSourceLocation()!;
+      return {
+        line: loc.line,
+        column: loc.column,
+        featureType: owner.getType(),
+        nameHint: nameHintFor(owner.getType()),
+        bind: true,
+      };
+    }),
+    // Only the axis parts ride the spec — the route addresses the targets by
+    // producer, matching the copy renderer's contract (every part must be
+    // claimed by an axis input).
+    parts: axisParts.map(p => ({
+      producer: owners.indexOf(p.producer!),
+      accessor: p.accessor,
+      indices: p.indices,
+      filterArgs: p.filterArgs,
+    })),
+    imports: [],
+  };
+
+  return {
+    ok: true,
+    spec,
+    // The route re-renders the full statement around these operands; this
+    // preview never reaches a dialog.
+    preview: `copy(…, ${args})`,
+    args,
+    alternatives: [],
+    copySlots: {
+      targets: targetOwners.map(owner => owners.indexOf(owner)),
+      axisParts: axisParts.map((_, i) => i),
+    },
   };
 }
 

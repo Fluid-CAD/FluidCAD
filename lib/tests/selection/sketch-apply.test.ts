@@ -827,6 +827,138 @@ describe("sketch apply-feature synthesis", () => {
       reason: expect.stringMatching(/does not resolve/),
     });
   });
+
+  // The 2D copy is owner-level like the booleans: targets are whole
+  // geometries as bare variables; an edge-picked direction resolves its
+  // single-line owner, referenced as `axis(<var>)` by the route.
+  describe("2D copy operands", () => {
+    it("resolves targets to bare-variable producers and reports copySlots", () => {
+      let r: Rect;
+      let c: SceneObject;
+      sketch("xy", () => {
+        r = rect(80, 60) as Rect;
+        move([100, 0]);
+        c = circle(10) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(r!, 3);
+      setLocation(c!, 5);
+
+      const result = synthesizeSketchApplyFeature(
+        scene,
+        [refFor(roleEdge(r!, 'top')), refFor(edgesOf(c!)[0])],
+        'copy',
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('r, c');
+      expect(result.spec.feature).toBe('copy');
+      expect(result.spec.producers).toEqual([
+        { line: 3, column: 0, featureType: 'rect', nameHint: 'r', bind: true },
+        { line: 5, column: 0, featureType: 'circle', nameHint: 'c', bind: true },
+      ]);
+      expect(result.spec.parts).toEqual([]);
+      expect(result.copySlots).toEqual({ targets: [0, 1], axisParts: [] });
+    });
+
+    it("resolves an axis pick to its single-line owner as a bare selector part", () => {
+      let r: Rect;
+      let l: SceneObject;
+      sketch("xy", () => {
+        r = rect(80, 60) as Rect;
+        move([0, 80]);
+        l = aLine(30, 50) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(r!, 3);
+      setLocation(l!, 5);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, edgesOf(r!).map(refFor), 'copy', undefined,
+        { axisRefs: [refFor(edgesOf(l!)[0])] },
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('r');
+      expect(result.spec.producers).toEqual([
+        { line: 3, column: 0, featureType: 'rect', nameHint: 'r', bind: true },
+        { line: 5, column: 0, featureType: 'line', nameHint: 'l', bind: true },
+      ]);
+      expect(result.spec.parts).toEqual([
+        { producer: 1, accessor: '', indices: null, filterArgs: null },
+      ]);
+      expect(result.copySlots).toEqual({ targets: [0], axisParts: [0] });
+    });
+
+    it("accepts an axis-only resolution (an edit re-picking just the direction)", () => {
+      let l: SceneObject;
+      sketch("xy", () => {
+        rect(80, 60);
+        move([0, 80]);
+        l = aLine(30, 50) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(l!, 5);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [], 'copy', undefined, { axisRefs: [refFor(edgesOf(l!)[0])] },
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.copySlots).toEqual({ targets: [], axisParts: [0] });
+    });
+
+    it("refuses a multi-edge owner as a direction", () => {
+      let r: Rect;
+      sketch("xy", () => {
+        r = rect(80, 60) as Rect;
+      });
+      const scene = render();
+      setLocation(r!, 3);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(roleEdge(r!, 'top'))], 'copy', undefined,
+        { axisRefs: [refFor(roleEdge(r!, 'left'))] },
+      );
+
+      expect(result).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/single straight line/),
+      });
+    });
+
+    it("refuses a curved edge as a direction", () => {
+      let r: Rect;
+      let c: SceneObject;
+      sketch("xy", () => {
+        r = rect(80, 60) as Rect;
+        move([100, 0]);
+        c = circle(10) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(r!, 3);
+      setLocation(c!, 5);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(roleEdge(r!, 'top'))], 'copy', undefined,
+        { axisRefs: [refFor(edgesOf(c!)[0])] },
+      );
+
+      expect(result).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/single straight line/),
+      });
+    });
+  });
 });
 
 // The inverse direction (offset edit seeding): the statement's parsed target

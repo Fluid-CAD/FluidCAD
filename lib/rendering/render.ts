@@ -7,6 +7,7 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { transformMeshes } from "./mesh-transform.js";
+import { attachSectionSnapVertices } from "./section-snap.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Mesh } from "../oc/mesh.js";
 import type { MeshConfig } from "../oc/mesh.js";
@@ -96,6 +97,8 @@ export class SceneRenderer {
         profilers.get(object),
       );
     }
+
+    attachSectionSnapVertices(scene);
 
     return scene;
   }

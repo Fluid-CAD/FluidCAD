@@ -179,6 +179,12 @@ export type SceneObjectRender = {
   sourceLocation?: SourceLocation;
   buildDurationMs?: number;
   profileCategories?: { category: string; durationMs: number }[];
+  /**
+   * Sketches only, tip sketch only: plane-local 2D points where the sketch
+   * plane slices the scene's bodies — invisible snap targets for the
+   * interactive sketcher (the vertices an intersect() would produce).
+   */
+  sectionSnapVertices?: [number, number][];
 };
 
 // ---------------------------------------------------------------------------

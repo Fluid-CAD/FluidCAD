@@ -69,6 +69,25 @@ describe('SnapManager.fromSceneObjects', () => {
     expect(zoomedOut.snap([0, 140], plane).snapType).toBe('vertex');
   });
 
+  // Plane-section snap points: where the sketch plane slices the scene's
+  // bodies, computed server-side and carried on the sketch's own payload.
+  it('snaps to the sketch payload\'s sectionSnapVertices', () => {
+    const plane = XY_PLANE_CENTERED_AT(0, 0, 0);
+    const sketchObj = {
+      id: 'sketch-1',
+      sceneShapes: [],
+      ownShapes: [],
+      sectionSnapVertices: [[30, -20]] as [number, number][],
+    };
+    const manager = SnapManager.fromSceneObjects([sketchObj], 'sketch-1', plane);
+
+    const result = manager.snap([30.2, -19.9], plane);
+
+    expect(result.snapType).toBe('vertex');
+    expect(result.point2d[0]).toBeCloseTo(30);
+    expect(result.point2d[1]).toBeCloseTo(-20);
+  });
+
   it('falls back to grid snap away from the center', () => {
     const plane = XY_PLANE_CENTERED_AT(0, 0, 0);
     const manager = SnapManager.fromSceneObjects([], 'sketch-1', plane);

@@ -103,6 +103,14 @@ export class SnapManager {
     // Extract vertex positions from sketch child mesh data
     const vertices2d: [number, number][] = [];
     const EPSILON_SQ = 1e-6;
+    const pushUnique = (u: number, v: number) => {
+      const isDup = vertices2d.some(
+        p => (p[0] - u) * (p[0] - u) + (p[1] - v) * (p[1] - v) < EPSILON_SQ,
+      );
+      if (!isDup) {
+        vertices2d.push([u, v]);
+      }
+    };
 
     // The plane center is the sketch's default start position (the face
     // center when sketching on a face) — make it snappable like any vertex.
@@ -138,18 +146,19 @@ export class SnapManager {
               const wz = meshData.vertices[idx * 3 + 2];
 
               const [u, v] = SnapManager.worldToPlane2d(wx, wy, wz, plane);
-
-              // Deduplicate
-              const isDup = vertices2d.some(
-                p => (p[0] - u) * (p[0] - u) + (p[1] - v) * (p[1] - v) < EPSILON_SQ,
-              );
-              if (!isDup) {
-                vertices2d.push([u, v]);
-              }
+              pushUnique(u, v);
             }
           }
         }
       }
+    }
+
+    // Where the sketch plane slices the scene's bodies — server-computed
+    // (the vertices an intersect() would produce), riding the sketch's own
+    // payload. Nothing is drawn; they only feed the vertex snapper.
+    const sketchObj = sceneObjects.find(obj => obj.id === sketchId);
+    for (const [u, v] of sketchObj?.sectionSnapVertices ?? []) {
+      pushUnique(u, v);
     }
 
     // Priority order: vertex snap first, then grid snap

@@ -325,6 +325,7 @@ export type FeatureGhostRequest =
   | HelixGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
+  | MirrorGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
@@ -566,6 +567,22 @@ export type CopyGhostRequest = {
    * — the dialog's Skip field takes literal positions.
    */
   skip: number[][];
+};
+
+/**
+ * The mirror on the ghost wire — the copy's reflected sibling: the target
+ * solids' own bodies stamped once, under the one reflection matrix the apply
+ * itself will use. The originals are never drawn; they are the geometry
+ * already on screen.
+ */
+export type MirrorGhostRequest = {
+  feature: 'mirror';
+  /** How the reflected bodies land: fused (the default), cut, or standalone. */
+  op: 'add' | 'remove' | 'new';
+  /** The solid-bearing statements being mirrored, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** The plane to mirror across. */
+  plane: GhostPlaneRef;
 };
 
 /**
@@ -2029,6 +2046,33 @@ export async function applyCopy(options: CopyApplyOptions): Promise<ApplyFeature
   }, options.signal);
 }
 
+export type MirrorApplyOptions = {
+  /** The solid-bearing statements being mirrored (whole-solid picks), in order. */
+  targets: SketchSourceRef[];
+  /** The mirror plane — the repeat mirror's plane shapes. */
+  plane: RepeatPlaneRef;
+  /** How the reflected bodies land: fused (the default), cut, or standalone. */
+  op: 'add' | 'remove' | 'new';
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a mirror
+ * statement reflecting the target solids across a plane. Same endpoint and
+ * response shape as {@link applyFeature}.
+ */
+export async function applyMirror(options: MirrorApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'mirror',
+    targets: options.targets,
+    plane: options.plane,
+    op: options.op,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** The three boolean operations — each its own callee, one shared dialog. */
 export type BooleanKind = 'fuse' | 'subtract' | 'common';
 
@@ -2120,6 +2164,13 @@ export type FeatureSourcesResult =
    * empty target list.
    */
   | { ok: true; feature: 'copy'; targets: SourceSlotRef[]; axes: SourceSlotRef[] }
+  /**
+   * A standalone mirror: the solids it reflects, by call site, plus the plane
+   * it reflects them across. An origin-plane literal is `opaque` as it is for
+   * a repeat, and an implicit mirror — one naming no targets at all — reports
+   * an empty target list.
+   */
+  | { ok: true; feature: 'mirror'; targets: SourceSlotRef[]; plane: SourceSlotRef }
   /**
    * A construction plane, by its bases in argument order — one for the offset
    * and edge forms, two for a mid plane. An origin-plane literal is `opaque`:
@@ -2381,6 +2432,21 @@ export type ParsedFeatureStatement =
        */
       skip: number[][] | null;
       /** Trailing target texts, verbatim; empty copies every active solid. */
+      targetTexts: string[];
+      /**
+       * Per-target source location of the statement a plain-identifier target
+       * references, or null when the expression doesn't resolve to one. Same
+       * length as `targetTexts` — seeds each target as its solid option.
+       */
+      targetRefs: ({ line: number; column: number } | null)[];
+    }
+  | {
+      feature: 'mirror';
+      /** The op the statement's chain names — `.remove()`, `.new()`, or add. */
+      op: 'add' | 'remove' | 'new';
+      /** Mirror plane argument text, verbatim. */
+      planeText: string;
+      /** Trailing target texts, verbatim; empty mirrors the previous feature. */
       targetTexts: string[];
       /**
        * Per-target source location of the statement a plain-identifier target
@@ -2845,6 +2911,43 @@ export async function applyCopyEdit(
     sweep: options.sweep,
     skip: options.skip,
     newVariables: options.newVariables,
+    targets: options.targets,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
+ * One target of an edited mirror, in argument order: an untouched target by
+ * its position in the statement's own argument list, or a re-picked solid
+ * statement by call site.
+ */
+export type MirrorEditTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
+export type MirrorEditOptions = EditSessionFields & {
+  /** The mirror plane; `keep` re-emits the statement's own expression. */
+  plane: RepeatEditPlaneRef;
+  /** How the reflected bodies land: fused (the default), cut, or standalone. */
+  op: 'add' | 'remove' | 'new';
+  /** Full replacement target list; omitted keeps the statement's own. */
+  targets?: MirrorEditTargetRef[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the mirror statement at `edit` in place. */
+export async function applyMirrorEdit(
+  edit: FeatureEditTarget,
+  options: MirrorEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'mirror',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    plane: options.plane,
+    op: options.op,
     targets: options.targets,
     preview: options.preview,
   }, options.signal);

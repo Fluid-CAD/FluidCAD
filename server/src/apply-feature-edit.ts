@@ -108,7 +108,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'rib';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'rib';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -160,6 +160,8 @@ export type ApplyFeatureEditSpec = {
   repeat?: RepeatEditOptions;
   /** Copy-only payload; `parts` (if any) render the axis selector. */
   copy?: CopyEditOptions;
+  /** Mirror-only payload; `parts` (if any) render the plane selector. */
+  mirror?: MirrorEditOptions;
   /** Boolean-only payload (fuse/subtract/common); no selector parts. */
   boolean?: BooleanEditOptions;
   filePath: string;
@@ -458,6 +460,21 @@ export type FeatureStatementEditTarget = {
      * an unticked `centered` does.
      */
     skip?: number[][];
+    /** Full replacement target list; absent keeps the statement's targets. */
+    targets?: RepeatEditTargetSource[];
+  };
+  /**
+   * Mirror options. The plane slot carries a keep entry that re-reads the
+   * statement's own plane text at apply time; a re-sourced plane renders
+   * from producers/parts like create mode. The target list mixes `verbatim`
+   * keeps with re-picked feature statements; an absent list keeps every
+   * statement target. The op rewrites the trailing chain wholesale.
+   */
+  mirror?: {
+    /** The mirror plane; `keep` re-emits the statement's own expression. */
+    plane: RepeatEditPlane;
+    /** How the reflected bodies land: fused (the default), cut, or standalone. */
+    op: 'add' | 'remove' | 'new';
     /** Full replacement target list; absent keeps the statement's targets. */
     targets?: RepeatEditTargetSource[];
   };
@@ -847,6 +864,25 @@ export type CopyEditOptions = {
 export function renderCopyCenterExpr(center: [ValueExpr, ValueExpr]): string {
   return `[${formatValue(center[0])}, ${formatValue(center[1])}]`;
 }
+
+/**
+ * How a mirror statement is rendered and placed:
+ * `mirror(<plane>, …targets)[.remove()|.new()]` — the default fuse renders no
+ * chain. Targets are the solid-bearing feature statements being reflected,
+ * each bound to a variable (featureType `feature` producers); the plane takes
+ * the repeat mirror's plane shapes (origin literal / plane statement /
+ * picked face as `plane(<selector>)`). The statement always inserts at end
+ * of scope: a mirror reflects its targets over the finished model, and a
+ * picked selector must resolve there.
+ */
+export type MirrorEditOptions = {
+  /** The plane to mirror across. */
+  plane: RepeatPlaneSpec;
+  /** How the reflected bodies land: fused (the default), cut, or standalone. */
+  op: 'add' | 'remove' | 'new';
+  /** The features being mirrored, in argument order — bound producers. */
+  targets: { producer: number }[];
+};
 
 /** The three boolean operations — each its own callee, one shared dialog. */
 export type BooleanKind = 'fuse' | 'subtract' | 'common';
@@ -1402,6 +1438,39 @@ export async function applyFeatureEdit(
       && new Set(selectorParts).size === selectorParts.length;
     if (!valid) {
       return { newCode: code, error: 'malformed copy edit spec' };
+    }
+  } else if (spec.feature === 'mirror') {
+    // Every target is a bound feature producer (solids, like a copy's); a
+    // picked mirror face references its own selector part, and every part
+    // must belong to exactly one input — for a mirror that input can only be
+    // the plane.
+    const mo = spec.mirror;
+    const targets = mo?.targets ?? [];
+    const selectorParts: number[] = [];
+    const validPart = (part: number): boolean => {
+      if (!Number.isInteger(part) || part < 0 || part >= spec.parts.length) {
+        return false;
+      }
+      selectorParts.push(part);
+      return true;
+    };
+    const validPlane = (plane: RepeatPlaneSpec | undefined): boolean =>
+      plane !== undefined && (plane.kind === 'selector'
+        ? validPart(plane.part)
+        : plane.kind === 'standard'
+          ? plane.plane === 'xy' || plane.plane === 'xz' || plane.plane === 'yz'
+          : isPlaneProducer(spec, plane.producer));
+    const valid = mo !== undefined
+      && targets.length >= 1
+      && targets.every(t => isCopyTargetProducer(spec, t.producer))
+      && new Set(targets.map(t => t.producer)).size === targets.length
+      && validPlane(mo.plane)
+      && (mo.op === 'add' || mo.op === 'remove' || mo.op === 'new')
+      // Every selector part belongs to exactly one input (the plane).
+      && selectorParts.length === spec.parts.length
+      && new Set(selectorParts).size === selectorParts.length;
+    if (!valid) {
+      return { newCode: code, error: 'malformed mirror edit spec' };
     }
   } else if (spec.feature === 'boolean') {
     // Every target is a bound feature producer; booleans render no selector
@@ -2592,6 +2661,21 @@ export function renderBooleanStatement(kind: BooleanKind, targetExprs: string[])
 }
 
 /**
+ * Render a mirror statement from its rendered plane input and target
+ * expressions: `mirror('yz', e)` / `mirror(p, e, f).new()` — the default fuse
+ * renders no chain. Shared with the route's preview so the previewed text is
+ * exactly what the transform writes.
+ */
+export function renderMirrorStatement(
+  mo: Pick<MirrorEditOptions, 'op'>,
+  planeExpr: string,
+  targetExprs: string[],
+): string {
+  return `mirror(${[planeExpr, ...targetExprs].join(', ')})`
+    + renderOpChains({ op: mo.op, thin: null });
+}
+
+/**
  * Render a loft statement from its ordered profile expressions: `loft(s, s2)`
  * plus `.guides(g)`, `.startCondition('normal')` / `.endCondition('tangent',
  * 2)` (the default magnitude 1 is omitted), and the `.thin(…)` / `.remove()`
@@ -2886,6 +2970,11 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
       ? cp.directions!.map(d => renderRepeatAxisExpr(d.axis, spec.parts, varFor))
       : [cp.center ? renderCopyCenterExpr(cp.center) : renderRepeatAxisExpr(cp.axis!, spec.parts, varFor)];
     return renderCopyStatement(cp, inputExprs, cp.targets.map(t => bindings[t.producer].varName!));
+  }
+  if (spec.feature === 'mirror') {
+    const mo = spec.mirror!;
+    const planeExpr = renderRepeatPlaneExpr(mo.plane, spec.parts, i => bindings[i].varName);
+    return renderMirrorStatement(mo, planeExpr, mo.targets.map(t => bindings[t.producer].varName!));
   }
   if (spec.feature === 'boolean') {
     const bo = spec.boolean!;
@@ -3471,7 +3560,7 @@ function enclosingSketchStatement(node: TSNode): TSNode | null {
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'boolean' | 'helix' | 'plane' | 'offset' | 'slot' | 'project' | 'rib';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'boolean' | 'helix' | 'plane' | 'offset' | 'slot' | 'project' | 'rib';
 
 /**
  * One base argument of a parsed plane statement. `kind` is what the base
@@ -3750,6 +3839,22 @@ export type ParsedFeatureStatement =
     targetRefs: ({ line: number; column: number } | null)[];
   }
   | {
+    feature: 'mirror';
+    /** The op the statement's chain names — `.remove()`, `.new()`, or add. */
+    op: 'add' | 'remove' | 'new';
+    /** Mirror plane argument text, verbatim. */
+    planeText: string;
+    /** Trailing target texts, verbatim; empty mirrors the previous feature. */
+    targetTexts: string[];
+    /**
+     * Per-target source location of the feature statement a plain-identifier
+     * target references, or null when the expression doesn't resolve to one.
+     * Same length as `targetTexts`; lets the edit dialog seed targets as
+     * their timeline rows.
+     */
+    targetRefs: ({ line: number; column: number } | null)[];
+  }
+  | {
     feature: 'plane';
     /**
      * The form the dialog opens on: two bases read as a mid plane, a lone
@@ -3800,6 +3905,9 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   sketch: 'sketch',
   repeat: 'repeat',
   copy: 'copy',
+  // The 3D `mirror(plane, …)` only — the 2D in-sketch form shares the callee,
+  // and the client routes its rows away by uniqueType before asking.
+  mirror: 'mirror',
   fuse: 'boolean',
   subtract: 'boolean',
   common: 'boolean',
@@ -3837,6 +3945,10 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   repeat: new Set(),
   // Like repeat: everything lives in the root call's arguments.
   copy: new Set(),
+  // The plane and targets are root-call arguments; the operation chains are
+  // the one thing the dialog edits. `.scope()`/`.exclude()`/`.name()` are
+  // unrecognized members and survive verbatim.
+  mirror: new Set(['add', 'remove', 'new']),
   // The targets are the root call's arguments; `.name()` and friends are
   // unrecognized members and survive verbatim.
   boolean: new Set(),
@@ -4249,6 +4361,10 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
 
   if (feature === 'copy') {
     return parseCopyChain(args, start, end);
+  }
+
+  if (feature === 'mirror') {
+    return parseMirrorChain(args, recognized, start, end);
   }
 
   if (feature === 'boolean') {
@@ -5175,6 +5291,41 @@ function parseCopySkip(
  * its base and tool arguments; fuse and common accept any count (empty
  * operates on every active shape).
  */
+/**
+ * A `mirror(<plane>, …targets)` statement's dialog-editable reading. The
+ * plane and target expressions are preserved verbatim; the recognized
+ * operation chains read as the op (`.add()` is the fuse default and simply
+ * reads as it). An argument-less target list is legal — an implicit mirror
+ * reflects the last feature — and reads as the empty list, exactly as an
+ * implicit copy's does.
+ */
+function parseMirrorChain(
+  args: TSNode[],
+  recognized: Map<string, ChainSegment>,
+  start: number,
+  end: number,
+): ChainParse {
+  if (args.length < 1) {
+    return { error: 'the mirror has fewer arguments than the dialog understands' };
+  }
+  const ops = (['add', 'remove', 'new'] as const).filter(op => recognized.has(op));
+  if (ops.length > 1) {
+    return { error: 'the statement chains more than one operation — edit it in the source' };
+  }
+  const op: 'add' | 'remove' | 'new' = ops[0] ?? 'add';
+  return {
+    parsed: {
+      feature: 'mirror',
+      op,
+      planeText: args[0].text,
+      targetTexts: args.slice(1).map(n => n.text),
+      targetRefs: args.slice(1).map(n => resolveRepeatTargetRef(n, start)),
+    },
+    start,
+    end,
+  };
+}
+
 function parseBooleanChain(
   kind: BooleanKind,
   args: TSNode[],
@@ -6322,6 +6473,86 @@ function renderEditedBoolean(
 }
 
 /**
+ * Render an edited mirror statement: resolve the plane input — a keep entry
+ * re-reads the statement's own argument text, a re-sourced one renders from
+ * producers/parts like create mode — and the target list (`verbatim` keeps by
+ * position, re-picked features by bound producer; an absent list keeps every
+ * statement target, an implicit statement's empty list included). The op
+ * rewrites the operation chain wholesale. Selector parts must be covered
+ * exactly once — for a mirror the plane is the only input that can claim one.
+ */
+function renderEditedMirror(
+  parsed: Extract<ParsedFeatureStatement, { feature: 'mirror' }>,
+  spec: EditRenderSpec,
+  varFor: (producer: number) => string | null,
+): { statement: string } | { error: string } {
+  const opts = spec.edit?.mirror;
+  if (!opts || (opts.op !== 'add' && opts.op !== 'remove' && opts.op !== 'new')) {
+    return { error: 'malformed mirror edit spec' };
+  }
+  const usedParts = new Set<number>();
+  const claimPart = (part: number): boolean => {
+    if (!Number.isInteger(part) || part < 0 || part >= spec.parts.length || usedParts.has(part)) {
+      return false;
+    }
+    usedParts.add(part);
+    return true;
+  };
+
+  const plane = opts.plane;
+  let planeExpr: string;
+  if (plane?.kind === 'keep') {
+    planeExpr = parsed.planeText;
+  } else {
+    if (plane?.kind === 'selector') {
+      if (!claimPart(plane.part)) {
+        return { error: 'malformed mirror edit spec: bad selector plane' };
+      }
+    } else if (plane?.kind === 'plane') {
+      if (!isPlaneProducer(spec as ApplyFeatureEditSpec, plane.producer)) {
+        return { error: 'malformed mirror edit spec: the plane references a non-plane producer' };
+      }
+    } else if (plane?.kind !== 'standard'
+      || (plane.plane !== 'xy' && plane.plane !== 'xz' && plane.plane !== 'yz')) {
+      return { error: 'malformed mirror edit spec' };
+    }
+    planeExpr = renderRepeatPlaneExpr(plane, spec.parts, varFor);
+  }
+
+  let targetExprs = parsed.targetTexts;
+  if (opts.targets !== undefined) {
+    if (!Array.isArray(opts.targets) || opts.targets.length < 1) {
+      return { error: 'a mirror needs at least one target feature' };
+    }
+    const usedVerbatim = new Set<number>();
+    const exprs: string[] = [];
+    for (const target of opts.targets) {
+      if (target?.kind === 'verbatim') {
+        if (!Number.isInteger(target.sourceIndex) || target.sourceIndex < 0
+          || target.sourceIndex >= parsed.targetTexts.length || usedVerbatim.has(target.sourceIndex)) {
+          return { error: 'malformed mirror edit spec: a kept target no longer matches the statement' };
+        }
+        usedVerbatim.add(target.sourceIndex);
+        exprs.push(parsed.targetTexts[target.sourceIndex]);
+      } else if (target?.kind === 'feature') {
+        if (!isFeatureProducer(spec as ApplyFeatureEditSpec, target.producer)) {
+          return { error: 'malformed mirror edit spec: a target references a non-feature producer' };
+        }
+        exprs.push(varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f');
+      } else {
+        return { error: 'malformed mirror edit spec: unknown target kind' };
+      }
+    }
+    targetExprs = exprs;
+  }
+  if (usedParts.size !== spec.parts.length) {
+    return { error: 'malformed mirror edit spec: a selector part belongs to no input' };
+  }
+
+  return { statement: renderMirrorStatement(opts, planeExpr, targetExprs) };
+}
+
+/**
  * Render an edited plane statement: the type and the numeric options come
  * from the dialog wholesale, while the base list mixes `verbatim` keeps
  * (re-read from the statement's own base texts by position, lifted into
@@ -6751,6 +6982,9 @@ export function renderEditedStatement(
   }
   if (parsed.feature === 'copy') {
     return renderEditedCopy(parsed, spec, varFor);
+  }
+  if (parsed.feature === 'mirror') {
+    return renderEditedMirror(parsed, spec, varFor);
   }
   if (parsed.feature === 'boolean') {
     return renderEditedBoolean(parsed, spec, varFor);

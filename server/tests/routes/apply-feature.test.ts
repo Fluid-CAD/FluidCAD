@@ -3950,6 +3950,252 @@ describe('apply-feature route validation', () => {
     });
   });
 
+  describe('mirror', () => {
+    const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
+    const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
+    const CODE = [
+      "import { sketch, rect, extrude, cut } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { rect(100, 50) })",
+      'extrude(30)',
+      "sketch('xy', () => { rect(10, 10) })",
+      'cut(5)',
+      '',
+    ].join('\n');
+
+    it('rejects an empty target list', async () => {
+      const { status, body } = await post({
+        feature: 'mirror', targets: [], plane: { kind: 'standard', plane: 'yz' }, op: 'add',
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('targets must be');
+    });
+
+    it('rejects a duplicate target', async () => {
+      const { status, body } = await post({
+        feature: 'mirror', targets: [T1, T1], plane: { kind: 'standard', plane: 'yz' }, op: 'add',
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('picked twice');
+    });
+
+    it('rejects a missing plane and a bad op', async () => {
+      const noPlane = await post({ feature: 'mirror', targets: [T1], op: 'add' });
+      expect(noPlane.status).toBe(400);
+      expect(noPlane.body.error).toContain('plane must be');
+
+      const badOp = await post({
+        feature: 'mirror', targets: [T1], plane: { kind: 'standard', plane: 'yz' }, op: 'cut',
+      });
+      expect(badOp.status).toBe(400);
+      expect(badOp.body.error).toContain('op must be');
+    });
+
+    it('previews and relays a mirror across a standard plane', async () => {
+      currentCode = CODE;
+      const mirrorBody = {
+        feature: 'mirror', targets: [T1, T2],
+        plane: { kind: 'standard', plane: 'yz' }, op: 'add',
+      };
+      const preview = await post({ ...mirrorBody, preview: true });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe("mirror('yz', f, f2)");
+      expect(relayed).toEqual([]);
+      expect(synthesizeCalls).toEqual([]);
+
+      const { status, body } = await post(mirrorBody);
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(relayed[0].type).toBe('apply-feature-edit');
+      expect(spec.feature).toBe('mirror');
+      expect(spec.mirror.plane).toEqual({ kind: 'standard', plane: 'yz' });
+      expect(spec.mirror.op).toBe('add');
+      expect(spec.mirror.targets).toEqual([{ producer: 0 }, { producer: 1 }]);
+      expect(spec.producers).toHaveLength(2);
+      expect(spec.producers.every((p: any) => p.featureType === 'feature' && p.bind)).toBe(true);
+      expect(spec.parts).toEqual([]);
+    });
+
+    it('previews the remove chain', async () => {
+      currentCode = CODE;
+      const { status, body } = await post({
+        feature: 'mirror', targets: [T1],
+        plane: { kind: 'standard', plane: 'xy' }, op: 'remove', preview: true,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("mirror('xy', f).remove()");
+    });
+
+    it('synthesizes a picked mirror face through the plane kind', async () => {
+      currentCode = CODE;
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'plane',
+          filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+          imports: [],
+        },
+        preview: '',
+        args: 'e.endFaces(0)',
+        alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'mirror', targets: [T2],
+        plane: { kind: 'face', entity: PICK }, op: 'add',
+      });
+      expect(status).toBe(200);
+      expect(synthesizeCalls).toEqual([{ feature: 'plane', value: undefined }]);
+      expect(body.preview).toContain('mirror(plane(');
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(spec.mirror.plane).toEqual({ kind: 'selector', part: 0 });
+      expect(spec.imports).toContain('plane');
+      expect(spec.parts).toHaveLength(1);
+    });
+
+    it('surfaces a synthesis refusal for the picked plane as 422', async () => {
+      currentSynthesis = { ok: false, reason: 'that face cannot be named' };
+      const { status, body } = await post({
+        feature: 'mirror', targets: [T2],
+        plane: { kind: 'face', entity: PICK }, op: 'add',
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('cannot be named');
+      expect(relayed).toEqual([]);
+    });
+  });
+
+  describe('mirror edit', () => {
+    const EDIT_CODE = [
+      "import { sketch, rect, extrude, cut, mirror } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { rect(100, 50) })",
+      'const e = extrude(30)',
+      "sketch('xy', () => { rect(10, 10) })",
+      'const c = cut(5)',
+      "mirror('yz', e)",
+      '',
+    ].join('\n');
+    const EDIT = { filePath: '/ws/m.fluid.js', line: 7, column: 0 };
+    const EDIT_BEFORE = { index: 6, type: 'mirror', line: 7, column: 0 };
+
+    it('relays an op switch keeping the plane and targets, and previews it', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({ feature: 'mirror', edit: EDIT, op: 'new' });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("mirror('yz', e).new()");
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'mirror',
+        producers: [],
+        parts: [],
+        edit: {
+          line: 7, column: 0,
+          mirror: { plane: { kind: 'keep' }, op: 'new' },
+        },
+        clearBreakpoints: true,
+      });
+      expect(relayed[0].spec.edit.mirror.targets).toBeUndefined();
+    });
+
+    it('replaces the target list, mixing kept and re-picked features', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'mirror', edit: EDIT, op: 'add',
+        plane: { kind: 'keep' },
+        targets: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'feature', filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("mirror('yz', e, c)");
+      expect(relayed[0].spec).toMatchObject({
+        producers: [{ line: 6, featureType: 'feature', bind: true }],
+        edit: {
+          mirror: {
+            targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
+          },
+        },
+      });
+    });
+
+    it('re-sources the plane with a standard origin plane', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'mirror', edit: EDIT, op: 'add',
+        plane: { kind: 'standard', plane: 'xz' },
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("mirror('xz', e)");
+      expect(relayed[0].spec.edit.mirror.plane).toEqual({ kind: 'standard', plane: 'xz' });
+    });
+
+    it('re-picks the plane face: synthesis with the boundary, selector on the edit spec', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'plane',
+          filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endFaces', indices: [1], filterArgs: null }],
+          imports: [],
+        },
+        preview: '',
+        args: 'e.endFaces(1)',
+        alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'mirror', edit: EDIT, op: 'add',
+        plane: { kind: 'face', entity: PICK },
+        before: EDIT_BEFORE,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("mirror(plane(e.endFaces(1)), e)");
+      expect(relayed[0].spec.edit.mirror.plane).toEqual({ kind: 'selector', part: 0 });
+      expect(relayed[0].spec.imports).toContain('plane');
+    });
+
+    it('requires the boundary when the plane is re-picked', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'mirror', edit: EDIT, op: 'add',
+        plane: { kind: 'face', entity: PICK },
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('before is required');
+    });
+
+    it('rejects a bad op on an edit', async () => {
+      const { status, body } = await post({ feature: 'mirror', edit: EDIT, op: 'cut' });
+      expect(status).toBe(400);
+      expect(body.error).toContain('op must be');
+    });
+
+    it('422s an edit whose statement is not a mirror', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'mirror',
+        edit: { filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+        op: 'add',
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('not a mirror');
+      expect(relayed).toHaveLength(0);
+    });
+  });
+
   describe('boolean edit', () => {
     const EDIT_CODE = [
       "import { sketch, rect, extrude, cut, fuse } from 'fluidcad/core'",

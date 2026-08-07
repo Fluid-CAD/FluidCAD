@@ -14,6 +14,7 @@ import { Wrap } from "../features/wrap.js";
 import { Helix } from "../features/helix.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { MirrorFeature } from "../features/mirror-feature.js";
+import { MirrorShape } from "../features/mirror-shape.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
 import { PlaneMiddleRenderable } from "../features/plane-mid.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
@@ -82,6 +83,13 @@ export type FeatureSources =
    * looks like from here.
    */
   | { feature: 'copy'; targets: SourceSlot[]; axes: SourceSlot[] }
+  /**
+   * A standalone `mirror(plane, …)`: the solids it reflects, by call site,
+   * plus the plane it reflects them across. An origin-plane literal is
+   * `opaque` as everywhere else, and an implicit mirror — one naming no
+   * targets, reflecting the last feature — reports an empty target list.
+   */
+  | { feature: 'mirror'; targets: SourceSlot[]; plane: SourceSlot }
   /**
    * A construction plane, by its bases in argument order — one for the offset
    * and edge forms, two for a mid plane. An origin-plane literal names nothing
@@ -222,6 +230,17 @@ export function resolveFeatureSources(
         feature: 'repeat',
         targets: resolver.statementSlots(feature.targetObjects),
         axes: [],
+        plane: resolver.planeSlot(feature.plane),
+      };
+    }
+    // The standalone mirror — `mirror(plane, …)`, MirrorShape, not the
+    // repeat's clone-tree MirrorFeature above. Same slots, its own feature
+    // tag: the mirror dialog seeds from it, the repeat dialog never sees it.
+    if (feature instanceof MirrorShape) {
+      return {
+        ok: true,
+        feature: 'mirror',
+        targets: resolver.statementSlots(feature.targetObjects),
         plane: resolver.planeSlot(feature.plane),
       };
     }

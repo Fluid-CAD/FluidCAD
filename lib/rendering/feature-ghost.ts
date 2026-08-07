@@ -61,6 +61,7 @@ export type FeatureGhostRequest =
   | HelixGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
+  | MirrorGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
@@ -318,6 +319,25 @@ export type CopyGhostRequest = {
 };
 
 /**
+ * The mirror — the copy's reflected sibling, and like it a ghost that builds
+ * no geometry of its own. `mirror()` clones the solids its targets hold and
+ * reflects them across the plane (mirror-shape.ts:78-86), so the ghost stamps
+ * those bodies verbatim under the one reflection matrix — the same
+ * `Matrix4.mirrorPlane` the apply hands OCC, so the preview cannot diverge
+ * from the render. The original bodies are never drawn: they are the geometry
+ * already on screen.
+ */
+export type MirrorGhostRequest = {
+  feature: 'mirror';
+  /** How the reflected bodies land: fused (the default), cut, or standalone. */
+  op: 'add' | 'remove' | 'new';
+  /** The solid-bearing statements being mirrored, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** The plane to mirror across. */
+  plane: GhostPlaneRef;
+};
+
+/**
  * The mirror dialog's plane slot on the wire, the plane sibling of
  * {@link GhostAxisRef}: an origin plane from its viewport quad, a `plane()`
  * statement by call site, or a planar face picked in the viewport. As with the
@@ -546,6 +566,9 @@ export function buildFeatureGhost(
   }
   if (request.feature === 'copy') {
     return buildCopyGhost(scene, request, meshConfig);
+  }
+  if (request.feature === 'mirror') {
+    return buildMirrorGhost(scene, request, meshConfig);
   }
   if (request.feature === 'plane') {
     return buildPlaneGhost(scene, request, meshConfig);
@@ -1664,6 +1687,55 @@ function copyTargetSolids(targets: SceneObject[]): Shape[] {
       : target.getShapes(undefined, 'solid', new Set<SceneObject>())));
   }
   return [...new Set(solids)];
+}
+
+/**
+ * The mirror branch: the copy's stamping under a single reflection matrix.
+ * `mirror()` clones the bodies its targets hold and reflects them
+ * (mirror-shape.ts:78-86), so the stamp is the targets' own meshes through
+ * `transformMeshes` — which flips the winding a negative-determinant matrix
+ * inverts, exactly as the applied mirror's mesh path does. The empty-removal
+ * fallback in {@link copyTargetSolids} is load-bearing here too: the default
+ * op FUSES, so in the edit dialog the statement being edited has already
+ * consumed the very bodies its ghost wants to draw.
+ *
+ * Only the plane's face pick opens shapes; the target meshes are read off the
+ * scene.
+ */
+function buildMirrorGhost(
+  scene: Scene,
+  request: MirrorGhostRequest,
+  meshConfig: MeshConfig,
+): FeatureGhostResult {
+  const scratch: Shape[] = [];
+  try {
+    const plane = resolveGhostPlane(scene, request.plane, scratch);
+    if (!plane) {
+      return { ok: false, reason: 'That mirror plane is not in the rendered scene.' };
+    }
+    const targets = targetObjectsAt(scene, request.targets);
+    if (targets.length === 0) {
+      return { ok: false, reason: 'That solid is not in the rendered scene.' };
+    }
+    const meshes = stampMeshes(copyTargetSolids(targets), new MeshBuilder(meshConfig));
+    if (meshes.length === 0) {
+      return { ok: false, reason: 'That statement has no solid to mirror.' };
+    }
+    const [matrix] = buildMirrorGhostMatrices(plane);
+    return {
+      ok: true,
+      solids: [{
+        meshes: transformMeshes(meshes, matrix),
+        // A removing mirror carves its reflection out of the scene — the
+        // ghost wears the cut's red. Fused and standalone bodies both arrive.
+        kind: request.op === 'remove' ? 'remove' : 'add',
+      }],
+    };
+  } finally {
+    for (const shape of scratch) {
+      shape.dispose();
+    }
+  }
 }
 
 /** The bodies to mesh, or why the request names something the scene lost. */

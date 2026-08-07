@@ -179,6 +179,7 @@ export type FeatureGhostRequest =
   | HelixGhostRequest
   | RepeatGhostRequest
   | CopyGhostRequest
+  | MirrorGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
@@ -401,6 +402,20 @@ export type CopyGhostRequest = {
    * copy's entries carry a single index each. Absent skips none.
    */
   skip?: number[][];
+};
+
+/**
+ * The mirror — the copy's reflected sibling: the target solids' own bodies
+ * stamped once, under the same reflection matrix the apply hands OCC.
+ */
+export type MirrorGhostRequest = {
+  feature: 'mirror';
+  /** How the reflected bodies land: fused (the default), cut, or standalone. */
+  op: 'add' | 'remove' | 'new';
+  /** The solid-bearing statements being mirrored, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** The plane to mirror across. */
+  plane: GhostPlaneRef;
 };
 
 /**

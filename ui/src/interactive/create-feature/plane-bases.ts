@@ -19,6 +19,37 @@ function lineKey(loc: { filePath: string; line: number }): string {
 }
 
 /**
+ * The origin plane a plane-like literal names — `'front'`, `"top"`, `'-xy'`.
+ * A plane slot only reads back the three unsigned spellings it writes
+ * itself; every other wording has to stay a verbatim keep so an apply
+ * preserves the user's own text. A ghost only needs the plane, though, and
+ * for a mirror the normal's direction doesn't matter: reflecting in `'xy'`
+ * and in `'-xy'` is the same reflection. Shared by the repeat and mirror
+ * dialogs' ghost paths.
+ */
+export function standardPlaneFromText(text: string | null | undefined): 'xy' | 'xz' | 'yz' | null {
+  switch ((text ?? '').trim().match(/^['"]([a-z-]+)['"]$/)?.[1]) {
+    case 'xy':
+    case '-xy':
+    case 'top':
+    case 'bottom':
+      return 'xy';
+    case 'xz':
+    case '-xz':
+    case 'front':
+    case 'back':
+      return 'xz';
+    case 'yz':
+    case '-yz':
+    case 'right':
+    case 'left':
+      return 'yz';
+    default:
+      return null;
+  }
+}
+
+/**
  * Whether a plane row stands for a `plane()` statement of its own — exactly
  * the rows {@link collectPlaneOptions} offers. False for the plane a sketch
  * builds for itself and for one written inline in another call's arguments:

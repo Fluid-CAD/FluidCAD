@@ -11,7 +11,7 @@ export class MirrorShape extends SceneObject {
   private _excludedObjects: SceneObject[] = [];
 
   constructor(
-    private plane: PlaneObjectBase,
+    public plane: PlaneObjectBase,
     public targetObjects: SceneObject[] | null = null
     ) {
     super();

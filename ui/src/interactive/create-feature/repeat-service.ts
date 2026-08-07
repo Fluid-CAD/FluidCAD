@@ -24,6 +24,7 @@ import {
 import {
   PLANE_UNAVAILABLE_MESSAGE, collectPlaneOptions, labelWithPlaneNames, PlaneOption,
   planeOptionForLocation, planeOptionForShape, planeOptionsSignature, resolvePlaneByShapeId,
+  standardPlaneFromText,
 } from './plane-bases';
 import { collectSketchProfiles, sourceChip } from './sketch-profiles';
 
@@ -33,36 +34,6 @@ import { collectSketchProfiles, sourceChip } from './sketch-profiles';
  */
 function sourceStatement(slot: SourceSlotRef | undefined): { filePath: string; line: number } | null {
   return slot?.kind === 'sketch' ? { filePath: slot.filePath, line: slot.line } : null;
-}
-
-/**
- * The origin plane a plane-like literal names — `'front'`, `"top"`, `'-xy'`.
- * The plane slot only reads back the three unsigned spellings it writes
- * itself; every other wording has to stay a verbatim keep so an apply
- * preserves the user's own text. A ghost only needs the plane, though, and for
- * a mirror the normal's direction doesn't matter: reflecting in `'xy'` and in
- * `'-xy'` is the same reflection.
- */
-function standardPlaneFromText(text: string | null | undefined): 'xy' | 'xz' | 'yz' | null {
-  switch ((text ?? '').trim().match(/^['"]([a-z-]+)['"]$/)?.[1]) {
-    case 'xy':
-    case '-xy':
-    case 'top':
-    case 'bottom':
-      return 'xy';
-    case 'xz':
-    case '-xz':
-    case 'front':
-    case 'back':
-      return 'xz';
-    case 'yz':
-    case '-yz':
-    case 'right':
-    case 'left':
-      return 'yz';
-    default:
-      return null;
-  }
 }
 
 /** What the seeding hook hands over when the dialog arms. */

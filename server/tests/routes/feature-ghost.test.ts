@@ -728,3 +728,64 @@ describe('feature-ghost route — copy2d', () => {
     expect(received).toBeUndefined();
   });
 });
+
+describe('feature-ghost route — mirror', () => {
+  useGhostRoute();
+
+  /** A mirror exactly as the dialog sends it. */
+  function mirrorBody(overrides: Record<string, unknown> = {}) {
+    return {
+      feature: 'mirror',
+      op: 'add',
+      targets: [{ filePath: FILE, line: 7 }],
+      plane: { kind: 'standard', plane: 'yz' },
+      ...overrides,
+    };
+  }
+
+  it('passes a mirror through with its plane, targets and op', async () => {
+    const { status, body } = await postGhost(mirrorBody());
+
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(received).toEqual({
+      feature: 'mirror',
+      op: 'add',
+      targets: [{ filePath: FILE, line: 7 }],
+      plane: { kind: 'standard', plane: 'yz' },
+    });
+  });
+
+  it('passes the plane forms the slot resolves', async () => {
+    await postGhost(mirrorBody({ plane: { kind: 'plane', filePath: FILE, line: 3 } }));
+    expect(received).toMatchObject({ plane: { kind: 'plane', filePath: FILE, line: 3 } });
+
+    await postGhost(mirrorBody({ plane: { kind: 'face', shapeId: 's1', index: 2 }, op: 'remove' }));
+    expect(received).toMatchObject({
+      op: 'remove',
+      plane: { kind: 'face', shapeId: 's1', index: 2 },
+    });
+  });
+
+  it('refuses a body the mirror does not accept', async () => {
+    const bodies: Record<string, unknown>[] = [
+      // Nothing to mirror.
+      mirrorBody({ targets: [] }),
+      // No plane to reflect across, and a keep chip that never resolved.
+      mirrorBody({ plane: null }),
+      mirrorBody({ plane: { kind: 'keep' } }),
+      // A mirror declares how its bodies land — a missing op is malformed.
+      mirrorBody({ op: undefined }),
+      mirrorBody({ op: 'cut' }),
+      // A malformed target entry.
+      mirrorBody({ targets: [{ filePath: FILE }] }),
+    ];
+
+    for (const body of bodies) {
+      const result = await postGhost(body);
+      expect(result.status, JSON.stringify(body)).toBe(400);
+      expect(result.body.success).toBe(false);
+    }
+    expect(received).toBeUndefined();
+  });
+});

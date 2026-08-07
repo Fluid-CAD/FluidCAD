@@ -70,15 +70,20 @@ export class SolidPickSelection {
   /**
    * Repaint the whole-shape highlight, optionally combined with the owner's
    * other picks in the same pass (the viewer replaces the previous highlight
-   * wholesale).
+   * wholesale) — picked entities, axis/wire lines, and construction-plane
+   * quads (the mirror dialog's chosen plane feature).
    */
-  refreshHighlight(extras: { entities?: SelectedEntity[]; wireIds?: string[] } = {}): void {
+  refreshHighlight(
+    extras: { entities?: SelectedEntity[]; wireIds?: string[]; planeQuadIds?: string[] } = {},
+  ): void {
     const entities = extras.entities ?? [];
     const wireIds = extras.wireIds ?? [];
-    if (this.ids.length === 0 && entities.length === 0 && wireIds.length === 0) {
+    const planeQuadIds = extras.planeQuadIds ?? [];
+    if (this.ids.length === 0 && entities.length === 0 && wireIds.length === 0
+      && planeQuadIds.length === 0) {
       this.viewer.clearHighlight();
       return;
     }
-    this.viewer.highlightEntities(entities, wireIds, this.ids);
+    this.viewer.highlightEntities(entities, wireIds, this.ids, planeQuadIds);
   }
 }

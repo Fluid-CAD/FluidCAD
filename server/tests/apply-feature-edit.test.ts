@@ -7190,3 +7190,308 @@ describe('applyFeatureEdit (rib in-place statement edit)', () => {
     expect(result.newCode).toContain(`rib(9, s).color('red')\n`);
   });
 });
+
+describe('mirror statement templates', () => {
+  const base = [
+    `import { sketch, rect, extrude, cut } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { rect(100, 50) })`,
+    `extrude(30)`,
+    `sketch('xy', () => { rect(10, 10) })`,
+    `cut(5)`,
+  ].join('\n');
+
+  function mirrorSpec(
+    mirror: NonNullable<ApplyFeatureEditSpec['mirror']>,
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'mirror',
+      mirror,
+      filePath: '/ws/model.fluid.js',
+      producers: [{ line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  it('binds two bare targets and appends a mirror across a standard plane', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, mirrorSpec({
+      plane: { kind: 'standard', plane: 'yz' },
+      op: 'add',
+      targets: [{ producer: 0 }, { producer: 1 }],
+    }, {
+      producers: [
+        { line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 6, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import {mirror, sketch, rect, extrude, cut } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const f = extrude(30)`,
+      `sketch('xy', () => { rect(10, 10) })`,
+      `const f2 = cut(5)`,
+      `mirror('yz', f, f2)`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('reuses an existing const target binding', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, mirrorSpec({
+      plane: { kind: 'standard', plane: 'yz' },
+      op: 'add',
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [{ line: 4, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`mirror('yz', e)`);
+    expect(result.newCode).not.toContain('const f =');
+  });
+
+  it('renders the remove and new operation chains', async () => {
+    const removed = await applyFeatureEdit(`${base}\n`, mirrorSpec({
+      plane: { kind: 'standard', plane: 'xy' },
+      op: 'remove',
+      targets: [{ producer: 0 }],
+    }));
+    expect(removed.error).toBeUndefined();
+    expect(removed.newCode).toContain(`mirror('xy', f).remove()`);
+
+    const kept = await applyFeatureEdit(`${base}\n`, mirrorSpec({
+      plane: { kind: 'standard', plane: 'xy' },
+      op: 'new',
+      targets: [{ producer: 0 }],
+    }));
+    expect(kept.error).toBeUndefined();
+    expect(kept.newCode).toContain(`mirror('xy', f).new()`);
+  });
+
+  it('renders an existing plane feature as its bound variable', async () => {
+    const code = [
+      `import { sketch, rect, extrude, plane } from 'fluidcad/core'`,
+      ``,
+      `const p = plane('yz', 40)`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, mirrorSpec({
+      plane: { kind: 'plane', producer: 1 },
+      op: 'add',
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [
+        { line: 5, column: 10, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 3, column: 10, featureType: 'plane', nameHint: 'p', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`mirror(p, e)`);
+  });
+
+  it('renders a mirror across a picked face lifted into plane(<selector>)', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, mirrorSpec({
+      plane: { kind: 'selector', part: 0 },
+      op: 'add',
+      targets: [{ producer: 0 }],
+    }, {
+      parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+      imports: ['plane'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`mirror(plane(f.endFaces(0)), f)`);
+    expect(result.newCode).toMatch(/import \{[^}]*\bmirror\b[^}]*\} from 'fluidcad\/core'/);
+    expect(result.newCode).toMatch(/import \{[^}]*\bplane\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('refuses a duplicate target producer', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, mirrorSpec({
+      plane: { kind: 'standard', plane: 'yz' },
+      op: 'add',
+      targets: [{ producer: 0 }, { producer: 0 }],
+    }));
+    expect(result.error).toContain('malformed mirror edit spec');
+  });
+});
+
+const mirrorEditBase = [
+  `import { sketch, rect, extrude, cut, mirror } from 'fluidcad/core'`,
+  ``,
+  `sketch('xy', () => { rect(100, 50) })`,
+  `const e = extrude(30)`,
+  `sketch('xy', () => { rect(10, 10) })`,
+  `const c = cut(5)`,
+].join('\n');
+
+describe('parseFeatureStatement — mirror', () => {
+  it('reads the plane and identifier targets with their refs', async () => {
+    const code = `${mirrorEditBase}\nmirror('yz', e, c)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'mirror', op: 'add', planeText: `'yz'`, targetTexts: ['e', 'c'],
+        // The bound calls' own positions — the timeline rows' locations.
+        targetRefs: [{ line: 4, column: 10 }, { line: 6, column: 10 }],
+      },
+      statement: `mirror('yz', e, c)`,
+    });
+  });
+
+  it('reads the operation chains as the op', async () => {
+    const removed = await parseFeatureStatement(`${mirrorEditBase}\nmirror('yz', e).remove()\n`, 7);
+    expect(removed).toMatchObject({ ok: true, parsed: { feature: 'mirror', op: 'remove' } });
+    const kept = await parseFeatureStatement(`${mirrorEditBase}\nmirror('yz', e).new()\n`, 7);
+    expect(kept).toMatchObject({ ok: true, parsed: { feature: 'mirror', op: 'new' } });
+  });
+
+  it('reads an implicit mirror with no targets', async () => {
+    const result = await parseFeatureStatement(`${mirrorEditBase}\nmirror('xy')\n`, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'mirror', op: 'add', planeText: `'xy'`, targetTexts: [] },
+    });
+  });
+
+  it('keeps an unrecognized chain suffix out of the editable range', async () => {
+    const result = await parseFeatureStatement(`${mirrorEditBase}\nmirror('yz', e).name('half')\n`, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'mirror', op: 'add' },
+      statement: `mirror('yz', e)`,
+    });
+  });
+
+  it('refuses a mirror with no arguments', async () => {
+    const result = await parseFeatureStatement(`${mirrorEditBase}\nmirror()\n`, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('fewer arguments');
+    }
+  });
+
+  it('refuses a statement chaining two operations', async () => {
+    const result = await parseFeatureStatement(`${mirrorEditBase}\nmirror('yz', e).remove().new()\n`, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('more than one operation');
+    }
+  });
+});
+
+describe('applyFeatureEdit (mirror in-place statement edit)', () => {
+  it('switches the op keeping the plane and targets verbatim', async () => {
+    const code = `${mirrorEditBase}\nmirror('yz', e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 7, column: 0,
+      mirror: { plane: { kind: 'keep' }, op: 'new' },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`mirror('yz', e).new()\n`);
+  });
+
+  it('drops the operation chain switching back to add', async () => {
+    const code = `${mirrorEditBase}\nmirror('yz', e).remove()\n`;
+    const result = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 7, column: 0,
+      mirror: { plane: { kind: 'keep' }, op: 'add' },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`mirror('yz', e)\n`);
+    expect(result.newCode).not.toContain('.remove()');
+  });
+
+  it('replaces the target list, mixing kept and re-picked features', async () => {
+    const code = `${mirrorEditBase}\nmirror('yz', e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 7, column: 0,
+      mirror: {
+        plane: { kind: 'keep' },
+        op: 'add',
+        targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
+      },
+    }, {
+      producers: [{ line: 6, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`mirror('yz', e, c)\n`);
+  });
+
+  it('re-sources the plane with a standard origin plane', async () => {
+    const code = `${mirrorEditBase}\nmirror(plane(e.endFaces(0)), e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 7, column: 0,
+      mirror: { plane: { kind: 'standard', plane: 'xz' }, op: 'add' },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`mirror('xz', e)\n`);
+  });
+
+  it('renders a re-picked selector plane from its part', async () => {
+    const code = `${mirrorEditBase}\nmirror('yz', e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 7, column: 0,
+      mirror: { plane: { kind: 'selector', part: 0 }, op: 'add' },
+    }, {
+      producers: [{ line: 4, column: 10, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endFaces', indices: [1], filterArgs: null }],
+      imports: ['plane'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`mirror(plane(e.endFaces(1)), e)\n`);
+    expect(result.newCode).toMatch(/import \{[^}]*\bplane\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('keeps an implicit-target mirror implicit when no target list rides the spec', async () => {
+    const code = `${mirrorEditBase}\nmirror('xy')\n`;
+    const result = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 7, column: 0,
+      mirror: { plane: { kind: 'standard', plane: 'yz' }, op: 'add' },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`mirror('yz')\n`);
+  });
+
+  it('refuses an empty replacement target list', async () => {
+    const code = `${mirrorEditBase}\nmirror('yz', e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 7, column: 0,
+      mirror: { plane: { kind: 'keep' }, op: 'add', targets: [] },
+    }));
+    expect(result.error).toContain('at least one target');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a stale expectedStatement', async () => {
+    const code = `${mirrorEditBase}\nmirror('yz', e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 7, column: 0,
+      expectedStatement: `mirror('yz', c)`,
+      mirror: { plane: { kind: 'keep' }, op: 'add' },
+    }));
+    expect(result.error).toContain('changed since the dialog opened');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('preserves an unrecognized chain suffix through an edit', async () => {
+    const code = `${mirrorEditBase}\nmirror('yz', e).name('half')\n`;
+    const result = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 7, column: 0,
+      mirror: { plane: { kind: 'standard', plane: 'xy' }, op: 'add' },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`mirror('xy', e).name('half')\n`);
+  });
+});

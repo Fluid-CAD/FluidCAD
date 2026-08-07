@@ -23,8 +23,8 @@ import { FaceQuery } from "../oc/face-query.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import {
   buildFeatureGhost, Copy2DGhostRequest, CopyGhostRequest, ExtrudeGhostRequest, FeatureGhostResult,
-  Fillet2DGhostRequest, GhostPathRef, GhostSectionRef, LoftGhostRequest, OffsetGhostRequest,
-  RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, SweepGhostRequest,
+  Fillet2DGhostRequest, GhostPathRef, GhostSectionRef, LoftGhostRequest, MirrorGhostRequest,
+  OffsetGhostRequest, RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { Scene, SceneObjectMesh } from "../rendering/scene.js";
@@ -2308,5 +2308,199 @@ describe("copy2d ghost", () => {
     expect(copy2dGhost(scene, [{ shapeId: edge.id }], {
       axes: [{ kind: 'edge', shapeId: 'not-a-shape' }],
     }).ok).toBe(false);
+  });
+});
+
+describe("feature ghost — mirror", () => {
+  setupOC();
+
+  const MIRROR_BASE: Omit<MirrorGhostRequest, 'targets'> = {
+    feature: 'mirror',
+    op: 'add',
+    plane: { kind: 'standard', plane: 'xy' },
+  };
+
+  function mirrorGhost(
+    scene: Scene,
+    lines: number[],
+    overrides: Partial<MirrorGhostRequest> = {},
+  ): FeatureGhostResult {
+    return buildFeatureGhost(
+      scene,
+      {
+        ...MIRROR_BASE,
+        ...overrides,
+        targets: lines.map(line => ({ filePath: FILE, line })),
+      },
+      DEFAULT_MESH_CONFIG,
+    );
+  }
+
+  /** A box built by an `extrude()` addressable at `line`, like the parser's. */
+  function locatedBox(line: number, draw = () => { rect(20, 20); }, height = 10): SceneObject {
+    sketch("xy", draw);
+    const solid = extrude(height).new() as unknown as SceneObject;
+    solid.setSourceLocation({ filePath: FILE, line, column: 0 });
+    return solid;
+  }
+
+  function solidsOf(result: FeatureGhostResult) {
+    if (!result.ok) {
+      throw new Error(`ghost refused: ${'reason' in result ? result.reason : ''}`);
+    }
+    return result.solids;
+  }
+
+  it("reflects the target across an origin plane, never drawing the original", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = mirrorGhost(scene, [5]);
+
+    // One reflected body: the box stands z 0…10, its mirror hangs 0…−10.
+    expect(solidsOf(result)).toHaveLength(1);
+    expect(solidsOf(result)[0].kind).toBe('add');
+    const box = bounds(result, 0);
+    expect(box.minZ).toBeCloseTo(-10, 3);
+    expect(box.maxZ).toBeCloseTo(0, 3);
+  });
+
+  it("stamps every target into the one reflected instance", () => {
+    locatedBox(5);
+    locatedBox(7, () => { rect([40, 0], 20, 20); });
+    const scene = render();
+
+    const result = mirrorGhost(scene, [5, 7], {
+      plane: { kind: 'standard', plane: 'yz' },
+    });
+
+    // Both bodies ride the single instance — they reflect together, one face
+    // mesh each, and every reflected vertex lands at or left of the plane.
+    expect(solidsOf(result)).toHaveLength(1);
+    const faceMeshes = solidsOf(result)[0].meshes.filter(m => m.label === 'solid-faces');
+    expect(faceMeshes).toHaveLength(2);
+    const xs = faceMeshes.flatMap(m => m.vertices.filter((_, i) => i % 3 === 0));
+    expect(Math.max(...xs)).toBeLessThanOrEqual(1e-6);
+    expect(Math.min(...xs)).toBeLessThan(-20 + 1e-3);
+  });
+
+  it("mirrors across a plane() statement named by call site", () => {
+    const p = plane("xy", { offset: 20 }) as unknown as SceneObject;
+    p.setSourceLocation({ filePath: FILE, line: 3, column: 0 });
+    locatedBox(5);
+    const scene = render();
+
+    const result = mirrorGhost(scene, [5], {
+      plane: { kind: 'plane', filePath: FILE, line: 3 },
+    });
+
+    // The box stands z 0…10; reflected in z = 20 it hangs from 40 down to 30.
+    const box = bounds(result, 0);
+    expect(box.minZ).toBeCloseTo(30, 3);
+    expect(box.maxZ).toBeCloseTo(40, 3);
+  });
+
+  it("mirrors across a face picked in the viewport", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = mirrorGhost(scene, [5], {
+      plane: { kind: 'face', ...topFace(scene) },
+    });
+
+    // Reflected in its own top face, the box sits on top of itself.
+    const box = bounds(result, 0);
+    expect(box.minZ).toBeCloseTo(10, 3);
+    expect(box.maxZ).toBeCloseTo(20, 3);
+  });
+
+  it("wears the cut's red for a removing mirror", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = mirrorGhost(scene, [5], { op: 'remove' });
+
+    expect(solidsOf(result)[0].kind).toBe('remove');
+  });
+
+  /**
+   * A mirror flips triangle winding, and a body whose winding no longer agrees
+   * with its normals renders inside-out. `transformMeshes` swaps the indices
+   * back; this is the guard that the ghost actually goes through it.
+   */
+  it("keeps the reflected body's winding facing outward", () => {
+    locatedBox(5, () => { rect([-10, 20], 20, 20); });
+    const scene = render();
+
+    const result = mirrorGhost(scene, [5], {
+      plane: { kind: 'standard', plane: 'xz' },
+    });
+
+    const faces = solidsOf(result)[0].meshes.find(m => m.label === 'solid-faces')!;
+    expect(windingFollowsNormals(faces)).toBe(true);
+  });
+
+  it("refuses a curved face as a mirror plane", () => {
+    sketch("xy", () => { circle(40); });
+    const round = extrude(10).new() as unknown as SceneObject;
+    round.setSourceLocation({ filePath: FILE, line: 5, column: 0 });
+    const scene = render();
+
+    const curved = (() => {
+      for (const obj of scene.getAllSceneObjects()) {
+        for (const shape of obj.getAddedShapes()) {
+          if (!shape.isSolid()) {
+            continue;
+          }
+          const faces = Explorer.findFacesWrapped(shape);
+          try {
+            for (let index = 0; index < faces.length; index++) {
+              if (!FaceQuery.isPlanarFace(faces[index])) {
+                return { shapeId: shape.id, index };
+              }
+            }
+          } finally {
+            for (const face of faces) {
+              face.dispose();
+            }
+          }
+        }
+      }
+      throw new Error('no curved face in the scene');
+    })();
+    const result = mirrorGhost(scene, [5], { plane: { kind: 'face', ...curved } });
+
+    expect(result.ok).toBe(false);
+  });
+
+  /**
+   * The edit dialog's own blind spot: the default op FUSES, so the statement
+   * being edited has already consumed the very body its ghost wants to draw.
+   * The target is re-read as if no removal applied.
+   */
+  it("stamps a target a later statement already consumed", () => {
+    const solid = locatedBox(5);
+    const scene = render();
+    // Simulate the fuse's consumption: the shapes leave the target's live
+    // read but stay reachable under an empty removal scope.
+    const consumer = locatedBox(7, () => { rect([100, 100], 5, 5); });
+    for (const shape of solid.getShapes(undefined, 'solid')) {
+      solid.removeShape(shape, consumer as any);
+    }
+
+    const result = mirrorGhost(scene, [5]);
+
+    expect(solidsOf(result)).toHaveLength(1);
+    const box = bounds(result, 0);
+    expect(box.minZ).toBeCloseTo(-10, 3);
+  });
+
+  it("refuses a target line the scene does not hold", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = mirrorGhost(scene, [99]);
+
+    expect(result.ok).toBe(false);
   });
 });

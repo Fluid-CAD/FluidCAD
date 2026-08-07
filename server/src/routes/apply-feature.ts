@@ -7,6 +7,7 @@ import {
   resolveEditedStatementLine,
   renderCopyCenterExpr,
   renderCopyStatement,
+  renderMirrorStatement,
   renderEditedStatement,
   renderExtrudeStatement, renderHelixStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
   renderRepeatAxisExpr, renderRepeatPlaneExpr, renderRepeatStatement,
@@ -20,6 +21,7 @@ import {
   type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
   type HelixEditOptions,
   type HelixSourceSpec, type LoftEditOptions,
+  type MirrorEditOptions,
   type PlaneEditOptions, type RepeatAxisSpec, type RepeatEditAxis, type RepeatEditOptions,
   type RevolveEditOptions, type RibEditOptions, type ShellJoinKind, type SweepEditOptions, type ValueExpr,
   type WrapEditOptions,
@@ -1588,6 +1590,79 @@ function validateBoolean(body: any): BooleanRequest | { error: string } {
   return { kind, targets: targetLocs };
 }
 
+type MirrorRequest = {
+  /** The feature statements being reflected, in argument order. */
+  targets: SketchLoc[];
+  /** The plane to mirror across — the repeat mirror's plane shapes. */
+  plane: RepeatPlaneInput;
+  /** How the reflected bodies land: fused (the default), cut, or standalone. */
+  op: 'add' | 'remove' | 'new';
+};
+
+export const MAX_MIRROR_TARGETS = 16;
+
+/**
+ * The mirror request's shape: one or more target feature statements
+ * addressed by their source locations, the mirror plane (a standard origin
+ * plane, an existing plane feature, or a picked face — the repeat mirror's
+ * exact input), and the op the reflected bodies land with. No axes and no
+ * numeric options — a mirror is its plane and its targets.
+ */
+function validateMirror(body: any): MirrorRequest | { error: string } {
+  const { targets, op } = body ?? {};
+  if (op !== 'add' && op !== 'remove' && op !== 'new') {
+    return { error: 'op must be "add", "remove" or "new"' };
+  }
+  if (!Array.isArray(targets) || targets.length < 1 || targets.length > MAX_MIRROR_TARGETS) {
+    return { error: `targets must be 1-${MAX_MIRROR_TARGETS} feature statements to mirror` };
+  }
+  const targetLocs: SketchLoc[] = [];
+  const seen = new Set<string>();
+  for (const raw of targets) {
+    const loc = validateSketchLoc(raw);
+    if (!loc) {
+      return { error: 'each target must be the {filePath, line} of a feature statement' };
+    }
+    if (loc.filePath !== targetLocs[0]?.filePath && targetLocs.length > 0) {
+      return { error: 'the mirror targets live in different files' };
+    }
+    const key = `${loc.filePath}:${loc.line}`;
+    if (seen.has(key)) {
+      return { error: 'the same feature was picked twice — each target must be different' };
+    }
+    seen.add(key);
+    targetLocs.push(loc);
+  }
+  const filePath = targetLocs[0].filePath;
+
+  const raw = body?.plane;
+  let plane: RepeatPlaneInput;
+  if (raw?.kind === 'standard') {
+    if (raw.plane !== 'xy' && raw.plane !== 'xz' && raw.plane !== 'yz') {
+      return { error: 'a standard mirror plane must be "xy", "xz" or "yz"' };
+    }
+    plane = { kind: 'standard', plane: raw.plane };
+  } else if (raw?.kind === 'plane') {
+    const loc = validateSketchLoc(raw);
+    if (!loc) {
+      return { error: 'a plane input must carry the plane {filePath, line}' };
+    }
+    if (loc.filePath !== filePath) {
+      return { error: 'the mirror plane and the targets live in different files' };
+    }
+    plane = { kind: 'plane', loc };
+  } else if (raw?.kind === 'face') {
+    const pick = validatePick(raw.entity);
+    if (!pick || pick.sub.type !== 'face') {
+      return { error: 'a picked mirror plane must carry a {shapeId, sub:{type:"face", index}} pick' };
+    }
+    plane = { kind: 'face', pick };
+  } else {
+    return { error: 'plane must be {kind: "standard"|"plane"|"face", …}' };
+  }
+  return { targets: targetLocs, plane, op };
+}
+
 /**
  * Producers merged by call site across per-pick synthesis calls (and the
  * request's own sketch/plane inputs); a bind:true entry wins over an anchor.
@@ -1658,7 +1733,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'boolean', 'helix', 'plane', 'offset', 'slot', 'project', 'rib']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'boolean', 'helix', 'plane', 'offset', 'slot', 'project', 'rib']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -1743,6 +1818,10 @@ type StatementEditRequest = {
   copySketchTargets?: { shapeId: string }[];
   /** The 2D copy's axis edge picks, one per sketch-edge direction in order. */
   copyAxisPicks?: { shapeId: string }[];
+  /** Edited mirror's plane; keep stays the statement's own text. */
+  mirrorPlane?: { kind: 'keep' } | RepeatPlaneInput;
+  /** Full replacement mirror target list; absent keeps the statement's. */
+  mirrorTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Full replacement boolean target list; absent keeps the statement's. */
   booleanTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Full replacement plane base list; absent keeps the statement's. */
@@ -1806,7 +1885,7 @@ function isKeepSlot(raw: any): boolean {
 function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "boolean", "offset" or "project" for an edit' };
+    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "boolean", "offset" or "project" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -2181,6 +2260,10 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
 
   if (feature === 'copy') {
     return validateCopyEdit(body, base, edit);
+  }
+
+  if (feature === 'mirror') {
+    return validateMirrorEdit(body, base, edit);
   }
 
   if (feature === 'boolean') {
@@ -2768,6 +2851,86 @@ function validateCopyEdit(
  * with re-picked feature statements; an absent list keeps every statement
  * target. No axes, values or picks — `needsPicks` never flips.
  */
+/**
+ * The mirror edit request's shape: the op (the dialog owns the operation
+ * chain outright), the plane — keep, or any create-mode plane input, a
+ * picked face flipping `needsPicks` — and the optional target list mixing
+ * `verbatim` keeps with re-picked features; an absent list keeps every
+ * statement target.
+ */
+function validateMirrorEdit(
+  body: any,
+  base: StatementEditRequest,
+  edit: FeatureStatementEditTarget,
+): StatementEditRequest | { error: string } {
+  const { op } = body ?? {};
+  if (op !== 'add' && op !== 'remove' && op !== 'new') {
+    return { error: 'op must be "add", "remove" or "new"' };
+  }
+  const result: StatementEditRequest = base;
+  // The plane defaults to keep; the resolution pass rewrites it (and fills
+  // the targets) from the request fields below once producers exist.
+  edit.mirror = { plane: { kind: 'keep' }, op };
+
+  const raw = body?.plane;
+  if (raw === undefined || raw === null || raw?.kind === 'keep') {
+    result.mirrorPlane = { kind: 'keep' };
+  } else if (raw?.kind === 'standard') {
+    if (raw.plane !== 'xy' && raw.plane !== 'xz' && raw.plane !== 'yz') {
+      return { error: 'a standard mirror plane must be "xy", "xz" or "yz"' };
+    }
+    result.mirrorPlane = { kind: 'standard', plane: raw.plane };
+  } else if (raw?.kind === 'plane') {
+    const loc = validateSketchLoc(raw);
+    if (!loc) {
+      return { error: 'a plane input must carry the plane {filePath, line}' };
+    }
+    result.mirrorPlane = { kind: 'plane', loc };
+  } else if (raw?.kind === 'face') {
+    const pick = validatePick(raw.entity);
+    if (!pick || pick.sub.type !== 'face') {
+      return { error: 'a picked mirror plane must carry a {shapeId, sub:{type:"face", index}} pick' };
+    }
+    result.mirrorPlane = { kind: 'face', pick };
+    result.needsPicks = true;
+  } else {
+    return { error: 'plane must be {kind: "keep"|"standard"|"plane"|"face", …}' };
+  }
+
+  if (body?.targets !== undefined && body?.targets !== null) {
+    if (!Array.isArray(body.targets) || body.targets.length < 1 || body.targets.length > MAX_MIRROR_TARGETS) {
+      return { error: `targets must be 1-${MAX_MIRROR_TARGETS} kept or re-picked features` };
+    }
+    const targets: NonNullable<StatementEditRequest['mirrorTargets']> = [];
+    const seenIndices = new Set<number>();
+    const seenLocs = new Set<string>();
+    for (const rawTarget of body.targets) {
+      if (rawTarget?.kind === 'verbatim') {
+        if (!Number.isInteger(rawTarget.sourceIndex) || rawTarget.sourceIndex < 0 || seenIndices.has(rawTarget.sourceIndex)) {
+          return { error: 'each kept target must carry a distinct {sourceIndex} into the statement' };
+        }
+        seenIndices.add(rawTarget.sourceIndex);
+        targets.push({ kind: 'verbatim', sourceIndex: rawTarget.sourceIndex });
+      } else if (rawTarget?.kind === 'feature') {
+        const loc = validateSketchLoc(rawTarget);
+        if (!loc) {
+          return { error: 'each re-picked target must be the {filePath, line} of a feature statement' };
+        }
+        const key = `${loc.filePath}:${loc.line}`;
+        if (seenLocs.has(key)) {
+          return { error: 'the same feature was picked twice — each target must be different' };
+        }
+        seenLocs.add(key);
+        targets.push({ kind: 'feature', loc });
+      } else {
+        return { error: 'each target must be {kind: "verbatim"|"feature", …}' };
+      }
+    }
+    result.mirrorTargets = targets;
+  }
+  return result;
+}
+
 function validateBooleanEdit(
   body: any,
   base: StatementEditRequest,
@@ -3075,6 +3238,8 @@ export function createApplyFeatureRouter(
           ...(request.copyDirections ?? []).flatMap(d => d.axis.kind === 'axis' ? [d.axis.loc] : []),
           ...(request.copyAxis?.kind === 'axis' ? [request.copyAxis.loc] : []),
           ...(request.copyTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
+          ...(request.mirrorPlane?.kind === 'plane' ? [request.mirrorPlane.loc] : []),
+          ...(request.mirrorTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
           ...(request.booleanTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
           ...(request.planeBases ?? []).flatMap(b => b.kind === 'plane' || b.kind === 'wire' ? [b.loc] : []),
         ];
@@ -3575,6 +3740,50 @@ export function createApplyFeatureRouter(
             cp.targets = sketchTargetProducers.map(producer => ({ kind: 'feature' as const, producer }));
           } else if (request.copyTargets) {
             cp.targets = request.copyTargets.map(target => target.kind === 'verbatim'
+              ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
+              : {
+                kind: 'feature' as const,
+                producer: mergeProducer({
+                  line: target.loc.line, column: target.loc.column,
+                  featureType: 'feature', nameHint: 'f', bind: true,
+                }),
+              });
+          }
+        }
+        if (request.feature === 'mirror') {
+          const mo = edit.mirror!;
+          if (request.mirrorPlane) {
+            const input = request.mirrorPlane;
+            if (input.kind === 'keep') {
+              mo.plane = { kind: 'keep' };
+            } else if (input.kind === 'standard') {
+              mo.plane = { kind: 'standard', plane: input.plane };
+            } else if (input.kind === 'plane') {
+              mo.plane = {
+                kind: 'plane',
+                producer: mergeProducer({
+                  line: input.loc.line, column: input.loc.column,
+                  featureType: 'plane', nameHint: 'p', bind: true,
+                }),
+              };
+            } else {
+              const synthesis = synthesizeSlot([input.pick], 'plane', undefined, []);
+              if (!synthesis) {
+                return;
+              }
+              // The plane argument is ONE SceneObject — a multi-part
+              // selection has no single-expression rendering.
+              if (synthesis.spec.parts.length !== 1) {
+                res.status(422).json({ success: false, reason: 'the mirror plane must be a single face selection' });
+                return;
+              }
+              const part = foldSynthesis(synthesis);
+              importSet.add('plane');
+              mo.plane = { kind: 'selector', part };
+            }
+          }
+          if (request.mirrorTargets) {
+            mo.targets = request.mirrorTargets.map(target => target.kind === 'verbatim'
               ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
               : {
                 kind: 'feature' as const,
@@ -4990,6 +5199,121 @@ export function createApplyFeatureRouter(
         await dispatcher.dispatch(res, {
           feature: 'copy',
           copy: options,
+          filePath,
+          producers,
+          parts,
+          imports: [...imports],
+          newVariables,
+        }, { success: true, preview: statement });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
+    if (feature === 'mirror') {
+      const request = validateMirror(req.body);
+      if ('error' in request) {
+        res.status(400).json({ error: request.error });
+        return;
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        const filePath = request.targets[0].filePath;
+        const { producers, merge: mergeProducer } = makeProducerMerger();
+        const parts: ApplyFeatureEditSpec['parts'] = [];
+        const imports = new Set<string>();
+
+        const targets: MirrorEditOptions['targets'] = request.targets.map(loc => ({
+          producer: mergeProducer({
+            line: loc.line, column: loc.column,
+            featureType: 'feature', nameHint: 'f', bind: true,
+          }),
+        }));
+
+        /**
+         * Synthesize the picked mirror face into its own selector part — the
+         * repeat mirror's exact input, through the same single-selection
+         * 'plane' synthesis kind. Returns the part index, or null after
+         * refusing with a response.
+         */
+        const synthesizeFace = async (pick: Pick): Promise<number | null> => {
+          const synthOptions = code
+            ? {
+              namer: await makeProducerNamer(code),
+              params: resolveParamValues(
+                await extractNumericParams(code),
+                fluidCadServer.getParamDefinitions(),
+              ),
+            }
+            : undefined;
+          const synthesis = fluidCadServer.synthesizeApplyFeature(
+            [pick], 'plane', undefined, [], synthOptions,
+          );
+          if (!synthesis) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return null;
+          }
+          if (!synthesis.ok) {
+            res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+            return null;
+          }
+          // The plane argument is ONE SceneObject — a multi-part selection
+          // has no single-expression rendering.
+          if (synthesis.spec.parts.length !== 1) {
+            res.status(422).json({ success: false, reason: 'the mirror plane must be a single face selection' });
+            return null;
+          }
+          if (synthesis.spec.filePath !== filePath) {
+            res.status(422).json({ success: false, reason: 'the mirror face and the targets come from different files' });
+            return null;
+          }
+          const remap = synthesis.spec.producers.map(mergeProducer);
+          const part = synthesis.spec.parts[0];
+          parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
+          for (const symbol of synthesis.spec.imports) {
+            imports.add(symbol);
+          }
+          imports.add('plane');
+          return parts.length - 1;
+        };
+
+        let plane: MirrorEditOptions['plane'];
+        const input = request.plane;
+        if (input.kind === 'standard') {
+          plane = { kind: 'standard', plane: input.plane };
+        } else if (input.kind === 'plane') {
+          plane = {
+            kind: 'plane',
+            producer: mergeProducer({
+              line: input.loc.line, column: input.loc.column,
+              featureType: 'plane', nameHint: 'p', bind: true,
+            }),
+          };
+        } else {
+          const part = await synthesizeFace(input.pick);
+          if (part === null) {
+            return;
+          }
+          plane = { kind: 'selector', part };
+        }
+
+        const options: MirrorEditOptions = { plane, op: request.op, targets };
+        // Truthful preview: the same allocation walk the transform runs.
+        const producerVars = await allocateProducerVars(producers, code);
+        const varFor = (i: number): string | null => producerVars[i];
+        const statement = renderMirrorStatement(
+          options,
+          renderRepeatPlaneExpr(plane, parts, varFor),
+          targets.map(t => producerVars[t.producer] ?? 'f'),
+        );
+        if (preview === true) {
+          res.json({ success: true, preview: statement });
+          return;
+        }
+        await dispatcher.dispatch(res, {
+          feature: 'mirror',
+          mirror: options,
           filePath,
           producers,
           parts,

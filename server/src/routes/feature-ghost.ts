@@ -6,7 +6,7 @@ import type {
   GhostPathRef, GhostPlaneBaseRef, GhostPlaneRef, GhostRepeatDirection, GhostSectionRef,
   GhostSketchAxisRef,
 } from '../fluidcad-server.ts';
-import { MAX_COPY_TARGETS, MAX_REPEAT_TARGETS } from './apply-feature.ts';
+import { MAX_COPY_TARGETS, MAX_MIRROR_TARGETS, MAX_REPEAT_TARGETS } from './apply-feature.ts';
 
 /** A dialog numeric slot on the wire: a number, or verbatim expression text. */
 type ValueExpr = number | string;
@@ -70,8 +70,8 @@ type GhostBody = {
 };
 
 const FEATURES = [
-  'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'plane', 'rib',
-  'offset', 'fillet2d', 'copy2d',
+  'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'mirror',
+  'plane', 'rib', 'offset', 'fillet2d', 'copy2d',
 ];
 
 /** The features that modify edges of an existing solid rather than sweep a profile. */
@@ -615,6 +615,29 @@ function parseCopy(body: GhostBody): RawCopy | string {
   };
 }
 
+/** A mirror request's slots — a plane and targets, nothing to resolve. */
+type RawMirror = {
+  targets: { filePath: string; line: number }[];
+  plane: GhostPlaneRef;
+};
+
+/**
+ * The mirror dialog's slots: target statements and the plane to reflect them
+ * across. It carries no axis, no count and no numbers at all — the op is the
+ * only other field, and the general op check already validated it.
+ */
+function parseMirror(body: GhostBody): RawMirror | string {
+  const targets = parseSourceRefs(body.targets);
+  if (!targets || targets.length === 0 || targets.length > MAX_MIRROR_TARGETS) {
+    return 'Invalid mirror targets';
+  }
+  const plane = parsePlane(body.plane);
+  if (!plane) {
+    return 'Invalid mirror plane';
+  }
+  return { targets, plane };
+}
+
 /** A 2D copy request's slots, before its numbers are resolved. */
 type RawCopy2D = {
   kind: 'linear' | 'circular';
@@ -884,6 +907,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const isHelix = body.feature === 'helix';
     const isRepeat = body.feature === 'repeat';
     const isCopy = body.feature === 'copy';
+    // The mirror is NOT exempt: its reflected bodies land the way its own op
+    // says (fuse, cut, or standalone), so the dialog declares one.
+    const isMirror = body.feature === 'mirror';
     const isPlane = body.feature === 'plane';
     // The 2D ops rework curves inside their sketch — there is no add/remove/new.
     const isOffset = body.feature === 'offset';
@@ -997,6 +1023,15 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         return;
       }
       copy = parsed;
+    }
+    let mirror: RawMirror | null = null;
+    if (isMirror) {
+      const parsed = parseMirror(body);
+      if (typeof parsed === 'string') {
+        res.status(400).json({ success: false, reason: parsed });
+        return;
+      }
+      mirror = parsed;
     }
     let copy2d: RawCopy2D | null = null;
     if (isCopy2D) {
@@ -1154,6 +1189,13 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         count,
         sweep: copy!.sweep ? { mode: copy!.sweep.mode, value: sweepValue! } : null,
         skip: copy!.skip,
+      };
+    } else if (isMirror) {
+      request = {
+        feature: 'mirror',
+        op: body.op as 'add' | 'remove' | 'new',
+        targets: mirror!.targets,
+        plane: mirror!.plane,
       };
     } else if (isCopy2D) {
       request = {

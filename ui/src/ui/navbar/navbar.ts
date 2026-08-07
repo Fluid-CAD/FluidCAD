@@ -55,6 +55,17 @@ export class Navbar {
       'absolute top-12 left-0 right-0 h-14 z-[120] flex items-center px-2 ' +
       'panel-bg border-b border-base-content/10 select-none';
     container.appendChild(this.el);
+    // Toolbar buttons never take keyboard focus from a click. A clicked
+    // button would otherwise hold focus indefinitely, and when the window is
+    // re-activated (Alt-Tab back) the browser re-matches the focused element
+    // as :focus-visible — which drops daisyUI's soft/ghost styling and flips
+    // an armed tool to solid primary under its muted caption. Click handling
+    // and Tab focus are unaffected.
+    this.el.addEventListener('mousedown', (e) => {
+      if (e.target instanceof Element && e.target.closest('button')) {
+        e.preventDefault();
+      }
+    });
     this.scroller = new ToolbarScroller(this.el);
   }
 

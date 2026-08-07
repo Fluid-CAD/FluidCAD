@@ -546,6 +546,11 @@ export class CopyPanel extends FeaturePanel {
     // A grid skips cells, everything else skips instances — the placeholder
     // says which the field is taking right now.
     this.skipInput.placeholder = this.directions.length > 1 ? 'e.g. [1, 0], [2, 1]' : 'e.g. 1, 3';
+    // Circular defaults its empty axis to the world Z axis; linear
+    // directions stay an explicit pick.
+    if (!linear && !this.axisSlots.get(1)!.selection) {
+      this.axisSlots.get(1)!.selectStandard('z');
+    }
     // An armed Direction 2 slot the circular kind hides falls to Direction 1.
     if (!linear && this.armedSlot === 'axis2') {
       this.armSlot('axis1');

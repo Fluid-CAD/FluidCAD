@@ -573,6 +573,11 @@ export class RepeatPanel extends FeaturePanel {
     this.centeredRow.classList.toggle('flex', linear);
     this.angleRow.classList.toggle('hidden', kind !== 'rotate');
     this.angleRow.classList.toggle('flex', kind === 'rotate');
+    // Circular and Rotate default their empty axis to the world Z axis;
+    // linear directions stay an explicit pick.
+    if (usesAxis && !linear && !this.axisSlots.get(1)!.selection) {
+      this.axisSlots.get(1)!.selectStandard('z');
+    }
     // An armed slot the new kind hides falls to the kind's input slot; the
     // Features slot stays armed across kinds.
     if (kind === 'mirror' && (this.armedSlot === 'axis1' || this.armedSlot === 'axis2')) {

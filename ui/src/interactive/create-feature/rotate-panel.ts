@@ -102,9 +102,11 @@ export class RotatePanel extends FeaturePanel {
   show(): void {
     // A fresh arming starts from defaults and empty slots — the previous
     // session's choices would otherwise be revived by source-line matching.
+    // The axis opens on the world Z default, a pick replacing it.
     this.shell.setTitle(null);
     this.tabs.setValue('move');
     this.axisSlot.reset();
+    this.axisSlot.selectStandard('z');
     this.angleField.setValue(90);
     this.setTargets([]);
     // The empty solids list is the first thing to fill — its slot opens

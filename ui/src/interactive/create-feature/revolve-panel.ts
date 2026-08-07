@@ -104,13 +104,14 @@ export class RevolvePanel extends FeaturePanel {
     // A fresh arming starts from defaults — the previous session's choices
     // would otherwise be revived by source-line matching. The profile opens
     // on the first offered sketch (the active one, in sketch mode); the axis
-    // on the pick prompt — an axis is an explicit choice.
+    // on the world Z default, a pick replacing it.
     this.shell.setTitle(null);
     this.angleField.setValue(360);
     this.symmetricCheckbox.checked = false;
     this.profileSlot.reset(profiles);
     this.axisSlot.reset();
     this.axisSlot.setOptions(axes);
+    this.axisSlot.selectStandard('z');
     // The profile pre-fills; the axis is the explicit next step.
     this.armSlot('axis');
     this.shell.show();

@@ -155,6 +155,12 @@ export class AxisSlotControl {
     this.render();
   }
 
+  /** A programmatic standard-axis choice (a create-mode default); no events fire. */
+  selectStandard(axis: StandardAxis): void {
+    this.state = { kind: 'standard', axis };
+    this.render();
+  }
+
   /**
    * The picked-edge chip (the service owns the entity); null clears it —
    * back to the statement's own axis (edit mode), else the prompt.

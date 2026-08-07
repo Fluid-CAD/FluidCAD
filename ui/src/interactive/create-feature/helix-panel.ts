@@ -216,6 +216,8 @@ export class HelixPanel extends FeaturePanel {
     this.applyModeDefaults('axis');
     this.axisSlot.reset();
     this.axisSlot.setOptions(axes);
+    // The axis opens on the world Z default, a pick replacing it.
+    this.axisSlot.selectStandard('z');
     this.faceSlot.reset();
     this.syncModeVisibility();
     this.syncCoilVisibility();

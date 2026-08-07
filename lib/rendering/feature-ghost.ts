@@ -62,6 +62,7 @@ export type FeatureGhostRequest =
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
+  | RotateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
@@ -338,6 +339,25 @@ export type MirrorGhostRequest = {
 };
 
 /**
+ * The rotate — the transform sibling of the mirror, and like it a ghost that
+ * builds no geometry of its own. `rotate()` transforms the bodies its targets
+ * hold around the axis (rotate.ts:63-78), so the ghost stamps those bodies
+ * verbatim under the one rotation matrix — the same
+ * `Matrix4.fromRotationAroundAxis` the apply hands OCC, so the preview cannot
+ * diverge from the render. Whether the statement moves or copies makes no
+ * visual difference here: either way the stamp is where the bodies land.
+ */
+export type RotateGhostRequest = {
+  feature: 'rotate';
+  /** The solid-bearing statements being rotated, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** The axis to rotate around. */
+  axis: GhostAxisRef;
+  /** The rotation angle in degrees. */
+  angle: number;
+};
+
+/**
  * The mirror dialog's plane slot on the wire, the plane sibling of
  * {@link GhostAxisRef}: an origin plane from its viewport quad, a `plane()`
  * statement by call site, or a planar face picked in the viewport. As with the
@@ -569,6 +589,9 @@ export function buildFeatureGhost(
   }
   if (request.feature === 'mirror') {
     return buildMirrorGhost(scene, request, meshConfig);
+  }
+  if (request.feature === 'rotate') {
+    return buildRotateGhost(scene, request, meshConfig);
   }
   if (request.feature === 'plane') {
     return buildPlaneGhost(scene, request, meshConfig);
@@ -1736,6 +1759,51 @@ function buildMirrorGhost(
       shape.dispose();
     }
   }
+}
+
+/**
+ * The rotate branch: the copy's stamping under a single rotation matrix.
+ * `rotate()` transforms the bodies its targets hold around the axis
+ * (rotate.ts:63-78), so the stamp is the targets' own meshes through
+ * `transformMeshes` — the exact `ghostRotation` matrix the repeat's rotate
+ * kind stamps with, which is itself the apply's `Matrix4.fromRotationAroundAxis`.
+ * The empty-removal fallback in {@link copyTargetSolids} is load-bearing here
+ * too: a move CONSUMES its targets' bodies, so in the edit dialog the
+ * statement being edited has already taken the very bodies its ghost wants to
+ * draw. A full-turn angle stamps nothing — the bodies land exactly where they
+ * already are, and the ghost would only z-fight the scene.
+ *
+ * Nothing here opens a shape: the axis resolves to plain values (a picked
+ * edge's wrappers are the resolver's own and go back before it returns) and
+ * the meshes are read off the scene, so there is no scratch to free.
+ */
+function buildRotateGhost(
+  scene: Scene,
+  request: RotateGhostRequest,
+  meshConfig: MeshConfig,
+): FeatureGhostResult {
+  const axis = resolveGhostAxis(scene, request.axis);
+  if (!axis) {
+    return { ok: false, reason: 'That axis is not in the rendered scene.' };
+  }
+  const [matrix] = buildRotateGhostMatrices(axis, request.angle);
+  if (!matrix) {
+    // Angle 0 (or a full turn) — a state the dialog passes through while the
+    // user types. Nothing to draw, nothing wrong.
+    return { ok: true, solids: [] };
+  }
+  const targets = targetObjectsAt(scene, request.targets);
+  if (targets.length === 0) {
+    return { ok: false, reason: 'That solid is not in the rendered scene.' };
+  }
+  const meshes = stampMeshes(copyTargetSolids(targets), new MeshBuilder(meshConfig));
+  if (meshes.length === 0) {
+    return { ok: false, reason: 'That statement has no solid to rotate.' };
+  }
+  return {
+    ok: true,
+    solids: [{ meshes: transformMeshes(meshes, matrix), kind: 'add' }],
+  };
 }
 
 /** The bodies to mesh, or why the request names something the scene lost. */

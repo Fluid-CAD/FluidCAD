@@ -789,3 +789,64 @@ describe('feature-ghost route — mirror', () => {
     expect(received).toBeUndefined();
   });
 });
+
+describe('feature-ghost route — rotate', () => {
+  useGhostRoute();
+
+  /** A rotate exactly as the dialog sends it. */
+  function rotateBody(overrides: Record<string, unknown> = {}) {
+    return {
+      feature: 'rotate',
+      targets: [{ filePath: FILE, line: 7 }],
+      axis: { kind: 'standard', axis: 'z' },
+      angle: 45,
+      ...overrides,
+    };
+  }
+
+  it('passes a rotate through with its axis, angle and targets — no op involved', async () => {
+    const { status, body } = await postGhost(rotateBody());
+
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(received).toEqual({
+      feature: 'rotate',
+      targets: [{ filePath: FILE, line: 7 }],
+      axis: { kind: 'standard', axis: 'z' },
+      angle: 45,
+    });
+  });
+
+  it('passes the axis forms the slot resolves', async () => {
+    await postGhost(rotateBody({ axis: { kind: 'axis', filePath: FILE, line: 3 } }));
+    expect(received).toMatchObject({ axis: { kind: 'axis', filePath: FILE, line: 3 } });
+
+    await postGhost(rotateBody({ axis: { kind: 'edge', shapeId: 's1', index: 2 }, angle: -30 }));
+    expect(received).toMatchObject({
+      axis: { kind: 'edge', shapeId: 's1', index: 2 },
+      angle: -30,
+    });
+  });
+
+  it('refuses a body the rotate does not accept', async () => {
+    const bodies: Record<string, unknown>[] = [
+      // Nothing to rotate.
+      rotateBody({ targets: [] }),
+      // No axis to turn around, and a keep chip that never resolved.
+      rotateBody({ axis: null }),
+      rotateBody({ axis: { kind: 'keep' } }),
+      // No angle to turn by.
+      rotateBody({ angle: undefined }),
+      rotateBody({ angle: '' }),
+      // A malformed target entry.
+      rotateBody({ targets: [{ filePath: FILE }] }),
+    ];
+
+    for (const body of bodies) {
+      const result = await postGhost(body);
+      expect(result.status, JSON.stringify(body)).toBe(400);
+      expect(result.body.success).toBe(false);
+    }
+    expect(received).toBeUndefined();
+  });
+});

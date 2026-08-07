@@ -7495,3 +7495,321 @@ describe('applyFeatureEdit (mirror in-place statement edit)', () => {
     expect(result.newCode).toContain(`mirror('xy', e).name('half')\n`);
   });
 });
+
+describe('rotate statement templates', () => {
+  const base = [
+    `import { sketch, rect, extrude, cut } from 'fluidcad/core'`,
+    ``,
+    `sketch('xy', () => { rect(100, 50) })`,
+    `extrude(30)`,
+    `sketch('xy', () => { rect(10, 10) })`,
+    `cut(5)`,
+  ].join('\n');
+
+  function rotateSpec(
+    rotate: NonNullable<ApplyFeatureEditSpec['rotate']>,
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'rotate',
+      rotate,
+      filePath: '/ws/model.fluid.js',
+      producers: [{ line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  it('binds two bare targets and appends a rotate around a standard axis', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, rotateSpec({
+      axis: { kind: 'standard', axis: 'z' },
+      angle: 45,
+      copy: false,
+      targets: [{ producer: 0 }, { producer: 1 }],
+    }, {
+      producers: [
+        { line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 6, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import {rotate, sketch, rect, extrude, cut } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const f = extrude(30)`,
+      `sketch('xy', () => { rect(10, 10) })`,
+      `const f2 = cut(5)`,
+      `rotate('z', 45, f, f2)`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('renders the copy flag and reuses an existing const binding', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, rotateSpec({
+      axis: { kind: 'standard', axis: 'x' },
+      angle: 30,
+      copy: true,
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [{ line: 4, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rotate('x', 30, true, e)`);
+    expect(result.newCode).not.toContain('const f =');
+  });
+
+  it('renders an existing axis feature as its bound variable', async () => {
+    const code = [
+      `import { sketch, rect, extrude, axis } from 'fluidcad/core'`,
+      ``,
+      `const a = axis([0, 0, 0], [0, 0, 1])`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, rotateSpec({
+      axis: { kind: 'axis', producer: 1 },
+      angle: 45,
+      copy: false,
+      targets: [{ producer: 0 }],
+    }, {
+      producers: [
+        { line: 5, column: 10, featureType: 'feature', nameHint: 'f', bind: true },
+        { line: 3, column: 10, featureType: 'axis', nameHint: 'a', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rotate(a, 45, e)`);
+  });
+
+  it('renders a rotate around a picked edge lifted into axis(<selector>)', async () => {
+    const result = await applyFeatureEdit(`${base}\n`, rotateSpec({
+      axis: { kind: 'selector', part: 0 },
+      angle: 90,
+      copy: false,
+      targets: [{ producer: 0 }],
+    }, {
+      parts: [{ producer: 0, accessor: 'endEdges', indices: [0], filterArgs: null }],
+      imports: ['axis'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rotate(axis(f.endEdges(0)), 90, f)`);
+    expect(result.newCode).toMatch(/import \{[^}]*\brotate\b[^}]*\} from 'fluidcad\/core'/);
+    expect(result.newCode).toMatch(/import \{[^}]*\baxis\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('refuses a duplicate target producer and a zero angle', async () => {
+    const duplicate = await applyFeatureEdit(`${base}\n`, rotateSpec({
+      axis: { kind: 'standard', axis: 'z' },
+      angle: 45,
+      copy: false,
+      targets: [{ producer: 0 }, { producer: 0 }],
+    }));
+    expect(duplicate.error).toContain('malformed rotate edit spec');
+
+    const zero = await applyFeatureEdit(`${base}\n`, rotateSpec({
+      axis: { kind: 'standard', axis: 'z' },
+      angle: 0,
+      copy: false,
+      targets: [{ producer: 0 }],
+    }));
+    expect(zero.error).toContain('malformed rotate edit spec');
+  });
+});
+
+const rotateEditBase = [
+  `import { sketch, rect, extrude, cut, rotate } from 'fluidcad/core'`,
+  ``,
+  `sketch('xy', () => { rect(100, 50) })`,
+  `const e = extrude(30)`,
+  `sketch('xy', () => { rect(10, 10) })`,
+  `const c = cut(5)`,
+].join('\n');
+
+describe('parseFeatureStatement — rotate', () => {
+  it('reads the axis, angle and identifier targets with their refs', async () => {
+    const code = `${rotateEditBase}\nrotate('z', 45, e, c)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'rotate', axisText: `'z'`, angle: 45, copy: false, targetTexts: ['e', 'c'],
+        // The bound calls' own positions — the timeline rows' locations.
+        targetRefs: [{ line: 4, column: 10 }, { line: 6, column: 10 }],
+      },
+      statement: `rotate('z', 45, e, c)`,
+    });
+  });
+
+  it('reads the copy flag off the boolean third argument', async () => {
+    const result = await parseFeatureStatement(`${rotateEditBase}\nrotate('z', 45, true, e)\n`, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'rotate', copy: true, targetTexts: ['e'] },
+    });
+  });
+
+  it('reads an implicit rotate with no targets', async () => {
+    const result = await parseFeatureStatement(`${rotateEditBase}\nrotate('x', 30)\n`, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'rotate', axisText: `'x'`, angle: 30, copy: false, targetTexts: [] },
+    });
+  });
+
+  it('reads a variable angle as its expression text', async () => {
+    const code = [
+      `import { sketch, rect, extrude, rotate } from 'fluidcad/core'`,
+      `const ang = 30`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `const e = extrude(30)`,
+      `rotate('z', ang, e)`,
+      ``,
+    ].join('\n');
+    const result = await parseFeatureStatement(code, 5);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'rotate', angle: 'ang', targetTexts: ['e'] },
+    });
+  });
+
+  it('keeps an unrecognized chain suffix out of the editable range', async () => {
+    const result = await parseFeatureStatement(`${rotateEditBase}\nrotate('z', 45, e).name('turned')\n`, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'rotate', axisText: `'z'` },
+      statement: `rotate('z', 45, e)`,
+    });
+  });
+
+  it('refuses a rotate with no arguments', async () => {
+    const result = await parseFeatureStatement(`${rotateEditBase}\nrotate()\n`, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('fewer arguments');
+    }
+  });
+
+  it('refuses the in-sketch angle-first form', async () => {
+    const result = await parseFeatureStatement(`${rotateEditBase}\nrotate(45, e)\n`, 7);
+    expect(result).toMatchObject({ ok: false });
+    if (result.ok === false) {
+      expect(result.reason).toContain('in-sketch rotate');
+    }
+  });
+});
+
+describe('applyFeatureEdit (rotate in-place statement edit)', () => {
+  it('rewrites the angle and copy flag keeping the axis and targets verbatim', async () => {
+    const code = `${rotateEditBase}\nrotate('z', 45, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('rotate', {
+      line: 7, column: 0,
+      rotate: { axis: { kind: 'keep' }, angle: 90, copy: true },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rotate('z', 90, true, e)\n`);
+  });
+
+  it('drops the copy flag switching back to move', async () => {
+    const code = `${rotateEditBase}\nrotate('z', 45, true, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('rotate', {
+      line: 7, column: 0,
+      rotate: { axis: { kind: 'keep' }, angle: 45, copy: false },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rotate('z', 45, e)\n`);
+    expect(result.newCode).not.toContain('true');
+  });
+
+  it('replaces the target list, mixing kept and re-picked features', async () => {
+    const code = `${rotateEditBase}\nrotate('z', 45, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('rotate', {
+      line: 7, column: 0,
+      rotate: {
+        axis: { kind: 'keep' },
+        angle: 45,
+        copy: false,
+        targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
+      },
+    }, {
+      producers: [{ line: 6, column: 10, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rotate('z', 45, e, c)\n`);
+  });
+
+  it('re-sources the axis with a standard world axis', async () => {
+    const code = `${rotateEditBase}\nrotate(axis(e.endEdges(0)), 45, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('rotate', {
+      line: 7, column: 0,
+      rotate: { axis: { kind: 'standard', axis: 'x' }, angle: 45, copy: false },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rotate('x', 45, e)\n`);
+  });
+
+  it('renders a re-picked selector axis from its part', async () => {
+    const code = `${rotateEditBase}\nrotate('z', 45, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('rotate', {
+      line: 7, column: 0,
+      rotate: { axis: { kind: 'selector', part: 0 }, angle: 45, copy: false },
+    }, {
+      producers: [{ line: 4, column: 10, featureType: 'extrude', nameHint: 'e', bind: true }],
+      parts: [{ producer: 0, accessor: 'endEdges', indices: [1], filterArgs: null }],
+      imports: ['axis'],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rotate(axis(e.endEdges(1)), 45, e)\n`);
+    expect(result.newCode).toMatch(/import \{[^}]*\baxis\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('keeps an implicit-target rotate implicit when no target list rides the spec', async () => {
+    const code = `${rotateEditBase}\nrotate('x', 30)\n`;
+    const result = await applyFeatureEdit(code, editSpec('rotate', {
+      line: 7, column: 0,
+      rotate: { axis: { kind: 'standard', axis: 'y' }, angle: 60, copy: false },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rotate('y', 60)\n`);
+  });
+
+  it('refuses an empty replacement target list', async () => {
+    const code = `${rotateEditBase}\nrotate('z', 45, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('rotate', {
+      line: 7, column: 0,
+      rotate: { axis: { kind: 'keep' }, angle: 45, copy: false, targets: [] },
+    }));
+    expect(result.error).toContain('at least one target');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses a stale expectedStatement', async () => {
+    const code = `${rotateEditBase}\nrotate('z', 45, e)\n`;
+    const result = await applyFeatureEdit(code, editSpec('rotate', {
+      line: 7, column: 0,
+      expectedStatement: `rotate('z', 45, c)`,
+      rotate: { axis: { kind: 'keep' }, angle: 90, copy: false },
+    }));
+    expect(result.error).toContain('changed since the dialog opened');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('preserves an unrecognized chain suffix through an edit', async () => {
+    const code = `${rotateEditBase}\nrotate('z', 45, e).name('turned')\n`;
+    const result = await applyFeatureEdit(code, editSpec('rotate', {
+      line: 7, column: 0,
+      rotate: { axis: { kind: 'keep' }, angle: 60, copy: false },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`rotate('z', 60, e).name('turned')\n`);
+  });
+});

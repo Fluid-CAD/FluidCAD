@@ -15,6 +15,7 @@ import { Helix } from "../features/helix.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { MirrorFeature } from "../features/mirror-feature.js";
 import { MirrorShape } from "../features/mirror-shape.js";
+import { Rotate } from "../features/rotate.js";
 import { PlaneFromObject } from "../features/plane-from-object.js";
 import { PlaneMiddleRenderable } from "../features/plane-mid.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
@@ -90,6 +91,13 @@ export type FeatureSources =
    * targets, reflecting the last feature — reports an empty target list.
    */
   | { feature: 'mirror'; targets: SourceSlot[]; plane: SourceSlot }
+  /**
+   * A standalone `rotate(axis, angle, …)`: the solids it turns, by call site,
+   * plus the axis it turns them around. A world-axis literal is `opaque` as
+   * everywhere else, and an implicit rotate — one naming no targets, turning
+   * every active object — reports an empty target list.
+   */
+  | { feature: 'rotate'; targets: SourceSlot[]; axis: SourceSlot }
   /**
    * A construction plane, by its bases in argument order — one for the offset
    * and edge forms, two for a mid plane. An origin-plane literal names nothing
@@ -242,6 +250,17 @@ export function resolveFeatureSources(
         feature: 'mirror',
         targets: resolver.statementSlots(feature.targetObjects),
         plane: resolver.planeSlot(feature.plane),
+      };
+    }
+    // The standalone rotate — `rotate(axis, angle, …)`, the transform, not
+    // the repeat's `'rotate'` kind (RepeatMatrix above). Same slot shapes as
+    // a revolve's axis plus a copy's targets.
+    if (feature instanceof Rotate) {
+      return {
+        ok: true,
+        feature: 'rotate',
+        targets: resolver.statementSlots(feature.targetObjects),
+        axis: resolver.axisSlot(feature.axis),
       };
     }
     // The copy family: the repeat's shape without a mirror. Its targets are

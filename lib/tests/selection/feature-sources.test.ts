@@ -14,6 +14,7 @@ import helix from "../../core/helix.js";
 import chamfer from "../../core/chamfer.js";
 import repeat from "../../core/repeat.js";
 import copy from "../../core/copy.js";
+import rotate from "../../core/rotate.js";
 import rib from "../../core/rib.js";
 import { circle, hLine, move, offset, project, rect, vLine } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
@@ -585,6 +586,49 @@ describe("feature sources (edit-dialog seeding)", () => {
         kind: "entities",
         entities: faceRefsWhere(box, m => Math.abs(m.z - 10) < 1e-6),
       });
+    }
+  });
+
+  it("resolves a rotate's targets and axis statement by call site", () => {
+    const a = axis("z");
+    setLocation(a as never, 2);
+    sketch("xy", () => {
+      rect(40, 40);
+    });
+    const e = extrude(10);
+    setLocation(e, 4);
+    const r = rotate(a as never, 45, e as never);
+    setLocation(r as never, 6);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "rotate", 6));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "rotate") {
+      expect(result.targets).toEqual([
+        { kind: "sketch", filePath: "/ws/model.fluid.js", line: 4, column: 0 },
+      ]);
+      expect(result.axis).toEqual(
+        { kind: "sketch", filePath: "/ws/model.fluid.js", line: 2, column: 0 },
+      );
+    }
+  });
+
+  it("marks a rotate's inline world-axis literal opaque", () => {
+    sketch("xy", () => {
+      rect(40, 40);
+    });
+    const e = extrude(10);
+    setLocation(e, 4);
+    const r = rotate("z", 45, e as never);
+    setLocation(r as never, 6);
+
+    const scene = render();
+    const result = resolveFeatureSources(scene, boundaryFor(scene, "rotate", 6));
+
+    expect(result.ok).toBe(true);
+    if (result.ok && result.feature === "rotate") {
+      expect(result.axis).toEqual({ kind: "opaque" });
     }
   });
 

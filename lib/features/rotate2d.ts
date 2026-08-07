@@ -116,6 +116,10 @@ export class Rotate2D extends GeometrySceneObject {
     return "rotate";
   }
 
+  getUniqueType(): string {
+    return 'rotate-shape-2d'
+  }
+
   serialize() {
     return {
       angle: this.angle

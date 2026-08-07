@@ -24,7 +24,8 @@ import { ShapeOps } from "../oc/shape-ops.js";
 import {
   buildFeatureGhost, Copy2DGhostRequest, CopyGhostRequest, ExtrudeGhostRequest, FeatureGhostResult,
   Fillet2DGhostRequest, GhostPathRef, GhostSectionRef, LoftGhostRequest, MirrorGhostRequest,
-  OffsetGhostRequest, RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, SweepGhostRequest,
+  OffsetGhostRequest, RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, RotateGhostRequest,
+  SweepGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { Scene, SceneObjectMesh } from "../rendering/scene.js";
@@ -2503,4 +2504,195 @@ describe("feature ghost — mirror", () => {
 
     expect(result.ok).toBe(false);
   });
+});
+
+describe("feature ghost — rotate", () => {
+  setupOC();
+
+  const ROTATE_BASE: Omit<RotateGhostRequest, 'targets'> = {
+    feature: 'rotate',
+    axis: { kind: 'standard', axis: 'z' },
+    angle: 90,
+  };
+
+  function rotateGhost(
+    scene: Scene,
+    lines: number[],
+    overrides: Partial<RotateGhostRequest> = {},
+  ): FeatureGhostResult {
+    return buildFeatureGhost(
+      scene,
+      {
+        ...ROTATE_BASE,
+        ...overrides,
+        targets: lines.map(line => ({ filePath: FILE, line })),
+      },
+      DEFAULT_MESH_CONFIG,
+    );
+  }
+
+  /** A box built by an `extrude()` addressable at `line`, like the parser's. */
+  function locatedBox(line: number, draw = () => { rect(20, 20); }, height = 10): SceneObject {
+    sketch("xy", draw);
+    const solid = extrude(height).new() as unknown as SceneObject;
+    solid.setSourceLocation({ filePath: FILE, line, column: 0 });
+    return solid;
+  }
+
+  function solidsOf(result: FeatureGhostResult) {
+    if (!result.ok) {
+      throw new Error(`ghost refused: ${'reason' in result ? result.reason : ''}`);
+    }
+    return result.solids;
+  }
+
+  it("turns the target around a world axis, never drawing the original", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = rotateGhost(scene, [5]);
+
+    // One turned body: the box spans x 0…20, y 0…20; a quarter turn around z
+    // carries it to x −20…0, y 0…20 — the z span rides unchanged.
+    expect(solidsOf(result)).toHaveLength(1);
+    expect(solidsOf(result)[0].kind).toBe('add');
+    const box = bounds(result, 0);
+    expect(box.minX).toBeCloseTo(-20, 3);
+    expect(box.maxX).toBeCloseTo(0, 3);
+    expect(box.minY).toBeCloseTo(0, 3);
+    expect(box.maxY).toBeCloseTo(20, 3);
+    expect(box.minZ).toBeCloseTo(0, 3);
+    expect(box.maxZ).toBeCloseTo(10, 3);
+  });
+
+  it("stamps every target into the one turned instance", () => {
+    locatedBox(5);
+    locatedBox(7, () => { rect([40, 0], 20, 20); });
+    const scene = render();
+
+    const result = rotateGhost(scene, [5, 7], { angle: 180 });
+
+    // Both bodies ride the single instance — they turn together, one face
+    // mesh each, and every half-turned vertex lands at or left of the axis.
+    expect(solidsOf(result)).toHaveLength(1);
+    const faceMeshes = solidsOf(result)[0].meshes.filter(m => m.label === 'solid-faces');
+    expect(faceMeshes).toHaveLength(2);
+    const xs = faceMeshes.flatMap(m => m.vertices.filter((_, i) => i % 3 === 0));
+    expect(Math.max(...xs)).toBeLessThanOrEqual(1e-6);
+    expect(Math.min(...xs)).toBeLessThan(-40 + 1e-3);
+  });
+
+  it("rotates around an axis() statement named by call site", () => {
+    const a = axis('z', { offsetX: 40 }) as unknown as SceneObject;
+    a.setSourceLocation({ filePath: FILE, line: 3, column: 0 });
+    locatedBox(5);
+    const scene = render();
+
+    const result = rotateGhost(scene, [5], {
+      axis: { kind: 'axis', filePath: FILE, line: 3 },
+      angle: 180,
+    });
+
+    // Half a turn around the z line at x = 40: (x, y) → (80 − x, −y).
+    const box = bounds(result, 0);
+    expect(box.minX).toBeCloseTo(60, 3);
+    expect(box.maxX).toBeCloseTo(80, 3);
+    expect(box.minY).toBeCloseTo(-20, 3);
+    expect(box.maxY).toBeCloseTo(0, 3);
+  });
+
+  it("turns a picked edge into the axis", () => {
+    locatedBox(5);
+    const scene = render();
+    const picked = verticalEdge(scene);
+
+    const result = rotateGhost(scene, [5], {
+      axis: { kind: 'edge', shapeId: picked.shapeId, index: picked.index },
+      angle: 180,
+    });
+
+    // Half a turn around one of the box's own vertical edges keeps the body
+    // touching that edge line — the turned bounds mirror through (x, y).
+    const box = bounds(result, 0);
+    expect(box.minX).toBeCloseTo(2 * picked.x - 20, 3);
+    expect(box.maxX).toBeCloseTo(2 * picked.x, 3);
+    expect(box.minY).toBeCloseTo(2 * picked.y - 20, 3);
+    expect(box.maxY).toBeCloseTo(2 * picked.y, 3);
+  });
+
+  it("draws nothing while the angle sits at zero or a full turn", () => {
+    locatedBox(5);
+    const scene = render();
+
+    for (const angle of [0, 360]) {
+      const result = rotateGhost(scene, [5], { angle });
+      expect(result.ok).toBe(true);
+      expect(solidsOf(result)).toHaveLength(0);
+    }
+  });
+
+  /**
+   * The edit dialog's own blind spot: a MOVE consumes its targets' bodies, so
+   * the statement being edited has already taken the very body its ghost
+   * wants to draw. The target is re-read as if no removal applied.
+   */
+  it("stamps a target a later statement already consumed", () => {
+    const solid = locatedBox(5);
+    const scene = render();
+    // Simulate the move's consumption: the shapes leave the target's live
+    // read but stay reachable under an empty removal scope.
+    const consumer = locatedBox(7, () => { rect([100, 100], 5, 5); });
+    for (const shape of solid.getShapes(undefined, 'solid')) {
+      solid.removeShape(shape, consumer as any);
+    }
+
+    const result = rotateGhost(scene, [5]);
+
+    expect(solidsOf(result)).toHaveLength(1);
+    const box = bounds(result, 0);
+    expect(box.minX).toBeCloseTo(-20, 3);
+  });
+
+  it("refuses a target line the scene does not hold", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = rotateGhost(scene, [99]);
+
+    expect(result.ok).toBe(false);
+  });
+
+  it("refuses an axis the scene does not hold", () => {
+    locatedBox(5);
+    const scene = render();
+
+    const result = rotateGhost(scene, [5], {
+      axis: { kind: 'axis', filePath: FILE, line: 99 },
+    });
+
+    expect(result.ok).toBe(false);
+  });
+
+  /** A vertical (z-running) edge of the scene's box, as a viewport pick names it. */
+  function verticalEdge(scene: Scene): { shapeId: string; index: number; x: number; y: number } {
+    for (const obj of scene.getAllSceneObjects()) {
+      for (const shape of obj.getAddedShapes()) {
+        if (!shape.isSolid()) {
+          continue;
+        }
+        const edges = Explorer.findEdgesWrapped(shape);
+        for (let index = 0; index < edges.length; index++) {
+          try {
+            const line = EdgeOps.edgeToAxis(edges[index]);
+            if (Math.abs(line.direction.z) > 0.99) {
+              return { shapeId: shape.id, index, x: line.origin.x, y: line.origin.y };
+            }
+          } catch {
+            // Not a straight edge — keep looking.
+          }
+        }
+      }
+    }
+    throw new Error('no vertical edge in the scene');
+  }
 });

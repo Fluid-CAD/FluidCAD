@@ -4196,6 +4196,255 @@ describe('apply-feature route validation', () => {
     });
   });
 
+  describe('rotate', () => {
+    const EDGE_PICK = { shapeId: 'shape-1', sub: { type: 'edge', index: 0 } };
+    const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
+    const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
+    const CODE = [
+      "import { sketch, rect, extrude, cut } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { rect(100, 50) })",
+      'extrude(30)',
+      "sketch('xy', () => { rect(10, 10) })",
+      'cut(5)',
+      '',
+    ].join('\n');
+
+    it('rejects an empty target list', async () => {
+      const { status, body } = await post({
+        feature: 'rotate', targets: [], axis: { kind: 'standard', axis: 'z' }, angle: 45,
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('targets must be');
+    });
+
+    it('rejects a duplicate target', async () => {
+      const { status, body } = await post({
+        feature: 'rotate', targets: [T1, T1], axis: { kind: 'standard', axis: 'z' }, angle: 45,
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('picked twice');
+    });
+
+    it('rejects a missing axis and a zero angle', async () => {
+      const noAxis = await post({ feature: 'rotate', targets: [T1], angle: 45 });
+      expect(noAxis.status).toBe(400);
+      expect(noAxis.body.error).toContain('axis must be');
+
+      const zeroAngle = await post({
+        feature: 'rotate', targets: [T1], axis: { kind: 'standard', axis: 'z' }, angle: 0,
+      });
+      expect(zeroAngle.status).toBe(400);
+      expect(zeroAngle.body.error).toContain('angle must be');
+    });
+
+    it('previews and relays a rotate around a standard axis', async () => {
+      currentCode = CODE;
+      const rotateBody = {
+        feature: 'rotate', targets: [T1, T2],
+        axis: { kind: 'standard', axis: 'z' }, angle: 45, copy: false,
+      };
+      const preview = await post({ ...rotateBody, preview: true });
+      expect(preview.status).toBe(200);
+      expect(preview.body.preview).toBe("rotate('z', 45, f, f2)");
+      expect(relayed).toEqual([]);
+      expect(synthesizeCalls).toEqual([]);
+
+      const { status, body } = await post(rotateBody);
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(relayed[0].type).toBe('apply-feature-edit');
+      expect(spec.feature).toBe('rotate');
+      expect(spec.rotate.axis).toEqual({ kind: 'standard', axis: 'z' });
+      expect(spec.rotate.angle).toBe(45);
+      expect(spec.rotate.copy).toBe(false);
+      expect(spec.rotate.targets).toEqual([{ producer: 0 }, { producer: 1 }]);
+      expect(spec.producers).toHaveLength(2);
+      expect(spec.producers.every((p: any) => p.featureType === 'feature' && p.bind)).toBe(true);
+      expect(spec.parts).toEqual([]);
+    });
+
+    it('previews the copy flag', async () => {
+      currentCode = CODE;
+      const { status, body } = await post({
+        feature: 'rotate', targets: [T1],
+        axis: { kind: 'standard', axis: 'x' }, angle: 30, copy: true, preview: true,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("rotate('x', 30, true, f)");
+    });
+
+    it('synthesizes a picked axis edge through the revolve kind', async () => {
+      currentCode = CODE;
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'revolve',
+          filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endEdges', indices: [0], filterArgs: null }],
+          imports: [],
+        },
+        preview: '',
+        args: 'e.endEdges(0)',
+        alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'rotate', targets: [T2],
+        axis: { kind: 'edge', entity: EDGE_PICK }, angle: 45,
+      });
+      expect(status).toBe(200);
+      expect(synthesizeCalls).toEqual([{ feature: 'revolve', value: undefined }]);
+      expect(body.preview).toContain('rotate(axis(');
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(spec.rotate.axis).toEqual({ kind: 'selector', part: 0 });
+      expect(spec.imports).toContain('axis');
+      expect(spec.parts).toHaveLength(1);
+    });
+
+    it('surfaces a synthesis refusal for the picked axis as 422', async () => {
+      currentSynthesis = { ok: false, reason: 'that edge cannot be named' };
+      const { status, body } = await post({
+        feature: 'rotate', targets: [T2],
+        axis: { kind: 'edge', entity: EDGE_PICK }, angle: 45,
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('cannot be named');
+      expect(relayed).toEqual([]);
+    });
+  });
+
+  describe('rotate edit', () => {
+    const EDGE_PICK = { shapeId: 'shape-1', sub: { type: 'edge', index: 0 } };
+    const EDIT_CODE = [
+      "import { sketch, rect, extrude, cut, rotate } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => { rect(100, 50) })",
+      'const e = extrude(30)',
+      "sketch('xy', () => { rect(10, 10) })",
+      'const c = cut(5)',
+      "rotate('z', 45, e)",
+      '',
+    ].join('\n');
+    const EDIT = { filePath: '/ws/m.fluid.js', line: 7, column: 0 };
+    const EDIT_BEFORE = { index: 6, type: 'rotate', line: 7, column: 0 };
+
+    it('relays an angle/copy change keeping the axis and targets, and previews it', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({ feature: 'rotate', edit: EDIT, angle: 90, copy: true });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("rotate('z', 90, true, e)");
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'rotate',
+        producers: [],
+        parts: [],
+        edit: {
+          line: 7, column: 0,
+          rotate: { axis: { kind: 'keep' }, angle: 90, copy: true },
+        },
+        clearBreakpoints: true,
+      });
+      expect(relayed[0].spec.edit.rotate.targets).toBeUndefined();
+    });
+
+    it('replaces the target list, mixing kept and re-picked features', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'rotate', edit: EDIT, angle: 45,
+        axis: { kind: 'keep' },
+        targets: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'feature', filePath: '/ws/m.fluid.js', line: 6, column: 0 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("rotate('z', 45, e, c)");
+      expect(relayed[0].spec).toMatchObject({
+        producers: [{ line: 6, featureType: 'feature', bind: true }],
+        edit: {
+          rotate: {
+            targets: [{ kind: 'verbatim', sourceIndex: 0 }, { kind: 'feature', producer: 0 }],
+          },
+        },
+      });
+    });
+
+    it('re-sources the axis with a standard world axis', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'rotate', edit: EDIT, angle: 45,
+        axis: { kind: 'standard', axis: 'x' },
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("rotate('x', 45, e)");
+      expect(relayed[0].spec.edit.rotate.axis).toEqual({ kind: 'standard', axis: 'x' });
+    });
+
+    it('re-picks the axis edge: synthesis with the boundary, selector on the edit spec', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'revolve',
+          filePath: '/ws/m.fluid.js',
+          producers: [{ line: 4, column: 0, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endEdges', indices: [1], filterArgs: null }],
+          imports: [],
+        },
+        preview: '',
+        args: 'e.endEdges(1)',
+        alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'rotate', edit: EDIT, angle: 45,
+        axis: { kind: 'edge', entity: EDGE_PICK },
+        before: EDIT_BEFORE,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe("rotate(axis(e.endEdges(1)), 45, e)");
+      expect(relayed[0].spec.edit.rotate.axis).toEqual({ kind: 'selector', part: 0 });
+      expect(relayed[0].spec.imports).toContain('axis');
+    });
+
+    it('requires the boundary when the axis is re-picked', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'rotate', edit: EDIT, angle: 45,
+        axis: { kind: 'edge', entity: EDGE_PICK },
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('before is required');
+    });
+
+    it('rejects a zero angle on an edit', async () => {
+      const { status, body } = await post({ feature: 'rotate', edit: EDIT, angle: 0 });
+      expect(status).toBe(400);
+      expect(body.error).toContain('angle must be');
+    });
+
+    it('422s an edit whose statement is not a rotate', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'rotate',
+        edit: { filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+        angle: 45,
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('not a rotate');
+      expect(relayed).toHaveLength(0);
+    });
+  });
+
   describe('boolean edit', () => {
     const EDIT_CODE = [
       "import { sketch, rect, extrude, cut, fuse } from 'fluidcad/core'",

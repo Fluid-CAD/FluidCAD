@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Response } from 'express';
 import type { FluidCadServer, SelectionBoundary } from '../fluidcad-server.ts';
 import { FeatureEditDispatcher, type EditDispatcherOptions } from '../edit-dispatch.ts';
 import {
@@ -8,6 +8,7 @@ import {
   renderCopyCenterExpr,
   renderCopyStatement,
   renderMirrorStatement,
+  renderRotateStatement,
   renderEditedStatement,
   renderExtrudeStatement, renderHelixStatement, renderLoftStatement, renderPlaneBaseExprs, renderPlaneStatement,
   renderRepeatAxisExpr, renderRepeatPlaneExpr, renderRepeatStatement,
@@ -23,6 +24,7 @@ import {
   type HelixSourceSpec, type LoftEditOptions,
   type MirrorEditOptions,
   type PlaneEditOptions, type RepeatAxisSpec, type RepeatEditAxis, type RepeatEditOptions,
+  type RotateEditAxis, type RotateEditOptions,
   type RevolveEditOptions, type RibEditOptions, type ShellJoinKind, type SweepEditOptions, type ValueExpr,
   type WrapEditOptions,
 } from '../apply-feature-edit.ts';
@@ -1663,6 +1665,66 @@ function validateMirror(body: any): MirrorRequest | { error: string } {
   return { targets: targetLocs, plane, op };
 }
 
+type RotateRequest = {
+  /** The feature statements being turned, in argument order. */
+  targets: SketchLoc[];
+  /** The axis to rotate around — the revolve axis shapes. */
+  axis: RevolveAxisInput;
+  /** The rotation angle in degrees. */
+  angle: ValueExpr;
+  /** Keep the originals in place — the `true` third argument. */
+  copy: boolean;
+};
+
+export const MAX_ROTATE_TARGETS = 16;
+
+/**
+ * The rotate request's shape: one or more target feature statements
+ * addressed by their source locations, the rotation axis (a standard world
+ * axis, an existing axis statement, or a picked edge — the revolve axis's
+ * exact input), the angle in degrees, and the copy flag. The transform
+ * sibling of {@link validateMirror} with an axis where the plane was.
+ */
+function validateRotate(body: any): RotateRequest | { error: string } {
+  const { targets, angle, copy } = body ?? {};
+  if (!Array.isArray(targets) || targets.length < 1 || targets.length > MAX_ROTATE_TARGETS) {
+    return { error: `targets must be 1-${MAX_ROTATE_TARGETS} feature statements to rotate` };
+  }
+  const targetLocs: SketchLoc[] = [];
+  const seen = new Set<string>();
+  for (const raw of targets) {
+    const loc = validateSketchLoc(raw);
+    if (!loc) {
+      return { error: 'each target must be the {filePath, line} of a feature statement' };
+    }
+    if (loc.filePath !== targetLocs[0]?.filePath && targetLocs.length > 0) {
+      return { error: 'the rotate targets live in different files' };
+    }
+    const key = `${loc.filePath}:${loc.line}`;
+    if (seen.has(key)) {
+      return { error: 'the same feature was picked twice — each target must be different' };
+    }
+    seen.add(key);
+    targetLocs.push(loc);
+  }
+  const filePath = targetLocs[0].filePath;
+
+  const axis = validateRevolveAxis(body?.axis);
+  if ('error' in axis) {
+    return axis;
+  }
+  if (axis.kind === 'axis' && axis.loc.filePath !== filePath) {
+    return { error: 'the axis and the targets live in different files' };
+  }
+  if (!validValueExpr(angle, { nonzero: true })) {
+    return { error: 'angle must be a nonzero rotation angle in degrees' };
+  }
+  if (copy !== undefined && typeof copy !== 'boolean') {
+    return { error: 'copy must be a boolean' };
+  }
+  return { targets: targetLocs, axis, angle, copy: copy === true };
+}
+
 /**
  * Producers merged by call site across per-pick synthesis calls (and the
  * request's own sketch/plane inputs); a bind:true entry wins over an anchor.
@@ -1689,6 +1751,84 @@ function makeProducerMerger(): {
   };
   return { producers, merge };
 }
+
+/**
+ * One picked create-arm input (axis edge / mirror face) synthesized into its
+ * own selector part, reusing the single-selection synthesis kinds ('revolve'
+ * names one edge, 'plane' one face) — shared by the repeat, copy, mirror and
+ * rotate arms, which used to carry a copy each. The returned closure memoizes
+ * its namer/params lazily, so a pick-less request never runs synthesis; it
+ * returns the part index, or null after refusing with a response.
+ */
+function makePickSynthesizer(deps: {
+  res: Response;
+  fluidCadServer: FluidCadServer;
+  code: string | null;
+  filePath: string;
+  mergeProducer: (producer: ApplyFeatureEditSpec['producers'][number]) => number;
+  parts: ApplyFeatureEditSpec['parts'];
+  imports: Set<string>;
+}): (
+  pick: Pick,
+  kind: 'revolve' | 'plane',
+  errors: { multi: string; crossFile: string },
+) => Promise<number | null> {
+  // Built lazily on the first picked input — a pick-less request never runs
+  // synthesis.
+  let synthOptions: {
+    namer?: Awaited<ReturnType<typeof makeProducerNamer>>;
+    params?: { name: string; value: number }[];
+  } | undefined;
+  let synthOptionsReady = false;
+  return async (pick, kind, errors) => {
+    if (!synthOptionsReady) {
+      synthOptionsReady = true;
+      if (deps.code) {
+        synthOptions = {
+          namer: await makeProducerNamer(deps.code),
+          params: resolveParamValues(
+            await extractNumericParams(deps.code),
+            deps.fluidCadServer.getParamDefinitions(),
+          ),
+        };
+      }
+    }
+    const synthesis = deps.fluidCadServer.synthesizeApplyFeature(
+      [pick], kind, undefined, [], synthOptions,
+    );
+    if (!synthesis) {
+      deps.res.status(404).json({ success: false, reason: 'No rendered scene' });
+      return null;
+    }
+    if (!synthesis.ok) {
+      deps.res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+      return null;
+    }
+    // The axis/plane argument is ONE SceneObject — a multi-part selection
+    // has no single-expression rendering.
+    if (synthesis.spec.parts.length !== 1) {
+      deps.res.status(422).json({ success: false, reason: errors.multi });
+      return null;
+    }
+    if (synthesis.spec.filePath !== deps.filePath) {
+      deps.res.status(422).json({ success: false, reason: errors.crossFile });
+      return null;
+    }
+    const remap = synthesis.spec.producers.map(deps.mergeProducer);
+    const part = synthesis.spec.parts[0];
+    deps.parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
+    for (const symbol of synthesis.spec.imports) {
+      deps.imports.add(symbol);
+    }
+    deps.imports.add(kind === 'plane' ? 'plane' : 'axis');
+    return deps.parts.length - 1;
+  };
+}
+
+/** The picked-edge refusals the axis-consuming create arms share. */
+const AXIS_PICK_ERRORS = {
+  crossFile: 'an axis edge and the targets come from different files',
+};
 
 /**
  * Truthful preview names: one namer pass over the bound producers in spec
@@ -1733,7 +1873,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'boolean', 'helix', 'plane', 'offset', 'slot', 'project', 'rib']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'boolean', 'helix', 'plane', 'offset', 'slot', 'project', 'rib']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -1822,6 +1962,10 @@ type StatementEditRequest = {
   mirrorPlane?: { kind: 'keep' } | RepeatPlaneInput;
   /** Full replacement mirror target list; absent keeps the statement's. */
   mirrorTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
+  /** Edited rotate's axis; keep stays the statement's own text. */
+  rotateAxis?: { kind: 'keep' } | RevolveAxisInput;
+  /** Full replacement rotate target list; absent keeps the statement's. */
+  rotateTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Full replacement boolean target list; absent keeps the statement's. */
   booleanTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Full replacement plane base list; absent keeps the statement's. */
@@ -1885,7 +2029,7 @@ function isKeepSlot(raw: any): boolean {
 function validateStatementEdit(body: any): StatementEditRequest | { error: string } {
   const { feature, selectorOverride } = body ?? {};
   if (typeof feature !== 'string' || !EDITABLE_FEATURES.has(feature)) {
-    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "boolean", "offset" or "project" for an edit' };
+    return { error: 'feature must be "extrude", "rib", "sweep", "wrap", "loft", "revolve", "helix", "plane", "shell", "fillet", "chamfer", "text", "sketch", "repeat", "copy", "mirror", "rotate", "boolean", "offset" or "project" for an edit' };
   }
   const target = validateSketchLoc(body?.edit);
   if (!target) {
@@ -2264,6 +2408,10 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
 
   if (feature === 'mirror') {
     return validateMirrorEdit(body, base, edit);
+  }
+
+  if (feature === 'rotate') {
+    return validateRotateEdit(body, base, edit);
   }
 
   if (feature === 'boolean') {
@@ -2931,6 +3079,77 @@ function validateMirrorEdit(
   return result;
 }
 
+/**
+ * The rotate edit request's shape: the angle and copy flag (the dialog owns
+ * both outright), the axis — keep, or any create-mode axis input, a picked
+ * edge flipping `needsPicks` — and the optional target list mixing `verbatim`
+ * keeps with re-picked features; an absent list keeps every statement target.
+ */
+function validateRotateEdit(
+  body: any,
+  base: StatementEditRequest,
+  edit: FeatureStatementEditTarget,
+): StatementEditRequest | { error: string } {
+  const { angle, copy } = body ?? {};
+  if (!validValueExpr(angle, { nonzero: true })) {
+    return { error: 'angle must be a nonzero rotation angle in degrees' };
+  }
+  if (copy !== undefined && typeof copy !== 'boolean') {
+    return { error: 'copy must be a boolean' };
+  }
+  const result: StatementEditRequest = base;
+  // The axis defaults to keep; the resolution pass rewrites it (and fills
+  // the targets) from the request fields below once producers exist.
+  edit.rotate = { axis: { kind: 'keep' }, angle, copy: copy === true };
+
+  const raw = body?.axis;
+  if (raw === undefined || raw === null || raw?.kind === 'keep') {
+    result.rotateAxis = { kind: 'keep' };
+  } else {
+    const axis = validateRevolveAxis(raw);
+    if ('error' in axis) {
+      return axis;
+    }
+    if (axis.kind === 'edge') {
+      result.needsPicks = true;
+    }
+    result.rotateAxis = axis;
+  }
+
+  if (body?.targets !== undefined && body?.targets !== null) {
+    if (!Array.isArray(body.targets) || body.targets.length < 1 || body.targets.length > MAX_ROTATE_TARGETS) {
+      return { error: `targets must be 1-${MAX_ROTATE_TARGETS} kept or re-picked features` };
+    }
+    const targets: NonNullable<StatementEditRequest['rotateTargets']> = [];
+    const seenIndices = new Set<number>();
+    const seenLocs = new Set<string>();
+    for (const rawTarget of body.targets) {
+      if (rawTarget?.kind === 'verbatim') {
+        if (!Number.isInteger(rawTarget.sourceIndex) || rawTarget.sourceIndex < 0 || seenIndices.has(rawTarget.sourceIndex)) {
+          return { error: 'each kept target must carry a distinct {sourceIndex} into the statement' };
+        }
+        seenIndices.add(rawTarget.sourceIndex);
+        targets.push({ kind: 'verbatim', sourceIndex: rawTarget.sourceIndex });
+      } else if (rawTarget?.kind === 'feature') {
+        const loc = validateSketchLoc(rawTarget);
+        if (!loc) {
+          return { error: 'each re-picked target must be the {filePath, line} of a feature statement' };
+        }
+        const key = `${loc.filePath}:${loc.line}`;
+        if (seenLocs.has(key)) {
+          return { error: 'the same feature was picked twice — each target must be different' };
+        }
+        seenLocs.add(key);
+        targets.push({ kind: 'feature', loc });
+      } else {
+        return { error: 'each target must be {kind: "verbatim"|"feature", …}' };
+      }
+    }
+    result.rotateTargets = targets;
+  }
+  return result;
+}
+
 function validateBooleanEdit(
   body: any,
   base: StatementEditRequest,
@@ -3240,6 +3459,8 @@ export function createApplyFeatureRouter(
           ...(request.copyTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
           ...(request.mirrorPlane?.kind === 'plane' ? [request.mirrorPlane.loc] : []),
           ...(request.mirrorTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
+          ...(request.rotateAxis?.kind === 'axis' ? [request.rotateAxis.loc] : []),
+          ...(request.rotateTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
           ...(request.booleanTargets ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
           ...(request.planeBases ?? []).flatMap(b => b.kind === 'plane' || b.kind === 'wire' ? [b.loc] : []),
         ];
@@ -3784,6 +4005,52 @@ export function createApplyFeatureRouter(
           }
           if (request.mirrorTargets) {
             mo.targets = request.mirrorTargets.map(target => target.kind === 'verbatim'
+              ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
+              : {
+                kind: 'feature' as const,
+                producer: mergeProducer({
+                  line: target.loc.line, column: target.loc.column,
+                  featureType: 'feature', nameHint: 'f', bind: true,
+                }),
+              });
+          }
+        }
+        if (request.feature === 'rotate') {
+          const ro = edit.rotate!;
+          if (request.rotateAxis) {
+            const input = request.rotateAxis;
+            let axis: RotateEditAxis | null;
+            if (input.kind === 'keep') {
+              axis = { kind: 'keep' };
+            } else if (input.kind === 'standard') {
+              axis = { kind: 'standard', axis: input.axis };
+            } else if (input.kind === 'axis') {
+              axis = {
+                kind: 'axis',
+                producer: mergeProducer({
+                  line: input.loc.line, column: input.loc.column,
+                  featureType: 'axis', nameHint: 'a', bind: true,
+                }),
+              };
+            } else {
+              const synthesis = synthesizeSlot([input.pick], 'revolve', undefined, []);
+              if (!synthesis) {
+                return;
+              }
+              // The axis argument is ONE SceneObject — a multi-part
+              // selection has no single-expression rendering.
+              if (synthesis.spec.parts.length !== 1) {
+                res.status(422).json({ success: false, reason: 'a rotate axis must be a single edge selection' });
+                return;
+              }
+              const part = foldSynthesis(synthesis);
+              importSet.add('axis');
+              axis = { kind: 'selector', part };
+            }
+            ro.axis = axis;
+          }
+          if (request.rotateTargets) {
+            ro.targets = request.rotateTargets.map(target => target.kind === 'verbatim'
               ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
               : {
                 kind: 'feature' as const,
@@ -4891,73 +5158,16 @@ export function createApplyFeatureRouter(
           }),
         }));
 
-        // Built lazily on the first picked input — a pick-less request never
-        // runs synthesis.
-        let synthOptions: {
-          namer?: Awaited<ReturnType<typeof makeProducerNamer>>;
-          params?: { name: string; value: number }[];
-        } | undefined;
-        let synthOptionsReady = false;
-
-        /**
-         * Synthesize one picked input (axis edge / mirror face) into its own
-         * selector part, reusing the single-selection synthesis kinds:
-         * 'revolve' names one edge, 'plane' one face. Returns the part index,
-         * or null after refusing with a response.
-         */
-        const synthesizeInput = async (pick: Pick, kind: 'revolve' | 'plane'): Promise<number | null> => {
-          if (!synthOptionsReady) {
-            synthOptionsReady = true;
-            if (code) {
-              synthOptions = {
-                namer: await makeProducerNamer(code),
-                params: resolveParamValues(
-                  await extractNumericParams(code),
-                  fluidCadServer.getParamDefinitions(),
-                ),
-              };
+        const synthesizePick = makePickSynthesizer({
+          res, fluidCadServer, code, filePath, mergeProducer, parts, imports,
+        });
+        const synthesizeInput = (pick: Pick, kind: 'revolve' | 'plane'): Promise<number | null> =>
+          synthesizePick(pick, kind, kind === 'plane'
+            ? {
+              multi: 'the mirror plane must be a single face selection',
+              crossFile: 'the mirror face and the targets come from different files',
             }
-          }
-          const synthesis = fluidCadServer.synthesizeApplyFeature(
-            [pick], kind, undefined, [], synthOptions,
-          );
-          if (!synthesis) {
-            res.status(404).json({ success: false, reason: 'No rendered scene' });
-            return null;
-          }
-          if (!synthesis.ok) {
-            res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
-            return null;
-          }
-          // The axis/plane argument is ONE SceneObject — a multi-part
-          // selection has no single-expression rendering.
-          if (synthesis.spec.parts.length !== 1) {
-            res.status(422).json({
-              success: false,
-              reason: kind === 'plane'
-                ? 'the mirror plane must be a single face selection'
-                : 'a repeat axis must be a single edge selection',
-            });
-            return null;
-          }
-          if (synthesis.spec.filePath !== filePath) {
-            res.status(422).json({
-              success: false,
-              reason: kind === 'plane'
-                ? 'the mirror face and the targets come from different files'
-                : 'an axis edge and the targets come from different files',
-            });
-            return null;
-          }
-          const remap = synthesis.spec.producers.map(mergeProducer);
-          const part = synthesis.spec.parts[0];
-          parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
-          for (const symbol of synthesis.spec.imports) {
-            imports.add(symbol);
-          }
-          imports.add(kind === 'plane' ? 'plane' : 'axis');
-          return parts.length - 1;
-        };
+            : { multi: 'a repeat axis must be a single edge selection', ...AXIS_PICK_ERRORS });
 
         /** One validated axis input as its spec form; null after refusing. */
         const axisSpec = async (input: RevolveAxisInput): Promise<RepeatAxisSpec | null> => {
@@ -5078,62 +5288,12 @@ export function createApplyFeatureRouter(
           }),
         }));
 
-        // Built lazily on the first picked input — a pick-less request never
-        // runs synthesis.
-        let synthOptions: {
-          namer?: Awaited<ReturnType<typeof makeProducerNamer>>;
-          params?: { name: string; value: number }[];
-        } | undefined;
-        let synthOptionsReady = false;
-
-        /**
-         * Synthesize one picked axis edge into its own selector part, reusing
-         * the single-selection 'revolve' synthesis kind (it names one edge).
-         * Returns the part index, or null after refusing with a response.
-         */
-        const synthesizeInput = async (pick: Pick): Promise<number | null> => {
-          if (!synthOptionsReady) {
-            synthOptionsReady = true;
-            if (code) {
-              synthOptions = {
-                namer: await makeProducerNamer(code),
-                params: resolveParamValues(
-                  await extractNumericParams(code),
-                  fluidCadServer.getParamDefinitions(),
-                ),
-              };
-            }
-          }
-          const synthesis = fluidCadServer.synthesizeApplyFeature(
-            [pick], 'revolve', undefined, [], synthOptions,
-          );
-          if (!synthesis) {
-            res.status(404).json({ success: false, reason: 'No rendered scene' });
-            return null;
-          }
-          if (!synthesis.ok) {
-            res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
-            return null;
-          }
-          // The axis argument is ONE SceneObject — a multi-part selection
-          // has no single-expression rendering.
-          if (synthesis.spec.parts.length !== 1) {
-            res.status(422).json({ success: false, reason: 'a copy axis must be a single edge selection' });
-            return null;
-          }
-          if (synthesis.spec.filePath !== filePath) {
-            res.status(422).json({ success: false, reason: 'an axis edge and the targets come from different files' });
-            return null;
-          }
-          const remap = synthesis.spec.producers.map(mergeProducer);
-          const part = synthesis.spec.parts[0];
-          parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
-          for (const symbol of synthesis.spec.imports) {
-            imports.add(symbol);
-          }
-          imports.add('axis');
-          return parts.length - 1;
-        };
+        const synthesizePick = makePickSynthesizer({
+          res, fluidCadServer, code, filePath, mergeProducer, parts, imports,
+        });
+        const synthesizeInput = (pick: Pick): Promise<number | null> =>
+          synthesizePick(pick, 'revolve',
+            { multi: 'a copy axis must be a single edge selection', ...AXIS_PICK_ERRORS });
 
         /** One validated axis input as its spec form; null after refusing. */
         const axisSpec = async (input: RevolveAxisInput): Promise<RepeatAxisSpec | null> => {
@@ -5231,52 +5391,17 @@ export function createApplyFeatureRouter(
           }),
         }));
 
-        /**
-         * Synthesize the picked mirror face into its own selector part — the
-         * repeat mirror's exact input, through the same single-selection
-         * 'plane' synthesis kind. Returns the part index, or null after
-         * refusing with a response.
-         */
-        const synthesizeFace = async (pick: Pick): Promise<number | null> => {
-          const synthOptions = code
-            ? {
-              namer: await makeProducerNamer(code),
-              params: resolveParamValues(
-                await extractNumericParams(code),
-                fluidCadServer.getParamDefinitions(),
-              ),
-            }
-            : undefined;
-          const synthesis = fluidCadServer.synthesizeApplyFeature(
-            [pick], 'plane', undefined, [], synthOptions,
-          );
-          if (!synthesis) {
-            res.status(404).json({ success: false, reason: 'No rendered scene' });
-            return null;
-          }
-          if (!synthesis.ok) {
-            res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
-            return null;
-          }
-          // The plane argument is ONE SceneObject — a multi-part selection
-          // has no single-expression rendering.
-          if (synthesis.spec.parts.length !== 1) {
-            res.status(422).json({ success: false, reason: 'the mirror plane must be a single face selection' });
-            return null;
-          }
-          if (synthesis.spec.filePath !== filePath) {
-            res.status(422).json({ success: false, reason: 'the mirror face and the targets come from different files' });
-            return null;
-          }
-          const remap = synthesis.spec.producers.map(mergeProducer);
-          const part = synthesis.spec.parts[0];
-          parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
-          for (const symbol of synthesis.spec.imports) {
-            imports.add(symbol);
-          }
-          imports.add('plane');
-          return parts.length - 1;
-        };
+        const synthesizePick = makePickSynthesizer({
+          res, fluidCadServer, code, filePath, mergeProducer, parts, imports,
+        });
+        // The picked mirror face synthesizes into its own selector part — the
+        // repeat mirror's exact input, through the same single-selection
+        // 'plane' synthesis kind.
+        const synthesizeFace = (pick: Pick): Promise<number | null> =>
+          synthesizePick(pick, 'plane', {
+            multi: 'the mirror plane must be a single face selection',
+            crossFile: 'the mirror face and the targets come from different files',
+          });
 
         let plane: MirrorEditOptions['plane'];
         const input = request.plane;
@@ -5314,6 +5439,81 @@ export function createApplyFeatureRouter(
         await dispatcher.dispatch(res, {
           feature: 'mirror',
           mirror: options,
+          filePath,
+          producers,
+          parts,
+          imports: [...imports],
+          newVariables,
+        }, { success: true, preview: statement });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
+    if (feature === 'rotate') {
+      const request = validateRotate(req.body);
+      if ('error' in request) {
+        res.status(400).json({ error: request.error });
+        return;
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        const filePath = request.targets[0].filePath;
+        const { producers, merge: mergeProducer } = makeProducerMerger();
+        const parts: ApplyFeatureEditSpec['parts'] = [];
+        const imports = new Set<string>();
+
+        const targets: RotateEditOptions['targets'] = request.targets.map(loc => ({
+          producer: mergeProducer({
+            line: loc.line, column: loc.column,
+            featureType: 'feature', nameHint: 'f', bind: true,
+          }),
+        }));
+
+        const synthesizePick = makePickSynthesizer({
+          res, fluidCadServer, code, filePath, mergeProducer, parts, imports,
+        });
+
+        let axis: RotateEditOptions['axis'];
+        const input = request.axis;
+        if (input.kind === 'standard') {
+          axis = { kind: 'standard', axis: input.axis };
+        } else if (input.kind === 'axis') {
+          axis = {
+            kind: 'axis',
+            producer: mergeProducer({
+              line: input.loc.line, column: input.loc.column,
+              featureType: 'axis', nameHint: 'a', bind: true,
+            }),
+          };
+        } else {
+          const part = await synthesizePick(input.pick, 'revolve',
+            { multi: 'a rotate axis must be a single edge selection', ...AXIS_PICK_ERRORS });
+          if (part === null) {
+            return;
+          }
+          axis = { kind: 'selector', part };
+        }
+
+        const options: RotateEditOptions = {
+          axis, angle: request.angle, copy: request.copy, targets,
+        };
+        // Truthful preview: the same allocation walk the transform runs.
+        const producerVars = await allocateProducerVars(producers, code);
+        const varFor = (i: number): string | null => producerVars[i];
+        const statement = renderRotateStatement(
+          options,
+          renderRepeatAxisExpr(axis, parts, varFor),
+          targets.map(t => producerVars[t.producer] ?? 'f'),
+        );
+        if (preview === true) {
+          res.json({ success: true, preview: statement });
+          return;
+        }
+        await dispatcher.dispatch(res, {
+          feature: 'rotate',
+          rotate: options,
           filePath,
           producers,
           parts,

@@ -6,7 +6,7 @@ import type {
   GhostPathRef, GhostPlaneBaseRef, GhostPlaneRef, GhostRepeatDirection, GhostSectionRef,
   GhostSketchAxisRef,
 } from '../fluidcad-server.ts';
-import { MAX_COPY_TARGETS, MAX_MIRROR_TARGETS, MAX_REPEAT_TARGETS } from './apply-feature.ts';
+import { MAX_COPY_TARGETS, MAX_MIRROR_TARGETS, MAX_REPEAT_TARGETS, MAX_ROTATE_TARGETS } from './apply-feature.ts';
 
 /** A dialog numeric slot on the wire: a number, or verbatim expression text. */
 type ValueExpr = number | string;
@@ -71,7 +71,7 @@ type GhostBody = {
 
 const FEATURES = [
   'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'mirror',
-  'plane', 'rib', 'offset', 'fillet2d', 'copy2d',
+  'rotate', 'plane', 'rib', 'offset', 'fillet2d', 'copy2d',
 ];
 
 /** The features that modify edges of an existing solid rather than sweep a profile. */
@@ -638,6 +638,32 @@ function parseMirror(body: GhostBody): RawMirror | string {
   return { targets, plane };
 }
 
+/** A rotate request's slots, before its angle is resolved. */
+type RawRotate = {
+  targets: { filePath: string; line: number }[];
+  axis: GhostAxisRef;
+};
+
+/**
+ * The rotate dialog's slots: target statements, the axis to turn them around
+ * and the angle — the mirror's shape with an axis where the plane was. The
+ * copy flag never travels: either way the stamp is where the bodies land.
+ */
+function parseRotate(body: GhostBody): RawRotate | string {
+  const targets = parseSourceRefs(body.targets);
+  if (!targets || targets.length === 0 || targets.length > MAX_ROTATE_TARGETS) {
+    return 'Invalid rotate targets';
+  }
+  const axis = parseAxis(body.axis);
+  if (!axis) {
+    return 'Invalid axis reference';
+  }
+  if (!isValueExpr(body.angle)) {
+    return 'Invalid rotation angle';
+  }
+  return { targets, axis };
+}
+
 /** A 2D copy request's slots, before its numbers are resolved. */
 type RawCopy2D = {
   kind: 'linear' | 'circular';
@@ -910,13 +936,15 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     // The mirror is NOT exempt: its reflected bodies land the way its own op
     // says (fuse, cut, or standalone), so the dialog declares one.
     const isMirror = body.feature === 'mirror';
+    // The rotate IS exempt: it moves (or copies) bodies, no boolean involved.
+    const isRotate = body.feature === 'rotate';
     const isPlane = body.feature === 'plane';
     // The 2D ops rework curves inside their sketch — there is no add/remove/new.
     const isOffset = body.feature === 'offset';
     const isFillet2D = body.feature === 'fillet2d';
     const isCopy2D = body.feature === 'copy2d';
-    if (!isBand && !isHelix && !isRepeat && !isCopy && !isPlane && !isOffset && !isFillet2D
-      && !isCopy2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
+    if (!isBand && !isHelix && !isRepeat && !isCopy && !isRotate && !isPlane && !isOffset
+      && !isFillet2D && !isCopy2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
     }
@@ -1032,6 +1060,15 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         return;
       }
       mirror = parsed;
+    }
+    let rotate: RawRotate | null = null;
+    if (isRotate) {
+      const parsed = parseRotate(body);
+      if (typeof parsed === 'string') {
+        res.status(400).json({ success: false, reason: parsed });
+        return;
+      }
+      rotate = parsed;
     }
     let copy2d: RawCopy2D | null = null;
     if (isCopy2D) {
@@ -1196,6 +1233,17 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         op: body.op as 'add' | 'remove' | 'new',
         targets: mirror!.targets,
         plane: mirror!.plane,
+      };
+    } else if (isRotate) {
+      if (angle === null) {
+        res.status(400).json({ success: false, reason: 'Invalid rotation angle' });
+        return;
+      }
+      request = {
+        feature: 'rotate',
+        targets: rotate!.targets,
+        axis: rotate!.axis,
+        angle,
       };
     } else if (isCopy2D) {
       request = {

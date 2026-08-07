@@ -180,6 +180,7 @@ export type FeatureGhostRequest =
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
+  | RotateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
@@ -416,6 +417,20 @@ export type MirrorGhostRequest = {
   targets: { filePath: string; line: number }[];
   /** The plane to mirror across. */
   plane: GhostPlaneRef;
+};
+
+/**
+ * The rotate — the transform sibling of the mirror: the target solids' own
+ * bodies stamped once, under the same rotation matrix the apply hands OCC.
+ */
+export type RotateGhostRequest = {
+  feature: 'rotate';
+  /** The solid-bearing statements being rotated, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** The axis to rotate around. */
+  axis: GhostAxisRef;
+  /** The rotation angle in degrees. */
+  angle: number;
 };
 
 /**

@@ -108,7 +108,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'rib';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'rib';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -162,6 +162,8 @@ export type ApplyFeatureEditSpec = {
   copy?: CopyEditOptions;
   /** Mirror-only payload; `parts` (if any) render the plane selector. */
   mirror?: MirrorEditOptions;
+  /** Rotate-only payload; `parts` (if any) render the axis-edge selector. */
+  rotate?: RotateEditOptions;
   /** Boolean-only payload (fuse/subtract/common); no selector parts. */
   boolean?: BooleanEditOptions;
   filePath: string;
@@ -479,6 +481,24 @@ export type FeatureStatementEditTarget = {
     targets?: RepeatEditTargetSource[];
   };
   /**
+   * Rotate options. The axis slot carries a keep entry that re-reads the
+   * statement's own axis text at apply time; a re-sourced axis renders from
+   * producers/parts like create mode. The angle and the copy flag rewrite
+   * wholesale (the dialog owns them); the target list mixes `verbatim` keeps
+   * with re-picked feature statements; an absent list keeps every statement
+   * target.
+   */
+  rotate?: {
+    /** The rotation axis; `keep` re-emits the statement's own expression. */
+    axis: RotateEditAxis;
+    /** The rotation angle in degrees. */
+    angle: ValueExpr;
+    /** Keep the originals in place — the `true` third argument. */
+    copy: boolean;
+    /** Full replacement target list; absent keeps the statement's targets. */
+    targets?: RepeatEditTargetSource[];
+  };
+  /**
    * Boolean options (fuse/subtract/common). The kind picks the callee — an
    * edit may rewrite a fuse into a subtract. The target list mixes
    * `verbatim` keeps (re-read from the statement's own argument texts) with
@@ -772,6 +792,13 @@ export type RepeatEditAxis = { kind: 'keep'; sourceIndex: number } | RepeatAxisS
 export type RepeatEditPlane = { kind: 'keep' } | RepeatPlaneSpec;
 
 /**
+ * The axis slot of an edited rotate: keep the statement's own axis text
+ * (there is exactly one, so no index rides along), or re-source it with any
+ * create-mode axis shape.
+ */
+export type RotateEditAxis = { kind: 'keep' } | RepeatAxisSpec;
+
+/**
  * One target of an edited repeat, in argument order: an untouched target by
  * its position in the statement's own argument list (`verbatim` — re-read at
  * apply time), or a re-picked feature statement bound to a producer.
@@ -881,6 +908,27 @@ export type MirrorEditOptions = {
   /** How the reflected bodies land: fused (the default), cut, or standalone. */
   op: 'add' | 'remove' | 'new';
   /** The features being mirrored, in argument order — bound producers. */
+  targets: { producer: number }[];
+};
+
+/**
+ * How a rotate statement is rendered and placed:
+ * `rotate(<axis>, <angle>[, true], …targets)` — the default move renders no
+ * copy flag. Targets are the solid-bearing feature statements being turned,
+ * each bound to a variable (featureType `feature` producers); the axis takes
+ * the revolve axis shapes (standard / axis statement / picked edge as
+ * `axis(<selector>)`). The statement always inserts at end of scope: a rotate
+ * turns its targets over the finished model, and a picked selector must
+ * resolve there.
+ */
+export type RotateEditOptions = {
+  /** The axis to rotate around. */
+  axis: RepeatAxisSpec;
+  /** The rotation angle in degrees. */
+  angle: ValueExpr;
+  /** Keep the originals in place — renders the `true` third argument. */
+  copy: boolean;
+  /** The features being rotated, in argument order — bound producers. */
   targets: { producer: number }[];
 };
 
@@ -1471,6 +1519,40 @@ export async function applyFeatureEdit(
       && new Set(selectorParts).size === selectorParts.length;
     if (!valid) {
       return { newCode: code, error: 'malformed mirror edit spec' };
+    }
+  } else if (spec.feature === 'rotate') {
+    // Every target is a bound feature producer (solids, like a copy's); a
+    // picked axis edge references its own selector part, and every part must
+    // belong to exactly one input — for a rotate that input can only be the
+    // axis.
+    const ro = spec.rotate;
+    const targets = ro?.targets ?? [];
+    const selectorParts: number[] = [];
+    const validPart = (part: number): boolean => {
+      if (!Number.isInteger(part) || part < 0 || part >= spec.parts.length) {
+        return false;
+      }
+      selectorParts.push(part);
+      return true;
+    };
+    const validAxis = (axis: RepeatAxisSpec | undefined): boolean =>
+      axis !== undefined && (axis.kind === 'selector'
+        ? validPart(axis.part)
+        : axis.kind === 'standard'
+          ? axis.axis === 'x' || axis.axis === 'y' || axis.axis === 'z'
+          : axis.kind === 'axis' && isAxisProducer(spec, axis.producer));
+    const valid = ro !== undefined
+      && targets.length >= 1
+      && targets.every(t => isCopyTargetProducer(spec, t.producer))
+      && new Set(targets.map(t => t.producer)).size === targets.length
+      && validAxis(ro.axis)
+      && validValueExpr(ro.angle, { nonzero: true })
+      && typeof ro.copy === 'boolean'
+      // Every selector part belongs to exactly one input (the axis).
+      && selectorParts.length === spec.parts.length
+      && new Set(selectorParts).size === selectorParts.length;
+    if (!valid) {
+      return { newCode: code, error: 'malformed rotate edit spec' };
     }
   } else if (spec.feature === 'boolean') {
     // Every target is a bound feature producer; booleans render no selector
@@ -2676,6 +2758,24 @@ export function renderMirrorStatement(
 }
 
 /**
+ * Render a rotate statement from its rendered axis input and target
+ * expressions: `rotate('z', 45, e)` / `rotate(a, 30, true, e, f)` — the
+ * default move renders no copy flag. Shared with the route's preview so the
+ * previewed text is exactly what the transform writes.
+ */
+export function renderRotateStatement(
+  ro: Pick<RotateEditOptions, 'angle' | 'copy'>,
+  axisExpr: string,
+  targetExprs: string[],
+): string {
+  const args = [axisExpr, formatValue(ro.angle)];
+  if (ro.copy) {
+    args.push('true');
+  }
+  return `rotate(${[...args, ...targetExprs].join(', ')})`;
+}
+
+/**
  * Render a loft statement from its ordered profile expressions: `loft(s, s2)`
  * plus `.guides(g)`, `.startCondition('normal')` / `.endCondition('tangent',
  * 2)` (the default magnitude 1 is omitted), and the `.thin(…)` / `.remove()`
@@ -2975,6 +3075,11 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     const mo = spec.mirror!;
     const planeExpr = renderRepeatPlaneExpr(mo.plane, spec.parts, i => bindings[i].varName);
     return renderMirrorStatement(mo, planeExpr, mo.targets.map(t => bindings[t.producer].varName!));
+  }
+  if (spec.feature === 'rotate') {
+    const ro = spec.rotate!;
+    const axisExpr = renderRepeatAxisExpr(ro.axis, spec.parts, i => bindings[i].varName);
+    return renderRotateStatement(ro, axisExpr, ro.targets.map(t => bindings[t.producer].varName!));
   }
   if (spec.feature === 'boolean') {
     const bo = spec.boolean!;
@@ -3560,7 +3665,7 @@ function enclosingSketchStatement(node: TSNode): TSNode | null {
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'boolean' | 'helix' | 'plane' | 'offset' | 'slot' | 'project' | 'rib';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'slot' | 'project' | 'rib';
 
 /**
  * One base argument of a parsed plane statement. `kind` is what the base
@@ -3855,6 +3960,24 @@ export type ParsedFeatureStatement =
     targetRefs: ({ line: number; column: number } | null)[];
   }
   | {
+    feature: 'rotate';
+    /** Rotation axis argument text, verbatim. */
+    axisText: string;
+    /** The rotation angle in degrees. */
+    angle: ValueExpr;
+    /** The `true` third argument — copy instead of move. */
+    copy: boolean;
+    /** Trailing target texts, verbatim; empty rotates every active object. */
+    targetTexts: string[];
+    /**
+     * Per-target source location of the feature statement a plain-identifier
+     * target references, or null when the expression doesn't resolve to one.
+     * Same length as `targetTexts`; lets the edit dialog seed targets as
+     * their timeline rows.
+     */
+    targetRefs: ({ line: number; column: number } | null)[];
+  }
+  | {
     feature: 'plane';
     /**
      * The form the dialog opens on: two bases read as a mid plane, a lone
@@ -3908,6 +4031,9 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   // The 3D `mirror(plane, …)` only — the 2D in-sketch form shares the callee,
   // and the client routes its rows away by uniqueType before asking.
   mirror: 'mirror',
+  // The 3D `rotate(axis, angle, …)` only — the 2D in-sketch form shares the
+  // callee the same way, and the client gates its rows by uniqueType too.
+  rotate: 'rotate',
   fuse: 'boolean',
   subtract: 'boolean',
   common: 'boolean',
@@ -3949,6 +4075,9 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // the one thing the dialog edits. `.scope()`/`.exclude()`/`.name()` are
   // unrecognized members and survive verbatim.
   mirror: new Set(['add', 'remove', 'new']),
+  // The axis, angle, copy flag and targets are all root-call arguments;
+  // `.exclude()`/`.name()` are unrecognized members and survive verbatim.
+  rotate: new Set(),
   // The targets are the root call's arguments; `.name()` and friends are
   // unrecognized members and survive verbatim.
   boolean: new Set(),
@@ -4365,6 +4494,10 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
 
   if (feature === 'mirror') {
     return parseMirrorChain(args, recognized, start, end);
+  }
+
+  if (feature === 'rotate') {
+    return parseRotateChain(args, start, end, numericVars);
   }
 
   if (feature === 'boolean') {
@@ -5320,6 +5453,57 @@ function parseMirrorChain(
       planeText: args[0].text,
       targetTexts: args.slice(1).map(n => n.text),
       targetRefs: args.slice(1).map(n => resolveRepeatTargetRef(n, start)),
+    },
+    start,
+    end,
+  };
+}
+
+/**
+ * A `rotate(<axis>, <angle>[, copy], …targets)` statement's dialog-editable
+ * reading — the 3D transform form only. The axis and target expressions are
+ * preserved verbatim; the angle must read as a value (a literal, a known
+ * numeric variable, or arithmetic); a `true`/`false` literal third argument
+ * is the copy flag, anything else there is the first target. An
+ * argument-less target list is legal — an implicit rotate turns every active
+ * object — and reads as the empty list, exactly as an implicit copy's does.
+ * The 2D in-sketch form shares the callee but leads with its angle; the
+ * client routes those rows away by uniqueType, and a misrouted ask refuses
+ * here rather than misreading the angle as an axis.
+ */
+function parseRotateChain(
+  args: TSNode[],
+  start: number,
+  end: number,
+  numericVars: Set<string> = new Set(),
+): ChainParse {
+  if (args.length < 2) {
+    return { error: 'the rotate has fewer arguments than the dialog understands' };
+  }
+  if (numericValueArg(args[0], numericVars) !== null) {
+    return { error: 'the in-sketch rotate has no edit dialog — edit it in the source' };
+  }
+  const angle = anyValueArg(args[1]);
+  if (angle === null) {
+    return { error: 'the rotate angle is not a plain number or expression — edit it in the source' };
+  }
+  let rest = args.slice(2);
+  let copy = false;
+  if (rest.length > 0) {
+    const flag = booleanArgValue(rest[0]);
+    if (flag !== null) {
+      copy = flag;
+      rest = rest.slice(1);
+    }
+  }
+  return {
+    parsed: {
+      feature: 'rotate',
+      axisText: args[0].text,
+      angle,
+      copy,
+      targetTexts: rest.map(n => n.text),
+      targetRefs: rest.map(n => resolveRepeatTargetRef(n, start)),
     },
     start,
     end,
@@ -6553,6 +6737,86 @@ function renderEditedMirror(
 }
 
 /**
+ * Render an edited rotate statement: resolve the axis input — a keep entry
+ * re-reads the statement's own argument text, a re-sourced one renders from
+ * producers/parts like create mode — and the target list (`verbatim` keeps by
+ * position, re-picked features by bound producer; an absent list keeps every
+ * statement target, an implicit statement's empty list included). The angle
+ * and the copy flag rewrite wholesale. Selector parts must be covered exactly
+ * once — for a rotate the axis is the only input that can claim one.
+ */
+function renderEditedRotate(
+  parsed: Extract<ParsedFeatureStatement, { feature: 'rotate' }>,
+  spec: EditRenderSpec,
+  varFor: (producer: number) => string | null,
+): { statement: string } | { error: string } {
+  const opts = spec.edit?.rotate;
+  if (!opts || !validValueExpr(opts.angle, { nonzero: true }) || typeof opts.copy !== 'boolean') {
+    return { error: 'malformed rotate edit spec' };
+  }
+  const usedParts = new Set<number>();
+  const claimPart = (part: number): boolean => {
+    if (!Number.isInteger(part) || part < 0 || part >= spec.parts.length || usedParts.has(part)) {
+      return false;
+    }
+    usedParts.add(part);
+    return true;
+  };
+
+  const axis = opts.axis;
+  let axisExpr: string;
+  if (axis?.kind === 'keep') {
+    axisExpr = parsed.axisText;
+  } else {
+    if (axis?.kind === 'selector') {
+      if (!claimPart(axis.part)) {
+        return { error: 'malformed rotate edit spec: bad selector axis' };
+      }
+    } else if (axis?.kind === 'axis') {
+      if (!isAxisProducer(spec as ApplyFeatureEditSpec, axis.producer)) {
+        return { error: 'malformed rotate edit spec: the axis references a non-axis producer' };
+      }
+    } else if (axis?.kind !== 'standard'
+      || (axis.axis !== 'x' && axis.axis !== 'y' && axis.axis !== 'z')) {
+      return { error: 'malformed rotate edit spec' };
+    }
+    axisExpr = renderRepeatAxisExpr(axis, spec.parts, varFor);
+  }
+
+  let targetExprs = parsed.targetTexts;
+  if (opts.targets !== undefined) {
+    if (!Array.isArray(opts.targets) || opts.targets.length < 1) {
+      return { error: 'a rotate needs at least one target feature' };
+    }
+    const usedVerbatim = new Set<number>();
+    const exprs: string[] = [];
+    for (const target of opts.targets) {
+      if (target?.kind === 'verbatim') {
+        if (!Number.isInteger(target.sourceIndex) || target.sourceIndex < 0
+          || target.sourceIndex >= parsed.targetTexts.length || usedVerbatim.has(target.sourceIndex)) {
+          return { error: 'malformed rotate edit spec: a kept target no longer matches the statement' };
+        }
+        usedVerbatim.add(target.sourceIndex);
+        exprs.push(parsed.targetTexts[target.sourceIndex]);
+      } else if (target?.kind === 'feature') {
+        if (!isFeatureProducer(spec as ApplyFeatureEditSpec, target.producer)) {
+          return { error: 'malformed rotate edit spec: a target references a non-feature producer' };
+        }
+        exprs.push(varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f');
+      } else {
+        return { error: 'malformed rotate edit spec: unknown target kind' };
+      }
+    }
+    targetExprs = exprs;
+  }
+  if (usedParts.size !== spec.parts.length) {
+    return { error: 'malformed rotate edit spec: a selector part belongs to no input' };
+  }
+
+  return { statement: renderRotateStatement(opts, axisExpr, targetExprs) };
+}
+
+/**
  * Render an edited plane statement: the type and the numeric options come
  * from the dialog wholesale, while the base list mixes `verbatim` keeps
  * (re-read from the statement's own base texts by position, lifted into
@@ -6985,6 +7249,9 @@ export function renderEditedStatement(
   }
   if (parsed.feature === 'mirror') {
     return renderEditedMirror(parsed, spec, varFor);
+  }
+  if (parsed.feature === 'rotate') {
+    return renderEditedRotate(parsed, spec, varFor);
   }
   if (parsed.feature === 'boolean') {
     return renderEditedBoolean(parsed, spec, varFor);

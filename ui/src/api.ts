@@ -326,6 +326,7 @@ export type FeatureGhostRequest =
   | RepeatGhostRequest
   | CopyGhostRequest
   | MirrorGhostRequest
+  | RotateGhostRequest
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
@@ -583,6 +584,22 @@ export type MirrorGhostRequest = {
   targets: { filePath: string; line: number }[];
   /** The plane to mirror across. */
   plane: GhostPlaneRef;
+};
+
+/**
+ * The rotate on the ghost wire — the transform sibling of the mirror: the
+ * target solids' own bodies stamped once, under the one rotation matrix the
+ * apply itself will use. The copy flag never travels — either way the stamp
+ * is where the bodies land.
+ */
+export type RotateGhostRequest = {
+  feature: 'rotate';
+  /** The solid-bearing statements being rotated, by call site. */
+  targets: { filePath: string; line: number }[];
+  /** The axis to rotate around. */
+  axis: GhostAxisRef;
+  /** The rotation angle in degrees. */
+  angle: ValueExpr;
 };
 
 /**
@@ -2073,6 +2090,39 @@ export async function applyMirror(options: MirrorApplyOptions): Promise<ApplyFea
   }, options.signal);
 }
 
+export type RotateApplyOptions = {
+  /** The solid-bearing statements being rotated (whole-solid picks), in order. */
+  targets: SketchSourceRef[];
+  /** The axis to rotate around — the revolve axis shapes. */
+  axis: RevolveAxisRef;
+  /** The rotation angle in degrees. */
+  angle: ValueExpr;
+  /** Keep the originals in place — writes the `true` third argument. */
+  copy: boolean;
+  /** Declarations the dialog's angle field committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+  /** Render the statement preview without applying. */
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/**
+ * Ask the server to write (or, with `preview`, just render) a rotate
+ * statement turning the target solids around an axis. Same endpoint and
+ * response shape as {@link applyFeature}.
+ */
+export async function applyRotate(options: RotateApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'rotate',
+    targets: options.targets,
+    axis: options.axis,
+    angle: options.angle,
+    copy: options.copy,
+    newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** The three boolean operations — each its own callee, one shared dialog. */
 export type BooleanKind = 'fuse' | 'subtract' | 'common';
 
@@ -2171,6 +2221,13 @@ export type FeatureSourcesResult =
    * an empty target list.
    */
   | { ok: true; feature: 'mirror'; targets: SourceSlotRef[]; plane: SourceSlotRef }
+  /**
+   * A standalone rotate: the solids it turns, by call site, plus the axis it
+   * turns them around. A world-axis literal is `opaque` as it is for a
+   * repeat, and an implicit rotate — one naming no targets at all — reports
+   * an empty target list.
+   */
+  | { ok: true; feature: 'rotate'; targets: SourceSlotRef[]; axis: SourceSlotRef }
   /**
    * A construction plane, by its bases in argument order — one for the offset
    * and edge forms, two for a mid plane. An origin-plane literal is `opaque`:
@@ -2447,6 +2504,23 @@ export type ParsedFeatureStatement =
       /** Mirror plane argument text, verbatim. */
       planeText: string;
       /** Trailing target texts, verbatim; empty mirrors the previous feature. */
+      targetTexts: string[];
+      /**
+       * Per-target source location of the statement a plain-identifier target
+       * references, or null when the expression doesn't resolve to one. Same
+       * length as `targetTexts` — seeds each target as its solid option.
+       */
+      targetRefs: ({ line: number; column: number } | null)[];
+    }
+  | {
+      feature: 'rotate';
+      /** Rotation axis argument text, verbatim. */
+      axisText: string;
+      /** The rotation angle in degrees. */
+      angle: ValueExpr;
+      /** The `true` third argument — copy instead of move. */
+      copy: boolean;
+      /** Trailing target texts, verbatim; empty rotates every active object. */
       targetTexts: string[];
       /**
        * Per-target source location of the statement a plain-identifier target
@@ -2948,6 +3022,56 @@ export async function applyMirrorEdit(
     before: options.before,
     plane: options.plane,
     op: options.op,
+    targets: options.targets,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/**
+ * The axis slot of an edited rotate: keep the statement's own axis text
+ * (there is exactly one, so no index rides along), or re-source it with any
+ * create-mode axis shape.
+ */
+export type RotateEditAxisRef = { kind: 'keep' } | RevolveAxisRef;
+
+/**
+ * One target of an edited rotate, in argument order: an untouched target by
+ * its position in the statement's own argument list, or a re-picked solid
+ * statement by call site.
+ */
+export type RotateEditTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
+export type RotateEditOptions = EditSessionFields & {
+  /** The rotation axis; `keep` re-emits the statement's own expression. */
+  axis: RotateEditAxisRef;
+  /** The rotation angle in degrees. */
+  angle: ValueExpr;
+  /** Keep the originals in place — writes the `true` third argument. */
+  copy: boolean;
+  /** Declarations the dialog's angle field committed (`myVar = 50`). */
+  newVariables?: NewVariable[];
+  /** Full replacement target list; omitted keeps the statement's own. */
+  targets?: RotateEditTargetRef[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the rotate statement at `edit` in place. */
+export async function applyRotateEdit(
+  edit: FeatureEditTarget,
+  options: RotateEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'rotate',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    axis: options.axis,
+    angle: options.angle,
+    copy: options.copy,
+    newVariables: options.newVariables,
     targets: options.targets,
     preview: options.preview,
   }, options.signal);

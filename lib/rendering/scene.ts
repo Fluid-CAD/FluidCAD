@@ -58,11 +58,12 @@ export type SceneObjectRender = {
   buildDurationMs?: number;
   profileCategories?: { category: string; durationMs: number }[];
   /**
-   * Sketches only, tip sketch only: plane-local 2D points where the sketch
-   * plane slices the scene's bodies — invisible snap targets for the
-   * interactive sketcher (the vertices an intersect() would produce).
+   * Sketches only, tip sketch only: invisible plane-local 2D snap targets
+   * for the interactive sketcher — where the sketch plane slices the scene's
+   * bodies (the vertices an intersect() would produce) plus every prior
+   * shape's topological vertices projected onto the plane.
    */
-  sectionSnapVertices?: [number, number][];
+  snapVertices?: [number, number][];
 }
 
 export class Scene {

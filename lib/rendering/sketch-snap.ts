@@ -4,6 +4,7 @@ import { Sketch } from "../features/2d/sketch.js";
 import { Part } from "../features/part.js";
 import { Plane } from "../math/plane.js";
 import { SectionOps } from "../oc/section-ops.js";
+import { Explorer } from "../oc/explorer.js";
 
 /** Matches the snap dedup tolerance the sketcher UI uses for mesh vertices. */
 const DEDUP_EPSILON_SQ = 1e-6;
@@ -19,18 +20,20 @@ const SECTIONABLE_TYPES = new Set(["solid", "shell", "face", "compound"]);
 
 // Cached scene objects keep their Shape instances by reference across
 // incremental renders, so an entry stays valid for exactly as long as the
-// sectioned shape does; replaced shapes fall out with their wrapper.
-const sectionCache = new WeakMap<Shape, { planeKey: string; vertices: [number, number][] }>();
+// snapped shape does; replaced shapes fall out with their wrapper.
+const snapCache = new WeakMap<Shape, { planeKey: string; vertices: [number, number][] }>();
 
 /**
- * Give the interactive sketcher snap targets where the sketch plane slices
- * the scene's bodies — the same vertices an intersect() statement would
- * produce, without drawing anything. Runs after a full render: when the tip
- * object is a sketch (the only state the sketch UI activates on), every
- * prior body is sectioned with the sketch plane and the section edges' open
- * endpoints ride the sketch's rendered payload as plane-local 2D points.
+ * Give the interactive sketcher snap targets from the rest of the scene,
+ * without drawing anything. Runs after a full render: when the tip object is
+ * a sketch (the only state the sketch UI activates on), every prior shape
+ * contributes two kinds of plane-local 2D points on the sketch's rendered
+ * payload — where the sketch plane slices it (the vertices an intersect()
+ * statement would produce) and the projection of its topological vertices
+ * onto the plane (the model corners the user sees behind the sketch in the
+ * look-down-the-normal view).
  */
-export function attachSectionSnapVertices(scene: Scene): void {
+export function attachSketchSnapVertices(scene: Scene): void {
   const sketch = findTipSketch(scene);
   if (!sketch) {
     return;
@@ -57,14 +60,14 @@ export function attachSectionSnapVertices(scene: Scene): void {
   const planeKey = `${o.x},${o.y},${o.z}|${x.x},${x.y},${x.z}|${y.x},${y.y},${y.z}`;
 
   const vertices: [number, number][] = [];
-  for (const shape of collectSectionSources(scene, sketch)) {
-    for (const v of sectionVerticesFor(shape, plane, planeKey)) {
+  for (const shape of collectSnapSources(scene, sketch)) {
+    for (const v of snapVerticesFor(shape, plane, planeKey)) {
       pushUnique(vertices, v);
     }
   }
 
   if (vertices.length > 0) {
-    rendered.sectionSnapVertices = vertices;
+    rendered.snapVertices = vertices;
   }
 }
 
@@ -88,7 +91,7 @@ function findTipSketch(scene: Scene): Sketch | null {
   return null;
 }
 
-function collectSectionSources(scene: Scene, sketch: Sketch): Set<Shape> {
+function collectSnapSources(scene: Scene, sketch: Sketch): Set<Shape> {
   const shapes = new Set<Shape>();
   for (const obj of scene.getPartScopedActiveObjectsUpTo(sketch)) {
     // Containers re-expose their children's shapes and lazy accessors /
@@ -97,48 +100,64 @@ function collectSectionSources(scene: Scene, sketch: Sketch): Set<Shape> {
       continue;
     }
     for (const shape of obj.getShapes()) {
-      if (SECTIONABLE_TYPES.has(shape.getType())) {
-        shapes.add(shape);
-      }
+      shapes.add(shape);
     }
   }
   return shapes;
 }
 
-function sectionVerticesFor(shape: Shape, plane: Plane, planeKey: string): [number, number][] {
-  const cached = sectionCache.get(shape);
+function snapVerticesFor(shape: Shape, plane: Plane, planeKey: string): [number, number][] {
+  const cached = snapCache.get(shape);
   if (cached && cached.planeKey === planeKey) {
     return cached.vertices;
   }
 
   const vertices: [number, number][] = [];
   try {
-    for (const edge of SectionOps.sectionShapeWithPlane(plane, shape)) {
-      const first = edge.getFirstVertex();
-      const last = edge.getLastVertex();
-      const p1 = first.toPoint();
-      const p2 = last.toPoint();
-      first.dispose();
-      last.dispose();
-      edge.dispose();
-
-      if (p1.distanceToSquared(p2) < SEAM_EPSILON_SQ) {
-        continue;
-      }
-
-      const l1 = plane.worldToLocal(p1);
-      const l2 = plane.worldToLocal(p2);
-      pushUnique(vertices, [l1.x, l1.y]);
-      pushUnique(vertices, [l2.x, l2.y]);
+    if (SECTIONABLE_TYPES.has(shape.getType())) {
+      collectSectionVertices(shape, plane, vertices);
     }
+    collectProjectedVertices(shape, plane, vertices);
   } catch {
-    // Snap targets are best-effort — a section failure must never break a
-    // render. Cache the (possibly partial) result so it isn't retried on
-    // every incremental render.
+    // Snap targets are best-effort — a failure must never break a render.
+    // Cache the (possibly partial) result so it isn't retried on every
+    // incremental render.
   }
 
-  sectionCache.set(shape, { planeKey, vertices });
+  snapCache.set(shape, { planeKey, vertices });
   return vertices;
+}
+
+/** Open endpoints of the plane's section through the shape. */
+function collectSectionVertices(shape: Shape, plane: Plane, out: [number, number][]): void {
+  for (const edge of SectionOps.sectionShapeWithPlane(plane, shape)) {
+    const first = edge.getFirstVertex();
+    const last = edge.getLastVertex();
+    const p1 = first.toPoint();
+    const p2 = last.toPoint();
+    first.dispose();
+    last.dispose();
+    edge.dispose();
+
+    if (p1.distanceToSquared(p2) < SEAM_EPSILON_SQ) {
+      continue;
+    }
+
+    const l1 = plane.worldToLocal(p1);
+    const l2 = plane.worldToLocal(p2);
+    pushUnique(out, [l1.x, l1.y]);
+    pushUnique(out, [l2.x, l2.y]);
+  }
+}
+
+/** The shape's topological vertices, projected orthogonally onto the plane. */
+function collectProjectedVertices(shape: Shape, plane: Plane, out: [number, number][]): void {
+  for (const vertex of Explorer.findVerticesWrapped(shape)) {
+    const point = vertex.toPoint();
+    vertex.dispose();
+    const local = plane.worldToLocal(point);
+    pushUnique(out, [local.x, local.y]);
+  }
 }
 
 function pushUnique(vertices: [number, number][], v: [number, number]): void {

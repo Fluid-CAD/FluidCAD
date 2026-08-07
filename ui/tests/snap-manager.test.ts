@@ -69,15 +69,15 @@ describe('SnapManager.fromSceneObjects', () => {
     expect(zoomedOut.snap([0, 140], plane).snapType).toBe('vertex');
   });
 
-  // Plane-section snap points: where the sketch plane slices the scene's
-  // bodies, computed server-side and carried on the sketch's own payload.
-  it('snaps to the sketch payload\'s sectionSnapVertices', () => {
+  // Scene-derived snap points — plane-section crossings and projected body
+  // vertices — computed server-side and carried on the sketch's own payload.
+  it('snaps to the sketch payload\'s snapVertices', () => {
     const plane = XY_PLANE_CENTERED_AT(0, 0, 0);
     const sketchObj = {
       id: 'sketch-1',
       sceneShapes: [],
       ownShapes: [],
-      sectionSnapVertices: [[30, -20]] as [number, number][],
+      snapVertices: [[30, -20]] as [number, number][],
     };
     const manager = SnapManager.fromSceneObjects([sketchObj], 'sketch-1', plane);
 

@@ -153,11 +153,12 @@ export class SnapManager {
       }
     }
 
-    // Where the sketch plane slices the scene's bodies — server-computed
-    // (the vertices an intersect() would produce), riding the sketch's own
-    // payload. Nothing is drawn; they only feed the vertex snapper.
+    // Server-computed snap targets riding the sketch's own payload: where
+    // the sketch plane slices the scene's bodies (the vertices an
+    // intersect() would produce) plus prior shapes' vertices projected onto
+    // the plane. Nothing is drawn; they only feed the vertex snapper.
     const sketchObj = sceneObjects.find(obj => obj.id === sketchId);
-    for (const [u, v] of sketchObj?.sectionSnapVertices ?? []) {
+    for (const [u, v] of sketchObj?.snapVertices ?? []) {
       pushUnique(u, v);
     }
 

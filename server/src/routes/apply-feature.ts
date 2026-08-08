@@ -15,8 +15,8 @@ import {
   renderRevolveStatement, renderRibStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
-  renderChamferValueArgs, renderFaceTargetExpr, renderOffsetStatement, renderSlotStatement, renderTarcStatement,
-  renderTextStatement, type TextStatementOptions,
+  renderChamferValueArgs, renderConnectorChain, renderFaceTargetExpr, renderOffsetStatement, renderSlotStatement, renderTarcStatement,
+  renderTextStatement, type TextStatementOptions, validConnectorAnchor, validConnectorRotate,
   type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions, type CopyEditOptions,
   type OffsetEditOptions, type SlotEditOptions,
   type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
@@ -5736,17 +5736,36 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'selectorOverride must be a non-empty string (max 500 chars)' });
         return;
       }
+      const anchor = req.body?.anchor;
+      if (!validConnectorAnchor(anchor)) {
+        res.status(400).json({ error: "anchor must be {kind: 'center'|'start'|'end'} or {kind: 'offset', mode: 'relative'|'absolute', value}" });
+        return;
+      }
+      const rotate = req.body?.rotate;
+      if (!validConnectorRotate(rotate)) {
+        res.status(400).json({ error: "rotate must be { axis: 'x'|'y'|'z', angle } with a finite angle in degrees" });
+        return;
+      }
+      const frameOffset = req.body?.offset;
+      if (frameOffset !== undefined
+        && !(Array.isArray(frameOffset) && frameOffset.length === 3 && frameOffset.every((v: unknown) => Number.isFinite(v)))) {
+        res.status(400).json({ error: 'offset must be [x, y, z] finite numbers' });
+        return;
+      }
       try {
         const code = fluidCadServer.getCurrentCode();
-        const options = code
-          ? {
-            namer: await makeProducerNamer(code),
-            params: resolveParamValues(
-              await extractNumericParams(code),
-              fluidCadServer.getParamDefinitions(),
-            ),
-          }
-          : undefined;
+        const options = {
+          ...(code
+            ? {
+              namer: await makeProducerNamer(code),
+              params: resolveParamValues(
+                await extractNumericParams(code),
+                fluidCadServer.getParamDefinitions(),
+              ),
+            }
+            : {}),
+          connector: { anchor, rotate, offset: frameOffset },
+        };
         const synthesis = fluidCadServer.synthesizeApplyFeature(
           picks, 'connector', name, [], options,
         );
@@ -5759,8 +5778,9 @@ export function createApplyFeatureRouter(
           return;
         }
         // Composed here rather than taken from `synthesis.preview` so the
-        // previewed text is exactly what the transform writes.
-        const statementPreview = `connector('${name}', ${synthesis.args})`;
+        // previewed text is exactly what the transform writes (the args
+        // already carry the anchor suffix; the chain matches the transform's).
+        const statementPreview = `connector('${name}', ${synthesis.args})${renderConnectorChain({ rotate, offset: frameOffset })}`;
         if (preview === true) {
           res.json({
             success: true,
@@ -6410,6 +6430,48 @@ export function createApplyFeatureRouter(
   selectionQueryRoute('/selection/groups',
     (pick, before) => fluidCadServer.listSelectionGroups(pick, before),
     result => ({ groups: result.groups }));
+
+  // Hover-time connector anchor suggestions: the anchors a picked face/edge
+  // supports (face center; edge center/start/end) with exact frames, the
+  // synthesized source expression, and a name unique within the part. The
+  // connector tool renders the suggestion triad from these frames and the
+  // apply branch above re-synthesizes on commit.
+  router.post('/selection/connector-anchors', async (req, res) => {
+    const pick = validatePick(req.body?.entity);
+    if (!pick) {
+      res.status(400).json({ error: 'entity must be a {shapeId, sub:{type, index}} pick' });
+      return;
+    }
+    try {
+      const code = fluidCadServer.getCurrentCode();
+      const options = code
+        ? {
+          namer: await makeProducerNamer(code),
+          params: resolveParamValues(
+            await extractNumericParams(code),
+            fluidCadServer.getParamDefinitions(),
+          ),
+        }
+        : undefined;
+      const result = fluidCadServer.suggestConnectorAnchors(pick, options);
+      if (!result) {
+        res.status(404).json({ success: false, reason: 'No rendered scene' });
+        return;
+      }
+      if (result.ok === false) {
+        res.json({ success: false, reason: result.reason });
+        return;
+      }
+      res.json({
+        success: true,
+        defaultName: result.defaultName,
+        args: result.args,
+        anchors: result.anchors,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+    }
+  });
 
   // The current chain text at a segment's source line, read from the live
   // buffer — the drift guard the convert apply verifies against. Refuses when

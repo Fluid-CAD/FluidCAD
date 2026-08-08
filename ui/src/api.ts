@@ -1073,6 +1073,82 @@ export async function applyProject(
   }, options.signal);
 }
 
+/** A well-known point on the connector's source face/edge (`.center()` etc.). */
+export type ConnectorAnchor =
+  | { kind: 'center' | 'start' | 'end' }
+  | { kind: 'offset'; mode: 'relative' | 'absolute'; value: number };
+
+export type ConnectorRotateAxis = 'x' | 'y' | 'z';
+
+export type ConnectorApplyOptions = {
+  /** Identifier the connector registers under — `/^[A-Za-z_$][A-Za-z0-9_$]*$/`, ≤64 chars. */
+  name: string;
+  /** Exactly one face or edge — the connector's source geometry. */
+  entities: ApplyFeatureEntity[];
+  anchor?: ConnectorAnchor;
+  /** Degrees around one of the connector's local axes — rendered as `.rotate('<axis>', n)`. */
+  rotate?: { axis: ConnectorRotateAxis; angle: number };
+  /** Frame-local offset [x, y, z] — rendered as `.offset(...)`. */
+  offset?: [number, number, number];
+  selectorOverride?: string;
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+export async function applyConnector(o: ConnectorApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'connector',
+    name: o.name,
+    entities: o.entities,
+    anchor: o.anchor,
+    rotate: o.rotate,
+    offset: o.offset,
+    selectorOverride: o.selectorOverride,
+    preview: o.preview,
+  }, o.signal);
+}
+
+/** One connector frame the hover tool can snap to, with its exact axes. */
+export type ConnectorAnchorCandidate = {
+  anchor: ConnectorAnchor;
+  /** `.center()` etc. — appended to `args` for the full source expression. */
+  suffix: string;
+  frame: { origin: Vec3Data; xDirection: Vec3Data; yDirection: Vec3Data; normal: Vec3Data };
+};
+
+export type ConnectorAnchorsResult =
+  | {
+    ok: true;
+    /** A connector name unique within the enclosing part (`c1`, `c2`, …). */
+    defaultName: string;
+    /** Synthesized source selector (no anchor suffix), e.g. `e.endFaces(0)`. */
+    args: string;
+    anchors: ConnectorAnchorCandidate[];
+  }
+  | { ok: false; reason: string | null };
+
+/**
+ * The connector anchors a hovered face/edge supports — the suggestion the
+ * tool draws before the user clicks. Refusals (geometry outside a part(),
+ * an unresolvable pick) come back as `ok: false` with the reason to show.
+ */
+export async function fetchConnectorAnchors(
+  entity: ApplyFeatureEntity,
+  signal?: AbortSignal,
+): Promise<ConnectorAnchorsResult> {
+  const res = await fetch('/api/selection/connector-anchors', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    signal,
+    body: JSON.stringify({ entity }),
+  });
+  const body = await res.json().catch(() => null);
+  if (res.ok && body?.success === true) {
+    return { ok: true, defaultName: body.defaultName, args: body.args, anchors: body.anchors ?? [] };
+  }
+  return { ok: false, reason: body?.reason ?? body?.error ?? null };
+}
+
 export type ProjectEditOptions = EditSessionFields & {
   /** Edited source argument list; omitted keeps the statement's verbatim. */
   selectorOverride?: string;

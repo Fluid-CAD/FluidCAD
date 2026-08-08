@@ -22,6 +22,8 @@ import {
   SelectionScene,
   SynthesizeOptions,
   nameHintFor,
+  renderConnectorAdjustments,
+  renderConnectorAnchorSuffix,
 } from "./types.js";
 import { Part } from "../features/part.js";
 
@@ -165,6 +167,14 @@ export function synthesizeApplyFeature(
         reason: "a connector needs a name — a plain identifier like 'topLeft'",
       };
     }
+    const anchor = options.connector?.anchor;
+    if (anchor && anchor.kind !== 'center' && refs[0].sub.type !== 'edge') {
+      return {
+        ok: false,
+        reason: `${anchor.kind === 'offset' ? 'an offset anchor' : `${anchor.kind}()`} needs an edge — a face only supports its center`,
+        pick: refs[0],
+      };
+    }
   }
 
   const index = new SelectionIndex(scene);
@@ -249,7 +259,18 @@ export function synthesizeApplyFeature(
           reason: `the part already has a connector named "${name}" — pick a different name`,
         };
       }
-      connectorPayload = { name, part: { line: partLoc.line, column: partLoc.column } };
+      const connectorOpts = options.connector;
+      const rotate = connectorOpts?.rotate;
+      const rotateActive = rotate !== undefined
+        && Number.isFinite(rotate.angle) && rotate.angle % 360 !== 0;
+      connectorPayload = {
+        name,
+        part: { line: partLoc.line, column: partLoc.column },
+        ...(connectorOpts?.anchor ? { anchor: connectorOpts.anchor } : {}),
+        ...(rotateActive ? { rotate: { axis: rotate!.axis, angle: rotate!.angle } } : {}),
+        ...(connectorOpts?.offset && connectorOpts.offset.some(v => v !== 0)
+          ? { offset: connectorOpts.offset } : {}),
+      };
     }
 
     const spec: ApplyFeatureEditSpec = {
@@ -279,9 +300,15 @@ export function synthesizeApplyFeature(
       imports: collectImports(winners),
     };
 
+    // The anchor suffix rides the args so the expression row shows (and can
+    // edit) the full source expression, e.g. `e.endFaces().center()`.
+    const anchorSuffix = feature === 'connector'
+      ? renderConnectorAnchorSuffix(options.connector?.anchor)
+      : '';
+
     // Statement-level alternatives: vary one group at a time, in group order,
     // walking each group's verified runner-ups.
-    const args = renderParts(winners);
+    const args = renderParts(winners) + anchorSuffix;
     const alternatives: string[] = [];
     for (let i = 0; i < synthesis.groups.length && alternatives.length < 3; i++) {
       for (const alt of synthesis.groups[i].alternatives) {
@@ -290,14 +317,14 @@ export function synthesizeApplyFeature(
         }
         const variant = [...winners];
         variant[i] = alt;
-        alternatives.push(renderParts(variant));
+        alternatives.push(renderParts(variant) + anchorSuffix);
       }
     }
 
     return {
       ok: true,
       spec,
-      preview: renderPreview(feature, value, args),
+      preview: renderPreview(feature, value, args, options),
       args,
       alternatives,
     };
@@ -389,7 +416,12 @@ function findCoplanarClassifiedFace(index: SelectionIndex, plane: Plane): Bucket
  * One-line statement preview per feature. The transform writes sketch's
  * callback as a real multi-line empty body; the preview stands in for it.
  */
-function renderPreview(feature: ApplyFeatureKind, value: number | string | undefined, args: string): string {
+function renderPreview(
+  feature: ApplyFeatureKind,
+  value: number | string | undefined,
+  args: string,
+  options: SynthesizeOptions = {},
+): string {
   if (feature === 'sketch') {
     return `sketch(${args}, () => { ... })`;
   }
@@ -428,8 +460,9 @@ function renderPreview(feature: ApplyFeatureKind, value: number | string | undef
     return `project(${args})`;
   }
   if (feature === 'connector') {
-    // The value channel carries the connector's name.
-    return `connector('${value}', ${args})`;
+    // The value channel carries the connector's name; the args already carry
+    // the anchor suffix, and the dialog's rotate/offset chain follows.
+    return `connector('${value}', ${args})${renderConnectorAdjustments(options.connector)}`;
   }
   return `${feature}(${value}, ${args})`;
 }

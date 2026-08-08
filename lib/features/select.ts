@@ -16,8 +16,9 @@ import { ShapeHasher } from "../oc/shape-hash.js";
 import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { Sketch } from "./2d/sketch.js";
+import { AnchorableSelection } from "./anchored-vertex.js";
 
-export class SelectSceneObject extends SceneObject implements ISelect {
+export class SelectSceneObject extends AnchorableSelection implements ISelect {
 
   private type: ShapeType;
   private shapes: Shape[] = [];

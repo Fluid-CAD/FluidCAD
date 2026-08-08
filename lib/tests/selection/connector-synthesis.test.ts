@@ -9,7 +9,13 @@ import { rect } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { Scene } from "../../rendering/scene.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
-import { faceRefsWhere, findSolid, setLocation } from "./pick-helpers.js";
+import { suggestConnectorAnchors } from "../../selection/connector-anchors.js";
+import { edgeRefsWhere, faceRefsWhere, findSolid, setLocation } from "./pick-helpers.js";
+import { Connector } from "../../features/connector.js";
+import { Edge } from "../../common/edge.js";
+import { Explorer } from "../../oc/explorer.js";
+import { EdgeOps } from "../../oc/edge-ops.js";
+import { IExtrude, ISelection } from "../../core/interfaces.js";
 
 describe("connector synthesis", () => {
   setupOC();
@@ -113,6 +119,219 @@ describe("connector synthesis", () => {
       if (result.ok === false) {
         expect(result.reason).toContain('name');
       }
+    }
+  });
+
+  it("appends the anchor suffix to args and stores it on the spec", () => {
+    const { scene, topFace } = makePartScene();
+
+    const result = synthesizeApplyFeature(scene, [topFace], 'connector', 'mountTop', [], {
+      connector: { anchor: { kind: 'center' } },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.args.endsWith('.center()')).toBe(true);
+      expect(result.preview).toBe(`connector('mountTop', ${result.args})`);
+      expect(result.spec.connector?.anchor).toEqual({ kind: 'center' });
+      for (const alt of result.alternatives) {
+        expect(alt.endsWith('.center()')).toBe(true);
+      }
+    }
+  });
+
+  it("renders the rotate/offset chain after the call, trimming trailing zeros", () => {
+    const { scene, topFace } = makePartScene();
+
+    const result = synthesizeApplyFeature(scene, [topFace], 'connector', 'mountTop', [], {
+      connector: { anchor: { kind: 'center' }, rotate: { axis: 'z', angle: 90 }, offset: [5, 0, 0] },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.preview).toBe(`connector('mountTop', ${result.args}).rotate('z', 90).offset(5)`);
+      expect(result.spec.connector?.rotate).toEqual({ axis: 'z', angle: 90 });
+      expect(result.spec.connector?.offset).toEqual([5, 0, 0]);
+    }
+
+    // The dropdown's other axes render the same chain around x/y.
+    const aroundX = synthesizeApplyFeature(scene, [topFace], 'connector', 'mountTop', [], {
+      connector: { rotate: { axis: 'x', angle: 180 } },
+    });
+    expect(aroundX.ok).toBe(true);
+    if (aroundX.ok) {
+      expect(aroundX.preview).toBe(`connector('mountTop', ${aroundX.args}).rotate('x', 180)`);
+      expect(aroundX.spec.connector?.rotate).toEqual({ axis: 'x', angle: 180 });
+    }
+
+    const zOnly = synthesizeApplyFeature(scene, [topFace], 'connector', 'mountTop', [], {
+      connector: { offset: [0, 0, 5] },
+    });
+    expect(zOnly.ok).toBe(true);
+    if (zOnly.ok) {
+      expect(zOnly.preview).toBe(`connector('mountTop', ${zOnly.args}).offset(0, 0, 5)`);
+    }
+
+    // A full-turn rotation and an all-zero offset render nothing.
+    const noop = synthesizeApplyFeature(scene, [topFace], 'connector', 'mountTop', [], {
+      connector: { rotate: { axis: 'y', angle: 360 }, offset: [0, 0, 0] },
+    });
+    expect(noop.ok).toBe(true);
+    if (noop.ok) {
+      expect(noop.preview).toBe(`connector('mountTop', ${noop.args})`);
+      expect(noop.spec.connector?.rotate).toBeUndefined();
+      expect(noop.spec.connector?.offset).toBeUndefined();
+    }
+  });
+
+  it("edge anchors synthesize offset forms", () => {
+    const { scene } = makePartScene();
+    const solid = findSolid(scene);
+    const topEdges = edgeRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6);
+    expect(topEdges.length).toBeGreaterThan(0);
+
+    const result = synthesizeApplyFeature(scene, [topEdges[0]], 'connector', 'mountTop', [], {
+      connector: { anchor: { kind: 'offset', mode: 'relative', value: 0.3 } },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.args.endsWith(".offset('relative', 0.3)")).toBe(true);
+    }
+  });
+
+  it("refuses edge-only anchors on a face pick", () => {
+    const { scene, topFace } = makePartScene();
+
+    const result = synthesizeApplyFeature(scene, [topFace], 'connector', 'mountTop', [], {
+      connector: { anchor: { kind: 'start' } },
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok === false) {
+      expect(result.reason).toContain('needs an edge');
+    }
+  });
+
+  it("suggests anchors with exact frames and a free default name", () => {
+    const { scene, topFace } = makePartScene();
+
+    const suggestion = suggestConnectorAnchors(scene, topFace);
+    expect(suggestion.ok).toBe(true);
+    if (suggestion.ok) {
+      expect(suggestion.defaultName).toBe('c1');
+      expect(suggestion.args.length).toBeGreaterThan(0);
+      expect(suggestion.anchors).toHaveLength(1);
+      const anchor = suggestion.anchors[0];
+      expect(anchor.anchor).toEqual({ kind: 'center' });
+      expect(anchor.suffix).toBe('.center()');
+      // 100×50×30 box: top face center (50, 25, 30), normal +Z.
+      expect(anchor.frame.origin.x).toBeCloseTo(50, 5);
+      expect(anchor.frame.origin.y).toBeCloseTo(25, 5);
+      expect(anchor.frame.origin.z).toBeCloseTo(30, 5);
+      expect(anchor.frame.normal.z).toBeCloseTo(1, 5);
+    }
+
+    const solid = findSolid(scene);
+    const topEdges = edgeRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6);
+    const edgeSuggestion = suggestConnectorAnchors(scene, topEdges[0]);
+    expect(edgeSuggestion.ok).toBe(true);
+    if (edgeSuggestion.ok) {
+      // A straight box edge: center + start + end.
+      expect(edgeSuggestion.anchors.map(a => a.anchor.kind)).toEqual(['center', 'start', 'end']);
+      for (const a of edgeSuggestion.anchors) {
+        expect(a.frame.origin.z).toBeCloseTo(30, 5);
+      }
+    }
+  });
+
+  it("default names skip connectors the part already registered", () => {
+    const p = part("housing", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30);
+      setLocation(e, 5);
+      connector("c1", select(face().planar().onPlane("xy", 30)));
+    });
+    setLocation(p, 2);
+    const scene = render();
+    const solid = findSolid(scene);
+    const bottoms = faceRefsWhere(solid, m => Math.abs(m.z) < 1e-6);
+    expect(bottoms).toHaveLength(1);
+
+    const suggestion = suggestConnectorAnchors(scene, bottoms[0]);
+    expect(suggestion.ok).toBe(true);
+    if (suggestion.ok) {
+      expect(suggestion.defaultName).toBe('c2');
+    }
+  });
+
+  it("suggestion frames match the applied statement's frame on every end edge", () => {
+    // The Z-flip regression: a hover pick resolves the edge by exploring the
+    // solid, while `e.endEdges(i)` reads it from classified face state — the
+    // two copies carry opposite topological orientations, and an
+    // orientation-signed tangent flipped the frame between the suggestion
+    // gizmo and the applied connector.
+    const conns: Connector[] = [];
+    const p = part("housing", () => {
+      sketch("xy", () => {
+        rect(100, 50);
+      });
+      const e = extrude(30) as unknown as IExtrude;
+      setLocation(e, 5);
+      for (let i = 0; i < 4; i++) {
+        conns.push(connector(`edge${i}`, (e.endEdges(i) as unknown as ISelection).center()) as unknown as Connector);
+      }
+    });
+    setLocation(p, 2);
+    const scene = render();
+    const solid = findSolid(scene);
+    const solidEdges = Explorer.findEdgesWrapped(solid);
+
+    for (const conn of conns) {
+      const built = conn.getFrame();
+      // Locate the same physical edge among the solid's explored edges — the
+      // index a viewport pick would carry.
+      const mid = built.origin;
+      const index = solidEdges.findIndex(e => {
+        const m = EdgeOps.getEdgeMidPoint(e as Edge);
+        return Math.hypot(m.x - mid.x, m.y - mid.y, m.z - mid.z) < 1e-6;
+      });
+      expect(index).toBeGreaterThanOrEqual(0);
+
+      const suggestion = suggestConnectorAnchors(scene, {
+        shapeId: solid.id,
+        sub: { type: 'edge', index },
+      });
+      expect(suggestion.ok).toBe(true);
+      if (suggestion.ok) {
+        const center = suggestion.anchors.find(a => a.anchor.kind === 'center')!;
+        expect(center.frame.origin.x).toBeCloseTo(built.origin.x, 6);
+        expect(center.frame.origin.y).toBeCloseTo(built.origin.y, 6);
+        expect(center.frame.origin.z).toBeCloseTo(built.origin.z, 6);
+        const dot = center.frame.normal.x * built.normal.x
+          + center.frame.normal.y * built.normal.y
+          + center.frame.normal.z * built.normal.z;
+        expect(dot).toBeCloseTo(1, 6);
+        const xDot = center.frame.xDirection.x * built.xDirection.x
+          + center.frame.xDirection.y * built.xDirection.y
+          + center.frame.xDirection.z * built.xDirection.z;
+        expect(xDot).toBeCloseTo(1, 6);
+      }
+    }
+  });
+
+  it("suggestion refuses geometry outside a part()", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30);
+    setLocation(e, 3);
+    const scene = render();
+    const solid = findSolid(scene);
+    const tops = faceRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6);
+
+    const suggestion = suggestConnectorAnchors(scene, tops[0]);
+    expect(suggestion.ok).toBe(false);
+    if (suggestion.ok === false) {
+      expect(suggestion.reason).toContain('part()');
     }
   });
 });

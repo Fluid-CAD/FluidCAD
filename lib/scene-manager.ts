@@ -28,6 +28,7 @@ import { MeasureOps } from "./oc/measure/measure-ops.js";
 import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
+import { ConnectorAnchorSuggestions, suggestConnectorAnchors } from "./selection/connector-anchors.js";
 import { synthesizeSketchApplyFeature, resolveSketchStatementTargets, SketchTargetDescriptor } from "./selection/sketch-apply.js";
 import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
 import { synthesizeTrimRegionTargets } from "./selection/trim-region.js";
@@ -200,6 +201,15 @@ class SceneManager {
     return withBoundary(
       scene, before, scoped => synthesizeApplyFeature(scoped, refs, feature, value, chains, options),
     );
+  }
+
+  /** Hover-time connector anchor suggestions for a picked face/edge. */
+  suggestConnectorAnchors(
+    scene: Scene,
+    ref: PickRef,
+    options: SynthesizeOptions = {},
+  ): ConnectorAnchorSuggestions {
+    return suggestConnectorAnchors(scene, ref, options);
   }
 
   /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */

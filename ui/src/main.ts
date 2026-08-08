@@ -34,6 +34,7 @@ import { RepeatFeatureService } from './interactive/create-feature/repeat-servic
 import { CopyFeatureService } from './interactive/create-feature/copy-service';
 import { MirrorFeatureService } from './interactive/create-feature/mirror-service';
 import { RotateFeatureService } from './interactive/create-feature/rotate-service';
+import { ConnectorFeatureService } from './interactive/create-feature/connector-service';
 import { BooleanFeatureService } from './interactive/create-feature/boolean-service';
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
 import { isPlaneStatementRow } from './interactive/create-feature/plane-bases';
@@ -347,7 +348,8 @@ const syncKeepToolbar = () => sketchService.setKeepToolbar(
   || (sweepService.isActive && sweepService.sketchUISuspended)
   || (loftService.isActive && loftService.sketchUISuspended)
   || (wrapService.isActive && wrapService.sketchUISuspended)
-  || (planeService.isActive && planeService.sketchUISuspended),
+  || (planeService.isActive && planeService.sketchUISuspended)
+  || (connectorService.isActive && connectorService.sketchUISuspended),
 );
 // The Sketch button (create group) stays visible while a create dialog is
 // up — it disables instead. Recomputed on every dialog arm/disarm, alongside
@@ -357,7 +359,7 @@ const syncSketchButtonBlocked = () => {
     extrudeService.isActive || ribService.isActive || revolveService.isActive
     || sweepService.isActive || loftService.isActive || wrapService.isActive
     || helixService.isActive || repeatService.isActive || copyService.isActive
-    || mirrorService.isActive || rotateService.isActive
+    || mirrorService.isActive || rotateService.isActive || connectorService.isActive
     || booleanService.isActive || planeService.isActive,
   );
   syncKeepToolbar();
@@ -394,6 +396,7 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -422,6 +425,7 @@ const revolveService = new RevolveFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -448,6 +452,7 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -474,6 +479,7 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -501,6 +507,7 @@ const wrapService = new WrapFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -529,6 +536,7 @@ const helixService = new HelixFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -557,6 +565,7 @@ const ribService = new RibFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -593,6 +602,7 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     const entities = [...measureController.selection];
     textEditService.exit();
     measureController.clearSelection();
@@ -625,6 +635,7 @@ const textEditService = new TextEditService(container, viewer, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
@@ -908,6 +919,7 @@ function closeFeatureDialogs(opts: { keepProjection?: boolean } = {}): void {
   mirrorService.exit();
   rotateService.exit();
   booleanService.exit();
+  connectorService.exit();
   planeService.exit();
   textEditService.exit();
   measureController.clearSelection();
@@ -973,6 +985,7 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     const seed = [...measureController.selection];
@@ -1015,6 +1028,7 @@ const repeatService = new RepeatFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     const seed = [...measureController.selection];
     textEditService.exit();
@@ -1049,6 +1063,7 @@ const copyService = new CopyFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     const seed = [...measureController.selection];
     textEditService.exit();
@@ -1085,6 +1100,7 @@ const mirrorService = new MirrorFeatureService(container, viewer, navbar, {
     copyService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     const seed = [...measureController.selection];
     textEditService.exit();
@@ -1119,6 +1135,7 @@ const rotateService = new RotateFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     const seed = [...measureController.selection];
     textEditService.exit();
@@ -1127,6 +1144,37 @@ const rotateService = new RotateFeatureService(container, viewer, navbar, {
     viewer.clearHighlight();
     selectionInfoOverlay.hide();
     return { seed };
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
+});
+// Constructed after the transform tools: the connector is part mode's first
+// assembly-prep tool, so its group sits between the transform pair and the
+// boolean group (…, | Mirror, Rotate, | Connector, | Boolean).
+const connectorService = new ConnectorFeatureService(container, viewer, navbar, {
+  onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
+    modifyService.displaceSketchSession();
+    modifyService.exit();
+    extrudeService.exit();
+    ribService.exit();
+    revolveService.exit();
+    helixService.exit();
+    sweepService.exit();
+    loftService.exit();
+    wrapService.exit();
+    repeatService.exit();
+    copyService.exit();
+    mirrorService.exit();
+    rotateService.exit();
+    booleanService.exit();
+    planeService.exit();
+    textEditService.exit();
+    measureController.clearSelection();
+    modifyService.clearPendingPlane();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
   },
   onActiveChange: syncSketchButtonBlocked,
   onSuspendSketchUI: suspendSketchForFeature,
@@ -1153,6 +1201,7 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    connectorService.exit();
     planeService.exit();
     const seed = [...measureController.selection];
     textEditService.exit();
@@ -1314,6 +1363,10 @@ function formatMateLabel(mate: { type: string; mateId: string }): string {
 viewer.setHoverHandler((shapeId, sub, clientX, clientY) => {
   if (modifyService.isActive) {
     modifyService.handleHover(shapeId, sub, clientX, clientY);
+  } else if (connectorService.isActive) {
+    // The armed connector tool floats its anchor suggestion at the hovered
+    // face/edge — the gizmo nearest the cursor.
+    connectorService.handleHover(shapeId, sub, clientX, clientY);
   }
 });
 
@@ -1336,6 +1389,7 @@ const createDialogPicking = () =>
   || copyService.isPicking
   || mirrorService.isPicking
   || rotateService.isPicking
+  || connectorService.isPicking
   || booleanService.isPicking
   || planeService.isPicking
   || projectionService.isPicking;
@@ -1528,6 +1582,12 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // solid as a target, or (axis slot armed) an edge is the rotation axis.
   if (rotateService.isPicking) {
     rotateService.handleClick(shapeId, sub);
+    return;
+  }
+  // The armed connector tool owns clicks — a face or edge locks its floated
+  // anchor suggestion into the dialog's source slot.
+  if (connectorService.isPicking) {
+    connectorService.handleClick(shapeId, sub);
     return;
   }
   // The armed boolean dialog owns clicks — a face or edge selects its whole
@@ -1763,6 +1823,7 @@ function connectWebSocket() {
         copyService.handleSceneRendered(msg.result, renderStop, isRollback);
         mirrorService.handleSceneRendered(msg.result, renderStop, isRollback);
         rotateService.handleSceneRendered(msg.result, renderStop, isRollback);
+        connectorService.handleSceneRendered(msg.result, renderStop, isRollback);
         booleanService.handleSceneRendered(msg.result, renderStop, isRollback);
         planeService.handleSceneRendered(msg.result, renderStop, isRollback);
         textEditService.handleSceneRendered(msg.result, renderStop, isRollback);

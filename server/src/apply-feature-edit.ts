@@ -242,14 +242,94 @@ export type ApplyFeatureEditSpec = {
 };
 
 /**
+ * A well-known point on the connector's source face/edge, rendered as a
+ * suffix on the selector expression (`.center()`, `.offset('relative', 0.3)`).
+ */
+export type ConnectorAnchorSpec =
+  | { kind: 'center' | 'start' | 'end' }
+  | { kind: 'offset'; mode: 'relative' | 'absolute'; value: number };
+
+export type ConnectorRotateAxis = 'x' | 'y' | 'z';
+
+/**
  * Connector create payload. `name` is the identifier the statement registers
  * (validated against the same pattern the kernel enforces); `part` is the
- * `part(...)` call site whose callback body receives the statement.
+ * `part(...)` call site whose callback body receives the statement. `anchor`
+ * narrows the source expression to a well-known point; `rotate` / `offset`
+ * render the dialog's `.rotate('<axis>', n)` / `.offset(...)` chain.
  */
 export type ConnectorEditOptions = {
   name: string;
   part: { line: number; column: number };
+  anchor?: ConnectorAnchorSpec;
+  rotate?: { axis: ConnectorRotateAxis; angle: number };
+  offset?: [number, number, number];
 };
+
+export function validConnectorRotate(rotate: unknown): rotate is ConnectorEditOptions['rotate'] {
+  if (rotate === undefined) {
+    return true;
+  }
+  const r = rotate as { axis?: unknown; angle?: unknown };
+  if (r === null || typeof r !== 'object') {
+    return false;
+  }
+  return (r.axis === 'x' || r.axis === 'y' || r.axis === 'z') && Number.isFinite(r.angle);
+}
+
+/** `.center()` / `.offset('relative', 0.3)` — kernel-mirrored rendering. */
+export function renderConnectorAnchorSuffix(anchor: ConnectorAnchorSpec | undefined): string {
+  if (!anchor) {
+    return '';
+  }
+  if (anchor.kind === 'offset') {
+    return `.offset('${anchor.mode}', ${anchor.value})`;
+  }
+  return `.${anchor.kind}()`;
+}
+
+export function validConnectorAnchor(anchor: unknown): anchor is ConnectorAnchorSpec | undefined {
+  if (anchor === undefined) {
+    return true;
+  }
+  const a = anchor as ConnectorAnchorSpec;
+  if (a === null || typeof a !== 'object') {
+    return false;
+  }
+  if (a.kind === 'center' || a.kind === 'start' || a.kind === 'end') {
+    return true;
+  }
+  if (a.kind === 'offset') {
+    return (a.mode === 'relative' || a.mode === 'absolute') && Number.isFinite(a.value);
+  }
+  return false;
+}
+
+/** `.rotate('x', 90).offset(0, 0, 5)` — kernel-mirrored rendering. */
+export function renderConnectorChain(
+  options: {
+    rotate?: { axis: ConnectorRotateAxis; angle: number };
+    offset?: [number, number, number];
+  } | undefined,
+): string {
+  if (!options) {
+    return '';
+  }
+  let out = '';
+  const rotate = options.rotate;
+  if (rotate && Number.isFinite(rotate.angle) && rotate.angle % 360 !== 0) {
+    out += `.rotate('${rotate.axis}', ${rotate.angle})`;
+  }
+  const offset = options.offset;
+  if (offset && offset.some(v => v !== 0)) {
+    const values = [...offset];
+    while (values.length > 1 && values[values.length - 1] === 0) {
+      values.pop();
+    }
+    out += `.offset(${values.join(', ')})`;
+  }
+  return out;
+}
 
 /**
  * A re-sourced sketch slot of an edited statement: keep the statement's own
@@ -1641,7 +1721,11 @@ export async function applyFeatureEdit(
     const valid = co !== undefined
       && typeof co.name === 'string' && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(co.name)
       && Number.isInteger(co.part?.line) && Number.isInteger(co.part?.column)
-      && spec.producers.length >= 1 && spec.parts.length === 1;
+      && spec.producers.length >= 1 && spec.parts.length === 1
+      && validConnectorAnchor(co.anchor)
+      && validConnectorRotate(co.rotate)
+      && (co.offset === undefined
+        || (Array.isArray(co.offset) && co.offset.length === 3 && co.offset.every(v => Number.isFinite(v))));
     if (!valid) {
       return { newCode: code, error: 'malformed connector edit spec' };
     }
@@ -3139,8 +3223,12 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     return `sketch(${args}, () => {\n\n${indent}})`;
   }
   if (spec.feature === 'connector') {
-    // The name is a validated identifier, so the quoting is safe.
-    return `connector('${spec.connector!.name}', ${args})`;
+    // The name is a validated identifier, so the quoting is safe. A raw
+    // override already carries the anchor suffix (the UI edits the suffixed
+    // expression); the rendered-parts path appends it here.
+    const co = spec.connector!;
+    const anchor = spec.rawArgs?.trim() ? '' : renderConnectorAnchorSuffix(co.anchor);
+    return `connector('${co.name}', ${args}${anchor})${renderConnectorChain(co)}`;
   }
   if (spec.feature === 'chamfer') {
     return `chamfer(${renderChamferValueArgs(spec.value, spec.chamfer)}, ${args})`;

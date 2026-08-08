@@ -189,7 +189,7 @@ export class Shell extends SceneObject implements IShell {
     this.setState('internal-edges', internalEdges);
   }
 
-  internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject {
+  internalFaces(...args: (number | FaceFilterBuilder)[]): LazySelectionSceneObject {
     const suffix = this.buildSuffix('internal-faces', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
@@ -202,7 +202,7 @@ export class Shell extends SceneObject implements IShell {
       }, this, args);
   }
 
-  internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject {
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): LazySelectionSceneObject {
     const suffix = this.buildSuffix('internal-edges', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {

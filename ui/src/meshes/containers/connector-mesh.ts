@@ -44,8 +44,16 @@ function toVec3(v: Vec3Data): Vector3 {
   return new Vector3(v.x, v.y, v.z);
 }
 
-function buildAxis(length: number, color: string, withHead: boolean): Group {
-  const material = new MeshBasicMaterial({ color, depthTest: false, transparent: true });
+/** The frame a gizmo stands on — the connector's serialized axes. */
+export type ConnectorFrameData = {
+  origin: Vec3Data;
+  xDirection: Vec3Data;
+  yDirection: Vec3Data;
+  normal: Vec3Data;
+};
+
+function buildAxis(length: number, color: string, withHead: boolean, opacity: number): Group {
+  const material = new MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity });
   const group = new Group();
 
   const shaftLength = withHead ? length - HEAD_LENGTH : length;
@@ -68,6 +76,55 @@ function buildAxis(length: number, color: string, withHead: boolean): Group {
   return group;
 }
 
+/**
+ * The RGB axis triad + white origin ball a connector renders as, positioned
+ * on `frame` and screen-scaled against the camera on every draw. Shared by
+ * the settled scene gizmo ({@link ConnectorMesh}) and the connector tool's
+ * translucent suggestion/preview ghost — `opacity` is the only difference.
+ */
+export function buildConnectorGizmo(frame: ConnectorFrameData, camera: Camera, opts: { opacity?: number } = {}): Group {
+  const gizmo = new Group();
+  const opacity = opts.opacity ?? 1;
+
+  const origin = toVec3(frame.origin);
+  const xDir = toVec3(frame.xDirection).normalize();
+  const yDir = toVec3(frame.yDirection).normalize();
+  const zDir = toVec3(frame.normal).normalize();
+
+  const upY = new Vector3(0, 1, 0);
+
+  const xAxis = buildAxis(X_LENGTH, X_COLOR, false, opacity);
+  xAxis.quaternion.copy(new Quaternion().setFromUnitVectors(upY, xDir));
+  gizmo.add(xAxis);
+
+  const yAxis = buildAxis(Y_LENGTH, Y_COLOR, false, opacity);
+  yAxis.quaternion.copy(new Quaternion().setFromUnitVectors(upY, yDir));
+  gizmo.add(yAxis);
+
+  const zAxis = buildAxis(Z_LENGTH, Z_COLOR, true, opacity);
+  zAxis.quaternion.copy(new Quaternion().setFromUnitVectors(upY, zDir));
+  gizmo.add(zAxis);
+
+  const originBall = new Mesh(
+    new SphereGeometry(ORIGIN_RADIUS, 16, 12),
+    new MeshBasicMaterial({ color: ORIGIN_COLOR, depthTest: false, transparent: true, opacity }),
+  );
+  gizmo.add(originBall);
+
+  gizmo.position.copy(origin);
+  gizmo.scale.setScalar(computeViewScale(camera, gizmo.position, VIEW_SCALE_FACTOR));
+
+  // Render on top so the gizmo isn't hidden inside surrounding geometry.
+  gizmo.traverse(child => { child.renderOrder = 1000; });
+
+  originBall.onBeforeRender = (_renderer, _scene, cam) => {
+    gizmo.scale.setScalar(computeViewScale(cam, gizmo.position, VIEW_SCALE_FACTOR));
+    gizmo.updateMatrixWorld(true);
+  };
+
+  return gizmo;
+}
+
 export class ConnectorMesh extends Group {
   constructor(sceneObject: SceneObjectRender, camera: Camera) {
     super();
@@ -81,40 +138,6 @@ export class ConnectorMesh extends Group {
     this.userData.isConnector = true;
     this.userData.connectorId = sceneObject.id;
 
-    const origin = toVec3(data.origin);
-    const xDir = toVec3(data.xDirection).normalize();
-    const yDir = toVec3(data.yDirection).normalize();
-    const zDir = toVec3(data.normal).normalize();
-
-    const upY = new Vector3(0, 1, 0);
-
-    const xAxis = buildAxis(X_LENGTH, X_COLOR, false);
-    xAxis.quaternion.copy(new Quaternion().setFromUnitVectors(upY, xDir));
-    this.add(xAxis);
-
-    const yAxis = buildAxis(Y_LENGTH, Y_COLOR, false);
-    yAxis.quaternion.copy(new Quaternion().setFromUnitVectors(upY, yDir));
-    this.add(yAxis);
-
-    const zAxis = buildAxis(Z_LENGTH, Z_COLOR, true);
-    zAxis.quaternion.copy(new Quaternion().setFromUnitVectors(upY, zDir));
-    this.add(zAxis);
-
-    const originBall = new Mesh(
-      new SphereGeometry(ORIGIN_RADIUS, 16, 12),
-      new MeshBasicMaterial({ color: ORIGIN_COLOR, depthTest: false, transparent: true }),
-    );
-    this.add(originBall);
-
-    this.position.copy(origin);
-    this.scale.setScalar(computeViewScale(camera, this.position, VIEW_SCALE_FACTOR));
-
-    // Render on top so the gizmo isn't hidden inside surrounding geometry.
-    this.traverse(child => { child.renderOrder = 1000; });
-
-    originBall.onBeforeRender = (_renderer, _scene, cam) => {
-      this.scale.setScalar(computeViewScale(cam, this.position, VIEW_SCALE_FACTOR));
-      this.updateMatrixWorld(true);
-    };
+    this.add(buildConnectorGizmo(data, camera));
   }
 }

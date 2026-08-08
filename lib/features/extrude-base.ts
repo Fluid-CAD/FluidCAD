@@ -147,7 +147,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       .filter((f): f is Face => f instanceof Face);
   }
 
-  startFaces(...args: number[] | FaceFilterBuilder[]): SceneObject {
+  startFaces(...args: number[] | FaceFilterBuilder[]): LazySelectionSceneObject {
     const suffix = this.buildSuffix('start-faces', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
@@ -160,7 +160,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       }, this, args);
   }
 
-  endFaces(...args: number[] | FaceFilterBuilder[]): SceneObject {
+  endFaces(...args: number[] | FaceFilterBuilder[]): LazySelectionSceneObject {
     const suffix = this.buildSuffix('end-faces', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
@@ -173,7 +173,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       }, this, args);
   }
 
-  startEdges(...args: number[] | EdgeFilterBuilder[]): SceneObject {
+  startEdges(...args: number[] | EdgeFilterBuilder[]): LazySelectionSceneObject {
     const suffix = this.buildSuffix('start-edges', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
@@ -186,7 +186,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       }, this, args);
   }
 
-  endEdges(...args: number[] | EdgeFilterBuilder[]): SceneObject {
+  endEdges(...args: number[] | EdgeFilterBuilder[]): LazySelectionSceneObject {
     const suffix = this.buildSuffix('end-edges', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
@@ -199,7 +199,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       }, this, args);
   }
 
-  sideFaces(...args: number[] | FaceFilterBuilder[]): SceneObject {
+  sideFaces(...args: number[] | FaceFilterBuilder[]): LazySelectionSceneObject {
     const suffix = this.buildSuffix('side-faces', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
@@ -212,7 +212,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       }, this, args);
   }
 
-  sideEdges(...args: number[] | EdgeFilterBuilder[]): SceneObject {
+  sideEdges(...args: number[] | EdgeFilterBuilder[]): LazySelectionSceneObject {
     const suffix = this.buildSuffix('side-edges', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
@@ -234,7 +234,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
    * Returns the section edges created by a cut operation.
    * Only meaningful when operationMode is 'remove'.
    */
-  edges(...indices: number[]): SceneObject {
+  edges(...indices: number[]): LazySelectionSceneObject {
     const suffix = indices.length > 0 ? `section-edges-${indices.join('-')}` : 'section-edges';
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
@@ -246,7 +246,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       }, this, indices);
   }
 
-  internalFaces(...args: number[] | FaceFilterBuilder[]): SceneObject {
+  internalFaces(...args: number[] | FaceFilterBuilder[]): LazySelectionSceneObject {
     const suffix = this.buildSuffix('internal-faces', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
@@ -259,7 +259,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       }, this, args);
   }
 
-  internalEdges(...args: number[] | EdgeFilterBuilder[]): SceneObject {
+  internalEdges(...args: number[] | EdgeFilterBuilder[]): LazySelectionSceneObject {
     const suffix = this.buildSuffix('internal-edges', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
@@ -268,7 +268,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       }, this, args);
   }
 
-  capFaces(...args: number[] | FaceFilterBuilder[]): SceneObject {
+  capFaces(...args: number[] | FaceFilterBuilder[]): LazySelectionSceneObject {
     const suffix = this.buildSuffix('cap-faces', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {
@@ -281,7 +281,7 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
       }, this, args);
   }
 
-  capEdges(...args: number[] | EdgeFilterBuilder[]): SceneObject {
+  capEdges(...args: number[] | EdgeFilterBuilder[]): LazySelectionSceneObject {
     const suffix = this.buildSuffix('cap-edges', args);
     return new LazySelectionSceneObject(`${this.generateUniqueName(suffix)}`,
       (parent) => {

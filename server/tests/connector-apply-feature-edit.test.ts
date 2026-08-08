@@ -221,4 +221,91 @@ describe('applyFeatureEdit — connector', () => {
       expect(result.newCode).toBe(code);
     }
   });
+
+  const PART_CODE = [
+    `import { sketch, rect, extrude, part } from 'fluidcad/core'`,
+    ``,
+    `export function xPlate() {`,
+    `  return part('X Plate', () => {`,
+    `    sketch('xy', () => { rect(100, 50) })`,
+    `    const e = extrude(30)`,
+    `    return { thickness: 30 }`,
+    `  })`,
+    `}`,
+    ``,
+  ].join('\n');
+
+  it('renders the anchor suffix on the source expression', async () => {
+    const result = await applyFeatureEdit(PART_CODE, connectorSpec({
+      connector: { name: 'mountTop', part: { line: 4, column: 9 }, anchor: { kind: 'center' } },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`connector('mountTop', e.endFaces(0).center())`);
+  });
+
+  it('renders the rotate/offset chain after the call', async () => {
+    const result = await applyFeatureEdit(PART_CODE, connectorSpec({
+      connector: {
+        name: 'mountTop',
+        part: { line: 4, column: 9 },
+        anchor: { kind: 'offset', mode: 'relative', value: 0.3 },
+        rotate: { axis: 'z', angle: 90 },
+        offset: [0, 0, 5],
+      },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `connector('mountTop', e.endFaces(0).offset('relative', 0.3)).rotate('z', 90).offset(0, 0, 5)`,
+    );
+  });
+
+  it('renders rotations around the x and y axes', async () => {
+    for (const axis of ['x', 'y'] as const) {
+      const result = await applyFeatureEdit(PART_CODE, connectorSpec({
+        connector: { name: 'mountTop', part: { line: 4, column: 9 }, rotate: { axis, angle: 180 } },
+      }));
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toContain(`connector('mountTop', e.endFaces(0)).rotate('${axis}', 180)`);
+    }
+  });
+
+  it('trims trailing zero offsets and skips full-turn rotations', async () => {
+    const result = await applyFeatureEdit(PART_CODE, connectorSpec({
+      connector: { name: 'mountTop', part: { line: 4, column: 9 }, rotate: { axis: 'x', angle: 360 }, offset: [5, 0, 0] },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`connector('mountTop', e.endFaces(0)).offset(5)`);
+    expect(result.newCode).not.toContain(`.rotate(`);
+  });
+
+  it('does not re-append the anchor to a raw selector override', async () => {
+    const result = await applyFeatureEdit(PART_CODE, connectorSpec({
+      rawArgs: `e.endFaces().center()`,
+      connector: { name: 'mountTop', part: { line: 4, column: 9 }, anchor: { kind: 'center' } },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`connector('mountTop', e.endFaces().center())`);
+    expect(result.newCode).not.toContain(`.center().center()`);
+  });
+
+  it('refuses malformed anchors and adjustments', async () => {
+    const code = [
+      `import { part } from 'fluidcad/core'`,
+      `part('housing', () => {})`,
+      ``,
+    ].join('\n');
+
+    for (const bad of [
+      connectorSpec({ connector: { name: 'c', part: { line: 2, column: 0 }, anchor: { kind: 'middle' } as any } }),
+      connectorSpec({ connector: { name: 'c', part: { line: 2, column: 0 }, anchor: { kind: 'offset', mode: 'sideways', value: 1 } as any } }),
+      connectorSpec({ connector: { name: 'c', part: { line: 2, column: 0 }, anchor: { kind: 'offset', mode: 'relative', value: Number.NaN } as any } }),
+      connectorSpec({ connector: { name: 'c', part: { line: 2, column: 0 }, rotate: { axis: 'z', angle: Number.POSITIVE_INFINITY } } }),
+      connectorSpec({ connector: { name: 'c', part: { line: 2, column: 0 }, rotate: { axis: 'w', angle: 90 } as any } }),
+      connectorSpec({ connector: { name: 'c', part: { line: 2, column: 0 }, offset: [1, 2] as any } }),
+    ]) {
+      const result = await applyFeatureEdit(code, bad);
+      expect(result.error).toBe('malformed connector edit spec');
+      expect(result.newCode).toBe(code);
+    }
+  });
 });

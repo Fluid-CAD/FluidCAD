@@ -10,7 +10,7 @@ seeAlso: [api/polygon, api/types/extrudable-geometry]
 
 ```ts
 interface Polygon extends ExtrudableGeometry {
-  getEdge(index: number): SceneObject;
+  getEdge(index: number): ISelection;
   getVertex(index: number): Vertex;
 }
 ```
@@ -23,7 +23,7 @@ Extends [[api/types/extrudable-geometry]].
 
 Returns a specific edge of the polygon by index.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |

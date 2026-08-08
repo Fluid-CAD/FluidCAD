@@ -10,7 +10,14 @@ let baseUrl: string;
 let synthesizeCalls: { feature: string; value: number | undefined }[];
 /** The `before` boundary each synthesis call carried, parallel to the calls. */
 let synthesizeBoundaries: unknown[];
+/** The options each synthesis call carried, parallel to the calls. */
+let synthesizeOptions: unknown[];
 let relayed: any[];
+
+/** Picks forwarded to the connector anchor-suggestion endpoint. */
+let anchorCalls: unknown[];
+/** Per-test result for the anchor-suggestion endpoint. */
+let currentAnchors: any;
 
 const fakeSynthesis = {
   ok: true,
@@ -66,14 +73,19 @@ const fakeServer = {
   },
   synthesizeApplyFeature: (
     _picks: unknown, feature: string, value: number | undefined,
-    _chains?: unknown, _options?: unknown, before?: unknown,
+    _chains?: unknown, options?: unknown, before?: unknown,
   ) => {
     synthesizeCalls.push({ feature, value });
     synthesizeBoundaries.push(before);
+    synthesizeOptions.push(options);
     if (Array.isArray(currentSynthesis)) {
       return currentSynthesis[Math.min(synthesizeCalls.length, currentSynthesis.length) - 1];
     }
     return currentSynthesis;
+  },
+  suggestConnectorAnchors: (pick: unknown, _options?: unknown) => {
+    anchorCalls.push(pick);
+    return currentAnchors;
   },
   explainSelection: (_picks: unknown, before?: unknown) => {
     queryCalls.push({ method: 'explainSelection', before });
@@ -134,6 +146,7 @@ describe('apply-feature route validation', () => {
   beforeEach(() => {
     synthesizeCalls = [];
     synthesizeBoundaries = [];
+    synthesizeOptions = [];
     sketchSynthesizeCalls = [];
     sketchTargetCalls = [];
     currentSketchTargets = { ok: true, shapeIds: ['edge-1'] };
@@ -143,6 +156,8 @@ describe('apply-feature route validation', () => {
     currentFileName = null;
     queryCalls = [];
     currentQueryResult = { ok: true, members: [PICK], groups: [], picks: [] };
+    anchorCalls = [];
+    currentAnchors = { ok: true, defaultName: 'c1', args: 'e.endFaces(0)', anchors: [] };
   });
 
   it('rejects an unknown feature', async () => {
@@ -5064,6 +5079,120 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(422);
       expect(body.reason).toContain('different file than the sketch');
       expect(relayed).toEqual([]);
+    });
+  });
+
+  describe('connector', () => {
+    const connectorSynthesis = {
+      ok: true,
+      spec: {
+        feature: 'connector',
+        filePath: '/ws/m.fluid.js',
+        connector: { name: 'mountTop', part: { line: 2, column: 0 }, anchor: { kind: 'center' } },
+        producers: [{ line: 5, column: 2, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+        imports: [],
+      },
+      preview: `connector('mountTop', e.endFaces(0).center())`,
+      args: 'e.endFaces(0).center()',
+      alternatives: [],
+    };
+
+    it('forwards anchor + adjustments into synthesis options and composes the chain', async () => {
+      currentSynthesis = connectorSynthesis;
+      const { status, body } = await post({
+        feature: 'connector', name: 'mountTop', entities: [PICK],
+        anchor: { kind: 'center' }, rotate: { axis: 'x', angle: 90 }, offset: [0, 0, 5], preview: true,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`connector('mountTop', e.endFaces(0).center()).rotate('x', 90).offset(0, 0, 5)`);
+      expect(synthesizeCalls).toEqual([{ feature: 'connector', value: 'mountTop' as any }]);
+      expect((synthesizeOptions[0] as any)?.connector).toEqual({
+        anchor: { kind: 'center' }, rotate: { axis: 'x', angle: 90 }, offset: [0, 0, 5],
+      });
+    });
+
+    it('relays the synthesized spec on apply', async () => {
+      currentSynthesis = connectorSynthesis;
+      const { status, body } = await post({
+        feature: 'connector', name: 'mountTop', entities: [PICK], anchor: { kind: 'center' },
+      });
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(relayed).toHaveLength(1);
+      expect(relayed[0].spec.feature).toBe('connector');
+      expect(relayed[0].spec.connector.anchor).toEqual({ kind: 'center' });
+    });
+
+    it('rejects a malformed anchor, rotation, or offset', async () => {
+      const bad = [
+        { anchor: { kind: 'middle' } },
+        { anchor: { kind: 'offset', mode: 'sideways', value: 1 } },
+        { rotate: { axis: 'z', angle: 'ninety' } },
+        { rotate: { axis: 'w', angle: 90 } },
+        { rotate: 90 },
+        { offset: [1, 2] },
+        { offset: [1, 2, 'three'] },
+      ];
+      for (const extra of bad) {
+        const { status } = await post({
+          feature: 'connector', name: 'mountTop', entities: [PICK], ...extra,
+        });
+        expect(status).toBe(400);
+      }
+      expect(synthesizeCalls).toEqual([]);
+    });
+
+    it('rejects a bad name', async () => {
+      const { status, body } = await post({ feature: 'connector', name: 'not a name', entities: [PICK] });
+      expect(status).toBe(400);
+      expect(body.error).toContain('plain identifier');
+    });
+
+    async function postAnchors(body: unknown): Promise<{ status: number; body: any }> {
+      const res = await fetch(`${baseUrl}/api/selection/connector-anchors`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return { status: res.status, body: await res.json() };
+    }
+
+    it('anchors endpoint returns the suggestion payload', async () => {
+      currentAnchors = {
+        ok: true, defaultName: 'c2', args: 'e.endFaces(0)',
+        anchors: [{
+          anchor: { kind: 'center' }, suffix: '.center()',
+          frame: {
+            origin: { x: 1, y: 2, z: 3 },
+            xDirection: { x: 1, y: 0, z: 0 },
+            yDirection: { x: 0, y: 1, z: 0 },
+            normal: { x: 0, y: 0, z: 1 },
+          },
+        }],
+      };
+      const { status, body } = await postAnchors({ entity: PICK });
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(body.defaultName).toBe('c2');
+      expect(body.args).toBe('e.endFaces(0)');
+      expect(body.anchors).toHaveLength(1);
+      expect(body.anchors[0].suffix).toBe('.center()');
+      expect(anchorCalls).toEqual([PICK]);
+    });
+
+    it('anchors endpoint surfaces refusals as success:false', async () => {
+      currentAnchors = { ok: false, reason: 'connectors attach to geometry inside a part() block — wrap the feature statements in part(...)' };
+      const { status, body } = await postAnchors({ entity: PICK });
+      expect(status).toBe(200);
+      expect(body.success).toBe(false);
+      expect(body.reason).toContain('part()');
+    });
+
+    it('anchors endpoint rejects a malformed pick', async () => {
+      const { status } = await postAnchors({ entity: { shapeId: 's' } });
+      expect(status).toBe(400);
+      expect(anchorCalls).toEqual([]);
     });
   });
 });

@@ -50,9 +50,14 @@ function build(context: SceneParserContext): ConnectorFunction {
       throw new Error("connector(): source must be a face/edge/vertex selection, sketch lazy selection, LazyVertex, or plane object.");
     }
 
-    // Ensure the source is registered with the scene so it builds before the
+    // Ensure the source (and anything it depends on — an anchored vertex
+    // like `e.endFaces().center()` wraps an inline lazy selection that is
+    // registered nowhere else) is in the scene so it builds before the
     // connector — `addSceneObject` is idempotent, so already-registered
     // sources (e.g., from `select(...)`) are unaffected.
+    for (const dep of source.getDependencies()) {
+      context.addSceneObject(dep);
+    }
     context.addSceneObject(source);
 
     const obj = new Connector(name, source, options);

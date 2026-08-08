@@ -1,6 +1,7 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Plane } from "../math/plane.js";
 import { Vertex } from "../common/vertex.js";
+import { AnchoredLazyVertex } from "./anchored-vertex.js";
 import { ConnectorInput, ConnectorOptions, frameFromSource } from "./connector-frame.js";
 import { IConnector } from "../core/interfaces.js";
 import { rad } from "../helpers/math-helpers.js";
@@ -60,6 +61,11 @@ export class Connector extends SceneObject implements IConnector {
     // (or lazy edge) was used purely to derive the frame, and the frame
     // now lives on the connector. Mirrors plane-from-object / axis-from-edge.
     (this.sourceShape as SceneObject).removeShapes(this);
+    if (this.sourceShape instanceof AnchoredLazyVertex) {
+      // Anchored vertices wrap an inline selection (`e.endFaces().center()`)
+      // whose highlight shapes would otherwise linger — consume through.
+      this.sourceShape.getSourceSelection().removeShapes(this);
+    }
 
     const center = Vertex.fromPoint(frame.origin);
     center.markAsMetaShape();

@@ -11,16 +11,16 @@ seeAlso: [api/extrude, api/types/boolean-operation]
 ```ts
 interface Extrude extends BooleanOperation {
   symmetric(): this;
-  startFaces(...args: (number | FaceFilter)[]): SceneObject;
-  endFaces(...args: (number | FaceFilter)[]): SceneObject;
-  startEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  endEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  sideFaces(...args: (number | FaceFilter)[]): SceneObject;
-  sideEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  internalFaces(...args: (number | FaceFilter)[]): SceneObject;
-  internalEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  capFaces(...args: (number | FaceFilter)[]): SceneObject;
-  capEdges(...args: (number | EdgeFilter)[]): SceneObject;
+  startFaces(...args: (number | FaceFilter)[]): ISelection;
+  endFaces(...args: (number | FaceFilter)[]): ISelection;
+  startEdges(...args: (number | EdgeFilter)[]): ISelection;
+  endEdges(...args: (number | EdgeFilter)[]): ISelection;
+  sideFaces(...args: (number | FaceFilter)[]): ISelection;
+  sideEdges(...args: (number | EdgeFilter)[]): ISelection;
+  internalFaces(...args: (number | FaceFilter)[]): ISelection;
+  internalEdges(...args: (number | EdgeFilter)[]): ISelection;
+  capFaces(...args: (number | FaceFilter)[]): ISelection;
+  capEdges(...args: (number | EdgeFilter)[]): ISelection;
   draft(value: NumberParam | [NumberParam, NumberParam]): this;
   endOffset(value: NumberParam): this;
   drill(value?: boolean): this;
@@ -42,7 +42,7 @@ Enables symmetric mode — extrudes equally in both directions from the sketch p
 
 Selects faces at the start (base) of the extrusion.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -52,7 +52,7 @@ Selects faces at the start (base) of the extrusion.
 
 Selects faces at the end (cap) of the extrusion.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ Selects faces at the end (cap) of the extrusion.
 
 Selects edges on the start (base) faces of the extrusion.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -72,7 +72,7 @@ Selects edges on the start (base) faces of the extrusion.
 
 Selects edges on the end (cap) faces of the extrusion.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -82,7 +82,7 @@ Selects edges on the end (cap) faces of the extrusion.
 
 Selects the lateral faces created by the extrusion.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -92,7 +92,7 @@ Selects the lateral faces created by the extrusion.
 
 Selects edges on the side faces, excluding edges shared with start/end faces.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -102,7 +102,7 @@ Selects edges on the side faces, excluding edges shared with start/end faces.
 
 Selects faces created inside the solid during extrusion (e.g., from holes or intersections).
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -112,7 +112,7 @@ Selects faces created inside the solid during extrusion (e.g., from holes or int
 
 Selects edges bounding the internal geometry created during extrusion.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -123,7 +123,7 @@ Selects edges bounding the internal geometry created during extrusion.
 Selects the cap faces at the open ends of a thin-walled extrusion from an open profile.
 These are the small faces connecting the inner and outer walls at the profile endpoints.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -133,7 +133,7 @@ These are the small faces connecting the inner and outer walls at the profile en
 
 Selects edges on the cap faces of a thin-walled extrusion from an open profile.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |

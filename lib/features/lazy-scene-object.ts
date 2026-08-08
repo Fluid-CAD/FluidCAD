@@ -1,10 +1,11 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
 import { FilterBuilderBase } from "../filters/filter-builder-base.js";
+import { AnchorableSelection } from "./anchored-vertex.js";
 
 export type LazySelectionArg = number | FilterBuilderBase<Shape>;
 
-export class LazySelectionSceneObject extends SceneObject {
+export class LazySelectionSceneObject extends AnchorableSelection {
 
   private _originalParent: SceneObject | null = null;
 

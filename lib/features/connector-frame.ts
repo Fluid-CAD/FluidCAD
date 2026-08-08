@@ -2,7 +2,7 @@ import type { TopoDS_Edge, TopoDS_Face } from "ocjs-fluidcad";
 import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
-import { AxisLike, toAxis } from "../math/axis.js";
+import { AxisLike } from "../math/axis.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { Vertex } from "../common/vertex.js";
@@ -11,6 +11,8 @@ import { SelectSceneObject } from "./select.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { LazySelectionSceneObject } from "./lazy-scene-object.js";
 import { PlaneObjectBase } from "./plane-renderable-base.js";
+import { AnchoredLazyVertex } from "./anchored-vertex.js";
+import { buildOrthonormalFrame, computeFaceBoundingBoxCenter } from "./shape-anchor.js";
 import { FaceOps } from "../oc/face-ops.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { EdgeQuery } from "../oc/edge-query.js";
@@ -29,6 +31,12 @@ export type ConnectorInput =
 export function frameFromSource(source: ConnectorInput, options: ConnectorOptions = {}): Plane {
   if (source instanceof PlaneObjectBase) {
     return frameFromPlane(source, options);
+  }
+  // Anchored vertices (`.center()` / `.start()` / `.offset(...)`) know their
+  // underlying face/edge, so the frame Z follows that geometry instead of
+  // defaulting to world Z like a plain lazy vertex.
+  if (source instanceof AnchoredLazyVertex) {
+    return source.getAnchorFrame(options);
   }
   if (source instanceof LazyVertex) {
     return frameFromVertexPoint(source.asPoint(), options);
@@ -107,61 +115,6 @@ function frameFromPlane(planeObj: PlaneObjectBase, options: ConnectorOptions): P
     return buildOrthonormalFrame(plane.origin, plane.normal, options);
   }
   return new Plane(plane.origin, plane.xDirection, plane.normal);
-}
-
-function buildOrthonormalFrame(origin: Point, normal: Vector3d, options: ConnectorOptions): Plane {
-  const z = normal.normalize();
-
-  let x: Vector3d;
-  if (options.xDirection !== undefined) {
-    const axis = toAxis(options.xDirection);
-    x = orthogonalizeAgainst(axis.direction, z);
-  } else {
-    x = autoXFromZ(z);
-  }
-
-  return new Plane(origin, x, z);
-}
-
-function orthogonalizeAgainst(candidate: Vector3d, z: Vector3d): Vector3d {
-  const c = candidate.normalize();
-  const projected = c.subtract(z.multiply(c.dot(z)));
-  if (projected.isZero(1e-9)) {
-    throw new Error("connector(): xDirection is parallel to Z; cannot orthogonalize.");
-  }
-  return projected.normalize();
-}
-
-// Anchor the auto-frame to world up (+Z): project +Z onto the face plane
-// to define Y, then derive X = Y × Z. This gives every non-horizontal face
-// a "screen up" Y axis, so the X direction is the same predictable
-// horizontal vector regardless of which sketch plane produced the face.
-// The previous worldX-or-worldY fallback flipped at |Z·X| = 0.9, which
-// made adjacent box faces use different reference axes.
-function autoXFromZ(z: Vector3d): Vector3d {
-  const worldUp = Vector3d.unitZ();
-  // Horizontal face (top/bottom): worldUp lies along Z, so use +Y as the
-  // in-plane "up" so the convention stays continuous with side faces.
-  const upRef = Math.abs(z.dot(worldUp)) > 0.9 ? Vector3d.unitY() : worldUp;
-  const y = upRef.subtract(z.multiply(upRef.dot(z))).normalize();
-  return y.cross(z).normalize();
-}
-
-function computeFaceBoundingBoxCenter(face: TopoDS_Face): Point {
-  const oc = getOC();
-  const bbox = new oc.Bnd_Box();
-  oc.BRepBndLib.Add(face, bbox, true);
-  const minPnt = bbox.CornerMin();
-  const maxPnt = bbox.CornerMax();
-  const result = new Point(
-    (minPnt.X() + maxPnt.X()) / 2,
-    (minPnt.Y() + maxPnt.Y()) / 2,
-    (minPnt.Z() + maxPnt.Z()) / 2,
-  );
-  minPnt.delete();
-  maxPnt.delete();
-  bbox.delete();
-  return result;
 }
 
 export function isConnectorInput(value: unknown): value is ConnectorInput {

@@ -70,6 +70,16 @@ type SceneManager = {
     before?: SelectionBoundary,
   ): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
+  // may predate connector anchor suggestions.
+  suggestConnectorAnchors?(
+    scene: any,
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    options?: {
+      namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      params?: { name: string; value: number }[];
+    },
+  ): any;
+  // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate the 2D target resolver (offset edit seeding). The options
   // arg (text-path seeding needs guides) is ignored by kernels predating it.
   resolveSketchStatementTargets?(scene: any, descriptors: unknown[], options?: { includeGuides?: boolean }): any;
@@ -1180,6 +1190,11 @@ export class FluidCadServer {
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       params?: { name: string; value: number }[];
+      connector?: {
+        anchor?: { kind: string; mode?: string; value?: number };
+        rotate?: { axis: 'x' | 'y' | 'z'; angle: number };
+        offset?: [number, number, number];
+      };
     },
     before?: SelectionBoundary,
   ): any {
@@ -1191,6 +1206,32 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.synthesizeApplyFeature(scene, refs, feature, value, chains, options, before);
+  }
+
+  /**
+   * Hover-time connector anchor suggestions for a picked face/edge: exact
+   * anchor frames plus the synthesized source expression and a free default
+   * name. Read-only over the rendered scene.
+   */
+  suggestConnectorAnchors(
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    options?: {
+      namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      params?: { name: string; value: number }[];
+    },
+  ): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    if (!this.sceneManager.suggestConnectorAnchors) {
+      // Workspace kernel predates connector anchor suggestions.
+      return { ok: false, reason: 'the workspace fluidcad version does not support connector suggestions — update fluidcad' };
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.suggestConnectorAnchors(scene, ref, options);
   }
 
   /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */

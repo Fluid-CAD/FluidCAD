@@ -14,10 +14,10 @@ interface Revolve extends BooleanOperation {
   pick(...points: Point2DLike[]): this;
   thin(offset: NumberParam): this;
   thin(offset1: NumberParam, offset2: NumberParam): this;
-  internalFaces(...args: (number | FaceFilter)[]): SceneObject;
-  internalEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  capFaces(...args: (number | FaceFilter)[]): SceneObject;
-  capEdges(...args: (number | EdgeFilter)[]): SceneObject;
+  internalFaces(...args: (number | FaceFilter)[]): ISelection;
+  internalEdges(...args: (number | EdgeFilter)[]): ISelection;
+  capFaces(...args: (number | FaceFilter)[]): ISelection;
+  capEdges(...args: (number | EdgeFilter)[]): ISelection;
 }
 ```
 
@@ -58,7 +58,7 @@ outward, negative values offset inward.
 Selects faces created inside the solid during revolution (e.g., the inner
 wall of a thin-walled revolve from a closed profile).
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -68,7 +68,7 @@ wall of a thin-walled revolve from a closed profile).
 
 Selects edges bounding the internal geometry created during revolution.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -79,7 +79,7 @@ Selects edges bounding the internal geometry created during revolution.
 Selects the cap faces at the open ends of a thin-walled revolve from an open profile.
 These are the small faces connecting the inner and outer walls at the profile endpoints.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -89,7 +89,7 @@ These are the small faces connecting the inner and outer walls at the profile en
 
 Selects edges on the cap faces of a thin-walled revolve from an open profile.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |

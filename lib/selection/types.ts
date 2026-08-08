@@ -158,8 +158,17 @@ export type ApplyFeatureEditSpec = {
    * Connector-only payload: the name the statement registers, plus the call
    * site of the `part(...)` block whose callback body receives the statement
    * (insertion goes at the end of that body, before a trailing `return`).
+   * `anchor` narrows the source to a well-known point (`.center()` etc.);
+   * `rotate` / `offset` render the dialog's `.rotate('<axis>', n)` /
+   * `.offset(...)` chain after the call.
    */
-  connector?: { name: string; part: { line: number; column: number } };
+  connector?: {
+    name: string;
+    part: { line: number; column: number };
+    anchor?: ConnectorAnchor;
+    rotate?: { axis: ConnectorRotateAxis; angle: number };
+    offset?: [number, number, number];
+  };
   filePath: string;
   producers: {
     line: number;
@@ -242,7 +251,67 @@ export type ProducerNamer = (producers: {
 export type SynthesizeOptions = {
   namer?: ProducerNamer;
   params?: { name: string; value: number }[];
+  /** Connector-only: anchor + dialog adjustments to fold into the statement. */
+  connector?: ConnectorSynthesisOptions;
 };
+
+/**
+ * A well-known point on the connector's picked face or edge — the selection
+ * anchor the statement narrows to (`select(...).center()`,
+ * `e.startEdges(0).offset('relative', 0.3)`). `start`/`end`/`offset` need an
+ * edge pick; `center` works on faces and edges alike.
+ */
+export type ConnectorAnchor =
+  | { kind: 'center' | 'start' | 'end' }
+  | { kind: 'offset'; mode: 'relative' | 'absolute'; value: number };
+
+export type ConnectorRotateAxis = 'x' | 'y' | 'z';
+
+/** Dialog adjustments chained after the connector call. */
+export type ConnectorSynthesisOptions = {
+  anchor?: ConnectorAnchor;
+  /** Rotation around one of the connector's local axes, in degrees; skipped when a multiple of 360. */
+  rotate?: { axis: ConnectorRotateAxis; angle: number };
+  /** Frame-local offset [x, y, z]; skipped when all zero, trailing zeros trimmed. */
+  offset?: [number, number, number];
+};
+
+/** `.center()` / `.offset('relative', 0.3)` — appended to the source selector. */
+export function renderConnectorAnchorSuffix(anchor: ConnectorAnchor | undefined): string {
+  if (!anchor) {
+    return '';
+  }
+  if (anchor.kind === 'offset') {
+    return `.offset('${anchor.mode}', ${anchor.value})`;
+  }
+  return `.${anchor.kind}()`;
+}
+
+/** `.rotate('x', 90).offset(0, 0, 5)` — chained after the connector call. */
+export function renderConnectorAdjustments(
+  options: {
+    rotate?: { axis: ConnectorRotateAxis; angle: number };
+    offset?: [number, number, number];
+  } | undefined,
+): string {
+  if (!options) {
+    return '';
+  }
+  let out = '';
+  const rotate = options.rotate;
+  if (rotate && Number.isFinite(rotate.angle) && rotate.angle % 360 !== 0) {
+    out += `.rotate('${rotate.axis}', ${rotate.angle})`;
+  }
+  const offset = options.offset;
+  if (offset && offset.some(v => v !== 0)) {
+    const values = [...offset];
+    while (values.length > 1 && values[values.length - 1] === 0) {
+      values.pop();
+    }
+    out += `.offset(${values.join(', ')})`;
+  }
+  return out;
+}
 
 /**
  * Chain-root callees the code transform accepts at a producer's source line.

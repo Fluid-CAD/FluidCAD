@@ -10,14 +10,14 @@ seeAlso: [api/rib, api/types/boolean-operation]
 
 ```ts
 interface Rib extends BooleanOperation {
-  startFaces(...args: (number | FaceFilter)[]): SceneObject;
-  endFaces(...args: (number | FaceFilter)[]): SceneObject;
-  sideFaces(...args: (number | FaceFilter)[]): SceneObject;
-  capFaces(...args: (number | FaceFilter)[]): SceneObject;
-  startEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  endEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  sideEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  capEdges(...args: (number | EdgeFilter)[]): SceneObject;
+  startFaces(...args: (number | FaceFilter)[]): ISelection;
+  endFaces(...args: (number | FaceFilter)[]): ISelection;
+  sideFaces(...args: (number | FaceFilter)[]): ISelection;
+  capFaces(...args: (number | FaceFilter)[]): ISelection;
+  startEdges(...args: (number | EdgeFilter)[]): ISelection;
+  endEdges(...args: (number | EdgeFilter)[]): ISelection;
+  sideEdges(...args: (number | EdgeFilter)[]): ISelection;
+  capEdges(...args: (number | EdgeFilter)[]): ISelection;
   draft(value: NumberParam | [NumberParam, NumberParam]): this;
   parallel(): this;
   extend(): this;
@@ -32,7 +32,7 @@ Extends [[api/types/boolean-operation]].
 
 Selects faces at the start (base) of the rib — the profile face at the sketch plane.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -42,7 +42,7 @@ Selects faces at the start (base) of the rib — the profile face at the sketch 
 
 Selects faces at the end (top) of the rib — where the rib meets the boundary.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -52,7 +52,7 @@ Selects faces at the end (top) of the rib — where the rib meets the boundary.
 
 Selects the lateral wall faces of the rib.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ Selects the lateral wall faces of the rib.
 
 Selects the small cap faces at the spine endpoints.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -72,7 +72,7 @@ Selects the small cap faces at the spine endpoints.
 
 Selects edges on the start faces.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -82,7 +82,7 @@ Selects edges on the start faces.
 
 Selects edges on the end faces.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -92,7 +92,7 @@ Selects edges on the end faces.
 
 Selects edges on the side faces, excluding edges shared with start/end faces.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -102,7 +102,7 @@ Selects edges on the side faces, excluding edges shared with start/end faces.
 
 Selects edges on the cap faces.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |

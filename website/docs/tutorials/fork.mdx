@@ -32,7 +32,7 @@ The whole side profile is built up in a single sketch on the front plane: a U-sh
 ```js
 sketch("front", () => {
     arc(18)
-    offset(-36 + 18).close()
+    offset(18).close();
     move([18, 0])
     const r = rect(18, -40)
     mirror(local("y"), r)
@@ -41,7 +41,7 @@ sketch("front", () => {
 });
 ```
 
-`arc(18)` draws a semicircular arc of radius 18 from the origin — this is the inner edge of the arch. `offset(-36 + 18).close()` adds a parallel arc 18 units away and closes both ends, giving the arch a wall thickness of 18.
+`arc(18)` draws a semicircular arc of radius 18 from the origin — this is the inner edge of the arch. `offset(18).close()` adds a parallel arc 18 units away and closes both ends, giving the arch a wall thickness of 18.
 
 `move([18, 0])` jumps the cursor to the right side of the arch, and `rect(18, -40)` drops an 18 x 40 leg straight down. `mirror(local("y"), r)` reflects that leg across the sketch's local Y-axis to produce the matching left leg.
 

@@ -57,10 +57,14 @@ Navigate through your modeling history step by step. Review how any model was bu
   <img src="https://fluidcad.io/img/history.gif" alt="FluidCAD History" />
 </p>
 
-### Interactive Prototyping
+### Model with the Mouse
 
-Some operations support interactive mouse-driven input directly in the viewport, letting you prototype faster without writing every parameter by hand.
+Prefer clicking? Pick geometry in the viewport, fill in a dialog, and FluidCAD writes the statement into your file -- sketches, extrude, revolve, sweep, loft, shell, fillet, chamfer, repeat, booleans and more. Double-click a timeline row to reopen the same dialog and edit that feature in place.
 
+It's a companion to the code, not a replacement: everything it produces is ordinary FluidCAD code you can keep editing by hand.
+<p align="center">
+<img width="1901" height="1290" alt="image" src="https://github.com/user-attachments/assets/aeb3afef-0e35-480a-a43d-48c97d2872f4" />
+</p>
 <p align="center">
   <img src="https://fluidcad.io/img/region-extrude.gif" alt="FluidCAD Region Extrude" />
 </p>
@@ -247,7 +251,7 @@ This starts a local server and opens a 3D viewport in your browser. Edit your `.
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-w, --workspace <path>` | Path to your project | Current directory |
-| `-p, --port <port>` | Server port | `3100` |
+| `-p, --port <port>` | Server port -- if it's taken, the next free one is used | `3100` |
 | `--open` | Open the viewport in your default browser when ready | _off_ |
 
 </details>
@@ -314,6 +318,34 @@ npx skills add Fluid-CAD/FluidCAD
 ```
 
 See the [MCP README](mcp/README.md) for the full tool surface, transport details, and local-testing guide.
+
+### 4. (Optional) Export from the Command Line
+
+Turn a model into a STEP, STL, or PNG without leaving the terminal:
+
+```bash
+npx fluidcad export step                     # every shape -> <entry>.step
+npx fluidcad export stl --resolution fine
+npx fluidcad export png --view front --open
+```
+
+If a FluidCAD server is already running for the project (started by `serve` or an editor extension), the CLI exports the scene that server is showing. Otherwise it starts one, renders your model, exports, and shuts it down again.
+
+**Options (all three formats):**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-w, --workspace <path>` | Path to your project | Current directory |
+| `-e, --entry <file>` | Which `.fluid.js` to render | The workspace's only one |
+| `-o, --out <path>` | Output file | `<entry>.<ext>` in the current directory |
+| `-p, --port <port>` | Export from the running server on this port | Auto-discovered |
+| `--timeout <sec>` | Seconds to wait for the server (and, for `png`, for a browser) | `60` |
+
+`step` and `stl` add `--shapes` (a subset, by position, feature name, or id) and `--list-shapes`. `step` adds `--no-colors`. `stl` adds `--resolution coarse|medium|fine|custom` plus `--linear-deflection <mm>` / `--angular-deflection <deg>`. `png` adds `--view`, `--width`, `--height`, `--transparent`, `--show-axes`, `--no-grid`, `--no-auto-crop`, `--no-fit`, `--margin`, and `--open`.
+
+> **PNG needs a browser.** Screenshots are rendered by the FluidCAD viewport itself, so a browser has to be connected to the server. Pass `--open` and the CLI launches one for you.
+
+Run `npx fluidcad export step --help` (or `stl` / `png`) for the full flag reference.
 
 
 ---

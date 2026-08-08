@@ -1,13 +1,15 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { LazyMatrix } from "../math/lazy-matrix.js";
+import { RepeatBase } from "./repeat-base.js";
 
-export class RepeatMatrix extends SceneObject {
+export class RepeatMatrix extends RepeatBase {
 
   constructor(
     private _matrix: LazyMatrix,
     public targetObjects: SceneObject[],
-    private sources: SceneObject[] = [],
+    /** The axis statement a `rotate` turns around, when it names one. */
+    public sources: SceneObject[] = [],
   ) {
     super();
     this.setAlwaysVisible();

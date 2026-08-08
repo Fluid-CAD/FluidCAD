@@ -1,7 +1,8 @@
 export type DragHitResult = {
   sourceLocation: { line: number; column: number };
   uniqueType: string;
-  hitZone: 'start' | 'end' | 'body' | 'center';
+  // 'angle' is the aline angle indicator (double-click dimension edit only).
+  hitZone: 'start' | 'end' | 'body' | 'center' | 'angle';
   anchorPoint?: [number, number];
   fixedVertex?: [number, number];
   fixedVertex2?: [number, number];
@@ -10,8 +11,22 @@ export type DragHitResult = {
   draggedVertices?: [number, number][];
   arcCCW?: boolean;
   arcArgCount?: number;
+  /**
+   * The tArc statement's radius argument is negative (start-reversed leave).
+   * The to-target overload cannot express that form, so the end-drag edge
+   * snap is not offered.
+   */
+  tarcRadiusNegative?: boolean;
   tangentDir?: [number, number];
   rectCentered?: boolean;
+  rectDim?: 'width' | 'height' | 'radius';
+  rectRadiusArgOffset?: number;
+  /** Sign of the statement's width/height args — the rect's own frame, so a
+   * resize keeps its orientation instead of normalising to positive dims. */
+  rectSignW?: number;
+  rectSignH?: number;
+  /** The corner the source counts from (or the pen, for a chained rect). */
+  rectStart?: [number, number];
   bezierPoleIndex?: number;
   bezierPoles?: [number, number][];
   polygonSides?: number;

@@ -1,3 +1,4 @@
+import { captureSourceLocation } from "../index.js";
 import { getParamRegistry, type ControlType, type MultiControlType, type SelectOption, type ParamDefinition } from "../param-registry.js";
 
 export type ParamType = 'number' | 'slider' | 'text' | 'select' | 'checkbox' | 'color';
@@ -55,6 +56,10 @@ export class ParamValue<T extends string | number | boolean> {
         : typeof defaultValue === 'number' ? 'number'
         : 'text',
     };
+    const sourceLocation = captureSourceLocation();
+    if (sourceLocation) {
+      this._definition.sourceLocation = sourceLocation;
+    }
     registry.register(this._definition);
   }
 
@@ -177,6 +182,11 @@ export default function param(
     currentValue: value,
     controlType,
   };
+
+  const sourceLocation = captureSourceLocation();
+  if (sourceLocation) {
+    definition.sourceLocation = sourceLocation;
+  }
 
   if (options) {
     if ('group' in options && options.group != null) { definition.group = options.group; }

@@ -20,9 +20,13 @@ common(...objects)                     // intersection
 ```
 
 The no-argument forms operate on the implicit last objects in scope; the
-explicit forms operate on the arguments you pass. Most modeling work can
-rely on auto-fusion (touching solids merge automatically and `.remove()`
-chained on `extrude` already covers subtraction). Reach for these when:
+explicit forms operate on the arguments you pass. Inside a sketch these
+dispatch to their 2D variants: operands may be sketch geometries, edge
+accessors (`r.edge('top')`), or edge filters (`edge().circle()`), and a
+bare `fuse()`/`common()` consumes a preceding sketch-scoped `select(...)`.
+Most modeling work can rely on auto-fusion (touching solids merge
+automatically and `.remove()` chained on `extrude` already covers
+subtraction). Reach for these when:
 
 - You need to fuse non-touching solids deliberately.
 - An op didn't auto-fuse the way you wanted and you want to be explicit.

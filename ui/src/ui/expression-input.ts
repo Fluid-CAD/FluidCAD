@@ -1,22 +1,12 @@
+import {
+  applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
+  suggestionItemHtml, trailingIdentifier, Suggestion, VariableInfo,
+} from './expression-core';
+
+export type { VariableInfo };
+
 const OFFSET_X = 16;
 const OFFSET_Y = -36;
-
-const IDENT_RE = /^[a-zA-Z_$][\w$]*$/;
-const ASSIGNMENT_RE = /^([a-zA-Z_$][\w$]*)\s*=\s*(.+?)\s*;?\s*$/;
-const RESERVED = new Set([
-  'const', 'let', 'var', 'if', 'else', 'for', 'while', 'do', 'return', 'function',
-  'class', 'new', 'this', 'true', 'false', 'null', 'undefined', 'typeof', 'instanceof',
-  'switch', 'case', 'break', 'continue', 'default', 'try', 'catch', 'finally', 'throw',
-  'in', 'of', 'delete', 'void', 'yield', 'async', 'await', 'import', 'export', 'from',
-  'as', 'extends', 'super', 'static', 'enum', 'interface', 'implements', 'package',
-  'private', 'protected', 'public',
-]);
-
-function isValidNewIdentifier(s: string): boolean {
-  return IDENT_RE.test(s) && !RESERVED.has(s);
-}
-
-export type VariableInfo = { name: string; initializer?: string };
 
 export type CommitResult = {
   expression: string;
@@ -25,6 +15,9 @@ export type CommitResult = {
 
 export type ExpressionInputOptions = {
   label: string;
+  /** The field's opening value — a plain number; it seeds any new variable
+   * declared over it. An existing source expression is shown with
+   * `seedExpression` instead. */
   value: string;
   clientX: number;
   clientY: number;
@@ -40,12 +33,17 @@ export class ExpressionInput {
   private label: HTMLSpanElement;
   private dropdown: HTMLDivElement;
   private errorEl: HTMLDivElement;
+  private paramBtn: HTMLButtonElement;
+  private paramMode = false;
+  private paramAvailable = false;
   private onCommit: ((result: CommitResult) => void) | null = null;
   private visible = false;
   private userIsTyping = false;
   private variables: VariableInfo[] = [];
-  private filteredVars: VariableInfo[] = [];
+  private filteredVars: Suggestion[] = [];
   private selectedIndex = -1;
+  /** The last plain-number text the field held — a new variable's initializer.
+   * Never an expression: see `seedExpression`. */
   private seedValue = '';
   private errorVisible = false;
   private numericOnly = false;
@@ -59,6 +57,8 @@ export class ExpressionInput {
       <div class="expression-wrapper flex items-center gap-1.5 panel-bg border border-base-content/10 rounded-md px-2 py-1 shadow-lg">
         <span class="text-xs text-base-content/50 select-none expression-label"></span>
         <input type="text" class="bg-transparent border-none outline-none text-sm text-base-content w-24 font-mono expression-input" />
+        <button type="button" tabindex="-1" title="Declare as parameter — param()"
+          class="hidden shrink-0 w-5 h-5 rounded text-xs font-mono font-semibold border cursor-pointer select-none expression-param-btn"></button>
       </div>
       <div class="mt-1 panel-bg border border-base-content/10 rounded-md shadow-lg max-h-[150px] overflow-y-auto hidden expression-dropdown"></div>
       <div class="mt-1 bg-red-500/90 text-white text-xs rounded-md px-2 py-1 shadow-lg hidden expression-error"></div>
@@ -70,6 +70,17 @@ export class ExpressionInput {
     this.label = this.el.querySelector('.expression-label')!;
     this.dropdown = this.el.querySelector('.expression-dropdown')!;
     this.errorEl = this.el.querySelector('.expression-error')!;
+    this.paramBtn = this.el.querySelector('.expression-param-btn')!;
+    this.paramBtn.textContent = 'P';
+    this.renderParamButton();
+
+    // mousedown would blur the input; toggle without stealing focus.
+    this.paramBtn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.paramMode = !this.paramMode;
+      this.renderParamButton();
+    });
 
     this.input.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') {
@@ -93,7 +104,7 @@ export class ExpressionInput {
       if (e.key === 'Enter') {
         e.preventDefault();
         if (this.selectedIndex >= 0 && this.selectedIndex < this.filteredVars.length) {
-          this.input.value = this.filteredVars[this.selectedIndex].name;
+          this.applyVariableName(this.filteredVars[this.selectedIndex].name);
         }
         this.commit();
         return;
@@ -113,10 +124,12 @@ export class ExpressionInput {
     });
 
     this.input.addEventListener('input', () => {
-      this.userIsTyping = true;
+      // An emptied field resumes live value updates from the mouse.
+      this.userIsTyping = this.input.value.length > 0;
       if (this.errorVisible) {
         this.clearInlineError();
       }
+      this.updateParamAvailability();
       this.filterAndRender();
     });
 
@@ -138,6 +151,7 @@ export class ExpressionInput {
     this.visible = true;
     this.userIsTyping = false;
     this.selectedIndex = -1;
+    this.paramMode = false;
     this.seedValue = opts.value;
     this.el.classList.remove('hidden');
     this.updatePosition(opts.clientX, opts.clientY);
@@ -145,6 +159,7 @@ export class ExpressionInput {
     this.input.focus();
     this.input.select();
     this.clearInlineError();
+    this.updateParamAvailability();
     this.filterAndRender();
   }
 
@@ -169,14 +184,38 @@ export class ExpressionInput {
     return el instanceof Node && this.el.contains(el);
   }
 
-  updateValue(value: number | string): void {
+  /** The geometry's live value while drawing or dragging — fills the field and
+   * seeds the initializer a new variable would be declared with. */
+  updateValue(value: number): void {
+    if (!this.visible) {
+      return;
+    }
+    const str = String(Math.round(value * 100) / 100);
+    this.seedValue = str;
+    if (this.userIsTyping) {
+      // Keep the typed text, but the new-variable suggestion tracks the live value.
+      this.filterAndRender(true);
+      return;
+    }
+    this.input.value = str;
+    this.input.select();
+    this.updateParamAvailability();
+  }
+
+  /**
+   * The dimension's existing source expression, seeded once the code read
+   * resolves behind a double-click. Text only: the seed keeps the numeric
+   * value the field opened with, so naming this dimension declares the number
+   * rather than a copy of the expression — a `param()` lands at the top of the
+   * file, above anything the expression could reference.
+   */
+  seedExpression(expression: string): void {
     if (!this.visible || this.userIsTyping) {
       return;
     }
-    const str = typeof value === 'string' ? value : String(Math.round(value * 100) / 100);
-    this.input.value = str;
-    this.seedValue = str;
+    this.input.value = expression;
     this.input.select();
+    this.updateParamAvailability();
   }
 
   updatePosition(clientX: number, clientY: number): void {
@@ -210,7 +249,8 @@ export class ExpressionInput {
     if (!this.onCommit) {
       return false;
     }
-    const classified = this.classifyCommit(raw);
+    const asParam = this.paramMode && this.paramAvailable;
+    const classified = classifyCommit(raw, this.variables, this.seedValue, this.numericOnly, asParam);
     if (classified.kind === 'error') {
       this.showInlineError(classified.message);
       return false;
@@ -227,49 +267,22 @@ export class ExpressionInput {
     return true;
   }
 
-  private classifyCommit(raw: string):
-    | { kind: 'expression'; expression: string }
-    | { kind: 'declare'; name: string; initializer: string }
-    | { kind: 'error'; message: string } {
-    if (this.numericOnly) {
-      const num = parseFloat(raw);
-      if (isNaN(num)) {
-        return { kind: 'error', message: 'Enter a numeric value' };
-      }
-      return { kind: 'expression', expression: raw };
-    }
+  /** The P toggle rides any input that would declare a new variable — an
+   * explicit `name = value`, or a fresh name with no dropdown match. */
+  private updateParamAvailability(): void {
+    this.paramAvailable = !this.numericOnly
+      && declaredVariableName(this.input.value.trim(), this.variables, this.seedValue) !== null;
+    this.renderParamButton();
+  }
 
-    const assignMatch = raw.match(ASSIGNMENT_RE);
-    if (assignMatch) {
-      const name = assignMatch[1];
-      const rhs = assignMatch[2].trim();
-      if (!isValidNewIdentifier(name)) {
-        return { kind: 'error', message: `'${name}' is not a valid name` };
-      }
-      if (this.variables.some((v) => v.name === name)) {
-        return { kind: 'error', message: `'${name}' is already defined` };
-      }
-      if (!rhs) {
-        return { kind: 'error', message: 'Missing value' };
-      }
-      return { kind: 'declare', name, initializer: rhs };
-    }
-
-    if (IDENT_RE.test(raw)) {
-      if (this.variables.some((v) => v.name === raw)) {
-        return { kind: 'expression', expression: raw };
-      }
-      if (!isValidNewIdentifier(raw)) {
-        return { kind: 'expression', expression: raw };
-      }
-      const initializer = this.seedValue.trim();
-      if (!initializer) {
-        return { kind: 'error', message: 'No value to assign' };
-      }
-      return { kind: 'declare', name: raw, initializer };
-    }
-
-    return { kind: 'expression', expression: raw };
+  private renderParamButton(): void {
+    this.paramBtn.classList.toggle('hidden', !this.paramAvailable);
+    const active = this.paramMode;
+    this.paramBtn.classList.toggle('bg-primary/20', active);
+    this.paramBtn.classList.toggle('text-primary', active);
+    this.paramBtn.classList.toggle('border-primary/40', active);
+    this.paramBtn.classList.toggle('text-base-content/40', !active);
+    this.paramBtn.classList.toggle('border-base-content/20', !active);
   }
 
   private showInlineError(msg: string): void {
@@ -307,33 +320,32 @@ export class ExpressionInput {
 
   private fillSelected(): void {
     if (this.selectedIndex >= 0 && this.selectedIndex < this.filteredVars.length) {
-      this.input.value = this.filteredVars[this.selectedIndex].name;
+      this.applyVariableName(this.filteredVars[this.selectedIndex].name);
       this.userIsTyping = true;
       this.filterAndRender();
     }
   }
 
-  private filterAndRender(): void {
-    if (this.numericOnly) {
+  private filterAndRender(preserveSelection = false): void {
+    const prevIndex = this.selectedIndex;
+    const query = this.userIsTyping && !this.numericOnly
+      ? trailingIdentifier(this.input.value)
+      : null;
+    if (!query) {
       this.filteredVars = [];
       this.selectedIndex = -1;
       this.renderDropdown();
       return;
     }
-    if (!this.userIsTyping) {
-      this.filteredVars = [...this.variables];
-    } else {
-      const query = this.input.value.trim().toLowerCase();
-      if (!query) {
-        this.filteredVars = [...this.variables];
-      } else {
-        this.filteredVars = this.variables.filter(
-          (v) => v.name.toLowerCase().includes(query),
-        );
-      }
-    }
-    this.selectedIndex = -1;
+    this.filteredVars = filterSuggestions(query, this.variables, this.input.value, this.seedValue);
+    this.selectedIndex = preserveSelection && prevIndex >= 0 && prevIndex < this.filteredVars.length
+      ? prevIndex
+      : this.filteredVars.length > 0 ? 0 : -1;
     this.renderDropdown();
+  }
+
+  private applyVariableName(name: string): void {
+    this.input.value = applyVariableName(this.input.value, name);
   }
 
   private renderDropdown(): void {
@@ -343,11 +355,7 @@ export class ExpressionInput {
     }
     this.dropdown.classList.remove('hidden');
     this.dropdown.innerHTML = this.filteredVars
-      .map((v, i) => {
-        const active = i === this.selectedIndex ? 'bg-primary/10' : '';
-        const hint = v.initializer ? `<span class="text-base-content/40 ml-2">= ${this.escapeHtml(this.truncate(v.initializer, 20))}</span>` : '';
-        return `<div class="px-2 py-1 text-sm font-mono cursor-pointer hover:bg-primary/10 ${active}" data-idx="${i}">${this.escapeHtml(v.name)}${hint}</div>`;
-      })
+      .map((v, i) => suggestionItemHtml(v, i, i === this.selectedIndex))
       .join('');
 
     this.dropdown.querySelectorAll('[data-idx]').forEach((item) => {
@@ -355,7 +363,7 @@ export class ExpressionInput {
         e.preventDefault();
         e.stopPropagation();
         const idx = parseInt((item as HTMLElement).dataset.idx!, 10);
-        this.input.value = this.filteredVars[idx].name;
+        this.applyVariableName(this.filteredVars[idx].name);
         this.commit();
       });
     });
@@ -366,13 +374,5 @@ export class ExpressionInput {
         activeEl.scrollIntoView({ block: 'nearest' });
       }
     }
-  }
-
-  private escapeHtml(str: string): string {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
-  private truncate(str: string, max: number): string {
-    return str.length > max ? str.slice(0, max) + '...' : str;
   }
 }

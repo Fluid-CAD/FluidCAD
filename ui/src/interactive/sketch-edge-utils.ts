@@ -5,6 +5,7 @@ const INTERACTIVE_SKETCH_TYPES = new Set([
   'circle',
   'arc', 'arc-from-center',
   'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
+  'tarc-radius-to-point',
   'tline',
   'trim2d',
   'rect',
@@ -22,6 +23,30 @@ export function isInteractiveSketchType(uniqueType: string | undefined): boolean
   return INTERACTIVE_SKETCH_TYPES.has(uniqueType);
 }
 
+/**
+ * Whether the geometry's statement can be edited by dragging in the viewport.
+ * Server-driven via `interactivity`; the type allow-list is a fallback for
+ * older payloads.
+ */
+export function isDraggableSketchObject(obj: SceneObjectRender): boolean {
+  if (obj.interactivity) {
+    return obj.interactivity === 'draggable';
+  }
+  return isInteractiveSketchType(obj.uniqueType);
+}
+
+/**
+ * Whether the geometry can be hovered/picked as an operation target. Derived
+ * geometry (offset results, projections, mirror copies) is selectable even
+ * though it is not draggable.
+ */
+export function isSelectableSketchObject(obj: SceneObjectRender): boolean {
+  if (obj.interactivity) {
+    return obj.interactivity === 'draggable' || obj.interactivity === 'selectable';
+  }
+  return isInteractiveSketchType(obj.uniqueType);
+}
+
 export type EdgeEntry = {
   shapeId: string;
   segments: { ax: number; ay: number; bx: number; by: number }[];
@@ -32,6 +57,7 @@ export function buildEdgeIndex(
   sceneObjects: SceneObjectRender[],
   sketchId: string,
   plane: PlaneData,
+  options: { includeGuides?: boolean } = {},
 ): EdgeEntry[] {
   const result: EdgeEntry[] = [];
   const ox = plane.origin.x, oy = plane.origin.y, oz = plane.origin.z;
@@ -47,7 +73,7 @@ export function buildEdgeIndex(
     if (obj.parentId !== sketchId) {
       continue;
     }
-    if (!isInteractiveSketchType(obj.uniqueType)) {
+    if (!isSelectableSketchObject(obj)) {
       continue;
     }
     for (const shape of obj.sceneShapes) {
@@ -55,11 +81,15 @@ export function buildEdgeIndex(
         continue;
       }
       if (hasTrimMeta) {
-        if (shape.metaType !== 'trim') {
+        // A trim replaces the profile's display shapes with its 'trim' meta
+        // segments; guides are never consumed by trim, so they stay
+        // indexable alongside when requested.
+        const guidePass = options.includeGuides === true && shape.isGuide && !shape.isMetaShape;
+        if (shape.metaType !== 'trim' && !guidePass) {
           continue;
         }
       } else {
-        if (shape.isMetaShape || shape.isGuide) {
+        if (shape.isMetaShape || (shape.isGuide && options.includeGuides !== true)) {
           continue;
         }
       }
@@ -108,6 +138,140 @@ export function buildEdgeIndex(
   return result;
 }
 
+/** A tArc snap candidate: one edge of a single-edge geometry statement. */
+export type TarcTargetEntry = {
+  shapeId: string;
+  segments: EdgeEntry['segments'];
+  /** Source line of the producing statement (self/later-statement exclusion). */
+  ownerLine: number;
+};
+
+/**
+ * Snap candidates for a tangent-arc-to-target reference: edges of
+ * single-edge geometries in this sketch, guide edges included —
+ * construction geometry is the classic thing to arc up to. The kernel's
+ * `tArc(radius, target)` resolves the target through the owner's FIRST
+ * shape, so multi-edge owners (rect, polygon) are excluded — on those the
+ * arc would silently aim at an arbitrary edge. Owners without a source
+ * location can't be bound to a variable and are excluded too.
+ */
+export function buildTarcTargetIndex(
+  sceneObjects: SceneObjectRender[],
+  sketchId: string,
+  plane: PlaneData,
+): TarcTargetEntry[] {
+  const ownerByShapeId = new Map<string, SceneObjectRender>();
+  for (const obj of sceneObjects) {
+    if (obj.parentId !== sketchId) {
+      continue;
+    }
+    for (const shape of obj.sceneShapes) {
+      if (shape.shapeId) {
+        ownerByShapeId.set(shape.shapeId, obj);
+      }
+    }
+  }
+
+  const entries = buildEdgeIndex(sceneObjects, sketchId, plane, { includeGuides: true });
+  const entriesPerOwner = new Map<SceneObjectRender, number>();
+  for (const entry of entries) {
+    const owner = ownerByShapeId.get(entry.shapeId);
+    if (owner) {
+      entriesPerOwner.set(owner, (entriesPerOwner.get(owner) ?? 0) + 1);
+    }
+  }
+
+  const result: TarcTargetEntry[] = [];
+  for (const entry of entries) {
+    const owner = ownerByShapeId.get(entry.shapeId);
+    if (!owner || !owner.sourceLocation || entriesPerOwner.get(owner) !== 1) {
+      continue;
+    }
+    result.push({ shapeId: entry.shapeId, segments: entry.segments, ownerLine: owner.sourceLocation.line });
+  }
+  return result;
+}
+
+/** A text-path pick candidate: one whole sketch geometry, hit-tested by all its edges. */
+export type PathTargetEntry = {
+  /** One shapeId of the owner — the server resolves the pick owner-level. */
+  shapeId: string;
+  /** Every edge shapeId of the owner — the viewport highlight tints them all. */
+  shapeIds: string[];
+  /** Every segment of the owner's edges, in sketch-plane 2D. */
+  segments: EdgeEntry['segments'];
+  /** The owning statement row; chip labels and ordering checks read it. */
+  owner: SceneObjectRender;
+};
+
+/**
+ * Pick candidates for a text path (`text("Hi", path)`): whole sketch
+ * geometries — text chains ALL edges of the picked geometry into a wire, so
+ * hits are owner-level, and multi-edge owners (rect, polygon, slot) are
+ * valid. Guide edges are included — marking the path `.guide()` is the
+ * classic way to keep it out of the extruded profile. Owners without a
+ * source location can't be bound to a variable and are excluded.
+ */
+export function buildPathTargetIndex(
+  sceneObjects: SceneObjectRender[],
+  sketchId: string,
+  plane: PlaneData,
+): PathTargetEntry[] {
+  const ownerByShapeId = new Map<string, SceneObjectRender>();
+  for (const obj of sceneObjects) {
+    if (obj.parentId !== sketchId) {
+      continue;
+    }
+    for (const shape of obj.sceneShapes) {
+      if (shape.shapeId) {
+        ownerByShapeId.set(shape.shapeId, obj);
+      }
+    }
+  }
+
+  const entries = buildEdgeIndex(sceneObjects, sketchId, plane, { includeGuides: true });
+  const grouped = new Map<SceneObjectRender, PathTargetEntry>();
+  for (const entry of entries) {
+    const owner = ownerByShapeId.get(entry.shapeId);
+    if (!owner || !owner.sourceLocation) {
+      continue;
+    }
+    const existing = grouped.get(owner);
+    if (existing) {
+      existing.shapeIds.push(entry.shapeId);
+      existing.segments.push(...entry.segments);
+    } else {
+      grouped.set(owner, {
+        shapeId: entry.shapeId,
+        shapeIds: [entry.shapeId],
+        segments: [...entry.segments],
+        owner,
+      });
+    }
+  }
+  return [...grouped.values()];
+}
+
+/** The nearest path candidate within `threshold` of a sketch-plane point, or null. */
+export function hitTestPathTargets(
+  entries: PathTargetEntry[],
+  point2d: [number, number],
+  threshold: number,
+): PathTargetEntry | null {
+  let best: PathTargetEntry | null = null;
+  let bestDist = threshold;
+  for (const entry of entries) {
+    for (const s of entry.segments) {
+      const d = pointToSegmentDist(point2d[0], point2d[1], s.ax, s.ay, s.bx, s.by);
+      if (d < bestDist) {
+        bestDist = d;
+        best = entry;
+      }
+    }
+  }
+  return best;
+}
+
 export type CenterEntry = {
   shapeId: string;
   point2d: [number, number];
@@ -115,6 +279,7 @@ export type CenterEntry = {
 
 const ARC_UNIQUE_TYPES = new Set([
   'arc', 'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
+  'tarc-radius-to-point',
   'slot',
 ]);
 
@@ -132,7 +297,7 @@ export function buildCenterIndex(
     if (obj.parentId !== sketchId) {
       continue;
     }
-    if (!isInteractiveSketchType(obj.uniqueType)) {
+    if (!isDraggableSketchObject(obj)) {
       continue;
     }
 

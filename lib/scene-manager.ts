@@ -3,6 +3,11 @@ import { AssemblyScene, SerializedInstance, SerializedMate } from "./rendering/a
 import { SceneRenderer } from "./rendering/render.js";
 import { SceneCompare } from "./rendering/scene-compare.js";
 import { AssemblyCompare } from "./rendering/assembly-compare.js";
+import { SceneDisposal } from "./rendering/scene-disposal.js";
+import { buildFeatureGhost } from "./rendering/feature-ghost.js";
+import type { FeatureGhostRequest, FeatureGhostResult } from "./rendering/feature-ghost.js";
+import { buildTextPathPreview } from "./rendering/text-path-preview.js";
+import type { TextPathPreviewRequest } from "./rendering/text-path-preview.js";
 import { DEFAULT_MESH_CONFIG } from "./oc/mesh.js";
 import type { MeshConfig } from "./oc/mesh.js";
 import type { FluidCADOptions } from "./index.js";
@@ -22,13 +27,29 @@ import type { HitTestResult } from "./oc/hit-test.js";
 import { MeasureOps } from "./oc/measure/measure-ops.js";
 import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types.js";
+import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
+import { synthesizeSketchApplyFeature, resolveSketchStatementTargets, SketchTargetDescriptor } from "./selection/sketch-apply.js";
+import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
+import { synthesizeTrimRegionTargets } from "./selection/trim-region.js";
+import type { TrimRegionSynthesis } from "./selection/trim-region.js";
+import { expandBucket, expandTangentChain, ExpandBucketResult, ExpandTangentsResult } from "./selection/expand.js";
+import { listSelectionGroups, SelectionGroupsResult } from "./selection/selection-groups.js";
+import { listSegmentConversions, SegmentConversionsResult } from "./selection/segment-conversion.js";
+import { resolveFeatureSources, FeatureSourcesResult } from "./selection/feature-sources.js";
+import { resolveScopedScene } from "./selection/types.js";
+import type {
+  ApplyFeatureKind, ApplyFeatureSynthesis, ExplainResult, PickChain, PickRef,
+  SelectionBoundary, SelectionScene, SynthesizeOptions,
+} from "./selection/types.js";
+
+type BoundaryFailure = { ok: false; reason: string };
 
 class SceneManager {
   currentScene: Scene = new Scene();
   currentFile: string = '';
   renderer: SceneRenderer;
 
-  constructor(public rootPath: string, meshConfig: MeshConfig) {
+  constructor(public rootPath: string, public readonly meshConfig: MeshConfig) {
     this.renderer = new SceneRenderer(meshConfig);
   }
 
@@ -72,6 +93,14 @@ class SceneManager {
       return AssemblyCompare.compare(previous, current);
     }
     return SceneCompare.compare(previous, current);
+  }
+
+  /**
+   * Free a scene that is being dropped without a compare against a
+   * successor (forced full rebuild, session teardown).
+   */
+  disposeScene(scene: Scene) {
+    SceneDisposal.disposeScene(scene);
   }
 
   importFile(workspacePath: string, fileName: string, data: Uint8Array) {
@@ -155,6 +184,91 @@ class SceneManager {
     return FileExport.exportShapes(solids, options);
   }
 
+  explainSelection(scene: Scene, refs: PickRef[], before?: SelectionBoundary): ExplainResult | BoundaryFailure {
+    return withBoundary(scene, before, scoped => explainSelection(scoped, refs));
+  }
+
+  synthesizeApplyFeature(
+    scene: Scene,
+    refs: PickRef[],
+    feature: ApplyFeatureKind,
+    value?: number | string,
+    chains: PickChain[] = [],
+    options: SynthesizeOptions = {},
+    before?: SelectionBoundary,
+  ): ApplyFeatureSynthesis {
+    return withBoundary(
+      scene, before, scoped => synthesizeApplyFeature(scoped, refs, feature, value, chains, options),
+    );
+  }
+
+  /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */
+  synthesizeSketchApplyFeature(
+    scene: Scene,
+    refs: SketchPickRef[],
+    feature: SketchApplyFeatureKind,
+    value?: number | string,
+    options: SketchSynthesizeOptions = {},
+  ): ApplyFeatureSynthesis {
+    return synthesizeSketchApplyFeature(scene, refs, feature, value, options);
+  }
+
+  /** Glyph outlines laid along a picked path geometry — the text dialogs' preview. */
+  buildTextPathPreview(
+    scene: Scene,
+    request: TextPathPreviewRequest,
+  ): { polylines: number[][] } | { reason: string } {
+    return buildTextPathPreview(scene, request);
+  }
+
+  /** By-region trim: synthesize filter args for a clicked region's boundary segments. */
+  synthesizeTrimRegionTargets(
+    scene: Scene,
+    sourceLocation: { line: number; column?: number },
+    edgeIds: string[],
+  ): TrimRegionSynthesis {
+    return synthesizeTrimRegionTargets(scene, sourceLocation, edgeIds);
+  }
+
+  expandTangentChain(scene: Scene, ref: PickRef, before?: SelectionBoundary): ExpandTangentsResult {
+    return withBoundary(scene, before, scoped => expandTangentChain(scoped, ref));
+  }
+
+  expandBucket(scene: Scene, ref: PickRef, before?: SelectionBoundary): ExpandBucketResult {
+    return withBoundary(scene, before, scoped => expandBucket(scoped, ref));
+  }
+
+  listSelectionGroups(scene: Scene, ref: PickRef, before?: SelectionBoundary): SelectionGroupsResult {
+    return withBoundary(scene, before, scoped => listSelectionGroups(scoped, ref));
+  }
+
+  /** Legal constrained/free conversions for a picked chained sketch segment. */
+  listSegmentConversions(scene: Scene, ref: { shapeId: string }): SegmentConversionsResult {
+    return listSegmentConversions(scene, ref);
+  }
+
+  resolveFeatureSources(scene: Scene, boundary: SelectionBoundary): FeatureSourcesResult {
+    return resolveFeatureSources(scene, boundary);
+  }
+
+  /**
+   * Mesh the geometry an open feature dialog would produce ("ghost"). Reads
+   * the scene, writes nothing to it: the shapes are built from the named
+   * profile alone and freed before returning.
+   */
+  buildFeatureGhost(scene: Scene, request: FeatureGhostRequest): FeatureGhostResult {
+    return buildFeatureGhost(scene, request, this.meshConfig);
+  }
+
+  /** Resolve a 2D statement's target arguments onto the active sketch's edges. */
+  resolveSketchStatementTargets(
+    scene: Scene,
+    descriptors: SketchTargetDescriptor[],
+    options: { includeGuides?: boolean } = {},
+  ): { ok: true; shapeIds: string[] } | { ok: false; reason: string } {
+    return resolveSketchStatementTargets(scene, descriptors, options);
+  }
+
   hitTest(
     scene: Scene,
     shapeId: string,
@@ -171,6 +285,27 @@ class SceneManager {
     }
     return null;
   }
+}
+
+/**
+ * Run a selection query against the scene, truncated to the boundary when one
+ * is given (edit-mode source re-picking). A boundary that no longer matches
+ * the scene refuses — never a silent fall back to the full scene, which would
+ * verify selectors against a world the edited statement can't see.
+ */
+function withBoundary<T>(
+  scene: Scene,
+  before: SelectionBoundary | undefined,
+  run: (scene: SelectionScene) => T,
+): T | BoundaryFailure {
+  if (!before) {
+    return run(scene);
+  }
+  const scoped = resolveScopedScene(scene, before);
+  if (scoped.ok === false) {
+    return scoped;
+  }
+  return run(scoped.scene);
 }
 
 function findShapeById(scene: Scene, shapeId: string) {

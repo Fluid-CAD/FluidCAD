@@ -1,17 +1,29 @@
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { pixelToSketchThreshold } from '../sketch-plane-utils';
-import { pointToSegmentDist, isInteractiveSketchType } from '../sketch-edge-utils';
+import { pointToSegmentDist, isDraggableSketchObject } from '../sketch-edge-utils';
 import { circumcenter, isCCW } from '../tools/tool-preview-utils';
 import { meshToSketch2D } from '../tools/tangent-utils';
+import {
+  ANGLE_ARC_PX_RADIUS,
+  ANGLE_TEXT_PX_SIZE,
+  angleIndicatorFrame,
+} from '../../meshes/containers/constraint-icon';
 import { DragHitResult } from './types';
 
+/**
+ * Finds the sketch geometry under `point2d` for drag-resize and dimension
+ * editing. `includeDimensionZones` (the double-click path) additionally hit
+ * tests zones that only open a dimension input — rect edges/fillets and the
+ * aline angle indicator — which must not capture pointer-down drags.
+ */
 export function findHitGeometry(
   point2d: [number, number],
   sceneObjects: SceneObjectRender[],
   sketchId: string,
   plane: PlaneData,
   ctx: SceneContext,
+  includeDimensionZones = false,
 ): DragHitResult | null {
   const sketchChildren = sceneObjects.filter(o => o.parentId === sketchId);
   const threshold = pixelToSketchThreshold(ctx, 12);
@@ -21,7 +33,7 @@ export function findHitGeometry(
   let bestDistSq = Infinity;
 
   for (const child of sketchChildren) {
-    if (!child.sourceLocation || !isInteractiveSketchType(child.uniqueType)) {
+    if (!child.sourceLocation || !isDraggableSketchObject(child)) {
       continue;
     }
     const uniqueType = (child as any).uniqueType as string | undefined;
@@ -50,7 +62,7 @@ export function findHitGeometry(
         }
       }
       if (allVerts.length > 0) {
-        const result = hitTestPolygon(point2d, allVerts, sourceLocation, child, thresholdSq, bestDistSq);
+        const result = hitTestPolygon(point2d, allVerts, sourceLocation, child, thresholdSq, bestDistSq, includeDimensionZones);
         if (result) {
           bestHit = result.hit;
           bestDistSq = result.distSq;
@@ -97,7 +109,7 @@ export function findHitGeometry(
         }
       }
       if (allVerts.length > 0) {
-        const result = hitTestRect(point2d, allVerts, sourceLocation, child, thresholdSq, bestDistSq);
+        const result = hitTestRect(point2d, allVerts, sourceLocation, child, thresholdSq, bestDistSq, includeDimensionZones);
         if (result) {
           bestHit = result.hit;
           bestDistSq = result.distSq;
@@ -116,14 +128,26 @@ export function findHitGeometry(
           continue;
         }
 
+        if (uniqueType === 'aline' && includeDimensionZones) {
+          const angleResult = hitTestALineAngle(point2d, verts2d, sourceLocation, child, ctx, bestDistSq);
+          if (angleResult) {
+            bestHit = angleResult.hit;
+            bestDistSq = angleResult.distSq;
+          }
+        }
+
         if (uniqueType === 'circle') {
-          const result = hitTestCircle(point2d, verts2d, sourceLocation, thresholdSq, bestDistSq);
+          const result = hitTestCircle(point2d, verts2d, sourceLocation, thresholdSq, bestDistSq, includeDimensionZones);
           if (result) {
             bestHit = result.hit;
             bestDistSq = result.distSq;
           }
-        } else if (uniqueType === 'line-two-points' || uniqueType === 'hline' || uniqueType === 'vline' || uniqueType === 'tline') {
-          const result = hitTestLine(point2d, verts2d, sourceLocation, uniqueType, child, thresholdSq, bestDistSq);
+        } else if (uniqueType === 'line-two-points' || uniqueType === 'hline' || uniqueType === 'vline' || uniqueType === 'tline'
+            // aline endpoint drag rewrites the (angle, length) args, so only
+            // the plain numeric-length chained form is draggable — a target
+            // geometry or .centered() has different arg semantics.
+            || (uniqueType === 'aline' && typeof child.object?.length === 'number' && child.object?.centered !== true)) {
+          const result = hitTestLine(point2d, verts2d, sourceLocation, uniqueType, child, thresholdSq, bestDistSq, includeDimensionZones);
           if (result) {
             bestHit = result.hit;
             bestDistSq = result.distSq;
@@ -134,8 +158,9 @@ export function findHitGeometry(
             bestHit = result.hit;
             bestDistSq = result.distSq;
           }
-        } else if ((uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent') && verts2d.length >= 2) {
-          const result = hitTestTangentArc(point2d, verts2d, sourceLocation, uniqueType, child, plane, thresholdSq, bestDistSq);
+        } else if ((uniqueType === 'tarc-to-point' || uniqueType === 'tarc-to-point-tangent'
+            || uniqueType === 'tarc-radius-to-point') && verts2d.length >= 2) {
+          const result = hitTestTangentArc(point2d, verts2d, sourceLocation, uniqueType, child, plane, thresholdSq, bestDistSq, includeDimensionZones);
           if (result) {
             bestHit = result.hit;
             bestDistSq = result.distSq;
@@ -166,6 +191,7 @@ function hitTestCircle(
   sourceLocation: { line: number; column: number },
   thresholdSq: number,
   bestDistSq: number,
+  includeDimensionZones = false,
 ): HitTestResult | null {
   const uniqueVerts: [number, number][] = [];
   const DUP_EPS_SQ = 1e-6;
@@ -214,6 +240,25 @@ function hitTestCircle(
       bestDistSq = d;
     }
   }
+
+  // The centre is the circle's position argument. Double-click only: adding
+  // it to the drag path would capture drags that today translate the circle.
+  if (includeDimensionZones) {
+    const cdx = cx - point2d[0];
+    const cdy = cy - point2d[1];
+    const centreDist = cdx * cdx + cdy * cdy;
+    if (centreDist < thresholdSq && centreDist < bestDistSq) {
+      result = {
+        hit: {
+          sourceLocation, uniqueType: 'circle', hitZone: 'center',
+          anchorPoint: [cx, cy],
+          initialValue: diameter,
+        },
+        distSq: centreDist,
+      };
+    }
+  }
+
   return result;
 }
 
@@ -225,6 +270,7 @@ function hitTestLine(
   child: SceneObjectRender,
   thresholdSq: number,
   bestDistSq: number,
+  includeDimensionZones = false,
 ): HitTestResult | null {
   const startV = verts2d[0];
   const endV = verts2d[verts2d.length - 1];
@@ -237,7 +283,8 @@ function hitTestLine(
   const edy = endV[1] - point2d[1];
   const endDist = edx * edx + edy * edy;
 
-  const isConstrained = uniqueType === 'hline' || uniqueType === 'vline' || uniqueType === 'tline';
+  const isConstrained = uniqueType === 'hline' || uniqueType === 'vline'
+    || uniqueType === 'tline' || uniqueType === 'aline';
 
   let signedDist: number | undefined;
   let tangent: [number, number] | undefined;
@@ -264,6 +311,18 @@ function hitTestLine(
     }
   } else if (uniqueType === 'hline' || uniqueType === 'vline') {
     signedDist = uniqueType === 'hline' ? endV[0] - startV[0] : endV[1] - startV[1];
+  } else if (uniqueType === 'aline') {
+    // The angle is a fixed constraint — dragging only changes the length.
+    // The drag direction is the built direction, negated for a negative
+    // serialized length so the projection yields the signed length.
+    const dx = endV[0] - startV[0];
+    const dy = endV[1] - startV[1];
+    const len = Math.sqrt(dx * dx + dy * dy);
+    if (len > 1e-10) {
+      const negLen = typeof child.object?.length === 'number' && child.object.length < 0;
+      tangent = [(negLen ? -dx : dx) / len, (negLen ? -dy : dy) / len];
+      signedDist = negLen ? -len : len;
+    }
   }
 
   const initialValue = isConstrained
@@ -304,7 +363,14 @@ function hitTestLine(
     bestDistSq = startDist;
   }
 
-  if (!nearAnyEndpoint && uniqueType === 'line-two-points') {
+  // A body zone for the constrained lines exists only on the double-click
+  // path: it carries the segment's own dimension (H:/V:/T:/L:), freeing the
+  // endpoints to mean positions. Gating it keeps pointer-down dragging
+  // exactly as it was — body-dragging these has never been a gesture.
+  const wantsBody = uniqueType === 'line-two-points'
+    || (includeDimensionZones && isConstrained);
+
+  if (!nearAnyEndpoint && wantsBody) {
     const bodyDist = pointToSegmentDist(
       point2d[0], point2d[1],
       startV[0], startV[1],
@@ -326,6 +392,88 @@ function hitTestLine(
         distSq: bodyDistSq,
       };
     }
+  }
+
+  return result;
+}
+
+// Pixel tolerances for double-clicking the aline angle indicator: the
+// dimension arc ring, its angular padding, and the angle readout label.
+const ANGLE_ARC_HIT_TOL_PX = 10;
+const ANGLE_ARC_HIT_PAD_RAD = 0.35;
+const ANGLE_LABEL_HIT_RADIUS_PX = 20;
+
+function hitTestALineAngle(
+  point2d: [number, number],
+  verts2d: [number, number][],
+  sourceLocation: { line: number; column: number },
+  child: SceneObjectRender,
+  ctx: SceneContext,
+  bestDistSq: number,
+): HitTestResult | null {
+  const angleDeg = child.object?.angle;
+  if (typeof angleDeg !== 'number' || verts2d.length < 2) {
+    return null;
+  }
+
+  const startV = verts2d[0];
+  const endV = verts2d[verts2d.length - 1];
+  const dx = endV[0] - startV[0];
+  const dy = endV[1] - startV[1];
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 1e-10) {
+    return null;
+  }
+
+  const negLen = typeof child.object?.length === 'number' && child.object.length < 0;
+  const { startAngle, sweepRad } = angleIndicatorFrame(angleDeg, negLen, [dx / len, dy / len]);
+
+  // The indicator renders at a screen-constant size, so hit test in pixels.
+  const unitsPerPx = pixelToSketchThreshold(ctx, 1);
+  const px = point2d[0] - startV[0];
+  const py = point2d[1] - startV[1];
+  const rPx = Math.sqrt(px * px + py * py) / unitsPerPx;
+
+  const hit: DragHitResult = {
+    sourceLocation,
+    uniqueType: 'aline',
+    hitZone: 'angle',
+    anchorPoint: startV,
+    initialValue: Math.round(angleDeg * 100) / 100,
+  };
+
+  let result: HitTestResult | null = null;
+
+  const ringDevPx = Math.abs(rPx - ANGLE_ARC_PX_RADIUS);
+  if (ringDevPx <= ANGLE_ARC_HIT_TOL_PX) {
+    const TWO_PI = Math.PI * 2;
+    let rel = ((Math.atan2(py, px) - startAngle) % TWO_PI + TWO_PI) % TWO_PI;
+    let inSpan: boolean;
+    if (sweepRad >= 0) {
+      inSpan = rel <= sweepRad + ANGLE_ARC_HIT_PAD_RAD || rel >= TWO_PI - ANGLE_ARC_HIT_PAD_RAD;
+    } else {
+      rel -= TWO_PI;
+      inSpan = rel >= sweepRad - ANGLE_ARC_HIT_PAD_RAD || rel <= -TWO_PI + ANGLE_ARC_HIT_PAD_RAD;
+    }
+    if (inSpan) {
+      const dev = ringDevPx * unitsPerPx;
+      const devSq = dev * dev;
+      if (devSq < bestDistSq) {
+        result = { hit, distSq: devSq };
+        bestDistSq = devSq;
+      }
+    }
+  }
+
+  // The angle readout sits at mid-sweep, one text-size beyond the arc.
+  const midAngle = startAngle + sweepRad / 2;
+  const labelRadius = (ANGLE_ARC_PX_RADIUS + ANGLE_TEXT_PX_SIZE) * unitsPerPx;
+  const ldx = point2d[0] - (startV[0] + Math.cos(midAngle) * labelRadius);
+  const ldy = point2d[1] - (startV[1] + Math.sin(midAngle) * labelRadius);
+  const labelDistSq = ldx * ldx + ldy * ldy;
+  const labelTol = ANGLE_LABEL_HIT_RADIUS_PX * unitsPerPx;
+  if (labelDistSq <= labelTol * labelTol && labelDistSq < bestDistSq) {
+    result = { hit, distSq: labelDistSq };
   }
 
   return result;
@@ -444,6 +592,7 @@ function hitTestTangentArc(
   plane: PlaneData,
   thresholdSq: number,
   bestDistSq: number,
+  includeDimensionZones: boolean,
 ): HitTestResult | null {
   const startV = verts2d[0];
   const endV = verts2d[verts2d.length - 1];
@@ -465,6 +614,16 @@ function hitTestTangentArc(
   const midV = verts2d[Math.floor(verts2d.length / 2)];
   const arcCCW = centerV ? isCCW(centerV, startV, midV) : true;
 
+  const rawRadius = centerV
+    ? Math.hypot(centerV[0] - startV[0], centerV[1] - startV[1])
+    : Math.abs((child.object?.radius as number | undefined) ?? 0);
+  // The dimension zones carry the SIGNED source radius (sign from the
+  // statement's argument) so a commit can preserve the arc's leave side;
+  // the input displays its magnitude.
+  const radiusSign = uniqueType === 'tarc-radius-to-point'
+    && typeof child.object?.radius === 'number' && child.object.radius < 0 ? -1 : 1;
+  const radius = radiusSign * Math.round(rawRadius * 100) / 100;
+
   const edx = endV[0] - point2d[0];
   const edy = endV[1] - point2d[1];
   const endDist = edx * edx + edy * edy;
@@ -482,6 +641,10 @@ function hitTestTangentArc(
         draggedVertices: [endV],
         tangentDir: tangent,
         arcCCW,
+        // Unrounded: the end drag projects onto the tangent circle of this
+        // exact radius, so display rounding must not skew it.
+        initialValue: rawRadius,
+        tarcRadiusNegative: radiusSign < 0 || undefined,
       },
       distSq: endDist,
     };
@@ -505,8 +668,43 @@ function hitTestTangentArc(
           draggedVertices: [centerV],
           tangentDir: tangent,
           arcCCW,
+          initialValue: radius,
         },
         distSq: centerDist,
+      };
+      bestDistSq = centerDist;
+    }
+  }
+
+  // The arc curve itself is a dimension-only zone (the double-click path):
+  // it opens the radius input but must not capture pointer-down drags. Only
+  // the endpoint forms can carry an explicit radius argument — a tangent-arc
+  // with an end tangent (`tArc([e], [t])`) would lose its tangent constraint.
+  if (includeDimensionZones && !result && rawRadius > 0
+      && (uniqueType === 'tarc-to-point' || uniqueType === 'tarc-radius-to-point')) {
+    let bodyDist = Infinity;
+    for (let i = 1; i < verts2d.length; i++) {
+      const d = pointToSegmentDist(
+        point2d[0], point2d[1],
+        verts2d[i - 1][0], verts2d[i - 1][1],
+        verts2d[i][0], verts2d[i][1],
+      );
+      bodyDist = Math.min(bodyDist, d * d);
+    }
+    if (bodyDist < thresholdSq && bodyDist < bestDistSq) {
+      result = {
+        hit: {
+          sourceLocation,
+          uniqueType: uniqueType || '',
+          hitZone: 'body',
+          anchorPoint: startV,
+          fixedVertex: startV,
+          fixedVertex2: endV,
+          tangentDir: tangent,
+          arcCCW,
+          initialValue: radius,
+        },
+        distSq: bodyDist,
       };
     }
   }
@@ -562,8 +760,10 @@ function hitTestRect(
   child: SceneObjectRender,
   thresholdSq: number,
   bestDistSq: number,
+  includeEdges = false,
 ): HitTestResult | null {
-  if (child.object?.radius) {
+  const rawRadius = child.object?.radius;
+  if (rawRadius && !includeEdges) {
     return null;
   }
 
@@ -602,7 +802,7 @@ function hitTestRect(
 
   let result: HitTestResult | null = null;
 
-  for (const corner of uniqueVerts) {
+  for (const corner of rawRadius ? [] : uniqueVerts) {
     const ddx = corner[0] - point2d[0];
     const ddy = corner[1] - point2d[1];
     const d = ddx * ddx + ddy * ddy;
@@ -633,6 +833,9 @@ function hitTestRect(
           fixedVertex: anchor,
           draggedVertices: [corner],
           rectCentered: isCentered,
+          rectSignW: typeof child.object?.width === 'number' && child.object.width < 0 ? -1 : 1,
+          rectSignH: typeof child.object?.height === 'number' && child.object.height < 0 ? -1 : 1,
+          rectStart: rectStartPoint(child, uniqueVerts, isCentered, center),
         },
         distSq: d,
       };
@@ -640,6 +843,223 @@ function hitTestRect(
     }
   }
 
+  // The rect's `start` argument, on the double-click path only. It sits on
+  // one of the corners (or the centre, for a `.centered()` rect), so it has
+  // to win over the corner's resize zone — at equal distance it takes it.
+  // Rounded rects skip the corner loop entirely, so this is their only zone.
+  if (includeEdges) {
+    const start = rectStartPoint(child, uniqueVerts, isCentered, center);
+    const sdx = start[0] - point2d[0];
+    const sdy = start[1] - point2d[1];
+    const d = sdx * sdx + sdy * sdy;
+    if (d < thresholdSq && d <= bestDistSq) {
+      result = {
+        hit: {
+          sourceLocation,
+          uniqueType: 'rect',
+          hitZone: 'start',
+          anchorPoint: start,
+          draggedVertices: [start],
+          rectCentered: isCentered,
+        },
+        distSq: d,
+      };
+      bestDistSq = d;
+    }
+  }
+
+  if (includeEdges && !result) {
+    const edgeResult = hitTestRectEdges(point2d, uniqueVerts, sourceLocation, child, isCentered, thresholdSq, bestDistSq);
+    if (edgeResult) {
+      result = edgeResult;
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Where a rect's `start` argument sits. A `.centered()` rect is positioned by
+ * its centre; otherwise it is the corner the source counts from — the one
+ * `rectCornerInfos` calls semantic index 0, which lands on the visually
+ * opposite side when the width or height is negative.
+ */
+function rectStartPoint(
+  child: SceneObjectRender,
+  uniqueVerts: [number, number][],
+  isCentered: boolean,
+  center: [number, number] | undefined,
+): [number, number] {
+  if (isCentered && center) {
+    return center;
+  }
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const v of uniqueVerts) {
+    minX = Math.min(minX, v[0]);
+    maxX = Math.max(maxX, v[0]);
+    minY = Math.min(minY, v[1]);
+    maxY = Math.max(maxY, v[1]);
+  }
+  const signW = typeof child.object?.width === 'number' && child.object.width < 0 ? -1 : 1;
+  const signH = typeof child.object?.height === 'number' && child.object.height < 0 ? -1 : 1;
+  return [signW > 0 ? minX : maxX, signH > 0 ? minY : maxY];
+}
+
+type RectCornerInfo = {
+  corner: [number, number];
+  outward: [number, number];
+  radius: number;
+  radiusArgOffset: number;
+};
+
+// The four visual corners in [bottom-left, bottom-right, top-right, top-left]
+// order, each with its fillet radius and the radius's non-array arg offset
+// (from the end) within the source `.radius(...)` call. The radius args are
+// [bottomLeft, bottomRight, topRight, topLeft] in the rect's own frame, whose
+// "left"/"bottom" land on the visually opposite side when the width/height
+// is negative.
+function rectCornerInfos(
+  child: SceneObjectRender,
+  minX: number, maxX: number, minY: number, maxY: number,
+): RectCornerInfo[] {
+  const rawRadius = child.object?.radius;
+  const signW = typeof child.object?.width === 'number' && child.object.width < 0 ? -1 : 1;
+  const signH = typeof child.object?.height === 'number' && child.object.height < 0 ? -1 : 1;
+
+  const semanticIndex = (visLeft: boolean, visBottom: boolean): number => {
+    const left = signW > 0 ? visLeft : !visLeft;
+    const bottom = signH > 0 ? visBottom : !visBottom;
+    if (bottom) {
+      return left ? 0 : 1;
+    }
+    return left ? 3 : 2;
+  };
+
+  const make = (
+    corner: [number, number],
+    outward: [number, number],
+    visLeft: boolean,
+    visBottom: boolean,
+  ): RectCornerInfo => {
+    const index = semanticIndex(visLeft, visBottom);
+    let radius = 0;
+    let radiusArgOffset = 0;
+    if (Array.isArray(rawRadius)) {
+      const r = rawRadius[index];
+      radius = typeof r === 'number' && r > 0 ? r : 0;
+      radiusArgOffset = rawRadius.length - 1 - index;
+    } else if (typeof rawRadius === 'number' && rawRadius > 0) {
+      radius = rawRadius;
+    }
+    return { corner, outward, radius, radiusArgOffset };
+  };
+
+  return [
+    make([minX, minY], [-1, -1], true, true),
+    make([maxX, minY], [1, -1], false, true),
+    make([maxX, maxY], [1, 1], false, false),
+    make([minX, maxY], [-1, 1], true, false),
+  ];
+}
+
+function hitTestRectEdges(
+  point2d: [number, number],
+  uniqueVerts: [number, number][],
+  sourceLocation: { line: number; column: number },
+  child: SceneObjectRender,
+  isCentered: boolean,
+  thresholdSq: number,
+  bestDistSq: number,
+): HitTestResult | null {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const v of uniqueVerts) {
+    minX = Math.min(minX, v[0]);
+    maxX = Math.max(maxX, v[0]);
+    minY = Math.min(minY, v[1]);
+    maxY = Math.max(maxY, v[1]);
+  }
+
+  const corners = rectCornerInfos(child, minX, maxX, minY, maxY);
+  const [bl, br, tr, tl] = corners;
+
+  // Sharp corners stay corner-drag handles; a leg hit that close would fight
+  // the resize interaction.
+  for (const c of corners) {
+    if (c.radius > 0) {
+      continue;
+    }
+    const ddx = c.corner[0] - point2d[0];
+    const ddy = c.corner[1] - point2d[1];
+    if (ddx * ddx + ddy * ddy < thresholdSq) {
+      return null;
+    }
+  }
+
+  let result: HitTestResult | null = null;
+
+  for (const c of corners) {
+    if (c.radius <= 0) {
+      continue;
+    }
+    const cx = c.corner[0] - c.outward[0] * c.radius;
+    const cy = c.corner[1] - c.outward[1] * c.radius;
+    const dx = point2d[0] - cx;
+    const dy = point2d[1] - cy;
+    if (dx * c.outward[0] < 0 || dy * c.outward[1] < 0) {
+      continue;
+    }
+    const deviation = Math.abs(Math.sqrt(dx * dx + dy * dy) - c.radius);
+    const devSq = deviation * deviation;
+    if (devSq < thresholdSq && devSq < bestDistSq) {
+      result = {
+        hit: {
+          sourceLocation,
+          uniqueType: 'rect',
+          hitZone: 'body',
+          rectDim: 'radius',
+          rectRadiusArgOffset: c.radiusArgOffset,
+          initialValue: Math.round(c.radius * 100) / 100,
+          rectCentered: isCentered,
+        },
+        distSq: devSq,
+      };
+      bestDistSq = devSq;
+    }
+  }
+
+  const legs: { a: [number, number]; b: [number, number]; dim: 'width' | 'height' }[] = [
+    { a: [minX + bl.radius, minY], b: [maxX - br.radius, minY], dim: 'width' },
+    { a: [minX + tl.radius, maxY], b: [maxX - tr.radius, maxY], dim: 'width' },
+    { a: [minX, minY + bl.radius], b: [minX, maxY - tl.radius], dim: 'height' },
+    { a: [maxX, minY + br.radius], b: [maxX, maxY - tr.radius], dim: 'height' },
+  ];
+
+  for (const leg of legs) {
+    if (leg.a[0] > leg.b[0] || leg.a[1] > leg.b[1]) {
+      continue;
+    }
+    const dist = pointToSegmentDist(point2d[0], point2d[1], leg.a[0], leg.a[1], leg.b[0], leg.b[1]);
+    const distSq = dist * dist;
+    if (distSq < thresholdSq && distSq < bestDistSq) {
+      const objectDim = leg.dim === 'width' ? child.object?.width : child.object?.height;
+      const geomDim = leg.dim === 'width' ? maxX - minX : maxY - minY;
+      const initialValue = typeof objectDim === 'number'
+        ? Math.round(objectDim * 100) / 100
+        : Math.round(geomDim * 100) / 100;
+      result = {
+        hit: {
+          sourceLocation,
+          uniqueType: 'rect',
+          hitZone: 'body',
+          rectDim: leg.dim,
+          initialValue,
+          rectCentered: isCentered,
+        },
+        distSq,
+      };
+      bestDistSq = distSq;
+    }
+  }
   return result;
 }
 
@@ -650,6 +1070,7 @@ function hitTestPolygon(
   child: SceneObjectRender,
   thresholdSq: number,
   bestDistSq: number,
+  includeDimensionZones = false,
 ): HitTestResult | null {
   const DUP_EPS_SQ = 1e-6;
   const uniqueVerts: [number, number][] = [];
@@ -705,6 +1126,29 @@ function hitTestPolygon(
       bestDistSq = d;
     }
   }
+
+  // The centre is the polygon's position argument. Double-click only, so
+  // pointer-down drags that translate the polygon are unaffected.
+  if (includeDimensionZones) {
+    const cdx = cx - point2d[0];
+    const cdy = cy - point2d[1];
+    const centreDist = cdx * cdx + cdy * cdy;
+    if (centreDist < thresholdSq && centreDist < bestDistSq) {
+      result = {
+        hit: {
+          sourceLocation,
+          uniqueType: 'polygon',
+          hitZone: 'center',
+          anchorPoint: [cx, cy],
+          initialValue: diameter,
+          originalDistance: circumscribedRadius,
+          polygonSides: sides,
+        },
+        distSq: centreDist,
+      };
+    }
+  }
+
   return result;
 }
 

@@ -12,6 +12,26 @@ function findEditorForCurrentFile(client: Client): vscode.TextEditor | undefined
   return editor;
 }
 
+/**
+ * Resolve the editor showing `filePath`, opening the document when it is not
+ * already visible. Used by the edits that target a file the server names
+ * rather than whatever the user happens to be looking at.
+ */
+async function resolveEditorForPath(filePath: string): Promise<vscode.TextEditor> {
+  const visible = vscode.window.visibleTextEditors.find(
+    e => e.document.fileName === filePath,
+  );
+  if (visible) {
+    return visible;
+  }
+  const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+  return vscode.window.showTextDocument(doc, {
+    viewColumn: vscode.ViewColumn.One,
+    preserveFocus: true,
+    preview: false,
+  });
+}
+
 export async function handleInsertPoint(client: Client, msg: { point: [number, number]; sourceLocation: { line: number } }) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
@@ -47,6 +67,42 @@ export async function handleAddPick(client: Client, msg: { sourceLocation: { lin
   }
 }
 
+export async function handleAddGuide(client: Client, msg: { sourceLocation: { line: number } }) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    client.logger.appendLine(`[add-guide] No editor found for ${client.currentFileName}`);
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.addGuide(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
+export async function handleRemoveGuide(client: Client, msg: { sourceLocation: { line: number } }) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    client.logger.appendLine(`[remove-guide] No editor found for ${client.currentFileName}`);
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.removeGuide(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
 export async function handleRemovePick(client: Client, msg: { sourceLocation: { line: number } }) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
@@ -65,6 +121,24 @@ export async function handleRemovePick(client: Client, msg: { sourceLocation: { 
   }
 }
 
+export async function handleSetTrimTargets(client: Client, msg: { args: string; sourceLocation: { line: number } }) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    client.logger.appendLine(`[set-trim-targets] No editor found for ${client.currentFileName}`);
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.setTrimTargets(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.args, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
 export async function handleRemovePoint(client: Client, msg: { point: [number, number]; sourceLocation: { line: number } }) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
@@ -73,6 +147,54 @@ export async function handleRemovePoint(client: Client, msg: { point: [number, n
   const doc = editor.document;
   const result = await codeApi.removePoint(
     client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.point, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
+export async function handleRemoveFeature(client: Client, msg: { filePath: string; line: number }) {
+  // The feature may live in a file other than the active one (imported
+  // models), so resolve the document by path like the breakpoint handler.
+  const editor = await resolveEditorForPath(msg.filePath || client.currentFileName);
+  const doc = editor.document;
+  const result = await codeApi.removeStatement(
+    client.serverUrl, doc.getText(), msg.line, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
+export async function handleRenameFeature(
+  client: Client,
+  msg: { filePath: string; line: number; name: string | null },
+) {
+  // Like Remove, the feature may live in a file other than the active one.
+  const editor = await resolveEditorForPath(msg.filePath || client.currentFileName);
+  const doc = editor.document;
+  const result = await codeApi.setFeatureName(
+    client.serverUrl, doc.getText(), msg.line, msg.name, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
+export async function handleInsertLoad(client: Client, msg: { filePath: string; fileName: string }) {
+  const editor = await resolveEditorForPath(msg.filePath || client.currentFileName);
+  const doc = editor.document;
+  const result = await codeApi.insertLoad(
+    client.serverUrl, doc.getText(), msg.fileName, client.logger,
   );
   if (!result) {
     return;
@@ -170,6 +292,27 @@ export async function handleInsertGeometry(
   }
 }
 
+export async function handleApplyFeatureEdit(client: Client, msg: { spec: unknown }) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    client.logger.appendLine(`[apply-feature] No editor found for ${client.currentFileName}`);
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.applyFeature(client.serverUrl, doc.getText(), msg.spec, client.logger);
+  if (!result) {
+    return;
+  }
+  if (result.error) {
+    client.logger.appendLine(`[apply-feature] ${result.error}`);
+    vscode.window.showErrorMessage(`FluidCAD: ${result.error}`);
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
 export async function handleUpdateDimension(
   client: Client,
   msg: { newValue: number; sourceLocation: { line: number } },
@@ -198,6 +341,9 @@ export async function handleUpdateDimensionExpression(
     sketchSourceLine?: number | null;
     newVariable?: { name: string; initializer: string } | null;
     dimensionOffset?: number;
+    dimensionCall?: string | null;
+    dimensionInsert?: boolean;
+    dimensionPoint?: [number, number] | null;
   },
 ) {
   const editor = findEditorForCurrentFile(client);
@@ -210,6 +356,42 @@ export async function handleUpdateDimensionExpression(
     msg.sketchSourceLine ?? null,
     msg.newVariable ?? null,
     msg.dimensionOffset ?? 0,
+    msg.dimensionCall ?? null,
+    msg.dimensionInsert === true,
+    msg.dimensionPoint ?? null,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
+export async function handleUpdatePointExpression(
+  client: Client,
+  msg: {
+    xExpr: string;
+    yExpr: string;
+    sourceLocation: { line: number };
+    sketchSourceLine?: number | null;
+    newVariable?: { name: string; initializer: string }[] | null;
+    pointIndex?: number;
+    oldPosition?: [number, number] | null;
+  },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.updatePointExpression(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line,
+    msg.xExpr, msg.yExpr, client.logger,
+    msg.sketchSourceLine ?? null,
+    msg.newVariable ?? null,
+    msg.pointIndex ?? 0,
+    msg.oldPosition ?? null,
   );
   if (!result) {
     return;
@@ -221,7 +403,12 @@ export async function handleUpdateDimensionExpression(
 
 export async function handleUpdatePosition(
   client: Client,
-  msg: { newPosition: [number, number]; sourceLocation: { line: number }; pointIndex?: number },
+  msg: {
+    newPosition: [number, number];
+    sourceLocation: { line: number };
+    pointIndex?: number;
+    oldPosition?: [number, number] | null;
+  },
 ) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
@@ -231,6 +418,7 @@ export async function handleUpdatePosition(
   const result = await codeApi.updatePosition(
     client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.newPosition, client.logger,
     msg.pointIndex ?? 0,
+    msg.oldPosition ?? null,
   );
   if (!result) {
     return;
@@ -282,7 +470,13 @@ export async function handleSetChainPositions(
 
 export async function handleSetRectDimensions(
   client: Client,
-  msg: { startPoint: [number, number] | null; width: number; height: number; sourceLocation: { line: number } },
+  msg: {
+    startPoint: [number, number] | null;
+    width: number;
+    height: number;
+    sourceLocation: { line: number };
+    oldStartPoint?: [number, number] | null;
+  },
 ) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
@@ -291,6 +485,7 @@ export async function handleSetRectDimensions(
   const doc = editor.document;
   const result = await codeApi.setRectDimensions(
     client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.startPoint, msg.width, msg.height, client.logger,
+    msg.oldStartPoint ?? null,
   );
   if (!result) {
     return;

@@ -18,6 +18,15 @@ export class ShortcutManager {
   private readonly timeout: number;
   private readonly boundHandler: (e: KeyboardEvent) => void;
 
+  /**
+   * While this returns true, letters are left alone rather than matched as
+   * shortcuts — the sketcher's coordinate pill takes the next printable key
+   * to open itself. `isEditableTarget` only covers an *already* focused
+   * field, and this manager's listener is registered before any tool's, so
+   * standing down has to be explicit rather than a propagation trick.
+   */
+  suspendWhile: (() => boolean) | null = null;
+
   constructor(options?: { timeout?: number }) {
     this.timeout = options?.timeout ?? 300;
     this.boundHandler = this.handleKeyDown.bind(this);
@@ -76,6 +85,11 @@ export class ShortcutManager {
     }
 
     if (isEditableTarget(e.target)) {
+      return;
+    }
+
+    if (this.suspendWhile?.()) {
+      this.resetState();
       return;
     }
 

@@ -237,13 +237,13 @@ describe("connector frame", () => {
     expect(b.xDirection.dot(a.xDirection)).toBeCloseTo(1, 6);
   });
 
-  it("accepts a LazySelectionSceneObject (e.g., rect.topEdge()) as source", () => {
+  it("accepts a LazySelectionSceneObject (e.g., rect.edge('top')) as source", () => {
     let conn!: Connector;
     part("lazy-source", () => {
       let topEdge: any;
       sketch("xy", () => {
         const r = rect(40, 60);
-        topEdge = r.topEdge();
+        topEdge = r.edge('top');
       });
       extrude(20);
       conn = connector(topEdge) as unknown as Connector;

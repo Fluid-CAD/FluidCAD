@@ -87,6 +87,42 @@ export class WireOps {
     return signedArea < 0;
   }
 
+  /**
+   * Groups edges into connected chains — one wire per chain — via
+   * `ShapeAnalysis_FreeBounds.ConnectEdgesToWires`. Edge ends within
+   * `tolerance` of each other connect; disconnected groups come back as
+   * separate wires (e.g. a guide sketch holding a curve and its mirror).
+   *
+   * V8-binding gotcha: the plain-name dispatcher can resolve to the
+   * deprecated out-parameter overload, which returns a `{ wires }` envelope
+   * instead of the sequence itself — unwrap at runtime.
+   */
+  static connectEdgesToWires(edges: Edge[], tolerance = 1e-6): Wire[] {
+    const oc = getOC();
+    const input = new oc.NCollection_HSequence_TopoDS_Shape();
+    for (const edge of edges) {
+      input.Append(edge.getShape());
+    }
+
+    const result = oc.ShapeAnalysis_FreeBounds.ConnectEdgesToWires(input, tolerance, false) as any;
+    const isEnvelope = result && typeof result.Sequence !== "function" && result.wires;
+    const handle = isEnvelope ? result.wires : result;
+
+    const wires: Wire[] = [];
+    const sequence = handle.Sequence();
+    for (let i = 1; i <= sequence.Length(); i++) {
+      wires.push(Wire.fromTopoDSWire(oc.TopoDS.Wire(sequence.Value(i))));
+    }
+
+    input.delete();
+    if (isEnvelope && typeof result[Symbol.dispose] === "function") {
+      result[Symbol.dispose]();
+    } else if (typeof handle.delete === "function") {
+      handle.delete();
+    }
+    return wires;
+  }
+
   static makeWireFromEdgesRaw(edges: TopoDS_Edge[]): TopoDS_Wire {
     const oc = getOC();
     const wireMaker = new oc.BRepBuilderAPI_MakeWire();
@@ -216,7 +252,24 @@ export class WireOps {
     return null;
   }
 
-  static groupConnectedEdges(edges: Edge[]): Edge[][] {
+  /**
+   * Builds one or more wires from a connected edge group. Edges that share
+   * exact vertices go through `BRepBuilderAPI_MakeWire`, preserving the
+   * incoming order/orientation semantics. When that fails — edges that only
+   * meet within `tolerance`, e.g. hand-drawn sketch profiles whose endpoints
+   * miss by a few hundredths — the group is chained tolerantly via
+   * `ShapeAnalysis_FreeBounds.ConnectEdgesToWires`, which also reorients
+   * edges consistently along the chain.
+   */
+  static makeChainWires(edges: Edge[], tolerance: number): Wire[] {
+    try {
+      return [WireOps.makeWireFromEdges(edges)];
+    } catch {
+      return WireOps.connectEdgesToWires(edges, tolerance);
+    }
+  }
+
+  static groupConnectedEdges(edges: Edge[], tolerance = 1e-7): Edge[][] {
     if (edges.length === 0) {
       return [];
     }
@@ -249,8 +302,8 @@ export class WireOps {
           const ov2 = edges[j].getLastVertex();
 
           if (
-            WireOps.verticesMatch(v1, ov1) || WireOps.verticesMatch(v1, ov2) ||
-            WireOps.verticesMatch(v2, ov1) || WireOps.verticesMatch(v2, ov2)
+            WireOps.verticesMatch(v1, ov1, tolerance) || WireOps.verticesMatch(v1, ov2, tolerance) ||
+            WireOps.verticesMatch(v2, ov1, tolerance) || WireOps.verticesMatch(v2, ov2, tolerance)
           ) {
             visited.add(j);
             queue.push(j);
@@ -264,7 +317,7 @@ export class WireOps {
     return groups;
   }
 
-  private static verticesMatch(v1: Vertex, v2: Vertex): boolean {
+  private static verticesMatch(v1: Vertex, v2: Vertex, tolerance = 1e-7): boolean {
     if (v1.compareTo(v2)) {
       return true;
     }
@@ -273,7 +326,43 @@ export class WireOps {
     const dx = p1.x - p2.x;
     const dy = p1.y - p2.y;
     const dz = p1.z - p2.z;
-    return (dx * dx + dy * dy + dz * dz) < 1e-14;
+    return (dx * dx + dy * dy + dz * dz) < tolerance * tolerance;
+  }
+
+  static offsetFaceOutline(face: TopoDS_Face, distance: number): Wire[] {
+    return WireOps.offsetFaceOutlineRaw(face, distance).map(w => Wire.fromTopoDSWire(w));
+  }
+
+  /**
+   * Offsets ALL wires of a planar face together by initializing
+   * BRepOffsetAPI_MakeOffset with the face itself. Unlike per-wire offsets,
+   * this gives region semantics: a positive distance grows the face outline
+   * outward while holes shrink, and colliding offset wires merge instead of
+   * self-intersecting.
+   */
+  static offsetFaceOutlineRaw(face: TopoDS_Face, distance: number): TopoDS_Wire[] {
+    const oc = getOC();
+    const maker = new oc.BRepOffsetAPI_MakeOffset();
+    maker.Init(face, oc.GeomAbs_JoinType.GeomAbs_Arc, false);
+    maker.Perform(distance, 0);
+
+    if (!maker.IsDone()) {
+      maker.delete();
+      throw new Error("Failed to offset face outline");
+    }
+
+    const result = maker.Shape();
+    maker.delete();
+
+    if (Explorer.isWire(result)) {
+      return [oc.TopoDS.Wire(result)];
+    }
+
+    const wires = Explorer.findShapes<TopoDS_Wire>(result, oc.TopAbs_ShapeEnum.TopAbs_WIRE as TopAbs_ShapeEnum);
+    if (wires.length === 0) {
+      throw new Error("Offset produced no wires");
+    }
+    return wires.map(w => oc.TopoDS.Wire(w));
   }
 
   static offsetWireRaw(wire: TopoDS_Wire, distance: number, isOpen: boolean, plane?: Plane): TopoDS_Wire {

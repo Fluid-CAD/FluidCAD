@@ -89,6 +89,22 @@ describe("wrap under repeat", () => {
     expect(volumes[0]).toBeCloseTo(CYLINDER_VOLUME + 2 * PAD_VOLUME, 0);
   });
 
+  it("repeats a wrap picked together with its select() as explicit targets", () => {
+    const { s, f } = setupWrapScene();
+    const w = wrap(1, s, f).new();
+    repeat("circular", "z", { count: 2, angle: 360 },
+      f as unknown as SceneObject, w as unknown as SceneObject);
+
+    const scene = render();
+    expect(buildErrors(scene)).toEqual([]);
+
+    const volumes = solidVolumes(scene);
+    expect(volumes.length).toBe(3);
+    expect(volumes[0]).toBeCloseTo(PAD_VOLUME, 0);
+    expect(volumes[1]).toBeCloseTo(PAD_VOLUME, 0);
+    expect(volumes[2]).toBeCloseTo(CYLINDER_VOLUME, 0);
+  });
+
   it("repeats wrap together with an explicitly included cylinder", () => {
     const c = cylinder(25, 80);
     const s = sketch(plane("front", 40), () => {

@@ -2,6 +2,7 @@ import { Camera, Group, Vector3 } from 'three';
 import { PlaneData, SceneObjectRender } from '../../../types';
 import { CommitResult } from '../../../ui/expression-input';
 import { SnapResult } from '../../../snapping/types';
+import { NewVariable } from '../../sketch-tool';
 
 export type Point2D = [number, number];
 
@@ -15,9 +16,9 @@ export const enum PolylinePhase {
   DRAWING,
 }
 
-export type ModeId = 'line' | 'hLine' | 'vLine' | 'arc' | 'tArc' | 'tLine';
+export type ModeId = 'line' | 'aLine' | 'arc' | 'tArc' | 'tLine';
 
-export const MODE_ORDER: ModeId[] = ['line', 'hLine', 'vLine', 'arc', 'tArc', 'tLine'];
+export const MODE_ORDER: ModeId[] = ['line', 'aLine', 'arc', 'tArc', 'tLine'];
 
 export type SegmentCommitResult = {
   endpoint: Point2D;
@@ -39,9 +40,21 @@ export type ModeContext = {
   readonly sketchId: string;
   readonly startPoint: Point2D;
   isAtCurrentPosition(point: Point2D): boolean;
+  /**
+   * A typed chain-start address not yet written to the source, formatted as a
+   * point argument (`[w / 2, 10]`), or null. Non-null means the segment must
+   * write the start itself via its explicit-start overload — never the
+   * chained form, even when the address lands on the cursor.
+   */
+  pendingStartText(): string | null;
+  /** Convert a pixel distance to sketch units at the current zoom. */
+  pixelThreshold(px: number): number;
+  /** Show (or clear, with null) a hint line under the cursor's mode badge. */
+  setSnapHint(hint: string | null): void;
   formatPoint(p: Point2D): string;
-  insertGeometry(statement: string, newVariable?: { name: string; initializer: string }): void;
+  insertGeometry(statement: string, newVariable?: NewVariable | NewVariable[]): void;
   requestRender(): void;
+  isOrthoOverride(): boolean;
   showExpressionInput(opts: {
     label: string;
     value: string;
@@ -61,6 +74,11 @@ export interface SegmentMode {
   readonly id: ModeId;
   readonly label: string;
   readonly requiresTangent: boolean;
+
+  /** Extra availability gate beyond `requiresTangent`; a mode without one is
+   * always available. Only consulted while a chain is being drawn (non-null
+   * mode context). */
+  isAvailable?(ctx: ModeContext): boolean;
 
   enter(ctx: ModeContext): void;
   exit(ctx: ModeContext): void;

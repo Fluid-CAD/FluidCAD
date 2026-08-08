@@ -11,6 +11,7 @@ import { findNearestRayIntersection } from "../../oc/ray-intersect.js";
 export class AngledLine extends GeometrySceneObject implements IALine {
 
   private _centered: boolean = false;
+  private _hasExplicitStart: boolean = false;
 
   constructor(
     public angle: number,
@@ -25,10 +26,19 @@ export class AngledLine extends GeometrySceneObject implements IALine {
     return this;
   }
 
+  setHasExplicitStart(value: boolean = true): this {
+    this._hasExplicitStart = value;
+    return this;
+  }
+
   build() {
     const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
 
-    let tangent = this.sketch?.getTangentAt(this) ?? new Point2D(1, 0);
+    // A detached (explicit-start) segment has no meaningful incoming
+    // direction — its angle is absolute, measured from the +X axis.
+    let tangent = this._hasExplicitStart
+      ? new Point2D(1, 0)
+      : this.sketch?.getTangentAt(this) ?? new Point2D(1, 0);
 
     tangent = tangent.normalize();
 
@@ -112,6 +122,7 @@ export class AngledLine extends GeometrySceneObject implements IALine {
       : this.lengthOrTarget;
     const copy = new AngledLine(this.angle, lengthOrTarget, targetPlane);
     copy.centered(this._centered);
+    copy._hasExplicitStart = this._hasExplicitStart;
     return copy;
   }
 
@@ -142,7 +153,9 @@ export class AngledLine extends GeometrySceneObject implements IALine {
       return false;
     }
 
-    return this.angle === other.angle && this._centered === other._centered;
+    return this.angle === other.angle
+      && this._centered === other._centered
+      && this._hasExplicitStart === other._hasExplicitStart;
   }
 
   getType(): string {
@@ -157,7 +170,8 @@ export class AngledLine extends GeometrySceneObject implements IALine {
     return {
       angle: this.angle,
       length: typeof this.lengthOrTarget === 'number' ? this.lengthOrTarget : null,
-      centered: this._centered
+      centered: this._centered,
+      hasExplicitStart: this._hasExplicitStart,
     }
   }
 }

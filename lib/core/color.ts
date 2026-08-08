@@ -6,14 +6,16 @@ import { type StringParam, resolveParam } from "./param.js";
 
 interface ColorFunction {
   /**
-   * Applies a color to the last selection.
+   * Applies a color to the last selection, or to every face in the current
+   * context when there is no selection (equivalent to `select(face())` first).
    * @param color - The color value (CSS color string)
    */
   (color: StringParam): ISceneObject;
   /**
-   * Applies a color to the given selection.
+   * Applies a color to the given selection or object.
    * @param color - The color value (CSS color string)
-   * @param selection - The face or edge selection to color
+   * @param selection - A face selection, or any scene object — every face of
+   * the object's solids is colored
    */
   (color: StringParam, selection: ISceneObject): ISceneObject;
 }
@@ -27,7 +29,9 @@ function build(context: SceneParserContext): ColorFunction {
       selection = context.getLastSelection() || undefined;
     }
 
-    context.addSceneObject(selection);
+    if (selection) {
+      context.addSceneObject(selection);
+    }
     const obj = new Color(resolveParam(arguments[0] as StringParam), selection);
 
     context.addSceneObject(obj);

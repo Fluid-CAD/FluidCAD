@@ -5,6 +5,7 @@ import { Subtract2D } from "../features/subtract2d.js";
 import { SceneObject } from "../common/scene-object.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { ISceneObject } from "./interfaces.js";
+import { addTargetObjects } from "./target-utils.js";
 
 interface SubtractFunction {
   /**
@@ -21,6 +22,7 @@ function build(context: SceneParserContext): SubtractFunction {
     const activeSketch = context.getActiveSketch();
 
     if (activeSketch) {
+      addTargetObjects([object1, object2], context);
       const subtract2d = new Subtract2D(object1 as GeometrySceneObject, object2 as GeometrySceneObject);
       context.addSceneObject(subtract2d);
       return subtract2d;

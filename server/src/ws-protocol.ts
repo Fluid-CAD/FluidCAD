@@ -178,8 +178,21 @@ export type RemovePickMessage = {
   sourceLocation: { line: number; column: number };
 };
 
+export type SetTrimTargetsMessage = {
+  type: 'set-trim-targets';
+  /** Rendered filter args to append to the trim(...) call, e.g. `edge().line(80)`. */
+  args: string;
+  sourceLocation: { line: number; column: number };
+};
+
 export type AddBreakpointMessage = {
   type: 'add-breakpoint';
+  filePath: string;
+  line: number;
+};
+
+export type RemoveFeatureMessage = {
+  type: 'remove-feature';
   filePath: string;
   line: number;
 };
@@ -210,6 +223,10 @@ export type InsertGeometryMessage = {
   type: 'insert-geometry';
   statement: string;
   sketchSourceLocation: { line: number; column: number };
+  newVariable?:
+    | { name: string; initializer: string }
+    | { name: string; initializer: string }[]
+    | null;
 };
 
 export type UpdatePositionMessage = {
@@ -217,6 +234,30 @@ export type UpdatePositionMessage = {
   newPosition: [number, number];
   sourceLocation: { line: number; column: number };
   pointIndex?: number;
+  /** The point's current position, so a chained statement's reposition can
+   * fold the delta into its preceding relative `move(dx, dy)`. */
+  oldPosition?: [number, number] | null;
+};
+
+/**
+ * A point rewritten from per-axis expressions rather than numbers — the
+ * coordinate pill's commit. `update-position` stays the numeric drag path.
+ */
+export type UpdatePointExpressionMessage = {
+  type: 'update-point-expression';
+  xExpr: string;
+  yExpr: string;
+  sourceLocation: { line: number; column: number };
+  /** Anchor for any declarations this commit introduces (up to one per axis). */
+  sketchSourceLine?: number | null;
+  newVariable?:
+    | { name: string; initializer: string }
+    | { name: string; initializer: string }[]
+    | null;
+  pointIndex?: number;
+  /** The point's current position, so a chained statement's reposition can
+   * fold the delta into its preceding relative `move(dx, dy)`. */
+  oldPosition?: [number, number] | null;
 };
 
 export type SetLinePositionMessage = {
@@ -243,6 +284,14 @@ export type UpdateDimensionExpressionMessage = {
   expression: string;
   sourceLocation: { line: number; column: number };
   dimensionOffset?: number;
+  /** Named chain call the dimension lives in (e.g. 'tArc'); null = any. */
+  dimensionCall?: string | null;
+  /** Insert the expression as the call's first argument when the targeted
+   * scalar does not exist yet (radius-less `tArc([e])` gaining a radius). */
+  dimensionInsert?: boolean;
+  /** Also rewrite the call's first array argument to this point — a tArc
+   * radius commit re-aims the endpoint at the reachable position. */
+  dimensionPoint?: [number, number] | null;
 };
 
 export type SetRectDimensionsMessage = {
@@ -251,6 +300,9 @@ export type SetRectDimensionsMessage = {
   width: number;
   height: number;
   sourceLocation: { line: number; column: number };
+  /** The rect's current start corner, so a chained rect's start move can
+   * fold into its preceding relative `move(dx, dy)`. */
+  oldStartPoint?: [number, number] | null;
 };
 
 export type ServerToExtensionMessage =
@@ -264,13 +316,16 @@ export type ServerToExtensionMessage =
   | SetPickPointsMessage
   | AddPickMessage
   | RemovePickMessage
+  | SetTrimTargetsMessage
   | AddBreakpointMessage
+  | RemoveFeatureMessage
   | ClearBreakpointsMessage
   | GotoSourceMessage
   | UpdateInsertChainMessage
   | ExportCompleteMessage
   | InsertGeometryMessage
   | UpdatePositionMessage
+  | UpdatePointExpressionMessage
   | SetLinePositionMessage
   | SetChainPositionsMessage
   | UpdateDimensionMessage

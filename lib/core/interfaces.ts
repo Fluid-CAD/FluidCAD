@@ -178,6 +178,18 @@ export interface IGeometry extends ISceneObject {
   guide(): this;
 
   /**
+   * Uniform edge accessor. `edge('top')` selects this feature's edges by role
+   * (optionally disambiguated by role index, e.g. `edge('corner-arc', 2)`);
+   * `edge(1)` selects by build-order index over the feature's real edges.
+   * Rect roles: `top`/`bottom`/`left`/`right` and `corner-arc` 0–3 (radius-arg
+   * order bl/br/tr/tl); polygon: `side` i; slot: `side` 0–1, `cap-arc`
+   * 0=left/1=right; circle/ellipse: `perimeter`.
+   * @param roleOrIndex - A role name, or a build-order edge index.
+   * @param roleIndex - Disambiguates roles that repeat (e.g. polygon sides).
+   */
+  edge(roleOrIndex: string | number, roleIndex?: number): ISceneObject;
+
+  /**
    * Returns a lazy-evaluated vertex at the start point of this geometry element.
    */
   start(): LazyVertex;
@@ -346,46 +358,6 @@ export interface IRect extends IExtrudableGeometry {
    *   on one axis, `false` (default) keeps the current point as the origin corner.
    */
   centered(value?: boolean | 'horizontal' | 'vertical'): this;
-
-  /**
-   * Returns the top straight edge of the rectangle.
-   */
-  topEdge(): ISceneObject;
-
-  /**
-   * Returns the bottom straight edge of the rectangle.
-   */
-  bottomEdge(): ISceneObject;
-
-  /**
-   * Returns the left straight edge of the rectangle.
-   */
-  leftEdge(): ISceneObject;
-
-  /**
-   * Returns the right straight edge of the rectangle.
-   */
-  rightEdge(): ISceneObject;
-
-  /**
-   * Returns the arc edge at the top-left corner. Only present when a radius is applied.
-   */
-  topLeftArcEdge(): ISceneObject;
-
-  /**
-   * Returns the arc edge at the top-right corner. Only present when a radius is applied.
-   */
-  topRightArcEdge(): ISceneObject;
-
-  /**
-   * Returns the arc edge at the bottom-left corner. Only present when a radius is applied.
-   */
-  bottomLeftArcEdge(): ISceneObject;
-
-  /**
-   * Returns the arc edge at the bottom-right corner. Only present when a radius is applied.
-   */
-  bottomRightArcEdge(): ISceneObject;
 
   /**
    * Returns a lazy-evaluated vertex at the top-left corner.
@@ -747,7 +719,44 @@ export interface IRevolve extends IBooleanOperation {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
 }
 
+/**
+ * How a loft leaves (or arrives at) an end profile:
+ * - `'none'` — no constraint (default).
+ * - `'normal'` — the surface takes off perpendicular to the profile plane.
+ * - `'tangent'` — the surface takes off inside the profile plane, directed
+ *   outward, so the profile plane becomes a tangency plane.
+ */
+export type LoftConditionType = 'none' | 'normal' | 'tangent';
+
 export interface ILoft extends IBooleanOperation {
+  /**
+   * Adds side guide curves (rails) the loft surface must follow. Supports one
+   * or two guides in total; a single argument may carry several separate
+   * curves (e.g. a sketch holding a curve and its mirror) — each connected
+   * chain counts as one guide. Every guide must pass through every profile.
+   * Composes with start/end conditions (the condition fades out around each
+   * guide's contact point — rails win locally, the condition shapes the
+   * rest). Cannot be combined with thin mode.
+   * @param guides - Sketches or edges forming the guide curves.
+   */
+  guides(...guides: ISceneObject[]): this;
+
+  /**
+   * Constrains how the surface leaves the first profile.
+   * @param type - `'none'`, `'normal'` or `'tangent'` — see {@link LoftConditionType}.
+   * @param magnitude - Scales the takeoff strength; defaults to 1. Negative
+   * values flip the direction (e.g. inward instead of outward for `'tangent'`).
+   */
+  startCondition(type: LoftConditionType, magnitude?: NumberParam): this;
+
+  /**
+   * Constrains how the surface arrives at the last profile.
+   * @param type - `'none'`, `'normal'` or `'tangent'` — see {@link LoftConditionType}.
+   * @param magnitude - Scales the arrival strength; defaults to 1. Negative
+   * values flip the direction (e.g. inward instead of outward for `'tangent'`).
+   */
+  endCondition(type: LoftConditionType, magnitude?: NumberParam): this;
+
   /**
    * Selects faces on the first profile plane of the loft.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
@@ -942,6 +951,21 @@ export interface ISweep extends IBooleanOperation {
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+}
+
+export interface ICopy extends ISceneObject {
+  /**
+   * Selects one grid slot of a 2D (in-sketch) copy as a whole geometry —
+   * every edge the copy stamped at that position, usable wherever a whole
+   * geometry operand is accepted (e.g. `fuse(cp.instance(0), cp.instance(3))`).
+   * Linear copies linearize the grid in axis order (the first axis varies
+   * slowest), with the original at its own slot — 0 when not centered, the
+   * center slot when centered. Circular copies count rotation steps with the
+   * original at 0, the same numbering the `skip` option uses. 3D copies do
+   * not support this accessor.
+   * @param index - The grid-slot index.
+   */
+  instance(index: number): ISceneObject;
 }
 
 export interface IMirror extends IBooleanOperation {

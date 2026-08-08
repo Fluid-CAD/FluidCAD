@@ -38,6 +38,20 @@ export class Split2D extends GeometrySceneObject {
       owner.removeShape(wire, this);
     }
 
+    // Split products stay on their source curve — recover roles, then stamp.
+    const inputEdges: Edge[] = [];
+    for (const wireOrEdge of sourceWires.keys()) {
+      if (wireOrEdge instanceof Edge) {
+        inputEdges.push(wireOrEdge);
+      } else {
+        inputEdges.push(...wireOrEdge.getEdges());
+      }
+    }
+    this.recoverEdgeRoles(edges, inputEdges);
+    for (const edge of edges) {
+      edge.setProvenance('split-segment');
+    }
+
     this.addShapes(edges);
   }
 

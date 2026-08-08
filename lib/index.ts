@@ -81,18 +81,23 @@ export function registerBuilder<T extends Function>(builder: (context: ScenePars
     }
     const sourceLocation = captureSourceLocation();
 
+    // An object's source location is the statement that CREATED it. Builders
+    // re-add pre-existing inputs (loft/sweep/extrude profiles) to register
+    // stragglers, and that must not re-attribute them to the consuming call.
+    const stamp = (obj: SceneObject) => {
+      if (sourceLocation && !obj.getSourceLocation()) {
+        obj.setSourceLocation(sourceLocation);
+      }
+    };
+
     const context: SceneParserContext = {
       addSceneObject(obj: SceneObject) {
-        if (sourceLocation) {
-          obj.setSourceLocation(sourceLocation);
-        }
+        stamp(obj);
         scene.addSceneObject(obj);
       },
       addSceneObjects(objs: SceneObject[]) {
         for (const obj of objs) {
-          if (sourceLocation) {
-            obj.setSourceLocation(sourceLocation);
-          }
+          stamp(obj);
           scene.addSceneObject(obj);
         }
       },
@@ -106,9 +111,7 @@ export function registerBuilder<T extends Function>(builder: (context: ScenePars
         return scene.getLastSelections();
       },
       startProgressiveContainer(obj: SceneObject) {
-        if (sourceLocation) {
-          obj.setSourceLocation(sourceLocation);
-        }
+        stamp(obj);
         scene.startProgressiveContainer(obj);
       },
       endProgressiveContainer() {
@@ -131,7 +134,7 @@ export function registerBuilder<T extends Function>(builder: (context: ScenePars
 }
 
 export { createParamRegistry, getParamRegistry } from './param-registry.js';
-export type { ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamScalar } from './param-registry.js';
+export type { ParamRegistry, ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamScalar } from './param-registry.js';
 export { setAssetProvider } from './io/file-import.js';
 export type { AssetProvider } from './io/file-import.js';
 export { getSceneManager } from './scene-manager.js';

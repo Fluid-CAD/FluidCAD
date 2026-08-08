@@ -14,6 +14,7 @@ Imported from `fluidcad/core`.
 ```ts
 move()                                  // jump back to the sketch plane origin
 move(to: Point2D)                       // absolute move
+move(dx, dy)                            // relative move — offset from the current position
 
 hMove(distance)
 hMove(target: SceneObject)              // move horizontally until hitting target
@@ -36,6 +37,11 @@ back(count)                             // revert `count` cursor changes
 These never produce edges — they reposition the cursor (and, for
 `rMove`, the tangent) so the next drawing call lands where you want.
 Reach for them instead of computing absolute coordinates by hand.
+
+Scalars are relative, points are absolute. `move(10, 5)` offsets the cursor
+the way `hMove`/`vMove`/`pMove` do; `move([10, 5])` jumps to that exact
+point. The two differ only by the brackets, so reach for the point form
+only when you really mean an absolute address.
 
 ## Example
 

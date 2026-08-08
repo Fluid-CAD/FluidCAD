@@ -39,6 +39,66 @@ describe("move functions", () => {
     });
   });
 
+  describe("move relative", () => {
+    it("should offset the cursor from its current position", () => {
+      sketch("xy", () => {
+        move([30, 20]);
+        move(10, 5);
+        rect(50, 50);
+      });
+      const e = extrude(10) as ExtrudeBase;
+      render();
+
+      const bbox = ShapeOps.getBoundingBox(e.getShapes()[0]);
+      expect(bbox.minX).toBeCloseTo(40, 0);
+      expect(bbox.minY).toBeCloseTo(25, 0);
+    });
+
+    it("should accumulate across chained relative moves", () => {
+      sketch("xy", () => {
+        move(20, 10);
+        move(-5, 15);
+        rect(30, 30);
+      });
+      const e = extrude(10) as ExtrudeBase;
+      render();
+
+      const bbox = ShapeOps.getBoundingBox(e.getShapes()[0]);
+      expect(bbox.minX).toBeCloseTo(15, 0);
+      expect(bbox.minY).toBeCloseTo(25, 0);
+    });
+
+    it("should offset from the previous geometry's endpoint", () => {
+      sketch("xy", () => {
+        hLine([0, 0], 40).guide();
+        move(10, 20);
+        rect(30, 30);
+      });
+      const e = extrude(10) as ExtrudeBase;
+      render();
+
+      const bbox = ShapeOps.getBoundingBox(e.getShapes()[0]);
+      expect(bbox.minX).toBeCloseTo(50, 0);
+      expect(bbox.minY).toBeCloseTo(20, 0);
+    });
+
+    // The two forms differ only by brackets, so guard the dispatch directly:
+    // a point argument stays absolute no matter what precedes it.
+    it("should keep the point form absolute", () => {
+      sketch("xy", () => {
+        move([30, 20]);
+        move([10, 5]);
+        rect(50, 50);
+      });
+      const e = extrude(10) as ExtrudeBase;
+      render();
+
+      const bbox = ShapeOps.getBoundingBox(e.getShapes()[0]);
+      expect(bbox.minX).toBeCloseTo(10, 0);
+      expect(bbox.minY).toBeCloseTo(5, 0);
+    });
+  });
+
   describe("hMove", () => {
     it("should move cursor horizontally", () => {
       sketch("xy", () => {

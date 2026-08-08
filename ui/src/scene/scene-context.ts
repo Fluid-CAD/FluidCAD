@@ -68,11 +68,13 @@ export class SceneContext {
   private _adapter!: CameraControlsAdapter;
 
   private dirLight: DirectionalLight;
+  private rotationLocked = false;
   private renderRequested = false;
   private resizeObserver: ResizeObserver;
   private clock = new Clock();
   private animFrameId = 0;
   private gizmoWasActive = false;
+  private viewShiftY = 0;
 
   constructor(private container: HTMLElement) {
     Object3D.DEFAULT_UP = Z_UP.clone();
@@ -133,8 +135,12 @@ export class SceneContext {
     // Adapter for gizmo compatibility
     this._adapter = new CameraControlsAdapter(this._cc);
 
-    // Viewport gizmo
+    // Viewport gizmo. Mount it in the same container the renderer fills (the
+    // toolbar-inset #fluidcad-scene) so it renders at the top-right of the
+    // visible viewport; on document.body it would anchor to the window top and
+    // fall above the inset canvas, clipping the gizmo away.
     this.gizmo = new ViewportGizmo(this.camera, this.renderer, {
+      container,
       size: 80,
       type: 'sphere',
     });
@@ -200,6 +206,27 @@ export class SceneContext {
     return this._cc;
   }
 
+  /**
+   * Lock the camera orientation: left-drag and one-finger touch pan instead
+   * of rotating, and the gizmo goes inert (a gizmo click/drag is a rotation
+   * too). Pan and zoom stay available. Survives camera switches — the
+   * rebuild in {@link switchCamera} re-applies the lock.
+   */
+  setRotationLocked(locked: boolean): void {
+    this.rotationLocked = locked;
+    this.applyRotationLock();
+  }
+
+  private applyRotationLock(): void {
+    this._cc.mouseButtons.left = this.rotationLocked
+      ? CameraControls.ACTION.TRUCK
+      : CameraControls.ACTION.ROTATE;
+    this._cc.touches.one = this.rotationLocked
+      ? CameraControls.ACTION.TOUCH_TRUCK
+      : CameraControls.ACTION.TOUCH_ROTATE;
+    this.gizmo.enabled = !this.rotationLocked;
+  }
+
   /** The adapter for ViewportGizmo compatibility. */
   get controls(): CameraControlsAdapter {
     return this._adapter;
@@ -218,6 +245,33 @@ export class SceneContext {
 
     const sphere = new Sphere(center, radius * FIT_PADDING);
     this._cc.fitToSphere(sphere, enableTransition);
+  }
+
+  /**
+   * Shift the rendered view up by `px` (0 clears). A pure projection-window
+   * offset (setViewOffset) — camera state is untouched, so zoom, orbit,
+   * fit-to-view and any setLookAt (sketch-close restore, gizmo snaps) compose
+   * with it, and the shift stays a constant pixel height at every zoom level.
+   * Applied to both cameras so camera switches keep it. The phone-layout
+   * dialog sheet drives it (see DialogViewOffset).
+   */
+  setViewShift(px: number): void {
+    if (px === this.viewShiftY) return;
+    this.viewShiftY = px;
+    this.applyViewShift();
+    this.requestRender();
+  }
+
+  private applyViewShift(): void {
+    const width = this.container.clientWidth || window.innerWidth;
+    const height = this.container.clientHeight || window.innerHeight;
+    for (const cam of [this.orthoCamera, this.perspCamera]) {
+      if (this.viewShiftY === 0) {
+        cam.clearViewOffset();
+      } else {
+        cam.setViewOffset(width, height, 0, this.viewShiftY, width, height);
+      }
+    }
   }
 
   /** Switch between perspective and orthographic cameras. */
@@ -261,6 +315,7 @@ export class SceneContext {
     this._cc.setLookAt(pos.x, pos.y, pos.z, tgt.x, tgt.y, tgt.z, false);
     this._cc.updateCameraUp();
     this.configureTouchForMode(mode);
+    this.applyRotationLock();
 
     // Create new adapter
     this._adapter = new CameraControlsAdapter(this._cc);
@@ -354,6 +409,11 @@ export class SceneContext {
     // Update perspective camera
     this.perspCamera.aspect = aspect;
     this.perspCamera.updateProjectionMatrix();
+
+    // The view-shift offset stores the canvas size — refresh it
+    if (this.viewShiftY !== 0) {
+      this.applyViewShift();
+    }
 
     this.gizmo.update();
     this.requestRender();

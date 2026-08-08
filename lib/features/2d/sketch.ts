@@ -5,6 +5,7 @@ import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { BuildSceneObjectContext, SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
 import { Wire } from "../../common/wire.js";
+import { ShapeFilter } from "../../common/shape.js";
 import { Extrudable } from "../../helpers/types.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 
@@ -189,16 +190,28 @@ export class Sketch extends SceneObject implements Extrudable {
     return [...this.getEdgesWithOwner().keys()];
   }
 
-  getEdgesWithOwner(): Map<Edge, GeometrySceneObject> {
+  /** The default filter excludes guides; pass `{ excludeGuide: false }` to
+   * index construction geometry too (the tArc-to-edge target resolution). */
+  getEdgesWithOwner(filter?: ShapeFilter): Map<Edge, GeometrySceneObject> {
     const children = this.getChildren() as GeometrySceneObject[];
     const result: Map<Edge, GeometrySceneObject> = new Map();
 
     for (const child of children) {
-      const shapes = child.getShapes();
+      // Lazy accessor children (e.g. r.edge('top')) and select statements
+      // hold the same Edge instances as the primitive that built them —
+      // counting them would reassign ownership and double-count edges.
+      if (child.isLazy() || child.isSelection()) {
+        continue;
+      }
+
+      const shapes = child.getShapes(filter);
       for (const shape of shapes) {
         if (shape instanceof Edge) {
           result.set(shape, child);
         } else if (shape instanceof Wire) {
+          // Invariant: sketch features emit individual Edge shapes, never
+          // Wires (1 shapeId = 1 edge). Expand defensively but flag it.
+          console.warn(`Sketch: child "${child.getType()}" emitted a Wire shape; sketch features must emit individual edges.`);
           for (const edge of shape.getEdges()) {
             result.set(edge, child);
           }
@@ -277,6 +290,12 @@ export class Sketch extends SceneObject implements Extrudable {
 
   serialize(scope?: Set<SceneObject>) {
     const plane = this.getPlane();
+    if (!plane) {
+      // The plane could not be built (e.g. a sketch on a non-planar face); the
+      // plane object already carries the real error. Emit a benign payload so
+      // this sketch doesn't crash serialization with a null dereference.
+      return { plane: this.planeObj.serialize() };
+    }
     const tangent = this.getTangent(scope);
     return {
       currentPosition: plane.localToWorld(this.getLastPosition(scope)),

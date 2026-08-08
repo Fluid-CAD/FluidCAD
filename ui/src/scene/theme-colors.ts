@@ -26,6 +26,11 @@ function readAll() {
   themeColors.selectEdgeColor.set(readCssVar('--scene-select-edge-color', '#11a4ed'));
   themeColors.selectFaceColor.set(readCssVar('--scene-select-face-color', '#5c9fcc'));
   themeColors.constraintColor.set(readCssVar('--scene-constraint-color', '#cccccc'));
+  themeColors.ghostAddFaceColor.set(readCssVar('--scene-ghost-add-face', '#3fb950'));
+  themeColors.ghostAddEdgeColor.set(readCssVar('--scene-ghost-add-edge', '#2ea043'));
+  themeColors.ghostRemoveFaceColor.set(readCssVar('--scene-ghost-remove-face', '#e5534b'));
+  themeColors.ghostRemoveEdgeColor.set(readCssVar('--scene-ghost-remove-edge', '#c93c37'));
+  themeColors.ghostWireColor.set(readCssVar('--scene-ghost-wire', '#2297ff'));
   themeColors.backgroundColor.set(readCssVar('--color-base-100', '#1e1e1e'));
 }
 
@@ -38,6 +43,17 @@ export const themeColors = {
   selectEdgeColor: new Color('#11a4ed'),
   selectFaceColor: new Color('#5c9fcc'),
   constraintColor: new Color('#cccccc'),
+  // The live feature-dialog geometry ("ghost"): green for what an apply would
+  // add, red for the tool a cut would sweep. Deliberately clear of scene gray,
+  // highlight orange and selection blue.
+  ghostAddFaceColor: new Color('#3fb950'),
+  ghostAddEdgeColor: new Color('#2ea043'),
+  ghostRemoveFaceColor: new Color('#e5534b'),
+  ghostRemoveEdgeColor: new Color('#c93c37'),
+  // A ghost that is a curve rather than a body (a helix): nothing is added or
+  // taken away, so it wears the blue a standalone wire renders in once applied
+  // (STANDALONE_EDGE_STYLE, shape-group.ts) instead of a direction color.
+  ghostWireColor: new Color('#2297ff'),
   backgroundColor: new Color('#1e1e1e'),
 };
 

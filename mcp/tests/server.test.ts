@@ -84,6 +84,45 @@ describe('MCP server', () => {
     }
   });
 
+  // Regression: the SDK converts Zod v4 with a draft-07 target, where tuples
+  // become `items: [...]`. JSON Schema 2020-12 requires `items` to be a single
+  // schema, so any tuple in an inputSchema makes that tool unusable for clients
+  // that validate against 2020-12.
+  it('emits tool schemas with no draft-07-only array-form `items`', async () => {
+    const server = buildServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: 'test', version: '0.0.0' });
+
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+    try {
+      const { tools } = await client.listTools();
+      const offenders: string[] = [];
+      const walk = (node: unknown, path: string, tool: string): void => {
+        if (!node || typeof node !== 'object') {
+          return;
+        }
+        if (Array.isArray(node)) {
+          node.forEach((child, i) => walk(child, `${path}[${i}]`, tool));
+          return;
+        }
+        const record = node as Record<string, unknown>;
+        if (Array.isArray(record.items)) {
+          offenders.push(`${tool} @ ${path}.items`);
+        }
+        for (const [key, value] of Object.entries(record)) {
+          walk(value, `${path}.${key}`, tool);
+        }
+      };
+      for (const tool of tools) {
+        walk(tool.inputSchema, 'inputSchema', tool.name);
+      }
+      expect(offenders).toEqual([]);
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
   it('list_workspaces returns the live entries with reachability', async () => {
     const port = await startFakeHealthServer();
     writeRegistry([

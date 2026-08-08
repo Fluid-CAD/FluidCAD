@@ -27,9 +27,10 @@ export class Circle extends ExtrudableGeometryBase {
     const circle = Geometry.makeCircle(plane.localToWorld(center), radius, plane.normal);
 
     let edge = Geometry.makeEdgeFromCircle(circle);
+    edge.setRole('perimeter');
 
     this.addShape(edge);
-    const centerVertex = Vertex.fromPoint2D(center);
+    const centerVertex = Vertex.fromPoint(plane.localToWorld(center));
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
     if (this.sketch) {

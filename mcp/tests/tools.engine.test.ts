@@ -39,6 +39,10 @@ type ExportConfig = {
 };
 let exportConfig: ExportConfig = {};
 
+// What the scene-mutating routes report alongside `success`. Tests override
+// it to simulate a render that completed with features left broken.
+let renderReport: Record<string, unknown> = { state: 'rendered', objectErrors: [] };
+
 function entry(overrides: Partial<RegistryEntry> = {}): RegistryEntry {
   return {
     workspacePath: workspace,
@@ -72,8 +76,13 @@ function startFakeServer(): Promise<number> {
           return;
         }
 
-        if (url === '/api/recompute' || url === '/api/rollback'
-            || url === '/api/add-breakpoint' || url === '/api/clear-breakpoints') {
+        if (url === '/api/recompute' || url === '/api/rollback') {
+          res.writeHead(200, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ success: true, ...renderReport }));
+          return;
+        }
+
+        if (url === '/api/add-breakpoint' || url === '/api/clear-breakpoints') {
           res.writeHead(200, { 'content-type': 'application/json' });
           res.end(JSON.stringify({ success: true }));
           return;
@@ -125,6 +134,7 @@ beforeEach(async () => {
   workspace = fs.realpathSync(workspace);
   requests = [];
   exportConfig = {};
+  renderReport = { state: 'rendered', objectErrors: [] };
   fakePort = await startFakeServer();
   writeRegistry([entry()]);
 });
@@ -139,11 +149,33 @@ afterEach(async () => {
   }
 });
 
+const BUILD_ERROR = {
+  index: 2,
+  id: 'obj-3',
+  name: 'Fillet',
+  uniqueKind: 'fillet-1',
+  message: 'Failed to fillet edges',
+  sourceLocation: { filePath: '/ws/part.fluid.js', line: 7, column: 1 },
+};
+
 describe('recompute', () => {
   it('POSTs /api/recompute', async () => {
     const result = await recompute({});
     expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
     expect(requests.find((r) => r.url === '/api/recompute')?.method).toBe('POST');
+    expect(result.data.state).toBe('rendered');
+  });
+
+  it('surfaces features that failed to build', async () => {
+    renderReport = { state: 'build-error', objectErrors: [BUILD_ERROR] };
+    const result = await recompute({});
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    // A recompute that ran to completion over a broken feature is not a
+    // success the agent can act on — it has to see which feature failed.
+    expect(result.data.state).toBe('build-error');
+    expect(result.data.objectErrors).toEqual([BUILD_ERROR]);
   });
 });
 
@@ -154,6 +186,15 @@ describe('rollback_to', () => {
     const sent = requests.find((r) => r.url === '/api/rollback');
     expect(sent?.method).toBe('POST');
     expect(JSON.parse(sent!.body)).toEqual({ index: 2 });
+  });
+
+  it('surfaces features that failed to build inside the rollback scope', async () => {
+    renderReport = { state: 'build-error', objectErrors: [BUILD_ERROR] };
+    const result = await rollbackTo({ index: 2 });
+    expect(result.ok).toBe(true);
+    if (!result.ok) { return; }
+    expect(result.data.state).toBe('build-error');
+    expect(result.data.objectErrors).toEqual([BUILD_ERROR]);
   });
 
   it('rejects a negative index', async () => {

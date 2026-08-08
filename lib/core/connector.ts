@@ -15,7 +15,7 @@ interface ConnectorFunction {
    * Must be called inside a `part(...)` block.
    *
    * Accepts a face/edge/vertex selection (`select(...)`), a sketch lazy
-   * selection (e.g., `rect.topEdge()`), a `LazyVertex`, or a plane object.
+   * selection (e.g., `rect.edge('top')`), a `LazyVertex`, or a plane object.
    * Raw points are intentionally not allowed — the frame must be tied to
    * real geometry so it re-derives correctly on every render.
    *

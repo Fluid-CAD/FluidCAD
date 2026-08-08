@@ -263,7 +263,7 @@ function build(context: SceneParserContext): RepeatFunction {
 
       const planeObj = resolvePlane(planeArg, context);
       const lazy = LazyMatrix.mirror(planeObj);
-      const mirrorFeature = new MirrorFeature(planeObj, lazy);
+      const mirrorFeature = new MirrorFeature(planeObj, lazy, targetObjects);
       const mirrorTree = cloneWithTransform(targetObjects, lazy, mirrorFeature);
 
       context.addSceneObject(mirrorFeature);

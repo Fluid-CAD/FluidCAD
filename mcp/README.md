@@ -115,13 +115,20 @@ For a globally installed `fluidcad`, replace `npx -y fluidcad mcp` with
 `fluidcad mcp` in any of the configs above (the opencode `command` array
 becomes `["fluidcad", "mcp"]`).
 
-### Install the FluidCAD skill
+### Install the FluidCAD skills
 
-Install the companion skill so agents follow the FluidCAD workflow:
+Install the companion skills so agents follow the FluidCAD workflow:
 
 ```bash
 npx skills add Fluid-CAD/FluidCAD
 ```
+
+Two skills ship with the repo:
+
+- **FluidCAD** — the core modeling loop: read the docs, write the file, check
+  the render, verify visually.
+- **FluidCAD-from-drawing** — layered on top, for building a part from a 2D
+  engineering drawing, blueprint, or dimension sheet.
 
 ---
 
@@ -152,6 +159,20 @@ Tools that trigger a re-render (`write_file`, `edit_range`, `recompute`,
 settles. `write_file` and `edit_range` additionally carry the render outcome
 under `render`. The agent should inspect `render.state` and surface any
 `compile-error` to the user before retrying.
+
+Two failures are reported, and they are not the same thing:
+
+| `state` | What happened | What is being served |
+| --- | --- | --- |
+| `compile-error` | The module never ran | The **previous** scene |
+| `build-error` | The module ran; one or more features' `build()` threw | The new scene, **missing** that geometry |
+
+A failing feature does not abort the render — the renderer records the message
+on that object and carries on — so only `rendered` means the scene matches the
+source. On `build-error`, `render.objectErrors` lists every failed feature
+(`index`, `id`, `name`, `uniqueKind`, `message`, 1-based `sourceLocation`).
+`recompute` and `rollback_to` report the same `state` / `objectErrors` pair
+alongside `success`.
 
 ---
 

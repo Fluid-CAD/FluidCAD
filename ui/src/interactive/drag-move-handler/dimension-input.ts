@@ -1,6 +1,7 @@
 import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
 import { updateDimensionExpression, getDimensionExpression } from '../../api';
-import { FetchVariablesFn } from '../sketch-tool';
+import { FetchVariablesFn, SketchTool } from '../sketch-tool';
+import { computeFixedRadiusArc } from './constraint-math';
 import { DragHitResult, GetSketchSourceLineFn } from './types';
 
 export class DimensionInputController {
@@ -68,8 +69,8 @@ export class DimensionInputController {
       value = uniqueType === 'hline'
         ? Math.round(Math.abs(startPoint[0] - start[0]) * 100) / 100
         : Math.round(Math.abs(startPoint[1] - start[1]) * 100) / 100;
-    } else if (uniqueType === 'tline' && hitZone === 'end' && hitResult.tangentDir) {
-      label = 'T:';
+    } else if ((uniqueType === 'tline' || uniqueType === 'aline') && hitZone === 'end' && hitResult.tangentDir) {
+      label = uniqueType === 'tline' ? 'T:' : 'L:';
       const start = hitResult.anchorPoint!;
       const t = hitResult.tangentDir;
       const dx = startPoint[0] - start[0];
@@ -88,6 +89,12 @@ export class DimensionInputController {
       const lc = hitResult.anchorPoint!;
       const ddx = startPoint[0] - lc[0];
       const ddy = startPoint[1] - lc[1];
+      value = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
+    } else if (uniqueType === 'tarc-radius-to-point' && hitZone === 'center') {
+      label = 'R:';
+      const start = hitResult.anchorPoint!;
+      const ddx = startPoint[0] - start[0];
+      const ddy = startPoint[1] - start[1];
       value = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
     }
 
@@ -111,9 +118,37 @@ export class DimensionInputController {
     } else if (hitResult.uniqueType === 'hline' || hitResult.uniqueType === 'vline') {
       label = hitResult.uniqueType === 'hline' ? 'H:' : 'V:';
       value = Math.abs(hitResult.initialValue ?? 0);
-    } else if (hitResult.uniqueType === 'tline') {
-      label = 'T:';
+    } else if (hitResult.uniqueType === 'aline' && hitResult.hitZone === 'angle') {
+      // The angle is signed (CCW positive, matching the indicator readout),
+      // so it is shown and committed as-is rather than as a magnitude.
+      label = 'A:';
+      value = hitResult.initialValue ?? 0;
+    } else if (hitResult.uniqueType === 'tline' || hitResult.uniqueType === 'aline') {
+      label = hitResult.uniqueType === 'tline' ? 'T:' : 'L:';
       value = Math.abs(hitResult.initialValue ?? 0);
+    } else if (hitResult.uniqueType === 'rect') {
+      if (!hitResult.rectDim) {
+        return false;
+      }
+      if (hitResult.rectDim === 'radius') {
+        label = 'R:';
+        value = hitResult.initialValue ?? 0;
+      } else {
+        label = hitResult.rectDim === 'width' ? 'W:' : 'H:';
+        value = Math.abs(hitResult.initialValue ?? 0);
+      }
+    } else if ((hitResult.uniqueType === 'tarc-to-point' || hitResult.uniqueType === 'tarc-radius-to-point')
+               && (hitResult.hitZone === 'body' || hitResult.hitZone === 'center')) {
+      // Double-clicking a tangent arc's curve (or center) sets its radius.
+      // On a radius-less `tArc([e])` the commit inserts the radius argument,
+      // converting the statement to the `tArc(radius, [e])` overload. The
+      // input shows the magnitude; the stored sign (leave side) is
+      // re-applied on commit via the signed-dimension machinery.
+      label = 'R:';
+      value = Math.abs(hitResult.initialValue ?? 0);
+      if (!(value > 0)) {
+        return false;
+      }
     } else if (hitResult.uniqueType === 'slot') {
       if (hitResult.hitZone === 'start' || hitResult.hitZone === 'end') {
         if (hitResult.slotHasTwoPoints) {
@@ -159,7 +194,7 @@ export class DimensionInputController {
       const ddx = currentPoint[0] - center[0];
       const ddy = currentPoint[1] - center[1];
       value = Math.round(2 * Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
-    } else if (uniqueType === 'tline' && hitResult.tangentDir) {
+    } else if ((uniqueType === 'tline' || uniqueType === 'aline') && hitResult.tangentDir) {
       const start = anchorPoint!;
       const t = hitResult.tangentDir;
       const dx = currentPoint[0] - start[0];
@@ -172,6 +207,11 @@ export class DimensionInputController {
       const ddx = currentPoint[0] - lc[0];
       const ddy = currentPoint[1] - lc[1];
       value = Math.round(Math.abs(-ay * ddx + ax * ddy) * 100) / 100;
+    } else if (uniqueType === 'tarc-radius-to-point' && hitResult.hitZone === 'center') {
+      const start = anchorPoint!;
+      const ddx = currentPoint[0] - start[0];
+      const ddy = currentPoint[1] - start[1];
+      value = Math.round(Math.sqrt(ddx * ddx + ddy * ddy) * 100) / 100;
     } else if (uniqueType === 'slot' && hitResult.slotOtherCenter && hitResult.slotAxisDir) {
       const other = hitResult.slotOtherCenter;
       const ax = hitResult.slotAxisDir;
@@ -192,8 +232,8 @@ export class DimensionInputController {
     this.expressionInput.updatePosition(clientX, clientY);
   }
 
-  updateValueIfUnmoved(expression: string): void {
-    this.expressionInput.updateValue(expression);
+  seedExpressionIfUnmoved(expression: string): void {
+    this.expressionInput.seedExpression(expression);
   }
 
   commitIfVisible(hasMoved: boolean): void {
@@ -224,6 +264,11 @@ export class DimensionInputController {
   ): void {
     const { sourceLocation } = hitResult;
     const numericFallback = String(value);
+    const { offset: dimOffset, call: dimCall, insert: dimInsert } = DimensionInputController.dimensionTargetFor(hitResult, label);
+    const isSignedType = hitResult.uniqueType !== 'circle'
+      && hitResult.uniqueType !== 'polygon'
+      && hitResult.uniqueType !== 'slot'
+      && hitResult.hitZone !== 'angle';
 
     this.expressionInput.show({
       label,
@@ -237,16 +282,24 @@ export class DimensionInputController {
         const isNumeric = !isNaN(num) && String(num) === expression;
 
         let finalExpr = expression;
-        if (isNumeric && hitResult.uniqueType !== 'circle' && hitResult.uniqueType !== 'polygon' && hitResult.uniqueType !== 'slot') {
+        if (isSignedType) {
           const sign = this.computeDistanceSign(hitResult, null);
-          finalExpr = String(Math.round(sign * num * 100) / 100);
+          finalExpr = SketchTool.applySignedDimension(expression, sign);
         } else if (isNumeric) {
           finalExpr = String(Math.round(num * 100) / 100);
         }
 
+        // A tArc radius commit also re-aims the endpoint argument at the
+        // position the new tangent circle can actually reach.
+        const dimPoint = dimInsert
+          ? DimensionInputController.projectedTArcEndpoint(
+              hitResult,
+              isNumeric ? num : (newVariable ? parseFloat(newVariable.initializer) : NaN),
+            )
+          : null;
+
         const sketchSourceLine = this.getSketchSourceLine();
-        const dimOffset = label === 'D' ? 1 : 0;
-        updateDimensionExpression(finalExpr, sourceLocation, sketchSourceLine, newVariable, dimOffset);
+        updateDimensionExpression(finalExpr, sourceLocation, sketchSourceLine, newVariable, dimOffset, dimCall, dimInsert, dimPoint);
         if (isDrag) {
           this.onRequestEndResize?.();
         } else {
@@ -256,17 +309,105 @@ export class DimensionInputController {
     });
 
     if (label !== 'D') {
-      getDimensionExpression(sourceLocation.line).then(({ expression }) => {
+      getDimensionExpression(sourceLocation.line, dimOffset, dimCall).then(({ expression }) => {
         if (!expression) {
           return;
         }
-        if (isDrag) {
-          this.updateValueIfUnmoved(expression);
-        } else if (this.standaloneInputActive) {
-          this.updateValueIfUnmoved(expression);
+        const seed = isSignedType
+          ? DimensionInputController.stripNegation(expression)
+          : expression;
+        if (isDrag || this.standaloneInputActive) {
+          this.seedExpressionIfUnmoved(seed);
         }
       });
     }
+  }
+
+  // Which call in the member chain and which non-array arg (offset from the
+  // end) holds the dimension: rect width/height live in rect(...), a fillet
+  // radius in .radius(...); the slot distance ('D') sits one arg before its
+  // radius in the same call. `insert` marks a dimension the statement may
+  // not carry yet — the edit adds it as the call's first argument.
+  private static dimensionTargetFor(
+    hitResult: DragHitResult,
+    label: string,
+  ): { offset: number; call: string | null; insert?: boolean } {
+    if (hitResult.uniqueType === 'rect') {
+      if (hitResult.rectDim === 'radius') {
+        return { offset: hitResult.rectRadiusArgOffset ?? 0, call: 'radius' };
+      }
+      return { offset: hitResult.rectDim === 'width' ? 1 : 0, call: 'rect' };
+    }
+    if (hitResult.uniqueType === 'aline' && hitResult.hitZone === 'angle') {
+      // aLine(angle, length): the angle sits one arg before the length, and
+      // only in the aLine call itself — a chained .centered(true) would
+      // otherwise satisfy a call-agnostic offset.
+      return { offset: 1, call: 'aLine' };
+    }
+    if (hitResult.uniqueType === 'tarc-to-point' || hitResult.uniqueType === 'tarc-radius-to-point') {
+      // The radius is tArc's only scalar; a radius-less `tArc([e])` gains it
+      // as the first argument, becoming the `tArc(radius, [e])` overload.
+      return { offset: 0, call: 'tArc', insert: true };
+    }
+    return { offset: label === 'D' ? 1 : 0, call: null };
+  }
+
+  // Where the arc will actually end for the committed radius: the current
+  // endpoint (the aim) projected onto the new tangent circle. The typed
+  // value's sign composes with the measured leave direction, so passing it
+  // with the built arc's tangent handles negative radii. Null when the
+  // radius isn't statically known (a pre-existing variable expression) —
+  // the endpoint argument then stays as the aim and the kernel projects.
+  private static projectedTArcEndpoint(
+    hitResult: DragHitResult,
+    typedValue: number,
+  ): [number, number] | null {
+    if (!Number.isFinite(typedValue) || typedValue === 0) {
+      return null;
+    }
+    const start = hitResult.anchorPoint;
+    const aim = hitResult.fixedVertex2;
+    const tangent = hitResult.tangentDir;
+    if (!start || !aim || !tangent) {
+      return null;
+    }
+    const arc = computeFixedRadiusArc(start, aim, typedValue, tangent);
+    if (!arc) {
+      return null;
+    }
+    return [Math.round(arc.end[0] * 100) / 100, Math.round(arc.end[1] * 100) / 100];
+  }
+
+  // Inverse of SketchTool.applySignedDimension, for seeding the input: the
+  // input always shows a positive magnitude and the stored sign is re-applied
+  // on commit, so a stored `-50` / `-(w)` seeds as `50` / `w`.
+  private static stripNegation(expression: string): string {
+    const trimmed = expression.trim();
+    const num = parseFloat(trimmed);
+    if (!isNaN(num) && String(num) === trimmed) {
+      return String(Math.abs(num));
+    }
+    if (/^-[a-zA-Z_$][\w$]*$/.test(trimmed)) {
+      return trimmed.slice(1);
+    }
+    if (trimmed.startsWith('-(') && trimmed.endsWith(')')) {
+      const inner = trimmed.slice(2, -1);
+      let depth = 0;
+      for (const ch of inner) {
+        if (ch === '(') {
+          depth++;
+        } else if (ch === ')') {
+          depth--;
+          if (depth < 0) {
+            return trimmed;
+          }
+        }
+      }
+      if (depth === 0) {
+        return inner;
+      }
+    }
+    return trimmed;
   }
 
   private computeDistanceSign(
@@ -275,7 +416,7 @@ export class DimensionInputController {
   ): number {
     if (currentPoint) {
       const start = hitResult.anchorPoint!;
-      if (hitResult.uniqueType === 'tline' && hitResult.tangentDir) {
+      if ((hitResult.uniqueType === 'tline' || hitResult.uniqueType === 'aline') && hitResult.tangentDir) {
         const t = hitResult.tangentDir;
         const dx = currentPoint[0] - start[0];
         const dy = currentPoint[1] - start[1];

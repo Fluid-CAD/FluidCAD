@@ -9,6 +9,18 @@ import path from 'node:path';
 import { resolveClient, type WorkspaceArg } from './inspection.ts';
 import { FluidCadClient, HttpError } from '../client.ts';
 import { err, ok, type ToolResult } from '../types.ts';
+import type { ObjectBuildError } from './source.ts';
+
+/**
+ * Shared shape of the scene-mutating routes: the render ran, but individual
+ * features may still have failed to build. `state` mirrors `RenderOutcome`
+ * so the agent checks the same field on every tool that changes the scene.
+ * Both fields are absent on servers older than the build-error report.
+ */
+type RenderReport = {
+  state?: 'rendered' | 'build-error';
+  objectErrors?: ObjectBuildError[];
+};
 
 async function callWithClient<T>(
   input: WorkspaceArg,
@@ -39,7 +51,7 @@ async function callWithClient<T>(
 // ---------------------------------------------------------------------------
 
 export type RecomputeInput = WorkspaceArg;
-export type RecomputeOutput = { success: boolean };
+export type RecomputeOutput = { success: boolean } & RenderReport;
 
 export async function recompute(input: RecomputeInput): Promise<ToolResult<RecomputeOutput>> {
   return callWithClient(input, (client) => client.postJson<RecomputeOutput>('/api/recompute', {}));
@@ -50,7 +62,7 @@ export async function recompute(input: RecomputeInput): Promise<ToolResult<Recom
 // ---------------------------------------------------------------------------
 
 export type RollbackToInput = WorkspaceArg & { index: number };
-export type RollbackToOutput = { success: boolean };
+export type RollbackToOutput = { success: boolean } & RenderReport;
 
 export async function rollbackTo(input: RollbackToInput): Promise<ToolResult<RollbackToOutput>> {
   if (typeof input?.index !== 'number' || !Number.isInteger(input.index) || input.index < 0) {

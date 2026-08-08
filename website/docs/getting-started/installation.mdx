@@ -54,26 +54,25 @@ Do not modify this file — it is generated automatically by `npx fluidcad init`
 Open `test.fluid.js` — this is the file that was generated for you:
 
 ```js
-import { extrude, fillet, shell, sketch } from 'fluidcad/core';
-import { circle } from 'fluidcad/core';
+import { extrude, fillet, rect, shell, sketch } from "fluidcad/core";
 
 sketch("xy", () => {
-    circle(50)
-})
+    rect(100, 50).radius(10).centered();
+});
 
-const e = extrude(50)
+const e = extrude(30);
 
-shell(-6, e.endFaces())
+fillet(4, e.startEdges());
 
-fillet(5, e.startEdges())
+shell(-2, e.endFaces());
 ```
 
 Here's what each line does:
 
 1. **`sketch("xy", () => { ... })`** — Starts a 2D sketch on the XY plane (the horizontal plane). Everything inside the callback draws 2D shapes.
-2. **`circle(50)`** — Draws a circle with a diameter of 50.
-3. **`extrude(50)`** — Takes the sketch and pulls it up 50 units into a 3D solid. We store the result in `e` so we can reference its faces and edges later.
-4. **`shell(-6, e.endFaces())`** — Hollows out the solid with a wall thickness of 6, removing the top face (`endFaces()`). The negative value means the shell goes inward.
-5. **`fillet(5, e.startEdges())`** — Rounds the bottom edges with a radius of 5.
+2. **`rect(100, 50).radius(10).centered()`** — Draws a 100 × 50 rectangle with 10-unit rounded corners, centered on the origin.
+3. **`extrude(30)`** — Takes the sketch and pulls it up 30 units into a 3D solid. We store the result in `e` so we can reference its faces and edges later.
+4. **`fillet(4, e.startEdges())`** — Rounds the bottom edges with a radius of 4.
+5. **`shell(-2, e.endFaces())`** — Hollows out the solid with a wall thickness of 2, removing the top face (`endFaces()`). The negative value means the shell goes inward.
 
-The result is a small cup-like shape. Next, let's set up your editor so you can see it in 3D.
+The result is a small open-topped tray. Next, let's set up your editor so you can see it in 3D.

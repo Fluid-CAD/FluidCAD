@@ -51,6 +51,8 @@ export type ObjectType =
   | 'helix'
   // Modification operations
   | 'fillet'
+  | 'fillet2d'
+  | 'offset'
   | 'chamfer'
   | 'draft'
   | 'thickness'
@@ -77,6 +79,12 @@ export type ShapeType = 'solid' | 'face' | 'wire' | 'edge';
 export type FaceMeshOptions = {
   color?: string;
   opacity?: number;
+  /**
+   * False draws the faces through whatever is in front of them — for the
+   * translucent overlays that have to stay visible inside solid material
+   * (a cut tool's ghost, an extrusion sweeping back into the model).
+   */
+  depthTest?: boolean;
 };
 
 export type EdgeMeshOptions = {
@@ -109,6 +117,24 @@ export type SceneObjectMesh = {
 export type SubSelection =
   | { type: 'face'; index: number }
   | { type: 'edge'; index: number }
+  /**
+   * A sketch wire hit — only produced while a create dialog has enabled
+   * `viewer.pickSketchWires`; the pick identifies the owning sketch, so the
+   * index carries no meaning (always 0).
+   */
+  | { type: 'sketch'; index: number }
+  /**
+   * An axis line hit — only produced while a dialog has enabled
+   * `viewer.pickAxes`; the pick identifies the owning axis object, so the
+   * index carries no meaning (always 0).
+   */
+  | { type: 'axis'; index: number }
+  /**
+   * A construction-plane quad hit — only produced while a dialog has enabled
+   * `viewer.pickPlanes`; the pick identifies the owning plane object, so the
+   * index carries no meaning (always 0).
+   */
+  | { type: 'plane'; index: number }
   | null;
 
 export type SceneObjectPart = {
@@ -119,7 +145,12 @@ export type SceneObjectPart = {
   isGuide?: boolean;
   metaType?: string;
   metaData?: Record<string, any>;
+  role?: string;
+  roleIndex?: number;
+  provenance?: string;
 };
+
+export type SketchInteractivity = 'draggable' | 'selectable' | 'construction';
 
 export type CompileError = {
   message: string;
@@ -130,20 +161,40 @@ export type CompileError = {
 export type SceneObjectRender = {
   id?: string;
   name?: string;
+  /** True when `name` comes from a user's `.name('…')` chain, not the type. */
+  hasCustomName?: boolean;
   parentId?: string | null;
   isContainer?: boolean;
+  hideChildren?: boolean;
   object?: any;
   sceneShapes: SceneObjectPart[];
   ownShapes: SceneObjectPart[];
   visible?: boolean;
+  /** The object carries a `.reusable()` chain — kept visible when consumed. */
+  reusable?: boolean;
+  /**
+   * The object serves another statement's build (a sketch's own plane) rather
+   * than being a feature the code wrote — the timeline leaves it out. Absent
+   * on renders from a workspace kernel that predates the flag.
+   */
+  internal?: boolean;
   type?: ObjectType;
   uniqueType?: string;
+  /** Server-driven viewport classification for sketch geometry children. */
+  interactivity?: SketchInteractivity;
   fromCache?: boolean;
   hasError?: boolean;
   errorMessage?: string;
   sourceLocation?: SourceLocation;
   buildDurationMs?: number;
   profileCategories?: { category: string; durationMs: number }[];
+  /**
+   * Sketches only, tip sketch only: invisible plane-local 2D snap targets
+   * for the interactive sketcher — where the sketch plane slices the scene's
+   * bodies (the vertices an intersect() would produce) plus every prior
+   * shape's topological vertices projected onto the plane.
+   */
+  snapVertices?: [number, number][];
 };
 
 // ---------------------------------------------------------------------------
@@ -163,6 +214,12 @@ export type UIParamDefinition = {
   options?: { label: string; value: string | number }[];
   multi?: boolean;
   multiControlType?: 'select' | 'checkboxes' | 'chips';
+  /**
+   * Where the `param()` call was authored. The panel's editor addresses a
+   * declaration by label and only needs this to disambiguate a label declared
+   * twice; absent for a param whose call the engine could not attribute.
+   */
+  sourceLocation?: SourceLocation;
 };
 
 // ---------------------------------------------------------------------------

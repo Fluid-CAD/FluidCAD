@@ -4,6 +4,7 @@ export interface ViewerSettings {
   cameraMode: 'perspective' | 'orthographic';
   showGrid: boolean;
   sectionView: boolean;
+  sketchLockCamera: boolean;
 }
 
 type Listener = (settings: ViewerSettings) => void;
@@ -12,6 +13,7 @@ const defaults: ViewerSettings = {
   cameraMode: 'orthographic',
   showGrid: true,
   sectionView: true,
+  sketchLockCamera: true,
 };
 
 class ViewerSettingsStore {

@@ -4,6 +4,7 @@ import { registerBuilder, SceneParserContext } from "../index.js";
 import { Fuse } from "../features/fuse.js";
 import { Fuse2D } from "../features/fuse2d.js";
 import { ISceneObject } from "./interfaces.js";
+import { addTargetObjects, sketchLastSelection } from "./target-utils.js";
 
 interface FuseFunction {
   /** Fuses all shapes or 2D geometries in the current context. */
@@ -28,8 +29,9 @@ function build(context: SceneParserContext): FuseFunction {
           objects = args as GeometrySceneObject[];
         }
       } else {
-        objects = [];
+        objects = sketchLastSelection(context, activeSketch) as unknown as GeometrySceneObject[];
       }
+      addTargetObjects(objects, context);
       const fuse2d = new Fuse2D(...objects);
       context.addSceneObject(fuse2d);
       return fuse2d;

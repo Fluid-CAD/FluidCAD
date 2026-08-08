@@ -98,6 +98,28 @@ export class Solid extends Shape<TopoDS_Solid> {
     super.dispose();
   }
 
+  override getLinkedShapes(): Shape[] {
+    const linked = super.getLinkedShapes();
+    if (this.faces) {
+      linked.push(...this.faces);
+    }
+    if (this.edges) {
+      linked.push(...this.edges);
+    }
+    return linked;
+  }
+
+  override release(retainedRaw: ReadonlySet<object>, deletedRaw: Set<object>): void {
+    if (this.isReleased()) {
+      return;
+    }
+    this.edgeToFacesIndex?.delete();
+    this.edgeToFacesIndex = null;
+    this.faces = null;
+    this.edges = null;
+    super.release(retainedRaw, deletedRaw);
+  }
+
   override copy(): Shape {
     const copied = new Solid(this.getShape());
     for (const entry of this.colorMap) {

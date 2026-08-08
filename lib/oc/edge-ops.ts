@@ -7,6 +7,7 @@ import { Vector3d } from "../math/vector3d.js";
 import { Edge } from "../common/edge.js";
 import { Vertex } from "../common/vertex.js";
 import { Explorer } from "./explorer.js";
+import { EdgeQuery } from "./edge-query.js";
 
 export class EdgeOps {
   // Wrapper methods (public API for external callers)
@@ -348,6 +349,72 @@ export class EdgeOps {
     }
 
     return { edges: result, sourceIndex };
+  }
+
+  /** Minimum distance from a point to an edge; Infinity when the extrema fails. */
+  static distancePointToEdge(point: Point, edge: Edge): number {
+    const oc = getOC();
+
+    const gpPnt = new oc.gp_Pnt(point.x, point.y, point.z);
+    const vertexMaker = new oc.BRepBuilderAPI_MakeVertex(gpPnt);
+    const vertexShape = vertexMaker.Shape();
+    gpPnt.delete();
+
+    const progress = new oc.Message_ProgressRange();
+    const distCalc = new oc.BRepExtrema_DistShapeShape(
+      vertexShape,
+      edge.getShape(),
+      oc.Extrema_ExtFlag.Extrema_ExtFlag_MIN,
+      oc.Extrema_ExtAlgo.Extrema_ExtAlgo_Grad,
+      progress,
+    );
+    const distance = distCalc.IsDone() ? distCalc.Value() : Infinity;
+    distCalc.delete();
+    progress.delete();
+    vertexMaker.delete();
+
+    return distance;
+  }
+
+  /**
+   * True when `part` lies on `whole`: interior sample points of `part` are all
+   * within `tol` of `whole`. Curve-type agnostic (lines, arcs, ellipses,
+   * beziers alike) — the geometric primitive for attributing split products
+   * back to their source edges. Interior samples (never the endpoints, which
+   * sit on every edge meeting at a junction) keep junction-adjacent segments
+   * from matching their neighbors.
+   */
+  static edgeLiesOnEdge(part: Edge, whole: Edge, tol: number): boolean {
+    return EdgeOps.edgeLiesOnEdges(part, [whole], tol);
+  }
+
+  /**
+   * True when `part` lies on the union of `wholes`: every interior sample is
+   * within `tol` of SOME edge of the set. The union form matters when the
+   * set is a boundary decomposition that splits closed curves at their
+   * period seam — a wrapped arc spans two boundary pieces, so no single-edge
+   * containment can match it.
+   */
+  static edgeLiesOnEdges(part: Edge, wholes: Edge[], tol: number): boolean {
+    let params: { first: number; last: number };
+    try {
+      params = EdgeQuery.getEdgeCurveParams(part);
+    } catch {
+      return false;
+    }
+
+    for (const t of [0.25, 0.5, 0.75]) {
+      let point: Point;
+      try {
+        point = EdgeQuery.sampleEdgeCurvePoint(part, params.first + (params.last - params.first) * t);
+      } catch {
+        return false;
+      }
+      if (!wholes.some(whole => EdgeOps.distancePointToEdge(point, whole) <= tol)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   static findNearestEdgeIndex(edges: Edge[], point: Point, tolerance: number = -1): number {

@@ -16,14 +16,17 @@ split()                                  // split all intersecting geometries
 split(...objects)
 
 trim()                                   // trim all segments at crossings
-trim(...filters: EdgeFilter[])           // trim segments matching the filters
+trim(...targets)                         // remove the matching edges/segments
 ```
 
 Both run inside a sketch context. `split` keeps every piece around so
 you can reference them individually; `trim` keeps only the segments you
-want, discarding the others. Pair `trim(...)` with an
-[[api/edge-filter]] to target specific segments by length, orientation,
-or parent.
+want, discarding the others. Targets are the shared 2D op forms:
+geometries and edge accessors (`r.edge('top')`) remove whole edges,
+while [[api/edge-filter]] filters (`edge().line()`) are matched against
+the sketch's split segments (geometry split at mutual intersections) and
+remove the matching segments — the form the viewport's by-region trim
+writes (`trim(edge().line(80))`).
 
 ## Example
 
@@ -39,4 +42,15 @@ sketch("xy", () => {
 extrude(2);
 ```
 
-See [[api/edge-filter]] for the filter language `trim` uses.
+Whole-edge removal by accessor:
+
+```fluid.js
+import { rect, sketch, trim } from "fluidcad/core";
+
+sketch("xy", () => {
+  const r = rect(80, 60);
+  trim(r.edge('top'));    // remove one whole edge
+});
+```
+
+See [[api/edge-filter]] for the filter language `trim` accepts.

@@ -10,6 +10,7 @@ import { createHitTestRouter } from './routes/hit-test.ts';
 import { createMeasureRouter } from './routes/measure.ts';
 import { createTimelineRouter } from './routes/timeline.ts';
 import { createSketchEditsRouter } from './routes/sketch-edits.ts';
+import { createApplyFeatureRouter } from './routes/apply-feature.ts';
 import { createExportRouter } from './routes/export.ts';
 import { createScreenshotRouter } from './routes/screenshot.ts';
 import { createPreferencesRouter } from './routes/preferences.ts';
@@ -19,6 +20,9 @@ import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
 import { createRenderRouter, type RenderOutcome } from './routes/render.ts';
 import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
+import { createTextRouter } from './routes/text.ts';
+import { createFeatureGhostRouter } from './routes/feature-ghost.ts';
+import { FeatureEditDispatcher } from './edit-dispatch.ts';
 import { normalizePath } from './normalize-path.ts';
 import type { CompileError, SerializedAssembly } from './ws-protocol.ts';
 import { detectKind } from './file-kind.ts';
@@ -53,10 +57,13 @@ const STARTED_AT = new Date().toISOString();
 // IPC helpers — communication with extension host process
 // ---------------------------------------------------------------------------
 
-function sendToExtension(msg: any) {
+/** Returns true when a host process received the message (IPC connected). */
+function sendToExtension(msg: any): boolean {
   if (process.send) {
     process.send(msg);
+    return true;
   }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,17 +86,23 @@ const broadcastToUI = core.broadcastToUI;
 const requestScreenshot = core.requestScreenshot;
 const getLastCameraState = core.getLastCameraState;
 
+// Every router that writes source dispatches through this one instance: the
+// ack that settles a dispatch arrives at /code/apply-feature, so a router with
+// its own registry would never hear about its own edits.
+const editDispatcher = new FeatureEditDispatcher(fluidCadServer, sendToExtension);
+
 app.use('/api', createHealthRouter({
   version: PACKAGE_VERSION,
   workspacePath: WORKSPACE_PATH,
   startedAt: STARTED_AT,
 }));
 app.use('/api', createPropertiesRouter(fluidCadServer));
-app.use('/api', createParamsRouter(fluidCadServer, sendToExtension, broadcastToUI));
+app.use('/api', createParamsRouter(fluidCadServer, sendToExtension, broadcastToUI, editDispatcher));
 app.use('/api', createHitTestRouter(fluidCadServer));
 app.use('/api', createMeasureRouter(fluidCadServer));
 app.use('/api', createTimelineRouter(fluidCadServer, sendToExtension, broadcastToUI));
 app.use('/api', createSketchEditsRouter(fluidCadServer, sendToExtension, WORKSPACE_PATH));
+app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToExtension, { dispatcher: editDispatcher }));
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createScreenshotRouter(requestScreenshot));
 app.use('/api', createPreferencesRouter());
@@ -97,6 +110,8 @@ app.use('/api', createSceneRouter(fluidCadServer, getLastCameraState));
 app.use('/api', createEditorRouter(dirtyBufferState));
 app.use('/api', createRenderRouter((fileName, code) => runLiveRender(fileName, code)));
 app.use('/api', createLintRouter());
+app.use('/api', createTextRouter(fluidCadServer));
+app.use('/api', createFeatureGhostRouter(fluidCadServer));
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION, getLastCameraState));
 
 // Static files — serve UI build, with SPA fallback
@@ -227,6 +242,19 @@ async function runLiveRender(fileName: string, code: string): Promise<RenderOutc
       return { state: 'no-scene-manager', version: myVersion, durationMs: Date.now() - startedAt };
     }
     emitSuccess(myVersion, data.absPath, data.sceneKind, data.result, data.rollbackStop, data.breakpointHit, data.assembly, data.params);
+    // The scene is served either way — a feature that fails to build doesn't
+    // abort the render, it just leaves its geometry out. But that is NOT a
+    // successful render as far as the caller is concerned, so it gets its own
+    // state rather than being reported as `rendered`.
+    if (data.objectErrors.length > 0) {
+      return {
+        state: 'build-error',
+        version: myVersion,
+        absPath: data.absPath,
+        durationMs: Date.now() - startedAt,
+        objectErrors: data.objectErrors,
+      };
+    }
     return {
       state: 'rendered',
       version: myVersion,
@@ -279,7 +307,7 @@ async function handleExtensionMessage(msg: any) {
         const data = await fluidCadServer.rollback(msg.fileName, msg.index);
         if (myVersion !== renderVersion) { return; }
         if (data) {
-          emitSuccess(myVersion, data.absPath, data.sceneKind, data.result, data.rollbackStop, undefined, data.assembly);
+          emitSuccess(myVersion, data.absPath, data.sceneKind, data.result, data.rollbackStop, data.breakpointHit, data.assembly);
         }
         break;
       }

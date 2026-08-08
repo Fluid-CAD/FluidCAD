@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn, PickedPoint } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
@@ -42,23 +42,23 @@ export class BezierTool extends SketchTool {
     plane: PlaneData,
     snapController: SnapController,
     insertGeometry: InsertGeometryFn,
-    _container: HTMLElement,
-    _fetchVariables: FetchVariablesFn,
+    container: HTMLElement,
+    fetchVariables: FetchVariablesFn,
   ) {
-    super(ctx, plane, snapController, insertGeometry);
+    super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
   }
 
-  activate(): void {
+  protected onActivate(): void {
     this.addPreviewToScene();
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
   }
 
-  deactivate(): void {
+  protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
@@ -132,14 +132,34 @@ export class BezierTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (!this.activeSourceLocation) {
-      this.insertGeometry(`bezier(${this.formatPoint(point)})`);
-      this.pendingFirstClick = true;
-      this.pendingStart = point;
-      this.rebuildPreview();
+      this.startCurve(this.applyPointInput(result.point2d));
       return;
     }
 
     insertPoint(point, this.activeSourceLocation);
+  }
+
+  /** Only the first pole: later poles go through `insertPoint`, which writes
+   * a bare position and has no way to carry a typed expression. */
+  protected override awaitingPoint(): boolean {
+    return !this.activeSourceLocation && !this.pendingFirstClick;
+  }
+
+  protected override onTypedPoint(point: PickedPoint): void {
+    this.startCurve(point);
+  }
+
+  /** `bezier()` has no cursor-relative form, so a relative pick resolves to
+   * the absolute position its expressions already carry. */
+  private startCurve(picked: PickedPoint): void {
+    this.insertGeometry(
+      `bezier(${this.formatPoint(picked)})`,
+      picked.newVariables.length > 0 ? picked.newVariables : undefined,
+    );
+    this.pendingFirstClick = true;
+    this.pendingStart = picked.value;
+    this.syncPointInput();
+    this.rebuildPreview();
   }
 
   private handleMouseMove(e: MouseEvent): void {

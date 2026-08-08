@@ -12,8 +12,9 @@ import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { Wire } from "../common/wire.js";
+import { NCollections } from "./ncollection.js";
 import { Plane } from "../math/plane.js";
-import { Point } from "../math/point.js";
+import { Point, Point2D } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import {
   ConeDevelopment, CylinderDevelopment, Development, UV,
@@ -342,23 +343,16 @@ export class WrapOps {
     const oc = getOC();
     const data = interpolateBSpline2d(samples.map(s => ({ x: s.u, y: s.v })));
 
-    const poles = new oc.NCollection_Array1_gp_Pnt2d(1, data.poles.length);
-    for (let i = 0; i < data.poles.length; i++) {
-      const point = new oc.gp_Pnt2d(data.poles[i].x, data.poles[i].y);
-      poles.SetValue(i + 1, point);
-      point.delete();
-    }
-    const knots = new oc.NCollection_Array1_double(1, data.knots.length);
-    const multiplicities = new oc.NCollection_Array1_int(1, data.knots.length);
-    for (let i = 0; i < data.knots.length; i++) {
-      knots.SetValue(i + 1, data.knots[i]);
-      multiplicities.SetValue(i + 1, data.multiplicities[i]);
-    }
+    const [poles, disposePoles] = NCollections.toArray1Pnt2d(
+      data.poles.map(p => new Point2D(p.x, p.y)),
+    );
+    const [knots, disposeKnots] = NCollections.toArray1Double(data.knots);
+    const [multiplicities, disposeMultiplicities] = NCollections.toArray1Int(data.multiplicities);
 
     const curve = new oc.Geom2d_BSplineCurve(poles, knots, multiplicities, data.degree);
-    poles.delete();
-    knots.delete();
-    multiplicities.delete();
+    disposePoles();
+    disposeKnots();
+    disposeMultiplicities();
     return curve;
   }
 

@@ -98,7 +98,9 @@ export class PlaneFromObject extends PlaneObjectBase {
   /**
    * Builds a plane normal to `edge` at the configured position. The edge
    * tangent at that point becomes the plane normal; the in-plane axes are
-   * an arbitrary (but deterministic) basis around it.
+   * an arbitrary (but deterministic) basis around it. Transform options
+   * post-transform the derived plane (position defaults to the start),
+   * exactly like the face path.
    */
   private buildFromEdge(context: BuildSceneObjectContext | undefined, edge: Edge) {
     const t = normalizeEdgePosition(this.optionsOrPosition);
@@ -116,6 +118,13 @@ export class PlaneFromObject extends PlaneObjectBase {
     // Unlike the face path, an edge is only *referenced* to derive the plane —
     // it is not consumed, so it stays available to its owning solid and to
     // other features.
+
+    const options = this.optionsOrPosition;
+    if (typeof options === 'object' && options !== null) {
+      const matrix = plane.getTransformMatrix(options);
+      plane = plane.applyMatrix(matrix);
+      center = center.transform(matrix);
+    }
 
     const transform = context?.getTransform() ?? null;
     if (transform) {
@@ -153,8 +162,6 @@ export class PlaneFromObject extends PlaneObjectBase {
   getFromSceneObject(sceneObject: SceneObject) {
     const shapes = sceneObject.getShapes();
 
-    console.log(`Plane: Retrieved ${shapes.length} shapes from selection`, shapes);
-
     if (shapes.length === 0) {
       throw new Error("Plane: Selected object has no shapes to extract plane from");
     }
@@ -166,7 +173,6 @@ export class PlaneFromObject extends PlaneObjectBase {
     }
 
     let plane = sourceFace.getPlane();
-    console.log('Plane: Extracted plane from face', plane.normal);
 
     return { plane, sourceFace };
   }
@@ -182,7 +188,12 @@ export class PlaneFromObject extends PlaneObjectBase {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    return new PlaneFromObject(this, this.optionsOrPosition);
+    // The copy wraps this (already-built) plane as its source and applies the
+    // clone transform on top of the resolved plane. optionsOrPosition must NOT
+    // be passed along: the resolved plane already includes the offset/rotation
+    // (or edge position), so re-applying it would double it — e.g. a mirrored
+    // clone of plane(face, 6.3) landing 6.3 below the mirrored source plane.
+    return new PlaneFromObject(this);
   }
 
   compareTo(other: PlaneFromObject): boolean {
@@ -211,6 +222,13 @@ export class PlaneFromObject extends PlaneObjectBase {
 
   serialize() {
     const plane = this.getPlane()
+    if (!plane) {
+      // build() failed (e.g. a non-planar source face) and the render layer has
+      // already captured the real error via setError. Emit a benign payload so
+      // serialization doesn't mask that error with a null dereference — and so
+      // one bad plane doesn't abort the whole scene render.
+      return { options: this.optionsOrPosition };
+    }
     return {
       origin: plane.origin,
       xDirection: plane.xDirection,
@@ -225,14 +243,20 @@ export class PlaneFromObject extends PlaneObjectBase {
 /**
  * Evaluates the point and unit (forward) tangent on `edge` at a normalized
  * position `t` (`0` = start, `1` = end), measured by arc length.
+ *
+ * Shared with the plane ghost, which samples the same frame per keystroke —
+ * hence the wire built to carry the sampler is freed here rather than left to
+ * the caller. It is a temporary over `edge`'s own handle, so `edge` itself is
+ * untouched.
  */
-function sampleEdgeFrame(edge: Edge, t: number): PathFrame {
+export function sampleEdgeFrame(edge: Edge, t: number): PathFrame {
   const wire = WireOps.makeWireFromEdges([edge]);
   const sampler = new PathSampler(wire);
   try {
     return sampler.evalAt(t * sampler.length);
   } finally {
     sampler.dispose();
+    wire.dispose();
   }
 }
 
@@ -245,6 +269,11 @@ function normalizeEdgePosition(
   if (typeof position === 'number') {
     return position;
   }
+  // Transform options act on the derived plane, not the position — the
+  // plane is taken at the edge start, then offset/rotated.
+  if (typeof position === 'object') {
+    return 0;
+  }
   switch (position) {
     case 'start':
       return 0;
@@ -252,8 +281,9 @@ function normalizeEdgePosition(
       return 0.5;
     case 'end':
       return 1;
+    default:
+      throw new Error(
+        "Plane: an edge plane takes a 0–1 position, 'start'/'middle'/'end', or transform options"
+      );
   }
-  throw new Error(
-    "Plane: an edge plane takes a 0–1 position or 'start'/'middle'/'end', not transform options"
-  );
 }

@@ -351,8 +351,10 @@ export class OcIO {
     const colorTool = colorToolHandle;
     const surfType = oc.XCAFDoc_ColorType.XCAFDoc_ColorSurf;
 
-    // Use NewShape + SetShape (per OCC docs) instead of AddShape to avoid
-    // compound wrapping that triggers multi-file assembly output.
+    // NewShape + SetShape (per OCC docs) rather than AddShape: each solid
+    // becomes its own free top-level shape, with no compound wrapped around
+    // the set. (The multi-file output this once tried to dodge came from the
+    // `multi` argument below, not from AddShape.)
     for (const solid of solids) {
       const label = shapeTool.NewShape();
       shapeTool.SetShape(label, solid.getShape());
@@ -380,49 +382,24 @@ export class OcIO {
     writer.SetNameMode(true);
 
     const progress = new oc.Message_ProgressRange();
-    const transferred = writer.Transfer(docHandle, oc.STEPControl_StepModelType.STEPControl_AsIs, "", progress);
+    // Perform() is Transfer(doc, AsIs, multi = NULL) + Write(), and that NULL
+    // is the whole point: every Transfer overload the binding exposes takes
+    // `multi` as a std::string, and ANY non-null value — "" included — puts
+    // the writer in multi-file mode, which scatters the solids across external
+    // files. Calling Transfer directly here dropped every body but the first.
+    const written = writer.Perform(docHandle, fileName, progress);
     progress.delete();
-
-    if (!transferred) {
-      writer.delete();
-      cleanup();
-      throw new Error('STEP XCAF transfer failed');
-    }
-
-    const writeStatus = writer.Write(fileName);
     writer.delete();
 
-    if (writeStatus !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) {
+    if (!written) {
       cleanup();
-      throw new Error(`STEP XCAF write failed. Status: ${writeStatus}`);
+      throw new Error('STEP XCAF write failed');
     }
 
-    // The XCAF writer may split output into a main file (assembly references)
-    // and external files with actual geometry + colors. Collect all STEP files
-    // from the virtual FS and return the one with color data.
-    const rootFiles: string[] = oc.FS.readdir('/');
-    const stepFiles: Array<{ name: string; content: string }> = [];
-    for (const f of rootFiles) {
-      if (f === '.' || f === '..' || (!f.endsWith('.stp') && !f.endsWith('.step'))) {
-        continue;
-      }
-      try {
-        stepFiles.push({ name: f, content: oc.FS.readFile(f, { encoding: "utf8" }) as string });
-      } catch { /* skip */ }
-    }
-
-    let file: string;
-    if (stepFiles.length === 1) {
-      file = stepFiles[0].content;
-    } else {
-      const withColors = stepFiles.find(f => f.content.includes('COLOUR_RGB'));
-      file = withColors?.content
-        ?? stepFiles.sort((a, b) => b.content.length - a.content.length)[0].content;
-    }
-
-    for (const f of stepFiles) {
-      try { oc.FS.unlink(f.name); } catch { /* ignore */ }
-    }
+    const file = oc.FS.readFile(fileName, { encoding: "utf8" }) as string;
+    try {
+      oc.FS.unlink(fileName);
+    } catch { /* already gone */ }
 
     cleanup();
     return file;

@@ -12,9 +12,9 @@ import {
   MeshBasicMaterial,
   OrthographicCamera,
   PerspectiveCamera,
-  ShaderMaterial,
   Vector3,
 } from 'three';
+import { createDashDotLine } from '../meshes/dash-dot-line';
 import { SceneContext } from '../scene/scene-context';
 import { PlaneData } from '../types';
 import { SnapController } from '../snapping/snap-controller';
@@ -33,42 +33,6 @@ const CONTROL_POINT_HOVER_COLOR = 0xf3724f;
 const CONTROL_POINT_DRAG_COLOR = 0xff6600;
 const START_POINT_COLOR = 0x22cc66;
 
-// Dash-dot pattern (matches MetaEdgeMesh)
-const DASH_LENGTH = 4.0;
-const GAP_LENGTH = 1.5;
-const DOT_LENGTH = 0.6;
-const PATTERN_LENGTH = DASH_LENGTH + GAP_LENGTH + DOT_LENGTH + GAP_LENGTH;
-
-const dashDotVertexShader = /* glsl */ `
-  attribute float lineDistance;
-  varying float vLineDistance;
-  void main() {
-    vLineDistance = lineDistance;
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-  }
-`;
-
-const dashDotFragmentShader = /* glsl */ `
-  uniform vec3 color;
-  uniform float dashLength;
-  uniform float gapLength;
-  uniform float dotLength;
-  uniform float patternLength;
-  varying float vLineDistance;
-  void main() {
-    float t = mod(vLineDistance, patternLength);
-    if (t < dashLength) {
-      // dash
-    } else if (t < dashLength + gapLength) {
-      discard;
-    } else if (t < dashLength + gapLength + dotLength) {
-      // dot
-    } else {
-      discard;
-    }
-    gl_FragColor = vec4(color, 1.0);
-  }
-`;
 const SNAP_INDICATOR_VERTEX_COLOR = 0xffc578;
 const SNAP_INDICATOR_GRID_COLOR = 0x888888;
 const CP_RADIUS = 2.5;
@@ -498,23 +462,7 @@ export class BezierDrawMode {
       const curveGeo = new BufferGeometry();
       curveGeo.setAttribute('position', new BufferAttribute(curveVerts, 3));
 
-      const curveMat = new ShaderMaterial({
-        uniforms: {
-          color: { value: { ...GUIDE_COLOR } },
-          dashLength: { value: DASH_LENGTH },
-          gapLength: { value: GAP_LENGTH },
-          dotLength: { value: DOT_LENGTH },
-          patternLength: { value: PATTERN_LENGTH },
-        },
-        vertexShader: dashDotVertexShader,
-        fragmentShader: dashDotFragmentShader,
-        side: DoubleSide,
-        transparent: true,
-        depthTest: false,
-      });
-
-      this.curveLineObj = new Line(curveGeo, curveMat);
-      this.curveLineObj.computeLineDistances();
+      this.curveLineObj = createDashDotLine(curveGeo, { ...GUIDE_COLOR }, { depthTest: false });
       this.curveLineObj.renderOrder = 3;
       this.previewGroup.add(this.curveLineObj);
     }

@@ -9,10 +9,13 @@ import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { ShapeType } from "../common/shape-type.js";
 import { Face } from "../common/face.js";
-import { BelongsToFaceFilter, NotBelongsToFaceFilter } from "../filters/edge/belongs-to-face.js";
 import { FromSceneObjectFilter } from "../filters/from-object.js";
+import { injectBelongsToFaceScope } from "../filters/scope-injection.js";
 import { TopologyIndex } from "../oc/topology-index.js";
 import { ShapeHasher } from "../oc/shape-hash.js";
+import { Edge } from "../common/edge.js";
+import { Wire } from "../common/wire.js";
+import { Sketch } from "./2d/sketch.js";
 
 export class SelectSceneObject extends SceneObject implements ISelect {
 
@@ -30,7 +33,17 @@ export class SelectSceneObject extends SceneObject implements ISelect {
     }
   }
 
+  override isSelection(): boolean {
+    return true;
+  }
+
   build(context: BuildSceneObjectContext) {
+    const sketch = this.findParentSketch();
+    if (sketch) {
+      this.buildInSketch(sketch, context);
+      return;
+    }
+
     const parent = this.getParent();
     const transform = context.getTransform();
     let filters = this.filters;
@@ -95,6 +108,55 @@ export class SelectSceneObject extends SceneObject implements ISelect {
         set.delete();
       }
       scopeHasher?.delete();
+    }
+  }
+
+  private findParentSketch(): Sketch | null {
+    let parent = this.getParent();
+    while (parent && !(parent instanceof Sketch)) {
+      parent = parent.getParent();
+    }
+    return (parent as Sketch) ?? null;
+  }
+
+  /**
+   * Sketch-scoped selection: the universe is the active sketch's edges from
+   * prior siblings (real geometry only — lazy accessors and other selections
+   * are skipped). No belongsTo-face scope injection; edge-only inference.
+   */
+  private buildInSketch(sketch: Sketch, context: BuildSceneObjectContext) {
+    if (this.type === "face") {
+      throw new Error("select(face()...) is not supported inside a sketch — sketch selections are edge-only.");
+    }
+
+    const transform = context.getTransform();
+    let filters = this.filters;
+    if (transform) {
+      filters = filters.map(f => f.transform(transform));
+    }
+
+    const universe: Edge[] = [];
+    for (const sibling of sketch.getPreviousSiblings(this)) {
+      if (sibling.isLazy() || sibling.isSelection()) {
+        continue;
+      }
+      for (const shape of sibling.getShapes()) {
+        if (shape instanceof Edge) {
+          universe.push(shape);
+        } else if (shape instanceof Wire) {
+          universe.push(...shape.getEdges());
+        }
+      }
+    }
+
+    const fromFilters = this.injectFromMembershipSets(filters);
+    try {
+      this.addShapes(this.applyFilters(universe, filters));
+    } finally {
+      for (const { filter, set } of fromFilters) {
+        filter.setMembershipSet(null);
+        set.delete();
+      }
     }
   }
 
@@ -179,45 +241,23 @@ export class SelectSceneObject extends SceneObject implements ISelect {
   }
 
   private injectScopeFaces(filters: FilterBuilderBase<Shape>[], sceneObjects: SceneObject[]): ShapeHasher | null {
-    let scopeSolids: Solid[] | null = null;
-    let extraFaces: Face[] | null = null;
-    let faceByHash: Map<number, Face[]> | null = null;
-    let hasher: ShapeHasher | null = null;
-
-    for (const builder of filters) {
-      for (const filter of builder.getFilters()) {
-        if (filter instanceof BelongsToFaceFilter || filter instanceof NotBelongsToFaceFilter) {
-          if (!scopeSolids) {
-            if (this.constraintObject) {
-              const constraintShapes = this.constraintObject.getShapes();
-              scopeSolids = constraintShapes.filter(s => s.isSolid()) as Solid[];
-              // Faces directly in the constraint (not part of a solid) need the
-              // legacy linear-scan path since they don't have a cached index.
-              extraFaces = constraintShapes
-                .filter(s => !s.isSolid())
-                .flatMap(s => s.getSubShapes("face")) as Face[];
-            } else {
-              scopeSolids = sceneObjects.flatMap(obj => obj.getShapes({}, 'solid')) as Solid[];
-              extraFaces = [];
-            }
-
-            faceByHash = new Map<number, Face[]>();
-            hasher = new ShapeHasher();
-            for (const solid of scopeSolids) {
-              for (const face of solid.getFaces()) {
-                addToBucket(faceByHash, face, hasher);
-              }
-            }
-            for (const face of extraFaces) {
-              addToBucket(faceByHash, face, hasher);
-            }
-          }
-          filter.setScopeIndex(scopeSolids, extraFaces!, faceByHash!, hasher!);
-        }
+    return injectBelongsToFaceScope(filters, () => {
+      if (this.constraintObject) {
+        const constraintShapes = this.constraintObject.getShapes();
+        return {
+          solids: constraintShapes.filter(s => s.isSolid()) as Solid[],
+          // Faces directly in the constraint (not part of a solid) need the
+          // legacy linear-scan path since they don't have a cached index.
+          extraFaces: constraintShapes
+            .filter(s => !s.isSolid())
+            .flatMap(s => s.getSubShapes("face")) as Face[],
+        };
       }
-    }
-
-    return hasher;
+      return {
+        solids: sceneObjects.flatMap(obj => obj.getShapes({}, 'solid')) as Solid[],
+        extraFaces: [],
+      };
+    });
   }
 
   applyFilters(shapes: Shape[], filters: FilterBuilderBase<Shape>[]): Shape[] {
@@ -278,13 +318,4 @@ export class SelectSceneObject extends SceneObject implements ISelect {
   }
 }
 
-function addToBucket(faceByHash: Map<number, Face[]>, face: Face, hasher: ShapeHasher) {
-  const hash = hasher.key(face.getShape());
-  let bucket = faceByHash.get(hash);
-  if (!bucket) {
-    bucket = [];
-    faceByHash.set(hash, bucket);
-  }
-  bucket.push(face);
-}
 

@@ -35,16 +35,22 @@ function build(context: SceneParserContext): SketchFunction {
   return function sketch<T>(p: PlaneLike | SceneObject, sketcher: () => T): ISceneObject & Extend<T> {
     let planeObj: PlaneObjectBase;
 
+    // A plane the sketch makes for itself is internal: it carries the
+    // sketch call's own source location, so it is not a plane() statement
+    // anyone can name, edit or sketch on — only the plane the caller passes
+    // in (already in the scene under its own statement) is.
     if (p instanceof PlaneObjectBase) {
       planeObj = p;
     }
     else if (isPlaneLike(p)) {
       planeObj = new PlaneObject(normalizePlane(p));
+      planeObj.markInternal();
       context.addSceneObject(planeObj);
     }
     else if ((p as any) instanceof SceneObject) {
       context.addSceneObject(p as SceneObject);
       planeObj = new PlaneFromObject(p);
+      planeObj.markInternal();
       context.addSceneObject(planeObj);
     }
     else {

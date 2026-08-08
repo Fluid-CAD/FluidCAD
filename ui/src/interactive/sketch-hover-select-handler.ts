@@ -1,5 +1,6 @@
 import {
   CircleGeometry,
+  Color,
   DoubleSide,
   Group,
   LineSegments,
@@ -20,6 +21,9 @@ const CENTER_OVERLAY_RADIUS = 2.0;
 const CENTER_OVERLAY_PX_RADIUS = 6;
 
 export class SketchHoverSelectHandler {
+  /** Fired after any click mutates the selected set (operations read it). */
+  onSelectionChange?: () => void;
+
   private ctx: SceneContext;
   private plane: PlaneData;
   private canvas: HTMLCanvasElement;
@@ -30,6 +34,7 @@ export class SketchHoverSelectHandler {
   private hoveredCenterPoint: [number, number] | null = null;
   private selectedShapeIds = new Set<string>();
   private isExternalResizing: () => boolean;
+  private clickPolicy?: () => 'replace' | 'toggle';
 
   private boundMouseMove: (e: MouseEvent) => void;
   private boundMouseDown: (e: MouseEvent) => void;
@@ -41,11 +46,20 @@ export class SketchHoverSelectHandler {
     ctx: SceneContext,
     plane: PlaneData,
     isExternalResizing: () => boolean,
+    /**
+     * Per-click selection policy. `replace` is classic sketch editing: a
+     * plain click replaces the selection, an empty-space click clears it
+     * (Ctrl/Cmd toggles). `toggle` is the 3D create dialogs' pick contract —
+     * every click toggles membership and empty-space clicks keep the picks —
+     * for dialogs whose pick list is the dialog's own state (the 2D copy).
+     */
+    clickPolicy?: () => 'replace' | 'toggle',
   ) {
     this.ctx = ctx;
     this.plane = plane;
     this.canvas = ctx.renderer.domElement;
     this.isExternalResizing = isExternalResizing;
+    this.clickPolicy = clickPolicy;
 
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundMouseDown = this.handleMouseDown.bind(this);
@@ -72,7 +86,10 @@ export class SketchHoverSelectHandler {
   }
 
   updateSceneData(sceneObjects: SceneObjectRender[], sketchId: string): void {
-    this.edges = buildEdgeIndex(sceneObjects, sketchId, this.plane);
+    // Guides are hover/selectable here — the Guide toggle converts a selected
+    // construction statement back to real geometry (they still don't snap,
+    // drag-resize, or grow vertex dots).
+    this.edges = buildEdgeIndex(sceneObjects, sketchId, this.plane, { includeGuides: true });
     this.centers = buildCenterIndex(sceneObjects, sketchId, this.plane);
     const validIds = new Set(this.edges.map(e => e.shapeId));
     for (const c of this.centers) {
@@ -160,12 +177,13 @@ export class SketchHoverSelectHandler {
       return;
     }
 
-    const isMulti = e.ctrlKey || e.metaKey;
+    const isMulti = e.ctrlKey || e.metaKey || this.clickPolicy?.() === 'toggle';
 
     if (!this.hoveredShapeId) {
       if (!isMulti) {
         this.clearSelection();
         this.ctx.requestRender();
+        this.onSelectionChange?.();
       }
       return;
     }
@@ -186,6 +204,7 @@ export class SketchHoverSelectHandler {
     }
 
     this.ctx.requestRender();
+    this.onSelectionChange?.();
   }
 
   private findNearestEdge(point: [number, number], threshold: number): { shapeId: string; isCenter: boolean; centerPoint?: [number, number] } | null {
@@ -226,23 +245,43 @@ export class SketchHoverSelectHandler {
       : { shapeId: bestId, isCenter };
   }
 
+  /**
+   * The line's color wherever the material keeps it: plain line materials
+   * expose `.color`, the guide dash-dot ShaderMaterial carries it as the
+   * `color` uniform. Returns the live Color object, so mutating it recolors
+   * the line in place.
+   */
+  private static lineColor(line: LineSegments): Color | null {
+    const mat = (line as any).material;
+    if (!mat) {
+      return null;
+    }
+    if (mat.color instanceof Color) {
+      return mat.color;
+    }
+    const uniform = mat.uniforms?.color?.value;
+    return uniform instanceof Color ? uniform : null;
+  }
+
   private applyHoverHighlight(shapeId: string): void {
     if (this.selectedShapeIds.has(shapeId)) {
       return;
     }
     this.traverseShapeEdges(shapeId, (line) => {
-      if (line.userData.selectOriginalColor !== undefined) {
+      const color = SketchHoverSelectHandler.lineColor(line);
+      if (!color || line.userData.selectOriginalColor !== undefined) {
         return;
       }
-      line.userData.hoverOriginalColor = (line as any).material.color.getHex();
-      (line as any).material.color.set(themeColors.highlightColor);
+      line.userData.hoverOriginalColor = color.getHex();
+      color.set(themeColors.highlightColor);
     });
   }
 
   private removeHoverHighlight(shapeId: string): void {
     this.traverseShapeEdges(shapeId, (line) => {
-      if (line.userData.hoverOriginalColor !== undefined) {
-        (line as any).material.color.setHex(line.userData.hoverOriginalColor);
+      const color = SketchHoverSelectHandler.lineColor(line);
+      if (color && line.userData.hoverOriginalColor !== undefined) {
+        color.setHex(line.userData.hoverOriginalColor);
         delete line.userData.hoverOriginalColor;
       }
     });
@@ -250,20 +289,25 @@ export class SketchHoverSelectHandler {
 
   private applySelectionHighlight(shapeId: string): void {
     this.traverseShapeEdges(shapeId, (line) => {
+      const color = SketchHoverSelectHandler.lineColor(line);
+      if (!color) {
+        return;
+      }
       if (line.userData.hoverOriginalColor !== undefined) {
         line.userData.selectOriginalColor = line.userData.hoverOriginalColor;
         delete line.userData.hoverOriginalColor;
       } else {
-        line.userData.selectOriginalColor = (line as any).material.color.getHex();
+        line.userData.selectOriginalColor = color.getHex();
       }
-      (line as any).material.color.set(themeColors.highlightColor);
+      color.set(themeColors.highlightColor);
     });
   }
 
   private removeSelectionHighlight(shapeId: string): void {
     this.traverseShapeEdges(shapeId, (line) => {
-      if (line.userData.selectOriginalColor !== undefined) {
-        (line as any).material.color.setHex(line.userData.selectOriginalColor);
+      const color = SketchHoverSelectHandler.lineColor(line);
+      if (color && line.userData.selectOriginalColor !== undefined) {
+        color.setHex(line.userData.selectOriginalColor);
         delete line.userData.selectOriginalColor;
       }
     });
@@ -286,9 +330,65 @@ export class SketchHoverSelectHandler {
     this.selectedShapeIds.clear();
   }
 
+  /**
+   * Select a single shape programmatically (the constraint mini-toolbar
+   * re-selects the converted segment after its re-render, whose ids are all
+   * new). Fires the change hook like a click would.
+   */
+  selectShape(shapeId: string): void {
+    this.clearSelection();
+    this.selectedShapeIds.add(shapeId);
+    this.applySelectionHighlight(shapeId);
+    this.ctx.requestRender();
+    this.onSelectionChange?.();
+  }
+
+  /**
+   * Replace the selection with `shapeIds` on behalf of a dialog (the offset
+   * edit seeding the statement's own targets). Ids the current scene doesn't
+   * know are skipped. Fires the change hook once, like a click would.
+   */
+  selectShapes(shapeIds: string[]): void {
+    this.clearSelection();
+    const known = new Set(this.edges.map(e => e.shapeId));
+    for (const shapeId of shapeIds) {
+      if (known.has(shapeId) && !this.selectedShapeIds.has(shapeId)) {
+        this.selectedShapeIds.add(shapeId);
+        this.applySelectionHighlight(shapeId);
+      }
+    }
+    this.ctx.requestRender();
+    this.onSelectionChange?.();
+  }
+
+  /**
+   * Drop a single pick on behalf of a dialog (an op dialog's chip ✕). Fires
+   * the change hook like a viewport ctrl-click on the shape would.
+   */
+  deselectShape(shapeId: string): void {
+    if (!this.selectedShapeIds.has(shapeId)) {
+      return;
+    }
+    this.removeSelectionHighlight(shapeId);
+    this.selectedShapeIds.delete(shapeId);
+    this.ctx.requestRender();
+    this.onSelectionChange?.();
+  }
+
+  /**
+   * Drop the current selection on behalf of a dialog (the subtract dialog
+   * clears between its base and tool slots). Fires the change hook so the
+   * dialog preview stays in sync.
+   */
+  resetSelection(): void {
+    this.clearSelection();
+    this.ctx.requestRender();
+    this.onSelectionChange?.();
+  }
+
   private traverseShapeEdges(shapeId: string, fn: (line: LineSegments) => void): void {
     this.ctx.scene.traverse((obj: Object3D) => {
-      if (obj.userData.isMetaShape) {
+      if (obj.userData.isMetaShape && !obj.userData.isGuideShape) {
         return;
       }
       if (((obj as LineSegments).isLine || obj.userData.isEdgeLine) && this.findShapeId(obj) === shapeId) {
@@ -300,7 +400,9 @@ export class SketchHoverSelectHandler {
   private findShapeId(obj: Object3D): string | null {
     let cur: Object3D | null = obj;
     while (cur) {
-      if (cur.userData.shapeId && !cur.userData.isMetaShape) {
+      // Guide groups carry isMetaShape (they share the dash-dot meta
+      // rendering) but are selectable — their shapeId counts.
+      if (cur.userData.shapeId && (!cur.userData.isMetaShape || cur.userData.isGuideShape)) {
         return cur.userData.shapeId as string;
       }
       cur = cur.parent;

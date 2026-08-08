@@ -45,6 +45,11 @@
   --scene-select-edge-color: #11a4ed;
   --scene-select-face-color: #5c9fcc;
   --scene-constraint-color: #cccccc;
+  --scene-ghost-add-face: #3fb950;
+  --scene-ghost-add-edge: #2ea043;
+  --scene-ghost-remove-face: #e5534b;
+  --scene-ghost-remove-edge: #c93c37;
+  --scene-ghost-wire: #2297ff;
 }
 
 @plugin "daisyui/theme" {
@@ -86,10 +91,54 @@
   --scene-select-edge-color: #11a4ed;
   --scene-select-face-color: #5c9fcc;
   --scene-constraint-color: #555555;
+  --scene-ghost-add-face: #2da44e;
+  --scene-ghost-add-edge: #1a7f37;
+  --scene-ghost-remove-face: #cf222e;
+  --scene-ghost-remove-edge: #a40e26;
+  /* Not darkened for the light theme like the add/remove pair: an applied
+     standalone wire is this exact blue in both themes, and the ghost's job is
+     to look like the curve that is coming. */
+  --scene-ghost-wire: #2297ff;
+}
+
+/* App-shell UI: overlay offsets (top-[106px] constraint bar, top-[116px]
+   timeline, top-[196px] dialogs, the 104px scene inset below) are absolute
+   pixels, while the bars they stack under are rem-sized (h-12 + h-14). Pin
+   the root font size so a browser-level default font size other than 16
+   (e.g. Chrome Appearance → Font size) can't scale the bars out from under
+   the overlays. */
+html {
+  font-size: 16px;
 }
 
 @utility panel-bg {
   background: light-dark(oklch(0.95 0 0 / 0.85), oklch(0.2 0 0 / 0.85));
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+
+/* The Three.js viewport fills this container, which is inset below the top
+   application bar (TopBar, h-12 = 48px) and the secondary tool bar (Navbar,
+   top-12 + h-14 = 104px total) so the scene starts flush beneath the toolbar
+   instead of bleeding underneath it. UI chrome (bars, panels, overlays) stays
+   on the full-size #fluidcad-viewer parent. */
+#fluidcad-scene {
+  position: absolute;
+  inset: 104px 0 0 0;
+}
+
+#fluidcad-scene canvas {
+  display: block;
+}
+
+/* The mobile bottom-sheet entrance (see DIALOG_DOCK_CLASS): re-runs each time
+   the dialog's `hidden` class is removed, since display:none restarts CSS
+   animations. */
+@keyframes dialog-slide-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }

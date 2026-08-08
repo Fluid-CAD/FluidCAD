@@ -8,16 +8,24 @@ import {
   clearBreakpoints,
   insertPoint,
   removePoint,
+  addGuide,
+  removeGuide,
   addPick,
   removePick,
+  removeStatement,
+  setFeatureName,
   setPickPoints,
+  setTrimTargets,
   insertGeometryCallWithVariable,
+  insertLoadCall,
   updateGeometryPosition,
   setLinePosition,
   setChainPositions,
   updateDimension,
   updateDimensionExpressionWithVariable,
   getDimensionExpression,
+  getPointExpression,
+  updatePointExpressionWithVariable,
   extractVariablesInScope,
   setRectDimensions,
 } from '../code-editor.ts';
@@ -25,11 +33,8 @@ import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts
 
 const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
 
-function validateNewVariable(input: unknown): { name: string; initializer: string } | null | false {
-  if (input === undefined || input === null) {
-    return null;
-  }
-  if (typeof input !== 'object') {
+function validateOneNewVariable(input: unknown): { name: string; initializer: string } | false {
+  if (typeof input !== 'object' || input === null) {
     return false;
   }
   const obj = input as { name?: unknown; initializer?: unknown };
@@ -40,6 +45,33 @@ function validateNewVariable(input: unknown): { name: string; initializer: strin
     return false;
   }
   return { name: obj.name, initializer: obj.initializer };
+}
+
+function validateNewVariable(
+  input: unknown,
+): { name: string; initializer: string } | { name: string; initializer: string }[] | null | false {
+  if (input === undefined || input === null) {
+    return null;
+  }
+  if (Array.isArray(input)) {
+    const items = input.map(validateOneNewVariable);
+    if (items.some((v) => v === false)) {
+      return false;
+    }
+    const valid = items as { name: string; initializer: string }[];
+    return valid.length === 0 ? null : valid;
+  }
+  return validateOneNewVariable(input);
+}
+
+/** A [x, y] pair of finite numbers, or null for anything else. */
+function validPoint(input: unknown): [number, number] | null {
+  if (Array.isArray(input) && input.length === 2
+    && typeof input[0] === 'number' && Number.isFinite(input[0])
+    && typeof input[1] === 'number' && Number.isFinite(input[1])) {
+    return [input[0], input[1]];
+  }
+  return null;
 }
 
 export function createSketchEditsRouter(
@@ -68,6 +100,11 @@ export function createSketchEditsRouter(
     }
 
     const loadName = fileName.replace(/\.(step|stp)$/i, '');
+    sendToExtension({
+      type: 'insert-load',
+      filePath: fluidCadServer.getCurrentFileName(),
+      fileName: loadName,
+    });
     res.json({ success: true, fileName: loadName });
   });
 
@@ -139,6 +176,66 @@ export function createSketchEditsRouter(
     res.json({ success: true });
   });
 
+  router.post('/add-guide', (req, res) => {
+    const { sourceLocation } = req.body;
+    if (
+      !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    sendToExtension({
+      type: 'add-guide',
+      sourceLocation,
+    });
+    res.json({ success: true });
+  });
+
+  router.post('/remove-guide', (req, res) => {
+    const { sourceLocation } = req.body;
+    if (
+      !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    sendToExtension({
+      type: 'remove-guide',
+      sourceLocation,
+    });
+    res.json({ success: true });
+  });
+
+  router.post('/apply-trim-region', (req, res) => {
+    const { sourceLocation, edgeIds } = req.body;
+    if (
+      !sourceLocation || typeof sourceLocation.line !== 'number' || typeof sourceLocation.column !== 'number' ||
+      !Array.isArray(edgeIds) || edgeIds.length === 0 || edgeIds.some((id: unknown) => typeof id !== 'string')
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const synthesis = fluidCadServer.synthesizeTrimRegionTargets(sourceLocation, edgeIds as string[]);
+      if (!synthesis) {
+        res.status(404).json({ success: false, reason: 'No rendered scene' });
+        return;
+      }
+      if (!synthesis.ok) {
+        res.status(422).json({ success: false, reason: synthesis.reason });
+        return;
+      }
+      sendToExtension({
+        type: 'set-trim-targets',
+        args: synthesis.args,
+        sourceLocation,
+      });
+      res.json({ success: true, args: synthesis.args });
+    } catch (err: any) {
+      res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+    }
+  });
+
   router.post('/set-pick-points', (req, res) => {
     const { points, sourceLocation } = req.body;
     if (
@@ -180,7 +277,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/update-position', (req, res) => {
-    const { newPosition, sourceLocation, pointIndex } = req.body;
+    const { newPosition, sourceLocation, pointIndex, oldPosition } = req.body;
     if (
       !Array.isArray(newPosition) || newPosition.length !== 2 ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -193,6 +290,7 @@ export function createSketchEditsRouter(
       newPosition: newPosition as [number, number],
       sourceLocation,
       pointIndex: typeof pointIndex === 'number' ? pointIndex : undefined,
+      oldPosition: validPoint(oldPosition),
     });
     res.json({ success: true });
   });
@@ -251,7 +349,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/update-dimension-expression', (req, res) => {
-    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset } = req.body;
+    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset, dimensionCall, dimensionInsert, dimensionPoint } = req.body;
     if (
       typeof expression !== 'string' ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -275,12 +373,46 @@ export function createSketchEditsRouter(
       sketchSourceLine: typeof sketchSourceLine === 'number' ? sketchSourceLine : null,
       newVariable: nv,
       dimensionOffset: typeof dimensionOffset === 'number' ? dimensionOffset : 0,
+      dimensionCall: typeof dimensionCall === 'string' ? dimensionCall : null,
+      dimensionInsert: dimensionInsert === true,
+      dimensionPoint: validPoint(dimensionPoint),
+    });
+    res.json({ success: true });
+  });
+
+  router.post('/update-point-expression', (req, res) => {
+    const { xExpr, yExpr, sourceLocation, sketchSourceLine, newVariable, pointIndex, oldPosition } = req.body;
+    if (
+      typeof xExpr !== 'string' || typeof yExpr !== 'string' ||
+      !sourceLocation || typeof sourceLocation.line !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const nv = validateNewVariable(newVariable);
+    if (nv === false) {
+      res.status(400).json({ error: 'Invalid newVariable' });
+      return;
+    }
+    if (nv && typeof sketchSourceLine !== 'number') {
+      res.status(400).json({ error: 'sketchSourceLine required when newVariable is provided' });
+      return;
+    }
+    sendToExtension({
+      type: 'update-point-expression',
+      xExpr,
+      yExpr,
+      sourceLocation,
+      sketchSourceLine: typeof sketchSourceLine === 'number' ? sketchSourceLine : null,
+      newVariable: nv,
+      pointIndex: typeof pointIndex === 'number' ? pointIndex : 0,
+      oldPosition: validPoint(oldPosition),
     });
     res.json({ success: true });
   });
 
   router.post('/set-rect-dimensions', (req, res) => {
-    const { startPoint, width, height, sourceLocation } = req.body;
+    const { startPoint, width, height, sourceLocation, oldStartPoint } = req.body;
     if (
       typeof width !== 'number' || typeof height !== 'number' ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -295,6 +427,7 @@ export function createSketchEditsRouter(
       width,
       height,
       sourceLocation,
+      oldStartPoint: validPoint(oldStartPoint),
     });
     res.json({ success: true });
   });
@@ -305,8 +438,11 @@ export function createSketchEditsRouter(
   // ---------------------------------------------------------------------------
 
   router.post('/scope-variables', async (req, res) => {
+    // null/absent means whole-file scope — the feature dialogs' create mode,
+    // where the statement is appended after the last line.
     const { sketchSourceLine } = req.body;
-    if (typeof sketchSourceLine !== 'number') {
+    if (sketchSourceLine !== undefined && sketchSourceLine !== null
+      && typeof sketchSourceLine !== 'number') {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
@@ -316,15 +452,37 @@ export function createSketchEditsRouter(
       return;
     }
     try {
-      const variables = await extractVariablesInScope(code, sketchSourceLine);
+      const variables = await extractVariablesInScope(
+        code, typeof sketchSourceLine === 'number' ? sketchSourceLine : Number.MAX_SAFE_INTEGER,
+      );
       res.json({ variables });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
     }
   });
 
+  router.post('/point-expression', async (req, res) => {
+    const { sourceLine, pointIndex } = req.body;
+    if (typeof sourceLine !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const code = fluidCadServer.getCurrentCode();
+    if (!code) {
+      res.json({ point: null });
+      return;
+    }
+    try {
+      const result = await getPointExpression(code, sourceLine,
+        typeof pointIndex === 'number' ? pointIndex : 0);
+      res.json({ point: result ?? null });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
   router.post('/dimension-expression', async (req, res) => {
-    const { sourceLine } = req.body;
+    const { sourceLine, dimensionOffset, dimensionCall } = req.body;
     if (typeof sourceLine !== 'number') {
       res.status(400).json({ error: 'Invalid request body' });
       return;
@@ -335,7 +493,9 @@ export function createSketchEditsRouter(
       return;
     }
     try {
-      const result = await getDimensionExpression(code, sourceLine);
+      const result = await getDimensionExpression(code, sourceLine,
+        typeof dimensionOffset === 'number' ? dimensionOffset : 0,
+        typeof dimensionCall === 'string' ? dimensionCall : null);
       res.json({ expression: result?.expression ?? null });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
@@ -502,6 +662,96 @@ export function createSketchEditsRouter(
     }
   });
 
+  router.post('/code/add-guide', async (req, res) => {
+    const { code, sourceLine } = req.body;
+    if (typeof code !== 'string' || typeof sourceLine !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await addGuide(code, sourceLine);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/remove-guide', async (req, res) => {
+    const { code, sourceLine } = req.body;
+    if (typeof code !== 'string' || typeof sourceLine !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await removeGuide(code, sourceLine);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/set-trim-targets', async (req, res) => {
+    const { code, sourceLine, args } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      typeof args !== 'string' || args.trim() === ''
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await setTrimTargets(code, sourceLine, args);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/remove-statement', async (req, res) => {
+    const { code, sourceLine } = req.body;
+    if (typeof code !== 'string' || typeof sourceLine !== 'number') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await removeStatement(code, sourceLine);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/set-feature-name', async (req, res) => {
+    const { code, sourceLine, name } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      (name !== null && typeof name !== 'string')
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await setFeatureName(code, sourceLine, name);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/insert-load', async (req, res) => {
+    const { code, fileName } = req.body;
+    if (typeof code !== 'string' || typeof fileName !== 'string') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    try {
+      const result = await insertLoadCall(code, fileName);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
   router.post('/code/goto-source', (req, res) => {
     const { filePath, line, column } = req.body;
     if (
@@ -556,7 +806,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/code/update-position', async (req, res) => {
-    const { code, sourceLine, newPosition, pointIndex } = req.body;
+    const { code, sourceLine, newPosition, pointIndex, oldPosition } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       !Array.isArray(newPosition) || newPosition.length !== 2
@@ -568,6 +818,7 @@ export function createSketchEditsRouter(
       const result = await updateGeometryPosition(
         code, sourceLine, newPosition as [number, number],
         typeof pointIndex === 'number' ? pointIndex : 0,
+        validPoint(oldPosition),
       );
       res.json(result);
     } catch (err: any) {
@@ -632,7 +883,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/code/update-dimension-expression', async (req, res) => {
-    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset } = req.body;
+    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset, dimensionCall, dimensionInsert, dimensionPoint } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       typeof expression !== 'string'
@@ -656,6 +907,41 @@ export function createSketchEditsRouter(
         typeof sketchSourceLine === 'number' ? sketchSourceLine : sourceLine,
         nv,
         offset,
+        typeof dimensionCall === 'string' ? dimensionCall : null,
+        dimensionInsert === true,
+        validPoint(dimensionPoint),
+      );
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/update-point-expression', async (req, res) => {
+    const { code, sourceLine, xExpr, yExpr, sketchSourceLine, newVariable, pointIndex, oldPosition } = req.body;
+    if (
+      typeof code !== 'string' || typeof sourceLine !== 'number' ||
+      typeof xExpr !== 'string' || typeof yExpr !== 'string'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const nv = validateNewVariable(newVariable);
+    if (nv === false) {
+      res.status(400).json({ error: 'Invalid newVariable' });
+      return;
+    }
+    if (nv && typeof sketchSourceLine !== 'number') {
+      res.status(400).json({ error: 'sketchSourceLine required when newVariable is provided' });
+      return;
+    }
+    try {
+      const result = await updatePointExpressionWithVariable(
+        code, sourceLine, xExpr, yExpr,
+        typeof sketchSourceLine === 'number' ? sketchSourceLine : sourceLine,
+        nv,
+        typeof pointIndex === 'number' ? pointIndex : 0,
+        validPoint(oldPosition),
       );
       res.json(result);
     } catch (err: any) {
@@ -664,7 +950,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/code/set-rect-dimensions', async (req, res) => {
-    const { code, sourceLine, startPoint, width, height } = req.body;
+    const { code, sourceLine, startPoint, width, height, oldStartPoint } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       typeof width !== 'number' || typeof height !== 'number'
@@ -675,7 +961,7 @@ export function createSketchEditsRouter(
     const sp = Array.isArray(startPoint) && startPoint.length === 2 ? startPoint as [number, number] : null;
     try {
       const result = await setRectDimensions(
-        code, sourceLine, sp, width, height,
+        code, sourceLine, sp, width, height, validPoint(oldStartPoint),
       );
       res.json(result);
     } catch (err: any) {

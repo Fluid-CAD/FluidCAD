@@ -24,9 +24,14 @@ export class SlotFromEdge extends ExtrudableGeometryBase {
       throw new Error("SlotFromEdge: source geometry has no edges or wires");
     }
 
+    // A straight source segment has no curvature for BRepOffsetAPI_MakeOffset
+    // to infer the offset plane from — the face-less Init fails with "Failed
+    // to offset wire" — so pass the sketch/target plane as the reference face
+    // (the same regression Offset2D fixed).
+    const plane = this.getPlane();
     for (const shape of shapes) {
       if (shape.isEdge() || shape.isWire()) {
-        const wire = WireOps.offsetWire(shape as (Wire | Edge), this.radius, false);
+        const wire = WireOps.offsetWire(shape as (Wire | Edge), this.radius, false, plane);
         this.addShapes(wire.getEdges());
       }
     }
@@ -49,12 +54,17 @@ export class SlotFromEdge extends ExtrudableGeometryBase {
   }
 
   override getDependencies(): SceneObject[] {
-    return this.targetPlane ? [this.targetPlane] : [];
+    const deps: SceneObject[] = this.targetPlane ? [this.targetPlane] : [];
+    deps.push(this.sourceGeometry);
+    return deps;
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
-    return new SlotFromEdge(this.sourceGeometry, this.radius, this.deleteSource, targetPlane);
+    // The source must remap to its new-scene counterpart — a copy holding the
+    // previous render's geometry would offset stale (disposed) OC shapes.
+    const source = (remap.get(this.sourceGeometry) as GeometrySceneObject) ?? this.sourceGeometry;
+    return new SlotFromEdge(source, this.radius, this.deleteSource, targetPlane);
   }
 
   compareTo(other: SlotFromEdge): boolean {

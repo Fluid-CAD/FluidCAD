@@ -131,6 +131,10 @@ export class Rotate extends SceneObject {
     return "rotate";
   }
 
+  getUniqueType(): string {
+    return 'rotate-shape'
+  }
+
   serialize() {
     return {
       angle: this.angle

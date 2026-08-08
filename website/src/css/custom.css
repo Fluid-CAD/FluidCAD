@@ -97,6 +97,65 @@
   }
 }
 
+/* ===== Navbar social links ===== */
+/* Icon-only on desktop, icon + label in the mobile sidebar. The mask takes
+   currentColor, so the icons follow the navbar colour in both themes. */
+.header-social-link {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Drop Docusaurus' external-link arrow — it clutters the icon row */
+.header-social-link svg[class*='iconExternalLink'] {
+  display: none;
+}
+
+.header-social-link::before {
+  content: '';
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  background-color: currentColor;
+  -webkit-mask: var(--fluidcad-social-icon) center /
+    var(--fluidcad-social-icon-size, contain) no-repeat;
+  mask: var(--fluidcad-social-icon) center /
+    var(--fluidcad-social-icon-size, contain) no-repeat;
+}
+
+.header-github-link {
+  --fluidcad-social-icon: url('/img/social/github.svg');
+}
+
+.header-x-link {
+  --fluidcad-social-icon: url('/img/social/x.svg');
+  /* The X mark fills its viewBox corner to corner, so it reads larger than the
+     round marks at the same box size — pull it back for optical parity */
+  --fluidcad-social-icon-size: 85%;
+}
+
+.header-reddit-link {
+  --fluidcad-social-icon: url('/img/social/reddit.svg');
+}
+
+.header-youtube-link {
+  --fluidcad-social-icon: url('/img/social/youtube.svg');
+}
+
+@media (min-width: 997px) {
+  .navbar__items--right .header-social-link {
+    /* Hides the label text while keeping it available to screen readers */
+    font-size: 0;
+    gap: 0;
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .navbar__items--right .header-social-link:hover {
+    opacity: 0.7;
+  }
+}
+
 /* ===== Algolia DocSearch theming ===== */
 :root {
   --docsearch-primary-color: var(--fluidcad-accent);

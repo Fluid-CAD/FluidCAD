@@ -2,8 +2,7 @@ import type { ModeId } from './types';
 
 const MODE_LABELS: Record<ModeId, string> = {
   line: 'Line',
-  hLine: 'H-Line',
-  vLine: 'V-Line',
+  aLine: 'A-Line',
   arc: 'Arc',
   tArc: 'T-Arc',
   tLine: 'T-Line',
@@ -12,6 +11,7 @@ const MODE_LABELS: Record<ModeId, string> = {
 export class ModeIndicator {
   private el: HTMLDivElement;
   private labelSpan: HTMLSpanElement;
+  private snapHint: HTMLDivElement;
 
   constructor(container: HTMLElement) {
     this.el = document.createElement('div');
@@ -30,7 +30,24 @@ export class ModeIndicator {
     badge.appendChild(this.labelSpan);
     badge.appendChild(hint);
     this.el.appendChild(badge);
+
+    // A mode's snap tooltip (e.g. tArc's "Tangent arc up to intersection"),
+    // shown as a second badge line under the mode label while a snap is live.
+    this.snapHint = document.createElement('div');
+    this.snapHint.className = 'mt-1 panel-bg border border-base-content/10 rounded-md px-2 py-0.5 '
+      + 'shadow-sm text-xs text-warning whitespace-nowrap hidden';
+    this.el.appendChild(this.snapHint);
+
     container.appendChild(this.el);
+  }
+
+  setHint(text: string | null): void {
+    if (text) {
+      this.snapHint.textContent = text;
+      this.snapHint.classList.remove('hidden');
+    } else {
+      this.snapHint.classList.add('hidden');
+    }
   }
 
   show(modeId: ModeId): void {

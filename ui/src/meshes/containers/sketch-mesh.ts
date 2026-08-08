@@ -12,8 +12,8 @@ import {
 } from 'three';
 import { SceneObjectRender } from '../../types';
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
-import { createMetaEdgeMesh } from './shape-group';
-import { isInteractiveSketchType } from '../../interactive/sketch-edge-utils';
+import { createMetaEdgeMesh, createMetaFaceMesh } from './shape-group';
+import { isDraggableSketchObject } from '../../interactive/sketch-edge-utils';
 import { buildConstraintIcons } from './constraint-icon';
 import { applyConstantPixelSize } from '../screen-scale';
 
@@ -65,7 +65,7 @@ export class SketchMesh extends Group {
         continue;
       }
 
-      const interactive = isInteractiveSketchType(obj.uniqueType);
+      const interactive = isDraggableSketchObject(obj);
       const edgeColor = interactive ? SKETCH_EDGE_COLOR : NON_INTERACTIVE_EDGE_COLOR;
 
       for (const shape of obj.sceneShapes) {
@@ -76,7 +76,20 @@ export class SketchMesh extends Group {
             if (shape.shapeId) {
               metaMesh.userData.shapeId = shape.shapeId;
             }
+            // Guide geometry shares the dash-dot rendering with true meta
+            // shapes but stays hover/selectable (un-guiding picks it), so the
+            // select handler needs to tell the two apart.
+            if (shape.isGuide && !shape.isMetaShape) {
+              metaMesh.userData.isGuideShape = true;
+            }
             this.add(metaMesh);
+          } else if (shape.shapeType === 'face' && shape.metaType === 'trim-region') {
+            // By-region trim: the region partition's hover/click cells.
+            const faceMesh = createMetaFaceMesh(shape);
+            if (shape.shapeId) {
+              faceMesh.userData.shapeId = shape.shapeId;
+            }
+            this.add(faceMesh);
           }
           continue;
         }
@@ -84,6 +97,9 @@ export class SketchMesh extends Group {
         edgeMesh.traverse(child => { child.renderOrder = 1; });
         if (shape.shapeId) {
           edgeMesh.userData.shapeId = shape.shapeId;
+          // Sketch wires are pickable only through the viewer's opt-in
+          // sketch-pick channel (create dialogs) — mark the raycastable lines.
+          edgeMesh.traverse(child => { child.userData.isSketchWire = true; });
         }
         this.add(edgeMesh);
       }
@@ -101,7 +117,7 @@ export class SketchMesh extends Group {
         continue;
       }
 
-      const interactive = isInteractiveSketchType(obj.uniqueType);
+      const interactive = isDraggableSketchObject(obj);
 
       for (const shape of obj.sceneShapes) {
         if (shape.isGuide) {
@@ -233,6 +249,8 @@ export class SketchMesh extends Group {
 
     const cursorGroup = new Group();
     cursorGroup.renderOrder = 1;
+    // Drawing chrome, not sketch content — must not participate in camera fits.
+    cursorGroup.userData.isMetaShape = true;
     cursorGroup.add(dot);
     cursorGroup.position.set(currentPosition.x, currentPosition.y, currentPosition.z);
 
@@ -285,6 +303,8 @@ export class SketchMesh extends Group {
 
     const arrowGroup = new Group();
     arrowGroup.renderOrder = 1;
+    // Drawing chrome, not sketch content — must not participate in camera fits.
+    arrowGroup.userData.isMetaShape = true;
     arrowGroup.add(shaft);
     arrowGroup.add(head);
 

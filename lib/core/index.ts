@@ -3,7 +3,7 @@ export type {
   IGeometry, IExtrudableGeometry, IText, IRect, ISlot, IPolygon,
   ITwoObjectsTangentLine, ITangentArcTwoObjects,
   IConnector, IPart,
-  IExtrude, ICut, ICommon, ISweep, ILoft, IRevolve, IDraft, IRib, IHelix, IWrap
+  IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap
 } from "./interfaces.js";
 export { default as axis } from "./axis.js";
 export { default as local } from "./local.js";

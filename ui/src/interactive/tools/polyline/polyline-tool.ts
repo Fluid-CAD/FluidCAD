@@ -1,17 +1,17 @@
 import { Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn, NewVariable, PickedPoint } from '../../sketch-tool';
 import { SceneContext } from '../../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../../types';
 import { SnapController } from '../../../snapping/snap-controller';
 import { SnapManager } from '../../../snapping/snap-manager';
-import { projectToSketch, roundPoint } from '../../sketch-plane-utils';
+import { pixelToSketchThreshold, projectToSketch, roundPoint } from '../../sketch-plane-utils';
 import { ICON_POLYLINE } from '../../../ui/icons';
-import { ExpressionInput, VariableInfo } from '../../../ui/expression-input';
+import { ExpressionInput } from '../../../ui/expression-input';
 import { CONNECTABLE_TYPES, meshToSketch2D, tangentFromVertices } from '../tangent-utils';
 import { SNAP_VERTEX_COLOR, SNAP_GRID_COLOR, addDot } from '../tool-preview-utils';
 import { ModeIndicator } from './mode-indicator';
 import { LineMode } from './mode-line';
-import { ConstrainedLineMode } from './mode-constrained-line';
+import { ALineMode } from './mode-aline';
 import { ArcMode } from './mode-arc';
 import { TArcMode } from './mode-tarc';
 import { TLineMode } from './mode-tline';
@@ -35,11 +35,11 @@ export class PolylineTool extends SketchTool {
   private startPoint: Point2D | null = null;
   private currentModeIndex = 0;
   private tangent: TangentInfo | null = null;
+  /** A typed absolute chain start, held until the first segment writes it. */
+  private pendingStart: PickedPoint | null = null;
 
   private modes: SegmentMode[];
   private expressionInput: ExpressionInput;
-  private fetchVariables: FetchVariablesFn;
-  private cachedVariables: VariableInfo[] = [];
   private modeIndicator: ModeIndicator;
 
   private sceneObjects: SceneObjectRender[] = [];
@@ -50,10 +50,13 @@ export class PolylineTool extends SketchTool {
   private lastClientX = 0;
   private lastClientY = 0;
 
+  private ctrlHeld = false;
+
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
   private boundMouseMove: (e: MouseEvent) => void;
   private boundKeyDown: (e: KeyboardEvent) => void;
+  private boundKeyUp: (e: KeyboardEvent) => void;
   private downX = 0;
   private downY = 0;
 
@@ -65,15 +68,13 @@ export class PolylineTool extends SketchTool {
     container: HTMLElement,
     fetchVariables: FetchVariablesFn,
   ) {
-    super(ctx, plane, snapController, insertGeometry);
+    super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.expressionInput = new ExpressionInput(container);
-    this.fetchVariables = fetchVariables;
     this.modeIndicator = new ModeIndicator(container);
 
     this.modes = [
       new LineMode(),
-      new ConstrainedLineMode('h'),
-      new ConstrainedLineMode('v'),
+      new ALineMode(),
       new ArcMode(),
       new TArcMode(),
       new TLineMode(),
@@ -83,8 +84,14 @@ export class PolylineTool extends SketchTool {
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundKeyDown = this.handleKeyDown.bind(this);
+    this.boundKeyUp = this.handleKeyUp.bind(this);
 
     this.expressionInput.onSpaceOverride = () => {
+      this.cycleMode(1);
+    };
+    // Space keeps cycling modes while a coordinate field has focus, matching
+    // the dimension input — otherwise typing a start point would trap it.
+    this.pointInput.onSpaceOverride = () => {
       this.cycleMode(1);
     };
   }
@@ -93,26 +100,29 @@ export class PolylineTool extends SketchTool {
     return this.modes[this.currentModeIndex];
   }
 
-  activate(): void {
+  protected onActivate(): void {
     this.addPreviewToScene();
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
+    window.addEventListener('keyup', this.boundKeyUp);
     this.modeIndicator.show(this.currentMode.id);
   }
 
-  deactivate(): void {
+  protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
     window.removeEventListener('keydown', this.boundKeyDown);
+    window.removeEventListener('keyup', this.boundKeyUp);
     this.expressionInput.hide();
     this.modeIndicator.dispose();
     this.phase = PolylinePhase.IDLE;
     this.startPoint = null;
     this.tangent = null;
+    this.pendingStart = null;
+    this.ctrlHeld = false;
 
     this.removePreviewFromScene();
   }
@@ -122,15 +132,37 @@ export class PolylineTool extends SketchTool {
     this.sketchId = sketchId;
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane, this.ctx);
     this.updateSnapManager(snapManager);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
+    this.refreshVariables();
 
     if (this.phase === PolylinePhase.DRAWING && this.startPoint) {
-      this.updateTangentFromScene();
+      this.resyncChainStateFromScene();
     }
   }
 
   override handleEscape(): boolean {
-    return false;
+    // Typed coordinates clear first; only a clean pill lets Escape fall
+    // through to backing out of the chain.
+    if (this.handlePointInputEscape()) {
+      return true;
+    }
+    const ctx = this.buildModeContext();
+    if (ctx && this.currentMode.handleEscape(ctx)) {
+      this.rebuildPreview();
+      return true;            // mode backed out one sub-step (e.g. arc through-point)
+    }
+    if (this.phase === PolylinePhase.DRAWING) {
+      if (ctx) {
+        this.currentMode.exit(ctx);
+      }
+      this.expressionInput.hide();
+      this.phase = PolylinePhase.IDLE;
+      this.startPoint = null;
+      this.tangent = null;
+      this.pendingStart = null;
+      this.rebuildPreview();
+      return true;            // chain ended; tool stays armed for a new chain
+    }
+    return false;             // idle -> let the toolbar disarm the tool
   }
 
   private buildModeContext(): ModeContext | null {
@@ -150,9 +182,13 @@ export class PolylineTool extends SketchTool {
       sketchId: this.sketchId,
       startPoint: this.startPoint,
       isAtCurrentPosition: (p) => this.isAtCurrentPosition(p),
+      pendingStartText: () => this.pendingStart ? this.formatPoint(this.pendingStart) : null,
+      pixelThreshold: (px) => pixelToSketchThreshold(this.ctx, px),
+      setSnapHint: (hint) => this.modeIndicator.setHint(hint),
       formatPoint: (p) => this.formatPoint(p),
-      insertGeometry: (stmt, nv) => this.insertGeometry(stmt, nv),
+      insertGeometry: (stmt, nv) => this.insertSegment(stmt, nv),
       requestRender: () => this.requestRender(),
+      isOrthoOverride: () => this.ctrlHeld,
       showExpressionInput: (opts) => {
         if (!this.expressionInput.isVisible) {
           this.expressionInput.show({
@@ -189,6 +225,7 @@ export class PolylineTool extends SketchTool {
   private handleMouseDown(e: MouseEvent): void {
     this.downX = e.clientX;
     this.downY = e.clientY;
+    this.syncModifiers(e);
   }
 
   private handleMouseUp(e: MouseEvent): void {
@@ -207,18 +244,7 @@ export class PolylineTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (this.phase === PolylinePhase.IDLE) {
-      this.startPoint = point;
-      this.phase = PolylinePhase.DRAWING;
-      this.tangent = this.findTangentAtPoint(point);
-
-      if (this.currentMode.requiresTangent && !this.tangent) {
-        this.advanceToNextValidMode();
-      }
-
-      const modeCtx = this.buildModeContext()!;
-      this.currentMode.enter(modeCtx);
-      this.modeIndicator.update(this.currentMode.id);
-      this.rebuildPreview();
+      this.beginChainAt(this.applyPointInput(result.point2d));
       return;
     }
 
@@ -236,9 +262,80 @@ export class PolylineTool extends SketchTool {
     }
   }
 
+  /** Only the first vertex of a fresh chain; every later click is a segment,
+   * whose dimension the mode's own input already covers. */
+  protected override awaitingPoint(): boolean {
+    return this.phase === PolylinePhase.IDLE;
+  }
+
+  protected override onTypedPoint(point: PickedPoint): void {
+    this.beginChainAt(point);
+  }
+
+  /**
+   * Open a chain at a picked point. A typed absolute address is deferred and
+   * rides on the first segment as its explicit start argument
+   * (`hLine(start, d)`, `line(start, end)`, ...) — one statement, not a
+   * `move(...)` plus a chained form. A typed relative offset keeps its own
+   * `move(dx, dy)`: the chained forms that follow are exactly the relative
+   * emission the offset asks for.
+   */
+  private beginChainAt(picked: PickedPoint): void {
+    this.pendingStart = null;
+    if (picked.typed) {
+      if (picked.relative) {
+        const statement = this.relativeMovePrefix(picked) ?? `move(${this.formatPoint(picked)})`;
+        this.insertGeometry(
+          statement,
+          picked.newVariables.length > 0 ? picked.newVariables : undefined,
+        );
+      } else {
+        this.pendingStart = picked;
+      }
+    }
+
+    // Continuing the existing chain anchors to the kernel's exact cursor,
+    // not the rounded click — a tArc emitted from an offset start would
+    // rebuild slightly away from the rendered chain end.
+    this.startPoint = this.currentPosition && !picked.typed && this.isAtCurrentPosition(picked.value)
+      ? [this.currentPosition[0], this.currentPosition[1]]
+      : picked.value;
+    this.phase = PolylinePhase.DRAWING;
+    // A deferred typed start is an explicit re-anchor, not a chain
+    // continuation: tangent modes don't apply, even when the address lands
+    // on the cursor.
+    this.tangent = this.pendingStart ? null : this.findTangentAtPoint(this.startPoint);
+
+    if (!this.isModeUsable(this.currentMode, this.buildModeContext())) {
+      this.advanceToNextValidMode();
+    }
+
+    const modeCtx = this.buildModeContext()!;
+    this.currentMode.enter(modeCtx);
+    this.modeIndicator.update(this.currentMode.id);
+    this.syncPointInput();
+    this.rebuildPreview();
+  }
+
+  /**
+   * Mode insertions funnel through here so the first segment of a chain
+   * opened at a typed address spends the pending start: its declarations ride
+   * along, and later segments chain off the cursor as usual.
+   */
+  private insertSegment(statement: string, newVariable?: NewVariable | NewVariable[]): void {
+    const pending = this.pendingStart;
+    this.pendingStart = null;
+    const modeVars = newVariable === undefined
+      ? []
+      : Array.isArray(newVariable) ? newVariable : [newVariable];
+    const variables = [...(pending?.newVariables ?? []), ...modeVars];
+    this.insertGeometry(statement, variables.length > 0 ? variables : undefined);
+  }
+
   private handleMouseMove(e: MouseEvent): void {
     this.lastClientX = e.clientX;
     this.lastClientY = e.clientY;
+    this.syncModifiers(e);
 
     const raw = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
     if (!raw) {
@@ -266,11 +363,52 @@ export class PolylineTool extends SketchTool {
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
+    this.syncModifiers(e);
     if (e.key === ' ') {
       e.preventDefault();
       this.cycleMode(e.shiftKey ? -1 : 1);
       return;
     }
+    if (e.key === 'Control' || e.key === 'Meta') {
+      this.refreshAfterModifierChange();
+    }
+  }
+
+  private handleKeyUp(e: KeyboardEvent): void {
+    this.syncModifiers(e);
+    if (e.key === 'Control' || e.key === 'Meta') {
+      this.refreshAfterModifierChange();
+    }
+  }
+
+  private syncModifiers(e: MouseEvent | KeyboardEvent): void {
+    this.ctrlHeld = e.ctrlKey || e.metaKey;
+  }
+
+  // A Ctrl/Meta transition changes the ortho classification mid-gesture, so the
+  // current mode re-sees the last mouse position under the new modifier state.
+  private refreshAfterModifierChange(): void {
+    if (this.phase !== PolylinePhase.DRAWING) {
+      return;
+    }
+    const modeCtx = this.buildModeContext();
+    if (modeCtx && this.mousePoint && this.lastSnapResult) {
+      this.currentMode.handleMouseMove(this.mousePoint, this.lastSnapResult, this.lastClientX, this.lastClientY, modeCtx);
+    }
+    this.rebuildPreview();
+  }
+
+  // A mode is usable when its tangent requirement is met and its optional
+  // availability gate passes. Availability only matters once a chain is being
+  // drawn: with no context (IDLE) every mode counts as available.
+  private isModeUsable(mode: SegmentMode, modeCtx: ModeContext | null): boolean {
+    if (mode.requiresTangent && !this.tangent) {
+      return false;
+    }
+    if (!modeCtx) {
+      return true;
+    }
+    return mode.isAvailable?.(modeCtx) ?? true;
   }
 
   private cycleMode(direction: number): void {
@@ -284,7 +422,7 @@ export class PolylineTool extends SketchTool {
     for (let i = 0; i < MODE_ORDER.length; i++) {
       this.currentModeIndex = (this.currentModeIndex + direction + MODE_ORDER.length) % MODE_ORDER.length;
       const candidate = this.modes[this.currentModeIndex];
-      if (!candidate.requiresTangent || this.tangent) {
+      if (this.isModeUsable(candidate, modeCtx)) {
         break;
       }
       if (this.currentModeIndex === startIndex) {
@@ -308,10 +446,11 @@ export class PolylineTool extends SketchTool {
   }
 
   private advanceToNextValidMode(): void {
+    const modeCtx = this.buildModeContext();
     const startIndex = this.currentModeIndex;
     for (let i = 0; i < MODE_ORDER.length; i++) {
       this.currentModeIndex = (this.currentModeIndex + 1) % MODE_ORDER.length;
-      if (!this.modes[this.currentModeIndex].requiresTangent || this.tangent) {
+      if (this.isModeUsable(this.modes[this.currentModeIndex], modeCtx)) {
         return;
       }
       if (this.currentModeIndex === startIndex) {
@@ -323,6 +462,13 @@ export class PolylineTool extends SketchTool {
   private findTangentAtPoint(point: Point2D): TangentInfo | null {
     if (!this.isAtCurrentPosition(roundPoint(point))) {
       return null;
+    }
+
+    // The kernel's exact chain tangent (from the scene payload) beats the
+    // mesh-derived fallback below: tessellation chords are a degree or two
+    // off the true tangent, which visibly rotates a tangency-exact tArc.
+    if (this.currentTangent) {
+      return { direction: [this.currentTangent[0], this.currentTangent[1]], point };
     }
 
     let lastGeom: SceneObjectRender | null = null;
@@ -357,17 +503,29 @@ export class PolylineTool extends SketchTool {
     return null;
   }
 
-  private updateTangentFromScene(): void {
-    if (!this.startPoint) {
+  /**
+   * Re-anchor the drawing chain to the kernel's rendered cursor after each
+   * render. The tool's analytic bookkeeping (rounded endpoints, projected
+   * tArc ends) approximates the kernel; adopting the kernel's exact
+   * position and tangent every render keeps the divergence from ever
+   * compounding across segments.
+   */
+  private resyncChainStateFromScene(): void {
+    // An unwritten typed start isn't in the scene: there is no rendered chain
+    // end to adopt, and adopting a tangent would re-arm the tangent modes.
+    if (this.pendingStart) {
       return;
     }
-    if (this.tangent) {
+    if (!this.startPoint || !this.currentPosition
+      || !this.isAtCurrentPosition(roundPoint(this.startPoint))) {
       return;
     }
+    this.startPoint = [this.currentPosition[0], this.currentPosition[1]];
     const tangent = this.findTangentAtPoint(this.startPoint);
     if (tangent) {
       this.tangent = tangent;
     }
+    this.rebuildPreview();
   }
 
   private rebuildPreview(): void {

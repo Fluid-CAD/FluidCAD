@@ -50,7 +50,16 @@ Interactive features like region picking, trimming, and interactive bezier drawi
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-w, --workspace <path>` | Path to your project | Current directory |
-| `-p, --port <port>` | Server port | `3100` |
+| `-p, --port <port>` | Server port — if it's already taken, the next free one is used | `3100` |
 | `--open` | Open the viewport in your default browser when the server is ready | _off_ |
 
-Run `npx fluidcad --help` to list every command, or `npx fluidcad serve --help` for the full flag reference.
+## Beyond `serve`
+
+The same CLI writes STEP, STL, and PNG files without opening the UI, and runs the MCP server that lets AI agents drive your workspace:
+
+```bash
+npx fluidcad export step                     # every shape → <entry>.step
+npx fluidcad export png --view front --open
+```
+
+See the [CLI Reference](/docs/guides/cli) for every command and flag, or run `npx fluidcad --help`.

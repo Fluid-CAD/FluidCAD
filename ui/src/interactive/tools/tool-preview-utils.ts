@@ -6,7 +6,9 @@ import {
   DoubleSide,
   Group,
   Line,
+  LineBasicMaterial,
   LineDashedMaterial,
+  LineSegments,
   Mesh,
   MeshBasicMaterial,
   Vector3,
@@ -14,10 +16,12 @@ import {
 import { localToWorld } from '../sketch-plane-utils';
 import { PlaneData } from '../../types';
 import { SnapType } from '../../snapping/types';
-import { applyConstantPixelSize } from '../../meshes/screen-scale';
+import { applyConstantPixelSize, trackPixelsPerWorld } from '../../meshes/screen-scale';
 
 export const START_POINT_COLOR = 0x22cc66;
 export const GUIDE_COLOR = 0xb0b0b0;
+/** Preview state that cannot commit to valid geometry (e.g. an unreachable tArc endpoint). */
+export const INVALID_COLOR = 0xff5252;
 export const SNAP_VERTEX_COLOR = 0xffc578;
 export const SNAP_GRID_COLOR = 0x888888;
 export const DOT_RADIUS = 2.5;
@@ -29,6 +33,59 @@ export const BEZIER_SEGMENTS = 64;
 
 export function snapDotColor(snapType: SnapType): number {
   return snapType === 'vertex' ? SNAP_VERTEX_COLOR : SNAP_GRID_COLOR;
+}
+
+// Preview dash pattern (in screen pixels)
+export const PREVIEW_DASH_PX = 8;
+export const PREVIEW_GAP_PX = 5;
+
+function addDashedPolyline(previewGroup: Group, verts: Float32Array, renderOrder: number, color: number = GUIDE_COLOR): void {
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new BufferAttribute(verts, 3));
+
+  const mat = new LineDashedMaterial({
+    color,
+    dashSize: PREVIEW_DASH_PX,
+    gapSize: PREVIEW_GAP_PX,
+    depthTest: false,
+  });
+
+  const line = new Line(geo, mat);
+  line.computeLineDistances();
+  line.renderOrder = renderOrder;
+  // LineDashedMaterial's `scale` multiplies lineDistance in the vertex shader,
+  // so pixels-per-world turns world distances into the pixel units above.
+  trackPixelsPerWorld(line, (pixelsPerWorld) => {
+    mat.scale = pixelsPerWorld;
+  });
+  previewGroup.add(line);
+}
+
+/**
+ * Overlay an existing edge's tessellation segments in a solid highlight —
+ * the polyline tArc mode's snap-target emphasis. Segments are 2D sketch
+ * coordinates as {@link EdgeEntry} carries them.
+ */
+export function addSegmentHighlight(
+  previewGroup: Group,
+  segments: { ax: number; ay: number; bx: number; by: number }[],
+  plane: PlaneData,
+  color: number,
+  renderOrder = 4,
+): void {
+  const verts = new Float32Array(segments.length * 6);
+  for (let i = 0; i < segments.length; i++) {
+    const a = localToWorld([segments[i].ax, segments[i].ay], plane);
+    const b = localToWorld([segments[i].bx, segments[i].by], plane);
+    verts[i * 6] = a.x; verts[i * 6 + 1] = a.y; verts[i * 6 + 2] = a.z;
+    verts[i * 6 + 3] = b.x; verts[i * 6 + 4] = b.y; verts[i * 6 + 5] = b.z;
+  }
+  const geo = new BufferGeometry();
+  geo.setAttribute('position', new BufferAttribute(verts, 3));
+  const mat = new LineBasicMaterial({ color, depthTest: false });
+  const lines = new LineSegments(geo, mat);
+  lines.renderOrder = renderOrder;
+  previewGroup.add(lines);
 }
 
 export function addDot(
@@ -72,6 +129,7 @@ export function addDashedLine(
   to: [number, number],
   plane: PlaneData,
   renderOrder = 3,
+  color: number = GUIDE_COLOR,
 ): void {
   const worldFrom = localToWorld(from, plane);
   const worldTo = localToWorld(to, plane);
@@ -80,20 +138,7 @@ export function addDashedLine(
   verts[0] = worldFrom.x; verts[1] = worldFrom.y; verts[2] = worldFrom.z;
   verts[3] = worldTo.x; verts[4] = worldTo.y; verts[5] = worldTo.z;
 
-  const geo = new BufferGeometry();
-  geo.setAttribute('position', new BufferAttribute(verts, 3));
-
-  const mat = new LineDashedMaterial({
-    color: GUIDE_COLOR,
-    dashSize: 3,
-    gapSize: 2,
-    depthTest: false,
-  });
-
-  const line = new Line(geo, mat);
-  line.computeLineDistances();
-  line.renderOrder = renderOrder;
-  previewGroup.add(line);
+  addDashedPolyline(previewGroup, verts, renderOrder, color);
 }
 
 export function addDashedCircle(
@@ -116,20 +161,7 @@ export function addDashedCircle(
     verts[i * 3 + 2] = w.z;
   }
 
-  const geo = new BufferGeometry();
-  geo.setAttribute('position', new BufferAttribute(verts, 3));
-
-  const mat = new LineDashedMaterial({
-    color: GUIDE_COLOR,
-    dashSize: 3,
-    gapSize: 2,
-    depthTest: false,
-  });
-
-  const line = new Line(geo, mat);
-  line.computeLineDistances();
-  line.renderOrder = renderOrder;
-  previewGroup.add(line);
+  addDashedPolyline(previewGroup, verts, renderOrder);
 }
 
 export function addDashedRect(
@@ -154,20 +186,7 @@ export function addDashedRect(
     verts[i * 3 + 2] = w.z;
   }
 
-  const geo = new BufferGeometry();
-  geo.setAttribute('position', new BufferAttribute(verts, 3));
-
-  const mat = new LineDashedMaterial({
-    color: GUIDE_COLOR,
-    dashSize: 3,
-    gapSize: 2,
-    depthTest: false,
-  });
-
-  const line = new Line(geo, mat);
-  line.computeLineDistances();
-  line.renderOrder = renderOrder;
-  previewGroup.add(line);
+  addDashedPolyline(previewGroup, verts, renderOrder);
 }
 
 const ROUNDED_RECT_ARC_SEGMENTS = 8;
@@ -239,20 +258,7 @@ export function addDashedRoundedRect(
     verts[i * 3 + 2] = wpt.z;
   }
 
-  const geo = new BufferGeometry();
-  geo.setAttribute('position', new BufferAttribute(verts, 3));
-
-  const mat = new LineDashedMaterial({
-    color: GUIDE_COLOR,
-    dashSize: 3,
-    gapSize: 2,
-    depthTest: false,
-  });
-
-  const line = new Line(geo, mat);
-  line.computeLineDistances();
-  line.renderOrder = renderOrder;
-  previewGroup.add(line);
+  addDashedPolyline(previewGroup, verts, renderOrder);
 }
 
 export function addDashedPolygon(
@@ -276,20 +282,7 @@ export function addDashedPolygon(
     verts[i * 3 + 2] = w.z;
   }
 
-  const geo = new BufferGeometry();
-  geo.setAttribute('position', new BufferAttribute(verts, 3));
-
-  const mat = new LineDashedMaterial({
-    color: GUIDE_COLOR,
-    dashSize: 3,
-    gapSize: 2,
-    depthTest: false,
-  });
-
-  const line = new Line(geo, mat);
-  line.computeLineDistances();
-  line.renderOrder = renderOrder;
-  previewGroup.add(line);
+  addDashedPolyline(previewGroup, verts, renderOrder);
 }
 
 export function addDashedArc(
@@ -328,20 +321,7 @@ export function addDashedArc(
     verts[i * 3 + 2] = w.z;
   }
 
-  const geo = new BufferGeometry();
-  geo.setAttribute('position', new BufferAttribute(verts, 3));
-
-  const mat = new LineDashedMaterial({
-    color: GUIDE_COLOR,
-    dashSize: 3,
-    gapSize: 2,
-    depthTest: false,
-  });
-
-  const line = new Line(geo, mat);
-  line.computeLineDistances();
-  line.renderOrder = renderOrder;
-  previewGroup.add(line);
+  addDashedPolyline(previewGroup, verts, renderOrder);
 }
 
 function deCasteljau(poles: [number, number][], t: number): [number, number] {
@@ -379,20 +359,7 @@ export function addDashedBezier(
     verts[i * 3 + 2] = w.z;
   }
 
-  const geo = new BufferGeometry();
-  geo.setAttribute('position', new BufferAttribute(verts, 3));
-
-  const mat = new LineDashedMaterial({
-    color: GUIDE_COLOR,
-    dashSize: 3,
-    gapSize: 2,
-    depthTest: false,
-  });
-
-  const line = new Line(geo, mat);
-  line.computeLineDistances();
-  line.renderOrder = renderOrder;
-  previewGroup.add(line);
+  addDashedPolyline(previewGroup, verts, renderOrder);
 }
 
 const SLOT_ARC_SEGMENTS = 16;
@@ -456,20 +423,7 @@ export function addDashedSlot(
     verts[i * 3 + 2] = w.z;
   }
 
-  const geo = new BufferGeometry();
-  geo.setAttribute('position', new BufferAttribute(verts, 3));
-
-  const mat = new LineDashedMaterial({
-    color: GUIDE_COLOR,
-    dashSize: 3,
-    gapSize: 2,
-    depthTest: false,
-  });
-
-  const line = new Line(geo, mat);
-  line.computeLineDistances();
-  line.renderOrder = renderOrder;
-  previewGroup.add(line);
+  addDashedPolyline(previewGroup, verts, renderOrder);
 }
 
 // --- Arc math utilities ---

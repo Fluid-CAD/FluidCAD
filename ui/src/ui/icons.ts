@@ -5,6 +5,7 @@ import iconGrid from '@tabler/icons/outline/grid-4x4.svg?raw';
 import iconScale from '@tabler/icons/outline/scale.svg?raw';
 import iconScissors from '@tabler/icons/outline/scissors.svg?raw';
 import iconListTree from '@tabler/icons/outline/list-tree.svg?raw';
+import iconMenu2 from '@tabler/icons/outline/menu-2.svg?raw';
 import iconFileImport from '@tabler/icons/outline/file-import.svg?raw';
 import iconCopy from '@tabler/icons/outline/copy.svg?raw';
 import iconCircleCheck from '@tabler/icons/outline/circle-check.svg?raw';
@@ -27,6 +28,10 @@ import iconCursorPointer from 'iconoir/icons/regular/cursor-pointer.svg?raw';
 import iconRectangle from '@tabler/icons/outline/rectangle.svg?raw';
 import iconLinear from 'iconoir/icons/regular/linear.svg?raw';
 import iconOnePointCircle from 'iconoir/icons/regular/one-point-circle.svg?raw';
+import iconTypography from '@tabler/icons/outline/typography.svg?raw';
+import iconPencil from '@tabler/icons/outline/pencil.svg?raw';
+import iconChevronLeft from '@tabler/icons/outline/chevron-left.svg?raw';
+import iconChevronRight from '@tabler/icons/outline/chevron-right.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -35,6 +40,7 @@ export const ICON_GRID = iconGrid;
 export const ICON_SCALE = iconScale;
 export const ICON_SCISSORS = iconScissors;
 export const ICON_LIST_TREE = iconListTree;
+export const ICON_MENU = iconMenu2;
 export const ICON_FILE_IMPORT = iconFileImport;
 export const ICON_COPY = iconCopy;
 export const ICON_CIRCLE_CHECK = iconCircleCheck;
@@ -57,6 +63,8 @@ export const ICON_POINTER = iconCursorPointer;
 export const ICON_CENTER_ARC = iconArc3dCenterPoint;
 export const ICON_THREE_POINT_ARC = iconArc3d;
 export const ICON_RECT = iconRectangle;
+export const ICON_TEXT = iconTypography;
+export const ICON_PENCIL = iconPencil;
 export const ICON_ROUNDED_RECT = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="5"/></svg>';
 
 export const ICON_SLOT = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h6a5 5 0 0 1 0 10H9a5 5 0 0 1 0-10z"/><circle cx="9" cy="10" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.2" fill="currentColor" stroke="none"/></svg>';
@@ -69,11 +77,17 @@ export const ICON_BEZIER = '<svg width="24" height="24" viewBox="0 0 24 24" fill
 
 export const ICON_CHEVRON_RIGHT = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
 export const ICON_CHEVRON_DOWN = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>';
+
+/** Toolbar scroll arrows — stroked chevrons, distinct from the filled
+ *  disclosure caret {@link ICON_CHEVRON_RIGHT} the tree panels use. */
+export const ICON_SCROLL_LEFT = iconChevronLeft;
+export const ICON_SCROLL_RIGHT = iconChevronRight;
 export const ICON_DOTS_VERTICAL = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
 export const ICON_CUBE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
 export const ICON_CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
 export const ICON_ALERT_DOT = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>';
 export const ICON_CLOSE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
+export const ICON_TRASH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg>';
 
 export const ICON_GROUND = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
   <line x1="2" y1="5" x2="12" y2="5"/>

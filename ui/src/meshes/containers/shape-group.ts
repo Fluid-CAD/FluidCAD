@@ -6,6 +6,7 @@ import { SolidMesh } from '../shape-meshes/solid-mesh';
 import { MetaEdgeMesh } from '../shape-meshes/meta-edge-mesh';
 import { TrimMetaEdgeMesh } from '../shape-meshes/trim-meta-edge-mesh';
 import { RegionMetaFaceMesh } from '../shape-meshes/region-meta-face-mesh';
+import { TrimRegionFaceMesh } from '../shape-meshes/trim-region-face-mesh';
 import { PickEdgeMesh } from '../shape-meshes/pick-edge-mesh';
 
 const STANDALONE_EDGE_STYLE: EdgeMeshOptions = { color: '#2297ff', lineWidth: 2 };
@@ -25,6 +26,7 @@ export function createMetaEdgeMesh(shape: SceneObjectPart): Group {
 const metaFaceFactories: Record<string, (shape: SceneObjectPart) => Group> = {
   'pick-region': (shape) => new RegionMetaFaceMesh(shape, false),
   'pick-region-selected': (shape) => new RegionMetaFaceMesh(shape, true),
+  'trim-region': (shape) => new TrimRegionFaceMesh(shape),
 };
 
 export function createMetaFaceMesh(shape: SceneObjectPart): Group {
@@ -83,6 +85,19 @@ export class ShapeGroup extends Group {
             const edgeOpts = options?.edge
               ?? (isStandaloneWireEdge ? STANDALONE_EDGE_STYLE : undefined);
             mesh = new EdgeMesh(shape, edgeOpts);
+            // A bare single-edge shape (a helix wire) serializes without a
+            // per-edge index (renderEdge — only solid edges carry one), which
+            // keeps it out of the edge pick bucket. It IS exactly one edge,
+            // so give its lines the pick identity {edge, 0} — that is what
+            // makes a helix clickable in the viewport. Multi-edge wires stay
+            // unpickable: one merged line can't claim a single edge index.
+            if (shape.shapeType === 'edge') {
+              mesh.traverse(child => {
+                if (child.userData.isEdgeLine && child.userData.edgeIndex === undefined) {
+                  child.userData.edgeIndex = 0;
+                }
+              });
+            }
             break;
           }
           case 'face':

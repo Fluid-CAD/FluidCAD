@@ -105,7 +105,7 @@ export const features: FeatureEntry[] = [
   { name: 'translate', displayName: 'translate', category: 'transforms', sourceFile: 'core/translate.ts', interfaceName: 'TranslateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/transforms', sidebarPosition: 1 },
   { name: 'rotate', displayName: 'rotate', category: ['2d', 'transforms'], sourceFile: 'core/rotate.ts', interfaceName: 'RotateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/transforms', sidebarPosition: 2, sidebarPositions: { '2d': 27 } },
   { name: 'mirror', displayName: 'mirror', category: ['2d', 'transforms'], sourceFile: 'core/mirror.ts', interfaceName: 'MirrorFunction', returnType: 'IMirror', relatedGuide: '/docs/guides/transforms', sidebarPosition: 3, sidebarPositions: { '2d': 28 } },
-  { name: 'copy', displayName: 'copy', category: ['2d', 'transforms'], sourceFile: 'core/copy.ts', interfaceName: 'CopyFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/copying', sidebarPosition: 4, sidebarPositions: { '2d': 29 } },
+  { name: 'copy', displayName: 'copy', category: ['2d', 'transforms'], sourceFile: 'core/copy.ts', interfaceName: 'CopyFunction', returnType: 'ICopy', relatedGuide: '/docs/guides/copying', sidebarPosition: 4, sidebarPositions: { '2d': 29 } },
   { name: 'repeat', displayName: 'repeat', category: 'transforms', sourceFile: 'core/repeat.ts', interfaceName: 'RepeatFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/patterns', sidebarPosition: 5 },
 
   // Utilities
@@ -135,6 +135,7 @@ export const types: TypeEntry[] = [
   { name: 'ILoft', displayName: 'Loft', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 9 },
   { name: 'ISweep', displayName: 'Sweep', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 10 },
   { name: 'IMirror', displayName: 'Mirror', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 10.5 },
+  { name: 'ICopy', displayName: 'Copy', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 10.6 },
   { name: 'ICommon', displayName: 'Common', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 11 },
   { name: 'IShell', displayName: 'Shell', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 12 },
   { name: 'IDraft', displayName: 'Draft', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 29 },

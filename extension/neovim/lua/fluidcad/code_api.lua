@@ -65,12 +65,37 @@ function M.remove_pick(code, source_line)
   return post('remove-pick', { code = code, sourceLine = source_line })
 end
 
+function M.add_guide(code, source_line)
+  return post('add-guide', { code = code, sourceLine = source_line })
+end
+
+function M.remove_guide(code, source_line)
+  return post('remove-guide', { code = code, sourceLine = source_line })
+end
+
+function M.remove_statement(code, source_line)
+  return post('remove-statement', { code = code, sourceLine = source_line })
+end
+
+function M.set_feature_name(code, source_line, name)
+  -- A cleared name must reach the server as JSON null; a Lua nil would drop
+  -- the key from the encoded body and fail the route's validation.
+  if name == nil then
+    name = vim.NIL
+  end
+  return post('set-feature-name', { code = code, sourceLine = source_line, name = name })
+end
+
 function M.set_pick_points(code, source_line, points)
   return post('set-pick-points', { code = code, sourceLine = source_line, points = points })
 end
 
 function M.update_insert_chain(code, source_line, edit)
   return post('update-insert-chain', { code = code, sourceLine = source_line, edit = edit })
+end
+
+function M.set_trim_targets(code, source_line, args)
+  return post('set-trim-targets', { code = code, sourceLine = source_line, args = args })
 end
 
 function M.insert_geometry(code, sketch_source_line, statement, new_variable)
@@ -82,8 +107,12 @@ function M.insert_geometry(code, sketch_source_line, statement, new_variable)
   })
 end
 
-function M.update_position(code, source_line, new_position, point_index)
-  return post('update-position', { code = code, sourceLine = source_line, newPosition = new_position, pointIndex = point_index or 0 })
+function M.insert_load(code, file_name)
+  return post('insert-load', { code = code, fileName = file_name })
+end
+
+function M.update_position(code, source_line, new_position, point_index, old_position)
+  return post('update-position', { code = code, sourceLine = source_line, newPosition = new_position, pointIndex = point_index or 0, oldPosition = old_position })
 end
 
 function M.set_line_position(code, source_line, new_start, new_end)
@@ -94,15 +123,15 @@ function M.set_chain_positions(code, source_line, updates)
   return post('set-chain-positions', { code = code, sourceLine = source_line, updates = updates })
 end
 
-function M.set_rect_dimensions(code, source_line, start_point, width, height)
-  return post('set-rect-dimensions', { code = code, sourceLine = source_line, startPoint = start_point, width = width, height = height })
+function M.set_rect_dimensions(code, source_line, start_point, width, height, old_start_point)
+  return post('set-rect-dimensions', { code = code, sourceLine = source_line, startPoint = start_point, width = width, height = height, oldStartPoint = old_start_point })
 end
 
 function M.update_dimension(code, source_line, new_value)
   return post('update-dimension', { code = code, sourceLine = source_line, newValue = new_value })
 end
 
-function M.update_dimension_expression(code, source_line, expression, sketch_source_line, new_variable, dimension_offset)
+function M.update_dimension_expression(code, source_line, expression, sketch_source_line, new_variable, dimension_offset, dimension_call, dimension_insert, dimension_point)
   return post('update-dimension-expression', {
     code = code,
     sourceLine = source_line,
@@ -110,8 +139,29 @@ function M.update_dimension_expression(code, source_line, expression, sketch_sou
     sketchSourceLine = sketch_source_line,
     newVariable = new_variable,
     dimensionOffset = dimension_offset or 0,
+    dimensionCall = dimension_call,
+    dimensionInsert = dimension_insert == true,
+    dimensionPoint = dimension_point,
   })
 end
+
+function M.update_point_expression(code, source_line, x_expr, y_expr, sketch_source_line, new_variable, point_index, old_position)
+  return post('update-point-expression', {
+    code = code,
+    sourceLine = source_line,
+    xExpr = x_expr,
+    yExpr = y_expr,
+    sketchSourceLine = sketch_source_line,
+    newVariable = new_variable,
+    pointIndex = point_index or 0,
+    oldPosition = old_position,
+  })
+end
+
+function M.apply_feature(code, spec)
+  return post('apply-feature', { code = code, spec = spec })
+end
+
 
 --- Replace the entire contents of `bufnr` with `new_code`. Returns true on
 --- success.

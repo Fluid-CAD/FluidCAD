@@ -4,6 +4,7 @@ import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import { arc, hLine, vLine, line } from "../../../core/2d/index.js";
 import { ExtrudeBase } from "../../../features/extrude-base.js";
+import { Sketch } from "../../../features/2d/sketch.js";
 import { Solid } from "../../../common/solid.js";
 import { getEdgesByType } from "../../utils.js";
 
@@ -43,6 +44,24 @@ describe("arc", () => {
       const solid = e.getShapes()[0] as Solid;
       const arcEdges = getEdgesByType(solid, "arc");
       expect(arcEdges.length).toBeGreaterThan(0);
+    });
+
+    it("passes exactly through an authored end that is off the center's circle", () => {
+      // Rounded coordinates: the end sits ~0.005 further from the center
+      // than the start. The arc must still end exactly at the authored
+      // point (circle fitted through both endpoints) — chained statements
+      // and closing bridges start from the authored end, so a projected
+      // endpoint would leave a micro-gap in the profile.
+      const s = sketch("xy", () => {
+        arc([-205.71, -75.22], [-130.5, 124.58]).center([-176.56, 27.86]).cw();
+      }) as Sketch;
+
+      render();
+
+      const arcEdge = getEdgesByType(s.getShapes(), "arc")[0];
+      const end = arcEdge.getLastVertex().toPoint();
+      expect(end.x).toBeCloseTo(-130.5, 9);
+      expect(end.y).toBeCloseTo(124.58, 9);
     });
   });
 

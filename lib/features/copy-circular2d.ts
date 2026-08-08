@@ -1,14 +1,13 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
-import { Axis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { rad } from "../helpers/math-helpers.js";
 import { ShapeOps } from "../oc/shape-ops.js";
-import { GeometrySceneObject } from "./2d/geometry.js";
+import { Copy2DBase } from "./copy2d-base.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { CircularCopyOptions } from "./copy-circular.js";
 import { type NumberParam, resolveParam } from "../core/param.js";
 
-export class CopyCircular2D extends GeometrySceneObject {
+export class CopyCircular2D extends Copy2DBase {
   constructor(
     public center: LazyVertex,
     public options: CircularCopyOptions,
@@ -18,6 +17,7 @@ export class CopyCircular2D extends GeometrySceneObject {
   }
 
   build(context: BuildSceneObjectContext) {
+    this.resetInstances();
     let objects: SceneObject[];
     const allSiblings = this.sketch.getPreviousSiblings(this);
 
@@ -31,8 +31,11 @@ export class CopyCircular2D extends GeometrySceneObject {
     for (const obj of objects) {
       obj.removeShapes(this);
     }
+    // Rotation-step slots: the original is 0, step i is i — the same
+    // numbering the circular `skip` option uses.
     for (const shape of originalShapes) {
       this.addShape(shape);
+      this.recordInstanceShape(shape, 0);
     }
 
     const plane = this.sketch.getPlane();
@@ -61,6 +64,7 @@ export class CopyCircular2D extends GeometrySceneObject {
         const transformed = ShapeOps.transform(shape, matrix);
         transformed.setMeshSource(shape, matrix);
         this.addShape(transformed);
+        this.recordInstanceShape(transformed, i);
       }
     }
 
@@ -106,6 +110,10 @@ export class CopyCircular2D extends GeometrySceneObject {
 
   getUniqueType(): string {
     return "copy-circular-2d";
+  }
+
+  getDisplayType(): string {
+    return "Copy";
   }
 
   serialize() {

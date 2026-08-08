@@ -147,12 +147,17 @@ export class Slot extends ExtrudableGeometryBase implements ISlot {
       Geometry.makeEdgeFromCurve(leftArc),
     ];
 
+    edges[0].setRole('side', 0);
+    edges[2].setRole('side', 1);
+    edges[3].setRole('cap-arc', 0);
+    edges[1].setRole('cap-arc', 1);
+
     this.addShapes(edges);
 
-    const leftCenterVertex = Vertex.fromPoint2D(leftCenter);
+    const leftCenterVertex = Vertex.fromPoint(localToWorld(leftCenter));
     leftCenterVertex.markAsMetaShape();
     this.addShape(leftCenterVertex);
-    const rightCenterVertex = Vertex.fromPoint2D(rightCenter);
+    const rightCenterVertex = Vertex.fromPoint(localToWorld(rightCenter));
     rightCenterVertex.markAsMetaShape();
     this.addShape(rightCenterVertex);
 

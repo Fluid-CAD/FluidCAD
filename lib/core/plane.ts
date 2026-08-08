@@ -42,8 +42,10 @@ interface PlaneFunction {
    */
   (selection: ISceneObject): IPlane;
   /**
-   * Creates a plane from a face selection with transform options.
-   * @param selection - The selected face to create a plane from
+   * Creates a plane from a selection with transform options. A face yields
+   * that face's plane; an edge yields the plane at the edge start (normal to
+   * the edge). The options then offset/rotate the derived plane.
+   * @param selection - The selected face or edge to create a plane from
    * @param options - Transform options (offset, rotate, etc.)
    */
   (selection: ISceneObject, options: PlaneRenderableOptions): IPlane;

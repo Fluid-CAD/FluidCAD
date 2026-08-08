@@ -23,10 +23,27 @@ export function cloneWithTransform(
       collectDeps(dep);
     }
 
+    // Boundary references (e.g. a cut's up-to-face selection) are cloned so
+    // their consumed shapes re-resolve per instance, but their own
+    // dependencies are NOT followed — that would pull the referenced body's
+    // producer chain in and rebuild the shared base once per instance.
+    for (const dep of obj.getBoundaryDependencies()) {
+      collectBoundary(dep);
+    }
+
     ordered.push(obj);
 
     // Collect children without following their dependencies —
     // cloned children will reference originals for any deps not in the clone set
+    collectChildren(obj);
+  };
+
+  const collectBoundary = (obj: SceneObject) => {
+    if (visited.has(obj)) {
+      return;
+    }
+    visited.add(obj);
+    ordered.push(obj);
     collectChildren(obj);
   };
 

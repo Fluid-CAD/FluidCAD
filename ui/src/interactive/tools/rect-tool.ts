@@ -1,5 +1,5 @@
 import { Vector3 } from 'three';
-import { SketchTool, InsertGeometryFn, FetchVariablesFn } from '../sketch-tool';
+import { SketchTool, InsertGeometryFn, FetchVariablesFn, PickedPoint } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
@@ -28,12 +28,12 @@ export class RectTool extends SketchTool {
   readonly icon = ICON_RECT;
 
   private startPoint: [number, number] | null = null;
+  /** The start corner as picked: same position, plus any typed axis expressions. */
+  private startPick: PickedPoint | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
-  private shiftHeld = false;
+  private readonly centered: boolean;
   private expressionInput: ExpressionInput;
-  private fetchVariables: FetchVariablesFn;
-  private cachedVariables: VariableInfo[] = [];
   private lastClientX = 0;
   private lastClientY = 0;
 
@@ -46,7 +46,6 @@ export class RectTool extends SketchTool {
   private boundMouseUp: (e: MouseEvent) => void;
   private boundMouseMove: (e: MouseEvent) => void;
   private boundKeyDown: (e: KeyboardEvent) => void;
-  private boundKeyUp: (e: KeyboardEvent) => void;
   private downX = 0;
   private downY = 0;
 
@@ -57,33 +56,30 @@ export class RectTool extends SketchTool {
     insertGeometry: InsertGeometryFn,
     container: HTMLElement,
     fetchVariables: FetchVariablesFn,
+    centered: boolean,
   ) {
-    super(ctx, plane, snapController, insertGeometry);
+    super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.expressionInput = new ExpressionInput(container);
-    this.fetchVariables = fetchVariables;
+    this.centered = centered;
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundKeyDown = this.handleKeyDown.bind(this);
-    this.boundKeyUp = this.handleKeyUp.bind(this);
   }
 
-  activate(): void {
+  protected onActivate(): void {
     this.addPreviewToScene();
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     window.addEventListener('keydown', this.boundKeyDown);
-    window.addEventListener('keyup', this.boundKeyUp);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
   }
 
-  deactivate(): void {
+  protected onDeactivate(): void {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
     window.removeEventListener('keydown', this.boundKeyDown);
-    window.removeEventListener('keyup', this.boundKeyUp);
     this.resetState();
     this.removePreviewFromScene();
   }
@@ -91,17 +87,36 @@ export class RectTool extends SketchTool {
   onSceneUpdate(sceneObjects: SceneObjectRender[], sketchId: string): void {
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, this.plane, this.ctx);
     this.updateSnapManager(snapManager);
-    this.fetchVariables().then(vars => { this.cachedVariables = vars; });
+    this.refreshVariables();
+  }
+
+  /** The start corner is the point that lands in the source; the second click
+   * sizes the rectangle, which the expression input already covers. */
+  protected override awaitingPoint(): boolean {
+    return this.startPoint === null;
+  }
+
+  protected override onTypedPoint(point: PickedPoint): void {
+    this.consumeStart(point);
+  }
+
+  /** Single writer for both halves of the anchor, so the position the preview
+   * draws and the expressions the statement emits cannot drift. */
+  private consumeStart(start: PickedPoint): void {
+    this.startPick = start;
+    this.startPoint = start.value;
+    this.syncPointInput();
+    this.rebuildPreview();
   }
 
   private resetState(): void {
     this.startPoint = null;
+    this.startPick = null;
     this.mousePoint = null;
     this.expressionPhase = 'width';
     this.widthExpression = null;
     this.lockedWidth = null;
     this.widthIsNumeric = false;
-    this.shiftHeld = false;
     this.expressionInput.hide();
   }
 
@@ -126,9 +141,7 @@ export class RectTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (!this.startPoint) {
-      this.startPoint = point;
-      this.syncModifiers(e);
-      this.rebuildPreview();
+      this.consumeStart(this.applyPointInput(result.point2d));
       return;
     }
 
@@ -142,7 +155,6 @@ export class RectTool extends SketchTool {
   private handleMouseMove(e: MouseEvent): void {
     this.lastClientX = e.clientX;
     this.lastClientY = e.clientY;
-    this.syncModifiers(e);
 
     const raw = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
     if (!raw) {
@@ -161,32 +173,21 @@ export class RectTool extends SketchTool {
 
   private handleKeyDown(e: KeyboardEvent): void {
     if (e.key === 'Escape') {
+      // Typed coordinates clear first; only a clean pill lets Escape
+      // fall through to cancelling the in-progress shape.
+      if (this.handlePointInputEscape()) {
+        return;
+      }
       if (this.startPoint) {
         this.resetState();
         this.rebuildPreview();
       }
-      return;
     }
-    if (e.key === 'Shift') {
-      this.shiftHeld = true;
-      this.rebuildPreview();
-    }
-  }
-
-  private handleKeyUp(e: KeyboardEvent): void {
-    if (e.key === 'Shift') {
-      this.shiftHeld = false;
-      this.rebuildPreview();
-    }
-  }
-
-  private syncModifiers(e: MouseEvent): void {
-    this.shiftHeld = e.shiftKey;
   }
 
   private computeDimensions(endPoint: [number, number]): { width: number; height: number } {
     const start = this.startPoint!;
-    if (this.shiftHeld) {
+    if (this.centered) {
       const dx = endPoint[0] - start[0];
       const dy = endPoint[1] - start[1];
       return { width: Math.round(dx * 2 * 100) / 100, height: Math.round(dy * 2 * 100) / 100 };
@@ -200,7 +201,7 @@ export class RectTool extends SketchTool {
   private computePreviewCorners(endPoint: [number, number]): { c1: [number, number]; c2: [number, number] } {
     const start = this.startPoint!;
     if (this.lockedWidth !== null) {
-      if (this.shiftHeld) {
+      if (this.centered) {
         const hw = this.lockedWidth / 2;
         const dy = endPoint[1] - start[1];
         return {
@@ -211,7 +212,7 @@ export class RectTool extends SketchTool {
       const xSign = (endPoint[0] >= start[0]) ? 1 : -1;
       return { c1: start, c2: [start[0] + xSign * this.lockedWidth, endPoint[1]] };
     }
-    if (this.shiftHeld) {
+    if (this.centered) {
       const dx = endPoint[0] - start[0];
       const dy = endPoint[1] - start[1];
       return {
@@ -288,13 +289,8 @@ export class RectTool extends SketchTool {
     const isNumeric = !isNaN(num) && String(num) === result.expression;
 
     this.widthIsNumeric = isNumeric;
-    if (isNumeric) {
-      this.widthExpression = result;
-      this.lockedWidth = num;
-    } else {
-      this.widthExpression = result;
-      this.lockedWidth = null;
-    }
+    this.widthExpression = result;
+    this.lockedWidth = isNumeric ? num : this.previewMagnitude(result);
 
     this.expressionPhase = 'height';
 
@@ -327,17 +323,12 @@ export class RectTool extends SketchTool {
 
     const widthResult = this.resolveSignedDim(this.widthExpression, this.widthIsNumeric, this.lockedWidth, 0);
 
-    let heightResult: CommitResult;
-    if (isNumeric && this.mousePoint && !this.shiftHeld) {
-      const ySign = (this.mousePoint[1] >= this.startPoint[1]) ? 1 : -1;
-      heightResult = { expression: String(Math.round(ySign * num * 100) / 100), newVariable: result.newVariable };
-    } else {
-      heightResult = result;
-    }
+    const heightResult = this.resolveSignedDim(result, isNumeric, isNumeric ? num : null, 1);
 
-    this.commitRect(this.startPoint, widthResult, heightResult);
+    this.commitRect(this.startPick!, widthResult, heightResult);
     this.expressionInput.hide();
     this.startPoint = null;
+    this.startPick = null;
     this.expressionPhase = 'width';
     this.widthExpression = null;
     this.lockedWidth = null;
@@ -356,12 +347,13 @@ export class RectTool extends SketchTool {
     }
 
     this.commitRect(
-      this.startPoint,
+      this.startPick!,
       { expression: String(width) },
       { expression: String(height) },
     );
     this.expressionInput.hide();
     this.startPoint = null;
+    this.startPick = null;
     this.expressionPhase = 'width';
     this.widthExpression = null;
     this.lockedWidth = null;
@@ -369,34 +361,51 @@ export class RectTool extends SketchTool {
     this.rebuildPreview();
   }
 
+  // Preview magnitude for a width committed as a variable/expression: the
+  // variable's own value when statically resolvable, else the mouse-derived
+  // width at commit time. The final statement still uses the expression.
+  private previewMagnitude(result: CommitResult): number | null {
+    const fromVariable = SketchTool.resolveCommittedMagnitude(result, this.cachedVariables);
+    if (fromVariable !== null) {
+      return fromVariable;
+    }
+    if (this.mousePoint && this.startPoint) {
+      const { width } = this.computeDimensions(this.mousePoint);
+      return Math.abs(width);
+    }
+    return null;
+  }
+
   private resolveSignedDim(expr: CommitResult, isNumeric: boolean, absValue: number | null, axis: 0 | 1): CommitResult {
-    if (!isNumeric || absValue === null || !this.mousePoint || !this.startPoint || this.shiftHeld) {
+    if (!this.mousePoint || !this.startPoint || this.centered) {
       return expr;
     }
     const sign = axis === 0
       ? ((this.mousePoint[0] >= this.startPoint[0]) ? 1 : -1)
       : ((this.mousePoint[1] >= this.startPoint[1]) ? 1 : -1);
-    return { expression: String(Math.round(sign * absValue * 100) / 100), newVariable: expr.newVariable };
+    if (isNumeric && absValue !== null) {
+      return { expression: String(Math.round(sign * absValue * 100) / 100), newVariable: expr.newVariable };
+    }
+    if (sign < 0) {
+      return { expression: SketchTool.negateExpression(expr.expression), newVariable: expr.newVariable };
+    }
+    return expr;
   }
 
   protected commitRect(
-    start: [number, number],
+    start: PickedPoint,
     widthResult: CommitResult,
     heightResult: CommitResult,
   ): void {
-    const atCurrent = this.isAtCurrentPosition(start);
-    let statement: string;
-    if (atCurrent) {
-      statement = `rect(${widthResult.expression}, ${heightResult.expression})`;
-    } else {
-      statement = `rect(${this.formatPoint(start)}, ${widthResult.expression}, ${heightResult.expression})`;
-    }
-    if (this.shiftHeld) {
-      statement += '.centered()';
-    }
-
-    const newVariable = widthResult.newVariable ?? heightResult.newVariable;
-    this.insertGeometry(statement, newVariable);
+    const suffix = this.centered ? '.centered()' : '';
+    const newVariables = [widthResult.newVariable, heightResult.newVariable]
+      .filter((v): v is NonNullable<typeof v> => v !== undefined);
+    this.insertAtPoint(
+      start,
+      (point) => `rect(${point}, ${widthResult.expression}, ${heightResult.expression})${suffix}`,
+      () => `rect(${widthResult.expression}, ${heightResult.expression})${suffix}`,
+      newVariables,
+    );
   }
 
   protected rebuildPreview(): void {

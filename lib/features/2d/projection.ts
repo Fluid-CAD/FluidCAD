@@ -49,6 +49,9 @@ export class Projection extends ExtrudableGeometryBase {
     }
 
     const uniqueEdges = EdgeOps.unifyCoincident(allEdges);
+    for (const edge of uniqueEdges) {
+      edge.setProvenance('projected');
+    }
     this.addShapes(uniqueEdges);
 
     if (endpoints) {
@@ -70,6 +73,11 @@ export class Projection extends ExtrudableGeometryBase {
     if (this.sketch) {
       this.setCurrentPosition(this.getCurrentPosition());
     }
+  }
+
+  /** The projected source selections, for edit-dialog seeding. */
+  get sources(): SceneObject[] {
+    return this.sourceObjects;
   }
 
   override getDependencies(): SceneObject[] {

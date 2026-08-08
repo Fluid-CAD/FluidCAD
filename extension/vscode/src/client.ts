@@ -19,19 +19,27 @@ import {
 } from './breakpoints';
 import {
   handleInsertPoint,
+  handleAddGuide,
+  handleRemoveGuide,
   handleAddPick,
   handleRemovePick,
+  handleSetTrimTargets,
   handleRemovePoint,
   handleSetPickPoints,
   handleGotoSource,
   handleUpdateInsertChain,
   handleInsertGeometry,
+  handleInsertLoad,
   handleUpdatePosition,
   handleSetLinePosition,
   handleSetChainPositions,
   handleUpdateDimension,
   handleUpdateDimensionExpression,
+  handleUpdatePointExpression,
   handleSetRectDimensions,
+  handleApplyFeatureEdit,
+  handleRemoveFeature,
+  handleRenameFeature,
 } from './code-edits';
 import { updateDiagnostics, type CompileError } from './diagnostics';
 
@@ -168,12 +176,30 @@ export class Client {
         handleAddPick(this, msg);
         break;
       }
+      case 'add-guide': {
+        handleAddGuide(this, msg);
+        break;
+      }
+      case 'remove-guide': {
+        handleRemoveGuide(this, msg);
+        break;
+      }
       case 'remove-pick': {
         handleRemovePick(this, msg);
         break;
       }
+      case 'set-trim-targets': {
+        handleSetTrimTargets(this, msg);
+        break;
+      }
       case 'insert-geometry': {
         handleInsertGeometry(this, msg);
+        break;
+      }
+      case 'insert-load': {
+        handleInsertLoad(this, msg).catch((err) => {
+          this.logger.appendLine(`[insert-load] error: ${err?.stack || err}`);
+        });
         break;
       }
       case 'update-position': {
@@ -196,8 +222,28 @@ export class Client {
         handleUpdateDimensionExpression(this, msg);
         break;
       }
+      case 'update-point-expression': {
+        handleUpdatePointExpression(this, msg);
+        break;
+      }
       case 'set-rect-dimensions': {
         handleSetRectDimensions(this, msg);
+        break;
+      }
+      case 'apply-feature-edit': {
+        handleApplyFeatureEdit(this, msg);
+        break;
+      }
+      case 'remove-feature': {
+        handleRemoveFeature(this, msg).catch((err) => {
+          this.logger.appendLine(`[remove-feature] error: ${err?.stack || err}`);
+        });
+        break;
+      }
+      case 'rename-feature': {
+        handleRenameFeature(this, msg).catch((err) => {
+          this.logger.appendLine(`[rename-feature] error: ${err?.stack || err}`);
+        });
         break;
       }
       case 'export-complete': {

@@ -16,14 +16,15 @@ function formatDuration(ms: number): string {
 
 /**
  * Objects the scene carries but the timeline never lists: a lazy select's
- * reference holder, and the internal inputs a statement builds for itself
+ * reference holder, a lazy vertex's anchor holder (`sel.center()` inside
+ * `connector(…)`), and the internal inputs a statement builds for itself
  * (the plane behind `sketch('xy', …)`) — they have no statement of their own,
  * so a row would offer navigation and edits that belong to the statement they
  * serve. Rows keep their scene index either way, so rollback targets and the
  * edit dialogs' row lookups are unaffected.
  */
 function isHiddenRow(obj: SceneObjectRender): boolean {
-  return obj.uniqueType === 'lazy-select' || obj.internal === true;
+  return obj.uniqueType === 'lazy-select' || obj.uniqueType === 'lazy-vertex' || obj.internal === true;
 }
 
 export class TimelinePanel {

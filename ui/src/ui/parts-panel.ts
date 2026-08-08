@@ -23,7 +23,6 @@ const DOTS_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentC
 
 export class PartsPanel {
   private panel: HTMLDivElement;
-  private fileLabel: HTMLSpanElement;
   private partsBody: HTMLDivElement;
   private jointsHost: HTMLDivElement;
   private instances: RenderedInstance[] = [];
@@ -58,22 +57,11 @@ export class PartsPanel {
     this.onDeleteInstance = onDeleteInstance;
 
     this.panel = document.createElement('div');
-    this.panel.className = 'absolute left-6 top-6 bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
+    // Docked below the top bars (top bar + navbar ≈ 92px) with breathing
+    // room, mirroring the part-design TimelinePanel — the TopBar owns the
+    // logo and file name for both rails.
+    this.panel.className = 'absolute left-6 top-[116px] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
-
-    const logoRow = document.createElement('div');
-    logoRow.className = 'flex items-center gap-1.5 px-1 pb-1 shrink-0';
-    logoRow.innerHTML = `<img src="/logo.png" alt="FluidCAD" class="h-6 w-auto opacity-70" /><span class="text-[18px] font-bold text-base-content/70">FluidCAD</span>`;
-    this.panel.appendChild(logoRow);
-
-    const fileRow = document.createElement('div');
-    fileRow.className = 'flex items-center gap-2 px-1 pb-1 shrink-0';
-    fileRow.innerHTML = `
-      <span class="text-base-content/50 [&>svg]:size-4">${CUBE_SVG}</span>
-      <span data-ref="filename" class="text-base text-base-content/70 truncate"></span>
-    `;
-    this.panel.appendChild(fileRow);
-    this.fileLabel = fileRow.querySelector('[data-ref="filename"]')!;
 
     const partsHeader = document.createElement('div');
     partsHeader.className = SECTION_HEADER;
@@ -95,8 +83,8 @@ export class PartsPanel {
       chevron.classList.toggle('rotate-90', this.partsExpanded);
     });
 
-    // Slot where the joints panel mounts itself; lets the rails share one
-    // logo+filename header instead of stacking two.
+    // Slot where the joints panel mounts itself, so both sections share one
+    // left-rail column under the top bars.
     this.jointsHost = document.createElement('div');
     this.jointsHost.className = 'flex flex-col gap-1 min-h-0 flex-1';
     this.panel.appendChild(this.jointsHost);
@@ -110,12 +98,8 @@ export class PartsPanel {
     return this.jointsHost;
   }
 
-  update(instances: RenderedInstance[], absPath: string): void {
+  update(instances: RenderedInstance[]): void {
     this.instances = instances;
-    if (absPath) {
-      const fileName = absPath.split('/').pop() || absPath;
-      this.fileLabel.textContent = fileName;
-    }
     if (!this.loaded) {
       this.loaded = true;
       this.panel.classList.remove('hidden');

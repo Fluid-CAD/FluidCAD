@@ -247,7 +247,7 @@ async function updateInsertChain(
   }
 }
 
-function applyAssemblyToRail(rail: LeftRail & { kind: 'assembly' }, assembly: SerializedAssembly, absPath: string): void {
+function applyAssemblyToRail(rail: LeftRail & { kind: 'assembly' }, assembly: SerializedAssembly): void {
   lastAssemblyPayload = assembly;
   for (const id of [...rail.instanceVisibility.keys()]) {
     if (!assembly.instances.find(i => i.instanceId === id)) {
@@ -263,7 +263,7 @@ function applyAssemblyToRail(rail: LeftRail & { kind: 'assembly' }, assembly: Se
     ...i,
     visible: rail.instanceVisibility.get(i.instanceId) ?? true,
   }));
-  rail.parts.update(rendered, absPath);
+  rail.parts.update(rendered);
   rail.joints.update(matesWithStatus(assembly.mates, lastFailedMateIds), rendered);
 }
 
@@ -1767,7 +1767,7 @@ function connectWebSocket() {
             instances: raw?.instances ?? [],
             mates: raw?.mates ?? [],
           };
-          applyAssemblyToRail(rail, assembly, msg.absPath ?? '');
+          applyAssemblyToRail(rail, assembly);
         }
         if (msg.params !== undefined) {
           paramsPanel.update(msg.params);

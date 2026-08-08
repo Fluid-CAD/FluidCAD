@@ -29,6 +29,7 @@ export class PartsPanel {
   private selectedId: string | null = null;
   private partsExpanded = true;
   private loaded = false;
+  private userHidden = false;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
   private inlineRenameId: string | null = null;
@@ -102,11 +103,25 @@ export class PartsPanel {
     this.instances = instances;
     if (!this.loaded) {
       this.loaded = true;
-      this.panel.classList.remove('hidden');
+      this.syncVisibility();
     }
     const countLabel = this.panel.querySelector<HTMLSpanElement>('[data-ref="parts-count"]')!;
     countLabel.textContent = instances.length > 0 ? String(instances.length) : '';
     this.renderRows();
+  }
+
+  /**
+   * Toggle the whole assembly rail (driven by the top-bar hamburger, like
+   * the part-design timeline). The joints panel mounts inside this panel's
+   * column, so one toggle covers both sections.
+   */
+  togglePanel(): void {
+    this.userHidden = !this.userHidden;
+    this.syncVisibility();
+  }
+
+  private syncVisibility(): void {
+    this.panel.classList.toggle('hidden', !(this.loaded && !this.userHidden));
   }
 
   setSelected(instanceId: string | null): void {

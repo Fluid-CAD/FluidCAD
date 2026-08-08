@@ -289,6 +289,8 @@ const topBar = new TopBar(container, {
   onToggleTree: () => {
     if (currentRail?.kind === 'part') {
       timelinePanel.togglePanel();
+    } else if (currentRail?.kind === 'assembly') {
+      currentRail.parts.togglePanel();
     }
   },
 });

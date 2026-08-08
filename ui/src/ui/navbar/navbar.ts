@@ -1,5 +1,13 @@
 import { ToolbarScroller } from './toolbar-scroller';
 
+/**
+ * Which workbench a tool group belongs to. The bar shows only the groups of
+ * the current mode — part-design tools while a part is open, assembly tools
+ * while an assembly is open. Everything registered before the mode concept
+ * existed is a part-design group, so `'part'` is the default.
+ */
+export type NavbarMode = 'part' | 'assembly';
+
 interface ToolbarGroup {
   key: string;
   host: HTMLDivElement;
@@ -28,6 +36,8 @@ interface ToolbarGroup {
    * sketch toolbar owns the bar (extruding is how a sketch gets finished).
    */
   immune: boolean;
+  /** Workbench this group belongs to — hidden while the bar is in the other mode. */
+  mode: NavbarMode;
 }
 
 /**
@@ -48,6 +58,8 @@ export class Navbar {
   private groups: ToolbarGroup[] = [];
   /** The visible groups behind the last reflow, to spot a wholesale swap. */
   private visibleSignature = '';
+  /** Current workbench — only groups of this mode are shown. */
+  private mode: NavbarMode = 'part';
 
   constructor(container: HTMLElement) {
     this.el = document.createElement('div');
@@ -76,7 +88,7 @@ export class Navbar {
    */
   addGroup(
     key: string,
-    opts: { visible?: boolean; exclusive?: boolean; anchor?: 'start' | 'end'; immune?: boolean } = {},
+    opts: { visible?: boolean; exclusive?: boolean; anchor?: 'start' | 'end'; immune?: boolean; mode?: NavbarMode } = {},
   ): HTMLElement {
     const divider = document.createElement('div');
     divider.className = 'w-px h-8 bg-base-content/[0.12] mx-1 shrink-0 hidden';
@@ -95,6 +107,7 @@ export class Navbar {
       exclusive: opts.exclusive ?? false,
       anchor: opts.anchor ?? 'start',
       immune: opts.immune ?? false,
+      mode: opts.mode ?? 'part',
     };
 
     // Keep 'end'-anchored groups after every 'start' group in both the array
@@ -141,8 +154,24 @@ export class Navbar {
     return this.groups.find((g) => g.key === key)?.host ?? null;
   }
 
+  /**
+   * Swap the bar to the given workbench. Groups of the other mode disappear
+   * wholesale (their owners' visibility votes are kept, so flipping back
+   * restores the bar exactly as it was).
+   */
+  setMode(mode: NavbarMode): void {
+    if (this.mode === mode) {
+      return;
+    }
+    this.mode = mode;
+    this.reflow();
+  }
+
   /** A group shows only if its condition holds and no exclusive group is overriding it. */
   private isEffectivelyVisible(group: ToolbarGroup): boolean {
+    if (group.mode !== this.mode) {
+      return false;
+    }
     if (!group.visible) {
       return false;
     }
@@ -152,7 +181,10 @@ export class Navbar {
     if (group.anchor === 'end' || group.immune) {
       return true;
     }
-    const exclusiveActive = this.groups.some((g) => g.exclusive && g.visible);
+    // An exclusive group in the *other* mode is off-bar and must not
+    // suppress anything (a lingering sketch-group vote while the scene
+    // flips to assembly would otherwise blank the assembly tools).
+    const exclusiveActive = this.groups.some((g) => g.exclusive && g.visible && g.mode === this.mode);
     return exclusiveActive ? group.exclusive : true;
   }
 

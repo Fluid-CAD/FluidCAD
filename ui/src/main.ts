@@ -15,6 +15,7 @@ import { LoadingOverlay } from './ui/loading-overlay';
 import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
 import { Navbar } from './ui/navbar';
+import { AssemblyToolbar } from './ui/assembly-toolbar';
 import { ICON_IMG_FALLBACK } from './ui/object-icons';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
 import { TrimPickService } from './interactive/trim-pick-service';
@@ -310,6 +311,11 @@ importBtnWrap.className = 'tooltip tooltip-bottom shrink-0';
 importBtnWrap.dataset.tip = 'Import file';
 importBtnWrap.appendChild(importBtn);
 importGroup.appendChild(importBtnWrap);
+
+// Assembly workbench groups (Insert / Translate / mates) — placeholders for
+// now, shown instead of the part-design tools whenever the scene kind is
+// assembly (navbar.setMode in the scene-rendered handler).
+new AssemblyToolbar(navbar);
 
 const paramsPanel = new ParamsPanel(viewer.settingsPanelHost, new ParamEditorDialog(container));
 
@@ -1760,6 +1766,9 @@ function connectWebSocket() {
         booleanService.handleSceneRendered(msg.result, renderStop, isRollback);
         planeService.handleSceneRendered(msg.result, renderStop, isRollback);
         textEditService.handleSceneRendered(msg.result, renderStop, isRollback);
+        // Swap the toolbar to the matching workbench alongside the left rail —
+        // part-design groups hide and the assembly groups show (or back).
+        navbar.setMode(sceneKind);
         const rail = ensureRailFor(sceneKind);
         if (rail.kind === 'part') {
           rail.timeline.update(msg.result, renderStop);

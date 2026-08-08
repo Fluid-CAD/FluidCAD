@@ -1,5 +1,12 @@
 import type { VariableInfo } from './ui/expression-input';
-import type { SceneObjectMesh, SceneObjectRender, SourceLocation, Vec3Data } from './types';
+import type {
+  SceneObjectMesh,
+  SceneObjectRender,
+  SerializedAssemblyInstance,
+  SerializedAssemblyMate,
+  SourceLocation,
+  Vec3Data,
+} from './types';
 
 export type { SourceLocation };
 
@@ -3640,10 +3647,24 @@ export type CatalogPart = {
   objects: SceneObjectRender[];
 };
 
+/** A sub-assembly factory from a `.assembly.js` file — inserted as a bare call. */
+export type CatalogAssembly = {
+  exportName: string;
+  kind: 'assembly';
+  /** Warm-start poses; the thumbnail runs the mate solver over them. */
+  instances: SerializedAssemblyInstance[];
+  mates: SerializedAssemblyMate[];
+  /** One rendered subtree per distinct referenced part (connectors included). */
+  objects: SceneObjectRender[];
+};
+
+export type CatalogEntryKind = 'value' | 'factory' | 'assembly';
+
 export type CatalogScanResult = {
   file: string;
   parts: CatalogPart[];
-  /** Exports that didn't evaluate to a part — includes benign noise (assembly factories). */
+  assemblies: CatalogAssembly[];
+  /** Exports that didn't evaluate to a part — benign noise included. */
   errors: { exportName: string | null; message: string }[];
 };
 
@@ -3671,7 +3692,7 @@ export function scanPartCatalogFile(
 export async function insertCatalogPart(
   file: string,
   exportName: string,
-  kind: 'value' | 'factory',
+  kind: CatalogEntryKind,
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('/api/part-catalog/insert', {

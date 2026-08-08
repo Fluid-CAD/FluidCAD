@@ -9,6 +9,9 @@ const SCRIPT_SUFFIXES = ['.fluid.js', '.part.js', '.assembly.js'];
 /** Matches any `part(` call — the cheap text prefilter before evaluating. */
 const PART_CALL = /\bpart\s*\(/;
 
+/** Matches any export declaration — the prefilter for `.assembly.js` files. */
+const EXPORT_DECL = /\bexport\b/;
+
 export type CatalogFileEntry = {
   /** Workspace-relative path, for display. */
   path: string;
@@ -16,11 +19,14 @@ export type CatalogFileEntry = {
 };
 
 /**
- * The workspace's part-candidate files: every FluidCAD script (gitignore
- * honored, node_modules/dot-dirs pruned) whose content mentions `part(`.
- * The prefilter keeps the Insert dialog from evaluating files that cannot
- * contain parts; `readContent` lets the caller serve live editor buffers so
- * an unsaved `part(...)` still qualifies.
+ * The workspace's candidate files: every FluidCAD script (gitignore honored,
+ * node_modules/dot-dirs pruned) that can hold something insertable — a
+ * part-kind file mentioning `part(`, or an `.assembly.js` file declaring
+ * exports (exported factories are potential sub-assemblies; a root assembly
+ * like `index.assembly.js` exports nothing and is skipped). The prefilter
+ * keeps the Insert dialog from evaluating files that cannot qualify;
+ * `readContent` lets the caller serve live editor buffers so an unsaved
+ * edit still counts.
  */
 export async function listCandidateFiles(
   workspacePath: string,
@@ -41,7 +47,13 @@ export async function listCandidateFiles(
         continue;
       }
     }
-    if (PART_CALL.test(content)) {
+    // Assembly files: only exports are insertable, and a root assembly
+    // (top-level inserts, no exports) would evaluate its whole document for
+    // nothing — so exports alone qualify.
+    const qualifies = rel.endsWith('.assembly.js')
+      ? EXPORT_DECL.test(content)
+      : PART_CALL.test(content);
+    if (qualifies) {
       out.push({ path: rel, absPath });
     }
   }

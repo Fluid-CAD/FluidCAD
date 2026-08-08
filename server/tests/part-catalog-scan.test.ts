@@ -15,8 +15,10 @@ function rendered(id: string, parentId: string | null = null) {
 /**
  * A fake manager that hands out pre-baked scenes in startScene() order: the
  * module scene first, then one per exported function the scanner calls.
+ * Each entry is the scene's rendered list, or `{ rendered, assembly }` to
+ * also pre-bake what getAssemblyData reports for that scene.
  */
-function fakeManager(sceneContents: any[][]) {
+function fakeManager(sceneContents: Array<any[] | { rendered: any[]; assembly?: any }>) {
   const disposed: any[] = [];
   let next = 0;
   const manager: ScanSceneManager & { disposed: any[]; currentScene?: any; currentFile?: string } = {
@@ -24,8 +26,16 @@ function fakeManager(sceneContents: any[][]) {
     currentScene: { marker: 'live-scene' },
     currentFile: '/ws/live.fluid.js',
     startScene() {
-      const content = sceneContents[next++] ?? [];
-      return { getRenderedObjects: () => content };
+      const entry = sceneContents[next++] ?? [];
+      const rendered = Array.isArray(entry) ? entry : entry.rendered;
+      const assembly = Array.isArray(entry) ? undefined : entry.assembly;
+      return { getRenderedObjects: () => rendered, assembly };
+    },
+    startAssemblyScene() {
+      return this.startScene();
+    },
+    getAssemblyData(scene: any) {
+      return scene.assembly ?? { instances: [], mates: [] };
     },
     renderScene() {},
     setCurrentFile(filePath: string) {
@@ -135,7 +145,7 @@ describe('scanFileForParts', () => {
       '/ws/anon.fluid.js',
     );
     expect(result.parts).toEqual([]);
-    expect(result.errors[0].message).toContain('Default-exported');
+    expect(result.errors[0].message).toContain('Default exports are not insertable');
   });
 
   it('reports a module that throws on load as a file-level error', async () => {
@@ -177,6 +187,78 @@ describe('scanFileForParts', () => {
     );
     // Module scene + one per function export.
     expect(manager.disposed).toHaveLength(3);
+  });
+
+  it('classifies an assembly-file factory that inserted instances as a sub-assembly', async () => {
+    const instances = [
+      { instanceId: 'inst-0', partId: 'pA', partName: 'A', position: { x: 0, y: 0, z: 0 } },
+      { instanceId: 'inst-1', partId: 'pA', partName: 'A', position: { x: 10, y: 0, z: 0 } },
+      { instanceId: 'inst-2', partId: 'pB', partName: 'B', position: { x: 0, y: 5, z: 0 } },
+    ];
+    const mates = [{ mateId: 'm0', type: 'fastened' }];
+    const factoryRendered = [
+      rendered('pA'), rendered('a-child', 'pA'),
+      rendered('pB'),
+    ];
+    const result = await scanFileForParts(
+      fakeHost({ frameAssembly: () => ({ left: 'instance-map' }) }),
+      fakeManager([[], { rendered: factoryRendered, assembly: { instances, mates } }]),
+      '/ws/frame.assembly.js',
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.parts).toEqual([]);
+    expect(result.assemblies).toHaveLength(1);
+    const sub = result.assemblies[0];
+    expect(sub).toMatchObject({ exportName: 'frameAssembly', kind: 'assembly' });
+    expect(sub.instances).toHaveLength(3);
+    expect(sub.mates).toHaveLength(1);
+    // One template subtree per DISTINCT part, in first-reference order.
+    expect(sub.objects.map((o: any) => o.id)).toEqual(['pA', 'a-child', 'pB']);
+  });
+
+  it('finds sub-assembly part templates built at module level', async () => {
+    const instances = [{ instanceId: 'inst-0', partId: 'shared', partName: 'S' }];
+    const result = await scanFileForParts(
+      fakeHost({ sub: () => undefined }),
+      fakeManager([
+        { rendered: [rendered('shared')] },
+        { rendered: [], assembly: { instances, mates: [] } },
+      ]),
+      '/ws/sub.assembly.js',
+    );
+    expect(result.assemblies).toHaveLength(1);
+    expect(result.assemblies[0].objects.map((o: any) => o.id)).toEqual(['shared']);
+  });
+
+  it('still records plain part exports from assembly files', async () => {
+    const p = fakePart('p1', 'Inline Part');
+    const result = await scanFileForParts(
+      fakeHost({ inlinePart: p, helper: () => 42 }),
+      fakeManager([{ rendered: [rendered('p1')] }, { rendered: [] }]),
+      '/ws/lib.assembly.js',
+    );
+    expect(result.parts).toHaveLength(1);
+    expect(result.parts[0]).toMatchObject({ exportName: 'inlinePart', kind: 'value' });
+    expect(result.assemblies).toEqual([]);
+  });
+
+  it('does not classify factories in part-kind files as sub-assemblies', async () => {
+    // In a part-kind file the factory scene is a part scene — getAssemblyData
+    // is never consulted, so a factory returning a non-part stays skipped.
+    const result = await scanFileForParts(
+      fakeHost({ helper: () => ({ some: 'map' }) }),
+      fakeManager([[], { rendered: [], assembly: { instances: [{ instanceId: 'x', partId: 'p' }], mates: [] } }]),
+      '/ws/helpers.fluid.js',
+    );
+    expect(result.assemblies).toEqual([]);
+    expect(result.errors).toEqual([]);
+  });
+
+  it('refuses assembly files on engines without assembly support', async () => {
+    const manager = fakeManager([[]]);
+    delete (manager as any).startAssemblyScene;
+    const result = await scanFileForParts(fakeHost({}), manager, '/ws/frame.assembly.js');
+    expect(result.errors[0].message).toContain('predates assembly scanning');
   });
 
   it('refuses a host without raw module loading', async () => {

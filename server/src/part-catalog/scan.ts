@@ -1,4 +1,5 @@
 import { normalizePath } from '../normalize-path.ts';
+import { detectKind } from '../file-kind.ts';
 import type { SceneHost } from '../host/scene-host.ts';
 import { createParamRegistry, getParamRegistry, setParamRegistry } from '../../../lib/dist/index.js';
 
@@ -22,14 +23,38 @@ export type ScannedPart = {
   objects: any[];
 };
 
+/**
+ * One insertable sub-assembly: an exported zero-arg-callable factory from a
+ * `.assembly.js` file whose call `insert()`ed instances (and usually mated
+ * them). Consumed by a plain call — `const gantry1 = gantryAssembly();` —
+ * never wrapped in `insert()`.
+ */
+export type ScannedSubAssembly = {
+  exportName: string;
+  kind: 'assembly';
+  /** SerializedInstance[] of the factory's own scene (warm-start poses). */
+  instances: any[];
+  /** SerializedMate[] of the factory's own scene. */
+  mates: any[];
+  /**
+   * The referenced parts' rendered subtrees (render order, deduped) — the
+   * same wire shape the assembly view's part templates use, connectors
+   * included, so the UI can pose instances and solve mates for a thumbnail.
+   */
+  objects: any[];
+};
+
 export type PartScanResult = {
   /** Normalized absolute path of the scanned file. */
   file: string;
   parts: ScannedPart[];
+  /** Sub-assembly factories — only ever found in `.assembly.js` files. */
+  assemblies: ScannedSubAssembly[];
   /**
    * Exports that could not be evaluated to a part. Includes expected noise —
-   * an assembly factory throws on its first `insert()` because scans run
-   * under a part scene — so callers should present these quietly.
+   * an assembly factory exported from a PART-kind file throws on its first
+   * `insert()` because those scans run under a part scene — so callers
+   * should present these quietly.
    */
   errors: { exportName: string | null; message: string }[];
   /** Workspace files whose mtimes gate a cached result (self included). */
@@ -39,13 +64,16 @@ export type PartScanResult = {
 /**
  * The slice of the workspace engine's SceneManager the scanner drives. Kept
  * structural (like the server's own SceneManager type) because the manager
- * comes from the workspace's fluidcad install.
+ * comes from the workspace's fluidcad install. The assembly members are
+ * optional: an engine predating assemblies can still scan part files.
  */
 export type ScanSceneManager = {
   startScene(): any;
   renderScene(scene: any): any;
   setCurrentFile(filePath: string): void;
   disposeScene?(scene: any): void;
+  startAssemblyScene?(): any;
+  getAssemblyData?(scene: any): { instances: any[]; mates: any[] } | null;
 };
 
 /**
@@ -73,12 +101,26 @@ export async function scanFileForParts(
   filePath: string,
 ): Promise<PartScanResult> {
   const absPath = normalizePath(filePath);
-  const result: PartScanResult = { file: absPath, parts: [], errors: [], deps: [] };
+  const result: PartScanResult = { file: absPath, parts: [], assemblies: [], errors: [], deps: [] };
 
   if (typeof host.loadModuleRaw !== 'function') {
     result.errors.push({ exportName: null, message: 'This host does not support part scanning.' });
     return result;
   }
+
+  // `.assembly.js` files evaluate under ASSEMBLY scenes so their exported
+  // factories can run their `insert()`/`mate()` calls — each factory's scene
+  // then IS the sub-assembly. Part-kind files keep part scenes (their
+  // top-level sketch/extrude statements are illegal in assembly scenes).
+  const isAssemblyFile = detectKind(absPath) === 'assembly';
+  if (isAssemblyFile
+    && (typeof sceneManager.startAssemblyScene !== 'function'
+      || typeof sceneManager.getAssemblyData !== 'function')) {
+    result.errors.push({ exportName: null, message: 'This engine predates assembly scanning.' });
+    return result;
+  }
+  const startScanScene = () =>
+    isAssemblyFile ? sceneManager.startAssemblyScene!() : sceneManager.startScene();
 
   const manager = sceneManager as any;
   const liveRegistry = getParamRegistry();
@@ -94,7 +136,7 @@ export async function scanFileForParts(
     sceneManager.setCurrentFile(absPath);
     host.invalidateModule();
 
-    const moduleScene = sceneManager.startScene();
+    const moduleScene = startScanScene();
     scannedScenes.push(moduleScene);
 
     let mod: Record<string, any>;
@@ -121,10 +163,7 @@ export async function scanFileForParts(
     for (const [exportName, value] of Object.entries(mod)) {
       if (isPartInstance(value)) {
         if (exportName === 'default') {
-          result.errors.push({
-            exportName,
-            message: 'Default-exported parts are not insertable yet — export it with a name.',
-          });
+          result.errors.push({ exportName, message: DEFAULT_EXPORT_MESSAGE });
           continue;
         }
         recordPart(result, renderedPools, exportName, value, 'value');
@@ -134,7 +173,7 @@ export async function scanFileForParts(
         continue;
       }
 
-      const factoryScene = sceneManager.startScene();
+      const factoryScene = startScanScene();
       scannedScenes.push(factoryScene);
       let returned: any;
       try {
@@ -143,14 +182,19 @@ export async function scanFileForParts(
         result.errors.push({ exportName, message: err?.message ?? String(err) });
         continue;
       }
-      if (!isPartInstance(returned)) {
+      const isPart = isPartInstance(returned);
+      // A factory that inserted instances into its own scene is a
+      // sub-assembly, whatever it returned (usually its instance map).
+      const assemblyData = !isPart && isAssemblyFile
+        ? sceneManager.getAssemblyData!(factoryScene)
+        : null;
+      const isSubAssembly = assemblyData != null
+        && Array.isArray(assemblyData.instances) && assemblyData.instances.length > 0;
+      if (!isPart && !isSubAssembly) {
         continue;
       }
       if (exportName === 'default') {
-        result.errors.push({
-          exportName,
-          message: 'Default-exported parts are not insertable yet — export it with a name.',
-        });
+        result.errors.push({ exportName, message: DEFAULT_EXPORT_MESSAGE });
         continue;
       }
       try {
@@ -160,7 +204,11 @@ export async function scanFileForParts(
         result.errors.push({ exportName, message: err?.message ?? String(err) });
         continue;
       }
-      recordPart(result, renderedPools, exportName, returned, 'factory');
+      if (isPart) {
+        recordPart(result, renderedPools, exportName, returned, 'factory');
+      } else {
+        recordSubAssembly(result, renderedPools, exportName, assemblyData!);
+      }
     }
 
     result.deps = host.getModuleDependencies?.(absPath) ?? [];
@@ -183,6 +231,9 @@ export async function scanFileForParts(
     }
   }
 }
+
+const DEFAULT_EXPORT_MESSAGE =
+  'Default exports are not insertable yet — export it with a name.';
 
 /** Duck-typed Part check — safe across fluidcad module instances/versions. */
 function isPartInstance(value: unknown): boolean {
@@ -243,6 +294,52 @@ function recordPart(
     }
   }
   result.errors.push({ exportName, message: 'Part was not found in the rendered scene.' });
+}
+
+/**
+ * Record a sub-assembly: its instances/mates travel verbatim, plus one
+ * rendered subtree per DISTINCT referenced part (instances of the same part
+ * share a template, exactly like the assembly view). Parts may have been
+ * built in the factory's own scene, at module level, or by an earlier
+ * export — pools are searched newest-first.
+ */
+function recordSubAssembly(
+  result: PartScanResult,
+  renderedPools: any[][],
+  exportName: string,
+  data: { instances: any[]; mates: any[] },
+): void {
+  const objects: any[] = [];
+  const seenParts = new Set<string>();
+  for (const inst of data.instances) {
+    const partId = inst?.partId;
+    if (typeof partId !== 'string' || partId.length === 0 || seenParts.has(partId)) {
+      continue;
+    }
+    seenParts.add(partId);
+    let subtree: any[] | null = null;
+    for (const pool of renderedPools) {
+      subtree = extractSubtree(pool, partId);
+      if (subtree) {
+        break;
+      }
+    }
+    if (!subtree) {
+      result.errors.push({
+        exportName,
+        message: `Part "${inst?.partName ?? partId}" was not found in the rendered scene.`,
+      });
+      continue;
+    }
+    objects.push(...subtree);
+  }
+  result.assemblies.push({
+    exportName,
+    kind: 'assembly',
+    instances: data.instances,
+    mates: data.mates,
+    objects,
+  });
 }
 
 /** The rendered entries of `rootId` and all its descendants, in render order. */

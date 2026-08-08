@@ -13,7 +13,7 @@ describe('applyInsertPartEdit', () => {
     const result = await applyInsertPartEdit(code, {
       importFrom: './side-plate.part.js',
       exportName: 'sidePlate',
-      isFactory: true,
+      kind: 'factory',
     });
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
@@ -31,7 +31,7 @@ describe('applyInsertPartEdit', () => {
     const result = await applyInsertPartEdit(code, {
       importFrom: './box.fluid.js',
       exportName: 'boxBody',
-      isFactory: false,
+      kind: 'value',
     });
     expect(result.newCode).toContain(`import { boxBody } from './box.fluid.js';`);
     expect(result.newCode).toContain(`const boxBody1 = insert(boxBody);`);
@@ -42,7 +42,7 @@ describe('applyInsertPartEdit', () => {
     const result = await applyInsertPartEdit(code, {
       importFrom: './box.fluid.js',
       exportName: 'boxBody',
-      isFactory: false,
+      kind: 'value',
     });
     expect(result.newCode).toContain(`insert,`);
     expect(result.newCode).toContain(`const boxBody1 = insert(boxBody);`);
@@ -57,7 +57,7 @@ describe('applyInsertPartEdit', () => {
     const result = await applyInsertPartEdit(code, {
       importFrom: './linear-guides.fluid.js',
       exportName: 'getLinearGuides',
-      isFactory: true,
+      kind: 'factory',
     });
     const importLines = result.newCode.split('\n').filter(l => l.includes('linear-guides'));
     expect(importLines).toHaveLength(1);
@@ -74,7 +74,7 @@ describe('applyInsertPartEdit', () => {
     const result = await applyInsertPartEdit(code, {
       importFrom: null,
       exportName: 'local',
-      isFactory: false,
+      kind: 'value',
     });
     expect(result.newCode.match(/import /g)).toHaveLength(1);
     expect(result.newCode).toContain(`const local1 = insert(local);`);
@@ -90,16 +90,39 @@ describe('applyInsertPartEdit', () => {
     const result = await applyInsertPartEdit(code, {
       importFrom: './extrusion.fluid.js',
       exportName: 'getExtrusion',
-      isFactory: true,
+      kind: 'factory',
     });
     expect(result.newCode).toContain(`const extrusion2 = insert(getExtrusion());`);
+  });
+
+  it('renders a sub-assembly as a bare call without touching insert imports', async () => {
+    const code = [
+      `import { mate } from 'fluidcad/core';`,
+      ``,
+      `const width = 700;`,
+    ].join('\n');
+    const result = await applyInsertPartEdit(code, {
+      importFrom: './gantry.assembly.js',
+      exportName: 'gantryAssembly',
+      kind: 'assembly',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { mate } from 'fluidcad/core';`,
+      `import { gantryAssembly } from './gantry.assembly.js';`,
+      ``,
+      `const width = 700;`,
+      ``,
+      `const gantryAssembly1 = gantryAssembly();`,
+    ].join('\n'));
+    expect(result.newCode).not.toContain('insert');
   });
 
   it('refuses a non-identifier export name', async () => {
     const result = await applyInsertPartEdit('', {
       importFrom: './x.fluid.js',
       exportName: 'not a name',
-      isFactory: false,
+      kind: 'value',
     });
     expect(result.error).toContain('not an importable identifier');
   });
@@ -111,7 +134,7 @@ describe('applyInsertPartEdit', () => {
       producers: [],
       parts: [],
       imports: [],
-      insertPart: { importFrom: './box.fluid.js', exportName: 'boxBody', isFactory: false },
+      insertPart: { importFrom: './box.fluid.js', exportName: 'boxBody', kind: 'value' },
     };
     const result = await applyFeatureEdit(`import { mate } from 'fluidcad/core';\n`, spec);
     expect(result.error).toBeUndefined();

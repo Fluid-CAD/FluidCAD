@@ -6,6 +6,9 @@ import {
   splitLines,
 } from '../code-editor.ts';
 
+/** What the chosen catalog export is, deciding the statement rendered for it. */
+export type InsertPartKind = 'value' | 'factory' | 'assembly';
+
 /**
  * The Insert dialog's edit payload — rides `ApplyFeatureEditSpec` as a
  * side-channel (like `paramEdit`/`segmentSwap`): every other spec field is
@@ -14,26 +17,35 @@ import {
 export type InsertPartEditSpec = {
   /**
    * Module specifier for the part's file relative to the assembly file
-   * (`'./side-plate.part.js'`), or null when the part is exported by the
+   * (`'./side-plate.part.js'`), or null when the export comes from the
    * assembly file itself — its export declaration is already a top-level
    * binding there, so no import is added.
    */
   importFrom: string | null;
   exportName: string;
-  /** True renders `insert(name())` (factory with defaults), false `insert(name)`. */
-  isFactory: boolean;
+  /**
+   * 'value' renders `insert(name)`, 'factory' renders `insert(name())`,
+   * and 'assembly' renders a bare `name()` — a sub-assembly factory runs
+   * its own `insert()`/`mate()` calls against the enclosing scene, so
+   * wrapping the call in `insert()` would be wrong (and throws: the return
+   * value is an instance map, not a Part).
+   */
+  kind: InsertPartKind;
 };
 
 /**
- * Append an `insert()` statement for a catalog part to the end of the
- * assembly file, importing the part's export (and `insert` itself) as
- * needed:
+ * Append the statement that brings a catalog export into the assembly file,
+ * importing the export (and `insert` when the statement uses it) as needed:
  *
  *     import { sidePlate } from './side-plate.part.js';
  *     const sidePlate1 = insert(sidePlate());
  *
- * The instance is always bound to a fresh `const` so the follow-up flows
- * (translate chains, mates) have a name to reference.
+ *     import { gantryAssembly } from './gantry.assembly.js';
+ *     const gantryAssembly1 = gantryAssembly();
+ *
+ * The result is always bound to a fresh `const` so the follow-up flows
+ * (translate chains, mates, sub-assembly connector paths) have a name to
+ * reference.
  */
 export async function applyInsertPartEdit(
   code: string,
@@ -46,11 +58,14 @@ export async function applyInsertPartEdit(
   if (spec.importFrom) {
     out = await ensureSymbolImport(out, spec.exportName, spec.importFrom);
   }
-  out = await ensureSymbolImport(out, 'insert');
+  if (spec.kind !== 'assembly') {
+    out = await ensureSymbolImport(out, 'insert');
+  }
 
   const varName = pickInstanceName(out, spec.exportName);
-  const call = spec.isFactory ? `${spec.exportName}()` : spec.exportName;
-  const statement = `const ${varName} = insert(${call});`;
+  const statement = spec.kind === 'assembly'
+    ? `const ${varName} = ${spec.exportName}();`
+    : `const ${varName} = insert(${spec.exportName}${spec.kind === 'factory' ? '()' : ''});`;
 
   const parser = await getJavaScriptParser();
   const tree = parser.parse(out);

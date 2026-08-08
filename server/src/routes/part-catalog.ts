@@ -82,7 +82,7 @@ export function createPartCatalogRouter(
     if (
       typeof file !== 'string' || file.length === 0
       || typeof exportName !== 'string' || !IDENTIFIER_RE.test(exportName)
-      || (kind !== 'value' && kind !== 'factory')
+      || (kind !== 'value' && kind !== 'factory' && kind !== 'assembly')
     ) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
@@ -108,7 +108,7 @@ export function createPartCatalogRouter(
       producers: [],
       parts: [],
       imports: [],
-      insertPart: { importFrom, exportName, isFactory: kind === 'factory' },
+      insertPart: { importFrom, exportName, kind },
     };
     await dispatcher.dispatch(res, spec, { success: true });
   });

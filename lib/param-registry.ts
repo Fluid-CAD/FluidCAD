@@ -157,3 +157,13 @@ export function getParamRegistry(): ParamRegistry {
   }
   return currentRegistry;
 }
+
+/**
+ * Reinstall a previously captured registry — the part-catalog scanner swaps in
+ * a throwaway registry while it evaluates candidate files, then puts the live
+ * session's registry back so the params panel never sees a scanned file's
+ * `param()` declarations.
+ */
+export function setParamRegistry(registry: ParamRegistry): void {
+  currentRegistry = registry;
+}

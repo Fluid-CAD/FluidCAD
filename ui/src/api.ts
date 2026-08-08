@@ -1,5 +1,5 @@
 import type { VariableInfo } from './ui/expression-input';
-import type { SceneObjectMesh, SourceLocation, Vec3Data } from './types';
+import type { SceneObjectMesh, SceneObjectRender, SourceLocation, Vec3Data } from './types';
 
 export type { SourceLocation };
 
@@ -3617,6 +3617,76 @@ export function updateParam(target: ParamTarget, param: ParamSpec): Promise<Para
 /** Delete a parameter's declaration; references to its variable stay behind. */
 export function removeParam(target: ParamTarget): Promise<ParamEditResponse> {
   return postParamEdit('/api/params/remove', { ...target });
+}
+
+// ---------------------------------------------------------------------------
+// Part catalog (assembly Insert dialog)
+// ---------------------------------------------------------------------------
+
+export type CatalogFileEntry = {
+  /** Workspace-relative path, for display. */
+  path: string;
+  absPath: string;
+};
+
+export type CatalogPart = {
+  exportName: string;
+  /** The `part('name', …)` display name — NOT unique across the workspace. */
+  partName: string;
+  kind: 'value' | 'factory';
+  /** Id of the part's own container within `objects`. */
+  rootId: string;
+  /** The part's rendered subtree in scene-rendered wire shape (thumbnail input). */
+  objects: SceneObjectRender[];
+};
+
+export type CatalogScanResult = {
+  file: string;
+  parts: CatalogPart[];
+  /** Exports that didn't evaluate to a part — includes benign noise (assembly factories). */
+  errors: { exportName: string | null; message: string }[];
+};
+
+/** The workspace's candidate part files (content mentions `part(`). */
+export async function getPartCatalogFiles(
+  signal?: AbortSignal,
+): Promise<CatalogFileEntry[] | null> {
+  const data = await getJson<{ files: CatalogFileEntry[] }>('/api/part-catalog/files', undefined, signal);
+  return data?.files ?? null;
+}
+
+/** Evaluate one candidate file server-side and list its exported parts. */
+export function scanPartCatalogFile(
+  absPath: string,
+  signal?: AbortSignal,
+): Promise<CatalogScanResult | null> {
+  return postJson('/api/part-catalog/scan', { file: absPath }, signal);
+}
+
+/**
+ * Write `const <name> = insert(<export>)` (plus imports) into the current
+ * assembly file. Failure bodies surface their reason — a refusal is shown in
+ * the dialog, not swallowed.
+ */
+export async function insertCatalogPart(
+  file: string,
+  exportName: string,
+  kind: 'value' | 'factory',
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/part-catalog/insert', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ file, exportName, kind }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
 }
 
 // ---------------------------------------------------------------------------

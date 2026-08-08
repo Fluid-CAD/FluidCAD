@@ -105,6 +105,42 @@ export class LocalSceneHost implements SceneHost {
     return mod;
   }
 
+  async loadModuleRaw(filePath: string) {
+    return this.server.ssrLoadModule(filePath);
+  }
+
+  getModuleDependencies(filePath: string): string[] {
+    const normalized = normalizePath(filePath);
+    const entry = this.server.moduleGraph.idToModuleMap.get(normalized)
+      ?? this.server.moduleGraph.getModuleById(normalized);
+    if (!entry) {
+      return [];
+    }
+    const seen = new Set<string>();
+    const queue = [entry];
+    while (queue.length > 0) {
+      const mod = queue.pop()!;
+      const file = mod.file ?? mod.id;
+      if (!file || seen.has(file)) {
+        continue;
+      }
+      // Only workspace files gate the cache — node_modules churn is invisible
+      // to mtime checks anyway (Vite externalizes fluidcad) and never holds
+      // user parts.
+      if (!file.startsWith(this.rootPath) || file.includes('/node_modules/')) {
+        continue;
+      }
+      seen.add(file);
+      const imported = (mod as any).ssrImportedModules ?? mod.importedModules;
+      if (imported) {
+        for (const dep of imported) {
+          queue.push(dep);
+        }
+      }
+    }
+    return Array.from(seen);
+  }
+
 
   invalidateModule() {
     for (const [id, mod] of this.server.moduleGraph.idToModuleMap) {

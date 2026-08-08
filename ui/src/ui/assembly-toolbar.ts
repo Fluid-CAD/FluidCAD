@@ -2,21 +2,31 @@ import { Navbar } from './navbar';
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './toolbar-styles';
 
+/** The click handlers main.ts wires the implemented assembly tools to. */
+export type AssemblyToolbarHandlers = {
+  onInsert?: () => void;
+};
+
 /**
  * The assembly workbench's tool groups on the {@link Navbar}. Registered once
  * at startup with `mode: 'assembly'`, so the navbar shows them (and hides
  * every part-design group) whenever the scene kind flips to assembly — see
  * `Navbar.setMode`.
  *
- * All buttons are placeholders for now: they render like the real part-design
- * tools but only announce themselves as unimplemented when clicked. The
- * groups mirror the planned assembly features — Insert (bring a part in),
- * Translate (position an instance), and one button per mate type.
+ * Insert opens the part-catalog dialog; the remaining buttons are
+ * placeholders that render like the real part-design tools but only announce
+ * themselves as unimplemented when clicked. The groups mirror the planned
+ * assembly features — Insert (bring a part in), Translate (position an
+ * instance), and one button per mate type.
  */
 export class AssemblyToolbar {
-  constructor(navbar: Navbar) {
+  constructor(navbar: Navbar, handlers: AssemblyToolbarHandlers = {}) {
     const insertGroup = navbar.addGroup('assembly-insert', { mode: 'assembly' });
-    this.addPlaceholder(insertGroup, { icon: 'insert', label: 'Insert', tip: 'Insert part' });
+    if (handlers.onInsert) {
+      this.addButton(insertGroup, { icon: 'insert', label: 'Insert', tip: 'Insert part' }, handlers.onInsert);
+    } else {
+      this.addPlaceholder(insertGroup, { icon: 'insert', label: 'Insert', tip: 'Insert part' });
+    }
 
     const transformGroup = navbar.addGroup('assembly-transform', { mode: 'assembly' });
     this.addPlaceholder(transformGroup, { icon: 'translate-part', label: 'Translate', tip: 'Translate instance' });
@@ -35,22 +45,31 @@ export class AssemblyToolbar {
     this.addPlaceholder(mateGroup, { icon: 'joint-spherical', label: 'Spherical', tip: 'Spherical mate' });
   }
 
-  /** Same markup as every other toolbar button (icon over muted caption in a
-   *  tooltip wrapper), minus a real handler. */
-  private addPlaceholder(group: HTMLElement, opts: { icon: string; label: string; tip: string }): void {
+  /** Standard toolbar button markup: icon over muted caption in a tooltip wrapper. */
+  private addButton(
+    group: HTMLElement,
+    opts: { icon: string; label: string; tip: string },
+    onClick: () => void,
+    tipSuffix = '',
+  ): void {
     const button = document.createElement('button');
     button.className = TOOLBAR_BTN_BASE;
     button.setAttribute('aria-label', opts.tip);
     button.innerHTML =
       `<img src="/icons/${opts.icon}.png" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`
       + `<span class="${TOOLBAR_BTN_LABEL}">${opts.label}</span>`;
-    button.addEventListener('click', () => {
-      console.warn(`${opts.tip} not implemented yet`);
-    });
+    button.addEventListener('click', onClick);
     const wrap = document.createElement('span');
     wrap.className = 'tooltip tooltip-bottom shrink-0';
-    wrap.dataset.tip = `${opts.tip} (coming soon)`;
+    wrap.dataset.tip = `${opts.tip}${tipSuffix}`;
     wrap.appendChild(button);
     group.appendChild(wrap);
+  }
+
+  /** A not-yet-implemented tool: real-looking button that only warns on click. */
+  private addPlaceholder(group: HTMLElement, opts: { icon: string; label: string; tip: string }): void {
+    this.addButton(group, opts, () => {
+      console.warn(`${opts.tip} not implemented yet`);
+    }, ' (coming soon)');
   }
 }

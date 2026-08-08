@@ -16,6 +16,7 @@ import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
 import { Navbar } from './ui/navbar';
 import { AssemblyToolbar } from './ui/assembly-toolbar';
+import { InsertPartDialog } from './ui/insert-part/insert-part-dialog';
 import { ICON_IMG_FALLBACK } from './ui/object-icons';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
 import { TrimPickService } from './interactive/trim-pick-service';
@@ -313,10 +314,12 @@ importBtnWrap.dataset.tip = 'Import file';
 importBtnWrap.appendChild(importBtn);
 importGroup.appendChild(importBtnWrap);
 
-// Assembly workbench groups (Insert / Translate / mates) — placeholders for
-// now, shown instead of the part-design tools whenever the scene kind is
-// assembly (navbar.setMode in the scene-rendered handler).
-new AssemblyToolbar(navbar);
+// Assembly workbench groups (Insert / Translate / mates), shown instead of
+// the part-design tools whenever the scene kind is assembly (navbar.setMode
+// in the scene-rendered handler). Insert opens the part-catalog browser;
+// the rest are placeholders for now.
+const insertPartDialog = new InsertPartDialog(container);
+new AssemblyToolbar(navbar, { onInsert: () => insertPartDialog.show() });
 
 const paramsPanel = new ParamsPanel(viewer.settingsPanelHost, new ParamEditorDialog(container));
 

@@ -16,4 +16,17 @@ export interface SceneHost {
   setBuffer(id: string, code: string): void;
   getBuffer(fileName: string): string | null;
   invalidateModule(): void;
+  /**
+   * Load a module WITHOUT the render pipeline's invoke-every-exported-function
+   * behavior — the part-catalog scanner calls exports itself so it can
+   * attribute each returned Part to its export. Optional: hosts that predate
+   * the catalog (hub) simply don't support scanning.
+   */
+  loadModuleRaw?(filePath: string): Promise<Record<string, any>>;
+  /**
+   * The workspace files a previously loaded module transitively imports,
+   * including itself — the part-catalog cache stats these to decide whether a
+   * scan is stale. Best-effort: an empty result disables caching for the file.
+   */
+  getModuleDependencies?(filePath: string): string[];
 }

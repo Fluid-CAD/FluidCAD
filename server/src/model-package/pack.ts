@@ -181,7 +181,7 @@ const ignore = ignoreFactory as unknown as (options?: object) => Ignore;
  * outputs) is enforced on top of any `.gitignore`. We walk and filter per-file
  * rather than pruning ignored directories so negation rules (`!keep/this`) work.
  */
-async function collectWorkspaceFiles(workspaceAbs: string): Promise<string[]> {
+export async function collectWorkspaceFiles(workspaceAbs: string): Promise<string[]> {
   const gitignorePath = join(workspaceAbs, '.gitignore');
   const hasGitignore = existsSync(gitignorePath);
   const ig = ignore().add(ALWAYS_EXCLUDE);

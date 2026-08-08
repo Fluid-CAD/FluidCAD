@@ -8,6 +8,8 @@ import { detectKind } from './file-kind.ts';
 import type { FluidScriptKind } from './file-kind.ts';
 import { BreakpointHit } from '../../lib/dist/common/breakpoint-hit.js';
 import { createParamRegistry, getParamRegistry } from '../../lib/dist/index.js';
+import { scanFileForParts } from './part-catalog/scan.ts';
+import type { PartScanResult } from './part-catalog/scan.ts';
 import type { ParamDefinition, ParamRegistry, ParamVal } from '../../lib/dist/index.js';
 import type { CompileError } from './ws-protocol.ts';
 
@@ -1012,6 +1014,36 @@ export class FluidCadServer {
 
   async rollbackFromUI(index: number): Promise<SceneRenderedData | null> {
     return this.rollback(this.currentFileName, index);
+  }
+
+  /**
+   * Evaluate one candidate file and inspect its exports for insertable parts
+   * (Insert dialog). Serialized with renders on the OCC mutex; the scan runs
+   * in throwaway scenes and touches neither the session caches nor the
+   * compare baselines, so the live session's incremental rebuilds are
+   * unaffected. Returns null before init.
+   */
+  async scanPartsInFile(filePath: string): Promise<PartScanResult | null> {
+    return this.serialized(async () => {
+      if (!this.sceneManager) {
+        return null;
+      }
+      return scanFileForParts(this.host, this.sceneManager, normalizePath(filePath));
+    });
+  }
+
+  /**
+   * Whether the host holds a live editor buffer overlaying this file — such
+   * files must never be served from a disk-mtime-keyed scan cache, and their
+   * candidate prefilter should read the buffer, not the disk.
+   */
+  hasLiveBuffer(filePath: string): boolean {
+    return this.host.getBuffer(normalizePath(filePath)) !== null;
+  }
+
+  /** The live buffer's content for a file, if the host holds one. */
+  getLiveBuffer(filePath: string): string | null {
+    return this.host.getBuffer(normalizePath(filePath));
   }
 
   async recomputeCurrentFile(forceFullRebuild = false): Promise<SceneRenderedData | null> {

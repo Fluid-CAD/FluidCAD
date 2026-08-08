@@ -14,6 +14,7 @@ import {
 } from './code-editor.ts';
 import { applySegmentSwap, type SegmentSwapSpec } from './segment-swap.ts';
 import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
+import { applyInsertPartEdit, type InsertPartEditSpec } from './part-catalog/insert-edit.ts';
 
 /**
  * A dialog numeric slot: a plain number, or verbatim expression text
@@ -225,6 +226,13 @@ export type ApplyFeatureEditSpec = {
    * spec field is ignored.
    */
   paramEdit?: ParamEditSpec;
+  /**
+   * Insert-dialog instance insertion: import a catalog part's export and
+   * append `const <name> = insert(...)` at the end of the assembly file.
+   * Rides the same round trip as `paramEdit`; every other spec field is
+   * ignored.
+   */
+  insertPart?: InsertPartEditSpec;
   /**
    * Strip every `breakpoint();` after the rewrite. Set when an edit dialog
    * applies: the double-click that opened it placed a breakpoint, and
@@ -1298,6 +1306,9 @@ export async function applyFeatureEdit(
   }
   if (spec.paramEdit) {
     return ParamEditor.apply(code, spec.paramEdit);
+  }
+  if (spec.insertPart) {
+    return applyInsertPartEdit(code, spec.insertPart);
   }
   if (spec.edit) {
     return applyStatementEdit(code, spec);

@@ -20,6 +20,7 @@ import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
 import { createRenderRouter, type RenderOutcome } from './routes/render.ts';
 import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
+import { createPartCatalogRouter } from './routes/part-catalog.ts';
 import { createTextRouter } from './routes/text.ts';
 import { createFeatureGhostRouter } from './routes/feature-ghost.ts';
 import { FeatureEditDispatcher } from './edit-dispatch.ts';
@@ -113,6 +114,7 @@ app.use('/api', createLintRouter());
 app.use('/api', createTextRouter(fluidCadServer));
 app.use('/api', createFeatureGhostRouter(fluidCadServer));
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION, getLastCameraState));
+app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
 
 // Static files — serve UI build, with SPA fallback
 app.use(express.static(UI_DIST, {

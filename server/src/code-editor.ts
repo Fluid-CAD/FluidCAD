@@ -69,11 +69,11 @@ export function splitLines(code: string): string[] {
   return code.split('\n');
 }
 
-function joinLines(lines: string[]): string {
+export function joinLines(lines: string[]): string {
   return lines.join('\n');
 }
 
-function isBlankRow(lines: string[], row: number): boolean {
+export function isBlankRow(lines: string[], row: number): boolean {
   const line = lines[row];
   return line === undefined || line.trim() === '';
 }

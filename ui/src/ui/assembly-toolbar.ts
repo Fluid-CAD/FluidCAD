@@ -16,20 +16,23 @@ import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './toolbar
 export class AssemblyToolbar {
   constructor(navbar: Navbar) {
     const insertGroup = navbar.addGroup('assembly-insert', { mode: 'assembly' });
-    this.addPlaceholder(insertGroup, { icon: 'load', label: 'Insert', tip: 'Insert part' });
+    this.addPlaceholder(insertGroup, { icon: 'insert', label: 'Insert', tip: 'Insert part' });
 
     const transformGroup = navbar.addGroup('assembly-transform', { mode: 'assembly' });
-    this.addPlaceholder(transformGroup, { icon: 'translate', label: 'Translate', tip: 'Translate instance' });
+    this.addPlaceholder(transformGroup, { icon: 'translate-part', label: 'Translate', tip: 'Translate instance' });
+    this.addPlaceholder(transformGroup, { icon: 'grounded', label: 'Ground', tip: 'Ground instance' });
 
-    // One button per mate type of the assembly solver (SerializedMate['type']).
+    // One button per mate type of the assembly solver (SerializedMate['type']),
+    // plus Spherical, which has artwork but no solver support yet.
     const mateGroup = navbar.addGroup('assembly-mate', { mode: 'assembly' });
-    this.addPlaceholder(mateGroup, { icon: 'connect', label: 'Fastened', tip: 'Fastened mate' });
-    this.addPlaceholder(mateGroup, { icon: 'rotate', label: 'Revolute', tip: 'Revolute mate' });
-    this.addPlaceholder(mateGroup, { icon: 'hmove', label: 'Slider', tip: 'Slider mate' });
-    this.addPlaceholder(mateGroup, { icon: 'cylinder', label: 'Cylindrical', tip: 'Cylindrical mate' });
-    this.addPlaceholder(mateGroup, { icon: 'plane', label: 'Planar', tip: 'Planar mate' });
-    this.addPlaceholder(mateGroup, { icon: 'axis', label: 'Parallel', tip: 'Parallel mate' });
-    this.addPlaceholder(mateGroup, { icon: 'slot', label: 'Pin-slot', tip: 'Pin-slot mate' });
+    this.addPlaceholder(mateGroup, { icon: 'joint-fastened', label: 'Fastened', tip: 'Fastened mate' });
+    this.addPlaceholder(mateGroup, { icon: 'joint-revolute', label: 'Revolute', tip: 'Revolute mate' });
+    this.addPlaceholder(mateGroup, { icon: 'joint-slider', label: 'Slider', tip: 'Slider mate' });
+    this.addPlaceholder(mateGroup, { icon: 'joint-cylindrical', label: 'Cylindrical', tip: 'Cylindrical mate' });
+    this.addPlaceholder(mateGroup, { icon: 'joint-planar', label: 'Planar', tip: 'Planar mate' });
+    this.addPlaceholder(mateGroup, { icon: 'joint-parallel', label: 'Parallel', tip: 'Parallel mate' });
+    this.addPlaceholder(mateGroup, { icon: 'joint-pin-slot', label: 'Pin-slot', tip: 'Pin-slot mate' });
+    this.addPlaceholder(mateGroup, { icon: 'joint-spherical', label: 'Spherical', tip: 'Spherical mate' });
   }
 
   /** Same markup as every other toolbar button (icon over muted caption in a

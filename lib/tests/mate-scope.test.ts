@@ -16,9 +16,8 @@ function buildHousing(name = "housing"): Part {
   return part(name, () => {
     sketch("xy", () => rect(20, 20));
     extrude(10);
-    const top = connector(select(face().planar().onPlane("xy", 10)));
-    const bottom = connector(select(face().planar().onPlane("xy", 0)));
-    return { connectors: { top, bottom } };
+    connector("top", select(face().planar().onPlane("xy", 10)));
+    connector("bottom", select(face().planar().onPlane("xy", 0)));
   }) as unknown as Part;
 }
 

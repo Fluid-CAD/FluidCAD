@@ -31,10 +31,12 @@ export class Connector extends SceneObject implements IConnector {
   private transforms: ConnectorTransform[] = [];
 
   constructor(
+    public connectorName: string,
     public sourceShape: ConnectorInput,
     public options: ConnectorOptions = {},
   ) {
     super();
+    this.name(connectorName);
   }
 
   rotate(axis: "x" | "y" | "z", angle: number): this {
@@ -77,7 +79,7 @@ export class Connector extends SceneObject implements IConnector {
   }
 
   override createCopy(_remap: Map<SceneObject, SceneObject>): SceneObject {
-    const copy = new Connector(this.sourceShape, this.options);
+    const copy = new Connector(this.connectorName, this.sourceShape, this.options);
     copy.transforms = [...this.transforms];
     return copy;
   }
@@ -87,6 +89,9 @@ export class Connector extends SceneObject implements IConnector {
       return false;
     }
     if (!super.compareTo(other)) {
+      return false;
+    }
+    if (this.connectorName !== other.connectorName) {
       return false;
     }
     if (!(this.sourceShape as SceneObject).compareTo(other.sourceShape as SceneObject)) {
@@ -108,9 +113,10 @@ export class Connector extends SceneObject implements IConnector {
   serialize() {
     const frame = this.getState(FRAME_STATE_KEY) as Plane | undefined;
     if (!frame) {
-      return {};
+      return { name: this.connectorName };
     }
     return {
+      name: this.connectorName,
       origin: frame.origin,
       xDirection: frame.xDirection,
       yDirection: frame.yDirection,

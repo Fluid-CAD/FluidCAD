@@ -12,6 +12,7 @@ import {
   ApplyFeatureEditSpec,
   ApplyFeatureKind,
   ApplyFeatureSynthesis,
+  CONNECTOR_NAME_PATTERN,
   ExplainResult,
   PickChain,
   PickDescriptors,
@@ -22,6 +23,7 @@ import {
   SynthesizeOptions,
   nameHintFor,
 } from "./types.js";
+import { Part } from "../features/part.js";
 
 /**
  * Read-only attribution report for a set of picks: which feature bucket each
@@ -146,6 +148,24 @@ export function synthesizeApplyFeature(
       };
     }
   }
+  if (feature === 'connector') {
+    // The pick is the connector's source geometry: a single face or edge
+    // (the frame derives from exactly one shape). The connector's name rides
+    // the `value` channel.
+    if (chains.length > 0 || refs.length !== 1) {
+      return {
+        ok: false,
+        reason: 'a connector attaches to a single face or edge — pick exactly one',
+        pick: refs[0],
+      };
+    }
+    if (typeof value !== 'string' || !CONNECTOR_NAME_PATTERN.test(value)) {
+      return {
+        ok: false,
+        reason: "a connector needs a name — a plain identifier like 'topLeft'",
+      };
+    }
+  }
 
   const index = new SelectionIndex(scene);
   try {
@@ -198,12 +218,47 @@ export function synthesizeApplyFeature(
     const renderParts = (parts: SelectorPart[]) =>
       parts.map(part => renderPartArgs(part, names)).join(', ');
 
+    // A connector statement lands inside the enclosing part() callback body,
+    // so the spec carries that call site; the name (validated above) rides
+    // the payload rather than `value`. Duplicate names are refused here so
+    // the UI hears about it before any code is written.
+    let connectorPayload: ApplyFeatureEditSpec['connector'];
+    if (feature === 'connector') {
+      const owner = attributions[0]?.solidOwner ?? null;
+      const enclosing = owner ? scene.findEnclosingPart(owner) : null;
+      if (!enclosing) {
+        return {
+          ok: false,
+          reason: 'connectors attach to geometry inside a part() block — wrap the feature statements in part(...)',
+          pick: refs[0],
+        };
+      }
+      const partLoc = enclosing.getSourceLocation();
+      if (!partLoc) {
+        return { ok: false, reason: 'the enclosing part() has no source location — re-render and try again' };
+      }
+      if (partLoc.filePath !== filePaths.values().next().value) {
+        // e.g. geometry from a part factory imported into this file — the
+        // statement would land in a body the current buffer doesn't hold.
+        return { ok: false, reason: 'the enclosing part() lives in a different file than the picked geometry' };
+      }
+      const name = value as string;
+      if (enclosing instanceof Part && enclosing.getNamedConnectors()[name]) {
+        return {
+          ok: false,
+          reason: `the part already has a connector named "${name}" — pick a different name`,
+        };
+      }
+      connectorPayload = { name, part: { line: partLoc.line, column: partLoc.column } };
+    }
+
     const spec: ApplyFeatureEditSpec = {
       feature,
       ...(feature === 'sketch' || feature === 'extrude' || feature === 'sweep' || feature === 'loft'
         || feature === 'plane' || feature === 'revolve' || feature === 'wrap' || feature === 'helix'
-        || feature === 'project'
+        || feature === 'project' || feature === 'connector'
         ? {} : { value }),
+      ...(connectorPayload ? { connector: connectorPayload } : {}),
       filePath: filePaths.values().next().value!,
       producers: located.map(l => {
         const loc = l.feature.getSourceLocation()!;
@@ -371,6 +426,10 @@ function renderPreview(feature: ApplyFeatureKind, value: number | string | undef
     // The args ARE the statement — every picked source projects onto the
     // sketch plane the emitted call lands in.
     return `project(${args})`;
+  }
+  if (feature === 'connector') {
+    // The value channel carries the connector's name.
+    return `connector('${value}', ${args})`;
   }
   return `${feature}(${value}, ${args})`;
 }

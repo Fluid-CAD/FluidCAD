@@ -57,6 +57,13 @@ export function resolveScopedScene(
   return { ok: true, scene: scopedSceneBefore(scene, boundary.index) };
 }
 
+/**
+ * Connector names key the assembly-side lookup (`instance.connectors.<name>`)
+ * and ride generated code as string literals, so they must be plain JS
+ * identifiers. Shared by the `connector()` DSL and the synthesis kernel.
+ */
+export const CONNECTOR_NAME_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
 /** A picked sub-shape, exactly as the viewer's `pickAt()` produces it. */
 export type PickSubRef = { type: 'edge' | 'face'; index: number };
 export type PickRef = { shapeId: string; sub: PickSubRef };
@@ -103,7 +110,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'text' | 'copy';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'text' | 'copy' | 'connector';
 
 /**
  * A tangent chain from the "Select with tangents" gesture: the pick the user
@@ -147,6 +154,12 @@ export type ApplyFeatureEditSpec = {
   offset?: OffsetEditOptions;
   /** Slot-from-edge payload; renders the trailing `deleteSource` argument. */
   slot?: SlotEditOptions;
+  /**
+   * Connector-only payload: the name the statement registers, plus the call
+   * site of the `part(...)` block whose callback body receives the statement
+   * (insertion goes at the end of that body, before a trailing `return`).
+   */
+  connector?: { name: string; part: { line: number; column: number } };
   filePath: string;
   producers: {
     line: number;

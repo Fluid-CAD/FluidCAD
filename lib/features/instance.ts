@@ -1,29 +1,23 @@
 import { AssemblyInstance } from "../rendering/assembly-scene.js";
 import { BoundConnector } from "./connector.js";
-import { IConnector } from "../core/interfaces.js";
 import { AxisLike, toAxis } from "../math/axis.js";
 import { Quaternion } from "../math/quaternion.js";
 import { Vector3d } from "../math/vector3d.js";
 import { rad } from "../helpers/math-helpers.js";
 
 /**
- * Type of `Instance.connectors` derived from the part's exposed
- * `features.connectors` map. Each name in the map becomes a property
- * holding a `BoundConnector`, so `instance.connectors.main` autocompletes
- * the same set of names the part author chose.
+ * `Instance.connectors`: every connector the part registered, keyed by the
+ * name its `connector('name', …)` statement declared. Names are strings
+ * decided at build time, so the type is a plain record.
  */
-export type InstanceConnectors<P> =
-  P extends { features: { connectors: infer C } }
-    ? { [K in keyof C]: C[K] extends IConnector ? BoundConnector : never }
-    : Record<string, BoundConnector>;
+export type InstanceConnectors<_P = unknown> = Record<string, BoundConnector>;
 
 /**
- * `connectors` is a Record keyed by the part's `features.connectors`
- * map. Authors expose connectors by name from inside `part(name, () => {
- * ... return { connectors: { main, bore } } })`, then assembly code
- * references them as `instance.connectors.main` / `instance.connectors.bore`.
- * Connectors that aren't exposed in `features.connectors` still render
- * but can't be referenced by mates.
+ * `connectors` is a Record keyed by connector name. Part authors register
+ * connectors by name inside `part(name, () => { connector('main', …);
+ * connector('bore', …); })`, then assembly code references them as
+ * `instance.connectors.main` / `instance.connectors.bore`. Every connector
+ * is named, so every connector can be referenced by mates.
  */
 export class Instance<P = unknown> {
   readonly connectors: InstanceConnectors<P>;

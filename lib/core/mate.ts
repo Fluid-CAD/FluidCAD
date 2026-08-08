@@ -20,7 +20,7 @@ function mate(type: MateType, a: unknown, b: unknown): MateBuilder {
   }
   if (!(a instanceof BoundConnector) || !(b instanceof BoundConnector)) {
     throw new Error(
-      "mate(): both arguments must be connectors from inserted instances (e.g. instance.connectors.main). Make sure the part returns `{ connectors: { main: c, ... } }`.",
+      "mate(): both arguments must be connectors from inserted instances (e.g. instance.connectors.main). Define them inside the part with `connector('main', ...)`.",
     );
   }
   if (a.instanceId === b.instanceId && a.connector.id === b.connector.id) {

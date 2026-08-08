@@ -5715,6 +5715,72 @@ export function createApplyFeatureRouter(
       return;
     }
 
+    // Named connector (part files): the single pick is the connector's source
+    // face/edge and `name` is the identifier the statement registers. The
+    // kernel stamps the name and the enclosing part() call site into the
+    // spec; the transform lands the statement inside that part's callback
+    // body, before a trailing return.
+    if (feature === 'connector') {
+      const picks = validatePicks(req.body?.entities);
+      if (!picks) {
+        res.status(400).json({ error: 'entities must be a non-empty array of {shapeId, sub:{type, index}} picks' });
+        return;
+      }
+      const name = req.body?.name;
+      if (typeof name !== 'string' || name.length > 64 || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
+        res.status(400).json({ error: 'name must be a plain identifier (max 64 chars)' });
+        return;
+      }
+      if (selectorOverride !== undefined
+        && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
+        res.status(400).json({ error: 'selectorOverride must be a non-empty string (max 500 chars)' });
+        return;
+      }
+      try {
+        const code = fluidCadServer.getCurrentCode();
+        const options = code
+          ? {
+            namer: await makeProducerNamer(code),
+            params: resolveParamValues(
+              await extractNumericParams(code),
+              fluidCadServer.getParamDefinitions(),
+            ),
+          }
+          : undefined;
+        const synthesis = fluidCadServer.synthesizeApplyFeature(
+          picks, 'connector', name, [], options,
+        );
+        if (!synthesis) {
+          res.status(404).json({ success: false, reason: 'No rendered scene' });
+          return;
+        }
+        if (!synthesis.ok) {
+          res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+          return;
+        }
+        // Composed here rather than taken from `synthesis.preview` so the
+        // previewed text is exactly what the transform writes.
+        const statementPreview = `connector('${name}', ${synthesis.args})`;
+        if (preview === true) {
+          res.json({
+            success: true,
+            preview: statementPreview,
+            args: synthesis.args,
+            alternatives: synthesis.alternatives,
+          });
+          return;
+        }
+        let spec: ApplyFeatureEditSpec = synthesis.spec;
+        if (typeof selectorOverride === 'string' && selectorOverride.trim() !== synthesis.args) {
+          spec = { ...spec, rawArgs: selectorOverride.trim() };
+        }
+        await dispatcher.dispatch(res, spec, { success: true, preview: statementPreview });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
     // Sketch-edge picks (2D branch): 1 shapeId = 1 sketch edge, no sub refs.
     // Synthesis resolves them through the sketch edge index and the emitted
     // statement lands inside the sketch body via the same edit-spec transform.

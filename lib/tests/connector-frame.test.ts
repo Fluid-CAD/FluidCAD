@@ -23,7 +23,7 @@ describe("connector frame", () => {
     part("face-frame", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      conn = connector(select(face().planar().onPlane("xy", 20))) as unknown as Connector;
+      conn = connector('c', select(face().planar().onPlane("xy", 20))) as unknown as Connector;
     });
 
     render();
@@ -59,7 +59,7 @@ describe("connector frame", () => {
       // extrude(-50) sweeps along +Y → box (-40..40, 0..50, 0..120).
       sketch("front", () => rect(80, 120).centered("horizontal"));
       extrude(-50);
-      frontConn = connector(select(face().planar().onPlane("yz", 40))) as unknown as Connector;
+      frontConn = connector('c', select(face().planar().onPlane("yz", 40))) as unknown as Connector;
     });
     render();
 
@@ -69,7 +69,7 @@ describe("connector frame", () => {
       // extrude(-50) sweeps along -X → box (-50..0, -40..40, 0..120).
       sketch("right", () => rect(80, 120).centered("horizontal"));
       extrude(-50);
-      rightConn = connector(select(face().planar().onPlane("yz", 0))) as unknown as Connector;
+      rightConn = connector('c', select(face().planar().onPlane("yz", 0))) as unknown as Connector;
     });
     render();
 
@@ -99,10 +99,10 @@ describe("connector frame", () => {
       sketch("xy", () => rect(100, 60).centered());
       extrude(40);
       conns = {
-        right: connector(select(face().planar().onPlane("yz", 50))) as unknown as Connector,
-        left: connector(select(face().planar().onPlane("yz", -50))) as unknown as Connector,
-        front: connector(select(face().planar().onPlane("xz", 30))) as unknown as Connector,
-        back: connector(select(face().planar().onPlane("xz", -30))) as unknown as Connector,
+        right: connector('right', select(face().planar().onPlane("yz", 50))) as unknown as Connector,
+        left: connector('left', select(face().planar().onPlane("yz", -50))) as unknown as Connector,
+        front: connector('front', select(face().planar().onPlane("xz", 30))) as unknown as Connector,
+        back: connector('back', select(face().planar().onPlane("xz", -30))) as unknown as Connector,
       };
     });
 
@@ -138,7 +138,7 @@ describe("connector frame", () => {
     part("edge-frame", () => {
       sketch("xy", () => circle(10));
       extrude(15);
-      conn = connector(select(edge().circle().onPlane("xy", 15))) as unknown as Connector;
+      conn = connector('c', select(edge().circle().onPlane("xy", 15))) as unknown as Connector;
     });
 
     render();
@@ -159,7 +159,7 @@ describe("connector frame", () => {
     part("plane-frame", () => {
       sketch("xy", () => rect(20, 20));
       extrude(5);
-      conn = connector(plane("xy")) as unknown as Connector;
+      conn = connector('c', plane("xy")) as unknown as Connector;
     });
 
     render();
@@ -177,6 +177,7 @@ describe("connector frame", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
       conn = connector(
+        'c',
         select(face().planar().onPlane("xy", 20)),
         { xDirection: 'y' },
       ) as unknown as Connector;
@@ -202,7 +203,7 @@ describe("connector frame", () => {
     part("ortho-frame", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      conn = connector(select(face().planar().onPlane("xy", 20))) as unknown as Connector;
+      conn = connector('c', select(face().planar().onPlane("xy", 20))) as unknown as Connector;
     });
 
     render();
@@ -222,7 +223,7 @@ describe("connector frame", () => {
       const p = part("stable-" + height, () => {
         sketch("xy", () => rect(40, 60));
         extrude(height);
-        conn = connector(select(face().planar().onPlane("xy", height))) as unknown as Connector;
+        conn = connector('c', select(face().planar().onPlane("xy", height))) as unknown as Connector;
       });
       render();
       return { p, conn };
@@ -246,7 +247,7 @@ describe("connector frame", () => {
         topEdge = r.edge('top');
       });
       extrude(20);
-      conn = connector(topEdge) as unknown as Connector;
+      conn = connector('c', topEdge) as unknown as Connector;
     });
 
     render();
@@ -268,7 +269,7 @@ describe("connector frame", () => {
       const p = part("cache-hit", () => {
         sketch("xy", () => rect(40, 60));
         extrude(20);
-        connector(select(face().planar().onPlane("xy", 20)));
+        connector('c', select(face().planar().onPlane("xy", 20)));
       }) as unknown as Part;
       return p;
     }
@@ -301,7 +302,7 @@ describe("connector frame", () => {
     part("offset-local", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      conn = connector(select(face().planar().onPlane("xy", 20)))
+      conn = connector('c', select(face().planar().onPlane("xy", 20)))
         .offset(1, 2, 3) as unknown as Connector;
     });
 
@@ -324,7 +325,7 @@ describe("connector frame", () => {
     part("offset-defaults", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      conn = connector(select(face().planar().onPlane("xy", 20)))
+      conn = connector('c', select(face().planar().onPlane("xy", 20)))
         .offset(0, 0, 5) as unknown as Connector;
       // call form .offset(z) only (omitted x, y) should match
     });
@@ -340,7 +341,7 @@ describe("connector frame", () => {
     part("rotate-z", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      conn = connector(select(face().planar().onPlane("xy", 20)))
+      conn = connector('c', select(face().planar().onPlane("xy", 20)))
         .rotate("z", 90) as unknown as Connector;
     });
 
@@ -364,7 +365,7 @@ describe("connector frame", () => {
     part("rotate-x", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      conn = connector(select(face().planar().onPlane("xy", 20)))
+      conn = connector('c', select(face().planar().onPlane("xy", 20)))
         .rotate("x", 90) as unknown as Connector;
     });
 
@@ -388,7 +389,7 @@ describe("connector frame", () => {
     part("offset-then-rotate", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      conn = connector(select(face().planar().onPlane("xy", 20)))
+      conn = connector('c', select(face().planar().onPlane("xy", 20)))
         .offset(5, 0, 0)
         .rotate("z", 90) as unknown as Connector;
     });
@@ -409,7 +410,7 @@ describe("connector frame", () => {
     part("rotate-then-offset", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      conn = connector(select(face().planar().onPlane("xy", 20)))
+      conn = connector('c', select(face().planar().onPlane("xy", 20)))
         .rotate("z", 90)
         .offset(5, 0, 0) as unknown as Connector;
     });
@@ -431,7 +432,7 @@ describe("connector frame", () => {
     part("compare-A", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      connA = connector(select(face().planar().onPlane("xy", 20)))
+      connA = connector('c', select(face().planar().onPlane("xy", 20)))
         .rotate("z", 45)
         .offset(0, 0, 5) as unknown as Connector;
     });
@@ -439,7 +440,7 @@ describe("connector frame", () => {
     part("compare-B", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      connB = connector(select(face().planar().onPlane("xy", 20)))
+      connB = connector('c', select(face().planar().onPlane("xy", 20)))
         .rotate("z", 45)
         .offset(0, 0, 5) as unknown as Connector;
     });
@@ -447,7 +448,7 @@ describe("connector frame", () => {
     part("compare-C", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      connC = connector(select(face().planar().onPlane("xy", 20)))
+      connC = connector('c', select(face().planar().onPlane("xy", 20)))
         .rotate("z", 45)
         .offset(0, 0, 6) as unknown as Connector;
     });
@@ -457,13 +458,32 @@ describe("connector frame", () => {
     expect(connA.compareTo(connC)).toBe(false);
   });
 
+  it("same source and chain but a different name compares unequal", () => {
+    let connA!: Connector;
+    let connB!: Connector;
+    part("name-compare-A", () => {
+      sketch("xy", () => rect(40, 60));
+      extrude(20);
+      connA = connector('mountA', select(face().planar().onPlane("xy", 20))) as unknown as Connector;
+    });
+    render();
+    part("name-compare-B", () => {
+      sketch("xy", () => rect(40, 60));
+      extrude(20);
+      connB = connector('mountB', select(face().planar().onPlane("xy", 20))) as unknown as Connector;
+    });
+    render();
+
+    expect(connA.compareTo(connB)).toBe(false);
+  });
+
   it("connectors are tracked as Part children in source order", () => {
     let p!: Part;
     p = part("ordered", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      const top = connector(select(face().planar().onPlane("xy", 20)));
-      const bottom = connector(select(face().planar().onPlane("xy")));
+      const top = connector('top', select(face().planar().onPlane("xy", 20)));
+      const bottom = connector('bottom', select(face().planar().onPlane("xy")));
       return { top, bottom };
     }) as unknown as Part;
 

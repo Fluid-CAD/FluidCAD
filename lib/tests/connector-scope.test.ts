@@ -17,7 +17,7 @@ describe("connector scope", () => {
     expect(() => {
       sketch("xy", () => rect(20, 20));
       extrude(10);
-      connector(select(face().planar().onPlane("xy")));
+      connector("top", select(face().planar().onPlane("xy")));
     }).toThrow(/inside a part/i);
   });
 
@@ -27,18 +27,68 @@ describe("connector scope", () => {
         sketch("xy", () => rect(20, 20));
         extrude(10);
         // @ts-expect-error — passing a raw object on purpose
-        connector({ x: 0, y: 0, z: 0 });
+        connector("top", { x: 0, y: 0, z: 0 });
       });
     }).toThrow();
+  });
+
+  it("rejects a missing or non-identifier name", () => {
+    for (const bad of ["", "top left", "1st", "a-b"]) {
+      expect(() => {
+        part(`bad-name-${bad}`, () => {
+          sketch("xy", () => rect(20, 20));
+          extrude(10);
+          connector(bad, select(face().planar().onPlane("xy")));
+        });
+      }).toThrow(/identifier/i);
+    }
+  });
+
+  it("rejects a source passed where the name belongs (old positional form)", () => {
+    expect(() => {
+      part("old-form", () => {
+        sketch("xy", () => rect(20, 20));
+        extrude(10);
+        // @ts-expect-error — old pre-name signature on purpose
+        connector(select(face().planar().onPlane("xy")));
+      });
+    }).toThrow(/name/i);
+  });
+
+  it("throws on a duplicate name within the same part", () => {
+    expect(() => {
+      part("dup-names", () => {
+        sketch("xy", () => rect(20, 20));
+        extrude(10);
+        connector("mount", select(face().planar().onPlane("xy", 10)));
+        connector("mount", select(face().planar().onPlane("xy")));
+      });
+    }).toThrow(/already has a connector named "mount"/i);
+  });
+
+  it("allows the same name in two different parts", () => {
+    const a = part("same-name-a", () => {
+      sketch("xy", () => rect(20, 20));
+      extrude(10);
+      connector("mount", select(face().planar().onPlane("xy", 10)));
+    }) as unknown as Part;
+    const b = part("same-name-b", () => {
+      sketch("xy", () => rect(20, 20));
+      extrude(10);
+      connector("mount", select(face().planar().onPlane("xy", 10)));
+    }) as unknown as Part;
+
+    expect(Object.keys(a.getNamedConnectors())).toEqual(["mount"]);
+    expect(Object.keys(b.getNamedConnectors())).toEqual(["mount"]);
+    expect(a.getNamedConnectors().mount).not.toBe(b.getNamedConnectors().mount);
   });
 
   it("returns connectors in source order via Part.getConnectors()", () => {
     const p = part("ordered", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      const top = connector(select(face().planar().onPlane("xy", 20)));
-      const bottom = connector(select(face().planar().onPlane("xy")));
-      return { top, bottom };
+      connector("top", select(face().planar().onPlane("xy", 20)));
+      connector("bottom", select(face().planar().onPlane("xy")));
     }) as unknown as Part;
 
     render();
@@ -49,51 +99,53 @@ describe("connector scope", () => {
     expect(conns[1].getFrame().origin.z).toBeCloseTo(0, 5);
   });
 
+  it("registers every connector by name — no return statement needed", () => {
+    const p = part("named", () => {
+      sketch("xy", () => rect(40, 60));
+      extrude(20);
+      connector("mountTop", select(face().planar().onPlane("xy", 20)));
+      connector("axleBore", select(face().planar().onPlane("xy")));
+    }) as unknown as Part;
+
+    const named = p.getNamedConnectors();
+    expect(Object.keys(named).sort()).toEqual(["axleBore", "mountTop"]);
+    expect(named.mountTop).toBeInstanceOf(Connector);
+    expect(named.axleBore).toBeInstanceOf(Connector);
+    expect(named.mountTop.connectorName).toBe("mountTop");
+  });
+
+  it("uses the connector name as the scene object's display name", () => {
+    const p = part("display-name", () => {
+      sketch("xy", () => rect(20, 20));
+      extrude(10);
+      connector("mountTop", select(face().planar().onPlane("xy", 10)));
+    }) as unknown as Part;
+
+    expect(p.getConnectors()[0].getName()).toBe("mountTop");
+  });
+
   it("passes the user's free-form features object through unchanged", () => {
     const p = part("flat-features", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      const top = connector(select(face().planar().onPlane("xy", 20)));
-      const bottom = connector(select(face().planar().onPlane("xy")));
-      return { top, bottom, meta: { count: 2 } };
+      const top = connector("top", select(face().planar().onPlane("xy", 20)));
+      return { top, meta: { count: 1 } };
     }) as any;
 
     expect(p.features).toBeDefined();
     expect(p.features.top).toBeInstanceOf(Connector);
-    expect(p.features.bottom).toBeInstanceOf(Connector);
-    expect(p.features.meta).toEqual({ count: 2 });
+    expect(p.features.meta).toEqual({ count: 1 });
   });
 
-  it("supports a renamed/grouped features shape without affecting tracking", () => {
-    const p = part("grouped-features", () => {
+  it("the features return no longer affects the named-connector map", () => {
+    const p = part("features-ignored", () => {
       sketch("xy", () => rect(40, 60));
       extrude(20);
-      const top = connector(select(face().planar().onPlane("xy", 20)));
-      const bottom = connector(select(face().planar().onPlane("xy")));
-      return { connectors: { mountTop: top, axleBore: bottom } };
-    }) as any;
-
-    expect(p.features.connectors.mountTop).toBeInstanceOf(Connector);
-    expect(p.features.connectors.axleBore).toBeInstanceOf(Connector);
-
-    render();
-
-    const conns = (p as Part).getConnectors();
-    expect(conns).toHaveLength(2);
-  });
-
-  it("tracks connectors that are never exposed through features", () => {
-    const p = part("unexposed", () => {
-      sketch("xy", () => rect(40, 60));
-      extrude(20);
-      connector(select(face().planar().onPlane("xy", 20)));
-      connector(select(face().planar().onPlane("xy")));
-      return {};
+      const top = connector("top", select(face().planar().onPlane("xy", 20)));
+      // A stale-style return renaming the connector must NOT change the map.
+      return { connectors: { renamed: top } };
     }) as unknown as Part;
 
-    render();
-
-    const conns = p.getConnectors();
-    expect(conns).toHaveLength(2);
+    expect(Object.keys(p.getNamedConnectors())).toEqual(["top"]);
   });
 });

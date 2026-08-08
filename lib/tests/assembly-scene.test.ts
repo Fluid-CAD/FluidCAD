@@ -16,9 +16,8 @@ function buildHousing(name = "housing"): Part {
   return part(name, () => {
     sketch("xy", () => rect(20, 20));
     extrude(10);
-    const top = connector(select(face().planar().onPlane("xy", 10)));
-    const bottom = connector(select(face().planar().onPlane("xy", 0)));
-    return { connectors: { top, bottom } };
+    connector("top", select(face().planar().onPlane("xy", 10)));
+    connector("bottom", select(face().planar().onPlane("xy", 0)));
   }) as unknown as Part;
 }
 
@@ -169,7 +168,7 @@ describe("assembly scene", () => {
     expect(a.record.name).toBe("housing");
   });
 
-  it("Instance.connectors is a record keyed by features.connectors names", () => {
+  it("Instance.connectors is a record keyed by the registered connector names", () => {
     const { p } = startAssemblyWithPart();
     const inst = insert(p);
     expect(typeof inst.connectors).toBe("object");
@@ -195,31 +194,27 @@ describe("assembly scene", () => {
     expect(getCurrentScene()).toBeInstanceOf(AssemblyScene);
   });
 
-  it("connectors that aren't exposed in features.connectors don't appear on the instance", () => {
+  it("every registered connector appears on the instance — even without a return", () => {
     getSceneManager().startScene();
-    const p = part("hidden", () => {
+    const p = part("no-return", () => {
       sketch("xy", () => rect(20, 20));
       extrude(10);
-      // Connector is created but NOT returned in features.connectors.
-      connector(select(face().planar().onPlane("xy", 10)));
-      return { something: "else" };
+      // No return statement at all: the name argument is the registration.
+      connector("mount", select(face().planar().onPlane("xy", 10)));
     }) as unknown as Part;
     getSceneManager().startAssemblyScene();
     const inst = insert(p);
-    // The part still has the connector as a child (it renders), but the
-    // instance's named-map is empty because the part didn't expose it.
     expect(p.getConnectors()).toHaveLength(1);
-    expect(Object.keys(inst.connectors)).toEqual([]);
+    expect(Object.keys(inst.connectors)).toEqual(["mount"]);
+    expect(inst.connectors.mount).toBeInstanceOf(BoundConnector);
   });
 
-  it("renaming a connector in features.connectors changes the instance key", () => {
+  it("the connector statement's name argument is the instance key", () => {
     getSceneManager().startScene();
     const p = part("housing", () => {
       sketch("xy", () => rect(20, 20));
       extrude(10);
-      const onTop = connector(select(face().planar().onPlane("xy", 10)));
-      // Author chose the name "mountTop"; instance.connectors mirrors it.
-      return { connectors: { mountTop: onTop } };
+      connector("mountTop", select(face().planar().onPlane("xy", 10)));
     }) as unknown as Part;
     getSceneManager().startAssemblyScene();
     const inst = insert(p);

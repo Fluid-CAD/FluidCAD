@@ -108,7 +108,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'rib';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'rib' | 'connector';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -140,6 +140,12 @@ export type ApplyFeatureEditSpec = {
   offset?: OffsetEditOptions;
   /** Slot-from-edge payload; the trailing `deleteSource` argument. */
   slot?: SlotEditOptions;
+  /**
+   * Connector-only payload: the name the statement registers, plus the call
+   * site of the `part(...)` block whose callback body receives the statement
+   * (end of body, before a trailing `return` or active `breakpoint();`).
+   */
+  connector?: ConnectorEditOptions;
   /** tArc-only payload; present for an in-place retarget instead of a create. */
   tarc?: TarcEditOptions;
   /**
@@ -233,6 +239,16 @@ export type ApplyFeatureEditSpec = {
    * skipped, keeping a re-apply idempotent.
    */
   newVariables?: { name: string; initializer: string }[];
+};
+
+/**
+ * Connector create payload. `name` is the identifier the statement registers
+ * (validated against the same pattern the kernel enforces); `part` is the
+ * `part(...)` call site whose callback body receives the statement.
+ */
+export type ConnectorEditOptions = {
+  name: string;
+  part: { line: number; column: number };
 };
 
 /**
@@ -1616,6 +1632,18 @@ export async function applyFeatureEdit(
     }
     if (spec.text!.text.trim() === '') {
       return { newCode: code, error: 'the text string is empty' };
+    }
+  } else if (spec.feature === 'connector') {
+    // A named connector: exactly one selector part (the frame derives from a
+    // single face/edge), a valid identifier name, and the part() call site
+    // whose callback body receives the statement.
+    const co = spec.connector;
+    const valid = co !== undefined
+      && typeof co.name === 'string' && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(co.name)
+      && Number.isInteger(co.part?.line) && Number.isInteger(co.part?.column)
+      && spec.producers.length >= 1 && spec.parts.length === 1;
+    if (!valid) {
+      return { newCode: code, error: 'malformed connector edit spec' };
     }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
@@ -3110,6 +3138,10 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'sketch') {
     return `sketch(${args}, () => {\n\n${indent}})`;
   }
+  if (spec.feature === 'connector') {
+    // The name is a validated identifier, so the quoting is safe.
+    return `connector('${spec.connector!.name}', ${args})`;
+  }
   if (spec.feature === 'chamfer') {
     return `chamfer(${renderChamferValueArgs(spec.value, spec.chamfer)}, ${args})`;
   }
@@ -3435,6 +3467,11 @@ function resolveInsertion(
   if (spec.feature === 'project') {
     return resolveSketchBodyInsertion(spec.project!.sketch, bindings, lines, tree);
   }
+  // A connector registers on the enclosing part, so it lands inside that
+  // part's callback body rather than in the producers' hoisted scope.
+  if (spec.feature === 'connector') {
+    return resolvePartBodyInsertion(spec.connector!.part, bindings, lines, tree);
+  }
   // An up-to-face extrude resolves its target against the model — a picked
   // face's selector, or the first/last face the extrusion runs into — so it
   // goes at end of scope, even with a bound profile.
@@ -3553,6 +3590,75 @@ function resolveSketchBodyInsertion(
   // An empty body: open the first line of it at one level in from the sketch.
   const indent = indentOf(lines, body.startPosition.row) + '  ';
   return { index: body.startIndex + 1, indent, wrap: (stmt) => `\n${indent}${stmt}` };
+}
+
+const LOOP_NODE_TYPES = new Set([
+  'for_statement', 'for_in_statement', 'while_statement', 'do_statement',
+]);
+
+/**
+ * Insertion at the end of a part's callback body — the connector tool's
+ * target. Within the body, the statement prefers the producers' own nearest
+ * block: a parameterized part builds each variant inside an `if/else` branch
+ * and returns from it, so end-of-branch (before that branch's `return`) is
+ * where the statement still executes. The walk from that block up to the
+ * part body must cross only plain statement blocks — crossing a nested
+ * function or loop (a scope that runs zero-or-many times) falls back to the
+ * part body itself. Bound producers must live inside the body: a variable
+ * declared elsewhere isn't visible at the insertion point.
+ */
+function resolvePartBodyInsertion(
+  partLoc: { line: number; column: number },
+  bindings: ProducerBinding[],
+  lines: string[],
+  tree: TSTree,
+): Insertion | { error: string } {
+  const call = findEditableCallAt(tree, lines, partLoc.line);
+  if (!call || chainRootCallee(call) !== 'part') {
+    return {
+      error: `no part() call found at line ${partLoc.line} — is the file in sync with the last render?`,
+    };
+  }
+  const body = findSketchBody(call);
+  if (!body) {
+    return { error: 'the part at that line has no callback body to add a connector to' };
+  }
+
+  const insideBody = (node: TSNode) =>
+    node.startIndex >= body.startIndex && node.endIndex <= body.endIndex;
+  const outside = bindings.find(b => b.bind && !insideBody(b.statement));
+  if (outside) {
+    return {
+      error: 'the picked geometry is declared outside this part() body — '
+        + 'only features inside the part can source its connectors',
+    };
+  }
+
+  let scope = body;
+  const statement = bindings[0].statement;
+  if (insideBody(statement)) {
+    const nearest = enclosingScope(statement);
+    let crossesRisky = false;
+    let current: TSNode | null = nearest;
+    while (current && !sameNode(current, body)) {
+      if (FUNCTION_NODE_TYPES.has(current.type) || LOOP_NODE_TYPES.has(current.type)) {
+        crossesRisky = true;
+        break;
+      }
+      current = current.parent;
+    }
+    if (!crossesRisky && current) {
+      scope = nearest;
+    }
+  }
+
+  const children = scope.namedChildren;
+  if (children.length === 0) {
+    // An empty body: open the first line of it at one level in from the part.
+    const indent = indentOf(lines, scope.startPosition.row) + '  ';
+    return { index: scope.startIndex + 1, indent, wrap: (stmt) => `\n${indent}${stmt}` };
+  }
+  return findInsertionPoint(scope, lines, bindings);
 }
 
 /**

@@ -5,12 +5,13 @@ import extrude from "../../core/extrude.js";
 import part from "../../core/part.js";
 import select from "../../core/select.js";
 import connector from "../../core/connector.js";
-import { rect } from "../../core/2d/index.js";
+import fuse from "../../core/fuse.js";
+import { circle, move, polygon, rect } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { Scene } from "../../rendering/scene.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
 import { suggestConnectorAnchors } from "../../selection/connector-anchors.js";
-import { edgeRefsWhere, faceRefsWhere, findSolid, setLocation } from "./pick-helpers.js";
+import { edgeRefsWhere, faceRefsWhere, findSolid, findSolids, setLocation } from "./pick-helpers.js";
 import { Connector } from "../../features/connector.js";
 import { Edge } from "../../common/edge.js";
 import { Explorer } from "../../oc/explorer.js";
@@ -315,6 +316,53 @@ describe("connector synthesis", () => {
           + center.frame.xDirection.z * built.xDirection.z;
         expect(xDot).toBeCloseTo(1, 6);
       }
+    }
+  });
+
+  it("prefers the index form when the filter would bake a full-precision constant", () => {
+    // Polygon end edge: the only isolating filter is
+    // `edge().line(63.30447167189937).above('yz').above('xz', -200)` — a
+    // measured side length no dimension edit tracks. The connector must be
+    // written on the index form, keeping the filter as an alternative.
+    const p = part("mypart", () => {
+      sketch("xy", () => {
+        circle([50, 70], 35.77);
+        move(33.66, 7.54);
+        const r = rect(110.99, -51.9);
+        move(-44.65, 74.36);
+        const c = circle(72.84);
+        fuse(r, c);
+        rect(83.74, -54.35);
+        move(-233.74, 124.35);
+        polygon(5, 107.7);
+      });
+      const e = extrude();
+      setLocation(e, 15);
+    });
+    setLocation(p, 2);
+    const scene = render();
+
+    let ref: { shapeId: string; sub: { type: 'edge'; index: number } } | null = null;
+    for (const solid of findSolids(scene)) {
+      const refs = edgeRefsWhere(solid, m =>
+        Math.abs(m.z - 25) < 1e-6 && Math.abs(m.x - 35.25) < 0.05 && Math.abs(m.y - 144.39) < 0.05);
+      if (refs.length === 1) {
+        ref = refs[0] as typeof ref;
+        break;
+      }
+    }
+    expect(ref).not.toBeNull();
+
+    const result = synthesizeApplyFeature(scene, [ref!], 'connector', 'c4', [], {
+      connector: { anchor: { kind: 'center' }, rotate: { axis: 'x', angle: 270 } },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.preview).toMatch(
+        /^connector\('c4', e\.endEdges\(\d+\)\.center\(\)\)\.rotate\('x', 270\)$/,
+      );
+      expect(result.alternatives.some(a =>
+        /e\.endEdges\(edge\(\)\.line\(63\.304\d+\)/.test(a) && a.endsWith('.center()'))).toBe(true);
     }
   });
 

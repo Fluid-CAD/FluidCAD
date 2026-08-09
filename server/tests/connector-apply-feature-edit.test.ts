@@ -245,19 +245,21 @@ describe('applyFeatureEdit — connector', () => {
     expect(result.newCode).toContain(`connector('mountTop', e.endFaces(0).center())`);
   });
 
-  it('renders the rotate/offset chain after the call', async () => {
+  it('renders the offset/rotate chain after the call, offset first', async () => {
+    // Offset first so the rotation pivots where the offset put the frame —
+    // rotating first would swing the connector around the anchor instead.
     const result = await applyFeatureEdit(PART_CODE, connectorSpec({
       connector: {
         name: 'mountTop',
         part: { line: 4, column: 9 },
         anchor: { kind: 'offset', mode: 'relative', value: 0.3 },
         rotate: { axis: 'z', angle: 90 },
-        offset: [0, 0, 5],
+        offset: [0, 50, 0],
       },
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(
-      `connector('mountTop', e.endFaces(0).offset('relative', 0.3)).rotate('z', 90).offset(0, 0, 5)`,
+      `connector('mountTop', e.endFaces(0).offset('relative', 0.3)).offset(0, 50).rotate('z', 90)`,
     );
   });
 
@@ -327,7 +329,7 @@ const EDIT_CODE = [
   `  return part('X Plate', () => {`,
   `    sketch('xy', () => { rect(100, 50) })`,
   `    const e = extrude(30)`,
-  `    connector('mountTop', e.endFaces(0).center()).rotate('z', 90).offset(0, 0, 5)`,
+  `    connector('mountTop', e.endFaces(0).center()).offset(0, 0, 5).rotate('z', 90)`,
   `    return { thickness: 30 }`,
   `  })`,
   `}`,
@@ -367,13 +369,13 @@ describe('parseFeatureStatement — connector', () => {
       offset: [0, 0, 5],
     });
     expect(result.statement).toBe(
-      `connector('mountTop', e.endFaces(0).center()).rotate('z', 90).offset(0, 0, 5)`,
+      `connector('mountTop', e.endFaces(0).center()).offset(0, 0, 5).rotate('z', 90)`,
     );
   });
 
   it('reads a bare connector as no adjustments, and fills a short offset with zeros', async () => {
     const bare = EDIT_CODE.replace(
-      `connector('mountTop', e.endFaces(0).center()).rotate('z', 90).offset(0, 0, 5)`,
+      `connector('mountTop', e.endFaces(0).center()).offset(0, 0, 5).rotate('z', 90)`,
       `connector('mountTop', e.endFaces(0))`,
     );
     const result = await parseFeatureStatement(bare, CONNECTOR_LINE);
@@ -381,7 +383,7 @@ describe('parseFeatureStatement — connector', () => {
       feature: 'connector', name: 'mountTop', argsText: 'e.endFaces(0)', rotate: null, offset: null,
     });
 
-    const short = EDIT_CODE.replace(`.rotate('z', 90).offset(0, 0, 5)`, `.offset(4)`);
+    const short = EDIT_CODE.replace(`.offset(0, 0, 5).rotate('z', 90)`, `.offset(4)`);
     const shortResult = await parseFeatureStatement(short, CONNECTOR_LINE);
     // `offset(x, y = 0, z = 0)` — the omitted components read as 0.
     expect(shortResult.ok === true && shortResult.parsed).toMatchObject({ offset: [4, 0, 0], rotate: null });
@@ -389,7 +391,7 @@ describe('parseFeatureStatement — connector', () => {
 
   it('reads a negative offset and an unrecognized trailing chain', async () => {
     const code = EDIT_CODE.replace(
-      `.rotate('z', 90).offset(0, 0, 5)`,
+      `.offset(0, 0, 5).rotate('z', 90)`,
       `.offset(-2.5, 0, 0).name('top')`,
     );
     const result = await parseFeatureStatement(code, CONNECTOR_LINE);
@@ -403,19 +405,60 @@ describe('parseFeatureStatement — connector', () => {
 
   it('refuses statements the dialog cannot represent', async () => {
     const cases: [string, string][] = [
-      // The kernel applies the chain in order and an offset walks the ROTATED
-      // axes, so re-emitting a reversed pair would move the connector.
-      [`.offset(0, 0, 5).rotate('z', 90)`, 'offsets before it rotates'],
+      // A rotate-first chain only folds into the dialog's offset-first order
+      // when the turn is a right angle — 45° would leave trig decimals.
+      [`.rotate('z', 45).offset(5, 0, 0)`, 'rotates before it offsets'],
       [`.rotate('z', turn)`, 'not a plain'],
       [`.offset(gap, 0, 0)`, 'not plain numbers'],
       [`.rotate('z')`, 'not a plain'],
     ];
     for (const [chain, reason] of cases) {
-      const code = EDIT_CODE.replace(`.rotate('z', 90).offset(0, 0, 5)`, chain);
+      const code = EDIT_CODE.replace(`.offset(0, 0, 5).rotate('z', 90)`, chain);
       const result = await parseFeatureStatement(code, CONNECTOR_LINE);
       expect(result.ok, chain).toBe(false);
       expect(result.ok === false && result.reason, chain).toContain(reason);
     }
+  });
+
+  it('folds a legacy rotate-first chain into offset-first components', async () => {
+    // An earlier dialog wrote `.rotate().offset()`, whose offset walks the
+    // ROTATED axes. Folding turns those components into the offset-first
+    // order the dialog now holds — the identical built frame, so opening the
+    // dialog never moves the connector.
+    const cases: [string, [number, number, number]][] = [
+      [`.rotate('z', 90).offset(5, 0, 0)`, [0, 5, 0]],
+      [`.rotate('z', 180).offset(0, 50, 0)`, [0, -50, 0]],
+      [`.rotate('x', 270).offset(1, 2, 3)`, [1, 3, -2]],
+      [`.rotate('y', -90).offset(1, 2, 3)`, [-3, 2, 1]],
+      // An offset along the rotation axis is left alone by the fold.
+      [`.rotate('z', 90).offset(0, 0, 5)`, [0, 0, 5]],
+    ];
+    for (const [chain, offset] of cases) {
+      const code = EDIT_CODE.replace(`.offset(0, 0, 5).rotate('z', 90)`, chain);
+      const result = await parseFeatureStatement(code, CONNECTOR_LINE);
+      expect(result.ok, chain).toBe(true);
+      expect(result.ok === true && result.parsed, chain).toMatchObject({ offset });
+    }
+  });
+
+  it('re-applies a folded legacy statement without moving the connector', async () => {
+    const legacy = EDIT_CODE.replace(
+      `.offset(0, 0, 5).rotate('z', 90)`,
+      `.rotate('z', 180).offset(0, 50, 0)`,
+    );
+    const parsed = await parseFeatureStatement(legacy, CONNECTOR_LINE);
+    expect(parsed.ok === true && parsed.parsed).toMatchObject({
+      rotate: { axis: 'z', angle: 180 }, offset: [0, -50, 0],
+    });
+    // The dialog seeds from the folded values; an untouched apply re-emits
+    // them offset-first — a normalized statement that builds the same frame.
+    const result = await applyFeatureEdit(legacy, connectorEditSpec({
+      name: 'mountTop', rotate: { axis: 'z', angle: 180 }, offset: [0, -50, 0],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `connector('mountTop', e.endFaces(0).center()).offset(0, -50).rotate('z', 180)`,
+    );
   });
 
   it('refuses a computed name and a wrong argument count', async () => {
@@ -425,7 +468,7 @@ describe('parseFeatureStatement — connector', () => {
       `connector('mountTop', e.endFaces(0), 'extra')`,
     ]) {
       const code = EDIT_CODE.replace(
-        `connector('mountTop', e.endFaces(0).center()).rotate('z', 90).offset(0, 0, 5)`,
+        `connector('mountTop', e.endFaces(0).center()).offset(0, 0, 5).rotate('z', 90)`,
         call,
       );
       const result = await parseFeatureStatement(code, CONNECTOR_LINE);
@@ -441,7 +484,7 @@ describe('applyFeatureEdit — connector edit', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(
-      `connector('mountLeft', e.endFaces(0).center()).rotate('z', 90).offset(0, 0, 5)`,
+      `connector('mountLeft', e.endFaces(0).center()).offset(0, 0, 5).rotate('z', 90)`,
     );
     // Nothing else moved: the part body and its return are untouched.
     expect(result.newCode).toContain(`    const e = extrude(30)`);

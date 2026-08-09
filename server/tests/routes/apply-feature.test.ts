@@ -5105,7 +5105,7 @@ describe('apply-feature route validation', () => {
         anchor: { kind: 'center' }, rotate: { axis: 'x', angle: 90 }, offset: [0, 0, 5], preview: true,
       });
       expect(status).toBe(200);
-      expect(body.preview).toBe(`connector('mountTop', e.endFaces(0).center()).rotate('x', 90).offset(0, 0, 5)`);
+      expect(body.preview).toBe(`connector('mountTop', e.endFaces(0).center()).offset(0, 0, 5).rotate('x', 90)`);
       expect(synthesizeCalls).toEqual([{ feature: 'connector', value: 'mountTop' as any }]);
       expect((synthesizeOptions[0] as any)?.connector).toEqual({
         anchor: { kind: 'center' }, rotate: { axis: 'x', angle: 90 }, offset: [0, 0, 5],
@@ -5175,7 +5175,7 @@ describe('apply-feature route validation', () => {
       });
       expect(status).toBe(200);
       expect(body.preview).toBe(
-        `connector('mountLeft', e.endFaces(0).center()).rotate('y', 180).offset(0, 0, 2)`,
+        `connector('mountLeft', e.endFaces(0).center()).offset(0, 0, 2).rotate('y', 180)`,
       );
       // No re-pick: synthesis never runs, so no boundary is needed.
       expect(synthesizeCalls).toEqual([]);

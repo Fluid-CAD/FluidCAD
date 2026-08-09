@@ -425,6 +425,38 @@ describe("connector frame", () => {
     expect(frame.origin.z).toBeCloseTo(20, 5);
   });
 
+  it("a rotate-first chain equals offset-first with the offset turned along", () => {
+    // The equivalence the editor's legacy-statement fold stands on:
+    // rotation pivots at the current origin, so `.rotate(θ).offset(o)` and
+    // `.offset(R(θ)·o).rotate(θ)` land the identical frame.
+    let legacy!: Connector;
+    let folded!: Connector;
+    part("fold-legacy", () => {
+      sketch("xy", () => rect(40, 60));
+      extrude(20);
+      legacy = connector('c', select(face().planar().onPlane("xy", 20)))
+        .rotate("z", 180)
+        .offset(0, 50, 0) as unknown as Connector;
+    });
+    render();
+    part("fold-folded", () => {
+      sketch("xy", () => rect(40, 60));
+      extrude(20);
+      folded = connector('c', select(face().planar().onPlane("xy", 20)))
+        .offset(0, -50, 0)
+        .rotate("z", 180) as unknown as Connector;
+    });
+    render();
+
+    const a = legacy.getFrame();
+    const b = folded.getFrame();
+    for (const key of ["origin", "xDirection", "yDirection", "normal"] as const) {
+      for (const axis of ["x", "y", "z"] as const) {
+        expect(a[key][axis], `${key}.${axis}`).toBeCloseTo(b[key][axis], 10);
+      }
+    }
+  });
+
   it("identical transform chains compare equal; different ones do not", () => {
     let connA!: Connector;
     let connB!: Connector;

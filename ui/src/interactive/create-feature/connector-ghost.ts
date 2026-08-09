@@ -71,10 +71,11 @@ export class ConnectorGhostOverlay {
 }
 
 /**
- * The dialog's rotate/offset applied to an anchor frame, mirroring the
- * statement's own semantics: `.rotate('<axis>', deg)` spins the frame
- * around its **own** X, Y, or Z axis first (pivoting at the origin), then
- * `.offset(x, y, z)` walks along the **rotated** axes.
+ * The dialog's offset/rotation applied to an anchor frame, mirroring the
+ * statement's own semantics: `.offset(x, y, z)` walks the anchor's **own** X,
+ * Y, Z axes first, then `.rotate('<axis>', deg)` spins the frame around that
+ * axis **through the offset origin** — the connector turns in place instead
+ * of orbiting the anchor, so dialling the angle never moves it.
  */
 export function adjustConnectorFrame(
   frame: ConnectorFrameData,
@@ -86,20 +87,21 @@ export function adjustConnectorFrame(
   let xDir = new Vector3(frame.xDirection.x, frame.xDirection.y, frame.xDirection.z).normalize();
   let yDir = new Vector3(frame.yDirection.x, frame.yDirection.y, frame.yDirection.z).normalize();
 
+  origin.addScaledVector(xDir, offset[0]);
+  origin.addScaledVector(yDir, offset[1]);
+  origin.addScaledVector(normal, offset[2]);
+
   if (rotate.angle % 360 !== 0) {
     const axis = rotate.axis === 'x' ? xDir.clone()
       : rotate.axis === 'y' ? yDir.clone()
       : normal.clone();
     const angle = (rotate.angle * Math.PI) / 180;
-    // The pivot axis maps onto itself; rotating all three keeps it simple.
+    // The origin is the pivot, so only the axes turn. The pivot axis maps
+    // onto itself; rotating all three keeps it simple.
     xDir = xDir.clone().applyAxisAngle(axis, angle);
     yDir = yDir.clone().applyAxisAngle(axis, angle);
     normal = normal.clone().applyAxisAngle(axis, angle);
   }
-
-  origin.addScaledVector(xDir, offset[0]);
-  origin.addScaledVector(yDir, offset[1]);
-  origin.addScaledVector(normal, offset[2]);
 
   return {
     origin: { x: origin.x, y: origin.y, z: origin.z },
@@ -117,9 +119,9 @@ export function adjustConnectorFrame(
  * dialled rotation/offset has to re-apply from the anchor, not compound onto
  * what the statement already did.
  *
- * Both steps invert in reverse order: the offset walked the ROTATED axes (the
- * frame's own, as handed in), and the rotation pivots around the named axis,
- * which maps onto itself — so the same axis un-turns it.
+ * Both steps invert in reverse order: the rotation left the origin alone and
+ * pivots around the named axis, which maps onto itself — so the same axis
+ * un-turns it — and the offset then walks back down the recovered anchor axes.
  */
 export function unadjustConnectorFrame(
   frame: ConnectorFrameData,
@@ -131,10 +133,6 @@ export function unadjustConnectorFrame(
   let xDir = new Vector3(frame.xDirection.x, frame.xDirection.y, frame.xDirection.z).normalize();
   let yDir = new Vector3(frame.yDirection.x, frame.yDirection.y, frame.yDirection.z).normalize();
 
-  origin.addScaledVector(xDir, -offset[0]);
-  origin.addScaledVector(yDir, -offset[1]);
-  origin.addScaledVector(normal, -offset[2]);
-
   if (rotate.angle % 360 !== 0) {
     const axis = rotate.axis === 'x' ? xDir.clone()
       : rotate.axis === 'y' ? yDir.clone()
@@ -144,6 +142,10 @@ export function unadjustConnectorFrame(
     yDir = yDir.clone().applyAxisAngle(axis, angle);
     normal = normal.clone().applyAxisAngle(axis, angle);
   }
+
+  origin.addScaledVector(xDir, -offset[0]);
+  origin.addScaledVector(yDir, -offset[1]);
+  origin.addScaledVector(normal, -offset[2]);
 
   return {
     origin: { x: origin.x, y: origin.y, z: origin.z },

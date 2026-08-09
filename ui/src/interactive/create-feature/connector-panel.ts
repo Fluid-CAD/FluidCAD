@@ -61,7 +61,7 @@ export class ConnectorPanel extends FeaturePanel {
             class="input input-sm input-bordered w-full text-xs font-mono" />
         </label>
         <div class="flex flex-col gap-1.5"
-          title="Move the connector along its own axes: X and Y in the frame plane, Z along the frame normal">
+          title="Move the connector along its own axes — X and Y in the frame plane, Z along the frame normal — measured before the rotation">
           <span class="text-base-content/70">Offset (X, Y, Z)</span>
           <div class="flex gap-1.5">
             <input data-role="offset-x" type="number" step="any" placeholder="0" title="Along the connector's X axis"
@@ -73,7 +73,7 @@ export class ConnectorPanel extends FeaturePanel {
           </div>
         </div>
         <div class="flex flex-col gap-1.5"
-          title="Turn the connector around one of its own axes, 90° per click">
+          title="Turn the connector around one of its own axes, 90° per click — it pivots where the offset put it">
           <span class="text-base-content/70">Rotation</span>
           <div class="flex items-center gap-1.5">
             <select data-role="rotate-axis" class="select select-sm select-bordered flex-1 text-xs"

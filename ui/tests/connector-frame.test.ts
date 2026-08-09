@@ -17,11 +17,38 @@ const ANCHOR: ConnectorFrameData = {
 
 function expectFrameClose(actual: ConnectorFrameData, expected: ConnectorFrameData): void {
   for (const key of ['origin', 'xDirection', 'yDirection', 'normal'] as const) {
-    for (const axis of ['x', 'y', 'z'] as const) {
-      expect(actual[key][axis], `${key}.${axis}`).toBeCloseTo(expected[key][axis], 10);
-    }
+    expectPointClose(actual[key], expected[key], key);
   }
 }
+
+function expectPointClose(
+  actual: { x: number; y: number; z: number },
+  expected: { x: number; y: number; z: number },
+  label = 'point',
+): void {
+  for (const axis of ['x', 'y', 'z'] as const) {
+    expect(actual[axis], `${label}.${axis}`).toBeCloseTo(expected[axis], 10);
+  }
+}
+
+describe('adjustConnectorFrame', () => {
+  it('rotates around the offset origin, not the anchor', () => {
+    // The statement offsets before it rotates, so dialling the angle spins the
+    // connector in place — it must not swing around the anchor it stands on.
+    const offset: [number, number, number] = [0, 50, 0];
+    const placed = adjustConnectorFrame(ANCHOR, { axis: 'z', angle: 0 }, offset);
+    const turned = adjustConnectorFrame(ANCHOR, { axis: 'z', angle: 180 }, offset);
+
+    // The offset walks the anchor's own Y, whatever the angle.
+    expect(placed.origin.x).toBeCloseTo(ANCHOR.origin.x + 50 * ANCHOR.yDirection.x, 10);
+    expect(placed.origin.y).toBeCloseTo(ANCHOR.origin.y + 50 * ANCHOR.yDirection.y, 10);
+    // Same origin after the turn; only the axes flipped.
+    expectPointClose(turned.origin, placed.origin);
+    expect(turned.xDirection.x).toBeCloseTo(-ANCHOR.xDirection.x, 10);
+    expect(turned.yDirection.y).toBeCloseTo(-ANCHOR.yDirection.y, 10);
+    expect(turned.normal.z).toBeCloseTo(1, 10);
+  });
+});
 
 describe('unadjustConnectorFrame', () => {
   const CASES: { name: string; rotate: { axis: 'x' | 'y' | 'z'; angle: number }; offset: [number, number, number] }[] = [

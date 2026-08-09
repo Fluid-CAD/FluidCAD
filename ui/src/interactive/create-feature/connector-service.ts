@@ -50,8 +50,8 @@ function entityKey(entity: ApplyFeatureEntity): string {
  * default), frame-local offset, and the 90°-per-click rotation stepper —
  * with the gizmo tracking every edit live (pure client-side frame math; the
  * kernel already supplied exact axes). Apply writes
- * `connector('name', <source>.center())` — with `.rotate('z', …)` /
- * `.offset(…)` chained as dialled — into the enclosing part() body; the
+ * `connector('name', <source>.center())` — with `.offset(…)` /
+ * `.rotate('z', …)` chained as dialled — into the enclosing part() body; the
  * re-render is the preview, editor undo the rollback.
  */
 export class ConnectorFeatureService {

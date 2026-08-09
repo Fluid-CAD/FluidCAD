@@ -320,7 +320,12 @@ export function validConnectorAnchor(anchor: unknown): anchor is ConnectorAnchor
   return false;
 }
 
-/** `.rotate('x', 90).offset(0, 0, 5)` — kernel-mirrored rendering. */
+/**
+ * `.offset(0, 0, 5).rotate('x', 90)` — kernel-mirrored rendering. The offset
+ * comes FIRST: the kernel applies the chain in order and `.rotate()` pivots at
+ * the frame's current origin, so offsetting first turns the connector in place
+ * at its offset position instead of swinging it around the anchor.
+ */
 export function renderConnectorChain(
   options: {
     rotate?: { axis: ConnectorRotateAxis; angle: number };
@@ -331,10 +336,6 @@ export function renderConnectorChain(
     return '';
   }
   let out = '';
-  const rotate = options.rotate;
-  if (rotate && Number.isFinite(rotate.angle) && rotate.angle % 360 !== 0) {
-    out += `.rotate('${rotate.axis}', ${rotate.angle})`;
-  }
   const offset = options.offset;
   if (offset && offset.some(v => v !== 0)) {
     const values = [...offset];
@@ -342,6 +343,10 @@ export function renderConnectorChain(
       values.pop();
     }
     out += `.offset(${values.join(', ')})`;
+  }
+  const rotate = options.rotate;
+  if (rotate && Number.isFinite(rotate.angle) && rotate.angle % 360 !== 0) {
+    out += `.rotate('${rotate.axis}', ${rotate.angle})`;
   }
   return out;
 }
@@ -5798,9 +5803,12 @@ function parseBooleanChain(
  *
  * The two adjustment chains must read exactly as the dialog writes them:
  * plain numeric literals (a variable rotation has no stepper to seed), and
- * rotate BEFORE offset — the kernel applies them in chain order and an offset
- * walks the rotated axes, so re-emitting a reversed pair would silently move
- * the connector. Both refuse honestly instead.
+ * offset BEFORE rotate — the dialog's own order, which a re-emission restores.
+ * A rotate-first pair (the order an earlier dialog wrote) folds into it
+ * exactly when the turn is a right angle ({@link foldRotatedOffset}) — same
+ * built frame, so opening the dialog never moves the connector. Other
+ * rotate-first chains refuse honestly: folding an arbitrary angle would turn
+ * clean offset literals into trigonometric decimals.
  */
 function parseConnectorChain(
   args: TSNode[],
@@ -5817,12 +5825,6 @@ function parseConnectorChain(
     return { error: 'the connector name is not a plain string identifier — edit it in the source' };
   }
   const argsText = code.slice(args[1].startIndex, args[1].endIndex);
-
-  const order = [...recognized.keys()];
-  if (recognized.has('rotate') && recognized.has('offset')
-    && order.indexOf('offset') < order.indexOf('rotate')) {
-    return { error: 'the connector offsets before it rotates — edit the statement in the source' };
-  }
 
   let rotate: { axis: ConnectorRotateAxis; angle: number } | null = null;
   const rotateSeg = recognized.get('rotate');
@@ -5849,7 +5851,47 @@ function parseConnectorChain(
     offset = [values[0]!, values[1] ?? 0, values[2] ?? 0];
   }
 
+  const order = [...recognized.keys()];
+  if (rotate !== null && offset !== null
+    && order.indexOf('rotate') < order.indexOf('offset')) {
+    // A rotate-first chain: its offset walked the ROTATED axes. Fold the
+    // components into the dialog's offset-first order so the connector opens
+    // — and re-applies — exactly where it was built.
+    const folded = foldRotatedOffset(rotate, offset);
+    if (folded === null) {
+      return { error: 'the connector rotates before it offsets by a non-right angle — edit the statement in the source' };
+    }
+    offset = folded;
+  }
+
   return { parsed: { feature: 'connector', name, argsText, rotate, offset }, start, end };
+}
+
+/**
+ * Rewrite the offset of a rotate-first chain in the offset-first order the
+ * dialog holds. `.rotate()` pivots at the current origin, so
+ * `.rotate(θ).offset(o)` and `.offset(R(θ)·o).rotate(θ)` land the identical
+ * frame — the offset components just turn with the axes. Only right-angle
+ * turns fold (cos/sin stay an exact 0/±1, keeping the components clean
+ * literals); anything else returns null.
+ */
+function foldRotatedOffset(
+  rotate: { axis: ConnectorRotateAxis; angle: number },
+  offset: [number, number, number],
+): [number, number, number] | null {
+  if (rotate.angle % 90 !== 0) {
+    return null;
+  }
+  const quarter = ((rotate.angle / 90) % 4 + 4) % 4;
+  const cos = [1, 0, -1, 0][quarter];
+  const sin = [0, 1, 0, -1][quarter];
+  const [x, y, z] = offset;
+  const folded: [number, number, number] =
+    rotate.axis === 'x' ? [x, y * cos - z * sin, y * sin + z * cos]
+    : rotate.axis === 'y' ? [x * cos + z * sin, y, z * cos - x * sin]
+    : [x * cos - y * sin, x * sin + y * cos, z];
+  // ±1·0 products can land on -0 — pin them so emitted literals stay plain.
+  return folded.map(v => v === 0 ? 0 : v) as [number, number, number];
 }
 
 /** The origin plane a base's string literal names, or null. */

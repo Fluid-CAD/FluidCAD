@@ -2,9 +2,15 @@ import { Euler, MathUtils, Quaternion, Vector3 } from 'three';
 import type { Viewer } from '../../viewer';
 import type { SerializedAssemblyInstance } from '../../types';
 import type { AssemblyController } from '../../scene/assembly-controller';
+import type { VariableInfo } from '../../ui/expression-core';
 import { isEditableTarget } from '../../keyboard-bridge';
 import { TransformGizmo } from './transform-gizmo';
+import type { GizmoAxisHandleId, GizmoAxisTypingContext } from './transform-gizmo';
+import type { GizmoExpressionCommit } from './gizmo-value-input';
 import type { GizmoDelta, GizmoHandleId } from './gizmo-session';
+
+/** Per-axis `.translate()` argument source text; null falls back to numeric. */
+type TranslateExprs = [string | null, string | null, string | null];
 
 export type AssemblyGizmoBindings = {
   viewer: Viewer;
@@ -16,11 +22,36 @@ export type AssemblyGizmoBindings = {
     sourceLocation: { filePath: string; line: number },
     position: [number, number, number],
     rotateXYZ: [number, number, number] | null,
+    options?: {
+      translateExprs?: TranslateExprs;
+      newVariables?: { name: string; initializer: string }[];
+    },
   ): Promise<{ success: boolean; reason?: string }>;
+  /** The instance's exact `.translate()` arg texts; null when not readable. */
+  getTranslateExpressions(
+    sourceLocation: { filePath: string; line: number },
+  ): Promise<{ x: string | null; y: string | null; z: string | null } | null>;
+  /** Variables in scope at the insert chain's line, for the value input. */
+  fetchScopeVariables(sourceLine: number): Promise<VariableInfo[]>;
   flashError(message: string): void;
 };
 
 type Pose = { position: Vector3; quaternion: Quaternion };
+
+const AXIS_INDEX: Record<GizmoAxisHandleId, 0 | 1 | 2> = { tx: 0, ty: 1, tz: 2 };
+
+/**
+ * Which position components a handle's gesture can change. Untouched axes
+ * echo their existing source text through a commit, so `.translate(w, h, 5)`
+ * keeps `w` and `h` across a Z-arrow drag. Ring rotations spin about the
+ * body origin and never move it, so every axis survives them.
+ */
+const TOUCHED_AXES: Record<GizmoHandleId, [boolean, boolean, boolean]> = {
+  tx: [true, false, false], ty: [false, true, false], tz: [false, false, true],
+  pxy: [true, true, false], pyz: [false, true, true], pxz: [true, false, true],
+  center: [true, true, true],
+  rx: [false, false, false], ry: [false, false, false], rz: [false, false, false],
+};
 
 /**
  * The assembly host for {@link TransformGizmo}: a single click on a
@@ -49,6 +80,12 @@ export class AssemblyGizmoDriver {
    */
   private pendingCommit: { instanceId: string; start: Pose } | null = null;
 
+  /** In-scope variables for the value input, refreshed per attach/commit. */
+  private cachedVariables: VariableInfo[] = [];
+  /** Latest `.translate()` arg-text read, tagged with its instance. */
+  private translateExprs: TranslateExprs | null = null;
+  private exprsInstanceId: string | null = null;
+
   constructor(bindings: AssemblyGizmoBindings) {
     this.bindings = bindings;
 
@@ -73,7 +110,10 @@ export class AssemblyGizmoDriver {
         onDragUpdate: (delta) => this.handleDragUpdate(delta),
         onCommit: (delta) => this.handleCommit(delta),
         onCancel: () => this.handleCancel(),
+        getAxisTypingContext: (handle) => this.handleAxisTypingContext(handle),
+        onCommitAxisExpression: (handle, commit) => this.handleAxisExpressionCommit(handle, commit),
       },
+      { variables: () => this.cachedVariables },
     );
 
     bindings.viewer.setClickInterceptor(() => this.gizmo.consumeRecentInteraction());
@@ -109,6 +149,8 @@ export class AssemblyGizmoDriver {
     }
     this.attachedId = instanceId;
     this.gizmo.show(pose.position);
+    this.refreshVariables();
+    void this.refreshTranslateExprs();
   }
 
   /** Groups are rebuilt nearly every render — re-anchor or dismiss. */
@@ -134,10 +176,82 @@ export class AssemblyGizmoDriver {
     this.gizmo.cancelActiveDrag();
     this.gizmo.hide();
     this.attachedId = null;
+    this.translateExprs = null;
+    this.exprsInstanceId = null;
   }
 
   private controller(): AssemblyController | null {
     return this.bindings.viewer.getAssemblyController();
+  }
+
+  /** The instance when a commit would write source; undefined for live-only
+   *  moves (no source location, or mate-constrained ungrounded). */
+  private persistableInstance(instanceId: string): SerializedAssemblyInstance | undefined {
+    const inst = this.bindings.findInstance(instanceId);
+    if (!inst?.sourceLocation) {
+      return undefined;
+    }
+    if (!inst.grounded && this.bindings.instanceHasMate(instanceId)) {
+      return undefined;
+    }
+    return inst;
+  }
+
+  // -------------------------------------------------------------------------
+  // Value-input source data (variables + translate arg texts)
+  // -------------------------------------------------------------------------
+
+  private refreshVariables(): void {
+    const instanceId = this.attachedId;
+    const inst = instanceId !== null ? this.bindings.findInstance(instanceId) : undefined;
+    if (instanceId === null || !inst?.sourceLocation) {
+      return;
+    }
+    void this.bindings.fetchScopeVariables(inst.sourceLocation.line).then((variables) => {
+      if (this.attachedId === instanceId) {
+        this.cachedVariables = variables;
+      }
+    });
+  }
+
+  /** Re-read the attached instance's `.translate()` arg texts into the echo
+   *  cache; resolves with them (null when unreadable or detached since). */
+  private refreshTranslateExprs(): Promise<TranslateExprs | null> {
+    const instanceId = this.attachedId;
+    const inst = instanceId !== null ? this.bindings.findInstance(instanceId) : undefined;
+    if (instanceId === null || !inst?.sourceLocation) {
+      return Promise.resolve(null);
+    }
+    return this.bindings.getTranslateExpressions(inst.sourceLocation).then((result) => {
+      if (this.attachedId !== instanceId) {
+        return null;
+      }
+      this.translateExprs = result ? [result.x, result.y, result.z] : null;
+      this.exprsInstanceId = instanceId;
+      return this.translateExprs;
+    });
+  }
+
+  /**
+   * The commit's per-axis text echoes: existing source text for every axis
+   * the handle's gesture can't have changed, null (numeric) for the rest.
+   * Undefined when nothing is preservable — the wire then matches the
+   * pre-expression commit shape.
+   */
+  private echoExprs(handle: GizmoHandleId): TranslateExprs | undefined {
+    const touched = TOUCHED_AXES[handle];
+    const cached = this.attachedId !== null && this.attachedId === this.exprsInstanceId
+      ? this.translateExprs
+      : null;
+    if (!touched || !cached) {
+      return undefined;
+    }
+    const exprs: TranslateExprs = [
+      touched[0] ? null : cached[0],
+      touched[1] ? null : cached[1],
+      touched[2] ? null : cached[2],
+    ];
+    return exprs.some(e => e !== null) ? exprs : undefined;
   }
 
   // -------------------------------------------------------------------------
@@ -157,6 +271,9 @@ export class AssemblyGizmoDriver {
       return;
     }
     this.gestureStart = pose;
+    // Freshen the echo cache while the drag runs, so the commit preserves
+    // the untouched axes' source text as it is right now.
+    void this.refreshTranslateExprs();
     // The face highlight from the attaching click would visually stick to
     // the moving part.
     this.bindings.viewer.clearHighlight();
@@ -225,12 +342,9 @@ export class AssemblyGizmoDriver {
     const start = this.gestureStart;
     this.gestureStart = null;
     const finalPose = controller.getInstancePose(instanceId);
-    const inst = this.bindings.findInstance(instanceId);
-    const persistable = finalPose !== null
-      && inst?.sourceLocation !== undefined
-      && (inst.grounded || !this.bindings.instanceHasMate(instanceId));
+    const inst = this.persistableInstance(instanceId);
 
-    if (!persistable) {
+    if (finalPose === null || inst === undefined) {
       // Live-only move (mated ungrounded, or no source location) — exactly
       // the free-drag rule; the solver warm-start re-derives it next render.
       controller.endExternalDrag();
@@ -250,6 +364,94 @@ export class AssemblyGizmoDriver {
         inst.sourceLocation!,
         [finalPose.position.x, finalPose.position.y, finalPose.position.z],
         rotateXYZ,
+        { translateExprs: this.echoExprs(delta.handle) },
+      )
+      .then((result) => this.settleCommit(result));
+  }
+
+  /**
+   * A clicked translate arrow's input opens on the axis' current absolute
+   * coordinate, seeded with its exact source expression when the commit
+   * could write it back (source text on a live-only instance would promise
+   * an edit that never happens).
+   */
+  private handleAxisTypingContext(handle: GizmoAxisHandleId): GizmoAxisTypingContext | null {
+    const controller = this.controller();
+    const instanceId = this.attachedId;
+    if (!controller || !instanceId) {
+      return null;
+    }
+    const pose = controller.getInstancePose(instanceId);
+    if (!pose) {
+      return null;
+    }
+    this.refreshVariables();
+    const axis = AXIS_INDEX[handle];
+    const persistable = this.persistableInstance(instanceId) !== undefined;
+    return {
+      value: pose.position.getComponent(axis),
+      sourceExpression: persistable
+        ? this.refreshTranslateExprs().then((exprs) => exprs?.[axis] ?? null)
+        : undefined,
+    };
+  }
+
+  /**
+   * An absolute typed commit: move the axis to the expression's value
+   * through the external-drag API (skipped when only a build can evaluate
+   * it — the committed source then moves the part on the next render), and
+   * persist the expression text into exactly that `.translate()` slot,
+   * declaring any new variable the input introduced.
+   */
+  private handleAxisExpressionCommit(handle: GizmoAxisHandleId, commit: GizmoExpressionCommit): void {
+    const controller = this.controller();
+    const instanceId = this.attachedId;
+    if (!controller || !instanceId || !controller.beginExternalDrag(instanceId)) {
+      return;
+    }
+    const start = controller.getInstancePose(instanceId);
+    if (!start) {
+      controller.endExternalDrag();
+      return;
+    }
+    const axis = AXIS_INDEX[handle];
+
+    let finalPose = start;
+    if (commit.value !== null) {
+      const target = start.position.clone();
+      target.setComponent(axis, commit.value);
+      if (controller.updateExternalDragTranslate(target) === null) {
+        // The instance vanished (render diff pruned it).
+        controller.cancelExternalDrag(start);
+        return;
+      }
+      const moved = controller.getInstancePose(instanceId);
+      if (moved) {
+        finalPose = moved;
+        this.gizmo.setPosition(moved.position);
+      }
+    }
+
+    const inst = this.persistableInstance(instanceId);
+    if (inst === undefined) {
+      // Live-only move — the free-drag rule again.
+      controller.endExternalDrag();
+      this.reanchor();
+      return;
+    }
+
+    const exprs: TranslateExprs = this.echoExprs(handle) ?? [null, null, null];
+    exprs[axis] = commit.expression;
+    this.pendingCommit = { instanceId, start };
+    void this.bindings
+      .applyInstancePose(
+        inst.sourceLocation!,
+        [finalPose.position.x, finalPose.position.y, finalPose.position.z],
+        null,
+        {
+          translateExprs: exprs,
+          newVariables: commit.newVariable ? [commit.newVariable] : undefined,
+        },
       )
       .then((result) => this.settleCommit(result));
   }
@@ -263,6 +465,10 @@ export class AssemblyGizmoDriver {
     const controller = this.controller();
     if (result.success) {
       controller?.endExternalDrag();
+      // The write changed the chain's arg texts (and possibly declared a
+      // variable) — refresh what the next input open shows.
+      this.refreshVariables();
+      void this.refreshTranslateExprs();
     } else {
       controller?.cancelExternalDrag(pending.start);
       this.bindings.flashError(result.reason ?? "couldn't write the new pose");

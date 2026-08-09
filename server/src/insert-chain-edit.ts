@@ -264,8 +264,11 @@ function applyTranslate(
   });
 }
 
-function formatTranslateArgs(value: [number, number, number]): string {
-  return value.map(formatTranslateNumber).join(', ');
+function formatTranslateArgs(
+  value: [number, number, number],
+  exprs?: [string | null, string | null, string | null] | null,
+): string {
+  return value.map((n, i) => exprs?.[i] ?? formatTranslateNumber(n)).join(', ');
 }
 
 function formatTranslateNumber(n: number): string {
@@ -321,6 +324,14 @@ export type InstancePoseEditSpec = {
    * translate-only commit that leaves existing `.rotate()` calls untouched.
    */
   rotateXYZ: [number, number, number] | null;
+  /**
+   * Per-axis source text for the written `.translate()` arguments: a string
+   * is spliced verbatim (a typed expression, or an untouched axis' existing
+   * text echoed back by the client so it survives the arg-list rewrite);
+   * `null` falls back to the numeric `position` component. Callers validate
+   * the strings as safe single-argument expression text.
+   */
+  translateExprs?: [string | null, string | null, string | null] | null;
 };
 
 const ANGLE_IDENTITY_EPSILON_DEG = 1e-4;
@@ -467,8 +478,13 @@ export async function applyInstancePoseEdit(
   const rotates = members.filter(m => m.method === 'rotate');
   const translates = members.filter(m => m.method === 'translate');
   const opaqueRotates = rotates.filter(m => !isRewritableRotate(m.call));
-  const isOrigin = spec.position.every(v => Math.abs(v) < TRANSLATE_ORIGIN_EPSILON);
-  const translateArgs = formatTranslateArgs(spec.position);
+  const exprs = spec.translateExprs ?? null;
+  // An expression axis must be written even when the numeric pose sits at the
+  // origin — `.translate(myVar, 0, 0)` with myVar currently 0 still binds.
+  const hasExprs = exprs !== null && exprs.some(e => e !== null);
+  const isOrigin = !hasExprs
+    && spec.position.every(v => Math.abs(v) < TRANSLATE_ORIGIN_EPSILON);
+  const translateArgs = formatTranslateArgs(spec.position, exprs);
 
   if (spec.rotateXYZ === null) {
     // Translate-only commit: never touches .rotate() calls, so opaque rotates
@@ -525,6 +541,44 @@ export async function applyInstancePoseEdit(
     return { newCode: code, error: appended.error };
   }
   return { newCode: appended.newCode };
+}
+
+/**
+ * The exact source text of an `insert()` chain's `.translate(x, y, z)`
+ * arguments — what the gizmo's absolute-value input shows and echoes back on
+ * commit. Only chains where the args ARE the world position qualify: exactly
+ * one `.translate()`, no `.rotate()` after it (a later rotate would orbit the
+ * translation), and exactly three arguments. Null otherwise — callers fall
+ * back to numeric coordinates.
+ */
+export async function getInsertTranslateExpressions(
+  code: string,
+  sourceLine: number,
+): Promise<{ x: string; y: string; z: string } | null> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const tail = findChainAt(tree, sourceLine);
+  if (!tail) {
+    return null;
+  }
+  const chain = getChainCalls(tail);
+  if (getBaseCallName(chain) !== 'insert') {
+    return null;
+  }
+  const members = chainMembers(chain);
+  const translates = members.filter(m => m.method === 'translate');
+  if (translates.length !== 1) {
+    return null;
+  }
+  const translate = translates[0];
+  if (members.some(m => m.method === 'rotate' && m.chainIndex > translate.chainIndex)) {
+    return null;
+  }
+  const args = callArguments(translate.call);
+  if (!args || args.length !== 3) {
+    return null;
+  }
+  return { x: args[0].text, y: args[1].text, z: args[2].text };
 }
 
 function removeGroundedFromOtherInserts(code: string, keepSourceLine: number, p: TSParser): string {

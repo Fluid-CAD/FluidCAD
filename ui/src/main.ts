@@ -45,7 +45,7 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint, applyInstancePose } from './api';
+import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint, applyInstancePose, getInstanceTranslateExpressions, getScopeVariables } from './api';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { ConnectorData, SceneObjectRender } from './types';
@@ -1335,6 +1335,8 @@ const assemblyGizmo = new AssemblyGizmoDriver({
   findInstance,
   instanceHasMate,
   applyInstancePose,
+  getTranslateExpressions: getInstanceTranslateExpressions,
+  fetchScopeVariables: (sourceLine) => getScopeVariables(sourceLine),
   flashError: (message) => {
     if (currentRail?.kind === 'assembly') {
       currentRail.dragReadout.flashError(message);

@@ -162,4 +162,106 @@ describe('instance-pose route', () => {
     expect(status).toBe(200);
     expect(body).toMatchObject({ success: true });
   });
+
+  it('rejects malformed translate expressions before any dispatch', async () => {
+    const unsafe = await postPose({ ...GOOD_BODY, translateExprs: ['a; b', null, null] });
+    expect(unsafe.status).toBe(400);
+    const shortArr = await postPose({ ...GOOD_BODY, translateExprs: ['a'] });
+    expect(shortArr.status).toBe(400);
+    expect(relayed).toEqual([]);
+  });
+
+  it('rejects malformed newVariables', async () => {
+    const { status } = await postPose({ ...GOOD_BODY, newVariables: [{ name: 42 }] });
+    expect(status).toBe(400);
+    expect(relayed).toEqual([]);
+  });
+
+  it('round-trips a typed axis expression, declaring its variable before the insert', async () => {
+    const applied = postPose({
+      ...GOOD_BODY,
+      rotateXYZ: null,
+      position: [120, 2, 3],
+      translateExprs: ['myVar', null, null],
+      newVariables: [{ name: 'myVar', initializer: '120' }],
+    });
+    const msg = await untilRelayed();
+    expect(msg.spec.instancePose.translateExprs).toEqual(['myVar', null, null]);
+    expect(msg.spec.newVariables).toEqual([{ name: 'myVar', initializer: '120' }]);
+
+    const roundTrip = await postRoundTrip(ASSEMBLY_CODE, msg.spec);
+    expect(roundTrip.body.error).toBeUndefined();
+    expect(roundTrip.body.newCode).toContain(
+      `const myVar = 120;\nconst h = insert(housing()).translate(myVar, 2, 3);`,
+    );
+
+    const { status, body } = await applied;
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true });
+  });
+
+  it('lands a param() declaration after the imports with its import ensured', async () => {
+    const applied = postPose({
+      ...GOOD_BODY,
+      rotateXYZ: null,
+      position: [120, 2, 3],
+      translateExprs: ['spacing', null, null],
+      newVariables: [{ name: 'spacing', initializer: 'param("spacing", 120)' }],
+    });
+    const msg = await untilRelayed();
+    const roundTrip = await postRoundTrip(ASSEMBLY_CODE, msg.spec);
+    expect(roundTrip.body.error).toBeUndefined();
+    expect(roundTrip.body.newCode).toMatch(/import \{[^}]*\bparam\b[^}]*\} from 'fluidcad\/core'/);
+    expect(roundTrip.body.newCode).toContain('const spacing = param("spacing", 120);');
+    expect(roundTrip.body.newCode.indexOf('const spacing'))
+      .toBeLessThan(roundTrip.body.newCode.indexOf('const h = insert'));
+    await applied;
+  });
+
+  describe('instance-translate-expressions read', () => {
+    async function postRead(body: unknown): Promise<{ status: number; body: any }> {
+      const res = await fetch(`${baseUrl}/api/instance-translate-expressions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return { status: res.status, body: await res.json() };
+    }
+
+    const READ_BODY = { filePath: '/ws/m.assembly.js', sourceLine: 4 };
+
+    it('reads the exact translate argument texts', async () => {
+      currentCode = ASSEMBLY_CODE.replace(
+        'const h = insert(housing());',
+        'const h = insert(housing()).translate(w + 10, gap, 5);',
+      );
+      const { status, body } = await postRead(READ_BODY);
+      expect(status).toBe(200);
+      expect(body.expressions).toEqual({ x: 'w + 10', y: 'gap', z: '5' });
+    });
+
+    it('answers null when the chain has no translate', async () => {
+      const { body } = await postRead(READ_BODY);
+      expect(body.expressions).toBeNull();
+    });
+
+    it('answers null when a rotate follows the translate (args are not the pose)', async () => {
+      currentCode = ASSEMBLY_CODE.replace(
+        'const h = insert(housing());',
+        `const h = insert(housing()).translate(1, 2, 3).rotate('z', 45);`,
+      );
+      const { body } = await postRead(READ_BODY);
+      expect(body.expressions).toBeNull();
+    });
+
+    it("answers null for another file's instance", async () => {
+      const { body } = await postRead({ ...READ_BODY, filePath: '/ws/sub.assembly.js' });
+      expect(body.expressions).toBeNull();
+    });
+
+    it('rejects a malformed body', async () => {
+      const { status } = await postRead({ filePath: '/ws/m.assembly.js' });
+      expect(status).toBe(400);
+    });
+  });
 });

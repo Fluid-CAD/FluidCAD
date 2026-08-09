@@ -3765,17 +3765,29 @@ export async function insertCatalogPart(
   }
 }
 
+/** Per-axis `.translate()` argument source text (see applyInstancePose). */
+export type InstanceTranslateExprs = [string | null, string | null, string | null];
+
 /**
  * Assembly-gizmo pose commit: rewrite the instance's `insert()` chain so its
  * `.translate()`/`.rotate()` calls reproduce the given final world pose.
  * `rotateXYZ` is ZYX Tait-Bryan degrees (chain order x→y→z); `null` commits
- * translation only, leaving existing `.rotate()` calls untouched. Failure
- * bodies surface their reason (preflight refusal, stale line, ack timeout).
+ * translation only, leaving existing `.rotate()` calls untouched.
+ * `options.translateExprs` carries per-axis source text for the written
+ * `.translate()` args — a typed expression on the edited axis, echoed
+ * existing text on untouched ones — with `null` axes falling back to the
+ * numeric position; `options.newVariables` declares the variables an
+ * expression commit introduced (`myVar = 120`). Failure bodies surface their
+ * reason (preflight refusal, stale line, ack timeout).
  */
 export async function applyInstancePose(
   sourceLocation: { filePath: string; line: number },
   position: [number, number, number],
   rotateXYZ: [number, number, number] | null,
+  options?: {
+    translateExprs?: InstanceTranslateExprs;
+    newVariables?: NewVariable[];
+  },
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('/api/instance-pose', {
@@ -3786,6 +3798,8 @@ export async function applyInstancePose(
         sourceLine: sourceLocation.line,
         position,
         rotateXYZ,
+        translateExprs: options?.translateExprs ?? null,
+        newVariables: options?.newVariables ?? null,
       }),
     });
     const body = await res.json().catch(() => null);
@@ -3796,6 +3810,23 @@ export async function applyInstancePose(
   } catch {
     return { success: false, reason: 'Could not reach the FluidCAD server' };
   }
+}
+
+/**
+ * The exact source text of the instance's `.translate(x, y, z)` arguments,
+ * for the gizmo's absolute-value input — null when the chain shape doesn't
+ * equate its args with the world position (no or several translates, a
+ * rotate after the translate) or the insert() lives in another file;
+ * per-axis null for argument text unsafe to echo.
+ */
+export async function getInstanceTranslateExpressions(
+  sourceLocation: { filePath: string; line: number },
+): Promise<{ x: string | null; y: string | null; z: string | null } | null> {
+  const data = await postJson<{ expressions: { x: string | null; y: string | null; z: string | null } | null }>(
+    '/api/instance-translate-expressions',
+    { filePath: sourceLocation.filePath, sourceLine: sourceLocation.line },
+  );
+  return data?.expressions ?? null;
 }
 
 // ---------------------------------------------------------------------------

@@ -1350,7 +1350,7 @@ export async function applyFeatureEdit(
     return applyInsertPartEdit(code, spec.insertPart);
   }
   if (spec.instancePose) {
-    return applyInstancePoseEdit(code, spec.instancePose);
+    return applyInstancePoseWithDecls(code, spec);
   }
   if (spec.edit) {
     return applyStatementEdit(code, spec);
@@ -1878,6 +1878,59 @@ export async function applyFeatureEdit(
   }
   result = await insertDeclsAfterImports(result, declsResult.paramDecls);
   return { newCode: result };
+}
+
+/**
+ * The `instancePose` side-channel plus its expression extras: validate the
+ * per-axis translate texts as safe single-argument expressions, apply the
+ * chain rewrite, then land any declarations the gizmo's absolute-value input
+ * committed — plain `const`s directly before the insert statement at its
+ * indent, `param()` declarations after the imports (import ensured) —
+ * mirroring the dialog expression fields. Declarations splice after the pose
+ * edit so the spec's source line stays valid throughout.
+ */
+async function applyInstancePoseWithDecls(
+  code: string,
+  spec: ApplyFeatureEditSpec,
+): Promise<ApplyFeatureEditResult> {
+  const pose = spec.instancePose!;
+  for (const expr of pose.translateExprs ?? []) {
+    if (expr !== null && !isExpressionText(expr)) {
+      return { newCode: code, error: 'malformed translate expression' };
+    }
+  }
+  const result = await applyInstancePoseEdit(code, pose);
+  if (result.error !== undefined || !spec.newVariables || spec.newVariables.length === 0) {
+    return result;
+  }
+
+  let working = result.newCode;
+  const parser = await getJavaScriptParser();
+  const useSemicolon = parser.parse(working).rootNode.namedChildren
+    .some(c => c.text.trimEnd().endsWith(';'));
+  const declsResult = renderNewVariableDecls(working, spec.newVariables, useSemicolon);
+  if ('error' in declsResult) {
+    return { newCode: code, error: declsResult.error };
+  }
+  if (declsResult.decls.length > 0) {
+    const lines = splitLines(working);
+    const row = pose.sourceLine - 1;
+    if (row < 0 || row >= lines.length) {
+      return { newCode: code, error: `no line ${pose.sourceLine} to declare variables before` };
+    }
+    const indent = indentOf(lines, row);
+    let lineStart = 0;
+    for (let i = 0; i < row; i++) {
+      lineStart += lines[i].length + 1;
+    }
+    const block = declsResult.decls.map(d => `${indent}${d}\n`).join('');
+    working = spliceCode(working, lineStart, lineStart, block);
+  }
+  if (declsResult.paramDecls.length > 0) {
+    working = await ensureSymbolImport(working, 'param');
+    working = await insertDeclsAfterImports(working, declsResult.paramDecls);
+  }
+  return { newCode: working };
 }
 
 /**

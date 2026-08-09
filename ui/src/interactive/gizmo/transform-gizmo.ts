@@ -2,8 +2,19 @@ import { Camera, Mesh, Quaternion, Raycaster, Scene, Vector3 } from 'three';
 import type { VariableInfo } from '../../ui/expression-core';
 import { GizmoDragSession, GizmoDelta, GizmoHandleId } from './gizmo-session';
 import { GIZMO_UNITS, GizmoHandleFactory, GizmoHandleOptions, GizmoHandleRecord, GizmoHandleSet } from './gizmo-geometry';
-import { GizmoValueInput } from './gizmo-value-input';
+import { GizmoExpressionCommit, GizmoValueInput } from './gizmo-value-input';
 import { applyConstantPixelSize } from '../../meshes/screen-scale';
+
+export type GizmoAxisHandleId = 'tx' | 'ty' | 'tz';
+
+/** What a clicked translate arrow's absolute-value input opens on. */
+export type GizmoAxisTypingContext = {
+  /** The axis' current absolute coordinate in the gizmo frame. */
+  value: number;
+  /** Resolves with the axis' exact source expression text, or null; seeds
+   *  the field once read (unless the user is already typing). */
+  sourceExpression?: Promise<string | null>;
+};
 
 /**
  * The slice of the viewport a gizmo needs — satisfied by SceneContext-backed
@@ -37,6 +48,15 @@ export type GizmoCallbacks = {
   onCommit(delta: GizmoDelta, source: 'drag' | 'typed'): void;
   /** The gesture was cancelled after movement — revert to the start pose. */
   onCancel(): void;
+  /**
+   * Absolute-value typing on the translate arrows: with both hooks provided,
+   * a click on tx/ty/tz opens the input at the axis' current absolute
+   * coordinate (full expression semantics, seeded with its source text) and
+   * commits through `onCommitAxisExpression` instead of a delta. Hosts that
+   * omit them keep the delta-from-zero click flow.
+   */
+  getAxisTypingContext?(handle: GizmoAxisHandleId): GizmoAxisTypingContext | null;
+  onCommitAxisExpression?(handle: GizmoAxisHandleId, commit: GizmoExpressionCommit): void;
 };
 
 export type GizmoOptions = {
@@ -53,6 +73,15 @@ const INPUT_LABELS: Record<GizmoHandleId, string> = {
   rx: 'Rx', ry: 'Ry', rz: 'Rz',
   center: 'dView',
 };
+
+/** Absolute-mode labels — the coordinate itself, not a delta. */
+const ABSOLUTE_INPUT_LABELS: Record<GizmoAxisHandleId, string> = {
+  tx: 'X', ty: 'Y', tz: 'Z',
+};
+
+function isAxisHandle(handle: GizmoHandleId): handle is GizmoAxisHandleId {
+  return handle === 'tx' || handle === 'ty' || handle === 'tz';
+}
 
 /** Ring hits win over arrow hits within this many gizmo units of depth. */
 const RING_TIE_BREAK_UNITS = 0.5;
@@ -317,7 +346,9 @@ export class TransformGizmo {
       this.callbacks.onCommit(outcome.delta, 'drag');
       this.endSession({ notifyCancel: false });
     } else if (outcome.kind === 'typing') {
-      this.showValueInput(session, 0);
+      if (!this.showAbsoluteValueInput(session)) {
+        this.showValueInput(session, 0);
+      }
     } else {
       this.endSession({ notifyCancel: session.state === 'dragging' });
     }
@@ -369,6 +400,42 @@ export class TransformGizmo {
       initial,
       onValue: (value) => this.commitTypedValue(value),
     });
+  }
+
+  /**
+   * A clicked translate arrow opens on the axis' absolute source value when
+   * the host supports it. False falls back to the delta flow (rings, plane
+   * handles never reach here, hosts without the hooks, or no context for
+   * this gesture).
+   */
+  private showAbsoluteValueInput(session: GizmoDragSession): boolean {
+    const handle = session.handle;
+    const { getAxisTypingContext, onCommitAxisExpression } = this.callbacks;
+    if (!isAxisHandle(handle) || !getAxisTypingContext || !onCommitAxisExpression) {
+      return false;
+    }
+    const context = getAxisTypingContext(handle);
+    if (!context) {
+      return false;
+    }
+    const projected = this.projectOriginToClient();
+    this.valueInput.showAbsolute({
+      label: ABSOLUTE_INPUT_LABELS[handle],
+      unit: session.inputKind,
+      clientX: projected.clientX,
+      clientY: projected.clientY,
+      variables: this.variables(),
+      initial: context.value,
+      sourceExpression: context.sourceExpression,
+      onCommit: (commit) => {
+        if (!this.session) {
+          return;
+        }
+        onCommitAxisExpression(handle, commit);
+        this.endSession({ notifyCancel: false });
+      },
+    });
+    return true;
   }
 
   private commitTypedValue(value: number): void {

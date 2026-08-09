@@ -188,6 +188,65 @@ describe('applyInstancePoseEdit', () => {
     });
   });
 
+  describe('translate expression overrides (translateExprs)', () => {
+    it('splices the typed expression into its axis, numerics elsewhere', async () => {
+      const code = `insert(p).translate(1, 2, 3);\n`;
+      const result = await applyInstancePoseEdit(code, {
+        sourceLine: 1, position: [42, 2, 3], rotateXYZ: null,
+        translateExprs: ['myVar', null, null],
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toBe(`insert(p).translate(myVar, 2, 3);\n`);
+    });
+
+    it('echoed text keeps untouched axes exactly as written', async () => {
+      const code = `insert(p).translate(w, h, 5);\n`;
+      const result = await applyInstancePoseEdit(code, {
+        sourceLine: 1, position: [30, 20, 12], rotateXYZ: null,
+        translateExprs: ['w', 'h', null],
+      });
+      expect(result.newCode).toBe(`insert(p).translate(w, h, 12);\n`);
+    });
+
+    it('appends a translate carrying the expression to a bare chain', async () => {
+      const code = `insert(p);\n`;
+      const result = await applyInstancePoseEdit(code, {
+        sourceLine: 1, position: [42, 0, 0], rotateXYZ: null,
+        translateExprs: ['spacing', null, null],
+      });
+      expect(result.newCode).toBe(`insert(p).translate(spacing, 0, 0);\n`);
+    });
+
+    it('writes the translate at the numeric origin when an expression rides it', async () => {
+      // `.translate(zeroVar, 0, 0)` with zeroVar currently 0 still binds the
+      // axis — the origin fast-path must not strip it.
+      const code = `insert(p).translate(1, 0, 0);\n`;
+      const result = await applyInstancePoseEdit(code, {
+        sourceLine: 1, position: [0, 0, 0], rotateXYZ: null,
+        translateExprs: ['zeroVar', null, null],
+      });
+      expect(result.newCode).toBe(`insert(p).translate(zeroVar, 0, 0);\n`);
+    });
+
+    it('threads expressions through the rotate-after-translate rebuild', async () => {
+      const code = `insert(p).translate(1, 2, 3).rotate('z', 45);\n`;
+      const result = await applyInstancePoseEdit(code, {
+        sourceLine: 1, position: [9, 9, 9], rotateXYZ: null,
+        translateExprs: ['myVar', null, null],
+      });
+      expect(result.newCode).toBe(`insert(p).rotate('z', 45).translate(myVar, 9, 9);\n`);
+    });
+
+    it('rotation commits carry echoed texts into the rebuilt tail', async () => {
+      const code = `insert(p).rotate('z', 45).translate(w, h, 5);\n`;
+      const result = await applyInstancePoseEdit(code, {
+        sourceLine: 1, position: [30, 20, 5], rotateXYZ: [0, 0, 90],
+        translateExprs: ['w', 'h', '5'],
+      });
+      expect(result.newCode).toBe(`insert(p).rotate('z', 90).translate(w, h, 5);\n`);
+    });
+  });
+
   describe('errors', () => {
     it('reports a miss instead of silently no-oping', async () => {
       const code = `const x = 1;\n`;

@@ -3,6 +3,8 @@ import { basename } from 'path';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
+import { isExpressionText } from '../apply-feature-edit.ts';
+import { getInsertTranslateExpressions } from '../insert-chain-edit.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 
@@ -10,11 +12,27 @@ function isVec3(v: unknown): v is [number, number, number] {
   return Array.isArray(v) && v.length === 3 && v.every(n => typeof n === 'number' && Number.isFinite(n));
 }
 
+/** `[string|null, string|null, string|null]` of safe expression texts. */
+function isTranslateExprs(v: unknown): v is [string | null, string | null, string | null] {
+  return Array.isArray(v) && v.length === 3
+    && v.every(e => e === null || isExpressionText(e));
+}
+
+function isNewVariables(v: unknown): v is { name: string; initializer: string }[] {
+  return Array.isArray(v) && v.every(nv =>
+    nv !== null && typeof nv === 'object'
+    && typeof (nv as any).name === 'string'
+    && typeof (nv as any).initializer === 'string');
+}
+
 /**
  * The assembly transform gizmo's commit endpoint: rewrite an `insert()`
  * chain's `.translate()`/`.rotate()` calls to the instance's final world
  * pose, through the shared edit dispatcher (preflight refusals answer 422
  * before the editor is touched; the host ack settles the response).
+ * `translateExprs` carries per-axis source text — a typed expression on the
+ * edited axis, echoed existing text on untouched ones — and `newVariables`
+ * the declarations an expression commit introduced.
  */
 export function createInstancePoseRouter(
   fluidCadServer: FluidCadServer,
@@ -23,12 +41,14 @@ export function createInstancePoseRouter(
   const router = Router();
 
   router.post('/instance-pose', async (req, res) => {
-    const { filePath, sourceLine, position, rotateXYZ } = req.body ?? {};
+    const { filePath, sourceLine, position, rotateXYZ, translateExprs, newVariables } = req.body ?? {};
     if (
       typeof filePath !== 'string' || filePath.length === 0
       || !Number.isInteger(sourceLine) || sourceLine < 1
       || !isVec3(position)
       || (rotateXYZ !== null && !isVec3(rotateXYZ))
+      || (translateExprs !== undefined && translateExprs !== null && !isTranslateExprs(translateExprs))
+      || (newVariables !== undefined && newVariables !== null && !isNewVariables(newVariables))
     ) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
@@ -59,9 +79,48 @@ export function createInstancePoseRouter(
       producers: [],
       parts: [],
       imports: [],
-      instancePose: { sourceLine, position, rotateXYZ },
+      instancePose: {
+        sourceLine,
+        position,
+        rotateXYZ,
+        translateExprs: translateExprs ?? null,
+      },
+      newVariables: newVariables ?? undefined,
     };
     await dispatcher.dispatch(res, spec, { success: true });
+  });
+
+  // The gizmo's absolute-value input reads the exact `.translate()` argument
+  // texts to seed the field and to echo untouched axes back on commit. Null
+  // when the chain shape doesn't equate its args with the world position
+  // (no/multiple translates, rotate-after-translate, spread args) or the
+  // insert() lives in another file; per-axis null for unsafe argument text.
+  router.post('/instance-translate-expressions', async (req, res) => {
+    const { filePath, sourceLine } = req.body ?? {};
+    if (
+      typeof filePath !== 'string' || filePath.length === 0
+      || !Number.isInteger(sourceLine) || sourceLine < 1
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const currentFile = fluidCadServer.getCurrentFileName();
+    const code = fluidCadServer.getCurrentCode();
+    if (!currentFile || !code || normalizePath(filePath) !== normalizePath(currentFile)) {
+      res.json({ expressions: null });
+      return;
+    }
+    try {
+      const result = await getInsertTranslateExpressions(code, sourceLine);
+      if (!result) {
+        res.json({ expressions: null });
+        return;
+      }
+      const safe = (s: string) => (isExpressionText(s) ? s : null);
+      res.json({ expressions: { x: safe(result.x), y: safe(result.y), z: safe(result.z) } });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
   });
 
   return router;

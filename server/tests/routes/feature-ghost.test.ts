@@ -189,6 +189,67 @@ describe('feature-ghost route — repeat', () => {
     }
   });
 
+  /**
+   * A real model derives its dimensions — `const holeX = plateW / 2 -
+   * edgeOff` — and then repeats over `2 * holeX`. Only the literals reach the
+   * extracted params; the derived chain (arithmetic, references to earlier
+   * constants, `Math.*` calls) is folded in on top, in file order.
+   */
+  it('resolves derived top-level constants, chains and Math included', async () => {
+    code = [
+      'const plateW = 2.94',
+      'const edgeOff = 0.49',
+      'const holeX = plateW / 2 - edgeOff',
+      'const diag = Math.hypot(3, 4)',
+      'const spacing = diag - holeX',
+      'sketch("xy", () => {})',
+    ].join('\n');
+
+    await postGhost(linearBody({
+      directions: [{ count: 2, offset: '2 * holeX', length: null }],
+    }));
+    expect(received.directions[0].offset).toBeCloseTo(1.96);
+
+    await postGhost(linearBody({
+      directions: [{ count: 2, offset: 'spacing', length: null }],
+    }));
+    expect(received.directions[0].offset).toBeCloseTo(5 - 0.98);
+  });
+
+  /** Dialog-typed `Math.*` is the same whitelist — constants and calls. */
+  it('works out Math constants and calls typed into the dialog', async () => {
+    code = 'const r = 10';
+
+    await postGhost(linearBody({
+      directions: [{ count: 3, offset: 'Math.PI * r', length: null }],
+    }));
+    expect(received.directions[0].offset).toBeCloseTo(Math.PI * 10);
+
+    await postGhost(linearBody({
+      directions: [{ count: 3, offset: 'Math.max(r, 25)', length: null }],
+    }));
+    expect(received.directions[0].offset).toBe(25);
+  });
+
+  /**
+   * A derived constant built on a `param()` uses the registry's current,
+   * override-aware value — the scene was built with that, not the source
+   * default.
+   */
+  it('derives constants from the registry\'s current param values', async () => {
+    code = ['const w = param("W", 10)', 'const half = w / 2'].join('\n');
+    const previous = fakeServer.getParamDefinitions;
+    fakeServer.getParamDefinitions = () => [{ label: 'W', currentValue: 30 }] as never;
+    try {
+      await postGhost(linearBody({
+        directions: [{ count: 2, offset: 'half', length: null }],
+      }));
+      expect(received.directions[0].offset).toBe(15);
+    } finally {
+      fakeServer.getParamDefinitions = previous;
+    }
+  });
+
   it('refuses an expression whose names it cannot resolve', async () => {
     const { status, body } = await postGhost(linearBody({
       directions: [{ count: 3, offset: 'spacing * 2', length: null }],
@@ -205,14 +266,15 @@ describe('feature-ghost route — repeat', () => {
 
   /**
    * The evaluator reads text a dialog typed. It must work sums out and
-   * nothing else — no call, no member access, no division by zero.
+   * nothing else — no call or member access beyond `Math`'s own, no division
+   * by zero.
    */
   it('refuses anything that is not arithmetic', async () => {
     code = 'const width = 40';
 
     for (const expression of [
-      'Math.round(3.7)',
       'width.toFixed(0)',
+      'Math.constructor(1)',
       'width = 1',
       'width / 0',
       '[1][0]',

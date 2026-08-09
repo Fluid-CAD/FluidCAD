@@ -5849,8 +5849,21 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'offset must be [x, y, z] finite numbers' });
         return;
       }
+      // Instance-scoped create: the connector binds to this one instance and
+      // its statement lands in the assembly file instead of the part's.
+      const connectorInstanceId = req.body?.instanceId;
+      if (connectorInstanceId !== undefined
+        && (typeof connectorInstanceId !== 'string' || connectorInstanceId.length === 0)) {
+        res.status(400).json({ error: 'instanceId must be a non-empty string' });
+        return;
+      }
       try {
-        const connectorOptions = { anchor, rotate, offset: frameOffset };
+        const connectorOptions = {
+          anchor,
+          rotate,
+          offset: frameOffset,
+          ...(connectorInstanceId ? { instance: { instanceId: connectorInstanceId } } : {}),
+        };
         // Two-pass: a bare synthesis learns which file the statement lands
         // in (the picked producers' file — the PART file under an assembly
         // render), then the real pass runs with namer/params built over
@@ -6545,12 +6558,23 @@ export function createApplyFeatureRouter(
       res.status(400).json({ error: 'entity must be a {shapeId, sub:{type, index}} pick' });
       return;
     }
+    const anchorsInstanceId = req.body?.instanceId;
+    if (anchorsInstanceId !== undefined
+      && (typeof anchorsInstanceId !== 'string' || anchorsInstanceId.length === 0)) {
+      res.status(400).json({ error: 'instanceId must be a non-empty string' });
+      return;
+    }
+    // Instance-scoped: default name + selector synthesis run against the
+    // instance's namespace and the assembly file.
+    const instanceOptions = anchorsInstanceId
+      ? { connector: { instance: { instanceId: anchorsInstanceId } } }
+      : undefined;
     try {
       // Two-pass, mirroring the connector create branch: the bare pass
       // learns the statement's target file; the real pass builds
       // namer/params over that file so the suggested args match what the
       // commit writes.
-      const probe = fluidCadServer.suggestConnectorAnchors(pick, undefined);
+      const probe = fluidCadServer.suggestConnectorAnchors(pick, instanceOptions);
       if (!probe) {
         res.status(404).json({ success: false, reason: 'No rendered scene' });
         return;
@@ -6561,7 +6585,7 @@ export function createApplyFeatureRouter(
       }
       const fileOptions = await synthesisOptionsForFile(probe.filePath);
       const result = fileOptions
-        ? fluidCadServer.suggestConnectorAnchors(pick, fileOptions) ?? probe
+        ? fluidCadServer.suggestConnectorAnchors(pick, { ...fileOptions, ...(instanceOptions ?? {}) }) ?? probe
         : probe;
       if (result.ok === false) {
         res.json({ success: false, reason: result.reason });

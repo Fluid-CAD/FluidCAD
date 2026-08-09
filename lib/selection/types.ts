@@ -10,6 +10,23 @@ import { SceneObject, SourceLocation } from "../common/scene-object.js";
 export type SelectionScene = {
   getAllSceneObjects(): SceneObject[];
   findEnclosingPart(obj: SceneObject): SceneObject | null;
+  /**
+   * Assembly scenes only: the inserted instances, for instance-scoped
+   * connector synthesis (which instance a pick belongs to, and where its
+   * `insert()` statement lives). Absent on part scenes.
+   */
+  getInstances?(): {
+    instanceId: string;
+    part: SceneObject;
+    name: string;
+    sourceLocation?: SourceLocation;
+  }[];
+  /**
+   * Assembly scenes only: assembly-scoped connectors already bound to
+   * `instanceId` — the namespace an instance-scoped connector's name must be
+   * free in (alongside the part's own connectors).
+   */
+  getInstanceConnectors?(instanceId?: string): { connectorName: string }[];
 };
 
 /** View of `scene` truncated to objects strictly before `boundaryIndex`. */
@@ -164,7 +181,16 @@ export type ApplyFeatureEditSpec = {
    */
   connector?: {
     name: string;
-    part: { line: number; column: number };
+    /** Part-owned connector: the `part(...)` call site whose body receives the statement. */
+    part?: { line: number; column: number };
+    /**
+     * Instance-scoped connector: the assembly-file `insert()` statement line
+     * of the bound instance. The transform appends
+     * `const <binding> = connector('<name>', <insertBinding>.select(...))` at
+     * the end of the assembly file instead of touching the part file.
+     * Exactly one of `part` / `instance` is set.
+     */
+    instance?: { line: number };
     anchor?: ConnectorAnchor;
     rotate?: { axis: ConnectorRotateAxis; angle: number };
     offset?: [number, number, number];
@@ -274,6 +300,14 @@ export type ConnectorSynthesisOptions = {
   rotate?: { axis: ConnectorRotateAxis; angle: number };
   /** Frame-local offset [x, y, z]; skipped when all zero, trailing zeros trimmed. */
   offset?: [number, number, number];
+  /**
+   * Instance-scoped connector: bind the statement to this one instance in
+   * the assembly file instead of the enclosing part(). Selector synthesis is
+   * forced to the geometric `select()` form — part-file variables cannot be
+   * referenced at assembly scope — and the emitted statement scopes it as
+   * `<insertBinding>.select(...)`.
+   */
+  instance?: { instanceId: string };
 };
 
 /** `.center()` / `.offset('relative', 0.3)` — appended to the source selector. */

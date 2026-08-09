@@ -79,6 +79,7 @@ type SceneManager = {
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       params?: { name: string; value: number }[];
+      connector?: { instance?: { instanceId: string } };
     },
   ): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
@@ -1248,6 +1249,7 @@ export class FluidCadServer {
         anchor?: { kind: string; mode?: string; value?: number };
         rotate?: { axis: 'x' | 'y' | 'z'; angle: number };
         offset?: [number, number, number];
+        instance?: { instanceId: string };
       };
     },
     before?: SelectionBoundary,
@@ -1272,6 +1274,7 @@ export class FluidCadServer {
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       params?: { name: string; value: number }[];
+      connector?: { instance?: { instanceId: string } };
     },
   ): any {
     if (!this.sceneManager) {

@@ -84,7 +84,12 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
       }
     }
 
-    const allShapes = this.constraintObject ? this.constraintObject.getShapes() : this.getAllShapes(sceneObjects, excludedObjects);
+    // A constraint object narrows the universe to that object's subtree —
+    // its solids' sub-shapes of this selection's kind (mirrors getAllShapes),
+    // so an instance-scoped selection resolves within one part only.
+    const allShapes = this.constraintObject
+      ? this.constraintObject.getShapes({}, 'solid').flatMap(s => s.getSubShapes(this.type))
+      : this.getAllShapes(sceneObjects, excludedObjects);
     let scopeHasher: ShapeHasher | null = null;
     if (this.type === "edge") {
       scopeHasher = this.injectScopeFaces(filters, sceneObjects);
@@ -234,6 +239,10 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
       : undefined;
     const remappedFilters = this.filters.map(f => f.remap(remap));
     return new SelectSceneObject(remappedFilters, remappedConstraint);
+  }
+
+  getFilters(): FilterBuilderBase<Shape>[] {
+    return this.filters;
   }
 
   transform(matrix: Matrix4): SelectSceneObject {

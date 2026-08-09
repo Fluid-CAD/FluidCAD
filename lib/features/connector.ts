@@ -31,6 +31,13 @@ function applyConnectorTransform(frame: Plane, t: ConnectorTransform): Plane {
 export class Connector extends SceneObject implements IConnector {
   private transforms: ConnectorTransform[] = [];
 
+  /**
+   * Set on assembly-scoped connectors only: the one instance this connector
+   * belongs to. Part-owned connectors (declared inside `part()`) leave it
+   * undefined — they appear on every instance of the part.
+   */
+  public boundInstanceId?: string;
+
   constructor(
     public connectorName: string,
     public sourceShape: ConnectorInput,
@@ -87,6 +94,7 @@ export class Connector extends SceneObject implements IConnector {
   override createCopy(_remap: Map<SceneObject, SceneObject>): SceneObject {
     const copy = new Connector(this.connectorName, this.sourceShape, this.options);
     copy.transforms = [...this.transforms];
+    copy.boundInstanceId = this.boundInstanceId;
     return copy;
   }
 
@@ -109,6 +117,9 @@ export class Connector extends SceneObject implements IConnector {
     if (JSON.stringify(this.transforms) !== JSON.stringify(other.transforms)) {
       return false;
     }
+    if (this.boundInstanceId !== other.boundInstanceId) {
+      return false;
+    }
     return true;
   }
 
@@ -119,10 +130,11 @@ export class Connector extends SceneObject implements IConnector {
   serialize() {
     const frame = this.getState(FRAME_STATE_KEY) as Plane | undefined;
     if (!frame) {
-      return { name: this.connectorName };
+      return { name: this.connectorName, instanceId: this.boundInstanceId };
     }
     return {
       name: this.connectorName,
+      instanceId: this.boundInstanceId,
       origin: frame.origin,
       xDirection: frame.xDirection,
       yDirection: frame.yDirection,
@@ -143,5 +155,26 @@ export class BoundConnector {
 
   getFrame(): Plane {
     return this.connector.getFrame();
+  }
+
+  /**
+   * Chainable frame adjustments, mirroring {@link Connector} so an
+   * assembly-scoped `connector(...)` — which returns a BoundConnector —
+   * supports the same `.rotate('x', 90).offset(0, 0, 5)` statement chain a
+   * part-owned one does.
+   */
+  rotate(axis: "x" | "y" | "z", angle: number): this {
+    this.connector.rotate(axis, angle);
+    return this;
+  }
+
+  offset(x: number, y: number = 0, z: number = 0): this {
+    this.connector.offset(x, y, z);
+    return this;
+  }
+
+  name(value: string): this {
+    this.connector.name(value);
+    return this;
   }
 }

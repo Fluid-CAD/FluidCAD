@@ -25,6 +25,12 @@ type MateSlotState = {
   instanceName: string;
   /** The assembly file the insert() lives in — the mate's target file. */
   filePath: string;
+  /**
+   * 'part' — a part-owned connector, referenced as
+   * `<binding>.connectors.<name>`; 'instance' — an assembly-scoped connector
+   * bound to this one instance, referenced by its own `const` binding.
+   */
+  scope: 'part' | 'instance';
 };
 
 /** The provisional record's id — never collides with `mate-<n>` scene ids. */
@@ -214,7 +220,8 @@ export class AssemblyMateService {
     if (!instance.sourceLocation) {
       return { error: `${instance.name} has no source location — its insert() cannot be referenced.` };
     }
-    const name = this.viewer.getAssemblyController()?.getConnectorName(connectorId);
+    const controller = this.viewer.getAssemblyController();
+    const name = controller?.getConnectorName(connectorId);
     if (!name) {
       return { error: 'This connector has no name — its statement failed to build.' };
     }
@@ -225,6 +232,7 @@ export class AssemblyMateService {
       connectorName: name,
       instanceName: instance.name,
       filePath: instance.sourceLocation.filePath,
+      scope: controller?.getConnectorInstanceId(connectorId) ? 'instance' : 'part',
     };
   }
 
@@ -258,10 +266,13 @@ export class AssemblyMateService {
   }
 
   /**
-   * A face/edge click while a slot is armed: create a connector in the
-   * part's own file (default anchor, `c<N>` default name — the pen button
-   * edits it afterwards) and fill the slot with a pending pick that the
-   * next render resolves to the new connector's scene id.
+   * A face/edge click while a slot is armed: create a connector on the fly
+   * (default anchor, `c<N>` default name — the pen button edits it
+   * afterwards) and fill the slot with a pending pick that the next render
+   * resolves to the new connector's scene id. The panel's scope choice
+   * decides where it lives: 'instance' (default) binds it to the clicked
+   * instance in the assembly file; 'part' writes into the part's own file,
+   * so it appears on every instance.
    */
   private async createConnectorFromPick(
     entity: ApplyFeatureEntity,
@@ -278,9 +289,12 @@ export class AssemblyMateService {
       this.panel.setMessage('Could not resolve the clicked geometry to an instance.');
       return;
     }
+    const scope = this.panel.getConnectorScope();
     this.creatingConnector = true;
     try {
-      const suggestion = await fetchConnectorAnchors(entity);
+      const suggestion = await fetchConnectorAnchors(
+        entity, undefined, scope === 'instance' ? instance.instanceId : undefined,
+      );
       if (!this.armed) {
         return;
       }
@@ -292,6 +306,7 @@ export class AssemblyMateService {
         name: suggestion.defaultName,
         entities: [entity],
         anchor: suggestion.anchors[0]?.anchor,
+        ...(scope === 'instance' ? { instanceId: instance.instanceId } : {}),
       });
       if (!this.armed) {
         return;
@@ -309,6 +324,7 @@ export class AssemblyMateService {
         connectorName: suggestion.defaultName,
         instanceName: instance.name,
         filePath: instance.sourceLocation.filePath,
+        scope,
       };
       this.panel.setSlotChip(slot, `${instance.name} · ${suggestion.defaultName}`);
       this.panel.setMessage(null);
@@ -322,7 +338,10 @@ export class AssemblyMateService {
   }
 
   private sameConnector(a: MateSlotState | null, b: MateSlotState): boolean {
-    return a !== null && a.instanceLine === b.instanceLine && a.connectorName === b.connectorName;
+    return a !== null
+      && a.instanceLine === b.instanceLine
+      && a.connectorName === b.connectorName
+      && a.scope === b.scope;
   }
 
   /**
@@ -357,8 +376,12 @@ export class AssemblyMateService {
     }
     const a = this.slots.a;
     const b = this.slots.b;
+    // Instance-scoped connectors are referenced by their own const binding —
+    // the connector name stands in for it (the server writes the truth).
     const ref = (s: MateSlotState | null) =>
-      s ? `${s.instanceName}.connectors.${s.connectorName}` : '…';
+      s
+        ? (s.scope === 'instance' ? s.connectorName : `${s.instanceName}.connectors.${s.connectorName}`)
+        : '…';
     let chain = `mate('${values.type}', ${ref(a)}, ${ref(b)})`;
     if (values.flip) chain += '.flip()';
     if (values.rotate !== 0) chain += `.rotate(${values.rotate})`;
@@ -409,11 +432,16 @@ export class AssemblyMateService {
     this.applying = true;
     this.panel.setApplyEnabled(false);
     try {
+      const sideRef = (s: MateSlotState) => ({
+        instanceLine: s.instanceLine,
+        connectorName: s.connectorName,
+        ...(s.scope === 'instance' ? { scope: 'instance' as const } : {}),
+      });
       const result = await applyAssemblyMate(a.filePath, {
         create: {
           type: values.type,
-          connectorA: { instanceLine: a.instanceLine, connectorName: a.connectorName },
-          connectorB: { instanceLine: b.instanceLine, connectorName: b.connectorName },
+          connectorA: sideRef(a),
+          connectorB: sideRef(b),
           options,
         },
       });

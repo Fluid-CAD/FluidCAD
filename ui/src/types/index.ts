@@ -22,6 +22,10 @@ export type ConnectorData = {
   /** The identifier registered by `connector('name', …)` — absent only on
    *  a connector whose build failed before its frame was derived. */
   name?: string;
+  /** Assembly-scoped connectors only: the one instance this connector is
+   *  bound to. Part-owned connectors (declared inside `part()`) omit it —
+   *  they appear on every instance of the part. */
+  instanceId?: string;
   origin: Vec3Data;
   xDirection: Vec3Data;
   yDirection: Vec3Data;

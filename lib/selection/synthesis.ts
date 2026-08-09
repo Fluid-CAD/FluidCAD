@@ -74,6 +74,7 @@ export function synthesizeSelectors(
   chains: SelectorChain[] = [],
   params: ParameterLink[] = [],
   preferBucketIndices: boolean = false,
+  forceGlobalSelect: boolean = false,
 ): SelectorSynthesis {
   const allAttributions = [
     ...attributions,
@@ -90,8 +91,11 @@ export function synthesizeSelectors(
   const bucketGroups = new Map<BucketRecord, PickAttribution[]>();
   const globalPools: { edge: PickAttribution[]; face: PickAttribution[] } = { edge: [], face: [] };
 
+  // `forceGlobalSelect` routes every pick to the geometric select() form —
+  // an assembly-scoped statement cannot reference part-file variables, so
+  // the bucket tiers' producer bindings are off the table.
   for (const attr of attributions) {
-    if (attr.producer && checkBindable(index, attr.producer.bucket.feature) === null) {
+    if (!forceGlobalSelect && attr.producer && checkBindable(index, attr.producer.bucket.feature) === null) {
       const bucket = attr.producer.bucket;
       let list = bucketGroups.get(bucket);
       if (!list) {

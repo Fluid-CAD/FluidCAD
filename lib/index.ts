@@ -71,12 +71,24 @@ export type SceneParserContext = {
   getActiveSketch(): Sketch | null;
 }
 
-export function registerBuilder<T extends Function>(builder: (context: SceneParserContext) => T): T {
+export type RegisterBuilderOptions = {
+  /**
+   * Allow the command at the top level of an *.assembly.js file (outside any
+   * part() block). Almost every command is part-design only; `connector()`
+   * opts in to declare assembly-scoped, instance-bound connectors.
+   */
+  allowAssemblyTopLevel?: boolean;
+};
+
+export function registerBuilder<T extends Function>(
+  builder: (context: SceneParserContext) => T,
+  options: RegisterBuilderOptions = {},
+): T {
 
   const fn: Function = function() {
 
     let scene = getCurrentScene();
-    if (scene instanceof AssemblyScene && !scene.getActivePart()) {
+    if (scene instanceof AssemblyScene && !scene.getActivePart() && !options.allowAssemblyTopLevel) {
       throw new Error("This command is part-design only and cannot be used at the top level of an *.assembly.js file.");
     }
     const sourceLocation = captureSourceLocation();

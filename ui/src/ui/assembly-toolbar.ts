@@ -16,8 +16,7 @@ export type AssemblyToolbarHandlers = {
  * Insert opens the part-catalog dialog; the remaining buttons are
  * placeholders that render like the real part-design tools but only announce
  * themselves as unimplemented when clicked. The groups mirror the planned
- * assembly features — Insert (bring a part in), Translate (position an
- * instance), and one button per mate type.
+ * assembly features — Insert (bring a part in) and one button per mate type.
  */
 export class AssemblyToolbar {
   constructor(navbar: Navbar, handlers: AssemblyToolbarHandlers = {}) {
@@ -27,10 +26,6 @@ export class AssemblyToolbar {
     } else {
       this.addPlaceholder(insertGroup, { icon: 'insert', label: 'Insert', tip: 'Insert part' });
     }
-
-    const transformGroup = navbar.addGroup('assembly-transform', { mode: 'assembly' });
-    this.addPlaceholder(transformGroup, { icon: 'translate-part', label: 'Translate', tip: 'Translate instance' });
-    this.addPlaceholder(transformGroup, { icon: 'grounded', label: 'Ground', tip: 'Ground instance' });
 
     // One button per mate type of the assembly solver (SerializedMate['type']),
     // plus Spherical, which has artwork but no solver support yet.

@@ -157,10 +157,10 @@ function buildAssemblyRail(): LeftRail {
         gotoSource(inst.sourceLocation);
       }
     },
-    (id) => {
+    (id, grounded) => {
       const inst = findInstance(id);
       if (!inst?.sourceLocation) return;
-      updateInsertChain(inst.sourceLocation, { ground: true });
+      updateInsertChain(inst.sourceLocation, { ground: grounded });
     },
     (id, newName) => {
       const inst = findInstance(id);

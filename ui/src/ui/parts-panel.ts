@@ -5,21 +5,30 @@
 //     → See one row per insert with the part name.
 //  2. Click a row → instance highlights in the viewport. Editor stays put.
 //  3. Click 👁 → instance hides; click again → reappears.
-//  4. Click ⋮ → menu shows Show in source, Set as ground, Rename, Delete.
-//  5. Set as ground on row B → ground glyph moves from row A (if previously
-//     grounded) to row B; source updates accordingly.
+//  4. Click ⋮ (or right-click the row) → menu shows Show in source,
+//     Toggle grounded, Rename, Delete, each with its icon.
+//  5. Toggle grounded on row B → ground glyph moves from row A (if previously
+//     grounded) to row B; source updates accordingly. Toggling it again on
+//     row B drops `.grounded()` and the glyph with it.
 //  6. Rename → inline input commits on Enter or blur.
 //
 // Companion to timeline-panel.ts (part-design rail). Both are mounted on the
 // same container and selected by ui/main.ts based on `sceneKind`.
 
 import type { RenderedInstance } from '../types';
-import { ICON_EYE, ICON_EYE_OFF, ICON_GROUND } from './icons';
+import {
+  ICON_CHEVRON_RIGHT,
+  ICON_CODE,
+  ICON_CUBE,
+  ICON_DOTS_VERTICAL,
+  ICON_EYE,
+  ICON_EYE_OFF,
+  ICON_GROUND,
+  ICON_PENCIL,
+  ICON_TRASH,
+} from './icons';
 
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
-const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
-const CUBE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>';
-const DOTS_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
 
 export class PartsPanel {
   private panel: HTMLDivElement;
@@ -37,7 +46,7 @@ export class PartsPanel {
   private onSelectInstance: (instanceId: string) => void;
   private onToggleVisibility: (instanceId: string, visible: boolean) => void;
   private onShowInSource: (instanceId: string) => void;
-  private onSetGround: (instanceId: string) => void;
+  private onSetGround: (instanceId: string, grounded: boolean) => void;
   private onRename: (instanceId: string, newName: string) => void;
   private onDeleteInstance: (instanceId: string) => void;
 
@@ -46,7 +55,8 @@ export class PartsPanel {
     onSelectInstance: (instanceId: string) => void,
     onToggleVisibility: (instanceId: string, visible: boolean) => void,
     onShowInSource: (instanceId: string) => void,
-    onSetGround: (instanceId: string) => void,
+    /** Sets (`grounded: true`) or clears (`false`) the instance's ground. */
+    onSetGround: (instanceId: string, grounded: boolean) => void,
     onRename: (instanceId: string, newName: string) => void,
     onDeleteInstance: (instanceId: string) => void,
   ) {
@@ -67,7 +77,7 @@ export class PartsPanel {
     const partsHeader = document.createElement('div');
     partsHeader.className = SECTION_HEADER;
     partsHeader.innerHTML = `
-      <span data-ref="chevron" class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${CHEVRON_SVG}</span>
+      <span data-ref="chevron" class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${ICON_CHEVRON_RIGHT}</span>
       <span class="text-sm font-medium text-base-content/70">Parts</span>
       <span data-ref="parts-count" class="text-xs text-base-content/40 tabular-nums"></span>
     `;
@@ -154,7 +164,7 @@ export class PartsPanel {
       const groundOverlay = inst.grounded
         ? `<span class="absolute -bottom-1 -right-1 text-warning leading-none [&>svg]:size-3.5" title="Grounded">${ICON_GROUND}</span>`
         : '';
-      const groundSlot = `<span class="relative shrink-0 inline-flex items-center justify-center w-4 h-4 text-base-content/60 [&>svg]:size-4">${CUBE_SVG}${groundOverlay}</span>`;
+      const groundSlot = `<span class="relative shrink-0 inline-flex items-center justify-center w-4 h-4 text-base-content/60 [&>svg]:size-4">${ICON_CUBE}${groundOverlay}</span>`;
       const eyeIcon = inst.visible ? ICON_EYE : ICON_EYE_OFF;
       const eyeVisibility = inst.visible
         ? 'opacity-0 group-hover:opacity-100 text-base-content/40'
@@ -167,7 +177,7 @@ export class PartsPanel {
           ${groundSlot}
           ${nameOrInput}
           <button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-eye="${inst.instanceId}">${eyeIcon}</button>
-          <button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${inst.instanceId}">${DOTS_SVG}</button>
+          <button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${inst.instanceId}">${ICON_DOTS_VERTICAL}</button>
         </div>
       `;
     }
@@ -183,6 +193,17 @@ export class PartsPanel {
         this.selectedId = id;
         this.renderRows();
         this.onSelectInstance(id);
+      });
+      row.addEventListener('contextmenu', (e) => {
+        if ((e.target as HTMLElement).closest('[data-rename-input]')) {
+          return;
+        }
+        e.preventDefault();
+        const panelRect = this.panel.getBoundingClientRect();
+        this.showDropdown(row.dataset.instanceId!, {
+          top: e.clientY - panelRect.top,
+          left: e.clientX - panelRect.left,
+        });
       });
     });
 
@@ -201,7 +222,12 @@ export class PartsPanel {
     this.partsBody.querySelectorAll<HTMLElement>('[data-dots]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.showDropdown(btn, btn.dataset.dots!);
+        const rect = btn.getBoundingClientRect();
+        const panelRect = this.panel.getBoundingClientRect();
+        this.showDropdown(btn.dataset.dots!, {
+          top: rect.bottom - panelRect.top + 2,
+          left: rect.left - panelRect.left - 140,
+        }, btn);
       });
     });
 
@@ -236,23 +262,33 @@ export class PartsPanel {
     }
   }
 
-  private showDropdown(anchor: HTMLElement, instanceId: string): void {
+  /**
+   * The row menu, opened either under the ⋮ button (`anchor` given) or at the
+   * pointer on a row right-click. `position` is relative to the panel, which
+   * hosts the menu so it survives a row re-render.
+   */
+  private showDropdown(
+    instanceId: string,
+    position: { top: number; left: number },
+    anchor?: HTMLElement,
+  ): void {
     this.closeDropdown();
+    const inst = this.instances.find(i => i.instanceId === instanceId);
+    if (!inst) {
+      return;
+    }
 
     const dropdown = document.createElement('div');
     dropdown.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
-
-    const rect = anchor.getBoundingClientRect();
-    const panelRect = this.panel.getBoundingClientRect();
-    dropdown.style.top = `${rect.bottom - panelRect.top + 2}px`;
-    dropdown.style.left = `${rect.left - panelRect.left - 140}px`;
+    dropdown.style.top = `${position.top}px`;
+    dropdown.style.left = `${position.left}px`;
 
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
-        <li><button data-action="show-in-source">Show in source</button></li>
-        <li><button data-action="set-ground">Set as ground</button></li>
-        <li><button data-action="rename">Rename</button></li>
-        <li><button data-action="delete" class="text-error">Delete</button></li>
+        ${PartsPanel.menuItem('show-in-source', ICON_CODE, 'Show in source')}
+        ${PartsPanel.menuItem('set-ground', ICON_GROUND, 'Toggle grounded', inst.grounded ? 'text-warning' : '')}
+        ${PartsPanel.menuItem('rename', ICON_PENCIL, 'Rename')}
+        ${PartsPanel.menuItem('delete', ICON_TRASH, 'Delete', 'text-error')}
       </ul>
     `;
 
@@ -265,7 +301,9 @@ export class PartsPanel {
     });
     dropdown.querySelector('[data-action="set-ground"]')!.addEventListener('click', () => {
       this.closeDropdown();
-      this.onSetGround(instanceId);
+      // Toggle: a grounded instance drops its `.grounded()` again, rather than
+      // re-writing the one it already has.
+      this.onSetGround(instanceId, !inst.grounded);
     });
     dropdown.querySelector('[data-action="rename"]')!.addEventListener('click', () => {
       this.closeDropdown();
@@ -278,12 +316,28 @@ export class PartsPanel {
     });
 
     const onClickOutside = (e: MouseEvent) => {
-      if (!dropdown.contains(e.target as Node) && !anchor.contains(e.target as Node)) {
+      if (!dropdown.contains(e.target as Node) && !anchor?.contains(e.target as Node)) {
         this.closeDropdown();
       }
     };
-    setTimeout(() => document.addEventListener('click', onClickOutside), 0);
-    this.dropdownCleanup = () => document.removeEventListener('click', onClickOutside);
+    // A right-click elsewhere dismisses too — the row handler that opens the
+    // next menu runs first (and clears this listener), so the fresh menu stays.
+    setTimeout(() => {
+      document.addEventListener('click', onClickOutside);
+      document.addEventListener('contextmenu', onClickOutside);
+    }, 0);
+    this.dropdownCleanup = () => {
+      document.removeEventListener('click', onClickOutside);
+      document.removeEventListener('contextmenu', onClickOutside);
+    };
+  }
+
+  /** One icon + label menu row, matching the timeline panel's context menu. */
+  private static menuItem(action: string, icon: string, label: string, extraClass = ''): string {
+    return `<li><button data-action="${action}" class="flex items-center gap-2 ${extraClass}">`
+      + `<span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${icon}</span>`
+      + `<span>${label}</span>`
+      + `</button></li>`;
   }
 
   private closeDropdown(): void {

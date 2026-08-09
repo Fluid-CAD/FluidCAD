@@ -101,6 +101,9 @@ export class AssemblyController {
     moved: boolean;
     downX: number;
     downY: number;
+    /** Pointer that claimed the gesture — lets {@link cancelPointerGesture}
+     *  release the capture taken at pointerdown. */
+    pointerId: number;
     /** Last solved cursor position, in client coords. Pointer events
      *  often arrive faster than the cursor visibly moves (high-rate
      *  mice + browser smoothing); skipping a solve when (clientX,
@@ -496,6 +499,12 @@ export class AssemblyController {
     // normally clears it.)
     this.postDragSuppress = null;
     if (e.button !== 0) return;
+    // Dormant while the container is out of the scene (a part file is being
+    // viewed — the viewer detaches the container but keeps this controller
+    // and its instance groups alive for pose round-tripping). Without this,
+    // the raycast below hits the stale invisible instance meshes and claims
+    // clicks meant for the part's faces/edges.
+    if (!this.container.parent) return;
     // A gizmo drag owns the assembly for the duration — a second pointer
     // (multi-touch) must not start a competing part drag mid-solve.
     if (this.externalDrag) return;
@@ -534,6 +543,7 @@ export class AssemblyController {
       moved: false,
       downX: e.clientX,
       downY: e.clientY,
+      pointerId: e.pointerId,
       lastSolvedClientX: Number.NaN,
       lastSolvedClientY: Number.NaN,
       readoutEdge: this.findReadoutEdge(hit.instanceId),
@@ -656,6 +666,28 @@ export class AssemblyController {
     this.dragValueHandler?.(null);
     e.stopImmediatePropagation();
   };
+
+  /**
+   * Abort any pointer gesture and drop the not-yet-consumed drop flag.
+   * Called by the viewer when a render switches the scene away from this
+   * assembly (a part file's updateView): a drag in flight must not leave
+   * {@link isDragGestureActive} stuck true (which would kill hover), and a
+   * stale {@link postDragSuppress} must not swallow the first click in the
+   * part view. No release handler fires — the gesture is cancelled, not
+   * dropped.
+   */
+  cancelPointerGesture(): void {
+    if (this.dragState) {
+      try {
+        (this.renderer.domElement as HTMLElement).releasePointerCapture(this.dragState.pointerId);
+      } catch {
+        // ignore — capture may not have been set
+      }
+      this.dragState = null;
+      this.dragValueHandler?.(null);
+    }
+    this.postDragSuppress = null;
+  }
 
   setDragReleaseHandler(handler: InstanceDragReleaseHandler | null): void {
     this.dragReleaseHandler = handler;

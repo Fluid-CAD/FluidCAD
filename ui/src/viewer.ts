@@ -843,6 +843,10 @@ export class Viewer {
       // Drop any per-instance hover-revealed connectors so they don't
       // resurface when the user re-enters assembly mode.
       this.assemblyController.setHoveredInstance(null);
+      // A drag in flight (or an unconsumed drop flag) must not survive into
+      // the part view — it would pin isDragGestureActive() true and swallow
+      // the first click via consumeRecentDrag().
+      this.assemblyController.cancelPointerGesture();
     }
 
     if (!isRollback) {

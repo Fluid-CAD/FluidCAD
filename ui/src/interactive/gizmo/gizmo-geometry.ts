@@ -3,6 +3,7 @@ import {
   CylinderGeometry,
   DoubleSide,
   Group,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   PlaneGeometry,
@@ -37,13 +38,13 @@ const RING_TUBE = 0.09;
 const RING_ARC = Math.PI * 1.5;
 const RING_ARROW_RADIUS = 0.22;
 const RING_ARROW_LENGTH = 0.55;
-const PLANE_SIZE = 0.9;
+const PLANE_SIZE = 1.8;
 const PLANE_OFFSET = 2.2;
 const CENTER_RADIUS = 0.45;
 
 const HIT_SHAFT_RADIUS = 0.55;
 const HIT_RING_TUBE = 0.42;
-const HIT_PLANE_SIZE = 1.5;
+const HIT_PLANE_SIZE = 2.4;
 const HIT_CENTER_RADIUS = 0.9;
 
 /** Everything the gizmo draws on top; above connector triads (1000). */
@@ -86,7 +87,7 @@ const AXIS_COLORS = [X_COLOR, Y_COLOR, Z_COLOR];
 
 /**
  * Builds the triad's handle meshes: arrows (translate), rings past the arrow
- * tips (rotate), plane diamonds (plane translate), center sphere (view-plane
+ * tips (rotate), plane squares (plane translate), center sphere (view-plane
  * translate). Every handle group carries a visible mesh set plus an invisible
  * fat hit mesh stamped `userData.gizmoHandle`; the core raycasts the hit
  * meshes directly, so nothing here participates in app picking.
@@ -236,7 +237,14 @@ export class GizmoHandleFactory {
     return GizmoHandleFactory.record(id, group, hit, [material], color, 1);
   }
 
-  /** A 45°-rotated quad between two axes, colored by its plane normal. */
+  /**
+   * An axis-aligned square in the positive pocket between its two plane
+   * axes, colored by its plane normal. The group basis maps local X/Y onto
+   * the plane's world axes in the drag session's (u, v) order — a
+   * shortest-arc quaternion would land two of the squares in negative
+   * quadrants, where clicks aimed at the corner the arrows frame would miss
+   * the gizmo entirely and fall through to the part free-drag.
+   */
   private static buildPlane(normalAxis: 0 | 1 | 2): GizmoHandleRecord {
     const id = (['pyz', 'pxz', 'pxy'] as const)[normalAxis];
     const color = AXIS_COLORS[normalAxis];
@@ -244,15 +252,15 @@ export class GizmoHandleFactory {
     material.side = DoubleSide;
 
     const group = new Group();
-    group.quaternion.copy(new Quaternion().setFromUnitVectors(UNIT_Z, AXIS_DIRS[normalAxis]));
+    const u = AXIS_DIRS[(normalAxis + 1) % 3];
+    const v = AXIS_DIRS[(normalAxis + 2) % 3];
+    group.quaternion.setFromRotationMatrix(new Matrix4().makeBasis(u, v, AXIS_DIRS[normalAxis]));
 
-    const diamond = new Mesh(new PlaneGeometry(PLANE_SIZE, PLANE_SIZE), material);
-    diamond.rotation.z = Math.PI / 4;
-    diamond.position.set(PLANE_OFFSET, PLANE_OFFSET, 0);
-    group.add(diamond);
+    const square = new Mesh(new PlaneGeometry(PLANE_SIZE, PLANE_SIZE), material);
+    square.position.set(PLANE_OFFSET, PLANE_OFFSET, 0);
+    group.add(square);
 
     const hit = new Mesh(new PlaneGeometry(HIT_PLANE_SIZE, HIT_PLANE_SIZE), GizmoHandleFactory.hitMaterial());
-    hit.rotation.z = Math.PI / 4;
     hit.position.set(PLANE_OFFSET, PLANE_OFFSET, 0);
 
     return GizmoHandleFactory.record(id, group, hit, [material], color, 0.6);

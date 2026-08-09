@@ -142,13 +142,49 @@ export class ConnectorPanel extends FeaturePanel {
     this.sourceSlot.setArmed(true);
     this.nameInput.value = '';
     this.nameTouched = false;
-    for (const input of this.offsetInputs) {
-      input.value = '';
-    }
-    this.rotateAxisSelect.value = 'z';
-    this.rotateAngle = 0;
-    this.rotationValue.textContent = '0°';
+    this.setAdjustments(null, null);
     this.shell.show();
+  }
+
+  /**
+   * Edit mode (timeline double-click): the statement's own values seed every
+   * field, and its source expression stands as the slot's un-removable
+   * "Current: …" chip — the slot stays armed, so one viewport click re-points
+   * the connector at fresh geometry.
+   */
+  showEdit(seed: {
+    name: string;
+    sourceText: string;
+    rotate: { axis: ConnectorRotateAxis; angle: number } | null;
+    offset: [number, number, number] | null;
+  }): void {
+    this.shell.setTitle('Edit connector');
+    this.sourceSlot.reset();
+    this.sourceSlot.seedKeep(seed.sourceText);
+    this.sourceSlot.setArmed(true);
+    this.nameInput.value = seed.name;
+    // The statement's name is the user's own — a re-pick's default suggestion
+    // must not overwrite it.
+    this.nameTouched = true;
+    this.setAdjustments(seed.rotate, seed.offset);
+    this.shell.show();
+  }
+
+  /** Seed (or clear) the rotation stepper and the offset triple. */
+  private setAdjustments(
+    rotate: { axis: ConnectorRotateAxis; angle: number } | null,
+    offset: [number, number, number] | null,
+  ): void {
+    this.offsetInputs.forEach((input, index) => {
+      const value = offset?.[index] ?? 0;
+      // A blank field reads as 0 — a zero component shows as the placeholder.
+      input.value = value === 0 ? '' : String(value);
+    });
+    this.rotateAxisSelect.value = rotate?.axis ?? 'z';
+    // A hand-written angle keeps its value and steps 90° from there; a
+    // negative or over-full turn normalizes to the equivalent 0–359.
+    this.rotateAngle = (((rotate?.angle ?? 0) % 360) + 360) % 360;
+    this.rotationValue.textContent = `${this.rotateAngle}°`;
   }
 
   /**

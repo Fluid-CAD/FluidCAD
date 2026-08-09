@@ -260,6 +260,13 @@ export type ConnectorAnchorSpec =
 export type ConnectorRotateAxis = 'x' | 'y' | 'z';
 
 /**
+ * The identifier a connector may register under — mirrors the kernel's
+ * `CONNECTOR_NAME_PATTERN`, restated here so the transform stays a
+ * dependency-free string function.
+ */
+const CONNECTOR_NAME = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+/**
  * Connector create payload. `name` is the identifier the statement registers
  * (validated against the same pattern the kernel enforces); `part` is the
  * `part(...)` call site whose callback body receives the statement. `anchor`
@@ -454,6 +461,25 @@ export type FeatureStatementEditTarget = {
    * `slot([x1,y1], [x2,y2], r)`, …) — validated to be a single slot() chain.
    */
   slot?: { drawStatement: string };
+  /**
+   * Connector options — always explicit on an edit: a cleared rotation or
+   * offset field writes `null` and drops that chain rather than keeping the
+   * statement's own. The source expression is NOT here: it follows the
+   * selector-args contract (the edited expression row, a re-picked selection,
+   * else the statement's own text), anchor suffix included.
+   */
+  connector?: {
+    name: string;
+    rotate: { axis: ConnectorRotateAxis; angle: number } | null;
+    offset: [number, number, number] | null;
+    /**
+     * The anchor a RE-PICKED source narrows to, rendered as the suffix on the
+     * selector parts (the create path's contract — the parts carry the plain
+     * accessor). Ignored when the args come from the edited expression row or
+     * the statement's own text: both already spell the anchor out.
+     */
+    anchor?: ConnectorAnchorSpec;
+  };
   loft?: {
     op: 'add' | 'remove' | 'new';
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
@@ -1730,7 +1756,7 @@ export async function applyFeatureEdit(
     // whose callback body receives the statement.
     const co = spec.connector;
     const valid = co !== undefined
-      && typeof co.name === 'string' && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(co.name)
+      && typeof co.name === 'string' && CONNECTOR_NAME.test(co.name)
       && Number.isInteger(co.part?.line) && Number.isInteger(co.part?.column)
       && spec.producers.length >= 1 && spec.parts.length === 1
       && validConnectorAnchor(co.anchor)
@@ -3870,7 +3896,7 @@ function enclosingSketchStatement(node: TSNode): TSNode | null {
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'slot' | 'project' | 'rib';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'slot' | 'project' | 'rib' | 'connector';
 
 /**
  * One base argument of a parsed plane statement. `kind` is what the base
@@ -4040,6 +4066,21 @@ export type ParsedFeatureStatement =
     feature: 'project';
     /** The projected source argument list, verbatim (`''` when absent). */
     argsText: string;
+  }
+  | {
+    feature: 'connector';
+    /** The identifier the statement registers the connector under. */
+    name: string;
+    /**
+     * The source argument, verbatim — the anchor suffix included, since
+     * `.center()` / `.offset('relative', 0.3)` is part of the expression the
+     * dialog's source row shows and edits (`e.endFaces(0).center()`).
+     */
+    argsText: string;
+    /** `.rotate('<axis>', deg)`, or null when the chain is absent. */
+    rotate: { axis: ConnectorRotateAxis; angle: number } | null;
+    /** `.offset(x[, y, z])` with the omitted components read as 0; null when absent. */
+    offset: [number, number, number] | null;
   }
   | {
     feature: 'chamfer';
@@ -4247,6 +4288,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   offset: 'offset',
   slot: 'slot',
   project: 'project',
+  connector: 'connector',
 };
 
 /**
@@ -4302,6 +4344,11 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // The sources are the root call's arguments; `.name()` and friends are
   // unrecognized members and survive verbatim.
   project: new Set(),
+  // The name and the source (anchor suffix included) are root-call arguments;
+  // the frame adjustments are the chained options the dialog edits. They are
+  // order-sensitive — an offset walks the ROTATED axes — so the parse also
+  // requires the writer's own order (rotate, then offset).
+  connector: new Set(['rotate', 'offset']),
 };
 
 type ChainSegment = { name: string; args: TSNode[]; endIndex: number };
@@ -4664,6 +4711,10 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       ? code.slice(args[0].startIndex, args[args.length - 1].endIndex)
       : '';
     return { parsed: { feature, argsText }, start, end };
+  }
+
+  if (feature === 'connector') {
+    return parseConnectorChain(args, recognized, code, start, end);
   }
 
   if (feature === 'text') {
@@ -5738,6 +5789,67 @@ function parseBooleanChain(
     start,
     end,
   };
+}
+
+/**
+ * Read a `connector('<name>', <source>)` chain into the dialog's fields. The
+ * source argument is kept verbatim (anchor suffix and all) — the dialog shows
+ * it as the source row's text and only a re-pick replaces it.
+ *
+ * The two adjustment chains must read exactly as the dialog writes them:
+ * plain numeric literals (a variable rotation has no stepper to seed), and
+ * rotate BEFORE offset — the kernel applies them in chain order and an offset
+ * walks the rotated axes, so re-emitting a reversed pair would silently move
+ * the connector. Both refuse honestly instead.
+ */
+function parseConnectorChain(
+  args: TSNode[],
+  recognized: Map<string, ChainSegment>,
+  code: string,
+  start: number,
+  end: number,
+): ChainParse {
+  if (args.length !== 2) {
+    return { error: 'a connector takes a name and one source — edit the statement in the source' };
+  }
+  const name = stringArgValue(args[0]);
+  if (name === null || !CONNECTOR_NAME.test(name)) {
+    return { error: 'the connector name is not a plain string identifier — edit it in the source' };
+  }
+  const argsText = code.slice(args[1].startIndex, args[1].endIndex);
+
+  const order = [...recognized.keys()];
+  if (recognized.has('rotate') && recognized.has('offset')
+    && order.indexOf('offset') < order.indexOf('rotate')) {
+    return { error: 'the connector offsets before it rotates — edit the statement in the source' };
+  }
+
+  let rotate: { axis: ConnectorRotateAxis; angle: number } | null = null;
+  const rotateSeg = recognized.get('rotate');
+  if (rotateSeg) {
+    const axis = rotateSeg.args.length === 2 ? stringArgValue(rotateSeg.args[0]) : null;
+    const angle = rotateSeg.args.length === 2 ? numericArgValue(rotateSeg.args[1]) : null;
+    if ((axis !== 'x' && axis !== 'y' && axis !== 'z') || angle === null) {
+      return { error: "the .rotate() chain is not a plain ('x'|'y'|'z', angle) pair — edit it in the source" };
+    }
+    rotate = { axis, angle };
+  }
+
+  let offset: [number, number, number] | null = null;
+  const offsetSeg = recognized.get('offset');
+  if (offsetSeg) {
+    if (offsetSeg.args.length < 1 || offsetSeg.args.length > 3) {
+      return { error: 'the .offset() chain takes one to three distances — edit it in the source' };
+    }
+    const values = offsetSeg.args.map(numericArgValue);
+    if (values.some(v => v === null)) {
+      return { error: 'the connector offsets are not plain numbers — edit them in the source' };
+    }
+    // The API defaults the omitted components to 0 (`offset(x, y = 0, z = 0)`).
+    offset = [values[0]!, values[1] ?? 0, values[2] ?? 0];
+  }
+
+  return { parsed: { feature: 'connector', name, argsText, rotate, offset }, start, end };
 }
 
 /** The origin plane a base's string literal names, or null. */
@@ -7497,6 +7609,31 @@ export function renderEditedStatement(
     // No value slot: the args are the whole statement — the edited expression
     // row, the re-picked selector parts, or the statement's own list.
     return { statement: `project(${editedSelectorArgs(spec, parsed.argsText, varFor)})` };
+  }
+  if (parsed.feature === 'connector') {
+    const opts = spec.edit?.connector;
+    if (!opts || typeof opts.name !== 'string' || !CONNECTOR_NAME.test(opts.name)
+      || !validConnectorRotate(opts.rotate ?? undefined)
+      || !validConnectorAnchor(opts.anchor)
+      || (opts.offset !== null
+        && !(Array.isArray(opts.offset) && opts.offset.length === 3
+          && opts.offset.every(v => Number.isFinite(v))))) {
+      return { error: 'malformed connector edit spec' };
+    }
+    const args = editedSelectorArgs(spec, parsed.argsText, varFor);
+    if (!args) {
+      return { error: 'the connector needs its source — pick a face or edge' };
+    }
+    // Only re-picked parts need the anchor appended (they render the bare
+    // accessor, exactly like the create path); the expression row and the
+    // statement's own text already spell it out.
+    const repicked = !spec.rawArgs?.trim() && spec.parts.length > 0;
+    const anchor = repicked ? renderConnectorAnchorSuffix(opts.anchor) : '';
+    const chain = renderConnectorChain({
+      rotate: opts.rotate ?? undefined,
+      offset: opts.offset ?? undefined,
+    });
+    return { statement: `connector('${opts.name}', ${args}${anchor})${chain}` };
   }
   if (parsed.feature === 'slot') {
     // The Draw tab's replacement: the freshly drawn from-dimensions statement

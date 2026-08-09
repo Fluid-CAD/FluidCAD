@@ -5149,6 +5149,132 @@ describe('apply-feature route validation', () => {
       expect(body.error).toContain('plain identifier');
     });
 
+    // -- in-place edits (timeline double-click) ------------------------------
+
+    const CONNECTOR_EDIT_CODE = [
+      `import { extrude, part, connector } from 'fluidcad/core'`,
+      ``,
+      `part('plate', () => {`,
+      `  const e = extrude(30)`,
+      `  connector('mountTop', e.endFaces(0).center()).rotate('z', 90)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const CONNECTOR_EDIT = { filePath: '/ws/m.fluid.js', line: 5, column: 2 };
+
+    it('previews an edit that keeps the statement source and rewrites the chain', async () => {
+      currentCode = CONNECTOR_EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'connector',
+        edit: CONNECTOR_EDIT,
+        name: 'mountLeft',
+        rotate: { axis: 'y', angle: 180 },
+        offset: [0, 0, 2],
+        preview: true,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(
+        `connector('mountLeft', e.endFaces(0).center()).rotate('y', 180).offset(0, 0, 2)`,
+      );
+      // No re-pick: synthesis never runs, so no boundary is needed.
+      expect(synthesizeCalls).toEqual([]);
+    });
+
+    it('relays an edit that clears both adjustments', async () => {
+      currentCode = CONNECTOR_EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'connector', edit: CONNECTOR_EDIT, name: 'mountTop', rotate: null, offset: null,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`connector('mountTop', e.endFaces(0).center())`);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'connector',
+        edit: { line: 5, column: 2, connector: { name: 'mountTop', rotate: null, offset: null } },
+      });
+    });
+
+    it('synthesizes a re-picked source against the boundary, name and anchor riding along', async () => {
+      currentCode = CONNECTOR_EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      currentSynthesis = {
+        ...connectorSynthesis,
+        args: 'e.sideFaces(2).center()',
+        spec: {
+          ...connectorSynthesis.spec,
+          parts: [{ producer: 0, accessor: 'sideFaces', indices: [2], filterArgs: null }],
+        },
+      };
+      const before = { index: 2, type: 'connector', line: 5, column: 2 };
+      const { status, body } = await post({
+        feature: 'connector',
+        edit: CONNECTOR_EDIT,
+        name: 'mountTop',
+        rotate: null,
+        offset: null,
+        entities: [PICK],
+        anchor: { kind: 'center' },
+        before,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`connector('mountTop', e.sideFaces(2).center())`);
+      // The name rides the value channel and the anchor the options — the same
+      // contract the create path uses, so the args come back suffixed.
+      expect(synthesizeCalls).toEqual([{ feature: 'connector', value: 'mountTop' as any }]);
+      expect((synthesizeOptions[0] as any)?.connector).toEqual({ anchor: { kind: 'center' } });
+      expect(synthesizeBoundaries[0]).toEqual(before);
+    });
+
+    it('rejects a re-picked source with no boundary', async () => {
+      currentCode = CONNECTOR_EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'connector',
+        edit: CONNECTOR_EDIT,
+        name: 'mountTop',
+        rotate: null,
+        offset: null,
+        entities: [PICK],
+        anchor: { kind: 'center' },
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('before is required');
+    });
+
+    it('rejects an edit with a bad name, adjustment, or multi-pick source', async () => {
+      currentCode = CONNECTOR_EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const base = { feature: 'connector', edit: CONNECTOR_EDIT, rotate: null, offset: null };
+      const bad = [
+        { ...base, name: 'not a name' },
+        { ...base, name: 'c', rotate: { axis: 'w', angle: 90 } },
+        { ...base, name: 'c', offset: [1, 2] },
+        // A connector's frame derives from exactly one face or edge.
+        { ...base, name: 'c', entities: [PICK, PICK], anchor: { kind: 'center' }, before: { index: 2, type: 'connector', line: 5, column: 2 } },
+      ];
+      for (const body of bad) {
+        const { status } = await post(body);
+        expect(status).toBe(400);
+      }
+      expect(relayed).toHaveLength(0);
+    });
+
+    it('refuses an edit whose line holds another feature', async () => {
+      currentCode = CONNECTOR_EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'connector',
+        edit: { filePath: '/ws/m.fluid.js', line: 4, column: 2 },
+        name: 'mountTop',
+        rotate: null,
+        offset: null,
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('extrude');
+      expect(relayed).toHaveLength(0);
+    });
+
     async function postAnchors(body: unknown): Promise<{ status: number; body: any }> {
       const res = await fetch(`${baseUrl}/api/selection/connector-anchors`, {
         method: 'POST',

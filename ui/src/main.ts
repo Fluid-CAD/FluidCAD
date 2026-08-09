@@ -47,7 +47,7 @@ import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint } from './api';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
-import type { SceneObjectRender } from './types';
+import type { ConnectorData, SceneObjectRender } from './types';
 import { applyPreferences } from './scene/viewer-settings';
 import { installVSCodeKeyboardBridge } from './keyboard-bridge';
 
@@ -711,6 +711,9 @@ const EDITABLE_ROW_TYPES = new Set([
   'copy-linear', 'copy-circular',
   'fuse', 'subtract', 'common',
   'plane',
+  // A connector row sits inside its part() body; its dialog re-opens over the
+  // statement with the frame the row itself carries.
+  'connector',
   // 2D: an offset/slot/fillet/projection row sits under its sketch, and its
   // dialog re-opens over it. (A from-dimensions slot statement parse-refuses
   // with a drag-to-edit hint — only the from-edge form has a dialog.)
@@ -826,6 +829,14 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     booleanService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'plane') {
     planeService.enterEdit(target, parsed, info);
+  } else if (parsed.feature === 'connector') {
+    // The row carries the connector's built frame — the dialog's live gizmo
+    // recovers the anchor it stands on from it, so the rotation and offset
+    // fields preview even before the source is re-picked. A connector whose
+    // build failed serializes only its name; the dialog opens ghost-less.
+    const data = obj.object as ConnectorData | undefined;
+    const frame = data?.origin && data.xDirection && data.yDirection && data.normal ? data : null;
+    connectorService.enterEdit(target, parsed, info, frame);
   } else if (parsed.feature === 'offset') {
     const parentSketch = viewer.currentSceneObjects.find(o =>
       o.id != null && o.id === obj.parentId && o.type === 'sketch');
@@ -1259,7 +1270,7 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
   // Continue leaves the paused build: open edit sessions end WITHOUT their
   // cancel-restore rollback — the full render Continue triggers supersedes
   // it, and a session re-assert would fight the view the user asked for.
-  for (const service of [modifyService, extrudeService, ribService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, mirrorService, rotateService, booleanService, planeService]) {
+  for (const service of [modifyService, extrudeService, ribService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, mirrorService, rotateService, booleanService, planeService, connectorService]) {
     if (service.isEditing) {
       service.exit({ editEnd: 'continue' });
     }

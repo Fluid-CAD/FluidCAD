@@ -109,6 +109,50 @@ export function adjustConnectorFrame(
   };
 }
 
+/**
+ * The exact inverse of {@link adjustConnectorFrame}: recover the anchor frame
+ * a built connector stands on from the frame it ended up with, given the
+ * adjustments its statement chained. The edit dialog seeds its live ghost
+ * from this — the rendered connector carries only its final frame, and every
+ * dialled rotation/offset has to re-apply from the anchor, not compound onto
+ * what the statement already did.
+ *
+ * Both steps invert in reverse order: the offset walked the ROTATED axes (the
+ * frame's own, as handed in), and the rotation pivots around the named axis,
+ * which maps onto itself — so the same axis un-turns it.
+ */
+export function unadjustConnectorFrame(
+  frame: ConnectorFrameData,
+  rotate: { axis: 'x' | 'y' | 'z'; angle: number },
+  offset: [number, number, number],
+): ConnectorFrameData {
+  const origin = new Vector3(frame.origin.x, frame.origin.y, frame.origin.z);
+  let normal = new Vector3(frame.normal.x, frame.normal.y, frame.normal.z).normalize();
+  let xDir = new Vector3(frame.xDirection.x, frame.xDirection.y, frame.xDirection.z).normalize();
+  let yDir = new Vector3(frame.yDirection.x, frame.yDirection.y, frame.yDirection.z).normalize();
+
+  origin.addScaledVector(xDir, -offset[0]);
+  origin.addScaledVector(yDir, -offset[1]);
+  origin.addScaledVector(normal, -offset[2]);
+
+  if (rotate.angle % 360 !== 0) {
+    const axis = rotate.axis === 'x' ? xDir.clone()
+      : rotate.axis === 'y' ? yDir.clone()
+      : normal.clone();
+    const angle = (-rotate.angle * Math.PI) / 180;
+    xDir = xDir.clone().applyAxisAngle(axis, angle);
+    yDir = yDir.clone().applyAxisAngle(axis, angle);
+    normal = normal.clone().applyAxisAngle(axis, angle);
+  }
+
+  return {
+    origin: { x: origin.x, y: origin.y, z: origin.z },
+    xDirection: { x: xDir.x, y: xDir.y, z: xDir.z },
+    yDirection: { x: yDir.x, y: yDir.y, z: yDir.z },
+    normal: { x: normal.x, y: normal.y, z: normal.z },
+  };
+}
+
 function disposeTree(root: Object3D): void {
   root.traverse((node: Object3D & { geometry?: { dispose?: () => void }; material?: any }) => {
     node.geometry?.dispose?.();

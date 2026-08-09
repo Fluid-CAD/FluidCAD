@@ -1,13 +1,16 @@
 import { Vector3 } from 'three';
 import {
-  ApplyFeatureEntity, applyConnector, ConnectorAnchorCandidate, ConnectorAnchorsResult,
-  ConnectorApplyOptions, fetchConnectorAnchors,
+  ApplyFeatureEntity, applyConnector, applyConnectorEdit, ConnectorAnchorCandidate, ConnectorAnchorsResult,
+  ConnectorApplyOptions, ConnectorEditOptions, FeatureEditTarget, fetchConnectorAnchors,
+  ParsedFeatureStatement,
 } from '../../api';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
+import { EditSession, EditSessionInfo } from '../edit-session';
+import { ConnectorFrameData } from '../../meshes/containers/connector-mesh';
 import { ConnectorPanel } from './connector-panel';
-import { ConnectorGhostOverlay, adjustConnectorFrame } from './connector-ghost';
+import { ConnectorGhostOverlay, adjustConnectorFrame, unadjustConnectorFrame } from './connector-ghost';
 import { FeatureButton } from './feature-button';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
@@ -59,7 +62,7 @@ export class ConnectorFeatureService {
   private sceneSketchActive = false;
   private sketchUI: SketchUISuspender;
   private ghost: ConnectorGhostOverlay;
-  private runner: ApplyRunner<ConnectorApplyOptions>;
+  private runner: ApplyRunner<ConnectorApplyOptions | ConnectorEditOptions>;
 
   /** The entity under the cursor, or null. */
   private hoverKey: string | null = null;
@@ -72,6 +75,19 @@ export class ConnectorFeatureService {
   private suggestionShown: { key: string; index: number } | null = null;
 
   private locked: LockedAnchor | null = null;
+
+  /** Statement being edited in place (timeline double-click), or null. */
+  private editTarget: FeatureEditTarget | null = null;
+  /** View-state half of edit mode: pre-statement rollback + boundary. */
+  private session = new EditSession();
+  /**
+   * Edit mode: the anchor frame the edited connector stands on — its built
+   * frame with the statement's own adjustments taken back off, so the
+   * dialog's live gizmo re-applies from the anchor instead of compounding
+   * onto what the statement already did. Null when the row carried no frame
+   * (a connector whose build failed).
+   */
+  private anchorFrame: ConnectorFrameData | null = null;
 
   constructor(
     container: HTMLElement,
@@ -116,8 +132,16 @@ export class ConnectorFeatureService {
     };
     this.panel.onRemoveSource = () => {
       this.locked = null;
+      // Edit mode falls back to the statement's own source (the un-removable
+      // "Current: …" chip the slot still holds); create mode falls back to
+      // the pick prompt, with nothing left to preview.
       this.panel.setSourceChip(null);
       this.panel.setMessage(null);
+      if (this.editTarget) {
+        this.updatePreviewGhost();
+        this.runner.schedulePreview();
+        return;
+      }
       this.panel.setPreview(null);
       this.runner.cancelPreview();
       this.ghost.clearPreview();
@@ -126,15 +150,22 @@ export class ConnectorFeatureService {
     this.runner = new ApplyRunner({
       panel: this.panel,
       isArmed: () => this.armed,
-      build: () => this.buildRequest(),
-      send: (request, extras) => applyConnector({ ...request, ...extras }),
-      onApplied: () => this.exit({ resume: 'lazy' }),
-      failMessage: () => 'Could not add the connector.',
+      build: () => this.editTarget ? this.buildEditRequest() : this.buildRequest(),
+      send: (request, extras) => this.editTarget
+        ? applyConnectorEdit(this.editTarget, { ...(request as ConnectorEditOptions), ...extras })
+        : applyConnector({ ...(request as ConnectorApplyOptions), ...extras }),
+      onApplied: () => this.exit(this.editTarget ? { editEnd: 'apply' } : { resume: 'lazy' }),
+      failMessage: () => this.editTarget ? 'Could not apply the edit.' : 'Could not add the connector.',
     });
   }
 
   get isActive(): boolean {
     return this.armed;
+  }
+
+  /** An edit session is open (the viewport shows the pre-statement rollback). */
+  get isEditing(): boolean {
+    return this.editTarget !== null;
   }
 
   /** The armed dialog owns viewport face/edge clicks. */
@@ -147,8 +178,43 @@ export class ConnectorFeatureService {
     return this.sketchUI.suspended;
   }
 
-  handleSceneRendered(sceneObjects: SceneObjectRender[], _stop: number, isRollback: boolean): void {
-    this.update(isRollback ? [] : sceneObjects);
+  /**
+   * Every render lands here. An open edit session owns the view: it keeps the
+   * viewport rolled back to just before the edited statement — the world the
+   * connector's source expression sees, its own gizmo absent so the dialog's
+   * ghost stands in its place, and the geometry it attaches to visible and
+   * re-pickable.
+   */
+  handleSceneRendered(sceneObjects: SceneObjectRender[], stop: number, isRollback: boolean): void {
+    const state = this.session.onSceneRendered(sceneObjects, stop, isRollback);
+    if (state === 'inactive') {
+      this.update(isRollback ? [] : sceneObjects);
+      return;
+    }
+    if (!this.armed) {
+      this.session.end('gone');
+      return;
+    }
+    if (state === 'gone') {
+      this.exit({ editEnd: 'gone' });
+      return;
+    }
+    if (state === 'waiting') {
+      return;
+    }
+    // At the boundary. Shape ids are per-render, so a re-pick made against
+    // the old scene died with it — the source falls back to the statement's
+    // own expression, which is text and survives. The anchor frame is world
+    // geometry from the row, so the ghost keeps drawing throughout.
+    this.clearSuggestion();
+    if (this.locked) {
+      this.locked = null;
+      this.panel.setSourceChip(null);
+      this.panel.setMessage('The code changed — pick the connector location again.');
+    }
+    this.syncViewport();
+    this.updatePreviewGhost();
+    this.runner.schedulePreview();
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -182,10 +248,55 @@ export class ConnectorFeatureService {
     }
   }
 
+  /**
+   * Open the dialog over an existing `connector()` statement (timeline
+   * double-click). Every field seeds from the parsed statement and its source
+   * expression stands as the slot's kept chip — a viewport click re-points it
+   * at fresh geometry, everything else edits in place. `frame` is the built
+   * connector's own frame, straight off its timeline row: the ghost recovers
+   * the anchor it stands on from it, so dialling the rotation or an offset
+   * previews live even before anything is re-picked.
+   */
+  enterEdit(
+    target: FeatureEditTarget,
+    parsed: Extract<ParsedFeatureStatement, { feature: 'connector' }>,
+    info: Omit<EditSessionInfo, 'target'>,
+    frame: ConnectorFrameData | null,
+  ): void {
+    if (this.armed) {
+      this.exit();
+    }
+    this.hooks.onEnter?.();
+    this.armed = true;
+    this.editTarget = target;
+    this.locked = null;
+    this.clearSuggestion();
+    this.anchorFrame = frame
+      ? unadjustConnectorFrame(
+        frame,
+        parsed.rotate ?? { axis: 'z', angle: 0 },
+        parsed.offset ?? [0, 0, 0],
+      )
+      : null;
+    this.syncButton();
+    this.sketchUI.suspend();
+    this.session.begin({ ...info, target });
+    this.panel.showEdit({
+      name: parsed.name,
+      sourceText: parsed.argsText,
+      rotate: parsed.rotate,
+      offset: parsed.offset,
+    });
+    this.syncViewport();
+    this.updatePreviewGhost();
+    this.runner.schedulePreview();
+  }
+
   enter(): void {
     if (this.armed) {
       return;
     }
+    this.session.end('continue');
     this.hooks.onEnter?.();
     this.armed = true;
     this.locked = null;
@@ -203,13 +314,21 @@ export class ConnectorFeatureService {
   /**
    * `resume: 'lazy'` re-enables sketch editing without forcing the mode
    * transition — for apply-success and scene-driven exits; user cancels
-   * default to `'immediate'`.
+   * default to `'immediate'`. Ending an edit session always resumes lazily (a
+   * render follows every session end).
    */
-  exit(opts: { resume?: 'immediate' | 'lazy' } = {}): void {
+  exit(opts: { resume?: 'immediate' | 'lazy'; editEnd?: 'apply' | 'cancel' | 'continue' | 'gone' } = {}): void {
     if (!this.armed) {
       return;
     }
+    const hadSession = this.session.active;
+    this.session.end(opts.editEnd ?? 'cancel');
+    if (hadSession) {
+      opts = { ...opts, resume: 'lazy' };
+    }
     this.armed = false;
+    this.editTarget = null;
+    this.anchorFrame = null;
     this.locked = null;
     this.clearSuggestion();
     this.runner.cancelPreview();
@@ -404,15 +523,21 @@ export class ConnectorFeatureService {
     return `${shape} ${kind}`;
   }
 
-  /** The locked gizmo under the dialog's current rotate/offset — no server. */
+  /**
+   * The dialog's current rotate/offset on its anchor frame — the locked
+   * pick's, or (edit mode, source untouched) the edited connector's own. Pure
+   * client-side frame math: the kernel already supplied exact axes.
+   */
   private updatePreviewGhost(): void {
-    if (!this.locked) {
+    const frame = this.locked
+      ? this.locked.anchors[this.locked.anchorIndex].frame
+      : this.anchorFrame;
+    if (!frame) {
       return;
     }
     const values = this.panel.values();
     const rotate = 'error' in values ? { axis: 'z' as const, angle: 0 } : values.rotate;
     const offset = 'error' in values ? [0, 0, 0] as [number, number, number] : values.offset;
-    const frame = this.locked.anchors[this.locked.anchorIndex].frame;
     this.ghost.showPreview(adjustConnectorFrame(frame, rotate, offset));
   }
 
@@ -431,6 +556,35 @@ export class ConnectorFeatureService {
       anchor,
       rotate: values.rotate.angle % 360 !== 0 ? values.rotate : undefined,
       offset: values.offset.some(v => v !== 0) ? values.offset : undefined,
+    };
+  }
+
+  /**
+   * The edit-mode apply payload. Name and both adjustments always ride —
+   * clearing the rotation or an offset field drops that chain rather than
+   * keeping the statement's own. The source travels only when a viewport
+   * click replaced it; untouched, the statement's own expression stands byte
+   * for byte.
+   */
+  private buildEditRequest(): ConnectorEditOptions | { error: string } {
+    const values = this.panel.values();
+    if ('error' in values) {
+      return values;
+    }
+    const request: ConnectorEditOptions = {
+      name: values.name,
+      rotate: values.rotate.angle % 360 !== 0 ? values.rotate : null,
+      offset: values.offset.some(v => v !== 0) ? values.offset : null,
+      expectedStatement: this.session.expectedStatement,
+      before: this.session.boundary ?? undefined,
+    };
+    if (!this.locked) {
+      return request;
+    }
+    return {
+      ...request,
+      entities: [this.locked.entity],
+      anchor: this.locked.anchors[this.locked.anchorIndex].anchor,
     };
   }
 

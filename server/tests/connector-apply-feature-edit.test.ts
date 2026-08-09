@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
   applyFeatureEdit,
+  parseFeatureStatement,
   type ApplyFeatureEditSpec,
+  type FeatureStatementEditTarget,
 } from '../src/apply-feature-edit.ts';
 
 function connectorSpec(overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec {
@@ -306,6 +308,252 @@ describe('applyFeatureEdit — connector', () => {
       const result = await applyFeatureEdit(code, bad);
       expect(result.error).toBe('malformed connector edit spec');
       expect(result.newCode).toBe(code);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// In-place edits (timeline double-click → the dialog re-opened over the
+// statement). The source expression is kept verbatim unless a re-pick
+// replaced it; name and both adjustments are always explicit, so a cleared
+// field drops its chain.
+// ---------------------------------------------------------------------------
+
+/** A part whose connector statement sits at line 7. */
+const EDIT_CODE = [
+  `import { sketch, rect, extrude, part, connector } from 'fluidcad/core'`,
+  ``,
+  `export function xPlate() {`,
+  `  return part('X Plate', () => {`,
+  `    sketch('xy', () => { rect(100, 50) })`,
+  `    const e = extrude(30)`,
+  `    connector('mountTop', e.endFaces(0).center()).rotate('z', 90).offset(0, 0, 5)`,
+  `    return { thickness: 30 }`,
+  `  })`,
+  `}`,
+  ``,
+].join('\n');
+
+const CONNECTOR_LINE = 7;
+
+function connectorEditSpec(
+  connector: NonNullable<FeatureStatementEditTarget['connector']>,
+  overrides: Partial<ApplyFeatureEditSpec> = {},
+): ApplyFeatureEditSpec {
+  return {
+    feature: 'connector',
+    filePath: '/ws/x-plate.part.js',
+    producers: [],
+    parts: [],
+    imports: [],
+    edit: { line: CONNECTOR_LINE, column: 4, connector },
+    ...overrides,
+  };
+}
+
+describe('parseFeatureStatement — connector', () => {
+  it('reads the name, the source expression and both adjustments', async () => {
+    const result = await parseFeatureStatement(EDIT_CODE, CONNECTOR_LINE);
+    expect(result.ok).toBe(true);
+    if (result.ok === false) {
+      return;
+    }
+    expect(result.parsed).toEqual({
+      feature: 'connector',
+      name: 'mountTop',
+      // The anchor suffix belongs to the source expression, not the chain.
+      argsText: 'e.endFaces(0).center()',
+      rotate: { axis: 'z', angle: 90 },
+      offset: [0, 0, 5],
+    });
+    expect(result.statement).toBe(
+      `connector('mountTop', e.endFaces(0).center()).rotate('z', 90).offset(0, 0, 5)`,
+    );
+  });
+
+  it('reads a bare connector as no adjustments, and fills a short offset with zeros', async () => {
+    const bare = EDIT_CODE.replace(
+      `connector('mountTop', e.endFaces(0).center()).rotate('z', 90).offset(0, 0, 5)`,
+      `connector('mountTop', e.endFaces(0))`,
+    );
+    const result = await parseFeatureStatement(bare, CONNECTOR_LINE);
+    expect(result.ok === true && result.parsed).toMatchObject({
+      feature: 'connector', name: 'mountTop', argsText: 'e.endFaces(0)', rotate: null, offset: null,
+    });
+
+    const short = EDIT_CODE.replace(`.rotate('z', 90).offset(0, 0, 5)`, `.offset(4)`);
+    const shortResult = await parseFeatureStatement(short, CONNECTOR_LINE);
+    // `offset(x, y = 0, z = 0)` — the omitted components read as 0.
+    expect(shortResult.ok === true && shortResult.parsed).toMatchObject({ offset: [4, 0, 0], rotate: null });
+  });
+
+  it('reads a negative offset and an unrecognized trailing chain', async () => {
+    const code = EDIT_CODE.replace(
+      `.rotate('z', 90).offset(0, 0, 5)`,
+      `.offset(-2.5, 0, 0).name('top')`,
+    );
+    const result = await parseFeatureStatement(code, CONNECTOR_LINE);
+    expect(result.ok === true && result.parsed).toMatchObject({ offset: [-2.5, 0, 0] });
+    // The statement span stops at the last recognized member — `.name('top')`
+    // survives an edit untouched.
+    expect(result.ok === true && result.statement).toBe(
+      `connector('mountTop', e.endFaces(0).center()).offset(-2.5, 0, 0)`,
+    );
+  });
+
+  it('refuses statements the dialog cannot represent', async () => {
+    const cases: [string, string][] = [
+      // The kernel applies the chain in order and an offset walks the ROTATED
+      // axes, so re-emitting a reversed pair would move the connector.
+      [`.offset(0, 0, 5).rotate('z', 90)`, 'offsets before it rotates'],
+      [`.rotate('z', turn)`, 'not a plain'],
+      [`.offset(gap, 0, 0)`, 'not plain numbers'],
+      [`.rotate('z')`, 'not a plain'],
+    ];
+    for (const [chain, reason] of cases) {
+      const code = EDIT_CODE.replace(`.rotate('z', 90).offset(0, 0, 5)`, chain);
+      const result = await parseFeatureStatement(code, CONNECTOR_LINE);
+      expect(result.ok, chain).toBe(false);
+      expect(result.ok === false && result.reason, chain).toContain(reason);
+    }
+  });
+
+  it('refuses a computed name and a wrong argument count', async () => {
+    for (const call of [
+      `connector(label, e.endFaces(0))`,
+      `connector('mountTop')`,
+      `connector('mountTop', e.endFaces(0), 'extra')`,
+    ]) {
+      const code = EDIT_CODE.replace(
+        `connector('mountTop', e.endFaces(0).center()).rotate('z', 90).offset(0, 0, 5)`,
+        call,
+      );
+      const result = await parseFeatureStatement(code, CONNECTOR_LINE);
+      expect(result.ok, call).toBe(false);
+    }
+  });
+});
+
+describe('applyFeatureEdit — connector edit', () => {
+  it('renames while keeping the source expression and both chains', async () => {
+    const result = await applyFeatureEdit(EDIT_CODE, connectorEditSpec({
+      name: 'mountLeft', rotate: { axis: 'z', angle: 90 }, offset: [0, 0, 5],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `connector('mountLeft', e.endFaces(0).center()).rotate('z', 90).offset(0, 0, 5)`,
+    );
+    // Nothing else moved: the part body and its return are untouched.
+    expect(result.newCode).toContain(`    const e = extrude(30)`);
+    expect(result.newCode).toContain(`    return { thickness: 30 }`);
+  });
+
+  it('drops a cleared rotation and offset instead of keeping the statement\'s', async () => {
+    const result = await applyFeatureEdit(EDIT_CODE, connectorEditSpec({
+      name: 'mountTop', rotate: null, offset: null,
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`connector('mountTop', e.endFaces(0).center())\n`);
+    expect(result.newCode).not.toContain('.rotate(');
+    expect(result.newCode).not.toContain('.offset(');
+  });
+
+  it('rewrites the adjustments, trimming trailing zeros and full turns', async () => {
+    const result = await applyFeatureEdit(EDIT_CODE, connectorEditSpec({
+      name: 'mountTop', rotate: { axis: 'x', angle: 360 }, offset: [3, 0, 0],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`connector('mountTop', e.endFaces(0).center()).offset(3)`);
+    expect(result.newCode).not.toContain('.rotate(');
+  });
+
+  it('appends the anchor to a re-picked source', async () => {
+    const result = await applyFeatureEdit(EDIT_CODE, connectorEditSpec(
+      { name: 'mountTop', rotate: null, offset: null, anchor: { kind: 'center' } },
+      {
+        producers: [{ line: 6, column: 4, featureType: 'extrude', nameHint: 'e', bind: true }],
+        // Selector parts render the bare accessor — the suffix is the
+        // transform's to add, exactly as on the create path.
+        parts: [{ producer: 0, accessor: 'sideFaces', indices: [2], filterArgs: null }],
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`connector('mountTop', e.sideFaces(2).center())`);
+    expect(result.newCode).not.toContain('e.endFaces(0)');
+  });
+
+  it('does not re-append the anchor to an edited expression row', async () => {
+    const result = await applyFeatureEdit(EDIT_CODE, connectorEditSpec(
+      { name: 'mountTop', rotate: null, offset: null, anchor: { kind: 'start' } },
+      {
+        producers: [{ line: 6, column: 4, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'sideEdges', indices: [1], filterArgs: null }],
+        // The row's text is the whole source expression, anchor included.
+        rawArgs: 'e.sideEdges(1).start()',
+      },
+    ));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`connector('mountTop', e.sideEdges(1).start())`);
+    expect(result.newCode).not.toContain('.start().start()');
+  });
+
+  it('keeps the statement\'s own anchor when only the fields change', async () => {
+    // No parts, no raw args: the source text stands, suffix included — an
+    // anchor riding the payload must not double it up.
+    const result = await applyFeatureEdit(EDIT_CODE, connectorEditSpec({
+      name: 'mountTop', rotate: null, offset: [1, 0, 0], anchor: { kind: 'center' },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`connector('mountTop', e.endFaces(0).center()).offset(1)`);
+    expect(result.newCode).not.toContain('.center().center()');
+  });
+
+  it('refuses a source bound after the edited statement', async () => {
+    // A connector cannot attach to geometry built after it — the rewritten
+    // statement still executes where it already sits.
+    const code = EDIT_CODE.replace(
+      `    return { thickness: 30 }`,
+      `    const f = extrude(5)\n    return { thickness: 30 }`,
+    );
+    const result = await applyFeatureEdit(code, connectorEditSpec(
+      { name: 'mountTop', rotate: null, offset: null },
+      {
+        producers: [{ line: 8, column: 4, featureType: 'extrude', nameHint: 'f', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+      },
+    ));
+    expect(result.error).toContain('does not precede the edited statement');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('refuses when the statement drifted since the dialog opened', async () => {
+    const spec = connectorEditSpec({ name: 'mountTop', rotate: null, offset: null });
+    spec.edit!.expectedStatement = `connector('mountTop', e.endFaces(0).center())`;
+    const result = await applyFeatureEdit(EDIT_CODE, spec);
+    expect(result.error).toContain('changed since the dialog opened');
+    expect(result.newCode).toBe(EDIT_CODE);
+  });
+
+  it('refuses when the line holds a different feature', async () => {
+    const result = await applyFeatureEdit(EDIT_CODE, connectorEditSpec(
+      { name: 'mountTop', rotate: null, offset: null },
+      { edit: { line: 6, column: 4, connector: { name: 'mountTop', rotate: null, offset: null } } },
+    ));
+    expect(result.error).toContain('is a extrude, expected a connector');
+    expect(result.newCode).toBe(EDIT_CODE);
+  });
+
+  it('refuses a malformed edit payload', async () => {
+    for (const bad of [
+      undefined,
+      { name: 'not an id', rotate: null, offset: null },
+      { name: 'c', rotate: { axis: 'w', angle: 90 }, offset: null },
+      { name: 'c', rotate: { axis: 'z', angle: Number.NaN }, offset: null },
+      { name: 'c', rotate: null, offset: [1, 2] },
+    ] as any[]) {
+      const result = await applyFeatureEdit(EDIT_CODE, connectorEditSpec(bad));
+      expect(result.error).toBe('malformed connector edit spec');
+      expect(result.newCode).toBe(EDIT_CODE);
     }
   });
 });

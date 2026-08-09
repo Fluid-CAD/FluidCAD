@@ -1115,6 +1115,47 @@ export async function applyConnector(o: ConnectorApplyOptions): Promise<ApplyFea
   }, o.signal);
 }
 
+/**
+ * The connector edit payload. `name`, `rotate` and `offset` are always
+ * explicit — a cleared field drops that chain rather than keeping the
+ * statement's own. The source slot follows the keep-or-re-pick contract:
+ * omitting `entities` and `selectorOverride` leaves the statement's own
+ * expression byte for byte; re-picking carries the pick and its `anchor`.
+ */
+export type ConnectorEditOptions = EditSessionFields & {
+  name: string;
+  rotate: { axis: ConnectorRotateAxis; angle: number } | null;
+  offset: [number, number, number] | null;
+  /** Edited source expression; omitted keeps the statement's verbatim. */
+  selectorOverride?: string;
+  /** Re-picked source — exactly one face or edge; omitted keeps the args. */
+  entities?: ApplyFeatureEntity[];
+  /** The anchor a re-picked source narrows to (`.center()`, …). */
+  anchor?: ConnectorAnchor;
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the `connector()` statement at `edit` in place. */
+export async function applyConnectorEdit(
+  edit: FeatureEditTarget,
+  options: ConnectorEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'connector',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    name: options.name,
+    rotate: options.rotate,
+    offset: options.offset,
+    selectorOverride: options.selectorOverride,
+    entities: options.entities,
+    anchor: options.anchor,
+    preview: options.preview,
+  }, options.signal);
+}
+
 /** One connector frame the hover tool can snap to, with its exact axes. */
 export type ConnectorAnchorCandidate = {
   anchor: ConnectorAnchor;
@@ -2490,6 +2531,20 @@ export type ParsedFeatureStatement =
       feature: 'project';
       /** The projected source argument list, verbatim (`''` when absent). */
       argsText: string;
+    }
+  | {
+      feature: 'connector';
+      /** The identifier the statement registers the connector under. */
+      name: string;
+      /**
+       * The source argument, verbatim — anchor suffix included, since
+       * `.center()` is part of the expression the source row shows.
+       */
+      argsText: string;
+      /** `.rotate('<axis>', deg)`, or null when the chain is absent. */
+      rotate: { axis: ConnectorRotateAxis; angle: number } | null;
+      /** `.offset(x[, y, z])`, omitted components read as 0; null when absent. */
+      offset: [number, number, number] | null;
     }
   | {
       feature: 'chamfer';

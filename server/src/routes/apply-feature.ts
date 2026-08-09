@@ -17,7 +17,8 @@ import {
   resolveSketchNames, validCountValue, validValueExpr,
   renderChamferValueArgs, renderConnectorChain, renderFaceTargetExpr, renderOffsetStatement, renderSlotStatement, renderTarcStatement,
   renderTextStatement, type TextStatementOptions, validConnectorAnchor, validConnectorRotate,
-  type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions, type CopyEditOptions,
+  type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions,
+  type ConnectorAnchorSpec, type CopyEditOptions,
   type OffsetEditOptions, type SlotEditOptions,
   type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
   type HelixEditOptions,
@@ -1873,7 +1874,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'boolean', 'helix', 'plane', 'offset', 'slot', 'project', 'rib']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'boolean', 'helix', 'plane', 'offset', 'slot', 'project', 'rib', 'connector']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -1970,6 +1971,11 @@ type StatementEditRequest = {
   booleanTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Full replacement plane base list; absent keeps the statement's. */
   planeBases?: PlaneEditBaseInput[];
+  /**
+   * The anchor a re-picked connector source narrows to; it rides the
+   * synthesis, which appends the suffix to the args it renders.
+   */
+  connectorAnchor?: ConnectorAnchorSpec;
   /** True when a source payload carries picks — synthesis needs a boundary. */
   needsPicks: boolean;
 };
@@ -2447,6 +2453,54 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       }
       result.picks = picks;
       result.chains = chains;
+      result.needsPicks = true;
+    }
+    return result;
+  }
+
+  // Connector: the registered name plus the two frame adjustments — always
+  // explicit, so clearing the rotation stepper or an offset field drops that
+  // chain instead of keeping the statement's own. The source is either the
+  // edited expression row, a re-picked face/edge (whose anchor rides along,
+  // since the synthesis renders the suffix), or the statement's own text.
+  if (feature === 'connector') {
+    const name = body?.name;
+    if (typeof name !== 'string' || name.length > 64 || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
+      return { error: 'name must be a plain identifier (max 64 chars)' };
+    }
+    const rotate = body?.rotate ?? undefined;
+    if (!validConnectorRotate(rotate)) {
+      return { error: "rotate must be { axis: 'x'|'y'|'z', angle } with a finite angle in degrees" };
+    }
+    const frameOffset = body?.offset ?? undefined;
+    if (frameOffset !== undefined
+      && !(Array.isArray(frameOffset) && frameOffset.length === 3 && frameOffset.every((v: unknown) => Number.isFinite(v)))) {
+      return { error: 'offset must be [x, y, z] finite numbers' };
+    }
+    if (selectorOverride !== undefined
+      && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
+      return { error: 'selectorOverride must be a non-empty string (max 500 chars)' };
+    }
+    edit.connector = { name, rotate: rotate ?? null, offset: frameOffset ?? null };
+    const result: StatementEditRequest = {
+      ...base,
+      rawArgs: typeof selectorOverride === 'string' ? selectorOverride.trim() : undefined,
+    };
+    if (body?.entities !== undefined && body?.entities !== null) {
+      const picks = validatePicks(body.entities);
+      if (!picks || picks.length !== 1) {
+        return { error: 'entities must be the single {shapeId, sub:{type, index}} pick the connector attaches to' };
+      }
+      const anchor = body?.anchor;
+      if (!validConnectorAnchor(anchor)) {
+        return { error: "anchor must be {kind: 'center'|'start'|'end'} or {kind: 'offset', mode: 'relative'|'absolute', value}" };
+      }
+      result.picks = picks;
+      result.chains = [];
+      result.connectorAnchor = anchor;
+      // The synthesis renders the parts bare; the transform appends the
+      // suffix to them, the same way the create path does.
+      edit.connector.anchor = anchor;
       result.needsPicks = true;
     }
     return result;
@@ -3506,12 +3560,13 @@ export function createApplyFeatureRouter(
         /** Synthesize one re-picked slot against the pre-statement scene. */
         const synthesizeSlot = (
           picks: Pick[],
-          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset',
+          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset' | 'connector',
           value: ValueExpr | undefined,
           chains: { seed: Pick; members: Pick[] }[],
+          extra?: { connector?: { anchor?: ConnectorAnchorSpec } },
         ): any | null => {
           const synthesis = fluidCadServer.synthesizeApplyFeature(
-            picks, kind, value, chains, synthOptions, before,
+            picks, kind, value, chains, { ...synthOptions, ...extra }, before,
           );
           if (!synthesis) {
             res.status(404).json({ success: false, reason: 'No rendered scene' });
@@ -3744,11 +3799,15 @@ export function createApplyFeatureRouter(
           }
         }
         if (request.picks) {
+          // A connector's name rides the value channel, and its anchor rides
+          // the options — the synthesis renders the suffix onto the args, so
+          // the re-picked source reads exactly like a freshly created one.
           const synthesis = synthesizeSlot(
             request.picks,
-            request.feature as 'fillet' | 'chamfer' | 'shell' | 'project' | 'offset',
-            request.value,
+            request.feature as 'fillet' | 'chamfer' | 'shell' | 'project' | 'offset' | 'connector',
+            request.feature === 'connector' ? edit.connector!.name : request.value,
             request.chains ?? [],
+            request.feature === 'connector' ? { connector: { anchor: request.connectorAnchor } } : undefined,
           );
           if (!synthesis) {
             return;

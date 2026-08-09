@@ -101,12 +101,13 @@ export class ConnectorFeatureService {
       onResumeSketchUI?: () => void;
     } = {},
   ) {
-    // The connector gets its own group after the transform tools: it is the
-    // first assembly-prep tool in part mode, neither reshaping bodies
-    // (modify) nor repositioning them (transform).
+    // The connector gets its own group at the end of the bar: it is part
+    // mode's assembly-prep tool, neither reshaping bodies (modify) nor
+    // repositioning them (transform). main.ts constructs this service last so
+    // the group registers — and therefore renders — after every other one.
     const group = navbar.getGroup('connector') ?? navbar.addGroup('connector', { visible: false });
     this.button = new FeatureButton(group, {
-      icon: '/icons/connect.png',
+      icon: '/icons/mate-connector.png',
       label: 'Connector',
       tip: 'Add a mate connector',
       ariaLabel: 'Add a named mate connector to the part',

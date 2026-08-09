@@ -1163,39 +1163,8 @@ const rotateService = new RotateFeatureService(container, viewer, navbar, {
   onSuspendSketchUI: suspendSketchForFeature,
   onResumeSketchUI: resumeSketchForFeature,
 });
-// Constructed after the transform tools: the connector is part mode's first
-// assembly-prep tool, so its group sits between the transform pair and the
-// boolean group (…, | Mirror, Rotate, | Connector, | Boolean).
-const connectorService = new ConnectorFeatureService(container, viewer, navbar, {
-  onEnter: () => {
-    projectionService.exit({ resume: 'lazy' });
-    modifyService.displaceSketchSession();
-    modifyService.exit();
-    extrudeService.exit();
-    ribService.exit();
-    revolveService.exit();
-    helixService.exit();
-    sweepService.exit();
-    loftService.exit();
-    wrapService.exit();
-    repeatService.exit();
-    copyService.exit();
-    mirrorService.exit();
-    rotateService.exit();
-    booleanService.exit();
-    planeService.exit();
-    textEditService.exit();
-    measureController.clearSelection();
-    modifyService.clearPendingPlane();
-    viewer.clearHighlight();
-    selectionInfoOverlay.hide();
-  },
-  onActiveChange: syncSketchButtonBlocked,
-  onSuspendSketchUI: suspendSketchForFeature,
-  onResumeSketchUI: resumeSketchForFeature,
-});
 // Constructed after the transform services so its own navbar group registers
-// last (…, | Mirror, Rotate, | separator |, Boolean).
+// after theirs (…, | Mirror, Rotate, | separator |, Boolean).
 const booleanService = new BooleanFeatureService(container, viewer, navbar, {
   // The current selection seeds the dialog: every selected face/edge
   // resolves to its owning solid, opening as a target chip. Captured before
@@ -1233,6 +1202,38 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
 // The Offset button's group renders right after the boolean group — navbar
 // groups sit in registration order, so it mounts here.
 modifyService.mountOffsetButton();
+
+// Constructed after every other part-mode tool — the connector is assembly
+// prep rather than modelling, so its group registers last and the Connector
+// button sits at the very end of the bar (…, | Boolean, | Offset, | Connector).
+const connectorService = new ConnectorFeatureService(container, viewer, navbar, {
+  onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
+    modifyService.displaceSketchSession();
+    modifyService.exit();
+    extrudeService.exit();
+    ribService.exit();
+    revolveService.exit();
+    helixService.exit();
+    sweepService.exit();
+    loftService.exit();
+    wrapService.exit();
+    repeatService.exit();
+    copyService.exit();
+    mirrorService.exit();
+    rotateService.exit();
+    booleanService.exit();
+    planeService.exit();
+    textEditService.exit();
+    measureController.clearSelection();
+    modifyService.clearPendingPlane();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
+});
 
 // While a sketch is active, the create-feature buttons collapse into a single
 // "Finish Sketch" button whose popup grid mirrors them and delegates clicks

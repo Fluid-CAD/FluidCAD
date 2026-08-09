@@ -51,7 +51,7 @@ export class ConnectorPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-connector-panel',
       title: 'Connector',
-      icon: '/icons/connect.png',
+      icon: '/icons/mate-connector.png',
       bodyHtml: `
         <div data-role="source-slot"></div>
         <label class="flex flex-col gap-1.5"

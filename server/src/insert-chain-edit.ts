@@ -304,6 +304,229 @@ function reParseAndEdit(
   return next ?? code;
 }
 
+/**
+ * Full-pose rewrite of an `insert()` chain's transform calls, driven by the
+ * assembly transform gizmo. Reproduces the final world pose exactly by
+ * canonicalizing to `.rotate('x',…).rotate('y',…).rotate('z',…).translate(…)`
+ * — rotations compose as Q = Rz·Ry·Rx (kernel pre-multiply, world axes) and a
+ * trailing `.translate()` pins the position regardless of any rotate pivots.
+ */
+export type InstancePoseEditSpec = {
+  /** 1-based row the `insert()` chain starts on (serialized sourceLocation.line). */
+  sourceLine: number;
+  position: [number, number, number];
+  /**
+   * Final world orientation as ZYX Tait-Bryan degrees (chain form
+   * `.rotate('x',x).rotate('y',y).rotate('z',z)`), or `null` for a
+   * translate-only commit that leaves existing `.rotate()` calls untouched.
+   */
+  rotateXYZ: [number, number, number] | null;
+};
+
+const ANGLE_IDENTITY_EPSILON_DEG = 1e-4;
+
+type ChainMember = { call: TSNode; method: string; chainIndex: number };
+
+/** Chained method calls (everything after the base `insert(...)`) in source order. */
+function chainMembers(chain: TSNode[]): ChainMember[] {
+  const out: ChainMember[] = [];
+  for (let i = 1; i < chain.length; i++) {
+    const fn = chain[i].childForFieldName('function');
+    if (!fn || fn.type !== 'member_expression') {
+      continue;
+    }
+    const prop = fn.childForFieldName('property');
+    if (!prop) {
+      continue;
+    }
+    out.push({ call: chain[i], method: prop.text, chainIndex: i });
+  }
+  return out;
+}
+
+/** The call's argument nodes, comments excluded. */
+function callArguments(call: TSNode): TSNode[] | null {
+  const args = call.childForFieldName('arguments');
+  if (!args) {
+    return null;
+  }
+  return args.namedChildren.filter(c => c.type !== 'comment');
+}
+
+/** Numeric literal text of a node, accepting a unary minus. */
+function numericLiteralArg(node: TSNode): string | null {
+  if (node.type === 'number') {
+    return node.text;
+  }
+  if (node.type === 'unary_expression' && node.text.startsWith('-')
+    && node.namedChildren.length === 1 && node.namedChildren[0].type === 'number') {
+    return node.text;
+  }
+  return null;
+}
+
+/**
+ * A `.rotate()` the gizmo may rewrite: exactly `('x'|'y'|'z' string literal,
+ * numeric literal)`. Identifier axes, `Axis.*` expressions, variable angles
+ * and the like are opaque — rewriting around them would change semantics.
+ */
+function isRewritableRotate(call: TSNode): boolean {
+  const args = callArguments(call);
+  if (!args || args.length !== 2) {
+    return false;
+  }
+  if (!/^['"][xyz]['"]$/.test(args[0].text)) {
+    return false;
+  }
+  return numericLiteralArg(args[1]) !== null;
+}
+
+/**
+ * Remove several chain member calls in one pass. A member call node spans the
+ * whole chain prefix (every chain call shares one startIndex), so the removed
+ * segment is `(object.endIndex, call.endIndex]` — ordering by descending
+ * endIndex splices later segments first, keeping earlier indices valid.
+ */
+function removeChainCalls(code: string, calls: TSNode[]): string {
+  const sorted = [...calls].sort((a, b) => b.endIndex - a.endIndex);
+  let working = code;
+  for (const call of sorted) {
+    working = removeChainCall(working, call);
+  }
+  return working;
+}
+
+/** `.rotate('x', …)` calls for the non-identity components, in x→y→z order. */
+function renderRotateCalls(rotateXYZ: [number, number, number]): string {
+  const axes = ['x', 'y', 'z'] as const;
+  let out = '';
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(rotateXYZ[i]) >= ANGLE_IDENTITY_EPSILON_DEG) {
+      out += `.rotate('${axes[i]}', ${formatTranslateNumber(rotateXYZ[i])})`;
+    }
+  }
+  return out;
+}
+
+/**
+ * Re-parse `code` and append `invocation` at the chain end. Unlike
+ * `reParseAndEdit`, a miss here is a hard error — the caller already removed
+ * calls from the chain, and silently skipping the append would leave the
+ * statement with a wrong pose.
+ */
+function reAppendToChain(
+  code: string,
+  sourceLine: number,
+  invocation: string,
+): { newCode: string } | { error: string } {
+  if (!parser) {
+    return { error: 'parser unavailable' };
+  }
+  const tree = parser.parse(code);
+  const tail = findChainAt(tree, sourceLine);
+  if (!tail) {
+    return { error: `internal: insert() chain on line ${sourceLine} disappeared mid-rewrite` };
+  }
+  const chain = getChainCalls(tail);
+  if (getBaseCallName(chain) !== 'insert') {
+    return { error: `internal: insert() chain on line ${sourceLine} disappeared mid-rewrite` };
+  }
+  return { newCode: appendChainCall(code, chain, invocation) };
+}
+
+export async function applyInstancePoseEdit(
+  code: string,
+  spec: InstancePoseEditSpec,
+): Promise<{ newCode: string; error?: string }> {
+  if (!Number.isInteger(spec.sourceLine) || spec.sourceLine < 1) {
+    return { newCode: code, error: 'instance pose has an invalid source line' };
+  }
+  const numbers = [...spec.position, ...(spec.rotateXYZ ?? [])];
+  if (!numbers.every(Number.isFinite)) {
+    return { newCode: code, error: 'instance pose contains a non-finite number' };
+  }
+
+  const p = await getParser();
+  const tree = p.parse(code);
+  const tail = findChainAt(tree, spec.sourceLine);
+  if (!tail) {
+    return {
+      newCode: code,
+      error: `no statement starts on line ${spec.sourceLine} — the scene may be out of date; try again after the next recompute`,
+    };
+  }
+  const chain = getChainCalls(tail);
+  if (getBaseCallName(chain) !== 'insert') {
+    return {
+      newCode: code,
+      error: `the statement on line ${spec.sourceLine} isn't an insert() chain — the scene may be out of date`,
+    };
+  }
+
+  const members = chainMembers(chain);
+  const rotates = members.filter(m => m.method === 'rotate');
+  const translates = members.filter(m => m.method === 'translate');
+  const opaqueRotates = rotates.filter(m => !isRewritableRotate(m.call));
+  const isOrigin = spec.position.every(v => Math.abs(v) < TRANSLATE_ORIGIN_EPSILON);
+  const translateArgs = formatTranslateArgs(spec.position);
+
+  if (spec.rotateXYZ === null) {
+    // Translate-only commit: never touches .rotate() calls, so opaque rotates
+    // are fine. Final position is exact as long as the .translate() ends up
+    // after every rotate (translate-last pins the position; rotates never read
+    // it back). Minimal-diff fast path when the chain already has that shape.
+    const lastTranslate = translates[translates.length - 1];
+    const rotateAfterTranslate = lastTranslate !== undefined
+      && rotates.some(r => r.chainIndex > lastTranslate.chainIndex);
+
+    if (translates.length === 1 && !rotateAfterTranslate && !isOrigin) {
+      const args = lastTranslate.call.childForFieldName('arguments');
+      if (!args) {
+        return { newCode: code, error: 'internal: malformed .translate() call' };
+      }
+      return { newCode: spliceCode(code, args.startIndex + 1, args.endIndex - 1, translateArgs) };
+    }
+
+    let working = removeChainCalls(code, translates.map(t => t.call));
+    if (isOrigin && opaqueRotates.length === 0) {
+      // World-axis rotates orbit the origin onto itself, so a bare chain is
+      // exact. With an opaque rotate the axis origin is unknown — the orbit
+      // can leave the origin — so `.translate(0, 0, 0)` must be written.
+      return { newCode: working };
+    }
+    const appended = reAppendToChain(working, spec.sourceLine, `.translate(${translateArgs})`);
+    if ('error' in appended) {
+      return { newCode: code, error: appended.error };
+    }
+    return { newCode: appended.newCode };
+  }
+
+  // Rotation commit: rewrite the whole transform tail canonically.
+  if (opaqueRotates.length > 0) {
+    const args = opaqueRotates[0].call.childForFieldName('arguments');
+    const snippet = `.rotate${args ? args.text : '(…)'}`;
+    const short = snippet.length > 48 ? `${snippet.slice(0, 45)}…` : snippet;
+    return {
+      newCode: code,
+      error: `${short} on line ${spec.sourceLine} isn't a plain ('x'|'y'|'z', angle) rotation — `
+        + `the gizmo can't rewrite it; edit the rotation in source (translation-only moves still work)`,
+    };
+  }
+
+  const normalized = spec.rotateXYZ.map(a => a - 360 * Math.round(a / 360)) as [number, number, number];
+  const tailCalls = renderRotateCalls(normalized) + (isOrigin ? '' : `.translate(${translateArgs})`);
+
+  const removed = removeChainCalls(code, [...rotates, ...translates].map(m => m.call));
+  if (tailCalls === '') {
+    return { newCode: removed };
+  }
+  const appended = reAppendToChain(removed, spec.sourceLine, tailCalls);
+  if ('error' in appended) {
+    return { newCode: code, error: appended.error };
+  }
+  return { newCode: appended.newCode };
+}
+
 function removeGroundedFromOtherInserts(code: string, keepSourceLine: number, p: TSParser): string {
   const tree = p.parse(code);
   const targets: TSNode[] = [];

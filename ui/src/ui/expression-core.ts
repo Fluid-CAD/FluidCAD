@@ -59,6 +59,9 @@ export function paramInitializer(name: string, initializer: string): string {
  * variable, a bare unknown identifier declares one from the seed value (the
  * field's last plain number), anything else passes through as the expression.
  * With `asParam`, a declaration's initializer is wrapped as a `param()` call.
+ * With `arithmeticOnly`, declarations are off the table entirely and the text
+ * must evaluate to a finite number (hosts that write numbers, not source
+ * expressions — the assembly gizmo's value input).
  */
 export function classifyCommit(
   raw: string,
@@ -66,11 +69,19 @@ export function classifyCommit(
   seedValue: string,
   numericOnly = false,
   asParam = false,
+  arithmeticOnly = false,
 ): ClassifiedCommit {
   if (numericOnly) {
     const num = parseFloat(raw);
     if (isNaN(num)) {
       return { kind: 'error', message: 'Enter a numeric value' };
+    }
+    return { kind: 'expression', expression: raw };
+  }
+
+  if (arithmeticOnly) {
+    if (resolveExpressionValue(raw, variables) === null) {
+      return { kind: 'error', message: 'Enter a number or expression' };
     }
     return { kind: 'expression', expression: raw };
   }

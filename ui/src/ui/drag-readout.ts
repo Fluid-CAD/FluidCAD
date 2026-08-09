@@ -18,6 +18,7 @@ export class DragReadout {
   private pill: HTMLDivElement;
   private label: HTMLSpanElement;
   private value: HTMLSpanElement;
+  private errorTimer: number | null = null;
 
   constructor(container: HTMLElement) {
     this.pill = document.createElement('div');
@@ -34,12 +35,40 @@ export class DragReadout {
     container.appendChild(this.pill);
   }
 
+  /**
+   * Flash a transient error in the pill (a gizmo pose commit the server
+   * refused — stale line, opaque rotation). Red-bordered variant of the
+   * normal readout; auto-hides.
+   */
+  flashError(message: string): void {
+    this.clearError();
+    this.label.textContent = '';
+    this.value.textContent = message;
+    this.pill.classList.add('border-red-500/70');
+    this.value.classList.add('text-red-500');
+    this.pill.classList.remove('hidden');
+    this.errorTimer = window.setTimeout(() => {
+      this.errorTimer = null;
+      this.hide();
+    }, 2500);
+  }
+
+  private clearError(): void {
+    if (this.errorTimer !== null) {
+      window.clearTimeout(this.errorTimer);
+      this.errorTimer = null;
+    }
+    this.pill.classList.remove('border-red-500/70');
+    this.value.classList.remove('text-red-500');
+  }
+
   /** Show + set the value, or hide when passed null. */
   update(readout: MateReadout | null): void {
     if (!readout) {
       this.hide();
       return;
     }
+    this.clearError();
     if (readout.kind === 'angle') {
       this.label.textContent = 'Angle';
       this.value.textContent = `${fmt1(readout.value)}°`;
@@ -51,6 +80,7 @@ export class DragReadout {
   }
 
   hide(): void {
+    this.clearError();
     this.pill.classList.add('hidden');
   }
 

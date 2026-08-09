@@ -3765,6 +3765,39 @@ export async function insertCatalogPart(
   }
 }
 
+/**
+ * Assembly-gizmo pose commit: rewrite the instance's `insert()` chain so its
+ * `.translate()`/`.rotate()` calls reproduce the given final world pose.
+ * `rotateXYZ` is ZYX Tait-Bryan degrees (chain order x→y→z); `null` commits
+ * translation only, leaving existing `.rotate()` calls untouched. Failure
+ * bodies surface their reason (preflight refusal, stale line, ack timeout).
+ */
+export async function applyInstancePose(
+  sourceLocation: { filePath: string; line: number },
+  position: [number, number, number],
+  rotateXYZ: [number, number, number] | null,
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/instance-pose', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        filePath: sourceLocation.filePath,
+        sourceLine: sourceLocation.line,
+        position,
+        rotateXYZ,
+      }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Preferences
 // ---------------------------------------------------------------------------

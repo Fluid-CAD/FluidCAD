@@ -45,7 +45,8 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint } from './api';
+import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint, applyInstancePose } from './api';
+import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { ConnectorData, SceneObjectRender } from './types';
 import { applyPreferences } from './scene/viewer-settings';
@@ -1326,6 +1327,21 @@ viewer.setDragValueHandler((readout) => {
   currentRail.dragReadout.update(readout);
 });
 
+// The assembly transform gizmo: click a non-locked part to attach the triad,
+// drag/typed commits rewrite the insert() chain via /api/instance-pose.
+const assemblyGizmo = new AssemblyGizmoDriver({
+  viewer,
+  container,
+  findInstance,
+  instanceHasMate,
+  applyInstancePose,
+  flashError: (message) => {
+    if (currentRail?.kind === 'assembly') {
+      currentRail.dragReadout.flashError(message);
+    }
+  },
+});
+
 viewer.setSolverUpdateHandler((output) => {
   if (currentRail?.kind !== 'assembly') return;
   // Diff the failed set against the previous frame BEFORE replacing it.
@@ -1445,6 +1461,14 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
       } else {
         viewer.clearHighlight();
       }
+      // One click on a part attaches the transform gizmo at its origin
+      // (non-locked instances only; the driver decides).
+      assemblyGizmo.handleSelection(instanceId);
+    } else if (instanceId) {
+      // Instance-only selection: a plain click on a draggable part. The
+      // assembly controller claims every pointerdown on those, so no face
+      // pick ever arrives — the id alone attaches the gizmo.
+      assemblyGizmo.handleSelection(instanceId);
     } else {
       // Click in empty 3D space — clear face/edge selection AND the
       // parts/joints panel-driven instance tint so the user has a clean
@@ -1453,6 +1477,7 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
       viewer.clearInstanceHighlight();
       currentRail.parts.setSelected(null);
       currentRail.joints.setSelected(null);
+      assemblyGizmo.handleSelection(null);
     }
     shapePropertiesModal.setSelectedShape(shapeId);
     if (shapeId !== null && sub !== null && (sub.type === 'face' || sub.type === 'edge')) {
@@ -1848,6 +1873,7 @@ function connectWebSocket() {
         const rail = ensureRailFor(sceneKind);
         if (rail.kind === 'part') {
           rail.timeline.update(msg.result, renderStop);
+          assemblyGizmo.handleModeExit();
         } else {
           const raw = msg.assembly;
           const assembly: SerializedAssembly = {
@@ -1855,6 +1881,9 @@ function connectWebSocket() {
             mates: raw?.mates ?? [],
           };
           applyAssemblyToRail(rail, assembly);
+          // Instance groups were just rebuilt/re-posed — re-anchor the
+          // gizmo (or dismiss it if its instance is gone or now locked).
+          assemblyGizmo.handleSceneRendered();
         }
         if (msg.params !== undefined) {
           paramsPanel.update(msg.params);

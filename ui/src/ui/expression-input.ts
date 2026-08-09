@@ -24,6 +24,10 @@ export type ExpressionInputOptions = {
   variables: VariableInfo[];
   onCommit: (result: CommitResult) => void;
   numericOnly?: boolean;
+  /** Declarations disabled; the committed text must evaluate to a finite
+   * number (arithmetic over `variables`). The host writes numbers, not
+   * source expressions. */
+  arithmeticOnly?: boolean;
 };
 
 export class ExpressionInput {
@@ -47,6 +51,7 @@ export class ExpressionInput {
   private seedValue = '';
   private errorVisible = false;
   private numericOnly = false;
+  private arithmeticOnly = false;
 
   onSpaceOverride: (() => void) | null = null;
 
@@ -148,6 +153,7 @@ export class ExpressionInput {
     this.onCommit = opts.onCommit;
     this.variables = opts.variables;
     this.numericOnly = opts.numericOnly ?? false;
+    this.arithmeticOnly = opts.arithmeticOnly ?? false;
     this.visible = true;
     this.userIsTyping = false;
     this.selectedIndex = -1;
@@ -250,7 +256,9 @@ export class ExpressionInput {
       return false;
     }
     const asParam = this.paramMode && this.paramAvailable;
-    const classified = classifyCommit(raw, this.variables, this.seedValue, this.numericOnly, asParam);
+    const classified = classifyCommit(
+      raw, this.variables, this.seedValue, this.numericOnly, asParam, this.arithmeticOnly,
+    );
     if (classified.kind === 'error') {
       this.showInlineError(classified.message);
       return false;
@@ -270,7 +278,7 @@ export class ExpressionInput {
   /** The P toggle rides any input that would declare a new variable — an
    * explicit `name = value`, or a fresh name with no dropdown match. */
   private updateParamAvailability(): void {
-    this.paramAvailable = !this.numericOnly
+    this.paramAvailable = !this.numericOnly && !this.arithmeticOnly
       && declaredVariableName(this.input.value.trim(), this.variables, this.seedValue) !== null;
     this.renderParamButton();
   }
@@ -328,7 +336,7 @@ export class ExpressionInput {
 
   private filterAndRender(preserveSelection = false): void {
     const prevIndex = this.selectedIndex;
-    const query = this.userIsTyping && !this.numericOnly
+    const query = this.userIsTyping && !this.numericOnly && !this.arithmeticOnly
       ? trailingIdentifier(this.input.value)
       : null;
     if (!query) {

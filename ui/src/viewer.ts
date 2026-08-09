@@ -212,6 +212,17 @@ export class Viewer {
   private hiddenShapeIds = new Set<string>();
   private shapeOpacities = new Map<string, number>();
   private assemblyController: AssemblyController | null = null;
+  /**
+   * Generic gesture-ownership hooks for overlay tools (the transform
+   * gizmo). `clickInterceptor` runs first in the mouseup-as-click handler:
+   * returning true swallows the click entirely — the tool already managed
+   * its own state and a selection pass would fight it. `hoverSuppressor`
+   * gates {@link updateHover} the same way `isDragGestureActive` does,
+   * so hover overlays never paint under a pointer that sits on a tool
+   * handle.
+   */
+  private clickInterceptor: (() => boolean) | null = null;
+  private hoverSuppressor: (() => boolean) | null = null;
   private pendingDragReleaseHandler: InstanceDragReleaseHandler | null = null;
   private pendingSolverUpdateHandler: SolverUpdateHandler | null = null;
   private pendingDragValueHandler: DragValueHandler | null = null;
@@ -393,12 +404,17 @@ export class Viewer {
       if (!this.selectionHandler || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
         return;
       }
+      // A gizmo gesture (drag, handle click, typed commit) owns this click
+      // completely — no selection, no highlight churn.
+      if (this.clickInterceptor?.()) {
+        return;
+      }
       // A click on a draggable part (whether the cursor moved or not)
       // shouldn't double as a face-selection click — otherwise a drop
       // leaves a stray face/edge highlight on the part. Clear any
       // pre-existing highlight too in case it was set by an earlier click.
-      const droppedInstanceId = this.assemblyController?.consumeRecentDrag();
-      if (droppedInstanceId) {
+      const dropped = this.assemblyController?.consumeRecentDrag();
+      if (dropped) {
         this.clearHighlight();
         this.clearHover();
         // The parts panel may have called assemblyController.highlightInstance
@@ -410,9 +426,14 @@ export class Viewer {
         // over it, and re-painting its face on the next mousemove would
         // look like the highlight didn't clear. Cleared in updateHover as
         // soon as the cursor moves to a different instance or empty space.
-        this.hoverSuppressForInstance = droppedInstanceId;
+        this.hoverSuppressForInstance = dropped.instanceId;
         if (this.selectionHandler) {
-          this.selectionHandler(null, null, null, { additive: false });
+          // The claim swallowed the pick, so this is the only channel a
+          // click on a draggable part has: a finished drag clears the
+          // selection, a no-move claim IS the click — surface it as an
+          // instance-only selection (no face/edge) so the transform gizmo
+          // can attach.
+          this.selectionHandler(null, null, dropped.moved ? null : dropped.instanceId, { additive: false });
         }
         return;
       }
@@ -926,6 +947,23 @@ export class Viewer {
     this.assemblyController?.setDragValueHandler(handler);
   }
 
+  setClickInterceptor(fn: (() => boolean) | null): void {
+    this.clickInterceptor = fn;
+  }
+
+  setHoverSuppressor(fn: (() => boolean) | null): void {
+    this.hoverSuppressor = fn;
+  }
+
+  /**
+   * The live assembly controller — created lazily on the first assembly
+   * render and rebuilt never, but callers must still re-read it per use
+   * rather than caching (it is null until then).
+   */
+  getAssemblyController(): AssemblyController | null {
+    return this.assemblyController;
+  }
+
   updateAssemblyView(sceneObjects: SceneObjectRender[], assembly: SerializedAssembly): void {
     // The render result contains every Part declared in the file, including
     // ones never passed to `insert(...)` (calling `getExtrusion('80x160', …)`
@@ -1351,6 +1389,14 @@ export class Viewer {
     // state here so a stale RAF can't paint a face overlay onto the part
     // we're currently dragging.
     if (this.isMouseDown || this.assemblyController?.isDragGestureActive()) {
+      return;
+    }
+    // The pointer sits on a tool handle (gizmo) — part hover must not paint
+    // underneath it.
+    if (this.hoverSuppressor?.()) {
+      if (this.hoverState) {
+        this.clearHover();
+      }
       return;
     }
 

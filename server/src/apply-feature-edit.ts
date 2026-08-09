@@ -15,6 +15,7 @@ import {
 import { applySegmentSwap, type SegmentSwapSpec } from './segment-swap.ts';
 import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
 import { applyInsertPartEdit, type InsertPartEditSpec } from './part-catalog/insert-edit.ts';
+import { applyInstancePoseEdit, type InstancePoseEditSpec } from './insert-chain-edit.ts';
 
 /**
  * A dialog numeric slot: a plain number, or verbatim expression text
@@ -233,6 +234,13 @@ export type ApplyFeatureEditSpec = {
    * ignored.
    */
   insertPart?: InsertPartEditSpec;
+  /**
+   * Assembly-gizmo pose commit: rewrite an `insert()` chain's
+   * `.translate()`/`.rotate()` calls to reproduce the instance's final world
+   * pose. Rides the same round trip as `insertPart`; every other spec field
+   * is ignored.
+   */
+  instancePose?: InstancePoseEditSpec;
   /**
    * Strip every `breakpoint();` after the rewrite. Set when an edit dialog
    * applies: the double-click that opened it placed a breakpoint, and
@@ -1340,6 +1348,9 @@ export async function applyFeatureEdit(
   }
   if (spec.insertPart) {
     return applyInsertPartEdit(code, spec.insertPart);
+  }
+  if (spec.instancePose) {
+    return applyInstancePoseEdit(code, spec.instancePose);
   }
   if (spec.edit) {
     return applyStatementEdit(code, spec);

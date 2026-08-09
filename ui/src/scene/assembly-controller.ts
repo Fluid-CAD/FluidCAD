@@ -63,15 +63,28 @@ export class AssemblyController {
    */
   private mateRevealedConnectors = new Set<Object3D>();
   /**
-   * Set on pointerup to the instanceId whose drag just ended (or `null`
-   * once consumed / between gestures). Read via {@link consumeRecentDrag}:
-   * if non-null, the viewer's mouseup-as-click handler suppresses the
+   * Set on pointerup for the gesture that just ended (or `null` once
+   * consumed / between gestures). Read via {@link consumeRecentDrag}: if
+   * non-null, the viewer's mouseup-as-click handler suppresses the
    * face-selection click and uses the instance id to suppress hover on the
-   * just-dropped part until the cursor leaves it. Eagerly cleared at the
-   * start of the next pointerdown so it can never leak across gestures if
-   * a mouseup is missed.
+   * just-dropped part until the cursor leaves it. `moved` distinguishes a
+   * real drag from a plain click on the part — every pointerdown on a
+   * draggable instance is claimed here (so no face pick ever fires for
+   * one), and a no-move claim is the viewer's only signal that the user
+   * *clicked* the part (it becomes an instance selection → transform
+   * gizmo). Eagerly cleared at the start of the next pointerdown so it can
+   * never leak across gestures if a mouseup is missed.
    */
-  private postDragSuppressInstanceId: string | null = null;
+  private postDragSuppress: { instanceId: string; moved: boolean } | null = null;
+
+  /**
+   * A programmatic drag claimed by the transform gizmo: the driver feeds
+   * axis-constrained targets through the same solver loop the pointer drag
+   * uses. Mutually exclusive with {@link dragState}; participates in the
+   * same isDragging / update()-skip guards so a mid-drag render doesn't
+   * snap the manipulated part back.
+   */
+  private externalDrag: { instanceId: string } | null = null;
 
   private dragState: {
     instanceId: string;
@@ -154,7 +167,8 @@ export class AssemblyController {
       // would keep showing the previous mesh, so check the part's subtree
       // and force a rebuild if anything in it was re-built this render.
       const subtreeFresh = this.partSubtreeWasRebuilt(inst.partId);
-      const isDragging = this.dragState?.instanceId === inst.instanceId;
+      const isDragging = this.dragState?.instanceId === inst.instanceId
+        || this.externalDrag?.instanceId === inst.instanceId;
       // partId-changed guard: instance ids are counter-based, so commenting
       // out an earlier insert() shifts a later instance onto an id whose
       // existing group was built from a different part. Without this check
@@ -199,6 +213,7 @@ export class AssemblyController {
     this.allObjects = [];
     this.mates = [];
     this.hoveredInstanceId = null;
+    this.externalDrag = null;
   }
 
   /**
@@ -479,8 +494,11 @@ export class AssemblyController {
     // Fresh gesture: any leftover suppress-click flag from a missed mouseup
     // must not leak into this one. (Belt-and-suspenders; consumeRecentDrag
     // normally clears it.)
-    this.postDragSuppressInstanceId = null;
+    this.postDragSuppress = null;
     if (e.button !== 0) return;
+    // A gizmo drag owns the assembly for the duration — a second pointer
+    // (multi-touch) must not start a competing part drag mid-solve.
+    if (this.externalDrag) return;
     const ndc = this.toNDC(e);
     const raycaster = this.createPickingRaycaster(ndc.x, ndc.y);
     // Compute the locked set once: both the precise pick (mustn't claim a
@@ -625,8 +643,9 @@ export class AssemblyController {
     // click regardless of whether the cursor moved enough to cross the
     // drag threshold. Storing the instance id (rather than a bare bool)
     // lets the viewer also suppress hover on this specific part until the
-    // cursor leaves it.
-    this.postDragSuppressInstanceId = released.instanceId;
+    // cursor leaves it — and `moved` lets it tell a plain click (instance
+    // selection) apart from a finished drag.
+    this.postDragSuppress = { instanceId: released.instanceId, moved: released.moved };
     if (released.moved && this.dragReleaseHandler) {
       const state = this.instances.get(released.instanceId);
       if (state) {
@@ -699,12 +718,13 @@ export class AssemblyController {
 
   /**
    * True only while the user is actively dragging a part with the cursor
-   * past the movement threshold. Used by callers that care specifically
-   * about active motion (e.g. {@link AssemblyController.update} skipping
-   * pose sync for the in-flight instance).
+   * past the movement threshold — or the gizmo is driving an external drag.
+   * Used by callers that care specifically about active motion (e.g.
+   * {@link AssemblyController.update} skipping pose sync for the in-flight
+   * instance).
    */
   isDragging(): boolean {
-    return this.dragState?.moved === true;
+    return this.dragState?.moved === true || this.externalDrag !== null;
   }
 
   /**
@@ -716,20 +736,157 @@ export class AssemblyController {
    * applied.
    */
   isDragGestureActive(): boolean {
-    return this.dragState !== null;
+    return this.dragState !== null || this.externalDrag !== null;
   }
 
   /**
-   * If the most recent gesture ended a drag on a non-grounded instance,
-   * returns that instance's id and clears the flag. Otherwise returns
-   * `null`. The viewer's mouseup-as-click handler calls this both to
-   * suppress the face-selection click and to drive per-instance hover
-   * suppression on the just-dropped part. Self-clears on read.
+   * If the most recent gesture claimed a pointer on a non-grounded
+   * instance, returns that gesture (instance id + whether the cursor
+   * actually moved) and clears the flag; otherwise `null`. The viewer's
+   * mouseup-as-click handler calls this to suppress the face-selection
+   * click, drive per-instance hover suppression on the just-dropped part,
+   * and — when the gesture never moved — treat the click as an instance
+   * selection instead. Self-clears on read.
    */
-  consumeRecentDrag(): string | null {
-    const id = this.postDragSuppressInstanceId;
-    this.postDragSuppressInstanceId = null;
-    return id;
+  consumeRecentDrag(): { instanceId: string; moved: boolean } | null {
+    const gesture = this.postDragSuppress;
+    this.postDragSuppress = null;
+    return gesture;
+  }
+
+  // -------------------------------------------------------------------------
+  // External (gizmo-driven) drags: the transform gizmo computes constrained
+  // targets and routes them through the same solver loop the pointer drag
+  // uses, so mated bodies behave identically under both.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Whether the instance is immovable (grounded, or fastened-only chain to
+   * a grounded seed — the same set pointer drags refuse). Unknown ids read
+   * as locked.
+   */
+  isInstanceLocked(instanceId: string): boolean {
+    if (!this.instances.has(instanceId)) {
+      return true;
+    }
+    return this.computeLockedInstanceIds().has(instanceId);
+  }
+
+  /**
+   * Claim a programmatic drag on the instance. Refused (false) when the
+   * instance is unknown or locked, or any drag — pointer or external — is
+   * already active.
+   */
+  beginExternalDrag(instanceId: string): boolean {
+    if (this.dragState || this.externalDrag) {
+      return false;
+    }
+    if (this.isInstanceLocked(instanceId)) {
+      return false;
+    }
+    this.externalDrag = { instanceId };
+    return true;
+  }
+
+  /**
+   * Solver-in-the-loop translation toward `targetOrigin` (world). The grab
+   * point is the body origin itself (`draggedGrabLocal` zero), so free
+   * bodies land exactly on the target and mate-aware handlers steer the
+   * origin toward it. Null when no external drag is active or the instance
+   * disappeared mid-drag (caller should cancel).
+   */
+  updateExternalDragTranslate(targetOrigin: Vector3): SolverOutput | null {
+    const drag = this.externalDrag;
+    if (!drag || !this.instances.has(drag.instanceId)) {
+      return null;
+    }
+    const input: SolverInput = {
+      ...this.buildSolverInput(drag.instanceId, targetOrigin.clone()),
+      draggedCursorWorld: targetOrigin.clone(),
+      draggedGrabLocal: new Vector3(0, 0, 0),
+    };
+    const out = this.solver.solve(input);
+    if (out.result === 'okay') {
+      this.applySolverOutput(out);
+    }
+    this.solverUpdateHandler?.(out);
+    this.requestRender();
+    return out;
+  }
+
+  /**
+   * Solver-in-the-loop rotation: write the quaternion onto the live group
+   * (position untouched — the gizmo pivots at the body origin), then
+   * re-solve seeded at this body so followers re-derive from it and the
+   * warm start projects the new orientation onto the mate manifold. Free
+   * bodies pass through unchanged.
+   */
+  updateExternalDragRotate(quaternion: Quaternion): SolverOutput | null {
+    const drag = this.externalDrag;
+    if (!drag) {
+      return null;
+    }
+    const state = this.instances.get(drag.instanceId);
+    if (!state) {
+      return null;
+    }
+    state.group.quaternion.copy(quaternion);
+    const out = this.solver.solve(this.buildSolverInput(drag.instanceId));
+    if (out.result === 'okay') {
+      this.applySolverOutput(out);
+    }
+    this.solverUpdateHandler?.(out);
+    this.requestRender();
+    return out;
+  }
+
+  /** Read the final pose off the live group and release the claim. */
+  endExternalDrag(): { position: Vector3; quaternion: Quaternion } | null {
+    const drag = this.externalDrag;
+    this.externalDrag = null;
+    if (!drag) {
+      return null;
+    }
+    const state = this.instances.get(drag.instanceId);
+    if (!state) {
+      return null;
+    }
+    return {
+      position: state.group.position.clone(),
+      quaternion: state.group.quaternion.clone(),
+    };
+  }
+
+  /**
+   * Abandon the external drag and restore the pose the gesture started
+   * from (the caller holds it — typically the serialized payload values),
+   * then re-solve so followers settle back too.
+   */
+  cancelExternalDrag(pose: { position: Vector3; quaternion: Quaternion }): void {
+    const drag = this.externalDrag;
+    this.externalDrag = null;
+    if (!drag) {
+      return;
+    }
+    const state = this.instances.get(drag.instanceId);
+    if (!state) {
+      return;
+    }
+    state.group.position.copy(pose.position);
+    state.group.quaternion.copy(pose.quaternion);
+    this.runSolverRefresh();
+  }
+
+  /** The instance's current on-screen pose, or null when it isn't rendered. */
+  getInstancePose(instanceId: string): { position: Vector3; quaternion: Quaternion } | null {
+    const state = this.instances.get(instanceId);
+    if (!state) {
+      return null;
+    }
+    return {
+      position: state.group.position.clone(),
+      quaternion: state.group.quaternion.clone(),
+    };
   }
 
   setInstanceVisible(instanceId: string, visible: boolean): void {

@@ -19,6 +19,9 @@ export type PlaneData = {
 };
 
 export type ConnectorData = {
+  /** The identifier registered by `connector('name', …)` — absent only on
+   *  a connector whose build failed before its frame was derived. */
+  name?: string;
   origin: Vec3Data;
   xDirection: Vec3Data;
   yDirection: Vec3Data;
@@ -135,6 +138,13 @@ export type SubSelection =
    * index carries no meaning (always 0).
    */
   | { type: 'plane'; index: number }
+  /**
+   * A mate-connector gizmo hit — only produced while a mate dialog has
+   * enabled `viewer.pickConnectors`; the shapeId is the connector scene
+   * object's id and the pick carries the owning assembly instance, so the
+   * index carries no meaning (always 0).
+   */
+  | { type: 'connector'; index: number }
   | null;
 
 export type SceneObjectPart = {

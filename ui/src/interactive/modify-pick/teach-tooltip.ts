@@ -43,7 +43,7 @@ export class TeachTooltip {
       window.clearTimeout(this.timer);
       this.timer = null;
     }
-    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
+    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane' || sub.type === 'connector') {
       this.hide();
       return;
     }

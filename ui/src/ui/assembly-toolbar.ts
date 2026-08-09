@@ -1,10 +1,13 @@
 import { Navbar } from './navbar';
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './toolbar-styles';
+import type { AssemblyMateType } from '../api';
 
 /** The click handlers main.ts wires the implemented assembly tools to. */
 export type AssemblyToolbarHandlers = {
   onInsert?: () => void;
+  /** A mate button — opens the mate dialog with that type preselected. */
+  onMate?: (type: AssemblyMateType) => void;
 };
 
 /**
@@ -30,13 +33,23 @@ export class AssemblyToolbar {
     // One button per mate type of the assembly solver (SerializedMate['type']),
     // plus Spherical, which has artwork but no solver support yet.
     const mateGroup = navbar.addGroup('assembly-mate', { mode: 'assembly' });
-    this.addPlaceholder(mateGroup, { icon: 'joint-fastened', label: 'Fastened', tip: 'Fastened mate' });
-    this.addPlaceholder(mateGroup, { icon: 'joint-revolute', label: 'Revolute', tip: 'Revolute mate' });
-    this.addPlaceholder(mateGroup, { icon: 'joint-slider', label: 'Slider', tip: 'Slider mate' });
-    this.addPlaceholder(mateGroup, { icon: 'joint-cylindrical', label: 'Cylindrical', tip: 'Cylindrical mate' });
-    this.addPlaceholder(mateGroup, { icon: 'joint-planar', label: 'Planar', tip: 'Planar mate' });
-    this.addPlaceholder(mateGroup, { icon: 'joint-parallel', label: 'Parallel', tip: 'Parallel mate' });
-    this.addPlaceholder(mateGroup, { icon: 'joint-pin-slot', label: 'Pin-slot', tip: 'Pin-slot mate' });
+    const mates: { type: AssemblyMateType; label: string }[] = [
+      { type: 'fastened', label: 'Fastened' },
+      { type: 'revolute', label: 'Revolute' },
+      { type: 'slider', label: 'Slider' },
+      { type: 'cylindrical', label: 'Cylindrical' },
+      { type: 'planar', label: 'Planar' },
+      { type: 'parallel', label: 'Parallel' },
+      { type: 'pin-slot', label: 'Pin-slot' },
+    ];
+    for (const { type, label } of mates) {
+      const opts = { icon: `joint-${type}`, label, tip: `${label} mate` };
+      if (handlers.onMate) {
+        this.addButton(mateGroup, opts, () => handlers.onMate!(type));
+      } else {
+        this.addPlaceholder(mateGroup, opts);
+      }
+    }
     this.addPlaceholder(mateGroup, { icon: 'joint-spherical', label: 'Spherical', tip: 'Spherical mate' });
   }
 

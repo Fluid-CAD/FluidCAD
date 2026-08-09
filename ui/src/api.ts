@@ -3765,6 +3765,121 @@ export async function insertCatalogPart(
   }
 }
 
+/** The mate types the assembly solver supports (mirrors the kernel's mate()). */
+export type AssemblyMateType =
+  | 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';
+
+/**
+ * One side of a mate statement: the instance whose `insert()` chain starts on
+ * `instanceLine` (its serialized sourceLocation) and the part-level connector
+ * name, dereferenced as `<binding>.connectors.<connectorName>`.
+ */
+export type AssemblyMateConnectorRef = { instanceLine: number; connectorName: string };
+
+/** The mate dialog's option state; no-op values are omitted from the chain. */
+export type AssemblyMateOptions = {
+  flip?: boolean;
+  rotate?: number;
+  offset?: [number, number, number] | null;
+  limits?: [number, number] | null;
+};
+
+export type AssemblyMatePayload = {
+  type: AssemblyMateType;
+  connectorA: AssemblyMateConnectorRef;
+  connectorB: AssemblyMateConnectorRef;
+  options?: AssemblyMateOptions;
+};
+
+/**
+ * Mate-dialog commit: append a fresh `mate()` statement (`create`) or
+ * re-render an existing one in place from the dialog's full state (`edit`,
+ * addressed by the statement's serialized sourceLocation line). Failure
+ * bodies surface their reason (preflight refusal, stale line, ack timeout).
+ */
+export async function applyAssemblyMate(
+  filePath: string,
+  spec:
+    | { create: AssemblyMatePayload }
+    | { edit: AssemblyMatePayload & { sourceLine: number } },
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/assembly-mate', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath, ...spec }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/** A connector statement's dialog-editable properties (the pen-button editor). */
+export type ConnectorProperties = {
+  name: string;
+  rotate: { axis: 'x' | 'y' | 'z'; angle: number } | null;
+  offset: [number, number, number] | null;
+};
+
+/**
+ * Read a connector statement's properties from its part file (the current
+ * buffer when open, disk otherwise). Null when the statement can't be read
+ * or isn't a dialog-editable connector.
+ */
+export async function fetchConnectorProperties(
+  sourceLocation: { filePath: string; line: number },
+): Promise<ConnectorProperties | { error: string }> {
+  try {
+    const res = await fetch('/api/assembly-connector-properties', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath: sourceLocation.filePath, sourceLine: sourceLocation.line }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { error: body?.error ?? `Request failed (${res.status})` };
+    }
+    return body as ConnectorProperties;
+  } catch {
+    return { error: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/**
+ * Rewrite a connector statement's name and adjustment chain in its part
+ * file (a cross-file edit — the editor host's round-trip verifies it).
+ */
+export async function applyConnectorProperties(
+  sourceLocation: { filePath: string; line: number },
+  props: ConnectorProperties,
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/assembly-connector', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        filePath: sourceLocation.filePath,
+        sourceLine: sourceLocation.line,
+        name: props.name,
+        rotate: props.rotate,
+        offset: props.offset,
+      }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 /** Per-axis argument source text for one transform call (see applyInstancePose). */
 export type InstanceAxisExprs = [string | null, string | null, string | null];
 

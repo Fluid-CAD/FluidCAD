@@ -22,6 +22,7 @@ import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
 import { createPartCatalogRouter } from './routes/part-catalog.ts';
 import { createInstancePoseRouter } from './routes/instance-pose.ts';
+import { createAssemblyMateRouter } from './routes/assembly-mate.ts';
 import { createTextRouter } from './routes/text.ts';
 import { createFeatureGhostRouter } from './routes/feature-ghost.ts';
 import { FeatureEditDispatcher } from './edit-dispatch.ts';
@@ -117,6 +118,7 @@ app.use('/api', createFeatureGhostRouter(fluidCadServer));
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION, getLastCameraState));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
 app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher));
+app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher));
 
 // Static files — serve UI build, with SPA fallback
 app.use(express.static(UI_DIST, {
@@ -229,16 +231,23 @@ function emitCompileError(version: number, filePath: string, err: any): CompileE
  * compile-error to the UI + extension. Returns a structured outcome so the
  * HTTP caller (MCP) can hand it straight to the agent.
  */
-async function runLiveRender(fileName: string, code: string): Promise<RenderOutcome> {
+async function runLiveRender(fileName: string, code: string, keepCurrent = false): Promise<RenderOutcome> {
   const startedAt = Date.now();
   const myVersion = ++renderVersion;
   broadcastToUI({ type: 'render-version', version: myVersion, state: 'start' });
-  if (fileName !== currentFile) {
+  // A host-applied cross-file edit (the mate dialog writing a connector()
+  // into a PART file while the assembly is viewed) marks its live-update
+  // keepCurrent: the updated file folds in as a dependency and the CURRENT
+  // file re-renders, instead of the viewport switching to the edited file.
+  const dependency = keepCurrent && currentFile !== null && fileName !== currentFile;
+  if (!dependency && fileName !== currentFile) {
     broadcastToUI({ type: 'processing-file' });
     currentFile = fileName;
   }
   try {
-    const data = await fluidCadServer.updateLiveCode(fileName, code);
+    const data = dependency
+      ? await fluidCadServer.updateDependencyCode(fileName, code)
+      : await fluidCadServer.updateLiveCode(fileName, code);
     if (myVersion !== renderVersion) {
       return { state: 'superseded', version: myVersion, durationMs: Date.now() - startedAt };
     }
@@ -301,7 +310,7 @@ async function handleExtensionMessage(msg: any) {
       }
 
       case 'live-update': {
-        await runLiveRender(msg.fileName, msg.code);
+        await runLiveRender(msg.fileName, msg.code, msg.keepCurrent === true);
         break;
       }
 

@@ -5,6 +5,10 @@ import { Solver, buildMateGraph, isInstanceFullyLocked, mateReadoutValue } from 
 import type { BodyState, ConnectorState, MateReadout, MateRecord, SolverInput, SolverOutput } from '../solver';
 
 const DRAG_THRESHOLD_PX = 4;
+/** Screen radius a click may miss a connector-gizmo origin by and still pick it. */
+const CONNECTOR_PICK_RADIUS_PX = 22;
+/** Hover feedback while picking: the gizmo grows by this factor. */
+const CONNECTOR_HIGHLIGHT_SCALE = 1.35;
 
 type InstanceState = {
   data: SerializedAssemblyInstance;
@@ -63,6 +67,18 @@ export class AssemblyController {
    */
   private mateRevealedConnectors = new Set<Object3D>();
   /**
+   * A mate dialog's connector slot is armed: every connector is revealed and
+   * screen-pickable ({@link pickConnectorAt}), and pointerdown never claims a
+   * drag — a click means "pick", not "move". Set via {@link setMatePicking}.
+   */
+  private matePicking = false;
+  /**
+   * Connector hovered while {@link matePicking} — its gizmo renders enlarged
+   * (see {@link applyConnectorHighlight}). Tracked as an id so it survives
+   * diff updates that replace the underlying meshes.
+   */
+  private highlightedConnectorId: string | null = null;
+  /**
    * Set on pointerup for the gesture that just ended (or `null` once
    * consumed / between gestures). Read via {@link consumeRecentDrag}: if
    * non-null, the viewer's mouseup-as-click handler suppresses the
@@ -85,6 +101,14 @@ export class AssemblyController {
    * snap the manipulated part back.
    */
   private externalDrag: { instanceId: string } | null = null;
+
+  /**
+   * The mate dialog's live preview: a not-yet-committed mate solved alongside
+   * the real ones so the parts pull together while the dialog is still open.
+   * Never persisted; cleared (with poses restored from the serialized data)
+   * when the dialog closes or its picks change.
+   */
+  private provisionalMate: MateRecord | null = null;
 
   private dragState: {
     instanceId: string;
@@ -202,6 +226,14 @@ export class AssemblyController {
       this.container.add(group);
     }
 
+    // Rebuilt groups start with their connectors hidden and unhighlighted;
+    // re-assert the reveal/highlight state so a render mid-pick doesn't
+    // blank the gizmos the user is aiming at.
+    for (const state of this.instances.values()) {
+      this.applyConnectorVisibility(state);
+    }
+    this.applyConnectorHighlight();
+
     // Kick a no-drag solve so the DOF readout reflects the current state.
     this.runSolverRefresh();
   }
@@ -217,6 +249,7 @@ export class AssemblyController {
     this.mates = [];
     this.hoveredInstanceId = null;
     this.externalDrag = null;
+    this.provisionalMate = null;
   }
 
   /**
@@ -251,7 +284,7 @@ export class AssemblyController {
     const isHovered = this.hoveredInstanceId === state.data.instanceId;
     state.group.traverse((child) => {
       if (!child.userData?.isConnector) return;
-      child.visible = isHovered || this.mateRevealedConnectors.has(child);
+      child.visible = this.matePicking || isHovered || this.mateRevealedConnectors.has(child);
     });
   }
 
@@ -348,7 +381,7 @@ export class AssemblyController {
     const bodies = this.collectBodies();
     return {
       bodies,
-      mates: this.mates,
+      mates: this.provisionalMate ? [...this.mates, this.provisionalMate] : this.mates,
       draggedInstanceId,
       draggedTargetOrigin,
     };
@@ -508,6 +541,10 @@ export class AssemblyController {
     // A gizmo drag owns the assembly for the duration — a second pointer
     // (multi-touch) must not start a competing part drag mid-solve.
     if (this.externalDrag) return;
+    // A mate dialog is picking connectors — clicks mean "pick", never "move",
+    // so the gesture must bubble to the viewer's click path (and camera nav)
+    // instead of being claimed as a drag.
+    if (this.matePicking) return;
     const ndc = this.toNDC(e);
     const raycaster = this.createPickingRaycaster(ndc.x, ndc.y);
     // Compute the locked set once: both the precise pick (mustn't claim a
@@ -784,6 +821,171 @@ export class AssemblyController {
     const gesture = this.postDragSuppress;
     this.postDragSuppress = null;
     return gesture;
+  }
+
+  // -------------------------------------------------------------------------
+  // Mate-dialog connector picking: while a connector slot is armed every
+  // gizmo is revealed and clicks resolve by screen distance to the gizmo
+  // origins (they render depth-test-off on top, so screen-space nearest
+  // matches what the user sees — same approach as the connector tool's
+  // anchor float).
+  // -------------------------------------------------------------------------
+
+  /**
+   * Arm or disarm connector picking. Arming reveals every instance's
+   * connectors and makes {@link handlePointerDown} bail so clicks bubble to
+   * the viewer's pick path; disarming restores hover-only visibility and
+   * drops any hover highlight. Any in-flight drag gesture is cancelled — the
+   * dialog opened mid-gesture must not leave a claim active.
+   */
+  setMatePicking(armed: boolean): void {
+    if (this.matePicking === armed) return;
+    this.matePicking = armed;
+    if (armed) {
+      this.cancelPointerGesture();
+    } else {
+      this.highlightedConnectorId = null;
+      this.applyConnectorHighlight();
+    }
+    for (const state of this.instances.values()) {
+      this.applyConnectorVisibility(state);
+    }
+    this.requestRender();
+  }
+
+  isMatePicking(): boolean {
+    return this.matePicking;
+  }
+
+  /**
+   * The visible connector gizmo nearest the cursor within `maxPx` screen
+   * pixels, or null. Distance is measured to the gizmo origin projected
+   * through the live camera.
+   */
+  pickConnectorAt(
+    clientX: number,
+    clientY: number,
+    maxPx = CONNECTOR_PICK_RADIUS_PX,
+  ): { instanceId: string; connectorId: string } | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return null;
+    const world = new Vector3();
+    let best: { instanceId: string; connectorId: string; distPx: number } | null = null;
+    for (const [instanceId, state] of this.instances) {
+      state.group.traverse((child) => {
+        if (!child.userData?.isConnector || !child.visible) return;
+        const connectorId = child.userData.connectorId;
+        if (typeof connectorId !== 'string') return;
+        // The ConnectorMesh group sits at the part-frame origin; the gizmo
+        // child inside it carries the connector frame's actual origin.
+        const gizmo = child.children[0] ?? child;
+        gizmo.getWorldPosition(world).project(this.camera);
+        if (world.z > 1) return; // behind the camera
+        const px = ((world.x + 1) / 2) * rect.width + rect.left;
+        const py = ((1 - world.y) / 2) * rect.height + rect.top;
+        const distPx = Math.hypot(px - clientX, py - clientY);
+        if (distPx <= maxPx && (!best || distPx < best.distPx)) {
+          best = { instanceId, connectorId, distPx };
+        }
+      });
+    }
+    return best ? { instanceId: best.instanceId, connectorId: best.connectorId } : null;
+  }
+
+  /**
+   * Enlarge one connector's gizmo as hover feedback while picking (`null`
+   * clears). Persisted as an id and re-asserted after diff updates.
+   */
+  setHighlightedConnector(connectorId: string | null): void {
+    if (this.highlightedConnectorId === connectorId) return;
+    this.highlightedConnectorId = connectorId;
+    this.applyConnectorHighlight();
+    this.requestRender();
+  }
+
+  /**
+   * Sync every gizmo's scale multiplier to {@link highlightedConnectorId}.
+   * The multiplier rides userData because the gizmo re-derives its scale
+   * from the camera on every draw (see buildConnectorGizmo) — a one-shot
+   * scale write here would be overwritten by the next frame.
+   */
+  private applyConnectorHighlight(): void {
+    for (const state of this.instances.values()) {
+      state.group.traverse((child) => {
+        if (!child.userData?.isConnector) return;
+        const gizmo = child.children[0];
+        if (!gizmo) return;
+        gizmo.userData.highlight = child.userData.connectorId === this.highlightedConnectorId
+          ? CONNECTOR_HIGHLIGHT_SCALE
+          : 1;
+      });
+    }
+  }
+
+  /**
+   * Solve a not-yet-committed mate live (the dialog's preview), or clear it.
+   * Clearing restores every instance to its serialized source-of-truth pose
+   * before re-solving, so cancelling the dialog snaps the preview motion
+   * back instead of leaving the parts wherever the provisional solve put
+   * them.
+   */
+  setProvisionalMate(record: MateRecord | null): void {
+    const clearing = record === null && this.provisionalMate !== null;
+    if (record === null && this.provisionalMate === null) return;
+    this.provisionalMate = record;
+    if (clearing) {
+      for (const state of this.instances.values()) {
+        const d = state.data;
+        state.group.position.set(d.position.x, d.position.y, d.position.z);
+        state.group.quaternion.set(d.quaternion.x, d.quaternion.y, d.quaternion.z, d.quaternion.w);
+      }
+    }
+    this.runSolverRefresh();
+  }
+
+  /** The connector's registered name (`connector('name', …)`) — null when unknown. */
+  getConnectorName(connectorId: string): string | null {
+    for (const obj of this.allObjects) {
+      if (obj.type === 'connector' && obj.id === connectorId) {
+        const data = obj.object as ConnectorData | undefined;
+        return data?.name ?? obj.name ?? null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Where the connector's `connector()` statement lives — its part file and
+   * line, for the pen-button property editor. Null when the render carried
+   * no source location for it.
+   */
+  getConnectorSourceLocation(connectorId: string): { filePath: string; line: number } | null {
+    for (const obj of this.allObjects) {
+      if (obj.type === 'connector' && obj.id === connectorId && obj.sourceLocation) {
+        return { filePath: obj.sourceLocation.filePath, line: obj.sourceLocation.line };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The current render's scene id for the named connector on an instance's
+   * part — how a mate dialog's pick re-finds itself after a render re-mints
+   * every id. Null when the instance or the name is gone.
+   */
+  findConnectorId(instanceId: string, connectorName: string): string | null {
+    const partId = this.instances.get(instanceId)?.data.partId;
+    if (!partId) {
+      return null;
+    }
+    for (const obj of this.allObjects) {
+      if (obj.type !== 'connector' || obj.parentId !== partId || !obj.id) continue;
+      const data = obj.object as ConnectorData | undefined;
+      if ((data?.name ?? obj.name) === connectorName) {
+        return obj.id;
+      }
+    }
+    return null;
   }
 
   // -------------------------------------------------------------------------

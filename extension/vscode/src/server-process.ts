@@ -21,7 +21,7 @@ export function processFile(client: Client, filePath: string) {
   });
 }
 
-export function updateLiveCode(client: Client, fileName: string, newCode: string) {
+export function updateLiveCode(client: Client, fileName: string, newCode: string, keepCurrent = false) {
   if (client.debounceTimer) {
     clearTimeout(client.debounceTimer);
     client.debounceTimer = undefined;
@@ -30,6 +30,9 @@ export function updateLiveCode(client: Client, fileName: string, newCode: string
     type: 'live-update',
     fileName,
     code: newCode,
+    // A cross-file edit (the assembly mate dialog writing into a PART file)
+    // folds in as a dependency server-side instead of switching the viewport.
+    ...(keepCurrent ? { keepCurrent: true } : {}),
   });
 }
 

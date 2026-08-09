@@ -29,6 +29,7 @@ import {
   type RevolveEditOptions, type RibEditOptions, type ShellJoinKind, type SweepEditOptions, type ValueExpr,
   type WrapEditOptions,
 } from '../apply-feature-edit.ts';
+import { readFile } from 'fs/promises';
 import { normalizePath } from '../normalize-path.ts';
 import { CHAIN_CALLEES } from '../segment-swap.ts';
 import { findEditableCallAt, getJavaScriptParser, splitLines } from '../code-editor.ts';
@@ -3416,6 +3417,43 @@ export function createApplyFeatureRouter(
   const dispatcher = options.dispatcher
     ?? new FeatureEditDispatcher(fluidCadServer, sendToExtension, options);
 
+  /**
+   * The file-coupled synthesis options (producer namer + linkable params)
+   * built over the file the emitted statement will land in. Synthesis
+   * derives that file from the picked producers' own sourceLocations —
+   * under an assembly render it is the PART file, so building these over
+   * `getCurrentCode()` (the assembly buffer) would preview wrong binding
+   * names and link assembly-file constants into part-file selectors. The
+   * current buffer serves the open file; other files read from disk (an
+   * unsaved part buffer can be stale here — the editor round-trip is what
+   * verifies the final transform).
+   */
+  const synthesisOptionsForFile = async (
+    filePath: string | null | undefined,
+  ): Promise<{ namer: Awaited<ReturnType<typeof makeProducerNamer>>; params: ReturnType<typeof resolveParamValues> } | undefined> => {
+    const currentFile = fluidCadServer.getCurrentFileName();
+    let code: string | null = null;
+    if (!filePath || (currentFile && normalizePath(filePath) === normalizePath(currentFile))) {
+      code = fluidCadServer.getCurrentCode();
+    } else {
+      try {
+        code = await readFile(filePath, 'utf8');
+      } catch {
+        code = null;
+      }
+    }
+    if (!code) {
+      return undefined;
+    }
+    return {
+      namer: await makeProducerNamer(code),
+      params: resolveParamValues(
+        await extractNumericParams(code),
+        fluidCadServer.getParamDefinitions(),
+      ),
+    };
+  };
+
   // Read-only attribution report against the last rendered scene. Backs the
   // pick tooltips/debugging; never touches code.
   router.post('/selection/explain', (req, res) => {
@@ -5812,28 +5850,34 @@ export function createApplyFeatureRouter(
         return;
       }
       try {
-        const code = fluidCadServer.getCurrentCode();
-        const options = {
-          ...(code
-            ? {
-              namer: await makeProducerNamer(code),
-              params: resolveParamValues(
-                await extractNumericParams(code),
-                fluidCadServer.getParamDefinitions(),
-              ),
-            }
-            : {}),
-          connector: { anchor, rotate, offset: frameOffset },
-        };
-        const synthesis = fluidCadServer.synthesizeApplyFeature(
-          picks, 'connector', name, [], options,
+        const connectorOptions = { anchor, rotate, offset: frameOffset };
+        // Two-pass: a bare synthesis learns which file the statement lands
+        // in (the picked producers' file — the PART file under an assembly
+        // render), then the real pass runs with namer/params built over
+        // that file's code so binding names and linked constants are the
+        // target file's, not the open buffer's.
+        const probe = fluidCadServer.synthesizeApplyFeature(
+          picks, 'connector', name, [], { connector: connectorOptions },
         );
-        if (!synthesis) {
+        if (!probe) {
           res.status(404).json({ success: false, reason: 'No rendered scene' });
           return;
         }
-        if (!synthesis.ok) {
-          res.status(422).json({ success: false, reason: synthesis.reason, pick: synthesis.pick });
+        if (!probe.ok) {
+          res.status(422).json({ success: false, reason: probe.reason, pick: probe.pick });
+          return;
+        }
+        const fileOptions = await synthesisOptionsForFile(probe.spec.filePath);
+        const synthesis = fileOptions
+          ? fluidCadServer.synthesizeApplyFeature(
+            picks, 'connector', name, [], { ...fileOptions, connector: connectorOptions },
+          )
+          : probe;
+        if (!synthesis || !synthesis.ok) {
+          res.status(422).json({
+            success: false,
+            reason: synthesis && !synthesis.ok ? synthesis.reason : 'No rendered scene',
+          });
           return;
         }
         // Composed here rather than taken from `synthesis.preview` so the
@@ -6502,21 +6546,23 @@ export function createApplyFeatureRouter(
       return;
     }
     try {
-      const code = fluidCadServer.getCurrentCode();
-      const options = code
-        ? {
-          namer: await makeProducerNamer(code),
-          params: resolveParamValues(
-            await extractNumericParams(code),
-            fluidCadServer.getParamDefinitions(),
-          ),
-        }
-        : undefined;
-      const result = fluidCadServer.suggestConnectorAnchors(pick, options);
-      if (!result) {
+      // Two-pass, mirroring the connector create branch: the bare pass
+      // learns the statement's target file; the real pass builds
+      // namer/params over that file so the suggested args match what the
+      // commit writes.
+      const probe = fluidCadServer.suggestConnectorAnchors(pick, undefined);
+      if (!probe) {
         res.status(404).json({ success: false, reason: 'No rendered scene' });
         return;
       }
+      if (probe.ok === false) {
+        res.json({ success: false, reason: probe.reason });
+        return;
+      }
+      const fileOptions = await synthesisOptionsForFile(probe.filePath);
+      const result = fileOptions
+        ? fluidCadServer.suggestConnectorAnchors(pick, fileOptions) ?? probe
+        : probe;
       if (result.ok === false) {
         res.json({ success: false, reason: result.reason });
         return;
@@ -6525,6 +6571,7 @@ export function createApplyFeatureRouter(
         success: true,
         defaultName: result.defaultName,
         args: result.args,
+        filePath: result.filePath,
         anchors: result.anchors,
       });
     } catch (err: any) {

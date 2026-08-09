@@ -265,8 +265,8 @@ export class Client {
     serverProcessFile(this, filePath);
   }
 
-  updateLiveCode(fileName: string, newCode: string) {
-    serverUpdateLiveCode(this, fileName, newCode);
+  updateLiveCode(fileName: string, newCode: string, keepCurrent = false) {
+    serverUpdateLiveCode(this, fileName, newCode, keepCurrent);
   }
 
   sendToServer(msg: any) {

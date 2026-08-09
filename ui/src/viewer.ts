@@ -84,11 +84,14 @@ function isPlanePick(result: PickResult | null): result is { standardPlane: Stan
   return result !== null && 'standardPlane' in result;
 }
 
-// Sketch-wire, axis and plane picks route a dialog action and are never held
-// as a selection.
+// Sketch-wire, axis, plane and connector picks route a dialog action and are
+// never held as a selection.
 export type SelectedEntity = {
   shapeId: string;
-  sub: Exclude<NonNullable<SubSelection>, { type: 'sketch' } | { type: 'axis' } | { type: 'plane' }>;
+  sub: Exclude<
+    NonNullable<SubSelection>,
+    { type: 'sketch' } | { type: 'axis' } | { type: 'plane' } | { type: 'connector' }
+  >;
 };
 
 /**
@@ -165,6 +168,15 @@ export class Viewer {
    * consumer.
    */
   pickPlanes = false;
+  /**
+   * Makes assembly mate-connector gizmos pickable, independent of
+   * `pickFilter` — an armed mate dialog enables it. Connector hits resolve
+   * by screen distance through the assembly controller (the gizmos render
+   * depth-test-off on top of everything) and outrank every raycast channel.
+   * A hit returns the connector scene object's id with
+   * `sub.type === 'connector'` plus the owning instance id.
+   */
+  pickConnectors = false;
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection, instanceId: string | null, modifiers: SelectionModifiers) => void) | null = null;
   private hoverHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
@@ -578,6 +590,18 @@ export class Viewer {
    * plane.
    */
   private pickAt(clientX: number, clientY: number): PickResult | null {
+    // Connector gizmos render on top of everything (depth-test off), so while
+    // a mate dialog has them armed a nearby gizmo outranks all raycast hits.
+    if (this.pickConnectors && this.assemblyController) {
+      const connectorHit = this.assemblyController.pickConnectorAt(clientX, clientY);
+      if (connectorHit) {
+        return {
+          shapeId: connectorHit.connectorId,
+          sub: { type: 'connector', index: 0 },
+          instanceId: connectorHit.instanceId,
+        };
+      }
+    }
     const camera = this.ctx.camera;
     const { raycaster, faceHits, edgeHits, sketchWireHits, axisHits, planeHits, planeQuadHits } = this.castPick(clientX, clientY);
 
@@ -1484,6 +1508,8 @@ export class Viewer {
       this.applyHoverAxis(result.shapeId);
     } else if (result.sub?.type === 'plane') {
       this.applyHoverPlaneQuad(result.shapeId);
+    } else if (result.sub?.type === 'connector') {
+      this.assemblyController?.setHighlightedConnector(result.shapeId);
     }
     this.hoverHandler?.(result.shapeId, result.sub, clientX, clientY);
   }
@@ -1513,6 +1539,9 @@ export class Viewer {
       }
     });
 
+    if (this.hoverState?.sub?.type === 'connector') {
+      this.assemblyController?.setHighlightedConnector(null);
+    }
     if (this.hoverState) {
       this.hoverHandler?.(null, null, 0, 0);
     }

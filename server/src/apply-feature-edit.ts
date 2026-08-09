@@ -16,6 +16,12 @@ import { applySegmentSwap, type SegmentSwapSpec } from './segment-swap.ts';
 import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
 import { applyInsertPartEdit, type InsertPartEditSpec } from './part-catalog/insert-edit.ts';
 import { applyInstancePoseEdit, type InstancePoseEditSpec } from './insert-chain-edit.ts';
+import {
+  applyAssemblyMateEdit,
+  applyConnectorPropsEdit,
+  type AssemblyMateEditSpec,
+  type ConnectorPropsEditSpec,
+} from './assembly-mate-edit.ts';
 
 /**
  * A dialog numeric slot: a plain number, or verbatim expression text
@@ -241,6 +247,20 @@ export type ApplyFeatureEditSpec = {
    * is ignored.
    */
   instancePose?: InstancePoseEditSpec;
+  /**
+   * Mate-dialog statement write: append or re-render a
+   * `mate(type, a.connectors.x, b.connectors.y)<chain>` statement in the
+   * assembly file. Rides the same round trip as `instancePose`; every other
+   * spec field is ignored.
+   */
+  assemblyMate?: AssemblyMateEditSpec;
+  /**
+   * Mate-dialog pen-button edit: rewrite a `connector()` statement's name
+   * and adjustment chain in its part file (the spec's `filePath` addresses
+   * that file, so the current-file preflight self-skips). Rides the same
+   * round trip as `assemblyMate`; every other spec field is ignored.
+   */
+  connectorProps?: ConnectorPropsEditSpec;
   /**
    * Strip every `breakpoint();` after the rewrite. Set when an edit dialog
    * applies: the double-click that opened it placed a breakpoint, and
@@ -1351,6 +1371,12 @@ export async function applyFeatureEdit(
   }
   if (spec.instancePose) {
     return applyInstancePoseWithDecls(code, spec);
+  }
+  if (spec.assemblyMate) {
+    return applyAssemblyMateEdit(code, spec.assemblyMate);
+  }
+  if (spec.connectorProps) {
+    return applyConnectorPropsEdit(code, spec.connectorProps);
   }
   if (spec.edit) {
     return applyStatementEdit(code, spec);

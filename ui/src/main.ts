@@ -47,6 +47,8 @@ import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, applyInstancePose, getInstancePoseExpressions, getScopeVariables } from './api';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
+import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
+import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-props-editor';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { ConnectorData, SceneObjectRender } from './types';
 import { applyPreferences } from './scene/viewer-settings';
@@ -325,7 +327,12 @@ importGroup.appendChild(importBtnWrap);
 // in the scene-rendered handler). Insert opens the part-catalog browser;
 // the rest are placeholders for now.
 const insertPartDialog = new InsertPartDialog(container);
-new AssemblyToolbar(navbar, { onInsert: () => insertPartDialog.show() });
+new AssemblyToolbar(navbar, {
+  onInsert: () => insertPartDialog.show(),
+  // The service is constructed later (it needs the gizmo driver); toolbar
+  // clicks only ever fire after startup completes.
+  onMate: (type) => assemblyMateService.enter(type),
+});
 
 const paramsPanel = new ParamsPanel(viewer.settingsPanelHost, new ParamEditorDialog(container));
 
@@ -1349,6 +1356,28 @@ const assemblyGizmo = new AssemblyGizmoDriver({
   },
 });
 
+// The mate dialog: a toolbar mate button opens it armed for connector
+// picking; apply writes the mate() statement via /api/assembly-mate.
+const assemblyMateService = new AssemblyMateService(container, viewer, {
+  getAssembly: () => lastAssemblyPayload,
+  onEnter: () => {
+    // The dialog owns the viewport: dismiss the transform gizmo and any
+    // face/edge selection so picks read unambiguously as connector picks.
+    assemblyGizmo.handleSelection(null);
+    viewer.clearHighlight();
+    viewer.clearInstanceHighlight();
+    selectionInfoOverlay.hide();
+  },
+  onExit: () => connectorPropsEditor.close(),
+  // The pen on a picked chip: the connector's own property editor, docked
+  // beside the mate dialog, editing the connector() statement in its part
+  // file.
+  onEditConnector: (state) => void connectorPropsEditor.open(state),
+});
+const connectorPropsEditor = new ConnectorPropsEditor(container, viewer, {
+  onRenamed: (slot, newName) => assemblyMateService.noteConnectorRenamed(slot, newName),
+});
+
 viewer.setSolverUpdateHandler((output) => {
   if (currentRail?.kind !== 'assembly') return;
   // Diff the failed set against the previous frame BEFORE replacing it.
@@ -1460,6 +1489,12 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // Assembly mode: instance-aware viewport selection drives the parts/joints
   // panels; the part-design pick services and measure tool aren't active here.
   if (currentRail?.kind === 'assembly') {
+    // The armed mate dialog owns every viewport click: connector picks fill
+    // its slots; nothing below (gizmo attach, face highlight) may run.
+    if (assemblyMateService.isPicking) {
+      assemblyMateService.handleClick(shapeId, sub, instanceId);
+      return;
+    }
     if (shapeId) {
       if (sub?.type === 'face') {
         viewer.highlightFace(shapeId, sub.index, instanceId);
@@ -1892,6 +1927,9 @@ function connectWebSocket() {
           // gizmo (or dismiss it if its instance is gone or now locked).
           assemblyGizmo.handleSceneRendered();
         }
+        // The mate dialog re-resolves its picks against the re-minted scene
+        // ids (or closes, when the render switched to a part scene).
+        assemblyMateService.handleSceneRendered(sceneKind);
         if (msg.params !== undefined) {
           paramsPanel.update(msg.params);
           // Reachable from the first render on, params or not — an empty panel

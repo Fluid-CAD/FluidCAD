@@ -33,6 +33,13 @@ export type ConnectorAnchorSuggestions =
     defaultName: string;
     /** Synthesized source selector (no anchor suffix), e.g. `e.endFaces(0)`. */
     args: string;
+    /**
+     * The file the emitted statement would land in — the picked producers'
+     * own file, which under an assembly render is the part's file. Callers
+     * building file-coupled synthesis options (namer/params) must read this
+     * file, not whichever file is open.
+     */
+    filePath: string | null;
     anchors: ConnectorAnchorCandidate[];
   }
   | { ok: false; reason: string };
@@ -103,7 +110,13 @@ export function suggestConnectorAnchors(
     return { ok: false, reason: 'no connector anchor available on this shape' };
   }
 
-  return { ok: true, defaultName, args: synthesis.args, anchors };
+  return {
+    ok: true,
+    defaultName,
+    args: synthesis.args,
+    filePath: synthesis.spec.filePath ?? null,
+    anchors,
+  };
 }
 
 function anchorSpecsForShape(shape: Face | Edge | { getType(): string }): VertexAnchorSpec[] {

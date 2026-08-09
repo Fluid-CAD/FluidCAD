@@ -109,6 +109,18 @@ function M.apply_code_edit(file_path, editor)
         break
       end
     end
+    -- A named target that isn't loaded yet (cross-file edits: the assembly
+    -- mate dialog writing a connector() into a PART file) must be loaded,
+    -- never silently swapped for the current buffer — that would splice the
+    -- transform into the wrong file.
+    if not buf then
+      if vim.fn.filereadable(file_path) ~= 1 then
+        vim.notify('FluidCAD: cannot edit ' .. file_path .. ' — file not readable', vim.log.levels.ERROR)
+        return
+      end
+      buf = vim.fn.bufadd(file_path)
+      vim.fn.bufload(buf)
+    end
   end
   if not buf then
     buf = vim.api.nvim_get_current_buf()
@@ -126,11 +138,15 @@ function M.apply_code_edit(file_path, editor)
   end
 
   -- TextChanged autocmd does not fire for non-current buffers, so push the
-  -- live-update explicitly.
+  -- live-update explicitly. A cross-file edit (the mate dialog writing into
+  -- a PART buffer while the assembly is current) is marked keepCurrent so
+  -- the server folds it in as a dependency instead of switching the
+  -- viewport to the edited file.
   M.send({
     type = 'live-update',
     fileName = vim.api.nvim_buf_get_name(buf),
     code = result.newCode,
+    keepCurrent = (buf ~= vim.api.nvim_get_current_buf()),
   })
 end
 

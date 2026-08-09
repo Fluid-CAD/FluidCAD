@@ -1012,6 +1012,28 @@ export class FluidCadServer {
     return result;
   }
 
+  /**
+   * Fold an edited DEPENDENCY's code in — a part file rewritten by a
+   * cross-file edit (the assembly mate dialog's connector flows) while an
+   * assembly is being viewed — and re-render the CURRENT file against it.
+   * The updated file gets the same live-buffer overlay `updateLiveCode`
+   * would set; the current file's dedup entries are dropped so this render
+   * (and any later identical live-update) sees the new dependency; the
+   * current scene/file identity is left untouched.
+   */
+  async updateDependencyCode(fileName: string, code: string): Promise<SceneRenderedData | null> {
+    fileName = normalizePath(fileName);
+    this.host.setBuffer(`virtual:live-render:${fileName}`, code);
+    this.lastRendered.delete(fileName);
+    const current = this.currentFileName;
+    if (!current) {
+      return null;
+    }
+    this.renderingCache.delete(current);
+    this.lastRendered.delete(current);
+    return this.processFileInternal(current, this.currentFilePath ?? current, true);
+  }
+
   async rollbackFromUI(index: number): Promise<SceneRenderedData | null> {
     return this.rollback(this.currentFileName, index);
   }

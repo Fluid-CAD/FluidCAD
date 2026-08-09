@@ -118,7 +118,11 @@ export function buildConnectorGizmo(frame: ConnectorFrameData, camera: Camera, o
   gizmo.traverse(child => { child.renderOrder = 1000; });
 
   originBall.onBeforeRender = (_renderer, _scene, cam) => {
-    gizmo.scale.setScalar(computeViewScale(cam, gizmo.position, VIEW_SCALE_FACTOR));
+    // `highlight` is the hover-feedback multiplier the assembly controller
+    // sets while a mate dialog is picking connectors; the scale must be
+    // re-derived here every draw, so the multiplier rides userData.
+    const highlight = typeof gizmo.userData.highlight === 'number' ? gizmo.userData.highlight : 1;
+    gizmo.scale.setScalar(computeViewScale(cam, gizmo.position, VIEW_SCALE_FACTOR) * highlight);
     gizmo.updateMatrixWorld(true);
   };
 

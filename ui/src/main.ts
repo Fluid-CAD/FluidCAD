@@ -45,7 +45,7 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint, applyInstancePose, getInstancePoseExpressions, getScopeVariables } from './api';
+import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, applyInstancePose, getInstancePoseExpressions, getScopeVariables } from './api';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { ConnectorData, SceneObjectRender } from './types';
@@ -170,8 +170,13 @@ function buildAssemblyRail(): LeftRail {
         defaultName: defaultNameFor(inst),
       });
     },
-    (_id) => {
-      console.warn('Delete instance not implemented yet');
+    (id) => {
+      const inst = findInstance(id);
+      if (!inst?.sourceLocation) return;
+      // Drops the whole `insert(...)` statement, its `const` binding included.
+      // Mates that still reference the binding are left for the user — the
+      // next render reports them, same as the timeline's Remove.
+      removeFeature(inst.sourceLocation);
     },
   );
   joints = new JointsPanel(

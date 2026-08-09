@@ -1226,6 +1226,14 @@ describe('removeStatement', () => {
     expect(result.newCode).toBe(code);
   });
 
+  // The parts panel's Delete routes an assembly instance here by its
+  // serialized source line.
+  it('removes a bound insert() chain', async () => {
+    const code = `const base = insert(plate).grounded();\nconst arm = insert(lever).translate(0, 10, 0);\n`;
+    const result = await removeStatement(code, 2);
+    expect(result.newCode).toBe(`const base = insert(plate).grounded();\n`);
+  });
+
   it('excises only the statement when it shares a line', async () => {
     const code = `const a = 1; extrude(10);\n`;
     const result = await removeStatement(code, 1);

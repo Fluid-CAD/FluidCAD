@@ -332,6 +332,16 @@ export type InstancePoseEditSpec = {
    * the strings as safe single-argument expression text.
    */
   translateExprs?: [string | null, string | null, string | null] | null;
+  /**
+   * Per-axis angle text for the written `.rotate('x'|'y'|'z', …)` calls of a
+   * rotation commit, same contract as `translateExprs`: verbatim text wins
+   * over the numeric `rotateXYZ` component (and is written even at identity);
+   * `null` falls back to the numeric, omitted below the identity epsilon.
+   * Text coverage is also what licenses rewriting a chain whose rotate
+   * angles are expressions — see the variable-angle rules in
+   * {@link applyInstancePoseEdit}.
+   */
+  rotateExprs?: [string | null, string | null, string | null] | null;
 };
 
 const ANGLE_IDENTITY_EPSILON_DEG = 1e-4;
@@ -377,19 +387,34 @@ function numericLiteralArg(node: TSNode): string | null {
 }
 
 /**
- * A `.rotate()` the gizmo may rewrite: exactly `('x'|'y'|'z' string literal,
- * numeric literal)`. Identifier axes, `Axis.*` expressions, variable angles
- * and the like are opaque — rewriting around them would change semantics.
+ * The frame-axis index of a `.rotate()` whose axis argument is a literal
+ * `'x'|'y'|'z'` (and exactly two arguments). Null for identifier axes,
+ * `Axis.*` expressions and the like — those have unknown geometry and are
+ * never rewritable.
  */
-function isRewritableRotate(call: TSNode): boolean {
+function rotateAxisIndex(call: TSNode): 0 | 1 | 2 | null {
   const args = callArguments(call);
   if (!args || args.length !== 2) {
+    return null;
+  }
+  const match = args[0].text.match(/^['"]([xyz])['"]$/);
+  if (!match) {
+    return null;
+  }
+  return match[1] === 'x' ? 0 : match[1] === 'y' ? 1 : 2;
+}
+
+/**
+ * A `.rotate()` the gizmo may rewrite unconditionally: `('x'|'y'|'z' string
+ * literal, numeric literal)`. A literal-axis call with an expression angle is
+ * conditionally rewritable — only when the commit's `rotateExprs` text covers
+ * it on an already-canonical chain (see the rotation branch).
+ */
+function isRewritableRotate(call: TSNode): boolean {
+  if (rotateAxisIndex(call) === null) {
     return false;
   }
-  if (!/^['"][xyz]['"]$/.test(args[0].text)) {
-    return false;
-  }
-  return numericLiteralArg(args[1]) !== null;
+  return numericLiteralArg(callArguments(call)![1]) !== null;
 }
 
 /**
@@ -407,16 +432,33 @@ function removeChainCalls(code: string, calls: TSNode[]): string {
   return working;
 }
 
-/** `.rotate('x', …)` calls for the non-identity components, in x→y→z order. */
-function renderRotateCalls(rotateXYZ: [number, number, number]): string {
+/**
+ * `.rotate('x', …)` calls in x→y→z order: expression text verbatim where
+ * given (written even at numeric identity — the expression still binds),
+ * otherwise the numeric component, omitted below the identity epsilon.
+ */
+function renderRotateCalls(
+  rotateXYZ: [number, number, number],
+  exprs?: [string | null, string | null, string | null] | null,
+): string {
   const axes = ['x', 'y', 'z'] as const;
   let out = '';
   for (let i = 0; i < 3; i++) {
-    if (Math.abs(rotateXYZ[i]) >= ANGLE_IDENTITY_EPSILON_DEG) {
+    const expr = exprs?.[i] ?? null;
+    if (expr !== null) {
+      out += `.rotate('${axes[i]}', ${expr})`;
+    } else if (Math.abs(rotateXYZ[i]) >= ANGLE_IDENTITY_EPSILON_DEG) {
       out += `.rotate('${axes[i]}', ${formatTranslateNumber(rotateXYZ[i])})`;
     }
   }
   return out;
+}
+
+/** A `.rotate(…)` call abbreviated for a refusal message. */
+function rotateSnippet(call: TSNode): string {
+  const args = call.childForFieldName('arguments');
+  const snippet = `.rotate${args ? args.text : '(…)'}`;
+  return snippet.length > 48 ? `${snippet.slice(0, 45)}…` : snippet;
 }
 
 /**
@@ -477,7 +519,13 @@ export async function applyInstancePoseEdit(
   const members = chainMembers(chain);
   const rotates = members.filter(m => m.method === 'rotate');
   const translates = members.filter(m => m.method === 'translate');
-  const opaqueRotates = rotates.filter(m => !isRewritableRotate(m.call));
+  // Axis-opaque rotates (identifier or `Axis.*` axes) have unknown geometry
+  // and block every rotation rewrite; literal-axis rotates with expression
+  // angles are world-axis (origin-preserving) and conditionally rewritable.
+  const axisOpaqueRotates = rotates.filter(m => rotateAxisIndex(m.call) === null);
+  const variableAngleRotates = rotates.filter(
+    m => rotateAxisIndex(m.call) !== null && !isRewritableRotate(m.call),
+  );
   const exprs = spec.translateExprs ?? null;
   // An expression axis must be written even when the numeric pose sits at the
   // origin — `.translate(myVar, 0, 0)` with myVar currently 0 still binds.
@@ -504,10 +552,11 @@ export async function applyInstancePoseEdit(
     }
 
     let working = removeChainCalls(code, translates.map(t => t.call));
-    if (isOrigin && opaqueRotates.length === 0) {
-      // World-axis rotates orbit the origin onto itself, so a bare chain is
-      // exact. With an opaque rotate the axis origin is unknown — the orbit
-      // can leave the origin — so `.translate(0, 0, 0)` must be written.
+    if (isOrigin && axisOpaqueRotates.length === 0) {
+      // World-axis rotates (numeric or expression angles alike) orbit the
+      // origin onto itself, so a bare chain is exact. With an axis-opaque
+      // rotate the axis origin is unknown — the orbit can leave the origin —
+      // so `.translate(0, 0, 0)` must be written.
       return { newCode: working };
     }
     const appended = reAppendToChain(working, spec.sourceLine, `.translate(${translateArgs})`);
@@ -518,19 +567,40 @@ export async function applyInstancePoseEdit(
   }
 
   // Rotation commit: rewrite the whole transform tail canonically.
-  if (opaqueRotates.length > 0) {
-    const args = opaqueRotates[0].call.childForFieldName('arguments');
-    const snippet = `.rotate${args ? args.text : '(…)'}`;
-    const short = snippet.length > 48 ? `${snippet.slice(0, 45)}…` : snippet;
+  if (axisOpaqueRotates.length > 0) {
     return {
       newCode: code,
-      error: `${short} on line ${spec.sourceLine} isn't a plain ('x'|'y'|'z', angle) rotation — `
+      error: `${rotateSnippet(axisOpaqueRotates[0].call)} on line ${spec.sourceLine} isn't a plain ('x'|'y'|'z', angle) rotation — `
         + `the gizmo can't rewrite it; edit the rotation in source (translation-only moves still work)`,
     };
   }
 
+  // Expression angles survive a rewrite only when their text is carried
+  // through: the chain must already be in canonical x→y→z order (so putting
+  // the same texts back in canonical slots reproduces the orientation), and
+  // every expression-angle axis must be covered by `rotateExprs` — either
+  // echoed or deliberately replaced. An uncovered one would be silently
+  // flattened to a number, so refuse instead.
+  const rotateExprs = spec.rotateExprs ?? null;
+  if (variableAngleRotates.length > 0) {
+    const orderedCanonically = rotates.every((m, i) =>
+      i === 0 || rotateAxisIndex(rotates[i - 1].call)! < rotateAxisIndex(m.call)!);
+    const covered = variableAngleRotates.every(
+      m => rotateExprs?.[rotateAxisIndex(m.call)!] != null,
+    );
+    if (!orderedCanonically || !covered) {
+      return {
+        newCode: code,
+        error: `${rotateSnippet(variableAngleRotates[0].call)} on line ${spec.sourceLine} has an expression angle `
+          + `the drag would overwrite — click the ring and type to set it exactly, or edit the source `
+          + `(translation-only moves still work)`,
+      };
+    }
+  }
+
   const normalized = spec.rotateXYZ.map(a => a - 360 * Math.round(a / 360)) as [number, number, number];
-  const tailCalls = renderRotateCalls(normalized) + (isOrigin ? '' : `.translate(${translateArgs})`);
+  const tailCalls = renderRotateCalls(normalized, rotateExprs)
+    + (isOrigin ? '' : `.translate(${translateArgs})`);
 
   const removed = removeChainCalls(code, [...rotates, ...translates].map(m => m.call));
   if (tailCalls === '') {
@@ -579,6 +649,44 @@ export async function getInsertTranslateExpressions(
     return null;
   }
   return { x: args[0].text, y: args[1].text, z: args[2].text };
+}
+
+/**
+ * The exact angle text of an `insert()` chain's `.rotate('x'|'y'|'z', …)`
+ * calls, per axis — what the gizmo's ring input shows and echoes back on a
+ * rotation commit. Only chains whose rotate calls map 1:1 onto the ZYX euler
+ * components qualify: every axis a literal, in strictly ascending x→y→z
+ * chain order (later calls pre-multiply, so that order composes exactly
+ * Q = Rz·Ry·Rx). A missing axis reads null (identity); a non-conforming
+ * chain reads null entirely — callers fall back to numeric euler angles.
+ * Translate placement is irrelevant to orientation and unconstrained here.
+ */
+export async function getInsertRotateExpressions(
+  code: string,
+  sourceLine: number,
+): Promise<{ x: string | null; y: string | null; z: string | null } | null> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const tail = findChainAt(tree, sourceLine);
+  if (!tail) {
+    return null;
+  }
+  const chain = getChainCalls(tail);
+  if (getBaseCallName(chain) !== 'insert') {
+    return null;
+  }
+  const rotates = chainMembers(chain).filter(m => m.method === 'rotate');
+  const out: [string | null, string | null, string | null] = [null, null, null];
+  let previousAxis = -1;
+  for (const member of rotates) {
+    const axis = rotateAxisIndex(member.call);
+    if (axis === null || axis <= previousAxis) {
+      return null;
+    }
+    previousAxis = axis;
+    out[axis] = callArguments(member.call)![1].text;
+  }
+  return { x: out[0], y: out[1], z: out[2] };
 }
 
 function removeGroundedFromOtherInserts(code: string, keepSourceLine: number, p: TSParser): string {

@@ -171,6 +171,12 @@ describe('instance-pose route', () => {
     expect(relayed).toEqual([]);
   });
 
+  it('rejects malformed rotate expressions before any dispatch', async () => {
+    const { status } = await postPose({ ...GOOD_BODY, rotateExprs: ['a, b', null, null] });
+    expect(status).toBe(400);
+    expect(relayed).toEqual([]);
+  });
+
   it('rejects malformed newVariables', async () => {
     const { status } = await postPose({ ...GOOD_BODY, newVariables: [{ name: 42 }] });
     expect(status).toBe(400);
@@ -218,9 +224,31 @@ describe('instance-pose route', () => {
     await applied;
   });
 
-  describe('instance-translate-expressions read', () => {
+  it('round-trips a typed ring expression, declaring its variable', async () => {
+    const applied = postPose({
+      ...GOOD_BODY,
+      rotateXYZ: [0, 0, 60],
+      position: [1, 2, 3],
+      rotateExprs: [null, null, 'spin'],
+      newVariables: [{ name: 'spin', initializer: '60' }],
+    });
+    const msg = await untilRelayed();
+    expect(msg.spec.instancePose.rotateExprs).toEqual([null, null, 'spin']);
+
+    const roundTrip = await postRoundTrip(ASSEMBLY_CODE, msg.spec);
+    expect(roundTrip.body.error).toBeUndefined();
+    expect(roundTrip.body.newCode).toContain(
+      `const spin = 60;\nconst h = insert(housing()).rotate('z', spin).translate(1, 2, 3);`,
+    );
+
+    const { status, body } = await applied;
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true });
+  });
+
+  describe('instance-pose-expressions read', () => {
     async function postRead(body: unknown): Promise<{ status: number; body: any }> {
-      const res = await fetch(`${baseUrl}/api/instance-translate-expressions`, {
+      const res = await fetch(`${baseUrl}/api/instance-pose-expressions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -230,28 +258,44 @@ describe('instance-pose route', () => {
 
     const READ_BODY = { filePath: '/ws/m.assembly.js', sourceLine: 4 };
 
-    it('reads the exact translate argument texts', async () => {
+    it('reads the exact translate argument and rotate angle texts', async () => {
       currentCode = ASSEMBLY_CODE.replace(
         'const h = insert(housing());',
-        'const h = insert(housing()).translate(w + 10, gap, 5);',
+        `const h = insert(housing()).rotate('x', tilt).rotate('z', 45).translate(w + 10, gap, 5);`,
       );
       const { status, body } = await postRead(READ_BODY);
       expect(status).toBe(200);
-      expect(body.expressions).toEqual({ x: 'w + 10', y: 'gap', z: '5' });
+      expect(body.expressions).toEqual({
+        translate: { x: 'w + 10', y: 'gap', z: '5' },
+        rotate: { x: 'tilt', y: null, z: '45' },
+      });
     });
 
-    it('answers null when the chain has no translate', async () => {
+    it('reads a bare chain as identity rotate texts and no translate block', async () => {
       const { body } = await postRead(READ_BODY);
-      expect(body.expressions).toBeNull();
+      expect(body.expressions).toEqual({
+        translate: null,
+        rotate: { x: null, y: null, z: null },
+      });
     });
 
-    it('answers null when a rotate follows the translate (args are not the pose)', async () => {
+    it('nulls the translate block when a rotate follows the translate', async () => {
       currentCode = ASSEMBLY_CODE.replace(
         'const h = insert(housing());',
         `const h = insert(housing()).translate(1, 2, 3).rotate('z', 45);`,
       );
       const { body } = await postRead(READ_BODY);
-      expect(body.expressions).toBeNull();
+      expect(body.expressions.translate).toBeNull();
+      expect(body.expressions.rotate).toEqual({ x: null, y: null, z: '45' });
+    });
+
+    it('nulls the rotate block for a non-canonical rotate order', async () => {
+      currentCode = ASSEMBLY_CODE.replace(
+        'const h = insert(housing());',
+        `const h = insert(housing()).rotate('z', 45).rotate('x', 30);`,
+      );
+      const { body } = await postRead(READ_BODY);
+      expect(body.expressions.rotate).toBeNull();
     });
 
     it("answers null for another file's instance", async () => {

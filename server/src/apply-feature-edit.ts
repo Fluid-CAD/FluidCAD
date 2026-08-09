@@ -1894,9 +1894,9 @@ async function applyInstancePoseWithDecls(
   spec: ApplyFeatureEditSpec,
 ): Promise<ApplyFeatureEditResult> {
   const pose = spec.instancePose!;
-  for (const expr of pose.translateExprs ?? []) {
+  for (const expr of [...(pose.translateExprs ?? []), ...(pose.rotateExprs ?? [])]) {
     if (expr !== null && !isExpressionText(expr)) {
-      return { newCode: code, error: 'malformed translate expression' };
+      return { newCode: code, error: 'malformed pose expression' };
     }
   }
   const result = await applyInstancePoseEdit(code, pose);

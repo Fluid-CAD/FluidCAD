@@ -6,10 +6,15 @@ import { GizmoExpressionCommit, GizmoValueInput } from './gizmo-value-input';
 import { applyConstantPixelSize } from '../../meshes/screen-scale';
 
 export type GizmoAxisHandleId = 'tx' | 'ty' | 'tz';
+export type GizmoRingHandleId = 'rx' | 'ry' | 'rz';
+/** Handles whose click arms an absolute-value input: arrows (a coordinate)
+ *  and rings (a ZYX euler angle). */
+export type GizmoTypableHandleId = GizmoAxisHandleId | GizmoRingHandleId;
 
-/** What a clicked translate arrow's absolute-value input opens on. */
+/** What a clicked arrow's or ring's absolute-value input opens on. */
 export type GizmoAxisTypingContext = {
-  /** The axis' current absolute coordinate in the gizmo frame. */
+  /** The current absolute value: a coordinate in the gizmo frame (arrows)
+   *  or a ZYX euler component in degrees (rings). */
   value: number;
   /** Resolves with the axis' exact source expression text, or null; seeds
    *  the field once read (unless the user is already typing). */
@@ -49,14 +54,15 @@ export type GizmoCallbacks = {
   /** The gesture was cancelled after movement — revert to the start pose. */
   onCancel(): void;
   /**
-   * Absolute-value typing on the translate arrows: with both hooks provided,
-   * a click on tx/ty/tz opens the input at the axis' current absolute
-   * coordinate (full expression semantics, seeded with its source text) and
-   * commits through `onCommitAxisExpression` instead of a delta. Hosts that
-   * omit them keep the delta-from-zero click flow.
+   * Absolute-value typing on the translate arrows and rotate rings: with
+   * both hooks provided, a click on tx/ty/tz/rx/ry/rz opens the input at
+   * the axis' current absolute value (full expression semantics, seeded
+   * with its source text) and commits through `onCommitAxisExpression`
+   * instead of a delta. Hosts that omit them keep the delta-from-zero
+   * click flow.
    */
-  getAxisTypingContext?(handle: GizmoAxisHandleId): GizmoAxisTypingContext | null;
-  onCommitAxisExpression?(handle: GizmoAxisHandleId, commit: GizmoExpressionCommit): void;
+  getAxisTypingContext?(handle: GizmoTypableHandleId): GizmoAxisTypingContext | null;
+  onCommitAxisExpression?(handle: GizmoTypableHandleId, commit: GizmoExpressionCommit): void;
 };
 
 export type GizmoOptions = {
@@ -70,17 +76,18 @@ export type GizmoOptions = {
 const INPUT_LABELS: Record<GizmoHandleId, string> = {
   tx: 'dX', ty: 'dY', tz: 'dZ',
   pxy: 'dXY', pyz: 'dYZ', pxz: 'dXZ',
-  rx: 'Rx', ry: 'Ry', rz: 'Rz',
+  rx: 'dRx', ry: 'dRy', rz: 'dRz',
   center: 'dView',
 };
 
-/** Absolute-mode labels — the coordinate itself, not a delta. */
-const ABSOLUTE_INPUT_LABELS: Record<GizmoAxisHandleId, string> = {
+/** Absolute-mode labels — the coordinate/angle itself, not a delta. */
+const ABSOLUTE_INPUT_LABELS: Record<GizmoTypableHandleId, string> = {
   tx: 'X', ty: 'Y', tz: 'Z',
+  rx: 'Rx', ry: 'Ry', rz: 'Rz',
 };
 
-function isAxisHandle(handle: GizmoHandleId): handle is GizmoAxisHandleId {
-  return handle === 'tx' || handle === 'ty' || handle === 'tz';
+function isTypableHandle(handle: GizmoHandleId): handle is GizmoTypableHandleId {
+  return handle in ABSOLUTE_INPUT_LABELS;
 }
 
 /** Ring hits win over arrow hits within this many gizmo units of depth. */
@@ -403,15 +410,14 @@ export class TransformGizmo {
   }
 
   /**
-   * A clicked translate arrow opens on the axis' absolute source value when
-   * the host supports it. False falls back to the delta flow (rings, plane
-   * handles never reach here, hosts without the hooks, or no context for
-   * this gesture).
+   * A clicked translate arrow or rotate ring opens on the axis' absolute
+   * source value when the host supports it. False falls back to the delta
+   * flow (hosts without the hooks, or no context for this gesture).
    */
   private showAbsoluteValueInput(session: GizmoDragSession): boolean {
     const handle = session.handle;
     const { getAxisTypingContext, onCommitAxisExpression } = this.callbacks;
-    if (!isAxisHandle(handle) || !getAxisTypingContext || !onCommitAxisExpression) {
+    if (!isTypableHandle(handle) || !getAxisTypingContext || !onCommitAxisExpression) {
       return false;
     }
     const context = getAxisTypingContext(handle);

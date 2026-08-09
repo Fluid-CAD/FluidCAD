@@ -2,15 +2,20 @@ import { Euler, MathUtils, Quaternion, Vector3 } from 'three';
 import type { Viewer } from '../../viewer';
 import type { SerializedAssemblyInstance } from '../../types';
 import type { AssemblyController } from '../../scene/assembly-controller';
-import type { VariableInfo } from '../../ui/expression-core';
+import { resolveExpressionValue, type VariableInfo } from '../../ui/expression-core';
 import { isEditableTarget } from '../../keyboard-bridge';
 import { TransformGizmo } from './transform-gizmo';
-import type { GizmoAxisHandleId, GizmoAxisTypingContext } from './transform-gizmo';
+import type { GizmoRingHandleId, GizmoTypableHandleId, GizmoAxisTypingContext } from './transform-gizmo';
 import type { GizmoExpressionCommit } from './gizmo-value-input';
 import type { GizmoDelta, GizmoHandleId } from './gizmo-session';
 
-/** Per-axis `.translate()` argument source text; null falls back to numeric. */
-type TranslateExprs = [string | null, string | null, string | null];
+/** Per-axis transform-call argument source text; null falls back to numeric. */
+type AxisExprs = [string | null, string | null, string | null];
+
+type PoseExpressions = {
+  translate: { x: string | null; y: string | null; z: string | null } | null;
+  rotate: { x: string | null; y: string | null; z: string | null } | null;
+};
 
 export type AssemblyGizmoBindings = {
   viewer: Viewer;
@@ -23,14 +28,16 @@ export type AssemblyGizmoBindings = {
     position: [number, number, number],
     rotateXYZ: [number, number, number] | null,
     options?: {
-      translateExprs?: TranslateExprs;
+      translateExprs?: AxisExprs;
+      rotateExprs?: AxisExprs;
       newVariables?: { name: string; initializer: string }[];
     },
   ): Promise<{ success: boolean; reason?: string }>;
-  /** The instance's exact `.translate()` arg texts; null when not readable. */
-  getTranslateExpressions(
+  /** The instance's exact `.translate()` arg and `.rotate()` angle texts;
+   *  null blocks when not readable. */
+  getPoseExpressions(
     sourceLocation: { filePath: string; line: number },
-  ): Promise<{ x: string | null; y: string | null; z: string | null } | null>;
+  ): Promise<PoseExpressions | null>;
   /** Variables in scope at the insert chain's line, for the value input. */
   fetchScopeVariables(sourceLine: number): Promise<VariableInfo[]>;
   flashError(message: string): void;
@@ -38,7 +45,14 @@ export type AssemblyGizmoBindings = {
 
 type Pose = { position: Vector3; quaternion: Quaternion };
 
-const AXIS_INDEX: Record<GizmoAxisHandleId, 0 | 1 | 2> = { tx: 0, ty: 1, tz: 2 };
+const AXIS_INDEX: Record<GizmoTypableHandleId, 0 | 1 | 2> = {
+  tx: 0, ty: 1, tz: 2,
+  rx: 0, ry: 1, rz: 2,
+};
+
+function isRingHandle(handle: GizmoTypableHandleId): handle is GizmoRingHandleId {
+  return handle === 'rx' || handle === 'ry' || handle === 'rz';
+}
 
 /**
  * Which position components a handle's gesture can change. Untouched axes
@@ -51,6 +65,18 @@ const TOUCHED_AXES: Record<GizmoHandleId, [boolean, boolean, boolean]> = {
   pxy: [true, true, false], pyz: [false, true, true], pxz: [true, false, true],
   center: [true, true, true],
   rx: [false, false, false], ry: [false, false, false], rz: [false, false, false],
+};
+
+/**
+ * Which ZYX euler components a ring DRAG can change: pre-multiplying a world
+ * Z rotation onto Q = Rz·Ry·Rx only advances the z component, so a z-ring
+ * drag preserves the x/y angle texts; world X/Y rotations don't commute past
+ * Rz·Ry, so those drags generally change all three components and preserve
+ * nothing. (A typed ring commit is different — it sets exactly its own
+ * component and echoes the other two.)
+ */
+const DRAG_TOUCHED_ROTATE_AXES: Partial<Record<GizmoHandleId, [boolean, boolean, boolean]>> = {
+  rx: [true, true, true], ry: [true, true, true], rz: [false, false, true],
 };
 
 /**
@@ -82,8 +108,8 @@ export class AssemblyGizmoDriver {
 
   /** In-scope variables for the value input, refreshed per attach/commit. */
   private cachedVariables: VariableInfo[] = [];
-  /** Latest `.translate()` arg-text read, tagged with its instance. */
-  private translateExprs: TranslateExprs | null = null;
+  /** Latest transform arg-text read, tagged with its instance. */
+  private poseExprs: PoseExpressions | null = null;
   private exprsInstanceId: string | null = null;
 
   constructor(bindings: AssemblyGizmoBindings) {
@@ -150,7 +176,7 @@ export class AssemblyGizmoDriver {
     this.attachedId = instanceId;
     this.gizmo.show(pose.position);
     this.refreshVariables();
-    void this.refreshTranslateExprs();
+    void this.refreshPoseExprs();
   }
 
   /** Groups are rebuilt nearly every render — re-anchor or dismiss. */
@@ -176,7 +202,7 @@ export class AssemblyGizmoDriver {
     this.gizmo.cancelActiveDrag();
     this.gizmo.hide();
     this.attachedId = null;
-    this.translateExprs = null;
+    this.poseExprs = null;
     this.exprsInstanceId = null;
   }
 
@@ -214,44 +240,57 @@ export class AssemblyGizmoDriver {
     });
   }
 
-  /** Re-read the attached instance's `.translate()` arg texts into the echo
+  /** Re-read the attached instance's transform arg texts into the echo
    *  cache; resolves with them (null when unreadable or detached since). */
-  private refreshTranslateExprs(): Promise<TranslateExprs | null> {
+  private refreshPoseExprs(): Promise<PoseExpressions | null> {
     const instanceId = this.attachedId;
     const inst = instanceId !== null ? this.bindings.findInstance(instanceId) : undefined;
     if (instanceId === null || !inst?.sourceLocation) {
       return Promise.resolve(null);
     }
-    return this.bindings.getTranslateExpressions(inst.sourceLocation).then((result) => {
+    return this.bindings.getPoseExpressions(inst.sourceLocation).then((result) => {
       if (this.attachedId !== instanceId) {
         return null;
       }
-      this.translateExprs = result ? [result.x, result.y, result.z] : null;
+      this.poseExprs = result;
       this.exprsInstanceId = instanceId;
-      return this.translateExprs;
+      return this.poseExprs;
     });
   }
 
-  /**
-   * The commit's per-axis text echoes: existing source text for every axis
-   * the handle's gesture can't have changed, null (numeric) for the rest.
-   * Undefined when nothing is preservable — the wire then matches the
-   * pre-expression commit shape.
-   */
-  private echoExprs(handle: GizmoHandleId): TranslateExprs | undefined {
-    const touched = TOUCHED_AXES[handle];
-    const cached = this.attachedId !== null && this.attachedId === this.exprsInstanceId
-      ? this.translateExprs
+  /** The echo cache, when it belongs to the attached instance. */
+  private cachedExprs(): PoseExpressions | null {
+    return this.attachedId !== null && this.attachedId === this.exprsInstanceId
+      ? this.poseExprs
       : null;
-    if (!touched || !cached) {
+  }
+
+  /** Cached per-axis texts with the touched components nulled; undefined
+   *  when nothing survives — the wire then matches the text-less shape. */
+  private static maskTouched(
+    cached: { x: string | null; y: string | null; z: string | null } | null | undefined,
+    touched: [boolean, boolean, boolean] | undefined,
+  ): AxisExprs | undefined {
+    if (!cached || !touched) {
       return undefined;
     }
-    const exprs: TranslateExprs = [
-      touched[0] ? null : cached[0],
-      touched[1] ? null : cached[1],
-      touched[2] ? null : cached[2],
+    const exprs: AxisExprs = [
+      touched[0] ? null : cached.x,
+      touched[1] ? null : cached.y,
+      touched[2] ? null : cached.z,
     ];
     return exprs.some(e => e !== null) ? exprs : undefined;
+  }
+
+  /** A commit's `.translate()` echoes: source text for every position axis
+   *  the handle's gesture can't have changed. */
+  private echoTranslateExprs(handle: GizmoHandleId): AxisExprs | undefined {
+    return AssemblyGizmoDriver.maskTouched(this.cachedExprs()?.translate, TOUCHED_AXES[handle]);
+  }
+
+  /** A ring drag's `.rotate()` angle echoes (see DRAG_TOUCHED_ROTATE_AXES). */
+  private echoRotateExprsForDrag(handle: GizmoHandleId): AxisExprs | undefined {
+    return AssemblyGizmoDriver.maskTouched(this.cachedExprs()?.rotate, DRAG_TOUCHED_ROTATE_AXES[handle]);
   }
 
   // -------------------------------------------------------------------------
@@ -273,7 +312,7 @@ export class AssemblyGizmoDriver {
     this.gestureStart = pose;
     // Freshen the echo cache while the drag runs, so the commit preserves
     // the untouched axes' source text as it is right now.
-    void this.refreshTranslateExprs();
+    void this.refreshPoseExprs();
     // The face highlight from the attaching click would visually stick to
     // the moving part.
     this.bindings.viewer.clearHighlight();
@@ -364,18 +403,22 @@ export class AssemblyGizmoDriver {
         inst.sourceLocation!,
         [finalPose.position.x, finalPose.position.y, finalPose.position.z],
         rotateXYZ,
-        { translateExprs: this.echoExprs(delta.handle) },
+        {
+          translateExprs: this.echoTranslateExprs(delta.handle),
+          rotateExprs: rotateXYZ !== null ? this.echoRotateExprsForDrag(delta.handle) : undefined,
+        },
       )
       .then((result) => this.settleCommit(result));
   }
 
   /**
-   * A clicked translate arrow's input opens on the axis' current absolute
-   * coordinate, seeded with its exact source expression when the commit
-   * could write it back (source text on a live-only instance would promise
-   * an edit that never happens).
+   * A clicked translate arrow's or rotate ring's input opens on the axis'
+   * current absolute value — a position coordinate, or a ZYX euler angle in
+   * degrees — seeded with its exact source expression when the commit could
+   * write it back (source text on a live-only instance would promise an
+   * edit that never happens).
    */
-  private handleAxisTypingContext(handle: GizmoAxisHandleId): GizmoAxisTypingContext | null {
+  private handleAxisTypingContext(handle: GizmoTypableHandleId): GizmoAxisTypingContext | null {
     const controller = this.controller();
     const instanceId = this.attachedId;
     if (!controller || !instanceId) {
@@ -386,12 +429,18 @@ export class AssemblyGizmoDriver {
       return null;
     }
     this.refreshVariables();
+    const ring = isRingHandle(handle);
     const axis = AXIS_INDEX[handle];
     const persistable = this.persistableInstance(instanceId) !== undefined;
     return {
-      value: pose.position.getComponent(axis),
+      value: ring
+        ? AssemblyGizmoDriver.eulerZYXDegrees(pose.quaternion)[axis]
+        : pose.position.getComponent(axis),
       sourceExpression: persistable
-        ? this.refreshTranslateExprs().then((exprs) => exprs?.[axis] ?? null)
+        ? this.refreshPoseExprs().then((exprs) => {
+            const block = ring ? exprs?.rotate : exprs?.translate;
+            return block ? [block.x, block.y, block.z][axis] : null;
+          })
         : undefined,
     };
   }
@@ -400,10 +449,10 @@ export class AssemblyGizmoDriver {
    * An absolute typed commit: move the axis to the expression's value
    * through the external-drag API (skipped when only a build can evaluate
    * it — the committed source then moves the part on the next render), and
-   * persist the expression text into exactly that `.translate()` slot,
-   * declaring any new variable the input introduced.
+   * persist the expression text into exactly that transform slot, declaring
+   * any new variable the input introduced.
    */
-  private handleAxisExpressionCommit(handle: GizmoAxisHandleId, commit: GizmoExpressionCommit): void {
+  private handleAxisExpressionCommit(handle: GizmoTypableHandleId, commit: GizmoExpressionCommit): void {
     const controller = this.controller();
     const instanceId = this.attachedId;
     if (!controller || !instanceId || !controller.beginExternalDrag(instanceId)) {
@@ -414,8 +463,20 @@ export class AssemblyGizmoDriver {
       controller.endExternalDrag();
       return;
     }
-    const axis = AXIS_INDEX[handle];
+    if (isRingHandle(handle)) {
+      this.commitRingExpression(controller, instanceId, start, handle, commit);
+    } else {
+      this.commitArrowExpression(controller, instanceId, start, AXIS_INDEX[handle], commit);
+    }
+  }
 
+  private commitArrowExpression(
+    controller: AssemblyController,
+    instanceId: string,
+    start: Pose,
+    axis: 0 | 1 | 2,
+    commit: GizmoExpressionCommit,
+  ): void {
     let finalPose = start;
     if (commit.value !== null) {
       const target = start.position.clone();
@@ -440,7 +501,11 @@ export class AssemblyGizmoDriver {
       return;
     }
 
-    const exprs: TranslateExprs = this.echoExprs(handle) ?? [null, null, null];
+    // Echo the untouched axes (the handle's own slot masked), then land the
+    // typed expression in exactly that slot.
+    const exprs: AxisExprs = AssemblyGizmoDriver.maskTouched(
+      this.cachedExprs()?.translate, [axis === 0, axis === 1, axis === 2],
+    ) ?? [null, null, null];
     exprs[axis] = commit.expression;
     this.pendingCommit = { instanceId, start };
     void this.bindings
@@ -450,6 +515,80 @@ export class AssemblyGizmoDriver {
         null,
         {
           translateExprs: exprs,
+          newVariables: commit.newVariable ? [commit.newVariable] : undefined,
+        },
+      )
+      .then((result) => this.settleCommit(result));
+  }
+
+  /**
+   * A typed ring commit sets one ZYX euler component absolutely and leaves
+   * the other two untouched by construction, so their angle texts echo
+   * through the rewrite. The commit's numeric triple is built in the
+   * CHAIN's representation — cached angle texts resolved through the
+   * in-scope variables, falling back to the decomposition of the current
+   * orientation — never by re-decomposing the composed result, whose
+   * equivalent-but-different euler representation (e.g. y past 90°) would
+   * disagree with the echoed texts.
+   */
+  private commitRingExpression(
+    controller: AssemblyController,
+    instanceId: string,
+    start: Pose,
+    handle: GizmoRingHandleId,
+    commit: GizmoExpressionCommit,
+  ): void {
+    const axis = AXIS_INDEX[handle];
+    const eulerNow = AssemblyGizmoDriver.eulerZYXDegrees(start.quaternion);
+    const cachedRotate = this.cachedExprs()?.rotate ?? null;
+    const cachedTexts = cachedRotate
+      ? [cachedRotate.x, cachedRotate.y, cachedRotate.z]
+      : [null, null, null];
+
+    const triple = eulerNow.map((decomposed, i) => {
+      if (i === axis) {
+        // Placeholder when unresolvable — the expression text wins the write.
+        return commit.value ?? decomposed;
+      }
+      const text = cachedTexts[i];
+      const resolved = text !== null
+        ? resolveExpressionValue(text, this.cachedVariables)
+        : null;
+      return resolved ?? decomposed;
+    }) as [number, number, number];
+
+    let finalPose = start;
+    if (commit.value !== null) {
+      const target = AssemblyGizmoDriver.quaternionFromZYXDegrees(triple);
+      if (controller.updateExternalDragRotate(target) === null) {
+        controller.cancelExternalDrag(start);
+        return;
+      }
+      const moved = controller.getInstancePose(instanceId);
+      if (moved) {
+        finalPose = moved;
+        this.gizmo.setPosition(moved.position);
+      }
+    }
+
+    const inst = this.persistableInstance(instanceId);
+    if (inst === undefined) {
+      controller.endExternalDrag();
+      this.reanchor();
+      return;
+    }
+
+    const rotateExprs: AxisExprs = [cachedTexts[0], cachedTexts[1], cachedTexts[2]];
+    rotateExprs[axis] = commit.expression;
+    this.pendingCommit = { instanceId, start };
+    void this.bindings
+      .applyInstancePose(
+        inst.sourceLocation!,
+        [finalPose.position.x, finalPose.position.y, finalPose.position.z],
+        triple,
+        {
+          translateExprs: this.echoTranslateExprs(handle),
+          rotateExprs,
           newVariables: commit.newVariable ? [commit.newVariable] : undefined,
         },
       )
@@ -468,7 +607,7 @@ export class AssemblyGizmoDriver {
       // The write changed the chain's arg texts (and possibly declared a
       // variable) — refresh what the next input open shows.
       this.refreshVariables();
-      void this.refreshTranslateExprs();
+      void this.refreshPoseExprs();
     } else {
       controller?.cancelExternalDrag(pending.start);
       this.bindings.flashError(result.reason ?? "couldn't write the new pose");
@@ -512,5 +651,12 @@ export class AssemblyGizmoDriver {
   private static eulerZYXDegrees(q: Quaternion): [number, number, number] {
     const e = new Euler().setFromQuaternion(q, 'ZYX');
     return [MathUtils.radToDeg(e.x), MathUtils.radToDeg(e.y), MathUtils.radToDeg(e.z)];
+  }
+
+  /** Inverse of {@link eulerZYXDegrees}: Q = Rz·Ry·Rx from chain degrees. */
+  private static quaternionFromZYXDegrees(deg: [number, number, number]): Quaternion {
+    return new Quaternion().setFromEuler(new Euler(
+      MathUtils.degToRad(deg[0]), MathUtils.degToRad(deg[1]), MathUtils.degToRad(deg[2]), 'ZYX',
+    ));
   }
 }

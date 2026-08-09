@@ -93,13 +93,14 @@ describe('applyInstancePoseEdit', () => {
       expect(result.error).toContain('.rotate(myAxis, 45)');
     });
 
-    it('refuses a variable angle', async () => {
+    it('refuses an uncovered expression angle (a drag would flatten it)', async () => {
       const code = `insert(p).rotate('z', angle);\n`;
       const result = await applyInstancePoseEdit(code, {
         sourceLine: 1, position: [0, 0, 0], rotateXYZ: [0, 0, 60],
       });
       expect(result.newCode).toBe(code);
-      expect(result.error).toContain(`isn't a plain ('x'|'y'|'z', angle) rotation`);
+      expect(result.error).toContain('has an expression angle');
+      expect(result.error).toContain(`.rotate('z', angle)`);
     });
 
     it('refuses an Axis.* expression axis', async () => {
@@ -244,6 +245,59 @@ describe('applyInstancePoseEdit', () => {
         translateExprs: ['w', 'h', '5'],
       });
       expect(result.newCode).toBe(`insert(p).rotate('z', 90).translate(w, h, 5);\n`);
+    });
+  });
+
+  describe('rotate expression overrides (rotateExprs)', () => {
+    it('writes the typed expression into its axis slot', async () => {
+      const code = `insert(p).rotate('z', 45);\n`;
+      const result = await applyInstancePoseEdit(code, {
+        sourceLine: 1, position: [0, 0, 0], rotateXYZ: [0, 0, 60],
+        rotateExprs: [null, null, 'spin'],
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toBe(`insert(p).rotate('z', spin);\n`);
+    });
+
+    it('echoed angle text carries an expression axis through another axis change', async () => {
+      const code = `insert(p).rotate('x', tilt).rotate('z', 45).translate(1, 2, 3);\n`;
+      const result = await applyInstancePoseEdit(code, {
+        sourceLine: 1, position: [1, 2, 3], rotateXYZ: [15, 0, 90],
+        rotateExprs: ['tilt', null, null],
+        translateExprs: ['1', '2', '3'],
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toBe(`insert(p).rotate('x', tilt).rotate('z', 90).translate(1, 2, 3);\n`);
+    });
+
+    it('inserts a typed axis at its canonical slot among existing rotates', async () => {
+      const code = `insert(p).rotate('x', 30);\n`;
+      const result = await applyInstancePoseEdit(code, {
+        sourceLine: 1, position: [0, 0, 0], rotateXYZ: [30, 20, 0],
+        rotateExprs: ['30', 'lift', null],
+      });
+      expect(result.newCode).toBe(`insert(p).rotate('x', 30).rotate('y', lift);\n`);
+    });
+
+    it('writes an expression axis even at numeric identity', async () => {
+      const code = `insert(p);\n`;
+      const result = await applyInstancePoseEdit(code, {
+        sourceLine: 1, position: [0, 0, 0], rotateXYZ: [0, 0, 0],
+        rotateExprs: [null, null, 'spin'],
+      });
+      expect(result.newCode).toBe(`insert(p).rotate('z', spin);\n`);
+    });
+
+    it('refuses coverage on a non-canonically ordered chain', async () => {
+      // z before x: putting the same texts back in canonical slots would
+      // change the composed orientation.
+      const code = `insert(p).rotate('z', spin).rotate('x', 30);\n`;
+      const result = await applyInstancePoseEdit(code, {
+        sourceLine: 1, position: [0, 0, 0], rotateXYZ: [30, 0, 60],
+        rotateExprs: [null, null, 'spin'],
+      });
+      expect(result.newCode).toBe(code);
+      expect(result.error).toContain('has an expression angle');
     });
   });
 

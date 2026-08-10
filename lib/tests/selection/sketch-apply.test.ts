@@ -312,6 +312,29 @@ describe("sketch apply-feature synthesis", () => {
     expect(offsetSingle.ok).toBe(true);
   });
 
+  it("accepts fillet picks whose corner endpoints only nearly meet", () => {
+    // Hand-drawn corners routinely miss by a few hundredths while looking
+    // exactly shared — adjacency uses the same size-proportional tolerance
+    // Fillet2D chains with, so the check and the apply agree.
+    let a: SceneObject;
+    let b: SceneObject;
+    sketch("xy", () => {
+      a = line([0, 0], [30, 0]) as unknown as SceneObject;
+      b = line([30.005, 0.003], [45, 25]) as unknown as SceneObject;
+    });
+    const scene = render();
+    setLocation(a!, 3);
+    setLocation(b!, 4);
+
+    const result = synthesizeSketchApplyFeature(
+      scene,
+      [refFor(edgesOf(a!)[0]), refFor(edgesOf(b!)[0])],
+      'fillet',
+      4,
+    );
+    expect(result.ok).toBe(true);
+  });
+
   it("synthesizes a valueless trim statement from the selector ladder", () => {
     let r: Rect;
     sketch("xy", () => {

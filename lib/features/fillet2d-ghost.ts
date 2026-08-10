@@ -40,15 +40,17 @@ export function buildFillet2DGhostArcs(
   const solids: Shape[] = [];
   const scratch: Shape[] = [];
   try {
-    for (const group of WireOps.groupConnectedEdges(edges)) {
-      const wire = WireOps.makeWireFromEdges(group);
-      scratch.push(wire);
-      const filleted = FilletOps.fillet2d(wire, plane, radius);
-      scratch.push(filleted);
-      for (const edge of filleted.getEdges()) {
-        const isArc = GeometrySceneObject.findRoleSource(edge, group) === null
-          && EdgeQuery.getEdgeCurveType(edge) === 'circle';
-        (isArc ? solids : scratch).push(edge);
+    const tolerance = WireOps.connectTolerance(edges);
+    for (const group of WireOps.groupConnectedEdges(edges, tolerance)) {
+      for (const wire of WireOps.makeChainWires(group, tolerance)) {
+        scratch.push(wire);
+        const filleted = FilletOps.fillet2d(wire, plane, radius);
+        scratch.push(filleted);
+        for (const edge of filleted.getEdges()) {
+          const isArc = GeometrySceneObject.findRoleSource(edge, group) === null
+            && EdgeQuery.getEdgeCurveType(edge) === 'circle';
+          (isArc ? solids : scratch).push(edge);
+        }
       }
     }
     return { solids, scratch };

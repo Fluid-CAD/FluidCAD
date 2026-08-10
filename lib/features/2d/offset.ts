@@ -1,6 +1,5 @@
 import { WireOps } from "../../oc/wire-ops.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
-import { ShapeOps } from "../../oc/shape-ops.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { Edge } from "../../common/edge.js";
@@ -10,22 +9,6 @@ import { Vertex } from "../../common/vertex.js";
 import { Wire } from "../../common/wire.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 import { EdgeTargetArg, GeometrySceneObject } from "./geometry.js";
-
-/**
- * Endpoint-connect tolerance for chaining offset target edges: 1/1000 of the
- * largest single-edge extent, floored at 1e-6. Relative to edge size so
- * tiny sketches don't get unrelated geometry merged, while a few
- * hundredths of drawing slop on a normal-sized profile still chains.
- * Shared with the offset ghost builder, which must chain identically.
- */
-export function offsetConnectTolerance(edges: Edge[]): number {
-  let size = 0;
-  for (const edge of edges) {
-    const bbox = ShapeOps.getBoundingBox(edge);
-    size = Math.max(size, bbox.maxX - bbox.minX, bbox.maxY - bbox.minY, bbox.maxZ - bbox.minZ);
-  }
-  return Math.max(1e-6, size * 1e-3);
-}
 
 export class Offset extends ExtrudableGeometryBase {
 
@@ -106,7 +89,7 @@ export class Offset extends ExtrudableGeometryBase {
     // Exact-tolerance grouping split such profiles into fragments that each
     // offset to a side chosen by their own orientation — visibly
     // inconsistent. Chain edges with a tolerance proportional to their size.
-    const connectTolerance = offsetConnectTolerance(allEdges);
+    const connectTolerance = WireOps.connectTolerance(allEdges);
     const groups = WireOps.groupConnectedEdges(allEdges, connectTolerance);
     for (const group of groups) {
       const groupWires = WireOps.makeChainWires(group, connectTolerance);

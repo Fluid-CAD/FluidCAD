@@ -4,7 +4,7 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import fillet from "../../core/fillet.js";
 import fuse from "../../core/fuse.js";
-import { arc, hMove, rect, vLine, hLine, vMove, back, polygon } from "../../core/2d/index.js";
+import { arc, hMove, rect, vLine, hLine, vMove, back, polygon, line } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -81,6 +81,23 @@ describe("fillet2d", () => {
       // The corner is rounded: each line is shortened and one fillet arc inserted.
       // Before the radius-first spread dispatch existed, fillet(8, l1, l2) was a
       // silent no-op (returned undefined) and produced 0 arcs.
+      expect(getEdgesByType(s.getEdges(), "arc")).toHaveLength(1);
+      expect(getEdgesByType(s.getEdges(), "line")).toHaveLength(2);
+    });
+
+    it("rounds a corner whose endpoints only nearly meet (drawing slop)", () => {
+      // Hand-drawn profiles routinely have corner endpoints that miss by a
+      // few hundredths — visually a shared vertex. Exact-tolerance grouping
+      // treated the corner as disconnected and the fillet was a silent no-op;
+      // chaining now uses the same size-proportional tolerance as offset.
+      const s = sketch("xy", () => {
+        const l1 = line([0, 0], [30, 0]);
+        const l2 = line([30.005, 0.003], [45, 25]);
+        fillet(4, l1, l2);
+      }) as Sketch;
+
+      render();
+
       expect(getEdgesByType(s.getEdges(), "arc")).toHaveLength(1);
       expect(getEdgesByType(s.getEdges(), "line")).toHaveLength(2);
     });

@@ -7,6 +7,7 @@ import { Vertex } from "../common/vertex.js";
 import { Explorer } from "./explorer.js";
 import { Convert } from "./convert.js";
 import { Plane } from "../math/plane.js";
+import { ShapeOps } from "./shape-ops.js";
 
 export class WireOps {
   static isCW(wire: Wire, normal: Vector3d): boolean {
@@ -267,6 +268,23 @@ export class WireOps {
     } catch {
       return WireOps.connectEdgesToWires(edges, tolerance);
     }
+  }
+
+  /**
+   * Endpoint-connect tolerance for chaining sketch profile edges: 1/1000 of
+   * the largest single-edge extent, floored at 1e-6. Relative to edge size so
+   * tiny sketches don't get unrelated geometry merged, while a few
+   * hundredths of drawing slop on a normal-sized profile still chains.
+   * Every consumer of one profile (op build, its ghost, its selection check)
+   * must chain with the same tolerance or they disagree on adjacency.
+   */
+  static connectTolerance(edges: Edge[]): number {
+    let size = 0;
+    for (const edge of edges) {
+      const bbox = ShapeOps.getBoundingBox(edge);
+      size = Math.max(size, bbox.maxX - bbox.minX, bbox.maxY - bbox.minY, bbox.maxZ - bbox.minZ);
+    }
+    return Math.max(1e-6, size * 1e-3);
   }
 
   static groupConnectedEdges(edges: Edge[], tolerance = 1e-7): Edge[][] {

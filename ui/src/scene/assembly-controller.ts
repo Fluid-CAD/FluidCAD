@@ -587,17 +587,18 @@ export class AssemblyController {
     if (this.matePicking) return;
     const ndc = this.toNDC(e);
     const raycaster = this.createPickingRaycaster(ndc.x, ndc.y);
-    // Compute the locked set once: both the precise pick (mustn't claim a
-    // locked body) and the bounding-box fallback (mustn't poach near-by
-    // locked bodies) need it. Locked = grounded OR fastened-only chain to
+    // Compute the locked set once: both the precise pick and the
+    // bounding-box fallback skip locked bodies so the ray falls through to
+    // a draggable part behind. Locked = grounded OR fastened-only chain to
     // a grounded seed — same notion the solver uses to zero-drag locked
-    // bodies. Drags on these must bubble so camera nav handles them.
+    // bodies. When nothing draggable is along the ray the hit is null and
+    // the gesture bubbles so camera nav handles it.
     const lockedIds = this.computeLockedInstanceIds();
     const hit = this.raycastInstances(raycaster, lockedIds);
     if (!hit) return;
 
     const state = this.instances.get(hit.instanceId);
-    if (!state || lockedIds.has(hit.instanceId)) return;
+    if (!state) return;
 
     this.dragClaimHandler?.();
 
@@ -797,9 +798,11 @@ export class AssemblyController {
         const id = cur.userData?.instanceId;
         if (typeof id === 'string') {
           // three's Raycaster tests only `layers`, never `visible`, so a
-          // hidden instance still yields precise mesh hits. Skip it and let
-          // the ray reach whatever visible part sits behind it.
-          if (this.instances.get(id)?.group.visible === false) {
+          // hidden instance still yields precise mesh hits. Skip it — and
+          // skip locked (grounded / fastened-to-ground) instances, which
+          // can never be dragged — so the ray reaches whatever draggable
+          // part sits behind.
+          if (lockedIds.has(id) || this.instances.get(id)?.group.visible === false) {
             break;
           }
           return { instanceId: id, worldPoint: hit.point.clone() };

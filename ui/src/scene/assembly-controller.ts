@@ -796,6 +796,12 @@ export class AssemblyController {
       while (cur) {
         const id = cur.userData?.instanceId;
         if (typeof id === 'string') {
+          // three's Raycaster tests only `layers`, never `visible`, so a
+          // hidden instance still yields precise mesh hits. Skip it and let
+          // the ray reach whatever visible part sits behind it.
+          if (this.instances.get(id)?.group.visible === false) {
+            break;
+          }
           return { instanceId: id, worldPoint: hit.point.clone() };
         }
         cur = cur.parent;
@@ -814,6 +820,9 @@ export class AssemblyController {
     let best: { instanceId: string; worldPoint: Vector3; dist: number } | null = null;
     for (const [id, state] of this.instances) {
       if (lockedIds.has(id)) continue;
+      if (!state.group.visible) {
+        continue;
+      }
       box.setFromObject(state.group);
       if (box.isEmpty()) continue;
       if (!raycaster.ray.intersectBox(box, target)) continue;
@@ -912,6 +921,12 @@ export class AssemblyController {
     const world = new Vector3();
     let best: { instanceId: string; connectorId: string; distPx: number } | null = null;
     for (const [instanceId, state] of this.instances) {
+      // A hidden instance renders nothing, so its connectors must not be
+      // screen-pickable — the per-child `visible` check below can't see the
+      // ancestor group's flag.
+      if (!state.group.visible) {
+        continue;
+      }
       state.group.traverse((child) => {
         if (!child.userData?.isConnector || !child.visible) return;
         const connectorId = child.userData.connectorId;

@@ -580,10 +580,9 @@ export function renderFaceTargetExpr(target: ExtrudeFaceTarget): string {
 
 /**
  * How an extrude statement is rendered and placed. The single producer is the
- * profile *sketch* call. `implicit` inserts at the end of the sketch's scope
- * and consumes it as the last sketch (`extrude(25)`); `bound` binds the sketch
- * to a variable and inserts directly after its statement (`const s = …;
- * extrude(25, s)`) so a later active sketch stays active.
+ * profile *sketch* call. `implicit` consumes the scope's last sketch
+ * (`extrude(25)`); `bound` binds the sketch to a variable (`const s = …;
+ * extrude(25, s)`). Either way the statement inserts at end of scope.
  */
 export type ExtrudeEditOptions = {
   op: 'add' | 'remove' | 'new';
@@ -626,9 +625,8 @@ export type ExtrudeEditOptions = {
  * sketch, `bound` binds it to a variable (always producers[0]). Scope entries
  * are the solid-bearing statements the rib conforms to and fuses with, each
  * bound to a variable (featureType `feature` producers, following the spine
- * in the list). With a bound spine the statement inserts right after the
- * latest of its input statements so a later active sketch stays active; an
- * implicit spine inserts at end of scope.
+ * in the list). The statement always inserts at end of scope, where an
+ * implicit spine is the last sketch.
  */
 export type RibEditOptions = {
   op: 'add' | 'remove' | 'new';
@@ -650,10 +648,8 @@ export type RibEditOptions = {
  * plus `.thin(…)` / `.remove()` / `.new()` chains. The profile is a sketch —
  * `implicit` consumes the last sketch (an anchor-only producer verifies it),
  * `{producer}` binds that sketch to a variable. The path is either a bound
- * sketch producer or the selector rendered from `parts` (edge picks). With
- * both ends being sketches and a bound profile, the statement inserts right
- * after the later of the two so a later active sketch stays active; every
- * other combination inserts at end of scope, where an implicit profile is
+ * sketch producer or the selector rendered from `parts` (edge picks). The
+ * statement always inserts at end of scope, where an implicit profile is
  * the last sketch and a selector path is known to resolve.
  */
 export type SweepEditOptions = {
@@ -708,10 +704,9 @@ export type RevolveAxisSpec =
  * a variable (the extrude contract: the profile is always producers[0]). A
  * standard axis renders no producer; an axis-statement input binds its
  * producer to a variable; a picked edge renders the single selector part
- * wrapped in `axis(…)`. With every input an explicit variable the statement
- * inserts right after the latest input statement so a later active sketch
- * stays active; a selector axis or an implicit profile forces end-of-scope
- * insertion, where the picked edge is known to resolve.
+ * wrapped in `axis(…)`. The statement always inserts at end of scope, where
+ * a picked edge is known to resolve and an implicit profile is the last
+ * sketch.
  */
 export type RevolveEditOptions = {
   op: 'add' | 'remove' | 'new';
@@ -743,8 +738,8 @@ export type HelixSourceSpec =
  * null. A helix is a wire, so there is no add/remove/new operation. A standard
  * axis renders no producer; an axis-statement source binds its producer to a
  * variable; a picked edge or face renders the single selector part (an edge
- * wrapped in `axis(…)`). A selector source forces end-of-scope insertion where
- * the pick resolves; a bound axis inserts right after its statement.
+ * wrapped in `axis(…)`). The statement always inserts at end of scope, where
+ * a picked selector is known to resolve.
  */
 export type HelixEditOptions = {
   source: HelixSourceSpec;
@@ -1017,10 +1012,8 @@ export type TarcEditOptions = {
  * variable; a selector profile renders one entry of `parts` (a picked face).
  * Guides are always bound sketch producers, at most two — the kernel takes
  * no more — and exclude thin mode (`Loft.validate` throws on the combination).
- * All-sketch lofts insert directly after the latest input statement (guides
- * included — the statement references their variables) so a later active
- * sketch stays active; any selector profile forces end-of-scope insertion,
- * where the picked faces are known to resolve.
+ * The statement always inserts at end of scope, where picked faces are known
+ * to resolve.
  */
 export type LoftEditOptions = {
   op: 'add' | 'remove' | 'new';
@@ -1082,9 +1075,8 @@ export type PlaneValueOptions = {
  * decide where it lands. A mid base must be plane-like, so a picked face/edge
  * selector is wrapped in its own `plane(…)` there. With only standard bases
  * the spec carries no producers at all and the statement appends at top
- * level; with plane-variable bases and no selectors it inserts right after
- * the latest input statement; any selector base forces end-of-scope
- * insertion, where the picked geometry is known to resolve.
+ * level; otherwise it inserts at end of scope, where picked geometry is
+ * known to resolve.
  */
 export type PlaneEditOptions = PlaneValueOptions & {
   /** One base for an offset/edge plane, two for a mid plane. */
@@ -3404,22 +3396,15 @@ async function insertDeclsAfterImports(code: string, decls: string[]): Promise<s
     : `${text}\n${code}`;
 }
 
-/** Insertion point directly after `statement`, at its own indent. */
-function afterStatementInsertion(
-  statement: TSNode,
-  lines: string[],
-): { index: number; indent: string; wrap: (stmt: string) => string } {
-  const indent = indentOf(lines, statement.startPosition.row);
-  return { index: statement.endIndex, indent, wrap: (stmt) => `\n${indent}${stmt}` };
-}
-
 /**
- * Where the feature statement goes. Statements whose inputs are all explicit
- * sketch variables insert directly after the latest input — a later active
- * sketch stays the active one (bound-profile extrude; bound-profile sweep
- * with a sketch path; all-sketch loft). Everything else inserts at end of
- * scope: a selector must resolve on the final model, and an implicit profile
- * must consume the scope's last sketch.
+ * Where the feature statement goes: at the end of the producers' scope —
+ * before an active `breakpoint();` or a trailing `return` — regardless of
+ * how the inputs are sourced. End of scope matches what the user saw when
+ * picking (selectors resolve on the final model, an implicit profile
+ * consumes the scope's last sketch), and bound-variable inputs resolve
+ * anywhere after their declaration. The one exception is a projection,
+ * which reads the sketch it is called from and so lands inside that
+ * sketch's body rather than in the producers' scope.
  */
 type Insertion = { index: number; indent: string; wrap: (stmt: string) => string };
 
@@ -3430,83 +3415,8 @@ function resolveInsertion(
   lines: string[],
   tree: TSTree,
 ): Insertion | { error: string } {
-  // A projection reads the sketch it is called from, so it lands inside that
-  // sketch's body rather than in the producers' scope.
   if (spec.feature === 'project') {
     return resolveSketchBodyInsertion(spec.project!.sketch, bindings, lines, tree);
-  }
-  // An up-to-face extrude resolves its target against the model — a picked
-  // face's selector, or the first/last face the extrusion runs into — so it
-  // goes at end of scope, even with a bound profile.
-  if (spec.feature === 'extrude' && spec.extrude!.profile === 'bound' && !spec.extrude!.toFace) {
-    return afterStatementInsertion(bindings[0].statement, lines);
-  }
-  if (spec.feature === 'rib' && spec.rib!.spine === 'bound') {
-    // The statement references the spine and every scope variable — insert
-    // right after the latest of those statements so a later active sketch
-    // stays active. An implicit spine falls through to end-of-scope, where
-    // the last sketch is what the rib consumes.
-    const latest = [bindings[0], ...spec.rib!.scope.map(p => bindings[p])]
-      .map(binding => binding.statement)
-      .reduce((a, b) => (b.endIndex >= a.endIndex ? b : a));
-    return afterStatementInsertion(latest, lines);
-  }
-  if (spec.feature === 'sweep') {
-    const sw = spec.sweep!;
-    if (sw.path.kind === 'sketch' && sw.profile !== 'implicit') {
-      const path = bindings[sw.path.producer].statement;
-      const profile = bindings[sw.profile.producer].statement;
-      return afterStatementInsertion(path.endIndex >= profile.endIndex ? path : profile, lines);
-    }
-  }
-  if (spec.feature === 'revolve' && spec.revolve!.profile === 'bound') {
-    const rev = spec.revolve!;
-    // A picked-edge axis references a selector, which must resolve on the
-    // final model — end of scope, even with a bound profile.
-    if (rev.axis.kind === 'standard') {
-      return afterStatementInsertion(bindings[0].statement, lines);
-    }
-    if (rev.axis.kind === 'axis') {
-      const profile = bindings[0].statement;
-      const axis = bindings[rev.axis.producer].statement;
-      return afterStatementInsertion(axis.endIndex >= profile.endIndex ? axis : profile, lines);
-    }
-  }
-  if (spec.feature === 'helix') {
-    const hx = spec.helix!;
-    // An axis-statement source binds one producer — insert right after it so a
-    // later active sketch stays active. A picked edge/face references a
-    // selector that must resolve on the final model, so it falls through to
-    // end-of-scope insertion.
-    if (hx.source.kind === 'axis') {
-      return afterStatementInsertion(bindings[hx.source.producer].statement, lines);
-    }
-  }
-  if (spec.feature === 'plane') {
-    // Selector-free bases are explicit plane/helix variables (standard-only
-    // specs never reach here — they append at top level with no producers at
-    // all): insert right after the latest input statement.
-    const planeBases = spec.plane!.bases
-      .filter((b): b is { kind: 'plane' | 'wire'; producer: number } =>
-        b.kind === 'plane' || b.kind === 'wire');
-    if (planeBases.length > 0 && spec.plane!.bases.every(b => b.kind !== 'selector')) {
-      const latest = planeBases
-        .map(b => bindings[b.producer].statement)
-        .reduce((a, b) => (b.endIndex >= a.endIndex ? b : a));
-      return afterStatementInsertion(latest, lines);
-    }
-  }
-  if (spec.feature === 'loft') {
-    const sketches = spec.loft!.profiles
-      .filter((p): p is { kind: 'sketch'; producer: number } => p.kind === 'sketch');
-    if (sketches.length === spec.loft!.profiles.length) {
-      // Guides are inputs too — the statement references their variables, so
-      // it must land after the latest of profiles AND guides.
-      const latest = [...sketches, ...(spec.loft!.guides ?? [])]
-        .map(p => bindings[p.producer].statement)
-        .reduce((a, b) => (b.endIndex >= a.endIndex ? b : a));
-      return afterStatementInsertion(latest, lines);
-    }
   }
   return findInsertionPoint(scope, lines, bindings);
 }

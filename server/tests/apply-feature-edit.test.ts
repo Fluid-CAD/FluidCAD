@@ -1027,7 +1027,7 @@ describe('extrude statement templates', () => {
     expect(result.newCode).toContain(`cut().symmetric()`);
   });
 
-  it('binds a bound-profile sketch and inserts directly after it', async () => {
+  it('binds a bound-profile sketch and appends the extrude at end of scope', async () => {
     const code = [
       `import { sketch, rect, circle } from 'fluidcad/core'`,
       ``,
@@ -1044,9 +1044,9 @@ describe('extrude statement templates', () => {
     const lines = result.newCode.split('\n');
     const boundRow = lines.findIndex(l => l === `const s = sketch('xy', () => { rect(100, 50) })`);
     expect(boundRow).toBeGreaterThan(-1);
-    expect(lines[boundRow + 1]).toBe(`extrude(25, s)`);
-    // The later sketch stays last, so it remains the active sketch.
-    expect(lines[boundRow + 2]).toBe(`sketch('xz', () => { circle(10) })`);
+    // End of scope: after the later sketch, not directly after the profile.
+    expect(lines[boundRow + 1]).toBe(`sketch('xz', () => { circle(10) })`);
+    expect(lines[boundRow + 2]).toBe(`extrude(25, s)`);
   });
 
   it('reuses an existing const binding for the bound profile', async () => {
@@ -1065,7 +1065,8 @@ describe('extrude statement templates', () => {
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
     const profileRow = lines.findIndex(l => l === `const profile = sketch('xy', () => { rect(100, 50) })`);
-    expect(lines[profileRow + 1]).toBe(`extrude(25, profile)`);
+    expect(lines[profileRow + 1]).toBe(`sketch('xz', () => { circle(10) })`);
+    expect(lines[profileRow + 2]).toBe(`extrude(25, profile)`);
   });
 
   it('matches the file semicolon style', async () => {
@@ -1249,7 +1250,7 @@ describe('sweep statement templates', () => {
     expect(result.newCode).toMatch(/import \{ ?sweep,/);
   });
 
-  it('inserts a fully-bound sweep after the later input sketch', async () => {
+  it('appends a fully-bound sweep at end of scope', async () => {
     const code = [
       `import { sketch, rect, circle, polygon } from 'fluidcad/core'`,
       ``,
@@ -1272,9 +1273,9 @@ describe('sweep statement templates', () => {
     const lines = result.newCode.split('\n');
     const profileRow = lines.findIndex(l => l === `const s = sketch('xy', () => { rect(10, 10) })`);
     expect(profileRow).toBeGreaterThan(-1);
-    expect(lines[profileRow + 1]).toBe(`sweep(p, s)`);
-    // The later sketch stays last, so it remains the active sketch.
-    expect(lines[profileRow + 2]).toBe(`sketch('yz', () => { polygon(6, 20) })`);
+    // End of scope: after the uninvolved trailing sketch.
+    expect(lines[profileRow + 1]).toBe(`sketch('yz', () => { polygon(6, 20) })`);
+    expect(lines[profileRow + 2]).toBe(`sweep(p, s)`);
   });
 
   it('renders a selector path at end of scope with the implicit profile', async () => {
@@ -1540,7 +1541,7 @@ describe('loft statement templates', () => {
     expect(result.newCode).toMatch(/import \{ ?loft,/);
   });
 
-  it('keeps a later active sketch active when every input is earlier', async () => {
+  it('appends at end of scope when every input is earlier', async () => {
     const code = [
       `import { sketch, rect, circle, polygon } from 'fluidcad/core'`,
       ``,
@@ -1555,8 +1556,8 @@ describe('loft statement templates', () => {
     const lines = result.newCode.split('\n');
     const loftRow = lines.findIndex(l => l === `loft(s, s2)`);
     expect(loftRow).toBeGreaterThan(-1);
-    // The uninvolved sketch stays last, so it remains the active sketch.
-    expect(lines[loftRow + 1]).toBe(`sketch('yz', () => { polygon(6, 20) })`);
+    // End of scope: after the uninvolved trailing sketch.
+    expect(lines[loftRow - 1]).toBe(`sketch('yz', () => { polygon(6, 20) })`);
   });
 
   it('preserves the profile argument order independent of producer order', async () => {
@@ -2614,7 +2615,7 @@ describe('plane statement templates', () => {
     expect(result.newCode).toContain(`plane('xy', 'xz', { offset: 10 })`);
   });
 
-  it('binds plane producers and inserts a mid plane after the latest input', async () => {
+  it('binds plane producers and appends a mid plane at end of scope', async () => {
     const code = [
       `import { sketch, rect, extrude, plane } from 'fluidcad/core'`,
       ``,
@@ -2637,8 +2638,8 @@ describe('plane statement templates', () => {
     ));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`const p = plane('xy')`);
-    // Inserted directly after the later input, before the trailing sketch.
-    expect(result.newCode).toContain(`const p2 = plane('xy', 40)\nplane(p, p2)\nsketch('xz'`);
+    // End of scope: after the trailing sketch.
+    expect(result.newCode).toContain(`const p2 = plane('xy', 40)\nsketch('xz', () => { rect(10, 10) })\nplane(p, p2)`);
   });
 
   it('renders an edge plane with its normalized position', async () => {
@@ -2653,7 +2654,7 @@ describe('plane statement templates', () => {
     expect(result.newCode).toContain(`plane(e.sideEdges(0), 0.5)`);
   });
 
-  it('binds a helix edge plane through a wire base and inserts after the helix', async () => {
+  it('binds a helix edge plane through a wire base and appends at end of scope', async () => {
     const code = [
       `import { sketch, rect, helix } from 'fluidcad/core'`,
       ``,
@@ -2666,8 +2667,8 @@ describe('plane statement templates', () => {
       { producers: [{ line: 3, column: 0, featureType: 'wire', nameHint: 'h', bind: true }] },
     ));
     expect(result.error).toBeUndefined();
-    // Inserted directly after the helix input, before the trailing sketch.
-    expect(result.newCode).toContain(`const spring = helix('z').radius(10).pitch(4).turns(6)\nplane(spring, 0.5)\nsketch('xz'`);
+    // End of scope: after the trailing sketch.
+    expect(result.newCode).toContain(`const spring = helix('z').radius(10).pitch(4).turns(6)\nsketch('xz', () => { rect(10, 10) })\nplane(spring, 0.5)`);
   });
 
   it('refuses a wire base outside the edge form', async () => {
@@ -3187,7 +3188,7 @@ describe('revolve statement templates', () => {
     expect(result.newCode).toContain(`revolve('z', 275)`);
   });
 
-  it('binds a bound profile and inserts directly after it', async () => {
+  it('binds a bound profile and appends the revolve at end of scope', async () => {
     const code = [
       `import { sketch, rect, circle } from 'fluidcad/core'`,
       ``,
@@ -3203,12 +3204,12 @@ describe('revolve statement templates', () => {
     const lines = result.newCode.split('\n');
     const profileRow = lines.findIndex(l => l === `const s = sketch('xz', () => { circle([80, 0], 40) })`);
     expect(profileRow).toBeGreaterThan(-1);
-    expect(lines[profileRow + 1]).toBe(`revolve('z', 90, s)`);
-    // The later sketch stays last, so it remains the active sketch.
-    expect(lines[profileRow + 2]).toBe(`sketch('xy', () => { rect(10, 10) })`);
+    // End of scope: after the later sketch, not directly after the profile.
+    expect(lines[profileRow + 1]).toBe(`sketch('xy', () => { rect(10, 10) })`);
+    expect(lines[profileRow + 2]).toBe(`revolve('z', 90, s)`);
   });
 
-  it('binds an axis statement and inserts after the later input', async () => {
+  it('binds an axis statement and appends at end of scope', async () => {
     const code = [
       `import { sketch, circle, axis } from 'fluidcad/core'`,
       ``,

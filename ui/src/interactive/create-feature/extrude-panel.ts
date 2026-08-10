@@ -191,7 +191,7 @@ export class ExtrudePanel extends FeaturePanel {
    * in place.
    */
   showEdit(state: ExtrudeOptionValues & {
-    thin: [ValueExpr] | null;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     profileLabel: string | null;
     toFaceLabel: string | null;
     toFaceKind: 'selector' | ExtrudeFaceTarget | null;

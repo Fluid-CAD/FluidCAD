@@ -3712,7 +3712,7 @@ export type ParsedFeatureStatement =
     /** `.endOffset(value)` pull-back, or null when the chain is absent. */
     endOffset: ValueExpr | null;
     drill: boolean;
-    thin: [ValueExpr] | null;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     /** Trailing profile argument text (`s`), or null for implicit consumption. */
     profileText: string | null;
     /** Up-to-face target argument text, or null for a distance extrude. */
@@ -3747,7 +3747,7 @@ export type ParsedFeatureStatement =
   | {
     feature: 'sweep';
     op: 'add' | 'remove' | 'new';
-    thin: [ValueExpr] | null;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     pathText: string;
     profileText: string | null;
   }
@@ -3768,7 +3768,7 @@ export type ParsedFeatureStatement =
     angle: ValueExpr | null;
     /** `.symmetric()` chained on the statement. */
     symmetric: boolean;
-    thin: [ValueExpr] | null;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     /** Axis argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`). */
     axisText: string;
     /** Trailing profile argument text (`s`), or null for implicit consumption. */
@@ -3791,7 +3791,7 @@ export type ParsedFeatureStatement =
   | {
     feature: 'loft';
     op: 'add' | 'remove' | 'new';
-    thin: [ValueExpr] | null;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     profileTexts: string[];
     guideTexts: string[];
     startCondition: LoftConditionSpec | null;
@@ -4516,17 +4516,21 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
   }
   const op: 'add' | 'remove' | 'new' = isCut || hasRemove ? 'remove' : hasNew ? 'new' : 'add';
 
-  let thin: [ValueExpr] | null = null;
+  let thin: [ValueExpr] | [ValueExpr, ValueExpr] | null = null;
   const thinSeg = recognized.get('thin');
   if (thinSeg) {
-    if (thinSeg.args.length !== 1) {
-      return { error: 'only a single-offset .thin() can be edited in the dialog' };
+    if (thinSeg.args.length < 1 || thinSeg.args.length > 2) {
+      return { error: 'only a one- or two-offset .thin() can be edited in the dialog' };
     }
-    const offset = anyValueArg(thinSeg.args[0]);
-    if (offset === null) {
-      return { error: 'the .thin() offset is not a plain number or expression — edit it in the source' };
+    const offsets: ValueExpr[] = [];
+    for (const arg of thinSeg.args) {
+      const offset = anyValueArg(arg);
+      if (offset === null) {
+        return { error: 'a .thin() offset is not a plain number or expression — edit it in the source' };
+      }
+      offsets.push(offset);
     }
-    thin = [offset];
+    thin = offsets.length === 1 ? [offsets[0]] : [offsets[0], offsets[1]];
   }
 
   if (feature === 'extrude') {
@@ -6158,7 +6162,7 @@ function validEditThin(thin: unknown): thin is [ValueExpr] | [ValueExpr, ValueEx
     return true;
   }
   return Array.isArray(thin) && thin.length >= 1 && thin.length <= 2
-    && thin.every(t => validValueExpr(t, { positive: true }));
+    && thin.every(t => validValueExpr(t, { nonzero: true }));
 }
 
 function validEditCondition(condition: LoftConditionSpec | undefined): boolean {

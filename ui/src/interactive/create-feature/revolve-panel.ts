@@ -125,7 +125,7 @@ export class RevolvePanel extends FeaturePanel {
    * tabs, angle and thin controls edit in place.
    */
   showEdit(state: RevolveOptionValues & {
-    thin: [ValueExpr] | null;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     axisLabel: string;
     profileLabel: string | null;
   }): void {

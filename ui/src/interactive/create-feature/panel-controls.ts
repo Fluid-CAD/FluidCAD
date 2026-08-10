@@ -1,6 +1,6 @@
 import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
 import { viewportChrome } from '../../ui/viewport-chrome';
-import { ExpressionField } from '../../ui/expression-field';
+import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
 import { NewVariable, ValueExpr } from '../../api';
 
@@ -86,9 +86,11 @@ export class ThinControl {
 
   private checkbox: HTMLInputElement;
   private toggle: HTMLElement;
-  private valueWrap: HTMLElement;
+  private valuesRow: HTMLElement;
   private input: HTMLInputElement;
+  private input2: HTMLInputElement;
   private field: ExpressionField;
+  private field2: ExpressionField;
 
   constructor(container: HTMLElement) {
     const toggle = document.createElement('label');
@@ -100,32 +102,46 @@ export class ThinControl {
     container.appendChild(toggle);
     this.toggle = toggle;
 
-    this.valueWrap = document.createElement('label');
-    this.valueWrap.className = 'hidden flex-col gap-1.5';
-    this.valueWrap.innerHTML = `
-      <span class="text-base-content/70">Wall thickness</span>
-      <input data-role="thin-value" type="number" step="0.5" value="2"
-        class="input input-sm input-bordered w-full text-xs" />
+    this.valuesRow = document.createElement('div');
+    this.valuesRow.className = 'hidden gap-2';
+    this.valuesRow.innerHTML = `
+      <label class="flex flex-col gap-1.5 flex-1 min-w-0"
+        title="Wall thickness — the sign picks which side of the profile the wall grows">
+        <span class="text-base-content/70">Thickness</span>
+        <input data-role="thin-value" type="number" step="0.5" value="2"
+          class="input input-sm input-bordered w-full text-xs" />
+      </label>
+      <label class="flex flex-col gap-1.5 flex-1 min-w-0"
+        title="Wall thickness on the opposite side of the profile — leave empty for a single-sided wall">
+        <span class="text-base-content/70">Thickness 2</span>
+        <input data-role="thin-value2" type="number" step="0.5" placeholder="off"
+          class="input input-sm input-bordered w-full text-xs" />
+      </label>
     `;
-    container.appendChild(this.valueWrap);
+    container.appendChild(this.valuesRow);
 
     this.checkbox = toggle.querySelector('[data-role="thin"]')!;
-    this.input = this.valueWrap.querySelector('[data-role="thin-value"]')!;
+    this.input = this.valuesRow.querySelector('[data-role="thin-value"]')!;
+    this.input2 = this.valuesRow.querySelector('[data-role="thin-value2"]')!;
 
     this.checkbox.addEventListener('change', () => {
       this.sync();
       this.onChange?.();
     });
-    // The field owns the input's keyboard handling (dropdown navigation,
-    // Enter-to-submit) and flips the input to type="text" for identifiers.
+    // The fields own their inputs' keyboard handling (dropdown navigation,
+    // Enter-to-submit) and flip the inputs to type="text" for identifiers.
     this.field = new ExpressionField(this.input);
     this.field.onSubmit = () => this.onSubmit?.();
     this.input.addEventListener('input', () => this.onChange?.());
+    this.field2 = new ExpressionField(this.input2);
+    this.field2.onSubmit = () => this.onSubmit?.();
+    this.input2.addEventListener('input', () => this.onChange?.());
   }
 
-  /** The variables the thickness field's dropdown offers. */
+  /** The variables the thickness fields' dropdowns offer. */
   setVariables(variables: VariableInfo[]): void {
     this.field.setVariables(variables);
+    this.field2.setVariables(variables);
   }
 
   /**
@@ -146,16 +162,20 @@ export class ThinControl {
   }
 
   /** Programmatic offsets (edit-mode prefill); no change event fires. */
-  setValues(thin: [ValueExpr] | null): void {
+  setValues(thin: [ValueExpr] | [ValueExpr, ValueExpr] | null): void {
     this.checkbox.checked = thin !== null;
     if (thin !== null) {
       this.field.setValue(thin[0]);
     }
+    this.field2.setValue(thin?.[1] ?? '');
     this.sync();
   }
 
   /** The `.thin()` offsets, null when off, or the message for a bad value. */
-  values(): { thin: [ValueExpr] | null; newVariable?: NewVariable } | { error: string } {
+  values(): {
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
+    newVariables?: NewVariable[];
+  } | { error: string } {
     if (!this.checkbox.checked) {
       return { thin: null };
     }
@@ -166,13 +186,27 @@ export class ThinControl {
     if (typeof read.value === 'number' && read.value === 0) {
       return { error: 'Wall thickness cannot be zero.' };
     }
-    return { thin: [read.value], newVariable: read.newVariable };
+    // The second offset is optional — empty means a single-sided wall.
+    const read2 = this.field2.read();
+    if ('error' in read2) {
+      if (read2.error !== 'empty') {
+        return { error: read2.error };
+      }
+      return { thin: [read.value], newVariables: collectNewVariables([read]) };
+    }
+    if (typeof read2.value === 'number' && read2.value === 0) {
+      return { error: 'Thickness 2 cannot be zero.' };
+    }
+    return {
+      thin: [read.value, read2.value],
+      newVariables: collectNewVariables([read, read2]),
+    };
   }
 
   private sync(): void {
     const on = this.checkbox.checked;
-    this.valueWrap.classList.toggle('hidden', !on);
-    this.valueWrap.classList.toggle('flex', on);
+    this.valuesRow.classList.toggle('hidden', !on);
+    this.valuesRow.classList.toggle('flex', on);
   }
 }
 

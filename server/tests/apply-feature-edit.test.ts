@@ -1862,6 +1862,20 @@ describe('parseFeatureStatement', () => {
     });
   });
 
+  it('reads a two-offset thin extrude', async () => {
+    const code = `${editBase}\nextrude(25, s).thin(-2, 3.5)\n`;
+    const result = await parseFeatureStatement(code, 4);
+    expect(result).toEqual({
+      ok: true,
+      parsed: {
+        feature: 'extrude', op: 'add', distance: 25, distance2: null, symmetric: false,
+        draft: null, endOffset: null, drill: true, thin: [-2, 3.5], profileText: 's',
+        toFaceText: null, toFaceKind: null,
+      },
+      statement: 'extrude(25, s).thin(-2, 3.5)',
+    });
+  });
+
   it('reads a through-all bound cut', async () => {
     const code = `${editBase}\ncut(s)\n`;
     const result = await parseFeatureStatement(code, 4);

@@ -100,15 +100,15 @@ function validateBoundary(raw: any): SelectionBoundary | undefined | null {
   return { index: raw.index, type: raw.type, line: raw.line, column: raw.column };
 }
 
-/** One or two positive `.thin()` offsets; absent means a plain feature. */
+/** One or two non-zero `.thin()` offsets (signs pick sides); absent means a plain feature. */
 function validateThinOffsets(thin: unknown): { offsets: [ValueExpr] | [ValueExpr, ValueExpr] | null } | { error: string } {
   if (thin === undefined || thin === null) {
     return { offsets: null };
   }
   const valid = Array.isArray(thin) && thin.length >= 1 && thin.length <= 2
-    && thin.every((t: unknown) => validValueExpr(t, { positive: true }));
+    && thin.every((t: unknown) => validValueExpr(t, { nonzero: true }));
   if (!valid) {
-    return { error: 'thin must be one or two positive offsets or expressions' };
+    return { error: 'thin must be one or two non-zero offsets or expressions' };
   }
   return { offsets: thin.length === 1 ? [thin[0]] : [thin[0], thin[1]] };
 }

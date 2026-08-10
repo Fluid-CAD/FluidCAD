@@ -430,6 +430,20 @@ describe('apply-feature route validation', () => {
     expect(body.preview).toBe('extrude(10).thin(2).new()');
   });
 
+  it('previews a negative thin offset', async () => {
+    const { body } = await post({
+      feature: 'extrude', op: 'add', distance: 10, thin: [-2], profile: PROFILE, preview: true,
+    });
+    expect(body.preview).toBe('extrude(10).thin(-2)');
+  });
+
+  it('previews two thin offsets', async () => {
+    const { body } = await post({
+      feature: 'extrude', op: 'add', distance: 10, thin: [2, 3.5], profile: PROFILE, preview: true,
+    });
+    expect(body.preview).toBe('extrude(10).thin(2, 3.5)');
+  });
+
   it('previews a two-distance extrude', async () => {
     const { body } = await post({
       feature: 'extrude', op: 'add', distance: 10, distance2: 20, profile: PROFILE, preview: true,

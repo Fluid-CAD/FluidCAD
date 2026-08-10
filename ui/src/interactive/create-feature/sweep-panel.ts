@@ -9,7 +9,7 @@ import { VariableInfo } from '../../ui/expression-core';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type SweepValues =
-  | { op: FeatureOp; thin: [ValueExpr] | null; newVariables?: NewVariable[] }
+  | { op: FeatureOp; thin: [ValueExpr] | [ValueExpr, ValueExpr] | null; newVariables?: NewVariable[] }
   | { error: string };
 
 export type SweepPathSelection =
@@ -139,7 +139,7 @@ export class SweepPanel extends FeaturePanel {
    * that slot, and its ✕ reverts to the kept expression. The op tabs and
    * thin control edit in place.
    */
-  showEdit(state: { op: FeatureOp; thin: [ValueExpr] | null; pathLabel: string; profileLabel: string | null }): void {
+  showEdit(state: { op: FeatureOp; thin: [ValueExpr] | [ValueExpr, ValueExpr] | null; pathLabel: string; profileLabel: string | null }): void {
     this.options = [];
     this.allowEdgePicking = true;
     this.pathState = { kind: 'keep' };

@@ -9,7 +9,7 @@ import { VariableInfo } from '../../ui/expression-core';
 export type LoftValues =
   | {
       op: FeatureOp;
-      thin: [ValueExpr] | null;
+      thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
       startCondition: LoftConditionRef | null;
       endCondition: LoftConditionRef | null;
       newVariables?: NewVariable[];
@@ -196,7 +196,7 @@ export class LoftPanel extends FeaturePanel {
    */
   showEdit(state: {
     op: FeatureOp;
-    thin: [ValueExpr] | null;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     startCondition: LoftConditionRef | null;
     endCondition: LoftConditionRef | null;
   }): void {

@@ -45,12 +45,23 @@ export class Fillet2D extends GeometrySceneObject {
       edges: Map<Edge, SceneObject>,
     }[] = [];
 
-    const groups = WireOps.groupConnectedEdges(allEdges);
+    // Hand-drawn profiles routinely have corner endpoints that only nearly
+    // meet. Exact-tolerance grouping treated such corners as disconnected and
+    // silently skipped them — chain with the same size-proportional tolerance
+    // the offset build uses (and the selection check verifies against).
+    const connectTolerance = WireOps.connectTolerance(allEdges);
+    const groups = WireOps.groupConnectedEdges(allEdges, connectTolerance);
     for (const group of groups) {
-      const wire = WireOps.makeWireFromEdges(group);
-      wires.push({
-        wire,
-        edges: new Map(group.map(edge => [edge, edges.get(edge)]))
+      const groupWires = WireOps.makeChainWires(group, connectTolerance);
+      groupWires.forEach((wire, index) => {
+        wires.push({
+          wire,
+          // The group's originals ride on the first wire only, so removal
+          // strips each edge exactly once.
+          edges: index === 0
+            ? new Map(group.map(edge => [edge, edges.get(edge)]))
+            : new Map(),
+        });
       });
     }
 

@@ -4,7 +4,6 @@ import { Wire } from "../../common/wire.js";
 import { Plane } from "../../math/plane.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { WireOps } from "../../oc/wire-ops.js";
-import { offsetConnectTolerance } from "./offset.js";
 
 /** The dialog values a ghost offset is built from, resolved to plain values. */
 export type OffsetGhostOptions = {
@@ -42,7 +41,7 @@ export function buildOffsetGhostWires(
   const solids: Shape[] = [];
   const scratch: Shape[] = [];
   try {
-    const tolerance = offsetConnectTolerance(edges);
+    const tolerance = WireOps.connectTolerance(edges);
     const wires: Wire[] = [];
     for (const group of WireOps.groupConnectedEdges(edges, tolerance)) {
       wires.push(...WireOps.makeChainWires(group, tolerance));

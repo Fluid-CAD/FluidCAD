@@ -123,9 +123,12 @@ export function synthesizeSketchApplyFeature(
   // 2D fillet rounds the corners WITHIN the picked group (Fillet2D wires up
   // connected runs and fillets their shared vertices), so a selection with no
   // touching edges would apply as a silent no-op — surface that here instead,
-  // for the preview and the apply alike.
+  // for the preview and the apply alike. Adjacency uses the same
+  // size-proportional tolerance the build chains with: hand-drawn corners
+  // routinely miss by a few hundredths while looking exactly shared.
   if (feature === 'fillet') {
-    const groups = WireOps.groupConnectedEdges(picks.map(p => p.edge));
+    const pickedEdges = picks.map(p => p.edge);
+    const groups = WireOps.groupConnectedEdges(pickedEdges, WireOps.connectTolerance(pickedEdges));
     if (!groups.some(g => g.length >= 2)) {
       return {
         ok: false,

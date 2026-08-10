@@ -9,6 +9,7 @@ import { Vertex } from "../../common/vertex.js";
 import { Wire } from "../../common/wire.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 import { EdgeTargetArg, GeometrySceneObject } from "./geometry.js";
+import { SelectSceneObject } from "../select.js";
 
 export class Offset extends ExtrudableGeometryBase {
 
@@ -73,6 +74,7 @@ export class Offset extends ExtrudableGeometryBase {
           throw new Error("Offset: face and edge targets cannot be mixed");
         }
         this.buildFromFaces(faces);
+        this.consumeSelectionTargets();
         return;
       }
 
@@ -156,6 +158,20 @@ export class Offset extends ExtrudableGeometryBase {
 
       this.setState('start', Vertex.fromPoint2D(localStart));
       this.setState('end', Vertex.fromPoint2D(localEnd));
+    }
+  }
+
+  /**
+   * Face-target mode only: explicit select() targets are single-use, like
+   * every other consumer's (shell, projection). Lazy accessors stay, and
+   * edge-mode offsets (2D geometry) are never consumed — stripping edges
+   * is removeOriginal's job.
+   */
+  private consumeSelectionTargets() {
+    for (const obj of GeometrySceneObject.sceneObjectTargets(this.sourceGeometries)) {
+      if (obj instanceof SelectSceneObject) {
+        obj.removeShapes(this);
+      }
     }
   }
 

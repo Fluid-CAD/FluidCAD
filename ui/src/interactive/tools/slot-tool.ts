@@ -11,7 +11,8 @@ import {
   dist2D,
 } from '../sketch-plane-utils';
 import { ICON_SLOT } from '../../ui/icons';
-import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
+import { ExpressionInput, CommitResult } from '../../ui/expression-input';
+import { classifyDelta } from './ortho-snap';
 import {
   START_POINT_COLOR,
   SNAP_VERTEX_COLOR,
@@ -21,27 +22,42 @@ import {
   addDashedLine,
 } from './tool-preview-utils';
 
-type ExpressionPhase = 'endpoint' | 'distance' | 'radius';
+type ExpressionPhase = 'distance' | 'radius';
 
+/**
+ * Two-click slot: the first click anchors the slot (its first cap centre, or
+ * its midpoint in centered mode), the drag direction sets the axis and the
+ * length input sets the distance, then a radius phase finishes the statement.
+ * Every commit uses the distance overload — `slot(start, distance, radius)` —
+ * with the direction folded into the distance's sign (axis-snapped slots) or
+ * a `.rotate(angle)` chain (free slots). A drag within {@link classifyDelta}'s
+ * tolerance of an axis snaps to a plain horizontal or vertical slot; Ctrl
+ * keeps the exact cursor angle.
+ */
 export class SlotTool extends SketchTool {
   readonly id = 'slot' as const;
   readonly label = 'Slot';
   readonly icon = ICON_SLOT;
 
   private startPoint: [number, number] | null = null;
-  /** The start cap centre as picked, carrying any typed axis expressions. */
+  /** The anchor as picked, carrying any typed axis expressions. */
   private startPick: PickedPoint | null = null;
-  private endPoint: [number, number] | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
-  private shiftHeld = false;
-  private horizontalMode = false;
+  private ctrlHeld = false;
+  private readonly centered: boolean;
   private expressionInput: ExpressionInput;
   private lastClientX = 0;
   private lastClientY = 0;
 
-  private expressionPhase: ExpressionPhase = 'endpoint';
+  private expressionPhase: ExpressionPhase = 'distance';
+  /** The committed length, already signed for axis-snapped directions. */
   private distanceExpression: CommitResult | null = null;
+  /** `.rotate(...)` chain locked with the distance; '' for horizontal. */
+  private rotateSuffix = '';
+  /** Unit axis direction locked at the distance commit. */
+  private lockedDir: [number, number] | null = null;
+  /** Numeric full length for the preview, signed along {@link lockedDir}. */
   private lockedDistance: number | null = null;
 
   private boundMouseDown: (e: MouseEvent) => void;
@@ -59,9 +75,11 @@ export class SlotTool extends SketchTool {
     insertGeometry: InsertGeometryFn,
     container: HTMLElement,
     fetchVariables: FetchVariablesFn,
+    centered: boolean,
   ) {
     super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.expressionInput = new ExpressionInput(container);
+    this.centered = centered;
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
     this.boundMouseMove = this.handleMouseMove.bind(this);
@@ -99,17 +117,11 @@ export class SlotTool extends SketchTool {
       return false;
     }
     if (this.expressionPhase === 'radius') {
-      this.expressionPhase = this.horizontalMode ? 'distance' : 'endpoint';
-      this.endPoint = null;
+      this.expressionPhase = 'distance';
       this.distanceExpression = null;
+      this.rotateSuffix = '';
+      this.lockedDir = null;
       this.lockedDistance = null;
-      this.expressionInput.hide();
-      this.rebuildPreview();
-      return true;
-    }
-    if (this.expressionPhase === 'distance') {
-      this.expressionPhase = 'endpoint';
-      this.horizontalMode = false;
       this.expressionInput.hide();
       this.rebuildPreview();
       return true;
@@ -119,8 +131,8 @@ export class SlotTool extends SketchTool {
     return true;
   }
 
-  /** The start cap centre is the point that lands in the source; the second
-   * click sets the slot's length, which the expression input already covers. */
+  /** The anchor is the point that lands in the source; the drag sets the
+   * slot's length, which the expression input already covers. */
   protected override awaitingPoint(): boolean {
     return this.startPoint === null;
   }
@@ -129,18 +141,11 @@ export class SlotTool extends SketchTool {
     this.consumeStart(point);
   }
 
-  /**
-   * Single writer for both halves of the anchor. Reads the live modifier
-   * state rather than an event, so a typed start still enters horizontal
-   * mode when Shift is down — a typed commit carries no MouseEvent.
-   */
+  /** Single writer for both halves of the anchor, so the position the preview
+   * draws and the expressions the statement emits cannot drift. */
   private consumeStart(start: PickedPoint): void {
     this.startPick = start;
     this.startPoint = start.value;
-    if (this.shiftHeld) {
-      this.horizontalMode = true;
-      this.expressionPhase = 'distance';
-    }
     this.syncPointInput();
     this.rebuildPreview();
   }
@@ -148,11 +153,11 @@ export class SlotTool extends SketchTool {
   private resetState(): void {
     this.startPoint = null;
     this.startPick = null;
-    this.endPoint = null;
     this.mousePoint = null;
-    this.expressionPhase = 'endpoint';
-    this.horizontalMode = false;
+    this.expressionPhase = 'distance';
     this.distanceExpression = null;
+    this.rotateSuffix = '';
+    this.lockedDir = null;
     this.lockedDistance = null;
     this.expressionInput.hide();
   }
@@ -174,11 +179,11 @@ export class SlotTool extends SketchTool {
       return;
     }
 
+    this.ctrlHeld = e.ctrlKey;
     const result = this.snapController.snap(raw);
     const point = roundPoint(result.point2d);
 
     if (!this.startPoint) {
-      this.syncModifiers(e);
       this.consumeStart(this.applyPointInput(result.point2d));
       return;
     }
@@ -188,41 +193,31 @@ export class SlotTool extends SketchTool {
       return;
     }
 
-    if (this.expressionPhase === 'endpoint') {
-      const distance = dist2D(this.startPoint, point);
-      if (distance <= 0) {
-        return;
-      }
-      this.endPoint = point;
-      this.expressionPhase = 'radius';
-      this.expressionInput.hide();
-      this.rebuildPreview();
-      this.updateDimensionInput();
-      return;
-    }
-
     if (this.expressionPhase === 'distance') {
-      const distance = Math.round((point[0] - this.startPoint[0]) * 100) / 100;
-      if (distance === 0) {
+      this.mousePoint = point;
+      const span = this.getSlotSpan();
+      if (!span) {
         return;
       }
-      this.onDistanceCommit({ expression: String(distance) });
+      const length = Math.round(dist2D(span.left, span.right) * 100) / 100;
+      if (length <= 0) {
+        return;
+      }
+      this.onDistanceCommit({ expression: String(length) });
       return;
     }
 
-    if (this.expressionPhase === 'radius') {
-      const radius = this.computeRadiusFromMouse(point);
-      if (radius <= 0) {
-        return;
-      }
-      this.onRadiusCommit({ expression: String(radius) });
+    const radius = this.computeRadiusFromMouse(point);
+    if (radius <= 0) {
+      return;
     }
+    this.onRadiusCommit({ expression: String(radius) });
   }
 
   private handleMouseMove(e: MouseEvent): void {
     this.lastClientX = e.clientX;
     this.lastClientY = e.clientY;
-    this.syncModifiers(e);
+    this.ctrlHeld = e.ctrlKey;
 
     const raw = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
     if (!raw) {
@@ -246,78 +241,71 @@ export class SlotTool extends SketchTool {
       }
       return;
     }
-    if (e.key === 'Shift') {
-      this.shiftHeld = true;
-      if (this.startPoint && this.expressionPhase === 'endpoint' && !this.horizontalMode) {
-        this.horizontalMode = true;
-        this.expressionPhase = 'distance';
-        this.expressionInput.hide();
-      }
+    if (e.key === 'Control') {
+      this.ctrlHeld = true;
       this.rebuildPreview();
       this.updateDimensionInput();
     }
   }
 
   private handleKeyUp(e: KeyboardEvent): void {
-    if (e.key === 'Shift') {
-      this.shiftHeld = false;
-      if (this.expressionPhase === 'distance' && !this.distanceExpression) {
-        this.horizontalMode = false;
-        this.expressionPhase = 'endpoint';
-        this.expressionInput.hide();
-      }
+    if (e.key === 'Control') {
+      this.ctrlHeld = false;
       this.rebuildPreview();
       this.updateDimensionInput();
     }
   }
 
-  private syncModifiers(e: MouseEvent): void {
-    this.shiftHeld = e.shiftKey;
-  }
-
-  private getSlotAxis(): { dir: [number, number]; leftCenter: [number, number]; rightCenter: [number, number] } | null {
+  /**
+   * The slot's cap centres for the current phase. While setting the distance
+   * the mouse drives the axis — snapped onto ±x/±y when the drag is within
+   * the ortho tolerance — and in centered mode the anchor is the midpoint, so
+   * the caps sit mirrored around it. After the distance commit the caps are
+   * frozen from the locked direction and length.
+   */
+  private getSlotSpan(): { left: [number, number]; right: [number, number] } | null {
     if (!this.startPoint) {
       return null;
     }
 
-    if (this.horizontalMode) {
-      const d = this.lockedDistance ?? (this.mousePoint ? (this.mousePoint[0] - this.startPoint[0]) : 0);
-      return {
-        dir: d >= 0 ? [1, 0] : [-1, 0],
-        leftCenter: this.startPoint,
-        rightCenter: [this.startPoint[0] + d, this.startPoint[1]],
-      };
-    }
-
-    if (this.endPoint) {
-      const dx = this.endPoint[0] - this.startPoint[0];
-      const dy = this.endPoint[1] - this.startPoint[1];
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 1e-10) {
+    if (this.expressionPhase === 'radius') {
+      if (!this.lockedDir || this.lockedDistance === null) {
         return null;
       }
-      return {
-        dir: [dx / dist, dy / dist],
-        leftCenter: this.startPoint,
-        rightCenter: this.endPoint,
-      };
+      const d = this.lockedDistance;
+      const left: [number, number] = this.centered
+        ? [this.startPoint[0] - this.lockedDir[0] * d / 2, this.startPoint[1] - this.lockedDir[1] * d / 2]
+        : this.startPoint;
+      return { left, right: [left[0] + this.lockedDir[0] * d, left[1] + this.lockedDir[1] * d] };
     }
 
-    if (this.mousePoint) {
-      const dx = this.mousePoint[0] - this.startPoint[0];
-      const dy = this.mousePoint[1] - this.startPoint[1];
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dist < 1e-10) {
-        return null;
-      }
-      return {
-        dir: [dx / dist, dy / dist],
-        leftCenter: this.startPoint,
-        rightCenter: this.mousePoint,
-      };
+    if (!this.mousePoint) {
+      return null;
     }
+    const dx = this.mousePoint[0] - this.startPoint[0];
+    const dy = this.mousePoint[1] - this.startPoint[1];
+    const direction = classifyDelta(dx, dy, this.ctrlHeld);
+    const delta: [number, number] = direction === 'horizontal' ? [dx, 0]
+      : direction === 'vertical' ? [0, dy]
+        : [dx, dy];
+    const left: [number, number] = this.centered
+      ? [this.startPoint[0] - delta[0], this.startPoint[1] - delta[1]]
+      : this.startPoint;
+    return { left, right: [this.startPoint[0] + delta[0], this.startPoint[1] + delta[1]] };
+  }
 
-    return null;
+  private getSlotAxis(): { dir: [number, number]; leftCenter: [number, number]; rightCenter: [number, number] } | null {
+    const span = this.getSlotSpan();
+    if (!span) {
+      return null;
+    }
+    const dx = span.right[0] - span.left[0];
+    const dy = span.right[1] - span.left[1];
+    const length = Math.sqrt(dx * dx + dy * dy);
+    if (length < 1e-10) {
+      return null;
+    }
+    return { dir: [dx / length, dy / length], leftCenter: span.left, rightCenter: span.right };
   }
 
   private computeRadiusFromMouse(point: [number, number]): number {
@@ -337,53 +325,90 @@ export class SlotTool extends SketchTool {
     }
 
     if (this.expressionPhase === 'distance') {
-      const distance = Math.round((this.mousePoint[0] - this.startPoint[0]) * 100) / 100;
-      if (distance === 0) {
+      const span = this.getSlotSpan();
+      if (!span) {
+        return;
+      }
+      const length = Math.round(dist2D(span.left, span.right) * 100) / 100;
+      if (length <= 0) {
         return;
       }
       if (!this.expressionInput.isVisible) {
         this.expressionInput.show({
           label: 'D',
-          value: String(distance),
+          value: String(length),
           clientX: this.lastClientX,
           clientY: this.lastClientY,
           variables: this.cachedVariables,
           onCommit: (result) => this.onDistanceCommit(result),
         });
       } else {
-        this.expressionInput.updateValue(distance);
+        this.expressionInput.updateValue(length);
         this.expressionInput.updatePosition(this.lastClientX, this.lastClientY);
       }
       return;
     }
 
-    if (this.expressionPhase === 'radius') {
-      const radius = this.computeRadiusFromMouse(this.mousePoint);
-      if (radius <= 0) {
-        return;
-      }
-      if (!this.expressionInput.isVisible) {
-        this.expressionInput.show({
-          label: 'R',
-          value: String(radius),
-          clientX: this.lastClientX,
-          clientY: this.lastClientY,
-          variables: this.cachedVariables,
-          onCommit: (result) => this.onRadiusCommit(result),
-        });
-      } else {
-        this.expressionInput.updateValue(radius);
-        this.expressionInput.updatePosition(this.lastClientX, this.lastClientY);
-      }
+    const radius = this.computeRadiusFromMouse(this.mousePoint);
+    if (radius <= 0) {
+      return;
+    }
+    if (!this.expressionInput.isVisible) {
+      this.expressionInput.show({
+        label: 'R',
+        value: String(radius),
+        clientX: this.lastClientX,
+        clientY: this.lastClientY,
+        variables: this.cachedVariables,
+        onCommit: (result) => this.onRadiusCommit(result),
+      });
+    } else {
+      this.expressionInput.updateValue(radius);
+      this.expressionInput.updatePosition(this.lastClientX, this.lastClientY);
     }
   }
 
+  /**
+   * Lock the axis from the drag at commit time. Axis-snapped slots re-apply
+   * the drag direction onto the committed length ({@link SketchTool.applySignedDimension}
+   * — a typed variable stays a positive magnitude, negated at the use site),
+   * vertical ones gain `.rotate(90)`; a free drag keeps the typed magnitude
+   * and carries its exact angle in `.rotate(...)`.
+   */
   private onDistanceCommit(result: CommitResult): void {
-    const num = parseFloat(result.expression);
-    const isNumeric = !isNaN(num) && String(num) === result.expression;
+    if (!this.startPoint || !this.mousePoint) {
+      return;
+    }
 
-    this.distanceExpression = result;
-    this.lockedDistance = isNumeric ? num : this.previewDistance(result);
+    const dx = this.mousePoint[0] - this.startPoint[0];
+    const dy = this.mousePoint[1] - this.startPoint[1];
+    const direction = classifyDelta(dx, dy, this.ctrlHeld);
+    const factor = this.centered ? 2 : 1;
+
+    if (direction === 'horizontal' || direction === 'vertical') {
+      const axisDelta = direction === 'horizontal' ? dx : dy;
+      const sign = Math.sign(axisDelta) || 1;
+      this.distanceExpression = {
+        expression: SketchTool.applySignedDimension(result.expression, sign),
+        newVariable: result.newVariable,
+      };
+      this.rotateSuffix = direction === 'vertical' ? '.rotate(90)' : '';
+      this.lockedDir = direction === 'horizontal' ? [1, 0] : [0, 1];
+      this.lockedDistance = SketchTool.resolveCommittedValue(this.distanceExpression, this.cachedVariables)
+        ?? Math.round(axisDelta * factor * 100) / 100;
+    } else {
+      const length = Math.sqrt(dx * dx + dy * dy);
+      if (length < 1e-10) {
+        return;
+      }
+      this.distanceExpression = result;
+      const angle = Math.round(Math.atan2(dy, dx) * 180 / Math.PI * 100) / 100;
+      this.rotateSuffix = angle !== 0 ? `.rotate(${angle})` : '';
+      this.lockedDir = [dx / length, dy / length];
+      this.lockedDistance = SketchTool.resolveCommittedValue(this.distanceExpression, this.cachedVariables)
+        ?? Math.round(length * factor * 100) / 100;
+    }
+
     this.expressionPhase = 'radius';
 
     queueMicrotask(() => {
@@ -402,58 +427,27 @@ export class SlotTool extends SketchTool {
     });
   }
 
-  // Preview distance for a dimension committed as a variable/expression: the
-  // variable's own value when statically resolvable, else the mouse-derived
-  // distance at commit time. Signed — the slot input shows the signed value,
-  // so the variable itself carries the direction.
-  private previewDistance(result: CommitResult): number | null {
-    const fromVariable = SketchTool.resolveCommittedValue(result, this.cachedVariables);
-    if (fromVariable !== null) {
-      return fromVariable;
-    }
-    if (this.startPoint && this.mousePoint) {
-      return Math.round((this.mousePoint[0] - this.startPoint[0]) * 100) / 100;
-    }
-    return null;
-  }
-
   private onRadiusCommit(result: CommitResult): void {
-    if (!this.startPoint) {
+    if (!this.startPoint || !this.distanceExpression) {
       return;
     }
-
-    if (this.horizontalMode && this.distanceExpression) {
-      this.commitHorizontalSlot(this.startPick!, this.distanceExpression, result);
-    } else if (this.endPoint) {
-      this.commitTwoPointSlot(this.startPick!, this.endPoint, result);
-    }
-
+    this.commitSlot(this.startPick!, this.distanceExpression, result);
     this.resetState();
     this.rebuildPreview();
   }
 
-  private commitTwoPointSlot(
-    start: PickedPoint,
-    end: [number, number],
-    radiusResult: CommitResult,
-  ): void {
-    const statement =
-      `slot(${this.formatPoint(start)}, ${this.formatPoint(end)}, ${radiusResult.expression})`;
-    const newVariables = [...start.newVariables, ...(radiusResult.newVariable ? [radiusResult.newVariable] : [])];
-    this.insertGeometry(statement, newVariables.length > 0 ? newVariables : undefined);
-  }
-
-  private commitHorizontalSlot(
+  private commitSlot(
     start: PickedPoint,
     distanceResult: CommitResult,
     radiusResult: CommitResult,
   ): void {
+    const suffix = `${this.rotateSuffix}${this.centered ? '.centered()' : ''}`;
     const newVariables = [distanceResult.newVariable, radiusResult.newVariable]
       .filter((v): v is NonNullable<typeof v> => v !== undefined);
     this.insertAtPoint(
       start,
-      (point) => `slot(${point}, ${distanceResult.expression}, ${radiusResult.expression})`,
-      () => `slot(${distanceResult.expression}, ${radiusResult.expression})`,
+      (point) => `slot(${point}, ${distanceResult.expression}, ${radiusResult.expression})${suffix}`,
+      () => `slot(${distanceResult.expression}, ${radiusResult.expression})${suffix}`,
       newVariables,
     );
   }

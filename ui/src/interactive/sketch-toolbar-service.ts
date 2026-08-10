@@ -188,8 +188,12 @@ export class SketchToolbarService {
         draw: {
           label: 'Draw',
           title: 'Draw the slot in the sketch',
-          hint: 'Draw the slot in the sketch: click the two cap centers, then set the radius. '
-            + 'Hold Shift for a horizontal slot.',
+          hint: 'Draw the slot in the sketch: click the start point, then set the length and the cap radius. '
+            + 'Near-horizontal and near-vertical slots snap to the axis — hold Ctrl for a free angle.',
+          toggle: {
+            label: 'Centered',
+            title: 'Anchor the slot at its center instead of its first cap',
+          },
         },
         pick: { label: 'From edge', title: 'Build the slot around an existing sketch edge' },
       },
@@ -210,6 +214,15 @@ export class SketchToolbarService {
     // The slot dialog's tabs swap the viewport owner: From dimensions arms
     // the classic drawing tool, From edge the edge-pick handlers.
     this.slotOp.onModeChange = (mode) => this.applySlotMode(mode);
+    // Centered flips re-arm the drawing tool so the new anchor mode takes
+    // effect immediately (the rectangle's toggle reselects the same way).
+    this.slotOp.onDrawToggleChange = () => {
+      if (this.slotOp.mode === 'draw' && this.activeDrawingTool) {
+        this.activeDrawingTool.deactivate();
+        this.activeDrawingTool = null;
+        this.applySlotMode('draw');
+      }
+    };
 
     this.constraintToolbar = new ConstraintToolbarService(container, (message) => this.showOpMessage(message));
 
@@ -682,7 +695,7 @@ export class SketchToolbarService {
       case 'rounded-rect':
         return new RoundedRectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.rectCenteredChecked);
       case 'slot':
-        return new SlotTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        return new SlotTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.slotOp.drawToggleChecked);
       case 'text': {
         const tool = new TextTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container,
           () => this.handleToolSelect(null));

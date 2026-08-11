@@ -1,7 +1,8 @@
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
+import { SceneObject } from "../common/scene-object.js";
 import { Point } from "../math/point.js";
-import { toPlane } from "../math/plane.js";
+import { Plane, toPlane } from "../math/plane.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeProbe, FaceProbe, edgeEndPoints, faceBoundaryPoints } from "./probe.js";
@@ -23,6 +24,12 @@ export type Atom<B> = {
   constants: number;
   /** True when the predicate only evaluates correctly inside `select()`. */
   needsScope: boolean;
+  /**
+   * Producer whose variable the rendered code references (plane-reference
+   * atoms). The code carries the `{{ref}}` placeholder where the variable
+   * name goes; the writer must bind `ref` and substitute its name.
+   */
+  ref?: SceneObject;
 };
 
 export type EdgeAtom = Atom<EdgeFilterBuilder>;
@@ -37,6 +44,17 @@ export type FaceAtom = Atom<FaceFilterBuilder>;
  * a name there would imply provenance the number doesn't have.
  */
 export type ParameterLink = { name: string; value: number };
+
+/**
+ * A feature face group whose plane can stand in for a numeric plane offset:
+ * `onPlane(plane(e.endFaces()))` instead of `onPlane('xy', 25)`. The group's
+ * recorded faces survive consumption (a bucket accessor resolves its as-built
+ * state), so the reference stays valid even when a later feature reshaped or
+ * consumed the geometry — and unlike the baked offset it tracks dimension
+ * edits. `plane` is what the emitted `plane(<var>.<accessor>())` resolves:
+ * the first member's surface plane.
+ */
+export type PlaneSource = { feature: SceneObject; accessor: string; plane: Plane };
 
 /**
  * Format a dimension-like constant, preferring the name of an exactly-equal
@@ -91,6 +109,7 @@ export function instantiateEdgeAtoms(
   universe: Edge[],
   allowScoped: boolean,
   params: ParameterLink[] = [],
+  planeSources: PlaneSource[] = [],
 ): EdgeAtom[] {
   const atoms: EdgeAtom[] = [];
 
@@ -140,6 +159,10 @@ export function instantiateEdgeAtoms(
     }
   }
 
+  atoms.push(...planeRefAtoms<EdgeFilterBuilder>(
+    probes.flatMap(p => [...p.ends, p.mid]), planeSources,
+  ));
+
   const targetEnds = probes.flatMap(p => p.ends);
   const universeEnds = universe.map(e => edgeEndPoints(e));
   atoms.push(...thresholdAtoms<EdgeFilterBuilder>(targetEnds, universeEnds,
@@ -157,6 +180,7 @@ export function instantiateFaceAtoms(
   probes: FaceProbe[],
   universe: Face[],
   params: ParameterLink[] = [],
+  planeSources: PlaneSource[] = [],
 ): FaceAtom[] {
   const atoms: FaceAtom[] = [];
 
@@ -244,6 +268,8 @@ export function instantiateFaceAtoms(
     }
   }
 
+  atoms.push(...planeRefAtoms<FaceFilterBuilder>(probes.flatMap(p => p.points), planeSources));
+
   const targetPoints = probes.flatMap(p => p.points);
   const universePoints = universe.map(f => faceBoundaryPoints(f));
   atoms.push(...thresholdAtoms<FaceFilterBuilder>(targetPoints, universePoints,
@@ -306,6 +332,40 @@ function belongsToFaceAtoms(probes: EdgeProbe[], params: ParameterLink[]): EdgeA
     });
   }
 
+  return atoms;
+}
+
+/**
+ * Plane-reference atoms: when every picked point lies on a plane a feature's
+ * face group names, `.onPlane(plane({{ref}}.endFaces()))` selects the same
+ * shapes without baking the offset in — a dimension edit moves the reference
+ * plane along with the geometry. Weight sits above every constant-bearing
+ * predicate (`onPlane(P, 25)` at 20) but below the exact datum planes
+ * (`onPlane('xy')` at 22): a standard plane needs no variable to stay true.
+ * Coplanar duplicate sources collapse to the first (buckets scan
+ * latest-feature-first, mirroring attribution's preference).
+ */
+function planeRefAtoms<B extends { onPlane(plane: Plane): unknown }>(
+  points: Point[],
+  sources: PlaneSource[],
+): Atom<B>[] {
+  const atoms: Atom<B>[] = [];
+  const seen: Plane[] = [];
+  for (const source of sources) {
+    if (!points.every(pt => source.plane.containsPoint(pt, SHARED_TOLERANCE))) {
+      continue;
+    }
+    if (seen.some(p => p.isCoplanarWith(source.plane, SHARED_TOLERANCE, SHARED_TOLERANCE))) {
+      continue;
+    }
+    seen.push(source.plane);
+    atoms.push({
+      code: `.onPlane(plane({{ref}}.${source.accessor}()))`,
+      addTo: b => b.onPlane(source.plane),
+      weight: 21, constants: 0, needsScope: false,
+      ref: source.feature,
+    });
+  }
   return atoms;
 }
 

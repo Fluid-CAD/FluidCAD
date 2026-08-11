@@ -186,6 +186,13 @@ export type ApplyFeatureEditSpec = {
     indices: number[] | null;
     /** Rendered filter-builder arguments, e.g. `edge().circle(5)`. */
     filterArgs: string | null;
+    /**
+     * Producers (indices into `producers`) that `filterArgs` references
+     * through `{{r<n>}}` tokens — plane-reference selectors like
+     * `face().onPlane(plane({{r0}}.endFaces()))`. Rendering substitutes each
+     * token with the bound variable's name.
+     */
+    refs?: number[] | null;
   }[];
   /** Extra symbols the statement references (`select`, `edge`, `face`). */
   imports: string[];
@@ -2237,6 +2244,11 @@ function resolveProducerBindings(
     if (part.producer !== null && !spec.producers[part.producer]?.bind) {
       return { error: 'malformed edit spec: a selector part references an unbound producer' };
     }
+    for (const ref of part.refs ?? []) {
+      if (!spec.producers[ref]?.bind) {
+        return { error: 'malformed edit spec: a selector part references an unbound producer' };
+      }
+    }
   }
 
   return { bindings };
@@ -2499,7 +2511,7 @@ export function renderRevolveAxisExpr(
     return varFor(axis.producer) ?? 'a';
   }
   const part = parts[0];
-  return `axis(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer))})`;
+  return `axis(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor)})`;
 }
 
 /** A helix's chained geometry configurators — shared by its create and edit payloads. */
@@ -2571,7 +2583,7 @@ export function renderHelixSourceExpr(
     return varFor(source.producer) ?? 'a';
   }
   const part = parts[0];
-  const selector = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+  const selector = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
   return source.kind === 'edge' ? `axis(${selector})` : selector;
 }
 
@@ -2634,7 +2646,7 @@ export function renderRepeatAxisExpr(
     return varFor(axis.producer) ?? 'a';
   }
   const part = parts[axis.part];
-  return `axis(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer))})`;
+  return `axis(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor)})`;
 }
 
 /**
@@ -2657,7 +2669,7 @@ export function renderRepeatPlaneExpr(
     return varFor(plane.producer) ?? 'p';
   }
   const part = parts[plane.part];
-  return `plane(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer))})`;
+  return `plane(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor)})`;
 }
 
 /**
@@ -2812,12 +2824,21 @@ export function renderShellJoinChain(joinType: ShellJoinKind | undefined): strin
  * Render one selector part as an expression: `select(<args>)` for a global
  * part, `<var>.<accessor>(<args>)` on a bound producer. Shared with the
  * route, which renders loft profiles part-by-part with the namer's names.
+ * `refVarFor` resolves the producers `filterArgs` references through
+ * `{{r<n>}}` tokens (plane-reference selectors) to their bound variables.
  */
 export function renderSelectorPartExpr(
   part: ApplyFeatureEditSpec['parts'][number],
   producerVar: string | null,
+  refVarFor?: (producer: number) => string | null,
 ): string {
-  const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
+  let selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
+  (part.refs ?? []).forEach((ref, i) => {
+    const name = refVarFor?.(ref);
+    if (name) {
+      selectorArgs = selectorArgs.split(`{{r${i}}}`).join(name);
+    }
+  });
   if (part.producer === null) {
     // 'filter' parts are bare edge-filter arguments (2D ops accept them
     // directly); everything else producer-less is a global select().
@@ -2979,7 +3000,7 @@ export function renderPlaneBaseExpr(
     return varFor(base.producer) ?? 'h';
   }
   const part = parts[base.part];
-  const expr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+  const expr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
   return type === 'mid' ? `plane(${expr})` : expr;
 }
 
@@ -3010,7 +3031,7 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     let faceExpr: string | null = null;
     if (target === 'selector') {
       const part = spec.parts[0];
-      faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName);
+      faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName, i => bindings[i].varName);
     } else if (target !== undefined) {
       faceExpr = renderFaceTargetExpr(target);
     }
@@ -3032,7 +3053,7 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'wrap') {
     const wr = spec.wrap!;
     const part = spec.parts[0];
-    const faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName);
+    const faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName, i => bindings[i].varName);
     return renderWrapStatement(wr, bindings[wr.sketch.producer].varName ?? 's', faceExpr);
   }
   if (spec.feature === 'revolve') {
@@ -3084,7 +3105,7 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
         return bindings[profile.producer].varName!;
       }
       const part = spec.parts[profile.part];
-      return renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName);
+      return renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName, i => bindings[i].varName);
     });
     const guideExprs = (lo.guides ?? []).map(guide => bindings[guide.producer].varName!);
     return renderLoftStatement(lo, profileExprs, guideExprs);
@@ -3264,7 +3285,7 @@ function applyTarcRetarget(
 function renderSelectorArgs(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[]): string {
   const rawArgs = spec.rawArgs?.trim();
   return rawArgs ?? spec.parts
-    .map(part => renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName))
+    .map(part => renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName, i => bindings[i].varName))
     .join(', ');
 }
 
@@ -3273,6 +3294,7 @@ const MODULE_FOR_IMPORT: Record<string, string> = {
   edge: 'fluidcad/filters',
   face: 'fluidcad/filters',
   axis: 'fluidcad/core',
+  plane: 'fluidcad/core',
   param: 'fluidcad/core',
 };
 
@@ -6108,7 +6130,7 @@ function editedSelectorArgs(
 ): string {
   const partsArgs = spec.parts.length > 0
     ? spec.parts
-      .map(part => renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer)))
+      .map(part => renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor))
       .join(', ')
     : null;
   return spec.rawArgs?.trim() || partsArgs || argsText;
@@ -6178,7 +6200,7 @@ function resolveLoftSources(
         }
         usedParts.add(profile.part);
         const part = spec.parts[profile.part];
-        exprs.push(renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer)));
+        exprs.push(renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor));
       } else {
         return { error: 'malformed loft edit spec: unknown profile kind' };
       }
@@ -6871,7 +6893,7 @@ export function renderEditedStatement(
           return { error: 'malformed extrude edit spec: a re-picked target is exactly one part' };
         }
         const part = spec.parts[0];
-        faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+        faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
         target = 'selector';
       } else if (opts.toFace.kind === 'first-face' || opts.toFace.kind === 'last-face') {
         if (spec.parts.length > 0) {
@@ -6982,7 +7004,7 @@ export function renderEditedStatement(
           return { error: 'malformed sweep edit spec: a selector path is exactly one part' };
         }
         const part = spec.parts[0];
-        pathText = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+        pathText = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
       } else {
         const varName = editSourceVar(spec, opts.path.producer, varFor);
         if (typeof varName !== 'string') {
@@ -7016,7 +7038,7 @@ export function renderEditedStatement(
         return { error: 'malformed wrap edit spec: a re-picked face is exactly one part' };
       }
       const part = spec.parts[0];
-      faceText = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+      faceText = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
     } else if (spec.parts.length > 0) {
       return { error: 'malformed wrap edit spec: selector parts without a re-picked face' };
     }
@@ -7149,7 +7171,7 @@ export function renderEditedStatement(
         return { error: 'malformed sketch edit spec: a re-picked target is exactly one part' };
       }
       const part = spec.parts[0];
-      targetExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+      targetExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
     } else {
       return { error: 'malformed sketch edit spec' };
     }
@@ -7195,7 +7217,7 @@ export function renderEditedStatement(
         return { error: 'a re-picked text path is exactly one geometry' };
       }
       const part = spec.parts[0];
-      pathExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+      pathExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
     }
     if (pathExpr === null && textOptionsNeedPath(opts)) {
       return { error: 'the distributed alignments, offset, start-at and flip only apply to text following a path' };

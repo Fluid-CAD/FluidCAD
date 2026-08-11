@@ -94,8 +94,8 @@ export class TimelinePanel {
     onResetAllTransparency: () => void,
   ) {
     this.panel = document.createElement('div');
-    // Docked below the top bars (top bar + navbar ≈ 92px) with breathing room.
-    this.panel.className = 'absolute left-6 top-[116px] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
+    // Docked below the host chrome (--fluidcad-chrome-top) with breathing room.
+    this.panel.className = 'absolute left-6 top-[calc(var(--fluidcad-chrome-top,104px)+12px)] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
     this.applyPanelWidth();
 

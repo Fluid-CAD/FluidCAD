@@ -21,6 +21,8 @@ export { ShapePropertiesModal } from './ui/shape-properties-modal';
 export { ExportDialog } from './ui/export-dialog';
 export { ErrorBanner } from './ui/error-banner';
 export { LoadingOverlay } from './ui/loading-overlay';
+export { SelectionInfoOverlay } from './ui/selection-info-overlay';
+export { MeasureController } from './ui/measure/measure-controller';
 export { captureScreenshot, captureScreenshotMulti } from './screenshot';
 
 export type { EngineClient, EngineEditorClient } from './engine-client';

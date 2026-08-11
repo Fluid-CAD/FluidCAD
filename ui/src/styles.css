@@ -124,7 +124,9 @@ html {
    on the full-size #fluidcad-viewer parent. */
 #fluidcad-scene {
   position: absolute;
-  inset: 104px 0 0 0;
+  /* Height of the host's top chrome (top bar + navbar). Viewing hosts with
+     no toolbar set --fluidcad-chrome-top: 0px for a full-bleed scene. */
+  inset: var(--fluidcad-chrome-top, 104px) 0 0 0;
 }
 
 #fluidcad-scene canvas {

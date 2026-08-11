@@ -1,4 +1,6 @@
 import type {
+  EdgeProperties,
+  FaceProperties,
   Material,
   MeasureEntityRef,
   MeasureResult,
@@ -33,6 +35,8 @@ export interface EngineClient {
   setParam(label: string, value: unknown): void;
   resetParams(): void;
   getShapeProperties(shapeId: string): Promise<ShapeProperties | null>;
+  getFaceProperties(shapeId: string, faceIndex: number, signal?: AbortSignal): Promise<FaceProperties | null>;
+  getEdgeProperties(shapeId: string, edgeIndex: number, signal?: AbortSignal): Promise<EdgeProperties | null>;
   getMaterials(): Promise<Material[] | null>;
   measureEntities(entities: MeasureEntityRef[], signal?: AbortSignal): Promise<MeasureResult | null>;
   exportShapes(body: Record<string, unknown>): Promise<Blob>;

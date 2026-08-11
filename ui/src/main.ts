@@ -14,6 +14,7 @@ import { TopBar } from './ui/top-bar';
 import { Navbar } from './ui/navbar';
 import { ICON_IMG_FALLBACK } from './ui/object-icons';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
+import { SelectionContextMenu } from './interactive/selection-menu';
 import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
 import { ProjectionPickService } from './interactive/projection-pick-service';
@@ -71,8 +72,11 @@ const shapePropertiesModal = new ShapePropertiesModal(container, engineClient);
 // The properties panel's whole-solid picker (single mode) — the copy dialog
 // shares the component in multiple mode for its targets slot.
 const propertiesSolidPick = new SolidPickSelection(viewer);
-const selectionInfoOverlay = new SelectionInfoOverlay(container);
-const measureController = new MeasureController(container, engineClient, viewer);
+const selectionInfoOverlay = new SelectionInfoOverlay(container, engineClient);
+const measureController = new MeasureController(
+  container, engineClient, viewer,
+  (handlers) => new SelectionContextMenu(container, 'fluidcad-measure-select-menu', handlers),
+);
 const exportDialog = new ExportDialog(container, engineClient, viewer.sceneContext);
 
 const fileImporter = new FileImporter(container, {

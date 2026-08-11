@@ -1,5 +1,5 @@
 import type { FaceProperties, EdgeProperties } from '../api';
-import { getFaceProperties, getEdgeProperties } from '../api';
+import type { EngineClient } from '../engine-client';
 
 const SURFACE_LABELS: Record<FaceProperties['surfaceType'], string> = {
   plane: 'Plane',
@@ -23,7 +23,7 @@ export class SelectionInfoOverlay {
   private el: HTMLDivElement;
   private abortController: AbortController | null = null;
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, private client: EngineClient) {
     this.el = document.createElement('div');
     this.el.className = 'absolute bottom-6 right-[76px] w-[200px] panel-bg border border-base-content/10 rounded-lg p-3 z-[150] shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-base-content text-xs pointer-events-none select-none hidden';
     container.appendChild(this.el);
@@ -39,7 +39,7 @@ export class SelectionInfoOverlay {
     this.el.classList.remove('hidden');
 
     const signal = this.abortController.signal;
-    const props = await getFaceProperties(shapeId, faceIndex, signal);
+    const props = await this.client.getFaceProperties(shapeId, faceIndex, signal);
     if (!props) {
       if (!signal.aborted) {
         this.el.classList.add('hidden');
@@ -59,7 +59,7 @@ export class SelectionInfoOverlay {
     this.el.classList.remove('hidden');
 
     const signal = this.abortController.signal;
-    const props = await getEdgeProperties(shapeId, edgeIndex, signal);
+    const props = await this.client.getEdgeProperties(shapeId, edgeIndex, signal);
     if (!props) {
       if (!signal.aborted) {
         this.el.classList.add('hidden');

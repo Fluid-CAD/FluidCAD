@@ -38,7 +38,7 @@ export class SettingsPanel {
     this.wrapper = document.createElement('div');
     // top-[196px] clears the viewport gizmo, which occupies the top-right
     // corner of the scene (~y 102–182) below the toolbar.
-    this.wrapper.className = 'absolute right-7 top-[196px] z-[100] flex flex-col items-end select-none';
+    this.wrapper.className = 'absolute right-7 top-[calc(var(--fluidcad-chrome-top,104px)+92px)] z-[100] flex flex-col items-end select-none';
     container.appendChild(this.wrapper);
     const wrapper = this.wrapper;
 

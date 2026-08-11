@@ -1,6 +1,8 @@
 import {
   addBreakpoint,
   exportShapes,
+  getEdgeProperties,
+  getFaceProperties,
   getMaterials,
   getShapeProperties,
   gotoSource,
@@ -12,7 +14,7 @@ import {
   rollback,
   savePreference,
 } from './api';
-import type { Material, MeasureEntityRef, MeasureResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
+import type { EdgeProperties, FaceProperties, Material, MeasureEntityRef, MeasureResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 
 class HttpEngineEditorClient implements EngineEditorClient {
@@ -64,6 +66,14 @@ export class HttpEngineClient implements EngineClient {
 
   getShapeProperties(shapeId: string): Promise<ShapeProperties | null> {
     return getShapeProperties(shapeId);
+  }
+
+  getFaceProperties(shapeId: string, faceIndex: number, signal?: AbortSignal): Promise<FaceProperties | null> {
+    return getFaceProperties(shapeId, faceIndex, signal);
+  }
+
+  getEdgeProperties(shapeId: string, edgeIndex: number, signal?: AbortSignal): Promise<EdgeProperties | null> {
+    return getEdgeProperties(shapeId, edgeIndex, signal);
   }
 
   getMaterials(): Promise<Material[] | null> {

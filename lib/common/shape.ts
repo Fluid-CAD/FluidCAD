@@ -2,7 +2,6 @@ import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { ShapeType } from "./shape-type.js";
 import { SceneObjectMesh } from "../rendering/scene.js";
 import { Matrix4 } from "../math/matrix4.js";
-import { randomUUID } from "crypto";
 
 export interface ShapeFilter {
   excludeMeta?: boolean;
@@ -36,7 +35,8 @@ export abstract class Shape<T extends TopoDS_Shape = TopoDS_Shape> {
   private _released: boolean = false;
 
   constructor(private shape: T) {
-    this.id = randomUUID()
+    // globalThis.crypto works in Node >= 19 and the browser; node:crypto does not.
+    this.id = globalThis.crypto.randomUUID()
   }
 
   abstract getType(): ShapeType;

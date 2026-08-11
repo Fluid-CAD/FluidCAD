@@ -5,10 +5,12 @@ title: "L-Stub"
 
 import CodeBlock from '@theme/CodeBlock';
 import lStubFinal from '!!raw-loader!./_examples/l-stub-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 # Building an L-Stub
 
-![Finished L-stub](/img/docs/tutorials/l-stub-final.png)
+<ViewerEmbed code={lStubFinal} entry="l-stub.fluid.js" />
 
 In this tutorial, you'll build an L-shaped stub bracket from scratch, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=5pbJkB6D_bg). It covers compound profiles built with `subtract`/`fuse`, thin symmetric cuts driven by guide geometry, tangent geometry with selective `mirror().exclude()`, and projecting an existing internal face into a sketch with `intersect`.
 
@@ -282,6 +284,8 @@ extrude(10).symmetric().name("Rib")
 ![Finished L-stub](/img/docs/tutorials/l-stub-final.png)
 
 ## Full code
+
+<OpenInViewer code={lStubFinal} entry="l-stub.fluid.js" />
 
 <CodeBlock language="js">{lStubFinal}</CodeBlock>
 

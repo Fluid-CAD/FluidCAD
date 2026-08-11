@@ -5,10 +5,12 @@ title: "Flange With Notch"
 
 import CodeBlock from '@theme/CodeBlock';
 import flangeWithNotchFinal from '!!raw-loader!./_examples/flange-with-notch-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 # Building a Flange With Notch
 
-![Finished flange with notch](/img/docs/tutorials/flange-with-notch-final.png)
+<ViewerEmbed code={flangeWithNotchFinal} entry="flange-with-notch.fluid.js" />
 
 In this tutorial, you'll build a flange with a notch from scratch, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=4XeLNQvhoyw). It covers tangent lines and arcs, guide geometry, mirror symmetry, reusable sketch geometry, offset reference planes, and counter bores.
 
@@ -171,6 +173,8 @@ cut(4)
 ![Finished flange with notch](/img/docs/tutorials/flange-with-notch-final.png)
 
 ## Full code
+
+<OpenInViewer code={flangeWithNotchFinal} entry="flange-with-notch.fluid.js" />
 
 <CodeBlock language="js">{flangeWithNotchFinal}</CodeBlock>
 

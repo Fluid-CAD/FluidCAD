@@ -5,10 +5,12 @@ title: "Ice Cube Tray"
 
 import CodeBlock from '@theme/CodeBlock';
 import iceCubeTrayFinal from '!!raw-loader!./_examples/ice-cube-tray-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 # Building an Ice Cube Tray
 
-![Finished ice cube tray](/img/docs/tutorials/ice-cube-tray-final.png)
+<ViewerEmbed code={iceCubeTrayFinal} entry="ice-cube-tray.fluid.js" />
 
 In this tutorial, you'll build a parametric ice cube tray from scratch, based on the [original design by Product Design Online](https://www.youtube.com/watch?v=I6BooYAo1mg). It covers draft cuts, filleting internal faces, linear patterns, shelling, edge selection with filters, and sweeping a profile along a spine.
 
@@ -168,6 +170,8 @@ fillet(0.5, s.sideEdges())
 ![Finished ice cube tray](/img/docs/tutorials/ice-cube-tray-final.png)
 
 ## Full code
+
+<OpenInViewer code={iceCubeTrayFinal} entry="ice-cube-tray.fluid.js" />
 
 <CodeBlock language="js">{iceCubeTrayFinal}</CodeBlock>
 

@@ -5,10 +5,12 @@ title: "Hinge Bracket"
 
 import CodeBlock from '@theme/CodeBlock';
 import hingeBracketFinal from '!!raw-loader!./_examples/hinge-bracket-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 # Building a Hinge Bracket
 
-![Finished hinge bracket](/img/docs/tutorials/hinge-bracket-final.png)
+<ViewerEmbed code={hingeBracketFinal} entry="hinge-bracket.fluid.js" />
 
 In this tutorial, you'll build a hinge bracket from scratch, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=3C-ZpSXfmFo). It covers reusable path sketches, thin symmetric extrusions, projecting edges into a sketch, chamfering and shelling selected features, face-based sketching, filter-based trimming, and building ribs from a projected spine.
 
@@ -222,6 +224,8 @@ A larger circle of radius 50, sketched back on `topPlane`, opens up the inside o
 ![Finished hinge bracket](/img/docs/tutorials/hinge-bracket-final.png)
 
 ## Full code
+
+<OpenInViewer code={hingeBracketFinal} entry="hinge-bracket.fluid.js" />
 
 <CodeBlock language="js">{hingeBracketFinal}</CodeBlock>
 

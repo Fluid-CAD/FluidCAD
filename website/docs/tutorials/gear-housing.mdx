@@ -5,10 +5,12 @@ title: "Gear Housing"
 
 import CodeBlock from '@theme/CodeBlock';
 import gearHousingFinal from '!!raw-loader!./_examples/gear-housing-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 # Building a Gear Housing
 
-![Finished gear housing](/img/docs/tutorials/gear-housing-final.png)
+<ViewerEmbed code={gearHousingFinal} entry="gear-housing.fluid.js" />
 
 In this tutorial, you'll build a gear housing based on exercises from [Too Tall Toby](https://www.tootalltoby.com/practice/). It covers filleting, angled chamfers, multi-level extrusions, draft cuts, arc profiles, complex sketches with rounded corners, drilling, counterbores, circular copy patterns, and mirror symmetry.
 
@@ -262,6 +264,8 @@ mirror("front")
 ![Finished gear housing](/img/docs/tutorials/gear-housing-final.png)
 
 ## Full code
+
+<OpenInViewer code={gearHousingFinal} entry="gear-housing.fluid.js" />
 
 <CodeBlock language="js">{gearHousingFinal}</CodeBlock>
 

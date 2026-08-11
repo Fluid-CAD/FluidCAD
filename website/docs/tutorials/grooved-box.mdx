@@ -5,10 +5,12 @@ title: "Grooved Box"
 
 import CodeBlock from '@theme/CodeBlock';
 import groovedBoxFinal from '!!raw-loader!./_examples/grooved-box-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 # Building a Grooved Box
 
-![Finished grooved box](/img/docs/tutorials/grooved-box-final.png)
+<ViewerEmbed code={groovedBoxFinal} entry="grooved-box.fluid.js" />
 
 In this tutorial, you'll build a grooved storage box based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=0JJH-FsHuq8). It covers rounded rectangles, shelling, filleting internal edges, face intersection sketches, thin extrusions, and linear repeat patterns.
 
@@ -131,6 +133,8 @@ Same pattern as before: `extrude(3, s2)` uses the side profile, `.thin(-1).remov
 ![Finished grooved box](/img/docs/tutorials/grooved-box-final.png)
 
 ## Full code
+
+<OpenInViewer code={groovedBoxFinal} entry="grooved-box.fluid.js" />
 
 <CodeBlock language="js">{groovedBoxFinal}</CodeBlock>
 

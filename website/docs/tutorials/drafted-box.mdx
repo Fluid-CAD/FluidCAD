@@ -5,10 +5,12 @@ title: "Drafted Box"
 
 import CodeBlock from '@theme/CodeBlock';
 import draftedBoxFinal from '!!raw-loader!./_examples/drafted-box-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 # Building a Drafted Box
 
-![Finished drafted box](/img/docs/tutorials/drafted-box-final.png)
+<ViewerEmbed code={draftedBoxFinal} entry="drafted-box.fluid.js" />
 
 In this tutorial, you'll build a shelled box with a drafted central pipe and four drafted ribs, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=ZyuUBp34C90). It covers drafted extrudes, plane offsets, shelling with face filters, drafted cuts, the `rib()` feature, and circular patterns.
 
@@ -160,6 +162,8 @@ repeat("circular", "z", {
 ![Finished drafted box](/img/docs/tutorials/drafted-box-step6.png)
 
 ## Full code
+
+<OpenInViewer code={draftedBoxFinal} entry="drafted-box.fluid.js" />
 
 <CodeBlock language="js">{draftedBoxFinal}</CodeBlock>
 

@@ -5,10 +5,12 @@ title: "45 Degree Custom Elbow"
 
 import CodeBlock from '@theme/CodeBlock';
 import customElbowFinal from '!!raw-loader!./_examples/custom-elbow-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 # Building a 45 Degree Custom Elbow
 
-![Finished 45 degree custom elbow](/img/docs/tutorials/custom-elbow-final.png)
+<ViewerEmbed code={customElbowFinal} entry="custom-elbow.fluid.js" />
 
 In this tutorial, you'll build a 45° pipe elbow with a square base flange and a round slotted flange, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=LiixZYdDycc). It covers reusable spine sketches, sweeping individual sketch regions, boring with a removal sweep, sketching on swept end faces, circular sketch copies, stepped slot cuts, and circular feature repeats around an axis built from a sketch segment.
 
@@ -205,6 +207,8 @@ Finally, `remove(spine)` deletes the reusable spine sketch from the scene — ev
 ![Finished 45 degree custom elbow](/img/docs/tutorials/custom-elbow-final.png)
 
 ## Full code
+
+<OpenInViewer code={customElbowFinal} entry="custom-elbow.fluid.js" />
 
 <CodeBlock language="js">{customElbowFinal}</CodeBlock>
 

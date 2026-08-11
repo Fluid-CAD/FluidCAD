@@ -184,14 +184,13 @@ describe('select→apply-feature end to end', () => {
     if (synthesis.ok !== true) {
       return;
     }
-    expect(synthesis.preview).toBe('shell(-2, select(face().onPlane(plane(e.endFaces()))))');
+    expect(synthesis.preview).toBe('shell(-2, select(face().onPlane(e.endFaces())))');
 
     const edited = await applyFeatureEdit(code, synthesis.spec);
     expect(edited.error).toBeUndefined();
     expect(edited.newCode).toContain(`import { face } from 'fluidcad/filters';`);
     expect(edited.newCode).toMatch(/import \{[^}]*\bselect\b[^}]*\} from 'fluidcad\/core'/);
-    expect(edited.newCode).toMatch(/import \{[^}]*\bplane\b[^}]*\} from 'fluidcad\/core'/);
-    expect(edited.newCode).toContain('shell(-2, select(face().onPlane(plane(e.endFaces()))))');
+    expect(edited.newCode).toContain('shell(-2, select(face().onPlane(e.endFaces())))');
 
     // Execute the edited program: the top opens and the solid hollows out.
     const rerun = runFluid(edited.newCode);

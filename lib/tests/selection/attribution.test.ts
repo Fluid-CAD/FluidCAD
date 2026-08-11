@@ -396,9 +396,9 @@ describe("apply-feature synthesis", () => {
       expect(result.spec.producers[0].featureType).toBe("extrude");
       expect(result.spec.producers[0].bind).toBe(true);
       expect(result.spec.parts[0].refs).toEqual([0]);
-      expect(result.spec.imports).toEqual(expect.arrayContaining(["select", "edge", "plane"]));
+      expect(result.spec.imports).toEqual(expect.arrayContaining(["select", "edge"]));
       expect(result.preview).toBe(
-        "fillet(2, select(edge().onPlane(plane(e.endFaces())).above('yz', 30).below('yz', 70)))",
+        "fillet(2, select(edge().onPlane(e.endFaces()).above('yz', 30).below('yz', 70)))",
       );
     }
   });
@@ -670,7 +670,7 @@ describe("apply-feature synthesis", () => {
       expect(result.spec.producers[0].bind).toBe(true);
       expect(result.spec.parts[0].refs).toEqual([0]);
       expect(result.preview).toMatch(
-        /^fillet\(2, select\(edge\(\)\.arc\(\)\.onPlane\(plane\(e\.endFaces\(\)\)\)/,
+        /^fillet\(2, select\(edge\(\)\.arc\(\)\.onPlane\(e\.endFaces\(\)\)/,
       );
     }
   });
@@ -757,13 +757,13 @@ describe("shell and sketch synthesis", () => {
 
     // Features that consume the face itself must never re-home — the
     // ancestor no longer exists on the final solid — but the select() may
-    // still name the ancestor's *plane*: `plane(e.endFaces())` only reads
+    // still name the ancestor's *plane*: `onPlane(e.endFaces())` only reads
     // the plane off the recorded face, so the filter resolves the reshaped
     // face while tracking the extrusion distance.
     const shellResult = synthesizeApplyFeature(scene, topFaceRefs, 'shell', -2);
     expect(shellResult.ok).toBe(true);
     if (shellResult.ok) {
-      expect(shellResult.args).toBe("select(face().onPlane(plane(e.endFaces())))");
+      expect(shellResult.args).toBe("select(face().onPlane(e.endFaces()))");
     }
   });
 

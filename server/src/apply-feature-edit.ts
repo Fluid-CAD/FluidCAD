@@ -189,8 +189,8 @@ export type ApplyFeatureEditSpec = {
     /**
      * Producers (indices into `producers`) that `filterArgs` references
      * through `{{r<n>}}` tokens — plane-reference selectors like
-     * `face().onPlane(plane({{r0}}.endFaces()))`. Rendering substitutes each
-     * token with the bound variable's name.
+     * `face().onPlane({{r0}}.endFaces())`. Rendering substitutes each token
+     * with the bound variable's name.
      */
     refs?: number[] | null;
   }[];

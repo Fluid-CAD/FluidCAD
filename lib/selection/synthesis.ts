@@ -181,14 +181,14 @@ export function synthesizeSelectors(
 const PLANE_SOURCE_TOLERANCE = 1e-7;
 
 /**
- * Face groups usable as plane references (`onPlane(plane(e.endFaces()))`):
- * every bindable feature's face bucket whose members share one plane. The
- * plane is the first member's — exactly what the emitted
- * `plane(<var>.<accessor>())` resolves — and requiring the rest coplanar
- * with a same-side normal keeps the reference meaningful under member
- * reordering. Consumption doesn't disqualify a group: a bucket accessor
- * resolves its recorded as-built faces, and a plane reference only reads the
- * plane off them (the same contract sketch-on-face relies on).
+ * Face groups usable as plane references (`onPlane(e.endFaces())`): every
+ * bindable feature's face bucket whose members share one plane. The plane is
+ * the first member's — exactly what the emitted `onPlane(<var>.<accessor>())`
+ * resolves — and requiring the rest coplanar with a same-side normal keeps
+ * the reference meaningful under member reordering. Consumption doesn't
+ * disqualify a group: a bucket accessor resolves its recorded as-built
+ * faces, and a plane reference only reads the plane off them (the same
+ * contract sketch-on-face relies on).
  */
 function collectPlaneSources(index: SelectionIndex): PlaneSource[] {
   const sources: PlaneSource[] = [];

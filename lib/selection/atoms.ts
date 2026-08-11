@@ -47,12 +47,12 @@ export type ParameterLink = { name: string; value: number };
 
 /**
  * A feature face group whose plane can stand in for a numeric plane offset:
- * `onPlane(plane(e.endFaces()))` instead of `onPlane('xy', 25)`. The group's
- * recorded faces survive consumption (a bucket accessor resolves its as-built
- * state), so the reference stays valid even when a later feature reshaped or
- * consumed the geometry — and unlike the baked offset it tracks dimension
- * edits. `plane` is what the emitted `plane(<var>.<accessor>())` resolves:
- * the first member's surface plane.
+ * `onPlane(e.endFaces())` instead of `onPlane('xy', 25)`. The group's
+ * recorded faces survive consumption (a bucket accessor resolves its
+ * as-built state), so the reference stays valid even when a later feature
+ * reshaped or consumed the geometry — and unlike the baked offset it tracks
+ * dimension edits. `plane` is what the emitted `onPlane(<var>.<accessor>())`
+ * resolves: the first member's surface plane.
  */
 export type PlaneSource = { feature: SceneObject; accessor: string; plane: Plane };
 
@@ -337,9 +337,9 @@ function belongsToFaceAtoms(probes: EdgeProbe[], params: ParameterLink[]): EdgeA
 
 /**
  * Plane-reference atoms: when every picked point lies on a plane a feature's
- * face group names, `.onPlane(plane({{ref}}.endFaces()))` selects the same
- * shapes without baking the offset in — a dimension edit moves the reference
- * plane along with the geometry. Weight sits above every constant-bearing
+ * face group names, `.onPlane({{ref}}.endFaces())` selects the same shapes
+ * without baking the offset in — a dimension edit moves the reference plane
+ * along with the geometry. Weight sits above every constant-bearing
  * predicate (`onPlane(P, 25)` at 20) but below the exact datum planes
  * (`onPlane('xy')` at 22): a standard plane needs no variable to stay true.
  * Coplanar duplicate sources collapse to the first (buckets scan
@@ -360,7 +360,7 @@ function planeRefAtoms<B extends { onPlane(plane: Plane): unknown }>(
     }
     seen.push(source.plane);
     atoms.push({
-      code: `.onPlane(plane({{ref}}.${source.accessor}()))`,
+      code: `.onPlane({{ref}}.${source.accessor}())`,
       addTo: b => b.onPlane(source.plane),
       weight: 21, constants: 0, needsScope: false,
       ref: source.feature,

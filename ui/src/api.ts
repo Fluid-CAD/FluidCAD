@@ -13,7 +13,7 @@ export type ValueExpr = number | string;
 /** A `const <name> = <initializer>` declaration an expression field committed. */
 export type NewVariable = { name: string; initializer: string };
 
-type SourceLocationParam = { filePath?: string; line: number; column: number };
+export type SourceLocationParam = { filePath?: string; line: number; column: number };
 
 // ---------------------------------------------------------------------------
 // Types

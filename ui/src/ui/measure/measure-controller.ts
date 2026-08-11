@@ -1,7 +1,7 @@
 import type { SelectedEntity, Viewer } from '../../viewer';
 import type { SubSelection } from '../../types';
 import type { MeasureEntityRef, MeasureResult, UserPreferences } from '../../api';
-import { measureEntities, savePreference } from '../../api';
+import type { EngineClient } from '../../engine-client';
 import { mergeUniqueEntities, sameEntity } from '../../helpers/entities';
 import { SelectionContextMenu } from '../../interactive/selection-menu';
 import { MeasureOverlay } from './measure-overlay';
@@ -38,7 +38,7 @@ export class MeasureController {
   /** Notified whenever the selection set changes through this controller. */
   onSelectionChanged: ((selection: SelectedEntity[]) => void) | null = null;
 
-  constructor(container: HTMLElement, private viewer: Viewer) {
+  constructor(container: HTMLElement, private client: EngineClient, private viewer: Viewer) {
     // Right-click menu: multi-select groups + sibling buckets ("Select
     // other"). Groups merge into the measure selection, which seeds the
     // modify tools.
@@ -62,12 +62,12 @@ export class MeasureController {
       onRemoveEntity: (ref) => this.removeEntity(ref),
       onLengthUnitChange: (unit) => {
         this.lengthUnit = unit;
-        savePreference('measureLengthUnit', unit);
+        this.client.savePreference('measureLengthUnit', unit);
         this.updateUI();
       },
       onAngleUnitChange: (unit) => {
         this.angleUnit = unit;
-        savePreference('measureAngleUnit', unit);
+        this.client.savePreference('measureAngleUnit', unit);
         this.updateUI();
       },
       onHoverViz: (viz) => {
@@ -182,7 +182,7 @@ export class MeasureController {
     this.result = null;
     this.updateUI();
 
-    measureEntities(refs, abort.signal).then((result) => {
+    this.client.measureEntities(refs, abort.signal).then((result) => {
       if (abort.signal.aborted || this.abortController !== abort) {
         return;
       }

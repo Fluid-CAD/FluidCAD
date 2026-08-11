@@ -1,6 +1,6 @@
 import { viewerSettings } from '../scene/viewer-settings';
 import { viewportChrome } from './viewport-chrome';
-import { savePreference } from '../api';
+import type { EngineClient } from '../engine-client';
 import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_SUN, ICON_MOON, ICON_SETTINGS, ICON_CLOSE, ICON_ADJUSTMENTS } from './icons';
 
 const FAB_BTN = 'btn btn-ghost btn-circle btn-sm text-base-content/60';
@@ -24,6 +24,7 @@ export class SettingsPanel {
 
   constructor(
     container: HTMLElement,
+    private client: EngineClient,
     private onCameraSwitch: (mode: 'perspective' | 'orthographic') => void,
   ) {
     const style = document.createElement('style');
@@ -106,21 +107,21 @@ export class SettingsPanel {
     this.fabEl.querySelector<HTMLButtonElement>('[data-action="camera"]')?.addEventListener('click', () => {
       const next = viewerSettings.current.cameraMode === 'perspective' ? 'orthographic' : 'perspective';
       viewerSettings.update({ cameraMode: next });
-      savePreference('cameraMode', next);
+      this.client.savePreference('cameraMode', next);
       this.onCameraSwitch(next);
     });
 
     this.fabEl.querySelector<HTMLButtonElement>('[data-action="grid"]')?.addEventListener('click', () => {
       const next = !viewerSettings.current.showGrid;
       viewerSettings.update({ showGrid: next });
-      savePreference('showGrid', next);
+      this.client.savePreference('showGrid', next);
     });
 
     this.fabEl.querySelector<HTMLButtonElement>('[data-action="theme"]')?.addEventListener('click', () => {
       const next = isDarkTheme() ? 'fluidcad-light' : 'fluidcad-dark';
       document.documentElement.setAttribute('data-theme', next);
       this.syncThemeButton();
-      savePreference('theme', next);
+      this.client.savePreference('theme', next);
     });
   }
 

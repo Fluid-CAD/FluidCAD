@@ -1,5 +1,6 @@
 import type { UIParamDefinition } from '../types';
 import type { ParamEditorDialog } from './param-editor-dialog';
+import type { EngineClient } from '../engine-client';
 import { ICON_PENCIL } from './icons';
 
 export class ParamsPanel {
@@ -10,7 +11,7 @@ export class ParamsPanel {
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private collapsedGroups = new Set<string>();
 
-  constructor(container: HTMLElement, private editor: ParamEditorDialog) {
+  constructor(container: HTMLElement, private client: EngineClient, private editor?: ParamEditorDialog) {
     this.root = document.createElement('div');
     this.root.className = 'w-[220px] mt-2 select-none hidden';
     container.appendChild(this.root);
@@ -39,12 +40,17 @@ export class ParamsPanel {
     panel.appendChild(header);
 
     header.querySelector('[data-reset-params]')!.addEventListener('click', () => {
-      fetch('/api/reset-params', { method: 'POST' })
-        .catch(err => console.error('Reset params failed:', err));
+      this.client.resetParams();
     });
-    header.querySelector('[data-add-param]')!.addEventListener('click', () => {
-      this.editor.openForCreate();
-    });
+    // Declaration edits rewrite source; without an editor-backed host the
+    // panel is a pure value surface.
+    if (this.editor) {
+      header.querySelector('[data-add-param]')!.addEventListener('click', () => {
+        this.editor!.openForCreate();
+      });
+    } else {
+      header.querySelector('[data-add-param]')!.remove();
+    }
 
     this.body = document.createElement('div');
     this.body.className = 'px-3 pb-2';
@@ -346,14 +352,15 @@ export class ParamsPanel {
    */
   private renderLabelRow(p: UIParamDefinition, trailing: string): string {
     const escapedLabel = this.escapeHtml(p.label);
-    return `
-      <div class="flex items-center gap-1">
-        <label class="text-xs text-base-content/60 flex-1 truncate">${escapedLabel}</label>
-        ${trailing}
+    const editButton = !this.editor ? '' : `
         <button class="btn btn-ghost btn-xs btn-square h-4 min-h-0 w-4 opacity-0 group-hover:opacity-100 focus:opacity-100 text-base-content/40 hover:text-base-content/70"
           data-param-edit="${escapedLabel}" title="Edit parameter">
           <span class="[&>svg]:size-3">${ICON_PENCIL}</span>
-        </button>
+        </button>`;
+    return `
+      <div class="flex items-center gap-1">
+        <label class="text-xs text-base-content/60 flex-1 truncate">${escapedLabel}</label>
+        ${trailing}${editButton}
       </div>
     `;
   }
@@ -363,7 +370,7 @@ export class ParamsPanel {
       el.addEventListener('click', () => {
         const def = this.currentParams.find(p => p.label === el.dataset.paramEdit);
         if (def) {
-          this.editor.openForEdit(def);
+          this.editor?.openForEdit(def);
         }
       });
     });
@@ -377,22 +384,14 @@ export class ParamsPanel {
         const value: string | number = def && typeof def.defaultValue === 'number'
           ? Number(rawValue)
           : rawValue;
-        fetch('/api/set-param', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ label, value }),
-        }).catch(err => console.error('Set param failed:', err));
+        this.client.setParam(label, value);
       };
 
       const sendMultiChange = (rawValues: string[]) => {
         const def = this.currentParams.find(p => p.label === label);
         const numericOptions = def?.options?.[0] && typeof def.options[0].value === 'number';
         const value = numericOptions ? rawValues.map(Number) : rawValues;
-        fetch('/api/set-param', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ label, value }),
-        }).catch(err => console.error('Set param failed:', err));
+        this.client.setParam(label, value);
       };
 
       if (type === 'slider') {
@@ -414,12 +413,7 @@ export class ParamsPanel {
         });
       } else if (type === 'checkbox') {
         el.addEventListener('change', () => {
-          const checked = (el as HTMLInputElement).checked;
-          fetch('/api/set-param', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ label, value: checked }),
-          }).catch(err => console.error('Set param failed:', err));
+          this.client.setParam(label, (el as HTMLInputElement).checked);
         });
       } else if (type === 'select') {
         el.addEventListener('change', () => {

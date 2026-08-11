@@ -1,0 +1,25 @@
+# Every release automatically propagates to the viewer (FluidCAD-Viewer's
+# deploy workflow builds this tag's engine bundle and redeploys the shell —
+# decision D9: no approval gate).
+#
+# Required repo secret: VIEWER_DISPATCH_TOKEN — a fine-grained PAT with
+# contents:read+write ("Actions: repository dispatch") on
+# marwndev/FluidCAD-Viewer.
+name: notify-viewer
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch fluidcad-release to the viewer repo
+        env:
+          GH_TOKEN: ${{ secrets.VIEWER_DISPATCH_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh api repos/marwndev/FluidCAD-Viewer/dispatches \
+            -f event_type=fluidcad-release \
+            -F 'client_payload[tag]='"$TAG" \
+            -F 'client_payload[version]='"${TAG#v}"

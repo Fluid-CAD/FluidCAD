@@ -32,6 +32,7 @@
     "!lib/dist/**/*.tsbuildinfo",
     "server/dist/",
     "ui/dist/",
+    "ui/dist-lib/",
     "mcp/dist/",
     "bin/",
     "llm-docs/"
@@ -43,13 +44,17 @@
     "./constraints": "./lib/dist/features/2d/constraints/geometry-qualifier.js",
     "./server": "./server/dist/index.js",
     "./server/api": "./server/dist/api.js",
-    "./math": "./lib/dist/math/index.js"
+    "./math": "./lib/dist/math/index.js",
+    "./browser": "./lib/dist/browser/index.js",
+    "./viewer-ui": "./ui/dist-lib/viewer-ui.js",
+    "./viewer-ui/style.css": "./ui/dist-lib/viewer-ui.css"
   },
   "scripts": {
     "clean": "rm -rf lib/dist server/dist ui/dist mcp/dist lib/tsconfig.tsbuildinfo server/tsconfig.tsbuildinfo mcp/tsconfig.tsbuildinfo",
     "build:lib": "tsc -p lib/tsconfig.json",
     "build:server": "tsc -p server/tsconfig.json",
     "build:ui": "vite build --config ui/vite.config.ts",
+    "build:viewer-ui": "vite build --config ui/vite.lib.config.ts",
     "build:mcp": "tsc -p mcp/tsconfig.json",
     "build:llm-type-docs": "tsx scripts/build-llm-type-docs.ts",
     "build:llm-docs": "npm run build:llm-type-docs && tsx scripts/build-llm-docs.ts",

@@ -125,7 +125,7 @@ Constrains how the surface leaves the first profile.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `type` | LoftConditionType | `'none'`, `'normal'` or `'tangent'` — see LoftConditionType. |
+| `type` | LoftConditionType | `'none'`, `'normal'` or `'tangent'` — see `LoftConditionType`. |
 | `magnitude` | NumberParam | Scales the takeoff strength; defaults to 1. Negative values flip the direction (e.g. inward instead of outward for `'tangent'`). *(optional)* |
 
 ---
@@ -140,7 +140,7 @@ Constrains how the surface arrives at the last profile.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `type` | LoftConditionType | `'none'`, `'normal'` or `'tangent'` — see LoftConditionType. |
+| `type` | LoftConditionType | `'none'`, `'normal'` or `'tangent'` — see `LoftConditionType`. |
 | `magnitude` | NumberParam | Scales the arrival strength; defaults to 1. Negative values flip the direction (e.g. inward instead of outward for `'tangent'`). *(optional)* |
 
 ---
@@ -157,7 +157,7 @@ Selects faces on the first profile plane of the loft.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
@@ -173,7 +173,7 @@ Selects faces on the last profile plane of the loft.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
@@ -189,7 +189,7 @@ Selects the lateral faces generated between loft profiles.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
@@ -205,7 +205,7 @@ Selects edges on the first profile plane of the loft.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
@@ -221,7 +221,7 @@ Selects edges on the last profile plane of the loft.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
@@ -237,7 +237,7 @@ Selects edges on the side faces, excluding edges shared with start/end faces.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
@@ -287,7 +287,7 @@ wall of a thin-walled loft from closed profiles).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
@@ -303,7 +303,7 @@ Selects edges bounding the internal geometry created during loft.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
@@ -320,7 +320,7 @@ These are the small faces connecting the inner and outer walls at the profile en
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or FaceFilterBuilder instances to filter the selection. *(optional)* |
+| `...args` | (number \| FaceFilterBuilder)[] | Numeric indices or `FaceFilterBuilder` instances to filter the selection. *(optional)* |
 
 ---
 
@@ -336,5 +336,5 @@ Selects edges on the cap faces of a thin-walled loft from open profiles.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or EdgeFilterBuilder instances to filter the selection. *(optional)* |
+| `...args` | (number \| EdgeFilterBuilder)[] | Numeric indices or `EdgeFilterBuilder` instances to filter the selection. *(optional)* |
 

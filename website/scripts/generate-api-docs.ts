@@ -62,12 +62,21 @@ function findExamples(featureName: string): ExampleFile[] {
   });
 }
 
+// `{@link target}` / `{@link target|label}` would be parsed by MDX as a JS
+// expression and fail the build; render the target as inline code instead.
+function stripJsDocLinks(text: string): string {
+  return text.replace(
+    /\{@link\s+([^}|]+?)(?:\s*\|\s*([^}]+))?\}/g,
+    (_match, target: string, label?: string) => `\`${(label ?? target).trim()}\``,
+  );
+}
+
 function getJsDocDescription(node: any): string {
   const jsDocs = node.getJsDocs?.();
   if (!jsDocs || jsDocs.length === 0) {
     return '';
   }
-  return jsDocs[0].getDescription?.()?.trim() || '';
+  return stripJsDocLinks(jsDocs[0].getDescription?.()?.trim() || '');
 }
 
 function hasInternalTag(node: any): boolean {
@@ -97,7 +106,7 @@ function getJsDocParams(node: any): Map<string, string> {
       const name = tag.getName?.() || tag.getTagName();
       const comment = tag.getCommentText?.() || tag.getComment?.() || '';
       if (name && name !== 'param') {
-        params.set(name, typeof comment === 'string' ? comment.trim() : '');
+        params.set(name, typeof comment === 'string' ? stripJsDocLinks(comment.trim()) : '');
       }
     }
   }

@@ -220,18 +220,27 @@ export function synthesizeApplyFeature(
         accessor: part.accessor,
         indices: part.indices,
         filterArgs: part.filterArgs,
+        refs: part.refs && part.refs.length > 0
+          ? part.refs.map(ref => synthesis.producers.indexOf(ref))
+          : null,
       })),
       imports: collectImports(winners),
     };
 
     // Statement-level alternatives: vary one group at a time, in group order,
-    // walking each group's verified runner-ups.
+    // walking each group's verified runner-ups. A runner-up referencing a
+    // producer no winner bound has no variable name to render with (and
+    // binding one just in case would cost the applied edit an unused const)
+    // — skip it.
     const args = renderParts(winners);
     const alternatives: string[] = [];
     for (let i = 0; i < synthesis.groups.length && alternatives.length < 3; i++) {
       for (const alt of synthesis.groups[i].alternatives) {
         if (alternatives.length >= 3) {
           break;
+        }
+        if ((alt.refs ?? []).some(ref => !names.has(ref))) {
+          continue;
         }
         const variant = [...winners];
         variant[i] = alt;
@@ -427,7 +436,10 @@ export function allocateNames(producers: SceneObject[], namer?: ProducerNamer): 
 }
 
 export function renderPartArgs(part: SelectorPart, names: Map<SceneObject, string>): string {
-  const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
+  let selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
+  (part.refs ?? []).forEach((ref, i) => {
+    selectorArgs = selectorArgs.split(`{{r${i}}}`).join(names.get(ref)!);
+  });
   if (part.producer === null) {
     // 'filter' parts are bare edge-filter arguments (2D ops accept them
     // directly); everything else producer-less is a global select().
@@ -458,6 +470,9 @@ export function collectImports(
       }
       if (/\bface\(/.test(part.filterArgs)) {
         imports.add('face');
+      }
+      if (/\bplane\(/.test(part.filterArgs)) {
+        imports.add('plane');
       }
     }
   }

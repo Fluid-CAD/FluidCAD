@@ -5,6 +5,7 @@ import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
 import { PlaneData, SceneObjectPart, SceneObjectRender, SubSelection } from './types';
 import { SettingsPanel } from './ui/settings-panel';
+import type { EngineClient } from './engine-client';
 import { CentroidIndicator } from './scene/centroid-indicator';
 import { viewerSettings } from './scene/viewer-settings';
 import { themeColors } from './scene/theme-colors';
@@ -155,7 +156,7 @@ export class Viewer {
   private hiddenShapeIds = new Set<string>();
   private shapeOpacities = new Map<string, number>();
 
-  constructor(containerId: string) {
+  constructor(containerId: string, client: EngineClient) {
     const container = document.getElementById(containerId)!;
     // The renderer fills a dedicated sub-container inset below the toolbar
     // (see #fluidcad-scene in styles.css); it sizes, resizes, and raycasts
@@ -165,7 +166,7 @@ export class Viewer {
     this.ctx = new SceneContext(sceneContainer);
     this.modeManager = new SceneModeManager(this.ctx);
     new DialogViewOffset(this.ctx);
-    this.settingsPanel = new SettingsPanel(container, (mode) => this.ctx.switchCamera(mode));
+    this.settingsPanel = new SettingsPanel(container, client, (mode) => this.ctx.switchCamera(mode));
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());
     if (viewerSettings.current.cameraMode === 'perspective') {
       this.ctx.switchCamera('perspective');

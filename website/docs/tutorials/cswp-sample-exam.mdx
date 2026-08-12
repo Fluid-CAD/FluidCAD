@@ -6,10 +6,12 @@ title: "CSWP Sample Exam"
 import CodeBlock from '@theme/CodeBlock';
 import part1Final from '!!raw-loader!./_examples/cswp-sample-exam-final.js';
 import part2Final from '!!raw-loader!./_examples/cswp-sample-exam-part2-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 # Building a CSWP Sample Exam Part
 
-![Finished CSWP part](/img/docs/tutorials/cswp-sample-exam-final.png)
+<ViewerEmbed code={part1Final} entry="cswp-sample-exam.fluid.js" />
 
 In this tutorial, you'll build the parametric part from the [SolidWorks CSWP Sample Exam](https://www.solidworks.com/sites/default/files/cswpsampleexam.pdf). The CSWP (Certified SolidWorks Professional) exam tests your ability to build parts from engineering drawings, then modify parameters and recalculate. It covers parametric variables, arc/offset sketch geometry, reference planes, hollow cylinders with chamfers, counterbore holes, face projection, and edge selection filters.
 
@@ -266,6 +268,8 @@ fillet(10, c.internalEdges())
 
 ## Part 1 — Full Code
 
+<OpenInViewer code={part1Final} entry="cswp-sample-exam.fluid.js" />
+
 <CodeBlock language="js">{part1Final}</CodeBlock>
 
 ### Verify with exam answers
@@ -413,6 +417,8 @@ fillet(10, base.sideEdges())
 ![Stage 2 complete with key slot and base fillets](/img/docs/tutorials/cswp-sample-exam-part2-final.png)
 
 ## Part 2 — Full Code
+
+<OpenInViewer code={part2Final} entry="cswp-sample-exam.fluid.js" />
 
 <CodeBlock language="js">{part2Final}</CodeBlock>
 

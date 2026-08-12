@@ -5,10 +5,12 @@ title: "3D Printable Desk Organizer"
 
 import CodeBlock from '@theme/CodeBlock';
 import deskOrganizerFinal from '!!raw-loader!./_examples/desk-organizer-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 # Building a 3D Printable Desk Organizer
 
-![Finished desk organizer](/img/docs/tutorials/desk-organizer-final.png)
+<ViewerEmbed code={deskOrganizerFinal} entry="desk-organizer.fluid.js" />
 
 In this tutorial, you'll build a four-compartment octagonal desk organizer with a square inner pocket, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=6pThupmIU0c). It covers polygon sketches with circumscribed sizing, sketch-level rotate and fillet, chamfering and shelling by extrude faces, multi-loop sketches via `offset`, ribs on a rotated reference plane, circular patterning, and a thin revolve cut for trimming.
 
@@ -163,6 +165,8 @@ The result is a hemispherical trim surface that domes the top of the inner squar
 ![Finished desk organizer](/img/docs/tutorials/desk-organizer-final.png)
 
 ## Full code
+
+<OpenInViewer code={deskOrganizerFinal} entry="desk-organizer.fluid.js" />
 
 <CodeBlock language="js">{deskOrganizerFinal}</CodeBlock>
 

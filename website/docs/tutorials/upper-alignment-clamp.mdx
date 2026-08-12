@@ -5,10 +5,12 @@ title: "Upper Alignment Clamp"
 
 import CodeBlock from '@theme/CodeBlock';
 import upperAlignmentClampFinal from '!!raw-loader!./_examples/upper-alignment-clamp-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 # Building an Upper Alignment Clamp
 
-![Finished upper alignment clamp](/img/docs/tutorials/upper-alignment-clamp-final.png)
+<ViewerEmbed code={upperAlignmentClampFinal} entry="upper-alignment-clamp.fluid.js" />
 
 In this tutorial, you'll build an upper alignment clamp from scratch, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=PP4bR1Kz5FQ). It covers tangent lines and arcs, geometric constraints, projecting and guiding geometry, symmetric extrusions, drilling, and mirror repeats.
 
@@ -229,6 +231,8 @@ Larger circles (radius 15) at the same positions create the counterbore — a wi
 ![Finished upper alignment clamp](/img/docs/tutorials/upper-alignment-clamp-final.png)
 
 ## Full code
+
+<OpenInViewer code={upperAlignmentClampFinal} entry="upper-alignment-clamp.fluid.js" />
 
 <CodeBlock language="js">{upperAlignmentClampFinal}</CodeBlock>
 

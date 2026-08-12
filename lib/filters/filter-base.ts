@@ -18,4 +18,13 @@ export abstract class FilterBase<TShape extends Shape> implements Comparable<Fil
   remap(_remap: Map<SceneObject, SceneObject>): FilterBase<TShape> {
     return this;
   }
+
+  /**
+   * SceneObjects this filter references and resolves lazily (a plane-ref
+   * selection, for instance) — surfaced so a consuming select() can list
+   * them as dependencies. Filters without references keep the default.
+   */
+  getSceneObjectRefs(): SceneObject[] {
+    return [];
+  }
 }

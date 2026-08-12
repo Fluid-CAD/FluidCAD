@@ -1,12 +1,14 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
+import { Plane } from "../math/plane.js";
+import { FaceOps } from "../oc/face-ops.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { SelectionIndex, BucketRecord } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
-import { ParameterLink } from "./atoms.js";
+import { ParameterLink, PlaneSource } from "./atoms.js";
 import { PickRef, SelectionScene } from "./types.js";
 import {
   bucketContext,
@@ -24,6 +26,11 @@ export type SelectorPart = {
   indices: number[] | null;
   /** Rendered filter-builder argument list, e.g. `edge().circle(5)` (tiers 1–3). */
   filterArgs: string | null;
+  /**
+   * Producers `filterArgs` references through `{{r<n>}}` tokens
+   * (plane-reference atoms); each needs a bound variable at render time.
+   */
+  refs?: SceneObject[];
   tier: 0 | 1 | 2 | 3 | 4;
 };
 
@@ -108,13 +115,24 @@ export function synthesizeSelectors(
     if (result.ok === false) {
       return result;
     }
-    const bound = result.candidates[0].producer;
+    const winner = result.candidates[0];
+    const bound = winner.producer;
     if (bound && !producers.includes(bound)) {
       producers.push(bound);
     }
-    groups.push({ winner: result.candidates[0], alternatives: result.candidates.slice(1) });
+    // Referenced producers (plane-reference tokens) bind a variable exactly
+    // like bucket producers — only the winner's; an alternative-only
+    // reference must not cost the emitted code an unused binding.
+    for (const ref of winner.refs ?? []) {
+      if (!producers.includes(ref)) {
+        producers.push(ref);
+      }
+    }
+    groups.push({ winner, alternatives: result.candidates.slice(1) });
     return null;
   };
+
+  const planeSources = collectPlaneSources(index);
 
   for (const [bucket, groupAttrs] of bucketGroups) {
     const failure = addGroup(
@@ -130,14 +148,16 @@ export function synthesizeSelectors(
     if (pool.length === 0) {
       continue;
     }
-    const failure = addGroup(synthesizeGlobalCandidates(scene, index, kind, pool, params));
+    const failure = addGroup(
+      synthesizeGlobalCandidates(scene, index, kind, pool, params, planeSources),
+    );
     if (failure) {
       return failure;
     }
   }
 
   for (const chain of chains) {
-    const failure = addGroup(synthesizeChainCandidates(scene, index, chain, params));
+    const failure = addGroup(synthesizeChainCandidates(scene, index, chain, params, planeSources));
     if (failure) {
       return failure;
     }
@@ -156,6 +176,46 @@ export function synthesizeSelectors(
   }
 
   return { ok: true, producers, anchor, groups };
+}
+
+const PLANE_SOURCE_TOLERANCE = 1e-7;
+
+/**
+ * Face groups usable as plane references (`onPlane(e.endFaces())`): every
+ * bindable feature's face bucket whose members share one plane. The plane is
+ * the first member's — exactly what the emitted `onPlane(<var>.<accessor>())`
+ * resolves — and requiring the rest coplanar with a same-side normal keeps
+ * the reference meaningful under member reordering. Consumption doesn't
+ * disqualify a group: a bucket accessor resolves its recorded as-built
+ * faces, and a plane reference only reads the plane off them (the same
+ * contract sketch-on-face relies on).
+ */
+function collectPlaneSources(index: SelectionIndex): PlaneSource[] {
+  const sources: PlaneSource[] = [];
+  for (const bucket of index.buckets) {
+    if (bucket.def.kind !== 'face' || checkBindable(index, bucket.feature) !== null) {
+      continue;
+    }
+    const planes: Plane[] = [];
+    for (const member of bucket.members) {
+      const plane = member instanceof Face ? FaceOps.tryGetPlane(member) : null;
+      if (!plane) {
+        break;
+      }
+      planes.push(plane);
+    }
+    if (planes.length !== bucket.members.length) {
+      continue;
+    }
+    const first = planes[0];
+    const shared = planes.every(p =>
+      first.isCoplanarWith(p, PLANE_SOURCE_TOLERANCE, PLANE_SOURCE_TOLERANCE)
+      && first.normal.dot(p.normal) > 0);
+    if (shared) {
+      sources.push({ feature: bucket.feature, accessor: bucket.def.accessor, plane: first });
+    }
+  }
+  return sources;
 }
 
 /** Returns a failure reason when the producer cannot be bound to a variable, null when it can. */
@@ -252,6 +312,7 @@ function synthesizeGlobalCandidates(
   kind: 'edge' | 'face',
   pool: PickAttribution[],
   params: ParameterLink[],
+  planeSources: PlaneSource[],
 ): GroupResult {
   const scope = resolvePartScope(scene, pool);
   if (scope.ok === false) {
@@ -260,7 +321,7 @@ function synthesizeGlobalCandidates(
 
   const pickKeys = new Set(pool.map(a => a.pickedKey!));
   const induced = induceFilterArgs(
-    index, globalContext(scene, index, kind, params, scope.part), pool, pickKeys,
+    index, globalContext(scene, index, kind, params, scope.part, planeSources), pool, pickKeys,
   );
   if (!induced) {
     return { ok: false, reason: globalFailureReason(kind, pool), pick: pool[0].ref };
@@ -268,7 +329,14 @@ function synthesizeGlobalCandidates(
   return {
     ok: true,
     candidates: [
-      { producer: null, accessor: 'select', indices: null, filterArgs: induced.filterArgs, tier: 3 },
+      {
+        producer: null,
+        accessor: 'select',
+        indices: null,
+        filterArgs: induced.filterArgs,
+        refs: induced.refs,
+        tier: 3,
+      },
     ],
   };
 }
@@ -287,6 +355,7 @@ function synthesizeChainCandidates(
   index: SelectionIndex,
   chain: SelectorChain,
   params: ParameterLink[],
+  planeSources: PlaneSource[],
 ): GroupResult {
   const kind = chain.seed.ref.sub.type;
   const members = chain.members;
@@ -363,7 +432,7 @@ function synthesizeChainCandidates(
     return scope;
   }
 
-  const globalCtx = globalContext(scene, index, kind, params, scope.part);
+  const globalCtx = globalContext(scene, index, kind, params, scope.part, planeSources);
   const candidates: SelectorPart[] = [];
 
   const seedInduced = induceFilterArgs(index, globalCtx, [chain.seed], seedKeys);
@@ -377,6 +446,7 @@ function synthesizeChainCandidates(
         accessor: 'select',
         indices: null,
         filterArgs: `${seedInduced.filterArgs}.withTangents()`,
+        refs: seedInduced.refs,
         tier: 3,
       });
     }
@@ -385,7 +455,12 @@ function synthesizeChainCandidates(
   const plain = induceFilterArgs(index, globalCtx, members, memberKeys);
   if (plain) {
     candidates.push({
-      producer: null, accessor: 'select', indices: null, filterArgs: plain.filterArgs, tier: 3,
+      producer: null,
+      accessor: 'select',
+      indices: null,
+      filterArgs: plain.filterArgs,
+      refs: plain.refs,
+      tier: 3,
     });
   }
 

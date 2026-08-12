@@ -51,25 +51,30 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
   }
 
   /**
-   * Selects edges that lie on the given plane.
-   * @param plane - The reference plane.
-   * @param offsetOrOptions - Offset distance, or an options object with `offset`, `bothDirections`, and `partial`.
+   * Selects edges that lie on the given plane. Besides a standard plane or a
+   * plane feature, any scene object whose first shape is a face works as the
+   * reference — a bucket accessor like `e.endFaces()`, or a select(). The
+   * face is only read to derive its plane (no plane feature is created, and
+   * the referenced geometry is not consumed), so the reference stays valid
+   * even when a later feature reshaped or consumed the face.
+   * @param plane - The reference plane, plane feature, or face selection.
+   * @param offsetOrOptions - Offset distance, or an options object with `offset`, `bothDirections`, and `partial` (offsets apply to standard planes only).
    */
-  onPlane(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; bothDirections?: boolean; partial?: boolean }) {
+  onPlane(plane: PlaneLike | PlaneObjectBase | ISceneObject, offsetOrOptions?: number | { offset?: number; bothDirections?: boolean; partial?: boolean }) {
     if (!plane) {
       throw new Error('Plane is required');
     }
 
     const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
     const { offset = 0, bothDirections = false, partial = false } = opts;
-    let planeObj: PlaneObjectBase;
+    let planeObj: PlaneObjectBase | SceneObject;
     let planeObj2: PlaneObjectBase | undefined;
 
-    if (plane instanceof PlaneObjectBase) {
+    if (plane instanceof PlaneObjectBase || plane instanceof SceneObject) {
       planeObj = plane;
     }
     else {
-      let normalized = normalizePlane(plane);
+      let normalized = normalizePlane(plane as PlaneLike);
 
       if (offset) {
         planeObj = new PlaneObject(normalized.offset(offset));
@@ -92,21 +97,21 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
    * @param plane - The reference plane.
    * @param offsetOrOptions - Offset distance, or an options object with `offset`, `bothDirections`, and `partial`.
    */
-  notOnPlane(plane: PlaneLike | PlaneObjectBase, offsetOrOptions?: number | { offset?: number; bothDirections?: boolean; partial?: boolean }) {
+  notOnPlane(plane: PlaneLike | PlaneObjectBase | ISceneObject, offsetOrOptions?: number | { offset?: number; bothDirections?: boolean; partial?: boolean }) {
     if (!plane) {
       throw new Error('Plane is required');
     }
 
     const opts = typeof offsetOrOptions === 'number' ? { offset: offsetOrOptions } : (offsetOrOptions ?? {});
     const { offset = 0, bothDirections = false, partial = false } = opts;
-    let planeObj: PlaneObjectBase;
+    let planeObj: PlaneObjectBase | SceneObject;
     let planeObj2: PlaneObjectBase | undefined;
 
-    if (plane instanceof PlaneObjectBase) {
+    if (plane instanceof PlaneObjectBase || plane instanceof SceneObject) {
       planeObj = plane;
     }
     else {
-      let normalized = normalizePlane(plane);
+      let normalized = normalizePlane(plane as PlaneLike);
 
       if (offset) {
         planeObj = new PlaneObject(normalized.offset(offset));

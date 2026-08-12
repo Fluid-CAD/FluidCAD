@@ -17,28 +17,34 @@ import { face } from 'fluidcad/filters';
 ### .onPlane()
 
 ```ts
-.onPlane(plane: PlaneLike, offset?: number): this
+.onPlane(plane: SceneObject | PlaneLike, offset?: number): this
 ```
 
-Selects faces that lie on the given plane.
+Selects faces that lie on the given plane. Besides a standard plane or a
+plane feature, any scene object whose first shape is a face works as the
+reference — a bucket accessor like `e.endFaces()`, or a select(). The
+face is only read to derive its plane (no plane feature is created, and
+the referenced geometry is not consumed), so the reference stays valid
+even when a later feature reshaped or consumed the face.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
-| `offset` | number | Optional distance to offset the plane before matching. *(optional)* |
+| `plane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The reference plane, plane feature, or face selection. |
+| `offset` | number | Optional distance to offset a standard plane before matching. *(optional)* |
 
 ### .notOnPlane()
 
 ```ts
-.notOnPlane(plane: PlaneLike, offset?: number): this
+.notOnPlane(plane: SceneObject | PlaneLike, offset?: number): this
 ```
 
-Excludes faces that lie on the given plane.
+Excludes faces that lie on the given plane. Accepts the same references
+as `onPlane`, including a face selection to read the plane from.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `plane` | [PlaneLike](/docs/api/types/plane-like) | The reference plane. |
-| `offset` | number | Optional distance to offset the plane before matching. *(optional)* |
+| `plane` | [SceneObject](/docs/api/types/scene-object) \| [PlaneLike](/docs/api/types/plane-like) | The reference plane, plane feature, or face selection. |
+| `offset` | number | Optional distance to offset a standard plane before matching. *(optional)* |
 
 ---
 

@@ -5,10 +5,12 @@ title: "Lantern"
 
 import CodeBlock from '@theme/CodeBlock';
 import lanternFinal from '!!raw-loader!./_examples/lantern-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 # Building a Lantern
 
-![Finished lantern](/img/docs/tutorials/lantern-final.png)
+<ViewerEmbed code={lanternFinal} entry="lantern.fluid.js" />
 
 In this tutorial, you'll build a hexagonal lantern from scratch, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=F2C5cfJ2PrQ). It covers a wide range of FluidCAD features: polygons, draft extrusions, shelling, projecting geometry, pattern cuts, lofting, and revolving.
 
@@ -209,6 +211,8 @@ Change the `sides` variable to any even number ≥ 4 (e.g. `4`, `6`, `8`) and th
 :::
 
 ## Full code
+
+<OpenInViewer code={lanternFinal} entry="lantern.fluid.js" />
 
 <CodeBlock language="js">{lanternFinal}</CodeBlock>
 

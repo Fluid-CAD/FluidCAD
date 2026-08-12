@@ -1,11 +1,25 @@
+import {readFileSync} from 'node:fs';
 import {themes as prismThemes} from 'prism-react-renderer';
 import type {Config} from '@docusaurus/types';
 import type * as Preset from '@docusaurus/preset-classic';
+
+// The docs live inside the FluidCAD repo: pin viewer links to the version of
+// the code they were written against. Until that version's engine bundle is in
+// R2 (first tagged release after the browser host), the viewer falls back to
+// its dev engine.
+const fluidcadVersion: string = JSON.parse(
+  readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+).version;
 
 const config: Config = {
   title: 'FluidCAD',
   tagline: 'Parametric CAD for everyone',
   favicon: 'img/favicon.png',
+
+  customFields: {
+    fluidcadVersion,
+    fluidcadViewerUrl: process.env.FLUIDCAD_VIEWER_URL ?? 'https://viewer.fluidcad.io',
+  },
 
   future: {
     v4: true,
@@ -50,6 +64,22 @@ const config: Config = {
   ],
 
   plugins: [
+    // Dev-server twin of static/_headers: cross-origin isolation so the
+    // embedded viewer iframe gets SharedArrayBuffer during `npm start` too.
+    function crossOriginIsolation() {
+      return {
+        name: 'cross-origin-isolation',
+        configureWebpack: () =>
+          ({
+            devServer: {
+              headers: {
+                'Cross-Origin-Opener-Policy': 'same-origin',
+                'Cross-Origin-Embedder-Policy': 'credentialless',
+              },
+            },
+          }) as object,
+      };
+    },
   ],
 
   themeConfig: {

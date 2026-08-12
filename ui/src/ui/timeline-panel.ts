@@ -1,6 +1,6 @@
 import type { SceneObjectRender } from '../types';
 import { isTopLevel } from '../helpers/scene-utils';
-import { savePreference, recompute, rollback, addBreakpoint, gotoSource, removeFeature, renameFeature } from '../api';
+import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
@@ -84,6 +84,7 @@ export class TimelinePanel {
 
   constructor(
     container: HTMLElement,
+    private client: EngineClient,
     onHighlightShape: (shapeId: string) => void,
     onExportShapes: (shapeIds: string[]) => void,
     onToggleShapeVisibility: (shapeId: string, visible: boolean) => void,
@@ -93,8 +94,8 @@ export class TimelinePanel {
     onResetAllTransparency: () => void,
   ) {
     this.panel = document.createElement('div');
-    // Docked below the top bars (top bar + navbar ≈ 92px) with breathing room.
-    this.panel.className = 'absolute left-6 top-[116px] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
+    // Docked below the host chrome (--fluidcad-chrome-top) with breathing room.
+    this.panel.className = 'absolute left-6 top-[calc(var(--fluidcad-chrome-top,104px)+12px)] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
     this.applyPanelWidth();
 
@@ -333,6 +334,9 @@ export class TimelinePanel {
    * the feature's edit dialog when it has one.
    */
   private enterBreakpointAt(index: number): void {
+    if (!this.client.editor) {
+      return;
+    }
     const obj = this.sceneObjects[index];
     if (!(obj && this.managesOwnBreakpoint?.(obj))) {
       this.addBreakpointAfter(index);
@@ -514,7 +518,7 @@ export class TimelinePanel {
       this.showBuildTimings = next;
       this.applyPanelWidth();
       this.updateHistoryTotal();
-      savePreference('showBuildTimings', next);
+      this.client.savePreference('showBuildTimings', next);
       this.closeDropdown();
       this.renderTimeline();
       // Build timings are only recorded for objects that actually rebuild, so
@@ -554,6 +558,11 @@ export class TimelinePanel {
    */
   private showRowContextMenu(e: MouseEvent, index: number): void {
     this.closeDropdown();
+    // Every menu action edits or navigates source — nothing to offer
+    // without an editor-backed host.
+    if (!this.client.editor) {
+      return;
+    }
     const obj = this.sceneObjects[index];
     if (!obj || !obj.sourceLocation) {
       return;
@@ -621,7 +630,7 @@ export class TimelinePanel {
 
     dropdown.querySelector('[data-action="remove"]')!.addEventListener('click', () => {
       this.closeDropdown();
-      removeFeature(obj.sourceLocation!);
+      this.client.editor?.removeFeature(obj.sourceLocation!);
     });
 
     const onClickOutside = (ev: MouseEvent) => {
@@ -668,7 +677,7 @@ export class TimelinePanel {
       if (e.key === 'Enter') {
         const next = input.value.trim();
         if (next !== currentName) {
-          renameFeature(obj.sourceLocation!, next || null);
+          this.client.editor?.renameFeature(obj.sourceLocation!, next || null);
         }
         this.closeDropdown();
       } else if (e.key === 'Escape') {
@@ -766,11 +775,11 @@ export class TimelinePanel {
   // ---------------------------------------------------------------------------
 
   private recomputeScene(): void {
-    recompute();
+    this.client.recompute();
   }
 
   private rollbackTo(index: number): void {
-    rollback(index);
+    this.client.rollback(index);
   }
 
   private addBreakpointAfter(index: number): void {
@@ -778,14 +787,14 @@ export class TimelinePanel {
     if (!obj || !obj.sourceLocation) {
       return;
     }
-    addBreakpoint(obj.sourceLocation);
+    this.client.editor?.addBreakpoint(obj.sourceLocation);
   }
 
   private goToSource(obj: SceneObjectRender | undefined): void {
     if (!obj || !obj.sourceLocation) {
       return;
     }
-    gotoSource(obj.sourceLocation);
+    this.client.editor?.gotoSource(obj.sourceLocation);
   }
 
   /** Last root-level (or Part-child) object — mirrors Viewer.findActiveObject. */

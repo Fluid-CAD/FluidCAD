@@ -176,6 +176,19 @@ function relaxComponent(
   const ungroundedRoot = component.roots.length === 1 && !component.roots[0].grounded
     ? component.roots[0]
     : null;
+
+  // Drag-only components with an ungrounded root skip LM entirely: the
+  // 3-row drag residual under-determines the root's 6 DOF, and the
+  // damped step bleeds the correction into ROTATION — the dragged
+  // cluster visibly tumbles while following the cursor. The warm-start
+  // has already applied the analytic joint drag deltas; the remaining
+  // cursor gap is closed by a rigid translation of the whole tree in
+  // `applyUngroundedClusterDrag` (solver.ts). Trade-off: floating
+  // (ungrounded) multi-joint chains don't get LM inverse kinematics —
+  // they translate rigidly beyond the grabbed joint's own motion, which
+  // is deterministic and jitter-free.
+  if (closures.length === 0 && ungroundedRoot) return null;
+
   let n = ungroundedRoot ? 6 : 0;
 
   for (const edge of component.treeEdges) {

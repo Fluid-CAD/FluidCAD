@@ -17,7 +17,7 @@
 // pass; closure edges are enforced by the LM pass.
 
 import { Vector3 } from 'three';
-import { buildMateGraph } from './graph.js';
+import { buildMateGraph, type MateGraph } from './graph.js';
 import { residual } from './joint-model.js';
 import { applyLoopRelaxations } from './loop-relaxation.js';
 import type { BodyState, SolverInput, SolverOutput } from './types.js';
@@ -104,6 +104,13 @@ export class Solver {
     // input pose, and before the fixup so followers carry along.
     applyDraggedOriginTarget(input, out);
 
+    // Dragging a LOCKED body of an ungrounded, closure-free component
+    // (a fastened sibling, a chain follower) translates the whole tree
+    // rigidly so the grab lands on the cursor — the LM deliberately
+    // skips these (see loop-relaxation.ts) because the drag rows alone
+    // under-determine a free root's 6 DOF.
+    applyUngroundedClusterDrag(input, out, graph);
+
     // Re-derive every tree follower from its (possibly dragged) solved
     // driver so chained mates stay consistent frame to frame.
     applyTreeFixups(graph.components, out.bodies);
@@ -170,6 +177,40 @@ function applyDraggedOriginTarget(input: SolverInput, out: SolverOutput): void {
   if (!target) return;
   const solved = out.bodies.find(b => b.instanceId === id);
   if (solved) solved.position.copy(target);
+}
+
+/**
+ * Rigid whole-tree translation for drags of LOCKED bodies in an
+ * ungrounded, closure-free component: translate the component's root so
+ * the dragged body's grab point lands on the cursor. Tree relations are
+ * translation-invariant, so the post-solve fixups carry every follower
+ * along and the joint state (angles, slides) is untouched — the
+ * warm-start already applied any analytic joint drag delta, and this
+ * closes only the remaining rigid gap. Unlocked dragged bodies (free
+ * bodies, ungrounded roots) are handled by `applyDraggedOriginTarget`.
+ */
+function applyUngroundedClusterDrag(
+  input: SolverInput,
+  out: SolverOutput,
+  graph: MateGraph,
+): void {
+  const id = input.draggedInstanceId;
+  if (id === undefined) return;
+  if (!input.draggedCursorWorld || !input.draggedGrabLocal) return;
+  const body = input.bodies.find(b => b.instanceId === id);
+  if (!body || body.grounded || !body.lockPosition) return;
+  const componentIndex = graph.bodyComponent.get(id);
+  if (componentIndex === undefined) return;
+  const component = graph.components[componentIndex];
+  if (component.closureEdges.length > 0) return;
+  if (component.roots.length !== 1 || component.roots[0].grounded) return;
+  const rootOut = out.bodies.find(b => b.instanceId === component.roots[0].instanceId);
+  const draggedOut = out.bodies.find(b => b.instanceId === id);
+  if (!rootOut || !draggedOut) return;
+  const grabWorld = input.draggedGrabLocal.clone()
+    .applyQuaternion(draggedOut.quaternion)
+    .add(draggedOut.position);
+  rootOut.position.add(input.draggedCursorWorld.clone().sub(grabWorld));
 }
 
 /**

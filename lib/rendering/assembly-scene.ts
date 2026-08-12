@@ -140,6 +140,9 @@ export class AssemblyScene extends Scene {
         instanceId: mate.connectorB.instanceId,
         connectorId: mate.connectorB.connector.id,
       },
+      // Parse-time placeholder: the UI solver evaluates real mate
+      // health per solve (SolverOutput.failed) and overrides this live
+      // via matesWithStatus — the server never re-checks it.
       status: 'satisfied',
       options: mate.options,
       sourceLocation: mate.sourceLocation,

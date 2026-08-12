@@ -422,7 +422,11 @@ export class AssemblyController {
   }
 
   private applySolverOutput(out: SolverOutput): void {
-    if (out.result !== 'okay') return;
+    // 'inconsistent' poses apply too: the solver already produced the
+    // least-bad configuration for a closure gap, and freezing the scene
+    // at the last-good frame would make unreachable-drag feedback feel
+    // wedged. The DOF pill + joints-panel dots carry the failure signal.
+    if (out.result !== 'okay' && out.result !== 'inconsistent') return;
     for (const solved of out.bodies) {
       const state = this.instances.get(solved.instanceId);
       if (!state) continue;
@@ -470,7 +474,9 @@ export class AssemblyController {
   private emitDragValue(out: SolverOutput): void {
     if (!this.dragValueHandler || !this.dragState) return;
     const edge = this.dragState.readoutEdge;
-    if (!edge || out.result !== 'okay') return;
+    // Track 'inconsistent' too — its poses are applied (see
+    // applySolverOutput), so the readout must follow them.
+    if (!edge || (out.result !== 'okay' && out.result !== 'inconsistent')) return;
     const byId = new Map(out.bodies.map(b => [b.instanceId, b]));
     const d = byId.get(edge.driverId);
     const f = byId.get(edge.followerId);

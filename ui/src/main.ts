@@ -1428,8 +1428,10 @@ function failedSetsDiffer(a: Set<string>, b: Set<string>): boolean {
   return false;
 }
 
-function formatMateLabel(mate: { type: string; mateId: string }): string {
-  return `${mate.type} (${mate.mateId})`;
+function formatMateLabel(mate: SerializedAssembly['mates'][number]): string {
+  const a = mate.connectorA;
+  const b = mate.connectorB;
+  return `${mate.type} — ${a.instanceId}.${a.connectorId} ↔ ${b.instanceId}.${b.connectorId}`;
 }
 
 // An armed modify mode (fillet/chamfer) owns hover (teach-mode tooltip) and

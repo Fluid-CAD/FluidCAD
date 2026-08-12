@@ -25,9 +25,9 @@
 // accuracy gain; defer until numerical noise shows up.
 
 export type LMOptions = {
-  /** Maximum LM iterations before giving up. Default 50. */
+  /** Maximum LM iterations before giving up. Default 250. */
   maxIters?: number;
-  /** Convergence threshold on ||Δx||. Default 1e-7. */
+  /** Convergence threshold on ||Δx||. Default 1e-9. */
   tol?: number;
   /** Initial Marquardt damping. Default 1e-3. */
   initLambda?: number;
@@ -215,6 +215,73 @@ function choleskyApply(L: Float64Array, b: Float64Array, n: number): Float64Arra
     y[i] = s / L[i * n + i];
   }
   return y;
+}
+
+/**
+ * Numerical rank of an m×n matrix (row-major) via column-pivoted
+ * Householder QR. A pivot column whose remaining norm falls to
+ * `1e-6 · |R₀₀|` (or below an absolute 1e-12 for the first pivot) ends
+ * the factorization; the count of accepted pivots is the rank. Used for
+ * the loop-DOF report: rank of the closure-residual Jacobian.
+ *
+ * Matrices here are tiny (closure rows × joint params), so the O(mn²)
+ * cost with fresh column norms per step is irrelevant and avoids the
+ * cancellation drift of downdated norms.
+ */
+export function matrixRank(A: Float64Array, m: number, n: number): number {
+  if (m === 0 || n === 0) return 0;
+  const a = new Float64Array(A);
+  const kMax = Math.min(m, n);
+  let r00 = 0;
+  let rank = 0;
+  for (let k = 0; k < kMax; k++) {
+    // Pivot: the column with the largest remaining (rows k..m-1) norm.
+    let bestSq = -1;
+    let bestCol = k;
+    for (let j = k; j < n; j++) {
+      let s = 0;
+      for (let i = k; i < m; i++) {
+        const v = a[i * n + j];
+        s += v * v;
+      }
+      if (s > bestSq) {
+        bestSq = s;
+        bestCol = j;
+      }
+    }
+    const norm = Math.sqrt(Math.max(bestSq, 0));
+    if (k === 0) r00 = norm;
+    const tol = k === 0 ? 1e-12 : 1e-6 * r00;
+    if (norm <= tol) break;
+    if (bestCol !== k) {
+      for (let i = 0; i < m; i++) {
+        const tmp = a[i * n + k];
+        a[i * n + k] = a[i * n + bestCol];
+        a[i * n + bestCol] = tmp;
+      }
+    }
+    // Householder vector for column k over rows k..m-1:
+    // v = x + sign(x₀)·‖x‖·e₁, then reflect the remaining columns.
+    const x0 = a[k * n + k];
+    const alpha = x0 >= 0 ? -norm : norm;
+    const v = new Float64Array(m - k);
+    v[0] = x0 - alpha;
+    for (let i = k + 1; i < m; i++) v[i - k] = a[i * n + k];
+    let vNorm2 = 0;
+    for (let i = 0; i < v.length; i++) vNorm2 += v[i] * v[i];
+    if (vNorm2 > 1e-300) {
+      for (let j = k; j < n; j++) {
+        let dot = 0;
+        for (let i = 0; i < v.length; i++) dot += v[i] * a[(k + i) * n + j];
+        const scale = (2 * dot) / vNorm2;
+        for (let i = 0; i < v.length; i++) {
+          a[(k + i) * n + j] -= scale * v[i];
+        }
+      }
+    }
+    rank++;
+  }
+  return rank;
 }
 
 function vecNorm(v: Float64Array): number {

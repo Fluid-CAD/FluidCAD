@@ -1,10 +1,14 @@
-// Mate graph + BFS spanning tree.
+// Mate graph + BFS spanning forest.
 //
 // Replaces the per-mate-type ordering of warm-start invocations with a
 // graph-aware schedule. For each connected component of the mate graph
-// we pick a seed (grounded body if any, then dragged body if in
-// component, then first body by input order), BFS to a spanning tree,
-// and classify the remaining edges as closures.
+// we pick the BFS roots — ALL grounded bodies in the component, so no
+// grounded body can ever become a tree-edge follower and be relocated
+// by the solver; with no grounded body, the dragged body if in the
+// component, else the first body by input order — then run a
+// multi-source BFS to a spanning forest and classify the remaining
+// edges as closures. Any mate reaching an already-visited body (which
+// includes every grounded root from layer 0) is a closure edge.
 //
 // Stage 1 of the closed-loop solver uses only the tree edges:
 // warm-starts run in BFS order (parent already laid out → child is the
@@ -27,19 +31,36 @@ export type TreeEdge = {
   parentConn: ConnectorState;
   childConn: ConnectorState;
   mate: MateRecord;
+  /**
+   * True when `parentConn` is the mate's connectorA — i.e., the BFS
+   * traverses the mate in its authored direction. Mate options
+   * (rotate/offset/flip/limits) are defined in connector A's frame, so
+   * a reversed edge (`parentIsA: false`) must be posed through the
+   * INVERSE of the authored relation. Without this, option semantics
+   * silently depended on traversal direction (which part is grounded).
+   */
+  parentIsA: boolean;
 };
 
 export type Component = {
-  /** Every body in this component, in BFS visitation order (seed first). */
+  /** Every body in this component, in BFS visitation order (roots first). */
   bodies: BodyState[];
-  /** Tree edges in BFS visitation order. Length = bodies.length - 1. */
+  /**
+   * Tree edges in BFS visitation order. The multi-source BFS produces a
+   * spanning forest (one tree per root), so
+   * length = bodies.length - roots.length.
+   */
   treeEdges: TreeEdge[];
   /** Mates that close cycles (do not appear in treeEdges). */
   closureEdges: MateRecord[];
   /** Set of instance ids that lie on at least one cycle. */
   loopBodies: Set<string>;
-  /** Root of the BFS. */
-  seed: BodyState;
+  /**
+   * Roots of the BFS forest: ALL grounded bodies in the component, or —
+   * when the component has none — a single fallback root (the dragged
+   * body if present, else the first body by input order).
+   */
+  roots: BodyState[];
 };
 
 export type MateGraph = {
@@ -128,22 +149,27 @@ export function buildMateGraph(
       }
     }
 
-    // Seed selection. Grounded > dragged > first by input order.
-    let seed = componentBodies.find(b => b.grounded);
-    if (!seed && draggedInstanceId) {
-      seed = componentBodies.find(b => b.instanceId === draggedInstanceId);
+    // Root selection. ALL grounded bodies are roots: pre-visiting every
+    // grounded body means a mate reaching one classifies as a closure
+    // edge, so the solver can never relocate a grounded body through a
+    // tree-edge warm-start. Components without a grounded body get a
+    // single root: dragged body if present, else first by input order.
+    let roots = componentBodies.filter(b => b.grounded);
+    if (roots.length === 0 && draggedInstanceId) {
+      const dragged = componentBodies.find(b => b.instanceId === draggedInstanceId);
+      if (dragged) roots = [dragged];
     }
-    if (!seed) seed = componentBodies[0];
+    if (roots.length === 0) roots = [componentBodies[0]];
 
-    // BFS spanning tree from seed, layer-by-layer so we can resolve
-    // multi-edge tiebreaks within a layer by mate rigidity.
+    // Multi-source BFS spanning forest from the roots, layer-by-layer so
+    // we can resolve multi-edge tiebreaks within a layer by mate rigidity.
     const treeEdges: TreeEdge[] = [];
     const closureMates: MateRecord[] = [];
-    const orderedBodies: BodyState[] = [seed];
-    const treeVisited = new Set<string>([seed.instanceId]);
+    const orderedBodies: BodyState[] = [...roots];
+    const treeVisited = new Set<string>(roots.map(r => r.instanceId));
     const consumedMates = new Set<string>();
 
-    let frontier: BodyState[] = [seed];
+    let frontier: BodyState[] = [...roots];
     while (frontier.length > 0) {
       // Group candidate edges by target body so we can pick the most
       // rigid edge per target as the tree edge.
@@ -177,6 +203,7 @@ export function buildMateGraph(
           parentConn: treePick.selfConn,
           childConn: treePick.neighborConn,
           mate: treePick.mate,
+          parentIsA: treePick.selfIsA,
         });
         treeVisited.add(treePick.neighbor.instanceId);
         orderedBodies.push(treePick.neighbor);
@@ -200,7 +227,7 @@ export function buildMateGraph(
       treeEdges,
       closureEdges: closureMates,
       loopBodies,
-      seed,
+      roots,
     });
     for (const b of orderedBodies) {
       bodyComponent.set(b.instanceId, componentIndex);
@@ -212,12 +239,12 @@ export function buildMateGraph(
 }
 
 /**
- * True iff the body's path through the component's spanning tree to the
- * seed is entirely fastened tree edges AND the seed is grounded — i.e.,
- * the body has zero effective DOFs upstream and any drag on it would
- * drift its (non-locked) followers without moving the body itself. A
- * grounded body trivially qualifies (it is its own seed). Bodies in a
- * component whose seed is not grounded are not locked.
+ * True iff the body's path through the component's spanning forest to
+ * its root is entirely fastened tree edges AND that root is grounded —
+ * i.e., the body has zero effective DOFs upstream and any drag on it
+ * would drift its (non-locked) followers without moving the body
+ * itself. A grounded body trivially qualifies (it is its own root).
+ * Bodies whose tree root is not grounded are not locked.
  */
 export function isFullyLocked(instanceId: string, component: Component): boolean {
   const parentByChild = new Map<string, TreeEdge>();
@@ -228,7 +255,8 @@ export function isFullyLocked(instanceId: string, component: Component): boolean
   while (true) {
     const edge = parentByChild.get(current);
     if (!edge) {
-      return component.seed.instanceId === current && component.seed.grounded;
+      const root = component.roots.find(r => r.instanceId === current);
+      return root !== undefined && root.grounded;
     }
     if (edge.mate.type !== 'fastened') return false;
     current = edge.parent.instanceId;
@@ -249,6 +277,9 @@ export function isInstanceFullyLocked(instanceId: string, graph: MateGraph): boo
 /**
  * Identify the bodies that lie on at least one cycle in the component.
  * Walks parent links from each closure-edge endpoint up to their LCA.
+ * When the endpoints live in two different trees of the spanning forest
+ * (a closure between two grounded roots' trees), there is no LCA — both
+ * walks run to their respective roots and both full paths are marked.
  */
 function identifyLoopBodies(
   closureMates: MateRecord[],

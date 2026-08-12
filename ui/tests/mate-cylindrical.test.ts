@@ -414,12 +414,11 @@ describe('mate(cylindrical) — phase 09', () => {
       ],
     });
     expect(out.result).toBe('okay');
-    // Counter currently sums per-mate (3 × 2 = 6); countFreeBodyDof reports
-    // 0 (shaft is locked by the warm-start). The geometric DOF
-    // is 2 — redundancy detection (which would clamp this) lands later;
-    // this test pins the current behavior so a future redundancy pass
-    // can lower the assertion intentionally.
-    expect(out.dof).toBeGreaterThanOrEqual(2);
+    // Rank-based loop DOF: the two redundant closures contribute no
+    // independent constraints (their residuals are invariant as the
+    // shaft slides/spins on the shared axis), so the footer reads the
+    // true geometric 2 DOF — not the per-mate table sum of 6.
+    expect(out.dof).toBe(2);
   });
 
   it('grab-offset drag projects correctly along the axis', async () => {

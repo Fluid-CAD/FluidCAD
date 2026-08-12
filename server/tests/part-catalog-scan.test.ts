@@ -216,6 +216,69 @@ describe('scanFileForParts', () => {
     expect(sub.objects.map((o: any) => o.id)).toEqual(['pA', 'a-child', 'pB']);
   });
 
+  it('runs a lazy assembly() definition returned by a factory (exportKind factory)', async () => {
+    const instances = [{ instanceId: 'inst-0', partId: 'pA', partName: 'A' }];
+    let ran = 0;
+    const definition = {
+      assemblyName: 'x-axis',
+      getType: () => 'assembly',
+      run: () => { ran++; },
+    };
+    const result = await scanFileForParts(
+      fakeHost({ xAxis: () => definition }),
+      fakeManager([[], { rendered: [rendered('pA')], assembly: { instances, mates: [] } }]),
+      '/ws/x-axis.assembly.js',
+    );
+    expect(ran).toBe(1);
+    expect(result.errors).toEqual([]);
+    expect(result.assemblies).toHaveLength(1);
+    expect(result.assemblies[0]).toMatchObject({
+      exportName: 'xAxis',
+      kind: 'assembly',
+      exportKind: 'factory',
+      assemblyName: 'x-axis',
+    });
+  });
+
+  it('runs a directly exported assembly() definition (exportKind value)', async () => {
+    const instances = [{ instanceId: 'inst-0', partId: 'pA', partName: 'A' }];
+    let ran = 0;
+    const definition = {
+      assemblyName: 'gantry',
+      getType: () => 'assembly',
+      run: () => { ran++; },
+    };
+    const result = await scanFileForParts(
+      fakeHost({ gantry: definition }),
+      fakeManager([[], { rendered: [rendered('pA')], assembly: { instances, mates: [] } }]),
+      '/ws/gantry.assembly.js',
+    );
+    expect(ran).toBe(1);
+    expect(result.errors).toEqual([]);
+    expect(result.assemblies).toHaveLength(1);
+    expect(result.assemblies[0]).toMatchObject({
+      exportName: 'gantry',
+      kind: 'assembly',
+      exportKind: 'value',
+      assemblyName: 'gantry',
+    });
+  });
+
+  it('reports a definition whose body throws as an error', async () => {
+    const definition = {
+      assemblyName: 'bad',
+      getType: () => 'assembly',
+      run: () => { throw new Error('body exploded'); },
+    };
+    const result = await scanFileForParts(
+      fakeHost({ bad: definition }),
+      fakeManager([[], []]),
+      '/ws/bad.assembly.js',
+    );
+    expect(result.assemblies).toEqual([]);
+    expect(result.errors).toEqual([{ exportName: 'bad', message: 'body exploded' }]);
+  });
+
   it('finds sub-assembly part templates built at module level', async () => {
     const instances = [{ instanceId: 'inst-0', partId: 'shared', partName: 'S' }];
     const result = await scanFileForParts(

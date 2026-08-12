@@ -200,14 +200,22 @@ export class InsertPartDialog {
     }
     for (const sub of result.assemblies ?? []) {
       const count = sub.instances.length;
+      // 'value' exports insert as `insert(name)`, 'factory' as `insert(name())`
+      // — the same shapes parts use, since insert() accepts assembly()
+      // definitions. Servers predating definitions omit exportKind: treat as
+      // factory (the legacy sub-assembly style was a zero-arg factory).
+      const exportKind = sub.exportKind ?? 'factory';
+      const statement = exportKind === 'factory' ? `${sub.exportName}()` : sub.exportName;
       this.gridEl.appendChild(this.buildTile({
         kind: 'assembly',
         thumb: this.thumbs.renderAssembly(sub.objects, sub.instances, sub.mates),
-        title: sub.exportName,
+        title: sub.assemblyName ?? sub.exportName,
         subtitle: `assembly · ${count} instance${count === 1 ? '' : 's'}`,
         file,
-        tooltip: `Insert sub-assembly — ${sub.exportName}() with default arguments`,
-        onPick: () => this.insert(file, sub.exportName, 'assembly', sub.exportName),
+        tooltip: exportKind === 'factory'
+          ? `Insert sub-assembly — insert(${statement}) with default arguments`
+          : `Insert sub-assembly — insert(${statement})`,
+        onPick: () => this.insert(file, sub.exportName, exportKind, sub.assemblyName ?? sub.exportName),
       }));
     }
   }

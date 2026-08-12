@@ -114,6 +114,24 @@ function buildInstanceConnector(
     );
   }
 
+  // Inside an assembly() body the declared connectors become the
+  // occurrence's public interface (`occurrence.connectors.<name>`), so names
+  // must be unique per body — across instances too. Root scope keeps the
+  // looser per-instance rule above (existing files rely on it).
+  const ownerPath = scene.currentScopePath();
+  if (ownerPath) {
+    const clash = scene.getAllSceneObjects().some(
+      o => o instanceof Connector && o.ownerPath === ownerPath && o.connectorName === name,
+    );
+    if (clash) {
+      throw new Error(
+        `connector(): this assembly already declares a connector named "${name}" — `
+        + `assembly-scoped names must be unique within an assembly() body `
+        + `(they become the occurrence's public connectors).`,
+      );
+    }
+  }
+
   for (const dep of source.getDependencies()) {
     context.addSceneObject(dep);
   }
@@ -121,6 +139,7 @@ function buildInstanceConnector(
 
   const obj = new Connector(name, source, options);
   obj.boundInstanceId = instance.instanceId;
+  obj.ownerPath = ownerPath;
   context.addSceneObject(obj);
   return obj.boundTo(instance.instanceId);
 }

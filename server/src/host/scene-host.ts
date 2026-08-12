@@ -30,3 +30,24 @@ export interface SceneHost {
    */
   getModuleDependencies?(filePath: string): string[];
 }
+
+/**
+ * Duck-typed check for a fluidcad `assembly()` definition — the Assembly
+ * class lives in the WORKSPACE's fluidcad install, so instanceof against
+ * this server's copy would fail. Mirrors the part scanner's
+ * `getType() === 'part'` duck-typing. Used by hosts (entry-file renders run
+ * definitions at root scope) and by the part-catalog scanner.
+ */
+export function isAssemblyDefinition(value: unknown): value is { assemblyName?: string; run: () => unknown } {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const obj = value as { getType?: () => string; run?: () => unknown };
+  try {
+    return typeof obj.getType === 'function'
+      && obj.getType() === 'assembly'
+      && typeof obj.run === 'function';
+  } catch {
+    return false;
+  }
+}

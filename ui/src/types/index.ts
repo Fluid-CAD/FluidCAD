@@ -264,13 +264,40 @@ export type SerializedAssemblyInstance = {
   partName: string;
   position: { x: number; y: number; z: number };
   quaternion: { x: number; y: number; z: number; w: number };
+  /** EFFECTIVE grounding — the engine already applied the scoped-grounding rule. */
   grounded: boolean;
+  /**
+   * Owning scope: "" (or absent, on older engines) for instances inserted by
+   * the open file itself; an occurrence path ("asm-0", "asm-0/asm-1") for
+   * instances a sub-assembly body inserted. Occurrence-owned instances'
+   * sourceLocations point into the SUB-ASSEMBLY's file, so statement edits
+   * (translate/ground/rename/delete) must not target them from this view.
+   */
+  owner?: string;
   name: string;
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
+/** One inserted sub-assembly: `insert(assembly('name', cb))` in the open file or nested. */
+export type SerializedAssemblyOccurrence = {
+  occurrenceId: string;
+  assemblyName: string;
+  name: string;
+  parentPath: string;
+  /** Local to the parent scope's frame (== world for root-scope occurrences). */
+  position: { x: number; y: number; z: number };
+  quaternion: { x: number; y: number; z: number; w: number };
+  /** Declared `.grounded()` on the occurrence handle. */
+  grounded: boolean;
+  /** Whether the grounded-frame chain reaches the root from here. */
+  groundConnected: boolean;
   sourceLocation?: { filePath: string; line: number; column: number };
 };
 
 export type SerializedAssemblyMate = {
   mateId: string;
+  /** Scope the mate() statement ran in: "" (or absent) for the open file. */
+  owner?: string;
   type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';
   connectorA: { instanceId: string; connectorId: string };
   connectorB: { instanceId: string; connectorId: string };
@@ -282,6 +309,8 @@ export type SerializedAssemblyMate = {
 export type SerializedAssembly = {
   instances: SerializedAssemblyInstance[];
   mates: SerializedAssemblyMate[];
+  /** Absent on engines predating assembly() definitions. */
+  occurrences?: SerializedAssemblyOccurrence[];
 };
 
 /**

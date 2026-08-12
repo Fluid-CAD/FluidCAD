@@ -95,7 +95,7 @@ describe('applyInsertPartEdit', () => {
     expect(result.newCode).toContain(`const extrusion2 = insert(getExtrusion());`);
   });
 
-  it('renders a sub-assembly as a bare call without touching insert imports', async () => {
+  it('renders a sub-assembly with the same insert() shape parts use', async () => {
     const code = [
       `import { mate } from 'fluidcad/core';`,
       ``,
@@ -107,15 +107,9 @@ describe('applyInsertPartEdit', () => {
       kind: 'assembly',
     });
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toBe([
-      `import { mate } from 'fluidcad/core';`,
-      `import { gantryAssembly } from './gantry.assembly.js';`,
-      ``,
-      `const width = 700;`,
-      ``,
-      `const gantryAssembly1 = gantryAssembly();`,
-    ].join('\n'));
-    expect(result.newCode).not.toContain('insert');
+    expect(result.newCode).toContain(`import {insert, mate } from 'fluidcad/core';`);
+    expect(result.newCode).toContain(`import { gantryAssembly } from './gantry.assembly.js';`);
+    expect(result.newCode).toContain(`const gantryAssembly1 = insert(gantryAssembly());`);
   });
 
   it('refuses a non-identifier export name', async () => {

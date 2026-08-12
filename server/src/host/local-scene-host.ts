@@ -2,6 +2,7 @@ import { type ViteDevServer, createServer } from 'vite';
 import { dirname, resolve, isAbsolute } from 'path';
 import { normalizePath } from '../normalize-path.ts';
 import type { SceneHost } from './scene-host.ts';
+import { isAssemblyDefinition } from './scene-host.ts';
 import { getBlockedNodeModule } from './blocked-imports.ts';
 
 const IMPORT_PATTERN = /\b(?:import|export)\s[\s\S]*?from\s+['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
@@ -98,8 +99,17 @@ export class LocalSceneHost implements SceneHost {
   async loadModule(filePath: string) {
     const mod = await this.server.ssrLoadModule(filePath);
     for (const value of Object.values(mod)) {
+      let result: unknown = value;
       if (typeof value === 'function') {
-        await value();
+        result = await value();
+      }
+      // assembly() definitions are LAZY — an exported factory (or a direct
+      // definition export) creates no scene records until run. Entry-file
+      // renders execute the definition at ROOT scope, so its `.grounded()`
+      // declarations apply natively — this is what makes standalone editing
+      // of a sub-assembly file work without a "grounded" parameter hack.
+      if (isAssemblyDefinition(result)) {
+        result.run();
       }
     }
     return mod;

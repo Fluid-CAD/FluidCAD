@@ -1,6 +1,7 @@
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 import type { SceneHost } from '../host/scene-host.ts';
+import { isAssemblyDefinition } from '../host/scene-host.ts';
 import { createParamRegistry, getParamRegistry, setParamRegistry } from '../../../lib/dist/index.js';
 
 /**
@@ -24,14 +25,23 @@ export type ScannedPart = {
 };
 
 /**
- * One insertable sub-assembly: an exported zero-arg-callable factory from a
- * `.assembly.js` file whose call `insert()`ed instances (and usually mated
- * them). Consumed by a plain call — `const gantry1 = gantryAssembly();` —
- * never wrapped in `insert()`.
+ * One insertable sub-assembly from a `.assembly.js` file: an exported
+ * `assembly()` definition (`export const xAxis = assembly(...)`) or a
+ * zero-arg-callable factory returning one (`export const xAxis = (w = 700)
+ * => assembly(...)`). Consumed by `insert(xAxis)` / `insert(xAxis())` —
+ * the same statement shape parts use. Legacy factories that `insert()`ed
+ * directly into the enclosing scene are still detected, but their inserted
+ * records now carry the definition-less flat shape only.
  */
 export type ScannedSubAssembly = {
   exportName: string;
   kind: 'assembly';
+  /**
+   * Statement shape: 'value' → `insert(name)`, 'factory' → `insert(name())`.
+   */
+  exportKind: 'value' | 'factory';
+  /** The assembly('name', …) display name, when the export is a definition. */
+  assemblyName?: string;
   /** SerializedInstance[] of the factory's own scene (warm-start poses). */
   instances: any[];
   /** SerializedMate[] of the factory's own scene. */
@@ -169,22 +179,39 @@ export async function scanFileForParts(
         recordPart(result, renderedPools, exportName, value, 'value');
         continue;
       }
-      if (typeof value !== 'function') {
+      const isDirectDefinition = isAssemblyFile && isAssemblyDefinition(value);
+      if (!isDirectDefinition && typeof value !== 'function') {
         continue;
       }
 
       const factoryScene = startScanScene();
       scannedScenes.push(factoryScene);
-      let returned: any;
-      try {
-        returned = await value();
-      } catch (err: any) {
-        result.errors.push({ exportName, message: err?.message ?? String(err) });
-        continue;
+      let returned: any = value;
+      if (typeof value === 'function') {
+        try {
+          returned = await value();
+        } catch (err: any) {
+          result.errors.push({ exportName, message: err?.message ?? String(err) });
+          continue;
+        }
+      }
+      // assembly() definitions are LAZY — a factory return (or a direct
+      // definition export) has created no records yet. Run the body at ROOT
+      // scope in the scan scene, exactly how an entry-file render treats a
+      // definition (declared grounding applies, no occurrence wrapper).
+      const definition = isAssemblyFile && isAssemblyDefinition(returned) ? returned : null;
+      if (definition) {
+        try {
+          definition.run();
+        } catch (err: any) {
+          result.errors.push({ exportName, message: err?.message ?? String(err) });
+          continue;
+        }
       }
       const isPart = isPartInstance(returned);
       // A factory that inserted instances into its own scene is a
-      // sub-assembly, whatever it returned (usually its instance map).
+      // sub-assembly, whatever it returned (a definition ran above, a legacy
+      // factory inserted directly — both land here).
       const assemblyData = !isPart && isAssemblyFile
         ? sceneManager.getAssemblyData!(factoryScene)
         : null;
@@ -207,7 +234,10 @@ export async function scanFileForParts(
       if (isPart) {
         recordPart(result, renderedPools, exportName, returned, 'factory');
       } else {
-        recordSubAssembly(result, renderedPools, exportName, assemblyData!);
+        recordSubAssembly(result, renderedPools, exportName, assemblyData!, {
+          exportKind: typeof value === 'function' ? 'factory' : 'value',
+          assemblyName: typeof definition?.assemblyName === 'string' ? definition.assemblyName : undefined,
+        });
       }
     }
 
@@ -308,6 +338,7 @@ function recordSubAssembly(
   renderedPools: any[][],
   exportName: string,
   data: { instances: any[]; mates: any[] },
+  shape: { exportKind: 'value' | 'factory'; assemblyName?: string },
 ): void {
   const objects: any[] = [];
   const seenParts = new Set<string>();
@@ -336,6 +367,8 @@ function recordSubAssembly(
   result.assemblies.push({
     exportName,
     kind: 'assembly',
+    exportKind: shape.exportKind,
+    assemblyName: shape.assemblyName,
     instances: data.instances,
     mates: data.mates,
     objects,

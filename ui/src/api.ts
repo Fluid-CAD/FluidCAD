@@ -3712,10 +3712,22 @@ export type CatalogPart = {
   objects: SceneObjectRender[];
 };
 
-/** A sub-assembly factory from a `.assembly.js` file — inserted as a bare call. */
+/**
+ * A sub-assembly from a `.assembly.js` file: an exported `assembly()`
+ * definition (or a factory returning one) — inserted with the same
+ * `insert(name)` / `insert(name())` statement shape parts use.
+ */
 export type CatalogAssembly = {
   exportName: string;
   kind: 'assembly';
+  /**
+   * Statement shape: 'value' → `insert(name)`, 'factory' → `insert(name())`.
+   * Absent on servers predating assembly() definitions (legacy factories) —
+   * fall back to 'factory'.
+   */
+  exportKind?: 'value' | 'factory';
+  /** The assembly('name', …) display name, when the export is a definition. */
+  assemblyName?: string;
   /** Warm-start poses; the thumbnail runs the mate solver over them. */
   instances: SerializedAssemblyInstance[];
   mates: SerializedAssemblyMate[];

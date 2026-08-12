@@ -67,12 +67,14 @@ export function makeAssemblyMate(
   a: BoundConnector,
   b: BoundConnector,
   mateId: string,
+  owner: string,
   sourceLocation: SourceLocation | undefined,
 ): AssemblyMate {
   // Hold live Connector references — see AssemblyMate's docs for why
   // snapshotting `.id` here would go stale across SceneCompare runs.
   return {
     mateId,
+    owner,
     type,
     connectorA: { instanceId: a.instanceId, connector: a.connector },
     connectorB: { instanceId: b.instanceId, connector: b.connector },

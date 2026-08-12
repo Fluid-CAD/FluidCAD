@@ -38,6 +38,16 @@ export class Connector extends SceneObject implements IConnector {
    */
   public boundInstanceId?: string;
 
+  /**
+   * Assembly-scoped connectors only: the scope whose body DECLARED the
+   * connector — "" at the root of the file, an occurrence path inside an
+   * assembly() body. Distinct from the bound instance's owner (a body may
+   * bind a connector to an instance nested deeper); this is what makes the
+   * connector part of that occurrence's public interface
+   * (`occurrence.connectors.<name>`).
+   */
+  public ownerPath?: string;
+
   constructor(
     public connectorName: string,
     public sourceShape: ConnectorInput,
@@ -95,6 +105,7 @@ export class Connector extends SceneObject implements IConnector {
     const copy = new Connector(this.connectorName, this.sourceShape, this.options);
     copy.transforms = [...this.transforms];
     copy.boundInstanceId = this.boundInstanceId;
+    copy.ownerPath = this.ownerPath;
     return copy;
   }
 
@@ -120,6 +131,9 @@ export class Connector extends SceneObject implements IConnector {
     if (this.boundInstanceId !== other.boundInstanceId) {
       return false;
     }
+    if (this.ownerPath !== other.ownerPath) {
+      return false;
+    }
     return true;
   }
 
@@ -130,11 +144,12 @@ export class Connector extends SceneObject implements IConnector {
   serialize() {
     const frame = this.getState(FRAME_STATE_KEY) as Plane | undefined;
     if (!frame) {
-      return { name: this.connectorName, instanceId: this.boundInstanceId };
+      return { name: this.connectorName, instanceId: this.boundInstanceId, owner: this.ownerPath };
     }
     return {
       name: this.connectorName,
       instanceId: this.boundInstanceId,
+      owner: this.ownerPath,
       origin: frame.origin,
       xDirection: frame.xDirection,
       yDirection: frame.yDirection,

@@ -24,11 +24,12 @@ export type InsertPartEditSpec = {
   importFrom: string | null;
   exportName: string;
   /**
-   * 'value' renders `insert(name)`, 'factory' renders `insert(name())`,
-   * and 'assembly' renders a bare `name()` — a sub-assembly factory runs
-   * its own `insert()`/`mate()` calls against the enclosing scene, so
-   * wrapping the call in `insert()` would be wrong (and throws: the return
-   * value is an instance map, not a Part).
+   * 'value' renders `insert(name)` and 'factory' renders `insert(name())`
+   * — for parts and assembly() definitions alike, since insert() accepts
+   * both. 'assembly' is the legacy sub-assembly spelling and now renders
+   * `insert(name())` too (a factory returning an assembly() definition);
+   * old-style factories that inserted directly into the enclosing scene
+   * throw a clear migration error from insert() itself.
    */
   kind: InsertPartKind;
 };
@@ -41,7 +42,7 @@ export type InsertPartEditSpec = {
  *     const sidePlate1 = insert(sidePlate());
  *
  *     import { gantryAssembly } from './gantry.assembly.js';
- *     const gantryAssembly1 = gantryAssembly();
+ *     const gantryAssembly1 = insert(gantryAssembly());
  *
  * The result is always bound to a fresh `const` so the follow-up flows
  * (translate chains, mates, sub-assembly connector paths) have a name to
@@ -58,14 +59,11 @@ export async function applyInsertPartEdit(
   if (spec.importFrom) {
     out = await ensureSymbolImport(out, spec.exportName, spec.importFrom);
   }
-  if (spec.kind !== 'assembly') {
-    out = await ensureSymbolImport(out, 'insert');
-  }
+  out = await ensureSymbolImport(out, 'insert');
 
   const varName = pickInstanceName(out, spec.exportName);
-  const statement = spec.kind === 'assembly'
-    ? `const ${varName} = ${spec.exportName}();`
-    : `const ${varName} = insert(${spec.exportName}${spec.kind === 'factory' ? '()' : ''});`;
+  const statement =
+    `const ${varName} = insert(${spec.exportName}${spec.kind === 'value' ? '' : '()'});`;
 
   const parser = await getJavaScriptParser();
   const tree = parser.parse(out);

@@ -20,8 +20,23 @@ export type SerializedAssembly = {
     partName: string;
     position: { x: number; y: number; z: number };
     quaternion: { x: number; y: number; z: number; w: number };
+    /** EFFECTIVE grounding (scoped-grounding rule already applied by the engine). */
     grounded: boolean;
+    /** Owning scope path; "" for root-scope instances. Engines predating sub-assemblies omit it. */
+    owner?: string;
     name: string;
+    sourceLocation?: { filePath: string; line: number; column: number };
+  }>;
+  /** Sub-assembly occurrences — absent on engines predating assembly() definitions. */
+  occurrences?: Array<{
+    occurrenceId: string;
+    assemblyName: string;
+    name: string;
+    parentPath: string;
+    position: { x: number; y: number; z: number };
+    quaternion: { x: number; y: number; z: number; w: number };
+    grounded: boolean;
+    groundConnected: boolean;
     sourceLocation?: { filePath: string; line: number; column: number };
   }>;
   mates: Array<{
@@ -902,6 +917,11 @@ export class FluidCadServer {
           for (const mate of assembly.mates) {
             if (mate.sourceLocation) {
               mate.sourceLocation.filePath = mate.sourceLocation.filePath.replace('virtual:live-render:', '');
+            }
+          }
+          for (const occ of assembly.occurrences ?? []) {
+            if (occ.sourceLocation) {
+              occ.sourceLocation.filePath = occ.sourceLocation.filePath.replace('virtual:live-render:', '');
             }
           }
         }

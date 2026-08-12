@@ -11,11 +11,17 @@
 //     grounded) to row B; source updates accordingly. Toggling it again on
 //     row B drops `.grounded()` and the glyph with it.
 //  6. Rename → inline input commits on Enter or blur.
+//  7. Insert a sub-assembly (`insert(xAxis())`) → its instances group under a
+//     collapsible occurrence header carrying the assembly's name. The header's
+//     menu edits the occurrence's own insert() statement (ground/rename/
+//     delete); member rows only offer Show in source — their statements live
+//     in the sub-assembly's file, where an edit would hit every occurrence.
+//  8. Header 👁 hides/shows all member instances at once.
 //
 // Companion to timeline-panel.ts (part-design rail). Both are mounted on the
 // same container and selected by ui/main.ts based on `sceneKind`.
 
-import type { RenderedInstance } from '../types';
+import type { RenderedInstance, SerializedAssemblyOccurrence } from '../types';
 import {
   ICON_CHEVRON_RIGHT,
   ICON_CODE,
@@ -30,18 +36,31 @@ import {
 
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
 
+/** Statement-editing actions on a top-level occurrence's own insert() chain. */
+export type OccurrenceHandlers = {
+  onShowInSource: (occurrenceId: string) => void;
+  /** Sets (`grounded: true`) or clears (`false`) the occurrence's ground. */
+  onSetGround: (occurrenceId: string, grounded: boolean) => void;
+  onRename: (occurrenceId: string, newName: string) => void;
+  onDelete: (occurrenceId: string) => void;
+};
+
+type RenameTarget = { kind: 'instance' | 'occurrence'; id: string };
+
 export class PartsPanel {
   private panel: HTMLDivElement;
   private partsBody: HTMLDivElement;
   private jointsHost: HTMLDivElement;
   private instances: RenderedInstance[] = [];
+  private occurrences: SerializedAssemblyOccurrence[] = [];
   private selectedId: string | null = null;
   private partsExpanded = true;
   private loaded = false;
   private userHidden = false;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
-  private inlineRenameId: string | null = null;
+  private inlineRename: RenameTarget | null = null;
+  private collapsedGroups = new Set<string>();
 
   private onSelectInstance: (instanceId: string) => void;
   private onToggleVisibility: (instanceId: string, visible: boolean) => void;
@@ -49,6 +68,7 @@ export class PartsPanel {
   private onSetGround: (instanceId: string, grounded: boolean) => void;
   private onRename: (instanceId: string, newName: string) => void;
   private onDeleteInstance: (instanceId: string) => void;
+  private occurrenceHandlers: OccurrenceHandlers | null;
 
   constructor(
     container: HTMLElement,
@@ -59,6 +79,7 @@ export class PartsPanel {
     onSetGround: (instanceId: string, grounded: boolean) => void,
     onRename: (instanceId: string, newName: string) => void,
     onDeleteInstance: (instanceId: string) => void,
+    occurrenceHandlers?: OccurrenceHandlers,
   ) {
     this.onSelectInstance = onSelectInstance;
     this.onToggleVisibility = onToggleVisibility;
@@ -66,6 +87,7 @@ export class PartsPanel {
     this.onSetGround = onSetGround;
     this.onRename = onRename;
     this.onDeleteInstance = onDeleteInstance;
+    this.occurrenceHandlers = occurrenceHandlers ?? null;
 
     this.panel = document.createElement('div');
     // Docked below the top bars (top bar + navbar ≈ 92px) with breathing
@@ -109,8 +131,14 @@ export class PartsPanel {
     return this.jointsHost;
   }
 
-  update(instances: RenderedInstance[]): void {
+  update(instances: RenderedInstance[], occurrences: SerializedAssemblyOccurrence[] = []): void {
     this.instances = instances;
+    this.occurrences = occurrences;
+    for (const id of [...this.collapsedGroups]) {
+      if (!occurrences.some(o => o.occurrenceId === id)) {
+        this.collapsedGroups.delete(id);
+      }
+    }
     if (!this.loaded) {
       this.loaded = true;
       this.syncVisibility();
@@ -147,6 +175,22 @@ export class PartsPanel {
     this.panel.remove();
   }
 
+  /** Top-level occurrences (parentPath ''), in creation order. */
+  private topLevelOccurrences(): SerializedAssemblyOccurrence[] {
+    return this.occurrences.filter(o => o.parentPath === '');
+  }
+
+  /**
+   * All instances belonging to a top-level occurrence, nested sub-assemblies
+   * flattened in (v1 renders one level of grouping). Path-segment prefix
+   * match — a plain startsWith('asm-1') would also swallow 'asm-10/...'.
+   */
+  private membersOf(occurrenceId: string): RenderedInstance[] {
+    return this.instances.filter(i =>
+      i.owner === occurrenceId || (i.owner ?? '').startsWith(`${occurrenceId}/`),
+    );
+  }
+
   private renderRows(): void {
     if (this.instances.length === 0) {
       this.partsBody.innerHTML = `
@@ -157,32 +201,101 @@ export class PartsPanel {
       return;
     }
 
+    // Scene order, one level of grouping: root-owned instances render as
+    // plain rows; the first member of a top-level occurrence emits the whole
+    // group (header + members).
     let html = '';
+    const emittedGroups = new Set<string>();
     for (const inst of this.instances) {
-      const selected = this.selectedId === inst.instanceId;
-      const selectedClass = selected ? ' bg-primary/10' : '';
-      const groundOverlay = inst.grounded
-        ? `<span class="absolute -bottom-1 -right-1 text-warning leading-none [&>svg]:size-3.5" title="Grounded">${ICON_GROUND}</span>`
-        : '';
-      const groundSlot = `<span class="relative shrink-0 inline-flex items-center justify-center w-4 h-4 text-base-content/60 [&>svg]:size-4">${ICON_CUBE}${groundOverlay}</span>`;
-      const eyeIcon = inst.visible ? ICON_EYE : ICON_EYE_OFF;
-      const eyeVisibility = inst.visible
-        ? 'opacity-0 group-hover:opacity-100 text-base-content/40'
-        : 'opacity-100 text-base-content/70';
-      const nameOrInput = this.inlineRenameId === inst.instanceId
-        ? `<input data-rename-input="${inst.instanceId}" value="${escapeAttr(inst.name)}" class="bg-base-100 border border-base-content/20 rounded px-1 py-0 text-sm flex-1 min-w-0" />`
-        : `<span class="truncate">${escapeHtml(inst.name)}</span>`;
-      html += `
-        <div class="group flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/80${selectedClass}" data-instance-id="${inst.instanceId}">
-          ${groundSlot}
-          ${nameOrInput}
-          <button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-eye="${inst.instanceId}">${eyeIcon}</button>
-          <button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${inst.instanceId}">${ICON_DOTS_VERTICAL}</button>
-        </div>
-      `;
+      const owner = inst.owner ?? '';
+      if (owner === '') {
+        html += this.instanceRowHtml(inst, false);
+        continue;
+      }
+      const groupId = owner.split('/')[0];
+      if (emittedGroups.has(groupId)) {
+        continue;
+      }
+      emittedGroups.add(groupId);
+      html += this.groupHtml(groupId);
+    }
+    // Occurrences with no instances (empty or failed bodies) still get their
+    // header so ground/rename/delete stay reachable.
+    for (const occ of this.topLevelOccurrences()) {
+      if (!emittedGroups.has(occ.occurrenceId)) {
+        emittedGroups.add(occ.occurrenceId);
+        html += this.groupHtml(occ.occurrenceId);
+      }
     }
     this.partsBody.innerHTML = html;
 
+    this.bindInstanceRows();
+    this.bindGroupHeaders();
+    this.bindRenameInput();
+  }
+
+  private groupHtml(occurrenceId: string): string {
+    const occ = this.occurrences.find(o => o.occurrenceId === occurrenceId);
+    if (!occ) {
+      // Owner path without an occurrence record (engine mismatch) — render
+      // the members as plain rows rather than dropping them.
+      return this.membersOf(occurrenceId).map(i => this.instanceRowHtml(i, false)).join('');
+    }
+    const members = this.membersOf(occurrenceId);
+    const collapsed = this.collapsedGroups.has(occurrenceId);
+    const allHidden = members.length > 0 && members.every(m => !m.visible);
+    const groundOverlay = occ.grounded
+      ? `<span class="absolute -bottom-1 -right-1 text-warning leading-none [&>svg]:size-3.5" title="Grounded">${ICON_GROUND}</span>`
+      : '';
+    const eyeIcon = allHidden ? ICON_EYE_OFF : ICON_EYE;
+    const eyeVisibility = allHidden
+      ? 'opacity-100 text-base-content/70'
+      : 'opacity-0 group-hover:opacity-100 text-base-content/40';
+    const nameOrInput = this.inlineRename?.kind === 'occurrence' && this.inlineRename.id === occurrenceId
+      ? `<input data-rename-input="occurrence" value="${escapeAttr(occ.name)}" class="bg-base-100 border border-base-content/20 rounded px-1 py-0 text-sm flex-1 min-w-0" />`
+      : `<span class="truncate font-medium">${escapeHtml(occ.name)}</span>`;
+    let html = `
+      <div class="group flex items-center gap-1.5 px-2 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/80" data-occurrence-id="${occurrenceId}">
+        <span data-ref="chevron" class="flex items-center justify-center w-4 h-4 opacity-50 transition-transform${collapsed ? '' : ' rotate-90'}">${ICON_CHEVRON_RIGHT}</span>
+        <span class="relative shrink-0 inline-flex items-center justify-center w-4 h-4 text-base-content/60 [&>svg]:size-4">${ICON_CUBE}${groundOverlay}</span>
+        ${nameOrInput}
+        <span class="text-xs text-base-content/40 tabular-nums shrink-0">${members.length}</span>
+        <button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-group-eye="${occurrenceId}">${eyeIcon}</button>
+        <button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-group-dots="${occurrenceId}">${ICON_DOTS_VERTICAL}</button>
+      </div>
+    `;
+    if (!collapsed) {
+      html += members.map(m => this.instanceRowHtml(m, true)).join('');
+    }
+    return html;
+  }
+
+  private instanceRowHtml(inst: RenderedInstance, indented: boolean): string {
+    const selected = this.selectedId === inst.instanceId;
+    const selectedClass = selected ? ' bg-primary/10' : '';
+    const groundOverlay = inst.grounded
+      ? `<span class="absolute -bottom-1 -right-1 text-warning leading-none [&>svg]:size-3.5" title="Grounded">${ICON_GROUND}</span>`
+      : '';
+    const groundSlot = `<span class="relative shrink-0 inline-flex items-center justify-center w-4 h-4 text-base-content/60 [&>svg]:size-4">${ICON_CUBE}${groundOverlay}</span>`;
+    const eyeIcon = inst.visible ? ICON_EYE : ICON_EYE_OFF;
+    const eyeVisibility = inst.visible
+      ? 'opacity-0 group-hover:opacity-100 text-base-content/40'
+      : 'opacity-100 text-base-content/70';
+    const nameOrInput = this.inlineRename?.kind === 'instance' && this.inlineRename.id === inst.instanceId
+      ? `<input data-rename-input="instance" value="${escapeAttr(inst.name)}" class="bg-base-100 border border-base-content/20 rounded px-1 py-0 text-sm flex-1 min-w-0" />`
+      : `<span class="truncate">${escapeHtml(inst.name)}</span>`;
+    const padding = indented ? 'pl-8 pr-3' : 'px-3';
+    return `
+      <div class="group flex items-center gap-2 ${padding} py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/80${selectedClass}" data-instance-id="${inst.instanceId}">
+        ${groundSlot}
+        ${nameOrInput}
+        <button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-eye="${inst.instanceId}">${eyeIcon}</button>
+        <button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${inst.instanceId}">${ICON_DOTS_VERTICAL}</button>
+      </div>
+    `;
+  }
+
+  private bindInstanceRows(): void {
     this.partsBody.querySelectorAll<HTMLElement>('[data-instance-id]').forEach((row) => {
       row.addEventListener('click', (e) => {
         const target = e.target as HTMLElement;
@@ -230,42 +343,111 @@ export class PartsPanel {
         }, btn);
       });
     });
+  }
 
-    if (this.inlineRenameId) {
-      const input = this.partsBody.querySelector<HTMLInputElement>(`[data-rename-input="${this.inlineRenameId}"]`);
-      if (input) {
-        input.focus();
-        input.select();
-        const commit = () => {
-          const id = this.inlineRenameId!;
-          const value = input.value.trim();
-          this.inlineRenameId = null;
-          if (value.length > 0) {
-            this.onRename(id, value);
-          } else {
-            this.renderRows();
-          }
-        };
-        input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            commit();
-          } else if (e.key === 'Escape') {
-            e.preventDefault();
-            this.inlineRenameId = null;
-            this.renderRows();
-          }
+  private bindGroupHeaders(): void {
+    this.partsBody.querySelectorAll<HTMLElement>('[data-occurrence-id]').forEach((row) => {
+      row.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        if (target.closest('[data-group-eye]') || target.closest('[data-group-dots]') || target.closest('[data-rename-input]')) {
+          return;
+        }
+        const id = row.dataset.occurrenceId!;
+        if (this.collapsedGroups.has(id)) {
+          this.collapsedGroups.delete(id);
+        } else {
+          this.collapsedGroups.add(id);
+        }
+        this.renderRows();
+      });
+      row.addEventListener('contextmenu', (e) => {
+        if ((e.target as HTMLElement).closest('[data-rename-input]')) {
+          return;
+        }
+        e.preventDefault();
+        const panelRect = this.panel.getBoundingClientRect();
+        this.showOccurrenceDropdown(row.dataset.occurrenceId!, {
+          top: e.clientY - panelRect.top,
+          left: e.clientX - panelRect.left,
         });
-        input.addEventListener('blur', commit);
-        input.addEventListener('click', (e) => e.stopPropagation());
-      }
+      });
+    });
+
+    this.partsBody.querySelectorAll<HTMLElement>('[data-group-eye]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const members = this.membersOf(btn.dataset.groupEye!);
+        if (members.length === 0) return;
+        const show = members.every(m => !m.visible);
+        for (const m of members) {
+          if (m.visible !== show) {
+            m.visible = show;
+            this.onToggleVisibility(m.instanceId, show);
+          }
+        }
+        this.renderRows();
+      });
+    });
+
+    this.partsBody.querySelectorAll<HTMLElement>('[data-group-dots]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const rect = btn.getBoundingClientRect();
+        const panelRect = this.panel.getBoundingClientRect();
+        this.showOccurrenceDropdown(btn.dataset.groupDots!, {
+          top: rect.bottom - panelRect.top + 2,
+          left: rect.left - panelRect.left - 140,
+        }, btn);
+      });
+    });
+  }
+
+  private bindRenameInput(): void {
+    if (!this.inlineRename) {
+      return;
     }
+    const input = this.partsBody.querySelector<HTMLInputElement>('[data-rename-input]');
+    if (!input) {
+      return;
+    }
+    input.focus();
+    input.select();
+    const commit = () => {
+      const target = this.inlineRename;
+      this.inlineRename = null;
+      const value = input.value.trim();
+      if (!target || value.length === 0) {
+        this.renderRows();
+        return;
+      }
+      if (target.kind === 'occurrence') {
+        this.occurrenceHandlers?.onRename(target.id, value);
+      } else {
+        this.onRename(target.id, value);
+      }
+    };
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commit();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        this.inlineRename = null;
+        this.renderRows();
+      }
+    });
+    input.addEventListener('blur', commit);
+    input.addEventListener('click', (e) => e.stopPropagation());
   }
 
   /**
    * The row menu, opened either under the ⋮ button (`anchor` given) or at the
    * pointer on a row right-click. `position` is relative to the panel, which
    * hosts the menu so it survives a row re-render.
+   *
+   * Occurrence-owned instances only offer Show in source: their statements
+   * live in the SUB-ASSEMBLY's file, where a ground/rename/delete would edit
+   * every occurrence — those actions belong to the group header instead.
    */
   private showDropdown(
     instanceId: string,
@@ -277,43 +459,94 @@ export class PartsPanel {
     if (!inst) {
       return;
     }
+    const owned = (inst.owner ?? '') !== '';
 
-    const dropdown = document.createElement('div');
-    dropdown.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
-    dropdown.style.top = `${position.top}px`;
-    dropdown.style.left = `${position.left}px`;
-
+    const dropdown = this.openDropdownShell(position, anchor);
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
         ${PartsPanel.menuItem('show-in-source', ICON_CODE, 'Show in source')}
+        ${owned ? '' : `
         ${PartsPanel.menuItem('set-ground', ICON_GROUND, 'Toggle grounded', inst.grounded ? 'text-warning' : '')}
         ${PartsPanel.menuItem('rename', ICON_PENCIL, 'Rename')}
-        ${PartsPanel.menuItem('delete', ICON_TRASH, 'Delete', 'text-error')}
+        ${PartsPanel.menuItem('delete', ICON_TRASH, 'Delete', 'text-error')}`}
       </ul>
     `;
-
-    this.panel.appendChild(dropdown);
-    this.activeDropdown = dropdown;
 
     dropdown.querySelector('[data-action="show-in-source"]')!.addEventListener('click', () => {
       this.closeDropdown();
       this.onShowInSource(instanceId);
     });
+    if (!owned) {
+      dropdown.querySelector('[data-action="set-ground"]')!.addEventListener('click', () => {
+        this.closeDropdown();
+        // Toggle: a grounded instance drops its `.grounded()` again, rather than
+        // re-writing the one it already has.
+        this.onSetGround(instanceId, !inst.grounded);
+      });
+      dropdown.querySelector('[data-action="rename"]')!.addEventListener('click', () => {
+        this.closeDropdown();
+        this.inlineRename = { kind: 'instance', id: instanceId };
+        this.renderRows();
+      });
+      dropdown.querySelector('[data-action="delete"]')!.addEventListener('click', () => {
+        this.closeDropdown();
+        this.onDeleteInstance(instanceId);
+      });
+    }
+  }
+
+  /** The group-header menu — actions target the occurrence's own insert() chain. */
+  private showOccurrenceDropdown(
+    occurrenceId: string,
+    position: { top: number; left: number },
+    anchor?: HTMLElement,
+  ): void {
+    this.closeDropdown();
+    const occ = this.occurrences.find(o => o.occurrenceId === occurrenceId);
+    const handlers = this.occurrenceHandlers;
+    if (!occ || !handlers) {
+      return;
+    }
+
+    const dropdown = this.openDropdownShell(position, anchor);
+    dropdown.innerHTML = `
+      <ul class="menu menu-xs p-1 min-w-[160px]">
+        ${PartsPanel.menuItem('show-in-source', ICON_CODE, 'Show in source')}
+        ${PartsPanel.menuItem('set-ground', ICON_GROUND, 'Toggle grounded', occ.grounded ? 'text-warning' : '')}
+        ${PartsPanel.menuItem('rename', ICON_PENCIL, 'Rename')}
+        ${PartsPanel.menuItem('delete', ICON_TRASH, 'Delete', 'text-error')}
+      </ul>
+    `;
+
+    dropdown.querySelector('[data-action="show-in-source"]')!.addEventListener('click', () => {
+      this.closeDropdown();
+      handlers.onShowInSource(occurrenceId);
+    });
     dropdown.querySelector('[data-action="set-ground"]')!.addEventListener('click', () => {
       this.closeDropdown();
-      // Toggle: a grounded instance drops its `.grounded()` again, rather than
-      // re-writing the one it already has.
-      this.onSetGround(instanceId, !inst.grounded);
+      handlers.onSetGround(occurrenceId, !occ.grounded);
     });
     dropdown.querySelector('[data-action="rename"]')!.addEventListener('click', () => {
       this.closeDropdown();
-      this.inlineRenameId = instanceId;
+      this.inlineRename = { kind: 'occurrence', id: occurrenceId };
       this.renderRows();
     });
     dropdown.querySelector('[data-action="delete"]')!.addEventListener('click', () => {
       this.closeDropdown();
-      this.onDeleteInstance(instanceId);
+      handlers.onDelete(occurrenceId);
     });
+  }
+
+  private openDropdownShell(
+    position: { top: number; left: number },
+    anchor?: HTMLElement,
+  ): HTMLDivElement {
+    const dropdown = document.createElement('div');
+    dropdown.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
+    dropdown.style.top = `${position.top}px`;
+    dropdown.style.left = `${position.left}px`;
+    this.panel.appendChild(dropdown);
+    this.activeDropdown = dropdown;
 
     const onClickOutside = (e: MouseEvent) => {
       if (!dropdown.contains(e.target as Node) && !anchor?.contains(e.target as Node)) {
@@ -330,6 +563,7 @@ export class PartsPanel {
       document.removeEventListener('click', onClickOutside);
       document.removeEventListener('contextmenu', onClickOutside);
     };
+    return dropdown;
   }
 
   /** One icon + label menu row, matching the timeline panel's context menu. */

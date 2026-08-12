@@ -168,12 +168,14 @@ function buildAssemblyRail(): LeftRail {
     },
     (id, grounded) => {
       const inst = findInstance(id);
-      if (!inst?.sourceLocation) return;
+      // Occurrence-owned instances' statements live in the sub-assembly's
+      // file — the panel hides these actions, this is the backstop.
+      if (!inst?.sourceLocation || inst.owner) return;
       updateInsertChain(inst.sourceLocation, { ground: grounded });
     },
     (id, newName) => {
       const inst = findInstance(id);
-      if (!inst?.sourceLocation) return;
+      if (!inst?.sourceLocation || inst.owner) return;
       updateInsertChain(inst.sourceLocation, {
         name: newName,
         defaultName: defaultNameFor(inst),
@@ -181,11 +183,40 @@ function buildAssemblyRail(): LeftRail {
     },
     (id) => {
       const inst = findInstance(id);
-      if (!inst?.sourceLocation) return;
+      if (!inst?.sourceLocation || inst.owner) return;
       // Drops the whole `insert(...)` statement, its `const` binding included.
       // Mates that still reference the binding are left for the user — the
       // next render reports them, same as the timeline's Remove.
       removeFeature(inst.sourceLocation);
+    },
+    // Occurrence header actions — the occurrence's own `insert(subAsm())`
+    // chain lives in the OPEN file, so the same statement edits instances
+    // use apply verbatim.
+    {
+      onShowInSource: (id) => {
+        const occ = findOccurrence(id);
+        if (occ?.sourceLocation) {
+          gotoSource(occ.sourceLocation);
+        }
+      },
+      onSetGround: (id, grounded) => {
+        const occ = findOccurrence(id);
+        if (!occ?.sourceLocation) return;
+        updateInsertChain(occ.sourceLocation, { ground: grounded });
+      },
+      onRename: (id, newName) => {
+        const occ = findOccurrence(id);
+        if (!occ?.sourceLocation) return;
+        updateInsertChain(occ.sourceLocation, {
+          name: newName,
+          defaultName: occ.assemblyName,
+        });
+      },
+      onDelete: (id) => {
+        const occ = findOccurrence(id);
+        if (!occ?.sourceLocation) return;
+        removeFeature(occ.sourceLocation);
+      },
     },
   );
   joints = new JointsPanel(
@@ -225,6 +256,10 @@ let lastFailedMateIds = new Set<string>();
 
 function findInstance(instanceId: string) {
   return lastAssemblyPayload?.instances.find(i => i.instanceId === instanceId);
+}
+
+function findOccurrence(occurrenceId: string) {
+  return lastAssemblyPayload?.occurrences?.find(o => o.occurrenceId === occurrenceId);
 }
 
 function findMate(mateId: string) {
@@ -281,7 +316,7 @@ function applyAssemblyToRail(rail: LeftRail & { kind: 'assembly' }, assembly: Se
     ...i,
     visible: rail.instanceVisibility.get(i.instanceId) ?? true,
   }));
-  rail.parts.update(rendered);
+  rail.parts.update(rendered, assembly.occurrences ?? []);
   rail.joints.update(matesWithStatus(assembly.mates, lastFailedMateIds), rendered);
 }
 
@@ -1334,6 +1369,12 @@ viewer.setInstanceDragReleaseHandler((instanceId, position) => {
   // exists, leave such instances at their default in source and let the
   // mate warm-start re-derive the pose from the driver.
   if (!inst.grounded && instanceHasMate(instanceId)) {
+    return;
+  }
+  // Occurrence-owned instances' sourceLocations point into the sub-assembly's
+  // own file, and their pose there is local to the occurrence frame — never
+  // write this view's world pose there. Live-only, like mated bodies.
+  if (inst.owner) {
     return;
   }
   updateInsertChain(inst.sourceLocation, {

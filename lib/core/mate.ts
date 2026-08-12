@@ -44,8 +44,10 @@ function mate(type: MateType, a: unknown, b: unknown): MateBuilder {
   const sourceLocation = captureSourceLocation();
   // Counter-based id; see insert.ts for the rationale (line-derived ids
   // collided across edits and caused the UI to reuse the wrong record).
-  const mateId = `mate-${scene.getMates().length}`;
-  const record = makeAssemblyMate(type, a, b, mateId, sourceLocation ?? undefined);
+  // Counted per scope and path-qualified, like instance ids.
+  const record = makeAssemblyMate(
+    type, a, b, scene.nextMateId(), scene.currentScopePath(), sourceLocation ?? undefined,
+  );
   scene.addMate(record);
   return new MateBuilder(record);
 }

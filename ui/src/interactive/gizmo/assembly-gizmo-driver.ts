@@ -211,10 +211,17 @@ export class AssemblyGizmoDriver {
   }
 
   /** The instance when a commit would write source; undefined for live-only
-   *  moves (no source location, or mate-constrained ungrounded). */
+   *  moves (no source location, mate-constrained ungrounded, or owned by a
+   *  sub-assembly occurrence). */
   private persistableInstance(instanceId: string): SerializedAssemblyInstance | undefined {
     const inst = this.bindings.findInstance(instanceId);
     if (!inst?.sourceLocation) {
+      return undefined;
+    }
+    // Occurrence-owned: the sourceLocation points into the SUB-ASSEMBLY's
+    // file, and the pose there is local to the occurrence frame — writing
+    // this view's world pose would corrupt every occurrence of it.
+    if (inst.owner) {
       return undefined;
     }
     if (!inst.grounded && this.bindings.instanceHasMate(instanceId)) {

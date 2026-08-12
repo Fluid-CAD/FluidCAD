@@ -344,6 +344,92 @@ describe('applyInstanceConnectorCreate', () => {
 
 // Mates referencing instance-scoped connectors: the side renders as the
 // connector statement's own const binding instead of `<insert>.connectors.x`.
+// Statements referencing insert() bindings inside an `assembly()` body must
+// land INSIDE that body (before its return) — a file-end append would
+// reference the binding from outside its closure and throw on render.
+describe('scope-aware placement (assembly() bodies)', () => {
+  const DEF = [
+    `import { assembly, insert, mate } from "fluidcad/core";`,
+    ``,
+    `export const xAxis = (width = 100) => assembly('x-axis', () => {`,
+    `    const rail = insert(beam(width)).grounded();`,
+    `    const carriage = insert(beam(20));`,
+    `    mate('slider', rail.connectors.top, carriage.connectors.top);`,
+    `    return { rail, carriage };`,
+    `});`,
+    ``,
+  ].join('\n');
+
+  it('places an on-the-fly connector inside the body, before the return', async () => {
+    const result = await applyInstanceConnectorCreate(DEF, {
+      name: 'c1',
+      instanceLine: 5,
+      filterArgs: `face().onPlane('yz')`,
+      anchorSuffix: '.center()',
+    });
+    expect(result.error).toBeUndefined();
+    const statement = `    const c1 = connector('c1', carriage.select(face().onPlane('yz')).center());`;
+    expect(result.newCode).toContain(statement);
+    expect(result.newCode.indexOf(statement))
+      .toBeLessThan(result.newCode.indexOf('return { rail, carriage };'));
+  });
+
+  it('places a created mate inside the body, before the return', async () => {
+    const result = await applyAssemblyMateEdit(DEF, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 4, connectorName: 'end' },
+        connectorB: { instanceLine: 5, connectorName: 'start' },
+      },
+    });
+    expect(result.error).toBeUndefined();
+    const statement = `    mate('fastened', rail.connectors.end, carriage.connectors.start);`;
+    expect(result.newCode).toContain(statement);
+    expect(result.newCode.indexOf(statement))
+      .toBeLessThan(result.newCode.indexOf('return { rail, carriage };'));
+  });
+
+  it('refuses a mate across two different assembly bodies', async () => {
+    const code = [
+      `import { assembly, insert, mate } from "fluidcad/core";`,
+      ``,
+      `export const a = () => assembly('a', () => {`,
+      `    const p1 = insert(x());`,
+      `    return { p1 };`,
+      `});`,
+      `export const b = () => assembly('b', () => {`,
+      `    const p2 = insert(x());`,
+      `    return { p2 };`,
+      `});`,
+      ``,
+    ].join('\n');
+    const result = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 4, connectorName: 'top' },
+        connectorB: { instanceLine: 8, connectorName: 'top' },
+      },
+    });
+    expect(result.error).toContain('different assembly bodies');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('keeps flat top-level files appending at the file end', async () => {
+    const code = `${HEADER}\nconst arm1 = insert(arm());\nconst base1 = insert(base());\n`;
+    const result = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 3, connectorName: 'top' },
+        connectorB: { instanceLine: 4, connectorName: 'top' },
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode.trimEnd().endsWith(
+      `mate('fastened', arm1.connectors.top, base1.connectors.top);`,
+    )).toBe(true);
+  });
+});
+
 describe('applyAssemblyMateEdit with instance-scoped refs', () => {
   const CODE = `${HEADER}\nconst arm1 = insert(arm());\nconst base1 = insert(base()).grounded();\n\n`
     + `const pivot = connector('pivot', arm1.select(face().onPlane('xy', 10)));\n`;

@@ -1,6 +1,7 @@
 import {
   ensureSymbolImport,
   getJavaScriptParser,
+  indentOf,
   isBlankRow,
   joinLines,
   spliceCode,
@@ -122,7 +123,9 @@ export async function applyAssemblyMateEdit(
 
   const result = spec.edit
     ? await replaceMateStatement(working, spec.edit.sourceLine, statement)
-    : appendStatement(working, statement);
+    : await appendStatementInScope(
+      working, statement, payload.connectorA.instanceLine, payload.connectorB.instanceLine,
+    );
   if (result.error) {
     return { newCode: code, error: result.error };
   }
@@ -467,6 +470,84 @@ function appendStatement(code: string, statement: string): AssemblyMateEditResul
   return { newCode: joinLines(lines) };
 }
 
+/** Nearest statement_block (or the program root) enclosing `node`. */
+function enclosingBlock(node: TSNode | null): TSNode | null {
+  let cur = node?.parent ?? null;
+  while (cur) {
+    if (cur.type === 'statement_block' || cur.type === 'program') {
+      return cur;
+    }
+    cur = cur.parent;
+  }
+  return null;
+}
+
+/** The scope holding the statement whose chain starts on `anchorLine`. */
+function scopeOfAnchor(tree: TSTree, anchorLine: number): TSNode | null {
+  const chain = findChainAt(tree, anchorLine);
+  const statement = chain ? enclosingStatement(chain) : null;
+  return enclosingBlock(statement);
+}
+
+/**
+ * Append the statement into the SCOPE holding the anchor statement — inside
+ * the `assembly()` body's statement block when the referenced `insert()`
+ * lives in one (`export const xAxis = (w) => assembly('x-axis', () => {...})`
+ * — the canonical sub-assembly form), the file's top level otherwise. A
+ * file-end append there would reference the insert binding from OUTSIDE its
+ * closure: a ReferenceError on the next render.
+ *
+ * Inside a block the statement lands BEFORE its `return` (statements after
+ * it never run, and assembly bodies conventionally end on `return {...}`).
+ * `requireSameScopeLine` (the mate's second connector) refuses when the two
+ * anchors live in different scopes — no single placement could see both
+ * bindings.
+ */
+async function appendStatementInScope(
+  code: string,
+  statement: string,
+  anchorLine: number,
+  requireSameScopeLine?: number,
+): Promise<AssemblyMateEditResult> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const scope = scopeOfAnchor(tree, anchorLine);
+  if (requireSameScopeLine !== undefined) {
+    const other = scopeOfAnchor(tree, requireSameScopeLine);
+    if (scope && other && scope.startIndex !== other.startIndex) {
+      return {
+        newCode: code,
+        error: 'the two connectors\' instances live in different assembly bodies — mate them in the file that inserts both',
+      };
+    }
+  }
+  if (!scope || scope.type === 'program') {
+    return appendStatement(code, statement);
+  }
+
+  const lines = splitLines(code);
+  const statements = scope.namedChildren.filter(c => c.type !== 'comment');
+  const returnStmt = statements.find(c => c.type === 'return_statement') ?? null;
+  const lastStmt = statements[statements.length - 1] ?? null;
+  let insertRow: number;
+  let indent: string;
+  if (returnStmt) {
+    insertRow = returnStmt.startPosition.row;
+    indent = indentOf(lines, returnStmt.startPosition.row);
+  } else if (lastStmt) {
+    insertRow = lastStmt.endPosition.row + 1;
+    indent = indentOf(lines, lastStmt.startPosition.row);
+  } else {
+    // Unreachable in practice (the anchor statement lives in this block),
+    // but a defensive fallback beats dropping the edit.
+    return appendStatement(code, statement);
+  }
+  const separated = insertRow > 0 && !isBlankRow(lines, insertRow - 1)
+    && !isAssemblyStatementRow(lines[insertRow - 1]);
+  lines.splice(insertRow, 0, ...(separated ? ['', `${indent}${statement}`] : [`${indent}${statement}`]));
+  return { newCode: joinLines(lines) };
+}
+
 /**
  * Consecutive mate()/connector() statements group without blank separators
  * between them (an assembly connector may carry its `const` binding).
@@ -602,7 +683,7 @@ export async function applyInstanceConnectorCreate(
   });
   const statement = `const ${connectorBinding} = connector('${spec.name}', ${source})${chain};`;
 
-  const appended = appendStatement(working, statement);
+  const appended = await appendStatementInScope(working, statement, spec.instanceLine);
   if (appended.error) {
     return { newCode: code, error: appended.error };
   }

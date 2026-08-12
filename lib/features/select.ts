@@ -230,6 +230,17 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
         deps.push(obj);
       }
     }
+    // Lazily-resolved filter references (plane-ref selections) are
+    // dependencies too, but never join the selection universe.
+    for (const builder of this.filters) {
+      for (const filter of builder.getFilters()) {
+        for (const obj of filter.getSceneObjectRefs()) {
+          if (!deps.includes(obj)) {
+            deps.push(obj);
+          }
+        }
+      }
+    }
     return deps;
   }
 

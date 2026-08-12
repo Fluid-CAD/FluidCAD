@@ -55,63 +55,51 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
   }
 
   /**
-   * Selects faces that lie on the given plane.
-   * @param plane - The reference plane.
-   * @param offset - Optional distance to offset the plane before matching.
+   * Selects faces that lie on the given plane. Besides a standard plane or a
+   * plane feature, any scene object whose first shape is a face works as the
+   * reference — a bucket accessor like `e.endFaces()`, or a select(). The
+   * face is only read to derive its plane (no plane feature is created, and
+   * the referenced geometry is not consumed), so the reference stays valid
+   * even when a later feature reshaped or consumed the face.
+   * @param plane - The reference plane, plane feature, or face selection.
+   * @param offset - Optional distance to offset a standard plane before matching.
    */
-  onPlane(plane: PlaneLike | PlaneObjectBase, offset = 0) {
-    if (!plane) {
-      throw new Error('Plane is required');
-    }
-
-    let planeObj: PlaneObjectBase;
-
-    if (plane instanceof PlaneObjectBase) {
-      planeObj = plane;
-    }
-    else {
-      plane = normalizePlane(plane);
-
-      if (offset) {
-        plane= plane.offset(offset);
-      }
-
-      planeObj = new PlaneObject(plane);
-    }
-
-    const filter = new OnPlaneFilter(planeObj);
-    this.filters.push(filter);
+  onPlane(plane: PlaneLike | PlaneObjectBase | ISceneObject, offset = 0) {
+    this.filters.push(new OnPlaneFilter(this.resolvePlaneSource(plane, offset)));
     return this;
   }
 
   /**
-   * Excludes faces that lie on the given plane.
-   * @param plane - The reference plane.
-   * @param offset - Optional distance to offset the plane before matching.
+   * Excludes faces that lie on the given plane. Accepts the same references
+   * as {@link onPlane}, including a face selection to read the plane from.
+   * @param plane - The reference plane, plane feature, or face selection.
+   * @param offset - Optional distance to offset a standard plane before matching.
    */
-  notOnPlane(plane: PlaneLike | PlaneObjectBase, offset = 0) {
+  notOnPlane(plane: PlaneLike | PlaneObjectBase | ISceneObject, offset = 0) {
+    this.filters.push(new NotOnPlaneFilter(this.resolvePlaneSource(plane, offset)));
+    return this;
+  }
+
+  /**
+   * Normalize an `onPlane` argument to a filter source: plane features and
+   * face selections pass through (their plane resolves lazily at match
+   * time), a plane-like gets the offset applied and wrapped.
+   */
+  private resolvePlaneSource(
+    plane: PlaneLike | PlaneObjectBase | ISceneObject,
+    offset: number,
+  ): PlaneObjectBase | SceneObject {
     if (!plane) {
       throw new Error('Plane is required');
     }
-
-    let planeObj: PlaneObjectBase;
-
-    if (plane instanceof PlaneObjectBase) {
-      planeObj = plane;
+    if (plane instanceof PlaneObjectBase || plane instanceof SceneObject) {
+      return plane;
     }
-    else {
-      plane = normalizePlane(plane);
-
-      if (offset) {
-        plane= plane.offset(offset);
-      }
-
-      planeObj = new PlaneObject(plane);
+    let normalized = normalizePlane(plane as PlaneLike);
+    if (offset) {
+      normalized = normalized.offset(offset);
     }
-
-    const filter = new NotOnPlaneFilter(planeObj);
-    this.filters.push(filter);
-    return this;
+    return new PlaneObject(normalized);
   }
 
   /**

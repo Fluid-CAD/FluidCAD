@@ -12,14 +12,24 @@ export type ExpressionFieldResult =
 /**
  * Collect the declarations a dialog's field reads committed, deduplicated by
  * name; undefined when none — the apply payload omits the key entirely.
+ * Multi-field controls (ThinControl) contribute a `newVariables` list.
  */
 export function collectNewVariables(
-  reads: ({ newVariable?: { name: string; initializer: string } } | null | undefined)[],
+  reads: ({
+    newVariable?: { name: string; initializer: string };
+    newVariables?: { name: string; initializer: string }[];
+  } | null | undefined)[],
 ): { name: string; initializer: string }[] | undefined {
   const seen = new Map<string, { name: string; initializer: string }>();
   for (const read of reads) {
-    if (read?.newVariable && !seen.has(read.newVariable.name)) {
-      seen.set(read.newVariable.name, read.newVariable);
+    if (!read) {
+      continue;
+    }
+    const vars = read.newVariables ?? (read.newVariable ? [read.newVariable] : []);
+    for (const v of vars) {
+      if (!seen.has(v.name)) {
+        seen.set(v.name, v);
+      }
     }
   }
   return seen.size > 0 ? [...seen.values()] : undefined;

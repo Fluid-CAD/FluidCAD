@@ -1,9 +1,9 @@
 import type { SelectedEntity, Viewer } from '../../viewer';
 import type { SubSelection } from '../../types';
 import type { MeasureEntityRef, MeasureResult, UserPreferences } from '../../api';
-import { measureEntities, savePreference } from '../../api';
+import type { EngineClient } from '../../engine-client';
 import { mergeUniqueEntities, sameEntity } from '../../helpers/entities';
-import { SelectionContextMenu } from '../../interactive/selection-menu';
+import type { SelectionContextMenu, SelectionMenuHandlers } from '../../interactive/selection-menu';
 import { MeasureOverlay } from './measure-overlay';
 import { MeasurePanel } from './measure-panel';
 import { MeasureStatusBar } from './measure-status-bar';
@@ -34,15 +34,22 @@ export class MeasureController {
   private statusBar: MeasureStatusBar;
   private panel: MeasurePanel;
   private overlay: MeasureOverlay;
-  private menu: SelectionContextMenu;
+  private menu: SelectionContextMenu | null;
   /** Notified whenever the selection set changes through this controller. */
   onSelectionChanged: ((selection: SelectedEntity[]) => void) | null = null;
 
-  constructor(container: HTMLElement, private viewer: Viewer) {
+  constructor(
+    container: HTMLElement,
+    private client: EngineClient,
+    private viewer: Viewer,
+    // Injected so read-only hosts (no selection-groups backend) can omit the
+    // menu without pulling interactive/selection-menu into their bundle.
+    menuFactory?: (handlers: SelectionMenuHandlers) => SelectionContextMenu,
+  ) {
     // Right-click menu: multi-select groups + sibling buckets ("Select
     // other"). Groups merge into the measure selection, which seeds the
     // modify tools.
-    this.menu = new SelectionContextMenu(container, 'fluidcad-measure-select-menu', {
+    this.menu = !menuFactory ? null : menuFactory({
       kinds: ['tangent', 'classified', 'same-type', 'equal', 'sibling'],
       onSelectGroup: (_kind, _seed, members) => {
         this.setSelection(mergeUniqueEntities(this.entities, members));
@@ -62,12 +69,12 @@ export class MeasureController {
       onRemoveEntity: (ref) => this.removeEntity(ref),
       onLengthUnitChange: (unit) => {
         this.lengthUnit = unit;
-        savePreference('measureLengthUnit', unit);
+        this.client.savePreference('measureLengthUnit', unit);
         this.updateUI();
       },
       onAngleUnitChange: (unit) => {
         this.angleUnit = unit;
-        savePreference('measureAngleUnit', unit);
+        this.client.savePreference('measureAngleUnit', unit);
         this.updateUI();
       },
       onHoverViz: (viz) => {
@@ -126,8 +133,8 @@ export class MeasureController {
 
   /** Right-click in neutral mode: the multi-select menu over that pick. */
   handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
-    this.menu.hide();
-    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane' || sub.type === 'connector') {
+    this.menu?.hide();
+    if (!this.menu || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane' || sub.type === 'connector') {
       return;
     }
     // The hover tint would otherwise be stashed as an "original" color by the
@@ -137,13 +144,13 @@ export class MeasureController {
   }
 
   clearSelection(): void {
-    this.menu.hide();
+    this.menu?.hide();
     this.setSelection([]);
   }
 
   /** Scene re-rendered: shape ids may have changed and the viewer already cleared its highlights. */
   onSceneRendered(): void {
-    this.menu.hide();
+    this.menu?.hide();
     this.abortController?.abort();
     this.abortController = null;
     this.entities = [];
@@ -182,7 +189,7 @@ export class MeasureController {
     this.result = null;
     this.updateUI();
 
-    measureEntities(refs, abort.signal).then((result) => {
+    this.client.measureEntities(refs, abort.signal).then((result) => {
       if (abort.signal.aborted || this.abortController !== abort) {
         return;
       }

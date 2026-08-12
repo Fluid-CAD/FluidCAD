@@ -1,5 +1,5 @@
 import { ICON_SCALE } from './icons';
-import { getMaterials, getShapeProperties } from '../api';
+import type { EngineClient } from '../engine-client';
 import type { ShapeProperties } from '../api';
 
 /**
@@ -93,7 +93,7 @@ export class ShapePropertiesModal {
   private centroidHandler: ((centroid: { x: number; y: number; z: number } | null) => void) | null = null;
   private openHandler: (() => void) | null = null;
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, private client: EngineClient) {
     this.btn = document.createElement('button');
     this.btn.className = 'btn btn-ghost btn-square btn-sm rounded-md absolute bottom-6 right-8 z-[100] panel-bg border border-base-content/10 text-base-content/60';
     this.btn.title = 'Shape Properties';
@@ -278,7 +278,7 @@ export class ShapePropertiesModal {
   }
 
   private async loadMaterials(): Promise<void> {
-    const materials = await getMaterials();
+    const materials = await this.client.getMaterials();
     if (!materials) {
       return;
     }
@@ -306,7 +306,7 @@ export class ShapePropertiesModal {
     this.resultsEl.classList.add('hidden');
 
     try {
-      this.rawProps = await getShapeProperties(this.selectedShapeId);
+      this.rawProps = await this.client.getShapeProperties(this.selectedShapeId);
       if (!this.rawProps) {
         this.showError('Failed to calculate properties.');
         return;

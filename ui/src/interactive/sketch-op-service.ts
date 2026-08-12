@@ -96,7 +96,11 @@ export type SketchOpConfig = {
    * hides the tab row and stays in pick mode (there is nothing to re-draw).
    */
   tabs?: {
-    draw: { label: string; title: string; hint: string };
+    draw: {
+      label: string; title: string; hint: string;
+      /** An option toggle shown in the draw pane (slot's Centered). */
+      toggle?: { label: string; title: string };
+    };
     pick: { label: string; title: string };
   };
 };
@@ -140,6 +144,12 @@ export class SketchOpService {
    */
   onModeChange?: (mode: SketchOpMode) => void;
 
+  /**
+   * Fired when the draw pane's option toggle flips. The toolbar service
+   * re-arms the drawing tool so the new option takes effect immediately.
+   */
+  onDrawToggleChange?: (checked: boolean) => void;
+
   private readonly panel: HTMLDivElement;
   private readonly valueInput: HTMLInputElement | null;
   private readonly valueField: ExpressionField | null;
@@ -157,6 +167,9 @@ export class SketchOpService {
   private readonly tabsRow: HTMLDivElement | null;
   private readonly drawHint: HTMLDivElement | null;
   private readonly pickBody: HTMLDivElement | null;
+  /** The draw pane's option toggle (slot's Centered); null without one. */
+  private readonly drawToggle: HTMLInputElement | null;
+  private readonly drawToggleRow: HTMLLabelElement | null;
 
   private currentMode: SketchOpMode;
   private active = false;
@@ -235,10 +248,17 @@ export class SketchOpService {
       : `
           <div data-role="hint" class="hidden text-base-content/50"></div>`;
     // A tabbed dialog wraps the pick UI in one pane and adds a draw-hint
-    // pane; the tab row switches between them.
+    // pane; the tab row switches between them. The draw pane can carry one
+    // option toggle of its own (slot's Centered) — it configures the armed
+    // drawing tool, so it lives outside the pick-pane toggles map.
+    const drawToggleRow = config.tabs?.draw.toggle ? `
+          <label data-role="draw-toggle-row" class="flex items-center justify-between cursor-pointer" title="${config.tabs.draw.toggle.title}">
+            <span class="text-base-content/70">${config.tabs.draw.toggle.label}</span>
+            <input data-role="draw-toggle" type="checkbox" class="toggle toggle-sm toggle-primary" />
+          </label>` : '';
     const tabsRow = config.tabs ? `
           <div data-role="tabs" class="join w-full"></div>
-          <div data-role="draw-hint" class="text-base-content/50">${config.tabs.draw.hint}</div>` : '';
+          <div data-role="draw-hint" class="text-base-content/50">${config.tabs.draw.hint}</div>${drawToggleRow}` : '';
     this.panel.innerHTML = `
       <div data-role="column" class="${DIALOG_COLUMN_CLASS}">
         <div class="${DIALOG_BODY_CLASS}">
@@ -275,6 +295,9 @@ export class SketchOpService {
     for (const toggle of config.toggles ?? []) {
       this.toggles.set(toggle.key, this.panel.querySelector(`[data-role="toggle-${toggle.key}"]`)!);
     }
+    this.drawToggle = this.panel.querySelector('[data-role="draw-toggle"]');
+    this.drawToggleRow = this.panel.querySelector('[data-role="draw-toggle-row"]');
+    this.drawToggle?.addEventListener('change', () => this.onDrawToggleChange?.(this.drawToggle!.checked));
     this.slotRows = config.slotted
       ? {
         base: this.panel.querySelector('[data-role="slot-base"]')!,
@@ -349,6 +372,11 @@ export class SketchOpService {
     return this.currentMode;
   }
 
+  /** The draw pane's option toggle state; false for dialogs without one. */
+  get drawToggleChecked(): boolean {
+    return this.drawToggle?.checked ?? false;
+  }
+
   /** Tab switch: swap the panes, then hand the viewport over via onModeChange. */
   private setMode(mode: SketchOpMode): void {
     if (this.currentMode === mode) {
@@ -374,6 +402,7 @@ export class SketchOpService {
     }
     const draw = this.currentMode === 'draw';
     this.drawHint?.classList.toggle('hidden', !draw);
+    this.drawToggleRow?.classList.toggle('hidden', !draw);
     this.pickBody?.classList.toggle('hidden', draw);
     this.applyBtn.classList.toggle('hidden', draw);
   }

@@ -1,0 +1,8 @@
+# Cross-origin isolation so the embedded FluidCAD viewer iframe gets
+# SharedArrayBuffer (multi-threaded OCJS WASM). `credentialless` instead of
+# `require-corp` keeps CORP-less third-party scripts (GTM/gtag) loading; on
+# browsers without credentialless support (Safari) the page is simply not
+# isolated and ViewerEmbed falls back to opening the viewer in a new tab.
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless

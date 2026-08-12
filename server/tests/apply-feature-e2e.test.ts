@@ -149,6 +149,56 @@ describe('select→apply-feature end to end', () => {
     expect(cylinders.length).toBeGreaterThanOrEqual(4);
   });
 
+  it('shells a filleted extrude through a plane-reference selector', async () => {
+    const code = [
+      `import { sketch, rect, extrude, fillet } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(123.28, 56.07).centered() })`,
+      `const e = extrude(25)`,
+      `fillet(10, e.sideEdges())`,
+      ``,
+    ].join('\n');
+
+    sketch('xy', () => { rect(123.28, 56.07).centered() });
+    const e = extrude(25);
+    (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
+    const f = core.fillet(10, (e as any).sideEdges());
+    (f as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 5, column: 0 });
+
+    const scene = render();
+    const solid = findSolid(scene);
+    // The fillet reshaped the top face (rounded corners): it belongs to no
+    // bucket, so synthesis goes scene-wide — but it must name the plane
+    // through the extrude's end face, not bake `onPlane('xy', 25)` in.
+    const picks: PickRef[] = [];
+    Explorer.findFacesWrapped(solid).forEach((fc, index) => {
+      const mids = fc.getEdges().map(eg => EdgeOps.getEdgeMidPoint(eg));
+      if (mids.every(m => Math.abs(m.z - 25) < 1e-6)) {
+        picks.push({ shapeId: solid.id, sub: { type: 'face', index } });
+      }
+    });
+    expect(picks).toHaveLength(1);
+
+    const synthesis = synthesizeApplyFeature(scene, picks, 'shell', -2);
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    expect(synthesis.preview).toBe('shell(-2, select(face().onPlane(e.endFaces())))');
+
+    const edited = await applyFeatureEdit(code, synthesis.spec);
+    expect(edited.error).toBeUndefined();
+    expect(edited.newCode).toContain(`import { face } from 'fluidcad/filters';`);
+    expect(edited.newCode).toMatch(/import \{[^}]*\bselect\b[^}]*\} from 'fluidcad\/core'/);
+    expect(edited.newCode).toContain('shell(-2, select(face().onPlane(e.endFaces())))');
+
+    // Execute the edited program: the top opens and the solid hollows out.
+    const rerun = runFluid(edited.newCode);
+    const newSolid = findSolid(rerun) as Solid;
+    expect(ShapeProps.getProperties(newSolid.getShape()).volumeMm3)
+      .toBeLessThan(ShapeProps.getProperties((solid as Solid).getShape()).volumeMm3 * 0.5);
+  });
+
   it('fillets one repeat instance through a synthesized scene-wide select()', async () => {
     const code = [
       `import { sketch, rect, extrude, repeat } from 'fluidcad/core'`,

@@ -1,4 +1,5 @@
 import { Viewer } from './viewer';
+import { HttpEngineClient } from './http-engine-client';
 import { ShapePropertiesModal } from './ui/shape-properties-modal';
 import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 import { TimelinePanel } from './ui/timeline-panel';
@@ -19,6 +20,7 @@ import { AssemblyToolbar } from './ui/assembly-toolbar';
 import { InsertPartDialog } from './ui/insert-part/insert-part-dialog';
 import { ICON_IMG_FALLBACK } from './ui/object-icons';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
+import { SelectionContextMenu } from './interactive/selection-menu';
 import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
 import { ProjectionPickService } from './interactive/projection-pick-service';
@@ -61,7 +63,8 @@ const container = document.getElementById('fluidcad-viewer') || document.body;
 let pendingShowBuildTimings = false;
 
 const loadingOverlay = new LoadingOverlay(container);
-const viewer = new Viewer('fluidcad-viewer');
+const engineClient = new HttpEngineClient();
+const viewer = new Viewer('fluidcad-viewer', engineClient);
 
 onThemeChange(() => viewer.rebuildSceneMesh());
 
@@ -81,13 +84,16 @@ loadPreferences().then((prefs) => {
 // UI components
 // ---------------------------------------------------------------------------
 
-const shapePropertiesModal = new ShapePropertiesModal(container);
+const shapePropertiesModal = new ShapePropertiesModal(container, engineClient);
 // The properties panel's whole-solid picker (single mode) — the copy dialog
 // shares the component in multiple mode for its targets slot.
 const propertiesSolidPick = new SolidPickSelection(viewer);
-const selectionInfoOverlay = new SelectionInfoOverlay(container);
-const measureController = new MeasureController(container, viewer);
-const exportDialog = new ExportDialog(container, viewer.sceneContext);
+const selectionInfoOverlay = new SelectionInfoOverlay(container, engineClient);
+const measureController = new MeasureController(
+  container, engineClient, viewer,
+  (handlers) => new SelectionContextMenu(container, 'fluidcad-measure-select-menu', handlers),
+);
+const exportDialog = new ExportDialog(container, engineClient, viewer.sceneContext);
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design
 // rail (TimelinePanel, History+Shapes) or the assembly rail
@@ -126,6 +132,7 @@ function disposeRail(): void {
 function buildPartRail(): Extract<LeftRail, { kind: 'part' }> {
   const timeline = new TimelinePanel(
     container,
+    engineClient,
     (shapeId) => viewer.highlightShape(shapeId),
     (shapeIds) => exportDialog.show(shapeIds),
     (shapeId, visible) => viewer.setShapeVisibility(shapeId, visible),
@@ -334,7 +341,7 @@ new AssemblyToolbar(navbar, {
   onMate: (type) => assemblyMateService.enter(type),
 });
 
-const paramsPanel = new ParamsPanel(viewer.settingsPanelHost, new ParamEditorDialog(container));
+const paramsPanel = new ParamsPanel(viewer.settingsPanelHost, engineClient, new ParamEditorDialog(container));
 
 viewer.setParamsToggleHandler(() => {
   paramsPanel.toggle();
@@ -1810,7 +1817,8 @@ function scheduleCameraStatePush(): void {
 viewer.sceneContext.cameraControls.addEventListener('update', scheduleCameraStatePush);
 
 function connectWebSocket() {
-  const wsUrl = `ws://${window.location.host}`;
+  // Protocol-relative: plain ws:// is blocked from an https page.
+  const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
   const ws = new WebSocket(wsUrl);
 
   ws.addEventListener('open', () => {

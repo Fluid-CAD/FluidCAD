@@ -102,15 +102,15 @@ function validateBoundary(raw: any): SelectionBoundary | undefined | null {
   return { index: raw.index, type: raw.type, line: raw.line, column: raw.column };
 }
 
-/** One or two positive `.thin()` offsets; absent means a plain feature. */
+/** One or two non-zero `.thin()` offsets (signs pick sides); absent means a plain feature. */
 function validateThinOffsets(thin: unknown): { offsets: [ValueExpr] | [ValueExpr, ValueExpr] | null } | { error: string } {
   if (thin === undefined || thin === null) {
     return { offsets: null };
   }
   const valid = Array.isArray(thin) && thin.length >= 1 && thin.length <= 2
-    && thin.every((t: unknown) => validValueExpr(t, { positive: true }));
+    && thin.every((t: unknown) => validValueExpr(t, { nonzero: true }));
   if (!valid) {
-    return { error: 'thin must be one or two positive offsets or expressions' };
+    return { error: 'thin must be one or two non-zero offsets or expressions' };
   }
   return { offsets: thin.length === 1 ? [thin[0]] : [thin[0], thin[1]] };
 }
@@ -1818,7 +1818,11 @@ function makePickSynthesizer(deps: {
     }
     const remap = synthesis.spec.producers.map(deps.mergeProducer);
     const part = synthesis.spec.parts[0];
-    deps.parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
+    deps.parts.push({
+      ...part,
+      producer: part.producer === null ? null : remap[part.producer],
+      refs: part.refs ? part.refs.map((i: number) => remap[i]) : part.refs,
+    });
     for (const symbol of synthesis.spec.imports) {
       deps.imports.add(symbol);
     }
@@ -3620,7 +3624,11 @@ export function createApplyFeatureRouter(
         const foldSynthesis = (synthesis: any): number => {
           const remap = synthesis.spec.producers.map(mergeProducer);
           for (const part of synthesis.spec.parts) {
-            parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
+            parts.push({
+              ...part,
+              producer: part.producer === null ? null : remap[part.producer],
+              refs: part.refs ? part.refs.map((i: number) => remap[i]) : part.refs,
+            });
           }
           for (const symbol of synthesis.spec.imports) {
             importSet.add(symbol);
@@ -3983,7 +3991,11 @@ export function createApplyFeatureRouter(
             }
             const remap = synthesis.spec.producers.map(mergeProducer);
             for (const part of synthesis.spec.parts) {
-              parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
+              parts.push({
+                ...part,
+                producer: part.producer === null ? null : remap[part.producer],
+                refs: part.refs ? part.refs.map((i: number) => remap[i]) : part.refs,
+              });
               sketchAxisParts.push(parts.length - 1);
             }
             if (request.copySketchTargets) {
@@ -4375,7 +4387,9 @@ export function createApplyFeatureRouter(
             return;
           }
           parts = synthesis.spec.parts.map((part: ApplyFeatureEditSpec['parts'][number]) => ({
-            ...part, producer: part.producer === null ? null : part.producer + producers.length,
+            ...part,
+            producer: part.producer === null ? null : part.producer + producers.length,
+            refs: part.refs ? part.refs.map(i => i + producers.length) : part.refs,
           }));
           producers.push(...synthesis.spec.producers);
           imports = synthesis.spec.imports;
@@ -4660,7 +4674,9 @@ export function createApplyFeatureRouter(
           return;
         }
         const parts = synthesis.spec.parts.map((part: ApplyFeatureEditSpec['parts'][number]) => ({
-          ...part, producer: part.producer === null ? null : part.producer + producers.length,
+          ...part,
+          producer: part.producer === null ? null : part.producer + producers.length,
+          refs: part.refs ? part.refs.map(i => i + producers.length) : part.refs,
         }));
         producers.push(...synthesis.spec.producers);
         const imports = synthesis.spec.imports;
@@ -4756,7 +4772,9 @@ export function createApplyFeatureRouter(
             return;
           }
           parts = synthesis.spec.parts.map((part: ApplyFeatureEditSpec['parts'][number]) => ({
-            ...part, producer: part.producer === null ? null : part.producer + producers.length,
+            ...part,
+            producer: part.producer === null ? null : part.producer + producers.length,
+            refs: part.refs ? part.refs.map(i => i + producers.length) : part.refs,
           }));
           producers.push(...synthesis.spec.producers);
           imports = [...synthesis.spec.imports, 'axis'];
@@ -5029,7 +5047,11 @@ export function createApplyFeatureRouter(
           filePath = synthesis.spec.filePath;
           const remap = synthesis.spec.producers.map(mergeProducer);
           const part = synthesis.spec.parts[0];
-          parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
+          parts.push({
+            ...part,
+            producer: part.producer === null ? null : remap[part.producer],
+            refs: part.refs ? part.refs.map((i: number) => remap[i]) : part.refs,
+          });
           for (const symbol of synthesis.spec.imports) {
             imports.add(symbol);
           }
@@ -5063,7 +5085,11 @@ export function createApplyFeatureRouter(
             return producerVars[profile.producer] ?? 's';
           }
           const part = parts[profile.part];
-          return renderSelectorPartExpr(part, part.producer === null ? null : producerVars[part.producer]);
+          return renderSelectorPartExpr(
+            part,
+            part.producer === null ? null : producerVars[part.producer],
+            i => producerVars[i] ?? null,
+          );
         });
 
         const guideExprs = guides.map(guide => producerVars[guide.producer] ?? 'g');
@@ -5180,7 +5206,11 @@ export function createApplyFeatureRouter(
           filePath = synthesis.spec.filePath;
           const remap = synthesis.spec.producers.map(mergeProducer);
           const part = synthesis.spec.parts[0];
-          parts.push({ ...part, producer: part.producer === null ? null : remap[part.producer] });
+          parts.push({
+            ...part,
+            producer: part.producer === null ? null : remap[part.producer],
+            refs: part.refs ? part.refs.map((i: number) => remap[i]) : part.refs,
+          });
           for (const symbol of synthesis.spec.imports) {
             imports.add(symbol);
           }

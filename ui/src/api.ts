@@ -20,7 +20,7 @@ export type ValueExpr = number | string;
 /** A `const <name> = <initializer>` declaration an expression field committed. */
 export type NewVariable = { name: string; initializer: string };
 
-type SourceLocationParam = { filePath?: string; line: number; column: number };
+export type SourceLocationParam = { filePath?: string; line: number; column: number };
 
 // ---------------------------------------------------------------------------
 // Types
@@ -2428,7 +2428,7 @@ export type ParsedFeatureStatement =
       /** `.endOffset(value)` pull-back, or null when the chain is absent. */
       endOffset: ValueExpr | null;
       drill: boolean;
-      thin: [ValueExpr] | null;
+      thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
       profileText: string | null;
       /** Up-to-face target argument text, or null for a distance extrude. */
       toFaceText: string | null;
@@ -2460,7 +2460,7 @@ export type ParsedFeatureStatement =
   | {
       feature: 'sweep';
       op: FeatureOpKind;
-      thin: [ValueExpr] | null;
+      thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
       pathText: string;
       profileText: string | null;
     }
@@ -2481,7 +2481,7 @@ export type ParsedFeatureStatement =
       angle: ValueExpr | null;
       /** `.symmetric()` chained on the statement. */
       symmetric: boolean;
-      thin: [ValueExpr] | null;
+      thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
       /** Axis argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`). */
       axisText: string;
       profileText: string | null;
@@ -2503,7 +2503,7 @@ export type ParsedFeatureStatement =
   | {
       feature: 'loft';
       op: FeatureOpKind;
-      thin: [ValueExpr] | null;
+      thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
       profileTexts: string[];
       guideTexts: string[];
       startCondition: LoftConditionRef | null;

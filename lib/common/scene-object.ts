@@ -1,4 +1,3 @@
-import { randomUUID } from "crypto";
 import { Shape, ShapeFilter } from "./shape.js";
 import { Face } from "./face.js";
 import { Edge } from "./edge.js";
@@ -84,7 +83,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     this.state.set('removedEdges', [])
     this.state.set('finalShapes', [])
 
-    this._id = randomUUID().toString();
+    this._id = globalThis.crypto.randomUUID().toString();
   }
 
   get id(): string {

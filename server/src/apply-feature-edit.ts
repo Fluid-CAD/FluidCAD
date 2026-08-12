@@ -201,6 +201,13 @@ export type ApplyFeatureEditSpec = {
     indices: number[] | null;
     /** Rendered filter-builder arguments, e.g. `edge().circle(5)`. */
     filterArgs: string | null;
+    /**
+     * Producers (indices into `producers`) that `filterArgs` references
+     * through `{{r<n>}}` tokens — plane-reference selectors like
+     * `face().onPlane({{r0}}.endFaces())`. Rendering substitutes each token
+     * with the bound variable's name.
+     */
+    refs?: number[] | null;
   }[];
   /** Extra symbols the statement references (`select`, `edge`, `face`). */
   imports: string[];
@@ -752,10 +759,9 @@ export function renderFaceTargetExpr(target: ExtrudeFaceTarget): string {
 
 /**
  * How an extrude statement is rendered and placed. The single producer is the
- * profile *sketch* call. `implicit` inserts at the end of the sketch's scope
- * and consumes it as the last sketch (`extrude(25)`); `bound` binds the sketch
- * to a variable and inserts directly after its statement (`const s = …;
- * extrude(25, s)`) so a later active sketch stays active.
+ * profile *sketch* call. `implicit` consumes the scope's last sketch
+ * (`extrude(25)`); `bound` binds the sketch to a variable (`const s = …;
+ * extrude(25, s)`). Either way the statement inserts at end of scope.
  */
 export type ExtrudeEditOptions = {
   op: 'add' | 'remove' | 'new';
@@ -798,9 +804,8 @@ export type ExtrudeEditOptions = {
  * sketch, `bound` binds it to a variable (always producers[0]). Scope entries
  * are the solid-bearing statements the rib conforms to and fuses with, each
  * bound to a variable (featureType `feature` producers, following the spine
- * in the list). With a bound spine the statement inserts right after the
- * latest of its input statements so a later active sketch stays active; an
- * implicit spine inserts at end of scope.
+ * in the list). The statement always inserts at end of scope, where an
+ * implicit spine is the last sketch.
  */
 export type RibEditOptions = {
   op: 'add' | 'remove' | 'new';
@@ -822,10 +827,8 @@ export type RibEditOptions = {
  * plus `.thin(…)` / `.remove()` / `.new()` chains. The profile is a sketch —
  * `implicit` consumes the last sketch (an anchor-only producer verifies it),
  * `{producer}` binds that sketch to a variable. The path is either a bound
- * sketch producer or the selector rendered from `parts` (edge picks). With
- * both ends being sketches and a bound profile, the statement inserts right
- * after the later of the two so a later active sketch stays active; every
- * other combination inserts at end of scope, where an implicit profile is
+ * sketch producer or the selector rendered from `parts` (edge picks). The
+ * statement always inserts at end of scope, where an implicit profile is
  * the last sketch and a selector path is known to resolve.
  */
 export type SweepEditOptions = {
@@ -880,10 +883,9 @@ export type RevolveAxisSpec =
  * a variable (the extrude contract: the profile is always producers[0]). A
  * standard axis renders no producer; an axis-statement input binds its
  * producer to a variable; a picked edge renders the single selector part
- * wrapped in `axis(…)`. With every input an explicit variable the statement
- * inserts right after the latest input statement so a later active sketch
- * stays active; a selector axis or an implicit profile forces end-of-scope
- * insertion, where the picked edge is known to resolve.
+ * wrapped in `axis(…)`. The statement always inserts at end of scope, where
+ * a picked edge is known to resolve and an implicit profile is the last
+ * sketch.
  */
 export type RevolveEditOptions = {
   op: 'add' | 'remove' | 'new';
@@ -915,8 +917,8 @@ export type HelixSourceSpec =
  * null. A helix is a wire, so there is no add/remove/new operation. A standard
  * axis renders no producer; an axis-statement source binds its producer to a
  * variable; a picked edge or face renders the single selector part (an edge
- * wrapped in `axis(…)`). A selector source forces end-of-scope insertion where
- * the pick resolves; a bound axis inserts right after its statement.
+ * wrapped in `axis(…)`). The statement always inserts at end of scope, where
+ * a picked selector is known to resolve.
  */
 export type HelixEditOptions = {
   source: HelixSourceSpec;
@@ -1189,10 +1191,8 @@ export type TarcEditOptions = {
  * variable; a selector profile renders one entry of `parts` (a picked face).
  * Guides are always bound sketch producers, at most two — the kernel takes
  * no more — and exclude thin mode (`Loft.validate` throws on the combination).
- * All-sketch lofts insert directly after the latest input statement (guides
- * included — the statement references their variables) so a later active
- * sketch stays active; any selector profile forces end-of-scope insertion,
- * where the picked faces are known to resolve.
+ * The statement always inserts at end of scope, where picked faces are known
+ * to resolve.
  */
 export type LoftEditOptions = {
   op: 'add' | 'remove' | 'new';
@@ -1254,9 +1254,8 @@ export type PlaneValueOptions = {
  * decide where it lands. A mid base must be plane-like, so a picked face/edge
  * selector is wrapped in its own `plane(…)` there. With only standard bases
  * the spec carries no producers at all and the statement appends at top
- * level; with plane-variable bases and no selectors it inserts right after
- * the latest input statement; any selector base forces end-of-scope
- * insertion, where the picked geometry is known to resolve.
+ * level; otherwise it inserts at end of scope, where picked geometry is
+ * known to resolve.
  */
 export type PlaneEditOptions = PlaneValueOptions & {
   /** One base for an offset/edge plane, two for a mid plane. */
@@ -2526,6 +2525,11 @@ function resolveProducerBindings(
     if (part.producer !== null && !spec.producers[part.producer]?.bind) {
       return { error: 'malformed edit spec: a selector part references an unbound producer' };
     }
+    for (const ref of part.refs ?? []) {
+      if (!spec.producers[ref]?.bind) {
+        return { error: 'malformed edit spec: a selector part references an unbound producer' };
+      }
+    }
   }
 
   return { bindings };
@@ -2788,7 +2792,7 @@ export function renderRevolveAxisExpr(
     return varFor(axis.producer) ?? 'a';
   }
   const part = parts[0];
-  return `axis(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer))})`;
+  return `axis(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor)})`;
 }
 
 /** A helix's chained geometry configurators — shared by its create and edit payloads. */
@@ -2860,7 +2864,7 @@ export function renderHelixSourceExpr(
     return varFor(source.producer) ?? 'a';
   }
   const part = parts[0];
-  const selector = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+  const selector = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
   return source.kind === 'edge' ? `axis(${selector})` : selector;
 }
 
@@ -2923,7 +2927,7 @@ export function renderRepeatAxisExpr(
     return varFor(axis.producer) ?? 'a';
   }
   const part = parts[axis.part];
-  return `axis(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer))})`;
+  return `axis(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor)})`;
 }
 
 /**
@@ -2946,7 +2950,7 @@ export function renderRepeatPlaneExpr(
     return varFor(plane.producer) ?? 'p';
   }
   const part = parts[plane.part];
-  return `plane(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer))})`;
+  return `plane(${renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor)})`;
 }
 
 /**
@@ -3101,12 +3105,21 @@ export function renderShellJoinChain(joinType: ShellJoinKind | undefined): strin
  * Render one selector part as an expression: `select(<args>)` for a global
  * part, `<var>.<accessor>(<args>)` on a bound producer. Shared with the
  * route, which renders loft profiles part-by-part with the namer's names.
+ * `refVarFor` resolves the producers `filterArgs` references through
+ * `{{r<n>}}` tokens (plane-reference selectors) to their bound variables.
  */
 export function renderSelectorPartExpr(
   part: ApplyFeatureEditSpec['parts'][number],
   producerVar: string | null,
+  refVarFor?: (producer: number) => string | null,
 ): string {
-  const selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
+  let selectorArgs = part.indices ? part.indices.join(', ') : (part.filterArgs ?? '');
+  (part.refs ?? []).forEach((ref, i) => {
+    const name = refVarFor?.(ref);
+    if (name) {
+      selectorArgs = selectorArgs.split(`{{r${i}}}`).join(name);
+    }
+  });
   if (part.producer === null) {
     // 'filter' parts are bare edge-filter arguments (2D ops accept them
     // directly); everything else producer-less is a global select().
@@ -3268,7 +3281,7 @@ export function renderPlaneBaseExpr(
     return varFor(base.producer) ?? 'h';
   }
   const part = parts[base.part];
-  const expr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+  const expr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
   return type === 'mid' ? `plane(${expr})` : expr;
 }
 
@@ -3299,7 +3312,7 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     let faceExpr: string | null = null;
     if (target === 'selector') {
       const part = spec.parts[0];
-      faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName);
+      faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName, i => bindings[i].varName);
     } else if (target !== undefined) {
       faceExpr = renderFaceTargetExpr(target);
     }
@@ -3321,7 +3334,7 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'wrap') {
     const wr = spec.wrap!;
     const part = spec.parts[0];
-    const faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName);
+    const faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName, i => bindings[i].varName);
     return renderWrapStatement(wr, bindings[wr.sketch.producer].varName ?? 's', faceExpr);
   }
   if (spec.feature === 'revolve') {
@@ -3373,7 +3386,7 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
         return bindings[profile.producer].varName!;
       }
       const part = spec.parts[profile.part];
-      return renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName);
+      return renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName, i => bindings[i].varName);
     });
     const guideExprs = (lo.guides ?? []).map(guide => bindings[guide.producer].varName!);
     return renderLoftStatement(lo, profileExprs, guideExprs);
@@ -3561,7 +3574,7 @@ function applyTarcRetarget(
 function renderSelectorArgs(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[]): string {
   const rawArgs = spec.rawArgs?.trim();
   return rawArgs ?? spec.parts
-    .map(part => renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName))
+    .map(part => renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName, i => bindings[i].varName))
     .join(', ');
 }
 
@@ -3570,6 +3583,7 @@ const MODULE_FOR_IMPORT: Record<string, string> = {
   edge: 'fluidcad/filters',
   face: 'fluidcad/filters',
   axis: 'fluidcad/core',
+  plane: 'fluidcad/core',
   param: 'fluidcad/core',
 };
 
@@ -3693,22 +3707,15 @@ async function insertDeclsAfterImports(code: string, decls: string[]): Promise<s
     : `${text}\n${code}`;
 }
 
-/** Insertion point directly after `statement`, at its own indent. */
-function afterStatementInsertion(
-  statement: TSNode,
-  lines: string[],
-): { index: number; indent: string; wrap: (stmt: string) => string } {
-  const indent = indentOf(lines, statement.startPosition.row);
-  return { index: statement.endIndex, indent, wrap: (stmt) => `\n${indent}${stmt}` };
-}
-
 /**
- * Where the feature statement goes. Statements whose inputs are all explicit
- * sketch variables insert directly after the latest input — a later active
- * sketch stays the active one (bound-profile extrude; bound-profile sweep
- * with a sketch path; all-sketch loft). Everything else inserts at end of
- * scope: a selector must resolve on the final model, and an implicit profile
- * must consume the scope's last sketch.
+ * Where the feature statement goes: at the end of the producers' scope —
+ * before an active `breakpoint();` or a trailing `return` — regardless of
+ * how the inputs are sourced. End of scope matches what the user saw when
+ * picking (selectors resolve on the final model, an implicit profile
+ * consumes the scope's last sketch), and bound-variable inputs resolve
+ * anywhere after their declaration. The one exception is a projection,
+ * which reads the sketch it is called from and so lands inside that
+ * sketch's body rather than in the producers' scope.
  */
 type Insertion = { index: number; indent: string; wrap: (stmt: string) => string };
 
@@ -3719,8 +3726,6 @@ function resolveInsertion(
   lines: string[],
   tree: TSTree,
 ): Insertion | { error: string } {
-  // A projection reads the sketch it is called from, so it lands inside that
-  // sketch's body rather than in the producers' scope.
   if (spec.feature === 'project') {
     return resolveSketchBodyInsertion(spec.project!.sketch, bindings, lines, tree);
   }
@@ -3728,79 +3733,6 @@ function resolveInsertion(
   // part's callback body rather than in the producers' hoisted scope.
   if (spec.feature === 'connector') {
     return resolvePartBodyInsertion(spec.connector!.part, bindings, lines, tree);
-  }
-  // An up-to-face extrude resolves its target against the model — a picked
-  // face's selector, or the first/last face the extrusion runs into — so it
-  // goes at end of scope, even with a bound profile.
-  if (spec.feature === 'extrude' && spec.extrude!.profile === 'bound' && !spec.extrude!.toFace) {
-    return afterStatementInsertion(bindings[0].statement, lines);
-  }
-  if (spec.feature === 'rib' && spec.rib!.spine === 'bound') {
-    // The statement references the spine and every scope variable — insert
-    // right after the latest of those statements so a later active sketch
-    // stays active. An implicit spine falls through to end-of-scope, where
-    // the last sketch is what the rib consumes.
-    const latest = [bindings[0], ...spec.rib!.scope.map(p => bindings[p])]
-      .map(binding => binding.statement)
-      .reduce((a, b) => (b.endIndex >= a.endIndex ? b : a));
-    return afterStatementInsertion(latest, lines);
-  }
-  if (spec.feature === 'sweep') {
-    const sw = spec.sweep!;
-    if (sw.path.kind === 'sketch' && sw.profile !== 'implicit') {
-      const path = bindings[sw.path.producer].statement;
-      const profile = bindings[sw.profile.producer].statement;
-      return afterStatementInsertion(path.endIndex >= profile.endIndex ? path : profile, lines);
-    }
-  }
-  if (spec.feature === 'revolve' && spec.revolve!.profile === 'bound') {
-    const rev = spec.revolve!;
-    // A picked-edge axis references a selector, which must resolve on the
-    // final model — end of scope, even with a bound profile.
-    if (rev.axis.kind === 'standard') {
-      return afterStatementInsertion(bindings[0].statement, lines);
-    }
-    if (rev.axis.kind === 'axis') {
-      const profile = bindings[0].statement;
-      const axis = bindings[rev.axis.producer].statement;
-      return afterStatementInsertion(axis.endIndex >= profile.endIndex ? axis : profile, lines);
-    }
-  }
-  if (spec.feature === 'helix') {
-    const hx = spec.helix!;
-    // An axis-statement source binds one producer — insert right after it so a
-    // later active sketch stays active. A picked edge/face references a
-    // selector that must resolve on the final model, so it falls through to
-    // end-of-scope insertion.
-    if (hx.source.kind === 'axis') {
-      return afterStatementInsertion(bindings[hx.source.producer].statement, lines);
-    }
-  }
-  if (spec.feature === 'plane') {
-    // Selector-free bases are explicit plane/helix variables (standard-only
-    // specs never reach here — they append at top level with no producers at
-    // all): insert right after the latest input statement.
-    const planeBases = spec.plane!.bases
-      .filter((b): b is { kind: 'plane' | 'wire'; producer: number } =>
-        b.kind === 'plane' || b.kind === 'wire');
-    if (planeBases.length > 0 && spec.plane!.bases.every(b => b.kind !== 'selector')) {
-      const latest = planeBases
-        .map(b => bindings[b.producer].statement)
-        .reduce((a, b) => (b.endIndex >= a.endIndex ? b : a));
-      return afterStatementInsertion(latest, lines);
-    }
-  }
-  if (spec.feature === 'loft') {
-    const sketches = spec.loft!.profiles
-      .filter((p): p is { kind: 'sketch'; producer: number } => p.kind === 'sketch');
-    if (sketches.length === spec.loft!.profiles.length) {
-      // Guides are inputs too — the statement references their variables, so
-      // it must land after the latest of profiles AND guides.
-      const latest = [...sketches, ...(spec.loft!.guides ?? [])]
-        .map(p => bindings[p.producer].statement)
-        .reduce((a, b) => (b.endIndex >= a.endIndex ? b : a));
-      return afterStatementInsertion(latest, lines);
-    }
   }
   return findInsertionPoint(scope, lines, bindings);
 }
@@ -4075,7 +4007,7 @@ export type ParsedFeatureStatement =
     /** `.endOffset(value)` pull-back, or null when the chain is absent. */
     endOffset: ValueExpr | null;
     drill: boolean;
-    thin: [ValueExpr] | null;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     /** Trailing profile argument text (`s`), or null for implicit consumption. */
     profileText: string | null;
     /** Up-to-face target argument text, or null for a distance extrude. */
@@ -4110,7 +4042,7 @@ export type ParsedFeatureStatement =
   | {
     feature: 'sweep';
     op: 'add' | 'remove' | 'new';
-    thin: [ValueExpr] | null;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     pathText: string;
     profileText: string | null;
   }
@@ -4131,7 +4063,7 @@ export type ParsedFeatureStatement =
     angle: ValueExpr | null;
     /** `.symmetric()` chained on the statement. */
     symmetric: boolean;
-    thin: [ValueExpr] | null;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     /** Axis argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`). */
     axisText: string;
     /** Trailing profile argument text (`s`), or null for implicit consumption. */
@@ -4154,7 +4086,7 @@ export type ParsedFeatureStatement =
   | {
     feature: 'loft';
     op: 'add' | 'remove' | 'new';
-    thin: [ValueExpr] | null;
+    thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     profileTexts: string[];
     guideTexts: string[];
     startCondition: LoftConditionSpec | null;
@@ -4904,17 +4836,21 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
   }
   const op: 'add' | 'remove' | 'new' = isCut || hasRemove ? 'remove' : hasNew ? 'new' : 'add';
 
-  let thin: [ValueExpr] | null = null;
+  let thin: [ValueExpr] | [ValueExpr, ValueExpr] | null = null;
   const thinSeg = recognized.get('thin');
   if (thinSeg) {
-    if (thinSeg.args.length !== 1) {
-      return { error: 'only a single-offset .thin() can be edited in the dialog' };
+    if (thinSeg.args.length < 1 || thinSeg.args.length > 2) {
+      return { error: 'only a one- or two-offset .thin() can be edited in the dialog' };
     }
-    const offset = anyValueArg(thinSeg.args[0]);
-    if (offset === null) {
-      return { error: 'the .thin() offset is not a plain number or expression — edit it in the source' };
+    const offsets: ValueExpr[] = [];
+    for (const arg of thinSeg.args) {
+      const offset = anyValueArg(arg);
+      if (offset === null) {
+        return { error: 'a .thin() offset is not a plain number or expression — edit it in the source' };
+      }
+      offsets.push(offset);
     }
-    thin = [offset];
+    thin = offsets.length === 1 ? [offsets[0]] : [offsets[0], offsets[1]];
   }
 
   if (feature === 'extrude') {
@@ -6644,7 +6580,7 @@ function validEditThin(thin: unknown): thin is [ValueExpr] | [ValueExpr, ValueEx
     return true;
   }
   return Array.isArray(thin) && thin.length >= 1 && thin.length <= 2
-    && thin.every(t => validValueExpr(t, { positive: true }));
+    && thin.every(t => validValueExpr(t, { nonzero: true }));
 }
 
 function validEditCondition(condition: LoftConditionSpec | undefined): boolean {
@@ -6680,7 +6616,7 @@ function editedSelectorArgs(
 ): string {
   const partsArgs = spec.parts.length > 0
     ? spec.parts
-      .map(part => renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer)))
+      .map(part => renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor))
       .join(', ')
     : null;
   return spec.rawArgs?.trim() || partsArgs || argsText;
@@ -6750,7 +6686,7 @@ function resolveLoftSources(
         }
         usedParts.add(profile.part);
         const part = spec.parts[profile.part];
-        exprs.push(renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer)));
+        exprs.push(renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor));
       } else {
         return { error: 'malformed loft edit spec: unknown profile kind' };
       }
@@ -7443,7 +7379,7 @@ export function renderEditedStatement(
           return { error: 'malformed extrude edit spec: a re-picked target is exactly one part' };
         }
         const part = spec.parts[0];
-        faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+        faceExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
         target = 'selector';
       } else if (opts.toFace.kind === 'first-face' || opts.toFace.kind === 'last-face') {
         if (spec.parts.length > 0) {
@@ -7554,7 +7490,7 @@ export function renderEditedStatement(
           return { error: 'malformed sweep edit spec: a selector path is exactly one part' };
         }
         const part = spec.parts[0];
-        pathText = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+        pathText = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
       } else {
         const varName = editSourceVar(spec, opts.path.producer, varFor);
         if (typeof varName !== 'string') {
@@ -7588,7 +7524,7 @@ export function renderEditedStatement(
         return { error: 'malformed wrap edit spec: a re-picked face is exactly one part' };
       }
       const part = spec.parts[0];
-      faceText = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+      faceText = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
     } else if (spec.parts.length > 0) {
       return { error: 'malformed wrap edit spec: selector parts without a re-picked face' };
     }
@@ -7721,7 +7657,7 @@ export function renderEditedStatement(
         return { error: 'malformed sketch edit spec: a re-picked target is exactly one part' };
       }
       const part = spec.parts[0];
-      targetExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+      targetExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
     } else {
       return { error: 'malformed sketch edit spec' };
     }
@@ -7767,7 +7703,7 @@ export function renderEditedStatement(
         return { error: 'a re-picked text path is exactly one geometry' };
       }
       const part = spec.parts[0];
-      pathExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer));
+      pathExpr = renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
     }
     if (pathExpr === null && textOptionsNeedPath(opts)) {
       return { error: 'the distributed alignments, offset, start-at and flip only apply to text following a path' };

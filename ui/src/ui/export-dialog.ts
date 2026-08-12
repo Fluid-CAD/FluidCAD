@@ -1,6 +1,6 @@
 import { SceneContext } from '../scene/scene-context';
 import { captureScreenshot } from '../screenshot';
-import { exportShapes } from '../api';
+import type { EngineClient } from '../engine-client';
 import { ICON_CLOSE } from './icons';
 
 export class ExportDialog {
@@ -27,7 +27,7 @@ export class ExportDialog {
   private shapeIds: string[] = [];
   private selectedFormat: string = 'step';
 
-  constructor(container: HTMLElement, private sceneCtx: SceneContext) {
+  constructor(container: HTMLElement, private client: EngineClient, private sceneCtx: SceneContext) {
     this.overlay = document.createElement('div');
     this.overlay.className = 'fixed inset-0 z-[300] bg-black/50 flex items-center justify-center hidden';
     this.overlay.innerHTML = this.buildHTML();
@@ -217,7 +217,7 @@ export class ExportDialog {
     this.statusEl.innerHTML = '<span class="loading loading-spinner loading-xs"></span><span>Exporting...</span>';
 
     try {
-      const blob = await exportShapes(body);
+      const blob = await this.client.exportShapes(body);
       const ext = format === 'step' ? '.step' : '.stl';
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

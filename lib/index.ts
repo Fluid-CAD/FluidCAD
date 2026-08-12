@@ -165,6 +165,8 @@ export async function init(options?: FluidCADOptions) {
   if (existing) {
     return existing;
   }
-  const resolvedPath = process.env.FLUIDCAD_WORKSPACE_PATH || '';
+  // No `process` in the browser (BrowserEngineHost); workspace paths are
+  // meaningless there anyway — assets come from the AssetProvider.
+  const resolvedPath = (typeof process !== 'undefined' && process.env.FLUIDCAD_WORKSPACE_PATH) || '';
   return createManager(resolvedPath, options);
 }

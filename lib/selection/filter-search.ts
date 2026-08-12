@@ -11,7 +11,7 @@ import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { injectBelongsToFaceScope } from "../filters/scope-injection.js";
 import { SelectionIndex, BucketRecord } from "./selection-index.js";
 import { PickAttribution } from "./attribution.js";
-import { Atom, ParameterLink, instantiateEdgeAtoms, instantiateFaceAtoms } from "./atoms.js";
+import { Atom, ParameterLink, PlaneSource, instantiateEdgeAtoms, instantiateFaceAtoms } from "./atoms.js";
 import { induceConjunction } from "./induction.js";
 import { probeEdge, probeFace } from "./probe.js";
 
@@ -41,6 +41,12 @@ export type InducedFilter = {
   bakedConstants: number;
   /** The composed builders, exactly as the rendered text would build them. */
   builders: FilterBuilderBase<Shape>[];
+  /**
+   * Producers the rendered text references through `{{r<n>}}` tokens
+   * (plane-reference atoms) — the writer must bind each to a variable and
+   * substitute its name for the token.
+   */
+  refs: SceneObject[];
 };
 
 export function bucketContext(
@@ -74,6 +80,7 @@ export function globalContext(
   kind: 'edge' | 'face',
   params: ParameterLink[] = [],
   partScope: SceneObject | null = null,
+  planeSources: PlaneSource[] = [],
 ): InductionContext {
   const solids: Solid[] = [];
   const seenSolids = new Set<string>();
@@ -132,11 +139,13 @@ export function globalContext(
         universe as Edge[],
         true,
         params,
+        planeSources,
       ) as Atom<FilterBuilderBase<Shape>>[]
       : instantiateFaceAtoms(
         attrs.map(a => probeFace(a.picked as Face)),
         universe as Face[],
         params,
+        planeSources,
       ) as Atom<FilterBuilderBase<Shape>>[],
     orSplit: true,
   };
@@ -209,8 +218,9 @@ export function induceFilterArgs(
     return null;
   }
 
+  const refs: SceneObject[] = [];
   const filterArgs = conjunctions
-    .map(conj => `${ctx.kindFn}()${conj.map(a => a.code).join('')}`)
+    .map(conj => `${ctx.kindFn}()${conj.map(a => renderAtomCode(a, refs)).join('')}`)
     .join(', ');
   const constants = conjunctions.reduce(
     (sum, conj) => sum + conj.reduce((s, a) => s + a.constants, 0), 0,
@@ -218,7 +228,24 @@ export function induceFilterArgs(
   const bakedConstants = conjunctions.reduce(
     (sum, conj) => sum + conj.reduce((s, a) => s + (a.bakedConstants ?? 0), 0), 0,
   );
-  return { filterArgs, constants, bakedConstants, builders };
+  return { filterArgs, constants, bakedConstants, builders, refs };
+}
+
+/**
+ * Render one atom's code fragment, resolving its `{{ref}}` placeholder to a
+ * positional `{{r<n>}}` token over the accumulated producer-reference list
+ * (deduplicated — two atoms naming the same feature share one token).
+ */
+function renderAtomCode(atom: Atom<FilterBuilderBase<Shape>>, refs: SceneObject[]): string {
+  if (!atom.ref) {
+    return atom.code;
+  }
+  let index = refs.indexOf(atom.ref);
+  if (index < 0) {
+    refs.push(atom.ref);
+    index = refs.length - 1;
+  }
+  return atom.code.replaceAll('{{ref}}', `{{r${index}}}`);
 }
 
 export function newBuilder(kind: 'edge' | 'face'): FilterBuilderBase<Shape> {

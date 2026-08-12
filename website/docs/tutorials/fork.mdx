@@ -5,10 +5,12 @@ title: "Fork"
 
 import CodeBlock from '@theme/CodeBlock';
 import forkFinal from '!!raw-loader!./_examples/fork-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 # Building a Fork
 
-![Finished fork](/img/docs/tutorials/fork-final.png)
+<ViewerEmbed code={forkFinal} entry="fork.fluid.js" />
 
 In this tutorial, you'll build a forked yoke from scratch, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=XuXgomMWouw). It covers offset arc profiles, sketch-local mirror axes, side-mounted bosses with through-holes, and using `.thin()` annular cuts to leave central features standing.
 
@@ -156,6 +158,8 @@ Same pattern as the post: a 20-thick annular ring around the square, extruded do
 ![Finished fork](/img/docs/tutorials/fork-final.png)
 
 ## Full code
+
+<OpenInViewer code={forkFinal} entry="fork.fluid.js" />
 
 <CodeBlock language="js">{forkFinal}</CodeBlock>
 

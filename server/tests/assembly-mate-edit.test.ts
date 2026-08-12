@@ -325,6 +325,19 @@ describe('applyInstanceConnectorCreate', () => {
     );
   });
 
+  it('refuses a selector carrying an unresolved plane-reference token', async () => {
+    // `{{r0}}` names a part-file statement the assembly file cannot bind —
+    // written verbatim it would be a syntax error (synthesis no longer emits
+    // it under the forced select() form; this is the writer's backstop).
+    const result = await applyInstanceConnectorCreate(CODE, {
+      name: 'c3',
+      instanceLine: 3,
+      filterArgs: `edge().verticalTo('xy').onPlane({{r0}}.endFaces())`,
+    });
+    expect(result.error).toMatch(/cannot be named at assembly scope/);
+    expect(result.newCode).toBe(CODE);
+  });
+
   it('refuses a bad name, an empty selector, and a non-insert line', async () => {
     const badName = await applyInstanceConnectorCreate(CODE, {
       name: 'not a name', instanceLine: 3, filterArgs: `face()`,

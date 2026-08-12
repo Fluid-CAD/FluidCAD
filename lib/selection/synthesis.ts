@@ -139,7 +139,11 @@ export function synthesizeSelectors(
     return null;
   };
 
-  const planeSources = collectPlaneSources(index);
+  // Plane-reference atoms (`onPlane({{ref}}.endFaces())`) bind the referenced
+  // producer to a variable at render time. The forced select() form exists
+  // precisely because the emitted statement cannot reference part-file
+  // variables, so no plane sources are offered there.
+  const planeSources = forceGlobalSelect ? [] : collectPlaneSources(index);
 
   for (const [bucket, groupAttrs] of bucketGroups) {
     const failure = addGroup(

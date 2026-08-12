@@ -658,6 +658,14 @@ export async function applyInstanceConnectorCreate(
   if (!rawSource && (typeof spec.filterArgs !== 'string' || spec.filterArgs.trim() === '')) {
     return { newCode: code, error: 'empty instance-connector selector' };
   }
+  if (!rawSource && /\{\{r\d+\}\}/.test(spec.filterArgs!)) {
+    // An unresolved plane-reference token names a part-file statement the
+    // assembly file cannot bind — written verbatim it would be a syntax error.
+    return {
+      newCode: code,
+      error: 'the synthesized selector references a part-file statement that cannot be named at assembly scope — refusing to write it',
+    };
+  }
   if (spec.rotate && !Number.isFinite(spec.rotate.angle)) {
     return { newCode: code, error: 'connector rotate angle must be a finite number' };
   }

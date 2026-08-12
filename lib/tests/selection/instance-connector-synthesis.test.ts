@@ -73,6 +73,13 @@ describe("instance-scoped connector synthesis", () => {
       expect(result.spec.parts[0].producer).toBeNull();
       expect(result.spec.parts[0].accessor).toBe('select');
       expect(result.spec.parts[0].filterArgs).toBeTruthy();
+      // The picked face lies on the extrude's end-face plane, where a
+      // plane-reference atom (`onPlane({{r0}}.endFaces())`) would otherwise
+      // outrank the constant form — but its `{{r0}}` names a part-file
+      // statement the assembly file cannot bind, so the forced select()
+      // must synthesize reference-free filters only.
+      expect(result.spec.parts[0].filterArgs).not.toContain('{{');
+      expect(result.spec.parts[0].refs).toBeNull();
       // `select` renders as the instance binding's method — never imported.
       expect(result.spec.imports).not.toContain('select');
     }

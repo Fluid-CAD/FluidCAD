@@ -1,5 +1,4 @@
 import { AssemblyOccurrence } from "../rendering/assembly-scene.js";
-import { BoundConnector } from "./connector.js";
 import { PoseHandle } from "./pose-handle.js";
 
 /**
@@ -23,12 +22,6 @@ export class Occurrence<T = unknown> extends PoseHandle<AssemblyOccurrence> {
      * `gantry.parts.left.p1.connectors.start` bind to THIS occurrence only.
      */
     public readonly parts: T,
-    /**
-     * Assembly-scoped `connector('name', …)` statements declared in this
-     * assembly's own body — its curated public mating interface, keyed by
-     * connector name (unique per body; enforced at declaration).
-     */
-    public readonly connectors: Record<string, BoundConnector>,
   ) {
     super(record);
   }

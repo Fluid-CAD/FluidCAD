@@ -14,14 +14,6 @@ type InstanceState = {
   data: SerializedAssemblyInstance;
   group: Group;
   connectors: ConnectorState[];
-  /**
-   * Sorted, joined scene ids of the assembly-scoped connectors rendered into
-   * this group when it was built — the diff key that forces a rebuild when
-   * an instance connector is added or removed (they live outside the part
-   * subtree, so {@link AssemblyController.partSubtreeWasRebuilt} can't see
-   * them).
-   */
-  instanceConnectorIds: string;
 };
 
 export type InstanceDragReleaseHandler = (
@@ -194,7 +186,7 @@ export class AssemblyController {
     }
 
     for (const inst of assembly.instances) {
-      const connectors = this.collectConnectorStates(inst.partId, inst.instanceId);
+      const connectors = this.collectConnectorStates(inst.partId);
       const existing = this.instances.get(inst.instanceId);
       // SceneCompare flips `fromCache` to false on any object it had to
       // rebuild — including when a parameter change shifts a partName (and
@@ -202,13 +194,6 @@ export class AssemblyController {
       // would keep showing the previous mesh, so check the part's subtree
       // and force a rebuild if anything in it was re-built this render.
       const subtreeFresh = this.partSubtreeWasRebuilt(inst.partId);
-      // Instance connectors live OUTSIDE the part subtree (top-level objects
-      // rendered into this instance's group) — a set change or a rebuilt
-      // frame needs a group rebuild the part-subtree walk can't see.
-      const instConnObjs = this.instanceConnectorObjects(inst.instanceId);
-      const instConnIds = instConnObjs.map(obj => obj.id!).sort().join('|');
-      const instConnFresh = instConnObjs.some(obj => !obj.fromCache)
-        || (existing !== undefined && existing.instanceConnectorIds !== instConnIds);
       const isDragging = this.dragState?.instanceId === inst.instanceId
         || this.externalDrag?.instanceId === inst.instanceId;
       // partId-changed guard: instance ids are counter-based, so commenting
@@ -217,7 +202,7 @@ export class AssemblyController {
       // the fast path below would just patch pose/data and leave the wrong
       // mesh on screen.
       const partChanged = existing !== undefined && existing.data.partId !== inst.partId;
-      if (existing && !partChanged && ((!subtreeFresh && !instConnFresh) || isDragging)) {
+      if (existing && !partChanged && (!subtreeFresh || isDragging)) {
         existing.data = inst;
         existing.connectors = connectors;
         existing.group.userData.grounded = inst.grounded;
@@ -237,9 +222,7 @@ export class AssemblyController {
       }
       const group = this.buildInstanceGroup(inst);
       if (!group) continue;
-      this.instances.set(inst.instanceId, {
-        data: inst, group, connectors, instanceConnectorIds: instConnIds,
-      });
+      this.instances.set(inst.instanceId, { data: inst, group, connectors });
       this.container.add(group);
     }
 
@@ -340,19 +323,15 @@ export class AssemblyController {
   }
 
   /**
-   * The connector frames one instance carries: the part's own connectors
-   * (shared by every instance of the part) plus the assembly-scoped
-   * connectors bound to exactly this instance (`data.instanceId`).
+   * The connector frames one instance carries: the part's own connectors,
+   * shared by every instance of the part.
    */
-  private collectConnectorStates(partId: string, instanceId: string): ConnectorState[] {
+  private collectConnectorStates(partId: string): ConnectorState[] {
     const out: ConnectorState[] = [];
     for (const obj of this.allObjects) {
-      if (obj.type !== 'connector' || !obj.id) continue;
+      if (obj.type !== 'connector' || !obj.id || obj.parentId !== partId) continue;
       const data = obj.object as ConnectorData | undefined;
       if (!data) continue;
-      const partOwned = obj.parentId === partId && !data.instanceId;
-      const instanceOwned = data.instanceId === instanceId;
-      if (!partOwned && !instanceOwned) continue;
       if (!data.origin || !data.xDirection || !data.normal) continue;
       out.push({
         connectorId: obj.id,
@@ -362,14 +341,6 @@ export class AssemblyController {
       });
     }
     return out;
-  }
-
-  /** The top-level connector objects bound to one instance. */
-  private instanceConnectorObjects(instanceId: string): SceneObjectRender[] {
-    return this.allObjects.filter(obj =>
-      obj.type === 'connector' && !!obj.id
-      && (obj.object as ConnectorData | undefined)?.instanceId === instanceId,
-    );
   }
 
   /**
@@ -539,12 +510,6 @@ export class AssemblyController {
 
     const partMesh = buildObjectMesh(partTemplate, this.allObjects, null, this.camera, false);
     group.add(partMesh);
-    // Assembly-scoped connectors bound to THIS instance: top-level scene
-    // objects (outside the part subtree), rendered into the instance's group
-    // so they follow its pose — and only appear on their own instance.
-    for (const connObj of this.instanceConnectorObjects(inst.instanceId)) {
-      group.add(buildObjectMesh(connObj, this.allObjects, null, this.camera, false));
-    }
     setConnectorsVisible(group, false);
     return group;
   }
@@ -1035,9 +1000,7 @@ export class AssemblyController {
   /**
    * The current render's scene id for the named connector on an instance —
    * how a mate dialog's pick re-finds itself after a render re-mints every
-   * id. Checks the instance's own assembly-scoped connectors alongside the
-   * part's (names are unique across the union). Null when the instance or
-   * the name is gone.
+   * id. Null when the instance or the name is gone.
    */
   findConnectorId(instanceId: string, connectorName: string): string | null {
     const partId = this.instances.get(instanceId)?.data.partId;
@@ -1045,28 +1008,10 @@ export class AssemblyController {
       return null;
     }
     for (const obj of this.allObjects) {
-      if (obj.type !== 'connector' || !obj.id) continue;
+      if (obj.type !== 'connector' || !obj.id || obj.parentId !== partId) continue;
       const data = obj.object as ConnectorData | undefined;
-      const onInstance = data?.instanceId
-        ? data.instanceId === instanceId
-        : obj.parentId === partId;
-      if (!onInstance) continue;
       if ((data?.name ?? obj.name) === connectorName) {
         return obj.id;
-      }
-    }
-    return null;
-  }
-
-  /**
-   * The instance an assembly-scoped connector is bound to, or null for a
-   * part-owned connector (which appears on every instance). Drives the mate
-   * dialog's per-pick scope.
-   */
-  getConnectorInstanceId(connectorId: string): string | null {
-    for (const obj of this.allObjects) {
-      if (obj.type === 'connector' && obj.id === connectorId) {
-        return (obj.object as ConnectorData | undefined)?.instanceId ?? null;
       }
     }
     return null;

@@ -208,20 +208,6 @@ export class AssemblyScene extends Scene {
     return this._occurrences;
   }
 
-  /**
-   * Assembly-scoped connectors — `connector()` statements at the top level of
-   * the assembly file, each bound to one instance. Part-owned connectors
-   * (children of a part container) are not included. Pass an instanceId to
-   * narrow to one instance's set.
-   */
-  getInstanceConnectors(instanceId?: string): Connector[] {
-    return this.getAllSceneObjects().filter((obj): obj is Connector =>
-      obj instanceof Connector
-      && obj.boundInstanceId !== undefined
-      && (instanceId === undefined || obj.boundInstanceId === instanceId),
-    );
-  }
-
   getMates(): AssemblyMate[] {
     return this._mates;
   }

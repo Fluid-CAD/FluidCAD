@@ -1,11 +1,8 @@
 import { MatePanel, MateSlotKey } from './mate-panel';
 import {
   applyAssemblyMate,
-  applyConnector,
   AssemblyMateOptions,
   AssemblyMateType,
-  fetchConnectorAnchors,
-  type ApplyFeatureEntity,
 } from '../../api';
 import type { Viewer } from '../../viewer';
 import type { SerializedAssembly, SubSelection } from '../../types';
@@ -25,12 +22,6 @@ type MateSlotState = {
   instanceName: string;
   /** The assembly file the insert() lives in — the mate's target file. */
   filePath: string;
-  /**
-   * 'part' — a part-owned connector, referenced as
-   * `<binding>.connectors.<name>`; 'instance' — an assembly-scoped connector
-   * bound to this one instance, referenced by its own `const` binding.
-   */
-  scope: 'part' | 'instance';
 };
 
 /** The provisional record's id — never collides with `mate-<n>` scene ids. */
@@ -49,8 +40,6 @@ export class AssemblyMateService {
   private panel: MatePanel;
   private armed = false;
   private applying = false;
-  /** An on-the-fly connector create is in flight — further face/edge clicks wait. */
-  private creatingConnector = false;
   private slots: Record<MateSlotKey, MateSlotState | null> = { a: null, b: null };
 
   constructor(
@@ -128,8 +117,8 @@ export class AssemblyMateService {
   /**
    * Routes viewport clicks while armed. A connector pick fills the armed
    * slot (and hands the armed border to the other slot when it's still
-   * empty); a face/edge pick creates a connector on the fly in the part's
-   * own file and fills the slot with it once the render brings it in.
+   * empty); mates reference existing part connectors only, so a bare
+   * face/edge pick just points at the Connector tool.
    */
   handleClick(shapeId: string | null, sub: SubSelection, instanceId: string | null): void {
     if (!this.armed) {
@@ -140,9 +129,8 @@ export class AssemblyMateService {
     }
     if (sub.type !== 'connector') {
       if (sub.type === 'face' || sub.type === 'edge') {
-        void this.createConnectorFromPick(
-          { shapeId, sub: { type: sub.type, index: sub.index } },
-          instanceId,
+        this.panel.setMessage(
+          'Mates connect existing connectors — click a connector gizmo, or add one to the part with the Connector tool first.',
         );
       }
       return;
@@ -232,7 +220,6 @@ export class AssemblyMateService {
       connectorName: name,
       instanceName: instance.name,
       filePath: instance.sourceLocation.filePath,
-      scope: controller?.getConnectorInstanceId(connectorId) ? 'instance' : 'part',
     };
   }
 
@@ -252,10 +239,7 @@ export class AssemblyMateService {
     }
     const connectorId = controller.findConnectorId(instance.instanceId, state.connectorName);
     if (!connectorId) {
-      // A just-created connector (pending, no scene id yet) stays put until
-      // the render that carries it arrives; only a pick that HAD an id and
-      // lost it is really gone.
-      return state.connectorId === '' ? state : null;
+      return null;
     }
     return {
       ...state,
@@ -265,83 +249,10 @@ export class AssemblyMateService {
     };
   }
 
-  /**
-   * A face/edge click while a slot is armed: create a connector on the fly
-   * (default anchor, `c<N>` default name — the pen button edits it
-   * afterwards) and fill the slot with a pending pick that the next render
-   * resolves to the new connector's scene id. The panel's scope choice
-   * decides where it lives: 'instance' (default) binds it to the clicked
-   * instance in the assembly file; 'part' writes into the part's own file,
-   * so it appears on every instance.
-   */
-  private async createConnectorFromPick(
-    entity: ApplyFeatureEntity,
-    instanceId: string | null,
-  ): Promise<void> {
-    if (this.creatingConnector) {
-      return;
-    }
-    const assembly = this.hooks.getAssembly();
-    const instance = instanceId
-      ? assembly?.instances.find(i => i.instanceId === instanceId)
-      : undefined;
-    if (!instance?.sourceLocation) {
-      this.panel.setMessage('Could not resolve the clicked geometry to an instance.');
-      return;
-    }
-    const scope = this.panel.getConnectorScope();
-    this.creatingConnector = true;
-    try {
-      const suggestion = await fetchConnectorAnchors(
-        entity, undefined, scope === 'instance' ? instance.instanceId : undefined,
-      );
-      if (!this.armed) {
-        return;
-      }
-      if (suggestion.ok === false) {
-        this.panel.setMessage(suggestion.reason ?? 'No connector anchor available on this shape.');
-        return;
-      }
-      const result = await applyConnector({
-        name: suggestion.defaultName,
-        entities: [entity],
-        anchor: suggestion.anchors[0]?.anchor,
-        ...(scope === 'instance' ? { instanceId: instance.instanceId } : {}),
-      });
-      if (!this.armed) {
-        return;
-      }
-      if (!result.success) {
-        this.panel.setMessage(result.reason ?? 'Could not create the connector.');
-        return;
-      }
-      const slot = this.panel.getArmedSlot();
-      const other: MateSlotKey = slot === 'a' ? 'b' : 'a';
-      this.slots[slot] = {
-        instanceId: instance.instanceId,
-        connectorId: '', // pending — the render that brings the statement in resolves it
-        instanceLine: instance.sourceLocation.line,
-        connectorName: suggestion.defaultName,
-        instanceName: instance.name,
-        filePath: instance.sourceLocation.filePath,
-        scope,
-      };
-      this.panel.setSlotChip(slot, `${instance.name} · ${suggestion.defaultName}`);
-      this.panel.setMessage(null);
-      if (!this.slots[other]) {
-        this.panel.armSlot(other, { silent: true });
-      }
-      this.refreshPreview();
-    } finally {
-      this.creatingConnector = false;
-    }
-  }
-
   private sameConnector(a: MateSlotState | null, b: MateSlotState): boolean {
     return a !== null
       && a.instanceLine === b.instanceLine
-      && a.connectorName === b.connectorName
-      && a.scope === b.scope;
+      && a.connectorName === b.connectorName;
   }
 
   /**
@@ -376,12 +287,8 @@ export class AssemblyMateService {
     }
     const a = this.slots.a;
     const b = this.slots.b;
-    // Instance-scoped connectors are referenced by their own const binding —
-    // the connector name stands in for it (the server writes the truth).
     const ref = (s: MateSlotState | null) =>
-      s
-        ? (s.scope === 'instance' ? s.connectorName : `${s.instanceName}.connectors.${s.connectorName}`)
-        : '…';
+      s ? `${s.instanceName}.connectors.${s.connectorName}` : '…';
     let chain = `mate('${values.type}', ${ref(a)}, ${ref(b)})`;
     if (values.flip) chain += '.flip()';
     if (values.rotate !== 0) chain += `.rotate(${values.rotate})`;
@@ -435,7 +342,6 @@ export class AssemblyMateService {
       const sideRef = (s: MateSlotState) => ({
         instanceLine: s.instanceLine,
         connectorName: s.connectorName,
-        ...(s.scope === 'instance' ? { scope: 'instance' as const } : {}),
       });
       const result = await applyAssemblyMate(a.filePath, {
         create: {

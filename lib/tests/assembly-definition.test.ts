@@ -12,7 +12,6 @@ import mate from "../core/mate.js";
 import { rect } from "../core/2d/index.js";
 import { face } from "../filters/index.js";
 import { Part } from "../features/part.js";
-import { BoundConnector } from "../features/connector.js";
 import { Occurrence } from "../features/occurrence.js";
 import { Instance } from "../features/instance.js";
 
@@ -292,40 +291,14 @@ describe("mates across scopes", () => {
   });
 });
 
-describe("occurrence connectors", () => {
-  it("exposes assembly-scoped connector() declarations as occurrence.connectors", () => {
+describe("connectors inside assembly bodies", () => {
+  it("rejects connector() declared in an assembly body — connectors are part-owned", () => {
     const { p } = startAssembly();
     const def = assembly("sub", () => {
       const b = insert(p);
-      connector("mount", b.face(f => f.parallelTo("xy")));
+      connector("mount", b.connectors.top as unknown as Parameters<typeof connector>[1]);
       return { b };
     });
-    const occ = insert(def);
-    expect(occ.connectors.mount).toBeInstanceOf(BoundConnector);
-    expect(occ.connectors.mount.instanceId).toBe("asm-0/inst-0");
-
-    // A second occurrence re-declares its own connector.
-    const occ2 = insert(def);
-    expect(occ2.connectors.mount.instanceId).toBe("asm-1/inst-0");
-    expect(occ2.connectors.mount).not.toBe(occ.connectors.mount);
-  });
-
-  it("rejects duplicate connector names within one assembly body", () => {
-    const { p } = startAssembly();
-    const def = assembly("sub", () => {
-      const a = insert(p);
-      const b = insert(p);
-      connector("mount", a.face(f => f.parallelTo("xy")));
-      connector("mount", b.face(f => f.parallelTo("xy")));
-    });
-    expect(() => insert(def)).toThrow(/unique within an assembly/i);
-  });
-
-  it("keeps the looser root-scope rule: same name on different instances is allowed", () => {
-    const { p } = startAssembly();
-    const a = insert(p);
-    const b = insert(p);
-    connector("pivot", a.face(f => f.parallelTo("xy")));
-    expect(() => connector("pivot", b.face(f => f.parallelTo("xy")))).not.toThrow();
+    expect(() => insert(def)).toThrow(/inside a part\(\) block/i);
   });
 });

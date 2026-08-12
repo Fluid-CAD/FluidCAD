@@ -75,7 +75,8 @@ export type RegisterBuilderOptions = {
   /**
    * Allow the command at the top level of an *.assembly.js file (outside any
    * part() block). Almost every command is part-design only; `connector()`
-   * opts in to declare assembly-scoped, instance-bound connectors.
+   * opts in so its own part-scope check can raise a pointed error (declare
+   * inside the part) instead of the generic part-design-only one.
    */
   allowAssemblyTopLevel?: boolean;
 };

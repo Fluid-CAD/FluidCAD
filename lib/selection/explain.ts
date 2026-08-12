@@ -201,14 +201,9 @@ export function synthesizeApplyFeature(
 
     // Sketch and plane name a plane/reference, not geometry — prefer the
     // compact index form over induced filters with baked-in constants.
-    // An instance-scoped connector statement lives at assembly scope, where
-    // part-file variables cannot be referenced — force the geometric
-    // select() form (which the statement scopes as `<binding>.select(...)`).
-    const instanceScope = feature === 'connector' ? options.connector?.instance : undefined;
     const synthesis = synthesizeSelectors(
       scene, index, attributions, chainInputs, options.params ?? [],
       feature === 'sketch' || feature === 'plane',
-      instanceScope !== undefined,
     );
     if (synthesis.ok === false) {
       return { ok: false, reason: synthesis.reason, pick: synthesis.pick };
@@ -238,7 +233,6 @@ export function synthesizeApplyFeature(
     // the payload rather than `value`. Duplicate names are refused here so
     // the UI hears about it before any code is written.
     let connectorPayload: ApplyFeatureEditSpec['connector'];
-    let instanceFilePath: string | null = null;
     if (feature === 'connector') {
       const owner = attributions[0]?.solidOwner ?? null;
       const enclosing = owner ? scene.findEnclosingPart(owner) : null;
@@ -261,62 +255,28 @@ export function synthesizeApplyFeature(
           ? { offset: connectorOpts.offset } : {}),
       };
 
-      if (instanceScope) {
-        // Instance-scoped: the statement lands in the ASSEMBLY file, bound
-        // to one instance. The picked geometry must belong to that
-        // instance's part, and the name must be free across the instance's
-        // whole connector namespace (part-owned + instance-scoped).
-        const instance = scene.getInstances?.().find(i => i.instanceId === instanceScope.instanceId);
-        if (!instance) {
-          return { ok: false, reason: 'the picked instance is no longer in the assembly — re-render and try again' };
-        }
-        if (instance.part !== enclosing) {
-          return { ok: false, reason: 'the picked geometry does not belong to that instance\'s part', pick: refs[0] };
-        }
-        if (!instance.sourceLocation) {
-          return { ok: false, reason: `${instance.name} has no source location — its insert() cannot be referenced` };
-        }
-        const taken = (enclosing instanceof Part && enclosing.getNamedConnectors()[name])
-          || scene.getInstanceConnectors?.(instance.instanceId).some(c => c.connectorName === name);
-        if (taken) {
-          return {
-            ok: false,
-            reason: `${instance.name} already has a connector named "${name}" — pick a different name`,
-          };
-        }
-        instanceFilePath = instance.sourceLocation.filePath;
-        connectorPayload = {
-          name,
-          instance: { line: instance.sourceLocation.line },
-          ...adjustments,
-        };
-      } else {
-        const partLoc = enclosing.getSourceLocation();
-        if (!partLoc) {
-          return { ok: false, reason: 'the enclosing part() has no source location — re-render and try again' };
-        }
-        if (partLoc.filePath !== filePaths.values().next().value) {
-          // e.g. geometry from a part factory imported into this file — the
-          // statement would land in a body the current buffer doesn't hold.
-          return { ok: false, reason: 'the enclosing part() lives in a different file than the picked geometry' };
-        }
-        if (enclosing instanceof Part && enclosing.getNamedConnectors()[name]) {
-          return {
-            ok: false,
-            reason: `the part already has a connector named "${name}" — pick a different name`,
-          };
-        }
-        connectorPayload = {
-          name,
-          part: { line: partLoc.line, column: partLoc.column },
-          ...adjustments,
+      const partLoc = enclosing.getSourceLocation();
+      if (!partLoc) {
+        return { ok: false, reason: 'the enclosing part() has no source location — re-render and try again' };
+      }
+      if (partLoc.filePath !== filePaths.values().next().value) {
+        // e.g. geometry from a part factory imported into this file — the
+        // statement would land in a body the current buffer doesn't hold.
+        return { ok: false, reason: 'the enclosing part() lives in a different file than the picked geometry' };
+      }
+      if (enclosing instanceof Part && enclosing.getNamedConnectors()[name]) {
+        return {
+          ok: false,
+          reason: `the part already has a connector named "${name}" — pick a different name`,
         };
       }
+      connectorPayload = {
+        name,
+        part: { line: partLoc.line, column: partLoc.column },
+        ...adjustments,
+      };
     }
 
-    // An instance-scoped connector statement lands in the assembly file and
-    // references no part-file statements: the anchor producer is dropped and
-    // `select` needs no import (it renders as the instance binding's method).
     const spec: ApplyFeatureEditSpec = {
       feature,
       ...(feature === 'sketch' || feature === 'extrude' || feature === 'sweep' || feature === 'loft'
@@ -324,8 +284,8 @@ export function synthesizeApplyFeature(
         || feature === 'project' || feature === 'connector'
         ? {} : { value }),
       ...(connectorPayload ? { connector: connectorPayload } : {}),
-      filePath: instanceFilePath ?? filePaths.values().next().value!,
-      producers: instanceFilePath ? [] : located.map(l => {
+      filePath: filePaths.values().next().value!,
+      producers: located.map(l => {
         const loc = l.feature.getSourceLocation()!;
         return {
           line: loc.line,
@@ -344,9 +304,7 @@ export function synthesizeApplyFeature(
           ? part.refs.map(ref => synthesis.producers.indexOf(ref))
           : null,
       })),
-      imports: instanceFilePath
-        ? collectImports(winners).filter(s => s !== 'select')
-        : collectImports(winners),
+      imports: collectImports(winners),
     };
 
     // The anchor suffix rides the args so the expression row shows (and can

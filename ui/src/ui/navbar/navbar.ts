@@ -10,8 +10,8 @@ export type NavbarMode = 'part' | 'assembly';
 
 /**
  * A group's workbench membership: one mode, or `'all'` for tools that serve
- * both benches (the Connector tool — parts declare connectors, assemblies
- * declare instance-scoped ones and preview anchors while mating).
+ * both benches (the Connector tool — parts declare connectors, and from an
+ * assembly view it writes into the picked part's own file).
  */
 export type NavbarGroupMode = NavbarMode | 'all';
 

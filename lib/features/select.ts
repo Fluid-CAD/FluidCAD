@@ -8,7 +8,6 @@ import { ISelect } from "../core/interfaces.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { ShapeType } from "../common/shape-type.js";
-import { Face } from "../common/face.js";
 import { FromSceneObjectFilter } from "../filters/from-object.js";
 import { injectBelongsToFaceScope } from "../filters/scope-injection.js";
 import { TopologyIndex } from "../oc/topology-index.js";
@@ -23,7 +22,7 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
   private type: ShapeType;
   private shapes: Shape[] = [];
 
-  constructor(private filters: FilterBuilderBase<Shape>[], private constraintObject?: SceneObject) {
+  constructor(private filters: FilterBuilderBase<Shape>[]) {
     super();
 
     if (filters.every(f => f instanceof FaceFilterBuilder)) {
@@ -56,7 +55,7 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     if (transform) {
       filters = filters.map(f => f.transform(transform));
 
-      if (!this.constraintObject && parent) {
+      if (parent) {
         const snapshot = parent.getSnapshot();
         excludedObjects = snapshot ? Array.from(snapshot.values()).flat() : [];
         // Restrict to this clone instance's own siblings. Other instances of
@@ -72,24 +71,17 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
 
     // Objects passed explicitly via `from(...)` bypass the part scope so that
     // cross-part selection works (e.g. select(face().from(p1)) from inside p2).
-    if (!this.constraintObject) {
-      const fromObjects = this.collectFromSceneObjects(filters);
-      if (fromObjects.length > 0) {
-        sceneObjects = sceneObjects.slice();
-        for (const obj of fromObjects) {
-          if (!sceneObjects.includes(obj)) {
-            sceneObjects.push(obj);
-          }
+    const fromObjects = this.collectFromSceneObjects(filters);
+    if (fromObjects.length > 0) {
+      sceneObjects = sceneObjects.slice();
+      for (const obj of fromObjects) {
+        if (!sceneObjects.includes(obj)) {
+          sceneObjects.push(obj);
         }
       }
     }
 
-    // A constraint object narrows the universe to that object's subtree —
-    // its solids' sub-shapes of this selection's kind (mirrors getAllShapes),
-    // so an instance-scoped selection resolves within one part only.
-    const allShapes = this.constraintObject
-      ? this.constraintObject.getShapes({}, 'solid').flatMap(s => s.getSubShapes(this.type))
-      : this.getAllShapes(sceneObjects, excludedObjects);
+    const allShapes = this.getAllShapes(sceneObjects, excludedObjects);
     let scopeHasher: ShapeHasher | null = null;
     if (this.type === "edge") {
       scopeHasher = this.injectScopeFaces(filters, sceneObjects);
@@ -222,9 +214,6 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
 
   override getDependencies(): SceneObject[] {
     const deps: SceneObject[] = [];
-    if (this.constraintObject) {
-      deps.push(this.constraintObject);
-    }
     for (const obj of this.collectFromSceneObjects(this.filters)) {
       if (!deps.includes(obj)) {
         deps.push(obj);
@@ -245,11 +234,8 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const remappedConstraint = this.constraintObject
-      ? (remap.get(this.constraintObject) || this.constraintObject)
-      : undefined;
     const remappedFilters = this.filters.map(f => f.remap(remap));
-    return new SelectSceneObject(remappedFilters, remappedConstraint);
+    return new SelectSceneObject(remappedFilters);
   }
 
   getFilters(): FilterBuilderBase<Shape>[] {
@@ -258,27 +244,14 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
 
   transform(matrix: Matrix4): SelectSceneObject {
     const mirroredFilters = this.filters.map(f => f.transform(matrix));
-    return new SelectSceneObject(mirroredFilters, this.constraintObject);
+    return new SelectSceneObject(mirroredFilters);
   }
 
   private injectScopeFaces(filters: FilterBuilderBase<Shape>[], sceneObjects: SceneObject[]): ShapeHasher | null {
-    return injectBelongsToFaceScope(filters, () => {
-      if (this.constraintObject) {
-        const constraintShapes = this.constraintObject.getShapes();
-        return {
-          solids: constraintShapes.filter(s => s.isSolid()) as Solid[],
-          // Faces directly in the constraint (not part of a solid) need the
-          // legacy linear-scan path since they don't have a cached index.
-          extraFaces: constraintShapes
-            .filter(s => !s.isSolid())
-            .flatMap(s => s.getSubShapes("face")) as Face[],
-        };
-      }
-      return {
-        solids: sceneObjects.flatMap(obj => obj.getShapes({}, 'solid')) as Solid[],
-        extraFaces: [],
-      };
-    });
+    return injectBelongsToFaceScope(filters, () => ({
+      solids: sceneObjects.flatMap(obj => obj.getShapes({}, 'solid')) as Solid[],
+      extraFaces: [],
+    }));
   }
 
   applyFilters(shapes: Shape[], filters: FilterBuilderBase<Shape>[]): Shape[] {
@@ -297,17 +270,6 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
 
     if (this.type !== other.type) {
       return false;
-    }
-
-    const thisHasConstraint = !!this.constraintObject;
-    const otherHasConstraint = !!other.constraintObject;
-    if (thisHasConstraint !== otherHasConstraint) {
-      return false;
-    }
-    if (thisHasConstraint && otherHasConstraint) {
-      if (!this.constraintObject!.compareTo(other.constraintObject!)) {
-        return false;
-      }
     }
 
     if (this.filters.length !== other.filters.length) {

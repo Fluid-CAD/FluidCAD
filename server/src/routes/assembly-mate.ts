@@ -16,8 +16,7 @@ import { detectKind } from '../file-kind.ts';
 function isConnectorRef(v: unknown): v is MateConnectorRef {
   return v !== null && typeof v === 'object'
     && Number.isInteger((v as any).instanceLine) && (v as any).instanceLine >= 1
-    && typeof (v as any).connectorName === 'string' && (v as any).connectorName.length > 0
-    && ((v as any).scope === undefined || (v as any).scope === 'part' || (v as any).scope === 'instance');
+    && typeof (v as any).connectorName === 'string' && (v as any).connectorName.length > 0;
 }
 
 function isPair(v: unknown): v is [number, number] {

@@ -94,7 +94,6 @@ type SceneManager = {
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       params?: { name: string; value: number }[];
-      connector?: { instance?: { instanceId: string } };
     },
   ): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
@@ -1294,7 +1293,6 @@ export class FluidCadServer {
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       params?: { name: string; value: number }[];
-      connector?: { instance?: { instanceId: string } };
     },
   ): any {
     if (!this.sceneManager) {

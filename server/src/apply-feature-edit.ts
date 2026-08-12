@@ -19,7 +19,6 @@ import { applyInstancePoseEdit, type InstancePoseEditSpec } from './insert-chain
 import {
   applyAssemblyMateEdit,
   applyConnectorPropsEdit,
-  applyInstanceConnectorCreate,
   type AssemblyMateEditSpec,
   type ConnectorPropsEditSpec,
 } from './assembly-mate-edit.ts';
@@ -311,15 +310,8 @@ const CONNECTOR_NAME = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
  */
 export type ConnectorEditOptions = {
   name: string;
-  /** Part-owned connector: the `part(...)` call site whose body receives the statement. */
+  /** The `part(...)` call site whose callback body receives the statement. */
   part?: { line: number; column: number };
-  /**
-   * Instance-scoped connector: the assembly-file `insert()` line of the bound
-   * instance. The statement appends at the end of the assembly file as
-   * `const <binding> = connector('<name>', <insertBinding>.select(...))`.
-   * Exactly one of `part` / `instance` is set.
-   */
-  instance?: { line: number };
   anchor?: ConnectorAnchorSpec;
   rotate?: { axis: ConnectorRotateAxis; angle: number };
   offset?: [number, number, number];
@@ -1388,34 +1380,6 @@ export async function applyFeatureEdit(
   }
   if (spec.edit) {
     return applyStatementEdit(code, spec);
-  }
-  if (spec.feature === 'connector' && spec.connector?.instance) {
-    // Instance-scoped connector: the statement lands at the end of the
-    // ASSEMBLY file, scoped through the insert() binding — none of the
-    // producer-binding / part-body-insertion machinery below applies.
-    const co = spec.connector;
-    const valid = typeof co.name === 'string' && CONNECTOR_NAME.test(co.name)
-      && Number.isInteger(co.instance.line) && co.instance.line >= 1
-      && co.part === undefined
-      && spec.parts.length === 1
-      && validConnectorAnchor(co.anchor)
-      && validConnectorRotate(co.rotate)
-      && (co.offset === undefined
-        || (Array.isArray(co.offset) && co.offset.length === 3 && co.offset.every(v => Number.isFinite(v))));
-    if (!valid) {
-      return { newCode: code, error: 'malformed instance-connector edit spec' };
-    }
-    const rawSource = spec.rawArgs?.trim();
-    return applyInstanceConnectorCreate(code, {
-      name: co.name,
-      instanceLine: co.instance.line,
-      filterArgs: spec.parts[0].filterArgs,
-      ...(rawSource ? { rawSource } : {}),
-      // A raw override already spells the anchor out in its own text.
-      anchorSuffix: rawSource ? '' : renderConnectorAnchorSuffix(co.anchor),
-      rotate: co.rotate ?? null,
-      offset: co.offset ?? null,
-    });
   }
   if (spec.feature === 'sketch' && spec.producers.length === 0 && spec.parts.length === 0) {
     return applyPlaneSketch(code, spec.sketchPlane);

@@ -1097,13 +1097,6 @@ export type ConnectorApplyOptions = {
   rotate?: { axis: ConnectorRotateAxis; angle: number };
   /** Frame-local offset [x, y, z] — rendered as `.offset(...)`. */
   offset?: [number, number, number];
-  /**
-   * Instance-scoped create: bind the connector to this one assembly
-   * instance. The statement lands in the assembly file
-   * (`const <binding> = connector('<name>', <insert>.select(...))`) instead
-   * of the part's; omitted keeps the part-owned behavior (every instance).
-   */
-  instanceId?: string;
   selectorOverride?: string;
   preview?: boolean;
   signal?: AbortSignal;
@@ -1117,7 +1110,6 @@ export async function applyConnector(o: ConnectorApplyOptions): Promise<ApplyFea
     anchor: o.anchor,
     rotate: o.rotate,
     offset: o.offset,
-    instanceId: o.instanceId,
     selectorOverride: o.selectorOverride,
     preview: o.preview,
   }, o.signal);
@@ -1191,14 +1183,12 @@ export type ConnectorAnchorsResult =
 export async function fetchConnectorAnchors(
   entity: ApplyFeatureEntity,
   signal?: AbortSignal,
-  /** Instance-scoped suggestion: default name + selector run against this instance's namespace. */
-  instanceId?: string,
 ): Promise<ConnectorAnchorsResult> {
   const res = await fetch('/api/selection/connector-anchors', {
     method: 'POST',
     headers: JSON_HEADERS,
     signal,
-    body: JSON.stringify({ entity, ...(instanceId ? { instanceId } : {}) }),
+    body: JSON.stringify({ entity }),
   });
   const body = await res.json().catch(() => null);
   if (res.ok && body?.success === true) {
@@ -3793,15 +3783,12 @@ export type AssemblyMateType =
 
 /**
  * One side of a mate statement: the instance whose `insert()` chain starts on
- * `instanceLine` (its serialized sourceLocation) and the connector name. A
- * part-owned connector (default) dereferences as
- * `<binding>.connectors.<connectorName>`; `scope: 'instance'` marks an
- * assembly-scoped instance connector referenced by its own `const` binding.
+ * `instanceLine` (its serialized sourceLocation) and the part-owned
+ * connector's name, dereferenced as `<binding>.connectors.<connectorName>`.
  */
 export type AssemblyMateConnectorRef = {
   instanceLine: number;
   connectorName: string;
-  scope?: 'part' | 'instance';
 };
 
 /** The mate dialog's option state; no-op values are omitted from the chain. */

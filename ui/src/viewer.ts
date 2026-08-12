@@ -43,7 +43,6 @@ function filterToReferencedParts(
   instances: SerializedAssembly['instances'],
 ): SceneObjectRender[] {
   const referencedPartIds = new Set(instances.map(i => i.partId));
-  const instanceIds = new Set(instances.map(i => i.instanceId));
   const childrenByParent = new Map<string, SceneObjectRender[]>();
   for (const obj of sceneObjects) {
     if (!obj.parentId) continue;
@@ -56,15 +55,6 @@ function filterToReferencedParts(
   for (const obj of sceneObjects) {
     if (obj.type === 'part' && obj.id && referencedPartIds.has(obj.id)) {
       stack.push(obj);
-    }
-    // Assembly-scoped instance connectors are top-level objects (not part
-    // subtree members) — keep the ones bound to a live instance so the
-    // controller can render them on that instance's group.
-    if (obj.type === 'connector' && obj.id && !obj.parentId) {
-      const boundTo = (obj.object as { instanceId?: string } | undefined)?.instanceId;
-      if (boundTo && instanceIds.has(boundTo)) {
-        stack.push(obj);
-      }
     }
   }
   while (stack.length > 0) {

@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "./setup.js";
+import { getSceneManager } from "../scene-manager.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import select from "../core/select.js";
 import part from "../core/part.js";
 import connector from "../core/connector.js";
+import insert from "../core/insert.js";
 import { rect } from "../core/2d/index.js";
 import { face } from "../filters/index.js";
 import { Connector } from "../features/connector.js";
@@ -19,6 +21,22 @@ describe("connector scope", () => {
       extrude(10);
       connector("top", select(face().planar().onPlane("xy")));
     }).toThrow(/inside a part/i);
+  });
+
+  it("throws at assembly scope with a pointed migration error", () => {
+    // Assembly-scoped (instance-bound) connectors were removed — the old
+    // `connector('pivot', arm1.select(...))` form must fail loudly, pointing
+    // at the part() declaration instead of the generic part-design-only error.
+    getSceneManager().startAssemblyScene();
+    const p = part("block", () => {
+      sketch("xy", () => rect(20, 20));
+      extrude(10);
+      connector("top", select(face().planar().onPlane("xy", 10)));
+    }) as unknown as Part;
+    const a = insert(p);
+    expect(() => {
+      connector("pivot", a.connectors.top as unknown as Parameters<typeof connector>[1]);
+    }).toThrow(/inside a part\(\) block/i);
   });
 
   it("rejects unsupported source kinds", () => {

@@ -51,7 +51,6 @@ export class MatePanel extends FeaturePanel {
   onEditConnector?: (slot: MateSlotKey) => void;
 
   private typeSelect: HTMLSelectElement;
-  private connectorScopeSelect: HTMLSelectElement;
   private slots: Record<MateSlotKey, PickSlot>;
   private chipLabels: Record<MateSlotKey, string | null> = { a: null, b: null };
   private armedSlot: MateSlotKey = 'a';
@@ -79,14 +78,6 @@ export class MatePanel extends FeaturePanel {
         </label>
         <div data-role="slot-a"></div>
         <div data-role="slot-b"></div>
-        <label class="flex flex-col gap-1.5"
-          title="Where a connector created by clicking a face or edge lives: on this one instance (written in the assembly file), or on the part itself (written in the part file, appearing on every instance)">
-          <span class="text-base-content/70">New connectors</span>
-          <select data-role="connector-scope" class="select select-sm select-bordered w-full text-xs">
-            <option value="instance" selected>This instance only</option>
-            <option value="part">All instances of the part</option>
-          </select>
-        </label>
         <label class="flex items-center gap-2 cursor-pointer"
           title="Turn connector B's frame 180° so its Z axis opposes A's">
           <input data-role="flip" type="checkbox" class="checkbox checkbox-xs" />
@@ -131,8 +122,6 @@ export class MatePanel extends FeaturePanel {
       this.syncTypeConstraints();
       this.onChange?.();
     });
-
-    this.connectorScopeSelect = this.role<HTMLSelectElement>('connector-scope');
 
     this.slots = {
       a: new PickSlot(this.role('slot-a'), { label: 'Connector A', multiple: false }),
@@ -188,7 +177,6 @@ export class MatePanel extends FeaturePanel {
     this.renderSlot('a');
     this.renderSlot('b');
     this.armSlot('a', { silent: true });
-    this.connectorScopeSelect.value = 'instance';
     this.flipInput.checked = false;
     this.rotateInput.value = '';
     for (const input of this.offsetInputs) {
@@ -237,11 +225,6 @@ export class MatePanel extends FeaturePanel {
 
   getArmedSlot(): MateSlotKey {
     return this.armedSlot;
-  }
-
-  /** Where an on-the-fly connector (face/edge click) is created. */
-  getConnectorScope(): 'instance' | 'part' {
-    return this.connectorScopeSelect.value === 'part' ? 'part' : 'instance';
   }
 
   values(): MateOptionValues {

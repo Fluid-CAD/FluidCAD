@@ -76,13 +76,7 @@ export function suggestConnectorAnchors(
       reason: 'connectors attach to geometry inside a part() block — wrap the feature statements in part(...)',
     };
   }
-  // Instance-scoped creates share the namespace with the part's own
-  // connectors AND the instance's existing assembly-scoped ones.
-  const instanceScope = options.connector?.instance;
-  const instanceNames = instanceScope
-    ? (scene.getInstanceConnectors?.(instanceScope.instanceId) ?? []).map(c => c.connectorName)
-    : [];
-  const defaultName = allocateConnectorName(enclosing, instanceNames);
+  const defaultName = allocateConnectorName(enclosing);
 
   // Reuse the full synthesis pipeline (part scoping, file checks, selector
   // ranking) — the default name is unique, so the name guards always pass.
@@ -140,12 +134,11 @@ function anchorSpecsForShape(shape: Face | Edge | { getType(): string }): Vertex
   return [];
 }
 
-function allocateConnectorName(part: unknown, extraTaken: string[] = []): string {
+function allocateConnectorName(part: unknown): string {
   const taken = part instanceof Part ? part.getNamedConnectors() : {};
-  const extra = new Set(extraTaken);
   for (let i = 1; ; i++) {
     const candidate = `c${i}`;
-    if (!taken[candidate] && !extra.has(candidate)) {
+    if (!taken[candidate]) {
       return candidate;
     }
   }

@@ -81,7 +81,6 @@ export function synthesizeSelectors(
   chains: SelectorChain[] = [],
   params: ParameterLink[] = [],
   preferBucketIndices: boolean = false,
-  forceGlobalSelect: boolean = false,
 ): SelectorSynthesis {
   const allAttributions = [
     ...attributions,
@@ -98,11 +97,8 @@ export function synthesizeSelectors(
   const bucketGroups = new Map<BucketRecord, PickAttribution[]>();
   const globalPools: { edge: PickAttribution[]; face: PickAttribution[] } = { edge: [], face: [] };
 
-  // `forceGlobalSelect` routes every pick to the geometric select() form —
-  // an assembly-scoped statement cannot reference part-file variables, so
-  // the bucket tiers' producer bindings are off the table.
   for (const attr of attributions) {
-    if (!forceGlobalSelect && attr.producer && checkBindable(index, attr.producer.bucket.feature) === null) {
+    if (attr.producer && checkBindable(index, attr.producer.bucket.feature) === null) {
       const bucket = attr.producer.bucket;
       let list = bucketGroups.get(bucket);
       if (!list) {
@@ -139,11 +135,7 @@ export function synthesizeSelectors(
     return null;
   };
 
-  // Plane-reference atoms (`onPlane({{ref}}.endFaces())`) bind the referenced
-  // producer to a variable at render time. The forced select() form exists
-  // precisely because the emitted statement cannot reference part-file
-  // variables, so no plane sources are offered there.
-  const planeSources = forceGlobalSelect ? [] : collectPlaneSources(index);
+  const planeSources = collectPlaneSources(index);
 
   for (const [bucket, groupAttrs] of bucketGroups) {
     const failure = addGroup(

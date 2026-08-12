@@ -22,6 +22,7 @@ Start with the imports and parameters for the support brackets:
 
 ```js
 import { arc, chamfer, circle, copy, cut, extrude, fillet, hMove, mirror, move, plane, pMove, rect, repeat, sketch, vMove } from "fluidcad/core";
+import { edge } from "fluidcad/filters";
 
 let supportWidth = (150 - 63) / 2;
 let supportThickness = 12;
@@ -46,14 +47,14 @@ sketch("xy", () => {
 
 ### Extrude and add edge treatments
 
-Extrude the bracket, fillet two side edges to round them, and add an angled chamfer to the end edges. `chamfer(8, 90 - 25, true, ...)` uses a distance of **8mm** and an angle of **65°** — the third argument `true` means the second parameter is an angle rather than a second distance.
+Extrude the bracket, fillet two side edges to round them, and add an angled chamfer to the end edges. `chamfer(8, 90 - 25, true, ...)` uses a distance of **8mm** and an angle of **65°** — the third argument `true` means the second parameter is an angle rather than a second distance. The `edge().onPlane('yz', 31.5)` filter narrows `endEdges()` to the edges lying on the plane parallel to **yz** at **x = 31.5mm**, so only those edges get chamfered.
 
 ```js
 const e1 = extrude(supportThickness);
 
 fillet(12, e1.sideEdges(2, 3));
 
-chamfer(8, 90 - 25, true, e1.endEdges())
+chamfer(8, 90 - 25, true, e1.endEdges(edge().onPlane('yz', 31.5)))
 ```
 
 ![Support bracket with fillet and chamfer](/img/docs/tutorials/gear-housing-step1.png)
@@ -273,6 +274,7 @@ mirror("front")
 
 - **`fillet()`** — rounds selected edges with a given radius
 - **`chamfer()` with angle** — creates chamfers using a distance and angle when `isAngle` is `true`
+- **`edge().onPlane()`** — filters an edge selection down to the edges lying on a specific plane
 - **`plane()`** — creates a reference plane from an existing face for subsequent sketches
 - **`cut().draft()`** — cuts material with tapered walls for mold-release draft angles
 - **`arc()`** — draws semicircular arcs to build keyhole-shaped profiles

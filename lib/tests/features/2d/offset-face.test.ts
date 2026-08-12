@@ -10,6 +10,7 @@ import { Edge } from "../../../common/edge.js";
 import { Solid } from "../../../common/solid.js";
 import { ShapeOps } from "../../../oc/shape-ops.js";
 import { face } from "../../../filters/index.js";
+import { SelectSceneObject } from "../../../features/select.js";
 
 function overallBBox(edges: Edge[]) {
   const bbox = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
@@ -158,6 +159,52 @@ describe("offset from faces", () => {
     expect(bbox.maxX).toBeCloseTo(155, 0);
     expect(bbox.minZ).toBeCloseTo(30, 0);
     expect(bbox.maxZ).toBeCloseTo(30, 0);
+  });
+
+  it("should consume an explicit select target", () => {
+    sketch("xy", () => {
+      rect(100, 100);
+    });
+    extrude(50);
+
+    const sel = select(face().onPlane("xy", 50)) as SelectSceneObject;
+    const off = offset(-2, sel) as unknown as Offset;
+
+    render();
+
+    expect(off.getError()).toBeFalsy();
+    expect(off.getShapes().length).toBeGreaterThan(0);
+    expect(sel.getShapes()).toHaveLength(0);
+  });
+
+  it("should consume the implicit preceding select", () => {
+    sketch("xy", () => {
+      rect(100, 100);
+    });
+    extrude(50);
+
+    const sel = select(face().onPlane("xy", 50)) as SelectSceneObject;
+    const off = offset(5) as unknown as Offset;
+
+    render();
+
+    expect(off.getError()).toBeFalsy();
+    expect(sel.getShapes()).toHaveLength(0);
+  });
+
+  it("should not consume lazy face accessor targets", () => {
+    sketch("xy", () => {
+      rect(100, 100);
+    });
+    const box = extrude(50) as Extrude;
+
+    const accessor = box.endFaces();
+    const off = offset(5, accessor) as unknown as Offset;
+
+    render();
+
+    expect(off.getError()).toBeFalsy();
+    expect(accessor.getShapes().length).toBeGreaterThan(0);
   });
 
   it("should reject non-coplanar face targets", () => {

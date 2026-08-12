@@ -101,11 +101,16 @@ export class ConnectorFeatureService {
       onResumeSketchUI?: () => void;
     } = {},
   ) {
-    // The connector gets its own group at the end of the bar: it is part
-    // mode's assembly-prep tool, neither reshaping bodies (modify) nor
-    // repositioning them (transform). main.ts constructs this service last so
-    // the group registers — and therefore renders — after every other one.
-    const group = navbar.getGroup('connector') ?? navbar.addGroup('connector', { visible: false });
+    // The connector gets its own group at the end of the bar: it is the
+    // assembly-prep tool, neither reshaping bodies (modify) nor repositioning
+    // them (transform). main.ts constructs this service last so the group
+    // registers — and therefore renders — after every other one. Mode 'all':
+    // the tool serves BOTH workbenches (parts declare part-owned connectors;
+    // assembly files use the same hover-anchor previews and create statements
+    // for mating) — the a90ba6b6 mode filter silently dropped it from
+    // assembly files by defaulting this group to 'part'.
+    const group = navbar.getGroup('connector')
+      ?? navbar.addGroup('connector', { visible: false, mode: 'all' });
     this.button = new FeatureButton(group, {
       icon: '/icons/mate-connector.png',
       label: 'Connector',

@@ -8,6 +8,13 @@ import { ToolbarScroller } from './toolbar-scroller';
  */
 export type NavbarMode = 'part' | 'assembly';
 
+/**
+ * A group's workbench membership: one mode, or `'all'` for tools that serve
+ * both benches (the Connector tool — parts declare connectors, assemblies
+ * declare instance-scoped ones and preview anchors while mating).
+ */
+export type NavbarGroupMode = NavbarMode | 'all';
+
 interface ToolbarGroup {
   key: string;
   host: HTMLDivElement;
@@ -36,8 +43,8 @@ interface ToolbarGroup {
    * sketch toolbar owns the bar (extruding is how a sketch gets finished).
    */
   immune: boolean;
-  /** Workbench this group belongs to — hidden while the bar is in the other mode. */
-  mode: NavbarMode;
+  /** Workbench this group belongs to — hidden while the bar is in another mode ('all' always shows). */
+  mode: NavbarGroupMode;
 }
 
 /**
@@ -88,7 +95,7 @@ export class Navbar {
    */
   addGroup(
     key: string,
-    opts: { visible?: boolean; exclusive?: boolean; anchor?: 'start' | 'end'; immune?: boolean; mode?: NavbarMode } = {},
+    opts: { visible?: boolean; exclusive?: boolean; anchor?: 'start' | 'end'; immune?: boolean; mode?: NavbarGroupMode } = {},
   ): HTMLElement {
     const divider = document.createElement('div');
     divider.className = 'w-px h-8 bg-base-content/[0.12] mx-1 shrink-0 hidden';
@@ -169,7 +176,7 @@ export class Navbar {
 
   /** A group shows only if its condition holds and no exclusive group is overriding it. */
   private isEffectivelyVisible(group: ToolbarGroup): boolean {
-    if (group.mode !== this.mode) {
+    if (group.mode !== 'all' && group.mode !== this.mode) {
       return false;
     }
     if (!group.visible) {
@@ -184,7 +191,9 @@ export class Navbar {
     // An exclusive group in the *other* mode is off-bar and must not
     // suppress anything (a lingering sketch-group vote while the scene
     // flips to assembly would otherwise blank the assembly tools).
-    const exclusiveActive = this.groups.some((g) => g.exclusive && g.visible && g.mode === this.mode);
+    const exclusiveActive = this.groups.some(
+      (g) => g.exclusive && g.visible && (g.mode === 'all' || g.mode === this.mode),
+    );
     return exclusiveActive ? group.exclusive : true;
   }
 

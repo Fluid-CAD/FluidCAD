@@ -331,3 +331,86 @@ describe('scanFileForParts', () => {
     expect(result.errors[0].message).toContain('does not support part scanning');
   });
 });
+
+describe('scanFileForParts — lazy part definitions', () => {
+  /** A duck-typed lazy PartDefinition the scanner should materialize itself. */
+  function fakeDefinition(part: any, params: any[] = []) {
+    let materialized = 0;
+    return {
+      getType: () => 'part-definition',
+      materialize() {
+        materialized++;
+        if (params.length > 0) {
+          // Scoped-build shape: the built Part carries its collected params.
+          part.params = params;
+        }
+        return part;
+      },
+      get materializedCount() { return materialized; },
+    };
+  }
+
+  it('materializes a definition value export in its own scene and captures params', async () => {
+    const built = fakePart('d1', 'Extrusion');
+    const params = [
+      { label: 'Length', defaultValue: 150, currentValue: 150, controlType: 'number', min: 20 },
+    ];
+    const def = fakeDefinition(built, params);
+    const defScene = [rendered('d1'), rendered('e1', 'd1')];
+    const result = await scanFileForParts(
+      fakeHost({ extrusion: def }),
+      fakeManager([[], defScene]),
+      '/ws/extrusion.fluid.js',
+    );
+    expect(result.errors).toEqual([]);
+    expect(def.materializedCount).toBe(1);
+    expect(result.parts).toHaveLength(1);
+    expect(result.parts[0]).toMatchObject({ exportName: 'extrusion', kind: 'value', rootId: 'd1' });
+    expect(result.parts[0].params).toEqual([
+      { label: 'Length', defaultValue: 150, currentValue: 150, controlType: 'number', min: 20 },
+    ]);
+    expect(result.parts[0].objects.map(o => o.id)).toEqual(['d1', 'e1']);
+  });
+
+  it('materializes a factory-returned definition as kind factory', async () => {
+    const built = fakePart('f1', 'Bracket');
+    const def = fakeDefinition(built);
+    const factoryScene = [rendered('f1')];
+    const result = await scanFileForParts(
+      fakeHost({ bracket: () => def }),
+      fakeManager([[], factoryScene]),
+      '/ws/bracket.part.js',
+    );
+    expect(result.errors).toEqual([]);
+    expect(result.parts).toHaveLength(1);
+    expect(result.parts[0]).toMatchObject({ exportName: 'bracket', kind: 'factory', rootId: 'f1' });
+    expect(result.parts[0].params).toEqual([]);
+  });
+
+  it('rejects a default-exported definition', async () => {
+    const def = fakeDefinition(fakePart('d1', 'X'));
+    const result = await scanFileForParts(
+      fakeHost({ default: def }),
+      fakeManager([[]]),
+      '/ws/x.fluid.js',
+    );
+    expect(result.parts).toEqual([]);
+    expect(result.errors[0].message).toContain('Default exports are not insertable');
+  });
+
+  it('drops the sourceLocation field from captured params', async () => {
+    const built = fakePart('d1', 'P');
+    const def = fakeDefinition(built, [
+      {
+        label: 'W', defaultValue: 5, currentValue: 5, controlType: 'number',
+        sourceLocation: { filePath: '/ws/p.fluid.js', line: 3, column: 1 },
+      },
+    ]);
+    const result = await scanFileForParts(
+      fakeHost({ p: def }),
+      fakeManager([[], [rendered('d1')]]),
+      '/ws/p.fluid.js',
+    );
+    expect(result.parts[0].params[0]).not.toHaveProperty('sourceLocation');
+  });
+});

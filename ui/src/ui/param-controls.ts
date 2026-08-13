@@ -1,0 +1,204 @@
+import type { CatalogParamDef, CatalogParamValue } from '../api';
+
+/**
+ * A local-state parameter form: renders one control row per definition
+ * (matching the params panel's control vocabulary and daisyUI styling),
+ * holds the values in memory, and reports them back on demand. No server
+ * round trips — the Insert dialog reads the values when the basket commits.
+ *
+ * This is the shared home for param control rows; the params panel still
+ * renders its own copies (interwoven with its in-place value updates) and
+ * migrating it here is a follow-up.
+ */
+export class ParamForm {
+  readonly element: HTMLDivElement;
+  private readonly values = new Map<string, CatalogParamValue>();
+
+  constructor(private readonly defs: CatalogParamDef[]) {
+    this.element = document.createElement('div');
+    this.element.className = 'flex flex-col gap-1.5';
+    for (const def of defs) {
+      this.values.set(def.label, def.currentValue);
+      this.element.appendChild(this.buildRow(def));
+    }
+  }
+
+  /** Every value, defaults included. */
+  allValues(): Record<string, CatalogParamValue> {
+    return Object.fromEntries(this.values);
+  }
+
+  /**
+   * Only the values that differ from the definition's effective defaults —
+   * what the generated `insert(def, {…})` argument should carry (all
+   * defaults → no argument at all).
+   */
+  nonDefaultValues(): Record<string, CatalogParamValue> {
+    const out: Record<string, CatalogParamValue> = {};
+    for (const def of this.defs) {
+      const value = this.values.get(def.label)!;
+      if (!sameValue(value, def.currentValue)) {
+        out[def.label] = value;
+      }
+    }
+    return out;
+  }
+
+  private set(label: string, value: CatalogParamValue): void {
+    this.values.set(label, value);
+  }
+
+  private buildRow(def: CatalogParamDef): HTMLElement {
+    const row = document.createElement('label');
+    row.className = 'flex flex-col gap-1';
+
+    const caption = document.createElement('span');
+    caption.className = 'text-xs text-base-content/70';
+    caption.textContent = def.label;
+    row.appendChild(caption);
+
+    row.appendChild(this.buildControl(def));
+
+    if (def.description) {
+      const desc = document.createElement('span');
+      desc.className = 'text-[11px] text-base-content/40';
+      desc.textContent = def.description;
+      row.appendChild(desc);
+    }
+    return row;
+  }
+
+  private buildControl(def: CatalogParamDef): HTMLElement {
+    const type = effectiveControlType(def);
+    switch (type) {
+      case 'slider': {
+        const wrap = document.createElement('div');
+        wrap.className = 'flex items-center gap-2';
+        const input = document.createElement('input');
+        input.type = 'range';
+        input.className = 'range range-xs range-primary flex-1';
+        input.min = String(def.min ?? 0);
+        input.max = String(def.max ?? 100);
+        input.step = String(def.step ?? 1);
+        input.value = String(def.currentValue);
+        const display = document.createElement('span');
+        display.className = 'text-xs text-base-content/50 tabular-nums w-10 text-right';
+        display.textContent = String(def.currentValue);
+        input.addEventListener('input', () => {
+          display.textContent = input.value;
+          this.set(def.label, Number(input.value));
+        });
+        wrap.appendChild(input);
+        wrap.appendChild(display);
+        return wrap;
+      }
+      case 'number': {
+        const input = document.createElement('input');
+        input.type = 'number';
+        input.className = 'input input-sm input-bordered w-full text-xs bg-transparent';
+        input.step = def.step != null ? String(def.step) : 'any';
+        if (def.min != null) { input.min = String(def.min); }
+        if (def.max != null) { input.max = String(def.max); }
+        input.value = String(def.currentValue);
+        input.addEventListener('input', () => {
+          const num = Number(input.value);
+          if (Number.isFinite(num)) {
+            this.set(def.label, num);
+          }
+        });
+        return input;
+      }
+      case 'checkbox': {
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.className = 'toggle toggle-sm toggle-primary';
+        input.checked = def.currentValue === true;
+        input.addEventListener('change', () => this.set(def.label, input.checked));
+        return input;
+      }
+      case 'select': {
+        if (def.multi) {
+          return this.buildMultiSelect(def);
+        }
+        const select = document.createElement('select');
+        select.className = 'select select-sm select-bordered w-full text-xs';
+        for (const opt of def.options ?? []) {
+          const el = document.createElement('option');
+          el.value = String(opt.value);
+          el.textContent = opt.label;
+          el.selected = String(opt.value) === String(def.currentValue);
+          select.appendChild(el);
+        }
+        select.addEventListener('change', () => {
+          this.set(def.label, optionValue(def, select.value));
+        });
+        return select;
+      }
+      case 'color': {
+        const input = document.createElement('input');
+        input.type = 'color';
+        input.className = 'w-full h-8 cursor-pointer bg-transparent border border-base-content/20 rounded';
+        input.value = String(def.currentValue);
+        input.addEventListener('input', () => this.set(def.label, input.value));
+        return input;
+      }
+      default: {
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'input input-sm input-bordered w-full text-xs bg-transparent';
+        input.value = String(def.currentValue);
+        input.addEventListener('input', () => this.set(def.label, input.value));
+        return input;
+      }
+    }
+  }
+
+  private buildMultiSelect(def: CatalogParamDef): HTMLElement {
+    const select = document.createElement('select');
+    select.multiple = true;
+    const opts = def.options ?? [];
+    select.size = Math.min(opts.length, 5);
+    select.className = 'select select-sm select-bordered w-full text-xs';
+    const selected = new Set(
+      (Array.isArray(def.currentValue) ? def.currentValue : [def.currentValue]).map(String),
+    );
+    for (const opt of opts) {
+      const el = document.createElement('option');
+      el.value = String(opt.value);
+      el.textContent = opt.label;
+      el.selected = selected.has(String(opt.value));
+      select.appendChild(el);
+    }
+    select.addEventListener('change', () => {
+      const chosen = Array.from(select.selectedOptions).map(o => optionValue(def, o.value));
+      this.set(def.label, chosen as (string | number)[]);
+    });
+    return select;
+  }
+}
+
+function effectiveControlType(def: CatalogParamDef): string {
+  if (def.controlType !== 'auto') {
+    return def.controlType;
+  }
+  if (typeof def.defaultValue === 'boolean') {
+    return 'checkbox';
+  }
+  return typeof def.defaultValue === 'number' ? 'number' : 'text';
+}
+
+/** Select option values keep their declared type — numeric options post numbers. */
+function optionValue(def: CatalogParamDef, raw: string): string | number {
+  const match = (def.options ?? []).find(o => String(o.value) === raw);
+  return match ? match.value : raw;
+}
+
+function sameValue(a: CatalogParamValue, b: CatalogParamValue): boolean {
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
+      return false;
+    }
+    return a.every((v, i) => v === b[i]);
+  }
+  return a === b;
+}

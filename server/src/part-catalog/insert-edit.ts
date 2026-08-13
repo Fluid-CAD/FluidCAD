@@ -13,12 +13,10 @@ import {
 /** What the chosen catalog export is, deciding the statement rendered for it. */
 export type InsertPartKind = 'value' | 'factory' | 'assembly';
 
-/**
- * The Insert dialog's edit payload — rides `ApplyFeatureEditSpec` as a
- * side-channel (like `paramEdit`/`segmentSwap`): every other spec field is
- * ignored and the transform below runs instead.
- */
-export type InsertPartEditSpec = {
+/** JSON-safe values a `param()` can resolve to — what the dialog form produces. */
+export type InsertParamValue = string | number | boolean | (string | number)[];
+
+export type InsertPartEntry = {
   /**
    * Module specifier for the part's file relative to the assembly file
    * (`'./side-plate.part.js'`), or null when the export comes from the
@@ -36,24 +34,43 @@ export type InsertPartEditSpec = {
    * throw a clear migration error from insert() itself.
    */
   kind: InsertPartKind;
+  /**
+   * NON-DEFAULT parameter values, rendered as insert()'s second argument
+   * (`insert(extrusion, { Size: '80x80', Length: 540 })`). The dialog diffs
+   * against the scanned defaults before posting; an absent/empty map renders
+   * the plain single-argument form.
+   */
+  params?: Record<string, InsertParamValue>;
 };
 
 /**
- * Append the statement that brings a catalog export into the assembly file,
- * importing the export (and `insert` when the statement uses it) as needed:
+ * The Insert dialog's edit payload — rides `ApplyFeatureEditSpec` as a
+ * side-channel (like `paramEdit`/`segmentSwap`): every other spec field is
+ * ignored and the transform below runs instead. A BATCH: the dialog's whole
+ * basket lands as one transform → one editor round trip → one re-render.
+ */
+export type InsertPartEditSpec = {
+  inserts: InsertPartEntry[];
+};
+
+/**
+ * Append the statements that bring the chosen catalog exports into the
+ * assembly file, importing each export (and `insert`) as needed:
  *
- *     import { sidePlate } from './side-plate.part.js';
- *     const sidePlate1 = insert(sidePlate());
+ *     import { extrusion } from './extrusion.fluid.js';
+ *     const extrusion1 = insert(extrusion, { Size: '80x80', Length: 540 });
+ *     const extrusion2 = insert(extrusion, { Size: '80x80', Length: 540 });
  *
- *     import { gantryAssembly } from './gantry.assembly.js';
- *     const gantryAssembly1 = insert(gantryAssembly());
+ * Every entry is bound to a fresh `const` so the follow-up flows (translate
+ * chains, mates, sub-assembly part paths) have a name to reference; names
+ * number against the evolving code, so one batch never collides with itself.
  *
- * The result is always bound to a fresh `const` so the follow-up flows
- * (translate chains, mates, sub-assembly part paths) have a name to
- * reference.
+ * All-or-nothing: entries validate up front and the transform refuses the
+ * whole batch on the first bad one — a half-applied basket would be worse
+ * than a clean error.
  *
  * Definition-style files — the file's statements live inside a single
- * `assembly('name', () => {...})` body — get the statement INSIDE that body
+ * `assembly('name', () => {...})` body — get the statements INSIDE that body
  * (after its last insert(), else before its `return`): a top-level append
  * there would run at module scope instead of in the assembly's frame.
  * Entry-style files (no assembly() body, or several — ambiguous) keep the
@@ -63,34 +80,106 @@ export async function applyInsertPartEdit(
   code: string,
   spec: InsertPartEditSpec,
 ): Promise<{ newCode: string; error?: string }> {
-  if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(spec.exportName)) {
-    return { newCode: code, error: `"${spec.exportName}" is not an importable identifier` };
+  const entries = spec.inserts;
+  if (!Array.isArray(entries) || entries.length === 0) {
+    return { newCode: code, error: 'No inserts in the request.' };
   }
+  for (const entry of entries) {
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(entry.exportName)) {
+      return { newCode: code, error: `"${entry.exportName}" is not an importable identifier` };
+    }
+    const bad = findInvalidParam(entry.params);
+    if (bad) {
+      return { newCode: code, error: `Parameter '${bad}' of ${entry.exportName} has an unsupported value.` };
+    }
+  }
+
   let out = code;
-  if (spec.importFrom) {
-    out = await ensureSymbolImport(out, spec.exportName, spec.importFrom);
+  for (const entry of entries) {
+    if (entry.importFrom) {
+      out = await ensureSymbolImport(out, entry.exportName, entry.importFrom);
+    }
+    out = await ensureSymbolImport(out, 'insert');
+
+    const varName = pickInstanceName(out, entry.exportName);
+    const callSuffix = entry.kind === 'value' ? '' : '()';
+    const paramsLiteral = renderParamsLiteral(entry.params);
+    const statement =
+      `const ${varName} = insert(${entry.exportName}${callSuffix}${paramsLiteral ? `, ${paramsLiteral}` : ''});`;
+
+    const parser = await getJavaScriptParser();
+    const tree = parser.parse(out);
+
+    const bodies = assemblyBodies(tree.rootNode);
+    if (bodies.length === 1) {
+      out = appendInsideBody(out, bodies[0], statement);
+      continue;
+    }
+
+    const lines = splitLines(out);
+    const children = tree.rootNode.namedChildren;
+    const last = children[children.length - 1];
+    const insertRow = last ? last.endPosition.row + 1 : lines.length;
+    const separated = insertRow > 0 && !isBlankRow(lines, insertRow - 1);
+    lines.splice(insertRow, 0, ...(separated ? ['', statement] : [statement]));
+    out = joinLines(lines);
   }
-  out = await ensureSymbolImport(out, 'insert');
+  return { newCode: out };
+}
 
-  const varName = pickInstanceName(out, spec.exportName);
-  const statement =
-    `const ${varName} = insert(${spec.exportName}${spec.kind === 'value' ? '' : '()'});`;
-
-  const parser = await getJavaScriptParser();
-  const tree = parser.parse(out);
-
-  const bodies = assemblyBodies(tree.rootNode);
-  if (bodies.length === 1) {
-    return { newCode: appendInsideBody(out, bodies[0], statement) };
+/** The first param label whose value can't render as a literal, if any. */
+function findInvalidParam(params: Record<string, InsertParamValue> | undefined): string | null {
+  if (params == null) {
+    return null;
   }
+  if (typeof params !== 'object' || Array.isArray(params)) {
+    return '(params)';
+  }
+  for (const [label, value] of Object.entries(params)) {
+    if (typeof value === 'string' || typeof value === 'boolean') {
+      continue;
+    }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      continue;
+    }
+    if (Array.isArray(value)
+      && value.every(v => typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)))) {
+      continue;
+    }
+    return label;
+  }
+  return null;
+}
 
-  const lines = splitLines(out);
-  const children = tree.rootNode.namedChildren;
-  const last = children[children.length - 1];
-  const insertRow = last ? last.endPosition.row + 1 : lines.length;
-  const separated = insertRow > 0 && !isBlankRow(lines, insertRow - 1);
-  lines.splice(insertRow, 0, ...(separated ? ['', statement] : [statement]));
-  return { newCode: joinLines(lines) };
+/** `{ Size: '80x80', Length: 540 }` — empty/absent params render nothing. */
+function renderParamsLiteral(params: Record<string, InsertParamValue> | undefined): string {
+  const entries = Object.entries(params ?? {});
+  if (entries.length === 0) {
+    return '';
+  }
+  const rendered = entries.map(([label, value]) => `${renderKey(label)}: ${renderValue(value)}`);
+  return `{ ${rendered.join(', ')} }`;
+}
+
+function renderKey(label: string): string {
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(label)) {
+    return label;
+  }
+  return renderString(label);
+}
+
+function renderValue(value: InsertParamValue): string {
+  if (typeof value === 'string') {
+    return renderString(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map(v => (typeof v === 'string' ? renderString(v) : String(v))).join(', ')}]`;
+  }
+  return String(value);
+}
+
+function renderString(value: string): string {
+  return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
 }
 
 /** Statement blocks of every `assembly(name, () => {...})` call in the file. */

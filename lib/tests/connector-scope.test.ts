@@ -46,7 +46,7 @@ describe("connector scope", () => {
         extrude(10);
         // @ts-expect-error — passing a raw object on purpose
         connector("top", { x: 0, y: 0, z: 0 });
-      });
+      }).materialize();
     }).toThrow();
   });
 
@@ -57,7 +57,7 @@ describe("connector scope", () => {
           sketch("xy", () => rect(20, 20));
           extrude(10);
           connector(bad, select(face().planar().onPlane("xy")));
-        });
+        }).materialize();
       }).toThrow(/identifier/i);
     }
   });
@@ -69,7 +69,7 @@ describe("connector scope", () => {
         extrude(10);
         // @ts-expect-error — old pre-name signature on purpose
         connector(select(face().planar().onPlane("xy")));
-      });
+      }).materialize();
     }).toThrow(/name/i);
   });
 
@@ -80,7 +80,7 @@ describe("connector scope", () => {
         extrude(10);
         connector("mount", select(face().planar().onPlane("xy", 10)));
         connector("mount", select(face().planar().onPlane("xy")));
-      });
+      }).materialize();
     }).toThrow(/already has a connector named "mount"/i);
   });
 

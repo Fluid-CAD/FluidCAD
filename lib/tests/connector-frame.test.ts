@@ -286,6 +286,8 @@ describe("connector frame", () => {
     // frame (i.e., the cache restore populates the connector's state).
     const newScene = getSceneManager().startScene();
     const newPart = authorScene();
+    // Entry flow: definitions materialize before the compare pass runs.
+    newScene.materializeLeftoverDefinitions();
     SceneCompare.compare(previousScene, newScene);
 
     const newConn = newPart.getConnectors()[0];

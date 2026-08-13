@@ -17,8 +17,10 @@ import { countShapes } from "../utils.js";
 describe("part", () => {
   setupOC();
 
-  it("should execute a part callback immediately", () => {
+  it("is lazy — the callback runs at render, not at part() call time", () => {
+    let ran = 0;
     part("my-part", () => {
+      ran++;
       sketch("xy", () => {
         circle(10);
       });
@@ -26,9 +28,13 @@ describe("part", () => {
     });
 
     const scene = getCurrentScene();
-    const objects = scene.getAllSceneObjects();
+    expect(ran).toBe(0);
+    expect(scene.getAllSceneObjects()).toHaveLength(0);
 
-    const parts = objects.filter(o => o instanceof Part);
+    render();
+
+    expect(ran).toBe(1);
+    const parts = scene.getAllSceneObjects().filter(o => o instanceof Part);
     expect(parts).toHaveLength(1);
     expect((parts[0] as Part).partName).toBe("my-part");
   });
@@ -120,6 +126,7 @@ describe("part", () => {
         extrude(20);
       });
 
+      render();
       const scene = getCurrentScene();
       const objects = scene.getAllSceneObjects();
       const partObj = objects.find(o => o instanceof Part) as Part;
@@ -263,14 +270,15 @@ describe("part", () => {
   });
 
   describe("part() as transform target", () => {
-    it("should return an ISceneObject (Part instance)", () => {
+    it("should return a lazy PartDefinition that materializes into a Part", () => {
       const result = part("ret-test", () => {
         sketch("xy", () => { circle(10); });
         extrude(20);
       });
 
       expect(result).toBeDefined();
-      expect(result).toBeInstanceOf(Part);
+      expect(result.getType()).toBe("part-definition");
+      expect(result.materialize()).toBeInstanceOf(Part);
     });
 
     it("should translate a Part target", () => {

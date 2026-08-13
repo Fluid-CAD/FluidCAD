@@ -4,6 +4,7 @@ import type { ParamRegistry, ParamVal } from "../param-registry.js";
 import { createManager } from "../scene-manager.js";
 import { setAssetProvider } from "../io/file-import.js";
 import { BreakpointHit } from "../common/breakpoint-hit.js";
+import { PartDefinition } from "../features/part-definition.js";
 import { Scene } from "../rendering/scene.js";
 import type { ExportOptions } from "../io/file-export.js";
 import type { MeasureEntityRef } from "../oc/measure/measure-types.js";
@@ -102,10 +103,16 @@ export class BrowserEngineHost {
     try {
       const mod = await this.evaluator();
       for (const value of Object.values(mod)) {
+        let result: unknown = value;
         if (typeof value === "function") {
-          await (value as () => unknown)();
+          result = await (value as () => unknown)();
+        }
+        if (result instanceof PartDefinition) {
+          result.materializeInto(scene);
         }
       }
+      // part() is lazy — definitions nothing exported still render standalone.
+      scene.materializeLeftoverDefinitions();
     } catch (error) {
       if (error instanceof BreakpointHit) {
         breakpointHit = true;

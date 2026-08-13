@@ -156,7 +156,7 @@ describe("anchored vertex references", () => {
         sketch("xy", () => rect(40, 60));
         const e = extrude(20) as unknown as IExtrude;
         (e.startEdges(0) as unknown as any).offset("sideways", 5);
-      });
+      }).materialize();
     }).toThrow(/mode must be 'relative' or 'absolute'/);
 
     expect(() => {
@@ -164,7 +164,7 @@ describe("anchored vertex references", () => {
         sketch("xy", () => rect(40, 60));
         const e = extrude(20) as unknown as IExtrude;
         (e.startEdges(0) as unknown as ISelection).offset("relative", Number.NaN);
-      });
+      }).materialize();
     }).toThrow(/finite number/);
   });
 

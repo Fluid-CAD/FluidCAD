@@ -6,6 +6,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { Vertex } from "../common/vertex.js";
 import { LazyVertex } from "../features/lazy-vertex.js";
 import { ISceneObject, ITranslate } from "./interfaces.js";
+import { materializePartArgs } from "../features/part-definition.js";
 import { type NumberParam, type BooleanParam, isNumberParam, isBooleanParam, resolveParam } from "./param.js";
 
 interface TranslateFunction {
@@ -71,7 +72,9 @@ interface TranslateFunction {
 
 function build(context: SceneParserContext): TranslateFunction {
   return function translate() {
-    const args = Array.from(arguments);
+    // Part definitions flow where built parts used to — coerce to their
+    // built default variant before target extraction.
+    const args = materializePartArgs(Array.from(arguments));
 
     // Extract SceneObject targets from the end
     const targets: SceneObject[] = [];

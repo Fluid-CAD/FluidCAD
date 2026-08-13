@@ -2,23 +2,42 @@ import { captureSourceLocation } from "../index.js";
 import { getCurrentScene } from "../scene-manager.js";
 import { AssemblyScene, AssemblyInstance, AssemblyOccurrence } from "../rendering/assembly-scene.js";
 import { Part } from "../features/part.js";
+import { PartDefinition } from "../features/part-definition.js";
 import { Assembly } from "../features/assembly.js";
 import { Instance } from "../features/instance.js";
 import { Occurrence } from "../features/occurrence.js";
+import { validateParamOverrides } from "../features/param-overrides.js";
+import type { ParamOverrides } from "../param-registry.js";
 import { IPart } from "./interfaces.js";
 
-function insert<P extends IPart>(part: P): Instance<P>;
-function insert<T>(definition: Assembly<T>): Occurrence<T>;
-function insert(target: unknown): Instance<unknown> | Occurrence<unknown> {
+function insert<T>(definition: PartDefinition<T>, overrides?: ParamOverrides): Instance<T>;
+function insert<T>(definition: Assembly<T>, overrides?: ParamOverrides): Occurrence<T>;
+function insert<P extends IPart>(part: P, overrides?: ParamOverrides): Instance<P>;
+function insert(target: unknown, overrides?: ParamOverrides): Instance<unknown> | Occurrence<unknown> {
   const scene = getCurrentScene();
   if (!(scene instanceof AssemblyScene)) {
     throw new Error("insert() can only be used in *.assembly.js files.");
   }
-  if (target instanceof Assembly) {
-    return insertOccurrence(scene, target);
+  if (overrides !== undefined) {
+    validateParamOverrides("insert()", overrides);
   }
-  if (!(target instanceof Part)) {
-    throw new Error("insert(): expected a Part or an assembly(...) definition — got " + typeof target + ".");
+  if (target instanceof Assembly) {
+    return insertOccurrence(scene, target, overrides);
+  }
+
+  let partObj: Part;
+  if (target instanceof PartDefinition) {
+    // First insert of a variant builds its template synchronously (the
+    // Instance binds named connectors right below); repeats share it via
+    // the definition's per-scene variant cache.
+    partObj = target.materializeVariant(scene, overrides);
+  } else if (target instanceof Part) {
+    if (overrides && Object.keys(overrides).length > 0) {
+      throw new Error("insert(): parameter overrides need a part definition — this part is already built.");
+    }
+    partObj = target;
+  } else {
+    throw new Error("insert(): expected a part(...) or assembly(...) definition — got " + typeof target + ".");
   }
 
   const sourceLocation = captureSourceLocation();
@@ -32,18 +51,18 @@ function insert(target: unknown): Instance<unknown> | Occurrence<unknown> {
   const record: AssemblyInstance = {
     instanceId: scene.nextInstanceId(),
     owner: scene.currentScopePath(),
-    part: target,
+    part: partObj,
     position: { x: 0, y: 0, z: 0 },
     quaternion: { x: 0, y: 0, z: 0, w: 1 },
     grounded: false,
-    name: target.name(),
+    name: partObj.name(),
     sourceLocation: sourceLocation ?? undefined,
   };
   scene.addInstance(record);
   return new Instance(record);
 }
 
-function insertOccurrence<T>(scene: AssemblyScene, definition: Assembly<T>): Occurrence<T> {
+function insertOccurrence<T>(scene: AssemblyScene, definition: Assembly<T>, overrides?: ParamOverrides): Occurrence<T> {
   const sourceLocation = captureSourceLocation();
   const record: AssemblyOccurrence = {
     occurrenceId: scene.nextOccurrenceId(),
@@ -58,7 +77,9 @@ function insertOccurrence<T>(scene: AssemblyScene, definition: Assembly<T>): Occ
   scene.beginOccurrence(record);
   let parts: T;
   try {
-    parts = definition.run();
+    // Always scoped (even with zero overrides): an occurrence's param()
+    // calls are its insertion interface, never the consuming file's panel.
+    parts = definition.runScoped(overrides ?? {});
   } finally {
     scene.endOccurrence();
   }

@@ -1,6 +1,7 @@
 import { PlaneLike } from "../../math/plane.js";
 import { normalizePlane } from "../../helpers/normalize.js";
 import { Edge, Face } from "../../common/shapes.js";
+import { materializePartArgs } from "../../features/part-definition.js";
 import { FilterBuilderBase } from "../filter-builder-base.js";
 import { CircleFilter, NotCircleFilter } from "./circle-filter.js";
 import { ArcFilter, NotArcFilter } from "./curve-filter.js";
@@ -412,7 +413,9 @@ export class EdgeFilterBuilder extends FilterBuilderBase<Edge> {
    * @param sceneObjects - Scene objects whose edges (and edges of their sub-shapes) are matched against.
    */
   from(...sceneObjects: ISceneObject[]): this {
-    const filter = new FromSceneObjectFilter<Edge>(sceneObjects as SceneObject[], "edge");
+    // Part definitions coerce to their built default variant at argument
+    // time, so the donor's geometry precedes the consuming select().
+    const filter = new FromSceneObjectFilter<Edge>(materializePartArgs(sceneObjects) as SceneObject[], "edge");
     this.filters.push(filter);
     return this;
   }

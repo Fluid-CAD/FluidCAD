@@ -25,6 +25,8 @@ export type SerializedAssembly = {
     /** Owning scope path; "" for root-scope instances. Engines predating sub-assemblies omit it. */
     owner?: string;
     name: string;
+    /** Resolved parameter values of the instance's template variant — absent pre-parameters engines. */
+    paramValues?: Record<string, string | number | boolean | (string | number)[]>;
     sourceLocation?: { filePath: string; line: number; column: number };
   }>;
   /** Sub-assembly occurrences — absent on engines predating assembly() definitions. */
@@ -883,6 +885,23 @@ export class FluidCadServer {
             breakpointHit = true;
           } else {
             throw e;
+          }
+        }
+
+        // part() definitions are lazy — a part-kind entry scene materializes
+        // every definition the module created but nothing exported or
+        // inserted, so the open file stays WYSIWYG. Assembly scenes build
+        // strictly via insert(). (Optional call: the workspace's fluidcad
+        // install may predate lazy definitions.)
+        if (sceneKind !== 'assembly') {
+          try {
+            (scene as { materializeLeftoverDefinitions?: () => void }).materializeLeftoverDefinitions?.();
+          } catch (e) {
+            if (e instanceof BreakpointHit) {
+              breakpointHit = true;
+            } else {
+              throw e;
+            }
           }
         }
         this.lastBreakpointHit = breakpointHit;

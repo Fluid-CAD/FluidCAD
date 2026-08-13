@@ -20,8 +20,9 @@ import { AssemblyScene } from "../rendering/assembly-scene.js";
  *
  * `.grounded()` inside the body means "fixed in this assembly's frame" —
  * standalone editing grounds it for real, while a parent only grounds it by
- * grounding the occurrence. Parameterization is plain JS: export a factory
- * returning the definition.
+ * grounding the occurrence. Parameterize with `param()` inside the body:
+ * `insert(def, { Width: 900 })` resolves them per occurrence, and the
+ * defining file's entry render shows them in the params panel.
  *
  * @param name - The assembly's display name.
  * @param callback - The body; its return value is exposed per-occurrence as

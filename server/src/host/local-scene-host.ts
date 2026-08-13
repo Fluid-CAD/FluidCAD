@@ -2,7 +2,7 @@ import { type ViteDevServer, createServer } from 'vite';
 import { dirname, resolve, isAbsolute } from 'path';
 import { normalizePath } from '../normalize-path.ts';
 import type { SceneHost } from './scene-host.ts';
-import { isAssemblyDefinition } from './scene-host.ts';
+import { isAssemblyDefinition, isPartDefinition } from './scene-host.ts';
 import { getBlockedNodeModule } from './blocked-imports.ts';
 
 const IMPORT_PATTERN = /\b(?:import|export)\s[\s\S]*?from\s+['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
@@ -110,6 +110,13 @@ export class LocalSceneHost implements SceneHost {
       // of a sub-assembly file work without a "grounded" parameter hack.
       if (isAssemblyDefinition(result)) {
         result.run();
+      }
+      // part() definitions are lazy too — exported ones materialize their
+      // default variant so the defining file renders standalone (the
+      // definition's own variant cache dedupes when an insert already
+      // built it).
+      if (isPartDefinition(result)) {
+        result.materialize();
       }
     }
     return mod;

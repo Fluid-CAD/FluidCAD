@@ -2,6 +2,7 @@ import { Scene } from "./scene.js";
 import { Part } from "../features/part.js";
 import { Connector } from "../features/connector.js";
 import { SourceLocation } from "../common/scene-object.js";
+import type { ParamVal } from "../param-registry.js";
 import { Quaternion } from "../math/quaternion.js";
 import { Vector3d } from "../math/vector3d.js";
 
@@ -89,6 +90,8 @@ export type SerializedInstance = {
   /** Owning scope path; "" for root-scope instances. */
   owner: string;
   name: string;
+  /** Resolved parameter values of the instance's template variant (insert-path builds only). */
+  paramValues?: Record<string, ParamVal>;
   sourceLocation?: SourceLocation;
 };
 
@@ -315,6 +318,7 @@ export class AssemblyScene extends Scene {
         grounded: (inst.grounded && (connected.get(inst.owner) ?? false)) || anchors.has(inst),
         owner: inst.owner,
         name: inst.name,
+        paramValues: inst.part.paramValues,
         sourceLocation: inst.sourceLocation,
       };
     });

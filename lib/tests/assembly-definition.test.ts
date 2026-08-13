@@ -63,7 +63,7 @@ describe("assembly() definitions", () => {
 
   it("insert() rejects values that are neither Part nor Assembly", () => {
     startAssembly();
-    expect(() => insert({} as any)).toThrow(/Part or an assembly/i);
+    expect(() => insert({} as any)).toThrow(/expected a part/i);
   });
 });
 

@@ -3691,6 +3691,29 @@ export type CatalogFileEntry = {
   absPath: string;
 };
 
+/** Values a `param()` can resolve to — what the Insert dialog's form posts. */
+export type CatalogParamValue = string | number | boolean | (string | number)[];
+
+/**
+ * One parameter of a scanned definition — `ParamDefinition` minus its
+ * sourceLocation. `currentValue` is the definition's EFFECTIVE default
+ * (bound `.with()` values applied): the form prefill and the diff baseline.
+ */
+export type CatalogParamDef = {
+  label: string;
+  defaultValue: CatalogParamValue;
+  currentValue: CatalogParamValue;
+  controlType: string;
+  description?: string;
+  group?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: { label: string; value: string | number }[];
+  multi?: boolean;
+  multiControlType?: string;
+};
+
 export type CatalogPart = {
   exportName: string;
   /** The `part('name', …)` display name — NOT unique across the workspace. */
@@ -3700,6 +3723,8 @@ export type CatalogPart = {
   rootId: string;
   /** The part's rendered subtree in scene-rendered wire shape (thumbnail input). */
   objects: SceneObjectRender[];
+  /** The definition's `param()` interface — absent on servers predating parameters. */
+  params?: CatalogParamDef[];
 };
 
 /**
@@ -3723,6 +3748,8 @@ export type CatalogAssembly = {
   mates: SerializedAssemblyMate[];
   /** One rendered subtree per distinct referenced part (connectors included). */
   objects: SceneObjectRender[];
+  /** The definition's `param()` interface — absent on servers predating parameters. */
+  params?: CatalogParamDef[];
 };
 
 export type CatalogEntryKind = 'value' | 'factory' | 'assembly';
@@ -3751,21 +3778,29 @@ export function scanPartCatalogFile(
   return postJson('/api/part-catalog/scan', { file: absPath }, signal);
 }
 
+/** One entry of the Insert dialog's basket. */
+export type CatalogInsertRequest = {
+  file: string;
+  exportName: string;
+  kind: CatalogEntryKind;
+  /** NON-DEFAULT parameter values only — rendered as insert()'s second argument. */
+  params?: Record<string, CatalogParamValue>;
+};
+
 /**
- * Write `const <name> = insert(<export>)` (plus imports) into the current
- * assembly file. Failure bodies surface their reason — a refusal is shown in
- * the dialog, not swallowed.
+ * Write `const <name> = insert(<export>, {…})` statements (plus imports)
+ * into the current assembly file — the whole basket as ONE edit, so N
+ * inserts cost one editor round trip and one re-render. Failure bodies
+ * surface their reason — a refusal is shown in the dialog, not swallowed.
  */
-export async function insertCatalogPart(
-  file: string,
-  exportName: string,
-  kind: CatalogEntryKind,
+export async function insertCatalogParts(
+  inserts: CatalogInsertRequest[],
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('/api/part-catalog/insert', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ file, exportName, kind }),
+      body: JSON.stringify({ inserts }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {

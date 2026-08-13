@@ -1,8 +1,20 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Connector } from "./connector.js";
 import { IPart } from "../core/interfaces.js";
+import type { ParamDefinition, ParamVal } from "../param-registry.js";
 
 export class Part extends SceneObject implements IPart {
+  /** The definition callback's return value, exposed to code as `def.features`. */
+  features?: unknown;
+  /**
+   * The definition's parameter interface, collected while this variant
+   * materialized under a parameter scope (insert path). Entry-file root
+   * builds register into the global registry instead and leave this unset.
+   */
+  params?: ParamDefinition[];
+  /** Resolved parameter values of the variant build — rides SerializedInstance. */
+  paramValues?: Record<string, ParamVal>;
+
   constructor(public partName: string) {
     super();
     this.name(partName);
@@ -60,6 +72,7 @@ export class Part extends SceneObject implements IPart {
   serialize() {
     return {
       name: this.partName,
+      paramValues: this.paramValues,
     };
   }
 }

@@ -66,6 +66,16 @@ export type SceneObjectRender = {
   snapVertices?: [number, number][];
 }
 
+/**
+ * Structural view of a `PartDefinition` — kept structural so scene.ts never
+ * imports the definition class (which imports scene-manager, which imports
+ * this file).
+ */
+export type TrackedPartDefinition = {
+  hasVariantIn(scene: Scene): boolean;
+  materializeInto(scene: Scene): unknown;
+};
+
 export class Scene {
 
   private sceneObjects: SceneObject[] = [];
@@ -76,7 +86,45 @@ export class Scene {
 
   private idMap: Map<string, SceneObject> = new Map();
 
+  /** Every part definition created while this scene was current — see materializeLeftoverDefinitions. */
+  private partDefinitions: TrackedPartDefinition[] = [];
+
   constructor() {
+  }
+
+  trackPartDefinition(definition: TrackedPartDefinition): void {
+    this.partDefinitions.push(definition);
+  }
+
+  /**
+   * Build every tracked definition that has no variant in this scene yet —
+   * the entry-file pass that keeps an open part file WYSIWYG: `part()` no
+   * longer builds at call time, so definitions nothing exported or inserted
+   * would otherwise silently vanish from the render. Called after module
+   * evaluation for part-kind entry scenes only; assembly scenes build
+   * strictly via insert().
+   */
+  materializeLeftoverDefinitions(): void {
+    for (const definition of this.partDefinitions) {
+      if (!definition.hasVariantIn(this)) {
+        definition.materializeInto(this);
+      }
+    }
+  }
+
+  /**
+   * Run `fn` with the progressive-container stack suspended — part
+   * definition variants always materialize as top-level templates, even
+   * when their build is triggered mid-build of another container.
+   */
+  runTopLevel<T>(fn: () => T): T {
+    const saved = this.progressiveContainers;
+    this.progressiveContainers = [];
+    try {
+      return fn();
+    } finally {
+      this.progressiveContainers = saved;
+    }
   }
 
   addSceneObject(obj: SceneObject): void {

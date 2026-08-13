@@ -1,8 +1,30 @@
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 import type { SceneHost } from '../host/scene-host.ts';
-import { isAssemblyDefinition } from '../host/scene-host.ts';
+import { isAssemblyDefinition, isPartDefinition } from '../host/scene-host.ts';
 import { createParamRegistry, getParamRegistry, setParamRegistry } from '../../../lib/dist/index.js';
+
+/**
+ * One parameter of a scanned definition — `ParamDefinition` minus
+ * `sourceLocation` (irrelevant to the Insert dialog, and it would leak
+ * workspace paths into a payload the UI never needs them in). `currentValue`
+ * is the definition's EFFECTIVE default (bound `.with()` values applied) —
+ * the value the dialog form should prefill and diff against.
+ */
+export type CatalogParamDef = {
+  label: string;
+  defaultValue: unknown;
+  currentValue: unknown;
+  controlType: string;
+  description?: string;
+  group?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: { label: string; value: string | number }[];
+  multi?: boolean;
+  multiControlType?: string;
+};
 
 /**
  * One insertable part discovered in a file: either a directly exported Part
@@ -22,6 +44,8 @@ export type ScannedPart = {
    * thumbnail mesh from it with the ordinary mesh factory.
    */
   objects: any[];
+  /** The definition's `param()` interface — empty for parameterless/legacy exports. */
+  params: CatalogParamDef[];
 };
 
 /**
@@ -52,6 +76,8 @@ export type ScannedSubAssembly = {
    * included, so the UI can pose instances and solve mates for a thumbnail.
    */
   objects: any[];
+  /** The definition's `param()` interface — empty for parameterless/legacy exports. */
+  params: CatalogParamDef[];
 };
 
 export type PartScanResult = {
@@ -171,12 +197,37 @@ export async function scanFileForParts(
     const renderedPools: any[][] = [moduleRendered];
 
     for (const [exportName, value] of Object.entries(mod)) {
+      // OLD-engine value export: an eagerly built Part sitting in the module
+      // scene. New engines export lazy definitions instead (next branch).
       if (isPartInstance(value)) {
         if (exportName === 'default') {
           result.errors.push({ exportName, message: DEFAULT_EXPORT_MESSAGE });
           continue;
         }
-        recordPart(result, renderedPools, exportName, value, 'value');
+        recordPart(result, renderedPools, exportName, value, 'value', []);
+        continue;
+      }
+      // Lazy part definition value export: materialize its default variant
+      // in a scene of its own, under a fresh registry so the definition's
+      // `param()` declarations are attributable to THIS export.
+      if (isPartDefinition(value)) {
+        if (exportName === 'default') {
+          result.errors.push({ exportName, message: DEFAULT_EXPORT_MESSAGE });
+          continue;
+        }
+        const defScene = startScanScene();
+        scannedScenes.push(defScene);
+        const exportRegistry = createParamRegistry();
+        let built: any;
+        try {
+          built = value.materialize();
+          sceneManager.renderScene(defScene);
+          renderedPools.unshift(defScene.getRenderedObjects());
+        } catch (err: any) {
+          result.errors.push({ exportName, message: err?.message ?? String(err) });
+          continue;
+        }
+        recordPart(result, renderedPools, exportName, built, 'value', collectedParams(built, exportRegistry));
         continue;
       }
       const isDirectDefinition = isAssemblyFile && isAssemblyDefinition(value);
@@ -186,6 +237,7 @@ export async function scanFileForParts(
 
       const factoryScene = startScanScene();
       scannedScenes.push(factoryScene);
+      const exportRegistry = createParamRegistry();
       let returned: any = value;
       if (typeof value === 'function') {
         try {
@@ -208,7 +260,20 @@ export async function scanFileForParts(
           continue;
         }
       }
-      const isPart = isPartInstance(returned);
+      // A factory may return a lazy part definition — materialize it here so
+      // the classification below sees a built Part either way.
+      let builtPart: any = null;
+      if (isPartDefinition(returned)) {
+        try {
+          builtPart = returned.materialize();
+        } catch (err: any) {
+          result.errors.push({ exportName, message: err?.message ?? String(err) });
+          continue;
+        }
+      } else if (isPartInstance(returned)) {
+        builtPart = returned;
+      }
+      const isPart = builtPart != null;
       // A factory that inserted instances into its own scene is a
       // sub-assembly, whatever it returned (a definition ran above, a legacy
       // factory inserted directly — both land here).
@@ -232,11 +297,12 @@ export async function scanFileForParts(
         continue;
       }
       if (isPart) {
-        recordPart(result, renderedPools, exportName, returned, 'factory');
+        recordPart(result, renderedPools, exportName, builtPart, 'factory', collectedParams(builtPart, exportRegistry));
       } else {
         recordSubAssembly(result, renderedPools, exportName, assemblyData!, {
           exportKind: typeof value === 'function' ? 'factory' : 'value',
           assemblyName: typeof definition?.assemblyName === 'string' ? definition.assemblyName : undefined,
+          params: catalogParams(exportRegistry.getDefinitions()),
         });
       }
     }
@@ -304,6 +370,7 @@ function recordPart(
   exportName: string,
   part: any,
   kind: 'value' | 'factory',
+  params: CatalogParamDef[],
 ): void {
   const rootId: string | undefined = part.id;
   if (typeof rootId !== 'string' || rootId.length === 0) {
@@ -319,11 +386,44 @@ function recordPart(
         kind,
         rootId,
         objects: subtree,
+        params,
       });
       return;
     }
   }
   result.errors.push({ exportName, message: 'Part was not found in the rendered scene.' });
+}
+
+/**
+ * A scanned definition's parameter interface. Root builds register into the
+ * export's throwaway registry; a `.with()` derivative builds SCOPED and
+ * records its collected definitions on the built Part instead — prefer
+ * those (their currentValue carries the bound values).
+ */
+function collectedParams(builtPart: any, registry: { getDefinitions(): any[] }): CatalogParamDef[] {
+  const own = builtPart?.params;
+  if (Array.isArray(own) && own.length > 0) {
+    return catalogParams(own);
+  }
+  return catalogParams(registry.getDefinitions());
+}
+
+/** Strip a ParamDefinition to the wire subset (drop sourceLocation). */
+function catalogParams(definitions: any[]): CatalogParamDef[] {
+  return definitions.map(def => ({
+    label: def.label,
+    defaultValue: def.defaultValue,
+    currentValue: def.currentValue,
+    controlType: def.controlType,
+    ...(def.description != null ? { description: def.description } : {}),
+    ...(def.group != null ? { group: def.group } : {}),
+    ...(def.min != null ? { min: def.min } : {}),
+    ...(def.max != null ? { max: def.max } : {}),
+    ...(def.step != null ? { step: def.step } : {}),
+    ...(def.options != null ? { options: def.options } : {}),
+    ...(def.multi != null ? { multi: def.multi } : {}),
+    ...(def.multiControlType != null ? { multiControlType: def.multiControlType } : {}),
+  }));
 }
 
 /**
@@ -338,7 +438,7 @@ function recordSubAssembly(
   renderedPools: any[][],
   exportName: string,
   data: { instances: any[]; mates: any[] },
-  shape: { exportKind: 'value' | 'factory'; assemblyName?: string },
+  shape: { exportKind: 'value' | 'factory'; assemblyName?: string; params: CatalogParamDef[] },
 ): void {
   const objects: any[] = [];
   const seenParts = new Set<string>();
@@ -372,6 +472,7 @@ function recordSubAssembly(
     instances: data.instances,
     mates: data.mates,
     objects,
+    params: shape.params,
   });
 }
 

@@ -1,6 +1,7 @@
 import { SceneObject } from "../common/scene-object.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { Remove } from "../features/remove.js";
+import { materializePartArgs } from "../features/part-definition.js";
 import { ISceneObject } from "./interfaces.js";
 
 interface RemoveFunction {
@@ -13,7 +14,7 @@ interface RemoveFunction {
 
 function build(context: SceneParserContext): RemoveFunction {
   return function remove(...args: (ISceneObject[])): ISceneObject {
-    const remove = new Remove(args as SceneObject[]);
+    const remove = new Remove(materializePartArgs(args) as SceneObject[]);
     context.addSceneObject(remove);
     return remove;
   } as RemoveFunction;

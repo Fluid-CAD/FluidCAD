@@ -200,10 +200,10 @@ export interface IConnector extends ISceneObject {
 }
 
 /**
- * A reusable design unit returned by the `part(...)` DSL. Parts can be
- * inserted into an assembly via `insert(part)` and carry their connectors
- * with them. The `features` shape (if any) is appended to this interface
- * by `part()` based on what the user returns from the build callback.
+ * A built part in the scene — one materialized variant of a `part(...)`
+ * definition, carrying the geometry and named connectors every instance of
+ * that variant shares. `part()` itself returns the lazy `PartDefinition`;
+ * this interface is the scene object the definition builds.
  */
 export interface IPart extends ISceneObject {}
 

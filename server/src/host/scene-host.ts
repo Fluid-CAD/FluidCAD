@@ -51,3 +51,23 @@ export function isAssemblyDefinition(value: unknown): value is { assemblyName?: 
     return false;
   }
 }
+
+/**
+ * Duck-typed check for a fluidcad `part()` definition — lazy since the
+ * part-parameters work; the materialized scene object keeps
+ * `getType() === 'part'`, so old-engine value exports (eagerly built Parts)
+ * and new-engine definitions stay distinguishable across module copies.
+ */
+export function isPartDefinition(value: unknown): value is { partName?: string; materialize: () => unknown } {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const obj = value as { getType?: () => string; materialize?: () => unknown };
+  try {
+    return typeof obj.getType === 'function'
+      && obj.getType() === 'part-definition'
+      && typeof obj.materialize === 'function';
+  } catch {
+    return false;
+  }
+}

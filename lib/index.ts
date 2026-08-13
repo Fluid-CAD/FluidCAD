@@ -146,8 +146,10 @@ export function registerBuilder<T extends Function>(
   return fn as ReturnType<typeof builder>;;
 }
 
-export { createParamRegistry, getParamRegistry, setParamRegistry } from './param-registry.js';
-export type { ParamRegistry, ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamScalar } from './param-registry.js';
+export { createParamRegistry, getParamRegistry, setParamRegistry, pushParamScope, popParamScope, activeParamScope, coerceParamOverride } from './param-registry.js';
+export type { ParamRegistry, ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamScalar, ParamOverrides, ParamScope } from './param-registry.js';
+export { PartDefinition } from './features/part-definition.js';
+export { Assembly } from './features/assembly.js';
 export { setAssetProvider } from './io/file-import.js';
 export type { AssetProvider } from './io/file-import.js';
 export { getSceneManager } from './scene-manager.js';

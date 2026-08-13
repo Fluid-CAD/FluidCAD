@@ -3,6 +3,7 @@ import { normalizeAxis } from "../helpers/normalize.js";
 import { Rotate } from "../features/rotate.js";
 import { AxisLike } from "../math/axis.js";
 import { SceneObject } from "../common/scene-object.js";
+import { materializePartArgs } from "../features/part-definition.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisObject } from "../features/axis.js";
 import { Rotate2D } from "../features/rotate2d.js";
@@ -43,7 +44,9 @@ interface RotateFunction {
 
 function build(context: SceneParserContext): RotateFunction {
   return function rotate() {
-    const args = Array.from(arguments);
+    // Part definitions flow where built parts used to — coerce to their
+    // built default variant before target extraction.
+    const args = materializePartArgs(Array.from(arguments));
     const activeSketch = context.getActiveSketch();
 
     // Extract SceneObject targets from the end

@@ -1,5 +1,8 @@
 import { captureSourceLocation } from "../index.js";
-import { getParamRegistry, type ControlType, type MultiControlType, type SelectOption, type ParamDefinition } from "../param-registry.js";
+import {
+  activeParamScope, coerceParamOverride, getParamRegistry,
+  type ControlType, type MultiControlType, type SelectOption, type ParamDefinition,
+} from "../param-registry.js";
 
 export type ParamType = 'number' | 'slider' | 'text' | 'select' | 'checkbox' | 'color';
 
@@ -166,10 +169,19 @@ export default function param(
   type?: ParamType,
   options?: ParamOptionsMap[ParamType],
 ): string | number | boolean | (string | number)[] {
-  const registry = getParamRegistry();
-  const value = Array.isArray(defaultValue)
-    ? registry.resolve(label, defaultValue)
-    : registry.resolve(label, defaultValue);
+  // A definition build in flight (a part variant materializing, an assembly
+  // occurrence's body running) resolves against ITS scope only: the insert's
+  // override map is the value source, and the declaration is collected as
+  // the definition's parameter interface instead of registering globally —
+  // the consuming file's params panel never sees an inserted part's
+  // internals. No scope → the entry file's own params: global registry,
+  // panel overrides, baseline bookkeeping, exactly as before.
+  const scope = activeParamScope();
+  const value = scope
+    ? (scope.overrides.has(label) ? coerceParamOverride(defaultValue, scope.overrides.get(label)) : defaultValue)
+    : Array.isArray(defaultValue)
+      ? getParamRegistry().resolve(label, defaultValue)
+      : getParamRegistry().resolve(label, defaultValue);
 
   const controlType: ControlType = type
     ?? (typeof defaultValue === 'boolean' ? 'checkbox'
@@ -199,6 +211,11 @@ export default function param(
     if ('multiControlType' in options && options.multiControlType != null) { definition.multiControlType = options.multiControlType; }
   }
 
-  registry.register(definition);
+  if (scope) {
+    scope.consumed.add(label);
+    scope.collected.set(label, definition);
+  } else {
+    getParamRegistry().register(definition);
+  }
   return value;
 }

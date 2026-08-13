@@ -946,6 +946,12 @@ export class FluidCadServer {
           this.renderingCache.set(sessionId, assembly ? { result, assembly } : { result });
         }
 
+        // This file's fresh content must reach every OTHER session that
+        // imports it — editing a part then switching back to the assembly
+        // would otherwise serve the assembly's cached render (its dedup
+        // hash only sees the assembly's own unchanged code).
+        this.invalidateDependentSessions(sessionId, normalizedFileName);
+
         this.lastRollbackStop = result.length - 1;
         this.compileError = null;
 
@@ -966,6 +972,33 @@ export class FluidCadServer {
         throw error;
       }
     });
+  }
+
+  /**
+   * Drop the cached renders of every session whose module graph depends on
+   * the file that just rendered — its content changed (or may have), and a
+   * dependent's dedup hash covers only that dependent's own code. Without
+   * this, editing a part file and switching back to the assembly serves the
+   * assembly's pre-edit cached render, so new part connectors never appear.
+   * The dependency walk reads the dependent's LAST render's module graph
+   * (edges survive invalidation), and the host call is optional — a
+   * workspace fluidcad install may predate it.
+   */
+  private invalidateDependentSessions(renderedSessionId: string, renderedFile: string): void {
+    if (!this.host.getModuleDependencies) {
+      return;
+    }
+    const sessions = new Set([...this.renderingCache.keys(), ...this.lastRendered.keys()]);
+    for (const other of sessions) {
+      if (other === renderedSessionId) {
+        continue;
+      }
+      const deps = this.host.getModuleDependencies(this.sessionFiles.get(other) ?? other);
+      if (deps.some(dep => normalizePath(dep) === renderedFile)) {
+        this.renderingCache.delete(other);
+        this.lastRendered.delete(other);
+      }
+    }
   }
 
   /**

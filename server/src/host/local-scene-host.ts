@@ -121,8 +121,12 @@ export class LocalSceneHost implements SceneHost {
 
   getModuleDependencies(filePath: string): string[] {
     const normalized = normalizePath(filePath);
+    // Live-rendered entries sit in the graph under their virtual overlay id,
+    // not the real path — try both so dependency queries work for files that
+    // were only ever rendered from an editor buffer.
     const entry = this.server.moduleGraph.idToModuleMap.get(normalized)
-      ?? this.server.moduleGraph.getModuleById(normalized);
+      ?? this.server.moduleGraph.getModuleById(normalized)
+      ?? this.server.moduleGraph.getModuleById(`virtual:live-render:${normalized}`);
     if (!entry) {
       return [];
     }
@@ -130,7 +134,9 @@ export class LocalSceneHost implements SceneHost {
     const queue = [entry];
     while (queue.length > 0) {
       const mod = queue.pop()!;
-      const file = mod.file ?? mod.id;
+      // A virtual entry's id carries the overlay prefix — strip it so the
+      // entry resolves to its real workspace path and its imports are walked.
+      const file = (mod.file ?? mod.id ?? '').replace('virtual:live-render:', '');
       if (!file || seen.has(file)) {
         continue;
       }

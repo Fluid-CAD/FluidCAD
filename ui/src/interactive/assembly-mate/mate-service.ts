@@ -64,7 +64,7 @@ export class AssemblyMateService {
     this.panel.onRemoveConnector = (slot) => {
       this.slots[slot] = null;
       this.panel.setSlotChip(slot, null);
-      this.panel.armSlot(slot, { silent: true });
+      this.panel.armSlot(slot);
       this.panel.setMessage(null);
       this.refreshPreview();
     };
@@ -150,7 +150,7 @@ export class AssemblyMateService {
     this.panel.setSlotChip(slot, `${state.instanceName} · ${state.connectorName}`);
     this.panel.setMessage(null);
     if (!this.slots[other]) {
-      this.panel.armSlot(other, { silent: true });
+      this.panel.armSlot(other);
     }
     this.refreshPreview();
   }
@@ -282,7 +282,7 @@ export class AssemblyMateService {
     // re-sent every refresh because renders re-mint the scene ids.
     this.viewer.getAssemblyController()?.setMatePickedConnectors(
       [this.slots.a, this.slots.b]
-        .filter((s): s is MateSlotState => s !== null && s.connectorId !== '')
+        .filter((s): s is MateSlotState => s !== null)
         .map(s => s.connectorId),
     );
     const values = this.panel.values();
@@ -305,9 +305,7 @@ export class AssemblyMateService {
     this.panel.setApplyEnabled(a !== null && b !== null && !this.applying);
 
     const controller = this.viewer.getAssemblyController();
-    // Pending picks (a just-created connector awaiting its render) have no
-    // scene id yet — the provisional solve waits for both to resolve.
-    if (a && b && a.connectorId && b.connectorId && controller) {
+    if (a && b && controller) {
       const record: MateRecord = {
         mateId: PREVIEW_MATE_ID,
         type: values.type,

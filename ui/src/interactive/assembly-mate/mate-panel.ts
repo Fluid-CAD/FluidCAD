@@ -43,8 +43,6 @@ const LIMIT_TYPES = new Set<AssemblyMateType>(['slider', 'revolute']);
  * apply call.
  */
 export class MatePanel extends FeaturePanel {
-  /** A slot was clicked/filled — picks land there now. */
-  onArmedSlotChange?: (slot: MateSlotKey) => void;
   /** A picked chip's ✕ — the service drops that side's connector. */
   onRemoveConnector?: (slot: MateSlotKey) => void;
   /** A picked chip's pen — the service opens the connector property editor. */
@@ -176,7 +174,7 @@ export class MatePanel extends FeaturePanel {
     this.chipLabels = { a: null, b: null };
     this.renderSlot('a');
     this.renderSlot('b');
-    this.armSlot('a', { silent: true });
+    this.armSlot('a');
     this.flipInput.checked = false;
     this.rotateInput.value = '';
     for (const input of this.offsetInputs) {
@@ -214,13 +212,10 @@ export class MatePanel extends FeaturePanel {
   }
 
   /** Aim picks at a slot: the armed border moves, the other slot relaxes. */
-  armSlot(slot: MateSlotKey, opts: { silent?: boolean } = {}): void {
+  armSlot(slot: MateSlotKey): void {
     this.armedSlot = slot;
     this.slots.a.setArmed(slot === 'a');
     this.slots.b.setArmed(slot === 'b');
-    if (!opts.silent) {
-      this.onArmedSlotChange?.(slot);
-    }
   }
 
   getArmedSlot(): MateSlotKey {

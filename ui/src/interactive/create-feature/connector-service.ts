@@ -104,13 +104,11 @@ export class ConnectorFeatureService {
     // The connector gets its own group at the end of the bar: it is the
     // assembly-prep tool, neither reshaping bodies (modify) nor repositioning
     // them (transform). main.ts constructs this service last so the group
-    // registers — and therefore renders — after every other one. Mode 'all':
-    // the tool serves BOTH workbenches (parts declare part-owned connectors;
-    // assembly files use the same hover-anchor previews and create statements
-    // for mating) — the a90ba6b6 mode filter silently dropped it from
-    // assembly files by defaulting this group to 'part'.
+    // registers — and therefore renders — after every other one. Part-design
+    // only: connectors are declared on the part, and assemblies mate through
+    // those part-owned connectors — the assembly bar has no Connector tool.
     const group = navbar.getGroup('connector')
-      ?? navbar.addGroup('connector', { visible: false, mode: 'all' });
+      ?? navbar.addGroup('connector', { visible: false, mode: 'part' });
     this.button = new FeatureButton(group, {
       icon: '/icons/mate-connector.png',
       label: 'Connector',

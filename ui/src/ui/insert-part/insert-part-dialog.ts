@@ -36,6 +36,15 @@ type TileState = {
   inserted: number;
 };
 
+/** One carousel step: a distinct part and every queued instance of it. */
+type PageGroup = {
+  key: string;
+  displayName: string;
+  filePath: string;
+  thumb: string | null;
+  entries: BasketEntry[];
+};
+
 /**
  * The assembly toolbar's Insert dialog — a two-step wizard.
  *
@@ -82,8 +91,8 @@ export class InsertPartDialog {
 
   private basket: BasketEntry[] = [];
   private tiles = new Map<string, TileState>();
-  /** Basket entries with params — the carousel's pages. */
-  private pages: BasketEntry[] = [];
+  /** One page per DISTINCT parameterized part; its queued instances are the page's rows. */
+  private pages: PageGroup[] = [];
   private pageIndex = 0;
 
   constructor(container: HTMLElement) {
@@ -446,7 +455,27 @@ export class InsertPartDialog {
     if (this.basket.length === 0) {
       return;
     }
-    this.pages = this.basket.filter(e => e.params.length > 0);
+    // Group queued instances by part (first-queued order) — one carousel
+    // page per distinct parameterized part, its instances as rows.
+    const groups = new Map<string, PageGroup>();
+    for (const entry of this.basket) {
+      if (entry.params.length === 0) {
+        continue;
+      }
+      let group = groups.get(entry.key);
+      if (!group) {
+        group = {
+          key: entry.key,
+          displayName: entry.displayName,
+          filePath: entry.file.path,
+          thumb: entry.thumb,
+          entries: [],
+        };
+        groups.set(entry.key, group);
+      }
+      group.entries.push(entry);
+    }
+    this.pages = Array.from(groups.values());
     if (this.pages.length === 0) {
       await this.insertAll();
       return;
@@ -476,44 +505,67 @@ export class InsertPartDialog {
 
   private showPage(index: number): void {
     this.pageIndex = Math.max(0, Math.min(index, this.pages.length - 1));
-    const entry = this.pages[this.pageIndex];
+    const group = this.pages[this.pageIndex];
     this.pageHostEl.innerHTML = '';
 
     const page = document.createElement('div');
-    page.className = 'flex flex-col items-center gap-2 px-6';
+    page.className = 'flex flex-col gap-2 px-4';
 
-    if (entry.thumb) {
-      const img = document.createElement('img');
-      img.className = 'w-24 h-24 object-contain';
-      img.src = entry.thumb;
-      img.alt = entry.displayName;
-      page.appendChild(img);
-    }
-    const title = document.createElement('div');
+    const header = document.createElement('div');
+    header.className = 'flex items-baseline gap-2 pb-1';
+    const title = document.createElement('span');
     title.className = 'text-sm text-base-content/90';
-    title.textContent = entry.displayName;
-    page.appendChild(title);
-    const caption = document.createElement('div');
-    caption.className = 'text-[10px] text-base-content/40 mb-2';
-    caption.textContent = entry.file.path;
-    page.appendChild(caption);
+    title.textContent = group.displayName;
+    const caption = document.createElement('span');
+    caption.className = 'text-[10px] text-base-content/40';
+    caption.textContent = group.filePath;
+    header.appendChild(title);
+    header.appendChild(caption);
+    page.appendChild(header);
 
-    if (!entry.form) {
-      entry.form = new ParamForm(entry.params);
-    }
-    entry.form.element.classList.add('w-full', 'max-w-[380px]');
-    page.appendChild(entry.form.element);
+    // One row per queued instance: thumbnail left, that instance's
+    // parameters right — several instances of one part configure in a
+    // single step.
+    group.entries.forEach((entry, i) => {
+      const row = document.createElement('div');
+      row.className = 'flex items-start gap-4 rounded-lg border border-base-content/10 p-3';
+
+      if (entry.thumb) {
+        const img = document.createElement('img');
+        img.className = 'w-20 h-20 object-contain shrink-0';
+        img.src = entry.thumb;
+        img.alt = entry.displayName;
+        row.appendChild(img);
+      } else {
+        const placeholder = document.createElement('div');
+        placeholder.className = 'w-20 h-20 flex items-center justify-center text-base-content/25 text-2xl shrink-0';
+        placeholder.textContent = '∅';
+        row.appendChild(placeholder);
+      }
+
+      const right = document.createElement('div');
+      right.className = 'flex-1 min-w-0 flex flex-col gap-1.5';
+      if (group.entries.length > 1) {
+        const label = document.createElement('span');
+        label.className = 'text-[10px] uppercase tracking-wide text-base-content/40';
+        label.textContent = `Instance ${i + 1}`;
+        right.appendChild(label);
+      }
+      if (!entry.form) {
+        entry.form = new ParamForm(entry.params);
+      }
+      right.appendChild(entry.form.element);
+      row.appendChild(right);
+
+      page.appendChild(row);
+    });
 
     this.pageHostEl.appendChild(page);
 
-    // Same tile queued several times → ordinal disambiguates the pages.
-    const ordinal = this.pages.filter(p => p.key === entry.key).indexOf(entry) >= 0
-      ? this.pages.slice(0, this.pageIndex + 1).filter(p => p.key === entry.key).length
-      : 1;
-    const copies = this.pages.filter(p => p.key === entry.key).length;
-    const suffix = copies > 1 ? ` (instance ${ordinal} of ${copies})` : '';
-    const paramless = this.basket.length - this.pages.length;
-    this.pagePosEl.textContent = `${this.pageIndex + 1} / ${this.pages.length} · ${entry.displayName}${suffix}`
+    const paramless = this.basket.filter(e => e.params.length === 0).length;
+    const count = group.entries.length;
+    this.pagePosEl.textContent = `${this.pageIndex + 1} / ${this.pages.length} · ${group.displayName}`
+      + (count > 1 ? ` · ${count} instances` : '')
       + (paramless > 0 ? ` · +${paramless} without parameters` : '');
 
     this.prevPageBtn.disabled = this.pageIndex === 0;

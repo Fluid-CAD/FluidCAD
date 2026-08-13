@@ -33,7 +33,6 @@ type TileState = {
   badge: HTMLSpanElement;
   minus: HTMLButtonElement;
   queued: number;
-  inserted: number;
 };
 
 /** One carousel step: a distinct part and every queued instance of it. */
@@ -62,9 +61,9 @@ type PageGroup = {
  * the step entirely (the footer button reads "Insert N" straight away).
  *
  * Insert commits the whole basket as ONE batch edit: one editor round trip,
- * one re-render, statement per instance. The dialog then returns to the grid
- * with the basket cleared and per-tile "N inserted" tallies bumped, so
- * repeated placement stays one visit.
+ * one re-render, statement per instance — then the dialog closes, letting
+ * the new instances take the stage in the viewport. A failed commit stays
+ * open on the grid with the reason in the status line.
  *
  * Everything reloads on every open: unchanged files answer from the server's
  * mtime-keyed scan cache, so freshness costs one round-trip per file, not a
@@ -360,7 +359,7 @@ export class InsertPartDialog {
     });
     tile.appendChild(minus);
 
-    const state: TileState = { key, badge, minus, queued: 0, inserted: 0 };
+    const state: TileState = { key, badge, minus, queued: 0 };
     this.tiles.set(key, state);
     this.updateTileBadge(state);
 
@@ -431,9 +430,6 @@ export class InsertPartDialog {
   private updateTileBadge(state: TileState): void {
     if (state.queued > 0) {
       state.badge.textContent = `${state.queued} queued`;
-      state.badge.classList.remove('hidden');
-    } else if (state.inserted > 0) {
-      state.badge.textContent = `${state.inserted} inserted`;
       state.badge.classList.remove('hidden');
     } else {
       state.badge.classList.add('hidden');
@@ -612,19 +608,9 @@ export class InsertPartDialog {
       return false;
     }
 
-    for (const entry of this.basket) {
-      const state = this.tiles.get(entry.key);
-      if (state) {
-        state.inserted++;
-        state.queued = Math.max(0, state.queued - 1);
-        this.updateTileBadge(state);
-      }
-    }
-    const n = this.basket.length;
-    this.basket = [];
-    this.pages = [];
-    this.showSelectStep();
-    this.setStatus(`Inserted ${n}.`);
+    // The basket landed — the placement is done, so the dialog closes and
+    // the new instances take the stage in the viewport.
+    this.hide();
     return true;
   }
 }

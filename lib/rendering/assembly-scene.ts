@@ -148,6 +148,8 @@ export class AssemblyScene extends Scene {
   /** Occurrence paths currently executing — insert(assembly) runs its callback under its path. */
   private _scopeStack: string[] = [];
 
+  private _definitions: { assemblyName: string; wasRun(): boolean }[] = [];
+
   currentScopePath(): string {
     return this._scopeStack.length > 0 ? this._scopeStack[this._scopeStack.length - 1] : "";
   }
@@ -206,6 +208,28 @@ export class AssemblyScene extends Scene {
 
   getOccurrences(): AssemblyOccurrence[] {
     return this._occurrences;
+  }
+
+  /**
+   * Every `assembly()` definition created while this scene was current —
+   * used after an entry render to name definitions that were declared but
+   * never run (nothing exported or inserted them), which would otherwise
+   * render a silently empty scene.
+   */
+  trackDefinition(definition: { assemblyName: string; wasRun(): boolean }): void {
+    this._definitions.push(definition);
+  }
+
+  /**
+   * Names of never-run definitions, reported only when the scene ended
+   * EMPTY — a scene with instances means composition happened and unused
+   * definitions are legitimate (e.g. a conditional picking one of two).
+   */
+  getDanglingDefinitionNames(): string[] {
+    if (this._instances.length > 0 || this._occurrences.length > 0) {
+      return [];
+    }
+    return this._definitions.filter(d => !d.wasRun()).map(d => d.assemblyName);
   }
 
   getMates(): AssemblyMate[] {

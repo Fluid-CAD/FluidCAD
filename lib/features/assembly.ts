@@ -13,6 +13,13 @@
  * definitions across fluidcad module copies.
  */
 export class Assembly<T = unknown> {
+  /**
+   * Whether the body has executed at least once — an entry render whose
+   * scene stayed empty uses this to point at definitions that were declared
+   * but never exported or inserted (a silent empty scene otherwise).
+   */
+  private hasRun = false;
+
   constructor(
     public readonly assemblyName: string,
     private readonly callback: () => T,
@@ -24,6 +31,11 @@ export class Assembly<T = unknown> {
 
   /** Execute the definition body. `insert()` calls this inside the occurrence's scope. */
   run(): T {
+    this.hasRun = true;
     return this.callback();
+  }
+
+  wasRun(): boolean {
+    return this.hasRun;
   }
 }

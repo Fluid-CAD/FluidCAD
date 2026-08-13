@@ -184,6 +184,29 @@ describe('mate-dialog connector picking', () => {
     expect(connectorMesh.children[0].userData.highlight).toBe(1);
   });
 
+  it('picking renders gizmos translucent; hovered and picked ones opaque', () => {
+    const { controller, connectorMesh } = makeRig();
+    const mat = new MeshBasicMaterial({ transparent: true, opacity: 1 });
+    connectorMesh.children[0].add(new Mesh(new BoxGeometry(1, 1, 1), mat));
+
+    controller.setMatePicking(true);
+    expect(mat.opacity).toBeLessThan(1);
+
+    controller.setHighlightedConnector('c1');
+    expect(mat.opacity).toBe(1);
+    controller.setHighlightedConnector(null);
+    expect(mat.opacity).toBeLessThan(1);
+
+    controller.setMatePickedConnectors(['c1']);
+    expect(mat.opacity).toBe(1);
+    controller.setMatePickedConnectors([]);
+    expect(mat.opacity).toBeLessThan(1);
+
+    // Disarming restores full opacity (hover-reveal shows the normal triad).
+    controller.setMatePicking(false);
+    expect(mat.opacity).toBe(1);
+  });
+
   it('resolves connector names and ids for the mate dialog', () => {
     const { controller } = makeRig();
     expect(controller.getConnectorName('c1')).toBe('top');

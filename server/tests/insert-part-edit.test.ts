@@ -112,6 +112,73 @@ describe('applyInsertPartEdit', () => {
     expect(result.newCode).toContain(`const gantryAssembly1 = insert(gantryAssembly());`);
   });
 
+  it('places the insert inside a definition-style file\'s assembly() body', async () => {
+    const code = [
+      `import { assembly, insert } from "fluidcad/core";`,
+      `import { block } from "./block.fluid.js";`,
+      ``,
+      `export function rig() {`,
+      `    return assembly("rig", () => {`,
+      `        const a = insert(block()).grounded();`,
+      `        return { a };`,
+      `    });`,
+      `}`,
+      ``,
+    ].join('\n');
+    const result = await applyInsertPartEdit(code, {
+      importFrom: './block.fluid.js',
+      exportName: 'block',
+      kind: 'factory',
+    });
+    expect(result.error).toBeUndefined();
+    // Grouped under the existing insert, inside the body — never at the
+    // file's top level (module scope runs outside the assembly's frame).
+    expect(result.newCode).toContain(
+      `        const a = insert(block()).grounded();\n`
+      + `        const block1 = insert(block());\n`,
+    );
+  });
+
+  it('splices an empty assembly() body open for the first insert', async () => {
+    const code = [
+      `import { assembly, insert } from "fluidcad/core";`,
+      `import { block } from "./block.fluid.js";`,
+      ``,
+      `export function rig() {`,
+      `    return assembly("rig", () => {});`,
+      `}`,
+      ``,
+    ].join('\n');
+    const result = await applyInsertPartEdit(code, {
+      importFrom: './block.fluid.js',
+      exportName: 'block',
+      kind: 'factory',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `    return assembly("rig", () => {\n`
+      + `        const block1 = insert(block());\n`
+      + `    });`,
+    );
+  });
+
+  it('keeps the top-level append when several assembly() bodies exist', async () => {
+    const code = [
+      `import { assembly, insert } from "fluidcad/core";`,
+      ``,
+      `export const a = () => assembly('a', () => {});`,
+      `export const b = () => assembly('b', () => {});`,
+      ``,
+    ].join('\n');
+    const result = await applyInsertPartEdit(code, {
+      importFrom: './box.fluid.js',
+      exportName: 'boxBody',
+      kind: 'value',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode.trimEnd().endsWith(`const boxBody1 = insert(boxBody);`)).toBe(true);
+  });
+
   it('refuses a non-identifier export name', async () => {
     const result = await applyInsertPartEdit('', {
       importFrom: './x.fluid.js',

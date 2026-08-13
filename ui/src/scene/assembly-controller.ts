@@ -7,6 +7,13 @@ import type { BodyState, ConnectorState, MateReadout, MateRecord, SolverInput, S
 const DRAG_THRESHOLD_PX = 4;
 /** Screen radius a click may miss a connector-gizmo origin by and still pick it. */
 const CONNECTOR_PICK_RADIUS_PX = 22;
+
+/**
+ * Gizmo opacity while the mate dialog's connector picker is armed: every
+ * connector shows translucent so the full pickable set is visible at a
+ * glance; the hovered and already-picked ones render fully opaque.
+ */
+const MATE_PICKING_GIZMO_OPACITY = 0.4;
 /** Hover feedback while picking: the gizmo grows by this factor. */
 const CONNECTOR_HIGHLIGHT_SCALE = 1.35;
 
@@ -66,6 +73,12 @@ export class AssemblyController {
    * Cleared by {@link clearHighlight}.
    */
   private mateRevealedConnectors = new Set<Object3D>();
+  /**
+   * Connectors currently filling the mate dialog's slots — they render
+   * opaque while picking (the rest stay translucent). Scene ids, refreshed
+   * by the service on every render re-resolve.
+   */
+  private matePickedConnectorIds = new Set<string>();
   /**
    * A mate dialog's connector slot is armed: every connector is revealed and
    * screen-pickable ({@link pickConnectorAt}), and pointerdown never claims a
@@ -285,6 +298,26 @@ export class AssemblyController {
     state.group.traverse((child) => {
       if (!child.userData?.isConnector) return;
       child.visible = this.matePicking || isHovered || this.mateRevealedConnectors.has(child);
+      this.applyConnectorOpacity(child);
+    });
+  }
+
+  /**
+   * Sync one connector root's gizmo opacity to the picking state: while the
+   * mate dialog is picking, everything renders translucent except the
+   * hovered and slot-filling connectors; outside picking the gizmos are
+   * fully opaque (hover-reveal and pinned mates show the normal triad).
+   */
+  private applyConnectorOpacity(root: Object3D): void {
+    const connectorId = root.userData?.connectorId;
+    const emphasized = connectorId === this.highlightedConnectorId
+      || (typeof connectorId === 'string' && this.matePickedConnectorIds.has(connectorId));
+    const opacity = !this.matePicking || emphasized ? 1 : MATE_PICKING_GIZMO_OPACITY;
+    root.traverse((o) => {
+      const mat = (o as { material?: { opacity?: number } }).material;
+      if (mat && typeof mat.opacity === 'number') {
+        mat.opacity = opacity;
+      }
     });
   }
 
@@ -868,8 +901,22 @@ export class AssemblyController {
       this.cancelPointerGesture();
     } else {
       this.highlightedConnectorId = null;
+      this.matePickedConnectorIds.clear();
       this.applyConnectorHighlight();
     }
+    for (const state of this.instances.values()) {
+      this.applyConnectorVisibility(state);
+    }
+    this.requestRender();
+  }
+
+  /**
+   * The connectors filling the mate dialog's slots — rendered opaque while
+   * picking. The service re-sends the set on every slot change and render
+   * re-resolve (scene ids are re-minted per render).
+   */
+  setMatePickedConnectors(connectorIds: Iterable<string>): void {
+    this.matePickedConnectorIds = new Set(connectorIds);
     for (const state of this.instances.values()) {
       this.applyConnectorVisibility(state);
     }
@@ -942,6 +989,7 @@ export class AssemblyController {
     for (const state of this.instances.values()) {
       state.group.traverse((child) => {
         if (!child.userData?.isConnector) return;
+        this.applyConnectorOpacity(child);
         const gizmo = child.children[0];
         if (!gizmo) return;
         gizmo.userData.highlight = child.userData.connectorId === this.highlightedConnectorId

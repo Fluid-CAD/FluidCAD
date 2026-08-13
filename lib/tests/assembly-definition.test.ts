@@ -291,6 +291,25 @@ describe("mates across scopes", () => {
   });
 });
 
+describe("dangling definitions", () => {
+  it("names a definition that was declared but never run in an empty scene", () => {
+    const { scene } = startAssembly();
+    assembly("myAssembly", () => {});
+    expect(scene.getDanglingDefinitionNames()).toEqual(["myAssembly"]);
+  });
+
+  it("reports nothing once the definition runs or the scene has content", () => {
+    const { p, scene } = startAssembly();
+    const def = assembly("sub", () => ({ b: insert(p) }));
+    expect(scene.getDanglingDefinitionNames()).toEqual(["sub"]);
+    insert(def);
+    expect(scene.getDanglingDefinitionNames()).toEqual([]);
+    // Unused alternates alongside real content are legitimate composition.
+    assembly("unusedVariant", () => {});
+    expect(scene.getDanglingDefinitionNames()).toEqual([]);
+  });
+});
+
 describe("connectors inside assembly bodies", () => {
   it("rejects connector() declared in an assembly body — connectors are part-owned", () => {
     const { p } = startAssembly();

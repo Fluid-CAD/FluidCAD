@@ -278,6 +278,13 @@ export class AssemblyMateService {
     if (!this.armed) {
       return;
     }
+    // Picked connectors render opaque while the rest stay translucent —
+    // re-sent every refresh because renders re-mint the scene ids.
+    this.viewer.getAssemblyController()?.setMatePickedConnectors(
+      [this.slots.a, this.slots.b]
+        .filter((s): s is MateSlotState => s !== null && s.connectorId !== '')
+        .map(s => s.connectorId),
+    );
     const values = this.panel.values();
     if ('error' in values) {
       this.panel.setMessage(values.error);

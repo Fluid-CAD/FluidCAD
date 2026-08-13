@@ -887,6 +887,23 @@ export class FluidCadServer {
         }
         this.lastBreakpointHit = breakpointHit;
 
+        // A bare `assembly('name', () => {...});` statement is a LAZY
+        // definition nothing runs — without this check the render is a
+        // silently empty scene. Skipped on a breakpoint hit (the file
+        // stopped early, so an unrun definition is expected). (Optional
+        // call: the workspace's fluidcad install may predate tracking.)
+        const dangling: string[] | undefined = breakpointHit
+          ? undefined
+          : (scene as { getDanglingDefinitionNames?: () => string[] }).getDanglingDefinitionNames?.();
+        if (dangling && dangling.length > 0) {
+          const name = dangling[0];
+          throw new Error(
+            `assembly('${name}') is defined but never rendered — export a function returning it `
+            + `(export const myAssembly = () => assembly('${name}', () => {...});) so this file `
+            + `renders it standalone, or insert() it from another assembly.`,
+          );
+        }
+
         const params = getParamRegistry().getDefinitions();
         this.settleParamOverrides(sessionId, registry);
 

@@ -1,9 +1,13 @@
 import {
   ensureSymbolImport,
   getJavaScriptParser,
+  indentOf,
   isBlankRow,
   joinLines,
+  spliceCode,
   splitLines,
+  walkTree,
+  type TSNode,
 } from '../code-editor.ts';
 
 /** What the chosen catalog export is, deciding the statement rendered for it. */
@@ -45,8 +49,15 @@ export type InsertPartEditSpec = {
  *     const gantryAssembly1 = insert(gantryAssembly());
  *
  * The result is always bound to a fresh `const` so the follow-up flows
- * (translate chains, mates, sub-assembly connector paths) have a name to
+ * (translate chains, mates, sub-assembly part paths) have a name to
  * reference.
+ *
+ * Definition-style files — the file's statements live inside a single
+ * `assembly('name', () => {...})` body — get the statement INSIDE that body
+ * (after its last insert(), else before its `return`): a top-level append
+ * there would run at module scope instead of in the assembly's frame.
+ * Entry-style files (no assembly() body, or several — ambiguous) keep the
+ * top-level append.
  */
 export async function applyInsertPartEdit(
   code: string,
@@ -67,6 +78,12 @@ export async function applyInsertPartEdit(
 
   const parser = await getJavaScriptParser();
   const tree = parser.parse(out);
+
+  const bodies = assemblyBodies(tree.rootNode);
+  if (bodies.length === 1) {
+    return { newCode: appendInsideBody(out, bodies[0], statement) };
+  }
+
   const lines = splitLines(out);
   const children = tree.rootNode.namedChildren;
   const last = children[children.length - 1];
@@ -74,6 +91,67 @@ export async function applyInsertPartEdit(
   const separated = insertRow > 0 && !isBlankRow(lines, insertRow - 1);
   lines.splice(insertRow, 0, ...(separated ? ['', statement] : [statement]));
   return { newCode: joinLines(lines) };
+}
+
+/** Statement blocks of every `assembly(name, () => {...})` call in the file. */
+function assemblyBodies(root: TSNode): TSNode[] {
+  const bodies: TSNode[] = [];
+  for (const node of walkTree(root)) {
+    if (node.type !== 'call_expression') {
+      continue;
+    }
+    const fn = node.childForFieldName('function');
+    if (fn?.type !== 'identifier' || fn.text !== 'assembly') {
+      continue;
+    }
+    const args = node.childForFieldName('arguments')?.namedChildren ?? [];
+    const callback = args.find(a => a.type === 'arrow_function' || a.type === 'function_expression');
+    const body = callback?.childForFieldName('body');
+    if (body?.type === 'statement_block') {
+      bodies.push(body);
+    }
+  }
+  return bodies;
+}
+
+/**
+ * Insert the statement inside an assembly body's statement block: grouped
+ * directly under the last existing `insert()` chain, else before the
+ * trailing `return`, else as the block's first statement (an empty
+ * `() => {}` body is spliced open).
+ */
+function appendInsideBody(code: string, body: TSNode, statement: string): string {
+  const lines = splitLines(code);
+  const statements = body.namedChildren.filter(c => c.type !== 'comment');
+  const insertStmts = statements.filter(s =>
+    /^(const\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*)?insert\s*\(/.test(s.text));
+  const lastInsert = insertStmts[insertStmts.length - 1] ?? null;
+  const returnStmt = statements.find(c => c.type === 'return_statement') ?? null;
+  const lastStmt = statements[statements.length - 1] ?? null;
+
+  if (lastInsert) {
+    const row = lastInsert.endPosition.row + 1;
+    lines.splice(row, 0, `${indentOf(lines, lastInsert.startPosition.row)}${statement}`);
+    return joinLines(lines);
+  }
+  if (returnStmt) {
+    const row = returnStmt.startPosition.row;
+    lines.splice(row, 0, `${indentOf(lines, row)}${statement}`);
+    return joinLines(lines);
+  }
+  if (lastStmt) {
+    const row = lastStmt.endPosition.row + 1;
+    lines.splice(row, 0, `${indentOf(lines, lastStmt.startPosition.row)}${statement}`);
+    return joinLines(lines);
+  }
+  // Empty body — `() => {}` possibly on one line: splice the braces open.
+  const baseIndent = indentOf(lines, body.startPosition.row);
+  return spliceCode(
+    code,
+    body.startIndex + 1,
+    body.endIndex - 1,
+    `\n${baseIndent}    ${statement}\n${baseIndent}`,
+  );
 }
 
 /**

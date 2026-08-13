@@ -36,6 +36,8 @@ export class InsertPartDialog {
   private inserting = false;
   /** Sticky across opens — reset only by the user clicking another chip. */
   private filter: CatalogFilter = 'all';
+  /** The open assembly file — its own entries are excluded from the grid. */
+  private excludeAbsPath: string | null = null;
 
   constructor(container: HTMLElement) {
     this.overlay = document.createElement('div');
@@ -67,7 +69,8 @@ export class InsertPartDialog {
     }, true);
   }
 
-  show(): void {
+  show(currentAbsPath: string | null = null): void {
+    this.excludeAbsPath = currentAbsPath;
     this.overlay.classList.remove('hidden');
     void this.load();
   }
@@ -120,16 +123,18 @@ export class InsertPartDialog {
     this.gridEl.innerHTML = '';
     this.setStatus('Looking for part files…');
 
-    const files = await getPartCatalogFiles(ac.signal);
+    const allFiles = await getPartCatalogFiles(ac.signal);
     if (ac.signal.aborted) {
       return;
     }
-    if (files === null) {
+    if (allFiles === null) {
       this.setStatus('Could not reach the FluidCAD server.', true);
       return;
     }
+    // The open assembly can't be inserted into itself — drop its file.
+    const files = allFiles.filter(f => f.absPath !== this.excludeAbsPath);
     if (files.length === 0) {
-      this.setStatus('No part or assembly files in this workspace.');
+      this.setStatus('No other part or assembly files in this workspace.');
       return;
     }
 

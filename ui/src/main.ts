@@ -369,8 +369,11 @@ importGroup.appendChild(importBtnWrap);
 // in the scene-rendered handler). Insert opens the part-catalog browser;
 // the rest are placeholders for now.
 const insertPartDialog = new InsertPartDialog(container);
+// The rendered file's absolute path (from scene-rendered) — the Insert dialog
+// excludes it so the open assembly can't be inserted into itself.
+let currentSceneAbsPath: string | null = null;
 new AssemblyToolbar(navbar, {
-  onInsert: () => insertPartDialog.show(),
+  onInsert: () => insertPartDialog.show(currentSceneAbsPath),
   // The service is constructed later (it needs the gizmo driver); toolbar
   // clicks only ever fire after startup completes.
   onMate: (type) => assemblyMateService.enter(type),
@@ -1905,6 +1908,7 @@ function connectWebSocket() {
         measureController.onSceneRendered();
         if (msg.absPath) {
           topBar.setFileName(msg.absPath);
+          currentSceneAbsPath = msg.absPath;
         }
         const renderStop = msg.rollbackStop ?? msg.result.length - 1;
         if (isRollback) {

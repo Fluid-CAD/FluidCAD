@@ -12,6 +12,7 @@
 // alongside `mate()` in phase 06+.
 
 import type { SerializedAssemblyMate, RenderedInstance } from '../types';
+import { ICON_IMG_FALLBACK } from './object-icons';
 
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
 const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
@@ -117,17 +118,18 @@ export class JointsPanel {
       const selectedClass = selected ? ' bg-primary/10' : '';
       const limits = mate.options?.limits;
       const limitsLine = limits
-        ? `<span class="pl-4 text-[10px] text-base-content/40">${limits[0]} – ${limits[1]}${mate.type === 'revolute' ? '°' : ' mm'}</span>`
+        ? `<span class="pl-11 text-[10px] text-base-content/40">${limits[0]} – ${limits[1]}${mate.type === 'revolute' ? '°' : ' mm'}</span>`
         : '';
       html += `
         <div class="group flex items-start gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-base-content/80${selectedClass}" data-mate-id="${mate.mateId}">
           <div class="flex-1 min-w-0 flex flex-col leading-tight">
             <span class="flex items-center gap-2 text-sm">
               <span class="shrink-0 inline-block w-2 h-2 rounded-full ${dotColor}"></span>
+              <img src="/icons/joint-${mate.type}.png" ${ICON_IMG_FALLBACK} class="shrink-0 w-5 h-5 object-contain" alt="" />
               ${escapeHtml(mate.type)}
             </span>
-            <span class="pl-4 text-[10px] text-base-content/50 truncate">${escapeHtml(aName)}</span>
-            <span class="pl-4 text-[10px] text-base-content/50 truncate">${escapeHtml(bName)}</span>
+            <span class="pl-11 text-[10px] text-base-content/50 truncate">${escapeHtml(aName)}</span>
+            <span class="pl-11 text-[10px] text-base-content/50 truncate">${escapeHtml(bName)}</span>
             ${limitsLine}
           </div>
           <button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${mate.mateId}">${DOTS_SVG}</button>
@@ -166,11 +168,15 @@ export class JointsPanel {
     dropdown.style.top = `${rect.bottom - hostRect.top + 2}px`;
     dropdown.style.left = `${rect.left - hostRect.left - 140}px`;
 
+    // Owned mates' statements live in the sub-assembly's file — offer only
+    // the non-mutating action, same as the parts panel's owned rows.
+    const owned = (this.mates.find(m => m.mateId === mateId)?.owner ?? '') !== '';
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
         <li><button data-action="show-in-source">Show in source</button></li>
+        ${owned ? '' : `
         <li><button data-action="suppress">Suppress</button></li>
-        <li><button data-action="delete" class="text-error">Delete</button></li>
+        <li><button data-action="delete" class="text-error">Delete</button></li>`}
       </ul>
     `;
 
@@ -181,14 +187,16 @@ export class JointsPanel {
       this.closeDropdown();
       this.onShowInSource(mateId);
     });
-    dropdown.querySelector('[data-action="suppress"]')!.addEventListener('click', () => {
-      this.closeDropdown();
-      this.onSuppress(mateId);
-    });
-    dropdown.querySelector('[data-action="delete"]')!.addEventListener('click', () => {
-      this.closeDropdown();
-      this.onDelete(mateId);
-    });
+    if (!owned) {
+      dropdown.querySelector('[data-action="suppress"]')!.addEventListener('click', () => {
+        this.closeDropdown();
+        this.onSuppress(mateId);
+      });
+      dropdown.querySelector('[data-action="delete"]')!.addEventListener('click', () => {
+        this.closeDropdown();
+        this.onDelete(mateId);
+      });
+    }
 
     const onClickOutside = (e: MouseEvent) => {
       if (!dropdown.contains(e.target as Node) && !anchor.contains(e.target as Node)) {

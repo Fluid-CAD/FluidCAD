@@ -234,7 +234,14 @@ function buildAssemblyRail(): LeftRail {
       }
     },
     (_id) => { /* phase 06+ */ },
-    (_id) => { /* phase 06+ */ },
+    (id) => {
+      const mate = findMate(id);
+      // Owned mates' statements live in the sub-assembly's file — the panel
+      // hides Delete for these, this is the backstop.
+      if (!mate?.sourceLocation || mate.owner) return;
+      // Drops the whole `mate(...)` statement.
+      removeFeature(mate.sourceLocation);
+    },
   );
   const dof = new DofStatus(container, (_mateId) => { /* phase 05+ */ });
   dof.show();

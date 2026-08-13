@@ -1,13 +1,16 @@
 import {
   Camera,
+  CircleGeometry,
   ConeGeometry,
   CylinderGeometry,
+  DoubleSide,
   Group,
   Mesh,
   MeshBasicMaterial,
   OrthographicCamera,
   PerspectiveCamera,
   Quaternion,
+  RingGeometry,
   SphereGeometry,
   Vector3,
 } from 'three';
@@ -37,8 +40,12 @@ const Z_LENGTH = 8;
 const SHAFT_RADIUS = 0.25;
 const HEAD_LENGTH = 1.5;
 const HEAD_RADIUS = 0.6;
-const ORIGIN_RADIUS = 0.5;
-const VIEW_SCALE_FACTOR = 0.004;
+const ORIGIN_RADIUS = 0.6;
+const DISC_COLOR = '#fa0';
+const DISC_RADIUS = 2.8;
+const DISC_RIM_WIDTH = 0.2;
+const DISC_OPACITY = 0.35;
+const VIEW_SCALE_FACTOR = 0.006;
 
 function toVec3(v: Vec3Data): Vector3 {
   return new Vector3(v.x, v.y, v.z);
@@ -104,6 +111,34 @@ export function buildConnectorGizmo(frame: ConnectorFrameData, camera: Camera, o
   const zAxis = buildAxis(Z_LENGTH, Z_COLOR, true, opacity);
   zAxis.quaternion.copy(new Quaternion().setFromUnitVectors(upY, zDir));
   gizmo.add(zAxis);
+
+  // Filled disc in the connector's XY plane, with an opaque rim for contrast.
+  const discOrient = new Quaternion().setFromUnitVectors(new Vector3(0, 0, 1), zDir);
+  const disc = new Mesh(
+    new CircleGeometry(DISC_RADIUS, 32),
+    new MeshBasicMaterial({
+      color: DISC_COLOR,
+      depthTest: false,
+      transparent: true,
+      opacity: opacity * DISC_OPACITY,
+      side: DoubleSide,
+    }),
+  );
+  disc.quaternion.copy(discOrient);
+  gizmo.add(disc);
+
+  const rim = new Mesh(
+    new RingGeometry(DISC_RADIUS - DISC_RIM_WIDTH, DISC_RADIUS, 32),
+    new MeshBasicMaterial({
+      color: DISC_COLOR,
+      depthTest: false,
+      transparent: true,
+      opacity,
+      side: DoubleSide,
+    }),
+  );
+  rim.quaternion.copy(discOrient);
+  gizmo.add(rim);
 
   const originBall = new Mesh(
     new SphereGeometry(ORIGIN_RADIUS, 16, 12),

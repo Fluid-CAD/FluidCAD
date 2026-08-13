@@ -361,9 +361,12 @@ export class AssemblyMateService {
         this.panel.setApplyEnabled(true);
         return;
       }
-      // The committed statement re-renders with the real mate; the provisional
-      // preview must not double-solve it in the meantime.
-      this.viewer.getAssemblyController()?.setProvisionalMate(null);
+      // The committed statement re-renders with the real mate; drop the
+      // provisional record (so it can't double-solve) but keep its poses on
+      // screen — exit()'s setProvisionalMate(null) is then a no-op, and the
+      // parts hold the preview pose instead of snapping back while the
+      // render is in flight.
+      this.viewer.getAssemblyController()?.commitProvisionalMate();
       this.exit();
     } finally {
       this.applying = false;

@@ -1020,6 +1020,18 @@ export class AssemblyController {
     this.runSolverRefresh();
   }
 
+  /**
+   * The provisional mate was committed to the source: forget the record but
+   * keep the preview's solved poses on screen — no serialized-pose restore,
+   * no re-solve. The committed statement's render re-solves with the real
+   * mate to the same configuration, so the parts hold the preview pose
+   * instead of flashing back through their unmated positions while that
+   * render is in flight.
+   */
+  commitProvisionalMate(): void {
+    this.provisionalMate = null;
+  }
+
   /** The connector's registered name (`connector('name', …)`) — null when unknown. */
   getConnectorName(connectorId: string): string | null {
     for (const obj of this.allObjects) {

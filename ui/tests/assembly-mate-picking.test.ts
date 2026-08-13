@@ -232,4 +232,22 @@ describe('mate-dialog connector picking', () => {
     // And a later update() keeps working.
     controller.update(sceneObjects, assembly);
   });
+
+  it('committing the provisional mate keeps the preview poses on screen', () => {
+    const { controller, group } = makeRig();
+    controller.setProvisionalMate({
+      mateId: '__mate-preview__',
+      type: 'fastened',
+      connectorA: { instanceId: 'i1', connectorId: 'c1' },
+      connectorB: { instanceId: 'i1', connectorId: 'c2' },
+    });
+    group.position.set(5, 5, 5);
+    // Apply's commit drops the record without the serialized-pose restore …
+    controller.commitProvisionalMate();
+    expect(group.position.toArray()).toEqual([5, 5, 5]);
+    // … so the dialog exit's clear is a no-op and the poses hold until the
+    // committed render re-solves with the real mate.
+    controller.setProvisionalMate(null);
+    expect(group.position.toArray()).toEqual([5, 5, 5]);
+  });
 });

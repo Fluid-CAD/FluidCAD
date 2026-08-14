@@ -14,6 +14,7 @@ import { createApplyFeatureRouter } from './routes/apply-feature.ts';
 import { createExportRouter } from './routes/export.ts';
 import { createScreenshotRouter } from './routes/screenshot.ts';
 import { createPreferencesRouter } from './routes/preferences.ts';
+import { loadPreferences } from './preferences.ts';
 import { createHealthRouter } from './routes/health.ts';
 import { createSceneRouter } from './routes/scene.ts';
 import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
@@ -120,8 +121,25 @@ app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDisp
 app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher));
 
-// Static files — serve UI build, with SPA fallback
+// Static files — serve UI build, with SPA fallback. index.html goes through
+// sendIndexHtml so the saved theme is on <html> before the first paint — the
+// UI's async /api/preferences fetch lands after render and would flash the
+// built-in dark default.
+async function sendIndexHtml(res: express.Response): Promise<void> {
+  res.setHeader('Cache-Control', 'no-cache');
+  try {
+    const html = await fs.promises.readFile(path.join(UI_DIST, 'index.html'), 'utf8');
+    const theme = (await loadPreferences()).theme.replace(/[^\w-]/g, '') || 'fluidcad-dark';
+    res.type('html').send(html.replace('data-theme="fluidcad-dark"', `data-theme="${theme}"`));
+  } catch {
+    res.sendFile(path.join(UI_DIST, 'index.html'));
+  }
+}
+app.get(['/', '/index.html'], (_req, res) => {
+  void sendIndexHtml(res);
+});
 app.use(express.static(UI_DIST, {
+  index: false,
   setHeaders(res, filePath) {
     if (path.extname(filePath) === '.html') {
       res.setHeader('Cache-Control', 'no-cache');
@@ -129,8 +147,7 @@ app.use(express.static(UI_DIST, {
   },
 }));
 app.get('*splat', (_req, res) => {
-  res.setHeader('Cache-Control', 'no-cache');
-  res.sendFile(path.join(UI_DIST, 'index.html'));
+  void sendIndexHtml(res);
 });
 
 // ---------------------------------------------------------------------------

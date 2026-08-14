@@ -73,7 +73,12 @@ onThemeChange(() => viewer.rebuildSceneMesh());
 
 loadPreferences().then((prefs) => {
   if (prefs) {
-    document.documentElement.setAttribute('data-theme', prefs.theme);
+    // The server pre-applies the saved theme when it serves index.html;
+    // re-setting the same value would still fire the theme MutationObserver
+    // and trigger a needless full scene re-mesh.
+    if (document.documentElement.getAttribute('data-theme') !== prefs.theme) {
+      document.documentElement.setAttribute('data-theme', prefs.theme);
+    }
     applyPreferences(prefs);
     pendingShowBuildTimings = !!prefs.showBuildTimings;
     if (currentRail?.kind === 'part') {

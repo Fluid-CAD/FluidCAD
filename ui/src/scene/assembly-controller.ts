@@ -1,6 +1,7 @@
 import { Box3, Camera, Group, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, WebGLRenderer } from 'three';
 import { ConnectorData, SceneObjectRender, SerializedAssembly, SerializedAssemblyInstance, SerializedAssemblyMate } from '../types';
 import { buildObjectMesh } from '../meshes/mesh-factory';
+import { onThemeChange } from './theme-colors';
 import { Solver, buildMateGraph, isInstanceFullyLocked, mateReadoutValue } from '../solver';
 import type { BodyState, ConnectorState, MateReadout, MateRecord, SolverInput, SolverOutput } from '../solver';
 
@@ -175,6 +176,41 @@ export class AssemblyController {
   ) {
     this.container.name = 'assemblyContainer';
     this.attachPointerHandlers();
+    // Face/edge colors are baked into materials at build time and the
+    // viewer's theme-change rebuild deliberately skips assembly mode, so
+    // the controller re-meshes its own instance groups. Subscribed for the
+    // controller's whole life — the viewer keeps one instance per session.
+    onThemeChange(() => this.rebuildInstanceMeshes());
+  }
+
+  /**
+   * Re-mesh every instance with the current theme colors. Live pose is
+   * copied from the old group (the solver may have moved it off the
+   * serialized position), along with per-instance visibility; connector
+   * reveal/highlight state is re-asserted the same way {@link update} does
+   * after a rebuild. Runs even while the container is detached (a part
+   * file on screen) so switching back to the assembly shows fresh colors.
+   */
+  private rebuildInstanceMeshes(): void {
+    if (this.instances.size === 0) {
+      return;
+    }
+    for (const state of this.instances.values()) {
+      const group = this.buildInstanceGroup(state.data);
+      if (!group) {
+        continue;
+      }
+      group.position.copy(state.group.position);
+      group.quaternion.copy(state.group.quaternion);
+      group.visible = state.group.visible;
+      this.container.remove(state.group);
+      this.disposeGroup(state.group);
+      state.group = group;
+      this.container.add(group);
+      this.applyConnectorVisibility(state);
+    }
+    this.applyConnectorHighlight();
+    this.requestRender();
   }
 
   getContainer(): Group {

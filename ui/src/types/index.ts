@@ -254,6 +254,29 @@ export interface CodeEditorState {
 // Assembly payload (from server when sceneKind === 'assembly')
 // ---------------------------------------------------------------------------
 
+/** A parameter's resolved value — what `param()` returns. */
+export type InstanceParamValue = string | number | boolean | (string | number)[];
+
+/**
+ * Control metadata of one definition parameter, as serialized on part
+ * templates (`object.params`) and occurrences — everything the edit form
+ * needs (the declaring file's sourceLocation is deliberately absent).
+ */
+export type InstanceParamDef = {
+  label: string;
+  defaultValue: InstanceParamValue;
+  currentValue: InstanceParamValue;
+  controlType: string;
+  description?: string;
+  group?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: { label: string; value: string | number }[];
+  multi?: boolean;
+  multiControlType?: string;
+};
+
 export type SerializedAssemblyInstance = {
   instanceId: string;
   partId: string;
@@ -271,6 +294,8 @@ export type SerializedAssemblyInstance = {
    */
   owner?: string;
   name: string;
+  /** Resolved parameter values of the instance's template variant. */
+  paramValues?: Record<string, InstanceParamValue>;
   sourceLocation?: { filePath: string; line: number; column: number };
 };
 
@@ -287,6 +312,10 @@ export type SerializedAssemblyOccurrence = {
   grounded: boolean;
   /** Whether the grounded-frame chain reaches the root from here. */
   groundConnected: boolean;
+  /** The definition's `param()` interface — the occurrence edit form's rows. */
+  params?: InstanceParamDef[];
+  /** Resolved parameter values of this occurrence's run. */
+  paramValues?: Record<string, InstanceParamValue>;
   sourceLocation?: { filePath: string; line: number; column: number };
 };
 

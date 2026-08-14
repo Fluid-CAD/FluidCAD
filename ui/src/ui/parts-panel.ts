@@ -23,6 +23,7 @@
 
 import type { RenderedInstance, SerializedAssemblyOccurrence } from '../types';
 import {
+  ICON_ADJUSTMENTS,
   ICON_CHEVRON_RIGHT,
   ICON_CODE,
   ICON_CUBE,
@@ -69,6 +70,7 @@ export class PartsPanel {
   private onRename: (instanceId: string, newName: string) => void;
   private onDeleteInstance: (instanceId: string) => void;
   private occurrenceHandlers: OccurrenceHandlers | null;
+  private onEditParams: ((kind: 'instance' | 'occurrence', id: string) => void) | null;
 
   constructor(
     container: HTMLElement,
@@ -80,6 +82,7 @@ export class PartsPanel {
     onRename: (instanceId: string, newName: string) => void,
     onDeleteInstance: (instanceId: string) => void,
     occurrenceHandlers?: OccurrenceHandlers,
+    onEditParams?: (kind: 'instance' | 'occurrence', id: string) => void,
   ) {
     this.onSelectInstance = onSelectInstance;
     this.onToggleVisibility = onToggleVisibility;
@@ -88,6 +91,7 @@ export class PartsPanel {
     this.onRename = onRename;
     this.onDeleteInstance = onDeleteInstance;
     this.occurrenceHandlers = occurrenceHandlers ?? null;
+    this.onEditParams = onEditParams ?? null;
 
     this.panel = document.createElement('div');
     // Docked below the top bars (top bar + navbar ≈ 92px) with breathing
@@ -460,12 +464,17 @@ export class PartsPanel {
       return;
     }
     const owned = (inst.owner ?? '') !== '';
+    // Presence of resolved values ⇔ the definition declared param()s —
+    // parameterless parts keep the item visible but disabled (discoverability
+    // over hiding).
+    const hasParams = !!inst.paramValues && Object.keys(inst.paramValues).length > 0;
 
     const dropdown = this.openDropdownShell(position, anchor);
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
         ${PartsPanel.menuItem('show-in-source', ICON_CODE, 'Show in source')}
         ${owned ? '' : `
+        ${PartsPanel.menuItem('edit-params', ICON_ADJUSTMENTS, 'Edit parameters…', '', !hasParams, 'This part has no parameters')}
         ${PartsPanel.menuItem('set-ground', ICON_GROUND, 'Toggle grounded', inst.grounded ? 'text-warning' : '')}
         ${PartsPanel.menuItem('rename', ICON_PENCIL, 'Rename')}
         ${PartsPanel.menuItem('delete', ICON_TRASH, 'Delete', 'text-error')}`}
@@ -476,6 +485,12 @@ export class PartsPanel {
       this.closeDropdown();
       this.onShowInSource(instanceId);
     });
+    if (!owned && hasParams) {
+      dropdown.querySelector('[data-action="edit-params"]')!.addEventListener('click', () => {
+        this.closeDropdown();
+        this.onEditParams?.('instance', instanceId);
+      });
+    }
     if (!owned) {
       dropdown.querySelector('[data-action="set-ground"]')!.addEventListener('click', () => {
         this.closeDropdown();
@@ -508,15 +523,23 @@ export class PartsPanel {
       return;
     }
 
+    const hasParams = (occ.params?.length ?? 0) > 0;
     const dropdown = this.openDropdownShell(position, anchor);
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
         ${PartsPanel.menuItem('show-in-source', ICON_CODE, 'Show in source')}
+        ${PartsPanel.menuItem('edit-params', ICON_ADJUSTMENTS, 'Edit parameters…', '', !hasParams, 'This assembly has no parameters')}
         ${PartsPanel.menuItem('set-ground', ICON_GROUND, 'Toggle grounded', occ.grounded ? 'text-warning' : '')}
         ${PartsPanel.menuItem('rename', ICON_PENCIL, 'Rename')}
         ${PartsPanel.menuItem('delete', ICON_TRASH, 'Delete', 'text-error')}
       </ul>
     `;
+    if (hasParams) {
+      dropdown.querySelector('[data-action="edit-params"]')!.addEventListener('click', () => {
+        this.closeDropdown();
+        this.onEditParams?.('occurrence', occurrenceId);
+      });
+    }
 
     dropdown.querySelector('[data-action="show-in-source"]')!.addEventListener('click', () => {
       this.closeDropdown();
@@ -567,8 +590,19 @@ export class PartsPanel {
   }
 
   /** One icon + label menu row, matching the timeline panel's context menu. */
-  private static menuItem(action: string, icon: string, label: string, extraClass = ''): string {
-    return `<li><button data-action="${action}" class="flex items-center gap-2 ${extraClass}">`
+  private static menuItem(
+    action: string,
+    icon: string,
+    label: string,
+    extraClass = '',
+    disabled = false,
+    disabledTip = '',
+  ): string {
+    // Disabled items stay VISIBLE (a grayed row with a tooltip beats a
+    // mysteriously missing one) but never bind a handler.
+    const li = disabled ? ' class="menu-disabled"' : '';
+    const attrs = disabled ? ` disabled title="${disabledTip}"` : '';
+    return `<li${li}><button data-action="${action}"${attrs} class="flex items-center gap-2 ${extraClass}">`
       + `<span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${icon}</span>`
       + `<span>${label}</span>`
       + `</button></li>`;

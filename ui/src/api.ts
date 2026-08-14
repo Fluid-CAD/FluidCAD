@@ -3812,6 +3812,32 @@ export async function insertCatalogParts(
   }
 }
 
+/**
+ * Merge changed parameter values into an inserted instance's/occurrence's
+ * `insert()` statement (second argument). `set` carries ONLY the labels the
+ * user changed — untouched entries (expressions included) survive verbatim.
+ */
+export async function updateInsertParams(
+  filePath: string,
+  sourceLine: number,
+  set: Record<string, CatalogParamValue>,
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/update-insert-params', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath, sourceLine, set }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 /** The mate types the assembly solver supports (mirrors the kernel's mate()). */
 export type AssemblyMateType =
   | 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';

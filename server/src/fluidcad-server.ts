@@ -39,6 +39,10 @@ export type SerializedAssembly = {
     quaternion: { x: number; y: number; z: number; w: number };
     grounded: boolean;
     groundConnected: boolean;
+    /** The definition's `param()` interface — absent pre-parameters engines. */
+    params?: Record<string, unknown>[];
+    /** Resolved parameter values of this occurrence's run. */
+    paramValues?: Record<string, string | number | boolean | (string | number)[]>;
     sourceLocation?: { filePath: string; line: number; column: number };
   }>;
   mates: Array<{

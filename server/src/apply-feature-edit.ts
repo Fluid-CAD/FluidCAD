@@ -16,6 +16,7 @@ import { applySegmentSwap, type SegmentSwapSpec } from './segment-swap.ts';
 import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
 import { applyInsertPartEdit, type InsertPartEditSpec } from './part-catalog/insert-edit.ts';
 import { applyInstancePoseEdit, type InstancePoseEditSpec } from './insert-chain-edit.ts';
+import { applyInsertParamsEdit, type InsertParamsEditSpec } from './insert-params-edit.ts';
 import {
   applyAssemblyMateEdit,
   applyConnectorPropsEdit,
@@ -254,6 +255,13 @@ export type ApplyFeatureEditSpec = {
    * is ignored.
    */
   instancePose?: InstancePoseEditSpec;
+  /**
+   * Edit-parameters commit: merge changed parameter values into an
+   * `insert()` statement's second argument (untouched entries survive
+   * verbatim, expressions included). Rides the same round trip as
+   * `instancePose`; every other spec field is ignored.
+   */
+  insertParams?: InsertParamsEditSpec;
   /**
    * Mate-dialog statement write: append or re-render a
    * `mate(type, a.connectors.x, b.connectors.y)<chain>` statement in the
@@ -1371,6 +1379,9 @@ export async function applyFeatureEdit(
   }
   if (spec.instancePose) {
     return applyInstancePoseWithDecls(code, spec);
+  }
+  if (spec.insertParams) {
+    return applyInsertParamsEdit(code, spec.insertParams);
   }
   if (spec.assemblyMate) {
     return applyAssemblyMateEdit(code, spec.assemblyMate);

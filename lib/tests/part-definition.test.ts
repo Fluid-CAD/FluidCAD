@@ -312,6 +312,32 @@ describe("assembly definition parameters", () => {
     expect(partSaw).toBe(450);
   });
 
+  it("records occurrence params and values on the record and its serialization", () => {
+    const scene = getSceneManager().startAssemblyScene();
+    const block = part("b", () => {});
+    const def = assembly("sub", () => {
+      param("Width", 700, "number", { min: 100 });
+      insert(block);
+    });
+    const occ = insert(def, { Width: 900 });
+    expect(occ.record.params?.map(p => p.label)).toEqual(["Width"]);
+    expect(occ.record.paramValues).toEqual({ Width: 900 });
+    const serialized = scene.getSerializedOccurrences();
+    expect(serialized[0].paramValues).toEqual({ Width: 900 });
+    expect(serialized[0].params?.[0]).toMatchObject({ label: "Width", currentValue: 900, min: 100 });
+    expect(serialized[0].params?.[0]).not.toHaveProperty("sourceLocation");
+  });
+
+  it("serializes the variant's param metadata on the part template", () => {
+    getSceneManager().startAssemblyScene();
+    const def = part("p", () => { param("Length", 100, "number", { min: 10 }); });
+    const inst = insert(def, { Length: 60 });
+    const payload = inst.record.part.serialize();
+    expect(payload.paramValues).toEqual({ Length: 60 });
+    expect(payload.params?.[0]).toMatchObject({ label: "Length", defaultValue: 100, currentValue: 60, min: 10 });
+    expect(payload.params?.[0]).not.toHaveProperty("sourceLocation");
+  });
+
   it("top-scope-only resolution: a part's label never leaks from the assembly scope", () => {
     getSceneManager().startAssemblyScene();
     let partSaw: number | null = null;

@@ -18,6 +18,7 @@ import { TopBar } from './ui/top-bar';
 import { Navbar } from './ui/navbar';
 import { AssemblyToolbar } from './ui/assembly-toolbar';
 import { InsertPartDialog } from './ui/insert-part/insert-part-dialog';
+import { EditParamsDialog } from './ui/edit-params-dialog';
 import { ICON_IMG_FALLBACK } from './ui/object-icons';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
 import { SelectionContextMenu } from './interactive/selection-menu';
@@ -218,6 +219,36 @@ function buildAssemblyRail(): LeftRail {
         removeFeature(occ.sourceLocation);
       },
     },
+    // Edit parameters — instance rows read control metadata off their part
+    // template, occurrence headers carry their own; both merge into the
+    // insert() statement's second argument.
+    (kind, id) => {
+      if (kind === 'instance') {
+        const inst = findInstance(id);
+        if (!inst?.sourceLocation || inst.owner) return;
+        const defs = lastPartTemplates.get(inst.partId)?.params;
+        if (!Array.isArray(defs) || defs.length === 0) return;
+        editParamsDialog.show({
+          title: `${inst.name} — parameters`,
+          subtitle: inst.partName,
+          defs,
+          currentValues: inst.paramValues ?? {},
+          filePath: inst.sourceLocation.filePath,
+          line: inst.sourceLocation.line,
+        });
+      } else {
+        const occ = findOccurrence(id);
+        if (!occ?.sourceLocation || !occ.params?.length) return;
+        editParamsDialog.show({
+          title: `${occ.name} — parameters`,
+          subtitle: occ.assemblyName,
+          defs: occ.params,
+          currentValues: occ.paramValues ?? {},
+          filePath: occ.sourceLocation.filePath,
+          line: occ.sourceLocation.line,
+        });
+      }
+    },
   );
   joints = new JointsPanel(
     parts.getJointsHost(),
@@ -260,6 +291,8 @@ function ensureRailFor(kind: 'part' | 'assembly'): LeftRail {
 
 let lastAssemblyPayload: SerializedAssembly | null = null;
 let lastFailedMateIds = new Set<string>();
+/** partId → template serialize payload ({ name, params, paramValues }) of the last assembly render. */
+const lastPartTemplates = new Map<string, any>();
 
 function findInstance(instanceId: string) {
   return lastAssemblyPayload?.instances.find(i => i.instanceId === instanceId);
@@ -376,6 +409,9 @@ importGroup.appendChild(importBtnWrap);
 // in the scene-rendered handler). Insert opens the part-catalog browser;
 // the rest are placeholders for now.
 const insertPartDialog = new InsertPartDialog(container);
+// Parts-panel "Edit parameters…" — merges changed values into an inserted
+// instance's/occurrence's insert() statement.
+const editParamsDialog = new EditParamsDialog(container);
 // The rendered file's absolute path (from scene-rendered) — the Insert dialog
 // excludes it so the open assembly can't be inserted into itself.
 let currentSceneAbsPath: string | null = null;
@@ -1897,6 +1933,14 @@ function connectWebSocket() {
         viewer.isDrawing = !isRollback && sketchService.hasActiveDrawingTool;
         if (sceneKind === 'assembly') {
           const assembly: SerializedAssembly = msg.assembly ?? { instances: [], mates: [] };
+          // Template serialize payloads (name, params, paramValues) keyed by
+          // partId — the Edit-parameters dialog reads control metadata here.
+          lastPartTemplates.clear();
+          for (const o of msg.result as SceneObjectRender[]) {
+            if (o.type === 'part') {
+              lastPartTemplates.set(o.id, o.object);
+            }
+          }
           viewer.updateAssemblyView(msg.result, assembly);
         } else {
           viewer.updateView(msg.result, isRollback, msg.rollbackStop);
@@ -1983,6 +2027,7 @@ function connectWebSocket() {
           const assembly: SerializedAssembly = {
             instances: raw?.instances ?? [],
             mates: raw?.mates ?? [],
+            occurrences: raw?.occurrences ?? [],
           };
           applyAssemblyToRail(rail, assembly);
           // Instance groups were just rebuilt/re-posed — re-anchor the

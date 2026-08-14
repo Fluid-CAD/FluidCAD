@@ -1,6 +1,7 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Connector } from "./connector.js";
 import { IPart } from "../core/interfaces.js";
+import { serializableParamDefs } from "./param-overrides.js";
 import type { ParamDefinition, ParamVal } from "../param-registry.js";
 
 export class Part extends SceneObject implements IPart {
@@ -73,6 +74,9 @@ export class Part extends SceneObject implements IPart {
     return {
       name: this.partName,
       paramValues: this.paramValues,
+      // Control metadata for per-instance parameter editing (sourceLocation
+      // stripped — that serves the panel's declaration edits, not the wire).
+      params: this.params ? serializableParamDefs(this.params) : undefined,
     };
   }
 }

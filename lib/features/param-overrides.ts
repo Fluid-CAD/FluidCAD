@@ -1,4 +1,4 @@
-import type { ParamOverrides, ParamScope, ParamVal } from "../param-registry.js";
+import type { ParamDefinition, ParamOverrides, ParamScope, ParamVal } from "../param-registry.js";
 
 /**
  * Shared plumbing for definition parameter overrides — used by
@@ -49,6 +49,24 @@ export function mergeOverrides(bound: ReadonlyMap<string, ParamVal>, extra?: Par
 export function canonicalVariantKey(overrides: ReadonlyMap<string, ParamVal>): string {
   const entries = Array.from(overrides.entries()).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return JSON.stringify(entries);
+}
+
+/**
+ * Wire-shape a build's collected definitions: sourceLocation points into the
+ * defining file and serves the params PANEL's declaration edits — the
+ * template/occurrence payloads only need the control metadata.
+ */
+export function serializableParamDefs(defs: Iterable<ParamDefinition>): Omit<ParamDefinition, 'sourceLocation'>[] {
+  return Array.from(defs, ({ sourceLocation: _sourceLocation, ...def }) => def);
+}
+
+/** label → resolved value of a build's collected definitions. */
+export function collectedParamValues(scope: ParamScope): Record<string, ParamVal> {
+  const values: Record<string, ParamVal> = {};
+  for (const [label, def] of scope.collected) {
+    values[label] = def.currentValue;
+  }
+  return values;
 }
 
 /**

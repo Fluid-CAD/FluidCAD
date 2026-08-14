@@ -5,7 +5,7 @@ import type { SourceLocation } from "../common/scene-object.js";
 import { getCurrentScene } from "../scene-manager.js";
 import { popParamScope, pushParamScope } from "../param-registry.js";
 import type { ParamOverrides, ParamVal } from "../param-registry.js";
-import { canonicalVariantKey, mergeOverrides, validateParamOverrides, warnUnknownOverrides } from "./param-overrides.js";
+import { canonicalVariantKey, collectedParamValues, mergeOverrides, validateParamOverrides, warnUnknownOverrides } from "./param-overrides.js";
 
 /**
  * A lazy part definition created by `part(name, callback)`.
@@ -177,11 +177,7 @@ export class PartDefinition<T = unknown> {
     if (scope) {
       if (scope.collected.size > 0) {
         partObj.params = Array.from(scope.collected.values());
-        const values: Record<string, ParamVal> = {};
-        for (const [label, def] of scope.collected) {
-          values[label] = def.currentValue;
-        }
-        partObj.paramValues = values;
+        partObj.paramValues = collectedParamValues(scope);
       }
       warnUnknownOverrides('part', this.partName, scope);
     }

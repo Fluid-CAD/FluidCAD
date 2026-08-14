@@ -128,7 +128,7 @@ export async function applyInsertPartEdit(
 }
 
 /** The first param label whose value can't render as a literal, if any. */
-function findInvalidParam(params: Record<string, InsertParamValue> | undefined): string | null {
+export function findInvalidParam(params: Record<string, InsertParamValue> | undefined): string | null {
   if (params == null) {
     return null;
   }
@@ -161,14 +161,14 @@ function renderParamsLiteral(params: Record<string, InsertParamValue> | undefine
   return `{ ${rendered.join(', ')} }`;
 }
 
-function renderKey(label: string): string {
+export function renderKey(label: string): string {
   if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(label)) {
     return label;
   }
   return renderString(label);
 }
 
-function renderValue(value: InsertParamValue): string {
+export function renderValue(value: InsertParamValue): string {
   if (typeof value === 'string') {
     return renderString(value);
   }

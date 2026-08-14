@@ -6,7 +6,7 @@ import { PartDefinition } from "../features/part-definition.js";
 import { Assembly } from "../features/assembly.js";
 import { Instance } from "../features/instance.js";
 import { Occurrence } from "../features/occurrence.js";
-import { validateParamOverrides } from "../features/param-overrides.js";
+import { collectedParamValues, validateParamOverrides } from "../features/param-overrides.js";
 import type { ParamOverrides } from "../param-registry.js";
 import { IPart } from "./interfaces.js";
 
@@ -79,7 +79,12 @@ function insertOccurrence<T>(scene: AssemblyScene, definition: Assembly<T>, over
   try {
     // Always scoped (even with zero overrides): an occurrence's param()
     // calls are its insertion interface, never the consuming file's panel.
-    parts = definition.runScoped(overrides ?? {});
+    const run = definition.runScoped(overrides ?? {});
+    parts = run.parts;
+    if (run.scope.collected.size > 0) {
+      record.params = Array.from(run.scope.collected.values());
+      record.paramValues = collectedParamValues(run.scope);
+    }
   } finally {
     scene.endOccurrence();
   }

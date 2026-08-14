@@ -1,6 +1,6 @@
 import { createRequire } from 'module';
 
-type TSNode = {
+export type TSNode = {
   type: string;
   text: string;
   startPosition: { row: number; column: number };
@@ -13,7 +13,7 @@ type TSNode = {
   childForFieldName(name: string): TSNode | null;
 };
 
-type TSTree = { rootNode: TSNode };
+export type TSTree = { rootNode: TSNode };
 
 type TSParser = {
   setLanguage(lang: any): void;
@@ -30,6 +30,10 @@ async function loadTreeSitter() {
 }
 
 let parser: TSParser | null = null;
+
+export async function getInsertChainParser(): Promise<TSParser> {
+  return getParser();
+}
 
 async function getParser(): Promise<TSParser> {
   if (parser) {
@@ -56,7 +60,7 @@ function* walkTree(node: TSNode): Generator<TSNode> {
  * The outermost call_expression starting on the resolved row — i.e. the tail
  * of the chain `insert(p).grounded().name('x')`.
  */
-function findChainAt(tree: TSTree, sourceLine: number): TSNode | null {
+export function findChainAt(tree: TSTree, sourceLine: number): TSNode | null {
   const row = sourceLine - 1;
   if (row < 0) {
     return null;
@@ -77,7 +81,7 @@ function findChainAt(tree: TSTree, sourceLine: number): TSNode | null {
 }
 
 /** Walk down the chain from outermost call to base call (the `insert(p)`). */
-function getChainCalls(tail: TSNode): TSNode[] {
+export function getChainCalls(tail: TSNode): TSNode[] {
   const chain: TSNode[] = [];
   let cur: TSNode | null = tail;
   while (cur && cur.type === 'call_expression') {
@@ -94,7 +98,7 @@ function getChainCalls(tail: TSNode): TSNode[] {
 }
 
 /** Returns the base call's identifier name (e.g. "insert") if any. */
-function getBaseCallName(chain: TSNode[]): string | null {
+export function getBaseCallName(chain: TSNode[]): string | null {
   if (chain.length === 0) return null;
   const fn = chain[0].childForFieldName('function');
   if (fn && fn.type === 'identifier') {

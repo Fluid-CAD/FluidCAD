@@ -2,7 +2,8 @@ import { Scene } from "./scene.js";
 import { Part } from "../features/part.js";
 import { Connector } from "../features/connector.js";
 import { SourceLocation } from "../common/scene-object.js";
-import type { ParamVal } from "../param-registry.js";
+import type { ParamDefinition, ParamVal } from "../param-registry.js";
+import { serializableParamDefs } from "../features/param-overrides.js";
 import { Quaternion } from "../math/quaternion.js";
 import { Vector3d } from "../math/vector3d.js";
 
@@ -46,6 +47,10 @@ export type AssemblyOccurrence = {
   quaternion: Quat;
   /** .grounded() on the handle: this frame is fixed in the parent scope. */
   grounded: boolean;
+  /** The definition's `param()` interface, collected while this occurrence's body ran. */
+  params?: ParamDefinition[];
+  /** Resolved parameter values of this occurrence's run. */
+  paramValues?: Record<string, ParamVal>;
   sourceLocation?: SourceLocation;
 };
 
@@ -107,6 +112,10 @@ export type SerializedOccurrence = {
   grounded: boolean;
   /** Whether the grounded-frame chain reaches the root from here. */
   groundConnected: boolean;
+  /** Control metadata for per-occurrence parameter editing (sourceLocation stripped). */
+  params?: Omit<ParamDefinition, 'sourceLocation'>[];
+  /** Resolved parameter values of this occurrence's run. */
+  paramValues?: Record<string, ParamVal>;
   sourceLocation?: SourceLocation;
 };
 
@@ -335,6 +344,8 @@ export class AssemblyScene extends Scene {
       quaternion: occ.quaternion,
       grounded: occ.grounded,
       groundConnected: connected.get(occ.occurrenceId) ?? false,
+      params: occ.params ? serializableParamDefs(occ.params) : undefined,
+      paramValues: occ.paramValues,
       sourceLocation: occ.sourceLocation,
     }));
   }

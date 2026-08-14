@@ -92,6 +92,43 @@ export function createInstancePoseRouter(
     await dispatcher.dispatch(res, spec, { success: true });
   });
 
+  // Edit-parameters commit: merge the dialog's changed values into the
+  // insert() statement's second argument. Same shape as /instance-pose —
+  // cross-file targets 422 (a sub-assembly's insert() lives in its own file).
+  router.post('/update-insert-params', async (req, res) => {
+    const { filePath, sourceLine, set } = req.body ?? {};
+    if (
+      typeof filePath !== 'string' || filePath.length === 0
+      || !Number.isInteger(sourceLine) || sourceLine < 1
+      || set === null || typeof set !== 'object' || Array.isArray(set)
+      || Object.keys(set).length === 0
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const currentFile = fluidCadServer.getCurrentFileName();
+    if (!currentFile) {
+      res.status(404).json({ error: 'No active scene' });
+      return;
+    }
+    if (normalizePath(filePath) !== normalizePath(currentFile)) {
+      res.status(422).json({
+        success: false,
+        reason: `this insert() lives in ${basename(filePath)} — open that file to edit its parameters.`,
+      });
+      return;
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: currentFile,
+      producers: [],
+      parts: [],
+      imports: [],
+      insertParams: { line: sourceLine, set },
+    };
+    await dispatcher.dispatch(res, spec, { success: true });
+  });
+
   // The gizmo's absolute-value inputs read the exact `.translate()` argument
   // and `.rotate()` angle texts to seed the field and to echo untouched axes
   // back on commit. Each block is null when the chain shape doesn't equate

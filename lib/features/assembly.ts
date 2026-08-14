@@ -1,5 +1,5 @@
 import { popParamScope, pushParamScope } from "../param-registry.js";
-import type { ParamOverrides, ParamVal } from "../param-registry.js";
+import type { ParamOverrides, ParamScope, ParamVal } from "../param-registry.js";
 import { mergeOverrides, validateParamOverrides, warnUnknownOverrides } from "./param-overrides.js";
 
 /**
@@ -53,24 +53,25 @@ export class Assembly<T = unknown> {
       this.hasRun = true;
       return this.callback();
     }
-    return this.runInScope(new Map(this.boundOverrides));
+    return this.runInScope(new Map(this.boundOverrides)).parts;
   }
 
   /**
    * Execute the definition body for an occurrence — `insert()` calls this
    * inside the occurrence's scope. Always parameter-scoped, even with zero
    * overrides: an inserted assembly's params never touch the consuming
-   * file's global registry.
+   * file's global registry. Returns the scope alongside the parts so the
+   * occurrence record can carry its parameter interface and values.
    */
-  runScoped(overrides: ParamOverrides): T {
+  runScoped(overrides: ParamOverrides): { parts: T; scope: ParamScope } {
     return this.runInScope(mergeOverrides(this.boundOverrides, overrides));
   }
 
-  private runInScope(overrides: Map<string, ParamVal>): T {
+  private runInScope(overrides: Map<string, ParamVal>): { parts: T; scope: ParamScope } {
     this.hasRun = true;
     const scope = pushParamScope(overrides);
     try {
-      return this.callback();
+      return { parts: this.callback(), scope };
     } finally {
       popParamScope();
       warnUnknownOverrides('assembly', this.assemblyName, scope);

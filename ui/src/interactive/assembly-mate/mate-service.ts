@@ -278,8 +278,9 @@ export class AssemblyMateService {
   /**
    * Arm/disarm the viewer channel + controller reveal for the current
    * state. Create mode reveals every connector (the user is scanning for
-   * two); edit mode keeps the usual hover-reveal — only the mate's own
-   * picked connectors stay pinned in view.
+   * two); edit mode reveals on hover — only the mate's own picked
+   * connectors stay pinned in view. With no dialog open connectors never
+   * show, hover included.
    */
   private syncViewport(): void {
     this.viewer.pickConnectors = this.armed;

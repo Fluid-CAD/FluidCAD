@@ -54,7 +54,7 @@ function fakeConnectorMesh(connectorId: string, origin: [number, number, number]
   const gizmo = new Group();
   gizmo.position.set(...origin);
   mesh.add(gizmo);
-  mesh.visible = false; // assembly default: hidden until hovered/armed
+  mesh.visible = false; // assembly default: hidden until a mate dialog reveals
   return mesh;
 }
 

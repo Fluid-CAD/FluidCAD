@@ -51,7 +51,7 @@ function fakeConnectorMesh(connectorId: string, origin: [number, number, number]
   const gizmo = new Group();
   gizmo.position.set(...origin);
   mesh.add(gizmo);
-  mesh.visible = false; // assembly default: hidden until hovered/armed
+  mesh.visible = false; // assembly default: hidden until a mate dialog reveals
   return mesh;
 }
 
@@ -150,10 +150,10 @@ describe('mate-dialog connector picking', () => {
     expect(connectorMesh.visible).toBe(false);
   });
 
-  it('hover-reveal arming (the edit dialog) keeps the usual hover behavior', () => {
+  it('hover-reveal arming (the edit dialog) reveals per-instance on hover', () => {
     const { controller, connectorMesh } = makeRig();
     controller.setMatePicking(true, false);
-    // No blanket reveal — connectors appear per-instance on hover, as usual.
+    // No blanket reveal — connectors appear per-instance on hover.
     expect(connectorMesh.visible).toBe(false);
     controller.setHoveredInstance('i1');
     expect(connectorMesh.visible).toBe(true);
@@ -164,10 +164,23 @@ describe('mate-dialog connector picking', () => {
     expect(connectorMesh.visible).toBe(true);
     controller.setMatePickedConnectors([]);
     expect(connectorMesh.visible).toBe(false);
-    // … and disarming restores plain hover-only visibility.
+    // … and disarming hides everything — hover reveals nothing without a
+    // mate dialog open.
     controller.setMatePicking(false);
     controller.setHoveredInstance('i1');
+    expect(connectorMesh.visible).toBe(false);
+  });
+
+  it('hover reveals nothing while no mate dialog is open', () => {
+    const { controller, connectorMesh } = makeRig();
+    controller.setHoveredInstance('i1');
+    expect(connectorMesh.visible).toBe(false);
+    // The hover tracked while closed still counts once a dialog arms in
+    // hover-reveal mode — the part already under the cursor shows at once.
+    controller.setMatePicking(true, false);
     expect(connectorMesh.visible).toBe(true);
+    controller.setHoveredInstance(null);
+    expect(connectorMesh.visible).toBe(false);
   });
 
   it('pins a picked slot on ITS instance only, not on part siblings', () => {

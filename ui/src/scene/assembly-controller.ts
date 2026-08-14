@@ -60,10 +60,12 @@ export class AssemblyController {
   private dragValueHandler: DragValueHandler | null = null;
   private solver = new Solver();
   /**
-   * Instance whose connectors are currently revealed by hover. Connectors
-   * are hidden by default in assembly mode and only shown for the part the
-   * cursor is on. Tracking the id (not a Group ref) keeps it valid across
-   * diff updates that may replace the underlying group.
+   * Instance the cursor is on. Connectors are hidden by default in assembly
+   * mode; hover reveals the ones on this instance only while a mate dialog
+   * has picking armed ({@link matePicking}) — with no dialog open hover
+   * shows nothing, and the id is just kept current so arming reveals the
+   * part already under the cursor. Tracking the id (not a Group ref) keeps
+   * it valid across diff updates that may replace the underlying group.
    */
   private hoveredInstanceId: string | null = null;
   /**
@@ -91,9 +93,9 @@ export class AssemblyController {
   private matePicking = false;
   /**
    * How armed picking reveals gizmos: `true` (create mode) shows every
-   * connector; `false` (edit mode) keeps the usual hover-reveal, plus the
-   * slot-filling connectors pinned so the mate's current endpoints stay in
-   * view. Meaningful only while {@link matePicking}.
+   * connector; `false` (edit mode) reveals on hover, plus the slot-filling
+   * connectors pinned so the mate's current endpoints stay in view.
+   * Meaningful only while {@link matePicking}.
    */
   private matePickingRevealAll = true;
   /**
@@ -277,15 +279,20 @@ export class AssemblyController {
   }
 
   /**
-   * Reveal connectors for the instance the cursor is on, hiding any
-   * previously-revealed set. Connectors are hidden by default in assembly
-   * mode (see {@link buildInstanceGroup}); the viewer's hover handler drives
-   * this method based on pick results. Pass `null` to hide all.
+   * Track the instance the cursor is on and — only while a mate dialog has
+   * picking armed — reveal its connectors, hiding any previously-revealed
+   * set. With no dialog open the id is still recorded (so arming reveals
+   * the part already under the cursor) but connectors stay hidden (see
+   * {@link buildInstanceGroup}). The viewer's hover handler drives this
+   * method based on pick results. Pass `null` to clear.
    */
   setHoveredInstance(instanceId: string | null): void {
     if (this.hoveredInstanceId === instanceId) return;
     const prevId = this.hoveredInstanceId;
     this.hoveredInstanceId = instanceId;
+    if (!this.matePicking) {
+      return;
+    }
     if (prevId) {
       const prev = this.instances.get(prevId);
       if (prev) this.applyConnectorVisibility(prev);
@@ -299,20 +306,23 @@ export class AssemblyController {
 
   /**
    * Walk an instance group's connectors and set visibility from the union
-   * of the reveal sources: hover (the whole instance is hovered), pinning
-   * (a mate selection has flagged a specific connector), and armed picking
-   * (every gizmo in reveal-all mode; just the slot-filling ones in
-   * hover-reveal mode). Single source of truth so hover transitions don't
-   * accidentally hide pinned connectors and pin clearing doesn't hide
-   * hovered ones.
+   * of the reveal sources, all but the last gated on an armed mate dialog:
+   * reveal-all (create mode shows every gizmo), hover (edit mode reveals
+   * the instance under the cursor), slot pinning (the connectors filling
+   * the dialog's slots), and — dialog or not — pinning by a joints-panel
+   * mate selection. With no dialog open plain hover reveals nothing.
+   * Single source of truth so hover transitions don't accidentally hide
+   * pinned connectors and pin clearing doesn't hide hovered ones.
    */
   private applyConnectorVisibility(state: InstanceState): void {
     const isHovered = this.hoveredInstanceId === state.data.instanceId;
     state.group.traverse((child) => {
       if (!child.userData?.isConnector) return;
-      child.visible = (this.matePicking && this.matePickingRevealAll)
+      child.visible = (this.matePicking && (
+        this.matePickingRevealAll
         || isHovered
-        || (this.matePicking && this.isPickedSlot(state.data.instanceId, child))
+        || this.isPickedSlot(state.data.instanceId, child)
+      ))
         || this.mateRevealedConnectors.has(child);
       this.applyConnectorOpacity(child, state.data.instanceId);
     });
@@ -927,9 +937,10 @@ export class AssemblyController {
    * Arm or disarm connector picking. Arming makes {@link handlePointerDown}
    * bail so clicks bubble to the viewer's pick path, and reveals gizmos per
    * `revealAll`: every connector for a create dialog, hover-reveal (plus the
-   * pinned slot connectors) for an edit. Disarming restores hover-only
-   * visibility and drops any hover highlight. Any in-flight drag gesture is
-   * cancelled — the dialog opened mid-gesture must not leave a claim active.
+   * pinned slot connectors) for an edit. Disarming hides every connector
+   * again — hover reveals nothing while no mate dialog is open — and drops
+   * any hover highlight. Any in-flight drag gesture is cancelled — the
+   * dialog opened mid-gesture must not leave a claim active.
    */
   setMatePicking(armed: boolean, revealAll = true): void {
     if (this.matePicking === armed && (!armed || this.matePickingRevealAll === revealAll)) {

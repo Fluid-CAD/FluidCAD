@@ -1402,9 +1402,10 @@ export class Viewer {
 
     canvas.addEventListener('mouseleave', () => {
       this.clearHover();
-      // Hide assembly connectors when the cursor leaves the canvas. They're
-      // revealed per-instance by updateHover; without this, a connector left
-      // visible by the last hit would linger until the cursor re-enters.
+      // Clear the hovered instance when the cursor leaves the canvas. While
+      // a mate dialog is picking, updateHover reveals connectors
+      // per-instance; without this, a connector left visible by the last
+      // hit would linger until the cursor re-enters.
       this.assemblyController?.setHoveredInstance(null);
     });
   }
@@ -1447,11 +1448,14 @@ export class Viewer {
       this.ctx.requestRender();
     }
 
-    // Reveal connectors for whichever instance the cursor is on, hide them
-    // otherwise. Done unconditionally — independent of the face/edge hover
-    // dedup paths below — so connectors stay visible while the user moves
-    // around within the same part (including over the currently-selected
-    // face, which short-circuits the rest of this method).
+    // Track which instance the cursor is on. The controller reveals its
+    // connectors only while a mate dialog has picking armed, and otherwise
+    // just keeps the id current so an opening dialog reveals the part
+    // already under the cursor. Done unconditionally — independent of the
+    // face/edge hover dedup paths below — so connectors stay visible while
+    // the user moves around within the same part (including over the
+    // currently-selected face, which short-circuits the rest of this
+    // method).
     this.assemblyController?.setHoveredInstance(result?.instanceId ?? null);
 
     // Per-instance post-drop suppression: if the user just released the

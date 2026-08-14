@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyInsertParamsEdit } from '../src/insert-params-edit.ts';
+import { applyInsertParamsEdit, getInsertParamExpressions } from '../src/insert-params-edit.ts';
 import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit.ts';
 
 describe('applyInsertParamsEdit', () => {
@@ -183,5 +183,115 @@ describe('applyInsertParamsEdit', () => {
     const result = await applyFeatureEdit(`const front = insert(extrusion);\n`, spec);
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe(`const front = insert(extrusion, { Length: 300 });\n`);
+  });
+
+  it('writes an { expr } value verbatim', async () => {
+    const code = `const front = insert(extrusion, { Length: 540 });\n`;
+    const result = await applyInsertParamsEdit(code, {
+      line: 1,
+      set: { Length: { expr: 'width - (80 * 2)' } },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`const front = insert(extrusion, { Length: width - (80 * 2) });\n`);
+  });
+
+  it('creates the second argument from an { expr } value', async () => {
+    const code = `const front = insert(extrusion);\n`;
+    const result = await applyInsertParamsEdit(code, { line: 1, set: { Length: { expr: 'width' } } });
+    expect(result.newCode).toBe(`const front = insert(extrusion, { Length: width });\n`);
+  });
+
+  it('refuses unsafe { expr } text', async () => {
+    const code = `const front = insert(extrusion, { Length: 540 });\n`;
+    for (const expr of ['a; b', 'a, b', 'x = 5', 'a\nb', '(a']) {
+      const result = await applyInsertParamsEdit(code, { line: 1, set: { Length: { expr } } });
+      expect(result.error).toContain(`'Length'`);
+      expect(result.newCode).toBe(code);
+    }
+  });
+
+  it('lands newVariables declarations before the insert statement via applyFeatureEdit', async () => {
+    const code = [
+      `import { assembly, insert } from 'fluidcad/core';`,
+      ``,
+      `export const frame = assembly('frame', () => {`,
+      `    const front = insert(extrusion, { Length: 540 });`,
+      `});`,
+      ``,
+    ].join('\n');
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: '/ws/frame.assembly.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      insertParams: { line: 4, set: { Length: { expr: 'beamLength' } } },
+      newVariables: [{ name: 'beamLength', initializer: '540' }],
+    };
+    const result = await applyFeatureEdit(code, spec);
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`    const beamLength = 540;\n    const front = insert(extrusion, { Length: beamLength });`);
+  });
+
+  it('lands a param() declaration after the imports via applyFeatureEdit', async () => {
+    const code = [
+      `import { insert } from 'fluidcad/core';`,
+      ``,
+      `const front = insert(extrusion, { Length: 540 });`,
+      ``,
+    ].join('\n');
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: '/ws/index.assembly.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      insertParams: { line: 3, set: { Length: { expr: 'beamLength' } } },
+      newVariables: [{ name: 'beamLength', initializer: `param("beamLength", 540)` }],
+    };
+    const result = await applyFeatureEdit(code, spec);
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toMatch(/import \{\s*param, insert \} from 'fluidcad\/core';/);
+    expect(result.newCode).toContain(`const beamLength = param("beamLength", 540);`);
+    expect(result.newCode).toContain(`const front = insert(extrusion, { Length: beamLength });`);
+  });
+});
+
+describe('getInsertParamExpressions', () => {
+  it('returns non-literal entry texts keyed by label', async () => {
+    const code = `const front = insert(extrusion, { Length: width - (80 * 2), Size: '80x80', Count: 4 });\n`;
+    const result = await getInsertParamExpressions(code, 1);
+    expect(result).toEqual({ Length: 'width - (80 * 2)' });
+  });
+
+  it('reads shorthand properties as their identifier', async () => {
+    const code = `const front = insert(extrusion, { Length });\n`;
+    const result = await getInsertParamExpressions(code, 1);
+    expect(result).toEqual({ Length: 'Length' });
+  });
+
+  it('skips literal values, negative numbers and literal arrays included', async () => {
+    const code = `const p = insert(plate, { A: -5, B: true, C: [1, 'x'], D: 'txt' });\n`;
+    const result = await getInsertParamExpressions(code, 1);
+    expect(result).toEqual({});
+  });
+
+  it('reads quoted labels and chained inserts', async () => {
+    const code = `const p = insert(plate, { 'Guide Width': w / 2 }).translate(1, 2, 3);\n`;
+    const result = await getInsertParamExpressions(code, 1);
+    expect(result).toEqual({ 'Guide Width': 'w / 2' });
+  });
+
+  it('returns an empty map for a single-argument insert', async () => {
+    expect(await getInsertParamExpressions(`const p = insert(plate);\n`, 1)).toEqual({});
+  });
+
+  it('returns null for a non-literal second argument', async () => {
+    expect(await getInsertParamExpressions(`const p = insert(plate, opts);\n`, 1)).toBeNull();
+  });
+
+  it('returns null when the line has no insert()', async () => {
+    expect(await getInsertParamExpressions(`const m = mate('fastened', a, b);\n`, 1)).toBeNull();
+    expect(await getInsertParamExpressions(`const p = insert(plate);\n`, 5)).toBeNull();
   });
 });

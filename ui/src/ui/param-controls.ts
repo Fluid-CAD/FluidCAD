@@ -1,9 +1,31 @@
-import type { CatalogParamDef, CatalogParamValue } from '../api';
+import type { CatalogParamDef, CatalogParamExpr, CatalogParamValue, NewVariable } from '../api';
+import type { VariableInfo } from './expression-core';
+import { collectNewVariables, ExpressionField } from './expression-field';
 
 type ControlHandle = {
   element: HTMLElement;
   /** Push a value INTO the control (reset-to-default rewrites the display). */
   setValue: (value: CatalogParamValue) => void;
+};
+
+/**
+ * Expression mode (the Edit-parameters dialog): `seeds` carries the exact
+ * source text of the insert()'s non-literal entries by label — those rows
+ * render as expression fields showing the expression instead of its resolved
+ * value, whatever their declared control — and every number-typed row
+ * becomes an expression field too, with `variables` feeding the same
+ * autocomplete dropdown the 3D dialogs' fields have.
+ */
+export type ParamFormExpressions = {
+  seeds: Record<string, string>;
+  variables: VariableInfo[];
+};
+
+type ExprRow = {
+  field: ExpressionField;
+  input: HTMLInputElement;
+  /** The seeded text — source expression, or the resolved value's text. */
+  baseline: string;
 };
 
 /**
@@ -23,18 +45,34 @@ type ControlHandle = {
  */
 export class ParamForm {
   readonly element: HTMLDivElement;
+  /** Enter pressed in an expression field with no suggestion selected — the dialog applies. */
+  onSubmit?: () => void;
   private readonly values = new Map<string, CatalogParamValue>();
   private readonly resets = new Set<string>();
   private readonly resettable: boolean;
+  private readonly expressions: ParamFormExpressions | null;
+  private readonly exprRows = new Map<string, ExprRow>();
 
-  constructor(private readonly defs: CatalogParamDef[], opts: { resettable?: boolean } = {}) {
+  constructor(
+    private readonly defs: CatalogParamDef[],
+    opts: { resettable?: boolean; expressions?: ParamFormExpressions } = {},
+  ) {
     this.resettable = opts.resettable === true;
+    this.expressions = opts.expressions ?? null;
     this.element = document.createElement('div');
     this.element.className = 'flex flex-col gap-1.5';
     for (const def of defs) {
       this.values.set(def.label, def.currentValue);
       this.element.appendChild(this.buildRow(def));
     }
+  }
+
+  /** Release the expression fields' floating dropdowns/buttons. */
+  destroy(): void {
+    for (const row of this.exprRows.values()) {
+      row.field.destroy();
+    }
+    this.exprRows.clear();
   }
 
   /** Every value, defaults included. */
@@ -50,12 +88,54 @@ export class ParamForm {
   nonDefaultValues(): Record<string, CatalogParamValue> {
     const out: Record<string, CatalogParamValue> = {};
     for (const def of this.defs) {
+      if (this.exprRows.has(def.label)) {
+        continue;
+      }
       const value = this.values.get(def.label)!;
       if (!sameValue(value, def.currentValue)) {
         out[def.label] = value;
       }
     }
     return out;
+  }
+
+  /**
+   * The edit dialog's full commit read: control-row diffs (as
+   * `nonDefaultValues`) plus each changed expression field's parse — plain
+   * numbers post as numbers, anything else as a verbatim `{ expr }`, with
+   * any declarations the fields introduced (`myVar = 120`) collected
+   * alongside. An unreadable field aborts the whole apply.
+   */
+  commitChanges():
+    | { set: Record<string, CatalogParamValue | CatalogParamExpr>; newVariables?: NewVariable[] }
+    | { error: string } {
+    const set: Record<string, CatalogParamValue | CatalogParamExpr> = this.nonDefaultValues();
+    const reads: { newVariable?: NewVariable }[] = [];
+    for (const [label, row] of this.exprRows) {
+      if (this.resets.has(label)) {
+        continue; // travels as `unset` — the entry is removed, not rewritten
+      }
+      const raw = row.input.value.trim();
+      if (raw === row.baseline.trim()) {
+        continue;
+      }
+      const read = row.field.read();
+      if ('error' in read) {
+        return { error: `${label}: ${read.error === 'empty' ? 'enter a value' : read.error}` };
+      }
+      if (typeof read.value === 'number') {
+        // Retyping the same number ("540." → 540) is not a change.
+        if (Number(row.baseline) === read.value) {
+          continue;
+        }
+        set[label] = read.value;
+      } else {
+        set[label] = { expr: read.value };
+      }
+      reads.push(read);
+    }
+    const newVariables = collectNewVariables(reads);
+    return newVariables ? { set, newVariables } : { set };
   }
 
   /** Labels whose ↺ was clicked and not overridden since — the dialog's `unset` list. */
@@ -112,6 +192,16 @@ export class ParamForm {
 
   private buildControl(def: CatalogParamDef): ControlHandle {
     const type = effectiveControlType(def);
+    if (this.expressions) {
+      const seed = this.expressions.seeds[def.label];
+      if (seed !== undefined) {
+        // A source expression wins the slot, whatever the declared control.
+        return this.buildExpressionControl(def, seed);
+      }
+      if (type === 'number') {
+        return this.buildExpressionControl(def, String(def.currentValue));
+      }
+    }
     switch (type) {
       case 'slider': {
         const wrap = document.createElement('div');
@@ -199,6 +289,32 @@ export class ParamForm {
         return { element: input, setValue: (v) => { input.value = String(v); } };
       }
     }
+  }
+
+  /**
+   * A text input with the 3D dialogs' expression-field behavior — variable
+   * autocomplete, `myVar = 120` declarations — seeded with the entry's exact
+   * source text (or the resolved value's text when the source holds none).
+   * Reads happen at commit via `commitChanges`, not per keystroke.
+   */
+  private buildExpressionControl(def: CatalogParamDef, seedText: string): ControlHandle {
+    const input = document.createElement('input');
+    input.className = 'input input-sm input-bordered w-full text-xs bg-transparent';
+    input.value = seedText;
+    const field = new ExpressionField(input);
+    field.setVariables(this.expressions!.variables);
+    field.onSubmit = () => this.onSubmit?.();
+    // Typing un-marks a pending reset, like set() does for plain rows.
+    input.addEventListener('input', () => {
+      this.resets.delete(def.label);
+    });
+    this.exprRows.set(def.label, { field, input, baseline: seedText });
+    return {
+      element: input,
+      setValue: (v) => {
+        field.setValue(typeof v === 'string' || typeof v === 'number' ? v : String(v));
+      },
+    };
   }
 
   private buildMultiSelect(def: CatalogParamDef): ControlHandle {

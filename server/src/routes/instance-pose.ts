@@ -5,6 +5,7 @@ import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
 import { isExpressionText } from '../apply-feature-edit.ts';
 import { getInsertRotateExpressions, getInsertTranslateExpressions } from '../insert-chain-edit.ts';
+import { getInsertParamExpressions } from '../insert-params-edit.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 
@@ -96,7 +97,7 @@ export function createInstancePoseRouter(
   // insert() statement's second argument. Same shape as /instance-pose —
   // cross-file targets 422 (a sub-assembly's insert() lives in its own file).
   router.post('/update-insert-params', async (req, res) => {
-    const { filePath, sourceLine, set, unset } = req.body ?? {};
+    const { filePath, sourceLine, set, unset, newVariables } = req.body ?? {};
     const unsetList: unknown = unset ?? [];
     if (
       typeof filePath !== 'string' || filePath.length === 0
@@ -104,6 +105,7 @@ export function createInstancePoseRouter(
       || set === null || typeof set !== 'object' || Array.isArray(set)
       || !Array.isArray(unsetList) || !unsetList.every(l => typeof l === 'string' && l.length > 0)
       || (Object.keys(set).length === 0 && unsetList.length === 0)
+      || (newVariables !== undefined && newVariables !== null && !isNewVariables(newVariables))
     ) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
@@ -131,8 +133,36 @@ export function createInstancePoseRouter(
         set,
         ...(unsetList.length > 0 ? { unset: unsetList as string[] } : {}),
       },
+      newVariables: newVariables ?? undefined,
     };
     await dispatcher.dispatch(res, spec, { success: true });
+  });
+
+  // The Edit-parameters dialog's expression seeds: the exact source text of
+  // the insert()'s non-literal second-argument entries, keyed by label. Null
+  // when the statement isn't addressable (cross-file target, out-of-sync
+  // line, non-literal second argument) — the dialog falls back to plain
+  // resolved values.
+  router.post('/insert-param-expressions', async (req, res) => {
+    const { filePath, sourceLine } = req.body ?? {};
+    if (
+      typeof filePath !== 'string' || filePath.length === 0
+      || !Number.isInteger(sourceLine) || sourceLine < 1
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const currentFile = fluidCadServer.getCurrentFileName();
+    const code = fluidCadServer.getCurrentCode();
+    if (!currentFile || !code || normalizePath(filePath) !== normalizePath(currentFile)) {
+      res.json({ expressions: null });
+      return;
+    }
+    try {
+      res.json({ expressions: await getInsertParamExpressions(code, sourceLine) });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
   });
 
   // The gizmo's absolute-value inputs read the exact `.translate()` argument

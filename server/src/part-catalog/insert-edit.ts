@@ -3,6 +3,7 @@ import {
   getJavaScriptParser,
   indentOf,
   isBlankRow,
+  isExpressionText,
   joinLines,
   spliceCode,
   splitLines,
@@ -13,8 +14,13 @@ import {
 /** What the chosen catalog export is, deciding the statement rendered for it. */
 export type InsertPartKind = 'value' | 'factory' | 'assembly';
 
-/** JSON-safe values a `param()` can resolve to — what the dialog form produces. */
-export type InsertParamValue = string | number | boolean | (string | number)[];
+/**
+ * JSON-safe values a `param()` can resolve to — what the dialog form
+ * produces. The `{ expr }` variant carries verbatim source text an
+ * expression field committed (`width - 160`), rendered as-is into the
+ * `insert()` argument; a plain string is always a string VALUE (quoted).
+ */
+export type InsertParamValue = string | number | boolean | (string | number)[] | { expr: string };
 
 export type InsertPartEntry = {
   /**
@@ -146,9 +152,18 @@ export function findInvalidParam(params: Record<string, InsertParamValue> | unde
       && value.every(v => typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)))) {
       continue;
     }
+    if (isExprValue(value)) {
+      continue;
+    }
     return label;
   }
   return null;
+}
+
+/** The `{ expr }` variant with SAFE verbatim text — anything else is invalid. */
+function isExprValue(value: unknown): value is { expr: string } {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    && isExpressionText((value as { expr?: unknown }).expr);
 }
 
 /** `{ Size: '80x80', Length: 540 }` — empty/absent params render nothing. */
@@ -174,6 +189,9 @@ export function renderValue(value: InsertParamValue): string {
   }
   if (Array.isArray(value)) {
     return `[${value.map(v => (typeof v === 'string' ? renderString(v) : String(v))).join(', ')}]`;
+  }
+  if (typeof value === 'object') {
+    return value.expr.trim();
   }
   return String(value);
 }

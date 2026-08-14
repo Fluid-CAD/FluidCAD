@@ -111,6 +111,19 @@ html {
   font-size: 16px;
 }
 
+/* daisyUI 5 paints a 2px full-contrast outline ring (offset 2px) around every
+   focused field — against our dialogs it reads as a stray black line above the
+   input, worst in the light theme. Focus stays visible through daisyUI's other
+   cue (the border strengthening to full base-content); drop the ring. */
+.input:focus,
+.input:focus-within,
+.select:focus,
+.select:focus-within,
+.textarea:focus,
+.textarea:focus-within {
+  outline: none;
+}
+
 @utility panel-bg {
   background: light-dark(oklch(0.95 0 0 / 0.85), oklch(0.2 0 0 / 0.85));
   backdrop-filter: blur(12px);

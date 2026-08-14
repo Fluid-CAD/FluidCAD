@@ -1,3 +1,4 @@
+import { isExpressionText } from './code-editor.ts';
 import {
   findChainAt,
   getBaseCallName,
@@ -193,6 +194,65 @@ async function applyOne(
     return { newCode: splice(code, last.endIndex, last.endIndex, `, ${rendered}`) };
   }
   return { newCode: splice(code, second.startIndex + 1, second.endIndex - 1, ` ${rendered} `) };
+}
+
+/**
+ * The exact source text of an `insert()` second argument's NON-LITERAL
+ * entries — what the Edit-parameters dialog seeds its expression fields
+ * with. Literal values (numbers, strings, booleans, arrays of those) are
+ * omitted: the record's resolved values already cover them. Null when the
+ * statement can't be addressed (no insert() at `line`, or a non-literal
+ * second argument) — the dialog falls back to plain resolved values.
+ */
+export async function getInsertParamExpressions(
+  code: string,
+  line: number,
+): Promise<Record<string, string> | null> {
+  const located = await locateInsertArgs(code, line);
+  if ('error' in located) {
+    return null;
+  }
+  const { named } = located;
+  if (named.length < 2) {
+    return {};
+  }
+  const second = named[1];
+  if (second.type !== 'object') {
+    return null;
+  }
+  const out: Record<string, string> = {};
+  for (const prop of second.namedChildren) {
+    if (prop.type === 'shorthand_property_identifier') {
+      out[prop.text] = prop.text;
+      continue;
+    }
+    if (prop.type !== 'pair') {
+      continue;
+    }
+    const label = pairLabel(prop);
+    const valueNode = prop.childForFieldName('value');
+    if (label === null || !valueNode || isLiteralNode(valueNode)) {
+      continue;
+    }
+    if (isExpressionText(valueNode.text)) {
+      out[label] = valueNode.text;
+    }
+  }
+  return out;
+}
+
+/** Values the record's resolved `paramValues` already cover — not expressions. */
+function isLiteralNode(node: TSNode): boolean {
+  if (node.type === 'number' || node.type === 'string' || node.type === 'true' || node.type === 'false') {
+    return true;
+  }
+  if (node.type === 'unary_expression') {
+    return node.namedChildren.length === 1 && node.namedChildren[0].type === 'number';
+  }
+  if (node.type === 'array') {
+    return node.namedChildren.every(c => c.type !== 'array' && isLiteralNode(c));
+  }
+  return false;
 }
 
 /** The label a `key: value` pair addresses — identifier text or unquoted string. */

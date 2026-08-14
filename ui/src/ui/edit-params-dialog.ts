@@ -1,4 +1,9 @@
-import { updateInsertParams, type CatalogParamDef } from '../api';
+import {
+  getInsertParamExpressions,
+  getScopeVariables,
+  updateInsertParams,
+  type CatalogParamDef,
+} from '../api';
 import type { InstanceParamDef, InstanceParamValue } from '../types';
 import { ICON_CLOSE } from './icons';
 import { ParamForm } from './param-controls';
@@ -11,6 +16,13 @@ import { ParamForm } from './param-controls';
  * travel — untouched entries, expressions included, survive verbatim in
  * source. The re-render arriving over the WebSocket carries the updated
  * scene; the dialog just closes on success.
+ *
+ * Value rows are the 3D dialogs' expression fields: entries whose source
+ * holds an expression (`Length: width - 160`) SHOW that expression instead
+ * of its resolved value, and any number row accepts expressions over the
+ * statement's in-scope variables — both read from source when the dialog
+ * opens, falling back to plain resolved values when the insert() isn't
+ * addressable (cross-file occurrence, out-of-sync buffer).
  */
 export class EditParamsDialog {
   private overlay: HTMLDivElement;
@@ -70,26 +82,54 @@ export class EditParamsDialog {
     filePath: string;
     line: number;
   }): void {
+    this.form?.destroy();
+    this.form = null;
     this.target = { filePath: opts.filePath, line: opts.line };
     this.applying = false;
     this.overlay.querySelector('[data-ref="title"]')!.textContent = opts.title;
     this.overlay.querySelector('[data-ref="subtitle"]')!.textContent = opts.subtitle;
     this.setStatus('');
+    this.overlay.querySelector('[data-ref="form-host"]')!.innerHTML = '';
+    this.overlay.classList.remove('hidden');
+    void this.populate(opts);
+  }
 
+  /**
+   * Build the form once the statement's expression seeds and in-scope
+   * variables arrive — a null seed read (cross-file target, out-of-sync
+   * buffer) keeps the plain resolved-value controls.
+   */
+  private async populate(opts: {
+    defs: InstanceParamDef[];
+    currentValues: Record<string, InstanceParamValue>;
+    filePath: string;
+    line: number;
+  }): Promise<void> {
+    const target = this.target;
+    const [seeds, variables] = await Promise.all([
+      getInsertParamExpressions(opts.filePath, opts.line),
+      getScopeVariables(opts.line).catch(() => []),
+    ]);
+    if (this.target !== target) {
+      return; // closed or reopened for another statement meanwhile
+    }
     const seeded: CatalogParamDef[] = opts.defs.map(def => ({
       ...def,
       currentValue: opts.currentValues[def.label] ?? def.currentValue,
     }));
-    this.form = new ParamForm(seeded, { resettable: true });
+    this.form = new ParamForm(seeded, {
+      resettable: true,
+      ...(seeds !== null ? { expressions: { seeds, variables } } : {}),
+    });
+    this.form.onSubmit = () => void this.apply();
     const host = this.overlay.querySelector('[data-ref="form-host"]')!;
     host.innerHTML = '';
     host.appendChild(this.form.element);
-
-    this.overlay.classList.remove('hidden');
   }
 
   hide(): void {
     this.overlay.classList.add('hidden');
+    this.form?.destroy();
     this.form = null;
     this.target = null;
   }
@@ -104,10 +144,15 @@ export class EditParamsDialog {
     }
     // Reset rows become `unset` (the insert() argument is REMOVED, so the
     // declared default applies again); everything else diffs against the
-    // seeded current values.
+    // seeded current values — expression fields against their seeded text.
     const unset = this.form.resetLabels();
+    const commit = this.form.commitChanges();
+    if ('error' in commit) {
+      this.setStatus(commit.error);
+      return;
+    }
     const set = Object.fromEntries(
-      Object.entries(this.form.nonDefaultValues()).filter(([label]) => !unset.includes(label)),
+      Object.entries(commit.set).filter(([label]) => !unset.includes(label)),
     );
     if (Object.keys(set).length === 0 && unset.length === 0) {
       this.hide();
@@ -115,7 +160,9 @@ export class EditParamsDialog {
     }
     this.applying = true;
     this.setStatus('');
-    const result = await updateInsertParams(this.target.filePath, this.target.line, set, unset);
+    const result = await updateInsertParams(
+      this.target.filePath, this.target.line, set, unset, commit.newVariables,
+    );
     this.applying = false;
     if (!result.success) {
       this.setStatus(result.reason ?? 'Edit failed.');

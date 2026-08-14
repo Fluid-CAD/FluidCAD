@@ -5,6 +5,7 @@ import {
   findSketchBody,
   indentOf,
   isBreakpointStatement,
+  isExpressionText,
   splitLines,
   spliceCode,
   walkTree,
@@ -31,53 +32,7 @@ import {
  */
 export type ValueExpr = number | string;
 
-/**
- * Whether `text` is safe to embed as a single call argument: one line, no
- * statement separators or comments, balanced brackets, and no top-level
- * comma or assignment that would change the argument list's shape.
- */
-export function isExpressionText(text: unknown): text is string {
-  if (typeof text !== 'string') {
-    return false;
-  }
-  const t = text.trim();
-  if (!t || t.length > 200 || /[;\r\n`]/.test(t) || t.includes('//') || t.includes('/*')) {
-    return false;
-  }
-  const stack: string[] = [];
-  let quote: string | null = null;
-  for (let i = 0; i < t.length; i++) {
-    const ch = t[i];
-    if (quote !== null) {
-      if (ch === '\\') {
-        i++;
-      } else if (ch === quote) {
-        quote = null;
-      }
-      continue;
-    }
-    if (ch === "'" || ch === '"') {
-      quote = ch;
-    } else if (ch === '(' || ch === '[' || ch === '{') {
-      stack.push(ch);
-    } else if (ch === ')' || ch === ']' || ch === '}') {
-      const open = stack.pop();
-      if ((ch === ')' && open !== '(') || (ch === ']' && open !== '[') || (ch === '}' && open !== '{')) {
-        return false;
-      }
-    } else if (stack.length === 0) {
-      if (ch === ',') {
-        return false;
-      }
-      // A top-level assignment would leak a statement into the argument;
-      // comparison (`==`, `<=`, `>=`, `!=`) and arrows are fine.
-      if (ch === '=' && t[i + 1] !== '=' && t[i + 1] !== '>' && !/[=!<>]/.test(t[i - 1] ?? '')) {
-        return false;
-      }
-    }
-  }
-  return quote === null && stack.length === 0;
-}
+export { isExpressionText } from './code-editor.ts';
 
 /** A repeat count slot: an integer of at least 2, or safe expression text. */
 export function validCountValue(value: unknown): value is ValueExpr {
@@ -1381,7 +1336,7 @@ export async function applyFeatureEdit(
     return applyInstancePoseWithDecls(code, spec);
   }
   if (spec.insertParams) {
-    return applyInsertParamsEdit(code, spec.insertParams);
+    return applyInsertParamsWithDecls(code, spec);
   }
   if (spec.assemblyMate) {
     return applyAssemblyMateEdit(code, spec.assemblyMate);
@@ -1937,23 +1892,59 @@ async function applyInstancePoseWithDecls(
     }
   }
   const result = await applyInstancePoseEdit(code, pose);
-  if (result.error !== undefined || !spec.newVariables || spec.newVariables.length === 0) {
+  if (result.error !== undefined) {
     return result;
   }
+  return landNewVariableDecls(code, result.newCode, pose.sourceLine, spec.newVariables);
+}
 
-  let working = result.newCode;
+/**
+ * The Edit-parameters dialog's `insertParams` side-channel plus its
+ * expression extras: merge the changed values (verbatim `{ expr }` texts
+ * included — `applyInsertParamsEdit` validates them), then land any
+ * declarations the dialog's expression fields committed, exactly like the
+ * pose gizmo's.
+ */
+async function applyInsertParamsWithDecls(
+  code: string,
+  spec: ApplyFeatureEditSpec,
+): Promise<ApplyFeatureEditResult> {
+  const result = await applyInsertParamsEdit(code, spec.insertParams!);
+  if (result.error !== undefined) {
+    return result;
+  }
+  return landNewVariableDecls(code, result.newCode, spec.insertParams!.line, spec.newVariables);
+}
+
+/**
+ * Land `newVariables` declarations around an already-edited statement:
+ * plain `const`s directly before line `sourceLine` at its indent, `param()`
+ * declarations after the imports (import ensured). Splices AFTER the main
+ * edit so the spec's source line stays valid throughout; errors return the
+ * ORIGINAL code, keeping the transform all-or-nothing.
+ */
+async function landNewVariableDecls(
+  code: string,
+  edited: string,
+  sourceLine: number,
+  newVariables: ApplyFeatureEditSpec['newVariables'],
+): Promise<ApplyFeatureEditResult> {
+  if (!newVariables || newVariables.length === 0) {
+    return { newCode: edited };
+  }
+  let working = edited;
   const parser = await getJavaScriptParser();
   const useSemicolon = parser.parse(working).rootNode.namedChildren
     .some(c => c.text.trimEnd().endsWith(';'));
-  const declsResult = renderNewVariableDecls(working, spec.newVariables, useSemicolon);
+  const declsResult = renderNewVariableDecls(working, newVariables, useSemicolon);
   if ('error' in declsResult) {
     return { newCode: code, error: declsResult.error };
   }
   if (declsResult.decls.length > 0) {
     const lines = splitLines(working);
-    const row = pose.sourceLine - 1;
+    const row = sourceLine - 1;
     if (row < 0 || row >= lines.length) {
-      return { newCode: code, error: `no line ${pose.sourceLine} to declare variables before` };
+      return { newCode: code, error: `no line ${sourceLine} to declare variables before` };
     }
     const indent = indentOf(lines, row);
     let lineStart = 0;

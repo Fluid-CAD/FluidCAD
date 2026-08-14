@@ -3695,6 +3695,13 @@ export type CatalogFileEntry = {
 export type CatalogParamValue = string | number | boolean | (string | number)[];
 
 /**
+ * Verbatim source text an Edit-parameters expression field committed
+ * (`width - 160`) — rendered as-is into the `insert()` argument. Tagged,
+ * because a plain string is always a string VALUE (quoted on write).
+ */
+export type CatalogParamExpr = { expr: string };
+
+/**
  * One parameter of a scanned definition — `ParamDefinition` minus its
  * sourceLocation. `currentValue` equals the declared default at scan time:
  * the form prefill and the diff baseline.
@@ -3822,14 +3829,15 @@ export async function insertCatalogParts(
 export async function updateInsertParams(
   filePath: string,
   sourceLine: number,
-  set: Record<string, CatalogParamValue>,
+  set: Record<string, CatalogParamValue | CatalogParamExpr>,
   unset: string[] = [],
+  newVariables?: NewVariable[],
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('/api/update-insert-params', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ filePath, sourceLine, set, unset }),
+      body: JSON.stringify({ filePath, sourceLine, set, unset, newVariables }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
@@ -3839,6 +3847,24 @@ export async function updateInsertParams(
   } catch {
     return { success: false, reason: 'Could not reach the FluidCAD server' };
   }
+}
+
+/**
+ * The exact source text of an insert()'s non-literal second-argument entries
+ * (`{ Length: 'width - 160' }`) — the Edit-parameters dialog's expression
+ * seeds. Null when the statement isn't addressable (cross-file target,
+ * out-of-sync line, non-literal argument): the dialog falls back to plain
+ * resolved values.
+ */
+export async function getInsertParamExpressions(
+  filePath: string,
+  sourceLine: number,
+): Promise<Record<string, string> | null> {
+  const data = await postJson<{ expressions: Record<string, string> | null }>(
+    '/api/insert-param-expressions',
+    { filePath, sourceLine },
+  );
+  return data?.expressions ?? null;
 }
 
 /** The mate types the assembly solver supports (mirrors the kernel's mate()). */

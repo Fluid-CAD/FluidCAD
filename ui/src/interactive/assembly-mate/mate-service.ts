@@ -5,7 +5,7 @@ import {
   AssemblyMateType,
 } from '../../api';
 import type { Viewer } from '../../viewer';
-import type { SerializedAssembly, SubSelection } from '../../types';
+import type { SerializedAssembly, SerializedAssemblyMate, SubSelection } from '../../types';
 import type { MateRecord } from '../../solver';
 
 /**
@@ -28,6 +28,21 @@ type MateSlotState = {
 const PREVIEW_MATE_ID = '__mate-preview__';
 
 /**
+ * The mate statement an open dialog is editing: its stable source address
+ * (what Apply rewrites) plus the committed record's id in the current
+ * render — the provisional preview reuses that id so the solver swaps the
+ * committed mate out instead of fighting it. Renders re-mint mate ids, so
+ * {@link AssemblyMateService.handleSceneRendered} refreshes `mateId` (and
+ * drops the whole session when the statement is gone).
+ */
+type MateEditTarget = {
+  filePath: string;
+  /** 1-based row the `mate()` statement starts on (its sourceLocation). */
+  sourceLine: number;
+  mateId: string;
+};
+
+/**
  * The assembly mate tool: a toolbar mate button opens the {@link MatePanel}
  * with that type preselected, connector picking armed (all gizmos revealed,
  * instance drags suppressed), and picks filling Connector A then B. With
@@ -35,11 +50,17 @@ const PREVIEW_MATE_ID = '__mate-preview__';
  * record — the parts pull together while the dialog is open, and snap back
  * if it closes without applying. Apply writes the `mate()` statement through
  * `/api/assembly-mate`; the render it triggers shows the committed joint.
+ *
+ * The joints panel's "Edit mate" opens the same dialog seeded from an
+ * existing statement ({@link beginEdit}): slots pre-filled from the record,
+ * re-picking live, the provisional preview REPLACING the committed mate in
+ * the solve, and Apply re-rendering the statement in place.
  */
 export class AssemblyMateService {
   private panel: MatePanel;
   private armed = false;
   private applying = false;
+  private editTarget: MateEditTarget | null = null;
   private slots: Record<MateSlotKey, MateSlotState | null> = { a: null, b: null };
 
   constructor(
@@ -87,17 +108,70 @@ export class AssemblyMateService {
 
   /**
    * A toolbar mate button: open the dialog armed for picking with the given
-   * type, or — already open — just switch the type dropdown.
+   * type, or — already open in create mode — just switch the type dropdown.
+   * An open edit session ends first (snapping its preview back): the toolbar
+   * means "create a NEW mate", not "retype the one being edited".
    */
   enter(type: AssemblyMateType): void {
     if (this.armed) {
-      this.panel.setType(type);
-      this.refreshPreview();
-      return;
+      if (!this.editTarget) {
+        this.panel.setType(type);
+        this.refreshPreview();
+        return;
+      }
+      this.exit();
     }
     this.armed = true;
     this.slots = { a: null, b: null };
     this.panel.show(type);
+    this.syncViewport();
+    this.hooks.onEnter?.();
+    this.refreshPreview();
+  }
+
+  /**
+   * The joints panel's "Edit mate": open the dialog seeded from the mate's
+   * serialized record — type and options into the form, both connectors as
+   * picked chips (re-resolved to live scene ids), the statement's source
+   * address as the Apply target. A slot whose connector no longer resolves
+   * opens empty with the reason shown; picking refills it like create mode.
+   */
+  beginEdit(mate: SerializedAssemblyMate): void {
+    if (this.applying) {
+      return;
+    }
+    const location = mate.sourceLocation;
+    if (!location || mate.owner) {
+      return; // owned mates edit in their own file — the menu already gates this
+    }
+    if (this.armed) {
+      this.exit();
+    }
+    this.armed = true;
+    this.editTarget = {
+      filePath: location.filePath,
+      sourceLine: location.line,
+      mateId: mate.mateId,
+    };
+    this.slots = { a: null, b: null };
+    this.panel.show(mate.type, mate.options ?? {});
+    let problem: string | null = null;
+    for (const key of ['a', 'b'] as const) {
+      const side = key === 'a' ? mate.connectorA : mate.connectorB;
+      const state = this.resolvePick(side.connectorId, side.instanceId);
+      if ('error' in state) {
+        problem = problem ?? state.error;
+        continue;
+      }
+      this.slots[key] = state;
+      this.panel.setSlotChip(key, `${state.instanceName} · ${state.connectorName}`);
+    }
+    // show() armed slot A; aim picks at the first EMPTY slot instead when
+    // exactly one side failed to resolve.
+    if (this.slots.a && !this.slots.b) {
+      this.panel.armSlot('b');
+    }
+    this.panel.setMessage(problem);
     this.syncViewport();
     this.hooks.onEnter?.();
     this.refreshPreview();
@@ -108,6 +182,7 @@ export class AssemblyMateService {
       return;
     }
     this.armed = false;
+    this.editTarget = null;
     this.slots = { a: null, b: null };
     this.syncViewport();
     this.panel.hide();
@@ -159,7 +234,10 @@ export class AssemblyMateService {
    * Every assembly render lands here: scene ids were re-minted, so each pick
    * re-resolves through its stable (instance line, connector name) address —
    * a pick whose statement is gone drops back to the prompt. A render that
-   * switched to a part scene closes the dialog.
+   * switched to a part scene closes the dialog, and so does an edit session
+   * whose `mate()` statement no longer starts on the edited line (deleted,
+   * or shifted by a source edit — rewriting a moved line risks splicing the
+   * wrong statement).
    */
   handleSceneRendered(sceneKind: 'part' | 'assembly'): void {
     if (!this.armed) {
@@ -168,6 +246,20 @@ export class AssemblyMateService {
     if (sceneKind !== 'assembly') {
       this.exit();
       return;
+    }
+    if (this.editTarget) {
+      const fresh = this.hooks.getAssembly()?.mates.find(m =>
+        m.sourceLocation?.filePath === this.editTarget!.filePath
+        && m.sourceLocation.line === this.editTarget!.sourceLine
+        && !m.owner,
+      );
+      if (!fresh) {
+        this.exit();
+        return;
+      }
+      // The committed record's id was re-minted with the render; the preview
+      // must keep replacing the RIGHT mate in the solve.
+      this.editTarget.mateId = fresh.mateId;
     }
     // The controller rebuilt its groups — re-assert pick arming on it.
     this.syncViewport();
@@ -183,11 +275,16 @@ export class AssemblyMateService {
     this.refreshPreview();
   }
 
-  /** Arm/disarm the viewer channel + controller reveal for the current state. */
+  /**
+   * Arm/disarm the viewer channel + controller reveal for the current
+   * state. Create mode reveals every connector (the user is scanning for
+   * two); edit mode keeps the usual hover-reveal — only the mate's own
+   * picked connectors stay pinned in view.
+   */
   private syncViewport(): void {
     this.viewer.pickConnectors = this.armed;
     const controller = this.viewer.getAssemblyController();
-    controller?.setMatePicking(this.armed);
+    controller?.setMatePicking(this.armed, this.editTarget === null);
     if (!this.armed) {
       controller?.setProvisionalMate(null);
     }
@@ -203,7 +300,7 @@ export class AssemblyMateService {
       ? assembly?.instances.find(i => i.instanceId === instanceId)
       : undefined;
     if (!instance) {
-      return { error: 'Could not resolve the clicked connector to an instance — try re-rendering.' };
+      return { error: 'Could not resolve the connector to an instance — try re-rendering.' };
     }
     if (!instance.sourceLocation) {
       return { error: `${instance.name} has no source location — its insert() cannot be referenced.` };
@@ -271,6 +368,28 @@ export class AssemblyMateService {
   }
 
   /**
+   * A referenced connector's `insert()` must live in the file the statement
+   * is written to — its line number is meaningless in any other file. Create
+   * mode targets the first pick's file; edit mode targets the statement's.
+   */
+  private crossFileConflict(): string | null {
+    const a = this.slots.a;
+    const b = this.slots.b;
+    if (this.editTarget) {
+      for (const state of [a, b]) {
+        if (state && state.filePath !== this.editTarget.filePath) {
+          return `${state.instanceName} is inserted by a different file than this mate — pick a connector from an instance of the mate's own file.`;
+        }
+      }
+      return null;
+    }
+    if (a && b && a.filePath !== b.filePath) {
+      return 'The two connectors are inserted by different files — mate them in the file that inserts both.';
+    }
+    return null;
+  }
+
+  /**
    * Sync the statement preview row, the Apply button, and the live solver
    * preview to the current picks + options.
    */
@@ -278,12 +397,13 @@ export class AssemblyMateService {
     if (!this.armed) {
       return;
     }
-    // Picked connectors render opaque while the rest stay translucent —
-    // re-sent every refresh because renders re-mint the scene ids.
+    // Picked connectors render opaque while the rest stay translucent (and
+    // pinned per instance in the edit dialog's hover-reveal) — re-sent
+    // every refresh because renders re-mint the scene ids.
     this.viewer.getAssemblyController()?.setMatePickedConnectors(
       [this.slots.a, this.slots.b]
         .filter((s): s is MateSlotState => s !== null)
-        .map(s => s.connectorId),
+        .map(s => ({ instanceId: s.instanceId, connectorId: s.connectorId })),
     );
     const values = this.panel.values();
     if ('error' in values) {
@@ -302,12 +422,18 @@ export class AssemblyMateService {
     if (values.offset.some(n => n !== 0)) chain += `.offset(${values.offset.join(', ')})`;
     if (values.limits) chain += `.limits(${values.limits.join(', ')})`;
     this.panel.setPreview(`${chain};`);
-    this.panel.setApplyEnabled(a !== null && b !== null && !this.applying);
+    const conflict = this.crossFileConflict();
+    if (conflict) {
+      this.panel.setMessage(conflict);
+    }
+    this.panel.setApplyEnabled(a !== null && b !== null && conflict === null && !this.applying);
 
     const controller = this.viewer.getAssemblyController();
-    if (a && b && controller) {
+    if (a && b && conflict === null && controller) {
       const record: MateRecord = {
-        mateId: PREVIEW_MATE_ID,
+        // Edit sessions reuse the committed record's id: the controller
+        // solves the provisional record INSTEAD of the mate it replaces.
+        mateId: this.editTarget?.mateId ?? PREVIEW_MATE_ID,
         type: values.type,
         connectorA: { instanceId: a.instanceId, connectorId: a.connectorId },
         connectorB: { instanceId: b.instanceId, connectorId: b.connectorId },
@@ -335,6 +461,13 @@ export class AssemblyMateService {
       this.panel.setMessage(values.error);
       return;
     }
+    // Enter in an option field submits past a disabled Apply button —
+    // re-check the pick constraint the button encodes.
+    const conflict = this.crossFileConflict();
+    if (conflict) {
+      this.panel.setMessage(conflict);
+      return;
+    }
     const options: AssemblyMateOptions = {
       flip: values.flip,
       rotate: values.rotate,
@@ -348,16 +481,21 @@ export class AssemblyMateService {
         instanceLine: s.instanceLine,
         connectorName: s.connectorName,
       });
-      const result = await applyAssemblyMate(a.filePath, {
-        create: {
-          type: values.type,
-          connectorA: sideRef(a),
-          connectorB: sideRef(b),
-          options,
-        },
-      });
+      const target = this.editTarget;
+      const payload = {
+        type: values.type,
+        connectorA: sideRef(a),
+        connectorB: sideRef(b),
+        options,
+      };
+      const result = await applyAssemblyMate(
+        target?.filePath ?? a.filePath,
+        target ? { edit: { sourceLine: target.sourceLine, ...payload } } : { create: payload },
+      );
       if (!result.success) {
-        this.panel.setMessage(result.reason ?? 'Could not add the mate.');
+        this.panel.setMessage(
+          result.reason ?? (target ? 'Could not update the mate.' : 'Could not add the mate.'),
+        );
         this.panel.setApplyEnabled(true);
         return;
       }

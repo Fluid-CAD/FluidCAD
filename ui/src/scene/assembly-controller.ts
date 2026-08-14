@@ -74,17 +74,28 @@ export class AssemblyController {
    */
   private mateRevealedConnectors = new Set<Object3D>();
   /**
-   * Connectors currently filling the mate dialog's slots — they render
-   * opaque while picking (the rest stay translucent). Scene ids, refreshed
-   * by the service on every render re-resolve.
+   * Connectors currently filling the mate dialog's slots, keyed per
+   * (instance, connector) pair ({@link pickedSlotKey}) — connector ids are
+   * part-scoped and shared by every instance of the part, so a bare-id set
+   * would light the connector up on all of the part's siblings. Picked
+   * slots render opaque while picking (the rest stay translucent) and stay
+   * pinned visible in hover-reveal mode. Scene ids, refreshed by the
+   * service on every render re-resolve.
    */
-  private matePickedConnectorIds = new Set<string>();
+  private matePickedSlotKeys = new Set<string>();
   /**
-   * A mate dialog's connector slot is armed: every connector is revealed and
-   * screen-pickable ({@link pickConnectorAt}), and pointerdown never claims a
-   * drag — a click means "pick", not "move". Set via {@link setMatePicking}.
+   * A mate dialog's connector slot is armed: connectors are screen-pickable
+   * ({@link pickConnectorAt}) and pointerdown never claims a drag — a click
+   * means "pick", not "move". Set via {@link setMatePicking}.
    */
   private matePicking = false;
+  /**
+   * How armed picking reveals gizmos: `true` (create mode) shows every
+   * connector; `false` (edit mode) keeps the usual hover-reveal, plus the
+   * slot-filling connectors pinned so the mate's current endpoints stay in
+   * view. Meaningful only while {@link matePicking}.
+   */
+  private matePickingRevealAll = true;
   /**
    * Connector hovered while {@link matePicking} — its gizmo renders enlarged
    * (see {@link applyConnectorHighlight}). Tracked as an id so it survives
@@ -288,18 +299,30 @@ export class AssemblyController {
 
   /**
    * Walk an instance group's connectors and set visibility from the union
-   * of two sources: hover (the whole instance is hovered) and pinning (a
-   * mate selection has flagged a specific connector). Single source of
-   * truth so hover transitions don't accidentally hide pinned connectors
-   * and pin clearing doesn't hide hovered ones.
+   * of the reveal sources: hover (the whole instance is hovered), pinning
+   * (a mate selection has flagged a specific connector), and armed picking
+   * (every gizmo in reveal-all mode; just the slot-filling ones in
+   * hover-reveal mode). Single source of truth so hover transitions don't
+   * accidentally hide pinned connectors and pin clearing doesn't hide
+   * hovered ones.
    */
   private applyConnectorVisibility(state: InstanceState): void {
     const isHovered = this.hoveredInstanceId === state.data.instanceId;
     state.group.traverse((child) => {
       if (!child.userData?.isConnector) return;
-      child.visible = this.matePicking || isHovered || this.mateRevealedConnectors.has(child);
-      this.applyConnectorOpacity(child);
+      child.visible = (this.matePicking && this.matePickingRevealAll)
+        || isHovered
+        || (this.matePicking && this.isPickedSlot(state.data.instanceId, child))
+        || this.mateRevealedConnectors.has(child);
+      this.applyConnectorOpacity(child, state.data.instanceId);
     });
+  }
+
+  /** Whether this connector mesh fills a mate-dialog slot ON this instance. */
+  private isPickedSlot(instanceId: string, child: Object3D): boolean {
+    const connectorId = child.userData?.connectorId;
+    return typeof connectorId === 'string'
+      && this.matePickedSlotKeys.has(pickedSlotKey(instanceId, connectorId));
   }
 
   /**
@@ -308,10 +331,9 @@ export class AssemblyController {
    * hovered and slot-filling connectors; outside picking the gizmos are
    * fully opaque (hover-reveal and pinned mates show the normal triad).
    */
-  private applyConnectorOpacity(root: Object3D): void {
-    const connectorId = root.userData?.connectorId;
-    const emphasized = connectorId === this.highlightedConnectorId
-      || (typeof connectorId === 'string' && this.matePickedConnectorIds.has(connectorId));
+  private applyConnectorOpacity(root: Object3D, instanceId: string): void {
+    const emphasized = root.userData?.connectorId === this.highlightedConnectorId
+      || this.isPickedSlot(instanceId, root);
     const opacity = !this.matePicking || emphasized ? 1 : MATE_PICKING_GIZMO_OPACITY;
     root.traverse((o) => {
       const mat = (o as { material?: { opacity?: number } }).material;
@@ -416,13 +438,27 @@ export class AssemblyController {
     draggedInstanceId?: string,
     draggedTargetOrigin?: Vector3,
   ): SolverInput {
-    const bodies = this.collectBodies();
     return {
-      bodies,
-      mates: this.provisionalMate ? [...this.mates, this.provisionalMate] : this.mates,
+      bodies: this.collectBodies(),
+      mates: this.solverMates(),
       draggedInstanceId,
       draggedTargetOrigin,
     };
+  }
+
+  /**
+   * The mate set a solve runs against: the committed records plus the
+   * provisional one — which REPLACES the committed mate sharing its id.
+   * That collision is the edit dialog's preview (solve my candidate instead
+   * of the statement it rewrites); create previews use an id no render ever
+   * mints, so they append.
+   */
+  private solverMates(): MateRecord[] {
+    const provisional = this.provisionalMate;
+    if (!provisional) {
+      return this.mates;
+    }
+    return [...this.mates.filter(m => m.mateId !== provisional.mateId), provisional];
   }
 
   private applySolverOutput(out: SolverOutput): void {
@@ -888,20 +924,24 @@ export class AssemblyController {
   // -------------------------------------------------------------------------
 
   /**
-   * Arm or disarm connector picking. Arming reveals every instance's
-   * connectors and makes {@link handlePointerDown} bail so clicks bubble to
-   * the viewer's pick path; disarming restores hover-only visibility and
-   * drops any hover highlight. Any in-flight drag gesture is cancelled — the
-   * dialog opened mid-gesture must not leave a claim active.
+   * Arm or disarm connector picking. Arming makes {@link handlePointerDown}
+   * bail so clicks bubble to the viewer's pick path, and reveals gizmos per
+   * `revealAll`: every connector for a create dialog, hover-reveal (plus the
+   * pinned slot connectors) for an edit. Disarming restores hover-only
+   * visibility and drops any hover highlight. Any in-flight drag gesture is
+   * cancelled — the dialog opened mid-gesture must not leave a claim active.
    */
-  setMatePicking(armed: boolean): void {
-    if (this.matePicking === armed) return;
+  setMatePicking(armed: boolean, revealAll = true): void {
+    if (this.matePicking === armed && (!armed || this.matePickingRevealAll === revealAll)) {
+      return;
+    }
     this.matePicking = armed;
+    this.matePickingRevealAll = revealAll;
     if (armed) {
       this.cancelPointerGesture();
     } else {
       this.highlightedConnectorId = null;
-      this.matePickedConnectorIds.clear();
+      this.matePickedSlotKeys.clear();
       this.applyConnectorHighlight();
     }
     for (const state of this.instances.values()) {
@@ -911,12 +951,15 @@ export class AssemblyController {
   }
 
   /**
-   * The connectors filling the mate dialog's slots — rendered opaque while
-   * picking. The service re-sends the set on every slot change and render
-   * re-resolve (scene ids are re-minted per render).
+   * The connectors filling the mate dialog's slots — each pinned on ITS
+   * instance only (connector ids are part-scoped, see
+   * {@link matePickedSlotKeys}). The service re-sends the set on every slot
+   * change and render re-resolve (scene ids are re-minted per render).
    */
-  setMatePickedConnectors(connectorIds: Iterable<string>): void {
-    this.matePickedConnectorIds = new Set(connectorIds);
+  setMatePickedConnectors(slots: Iterable<{ instanceId: string; connectorId: string }>): void {
+    this.matePickedSlotKeys = new Set(
+      [...slots].map(s => pickedSlotKey(s.instanceId, s.connectorId)),
+    );
     for (const state of this.instances.values()) {
       this.applyConnectorVisibility(state);
     }
@@ -989,7 +1032,7 @@ export class AssemblyController {
     for (const state of this.instances.values()) {
       state.group.traverse((child) => {
         if (!child.userData?.isConnector) return;
-        this.applyConnectorOpacity(child);
+        this.applyConnectorOpacity(child, state.data.instanceId);
         const gizmo = child.children[0];
         if (!gizmo) return;
         gizmo.userData.highlight = child.userData.connectorId === this.highlightedConnectorId
@@ -1001,10 +1044,12 @@ export class AssemblyController {
 
   /**
    * Solve a not-yet-committed mate live (the dialog's preview), or clear it.
-   * Clearing restores every instance to its serialized source-of-truth pose
-   * before re-solving, so cancelling the dialog snaps the preview motion
-   * back instead of leaving the parts wherever the provisional solve put
-   * them.
+   * A record sharing a committed mate's id replaces that mate in the solve
+   * (see {@link solverMates}) — how the edit dialog previews its candidate
+   * without the original fighting it. Clearing restores every instance to
+   * its serialized source-of-truth pose before re-solving, so cancelling
+   * the dialog snaps the preview motion back instead of leaving the parts
+   * wherever the provisional solve put them.
    */
   setProvisionalMate(record: MateRecord | null): void {
     const clearing = record === null && this.provisionalMate !== null;
@@ -1325,6 +1370,15 @@ function setConnectorsVisible(root: Object3D, visible: boolean): void {
       child.visible = visible;
     }
   });
+}
+
+/**
+ * The composite key a mate-dialog slot pins its connector under: connector
+ * ids are part-scoped (every instance of the part shares them), so pinning
+ * needs the instance too. NUL never appears in scene ids.
+ */
+function pickedSlotKey(instanceId: string, connectorId: string): string {
+  return `${instanceId}\0${connectorId}`;
 }
 
 function toMateRecord(m: SerializedAssemblyMate): MateRecord {

@@ -55,7 +55,7 @@ function fakeConnectorMesh(connectorId: string, origin: [number, number, number]
   return mesh;
 }
 
-function makeRig() {
+function makeRig(withSibling = false) {
   const canvas = makeCanvas();
   const renderer = { domElement: canvas } as unknown as WebGLRenderer;
 
@@ -91,14 +91,15 @@ function makeRig() {
     },
     sceneShapes: [], ownShapes: [],
   };
+  const instanceRecord = (instanceId: string, x: number) => ({
+    instanceId, partId: 'p1', partName: 'p1',
+    position: { x, y: 0, z: 0 },
+    quaternion: { x: 0, y: 0, z: 0, w: 1 },
+    grounded: false, name: instanceId,
+    sourceLocation: { filePath: '/ws/m.assembly.js', line: 4, column: 0 },
+  });
   const assembly: SerializedAssembly = {
-    instances: [{
-      instanceId: 'i1', partId: 'p1', partName: 'p1',
-      position: { x: 0, y: 0, z: 0 },
-      quaternion: { x: 0, y: 0, z: 0, w: 1 },
-      grounded: false, name: 'i1',
-      sourceLocation: { filePath: '/ws/m.assembly.js', line: 4, column: 0 },
-    }],
+    instances: [instanceRecord('i1', 0), ...(withSibling ? [instanceRecord('i2', 4)] : [])],
     mates: [],
   };
   const sceneObjects = [partTemplate, connectorObj];
@@ -108,9 +109,16 @@ function makeRig() {
   group.add(new Mesh(new BoxGeometry(2, 2, 2), new MeshBasicMaterial()));
   const connectorMesh = fakeConnectorMesh('c1', [1, 0, 0]);
   group.add(connectorMesh);
+  // A second instance of the SAME part — its gizmo shares the part-scoped
+  // connector id, the way real renders duplicate the template's connectors.
+  let siblingConnectorMesh: Group | null = null;
+  if (withSibling) {
+    siblingConnectorMesh = fakeConnectorMesh('c1', [1, 0, 0]);
+    controller.getInstanceGroup('i2')!.add(siblingConnectorMesh);
+  }
   scene.updateMatrixWorld(true);
 
-  return { canvas, scene, controller, group, connectorMesh, sceneObjects, assembly };
+  return { canvas, scene, controller, group, connectorMesh, siblingConnectorMesh, sceneObjects, assembly };
 }
 
 describe('mate-dialog connector picking', () => {
@@ -140,6 +148,36 @@ describe('mate-dialog connector picking', () => {
     expect(connectorMesh.visible).toBe(true);
     controller.setMatePicking(false);
     expect(connectorMesh.visible).toBe(false);
+  });
+
+  it('hover-reveal arming (the edit dialog) keeps the usual hover behavior', () => {
+    const { controller, connectorMesh } = makeRig();
+    controller.setMatePicking(true, false);
+    // No blanket reveal — connectors appear per-instance on hover, as usual.
+    expect(connectorMesh.visible).toBe(false);
+    controller.setHoveredInstance('i1');
+    expect(connectorMesh.visible).toBe(true);
+    controller.setHoveredInstance(null);
+    expect(connectorMesh.visible).toBe(false);
+    // The dialog's slot chips pin their connectors in view without hover …
+    controller.setMatePickedConnectors([{ instanceId: 'i1', connectorId: 'c1' }]);
+    expect(connectorMesh.visible).toBe(true);
+    controller.setMatePickedConnectors([]);
+    expect(connectorMesh.visible).toBe(false);
+    // … and disarming restores plain hover-only visibility.
+    controller.setMatePicking(false);
+    controller.setHoveredInstance('i1');
+    expect(connectorMesh.visible).toBe(true);
+  });
+
+  it('pins a picked slot on ITS instance only, not on part siblings', () => {
+    const { controller, connectorMesh, siblingConnectorMesh } = makeRig(true);
+    controller.setMatePicking(true, false);
+    // Both instances carry the part-scoped connector id 'c1'; only the
+    // picked instance's copy may reveal.
+    controller.setMatePickedConnectors([{ instanceId: 'i1', connectorId: 'c1' }]);
+    expect(connectorMesh.visible).toBe(true);
+    expect(siblingConnectorMesh!.visible).toBe(false);
   });
 
   it('a diff update mid-pick keeps rebuilt connectors revealed', () => {
@@ -197,7 +235,7 @@ describe('mate-dialog connector picking', () => {
     controller.setHighlightedConnector(null);
     expect(mat.opacity).toBeLessThan(1);
 
-    controller.setMatePickedConnectors(['c1']);
+    controller.setMatePickedConnectors([{ instanceId: 'i1', connectorId: 'c1' }]);
     expect(mat.opacity).toBe(1);
     controller.setMatePickedConnectors([]);
     expect(mat.opacity).toBeLessThan(1);
@@ -249,5 +287,83 @@ describe('mate-dialog connector picking', () => {
     // committed render re-solves with the real mate.
     controller.setProvisionalMate(null);
     expect(group.position.toArray()).toEqual([5, 5, 5]);
+  });
+});
+
+// The edit dialog's preview: a provisional record carrying a COMMITTED
+// mate's id must replace that mate in the solve — appending it instead
+// would pit two conflicting constraints against each other and mark the
+// assembly inconsistent for the whole session.
+describe('provisional mate replacing a committed one', () => {
+  function makeMatedRig(offset: [number, number, number]) {
+    const canvas = makeCanvas();
+    const renderer = { domElement: canvas } as unknown as WebGLRenderer;
+    const camera = new PerspectiveCamera(50, W / H, 0.1, 1000);
+    camera.position.set(0, 0, 10);
+    camera.updateMatrixWorld(true);
+    const controller = new AssemblyController(renderer, camera, () => {}, () => new Raycaster());
+
+    const partTemplate: SceneObjectRender = {
+      id: 'p1', type: 'part', visible: false, sceneShapes: [], ownShapes: [],
+    };
+    const connectorObj: SceneObjectRender = {
+      id: 'c1', type: 'connector', parentId: 'p1', name: 'top',
+      object: {
+        name: 'top',
+        origin: { x: 0, y: 0, z: 0 },
+        xDirection: { x: 1, y: 0, z: 0 },
+        yDirection: { x: 0, y: 1, z: 0 },
+        normal: { x: 0, y: 0, z: 1 },
+      },
+      sceneShapes: [], ownShapes: [],
+    };
+    const instance = (instanceId: string, grounded: boolean, x: number) => ({
+      instanceId, partId: 'p1', partName: 'p1',
+      position: { x, y: 0, z: 0 },
+      quaternion: { x: 0, y: 0, z: 0, w: 1 },
+      grounded, name: instanceId,
+      sourceLocation: { filePath: '/ws/m.assembly.js', line: 4, column: 0 },
+    });
+    const assembly: SerializedAssembly = {
+      instances: [instance('i1', true, 0), instance('i2', false, 4)],
+      mates: [{
+        mateId: 'mate-0',
+        type: 'fastened',
+        connectorA: { instanceId: 'i1', connectorId: 'c1' },
+        connectorB: { instanceId: 'i2', connectorId: 'c1' },
+        status: 'satisfied',
+        options: { offset },
+      }],
+    };
+    controller.update([partTemplate, connectorObj], assembly);
+    return { controller, follower: controller.getInstanceGroup('i2')! };
+  }
+
+  it('solves the provisional record INSTEAD of the mate sharing its id', () => {
+    // Reference: an assembly whose committed mate already has the new offset.
+    const reference = makeMatedRig([0, 0, 5]).follower.position.clone();
+
+    const { controller, follower } = makeMatedRig([0, 0, 2]);
+    expect(follower.position.distanceTo(reference)).toBeGreaterThan(1);
+
+    let lastResult = '';
+    let lastFailed: string[] = [];
+    controller.setSolverUpdateHandler((out) => {
+      lastResult = out.result;
+      lastFailed = out.failed;
+    });
+    controller.setProvisionalMate({
+      mateId: 'mate-0',
+      type: 'fastened',
+      connectorA: { instanceId: 'i1', connectorId: 'c1' },
+      connectorB: { instanceId: 'i2', connectorId: 'c1' },
+      options: { offset: [0, 0, 5] },
+    });
+
+    // A clean solve landing on the reference pose — an appended (not
+    // replaced) record would fight the committed offset instead.
+    expect(lastResult).toBe('okay');
+    expect(lastFailed).toEqual([]);
+    expect(follower.position.distanceTo(reference)).toBeLessThan(1e-6);
   });
 });

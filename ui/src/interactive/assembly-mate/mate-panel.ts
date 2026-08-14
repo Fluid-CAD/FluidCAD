@@ -34,6 +34,17 @@ const Z_ONLY_OFFSET = new Set<AssemblyMateType>(['slider', 'cylindrical', 'plana
 const LIMIT_TYPES = new Set<AssemblyMateType>(['slider', 'revolute']);
 
 /**
+ * An existing mate's option values seeding the edit dialog — the serialized
+ * record's `options` shape, absent fields meaning the source omits the call.
+ */
+export type MateSeedOptions = {
+  flip?: boolean;
+  rotate?: number;
+  offset?: [number, number, number];
+  limits?: [number, number];
+};
+
+/**
  * The mate dialog: the mate-type dropdown (seeded from the toolbar button
  * that opened it), the two connector slots — filled by clicking connector
  * gizmos in the viewport, each picked chip carrying a pen that opens the
@@ -167,24 +178,32 @@ export class MatePanel extends FeaturePanel {
     }
   }
 
-  /** Fresh arming: empty slots (A armed), zeroed options, the given type. */
-  show(type: AssemblyMateType): void {
-    this.shell.setTitle(`${MATE_TYPE_LABELS[type]} mate`);
+  /**
+   * Fresh arming: empty slots (A armed) and the given type. Without a seed
+   * the option rows zero out (create mode); with one they take an existing
+   * mate's values and the title flips to edit (the service seeds the slot
+   * chips itself, after this returns).
+   */
+  show(type: AssemblyMateType, seed?: MateSeedOptions): void {
+    this.shell.setTitle(seed ? 'Edit mate' : `${MATE_TYPE_LABELS[type]} mate`);
     this.typeSelect.value = type;
     this.chipLabels = { a: null, b: null };
     this.renderSlot('a');
     this.renderSlot('b');
     this.armSlot('a');
-    this.flipInput.checked = false;
-    this.rotateInput.value = '';
-    for (const input of this.offsetInputs) {
-      input.value = '';
-    }
-    this.limitsEnable.checked = false;
-    for (const input of this.limitInputs) {
-      input.value = '';
-      input.disabled = true;
-    }
+    this.flipInput.checked = seed?.flip ?? false;
+    // Zero is every number row's placeholder value — seed it as the blank
+    // field it would re-render as, not a literal '0'.
+    this.rotateInput.value = numberOrBlank(seed?.rotate);
+    this.offsetInputs.forEach((input, i) => {
+      input.value = numberOrBlank(seed?.offset?.[i]);
+    });
+    const limits = seed?.limits ?? null;
+    this.limitsEnable.checked = limits !== null;
+    this.limitInputs.forEach((input, i) => {
+      input.value = limits ? String(limits[i]) : '';
+      input.disabled = limits === null;
+    });
     this.syncTypeConstraints();
     this.shell.show();
   }
@@ -297,4 +316,8 @@ export class MatePanel extends FeaturePanel {
       this.slots[slot].setPrompt('Click a connector in 3D');
     }
   }
+}
+
+function numberOrBlank(value: number | undefined): string {
+  return value !== undefined && value !== 0 ? String(value) : '';
 }

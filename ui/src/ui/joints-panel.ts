@@ -36,6 +36,7 @@ export class JointsPanel {
 
   private onSelectMate: (mateId: string) => void;
   private onShowInSource: (mateId: string) => void;
+  private onEditMate: (mateId: string) => void;
   private onSuppress: (mateId: string) => void;
   private onDelete: (mateId: string) => void;
 
@@ -43,13 +44,21 @@ export class JointsPanel {
     host: HTMLElement,
     onSelectMate: (mateId: string) => void,
     onShowInSource: (mateId: string) => void,
+    onEditMate: (mateId: string) => void,
     onSuppress: (mateId: string) => void,
     onDelete: (mateId: string) => void,
   ) {
     this.onSelectMate = onSelectMate;
     this.onShowInSource = onShowInSource;
+    this.onEditMate = onEditMate;
     this.onSuppress = onSuppress;
     this.onDelete = onDelete;
+
+    // Row menus are absolutely positioned from coordinates measured against
+    // the host's rect — the host must BE the positioning context, or they
+    // resolve against some higher positioned ancestor and land offset by
+    // whatever sits above this section (the parts panel, in the left rail).
+    host.classList.add('relative');
 
     this.header = document.createElement('div');
     this.header.className = SECTION_HEADER;
@@ -147,26 +156,45 @@ export class JointsPanel {
         this.renderRows();
         this.onSelectMate(id);
       });
+      row.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const hostRect = this.host().getBoundingClientRect();
+        this.showDropdown(row.dataset.mateId!, {
+          top: e.clientY - hostRect.top,
+          left: e.clientX - hostRect.left,
+        });
+      });
     });
 
     this.body.querySelectorAll<HTMLElement>('[data-dots]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.showDropdown(btn, btn.dataset.dots!);
+        const rect = btn.getBoundingClientRect();
+        const hostRect = this.host().getBoundingClientRect();
+        this.showDropdown(btn.dataset.dots!, {
+          top: rect.bottom - hostRect.top + 2,
+          left: rect.left - hostRect.left - 140,
+        }, btn);
       });
     });
   }
 
-  private showDropdown(anchor: HTMLElement, mateId: string): void {
+  /** The panel element dropdowns are positioned in (the section's host). */
+  private host(): HTMLElement {
+    return this.body.parentElement as HTMLElement;
+  }
+
+  private showDropdown(
+    mateId: string,
+    position: { top: number; left: number },
+    anchor?: HTMLElement,
+  ): void {
     this.closeDropdown();
 
     const dropdown = document.createElement('div');
     dropdown.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
-
-    const rect = anchor.getBoundingClientRect();
-    const hostRect = (this.body.parentElement as HTMLElement).getBoundingClientRect();
-    dropdown.style.top = `${rect.bottom - hostRect.top + 2}px`;
-    dropdown.style.left = `${rect.left - hostRect.left - 140}px`;
+    dropdown.style.top = `${position.top}px`;
+    dropdown.style.left = `${position.left}px`;
 
     // Owned mates' statements live in the sub-assembly's file — offer only
     // the non-mutating action, same as the parts panel's owned rows.
@@ -175,12 +203,13 @@ export class JointsPanel {
       <ul class="menu menu-xs p-1 min-w-[160px]">
         <li><button data-action="show-in-source">Show in source</button></li>
         ${owned ? '' : `
+        <li><button data-action="edit-mate">Edit mate…</button></li>
         <li><button data-action="suppress">Suppress</button></li>
         <li><button data-action="delete" class="text-error">Delete</button></li>`}
       </ul>
     `;
 
-    (this.body.parentElement as HTMLElement).appendChild(dropdown);
+    this.host().appendChild(dropdown);
     this.activeDropdown = dropdown;
 
     dropdown.querySelector('[data-action="show-in-source"]')!.addEventListener('click', () => {
@@ -188,6 +217,10 @@ export class JointsPanel {
       this.onShowInSource(mateId);
     });
     if (!owned) {
+      dropdown.querySelector('[data-action="edit-mate"]')!.addEventListener('click', () => {
+        this.closeDropdown();
+        this.onEditMate(mateId);
+      });
       dropdown.querySelector('[data-action="suppress"]')!.addEventListener('click', () => {
         this.closeDropdown();
         this.onSuppress(mateId);
@@ -199,12 +232,20 @@ export class JointsPanel {
     }
 
     const onClickOutside = (e: MouseEvent) => {
-      if (!dropdown.contains(e.target as Node) && !anchor.contains(e.target as Node)) {
+      if (!dropdown.contains(e.target as Node) && !anchor?.contains(e.target as Node)) {
         this.closeDropdown();
       }
     };
-    setTimeout(() => document.addEventListener('click', onClickOutside), 0);
-    this.dropdownCleanup = () => document.removeEventListener('click', onClickOutside);
+    // A right-click elsewhere dismisses too — a row's own contextmenu handler
+    // runs first (and re-opens the menu there), so a fresh menu survives it.
+    setTimeout(() => {
+      document.addEventListener('click', onClickOutside);
+      document.addEventListener('contextmenu', onClickOutside);
+    }, 0);
+    this.dropdownCleanup = () => {
+      document.removeEventListener('click', onClickOutside);
+      document.removeEventListener('contextmenu', onClickOutside);
+    };
   }
 
   private closeDropdown(): void {

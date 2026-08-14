@@ -118,7 +118,10 @@ export async function applyAssemblyMateEdit(
   const statement = renderMateStatement(payload, refA.expression, refB.expression);
 
   const result = spec.edit
-    ? await replaceMateStatement(working, spec.edit.sourceLine, statement)
+    ? await replaceMateStatement(
+      working, spec.edit.sourceLine, statement,
+      [payload.connectorA.instanceLine, payload.connectorB.instanceLine],
+    )
     : await appendStatementInScope(
       working, statement, payload.connectorA.instanceLine, payload.connectorB.instanceLine,
     );
@@ -522,11 +525,19 @@ function renderConnectorPropsChain(
   return out;
 }
 
-/** Replace the whole `mate()` statement starting on `sourceLine` in place. */
+/**
+ * Replace the whole `mate()` statement starting on `sourceLine` in place.
+ * Unlike a create (whose placement chases its anchors into their scope, see
+ * {@link appendStatementInScope}), the statement stays put — so every
+ * referenced insert binding must be visible FROM there: declared in the
+ * statement's own scope or one enclosing it. Re-pointing a top-level mate
+ * at a binding inside an `assembly()` body would render a ReferenceError.
+ */
 async function replaceMateStatement(
   code: string,
   sourceLine: number,
   statement: string,
+  anchorLines: number[],
 ): Promise<AssemblyMateEditResult> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
@@ -537,6 +548,23 @@ async function replaceMateStatement(
   const target = enclosingStatement(tail);
   if (!target) {
     return { newCode: code, error: `could not resolve the mate() statement on line ${sourceLine}` };
+  }
+  const visibleScopes = new Set<number>();
+  for (let cur: TSNode | null = target; cur; cur = cur.parent) {
+    if (cur.type === 'statement_block' || cur.type === 'program') {
+      visibleScopes.add(cur.startIndex);
+    }
+  }
+  for (const line of anchorLines) {
+    // A missing anchor scope means the insert() didn't resolve at all —
+    // resolveMateSideRef already refused that before this runs.
+    const anchorScope = scopeOfAnchor(tree, line);
+    if (anchorScope && !visibleScopes.has(anchorScope.startIndex)) {
+      return {
+        newCode: code,
+        error: `the insert() on line ${line} lives in a different assembly body than this mate — pick connectors from the mate's own scope`,
+      };
+    }
   }
   return { newCode: spliceCode(code, target.startIndex, target.endIndex, statement) };
 }

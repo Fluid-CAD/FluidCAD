@@ -317,6 +317,60 @@ describe('scope-aware placement (assembly() bodies)', () => {
       `mate('fastened', arm1.connectors.top, base1.connectors.top);`,
     )).toBe(true);
   });
+
+  // An edit rewrites the statement WHERE IT IS — so every referenced binding
+  // must be visible from that spot, unlike a create whose placement chases
+  // its anchors into their scope.
+  it('refuses re-pointing an edited mate at a binding inside an assembly body', async () => {
+    const code = [
+      `import { assembly, insert, mate } from "fluidcad/core";`,
+      ``,
+      `const arm1 = insert(arm());`,
+      `const base1 = insert(base());`,
+      `mate('fastened', arm1.connectors.top, base1.connectors.top);`,
+      `export const sub = () => assembly('s', () => {`,
+      `    const inner = insert(x());`,
+      `    return { inner };`,
+      `});`,
+      ``,
+    ].join('\n');
+    const result = await applyAssemblyMateEdit(code, {
+      edit: {
+        sourceLine: 5,
+        type: 'fastened',
+        connectorA: { instanceLine: 3, connectorName: 'top' },
+        connectorB: { instanceLine: 7, connectorName: 'top' },
+      },
+    });
+    expect(result.error).toContain('different assembly body');
+    expect(result.newCode).toBe(code);
+  });
+
+  it('lets an edited body mate keep referencing enclosing-scope bindings', async () => {
+    const code = [
+      `import { assembly, insert, mate } from "fluidcad/core";`,
+      ``,
+      `const shared = insert(base()).grounded();`,
+      `export const sub = () => assembly('s', () => {`,
+      `    const inner = insert(x());`,
+      `    mate('fastened', inner.connectors.top, shared.connectors.top);`,
+      `    return { inner };`,
+      `});`,
+      ``,
+    ].join('\n');
+    const result = await applyAssemblyMateEdit(code, {
+      edit: {
+        sourceLine: 6,
+        type: 'fastened',
+        connectorA: { instanceLine: 5, connectorName: 'top' },
+        connectorB: { instanceLine: 3, connectorName: 'bottom' },
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `    mate('fastened', inner.connectors.top, shared.connectors.bottom);`,
+    );
+  });
 });
 
 // The pen-button edit: rewrite a connector() statement's name and adjustment

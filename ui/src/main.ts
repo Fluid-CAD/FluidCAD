@@ -264,6 +264,13 @@ function buildAssemblyRail(): LeftRail {
         gotoSource(mate.sourceLocation);
       }
     },
+    (id) => {
+      const mate = findMate(id);
+      // Owned mates' statements live in the sub-assembly's file — the panel
+      // hides Edit for these, this is the backstop.
+      if (!mate?.sourceLocation || mate.owner) return;
+      assemblyMateService.beginEdit(mate);
+    },
     (_id) => { /* phase 06+ */ },
     (id) => {
       const mate = findMate(id);

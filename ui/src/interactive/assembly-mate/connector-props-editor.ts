@@ -156,7 +156,12 @@ class ConnectorPropsPanel extends FeaturePanel {
       root.style.right = '';
       return;
     }
-    const rect = mate.getBoundingClientRect();
+    // Measure the mate dialog's CARD, not its root: the dock column
+    // right-aligns wider rows (the statement preview) past the card's left
+    // edge, and docking against the stretched root would push this panel a
+    // preview-width too far left.
+    const card = mate.querySelector<HTMLElement>('[data-role="body"]') ?? mate;
+    const rect = card.getBoundingClientRect();
     if (rect.width === 0) {
       root.style.right = '';
       return;

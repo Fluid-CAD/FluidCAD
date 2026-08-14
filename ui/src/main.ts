@@ -43,12 +43,14 @@ import { BooleanFeatureService } from './interactive/create-feature/boolean-serv
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
 import { isPlaneStatementRow } from './interactive/create-feature/plane-bases';
 import { FinishSketchMenu } from './interactive/create-feature/finish-sketch-menu';
+import { PartToolButton } from './interactive/create-feature/part-tool';
+import { ActivePartTracker } from './interactive/active-part-tracker';
 import { SolidPickSelection } from './interactive/solid-pick';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, applyInstancePose, getInstancePoseExpressions, getScopeVariables } from './api';
+import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider } from './api';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
 import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-props-editor';
@@ -116,6 +118,14 @@ const fileImporter = new FileImporter(container, {
 // Always the live part-rail TimelinePanel — rebuilt (and re-wired) whenever
 // the rail flips back from assembly to part mode.
 let timelinePanel: TimelinePanel;
+
+// The timeline's active part — one part is ALWAYS active while the scene
+// contains any (last part by default; a part-row click re-points it, no
+// rollback). Producer-less creates (pick-less sketch, standard plane/helix)
+// land inside its callback body instead of at top level. Every apply-feature
+// payload carries its location through the provider below.
+const activePartTracker = new ActivePartTracker();
+setActivePartProvider(() => activePartTracker.location);
 
 function disposeRail(): void {
   if (!currentRail) return;
@@ -768,6 +778,12 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     || repeatService.handleTimelinePick(obj) || copyService.handleTimelinePick(obj)
     || mirrorService.handleTimelinePick(obj) || rotateService.handleTimelinePick(obj)
     || booleanService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
+  // Part rows don't navigate: a click makes that part the active part — new
+  // statements land inside its callback body instead of at top level. One
+  // part is always active while the scene has any (tracker invariant), so
+  // re-clicking the active row is a no-op rather than a toggle.
+  panel.onPartActivate = (obj) => activePartTracker.activate(obj);
+  panel.isPartRowActive = (obj) => activePartTracker.isActive(obj);
   // Double-clicking an editable feature row (the enter-breakpoint gesture)
   // also opens that feature's dialog prefilled from its statement.
   panel.onFeatureEdit = (obj, index) => {
@@ -1073,6 +1089,11 @@ let editRefusalToast: HTMLDivElement | null = null;
 let editRefusalTimer: number | null = null;
 
 function showEditRefusal(reason: string): void {
+  showActionToast(`Can't edit this feature in a dialog: ${reason}`);
+}
+
+/** The same transient toast for one-shot tool refusals (the Part button). */
+function showActionToast(message: string): void {
   if (!editRefusalToast) {
     editRefusalToast = document.createElement('div');
     // Below the constraint mini bar (top-[106px]) so refusals don't cover it.
@@ -1080,7 +1101,7 @@ function showEditRefusal(reason: string): void {
       + 'bg-base-100 border border-base-300 text-base-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md';
     container.appendChild(editRefusalToast);
   }
-  editRefusalToast.textContent = `Can't edit this feature in a dialog: ${reason}`;
+  editRefusalToast.textContent = message;
   editRefusalToast.classList.remove('hidden');
   if (editRefusalTimer !== null) {
     window.clearTimeout(editRefusalTimer);
@@ -1127,6 +1148,14 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
 // The dialogs dock at top-[196px] right-4: the sketch dialog steps aside
 // while a 2D op dialog (fillet, offset) is open and returns when it closes.
 sketchService.onOpDialogToggle = (open) => modifyService.setSketchPanelSuspended(open);
+// The Part tool appends an empty part() statement — constructed after the
+// modify service so its button prepends ahead of Sketch. The fresh part
+// becomes the active part on the render that carries it, so the next
+// sketch/plane lands inside its callback body.
+const partTool = new PartToolButton(navbar, {
+  onCreated: () => activePartTracker.activateLastOnNextRender(),
+  onRefused: (reason) => showActionToast(reason),
+});
 // Constructed after the modify service so its solo navbar group registers
 // after every other tool group — the Repeat button renders last, behind the
 // separator the navbar draws between visible groups.
@@ -1361,6 +1390,13 @@ const finishSketchMenu = new FinishSketchMenu(navbar.getGroup('create')!, [
     label: 'New Sketch',
     reflectActive: false,
     onClick: () => modifyService.startNewSketch(),
+  },
+  // New Part finishes the sketch implicitly: the appended part() statement
+  // takes the tip of the timeline, so the sketch is no longer active.
+  {
+    button: partTool.button,
+    label: 'New Part',
+    reflectActive: false,
   },
 ]);
 sketchService.onActiveChange = (active) => finishSketchMenu.setConsolidated(active);
@@ -2022,6 +2058,14 @@ function connectWebSocket() {
         booleanService.handleSceneRendered(msg.result, renderStop, isRollback);
         planeService.handleSceneRendered(msg.result, renderStop, isRollback);
         textEditService.handleSceneRendered(msg.result, renderStop, isRollback);
+        // Re-resolve the active part before the timeline redraws so the row
+        // highlight reads the updated state (assembly scenes have no parts
+        // timeline — a stale activation must not survive the flip).
+        if (sceneKind === 'part') {
+          activePartTracker.sync(msg.result);
+        } else {
+          activePartTracker.clear();
+        }
         // Swap the toolbar to the matching workbench alongside the left rail —
         // part-design groups hide and the assembly groups show (or back).
         navbar.setMode(sceneKind);

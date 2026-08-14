@@ -3435,17 +3435,32 @@ export async function fetchSketchNames(
   }
 }
 
+/**
+ * The timeline's active part, attached to every /api/apply-feature payload.
+ * The server forwards it only into the producer-less creates (pick-less
+ * sketch, standard-only plane, standard-axis helix) so their statements land
+ * inside the part's callback body — everything else inserts in its
+ * producers' scope regardless, so the extra field is inert there.
+ */
+let activePartProvider: (() => SourceLocation | null) | null = null;
+
+export function setActivePartProvider(provider: () => SourceLocation | null): void {
+  activePartProvider = provider;
+}
+
 /** Shared POST for /api/apply-feature: failure bodies surface their reason. */
 async function postApplyFeature(
   payload: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<ApplyFeatureResponse> {
+  const activePart = payload.activePart === undefined ? activePartProvider?.() ?? null : null;
+  const requestBody = activePart ? { ...payload, activePart } : payload;
   try {
     const res = await fetch('/api/apply-feature', {
       method: 'POST',
       headers: JSON_HEADERS,
       signal,
-      body: JSON.stringify(payload),
+      body: JSON.stringify(requestBody),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
@@ -3584,6 +3599,24 @@ export async function exportShapes(body: Record<string, unknown>): Promise<Blob>
     throw new Error(err.error || 'Export failed');
   }
   return res.blob();
+}
+
+/**
+ * The Part tool: append an empty `part('Part N', () => {})` statement to the
+ * current part file — the server allocates the name past every part already
+ * in the file.
+ */
+export async function createNewPart(): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/part/new', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({}) });
+    const parsed = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: parsed?.reason ?? parsed?.error ?? `Request failed (${res.status})` };
+    }
+    return parsed ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
 }
 
 // ---------------------------------------------------------------------------

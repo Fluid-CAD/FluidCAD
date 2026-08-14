@@ -31,6 +31,7 @@ import {
 } from '../apply-feature-edit.ts';
 import { readFile } from 'fs/promises';
 import { normalizePath } from '../normalize-path.ts';
+import { detectKind } from '../file-kind.ts';
 import { CHAIN_CALLEES } from '../segment-swap.ts';
 import { findEditableCallAt, getJavaScriptParser, splitLines } from '../code-editor.ts';
 
@@ -3503,6 +3504,27 @@ export function createApplyFeatureRouter(
     }
     const newVariables = nvResult.newVariables;
 
+    // The timeline's active part: the part() statement whose callback body
+    // receives the created statement when nothing else pins a scope. Only the
+    // producer-less creates (pick-less sketch, standard-only plane,
+    // standard-axis helix) forward it — a producer-carrying spec inserts in
+    // its producers' scope regardless, so the field would be inert there.
+    let activePartLoc: SketchLoc | null = null;
+    if (req.body?.activePart !== undefined && req.body?.activePart !== null) {
+      activePartLoc = validateSketchLoc(req.body.activePart);
+      if (!activePartLoc) {
+        res.status(400).json({ error: 'activePart must be {filePath, line, column} of the part statement' });
+        return;
+      }
+    }
+    // Cross-file guard: a stale active part from another buffer never
+    // redirects an insertion in this one.
+    const activePartFor = (filePath: string | null): { line: number; column: number } | undefined =>
+      activePartLoc && filePath !== null
+        && normalizePath(activePartLoc.filePath) === normalizePath(filePath)
+        ? { line: activePartLoc.line, column: activePartLoc.column }
+        : undefined;
+
     // In-place statement edit (timeline double-click → edit dialog): the
     // statement at the location is re-parsed from the live buffer and its
     // dialog options replaced. Re-sourced slots (re-picked selections,
@@ -4956,6 +4978,7 @@ export function createApplyFeatureRouter(
           res.json({ success: true, preview: statement, args: sourceArgs ?? undefined, alternatives });
           return;
         }
+        const activePart = activePartFor(filePath);
         await dispatcher.dispatch(res, {
           feature: 'helix',
           helix: options,
@@ -4964,6 +4987,7 @@ export function createApplyFeatureRouter(
           parts,
           imports,
           newVariables,
+          ...(activePart ? { activePart } : {}),
         }, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
@@ -5244,6 +5268,7 @@ export function createApplyFeatureRouter(
           res.json({ success: true, preview: statement });
           return;
         }
+        const activePart = activePartFor(filePath);
         await dispatcher.dispatch(res, {
           feature: 'plane',
           plane: options,
@@ -5252,6 +5277,7 @@ export function createApplyFeatureRouter(
           parts,
           imports: [...imports],
           newVariables,
+          ...(activePart ? { activePart } : {}),
         }, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
@@ -5748,9 +5774,13 @@ export function createApplyFeatureRouter(
         res.json({ success: true, preview: statement, args: '' });
         return;
       }
+      const activePart = activePartFor(filePath);
       await dispatcher.dispatch(
         res,
-        { feature: 'sketch', sketchPlane: plane, filePath, producers: [], parts: [], imports: [] },
+        {
+          feature: 'sketch', sketchPlane: plane, filePath, producers: [], parts: [], imports: [],
+          ...(activePart ? { activePart } : {}),
+        },
         { success: true, preview: statement },
       );
       return;
@@ -6726,6 +6756,36 @@ export function createApplyFeatureRouter(
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });
     }
+  });
+
+  // The Part tool: append an empty `part('Part N', () => {})` statement to
+  // the current part file (the transform allocates the name past every part
+  // already there). Rides the shared edit dispatcher like every other
+  // statement write; the newPart side-channel supersedes the placeholder
+  // feature field.
+  router.post('/part/new', async (req, res) => {
+    const name = req.body?.name;
+    if (name !== undefined && (typeof name !== 'string' || name.length === 0)) {
+      res.status(400).json({ error: 'name must be a non-empty string' });
+      return;
+    }
+    const filePath = fluidCadServer.getCurrentFileName();
+    if (!filePath) {
+      res.status(404).json({ success: false, reason: 'No rendered scene' });
+      return;
+    }
+    if (detectKind(filePath) === 'assembly') {
+      res.status(422).json({ success: false, reason: 'part() builds in a part file — assemblies compose parts via insert()' });
+      return;
+    }
+    await dispatcher.dispatch(res, {
+      feature: 'sketch',
+      filePath,
+      producers: [],
+      parts: [],
+      imports: [],
+      newPart: name !== undefined ? { name } : {},
+    }, { success: true });
   });
 
   // Pure source transform: the extension sends the live buffer plus the edit

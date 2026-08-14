@@ -232,6 +232,21 @@ export type ApplyFeatureEditSpec = {
    */
   connectorProps?: ConnectorPropsEditSpec;
   /**
+   * Part-tool statement write: append `part('<name>', () => {})` at top
+   * level, the name auto-allocated past every part name already in the file
+   * when absent. Rides the same round trip as `insertPart`; every other
+   * spec field is ignored.
+   */
+  newPart?: { name?: string };
+  /**
+   * The `part(...)` call site whose callback body receives the created
+   * statement — the timeline's active part. Only the producer-less appends
+   * honor it (pick-less sketch, standard-only plane, standard-axis helix):
+   * a producer-carrying create already lands in its producers' scope, which
+   * is the part body exactly when the picked inputs live inside it.
+   */
+  activePart?: { line: number; column: number };
+  /**
    * Strip every `breakpoint();` after the rewrite. Set when an edit dialog
    * applies: the double-click that opened it placed a breakpoint, and
    * applying clears it so the model rebuilds to its tip. Done inside this
@@ -1332,6 +1347,9 @@ export async function applyFeatureEdit(
   if (spec.insertPart) {
     return applyInsertPartEdit(code, spec.insertPart);
   }
+  if (spec.newPart) {
+    return applyNewPart(code, spec.newPart);
+  }
   if (spec.instancePose) {
     return applyInstancePoseWithDecls(code, spec);
   }
@@ -1348,7 +1366,7 @@ export async function applyFeatureEdit(
     return applyStatementEdit(code, spec);
   }
   if (spec.feature === 'sketch' && spec.producers.length === 0 && spec.parts.length === 0) {
-    return applyPlaneSketch(code, spec.sketchPlane);
+    return applyPlaneSketch(code, spec.sketchPlane, spec.activePart);
   }
   if (spec.feature === 'extrude') {
     // The profile sketch (implicit consumption or a bound variable) is always
@@ -1442,6 +1460,7 @@ export async function applyFeatureEdit(
         () => renderHelixStatement(hx, renderHelixSourceExpr(hx.source, spec.parts, () => null)),
         'helix',
         spec.newVariables,
+        spec.activePart,
       );
     }
   } else if (spec.feature === 'chamfer') {
@@ -1515,6 +1534,7 @@ export async function applyFeatureEdit(
         () => renderPlaneStatement(pl, renderPlaneBaseExprs(pl, spec.parts, () => null)),
         'plane',
         spec.newVariables,
+        spec.activePart,
       );
     }
   } else if (spec.feature === 'repeat') {
@@ -1969,9 +1989,88 @@ async function landNewVariableDecls(
 async function applyPlaneSketch(
   code: string,
   plane: 'xy' | 'xz' | 'yz' | undefined,
+  activePart?: { line: number; column: number },
 ): Promise<ApplyFeatureEditResult> {
   const args = plane ? `'${plane}', ` : '';
-  return appendTopLevelStatement(code, indent => `sketch(${args}() => {\n\n${indent}})`, 'sketch');
+  return appendTopLevelStatement(
+    code, indent => `sketch(${args}() => {\n\n${indent}})`, 'sketch', undefined, activePart,
+  );
+}
+
+/** Part names land in a single-quoted literal — no quotes or line breaks. */
+function validPartName(name: string): boolean {
+  return /^[^'"\\\r\n]{1,64}$/.test(name);
+}
+
+/**
+ * The Part tool's statement: append `export const <ident> = part('<name>',
+ * () => {})` at top level. A missing name allocates "Part N" past every
+ * part() name already in the file, so repeated clicks keep minting fresh
+ * parts. The binding is always exported — the part catalog indexes parts by
+ * their `export const` name, so an exported part is insertable from an
+ * assembly the moment it exists.
+ */
+async function applyNewPart(
+  code: string,
+  newPart: NonNullable<ApplyFeatureEditSpec['newPart']>,
+): Promise<ApplyFeatureEditResult> {
+  if (newPart.name !== undefined && !validPartName(newPart.name)) {
+    return { newCode: code, error: 'part names must be 1-64 characters without quotes or line breaks' };
+  }
+  const name = newPart.name ?? await allocateNewPartName(code);
+  const exportName = pickPartExportName(code, name);
+  return appendTopLevelStatement(
+    code,
+    indent => `export const ${exportName} = part('${name}', () => {\n\n${indent}})`,
+    'part',
+  );
+}
+
+/**
+ * The export binding's identifier, derived from the part's display name
+ * (`Part 1` → `part1`, `Box Body` → `boxBody`) — numeric-suffixed past any
+ * word already appearing in the file, the same fresh-word rule the Insert
+ * dialog's instance names follow.
+ */
+function pickPartExportName(code: string, displayName: string): string {
+  const words = displayName.split(/[^A-Za-z0-9]+/).filter(w => w.length > 0);
+  let base = words
+    .map((w, i) => i === 0 ? w.charAt(0).toLowerCase() + w.slice(1) : w.charAt(0).toUpperCase() + w.slice(1))
+    .join('');
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(base)) {
+    base = 'part';
+  }
+  if (!new RegExp(`\\b${base}\\b`).test(code)) {
+    return base;
+  }
+  for (let n = 2; ; n++) {
+    const candidate = `${base}${n}`;
+    if (!new RegExp(`\\b${candidate}\\b`).test(code)) {
+      return candidate;
+    }
+  }
+}
+
+/** The first "Part N" past every part() name already in the file. */
+async function allocateNewPartName(code: string): Promise<string> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const taken = new Set<string>();
+  for (const node of walkTree(tree.rootNode)) {
+    if (node.type !== 'call_expression' || chainRootCallee(node) !== 'part') {
+      continue;
+    }
+    const first = node.childForFieldName('arguments')?.namedChildren
+      .filter(a => a.type !== 'comment')[0];
+    if (first && first.type === 'string') {
+      taken.add(first.text.slice(1, -1));
+    }
+  }
+  let n = 1;
+  while (taken.has(`Part ${n}`)) {
+    n++;
+  }
+  return `Part ${n}`;
 }
 
 /**
@@ -1979,14 +2078,17 @@ async function applyPlaneSketch(
  * standard-base plane) after the file's last statement — before the first
  * `breakpoint();` (a paused build never runs statements after it) or a
  * trailing `return`, matching the file's semicolon style — or as an empty
- * file's first. `statementFor` receives the insertion indent (for multi-line
- * bodies) and renders without the trailing semicolon.
+ * file's first. With `partLoc` (the timeline's active part) the statement
+ * lands at the end of that `part()`'s callback body instead, under the same
+ * breakpoint/return rules. `statementFor` receives the insertion indent (for
+ * multi-line bodies) and renders without the trailing semicolon.
  */
 async function appendTopLevelStatement(
   code: string,
   statementFor: (indent: string) => string,
   callee: string,
   newVariables?: ApplyFeatureEditSpec['newVariables'],
+  partLoc?: { line: number; column: number },
 ): Promise<ApplyFeatureEditResult> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
@@ -2005,7 +2107,13 @@ async function appendTopLevelStatement(
     .join(`\n${indent}`);
 
   let result: string;
-  if (!last) {
+  if (partLoc) {
+    const target = resolvePartBodyInsertion(partLoc, [], lines, tree);
+    if ('error' in target) {
+      return { newCode: code, error: target.error };
+    }
+    result = spliceCode(code, target.index, target.index, target.wrap(block(target.indent)));
+  } else if (!last) {
     result = spliceCode(code, code.length, code.length,
       [...declsResult.decls, `${statementFor('')};`].join('\n') + '\n');
   } else {
@@ -3753,7 +3861,8 @@ const LOOP_NODE_TYPES = new Set([
 
 /**
  * Insertion at the end of a part's callback body — the connector tool's
- * target. Within the body, the statement prefers the producers' own nearest
+ * target, and (with no bindings) the active-part home for the producer-less
+ * appends. Within the body, the statement prefers the producers' own nearest
  * block: a parameterized part builds each variant inside an `if/else` branch
  * and returns from it, so end-of-branch (before that branch's `return`) is
  * where the statement still executes. The walk from that block up to the
@@ -3776,7 +3885,7 @@ function resolvePartBodyInsertion(
   }
   const body = findSketchBody(call);
   if (!body) {
-    return { error: 'the part at that line has no callback body to add a connector to' };
+    return { error: 'the part at that line has no callback body to add the statement to' };
   }
 
   const insideBody = (node: TSNode) =>
@@ -3790,8 +3899,8 @@ function resolvePartBodyInsertion(
   }
 
   let scope = body;
-  const statement = bindings[0].statement;
-  if (insideBody(statement)) {
+  const statement = bindings[0]?.statement;
+  if (statement && insideBody(statement)) {
     const nearest = enclosingScope(statement);
     let crossesRisky = false;
     let current: TSNode | null = nearest;
@@ -3810,8 +3919,16 @@ function resolvePartBodyInsertion(
   const children = scope.namedChildren;
   if (children.length === 0) {
     // An empty body: open the first line of it at one level in from the part.
-    const indent = indentOf(lines, scope.startPosition.row) + '  ';
-    return { index: scope.startIndex + 1, indent, wrap: (stmt) => `\n${indent}${stmt}` };
+    // A single-line `{}` keeps its closing brace on the opening line — move
+    // it below the statement.
+    const baseIndent = indentOf(lines, scope.startPosition.row);
+    const indent = baseIndent + '  ';
+    const singleLine = scope.startPosition.row === scope.endPosition.row;
+    return {
+      index: scope.startIndex + 1,
+      indent,
+      wrap: (stmt) => singleLine ? `\n${indent}${stmt}\n${baseIndent}` : `\n${indent}${stmt}`,
+    };
   }
   return findInsertionPoint(scope, lines, bindings);
 }

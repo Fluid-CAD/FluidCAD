@@ -354,6 +354,92 @@ describe('apply-feature route validation', () => {
     expect(relayed).toHaveLength(0);
   });
 
+  it('forwards the active part into a pick-less sketch spec', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    const { status } = await post({
+      feature: 'sketch', entities: [], plane: 'xz',
+      activePart: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+    });
+    expect(status).toBe(200);
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0].spec.activePart).toEqual({ line: 3, column: 0 });
+  });
+
+  it('drops an active part that lives in another file', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    const { status } = await post({
+      feature: 'sketch', entities: [], plane: 'xz',
+      activePart: { filePath: '/ws/other.fluid.js', line: 3, column: 0 },
+    });
+    expect(status).toBe(200);
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0].spec.activePart).toBeUndefined();
+  });
+
+  it('rejects a malformed active part', async () => {
+    currentFileName = '/ws/m.fluid.js';
+    const { status, body } = await post({
+      feature: 'sketch', entities: [], plane: 'xz', activePart: { line: 'x' },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('activePart');
+    expect(relayed).toHaveLength(0);
+  });
+
+  describe('part/new', () => {
+    async function postPartNew(body: unknown): Promise<{ status: number; body: any }> {
+      const res = await fetch(`${baseUrl}/api/part/new`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return { status: res.status, body: await res.json() };
+    }
+
+    it('relays a newPart spec for the current part file', async () => {
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await postPartNew({});
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      expect(relayed).toHaveLength(1);
+      expect(relayed[0].spec).toEqual({
+        feature: 'sketch', filePath: '/ws/m.fluid.js', producers: [], parts: [], imports: [],
+        newPart: {},
+        editId: expect.any(String),
+      });
+    });
+
+    it('carries a provided name', async () => {
+      currentFileName = '/ws/m.fluid.js';
+      const { status } = await postPartNew({ name: 'Bracket' });
+      expect(status).toBe(200);
+      expect(relayed[0].spec.newPart).toEqual({ name: 'Bracket' });
+    });
+
+    it('refuses before any render', async () => {
+      const { status, body } = await postPartNew({});
+      expect(status).toBe(404);
+      expect(body.reason).toBe('No rendered scene');
+      expect(relayed).toHaveLength(0);
+    });
+
+    it('refuses in an assembly file', async () => {
+      currentFileName = '/ws/a.assembly.js';
+      const { status, body } = await postPartNew({});
+      expect(status).toBe(422);
+      expect(body.reason).toContain('part file');
+      expect(relayed).toHaveLength(0);
+    });
+
+    it('rejects an empty name', async () => {
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await postPartNew({ name: '' });
+      expect(status).toBe(400);
+      expect(body.error).toContain('name');
+      expect(relayed).toHaveLength(0);
+    });
+  });
+
   it('relays a plane-feature sketch as a sketch-on-plane spec without synthesis', async () => {
     const { status, body } = await post({
       feature: 'sketch', entities: [],

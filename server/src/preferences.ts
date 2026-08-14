@@ -12,6 +12,10 @@ export interface Preferences {
   showBuildTimings: boolean;
   measureLengthUnit: MeasureLengthUnit;
   measureAngleUnit: MeasureAngleUnit;
+  /** Code-editor pane open at startup. Default false — the scene is the product. */
+  editorOpen: boolean;
+  /** Code-editor pane width, in px. */
+  editorWidth: number;
 }
 
 const DEFAULTS: Preferences = {
@@ -21,6 +25,8 @@ const DEFAULTS: Preferences = {
   showBuildTimings: false,
   measureLengthUnit: 'mm',
   measureAngleUnit: 'deg',
+  editorOpen: false,
+  editorWidth: 420,
 };
 
 function getConfigDir(): string {

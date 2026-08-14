@@ -122,15 +122,73 @@ html {
    top-12 + h-14 = 104px total) so the scene starts flush beneath the toolbar
    instead of bleeding underneath it. UI chrome (bars, panels, overlays) stays
    on the full-size #fluidcad-viewer parent. */
+/* Width the code-editor pane has taken from the left. Registered so it can be
+   transitioned: animating it slides the scene's edge instead of snapping it.
+   Zero everywhere the editor is closed or absent, which is every host that
+   existed before it. */
+@property --fluidcad-editor-width {
+  syntax: '<length>';
+  inherits: true;
+  initial-value: 0px;
+}
+
+html.fluidcad-editor-animating {
+  transition: --fluidcad-editor-width 180ms ease;
+}
+
 #fluidcad-scene {
   position: absolute;
   /* Height of the host's top chrome (top bar + navbar). Viewing hosts with
      no toolbar set --fluidcad-chrome-top: 0px for a full-bleed scene. */
-  inset: var(--fluidcad-chrome-top, 104px) 0 0 0;
+  inset: var(--fluidcad-chrome-top, 104px) 0 0 var(--fluidcad-editor-width, 0px);
 }
 
 #fluidcad-scene canvas {
   display: block;
+}
+
+/* Monaco's overflowing widgets (hover, signature help, suggest, find) are
+   hosted here, on `document.body`, so they can paint over the toolbar instead
+   of under it — see `overflowWidgetsHost` in editor-pane.ts. The host itself
+   must not take space or swallow clicks; only the widgets inside it do. */
+.fluidcad-monaco-overflow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: 200;
+  pointer-events: none;
+}
+
+.fluidcad-monaco-overflow > * {
+  pointer-events: auto;
+}
+
+/* The code editor's breakpoint gutter. Monaco has no breakpoint concept, so a
+   glyph-margin decoration stands in — and it is only ever a view of the
+   `breakpoint()` call in the source, re-derived after every change. */
+.fluidcad-breakpoint-glyph {
+  background: var(--color-error, #f87272);
+  border-radius: 50%;
+  width: 10px !important;
+  height: 10px !important;
+  margin-left: 5px;
+  margin-top: 5px;
+  cursor: pointer;
+}
+
+/* Hint that the margin is clickable before anything is set there. */
+.monaco-editor .margin-view-overlays .cgmr:hover::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 5px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-error, #f87272);
+  opacity: 0.35;
 }
 
 /* The mobile bottom-sheet entrance (see DIALOG_DOCK_CLASS): re-runs each time

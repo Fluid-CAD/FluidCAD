@@ -1,0 +1,176 @@
+import fs from 'fs';
+import path from 'path';
+import { Router, type Response } from 'express';
+import { listWorkspaceFiles, classifyFile } from '../files/file-tree.ts';
+import { resolveWorkspaceFile, WorkspacePathError, type WorkspaceFile } from '../files/workspace-paths.ts';
+
+/**
+ * File I/O for the in-page editor. With Monaco in the page there is no editor
+ * host holding the buffers, so the server owns the disk — the same way it
+ * already owns the engine and the source transforms.
+ *
+ * Every route resolves its path through {@link resolveWorkspaceFile}, which
+ * refuses anything outside `WORKSPACE_PATH`.
+ */
+
+export interface FilesRouterDeps {
+  workspacePath: string;
+  /**
+   * Render `absPath` as the current model — the HTTP equivalent of the IPC
+   * `process-file` message a host would send.
+   */
+  openFile(absPath: string): Promise<void>;
+}
+
+/** Text files only: Monaco has nothing to do with a STEP binary. */
+const MAX_READ_BYTES = 8 * 1024 * 1024;
+
+function fileInfo(file: WorkspaceFile, stat: fs.Stats) {
+  return {
+    path: file.relPath,
+    absPath: file.absPath,
+    kind: classifyFile(file.relPath),
+    size: stat.size,
+    mtimeMs: stat.mtimeMs,
+  };
+}
+
+/** Answers a thrown `WorkspacePathError` with 403 and anything else with 500. */
+function respondToError(res: Response, err: unknown): void {
+  if (err instanceof WorkspacePathError) {
+    res.status(403).json({ error: err.message });
+    return;
+  }
+  res.status(500).json({ error: (err as any)?.message ?? String(err) });
+}
+
+export function createFilesRouter(deps: FilesRouterDeps): Router {
+  const router = Router();
+  const { workspacePath } = deps;
+
+  router.get('/files/tree', (_req, res) => {
+    try {
+      const { files, truncated } = listWorkspaceFiles(workspacePath);
+      res.json({ workspacePath, files, truncated });
+    } catch (err) {
+      respondToError(res, err);
+    }
+  });
+
+  router.get('/files/read', (req, res) => {
+    try {
+      const file = resolveWorkspaceFile(workspacePath, req.query.path);
+      const stat = fs.statSync(file.absPath);
+      if (!stat.isFile()) {
+        res.status(400).json({ error: `Not a file: ${file.relPath}` });
+        return;
+      }
+      if (stat.size > MAX_READ_BYTES) {
+        res.status(413).json({ error: `${file.relPath} is too large to open in the editor.` });
+        return;
+      }
+      res.json({ ...fileInfo(file, stat), content: fs.readFileSync(file.absPath, 'utf8') });
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') {
+        res.status(404).json({ error: 'File not found.' });
+        return;
+      }
+      respondToError(res, err);
+    }
+  });
+
+  router.post('/files/write', (req, res) => {
+    const { content } = req.body ?? {};
+    if (typeof content !== 'string') {
+      res.status(400).json({ error: 'Invalid request body: content must be a string.' });
+      return;
+    }
+    try {
+      const file = resolveWorkspaceFile(workspacePath, req.body?.path);
+      fs.mkdirSync(path.dirname(file.absPath), { recursive: true });
+      fs.writeFileSync(file.absPath, content, 'utf8');
+      res.json(fileInfo(file, fs.statSync(file.absPath)));
+    } catch (err) {
+      respondToError(res, err);
+    }
+  });
+
+  router.post('/files/open', async (req, res) => {
+    let file: WorkspaceFile;
+    try {
+      file = resolveWorkspaceFile(workspacePath, req.body?.path);
+      if (!fs.existsSync(file.absPath)) {
+        res.status(404).json({ error: 'File not found.' });
+        return;
+      }
+    } catch (err) {
+      respondToError(res, err);
+      return;
+    }
+    // The render itself reports through the WS scene-rendered / compile-error
+    // channel, exactly as the IPC path does — the route only confirms it started.
+    await deps.openFile(file.absPath);
+    res.json({ success: true, path: file.relPath, absPath: file.absPath });
+  });
+
+  router.post('/files/create', (req, res) => {
+    const content = req.body?.content;
+    if (content !== undefined && typeof content !== 'string') {
+      res.status(400).json({ error: 'Invalid request body: content must be a string.' });
+      return;
+    }
+    try {
+      const file = resolveWorkspaceFile(workspacePath, req.body?.path);
+      if (fs.existsSync(file.absPath)) {
+        res.status(409).json({ error: `${file.relPath} already exists.` });
+        return;
+      }
+      fs.mkdirSync(path.dirname(file.absPath), { recursive: true });
+      fs.writeFileSync(file.absPath, content ?? '', 'utf8');
+      res.json(fileInfo(file, fs.statSync(file.absPath)));
+    } catch (err) {
+      respondToError(res, err);
+    }
+  });
+
+  router.post('/files/rename', (req, res) => {
+    try {
+      const from = resolveWorkspaceFile(workspacePath, req.body?.path);
+      const to = resolveWorkspaceFile(workspacePath, req.body?.newPath);
+      if (!fs.existsSync(from.absPath)) {
+        res.status(404).json({ error: 'File not found.' });
+        return;
+      }
+      if (fs.existsSync(to.absPath)) {
+        res.status(409).json({ error: `${to.relPath} already exists.` });
+        return;
+      }
+      fs.mkdirSync(path.dirname(to.absPath), { recursive: true });
+      fs.renameSync(from.absPath, to.absPath);
+      res.json({ from: from.relPath, ...fileInfo(to, fs.statSync(to.absPath)) });
+    } catch (err) {
+      respondToError(res, err);
+    }
+  });
+
+  router.post('/files/delete', (req, res) => {
+    try {
+      const file = resolveWorkspaceFile(workspacePath, req.body?.path);
+      const stat = fs.statSync(file.absPath);
+      if (!stat.isFile()) {
+        res.status(400).json({ error: `Not a file: ${file.relPath}` });
+        return;
+      }
+      fs.unlinkSync(file.absPath);
+      res.json({ success: true, path: file.relPath, absPath: file.absPath });
+    } catch (err: any) {
+      if (err?.code === 'ENOENT') {
+        res.status(404).json({ error: 'File not found.' });
+        return;
+      }
+      respondToError(res, err);
+    }
+  });
+
+  return router;
+}

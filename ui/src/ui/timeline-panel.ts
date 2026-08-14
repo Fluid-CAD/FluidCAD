@@ -95,7 +95,7 @@ export class TimelinePanel {
   ) {
     this.panel = document.createElement('div');
     // Docked below the host chrome (--fluidcad-chrome-top) with breathing room.
-    this.panel.className = 'absolute left-6 top-[calc(var(--fluidcad-chrome-top,104px)+12px)] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
+    this.panel.className = 'absolute left-[calc(var(--fluidcad-editor-width,0px)+1.5rem)] top-[calc(var(--fluidcad-chrome-top,104px)+12px)] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
     this.applyPanelWidth();
 

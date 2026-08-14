@@ -69,5 +69,18 @@ export function createEditorRouter(state: DirtyBufferState, dispatcher: FeatureE
     });
   }
 
+  // The ack channel for hosts without an IPC pipe. An IPC host settles
+  // `undo`/`redo` with the `edit-ack` message; the in-page host has the UI
+  // socket for that, and this route for anything that would rather not.
+  router.post('/editor/ack', (req, res) => {
+    const { editId, error } = req.body ?? {};
+    if (typeof editId !== 'string' || editId === '') {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    dispatcher.settle(editId, typeof error === 'string' && error !== '' ? error : undefined);
+    res.json({ success: true });
+  });
+
   return router;
 }

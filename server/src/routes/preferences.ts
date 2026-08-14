@@ -35,6 +35,12 @@ export function createPreferencesRouter(): Router {
       if (['deg', 'rad'].includes(body.measureAngleUnit)) {
         current.measureAngleUnit = body.measureAngleUnit;
       }
+      if (typeof body.editorOpen === 'boolean') {
+        current.editorOpen = body.editorOpen;
+      }
+      if (typeof body.editorWidth === 'number' && Number.isFinite(body.editorWidth)) {
+        current.editorWidth = body.editorWidth;
+      }
       await savePreferences(current);
       res.json(current);
     } catch (err: any) {

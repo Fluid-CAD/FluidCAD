@@ -3,6 +3,10 @@ export interface UserPreferences {
   showGrid: boolean;
   cameraMode: 'perspective' | 'orthographic';
   showBuildTimings: boolean;
+  /** Code-editor pane open at startup. Default false. */
+  editorOpen?: boolean;
+  /** Code-editor pane width, in px. */
+  editorWidth?: number;
 }
 
 const ENDPOINT = '/api/preferences';

@@ -48,7 +48,7 @@ export class ConstraintToolbar {
     this.root = document.createElement('div');
     // z stays below the navbar's z-[120]: the navbar is a stacking context, so
     // its popups (Finish Sketch grid) can never out-stack a heavier sibling.
-    this.root.className = 'absolute top-[106px] left-1/2 -translate-x-1/2 z-[110] '
+    this.root.className = 'absolute top-[106px] left-[calc(50%+var(--fluidcad-editor-width,0px)/2)] -translate-x-1/2 z-[110] '
       + 'panel-bg border border-base-content/10 rounded-md shadow-sm '
       + 'px-1.5 py-1 flex items-center gap-1 hidden';
 

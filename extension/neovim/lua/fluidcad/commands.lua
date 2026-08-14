@@ -35,7 +35,7 @@ function M.setup(_config)
   end, { desc = 'Show server URL and copy to clipboard' })
 
   vim.api.nvim_create_user_command('FluidCadOpenBrowser', function()
-    local url = bridge.get_url()
+    local url = bridge.viewer_url()
     if not url then
       vim.notify('[fluidcad] Server not ready yet', vim.log.levels.WARN)
       return

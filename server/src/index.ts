@@ -22,7 +22,13 @@ import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
 import { createTextRouter } from './routes/text.ts';
 import { createFeatureGhostRouter } from './routes/feature-ghost.ts';
+import { createFilesRouter } from './routes/files.ts';
+import { createEngineTypesRouter } from './routes/engine-types.ts';
+import { createWorkspaceStateRouter } from './routes/workspace-state.ts';
+import { createWorkspaceWatcher, type WorkspaceWatcher } from './files/workspace-watcher.ts';
 import { FeatureEditDispatcher } from './edit-dispatch.ts';
+import { HostRegistry } from './host-registry.ts';
+import { attachEditorHostTransport, broadcastEditorCapabilities } from './editor-host-transport.ts';
 import { normalizePath } from './normalize-path.ts';
 import { readProjectConfig, describeEnginePinMismatch } from './project-config.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
@@ -56,7 +62,7 @@ const PROJECT_CONFIG = readProjectConfig(WORKSPACE_PATH);
 
 
 // ---------------------------------------------------------------------------
-// IPC helpers — communication with extension host process
+// Editor hosts — IPC (VS Code, Neovim) and the in-page Monaco host
 // ---------------------------------------------------------------------------
 
 /** Returns true when a host process received the message (IPC connected). */
@@ -67,6 +73,16 @@ function sendToExtension(msg: any): boolean {
   }
   return false;
 }
+
+/**
+ * Host-directed messages go through here, not `sendToExtension`: the in-page
+ * editor is a host too, and the routers must not care which one is listening.
+ * Lifecycle messages (`ready`, `scene-rendered`, `export-complete`, …) keep
+ * using `sendToExtension` directly — the page already gets those over the UI
+ * socket, and duplicating them would be a second render, not a second reader.
+ */
+const hosts = new HostRegistry(sendToExtension);
+const sendToHost = (msg: any): boolean => hosts.send(msg);
 
 // ---------------------------------------------------------------------------
 // Express app
@@ -91,7 +107,7 @@ const getLastCameraState = core.getLastCameraState;
 // Every router that writes source dispatches through this one instance: the
 // ack that settles a dispatch arrives at /code/apply-feature, so a router with
 // its own registry would never hear about its own edits.
-const editDispatcher = new FeatureEditDispatcher(fluidCadServer, sendToExtension);
+const editDispatcher = new FeatureEditDispatcher(fluidCadServer, sendToHost);
 
 app.use('/api', createHealthRouter({
   version: PACKAGE_VERSION,
@@ -100,12 +116,12 @@ app.use('/api', createHealthRouter({
   enginePin: PROJECT_CONFIG.engine,
 }));
 app.use('/api', createPropertiesRouter(fluidCadServer));
-app.use('/api', createParamsRouter(fluidCadServer, sendToExtension, broadcastToUI, editDispatcher));
+app.use('/api', createParamsRouter(fluidCadServer, sendToHost, broadcastToUI, editDispatcher));
 app.use('/api', createHitTestRouter(fluidCadServer));
 app.use('/api', createMeasureRouter(fluidCadServer));
-app.use('/api', createTimelineRouter(fluidCadServer, sendToExtension, broadcastToUI));
-app.use('/api', createSketchEditsRouter(fluidCadServer, sendToExtension, WORKSPACE_PATH));
-app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToExtension, { dispatcher: editDispatcher }));
+app.use('/api', createTimelineRouter(fluidCadServer, sendToHost, broadcastToUI));
+app.use('/api', createSketchEditsRouter(fluidCadServer, sendToHost, WORKSPACE_PATH));
+app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToHost, { dispatcher: editDispatcher }));
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createScreenshotRouter(requestScreenshot));
 app.use('/api', createPreferencesRouter());
@@ -115,6 +131,12 @@ app.use('/api', createRenderRouter((fileName, code) => runLiveRender(fileName, c
 app.use('/api', createLintRouter());
 app.use('/api', createTextRouter(fluidCadServer));
 app.use('/api', createFeatureGhostRouter(fluidCadServer));
+app.use('/api', createFilesRouter({
+  workspacePath: WORKSPACE_PATH,
+  openFile: (absPath) => processFile(absPath),
+}));
+app.use('/api', createEngineTypesRouter(PACKAGE_VERSION));
+app.use('/api', createWorkspaceStateRouter(WORKSPACE_PATH));
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION, getLastCameraState));
 
 // Static files — serve UI build, with SPA fallback
@@ -136,20 +158,10 @@ app.get('*splat', (_req, res) => {
 
 let currentFile: string | null = null;
 let renderVersion = 0;
+let workspaceWatcher: WorkspaceWatcher | null = null;
 const lastSceneByFile = new Map<string, { result: any[]; rollbackStop: number }>();
 
-// What the attached editor host offers, from its `editor-hello`. Stays null
-// when no host ever announces itself (standalone serve, hub) — the UI then
-// keeps its editor-history controls hidden.
-let editorCapabilities: { undoRedo: boolean } | null = null;
-
-// The hello usually lands before the first UI connection (the extension forks
-// the server, then opens the webview), so late-joining clients get a replay.
-core.setConnectionHandler((_sessionId, ws) => {
-  if (editorCapabilities) {
-    ws.send(JSON.stringify({ type: 'editor-capabilities', ...editorCapabilities }));
-  }
-});
+attachEditorHostTransport({ core, hosts, dispatcher: editDispatcher, dirtyBufferState });
 
 function emitSuccess(version: number, absPath: string, result: any[], rollbackStop: number, breakpointHit?: boolean, params?: any[]) {
   lastSceneByFile.set(absPath, { result, rollbackStop });
@@ -216,6 +228,31 @@ function emitCompileError(version: number, filePath: string, err: any): CompileE
 }
 
 /**
+ * Report a render that could not even be attempted, because the workspace has
+ * no engine — no `init.js`, so nothing to build the model with.
+ *
+ * Emitted as a compile error on purpose: the UI already hides its loading
+ * overlay, shows the banner, and marks the file for one of those. Returning
+ * quietly (which every render path used to do) left the page on "Loading
+ * model…" forever with nothing to act on.
+ *
+ * @returns true when it spoke — i.e. there was no engine.
+ */
+function emitMissingEngine(version: number, filePath: string): boolean {
+  const reason = fluidCadServer.describeMissingEngine();
+  if (!reason) {
+    return false;
+  }
+  const key = normalizePath(filePath).replace('virtual:live-render:', '');
+  const compileError: CompileError = { message: reason, filePath: key };
+  fluidCadServer.setCompileError(compileError);
+  sendToExtension({ type: 'scene-rendered', absPath: key, result: [], rollbackStop: -1, compileError });
+  broadcastToUI({ type: 'scene-rendered', result: [], absPath: key, rollbackStop: -1, compileError });
+  broadcastToUI({ type: 'render-version', version, state: 'error', absPath: key });
+  return true;
+}
+
+/**
  * Render-orchestration chokepoint shared by the IPC `live-update` handler and
  * the HTTP `/api/render` route. Bumps `renderVersion`, broadcasts the
  * lifecycle pings, runs the dedupable `updateLiveCode`, and emits success /
@@ -236,6 +273,7 @@ async function runLiveRender(fileName: string, code: string): Promise<RenderOutc
       return { state: 'superseded', version: myVersion, durationMs: Date.now() - startedAt };
     }
     if (!data) {
+      emitMissingEngine(myVersion, fileName);
       return { state: 'no-scene-manager', version: myVersion, durationMs: Date.now() - startedAt };
     }
     emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit, data.params);
@@ -272,24 +310,38 @@ async function runLiveRender(fileName: string, code: string): Promise<RenderOutc
   }
 }
 
+/**
+ * Render `filePath` from disk as the current model. Shared by the IPC
+ * `process-file` message an editor host sends and the `POST /api/files/open`
+ * route the in-page host uses — the two hosts must land on identical
+ * behaviour, so they land on identical code.
+ */
+async function processFile(filePath: string): Promise<void> {
+  const myVersion = ++renderVersion;
+  broadcastToUI({ type: 'render-version', version: myVersion, state: 'start' });
+  broadcastToUI({ type: 'processing-file' });
+  currentFile = filePath;
+  try {
+    const data = await fluidCadServer.processFile(filePath);
+    if (myVersion !== renderVersion) { return; }
+    if (data) {
+      emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit, data.params);
+      return;
+    }
+    // No data and no throw: there was nothing to render with. Say so rather
+    // than leaving the page on its loading overlay.
+    emitMissingEngine(myVersion, filePath);
+  } catch (err) {
+    if (myVersion !== renderVersion) { return; }
+    emitCompileError(myVersion, filePath, err);
+  }
+}
+
 async function handleExtensionMessage(msg: any) {
   try {
     switch (msg.type) {
       case 'process-file': {
-        const myVersion = ++renderVersion;
-        broadcastToUI({ type: 'render-version', version: myVersion, state: 'start' });
-        broadcastToUI({ type: 'processing-file' });
-        currentFile = msg.filePath;
-        try {
-          const data = await fluidCadServer.processFile(msg.filePath);
-          if (myVersion !== renderVersion) { return; }
-          if (data) {
-            emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit, data.params);
-          }
-        } catch (err) {
-          if (myVersion !== renderVersion) { return; }
-          emitCompileError(myVersion, msg.filePath, err);
-        }
+        await processFile(msg.filePath);
         break;
       }
 
@@ -343,8 +395,8 @@ async function handleExtensionMessage(msg: any) {
       }
 
       case 'editor-hello': {
-        editorCapabilities = { undoRedo: msg.capabilities?.undoRedo === true };
-        broadcastToUI({ type: 'editor-capabilities', ...editorCapabilities });
+        hosts.announce('ipc', { undoRedo: msg.capabilities?.undoRedo === true });
+        broadcastEditorCapabilities(core, hosts);
         break;
       }
 
@@ -397,7 +449,10 @@ process.on('message', (msg: any) => {
 
 httpServer.listen(PORT, () => {
   const url = `http://localhost:${PORT}`;
-  console.log(`FluidCAD server listening on ${url}`);
+  // Name the engine that is actually running, not just the port. A project can
+  // pin a version (P0-4) and the whole point of the pin is that which kernel
+  // built the geometry is worth stating out loud.
+  console.log(`FluidCAD engine ${PACKAGE_VERSION} listening on ${url}`);
 
   // Warned here rather than in `bin/commands/serve.js` so that every host
   // reaches it: the extensions fork this file directly and never run the CLI,
@@ -405,6 +460,19 @@ httpServer.listen(PORT, () => {
   const pinWarning = describeEnginePinMismatch(PROJECT_CONFIG, PACKAGE_VERSION);
   if (pinWarning) {
     console.warn(pinWarning);
+  }
+
+  // Tell the page about edits made outside it. Announcement only — the CLI's
+  // watcher still owns re-rendering on an external change, so nothing here
+  // changes what an existing host sees.
+  if (WORKSPACE_PATH) {
+    try {
+      workspaceWatcher = createWorkspaceWatcher(WORKSPACE_PATH, (event) => {
+        broadcastToUI(event);
+      });
+    } catch (err: any) {
+      console.warn(`Failed to watch the workspace: ${err?.message ?? err}`);
+    }
   }
 
   // Publish this instance so a standalone MCP process can discover us.
@@ -441,6 +509,13 @@ httpServer.listen(PORT, () => {
 
   // Initialize FluidCAD server in the background
   fluidCadServer.init(WORKSPACE_PATH).then(() => {
+    // Starting without an engine is legal — the UI and the editor still work —
+    // but it is never what someone wants silently, so it lands in the terminal
+    // as well as in the page.
+    const missingEngine = fluidCadServer.describeMissingEngine();
+    if (missingEngine) {
+      console.warn(`FluidCAD: ${missingEngine}`);
+    }
     sendToExtension({ type: 'init-complete', success: true });
     broadcastToUI({ type: 'init-complete', success: true });
   }).catch((err: any) => {
@@ -460,6 +535,8 @@ function cleanupDiscovery(): void {
     return;
   }
   cleanedUp = true;
+  workspaceWatcher?.close();
+  workspaceWatcher = null;
   deleteInstanceFile(WORKSPACE_PATH, process.pid);
   try {
     removeInstance(WORKSPACE_PATH, process.pid);

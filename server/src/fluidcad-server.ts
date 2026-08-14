@@ -4,6 +4,7 @@ import { existsSync } from 'fs';
 import type { SceneHost } from './host/scene-host.ts';
 import { LocalSceneHost } from './host/local-scene-host.ts';
 import { normalizePath } from './normalize-path.ts';
+import { findLibIdentityMismatch } from './lib-identity.ts';
 import { BreakpointHit } from '../../lib/dist/common/breakpoint-hit.js';
 import { createParamRegistry, getParamRegistry } from '../../lib/dist/index.js';
 import type { ParamDefinition, ParamRegistry, ParamVal } from '../../lib/dist/index.js';
@@ -707,6 +708,15 @@ export class FluidCadServer {
     if (existsSync(initFilePath)) {
       const { default: _sceneManager } = await this.host.loadModule(initFilePath);
       this.sceneManager = await _sceneManager;
+
+      // Only meaningful once a workspace `init.js` has actually imported the
+      // kernel — the hub path installs its manager via `setSceneManager` and
+      // never comes through here. Deliberately fatal: the failure it catches
+      // is silent, and a half-working session is worse than a clear stop.
+      const mismatch = findLibIdentityMismatch(workspacePath);
+      if (mismatch) {
+        throw new Error(mismatch.message);
+      }
     }
   }
 

@@ -1,5 +1,7 @@
 import { writeFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import { writeEnginePin } from '../../server/dist/project-config.js';
+import { readPackageVersion } from '../lib/workspace.js';
 
 const INIT_JS = `import { init } from 'fluidcad'\n\nexport default await init()\n`;
 
@@ -44,12 +46,20 @@ function runInit() {
     writeFileSync(jsconfigPath, JSCONFIG);
   }
 
+  // Pin the engine this project is being authored against. Left alone if it
+  // already exists — an existing pin is a deliberate choice about which
+  // kernel this model's geometry came from, not a stale default to refresh.
+  const configPath = resolve(cwd, 'fluidcad.json');
+  if (!existsSync(configPath)) {
+    writeEnginePin(cwd, readPackageVersion());
+  }
+
   console.log('FluidCAD initialized.');
 }
 
 export function registerInitCommand(program) {
   program
     .command('init')
-    .description('Scaffold init.js, test.fluid.js, and jsconfig.json in the current directory')
+    .description('Scaffold init.js, test.fluid.js, jsconfig.json, and fluidcad.json in the current directory')
     .action(runInit);
 }

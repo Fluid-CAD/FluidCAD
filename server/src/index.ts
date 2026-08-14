@@ -24,6 +24,7 @@ import { createTextRouter } from './routes/text.ts';
 import { createFeatureGhostRouter } from './routes/feature-ghost.ts';
 import { FeatureEditDispatcher } from './edit-dispatch.ts';
 import { normalizePath } from './normalize-path.ts';
+import { readProjectConfig, describeEnginePinMismatch } from './project-config.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
 import type { CompileError } from './ws-protocol.ts';
@@ -49,6 +50,9 @@ function readPackageVersion(): string {
 
 const PACKAGE_VERSION = readPackageVersion();
 const STARTED_AT = new Date().toISOString();
+// Read once at startup: the pin describes the project, and a project doesn't
+// change which engine it was authored against while its server is running.
+const PROJECT_CONFIG = readProjectConfig(WORKSPACE_PATH);
 
 
 // ---------------------------------------------------------------------------
@@ -93,6 +97,7 @@ app.use('/api', createHealthRouter({
   version: PACKAGE_VERSION,
   workspacePath: WORKSPACE_PATH,
   startedAt: STARTED_AT,
+  enginePin: PROJECT_CONFIG.engine,
 }));
 app.use('/api', createPropertiesRouter(fluidCadServer));
 app.use('/api', createParamsRouter(fluidCadServer, sendToExtension, broadcastToUI, editDispatcher));
@@ -393,6 +398,14 @@ process.on('message', (msg: any) => {
 httpServer.listen(PORT, () => {
   const url = `http://localhost:${PORT}`;
   console.log(`FluidCAD server listening on ${url}`);
+
+  // Warned here rather than in `bin/commands/serve.js` so that every host
+  // reaches it: the extensions fork this file directly and never run the CLI,
+  // and `serve` pipes our stdout through to the terminal anyway.
+  const pinWarning = describeEnginePinMismatch(PROJECT_CONFIG, PACKAGE_VERSION);
+  if (pinWarning) {
+    console.warn(pinWarning);
+  }
 
   // Publish this instance so a standalone MCP process can discover us.
   // Discovery is best-effort: an MCP-less workflow must keep working even if

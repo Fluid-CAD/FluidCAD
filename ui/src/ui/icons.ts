@@ -33,6 +33,8 @@ import iconPencil from '@tabler/icons/outline/pencil.svg?raw';
 import iconChevronLeft from '@tabler/icons/outline/chevron-left.svg?raw';
 import iconChevronRight from '@tabler/icons/outline/chevron-right.svg?raw';
 import iconCode from '@tabler/icons/outline/code.svg?raw';
+import iconArrowBackUp from '@tabler/icons/outline/arrow-back-up.svg?raw';
+import iconArrowForwardUp from '@tabler/icons/outline/arrow-forward-up.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -68,6 +70,8 @@ export const ICON_TEXT = iconTypography;
 export const ICON_PENCIL = iconPencil;
 /** "Show in source" — jump from a panel row to the statement that made it. */
 export const ICON_CODE = iconCode;
+export const ICON_UNDO = iconArrowBackUp;
+export const ICON_REDO = iconArrowForwardUp;
 export const ICON_ROUNDED_RECT = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="5"/></svg>';
 
 export const ICON_SLOT = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h6a5 5 0 0 1 0 10H9a5 5 0 0 1 0-10z"/><circle cx="9" cy="10" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.2" fill="currentColor" stroke="none"/></svg>';

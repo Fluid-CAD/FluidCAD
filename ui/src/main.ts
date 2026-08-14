@@ -19,6 +19,7 @@ import { Navbar } from './ui/navbar';
 import { AssemblyToolbar } from './ui/assembly-toolbar';
 import { InsertPartDialog } from './ui/insert-part/insert-part-dialog';
 import { EditParamsDialog } from './ui/edit-params-dialog';
+import { HistoryToolbar } from './ui/history-toolbar';
 import { ICON_IMG_FALLBACK } from './ui/object-icons';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
 import { SelectionContextMenu } from './interactive/selection-menu';
@@ -411,6 +412,29 @@ const topBar = new TopBar(container, {
 });
 const navbar = new Navbar(container);
 
+// Undo/Redo — registered first so the group leads the bar, ahead of every
+// other tool. The buttons step the attached editor's native undo stack
+// (each UI-applied operation is one editor edit); the group appears once the
+// editor host announces the capability over the WebSocket and never shows on
+// an editor-less server. The file targeted is whatever the last render came
+// from — the same file every other toolbar action edits.
+let currentSceneAbsPath: string | null = null;
+const runEditorHistory = (action: 'undo' | 'redo') => {
+  const editor = engineClient.editor;
+  if (!editor || !currentSceneAbsPath) {
+    return;
+  }
+  editor[action](currentSceneAbsPath).then((result) => {
+    if (!result.success) {
+      console.warn(`${action} failed:`, result.reason);
+    }
+  });
+};
+const historyToolbar = new HistoryToolbar(navbar, {
+  onUndo: () => runEditorHistory('undo'),
+  onRedo: () => runEditorHistory('redo'),
+});
+
 // Import group — always visible for now.
 const importGroup = navbar.addGroup('import');
 const importBtn = document.createElement('button');
@@ -434,9 +458,8 @@ const insertPartDialog = new InsertPartDialog(container);
 // Parts-panel "Edit parameters…" — merges changed values into an inserted
 // instance's/occurrence's insert() statement.
 const editParamsDialog = new EditParamsDialog(container);
-// The rendered file's absolute path (from scene-rendered) — the Insert dialog
-// excludes it so the open assembly can't be inserted into itself.
-let currentSceneAbsPath: string | null = null;
+// The Insert dialog reuses `currentSceneAbsPath` (declared with the history
+// toolbar above) to exclude the open assembly from inserting into itself.
 new AssemblyToolbar(navbar, {
   onInsert: () => insertPartDialog.show(currentSceneAbsPath),
   // The service is constructed later (it needs the gizmo driver); toolbar
@@ -2129,6 +2152,9 @@ function connectWebSocket() {
         break;
       case 'take-screenshot':
         handleScreenshotRequest(ws, msg.requestId, msg.options);
+        break;
+      case 'editor-capabilities':
+        historyToolbar.setAvailable(msg.undoRedo === true);
         break;
     }
   });

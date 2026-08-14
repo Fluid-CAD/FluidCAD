@@ -163,6 +163,14 @@ export async function spawnServer(client: Client, workspacePath: string): Promis
       if (msg.type === 'ready') {
         client.serverUrl = msg.url;
         client.logger.appendLine(`Server ready at ${client.serverUrl}`);
+        // Announce the host before the webview UI can connect — the server
+        // relays the capabilities to the UI, which shows its editor-backed
+        // controls (undo/redo) only for hosts that declared them.
+        sendToServer(client, {
+          type: 'editor-hello',
+          editor: 'vscode',
+          capabilities: { undoRedo: true },
+        });
         createWebviewPanel(client);
       }
       else if (msg.type === 'init-complete') {

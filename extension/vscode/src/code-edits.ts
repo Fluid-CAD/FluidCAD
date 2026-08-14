@@ -32,6 +32,39 @@ async function resolveEditorForPath(filePath: string): Promise<vscode.TextEditor
   });
 }
 
+/**
+ * Server-driven editor history: run VSCode's native undo/redo on the document
+ * backing `filePath` and ack the outcome over IPC. The built-in undo/redo
+ * commands act on the *active* editor, so unlike every other handler this one
+ * takes focus before running the command.
+ */
+export async function handleUndoRedo(
+  client: Client,
+  msg: { type: 'undo' | 'redo'; filePath: string; editId: string },
+) {
+  let error: string | undefined;
+  try {
+    const editor = await resolveEditorForPath(msg.filePath);
+    const doc = editor.document;
+    await vscode.window.showTextDocument(doc, {
+      viewColumn: editor.viewColumn ?? vscode.ViewColumn.One,
+      preserveFocus: false,
+      preview: false,
+    });
+    const versionBefore = doc.version;
+    await vscode.commands.executeCommand(msg.type);
+    if (doc.version === versionBefore) {
+      error = msg.type === 'undo' ? 'Nothing to undo.' : 'Nothing to redo.';
+    } else {
+      // Skip the live-render debounce so the viewport answers the click.
+      client.updateLiveCode(doc.fileName, doc.getText());
+    }
+  } catch (err: any) {
+    error = err?.message || String(err);
+  }
+  client.sendToServer({ type: 'edit-ack', editId: msg.editId, error });
+}
+
 export async function handleInsertPoint(client: Client, msg: { point: [number, number]; sourceLocation: { line: number } }) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {

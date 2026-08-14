@@ -379,6 +379,14 @@ local function find_buffer_for_path(file_path)
   return nil
 end
 
+--- Mirror of the server's file-kind suffixes: part, assembly, and legacy
+--- .fluid.js sources are all fluid scripts.
+local function is_fluid_script(name)
+  return name:match('%.part%.js$') ~= nil
+    or name:match('%.assembly%.js$') ~= nil
+    or name:match('%.fluid%.js$') ~= nil
+end
+
 --- Server-driven editor history: run native undo/redo inside the buffer for
 --- `msg.filePath` and ack the outcome. Deliberately no current-buffer
 --- fallback — stepping history in whatever buffer happens to be focused
@@ -388,7 +396,7 @@ function M.handle_undo_redo(msg)
   local buf = find_buffer_for_path(msg.filePath)
   if not buf then
     err = 'no buffer for ' .. tostring(msg.filePath)
-  elseif not vim.api.nvim_buf_get_name(buf):match('%.fluid%.js$') then
+  elseif not is_fluid_script(vim.api.nvim_buf_get_name(buf)) then
     err = 'refusing to ' .. msg.type .. ' a non-fluid buffer'
   else
     local tick_before = vim.api.nvim_buf_get_changedtick(buf)

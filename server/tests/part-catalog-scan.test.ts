@@ -340,9 +340,11 @@ describe('scanFileForParts — lazy part definitions', () => {
       getType: () => 'part-definition',
       materialize() {
         materialized++;
-        if (params.length > 0) {
-          // Scoped-build shape: the built Part carries its collected params.
-          part.params = params;
+        // Scan builds run unscoped — param() declarations land in the
+        // export's throwaway registry, which is where the scanner reads
+        // them back from.
+        for (const def of params) {
+          getParamRegistry().register(def);
         }
         return part;
       },

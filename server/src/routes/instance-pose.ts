@@ -96,12 +96,14 @@ export function createInstancePoseRouter(
   // insert() statement's second argument. Same shape as /instance-pose —
   // cross-file targets 422 (a sub-assembly's insert() lives in its own file).
   router.post('/update-insert-params', async (req, res) => {
-    const { filePath, sourceLine, set } = req.body ?? {};
+    const { filePath, sourceLine, set, unset } = req.body ?? {};
+    const unsetList: unknown = unset ?? [];
     if (
       typeof filePath !== 'string' || filePath.length === 0
       || !Number.isInteger(sourceLine) || sourceLine < 1
       || set === null || typeof set !== 'object' || Array.isArray(set)
-      || Object.keys(set).length === 0
+      || !Array.isArray(unsetList) || !unsetList.every(l => typeof l === 'string' && l.length > 0)
+      || (Object.keys(set).length === 0 && unsetList.length === 0)
     ) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
@@ -124,7 +126,11 @@ export function createInstancePoseRouter(
       producers: [],
       parts: [],
       imports: [],
-      insertParams: { line: sourceLine, set },
+      insertParams: {
+        line: sourceLine,
+        set,
+        ...(unsetList.length > 0 ? { unset: unsetList as string[] } : {}),
+      },
     };
     await dispatcher.dispatch(res, spec, { success: true });
   });

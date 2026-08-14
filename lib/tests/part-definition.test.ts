@@ -186,29 +186,21 @@ describe("insert(def, overrides)", () => {
     expect(serialized[0].paramValues).toEqual({ Length: 60 });
   });
 
-  it(".with() pre-binds values; insert-time overrides win; variants stay shared", () => {
+  it("shares one template when the same values ride a shared args object", () => {
     startAssembly();
     let ran = 0;
-    let seen: number | null = null;
-    const def = part("p", () => { ran++; seen = param("Length", 100); });
-    const long = def.with({ Length: 200 });
-
-    const a = insert(long);
-    expect(seen).toBe(200);
-    const b = insert(def, { Length: 200 });
+    const def = part("p", () => { ran++; param("Length", 100); });
+    const cfg = { Length: 200 };
+    const a = insert(def, cfg);
+    const b = insert(def, cfg);
     expect(ran).toBe(1);
     expect(a.record.part).toBe(b.record.part);
-
-    insert(long, { Length: 300 });
-    expect(seen).toBe(300);
-    expect(ran).toBe(2);
   });
 
   it("rejects invalid override values", () => {
     startAssembly();
     const def = part("p", () => {});
     expect(() => insert(def, { Length: {} as any })).toThrow(/parameter 'Length'/);
-    expect(() => def.with({ Length: (() => 0) as any })).toThrow(/parameter 'Length'/);
   });
 
   it("rejects overrides on an already-built Part", () => {
@@ -281,23 +273,6 @@ describe("assembly definition parameters", () => {
     });
     def.run();
     expect(getParamRegistry().getDefinitions().map(d => d.label)).toEqual(["Width"]);
-  });
-
-  it(".with() pre-binds occurrence values; run() applies them scoped", () => {
-    createParamRegistry();
-    getSceneManager().startAssemblyScene();
-    const block = part("b", () => {});
-    const seen: number[] = [];
-    const def = assembly("sub", () => {
-      seen.push(param("Width", 700) as number);
-      insert(block);
-    });
-    const wide = def.with({ Width: 1000 });
-    insert(wide);
-    wide.run();
-    expect(seen).toEqual([1000, 1000]);
-    // Scoped both times: the bound value is fixed, not panel state.
-    expect(getParamRegistry().getDefinitions()).toHaveLength(0);
   });
 
   it("passes assembly params down into part variants", () => {

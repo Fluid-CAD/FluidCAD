@@ -31,15 +31,9 @@ export function validateParamOverrides(context: string, overrides: ParamOverride
   }
 }
 
-/** bound ∪ extra, extra winning — the map a definition build's scope runs under. */
-export function mergeOverrides(bound: ReadonlyMap<string, ParamVal>, extra?: ParamOverrides): Map<string, ParamVal> {
-  const merged = new Map(bound);
-  if (extra) {
-    for (const [label, value] of Object.entries(extra)) {
-      merged.set(label, value);
-    }
-  }
-  return merged;
+/** The map a definition build's scope runs under. */
+export function toOverrideMap(overrides?: ParamOverrides): Map<string, ParamVal> {
+  return new Map(overrides ? Object.entries(overrides) : []);
 }
 
 /**

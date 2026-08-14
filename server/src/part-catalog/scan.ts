@@ -8,8 +8,8 @@ import { createParamRegistry, getParamRegistry, setParamRegistry } from '../../.
  * One parameter of a scanned definition — `ParamDefinition` minus
  * `sourceLocation` (irrelevant to the Insert dialog, and it would leak
  * workspace paths into a payload the UI never needs them in). `currentValue`
- * is the definition's EFFECTIVE default (bound `.with()` values applied) —
- * the value the dialog form should prefill and diff against.
+ * equals the declared default at scan time — the value the dialog form
+ * prefills and diffs against.
  */
 export type CatalogParamDef = {
   label: string;
@@ -395,16 +395,11 @@ function recordPart(
 }
 
 /**
- * A scanned definition's parameter interface. Root builds register into the
- * export's throwaway registry; a `.with()` derivative builds SCOPED and
- * records its collected definitions on the built Part instead — prefer
- * those (their currentValue carries the bound values).
+ * A scanned definition's parameter interface — the export's own throwaway
+ * registry, snapshotted after its build (scan builds run unscoped, so every
+ * `param()` the definition declared landed there).
  */
-function collectedParams(builtPart: any, registry: { getDefinitions(): any[] }): CatalogParamDef[] {
-  const own = builtPart?.params;
-  if (Array.isArray(own) && own.length > 0) {
-    return catalogParams(own);
-  }
+function collectedParams(_builtPart: any, registry: { getDefinitions(): any[] }): CatalogParamDef[] {
   return catalogParams(registry.getDefinitions());
 }
 

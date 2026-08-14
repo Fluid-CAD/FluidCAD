@@ -5,7 +5,7 @@ import type { SourceLocation } from "../common/scene-object.js";
 import { getCurrentScene } from "../scene-manager.js";
 import { popParamScope, pushParamScope } from "../param-registry.js";
 import type { ParamOverrides, ParamVal } from "../param-registry.js";
-import { canonicalVariantKey, collectedParamValues, mergeOverrides, validateParamOverrides, warnUnknownOverrides } from "./param-overrides.js";
+import { canonicalVariantKey, collectedParamValues, toOverrideMap, warnUnknownOverrides } from "./param-overrides.js";
 
 /**
  * A lazy part definition created by `part(name, callback)`.
@@ -27,8 +27,7 @@ import { canonicalVariantKey, collectedParamValues, mergeOverrides, validatePara
 export class PartDefinition<T = unknown> {
   /**
    * Built variants, per scene: canonical override key → template Part.
-   * Lives on the ROOT definition so `.with()` derivatives share it; keyed
-   * weakly so disposed scenes release their templates.
+   * Keyed weakly so disposed scenes release their templates.
    */
   private readonly variantsByScene = new WeakMap<Scene, Map<string, Part>>();
 
@@ -39,8 +38,6 @@ export class PartDefinition<T = unknown> {
     public readonly partName: string,
     private readonly callback: () => T,
     private sourceLocation: SourceLocation | null = null,
-    private readonly boundOverrides: ReadonlyMap<string, ParamVal> = new Map(),
-    private readonly rootDefinition: PartDefinition<T> | null = null,
   ) {
     this.displayName = partName;
   }
@@ -74,39 +71,18 @@ export class PartDefinition<T = unknown> {
     return this;
   }
 
-  /**
-   * A derived definition with `overrides` pre-bound (later `.with()` and
-   * insert-time overrides win over earlier ones). Cheap — no build; variants
-   * stay shared with the root definition's cache.
-   */
-  with(overrides: ParamOverrides): PartDefinition<T> {
-    validateParamOverrides(`part '${this.partName}'.with()`, overrides);
-    return new PartDefinition<T>(
-      this.partName,
-      this.callback,
-      this.sourceLocation,
-      mergeOverrides(this.boundOverrides, overrides),
-      this.root(),
-    );
-  }
-
-  private root(): PartDefinition<T> {
-    return this.rootDefinition ?? this;
-  }
-
   private variantsIn(scene: Scene): Map<string, Part> {
-    const root = this.root();
-    let variants = root.variantsByScene.get(scene);
+    let variants = this.variantsByScene.get(scene);
     if (!variants) {
       variants = new Map();
-      root.variantsByScene.set(scene, variants);
+      this.variantsByScene.set(scene, variants);
     }
     return variants;
   }
 
   /** Whether any variant of this definition was built into `scene`. */
   hasVariantIn(scene: Scene): boolean {
-    return (this.root().variantsByScene.get(scene)?.size ?? 0) > 0;
+    return (this.variantsByScene.get(scene)?.size ?? 0) > 0;
   }
 
   /**
@@ -115,18 +91,16 @@ export class PartDefinition<T = unknown> {
    * consuming file's global registry / params panel.
    */
   materializeVariant(scene: Scene, extra?: ParamOverrides): Part {
-    return this.buildVariant(scene, mergeOverrides(this.boundOverrides, extra), true);
+    return this.buildVariant(scene, toOverrideMap(extra), true);
   }
 
   /**
-   * The entry-file path (standalone render of the defining file): a plain
-   * definition builds through the GLOBAL registry so its params land in the
-   * panel with override/baseline bookkeeping intact; a `.with()` derivative
-   * builds scoped — its bound values are fixed, not panel state.
+   * The entry-file path (standalone render of the defining file): builds
+   * through the GLOBAL registry so the definition's params land in the
+   * panel with override/baseline bookkeeping intact.
    */
   materializeInto(scene: Scene): Part {
-    const overrides = new Map(this.boundOverrides);
-    return this.buildVariant(scene, overrides, overrides.size > 0);
+    return this.buildVariant(scene, new Map(), false);
   }
 
   /** `materializeInto` the current scene — the host's export arm and the legacy-access hatch. */

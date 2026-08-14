@@ -3696,8 +3696,8 @@ export type CatalogParamValue = string | number | boolean | (string | number)[];
 
 /**
  * One parameter of a scanned definition — `ParamDefinition` minus its
- * sourceLocation. `currentValue` is the definition's EFFECTIVE default
- * (bound `.with()` values applied): the form prefill and the diff baseline.
+ * sourceLocation. `currentValue` equals the declared default at scan time:
+ * the form prefill and the diff baseline.
  */
 export type CatalogParamDef = {
   label: string;
@@ -3816,17 +3816,20 @@ export async function insertCatalogParts(
  * Merge changed parameter values into an inserted instance's/occurrence's
  * `insert()` statement (second argument). `set` carries ONLY the labels the
  * user changed — untouched entries (expressions included) survive verbatim.
+ * `unset` labels are REMOVED from the argument (reset to the declared
+ * default); the whole argument drops when its last entry goes.
  */
 export async function updateInsertParams(
   filePath: string,
   sourceLine: number,
   set: Record<string, CatalogParamValue>,
+  unset: string[] = [],
 ): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('/api/update-insert-params', {
       method: 'POST',
       headers: JSON_HEADERS,
-      body: JSON.stringify({ filePath, sourceLine, set }),
+      body: JSON.stringify({ filePath, sourceLine, set, unset }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {

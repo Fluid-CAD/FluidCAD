@@ -9,7 +9,7 @@ export type SelectOption = { label: string; value: string | number };
 export type ParamScalar = string | number | boolean;
 export type ParamVal = ParamScalar | (string | number)[];
 
-/** Override values a definition build is parameterized with — `insert(def, {...})` / `def.with({...})`. */
+/** Override values a definition build is parameterized with — `insert(def, {...})`. */
 export type ParamOverrides = Record<string, ParamVal>;
 
 export type ParamDefinition = {
@@ -190,7 +190,7 @@ export function setParamRegistry(registry: ParamRegistry): void {
  * enclosing assembly's own 'Length' override.
  */
 export type ParamScope = {
-  /** label → override value, as passed to `insert(def, {...})` / `.with({...})`. */
+  /** label → override value, as passed to `insert(def, {...})`. */
   overrides: Map<string, ParamVal>;
   /** Definitions the build declared, in first-call order — the definition's parameter interface. */
   collected: Map<string, ParamDefinition>;

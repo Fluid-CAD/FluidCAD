@@ -125,6 +125,52 @@ describe('applyInsertParamsEdit', () => {
     expect(result.error).toContain('no statement found at line 3');
   });
 
+  it('unset removes an entry and keeps its neighbors verbatim', async () => {
+    const code = `const f = insert(extrusion, { Size: '80x80', Length: width - 160, Capped: true });\n`;
+    const result = await applyInsertParamsEdit(code, { line: 1, set: {}, unset: ['Length'] });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(`const f = insert(extrusion, { Size: '80x80', Capped: true });\n`);
+  });
+
+  it('unset removes the first entry cleanly', async () => {
+    const code = `const f = insert(extrusion, { Size: '80x80', Length: 150 });\n`;
+    const result = await applyInsertParamsEdit(code, { line: 1, set: {}, unset: ['Size'] });
+    expect(result.newCode).toBe(`const f = insert(extrusion, { Length: 150 });\n`);
+  });
+
+  it('unset of the last remaining entry drops the whole argument', async () => {
+    const code = `const f = insert(extrusion, { Length: 900 }).grounded();\n`;
+    const result = await applyInsertParamsEdit(code, { line: 1, set: {}, unset: ['Length'] });
+    expect(result.newCode).toBe(`const f = insert(extrusion).grounded();\n`);
+  });
+
+  it('unset no-ops on absent labels and missing arguments', async () => {
+    const withArg = `const f = insert(extrusion, { Size: '80x80' });\n`;
+    const noOp = await applyInsertParamsEdit(withArg, { line: 1, set: {}, unset: ['Length'] });
+    expect(noOp.error).toBeUndefined();
+    expect(noOp.newCode).toBe(withArg);
+    const bare = `const f = insert(extrusion);\n`;
+    const bareResult = await applyInsertParamsEdit(bare, { line: 1, set: {}, unset: ['Length'] });
+    expect(bareResult.newCode).toBe(bare);
+  });
+
+  it('combines set and unset in one call', async () => {
+    const code = `const f = insert(extrusion, { Size: '80x80', Length: 900 });\n`;
+    const result = await applyInsertParamsEdit(code, {
+      line: 1,
+      set: { Size: '80x120' },
+      unset: ['Length'],
+    });
+    expect(result.newCode).toBe(`const f = insert(extrusion, { Size: '80x120' });\n`);
+  });
+
+  it('refuses a label that is both set and reset', async () => {
+    const code = `const f = insert(extrusion, { Length: 900 });\n`;
+    const result = await applyInsertParamsEdit(code, { line: 1, set: { Length: 5 }, unset: ['Length'] });
+    expect(result.error).toContain('both set and reset');
+    expect(result.newCode).toBe(code);
+  });
+
   it('rides applyFeatureEdit as a side-channel spec', async () => {
     const spec: ApplyFeatureEditSpec = {
       feature: 'sketch',

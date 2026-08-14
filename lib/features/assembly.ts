@@ -1,6 +1,6 @@
 import { popParamScope, pushParamScope } from "../param-registry.js";
 import type { ParamOverrides, ParamScope, ParamVal } from "../param-registry.js";
-import { mergeOverrides, validateParamOverrides, warnUnknownOverrides } from "./param-overrides.js";
+import { toOverrideMap, warnUnknownOverrides } from "./param-overrides.js";
 
 /**
  * A lazy sub-assembly definition created by `assembly(name, callback)`.
@@ -28,32 +28,20 @@ export class Assembly<T = unknown> {
   constructor(
     public readonly assemblyName: string,
     private readonly callback: () => T,
-    private readonly boundOverrides: ReadonlyMap<string, ParamVal> = new Map(),
   ) {}
 
   getType(): string {
     return "assembly";
   }
 
-  /** A derived definition with `overrides` pre-bound; insert-time overrides still win. */
-  with(overrides: ParamOverrides): Assembly<T> {
-    validateParamOverrides(`assembly '${this.assemblyName}'.with()`, overrides);
-    return new Assembly<T>(this.assemblyName, this.callback, mergeOverrides(this.boundOverrides, overrides));
-  }
-
   /**
    * Execute the definition body at ROOT context — the entry render's path
-   * (the host invokes exported definitions). A plain definition runs
-   * unscoped so its `param()` calls register globally (params panel); a
-   * `.with()` derivative runs scoped — its bound values are fixed, not
-   * panel state.
+   * (the host invokes exported definitions). Runs unscoped so the
+   * definition's `param()` calls register globally (params panel).
    */
   run(): T {
-    if (this.boundOverrides.size === 0) {
-      this.hasRun = true;
-      return this.callback();
-    }
-    return this.runInScope(new Map(this.boundOverrides)).parts;
+    this.hasRun = true;
+    return this.callback();
   }
 
   /**
@@ -64,7 +52,7 @@ export class Assembly<T = unknown> {
    * occurrence record can carry its parameter interface and values.
    */
   runScoped(overrides: ParamOverrides): { parts: T; scope: ParamScope } {
-    return this.runInScope(mergeOverrides(this.boundOverrides, overrides));
+    return this.runInScope(toOverrideMap(overrides));
   }
 
   private runInScope(overrides: Map<string, ParamVal>): { parts: T; scope: ParamScope } {

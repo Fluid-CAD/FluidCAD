@@ -80,7 +80,7 @@ export class EditParamsDialog {
       ...def,
       currentValue: opts.currentValues[def.label] ?? def.currentValue,
     }));
-    this.form = new ParamForm(seeded);
+    this.form = new ParamForm(seeded, { resettable: true });
     const host = this.overlay.querySelector('[data-ref="form-host"]')!;
     host.innerHTML = '';
     host.appendChild(this.form.element);
@@ -102,14 +102,20 @@ export class EditParamsDialog {
     if (this.applying || !this.form || !this.target) {
       return;
     }
-    const set = this.form.nonDefaultValues();
-    if (Object.keys(set).length === 0) {
+    // Reset rows become `unset` (the insert() argument is REMOVED, so the
+    // declared default applies again); everything else diffs against the
+    // seeded current values.
+    const unset = this.form.resetLabels();
+    const set = Object.fromEntries(
+      Object.entries(this.form.nonDefaultValues()).filter(([label]) => !unset.includes(label)),
+    );
+    if (Object.keys(set).length === 0 && unset.length === 0) {
       this.hide();
       return;
     }
     this.applying = true;
     this.setStatus('');
-    const result = await updateInsertParams(this.target.filePath, this.target.line, set);
+    const result = await updateInsertParams(this.target.filePath, this.target.line, set, unset);
     this.applying = false;
     if (!result.success) {
       this.setStatus(result.reason ?? 'Edit failed.');

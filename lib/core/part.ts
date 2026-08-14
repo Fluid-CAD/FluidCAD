@@ -15,8 +15,8 @@ import { PartDefinition } from "../features/part-definition.js";
  *       connector('start', e.startFaces());
  *     });
  *
- * `def.with({ Length: 380 })` pre-binds values (a shared variant to insert
- * twice); the callback's return value is exposed as `def.features`.
+ * Equal override values share one template per scene (repeat inserts are
+ * cheap); the callback's return value is exposed as `def.features`.
  */
 function part<T>(name: string, callback: () => T): PartDefinition<T> {
   if (typeof name !== "string" || name.length === 0) {

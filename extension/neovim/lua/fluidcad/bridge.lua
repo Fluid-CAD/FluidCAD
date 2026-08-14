@@ -138,6 +138,14 @@ function M.handle_message(msg)
   vim.schedule(function()
     if msg.type == 'ready' then
       server_url = msg.url
+      -- Announce the host before the browser UI can connect — the server
+      -- relays the capabilities to the UI, which shows its editor-backed
+      -- controls (undo/redo) only for hosts that declared them.
+      M.send({
+        type = 'editor-hello',
+        editor = 'neovim',
+        capabilities = { undoRedo = true },
+      })
       if config.open_browser and server_url then
         local cmd
         if vim.fn.has('mac') == 1 then
@@ -333,6 +341,8 @@ function M.handle_message(msg)
         local path = vim.api.nvim_buf_get_name(vim.api.nvim_get_current_buf())
         breakpoints.clear_all(path)
       end
+    elseif msg.type == 'undo' or msg.type == 'redo' then
+      M.handle_undo_redo(msg)
     end
   end)
 end
@@ -347,6 +357,39 @@ local function find_buffer_for_path(file_path)
     end
   end
   return nil
+end
+
+--- Server-driven editor history: run native undo/redo inside the buffer for
+--- `msg.filePath` and ack the outcome. Deliberately no current-buffer
+--- fallback — stepping history in whatever buffer happens to be focused
+--- could rewind an unrelated file.
+function M.handle_undo_redo(msg)
+  local err = nil
+  local buf = find_buffer_for_path(msg.filePath)
+  if not buf then
+    err = 'no buffer for ' .. tostring(msg.filePath)
+  elseif not vim.api.nvim_buf_get_name(buf):match('%.fluid%.js$') then
+    err = 'refusing to ' .. msg.type .. ' a non-fluid buffer'
+  else
+    local tick_before = vim.api.nvim_buf_get_changedtick(buf)
+    local ok, cmd_err = pcall(vim.api.nvim_buf_call, buf, function()
+      vim.cmd('silent ' .. msg.type)
+    end)
+    if not ok then
+      err = tostring(cmd_err)
+    elseif vim.api.nvim_buf_get_changedtick(buf) == tick_before then
+      err = 'Nothing to ' .. msg.type .. '.'
+    else
+      -- TextChanged does not fire for non-current buffers; push explicitly.
+      local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      M.send({
+        type = 'live-update',
+        fileName = vim.api.nvim_buf_get_name(buf),
+        code = table.concat(lines, '\n'),
+      })
+    end
+  end
+  M.send({ type = 'edit-ack', editId = msg.editId, error = err })
 end
 
 function M.update_diagnostics(result, compile_error)

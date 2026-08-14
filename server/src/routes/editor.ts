@@ -1,6 +1,7 @@
 import fs from 'fs';
 import { Router } from 'express';
 import { normalizePath } from '../normalize-path.ts';
+import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 
 export type DirtyFileEntry = {
   /** Absolute, normalized path of the dirty file. */
@@ -47,12 +48,26 @@ export class DirtyBufferState {
   }
 }
 
-export function createEditorRouter(state: DirtyBufferState): Router {
+export function createEditorRouter(state: DirtyBufferState, dispatcher: FeatureEditDispatcher): Router {
   const router = Router();
 
   router.get('/editor/dirty-files', (_req, res) => {
     res.json(state.list());
   });
+
+  // Editor-native history. The attached editor owns the source of truth (its
+  // buffer) and every UI-applied operation lands on its undo stack as one
+  // edit, so undo/redo delegate to it instead of keeping a parallel history.
+  for (const action of ['undo', 'redo'] as const) {
+    router.post(`/editor/${action}`, async (req, res) => {
+      const { filePath } = req.body ?? {};
+      if (typeof filePath !== 'string' || filePath === '') {
+        res.status(400).json({ error: 'Invalid request body' });
+        return;
+      }
+      await dispatcher.dispatchAction(res, (editId) => ({ type: action, filePath, editId }));
+    });
+  }
 
   return router;
 }

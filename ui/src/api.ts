@@ -3423,6 +3423,38 @@ export function gotoSource(sourceLocation: SourceLocationParam): void {
 }
 
 // ---------------------------------------------------------------------------
+// Editor history (acked — the server relays to the attached editor's native
+// undo stack and answers with the editor's real outcome)
+// ---------------------------------------------------------------------------
+
+export type EditorHistoryResult = { success: boolean; reason?: string };
+
+async function postEditorHistory(action: 'undo' | 'redo', filePath: string): Promise<EditorHistoryResult> {
+  try {
+    const res = await fetch(`/api/editor/${action}`, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || body?.success !== true) {
+      return { success: false, reason: body?.reason ?? `HTTP ${res.status}` };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, reason: err?.message || String(err) };
+  }
+}
+
+export function editorUndo(filePath: string): Promise<EditorHistoryResult> {
+  return postEditorHistory('undo', filePath);
+}
+
+export function editorRedo(filePath: string): Promise<EditorHistoryResult> {
+  return postEditorHistory('redo', filePath);
+}
+
+// ---------------------------------------------------------------------------
 // File operations
 // ---------------------------------------------------------------------------
 

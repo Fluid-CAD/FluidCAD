@@ -39,6 +39,7 @@ import {
   handleApplyFeatureEdit,
   handleRemoveFeature,
   handleRenameFeature,
+  handleUndoRedo,
 } from './code-edits';
 import { updateDiagnostics, type CompileError } from './diagnostics';
 
@@ -236,6 +237,13 @@ export class Client {
       case 'rename-feature': {
         handleRenameFeature(this, msg).catch((err) => {
           this.logger.appendLine(`[rename-feature] error: ${err?.stack || err}`);
+        });
+        break;
+      }
+      case 'undo':
+      case 'redo': {
+        handleUndoRedo(this, msg).catch((err) => {
+          this.logger.appendLine(`[${msg.type}] error: ${err?.stack || err}`);
         });
         break;
       }

@@ -1,5 +1,7 @@
 import {
   addBreakpoint,
+  editorRedo,
+  editorUndo,
   exportShapes,
   getEdgeProperties,
   getFaceProperties,
@@ -14,7 +16,7 @@ import {
   rollback,
   savePreference,
 } from './api';
-import type { EdgeProperties, FaceProperties, Material, MeasureEntityRef, MeasureResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
+import type { EdgeProperties, EditorHistoryResult, FaceProperties, Material, MeasureEntityRef, MeasureResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 
 class HttpEngineEditorClient implements EngineEditorClient {
@@ -32,6 +34,14 @@ class HttpEngineEditorClient implements EngineEditorClient {
 
   renameFeature(sourceLocation: SourceLocationParam, name: string | null): void {
     renameFeature(sourceLocation, name);
+  }
+
+  undo(filePath: string): Promise<EditorHistoryResult> {
+    return editorUndo(filePath);
+  }
+
+  redo(filePath: string): Promise<EditorHistoryResult> {
+    return editorRedo(filePath);
   }
 }
 

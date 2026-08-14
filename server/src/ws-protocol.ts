@@ -62,6 +62,29 @@ export type EditorDirtyStateMessage = {
   dirtyFiles: string[];
 };
 
+/**
+ * The editor host announcing itself and its editing capabilities, sent once
+ * on startup. A server that never receives one is running without an editor
+ * (standalone `fluidcad serve`, hub), and the UI hides the controls that
+ * need one.
+ */
+export type EditorHelloMessage = {
+  type: 'editor-hello';
+  editor: 'vscode' | 'neovim';
+  capabilities: { undoRedo: boolean };
+};
+
+/**
+ * Settles a server-dispatched editor action (undo/redo) with its outcome.
+ * Unlike `apply-feature-edit` there is no transform round-trip to carry the
+ * ack, so it rides the IPC channel directly.
+ */
+export type EditAckMessage = {
+  type: 'edit-ack';
+  editId: string;
+  error?: string;
+};
+
 
 export type ExtensionMessage =
   | ProcessFileMessage
@@ -72,7 +95,9 @@ export type ExtensionMessage =
   | ClearHighlightMessage
   | ShowShapePropertiesMessage
   | ExportSceneMessage
-  | EditorDirtyStateMessage;
+  | EditorDirtyStateMessage
+  | EditorHelloMessage
+  | EditAckMessage;
 
 // ---------------------------------------------------------------------------
 // IPC: Server → Extension messages
@@ -266,6 +291,24 @@ export type SetRectDimensionsMessage = {
   oldStartPoint?: [number, number] | null;
 };
 
+/**
+ * Ask the editor host to step its native undo history for `filePath`. Every
+ * UI-driven source edit is applied as one editor edit, so one step reverts
+ * one operation. The host answers with an `edit-ack` carrying `editId`.
+ */
+export type UndoMessage = {
+  type: 'undo';
+  filePath: string;
+  editId: string;
+};
+
+/** Redo counterpart of {@link UndoMessage}. */
+export type RedoMessage = {
+  type: 'redo';
+  filePath: string;
+  editId: string;
+};
+
 
 export type ServerToExtensionMessage =
   | ReadyMessage
@@ -399,6 +442,17 @@ export type UIRenderVersionMessage = {
   absPath?: string;
 };
 
+/**
+ * Which editing affordances the attached editor host offers. Broadcast when
+ * the host announces itself (`editor-hello`) and replayed to late-joining
+ * clients. Never sent on a server without an editor host, so the UI's
+ * default is "no editor" and it hides the dependent controls.
+ */
+export type UIEditorCapabilitiesMessage = {
+  type: 'editor-capabilities';
+  undoRedo: boolean;
+};
+
 
 export type ServerToUIMessage =
   | UIInitCompleteMessage
@@ -408,7 +462,8 @@ export type ServerToUIMessage =
   | UIClearHighlightMessage
   | UIShowShapePropertiesMessage
   | UITakeScreenshotMessage
-  | UIRenderVersionMessage;
+  | UIRenderVersionMessage
+  | UIEditorCapabilitiesMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: UI → Server messages

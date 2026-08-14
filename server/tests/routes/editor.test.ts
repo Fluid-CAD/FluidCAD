@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import express from 'express';
 import http from 'http';
 import { createEditorRouter, DirtyBufferState } from '../../src/routes/editor.ts';
+import { FeatureEditDispatcher } from '../../src/edit-dispatch.ts';
 
 let server: http.Server;
 let baseUrl: string;
@@ -10,9 +11,12 @@ let state: DirtyBufferState;
 describe('editor dirty-buffer route', () => {
   beforeAll(async () => {
     state = new DirtyBufferState();
+    // The dirty-files route never dispatches; a host-less dispatcher satisfies
+    // the signature.
+    const dispatcher = new FeatureEditDispatcher({} as any, () => false, { ackTimeoutMs: 100 });
     const app = express();
     app.use(express.json());
-    app.use('/api', createEditorRouter(state));
+    app.use('/api', createEditorRouter(state, dispatcher));
 
     server = http.createServer(app);
     await new Promise<void>((resolve) => {

@@ -105,7 +105,7 @@ app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createScreenshotRouter(requestScreenshot));
 app.use('/api', createPreferencesRouter());
 app.use('/api', createSceneRouter(fluidCadServer, getLastCameraState));
-app.use('/api', createEditorRouter(dirtyBufferState));
+app.use('/api', createEditorRouter(dirtyBufferState, editDispatcher));
 app.use('/api', createRenderRouter((fileName, code) => runLiveRender(fileName, code)));
 app.use('/api', createLintRouter());
 app.use('/api', createTextRouter(fluidCadServer));
@@ -132,6 +132,19 @@ app.get('*splat', (_req, res) => {
 let currentFile: string | null = null;
 let renderVersion = 0;
 const lastSceneByFile = new Map<string, { result: any[]; rollbackStop: number }>();
+
+// What the attached editor host offers, from its `editor-hello`. Stays null
+// when no host ever announces itself (standalone serve, hub) — the UI then
+// keeps its editor-history controls hidden.
+let editorCapabilities: { undoRedo: boolean } | null = null;
+
+// The hello usually lands before the first UI connection (the extension forks
+// the server, then opens the webview), so late-joining clients get a replay.
+core.setConnectionHandler((_sessionId, ws) => {
+  if (editorCapabilities) {
+    ws.send(JSON.stringify({ type: 'editor-capabilities', ...editorCapabilities }));
+  }
+});
 
 function emitSuccess(version: number, absPath: string, result: any[], rollbackStop: number, breakpointHit?: boolean, params?: any[]) {
   lastSceneByFile.set(absPath, { result, rollbackStop });
@@ -320,6 +333,19 @@ async function handleExtensionMessage(msg: any) {
         if (Array.isArray(msg.dirtyFiles)) {
           const paths = msg.dirtyFiles.filter((p: unknown): p is string => typeof p === 'string');
           dirtyBufferState.setDirtyFiles(paths);
+        }
+        break;
+      }
+
+      case 'editor-hello': {
+        editorCapabilities = { undoRedo: msg.capabilities?.undoRedo === true };
+        broadcastToUI({ type: 'editor-capabilities', ...editorCapabilities });
+        break;
+      }
+
+      case 'edit-ack': {
+        if (typeof msg.editId === 'string') {
+          editDispatcher.settle(msg.editId, typeof msg.error === 'string' ? msg.error : undefined);
         }
         break;
       }

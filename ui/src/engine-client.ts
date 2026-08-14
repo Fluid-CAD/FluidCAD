@@ -1,5 +1,6 @@
 import type {
   EdgeProperties,
+  EditorHistoryResult,
   FaceProperties,
   Material,
   MeasureEntityRef,
@@ -19,6 +20,10 @@ export interface EngineEditorClient {
   gotoSource(sourceLocation: SourceLocationParam): void;
   removeFeature(sourceLocation: SourceLocationParam): void;
   renameFeature(sourceLocation: SourceLocationParam, name: string | null): void;
+  /** Step the editor's native undo history for the file at `filePath`. */
+  undo(filePath: string): Promise<EditorHistoryResult>;
+  /** Step the editor's native redo history for the file at `filePath`. */
+  redo(filePath: string): Promise<EditorHistoryResult>;
 }
 
 /**

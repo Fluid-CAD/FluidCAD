@@ -85,6 +85,37 @@ export class FeatureEditDispatcher {
     }
   }
 
+  /**
+   * Dispatch a plain editor action (undo/redo) and answer the waiting request
+   * with the host's IPC `edit-ack`. Unlike {@link dispatch} there is no
+   * transform to preflight and no HTTP round-trip to carry the ack, and a
+   * send with no host process is an honest failure rather than legacy
+   * success — without an editor there is no history to step.
+   */
+  async dispatchAction(
+    res: Response,
+    buildMessage: (editId: string) => Record<string, unknown>,
+  ): Promise<void> {
+    const { editId, result } = this.acks.register();
+    const delivered = this.sendToExtension(buildMessage(editId)) === true;
+    if (!delivered) {
+      this.acks.cancel(editId);
+      res.status(503).json({ success: false, reason: 'no editor is attached to this server' });
+      return;
+    }
+    const ack = await result;
+    if (ack === null) {
+      res.status(504).json({
+        success: false,
+        reason: `the editor did not answer within ${this.ackTimeoutMs}ms — check the editor for errors`,
+      });
+    } else if (ack.error) {
+      res.status(422).json({ success: false, reason: ack.error });
+    } else {
+      res.json({ success: true });
+    }
+  }
+
   /** The host round-tripped a dispatched spec — settle the waiting request. */
   settle(editId: string, error: string | undefined): void {
     this.acks.resolve(editId, error);

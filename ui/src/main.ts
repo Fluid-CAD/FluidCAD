@@ -12,6 +12,7 @@ import { LoadingOverlay } from './ui/loading-overlay';
 import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
 import { Navbar } from './ui/navbar';
+import { HistoryToolbar } from './ui/history-toolbar';
 import { ICON_IMG_FALLBACK } from './ui/object-icons';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
 import { SelectionContextMenu } from './interactive/selection-menu';
@@ -102,6 +103,29 @@ const topBar = new TopBar(container, {
   onToggleTree: () => timelinePanel.togglePanel(),
 });
 const navbar = new Navbar(container);
+
+// Undo/Redo — registered first so the group leads the bar, ahead of every
+// other tool. The buttons step the attached editor's native undo stack
+// (each UI-applied operation is one editor edit); the group appears once the
+// editor host announces the capability over the WebSocket and never shows on
+// an editor-less server. The file targeted is whatever the last render came
+// from — the same file every other toolbar action edits.
+let currentSceneAbsPath: string | null = null;
+const runEditorHistory = (action: 'undo' | 'redo') => {
+  const editor = engineClient.editor;
+  if (!editor || !currentSceneAbsPath) {
+    return;
+  }
+  editor[action](currentSceneAbsPath).then((result) => {
+    if (!result.success) {
+      console.warn(`${action} failed:`, result.reason);
+    }
+  });
+};
+const historyToolbar = new HistoryToolbar(navbar, {
+  onUndo: () => runEditorHistory('undo'),
+  onRedo: () => runEditorHistory('redo'),
+});
 
 // Import group — always visible for now.
 const importGroup = navbar.addGroup('import');
@@ -1401,6 +1425,7 @@ function connectWebSocket() {
         measureController.onSceneRendered();
         if (msg.absPath) {
           topBar.setFileName(msg.absPath);
+          currentSceneAbsPath = msg.absPath;
         }
         const renderStop = msg.rollbackStop ?? msg.result.length - 1;
         if (isRollback) {
@@ -1492,6 +1517,9 @@ function connectWebSocket() {
         break;
       case 'take-screenshot':
         handleScreenshotRequest(ws, msg.requestId, msg.options);
+        break;
+      case 'editor-capabilities':
+        historyToolbar.setAvailable(msg.undoRedo === true);
         break;
     }
   });

@@ -39,12 +39,37 @@ function parseArgs(argv) {
   return { target, force };
 }
 
+/**
+ * True when the tarball is older than the build it was made from.
+ *
+ * The version rarely changes while developing, so "a tarball for this version
+ * exists" is not the same question as "it contains the code I just built" —
+ * without this, an engine fix lands in `server/dist` and the app keeps running
+ * the previous one, with nothing to suggest why.
+ */
+function isStale(tarball) {
+  let builtAt;
+  try {
+    builtAt = fs.statSync(tarball).mtimeMs;
+  } catch {
+    return true;
+  }
+  const outputs = ['lib/dist/index.js', 'server/dist/index.js', 'ui/dist/index.html'];
+  return outputs.some((rel) => {
+    try {
+      return fs.statSync(path.join(REPO_ROOT, rel)).mtimeMs > builtAt;
+    } catch {
+      return false;
+    }
+  });
+}
+
 function main() {
   const { target, force } = parseArgs(process.argv.slice(2));
   const version = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')).version;
   const tarball = path.join(ENGINES_DIR, `fluidcad-engine-${version}-${target}.tar.gz`);
 
-  if (!fs.existsSync(tarball) || force) {
+  if (force || isStale(tarball)) {
     console.log(`Building engine ${version} for ${target}…`);
     execFileSync(
       'npx',

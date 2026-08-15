@@ -1,6 +1,5 @@
 import fs from 'fs';
 import path from 'path';
-import { createRequire } from 'module';
 
 /**
  * Lets a workspace with no `node_modules/fluidcad` of its own run against the
@@ -31,14 +30,35 @@ import { createRequire } from 'module';
 /** Where `server/dist/host/engine-resolution.js` sits inside the package. */
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, '../../..');
 
-/** True when `workspacePath` can resolve `fluidcad` on its own. */
+/**
+ * True when `workspacePath` can resolve `fluidcad` on its own — asked the way
+ * the *model* will ask it.
+ *
+ * This is a plain `node_modules` walk and not `createRequire().resolve()` on
+ * purpose. CJS resolution also consults the legacy global folders
+ * (`$NODE_PATH`, `~/node_modules`, `~/.node_modules`), which Node's ESM
+ * resolver and Vite ignore. A `fluidcad` sitting in one of those made this
+ * report "the workspace has its own engine", the rewrite below was skipped, and
+ * the model then failed with *Cannot find module 'fluidcad'* — the exact bug
+ * this file exists to prevent.
+ *
+ * A `fluidcad` that isn't the kernel doesn't count either: this repo's own
+ * npm workspaces symlink `node_modules/fluidcad` to the VS Code extension,
+ * which shares the package name. Only a root carrying `lib/dist/index.js` is
+ * an engine (the same guard `lib-identity.ts` applies).
+ */
 function workspaceResolvesEngine(workspacePath: string): boolean {
-  try {
-    const requireFromWorkspace = createRequire(path.join(workspacePath, 'init.js'));
-    requireFromWorkspace.resolve('fluidcad');
-    return true;
-  } catch {
-    return false;
+  let dir = path.resolve(workspacePath);
+  for (;;) {
+    const candidate = path.join(dir, 'node_modules', 'fluidcad');
+    if (fs.existsSync(path.join(candidate, 'lib', 'dist', 'index.js'))) {
+      return true;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) {
+      return false;
+    }
+    dir = parent;
   }
 }
 

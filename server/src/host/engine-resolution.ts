@@ -7,45 +7,62 @@ import path from 'path';
  *
  * A model's `init.js` imports the kernel as the bare specifier `fluidcad`, and
  * Vite externalizes that (`ssr.external`) so Node loads exactly one copy —
- * Invariant 1. Node resolves bare specifiers by walking up from the *importer*,
- * which is a file in the user's project, so a project that never ran
- * `npm install` has nothing to walk up to and the model fails with "Cannot find
- * module 'fluidcad'".
+ * Invariant 1. Resolution walks up from the *importer*, which is a file in the
+ * user's project, so a project that never ran `npm install` has nothing to walk
+ * up to and the model fails with "Cannot find module 'fluidcad'".
  *
  * That was fine while the only way to start a server was from a project's own
  * install. The desktop shell resolves an engine from `~/.fluidcad/engines/…`
  * instead, and pinning an engine per project is the whole point of Phase 2, so
  * the engine has to be reachable without being installed into the project.
  *
- * The fix is to answer the bare specifier with **the running server's own
- * package**, and only when the workspace cannot answer it itself. So:
+ * The fix is the boring one: **make the path exist.** When the workspace cannot
+ * resolve the engine, the server links `node_modules/fluidcad` to its own
+ * package root and drops a marker file naming the link as engine-managed. A
+ * symlink is the only mechanism that satisfies every resolver that will ever
+ * ask — Node ESM, CJS, an editor reading `jsconfig.json`, and above all
+ * **Vite's own `tryNodeResolve`**, which dev SSR uses to resolve externalized
+ * deps and which consults neither plugins nor Node loader hooks.
  *
- * - workspace has its own `fluidcad`  → nothing here fires; the workspace wins,
- *   and `lib-identity.ts` is what catches a mismatch with the running server.
- * - workspace has none                → `fluidcad` and its subpaths resolve to
- *   this server's own files, which is by construction the same copy the server
- *   imported — one lib per process, for free.
+ * Two cleverer mechanisms were tried first and measured to fail, in ways worth
+ * recording because both *looked* like they worked (geometry rendered fine):
+ *
+ * - a Vite `resolveId` plugin returning `{ id: fileURL, external: true }` —
+ *   dev SSR ignores the external flag for non-bare ids and **inlines** the
+ *   kernel through its module runner, a second evaluation of every lib module.
+ *   The singletons split: `instanceof BreakpointHit` fails, so a breakpoint
+ *   reports as the compile error "FluidCAD breakpoint hit", and param
+ *   overrides write to a registry nobody reads.
+ * - a Node loader hook (`module.register`) answering failed resolutions —
+ *   never consulted: Vite resolves externals with its own JS implementation
+ *   (`fetchModule` → `tryNodeResolve`) and throws before Node is involved.
+ *
+ * The link is created only when resolution would otherwise fail, so a project
+ * with any real install — including an npm-linked dev checkout — is never
+ * touched, and `lib-identity.ts` remains the arbiter of mismatches.
  */
 
 /** Where `server/dist/host/engine-resolution.js` sits inside the package. */
 const PACKAGE_ROOT = path.resolve(import.meta.dirname, '../../..');
 
 /**
- * True when `workspacePath` can resolve `fluidcad` on its own — asked the way
- * the *model* will ask it.
+ * Names the sibling `fluidcad` entry as engine-managed, so the desktop shell's
+ * resolver can tell it from a real install: a managed link must never win the
+ * "project has its own node_modules/fluidcad" branch, or a stale link would
+ * shadow the project's pin forever.
+ */
+export const ENGINE_LINK_MARKER = '.fluidcad-engine-link';
+
+/**
+ * True when `workspacePath` can resolve `fluidcad` on its own — decided by the
+ * same `node_modules` walk every resolver performs, not by
+ * `createRequire().resolve()`, which also consults CJS-only global folders
+ * (`$NODE_PATH`, `~/node_modules`) that Node ESM and Vite ignore.
  *
- * This is a plain `node_modules` walk and not `createRequire().resolve()` on
- * purpose. CJS resolution also consults the legacy global folders
- * (`$NODE_PATH`, `~/node_modules`, `~/.node_modules`), which Node's ESM
- * resolver and Vite ignore. A `fluidcad` sitting in one of those made this
- * report "the workspace has its own engine", the rewrite below was skipped, and
- * the model then failed with *Cannot find module 'fluidcad'* — the exact bug
- * this file exists to prevent.
- *
- * A `fluidcad` that isn't the kernel doesn't count either: this repo's own
- * npm workspaces symlink `node_modules/fluidcad` to the VS Code extension,
- * which shares the package name. Only a root carrying `lib/dist/index.js` is
- * an engine (the same guard `lib-identity.ts` applies).
+ * A `fluidcad` that isn't the kernel doesn't count: this repo's own npm
+ * workspaces symlink `node_modules/fluidcad` to the VS Code extension, which
+ * shares the package name. Only a root carrying `lib/dist/index.js` is an
+ * engine (the same guard `lib-identity.ts` applies).
  */
 function workspaceResolvesEngine(workspacePath: string): boolean {
   let dir = path.resolve(workspacePath);
@@ -62,42 +79,95 @@ function workspaceResolvesEngine(workspacePath: string): boolean {
   }
 }
 
+export type EngineLinkResult =
+  | { state: 'linked'; linkPath: string }
+  | { state: 'already-resolvable' }
+  | { state: 'skipped'; reason: string };
+
 /**
- * `fluidcad` and every subpath in the package's own `exports` map, pointed at
- * absolute paths inside this install. Reading the map rather than hardcoding
- * the subpaths keeps this correct as `exports` grows.
+ * Ensure `workspacePath` can resolve the engine, linking this server's own
+ * package in when it cannot. Idempotent, and called on every server start, so
+ * a link left behind by another engine version is re-pointed at the one that
+ * is actually running.
  */
-function selfExportMap(): Map<string, string> {
-  const links = new Map<string, string>();
-  let exportsMap: Record<string, unknown>;
+export function ensureEngineLink(workspacePath: string): EngineLinkResult {
+  if (!workspacePath) {
+    return { state: 'skipped', reason: 'no workspace' }; // The hub path.
+  }
+
+  const nodeModules = path.join(workspacePath, 'node_modules');
+  const linkPath = path.join(nodeModules, 'fluidcad');
+
+  // A marked link is ours regardless of where it points. It has to be handled
+  // *before* the resolvability walk: a link left behind by another engine
+  // version still resolves, so the walk would report "already resolvable",
+  // the stale link would stand — and the lib-identity check would then fail
+  // this very startup for running against a workspace that imports the other
+  // copy. Re-pointing is what makes the link follow the pin.
+  if (fs.existsSync(path.join(nodeModules, ENGINE_LINK_MARKER))) {
+    let managed = false;
+    try {
+      managed = fs.lstatSync(linkPath).isSymbolicLink();
+    } catch {
+      managed = false;
+    }
+    if (managed) {
+      try {
+        if (fs.realpathSync(linkPath) === fs.realpathSync(PACKAGE_ROOT)) {
+          return { state: 'already-resolvable' };
+        }
+      } catch {
+        // Dangling — replace it below like any other stale link.
+      }
+      try {
+        fs.unlinkSync(linkPath);
+        fs.symlinkSync(PACKAGE_ROOT, linkPath, 'junction');
+        return { state: 'linked', linkPath };
+      } catch (err: any) {
+        return { state: 'skipped', reason: err?.message ?? String(err) };
+      }
+    }
+  }
+
+  if (workspaceResolvesEngine(workspacePath)) {
+    return { state: 'already-resolvable' };
+  }
+
+  // Whatever sits there resolves nothing (the check above) — but only replace
+  // it if it is a symlink. A real directory is someone's broken install, and
+  // deleting their files to plant a link is not this function's call to make.
+  let existing: fs.Stats | null = null;
   try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf8'));
-    exportsMap = pkg?.exports ?? {};
+    existing = fs.lstatSync(linkPath);
   } catch {
-    return links;
+    existing = null;
+  }
+  if (existing && !existing.isSymbolicLink()) {
+    return {
+      state: 'skipped',
+      reason: `${linkPath} exists but is not a usable fluidcad install`,
+    };
   }
 
-  for (const [subpath, target] of Object.entries(exportsMap)) {
-    if (typeof target !== 'string' || !subpath.startsWith('.')) {
-      continue;
+  try {
+    fs.mkdirSync(nodeModules, { recursive: true });
+    if (existing) {
+      // unlink, not rm: rmSync refuses a symlink to a directory, and unlink
+      // removes the link itself without ever touching what it points at.
+      fs.unlinkSync(linkPath);
     }
-    const specifier = subpath === '.' ? 'fluidcad' : `fluidcad/${subpath.slice(2)}`;
-    const absolute = path.resolve(PACKAGE_ROOT, target);
-    if (fs.existsSync(absolute)) {
-      links.set(specifier, absolute);
-    }
+    // A junction on Windows: directory junctions need no privileges, symlinks
+    // may. Elsewhere the type argument is ignored.
+    fs.symlinkSync(PACKAGE_ROOT, linkPath, 'junction');
+    fs.writeFileSync(
+      path.join(nodeModules, ENGINE_LINK_MARKER),
+      'This fluidcad entry is a link to the running engine, maintained by the\n' +
+        'FluidCAD server. Installing fluidcad with npm replaces it.\n',
+    );
+    return { state: 'linked', linkPath };
+  } catch (err: any) {
+    // A read-only workspace can't be linked into; the model will fail to
+    // import with Node's own error, exactly as it did before this existed.
+    return { state: 'skipped', reason: err?.message ?? String(err) };
   }
-  return links;
-}
-
-/**
- * The specifier → absolute-path map to apply for `workspacePath`, or null when
- * the workspace resolves the engine itself and nothing should be rewritten.
- */
-export function engineSelfLinks(workspacePath: string): Map<string, string> | null {
-  if (!workspacePath || workspaceResolvesEngine(workspacePath)) {
-    return null;
-  }
-  const links = selfExportMap();
-  return links.size > 0 ? links : null;
 }

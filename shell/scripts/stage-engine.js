@@ -39,6 +39,26 @@ function parseArgs(argv) {
   return { target, force };
 }
 
+/** Newest file mtime under `dir`, recursively. */
+function newestMtime(dir) {
+  let newest = 0;
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return newest;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      newest = Math.max(newest, newestMtime(full));
+    } else if (entry.isFile()) {
+      newest = Math.max(newest, fs.statSync(full).mtimeMs);
+    }
+  }
+  return newest;
+}
+
 /**
  * True when the tarball is older than the build it was made from.
  *
@@ -46,6 +66,10 @@ function parseArgs(argv) {
  * exists" is not the same question as "it contains the code I just built" —
  * without this, an engine fix lands in `server/dist` and the app keeps running
  * the previous one, with nothing to suggest why.
+ *
+ * The whole dist trees are walked, not just their entry files: `tsc` is
+ * incremental and rewrites only the outputs whose sources changed, so an edit
+ * to `server/src/host/…` never touches `server/dist/index.js` at all.
  */
 function isStale(tarball) {
   let builtAt;
@@ -54,14 +78,9 @@ function isStale(tarball) {
   } catch {
     return true;
   }
-  const outputs = ['lib/dist/index.js', 'server/dist/index.js', 'ui/dist/index.html'];
-  return outputs.some((rel) => {
-    try {
-      return fs.statSync(path.join(REPO_ROOT, rel)).mtimeMs > builtAt;
-    } catch {
-      return false;
-    }
-  });
+  return ['lib/dist', 'server/dist', 'server/vendor', 'ui/dist', 'bin', 'llm-docs'].some(
+    (rel) => newestMtime(path.join(REPO_ROOT, rel)) > builtAt,
+  );
 }
 
 function main() {

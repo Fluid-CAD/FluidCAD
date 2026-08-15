@@ -63,10 +63,41 @@ function asResolved(
   };
 }
 
+/**
+ * Written by the engine next to a `node_modules/fluidcad` it linked in for a
+ * workspace that had none (`server/src/host/engine-resolution.ts`). The value
+ * is duplicated rather than imported for the same reason `project-pin.ts`
+ * re-implements the pin: the shell must not depend on engine code.
+ */
+const ENGINE_LINK_MARKER = '.fluidcad-engine-link';
+
+/**
+ * True when `node_modules/fluidcad` is a link the engine itself planted, not
+ * an install the user made. Such a link points at whichever engine ran last —
+ * letting it win here would shadow the project's pin forever, with the stale
+ * engine "winning" every open. Only marker + symlink together count: npm
+ * replaces the symlink with a real directory on install and leaves the stale
+ * marker behind, and an `npm link`-style symlink carries no marker.
+ */
+export function isEngineManagedLink(workspacePath: string): boolean {
+  const nodeModules = path.join(workspacePath, 'node_modules');
+  if (!fs.existsSync(path.join(nodeModules, ENGINE_LINK_MARKER))) {
+    return false;
+  }
+  try {
+    return fs.lstatSync(path.join(nodeModules, 'fluidcad')).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 /** The project's own install, when it has a usable one. */
 function projectEngine(workspacePath: string): InstalledEngine | null {
   const packageRoot = path.join(workspacePath, 'node_modules', 'fluidcad');
   if (!fs.existsSync(serverEntryFor(packageRoot))) {
+    return null;
+  }
+  if (isEngineManagedLink(workspacePath)) {
     return null;
   }
   const version = projectInstalledEngine(workspacePath);

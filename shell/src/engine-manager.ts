@@ -12,7 +12,7 @@ import { describeEngineIncompatibility } from './engine/compat';
 import { compareVersionsDescending, downloadEngine, listPublishedEngines } from './engine/download';
 import { engineRoot, serverEntryFor } from './engine/paths';
 import { projectInstalledEngine, readProjectPin, writeProjectPin } from './engine/project-pin';
-import type { ResolvedEngine } from './engine/resolver';
+import { isEngineManagedLink, type ResolvedEngine } from './engine/resolver';
 import { compareSnapshots, findModels, snapshotWithEngine, type UpgradeDiff } from './engine/upgrade-diff';
 import { findProjectWindow } from './project-window';
 import { listRecentProjects } from './state';
@@ -84,7 +84,10 @@ export function registerEngineManagerHandlers(deps: EngineManagerDeps): void {
     const projects = listRecentProjects().map((entry) => ({
       path: entry.path,
       pin: readProjectPin(entry.path).engine,
-      ownInstall: projectInstalledEngine(entry.path),
+      // A link the engine planted is not an install the user made — showing it
+      // as one would hide the pin-upgrade UI for exactly the projects that
+      // rely on the pin.
+      ownInstall: isEngineManagedLink(entry.path) ? null : projectInstalledEngine(entry.path),
       open: Boolean(findProjectWindow(entry.path)),
     }));
 
@@ -184,7 +187,7 @@ export function registerEngineManagerHandlers(deps: EngineManagerDeps): void {
  * if it has one, otherwise its pin.
  */
 function currentEngineFor(workspacePath: string): ResolvedEngine | null {
-  const own = projectInstalledEngine(workspacePath);
+  const own = isEngineManagedLink(workspacePath) ? null : projectInstalledEngine(workspacePath);
   if (own) {
     const packageRoot = path.join(workspacePath, 'node_modules', 'fluidcad');
     return {

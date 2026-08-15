@@ -1,10 +1,9 @@
 import { type ViteDevServer, createServer } from 'vite';
 import { dirname, resolve, isAbsolute } from 'path';
-import { pathToFileURL } from 'url';
 import { normalizePath } from '../normalize-path.ts';
 import type { SceneHost } from './scene-host.ts';
 import { getBlockedNodeModule } from './blocked-imports.ts';
-import { engineSelfLinks } from './engine-resolution.ts';
+import { ensureEngineLink } from './engine-resolution.ts';
 
 const IMPORT_PATTERN = /\b(?:import|export)\s[\s\S]*?from\s+['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 
@@ -29,9 +28,13 @@ export class LocalSceneHost implements SceneHost {
   async init(rootPath: string) {
     this.rootPath = normalizePath(rootPath);
     const that = this;
-    // Null for a workspace that installs its own engine — the normal npm case,
-    // where nothing about resolution changes. See `engine-resolution.ts`.
-    const selfLinks = engineSelfLinks(this.rootPath);
+    // A workspace with no engine install of its own gets a marked
+    // `node_modules/fluidcad` link to this server's copy — see
+    // `engine-resolution.ts`. A no-op for every workspace that has one.
+    const link = ensureEngineLink(this.rootPath);
+    if (link.state === 'skipped' && link.reason !== 'no workspace') {
+      console.warn(`FluidCAD: could not link the engine into this workspace: ${link.reason}`);
+    }
     this.server = await createServer({
       root: rootPath,
       server: {
@@ -48,23 +51,12 @@ export class LocalSceneHost implements SceneHost {
         // Externalized so Node loads the kernel once, as itself: routing it
         // through Vite's SSR pipeline would make a second copy of the
         // module-scoped param registry and BreakpointHit (Invariant 1).
-        // When `selfLinks` is active the plugin below externalizes it by
-        // absolute path instead, which is the same thing said more precisely.
-        external: selfLinks ? [] : ['fluidcad']
+        // This must stay unconditional — dev SSR ignores a plugin's
+        // `external: true` and would inline the kernel through the module
+        // runner, which is precisely that second copy.
+        external: ['fluidcad']
       },
       plugins: [
-        {
-          name: 'fluidcad-engine-self-resolve',
-          enforce: 'pre',
-          resolveId(id) {
-            const target = selfLinks?.get(id);
-            if (target) {
-              // A file URL, not a path: this is handed to Node's `import()`,
-              // and it must be the very file the server already loaded.
-              return { id: pathToFileURL(target).href, external: true };
-            }
-          }
-        },
         {
           name: 'virtual-module',
           resolveId(id, importer) {

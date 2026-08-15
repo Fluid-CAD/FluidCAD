@@ -53,9 +53,7 @@ export class TopBar {
     const menuBtn = document.createElement('button');
     menuBtn.className = `${BTN_BASE} shrink-0`;
     menuBtn.title = 'Panels';
-    menuBtn.innerHTML =
-      `<span class="[&>svg]:size-5">${ICON_MENU}</span>` +
-      `<span class="[&>svg]:size-3 opacity-70">${ICON_CHEVRON_DOWN}</span>`;
+    menuBtn.innerHTML = `<span class="[&>svg]:size-5">${ICON_MENU}</span>`;
     menuBtn.addEventListener('click', (event) => {
       event.stopPropagation();
       this.toggleMenu(menuBtn);

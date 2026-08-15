@@ -3,9 +3,14 @@ import { listWorkspaceFiles, type FileKind, type WorkspaceFileEntry } from './ed
 
 /**
  * The `+` picker: a fuzzy filter over the workspace's source files, plus an
- * escape hatch for a path outside it and an offer to create a name that
- * doesn't exist yet. This is the whole file-opening surface — there is no
- * tree (`docs/desktop/05-editor-surface-design.md`).
+ * offer to create a name that doesn't exist yet. This is the whole
+ * file-opening surface — there is no tree
+ * (`docs/desktop/05-editor-surface-design.md`).
+ *
+ * Deliberately workspace-only. The spec floated a "Browse…" row for files
+ * outside the workspace; dropped (2026-08-15) — `/api/files/*` enforces a
+ * workspace boundary on purpose, and a model importing an outside file
+ * wouldn't resolve through Vite's workspace root anyway.
  *
  * Built on the dropdown idiom `timeline-panel.ts` and `shapes-panel.ts`
  * already use, rather than a third popover style.

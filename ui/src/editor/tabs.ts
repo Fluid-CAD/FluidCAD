@@ -36,7 +36,7 @@ export interface FileTabsHandlers {
 }
 
 const TAB_BASE =
-  'group relative flex items-center gap-1.5 h-8 pl-2 pr-1.5 rounded-md text-sm ' +
+  'group relative flex items-center gap-1.5 h-full pl-2 pr-1.5 text-sm ' +
   'max-w-[200px] cursor-pointer select-none transition-colors shrink-0';
 
 export class FileTabs {
@@ -51,8 +51,10 @@ export class FileTabs {
   private currentModelPath: string | null = null;
 
   constructor(container: HTMLElement, private readonly handlers: FileTabsHandlers, tabsEnabled: boolean) {
+    // `self-stretch` against the top bar's `items-center`, so full-height tabs
+    // reach the bar's bottom border instead of floating inside it.
     this.bar = document.createElement('div');
-    this.bar.className = 'flex items-center gap-1 min-w-0';
+    this.bar.className = 'flex items-center gap-1 min-w-0 self-stretch';
 
     this.labelOnly = document.createElement('span');
     this.labelOnly.className = 'text-sm text-base-content/70 truncate max-w-[40vw]';
@@ -60,10 +62,13 @@ export class FileTabs {
     if (tabsEnabled) {
       // Shrink-to-fit up to a cap, so `+` sits next to the last tab rather
       // than being pushed to the far end of the bar.
+      // `[&>div]:h-full` reaches the scroller's viewport (its only div child;
+      // the arrows are buttons), which the class on the track can't.
       const scrollHost = document.createElement('div');
-      scrollHost.className = 'relative flex items-center min-w-0 max-w-[45vw]';
+      scrollHost.className = 'relative flex items-center min-w-0 max-w-[45vw] h-full [&>div]:h-full';
       this.bar.appendChild(scrollHost);
       this.scroller = new ToolbarScroller(scrollHost);
+      this.scroller.track.classList.add('h-full');
       this.addButton = this.buildAddButton();
       this.bar.appendChild(this.addButton);
     } else {
@@ -172,7 +177,7 @@ export class FileTabs {
     // competing with the active-tab background.
     if (isCurrentModel) {
       const rule = document.createElement('span');
-      rule.className = 'absolute left-2 right-2 -bottom-px h-0.5 rounded-full bg-primary';
+      rule.className = 'absolute left-0 right-0 -bottom-px h-0.5 bg-primary';
       el.appendChild(rule);
     }
 

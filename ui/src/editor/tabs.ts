@@ -86,6 +86,15 @@ export class FileTabs {
     return this.tabs.slice();
   }
 
+  /**
+   * The `+` button, for anchoring quick-open to. The desktop menu's Find File
+   * has no click target of its own, and a popover has to hang off something
+   * the user can see.
+   */
+  get addAnchor(): HTMLElement {
+    return this.addButton;
+  }
+
   setTabs(tabs: FileTab[], activePath: string | null, currentModelPath: string | null): void {
     this.tabs = tabs;
     this.activePath = activePath;

@@ -1,0 +1,76 @@
+name: Build Desktop App
+
+# The shell is built per platform (electron-builder needs the host OS for dmg
+# and nsis), and each build stages its own built-in engine from the tarball
+# `build-engine-tarball.ts` produces.
+#
+# Unsigned by decision (2026-08-14): no Apple Developer ID and no Windows
+# certificate yet. macOS therefore shows the "unidentified developer" prompt and
+# cannot self-update — `shell/src/updater.ts` takes the notify-only path there.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  desktop:
+    if: github.repository == 'Fluid-CAD/FluidCAD'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+            flags: --linux --x64
+          - os: macos-latest
+            target: darwin-arm64
+            flags: --mac --arm64
+          - os: macos-13
+            target: darwin-x64
+            flags: --mac --x64
+          - os: windows-latest
+            target: win32-x64
+            flags: --win --x64
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install engine dependencies
+        run: npm ci
+
+      - name: Build the engine
+        run: npm run build
+
+      - name: Install shell dependencies
+        run: npm ci
+        working-directory: shell
+
+      - name: Build the shell
+        run: npm run build
+        working-directory: shell
+
+      - name: Stage the built-in engine
+        run: node scripts/stage-engine.js --target ${{ matrix.target }}
+        working-directory: shell
+
+      - name: Build and publish the app
+        # The arch is pinned per runner: the config lists both macOS arches so a
+        # local `npm run dist` builds what the machine can, but in CI each
+        # runner builds its own and nothing is cross-compiled twice.
+        run: npx electron-builder ${{ matrix.flags }} --publish always
+        working-directory: shell
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No certificates configured; keep electron-builder from hunting for
+          # one in the runner's keychain and failing the build.
+          CSC_IDENTITY_AUTO_DISCOVERY: false

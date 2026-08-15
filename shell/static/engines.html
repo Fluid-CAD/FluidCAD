@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
+    <title>FluidCAD Engines</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #1c1c1c;
+        --panel: #242424;
+        --line: #ffffff1a;
+        --fg: #e7e7e7;
+        --muted: #9a9a9a;
+        --accent: #4f9cf9;
+        --warn: #f7b955;
+        --error: #ff8b8b;
+        --ok: #7bd88f;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font: 400 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        padding: 22px 24px 28px;
+        overflow-y: auto;
+      }
+      h1 { font-size: 17px; margin: 0 0 4px; }
+      h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 26px 0 8px; }
+      p.lede { color: var(--muted); margin: 0 0 6px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+      th { color: var(--muted); font-weight: 500; font-size: 12px; }
+      td.num { font-variant-numeric: tabular-nums; color: var(--muted); }
+      .path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; word-break: break-all; }
+      .tag {
+        display: inline-block; padding: 1px 7px; border-radius: 999px;
+        font-size: 11px; border: 1px solid var(--line); color: var(--muted);
+      }
+      .tag.builtin { color: var(--accent); border-color: #4f9cf955; }
+      .tag.running { color: var(--ok); border-color: #7bd88f55; }
+      button {
+        font: inherit; color: var(--fg); background: #ffffff14;
+        border: 1px solid #ffffff26; border-radius: 7px; padding: 4px 11px; cursor: pointer;
+      }
+      button:hover:not(:disabled) { background: #ffffff24; }
+      button:disabled { opacity: 0.45; cursor: default; }
+      button.primary { background: #4f9cf933; border-color: #4f9cf966; }
+      select { font: inherit; color: var(--fg); background: #ffffff14; border: 1px solid #ffffff26; border-radius: 7px; padding: 4px 8px; }
+      dialog {
+        background: var(--panel); color: var(--fg); border: 1px solid var(--line);
+        border-radius: 12px; padding: 20px; width: min(640px, 88vw); max-height: 80vh; overflow: auto;
+      }
+      dialog::backdrop { background: #000000aa; }
+      .diff-model { border: 1px solid var(--line); border-radius: 9px; padding: 10px 12px; margin-bottom: 10px; }
+      .diff-model.identical { border-color: #7bd88f33; }
+      .diff-model.changed { border-color: #f7b95555; }
+      .diff-model.broken { border-color: #ff8b8b66; }
+      .status-identical { color: var(--ok); }
+      .status-changed { color: var(--warn); }
+      .status-broken { color: var(--error); }
+      .status-fixed { color: var(--ok); }
+      ul { margin: 6px 0 0; padding-left: 18px; color: var(--muted); }
+      .row { display: flex; gap: 8px; align-items: center; }
+      .progress { color: var(--muted); min-height: 18px; margin-top: 10px; }
+      .empty { color: var(--muted); padding: 10px; }
+    </style>
+  </head>
+  <body>
+    <h1>Engines</h1>
+    <p class="lede">
+      A project runs the engine it pins. Updating FluidCAD never changes that —
+      moving a pin is an explicit choice, and it shows you what changed first.
+    </p>
+
+    <h2>Installed</h2>
+    <table id="engines"><tbody></tbody></table>
+
+    <h2>Projects</h2>
+    <table id="projects"><tbody></tbody></table>
+
+    <dialog id="diff">
+      <h1 id="diff-title">Upgrade</h1>
+      <div id="diff-body"></div>
+      <div class="row" style="justify-content: flex-end; margin-top: 16px;">
+        <button id="diff-cancel">Keep current engine</button>
+        <button id="diff-apply" class="primary">Update the pin</button>
+      </div>
+    </dialog>
+
+    <div class="progress" id="progress"></div>
+
+    <script>
+      const api = window.fluidcadShell;
+      const enginesBody = document.querySelector('#engines tbody');
+      const projectsBody = document.querySelector('#projects tbody');
+      const progress = document.getElementById('progress');
+      const diff = document.getElementById('diff');
+      const diffTitle = document.getElementById('diff-title');
+      const diffBody = document.getElementById('diff-body');
+      const diffApply = document.getElementById('diff-apply');
+      const diffCancel = document.getElementById('diff-cancel');
+
+      let state = { engines: [], projects: [], published: [] };
+      let pending = null;
+
+      api?.engines.onProgress(({ message }) => { progress.textContent = message || ''; });
+
+      const mb = (bytes) => (bytes ? `${(bytes / 1024 / 1024).toFixed(0)} MB` : '—');
+      const when = (iso) => (iso ? new Date(iso).toLocaleDateString() : '—');
+
+      function cell(html, className) {
+        const td = document.createElement('td');
+        if (className) { td.className = className; }
+        td.innerHTML = html;
+        return td;
+      }
+
+      function renderEngines() {
+        enginesBody.replaceChildren();
+        const header = document.createElement('tr');
+        header.innerHTML = '<th>Version</th><th>Size</th><th>Last used</th><th></th>';
+        enginesBody.appendChild(header);
+
+        for (const engine of state.engines) {
+          const row = document.createElement('tr');
+          const tags = [
+            engine.builtin ? '<span class="tag builtin">ships with the app</span>' : '',
+            engine.running ? '<span class="tag running">running</span>' : '',
+          ].join(' ');
+          row.appendChild(cell(`<strong>${engine.version}</strong> ${tags}`));
+          row.appendChild(cell(mb(engine.bytes), 'num'));
+          row.appendChild(cell(when(engine.lastUsedAt), 'num'));
+
+          const actions = document.createElement('td');
+          const remove = document.createElement('button');
+          remove.textContent = 'Delete';
+          remove.disabled = engine.builtin || engine.running;
+          remove.title = engine.builtin
+            ? 'This engine ships with the app.'
+            : engine.running
+              ? 'A project is running on this engine.'
+              : '';
+          remove.onclick = async () => {
+            const result = await api.engines.remove(engine.version);
+            if (result && result.removed === false && result.reason) { progress.textContent = result.reason; }
+            await refresh();
+          };
+          actions.appendChild(remove);
+          row.appendChild(actions);
+          enginesBody.appendChild(row);
+        }
+        if (state.engines.length === 0) {
+          enginesBody.appendChild(cell('<span class="empty">No engines installed.</span>'));
+        }
+      }
+
+      function renderProjects() {
+        projectsBody.replaceChildren();
+        const header = document.createElement('tr');
+        header.innerHTML = '<th>Project</th><th>Engine</th><th></th>';
+        projectsBody.appendChild(header);
+
+        for (const project of state.projects) {
+          const row = document.createElement('tr');
+          row.appendChild(cell(`<span class="path">${project.path}</span>`));
+
+          const pinned = project.ownInstall
+            ? `${project.ownInstall} <span class="tag">own install</span>`
+            : project.pin ?? '<span class="tag">unpinned</span>';
+          row.appendChild(cell(pinned));
+
+          const actions = document.createElement('td');
+          const holder = document.createElement('div');
+          holder.className = 'row';
+
+          const versions = [...new Set([...state.published, ...state.engines.map((e) => e.version)])]
+            .filter((version) => version !== project.pin);
+          if (versions.length > 0 && !project.ownInstall) {
+            const select = document.createElement('select');
+            for (const version of versions) {
+              const option = document.createElement('option');
+              option.value = version;
+              option.textContent = version;
+              select.appendChild(option);
+            }
+            const upgrade = document.createElement('button');
+            upgrade.textContent = 'Compare & switch…';
+            upgrade.onclick = () => void preview(project.path, select.value, upgrade);
+            holder.append(select, upgrade);
+          }
+
+          const open = document.createElement('button');
+          open.textContent = project.open ? 'Focus' : 'Open';
+          open.onclick = () => void api.engines.openProject(project.path);
+          holder.appendChild(open);
+
+          actions.appendChild(holder);
+          row.appendChild(actions);
+          projectsBody.appendChild(row);
+        }
+        if (state.projects.length === 0) {
+          projectsBody.appendChild(cell('<span class="empty">No projects opened yet.</span>'));
+        }
+      }
+
+      async function preview(workspacePath, version, button) {
+        button.disabled = true;
+        progress.textContent = 'Preparing…';
+        const result = await api.engines.previewUpgrade(workspacePath, version);
+        button.disabled = false;
+        progress.textContent = '';
+        if (result.error) {
+          diffTitle.textContent = 'Cannot compare';
+          diffBody.textContent = result.error;
+          diffApply.hidden = true;
+          diff.showModal();
+          return;
+        }
+        pending = { workspacePath, version };
+        renderDiff(result.diff);
+        diffApply.hidden = false;
+        diff.showModal();
+      }
+
+      function renderDiff(result) {
+        diffTitle.textContent = `Engine ${result.from} → ${result.to}`;
+        diffBody.replaceChildren();
+
+        const summary = document.createElement('p');
+        summary.className = 'lede';
+        summary.textContent = result.identical
+          ? 'Every model builds to identical geometry on the new engine.'
+          : 'The new engine changes this project. Review before switching.';
+        diffBody.appendChild(summary);
+
+        for (const model of result.models) {
+          const card = document.createElement('div');
+          card.className = `diff-model ${model.status}`;
+          const name = document.createElement('div');
+          name.innerHTML =
+            `<span class="path">${model.file}</span> — ` +
+            `<span class="status-${model.status}">${model.status}</span>`;
+          card.appendChild(name);
+          if (model.notes.length > 0) {
+            const list = document.createElement('ul');
+            for (const note of model.notes) {
+              const item = document.createElement('li');
+              item.textContent = note;
+              list.appendChild(item);
+            }
+            card.appendChild(list);
+          }
+          diffBody.appendChild(card);
+        }
+
+        if (result.skipped.length > 0) {
+          const skipped = document.createElement('p');
+          skipped.className = 'lede';
+          skipped.textContent = `${result.skipped.length} more model(s) were not compared: ${result.skipped.join(', ')}`;
+          diffBody.appendChild(skipped);
+        }
+      }
+
+      diffCancel.onclick = () => { pending = null; diff.close(); };
+      diffApply.onclick = async () => {
+        if (!pending) { diff.close(); return; }
+        diffApply.disabled = true;
+        await api.engines.applyPin(pending.workspacePath, pending.version);
+        diffApply.disabled = false;
+        pending = null;
+        diff.close();
+        await refresh();
+      };
+
+      async function refresh() {
+        state = await api.engines.list();
+        renderEngines();
+        renderProjects();
+      }
+
+      void refresh();
+    </script>
+  </body>
+</html>

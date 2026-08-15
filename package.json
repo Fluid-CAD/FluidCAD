@@ -57,6 +57,7 @@
     "build:ui": "vite build --config ui/vite.config.ts",
     "build:viewer-ui": "vite build --config ui/vite.lib.config.ts",
     "build:mcp": "tsc -p mcp/tsconfig.json",
+    "build:engine": "tsx scripts/build-engine-tarball.ts",
     "build:llm-type-docs": "tsx scripts/build-llm-type-docs.ts",
     "build:llm-docs": "npm run build:llm-type-docs && tsx scripts/build-llm-docs.ts",
     "check:llm-docs": "npm run build:llm-docs && tsx scripts/check-llm-docs-coverage.ts && vitest run lib/tests/llm-docs-examples.test.ts",
@@ -68,7 +69,7 @@
     "typecheck": "tsc -b",
     "test": "vitest",
     "test:features": "vitest run lib/tests/features/",
-    "bump": "npx bumpp patch package.json extension/vscode/package.json --no-tag --no-push",
+    "bump": "npx bumpp patch package.json extension/vscode/package.json shell/package.json --no-tag --no-push",
     "release": "git tag -a \"v$npm_package_version\" -m \"chore: release v$npm_package_version\" && git push --follow-tags"
   },
   "dependencies": {

@@ -1,5 +1,6 @@
 import { SceneContext } from '../scene/scene-context';
 import { captureScreenshot } from '../screenshot';
+import { deliverFile } from '../desktop';
 import type { EngineClient } from '../engine-client';
 import { ICON_CLOSE } from './icons';
 
@@ -219,13 +220,18 @@ export class ExportDialog {
     try {
       const blob = await this.client.exportShapes(body);
       const ext = format === 'step' ? '.step' : '.stl';
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `export${ext}`;
-      a.click();
-      URL.revokeObjectURL(url);
-      this.hide();
+      // Desktop: a native Save dialog. Browser: the usual download.
+      const outcome = await deliverFile(blob, `export${ext}`, [
+        format === 'step'
+          ? { name: 'STEP Files', extensions: ['step', 'stp'] }
+          : { name: 'STL Files', extensions: ['stl'] },
+      ]);
+      if (outcome === 'failed') {
+        throw new Error('The file could not be written.');
+      }
+      if (outcome !== 'cancelled') {
+        this.hide();
+      }
     } catch (err: any) {
       this.statusEl.innerHTML = `<span class="text-error text-xs">${err.message}</span>`;
     } finally {
@@ -247,13 +253,15 @@ export class ExportDialog {
         margin: this.autoCropToggle.checked ? Math.max(0, parseInt(this.marginInput.value) || 0) : 0,
       });
 
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = 'export.png';
-      a.click();
-      URL.revokeObjectURL(url);
-      this.hide();
+      const outcome = await deliverFile(blob, 'export.png', [
+        { name: 'PNG Images', extensions: ['png'] },
+      ]);
+      if (outcome === 'failed') {
+        throw new Error('The image could not be written.');
+      }
+      if (outcome !== 'cancelled') {
+        this.hide();
+      }
     } catch (err: any) {
       this.statusEl.classList.remove('hidden');
       this.statusEl.innerHTML = `<span class="text-error text-xs">${err.message}</span>`;

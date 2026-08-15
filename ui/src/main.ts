@@ -45,6 +45,7 @@ import { TextEditService } from './interactive/create-feature/text-edit-service'
 import type { SceneObjectRender } from './types';
 import { applyPreferences } from './scene/viewer-settings';
 import { installHostKeyboardBridge } from './keyboard-bridge';
+import { installDesktopMenu } from './desktop';
 import type { EditorSurface } from './editor';
 
 installHostKeyboardBridge();
@@ -65,6 +66,22 @@ let editorSurface: EditorSurface | null = null;
 /** The file the scene last rendered from, held for a late-arriving surface. */
 let editorSceneFile: string | null = null;
 let editorSurfaceStarted = false;
+/**
+ * Actions that arrived before the surface finished loading — a menu command
+ * fired in the first seconds, typically. They run in order once it is there,
+ * rather than being dropped on the floor.
+ */
+const pendingEditorActions: ((surface: EditorSurface) => void)[] = [];
+
+/** Run `action` against the editor, pulling it in first if it hasn't loaded. */
+function withEditorSurface(action: (surface: EditorSurface) => void): void {
+  if (editorSurface) {
+    action(editorSurface);
+    return;
+  }
+  pendingEditorActions.push(action);
+  startEditorSurface();
+}
 
 /**
  * Fetch and attach the editor. Deferred until the scene is on screen: Monaco
@@ -92,6 +109,10 @@ function startEditorSurface(): void {
       editorSurface.setSceneFile(editorSceneFile);
     }
     editorSurface.onSocketOpen();
+    const queued = pendingEditorActions.splice(0);
+    for (const action of queued) {
+      action(editorSurface);
+    }
   }).catch((err) => {
     console.warn('FluidCAD: the code editor could not be loaded:', err);
   });
@@ -237,6 +258,40 @@ importBtnWrap.className = 'tooltip tooltip-bottom shrink-0';
 importBtnWrap.dataset.tip = 'Import file';
 importBtnWrap.appendChild(importBtn);
 importGroup.appendChild(importBtnWrap);
+
+/**
+ * The desktop shell's application menu. It sends intents, never actions — each
+ * one lands on exactly the code the equivalent in-page affordance uses, so
+ * there is one implementation and the browser build is unaffected (nothing
+ * below is installed when `window.fluidcadDesktop` is absent).
+ *
+ * These also settle the keybindings a browser tab was stealing: Ctrl/Cmd+S no
+ * longer offers to save the HTML, and Ctrl+N no longer opens a window.
+ */
+installDesktopMenu({
+  save: () => void editorSurface?.saveActive(),
+  'save-all': () => void editorSurface?.saveAll(),
+  'new-file': () => withEditorSurface((surface) => surface.showQuickOpen(topBar.tabAddAnchor)),
+  'quick-open': () => withEditorSurface((surface) => surface.showQuickOpen(topBar.tabAddAnchor)),
+  'toggle-editor': () => toggleEditorPane(),
+  undo: () => runEditorHistory('undo'),
+  redo: () => runEditorHistory('redo'),
+  import: () => fileImporter.openPicker(),
+  export: () => exportDialog.show(exportableShapeIds()),
+});
+
+/** Every solid in the current scene — what File ▸ Export offers by default. */
+function exportableShapeIds(): string[] {
+  const ids: string[] = [];
+  for (const object of viewer.currentSceneObjects) {
+    for (const shape of object.sceneShapes ?? []) {
+      if (shape.shapeType === 'solid' && !shape.isMetaShape && !shape.isGuide) {
+        ids.push(shape.shapeId);
+      }
+    }
+  }
+  return ids;
+}
 
 const paramsPanel = new ParamsPanel(viewer.settingsPanelHost, engineClient, new ParamEditorDialog(container));
 

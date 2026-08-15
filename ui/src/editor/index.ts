@@ -124,9 +124,32 @@ export class EditorSurface {
   // Tabs
   // ---------------------------------------------------------------------------
 
-  /** The `+` button in the top bar. */
+  /** The `+` button in the top bar — and the desktop menu's Find File. */
   showQuickOpen(anchor: HTMLElement): void {
     void this.quickOpen.open(anchor);
+  }
+
+  /**
+   * Save the active buffer.
+   *
+   * Public because the desktop shell's File ▸ Save takes the accelerator before
+   * the page ever sees the keystroke: a native menu item claims Cmd/Ctrl+S at
+   * the application level, so Monaco's own binding never fires and the menu has
+   * to reach the same code.
+   */
+  async saveActive(): Promise<void> {
+    if (this.activePath) {
+      await this.models.save(this.activePath);
+    }
+  }
+
+  /** Every dirty buffer, for File ▸ Save All. */
+  async saveAll(): Promise<void> {
+    for (const absPath of this.openTabs) {
+      if (this.models.isDirty(absPath)) {
+        await this.models.save(absPath);
+      }
+    }
   }
 
   /**

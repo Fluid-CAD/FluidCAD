@@ -76,6 +76,11 @@ export class TopBar {
     this.tabs.setFileName(absPath);
   }
 
+  /** Where a menu-invoked quick-open should hang from. */
+  get tabAddAnchor(): HTMLElement {
+    return this.tabs.addAnchor;
+  }
+
   setTabs(tabs: FileTab[], activePath: string | null, currentModelPath: string | null): void {
     this.tabs.setTabs(tabs, activePath, currentModelPath);
   }

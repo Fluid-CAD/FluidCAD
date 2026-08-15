@@ -109,7 +109,7 @@ export class MeasureController {
    */
   handleClick(shapeId: string | null, sub: SubSelection, additive: boolean): SelectedEntity[] {
     // Sketch-wire picks belong to the create dialogs, never to measurement.
-    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
+    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane' || sub.type === 'connector') {
       if (additive && this.entities.length > 0) {
         return this.entities; // missed ctrl-click shouldn't wipe a selection in progress
       }
@@ -134,7 +134,7 @@ export class MeasureController {
   /** Right-click in neutral mode: the multi-select menu over that pick. */
   handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
     this.menu?.hide();
-    if (!this.menu || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
+    if (!this.menu || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane' || sub.type === 'connector') {
       return;
     }
     // The hover tint would otherwise be stashed as an "original" color by the

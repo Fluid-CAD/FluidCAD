@@ -53,14 +53,14 @@ function M.setup(_config)
 
   vim.api.nvim_create_user_command('FluidCadProcessFile', function()
     local file = vim.fn.expand('%:p')
-    if not file:match('%.fluid%.js$') then
-      vim.notify('[fluidcad] Current file is not a .fluid.js file', vim.log.levels.WARN)
+    if not (file:match('%.part%.js$') or file:match('%.assembly%.js$') or file:match('%.fluid%.js$')) then
+      vim.notify('[fluidcad] Current file is not a FluidCAD script (.part.js / .assembly.js / .fluid.js)', vim.log.levels.WARN)
       return
     end
     bridge.when_ready(function()
       bridge.send({ type = 'process-file', filePath = file })
     end)
-  end, { desc = 'Process current .fluid.js file' })
+  end, { desc = 'Process current FluidCAD script file' })
 
   vim.api.nvim_create_user_command('FluidCadRollback', function(opts)
     local index = tonumber(opts.args)

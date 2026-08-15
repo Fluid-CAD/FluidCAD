@@ -68,8 +68,8 @@ end
 function M.toggle()
   local bufnr = vim.api.nvim_get_current_buf()
   local name = vim.api.nvim_buf_get_name(bufnr)
-  if not name:match('%.fluid%.js$') then
-    vim.notify('[fluidcad] Not a .fluid.js buffer', vim.log.levels.WARN)
+  if not (name:match('%.part%.js$') or name:match('%.assembly%.js$') or name:match('%.fluid%.js$')) then
+    vim.notify('[fluidcad] Not a FluidCAD script buffer', vim.log.levels.WARN)
     return
   end
 

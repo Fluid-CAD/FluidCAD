@@ -47,6 +47,7 @@ const fakeSceneManager = () => ({
   setCurrentFile: () => {},
   renderScene: () => {},
   compare: (_prev: any, next: any) => next,
+  getAssemblyData: () => null,
 });
 
 /** `width`/`height` params plus a body line that changes without touching them. */

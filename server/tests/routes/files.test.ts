@@ -15,6 +15,7 @@ let server: http.Server;
 let baseUrl: string;
 let workspace: string;
 let opened: string[];
+let written: { absPath: string; content: string }[];
 
 async function get(route: string): Promise<{ status: number; body: any }> {
   const res = await fetch(`${baseUrl}/api${route}`);
@@ -39,6 +40,7 @@ describe('workspace file routes', () => {
     app.use('/api', createFilesRouter({
       workspacePath: workspace,
       openFile: async (absPath) => { opened.push(absPath); },
+      onWrite: (absPath, content) => { written.push({ absPath, content }); },
     }));
 
     server = http.createServer(app);
@@ -54,6 +56,7 @@ describe('workspace file routes', () => {
 
   beforeEach(() => {
     opened = [];
+    written = [];
     for (const entry of fs.readdirSync(workspace)) {
       fs.rmSync(path.join(workspace, entry), { recursive: true, force: true });
     }
@@ -74,6 +77,23 @@ describe('workspace file routes', () => {
       expect(byPath['helper.js'].kind).toBe('source');
       expect(body.files[0].kind).toBe('model');
       expect(byPath['helper.js'].absPath).toBe(path.join(workspace, 'helper.js'));
+    });
+
+    it('classifies every fluid-script suffix as a model, not just .fluid.js', async () => {
+      // `.part.js` / `.assembly.js` are the primary spellings (`file-kind.ts`);
+      // the editor's tab icons, quick-open ordering and open-on-activate all
+      // key off this kind, so an assembly file must not list as a helper.
+      fs.writeFileSync(path.join(workspace, 'robot.assembly.js'), '// assembly');
+      fs.writeFileSync(path.join(workspace, 'arm.part.js'), '// part');
+      fs.writeFileSync(path.join(workspace, 'legacy.fluid.js'), '// part');
+      fs.writeFileSync(path.join(workspace, 'assembly.js'), '// a helper that merely ends in the word');
+
+      const { body } = await get('/files/tree');
+      const byPath = Object.fromEntries(body.files.map((f: any) => [f.path, f]));
+      expect(byPath['robot.assembly.js'].kind).toBe('model');
+      expect(byPath['arm.part.js'].kind).toBe('model');
+      expect(byPath['legacy.fluid.js'].kind).toBe('model');
+      expect(byPath['assembly.js'].kind).toBe('source');
     });
 
     it('skips node_modules and .git without being told to', async () => {
@@ -107,6 +127,17 @@ describe('workspace file routes', () => {
   });
 
   describe('read / write / create / rename / delete', () => {
+    it('reports every write and create to onWrite so the disk-watcher echo can be recognised', async () => {
+      await post('/files/write', { path: 'arm.part.js', content: '// v1' });
+      await post('/files/create', { path: 'new.part.js', content: '// fresh' });
+      await post('/files/create', { path: 'empty.js' });
+      expect(written).toEqual([
+        { absPath: path.join(workspace, 'arm.part.js'), content: '// v1' },
+        { absPath: path.join(workspace, 'new.part.js'), content: '// fresh' },
+        { absPath: path.join(workspace, 'empty.js'), content: '' },
+      ]);
+    });
+
     it('round-trips a file by workspace-relative path', async () => {
       fs.writeFileSync(path.join(workspace, 'a.fluid.js'), 'const x = 1;');
 

@@ -192,7 +192,7 @@ export class QuickOpen {
       .map((file) => ({ file, score: fuzzyScore(file.path, this.query) }))
       .filter((row): row is { file: WorkspaceFileEntry; score: number } => row.score !== null)
       // Models before helpers, then by match quality: opening a part is the
-      // common case and a `.fluid.js` should not lose to a same-named helper.
+      // common case and a model should not lose to a same-named helper.
       .sort((a, b) =>
         (a.file.kind === b.file.kind ? 0 : a.file.kind === 'model' ? -1 : 1) ||
         a.score - b.score ||

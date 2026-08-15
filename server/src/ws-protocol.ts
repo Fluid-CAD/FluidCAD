@@ -122,12 +122,40 @@ export type CompileError = {
   sourceLocation?: { filePath: string; line: number; column: number };
 };
 
+export type SerializedAssemblyInstance = {
+  instanceId: string;
+  partId: string;
+  partName: string;
+  position: { x: number; y: number; z: number };
+  quaternion: { x: number; y: number; z: number; w: number };
+  grounded: boolean;
+  name: string;
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
+export type SerializedAssemblyMate = {
+  mateId: string;
+  type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';
+  connectorA: { instanceId: string; connectorId: string };
+  connectorB: { instanceId: string; connectorId: string };
+  status: 'satisfied' | 'redundant' | 'inconsistent';
+  options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number] };
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
+export type SerializedAssembly = {
+  instances: SerializedAssemblyInstance[];
+  mates: SerializedAssemblyMate[];
+};
+
 export type SceneRenderedMessage = {
   type: 'scene-rendered';
   absPath: string;
+  sceneKind: 'part' | 'assembly';
   result: any[];
   rollbackStop: number;
   compileError?: CompileError;
+  assembly?: SerializedAssembly;
 };
 
 export type ErrorMessage = {
@@ -204,6 +232,17 @@ export type GotoSourceMessage = {
   filePath: string;
   line: number;
   column: number;
+};
+
+export type UpdateInsertChainMessage = {
+  type: 'update-insert-chain';
+  sourceLocation: { filePath: string; line: number };
+  edit: {
+    ground?: boolean;
+    name?: string | null;
+    defaultName?: string;
+    at?: [number, number, number] | null;
+  };
 };
 
 export type InsertGeometryMessage = {
@@ -327,6 +366,7 @@ export type ServerToExtensionMessage =
   | RemoveFeatureMessage
   | ClearBreakpointsMessage
   | GotoSourceMessage
+  | UpdateInsertChainMessage
   | ExportCompleteMessage
   | InsertGeometryMessage
   | UpdatePositionMessage
@@ -335,7 +375,9 @@ export type ServerToExtensionMessage =
   | SetChainPositionsMessage
   | UpdateDimensionMessage
   | UpdateDimensionExpressionMessage
-  | SetRectDimensionsMessage;
+  | SetRectDimensionsMessage
+  | UndoMessage
+  | RedoMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: Server → UI messages
@@ -360,9 +402,11 @@ export type UISceneRenderedMessage = {
   type: 'scene-rendered';
   result: any[];
   absPath: string;
+  sceneKind: 'part' | 'assembly';
   rollbackStop?: number;
   breakpointHit?: boolean;
   compileError?: CompileError;
+  assembly?: SerializedAssembly;
   params?: UIParamDefinition[];
 };
 

@@ -13,18 +13,18 @@ interface Loft extends BooleanOperation {
   guides(...guides: SceneObject[]): this;
   startCondition(type: LoftConditionType, magnitude?: NumberParam): this;
   endCondition(type: LoftConditionType, magnitude?: NumberParam): this;
-  startFaces(...args: (number | FaceFilter)[]): SceneObject;
-  endFaces(...args: (number | FaceFilter)[]): SceneObject;
-  sideFaces(...args: (number | FaceFilter)[]): SceneObject;
-  startEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  endEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  sideEdges(...args: (number | EdgeFilter)[]): SceneObject;
+  startFaces(...args: (number | FaceFilter)[]): ISelection;
+  endFaces(...args: (number | FaceFilter)[]): ISelection;
+  sideFaces(...args: (number | FaceFilter)[]): ISelection;
+  startEdges(...args: (number | EdgeFilter)[]): ISelection;
+  endEdges(...args: (number | EdgeFilter)[]): ISelection;
+  sideEdges(...args: (number | EdgeFilter)[]): ISelection;
   thin(offset: NumberParam): this;
   thin(offset1: NumberParam, offset2: NumberParam): this;
-  internalFaces(...args: (number | FaceFilter)[]): SceneObject;
-  internalEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  capFaces(...args: (number | FaceFilter)[]): SceneObject;
-  capEdges(...args: (number | EdgeFilter)[]): SceneObject;
+  internalFaces(...args: (number | FaceFilter)[]): ISelection;
+  internalEdges(...args: (number | EdgeFilter)[]): ISelection;
+  capFaces(...args: (number | FaceFilter)[]): ISelection;
+  capEdges(...args: (number | EdgeFilter)[]): ISelection;
 }
 ```
 
@@ -68,7 +68,7 @@ Constrains how the surface arrives at the last profile.
 
 Selects faces on the first profile plane of the loft.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -78,7 +78,7 @@ Selects faces on the first profile plane of the loft.
 
 Selects faces on the last profile plane of the loft.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -88,7 +88,7 @@ Selects faces on the last profile plane of the loft.
 
 Selects the lateral faces generated between loft profiles.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -98,7 +98,7 @@ Selects the lateral faces generated between loft profiles.
 
 Selects edges on the first profile plane of the loft.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -108,7 +108,7 @@ Selects edges on the first profile plane of the loft.
 
 Selects edges on the last profile plane of the loft.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -118,7 +118,7 @@ Selects edges on the last profile plane of the loft.
 
 Selects edges on the side faces, excluding edges shared with start/end faces.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -145,7 +145,7 @@ and share the same topology. Positive values offset outward, negative offsets in
 Selects faces created inside the solid during loft (e.g., the inner
 wall of a thin-walled loft from closed profiles).
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -155,7 +155,7 @@ wall of a thin-walled loft from closed profiles).
 
 Selects edges bounding the internal geometry created during loft.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -166,7 +166,7 @@ Selects edges bounding the internal geometry created during loft.
 Selects the cap faces at the open ends of a thin-walled loft from open profiles.
 These are the small faces connecting the inner and outer walls at the profile endpoints.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -176,7 +176,7 @@ These are the small faces connecting the inner and outer walls at the profile en
 
 Selects edges on the cap faces of a thin-walled loft from open profiles.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |

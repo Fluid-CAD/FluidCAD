@@ -56,6 +56,32 @@ describe('classifyCommit', () => {
     expect(classifyCommit('height', VARS, '25', true)).toMatchObject({ kind: 'error' });
     expect(classifyCommit('12', VARS, '25', true)).toEqual({ kind: 'expression', expression: '12' });
   });
+
+  it('arithmeticOnly passes numbers and arithmetic through', () => {
+    expect(classifyCommit('12.5', [], '0', false, false, true))
+      .toEqual({ kind: 'expression', expression: '12.5' });
+    expect(classifyCommit('50*2', [], '0', false, false, true))
+      .toEqual({ kind: 'expression', expression: '50*2' });
+    expect(classifyCommit('25/2 + 1', [], '0', false, false, true))
+      .toEqual({ kind: 'expression', expression: '25/2 + 1' });
+    expect(classifyCommit('-(3 % 2)', [], '0', false, false, true))
+      .toEqual({ kind: 'expression', expression: '-(3 % 2)' });
+  });
+
+  it('arithmeticOnly resolves known variables but never declares', () => {
+    expect(classifyCommit('height * 2', VARS, '0', false, false, true))
+      .toEqual({ kind: 'expression', expression: 'height * 2' });
+    // A bare unknown identifier would DECLARE in the default mode — here it errors.
+    expect(classifyCommit('depth', [], '25', false, false, true)).toMatchObject({ kind: 'error' });
+    expect(classifyCommit('depth = 12', [], '25', false, false, true)).toMatchObject({ kind: 'error' });
+  });
+
+  it('arithmeticOnly refuses non-finite and non-arithmetic input', () => {
+    expect(classifyCommit('1 / 0', [], '0', false, false, true)).toMatchObject({ kind: 'error' });
+    expect(classifyCommit('Math.max(2, 3)', [], '0', false, false, true)).toMatchObject({ kind: 'error' });
+    expect(classifyCommit('5 mm', [], '0', false, false, true)).toMatchObject({ kind: 'error' });
+    expect(classifyCommit('', [], '0', false, false, true)).toMatchObject({ kind: 'error' });
+  });
 });
 
 describe('declaredVariableName', () => {

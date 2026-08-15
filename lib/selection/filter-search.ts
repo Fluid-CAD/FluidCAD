@@ -37,6 +37,8 @@ export type InducedFilter = {
   /** Rendered argument list, e.g. `edge().circle(5)` — one entry per builder. */
   filterArgs: string;
   constants: number;
+  /** Geometry-valued constants not linked to a user parameter. */
+  bakedConstants: number;
   /** The composed builders, exactly as the rendered text would build them. */
   builders: FilterBuilderBase<Shape>[];
   /**
@@ -223,7 +225,10 @@ export function induceFilterArgs(
   const constants = conjunctions.reduce(
     (sum, conj) => sum + conj.reduce((s, a) => s + a.constants, 0), 0,
   );
-  return { filterArgs, constants, builders, refs };
+  const bakedConstants = conjunctions.reduce(
+    (sum, conj) => sum + conj.reduce((s, a) => s + (a.bakedConstants ?? 0), 0), 0,
+  );
+  return { filterArgs, constants, bakedConstants, builders, refs };
 }
 
 /**

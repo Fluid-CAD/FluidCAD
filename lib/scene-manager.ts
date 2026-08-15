@@ -1,6 +1,8 @@
 import { Scene } from "./rendering/scene.js";
+import { AssemblyScene, SerializedInstance, SerializedMate, SerializedOccurrence } from "./rendering/assembly-scene.js";
 import { SceneRenderer } from "./rendering/render.js";
 import { SceneCompare } from "./rendering/scene-compare.js";
+import { AssemblyCompare } from "./rendering/assembly-compare.js";
 import { SceneDisposal } from "./rendering/scene-disposal.js";
 import { buildFeatureGhost } from "./rendering/feature-ghost.js";
 import type { FeatureGhostRequest, FeatureGhostResult } from "./rendering/feature-ghost.js";
@@ -26,6 +28,7 @@ import { MeasureOps } from "./oc/measure/measure-ops.js";
 import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
+import { ConnectorAnchorSuggestions, suggestConnectorAnchors } from "./selection/connector-anchors.js";
 import { synthesizeSketchApplyFeature, resolveSketchStatementTargets, SketchTargetDescriptor } from "./selection/sketch-apply.js";
 import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
 import { synthesizeTrimRegionTargets } from "./selection/trim-region.js";
@@ -61,8 +64,30 @@ class SceneManager {
     return this.currentScene;
   }
 
+  startAssemblyScene(): AssemblyScene {
+    const scene = new AssemblyScene();
+    this.currentScene = scene;
+    console.log("Starting new assembly scene");
+    return scene;
+  }
+
   renderScene(scene: Scene) {
     return this.renderer.render(scene);
+  }
+
+  getAssemblyData(scene: Scene): {
+    instances: SerializedInstance[];
+    mates: SerializedMate[];
+    occurrences: SerializedOccurrence[];
+  } | null {
+    if (!(scene instanceof AssemblyScene)) {
+      return null;
+    }
+    return {
+      instances: scene.getSerializedInstances(),
+      mates: scene.getSerializedMates(),
+      occurrences: scene.getSerializedOccurrences(),
+    };
   }
 
   rollbackScene(scene: Scene, rollbackIndex: number) {
@@ -70,6 +95,9 @@ class SceneManager {
   }
 
   compare(previous: Scene, current: Scene) {
+    if (previous instanceof AssemblyScene && current instanceof AssemblyScene) {
+      return AssemblyCompare.compare(previous, current);
+    }
     return SceneCompare.compare(previous, current);
   }
 
@@ -178,6 +206,15 @@ class SceneManager {
     return withBoundary(
       scene, before, scoped => synthesizeApplyFeature(scoped, refs, feature, value, chains, options),
     );
+  }
+
+  /** Hover-time connector anchor suggestions for a picked face/edge. */
+  suggestConnectorAnchors(
+    scene: Scene,
+    ref: PickRef,
+    options: SynthesizeOptions = {},
+  ): ConnectorAnchorSuggestions {
+    return suggestConnectorAnchors(scene, ref, options);
   }
 
   /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */

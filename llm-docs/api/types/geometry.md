@@ -11,7 +11,7 @@ seeAlso: [api/types/scene-object]
 ```ts
 interface Geometry extends SceneObject {
   guide(): this;
-  edge(roleOrIndex: string | number, roleIndex?: number): SceneObject;
+  edge(roleOrIndex: string | number, roleIndex?: number): ISelection;
   start(): Vertex;
   end(): Vertex;
   tangent(): Vertex;
@@ -37,7 +37,7 @@ Rect roles: `top`/`bottom`/`left`/`right` and `corner-arc` 0–3 (radius-arg
 order bl/br/tr/tl); polygon: `side` i; slot: `side` 0–1, `cap-arc`
 0=left/1=right; circle/ellipse: `perimeter`.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |

@@ -109,6 +109,18 @@ function M.apply_code_edit(file_path, editor)
         break
       end
     end
+    -- A named target that isn't loaded yet (cross-file edits: the assembly
+    -- mate dialog writing a connector() into a PART file) must be loaded,
+    -- never silently swapped for the current buffer — that would splice the
+    -- transform into the wrong file.
+    if not buf then
+      if vim.fn.filereadable(file_path) ~= 1 then
+        vim.notify('FluidCAD: cannot edit ' .. file_path .. ' — file not readable', vim.log.levels.ERROR)
+        return
+      end
+      buf = vim.fn.bufadd(file_path)
+      vim.fn.bufload(buf)
+    end
   end
   if not buf then
     buf = vim.api.nvim_get_current_buf()
@@ -126,11 +138,15 @@ function M.apply_code_edit(file_path, editor)
   end
 
   -- TextChanged autocmd does not fire for non-current buffers, so push the
-  -- live-update explicitly.
+  -- live-update explicitly. A cross-file edit (the mate dialog writing into
+  -- a PART buffer while the assembly is current) is marked keepCurrent so
+  -- the server folds it in as a dependency instead of switching the
+  -- viewport to the edited file.
   M.send({
     type = 'live-update',
     fileName = vim.api.nvim_buf_get_name(buf),
     code = result.newCode,
+    keepCurrent = (buf ~= vim.api.nvim_get_current_buf()),
   })
 end
 
@@ -225,6 +241,10 @@ function M.handle_message(msg)
     elseif msg.type == 'set-pick-points' then
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.set_pick_points(code, msg.sourceLocation.line, msg.points)
+      end)
+    elseif msg.type == 'update-insert-chain' then
+      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
+        return code_api.update_insert_chain(code, msg.sourceLocation.line, msg.edit)
       end)
     elseif msg.type == 'insert-geometry' then
       local new_var = msg.newVariable
@@ -363,6 +383,14 @@ local function find_buffer_for_path(file_path)
   return nil
 end
 
+--- Mirror of the server's file-kind suffixes: part, assembly, and legacy
+--- .fluid.js sources are all fluid scripts.
+local function is_fluid_script(name)
+  return name:match('%.part%.js$') ~= nil
+    or name:match('%.assembly%.js$') ~= nil
+    or name:match('%.fluid%.js$') ~= nil
+end
+
 --- Server-driven editor history: run native undo/redo inside the buffer for
 --- `msg.filePath` and ack the outcome. Deliberately no current-buffer
 --- fallback — stepping history in whatever buffer happens to be focused
@@ -372,7 +400,7 @@ function M.handle_undo_redo(msg)
   local buf = find_buffer_for_path(msg.filePath)
   if not buf then
     err = 'no buffer for ' .. tostring(msg.filePath)
-  elseif not vim.api.nvim_buf_get_name(buf):match('%.fluid%.js$') then
+  elseif not is_fluid_script(vim.api.nvim_buf_get_name(buf)) then
     err = 'refusing to ' .. msg.type .. ' a non-fluid buffer'
   else
     local tick_before = vim.api.nvim_buf_get_changedtick(buf)

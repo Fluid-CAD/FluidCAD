@@ -63,7 +63,7 @@ function M.setup(config)
     cancel_pending()
     local buf = vim.api.nvim_get_current_buf()
     local name = vim.api.nvim_buf_get_name(buf)
-    if not name:match('%.fluid%.js$') then
+    if not (name:match('%.part%.js$') or name:match('%.assembly%.js$') or name:match('%.fluid%.js$')) then
       return
     end
     local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
@@ -91,7 +91,7 @@ function M.setup(config)
   -- Auto-start server when opening a .fluid.js file
   vim.api.nvim_create_autocmd('BufEnter', {
     group = group,
-    pattern = '*.fluid.js',
+    pattern = { '*.part.js', '*.assembly.js', '*.fluid.js' },
     callback = function()
       if config.auto_start and not bridge.is_running() then
         bridge.start(vim.fn.getcwd())
@@ -109,7 +109,7 @@ function M.setup(config)
   -- Refresh breakpoint signs after buffer edits
   vim.api.nvim_create_autocmd({ 'TextChanged', 'TextChangedI', 'BufReadPost' }, {
     group = group,
-    pattern = '*.fluid.js',
+    pattern = { '*.part.js', '*.assembly.js', '*.fluid.js' },
     callback = function(args)
       breakpoints.refresh(args.buf)
     end,
@@ -130,7 +130,7 @@ function M.setup(config)
   -- Live-update on undo/redo in normal mode
   vim.api.nvim_create_autocmd('TextChanged', {
     group = group,
-    pattern = '*.fluid.js',
+    pattern = { '*.part.js', '*.assembly.js', '*.fluid.js' },
     callback = function()
       if not bridge.is_running() then
         return
@@ -142,7 +142,7 @@ function M.setup(config)
   -- Process file on save
   vim.api.nvim_create_autocmd('BufWritePost', {
     group = group,
-    pattern = '*.fluid.js',
+    pattern = { '*.part.js', '*.assembly.js', '*.fluid.js' },
     callback = function()
       if bridge.is_running() then
         bridge.send({ type = 'process-file', filePath = vim.fn.expand('%:p') })

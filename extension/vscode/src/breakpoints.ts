@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { Client } from './client';
 import * as codeApi from './code-api';
+import { isFluidScriptFile } from './file-kind';
 
 const BREAKPOINT_LINE = /^(\s*)breakpoint\s*\(\s*\)\s*;?\s*$/;
 
@@ -69,7 +70,7 @@ async function mirrorNativeBreakpoint(client: Client, bp: vscode.Breakpoint, add
     return;
   }
   const uri = bp.location.uri;
-  if (!uri.fsPath.endsWith('.fluid.js')) {
+  if (!isFluidScriptFile(uri.fsPath)) {
     return;
   }
   const line = bp.location.range.start.line;
@@ -105,7 +106,7 @@ async function mirrorNativeBreakpoint(client: Client, bp: vscode.Breakpoint, add
 
 export async function toggleBreakpoint(client: Client) {
   const editor = vscode.window.activeTextEditor;
-  if (!editor || !editor.document.fileName.endsWith('.fluid.js')) {
+  if (!editor || !isFluidScriptFile(editor.document.fileName)) {
     return;
   }
   const doc = editor.document;
@@ -168,7 +169,7 @@ export async function handleAddBreakpointAfterLine(client: Client, filePath: str
 
 export async function handleClearBreakpoints(client: Client) {
   let editor = vscode.window.activeTextEditor;
-  if (!editor || !editor.document.fileName.endsWith('.fluid.js')) {
+  if (!editor || !isFluidScriptFile(editor.document.fileName)) {
     editor = vscode.window.visibleTextEditors.find(
       e => e.document.fileName === client.currentFileName,
     );

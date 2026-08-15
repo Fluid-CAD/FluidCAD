@@ -20,6 +20,12 @@ export interface FilesRouterDeps {
    * `process-file` message a host would send.
    */
   openFile(absPath: string): Promise<void>;
+  /**
+   * The page just put `content` on disk at `absPath` (write or create). The
+   * server keeps a short ledger of these so the `fluidcad serve` disk
+   * watcher's echo of the same bytes is recognised as one, not as an edit.
+   */
+  onWrite?(absPath: string, content: string): void;
 }
 
 /** Text files only: Monaco has nothing to do with a STEP binary. */
@@ -89,6 +95,7 @@ export function createFilesRouter(deps: FilesRouterDeps): Router {
       const file = resolveWorkspaceFile(workspacePath, req.body?.path);
       fs.mkdirSync(path.dirname(file.absPath), { recursive: true });
       fs.writeFileSync(file.absPath, content, 'utf8');
+      deps.onWrite?.(file.absPath, content);
       res.json(fileInfo(file, fs.statSync(file.absPath)));
     } catch (err) {
       respondToError(res, err);
@@ -127,6 +134,7 @@ export function createFilesRouter(deps: FilesRouterDeps): Router {
       }
       fs.mkdirSync(path.dirname(file.absPath), { recursive: true });
       fs.writeFileSync(file.absPath, content ?? '', 'utf8');
+      deps.onWrite?.(file.absPath, content ?? '');
       res.json(fileInfo(file, fs.statSync(file.absPath)));
     } catch (err) {
       respondToError(res, err);

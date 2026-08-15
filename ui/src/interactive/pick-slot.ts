@@ -21,10 +21,19 @@ export type PickSlotChip = {
   line?: number;
   /** Navigate to the chip's source line (the line badge was clicked). */
   onGoto?: () => void;
+  /** Pen button beside the ✕ — chips whose referent has editable properties
+   * (a mate dialog's picked connector). Clicking it fires this without
+   * arming the slot. */
+  onEdit?: () => void;
+  /** Hover tooltip for the pen button. */
+  editTitle?: string;
 };
 
 /** The jump-to-source arrow beside a chip's line number. */
 const GOTO_ARROW = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="7" y1="17" x2="17" y2="7"/><polyline points="7 7 17 7 17 17"/></svg>';
+
+/** The pen on a chip's edit button (see {@link PickSlotChip.onEdit}). */
+const PEN_ICON = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>';
 
 // The empty-slot prompt. Standalone (single slots) it is the classic count
 // box: primary outline while it awaits picks, neutral fill when picking is
@@ -247,6 +256,18 @@ export class PickSlot {
         chip.onGoto?.();
       });
       row.appendChild(goto);
+    }
+
+    if (chip.onEdit) {
+      const edit = document.createElement('button');
+      edit.className = 'btn btn-ghost btn-xs btn-square text-base-content/50 hover:text-base-content shrink-0';
+      edit.title = chip.editTitle ?? 'Edit properties';
+      edit.innerHTML = PEN_ICON;
+      edit.addEventListener('click', (e) => {
+        e.stopPropagation();
+        chip.onEdit?.();
+      });
+      row.appendChild(edit);
     }
 
     if (chip.removable) {

@@ -4,7 +4,7 @@
   "displayName": "FluidCAD",
   "author": "Marwan Aouida <contact@marwan.dev>",
   "description": "",
-  "version": "0.0.41",
+  "version": "0.0.42",
   "license": "MIT",
   "icon": "resources/logo.png",
   "repository": {
@@ -18,7 +18,8 @@
     "Other"
   ],
   "activationEvents": [
-    "workspaceContains:init.js"
+    "workspaceContains:init.js",
+    "workspaceContains:**/*.{part,assembly,fluid}.js"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -48,7 +49,7 @@
         "command": "fluidcad.toggle_breakpoint",
         "key": "ctrl+f9",
         "mac": "cmd+f9",
-        "when": "editorTextFocus && resourceFilename =~ /\\.fluid\\.js$/"
+        "when": "editorTextFocus && resourceFilename =~ /\\.(part|assembly|fluid)\\.js$/"
       }
     ],
     "menus": {

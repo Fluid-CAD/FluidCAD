@@ -7828,3 +7828,231 @@ describe('applyFeatureEdit (rotate in-place statement edit)', () => {
     expect(result.newCode).toContain(`rotate('z', 60, e).name('turned')\n`);
   });
 });
+
+describe('new part statement', () => {
+  const newPartSpec = (name?: string) => spec({
+    feature: 'sketch', value: undefined, producers: [], parts: [],
+    newPart: name !== undefined ? { name } : {},
+  });
+
+  it('appends an exported part() after the last statement and allocates Part 1', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, newPartSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import {part, sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      `export const part1 = part('Part 1', () => {`,
+      ``,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('allocates the first free Part N past existing part names', async () => {
+    const code = [
+      `import { part, sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `part('Part 1', () => {`,
+      `  sketch('xy', () => { rect(100, 50) })`,
+      `  extrude(30)`,
+      `})`,
+      `part('Part 3', () => {})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, newPartSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`part('Part 3', () => {})\nexport const part2 = part('Part 2', () => {`);
+  });
+
+  it('uses the provided name verbatim and derives the export identifier', async () => {
+    const result = await applyFeatureEdit('', newPartSpec('Box Body'));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { part } from 'fluidcad/core';`,
+      `export const boxBody = part('Box Body', () => {`,
+      ``,
+      `});`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('suffixes the export identifier past a taken word', async () => {
+    const code = [
+      `import { part, sketch, rect } from 'fluidcad/core'`,
+      ``,
+      `const bracket = 5`,
+      `part('Other', () => { sketch('xy', () => { rect(bracket, 4) }) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, newPartSpec('Bracket'));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`export const bracket2 = part('Bracket', () => {`);
+  });
+
+  it('refuses a name that cannot sit in a single-quoted literal', async () => {
+    const result = await applyFeatureEdit('', newPartSpec("it's"));
+    expect(result.error).toContain('part names');
+    expect(result.newCode).toBe('');
+  });
+
+  it('lands before an active breakpoint', async () => {
+    const code = [
+      `import { sketch, rect, extrude, breakpoint } from 'fluidcad/core'`,
+      ``,
+      `extrude(30)`,
+      `breakpoint()`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, newPartSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`export const part1 = part('Part 1', () => {\n\n})\nbreakpoint()`);
+  });
+});
+
+describe('active part insertion', () => {
+  const partSketchSpec = (line: number) => spec({
+    feature: 'sketch', value: undefined, producers: [], parts: [],
+    sketchPlane: 'xy', activePart: { line, column: 0 },
+  });
+
+  it('lands the pick-less sketch at the end of the part body', async () => {
+    const code = [
+      `import { part, sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `part('Body', () => {`,
+      `  sketch('xy', () => { rect(100, 50) })`,
+      `  extrude(30)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, partSketchSpec(3));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { part, sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `part('Body', () => {`,
+      `  sketch('xy', () => { rect(100, 50) })`,
+      `  extrude(30)`,
+      `  sketch('xy', () => {`,
+      ``,
+      `  })`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('opens a single-line empty part body across lines', async () => {
+    const code = [
+      `import { part, sketch } from 'fluidcad/core'`,
+      ``,
+      `part('Body', () => {})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, partSketchSpec(3));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { part, sketch } from 'fluidcad/core'`,
+      ``,
+      `part('Body', () => {`,
+      `  sketch('xy', () => {`,
+      ``,
+      `  })`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('fills the exported multi-line empty body the Part tool just wrote', async () => {
+    const code = [
+      `import { part, sketch } from 'fluidcad/core'`,
+      ``,
+      `export const part1 = part('Part 1', () => {`,
+      ``,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, partSketchSpec(3));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import { part, sketch } from 'fluidcad/core'`,
+      ``,
+      `export const part1 = part('Part 1', () => {`,
+      `  sketch('xy', () => {`,
+      ``,
+      `  })`,
+      ``,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('lands before a breakpoint inside the part body', async () => {
+    const code = [
+      `import { part, sketch, rect, extrude, breakpoint } from 'fluidcad/core'`,
+      ``,
+      `part('Body', () => {`,
+      `  sketch('xy', () => { rect(100, 50) })`,
+      `  extrude(30)`,
+      `  breakpoint()`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, partSketchSpec(3));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `  extrude(30)`,
+      `  sketch('xy', () => {`,
+      ``,
+      `  })`,
+      `  breakpoint()`,
+    ].join('\n'));
+  });
+
+  it('lands a standard-base plane inside the part body', async () => {
+    const code = [
+      `import { part, sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `part('Body', () => {`,
+      `  sketch('xy', () => { rect(100, 50) })`,
+      `  extrude(30)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, spec({
+      feature: 'plane',
+      value: undefined,
+      producers: [],
+      parts: [],
+      plane: {
+        type: 'offset', offset: 10, rotateX: null, rotateY: null, rotateZ: null,
+        bases: [{ kind: 'standard', plane: 'xy' }],
+      },
+      activePart: { line: 3, column: 0 },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  extrude(30)\n  plane('xy', 10)\n})`);
+    expect(result.newCode).toContain(`import {plane,`);
+  });
+
+  it('refuses when the active-part line does not hold a part() call', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => { rect(100, 50) })`,
+      `extrude(30)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, partSketchSpec(4));
+    expect(result.error).toContain('no part() call found at line 4');
+    expect(result.newCode).toBe(code);
+  });
+});

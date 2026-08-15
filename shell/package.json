@@ -1,6 +1,6 @@
 {
   "name": "fluidcad-desktop",
-  "version": "0.0.41",
+  "version": "0.0.42",
   "private": true,
   "description": "The FluidCAD desktop shell: a window, native menus, and an engine manager.",
   "author": "Marwan Aouida <contact@marwan.dev>",

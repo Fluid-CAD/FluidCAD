@@ -3,6 +3,7 @@ import { join, dirname } from 'path';
 import { fork } from 'child_process';
 import type { Client } from './client';
 import { createWebviewPanel } from './webview';
+import { isFluidScriptFile } from './file-kind';
 
 export function sendToServer(client: Client, msg: any) {
   if (client.serverProcess?.connected) {
@@ -20,7 +21,7 @@ export function processFile(client: Client, filePath: string) {
   });
 }
 
-export function updateLiveCode(client: Client, fileName: string, newCode: string) {
+export function updateLiveCode(client: Client, fileName: string, newCode: string, keepCurrent = false) {
   if (client.debounceTimer) {
     clearTimeout(client.debounceTimer);
     client.debounceTimer = undefined;
@@ -29,13 +30,16 @@ export function updateLiveCode(client: Client, fileName: string, newCode: string
     type: 'live-update',
     fileName,
     code: newCode,
+    // A cross-file edit (the assembly mate dialog writing into a PART file)
+    // folds in as a dependency server-side instead of switching the viewport.
+    ...(keepCurrent ? { keepCurrent: true } : {}),
   });
 }
 
 export function initLiveRender(client: Client) {
   const disposable = vscode.workspace.onDidChangeTextDocument((event) => {
     const doc = event.document;
-    if (!doc.fileName.endsWith('.fluid.js')) {
+    if (!isFluidScriptFile(doc.fileName)) {
       return;
     }
 

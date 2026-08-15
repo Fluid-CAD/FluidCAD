@@ -14,12 +14,16 @@ import { createApplyFeatureRouter } from './routes/apply-feature.ts';
 import { createExportRouter } from './routes/export.ts';
 import { createScreenshotRouter } from './routes/screenshot.ts';
 import { createPreferencesRouter } from './routes/preferences.ts';
+import { loadPreferences } from './preferences.ts';
 import { createHealthRouter } from './routes/health.ts';
 import { createSceneRouter } from './routes/scene.ts';
 import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
 import { createRenderRouter, type RenderOutcome } from './routes/render.ts';
 import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
+import { createPartCatalogRouter } from './routes/part-catalog.ts';
+import { createInstancePoseRouter } from './routes/instance-pose.ts';
+import { createAssemblyMateRouter } from './routes/assembly-mate.ts';
 import { createTextRouter } from './routes/text.ts';
 import { createFeatureGhostRouter } from './routes/feature-ghost.ts';
 import { createFilesRouter } from './routes/files.ts';
@@ -31,9 +35,12 @@ import { HostRegistry } from './host-registry.ts';
 import { attachEditorHostTransport, broadcastEditorCapabilities } from './editor-host-transport.ts';
 import { normalizePath } from './normalize-path.ts';
 import { readProjectConfig, describeEnginePinMismatch } from './project-config.ts';
+import { PageWriteLedger } from './files/page-write-ledger.ts';
+import type { CompileError, SerializedAssembly } from './ws-protocol.ts';
+import { detectKind } from './file-kind.ts';
+import type { FluidScriptKind } from './file-kind.ts';
 import { writeInstanceFile, deleteInstanceFile } from './instance-file.ts';
 import { addInstance, removeInstance } from './global-registry.ts';
-import type { CompileError } from './ws-protocol.ts';
 import { extractSourceLocation, describeOcException } from '../../lib/dist/index.js';
 
 // Load-bearing for every sourceLocation the engine reports: user modules run
@@ -135,20 +142,41 @@ app.use('/api', createScreenshotRouter(requestScreenshot));
 app.use('/api', createPreferencesRouter());
 app.use('/api', createSceneRouter(fluidCadServer, getLastCameraState));
 app.use('/api', createEditorRouter(dirtyBufferState, editDispatcher));
-app.use('/api', createRenderRouter((fileName, code) => runLiveRender(fileName, code)));
+app.use('/api', createRenderRouter((fileName, code, keepCurrent) => runLiveRender(fileName, code, keepCurrent)));
 app.use('/api', createLintRouter());
 app.use('/api', createTextRouter(fluidCadServer));
 app.use('/api', createFeatureGhostRouter(fluidCadServer));
 app.use('/api', createFilesRouter({
   workspacePath: WORKSPACE_PATH,
   openFile: (absPath) => processFile(absPath),
+  onWrite: (absPath, content) => pageWrites.record(absPath, content),
 }));
 app.use('/api', createEngineTypesRouter(PACKAGE_VERSION));
 app.use('/api', createWorkspaceStateRouter(WORKSPACE_PATH));
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION, getLastCameraState));
+app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
+app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher));
+app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher));
 
-// Static files — serve UI build, with SPA fallback
+// Static files — serve UI build, with SPA fallback. index.html goes through
+// sendIndexHtml so the saved theme is on <html> before the first paint — the
+// UI's async /api/preferences fetch lands after render and would flash the
+// built-in dark default.
+async function sendIndexHtml(res: express.Response): Promise<void> {
+  res.setHeader('Cache-Control', 'no-cache');
+  try {
+    const html = await fs.promises.readFile(path.join(UI_DIST, 'index.html'), 'utf8');
+    const theme = (await loadPreferences()).theme.replace(/[^\w-]/g, '') || 'fluidcad-dark';
+    res.type('html').send(html.replace('data-theme="fluidcad-dark"', `data-theme="${theme}"`));
+  } catch {
+    res.sendFile(path.join(UI_DIST, 'index.html'));
+  }
+}
+app.get(['/', '/index.html'], (_req, res) => {
+  void sendIndexHtml(res);
+});
 app.use(express.static(UI_DIST, {
+  index: false,
   setHeaders(res, filePath) {
     if (path.extname(filePath) === '.html') {
       res.setHeader('Cache-Control', 'no-cache');
@@ -156,8 +184,7 @@ app.use(express.static(UI_DIST, {
   },
 }));
 app.get('*splat', (_req, res) => {
-  res.setHeader('Cache-Control', 'no-cache');
-  res.sendFile(path.join(UI_DIST, 'index.html'));
+  void sendIndexHtml(res);
 });
 
 // ---------------------------------------------------------------------------
@@ -167,26 +194,47 @@ app.get('*splat', (_req, res) => {
 let currentFile: string | null = null;
 let renderVersion = 0;
 let workspaceWatcher: WorkspaceWatcher | null = null;
-const lastSceneByFile = new Map<string, { result: any[]; rollbackStop: number }>();
+/**
+ * What the in-page host last put on disk, so the `fluidcad serve` disk
+ * watcher's echo of that same save is recognised. The host has already
+ * rendered its own edit with the right `keepCurrent` — replaying the echo as
+ * a plain live-update would switch the viewport to whichever file it saved
+ * (a PART the assembly's mate dialog just wrote a connector into).
+ */
+const pageWrites = new PageWriteLedger();
+const lastSceneByFile = new Map<string, { result: any[]; rollbackStop: number; sceneKind: FluidScriptKind; assembly?: SerializedAssembly }>();
 
 attachEditorHostTransport({ core, hosts, dispatcher: editDispatcher, dirtyBufferState });
 
-function emitSuccess(version: number, absPath: string, result: any[], rollbackStop: number, breakpointHit?: boolean, params?: any[]) {
-  lastSceneByFile.set(absPath, { result, rollbackStop });
+function emitSuccess(
+  version: number,
+  absPath: string,
+  sceneKind: FluidScriptKind,
+  result: any[],
+  rollbackStop: number,
+  breakpointHit?: boolean,
+  assembly?: SerializedAssembly,
+  params?: any[],
+) {
+  lastSceneByFile.set(absPath, { result, rollbackStop, sceneKind, assembly });
   fluidCadServer.setCompileError(null);
   sendToExtension({
     type: 'scene-rendered',
     absPath,
+    sceneKind,
     result,
     rollbackStop,
+    ...(assembly ? { assembly } : {}),
   });
   broadcastToUI({
     type: 'scene-rendered',
     result,
     absPath,
+    sceneKind,
     rollbackStop,
     breakpointHit,
     params,
+    ...(assembly ? { assembly } : {}),
   });
   broadcastToUI({ type: 'render-version', version, state: 'end', absPath });
 }
@@ -216,20 +264,26 @@ function emitCompileError(version: number, filePath: string, err: any): CompileE
   const prev = lastSceneByFile.get(key);
   const result = prev?.result ?? [];
   const rollbackStop = prev?.rollbackStop ?? -1;
+  const sceneKind = prev?.sceneKind ?? detectKind(key) ?? 'part';
+  const assembly = prev?.assembly;
   fluidCadServer.setCompileError(compileError);
   sendToExtension({
     type: 'scene-rendered',
     absPath: key,
+    sceneKind,
     result,
     rollbackStop,
     compileError,
+    ...(assembly ? { assembly } : {}),
   });
   broadcastToUI({
     type: 'scene-rendered',
     result,
     absPath: key,
+    sceneKind,
     rollbackStop,
     compileError,
+    ...(assembly ? { assembly } : {}),
   });
   broadcastToUI({ type: 'render-version', version, state: 'error', absPath: key });
   return compileError;
@@ -253,9 +307,10 @@ function emitMissingEngine(version: number, filePath: string): boolean {
   }
   const key = normalizePath(filePath).replace('virtual:live-render:', '');
   const compileError: CompileError = { message: reason, filePath: key };
+  const sceneKind = lastSceneByFile.get(key)?.sceneKind ?? detectKind(key) ?? 'part';
   fluidCadServer.setCompileError(compileError);
-  sendToExtension({ type: 'scene-rendered', absPath: key, result: [], rollbackStop: -1, compileError });
-  broadcastToUI({ type: 'scene-rendered', result: [], absPath: key, rollbackStop: -1, compileError });
+  sendToExtension({ type: 'scene-rendered', absPath: key, sceneKind, result: [], rollbackStop: -1, compileError });
+  broadcastToUI({ type: 'scene-rendered', result: [], absPath: key, sceneKind, rollbackStop: -1, compileError });
   broadcastToUI({ type: 'render-version', version, state: 'error', absPath: key });
   return true;
 }
@@ -267,16 +322,23 @@ function emitMissingEngine(version: number, filePath: string): boolean {
  * compile-error to the UI + extension. Returns a structured outcome so the
  * HTTP caller (MCP) can hand it straight to the agent.
  */
-async function runLiveRender(fileName: string, code: string): Promise<RenderOutcome> {
+async function runLiveRender(fileName: string, code: string, keepCurrent = false): Promise<RenderOutcome> {
   const startedAt = Date.now();
   const myVersion = ++renderVersion;
   broadcastToUI({ type: 'render-version', version: myVersion, state: 'start' });
-  if (fileName !== currentFile) {
+  // A host-applied cross-file edit (the mate dialog writing a connector()
+  // into a PART file while the assembly is viewed) marks its live-update
+  // keepCurrent: the updated file folds in as a dependency and the CURRENT
+  // file re-renders, instead of the viewport switching to the edited file.
+  const dependency = keepCurrent && currentFile !== null && fileName !== currentFile;
+  if (!dependency && fileName !== currentFile) {
     broadcastToUI({ type: 'processing-file' });
     currentFile = fileName;
   }
   try {
-    const data = await fluidCadServer.updateLiveCode(fileName, code);
+    const data = dependency
+      ? await fluidCadServer.updateDependencyCode(fileName, code)
+      : await fluidCadServer.updateLiveCode(fileName, code);
     if (myVersion !== renderVersion) {
       return { state: 'superseded', version: myVersion, durationMs: Date.now() - startedAt };
     }
@@ -284,7 +346,7 @@ async function runLiveRender(fileName: string, code: string): Promise<RenderOutc
       emitMissingEngine(myVersion, fileName);
       return { state: 'no-scene-manager', version: myVersion, durationMs: Date.now() - startedAt };
     }
-    emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit, data.params);
+    emitSuccess(myVersion, data.absPath, data.sceneKind, data.result, data.rollbackStop, data.breakpointHit, data.assembly, data.params);
     // The scene is served either way — a feature that fails to build doesn't
     // abort the render, it just leaves its geometry out. But that is NOT a
     // successful render as far as the caller is concerned, so it gets its own
@@ -333,7 +395,7 @@ async function processFile(filePath: string): Promise<void> {
     const data = await fluidCadServer.processFile(filePath);
     if (myVersion !== renderVersion) { return; }
     if (data) {
-      emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit, data.params);
+      emitSuccess(myVersion, data.absPath, data.sceneKind, data.result, data.rollbackStop, data.breakpointHit, data.assembly, data.params);
       return;
     }
     // No data and no throw: there was nothing to render with. Say so rather
@@ -354,7 +416,10 @@ async function handleExtensionMessage(msg: any) {
       }
 
       case 'live-update': {
-        await runLiveRender(msg.fileName, msg.code);
+        if (pageWrites.isEcho(msg.fileName, msg.code)) {
+          break;
+        }
+        await runLiveRender(msg.fileName, msg.code, msg.keepCurrent === true);
         break;
       }
 
@@ -364,7 +429,7 @@ async function handleExtensionMessage(msg: any) {
         const data = await fluidCadServer.rollback(msg.fileName, msg.index);
         if (myVersion !== renderVersion) { return; }
         if (data) {
-          emitSuccess(myVersion, data.absPath, data.result, data.rollbackStop, data.breakpointHit);
+          emitSuccess(myVersion, data.absPath, data.sceneKind, data.result, data.rollbackStop, data.breakpointHit, data.assembly);
         }
         break;
       }

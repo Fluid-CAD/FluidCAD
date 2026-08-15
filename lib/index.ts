@@ -1,4 +1,5 @@
 import { Scene } from "./rendering/scene.js";
+import { AssemblyScene } from "./rendering/assembly-scene.js";
 import { loadOC } from "./load.js";
 import { FontRegistry } from "./io/font-registry.js";
 import { createManager, getCurrentScene, getSceneManager } from "./scene-manager.js";
@@ -7,6 +8,12 @@ import { SelectSceneObject } from "./features/select.js";
 import { Sketch } from "./features/2d/sketch.js";
 import { Extrudable } from "./helpers/types.js";
 import { parse as parseStackTrace } from "stacktrace-parser";
+
+const SCRIPT_SUFFIXES = ['.part.js', '.assembly.js', '.fluid.js'];
+
+export function isFluidScriptFile(p: string): boolean {
+  return SCRIPT_SUFFIXES.some(s => p.endsWith(s));
+}
 
 export function captureSourceLocation(): SourceLocation | null {
   const stack = new Error().stack;
@@ -37,7 +44,7 @@ export function extractSourceLocation(stack: string): SourceLocation | null {
       }
     }
 
-    if (!filePath.endsWith('.fluid.js')) {
+    if (!isFluidScriptFile(filePath)) {
       continue;
     }
 
@@ -64,11 +71,27 @@ export type SceneParserContext = {
   getActiveSketch(): Sketch | null;
 }
 
-export function registerBuilder<T extends Function>(builder: (context: SceneParserContext) => T): T {
+export type RegisterBuilderOptions = {
+  /**
+   * Allow the command at the top level of an *.assembly.js file (outside any
+   * part() block). Almost every command is part-design only; `connector()`
+   * opts in so its own part-scope check can raise a pointed error (declare
+   * inside the part) instead of the generic part-design-only one.
+   */
+  allowAssemblyTopLevel?: boolean;
+};
+
+export function registerBuilder<T extends Function>(
+  builder: (context: SceneParserContext) => T,
+  options: RegisterBuilderOptions = {},
+): T {
 
   const fn: Function = function() {
 
     let scene = getCurrentScene();
+    if (scene instanceof AssemblyScene && !scene.getActivePart() && !options.allowAssemblyTopLevel) {
+      throw new Error("This command is part-design only and cannot be used at the top level of an *.assembly.js file.");
+    }
     const sourceLocation = captureSourceLocation();
 
     // An object's source location is the statement that CREATED it. Builders
@@ -123,8 +146,10 @@ export function registerBuilder<T extends Function>(builder: (context: ScenePars
   return fn as ReturnType<typeof builder>;;
 }
 
-export { createParamRegistry, getParamRegistry } from './param-registry.js';
-export type { ParamRegistry, ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamScalar } from './param-registry.js';
+export { createParamRegistry, getParamRegistry, setParamRegistry, pushParamScope, popParamScope, activeParamScope, coerceParamOverride } from './param-registry.js';
+export type { ParamRegistry, ParamDefinition, MultiControlType, SelectOption, ParamVal, ParamScalar, ParamOverrides, ParamScope } from './param-registry.js';
+export { PartDefinition } from './features/part-definition.js';
+export { Assembly } from './features/assembly.js';
 export { setAssetProvider } from './io/file-import.js';
 export type { AssetProvider } from './io/file-import.js';
 export { getSceneManager } from './scene-manager.js';

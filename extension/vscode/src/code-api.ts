@@ -93,6 +93,25 @@ export function setPickPoints(
   return postCodeEdit<CodeEditResult>(serverUrl, 'set-pick-points', { code, sourceLine, points }, logger);
 }
 
+export type InsertChainEdit = {
+  ground?: boolean;
+  name?: string | null;
+  defaultName?: string;
+  translate?: [number, number, number] | null;
+};
+
+export function updateInsertChain(
+  serverUrl: string,
+  code: string,
+  sourceLine: number,
+  edit: InsertChainEdit,
+  logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<CodeEditResult>(
+    serverUrl, 'update-insert-chain', { code, sourceLine, edit }, logger,
+  );
+}
+
 export function setTrimTargets(
   serverUrl: string, code: string, sourceLine: number, args: string, logger: vscode.OutputChannel,
 ) {

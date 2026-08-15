@@ -27,6 +27,7 @@ import {
   handleRemovePoint,
   handleSetPickPoints,
   handleGotoSource,
+  handleUpdateInsertChain,
   handleInsertGeometry,
   handleInsertLoad,
   handleUpdatePosition,
@@ -166,6 +167,12 @@ export class Client {
         handleSetPickPoints(this, msg);
         break;
       }
+      case 'update-insert-chain': {
+        handleUpdateInsertChain(this, msg).catch((err) => {
+          this.logger.appendLine(`[update-insert-chain] error: ${err?.stack || err}`);
+        });
+        break;
+      }
       case 'add-pick': {
         handleAddPick(this, msg);
         break;
@@ -266,8 +273,8 @@ export class Client {
     serverProcessFile(this, filePath);
   }
 
-  updateLiveCode(fileName: string, newCode: string) {
-    serverUpdateLiveCode(this, fileName, newCode);
+  updateLiveCode(fileName: string, newCode: string, keepCurrent = false) {
+    serverUpdateLiveCode(this, fileName, newCode, keepCurrent);
   }
 
   sendToServer(msg: any) {

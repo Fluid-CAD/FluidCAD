@@ -141,7 +141,7 @@ export function registerEngineManagerHandlers(deps: EngineManagerDeps): void {
 
         const { models, skipped } = findModels(workspacePath);
         if (models.length === 0) {
-          return { error: 'This project has no .fluid.js models to compare.' };
+          return { error: 'This project has no part or assembly files to compare.' };
         }
 
         progress(`Building with the current engine ${current.version}…`);

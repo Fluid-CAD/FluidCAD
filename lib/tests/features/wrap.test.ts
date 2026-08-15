@@ -409,9 +409,9 @@ describe("wrap", () => {
         rect(20, 10);
       });
 
-      const a = new Wrap(2, faceSelection as SceneObject, decal as any);
-      const b = new Wrap(2, faceSelection as SceneObject, decal as any);
-      const c = new Wrap(3, faceSelection as SceneObject, decal as any);
+      const a = new Wrap(2, faceSelection as unknown as SceneObject, decal as any);
+      const b = new Wrap(2, faceSelection as unknown as SceneObject, decal as any);
+      const c = new Wrap(3, faceSelection as unknown as SceneObject, decal as any);
 
       expect(a.compareTo(b)).toBe(true);
       expect(a.compareTo(c)).toBe(false);

@@ -5,6 +5,7 @@ import { EngineDownloadError } from './engine/download';
 import { startEngine, stopEngine } from './engine/process';
 import { EngineResolutionError, pinProjectIfNeeded, resolveEngine, type ResolvedEngine } from './engine/resolver';
 import { rememberProject, rememberWindowBounds, readDesktopState } from './state';
+import { isFluidScriptFile } from './file-kind';
 
 /**
  * One window, one project, one engine child.
@@ -193,13 +194,13 @@ export class ProjectWindow {
     }
   }
 
-  /** The shallowest `.fluid.js` in the workspace — a first-open fallback. */
+  /** The shallowest model (part or assembly file) in the workspace — a first-open fallback. */
   private async firstModel(url: string): Promise<string | null> {
     try {
       const tree = await fetch(`${url}/api/files/tree`).then((r) => r.json());
       const files: { path: string }[] = tree?.files ?? [];
       const models = files
-        .filter((entry) => typeof entry.path === 'string' && entry.path.endsWith('.fluid.js'))
+        .filter((entry) => typeof entry.path === 'string' && isFluidScriptFile(entry.path))
         .sort((a, b) => a.path.split('/').length - b.path.split('/').length || a.path.localeCompare(b.path));
       return models[0]?.path ?? null;
     } catch {

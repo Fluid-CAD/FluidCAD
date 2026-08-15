@@ -53,7 +53,7 @@ export class EditorSurface {
   /** Open tabs, in strip order. Absolute paths. */
   private openTabs: string[] = [];
   private activePath: string | null = null;
-  /** The `.fluid.js` the scene was last rendered from. */
+  /** The model (`.part.js` / `.assembly.js` / `.fluid.js`) the scene was last rendered from. */
   private currentModelPath: string | null = null;
 
   private constructor(private readonly deps: EditorSurfaceDeps) {
@@ -159,8 +159,9 @@ export class EditorSurface {
   }
 
   /**
-   * Open a file as a tab and make it active. Activating a `.fluid.js`
-   * re-renders the scene from it; a helper leaves the viewport alone.
+   * Open a file as a tab and make it active. Activating a model (any fluid
+   * script kind) re-renders the scene from it; a helper leaves the viewport
+   * alone.
    */
   async openFile(path: string, options: { activate?: boolean; reveal?: boolean } = {}): Promise<void> {
     let entry: ModelEntry;
@@ -435,9 +436,21 @@ export class EditorSurface {
   }
 }
 
-/** A new `.fluid.js` starts as something that renders, not an empty file. */
+/**
+ * A new model starts as something that renders, not an empty file. The suffix
+ * picks the kind (`server/src/file-kind.ts`): an assembly driver gets the
+ * imports the Insert dialog and mate tools append to, a part gets a first
+ * feature. Anything else is a plain helper and starts empty.
+ */
 function scaffoldFor(relPath: string): string {
-  if (!relPath.endsWith('.fluid.js')) {
+  if (relPath.endsWith('.assembly.js')) {
+    return [
+      "import { insert, mate } from 'fluidcad/core';",
+      '',
+      '',
+    ].join('\n');
+  }
+  if (!relPath.endsWith('.part.js') && !relPath.endsWith('.fluid.js')) {
     return '';
   }
   return [

@@ -1,6 +1,7 @@
 import { PlaneLike } from "../../math/plane.js";
 import { normalizePlane } from "../../helpers/normalize.js";
 import { Face } from "../../common/shapes.js";
+import { materializePartArgs } from "../../features/part-definition.js";
 import { FilterBuilderBase } from "../filter-builder-base.js";
 import { CircleFilter, NotCircleFilter } from "./circle-filter.js";
 import { ConeFilter, NotConeFilter } from "./cone-filter.js";
@@ -443,7 +444,9 @@ export class FaceFilterBuilder extends FilterBuilderBase<Face> {
    * @param sceneObjects - Scene objects whose faces (and faces of their sub-shapes) are matched against.
    */
   from(...sceneObjects: ISceneObject[]): this {
-    const filter = new FromSceneObjectFilter<Face>(sceneObjects as SceneObject[], "face");
+    // Part definitions coerce to their built default variant at argument
+    // time, so the donor's geometry precedes the consuming select().
+    const filter = new FromSceneObjectFilter<Face>(materializePartArgs(sceneObjects) as SceneObject[], "face");
     this.filters.push(filter);
     return this;
   }

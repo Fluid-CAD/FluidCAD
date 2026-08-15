@@ -196,7 +196,7 @@ if (singleInstance) {
     allProjectWindows()[0]?.focus();
   });
 
-  // macOS: double-clicking a `.fluid.js` in Finder, or dropping one on the icon.
+  // macOS: double-clicking a model file in Finder, or dropping one on the icon.
   app.on('open-file', (event, filePath) => {
     event.preventDefault();
     if (app.isReady()) {

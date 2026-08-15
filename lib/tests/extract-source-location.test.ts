@@ -52,12 +52,36 @@ describe("extractSourceLocation", () => {
     });
   });
 
-  it("skips non-.fluid.js files", () => {
+  it("skips non-FluidCAD-script files", () => {
     const stack = `Error
     at breakpoint (/home/user/node_modules/fluidcad/lib/dist/core/breakpoint.js:4:11)`;
 
     const loc = extractSourceLocation(stack);
     expect(loc).toBeNull();
+  });
+
+  it("parses .part.js frames", () => {
+    const stack = `Error
+    at eval (virtual:live-render:/home/user/project/widget.part.js:12:3)`;
+
+    const loc = extractSourceLocation(stack);
+    expect(loc).toEqual({
+      filePath: "/home/user/project/widget.part.js",
+      line: 12,
+      column: 3,
+    });
+  });
+
+  it("parses .assembly.js frames", () => {
+    const stack = `Error
+    at Object.<anonymous> (/home/user/project/robot.assembly.js:7:9)`;
+
+    const loc = extractSourceLocation(stack);
+    expect(loc).toEqual({
+      filePath: "/home/user/project/robot.assembly.js",
+      line: 7,
+      column: 9,
+    });
   });
 
   it("skips frames with no file", () => {

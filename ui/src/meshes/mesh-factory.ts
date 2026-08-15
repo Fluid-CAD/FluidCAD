@@ -3,6 +3,7 @@ import { MeshRenderOptions, SceneObjectRender } from '../types';
 import { SketchMesh } from './containers/sketch-mesh';
 import { PlaneMesh } from './containers/plane-mesh';
 import { AxisMesh } from './containers/axis-mesh';
+import { ConnectorMesh } from './containers/connector-mesh';
 import { ShapeGroup } from './containers/shape-group';
 import { themeColors } from '../scene/theme-colors';
 
@@ -63,6 +64,15 @@ export function buildObjectMesh(
   isRegionPicking: boolean,
   inherited?: MeshRenderOptions,
 ): Object3D {
+  // Drop invisible objects (e.g. children of a part hidden by `remove(part)`).
+  // The container types — connector/plane/axis/sketch — build their visuals
+  // from `obj.object` rather than `obj.sceneShapes`, so they need this guard
+  // to honor the `visible` flag the renderer set. Active-sketch edit mode
+  // keeps sketches visible regardless, mirroring `buildSceneMesh` above.
+  if (!obj.visible && !(activeSketchId && obj.type === 'sketch')) {
+    return new Group();
+  }
+
   // --- dedicated mesh classes for construction geometry ---
   switch (obj.type) {
     case 'sketch':
@@ -71,6 +81,8 @@ export function buildObjectMesh(
       return new PlaneMesh(obj, camera);
     case 'axis':
       return new AxisMesh(obj);
+    case 'connector':
+      return new ConnectorMesh(obj, camera);
   }
 
   // --- generic objects: resolve options and recurse into children ---

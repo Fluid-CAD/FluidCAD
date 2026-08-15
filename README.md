@@ -188,6 +188,19 @@ npx fluidcad init
 
 This generates `init.js` and `jsconfig.json` to get you started.
 
+### File extensions
+
+FluidCAD recognizes two source-file extensions:
+
+- `*.part.js` — a **part-design** file. Code defines geometry; every edit
+  rebuilds the model and updates the viewport.
+- `*.assembly.js` — an **assembly driver** file. Code references parts and
+  declares mates between them; the viewport then lets you manipulate the
+  result interactively.
+
+`*.fluid.js` continues to work as a back-compat alias for `*.part.js`, so
+existing projects keep running unchanged.
+
 ### 2. Open It
 
 ```bash

@@ -90,6 +90,10 @@ function M.set_pick_points(code, source_line, points)
   return post('set-pick-points', { code = code, sourceLine = source_line, points = points })
 end
 
+function M.update_insert_chain(code, source_line, edit)
+  return post('update-insert-chain', { code = code, sourceLine = source_line, edit = edit })
+end
+
 function M.set_trim_targets(code, source_line, args)
   return post('set-trim-targets', { code = code, sourceLine = source_line, args = args })
 end

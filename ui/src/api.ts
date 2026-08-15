@@ -1,5 +1,12 @@
 import type { VariableInfo } from './ui/expression-input';
-import type { SceneObjectMesh, SourceLocation, Vec3Data } from './types';
+import type {
+  SceneObjectMesh,
+  SceneObjectRender,
+  SerializedAssemblyInstance,
+  SerializedAssemblyMate,
+  SourceLocation,
+  Vec3Data,
+} from './types';
 
 export type { SourceLocation };
 
@@ -1075,6 +1082,123 @@ export async function applyProject(
     selectorOverride: options.selectorOverride,
     preview: options.preview,
   }, options.signal);
+}
+
+/** A well-known point on the connector's source face/edge (`.center()` etc.). */
+export type ConnectorAnchor =
+  | { kind: 'center' | 'start' | 'end' }
+  | { kind: 'offset'; mode: 'relative' | 'absolute'; value: number };
+
+export type ConnectorRotateAxis = 'x' | 'y' | 'z';
+
+export type ConnectorApplyOptions = {
+  /** Identifier the connector registers under — `/^[A-Za-z_$][A-Za-z0-9_$]*$/`, ≤64 chars. */
+  name: string;
+  /** Exactly one face or edge — the connector's source geometry. */
+  entities: ApplyFeatureEntity[];
+  anchor?: ConnectorAnchor;
+  /** Degrees around one of the connector's local axes — rendered as `.rotate('<axis>', n)`. */
+  rotate?: { axis: ConnectorRotateAxis; angle: number };
+  /** Frame-local offset [x, y, z] — rendered as `.offset(...)`. */
+  offset?: [number, number, number];
+  selectorOverride?: string;
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+export async function applyConnector(o: ConnectorApplyOptions): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'connector',
+    name: o.name,
+    entities: o.entities,
+    anchor: o.anchor,
+    rotate: o.rotate,
+    offset: o.offset,
+    selectorOverride: o.selectorOverride,
+    preview: o.preview,
+  }, o.signal);
+}
+
+/**
+ * The connector edit payload. `name`, `rotate` and `offset` are always
+ * explicit — a cleared field drops that chain rather than keeping the
+ * statement's own. The source slot follows the keep-or-re-pick contract:
+ * omitting `entities` and `selectorOverride` leaves the statement's own
+ * expression byte for byte; re-picking carries the pick and its `anchor`.
+ */
+export type ConnectorEditOptions = EditSessionFields & {
+  name: string;
+  rotate: { axis: ConnectorRotateAxis; angle: number } | null;
+  offset: [number, number, number] | null;
+  /** Edited source expression; omitted keeps the statement's verbatim. */
+  selectorOverride?: string;
+  /** Re-picked source — exactly one face or edge; omitted keeps the args. */
+  entities?: ApplyFeatureEntity[];
+  /** The anchor a re-picked source narrows to (`.center()`, …). */
+  anchor?: ConnectorAnchor;
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the `connector()` statement at `edit` in place. */
+export async function applyConnectorEdit(
+  edit: FeatureEditTarget,
+  options: ConnectorEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'connector',
+    edit,
+    expectedStatement: options.expectedStatement,
+    before: options.before,
+    name: options.name,
+    rotate: options.rotate,
+    offset: options.offset,
+    selectorOverride: options.selectorOverride,
+    entities: options.entities,
+    anchor: options.anchor,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/** One connector frame the hover tool can snap to, with its exact axes. */
+export type ConnectorAnchorCandidate = {
+  anchor: ConnectorAnchor;
+  /** `.center()` etc. — appended to `args` for the full source expression. */
+  suffix: string;
+  frame: { origin: Vec3Data; xDirection: Vec3Data; yDirection: Vec3Data; normal: Vec3Data };
+};
+
+export type ConnectorAnchorsResult =
+  | {
+    ok: true;
+    /** A connector name unique within the enclosing part (`c1`, `c2`, …). */
+    defaultName: string;
+    /** Synthesized source selector (no anchor suffix), e.g. `e.endFaces(0)`. */
+    args: string;
+    anchors: ConnectorAnchorCandidate[];
+  }
+  | { ok: false; reason: string | null };
+
+/**
+ * The connector anchors a hovered face/edge supports — the suggestion the
+ * tool draws before the user clicks. Refusals (geometry outside a part(),
+ * an unresolvable pick) come back as `ok: false` with the reason to show.
+ */
+export async function fetchConnectorAnchors(
+  entity: ApplyFeatureEntity,
+  signal?: AbortSignal,
+): Promise<ConnectorAnchorsResult> {
+  const res = await fetch('/api/selection/connector-anchors', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    signal,
+    body: JSON.stringify({ entity }),
+  });
+  const body = await res.json().catch(() => null);
+  if (res.ok && body?.success === true) {
+    return { ok: true, defaultName: body.defaultName, args: body.args, anchors: body.anchors ?? [] };
+  }
+  return { ok: false, reason: body?.reason ?? body?.error ?? null };
 }
 
 export type ProjectEditOptions = EditSessionFields & {
@@ -2413,6 +2537,20 @@ export type ParsedFeatureStatement =
       argsText: string;
     }
   | {
+      feature: 'connector';
+      /** The identifier the statement registers the connector under. */
+      name: string;
+      /**
+       * The source argument, verbatim — anchor suffix included, since
+       * `.center()` is part of the expression the source row shows.
+       */
+      argsText: string;
+      /** `.rotate('<axis>', deg)`, or null when the chain is absent. */
+      rotate: { axis: ConnectorRotateAxis; angle: number } | null;
+      /** `.offset(x[, y, z])`, omitted components read as 0; null when absent. */
+      offset: [number, number, number] | null;
+    }
+  | {
       feature: 'chamfer';
       value: ValueExpr;
       argsText: string;
@@ -3301,17 +3439,32 @@ export async function fetchSketchNames(
   }
 }
 
+/**
+ * The timeline's active part, attached to every /api/apply-feature payload.
+ * The server forwards it only into the producer-less creates (pick-less
+ * sketch, standard-only plane, standard-axis helix) so their statements land
+ * inside the part's callback body — everything else inserts in its
+ * producers' scope regardless, so the extra field is inert there.
+ */
+let activePartProvider: (() => SourceLocation | null) | null = null;
+
+export function setActivePartProvider(provider: () => SourceLocation | null): void {
+  activePartProvider = provider;
+}
+
 /** Shared POST for /api/apply-feature: failure bodies surface their reason. */
 async function postApplyFeature(
   payload: Record<string, unknown>,
   signal?: AbortSignal,
 ): Promise<ApplyFeatureResponse> {
+  const activePart = payload.activePart === undefined ? activePartProvider?.() ?? null : null;
+  const requestBody = activePart ? { ...payload, activePart } : payload;
   try {
     const res = await fetch('/api/apply-feature', {
       method: 'POST',
       headers: JSON_HEADERS,
       signal,
-      body: JSON.stringify(payload),
+      body: JSON.stringify(requestBody),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {
@@ -3484,6 +3637,24 @@ export async function exportShapes(body: Record<string, unknown>): Promise<Blob>
   return res.blob();
 }
 
+/**
+ * The Part tool: append an empty `part('Part N', () => {})` statement to the
+ * current part file — the server allocates the name past every part already
+ * in the file.
+ */
+export async function createNewPart(): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/part/new', { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify({}) });
+    const parsed = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: parsed?.reason ?? parsed?.error ?? `Request failed (${res.status})` };
+    }
+    return parsed ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Parameter declarations — the panel editing `param()` calls in the source
 // ---------------------------------------------------------------------------
@@ -3577,6 +3748,384 @@ export function updateParam(target: ParamTarget, param: ParamSpec): Promise<Para
 /** Delete a parameter's declaration; references to its variable stay behind. */
 export function removeParam(target: ParamTarget): Promise<ParamEditResponse> {
   return postParamEdit('/api/params/remove', { ...target });
+}
+
+// ---------------------------------------------------------------------------
+// Part catalog (assembly Insert dialog)
+// ---------------------------------------------------------------------------
+
+export type CatalogFileEntry = {
+  /** Workspace-relative path, for display. */
+  path: string;
+  absPath: string;
+};
+
+/** Values a `param()` can resolve to — what the Insert dialog's form posts. */
+export type CatalogParamValue = string | number | boolean | (string | number)[];
+
+/**
+ * Verbatim source text an Edit-parameters expression field committed
+ * (`width - 160`) — rendered as-is into the `insert()` argument. Tagged,
+ * because a plain string is always a string VALUE (quoted on write).
+ */
+export type CatalogParamExpr = { expr: string };
+
+/**
+ * One parameter of a scanned definition — `ParamDefinition` minus its
+ * sourceLocation. `currentValue` equals the declared default at scan time:
+ * the form prefill and the diff baseline.
+ */
+export type CatalogParamDef = {
+  label: string;
+  defaultValue: CatalogParamValue;
+  currentValue: CatalogParamValue;
+  controlType: string;
+  description?: string;
+  group?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: { label: string; value: string | number }[];
+  multi?: boolean;
+  multiControlType?: string;
+};
+
+export type CatalogPart = {
+  exportName: string;
+  /** The `part('name', …)` display name — NOT unique across the workspace. */
+  partName: string;
+  kind: 'value' | 'factory';
+  /** Id of the part's own container within `objects`. */
+  rootId: string;
+  /** The part's rendered subtree in scene-rendered wire shape (thumbnail input). */
+  objects: SceneObjectRender[];
+  /** The definition's `param()` interface — absent on servers predating parameters. */
+  params?: CatalogParamDef[];
+};
+
+/**
+ * A sub-assembly from a `.assembly.js` file: an exported `assembly()`
+ * definition (or a factory returning one) — inserted with the same
+ * `insert(name)` / `insert(name())` statement shape parts use.
+ */
+export type CatalogAssembly = {
+  exportName: string;
+  kind: 'assembly';
+  /**
+   * Statement shape: 'value' → `insert(name)`, 'factory' → `insert(name())`.
+   * Absent on servers predating assembly() definitions (legacy factories) —
+   * fall back to 'factory'.
+   */
+  exportKind?: 'value' | 'factory';
+  /** The assembly('name', …) display name, when the export is a definition. */
+  assemblyName?: string;
+  /** Warm-start poses; the thumbnail runs the mate solver over them. */
+  instances: SerializedAssemblyInstance[];
+  mates: SerializedAssemblyMate[];
+  /** One rendered subtree per distinct referenced part (connectors included). */
+  objects: SceneObjectRender[];
+  /** The definition's `param()` interface — absent on servers predating parameters. */
+  params?: CatalogParamDef[];
+};
+
+export type CatalogEntryKind = 'value' | 'factory' | 'assembly';
+
+export type CatalogScanResult = {
+  file: string;
+  parts: CatalogPart[];
+  assemblies: CatalogAssembly[];
+  /** Exports that didn't evaluate to a part — benign noise included. */
+  errors: { exportName: string | null; message: string }[];
+};
+
+/** The workspace's candidate part files (content mentions `part(`). */
+export async function getPartCatalogFiles(
+  signal?: AbortSignal,
+): Promise<CatalogFileEntry[] | null> {
+  const data = await getJson<{ files: CatalogFileEntry[] }>('/api/part-catalog/files', undefined, signal);
+  return data?.files ?? null;
+}
+
+/** Evaluate one candidate file server-side and list its exported parts. */
+export function scanPartCatalogFile(
+  absPath: string,
+  signal?: AbortSignal,
+): Promise<CatalogScanResult | null> {
+  return postJson('/api/part-catalog/scan', { file: absPath }, signal);
+}
+
+/** One entry of the Insert dialog's basket. */
+export type CatalogInsertRequest = {
+  file: string;
+  exportName: string;
+  kind: CatalogEntryKind;
+  /** NON-DEFAULT parameter values only — rendered as insert()'s second argument. */
+  params?: Record<string, CatalogParamValue>;
+};
+
+/**
+ * Write `const <name> = insert(<export>, {…})` statements (plus imports)
+ * into the current assembly file — the whole basket as ONE edit, so N
+ * inserts cost one editor round trip and one re-render. Failure bodies
+ * surface their reason — a refusal is shown in the dialog, not swallowed.
+ */
+export async function insertCatalogParts(
+  inserts: CatalogInsertRequest[],
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/part-catalog/insert', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ inserts }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/**
+ * Merge changed parameter values into an inserted instance's/occurrence's
+ * `insert()` statement (second argument). `set` carries ONLY the labels the
+ * user changed — untouched entries (expressions included) survive verbatim.
+ * `unset` labels are REMOVED from the argument (reset to the declared
+ * default); the whole argument drops when its last entry goes.
+ */
+export async function updateInsertParams(
+  filePath: string,
+  sourceLine: number,
+  set: Record<string, CatalogParamValue | CatalogParamExpr>,
+  unset: string[] = [],
+  newVariables?: NewVariable[],
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/update-insert-params', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath, sourceLine, set, unset, newVariables }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/**
+ * The exact source text of an insert()'s non-literal second-argument entries
+ * (`{ Length: 'width - 160' }`) — the Edit-parameters dialog's expression
+ * seeds. Null when the statement isn't addressable (cross-file target,
+ * out-of-sync line, non-literal argument): the dialog falls back to plain
+ * resolved values.
+ */
+export async function getInsertParamExpressions(
+  filePath: string,
+  sourceLine: number,
+): Promise<Record<string, string> | null> {
+  const data = await postJson<{ expressions: Record<string, string> | null }>(
+    '/api/insert-param-expressions',
+    { filePath, sourceLine },
+  );
+  return data?.expressions ?? null;
+}
+
+/** The mate types the assembly solver supports (mirrors the kernel's mate()). */
+export type AssemblyMateType =
+  | 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';
+
+/**
+ * One side of a mate statement: the instance whose `insert()` chain starts on
+ * `instanceLine` (its serialized sourceLocation) and the part-owned
+ * connector's name, dereferenced as `<binding>.connectors.<connectorName>`.
+ */
+export type AssemblyMateConnectorRef = {
+  instanceLine: number;
+  connectorName: string;
+};
+
+/** The mate dialog's option state; no-op values are omitted from the chain. */
+export type AssemblyMateOptions = {
+  flip?: boolean;
+  rotate?: number;
+  offset?: [number, number, number] | null;
+  limits?: [number, number] | null;
+};
+
+export type AssemblyMatePayload = {
+  type: AssemblyMateType;
+  connectorA: AssemblyMateConnectorRef;
+  connectorB: AssemblyMateConnectorRef;
+  options?: AssemblyMateOptions;
+};
+
+/**
+ * Mate-dialog commit: append a fresh `mate()` statement (`create`) or
+ * re-render an existing one in place from the dialog's full state (`edit`,
+ * addressed by the statement's serialized sourceLocation line). Failure
+ * bodies surface their reason (preflight refusal, stale line, ack timeout).
+ */
+export async function applyAssemblyMate(
+  filePath: string,
+  spec:
+    | { create: AssemblyMatePayload }
+    | { edit: AssemblyMatePayload & { sourceLine: number } },
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/assembly-mate', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath, ...spec }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/** A connector statement's dialog-editable properties (the pen-button editor). */
+export type ConnectorProperties = {
+  name: string;
+  rotate: { axis: 'x' | 'y' | 'z'; angle: number } | null;
+  offset: [number, number, number] | null;
+};
+
+/**
+ * Read a connector statement's properties from its part file (the current
+ * buffer when open, disk otherwise). Null when the statement can't be read
+ * or isn't a dialog-editable connector.
+ */
+export async function fetchConnectorProperties(
+  sourceLocation: { filePath: string; line: number },
+): Promise<ConnectorProperties | { error: string }> {
+  try {
+    const res = await fetch('/api/assembly-connector-properties', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath: sourceLocation.filePath, sourceLine: sourceLocation.line }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { error: body?.error ?? `Request failed (${res.status})` };
+    }
+    return body as ConnectorProperties;
+  } catch {
+    return { error: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/**
+ * Rewrite a connector statement's name and adjustment chain in its part
+ * file (a cross-file edit — the editor host's round-trip verifies it).
+ */
+export async function applyConnectorProperties(
+  sourceLocation: { filePath: string; line: number },
+  props: ConnectorProperties,
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/assembly-connector', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        filePath: sourceLocation.filePath,
+        sourceLine: sourceLocation.line,
+        name: props.name,
+        rotate: props.rotate,
+        offset: props.offset,
+      }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/** Per-axis argument source text for one transform call (see applyInstancePose). */
+export type InstanceAxisExprs = [string | null, string | null, string | null];
+
+/**
+ * Assembly-gizmo pose commit: rewrite the instance's `insert()` chain so its
+ * `.translate()`/`.rotate()` calls reproduce the given final world pose.
+ * `rotateXYZ` is ZYX Tait-Bryan degrees (chain order x→y→z); `null` commits
+ * translation only, leaving existing `.rotate()` calls untouched.
+ * `options.translateExprs`/`options.rotateExprs` carry per-axis source text
+ * for the written `.translate()` args and `.rotate()` angles — a typed
+ * expression on the edited axis, echoed existing text on untouched ones —
+ * with `null` axes falling back to the numerics; `options.newVariables`
+ * declares the variables an expression commit introduced (`myVar = 120`).
+ * Failure bodies surface their reason (preflight refusal, stale line, ack
+ * timeout).
+ */
+export async function applyInstancePose(
+  sourceLocation: { filePath: string; line: number },
+  position: [number, number, number],
+  rotateXYZ: [number, number, number] | null,
+  options?: {
+    translateExprs?: InstanceAxisExprs;
+    rotateExprs?: InstanceAxisExprs;
+    newVariables?: NewVariable[];
+  },
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/instance-pose', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        filePath: sourceLocation.filePath,
+        sourceLine: sourceLocation.line,
+        position,
+        rotateXYZ,
+        translateExprs: options?.translateExprs ?? null,
+        rotateExprs: options?.rotateExprs ?? null,
+        newVariables: options?.newVariables ?? null,
+      }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+export type InstancePoseExpressions = {
+  /** `.translate(x, y, z)` arg texts; null unless exactly one translate-last. */
+  translate: { x: string | null; y: string | null; z: string | null } | null;
+  /** `.rotate()` angle texts per axis; null unless canonical x→y→z literal
+   *  axes. A null axis has no call (identity) or unsafe text. */
+  rotate: { x: string | null; y: string | null; z: string | null } | null;
+};
+
+/**
+ * The exact source text of the instance's `.translate()` arguments and
+ * `.rotate()` angles, for the gizmo's absolute-value inputs — each block
+ * null when the chain shape doesn't equate its args with the world pose, or
+ * entirely null when the insert() lives in another file.
+ */
+export async function getInstancePoseExpressions(
+  sourceLocation: { filePath: string; line: number },
+): Promise<InstancePoseExpressions | null> {
+  const data = await postJson<{ expressions: InstancePoseExpressions | null }>(
+    '/api/instance-pose-expressions',
+    { filePath: sourceLocation.filePath, sourceLine: sourceLocation.line },
+  );
+  return data?.expressions ?? null;
 }
 
 // ---------------------------------------------------------------------------

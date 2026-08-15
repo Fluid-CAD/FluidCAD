@@ -5,14 +5,63 @@ import type { SceneHost } from './host/scene-host.ts';
 import { LocalSceneHost } from './host/local-scene-host.ts';
 import { normalizePath } from './normalize-path.ts';
 import { findLibIdentityMismatch } from './lib-identity.ts';
+import { detectKind } from './file-kind.ts';
+import type { FluidScriptKind } from './file-kind.ts';
 import { BreakpointHit } from '../../lib/dist/common/breakpoint-hit.js';
 import { createParamRegistry, getParamRegistry } from '../../lib/dist/index.js';
+import { scanFileForParts } from './part-catalog/scan.ts';
+import type { PartScanResult } from './part-catalog/scan.ts';
 import type { ParamDefinition, ParamRegistry, ParamVal } from '../../lib/dist/index.js';
 import type { CompileError } from './ws-protocol.ts';
 
+export type SerializedAssembly = {
+  instances: Array<{
+    instanceId: string;
+    partId: string;
+    partName: string;
+    position: { x: number; y: number; z: number };
+    quaternion: { x: number; y: number; z: number; w: number };
+    /** EFFECTIVE grounding (scoped-grounding rule already applied by the engine). */
+    grounded: boolean;
+    /** Owning scope path; "" for root-scope instances. Engines predating sub-assemblies omit it. */
+    owner?: string;
+    name: string;
+    /** Resolved parameter values of the instance's template variant — absent pre-parameters engines. */
+    paramValues?: Record<string, string | number | boolean | (string | number)[]>;
+    sourceLocation?: { filePath: string; line: number; column: number };
+  }>;
+  /** Sub-assembly occurrences — absent on engines predating assembly() definitions. */
+  occurrences?: Array<{
+    occurrenceId: string;
+    assemblyName: string;
+    name: string;
+    parentPath: string;
+    position: { x: number; y: number; z: number };
+    quaternion: { x: number; y: number; z: number; w: number };
+    grounded: boolean;
+    groundConnected: boolean;
+    /** The definition's `param()` interface — absent pre-parameters engines. */
+    params?: Record<string, unknown>[];
+    /** Resolved parameter values of this occurrence's run. */
+    paramValues?: Record<string, string | number | boolean | (string | number)[]>;
+    sourceLocation?: { filePath: string; line: number; column: number };
+  }>;
+  mates: Array<{
+    mateId: string;
+    type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';
+    connectorA: { instanceId: string; connectorId: string };
+    connectorB: { instanceId: string; connectorId: string };
+    status: 'satisfied' | 'redundant' | 'inconsistent';
+    options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number] };
+    sourceLocation?: { filePath: string; line: number; column: number };
+  }>;
+};
+
 type SceneManager = {
   startScene(): any;
+  startAssemblyScene(): any;
   renderScene(scene: any): any;
+  getAssemblyData(scene: any): SerializedAssembly | null;
   rollbackScene(scene: any, rollbackIndex: number): any;
   compare(previousScene: any, currentScene: any): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
@@ -32,7 +81,7 @@ type SceneManager = {
   synthesizeApplyFeature(
     scene: any,
     refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
-    feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset',
+    feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'connector',
     value: number | string | undefined,
     chains?: {
       seed: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
@@ -43,6 +92,16 @@ type SceneManager = {
       params?: { name: string; value: number }[];
     },
     before?: SelectionBoundary,
+  ): any;
+  // Optional: the manager comes from the workspace's fluidcad install, which
+  // may predate connector anchor suggestions.
+  suggestConnectorAnchors?(
+    scene: any,
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    options?: {
+      namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      params?: { name: string; value: number }[];
+    },
   ): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate the 2D target resolver (offset edit seeding). The options
@@ -153,9 +212,11 @@ export type ObjectBuildError = {
 
 export type SceneRenderedData = {
   absPath: string;
+  sceneKind: FluidScriptKind;
   result: any[];
   rollbackStop: number;
   breakpointHit?: boolean;
+  assembly?: SerializedAssembly;
   params?: ParamDefinition[];
   /**
    * Features whose `build()` threw. Non-empty means the render completed but
@@ -648,7 +709,7 @@ export class FluidCadServer {
   // connection UUID. Maps must be cleared via `destroySession` on hub-side
   // disconnect to avoid leaks.
   private previousScenes: Map<string, any> = new Map();
-  private renderingCache = new Map<string, any[]>();
+  private renderingCache = new Map<string, { result: any[]; assembly?: SerializedAssembly }>();
   // Records the last successful render per session as `{ paramsHash, data }`.
   // Any subsequent render request short-circuits when the new params hash to
   // the same value — avoids redundant OCC work when desktop producers see the
@@ -819,23 +880,29 @@ export class FluidCadServer {
       this.currentFileName = normalizedFileName;
       this.currentFilePath = filePath;
 
+      const sceneKind: FluidScriptKind = detectKind(normalizedFileName) ?? 'part';
+
       if (!ignoreCache) {
         const fromCache = this.renderingCache.get(sessionId);
         if (fromCache) {
-          this.lastRollbackStop = fromCache.length - 1;
+          this.lastRollbackStop = fromCache.result.length - 1;
           this.compileError = null;
           return {
             absPath: normalizedFileName,
-            result: fromCache,
-            rollbackStop: fromCache.length - 1,
+            sceneKind,
+            result: fromCache.result,
+            rollbackStop: fromCache.result.length - 1,
             breakpointHit: this.lastBreakpointHit,
-            objectErrors: FluidCadServer.collectObjectErrors(fromCache),
+            objectErrors: FluidCadServer.collectObjectErrors(fromCache.result),
+            ...(fromCache.assembly ? { assembly: fromCache.assembly } : {}),
           };
         }
       }
 
       try {
-        let scene = this.sceneManager.startScene();
+        let scene = sceneKind === 'assembly'
+          ? this.sceneManager.startAssemblyScene()
+          : this.sceneManager.startScene();
         this.sceneManager.setCurrentFile(normalizedFileName);
         this.host.invalidateModule();
 
@@ -856,7 +923,41 @@ export class FluidCadServer {
             throw e;
           }
         }
+
+        // part() definitions are lazy — a part-kind entry scene materializes
+        // every definition the module created but nothing exported or
+        // inserted, so the open file stays WYSIWYG. Assembly scenes build
+        // strictly via insert(). (Optional call: the workspace's fluidcad
+        // install may predate lazy definitions.)
+        if (sceneKind !== 'assembly') {
+          try {
+            (scene as { materializeLeftoverDefinitions?: () => void }).materializeLeftoverDefinitions?.();
+          } catch (e) {
+            if (e instanceof BreakpointHit) {
+              breakpointHit = true;
+            } else {
+              throw e;
+            }
+          }
+        }
         this.lastBreakpointHit = breakpointHit;
+
+        // A bare `assembly('name', () => {...});` statement is a LAZY
+        // definition nothing runs — without this check the render is a
+        // silently empty scene. Skipped on a breakpoint hit (the file
+        // stopped early, so an unrun definition is expected). (Optional
+        // call: the workspace's fluidcad install may predate tracking.)
+        const dangling: string[] | undefined = breakpointHit
+          ? undefined
+          : (scene as { getDanglingDefinitionNames?: () => string[] }).getDanglingDefinitionNames?.();
+        if (dangling && dangling.length > 0) {
+          const name = dangling[0];
+          throw new Error(
+            `assembly('${name}') is defined but never rendered — export a function returning it `
+            + `(export const myAssembly = () => assembly('${name}', () => {...});) so this file `
+            + `renders it standalone, or insert() it from another assembly.`,
+          );
+        }
 
         const params = getParamRegistry().getDefinitions();
         this.settleParamOverrides(sessionId, registry);
@@ -877,20 +978,47 @@ export class FluidCadServer {
           }
         }
 
-        if (!filePath.startsWith('virtual:live-render')) {
-          this.renderingCache.set(sessionId, result);
+        const assembly = this.sceneManager.getAssemblyData(scene);
+        if (assembly) {
+          for (const inst of assembly.instances) {
+            if (inst.sourceLocation) {
+              inst.sourceLocation.filePath = inst.sourceLocation.filePath.replace('virtual:live-render:', '');
+            }
+          }
+          for (const mate of assembly.mates) {
+            if (mate.sourceLocation) {
+              mate.sourceLocation.filePath = mate.sourceLocation.filePath.replace('virtual:live-render:', '');
+            }
+          }
+          for (const occ of assembly.occurrences ?? []) {
+            if (occ.sourceLocation) {
+              occ.sourceLocation.filePath = occ.sourceLocation.filePath.replace('virtual:live-render:', '');
+            }
+          }
         }
+
+        if (!filePath.startsWith('virtual:live-render')) {
+          this.renderingCache.set(sessionId, assembly ? { result, assembly } : { result });
+        }
+
+        // This file's fresh content must reach every OTHER session that
+        // imports it — editing a part then switching back to the assembly
+        // would otherwise serve the assembly's cached render (its dedup
+        // hash only sees the assembly's own unchanged code).
+        this.invalidateDependentSessions(sessionId, normalizedFileName);
 
         this.lastRollbackStop = result.length - 1;
         this.compileError = null;
 
         return {
           absPath: normalizedFileName,
+          sceneKind,
           result,
           rollbackStop: result.length - 1,
           breakpointHit,
           params,
           objectErrors: FluidCadServer.collectObjectErrors(result),
+          ...(assembly ? { assembly } : {}),
         };
       }
       catch (error) {
@@ -899,6 +1027,33 @@ export class FluidCadServer {
         throw error;
       }
     });
+  }
+
+  /**
+   * Drop the cached renders of every session whose module graph depends on
+   * the file that just rendered — its content changed (or may have), and a
+   * dependent's dedup hash covers only that dependent's own code. Without
+   * this, editing a part file and switching back to the assembly serves the
+   * assembly's pre-edit cached render, so new part connectors never appear.
+   * The dependency walk reads the dependent's LAST render's module graph
+   * (edges survive invalidation), and the host call is optional — a
+   * workspace fluidcad install may predate it.
+   */
+  private invalidateDependentSessions(renderedSessionId: string, renderedFile: string): void {
+    if (!this.host.getModuleDependencies) {
+      return;
+    }
+    const sessions = new Set([...this.renderingCache.keys(), ...this.lastRendered.keys()]);
+    for (const other of sessions) {
+      if (other === renderedSessionId) {
+        continue;
+      }
+      const deps = this.host.getModuleDependencies(this.sessionFiles.get(other) ?? other);
+      if (deps.some(dep => normalizePath(dep) === renderedFile)) {
+        this.renderingCache.delete(other);
+        this.lastRendered.delete(other);
+      }
+    }
   }
 
   /**
@@ -982,8 +1137,60 @@ export class FluidCadServer {
     return result;
   }
 
+  /**
+   * Fold an edited DEPENDENCY's code in — a part file rewritten by a
+   * cross-file edit (the assembly mate dialog's connector flows) while an
+   * assembly is being viewed — and re-render the CURRENT file against it.
+   * The updated file gets the same live-buffer overlay `updateLiveCode`
+   * would set; the current file's dedup entries are dropped so this render
+   * (and any later identical live-update) sees the new dependency; the
+   * current scene/file identity is left untouched.
+   */
+  async updateDependencyCode(fileName: string, code: string): Promise<SceneRenderedData | null> {
+    fileName = normalizePath(fileName);
+    this.host.setBuffer(`virtual:live-render:${fileName}`, code);
+    this.lastRendered.delete(fileName);
+    const current = this.currentFileName;
+    if (!current) {
+      return null;
+    }
+    this.renderingCache.delete(current);
+    this.lastRendered.delete(current);
+    return this.processFileInternal(current, this.currentFilePath ?? current, true);
+  }
+
   async rollbackFromUI(index: number): Promise<SceneRenderedData | null> {
     return this.rollback(this.currentFileName, index);
+  }
+
+  /**
+   * Evaluate one candidate file and inspect its exports for insertable parts
+   * (Insert dialog). Serialized with renders on the OCC mutex; the scan runs
+   * in throwaway scenes and touches neither the session caches nor the
+   * compare baselines, so the live session's incremental rebuilds are
+   * unaffected. Returns null before init.
+   */
+  async scanPartsInFile(filePath: string): Promise<PartScanResult | null> {
+    return this.serialized(async () => {
+      if (!this.sceneManager) {
+        return null;
+      }
+      return scanFileForParts(this.host, this.sceneManager, normalizePath(filePath));
+    });
+  }
+
+  /**
+   * Whether the host holds a live editor buffer overlaying this file — such
+   * files must never be served from a disk-mtime-keyed scan cache, and their
+   * candidate prefilter should read the buffer, not the disk.
+   */
+  hasLiveBuffer(filePath: string): boolean {
+    return this.host.getBuffer(normalizePath(filePath)) !== null;
+  }
+
+  /** The live buffer's content for a file, if the host holds one. */
+  getLiveBuffer(filePath: string): string | null {
+    return this.host.getBuffer(normalizePath(filePath));
   }
 
   async recomputeCurrentFile(forceFullRebuild = false): Promise<SceneRenderedData | null> {
@@ -1025,16 +1232,19 @@ export class FluidCadServer {
     const rollbackIndex = index >= totalObjects - 1 ? totalObjects - 1 : index;
     this.sceneManager.rollbackScene(scene, rollbackIndex);
     const result = scene.getRenderedObjects();
+    const assembly = this.sceneManager.getAssemblyData(scene);
 
     this.lastRollbackStop = index;
 
     return {
       absPath: fileName,
+      sceneKind: detectKind(fileName) ?? 'part',
       result,
       rollbackStop: index,
       // A rollback doesn't re-run the module — the paused state persists.
       breakpointHit: this.lastBreakpointHit,
       objectErrors: FluidCadServer.collectObjectErrors(result),
+      ...(assembly ? { assembly } : {}),
     };
   }
 
@@ -1150,7 +1360,7 @@ export class FluidCadServer {
 
   synthesizeApplyFeature(
     refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
-    feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset',
+    feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'connector',
     value: number | string | undefined,
     chains: {
       seed: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
@@ -1159,6 +1369,12 @@ export class FluidCadServer {
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       params?: { name: string; value: number }[];
+      connector?: {
+        anchor?: { kind: string; mode?: string; value?: number };
+        rotate?: { axis: 'x' | 'y' | 'z'; angle: number };
+        offset?: [number, number, number];
+        instance?: { instanceId: string };
+      };
     },
     before?: SelectionBoundary,
   ): any {
@@ -1170,6 +1386,32 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.synthesizeApplyFeature(scene, refs, feature, value, chains, options, before);
+  }
+
+  /**
+   * Hover-time connector anchor suggestions for a picked face/edge: exact
+   * anchor frames plus the synthesized source expression and a free default
+   * name. Read-only over the rendered scene.
+   */
+  suggestConnectorAnchors(
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+    options?: {
+      namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      params?: { name: string; value: number }[];
+    },
+  ): any {
+    if (!this.sceneManager) {
+      return null;
+    }
+    if (!this.sceneManager.suggestConnectorAnchors) {
+      // Workspace kernel predates connector anchor suggestions.
+      return { ok: false, reason: 'the workspace fluidcad version does not support connector suggestions — update fluidcad' };
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.suggestConnectorAnchors(scene, ref, options);
   }
 
   /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */

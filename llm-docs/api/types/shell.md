@@ -10,8 +10,8 @@ seeAlso: [api/shell, api/types/scene-object]
 
 ```ts
 interface Shell extends SceneObject {
-  internalFaces(...args: (number | FaceFilter)[]): SceneObject;
-  internalEdges(...args: (number | EdgeFilter)[]): SceneObject;
+  internalFaces(...args: (number | FaceFilter)[]): ISelection;
+  internalEdges(...args: (number | EdgeFilter)[]): ISelection;
   join(type: ShellJoinType): this;
 }
 ```
@@ -24,7 +24,7 @@ Extends [[api/types/scene-object]].
 
 Selects the inner wall faces created by the shell operation (from thickness removal).
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -35,7 +35,7 @@ Selects the inner wall faces created by the shell operation (from thickness remo
 Selects edges created by the shell operation that are not from the original solid
 or on the opening rim.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |

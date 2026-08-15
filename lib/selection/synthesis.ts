@@ -69,7 +69,10 @@ export type SelectorSynthesis =
  * UI can offer alternatives. `preferBucketIndices` ranks the index form
  * (tier 4) above induced filters within a bucket — plane-only consumers like
  * sketch want the compact `sideFaces(2)` over a filter with baked-in
- * geometry constants; the filter forms stay on as alternatives.
+ * geometry constants; the filter forms stay on as alternatives. Independent
+ * of that flag, an induced filter that bakes a geometry constant not linked
+ * to a user parameter always ranks below a verified index form (see
+ * `synthesizeBucketCandidates`).
  */
 export function synthesizeSelectors(
   scene: SelectionScene,
@@ -238,9 +241,11 @@ type GroupResult =
 
 /**
  * Bucket-tier candidates, ranked: tier 0 (whole bucket), tiers 1–2 (induced
- * filter), tier 4 (indices). Bucket accessors never inject `belongsToFace`
- * scope, so those atoms are excluded here; the evaluation mirrors
- * `resolveEdges`/`resolveFaces` exactly.
+ * filter), tier 4 (indices) — except when the induced filter carries an
+ * unlinked geometry constant, where the verified index form ranks above it.
+ * Bucket accessors never inject `belongsToFace` scope, so those atoms are
+ * excluded here; the evaluation mirrors `resolveEdges`/`resolveFaces`
+ * exactly.
  */
 function synthesizeBucketCandidates(
   index: SelectionIndex,
@@ -261,9 +266,11 @@ function synthesizeBucketCandidates(
     });
   }
 
+  let bakedConstants = 0;
   if (!wholeBucket) {
     const induced = induceFilterArgs(index, bucketContext(bucket, false, params), groupAttrs, pickKeys);
     if (induced) {
+      bakedConstants = induced.bakedConstants;
       candidates.push({
         producer: feature,
         accessor: bucket.def.accessor,
@@ -292,7 +299,12 @@ function synthesizeBucketCandidates(
       pick: groupAttrs[0].ref,
     };
   }
-  if (preferIndices) {
+  // A filter that only resolves by baking a geometry constant — a measured
+  // length like `line(63.30447167189937)` or a positional offset like
+  // `onPlane('yz', 233.74)` that no user parameter tracks — silently breaks
+  // on dimension edits. The index form survives those, so it outranks the
+  // filter; constant-free and parameter-linked filters keep winning.
+  if (preferIndices || bakedConstants > 0) {
     // Whole bucket stays first, then indices, then filters (stable sort).
     const rank = (c: SelectorPart) => (c.tier === 0 ? 0 : c.tier === 4 ? 1 : 2);
     candidates.sort((a, b) => rank(a) - rank(b));

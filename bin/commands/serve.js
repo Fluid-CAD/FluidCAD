@@ -3,7 +3,7 @@ import { existsSync } from 'fs';
 import { resolve, dirname, isAbsolute, join } from 'path';
 import { fileURLToPath } from 'url';
 import open from 'open';
-import { createFileWatcher, findFluidFiles } from '../watcher.js';
+import { createFileWatcher, findFluidFiles, isFluidScriptFile } from '../watcher.js';
 import { findFreePort } from '../lib/server-client.js';
 import { readWorkspaceEditorState } from '../../server/dist/routes/workspace-state.js';
 
@@ -13,14 +13,15 @@ const serverEntry = resolve(__dirname, '..', '..', 'server', 'dist', 'index.js')
 /**
  * The model to render first. A workspace that has been opened before names it
  * — reopening should land on what the user was last looking at, not on
- * whatever sorts first — and a fresh one falls back to the first `.fluid.js`
- * at the top level. The page restores the rest of the tab strip itself.
+ * whatever sorts first — and a fresh one falls back to the first model
+ * (part or assembly) at the top level. The page restores the rest of the tab
+ * strip itself.
  */
 function pickOpeningFile(workspacePath) {
   const { activeTab } = readWorkspaceEditorState(workspacePath);
   if (activeTab) {
     const absPath = isAbsolute(activeTab) ? activeTab : join(workspacePath, activeTab);
-    if (existsSync(absPath) && absPath.endsWith('.fluid.js')) {
+    if (existsSync(absPath) && isFluidScriptFile(absPath)) {
       return absPath;
     }
   }

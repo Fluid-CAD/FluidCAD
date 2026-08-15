@@ -32,9 +32,9 @@ import iconTypography from '@tabler/icons/outline/typography.svg?raw';
 import iconPencil from '@tabler/icons/outline/pencil.svg?raw';
 import iconChevronLeft from '@tabler/icons/outline/chevron-left.svg?raw';
 import iconChevronRight from '@tabler/icons/outline/chevron-right.svg?raw';
+import iconCode from '@tabler/icons/outline/code.svg?raw';
 import iconArrowBackUp from '@tabler/icons/outline/arrow-back-up.svg?raw';
 import iconArrowForwardUp from '@tabler/icons/outline/arrow-forward-up.svg?raw';
-import iconCode from '@tabler/icons/outline/code.svg?raw';
 import iconFileCode from '@tabler/icons/outline/file-code.svg?raw';
 import iconPlus from '@tabler/icons/outline/plus.svg?raw';
 
@@ -70,6 +70,7 @@ export const ICON_THREE_POINT_ARC = iconArc3d;
 export const ICON_RECT = iconRectangle;
 export const ICON_TEXT = iconTypography;
 export const ICON_PENCIL = iconPencil;
+/** "Show in source" — jump from a panel row to the statement that made it. */
 export const ICON_CODE = iconCode;
 /** A tab for a plain `.js` helper — quieter than ICON_CUBE, which marks the model. */
 export const ICON_FILE_CODE = iconFileCode;
@@ -99,3 +100,12 @@ export const ICON_CHECK = '<svg width="12" height="12" viewBox="0 0 24 24" fill=
 export const ICON_ALERT_DOT = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>';
 export const ICON_CLOSE = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>';
 export const ICON_TRASH = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M5 7l1 12a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2l1-12"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg>';
+
+export const ICON_GROUND = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round">
+  <line x1="2" y1="5" x2="12" y2="5"/>
+  <line x1="3" y1="5" x2="1.5" y2="8"/>
+  <line x1="5.5" y1="5" x2="4" y2="8"/>
+  <line x1="8" y1="5" x2="6.5" y2="8"/>
+  <line x1="10.5" y1="5" x2="9" y2="8"/>
+  <line x1="12.5" y1="5" x2="11" y2="8"/>
+</svg>`;

@@ -1138,13 +1138,17 @@ describe("parameter linking", () => {
   it("renders a dimension constant as the user's variable when values match exactly", () => {
     const { scene, refs } = makeOffsetEdgeScene();
 
+    // Unlinked, the baked offset loses to the index form; the constant
+    // filter survives in the alternatives.
     const plain = synthesizeApplyFeature(scene, refs, 'fillet', 3);
     expect(plain.ok).toBe(true);
     if (plain.ok !== true) {
       return;
     }
-    expect(plain.args).toContain("onPlane('xz', -50)");
+    expect(plain.args).toMatch(/^e\.endEdges\(\d+\)$/);
+    expect(plain.alternatives.some(a => a.includes("onPlane('xz', -50)"))).toBe(true);
 
+    // Linked, the offset tracks the user's variable — the filter wins again.
     const linked = synthesizeApplyFeature(scene, refs, 'fillet', 3, [], {
       params: [{ name: 'backOffset', value: -50 }],
     });
@@ -1162,8 +1166,12 @@ describe("parameter linking", () => {
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
-      expect(result.args).toContain("onPlane('xz', -50)");
+      // No false link: the mismatched value stays a bare constant, which as
+      // unlinked geometry yields the index winner with the plain-constant
+      // filter as the alternative.
       expect(result.args).not.toContain('backOffset');
+      expect(result.alternatives.some(a => a.includes("onPlane('xz', -50)"))).toBe(true);
+      expect(result.alternatives.every(a => !a.includes('backOffset'))).toBe(true);
     }
   });
 });

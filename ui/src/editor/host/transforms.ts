@@ -4,7 +4,7 @@
  * Every one of them has the same shape — read the buffer, POST it to the
  * matching `/api/code/<transform>` with a couple of arguments, apply the
  * `newCode` that comes back — so what actually differs is captured here as
- * data rather than as twenty-four near-identical functions
+ * data rather than as two dozen near-identical functions
  * (`feedback_reusable_helpers`). The parsing, the AST rewrite and the
  * preflight all live in the server; the host is an applier, not an editor
  * integration (`docs/desktop/00-architecture.md`).
@@ -18,7 +18,21 @@ export type EditTarget =
   /** The model the scene is rendered from — the file every sketch edit means. */
   | 'current'
   /** `msg.filePath`: a feature may live in an imported file, not the active one. */
-  | 'path';
+  | 'path'
+  /** `msg.sourceLocation.filePath`: the statement names its own file. */
+  | 'source-location';
+
+/** The file a message with `target` lands in, or null for the current model. */
+export function targetPathOf(spec: TransformSpec, msg: any): string | null {
+  switch (spec.target) {
+    case 'path':
+      return typeof msg.filePath === 'string' ? msg.filePath : null;
+    case 'source-location':
+      return typeof msg.sourceLocation?.filePath === 'string' ? msg.sourceLocation.filePath : null;
+    default:
+      return null;
+  }
+}
 
 export type TransformSpec = {
   /** The `/api/code/<endpoint>` route. */
@@ -129,6 +143,14 @@ export const TRANSFORMS: Record<string, TransformSpec> = {
       dimensionInsert: msg.dimensionInsert === true,
       dimensionPoint: msg.dimensionPoint ?? null,
     }),
+  },
+
+  // Assembly instance edits from the parts panel (Toggle grounded, rename,
+  // translate) rewrite the insert() chain at the statement's own location.
+  'update-insert-chain': {
+    endpoint: 'update-insert-chain',
+    target: 'source-location',
+    body: (msg) => ({ ...atSourceLine(msg), edit: msg.edit }),
   },
 
   // Timeline edits name their own file: a feature can live in an imported

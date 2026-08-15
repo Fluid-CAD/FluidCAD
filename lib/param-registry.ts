@@ -9,6 +9,9 @@ export type SelectOption = { label: string; value: string | number };
 export type ParamScalar = string | number | boolean;
 export type ParamVal = ParamScalar | (string | number)[];
 
+/** Override values a definition build is parameterized with — `insert(def, {...})`. */
+export type ParamOverrides = Record<string, ParamVal>;
+
 export type ParamDefinition = {
   label: string;
   defaultValue: ParamVal;
@@ -72,33 +75,7 @@ export class ParamRegistry {
     if (!this.overrides.has(label) || this.discarded.has(label)) {
       return defaultValue;
     }
-    const override = this.overrides.get(label);
-    if (Array.isArray(defaultValue)) {
-      if (Array.isArray(override)) {
-        return override;
-      }
-      if (override != null) {
-        return [override];
-      }
-      return defaultValue;
-    }
-    if (typeof defaultValue === 'boolean') {
-      if (override === true || override === 'true' || override === 1) {
-        return true;
-      }
-      if (override === false || override === 'false' || override === 0) {
-        return false;
-      }
-      return defaultValue;
-    }
-    if (typeof defaultValue === 'number') {
-      const num = Number(override);
-      if (Number.isFinite(num)) {
-        return num;
-      }
-      return defaultValue;
-    }
-    return String(override);
+    return coerceParamOverride(defaultValue, this.overrides.get(label));
   }
 
   /**
@@ -134,6 +111,41 @@ export class ParamRegistry {
   }
 }
 
+/**
+ * Coerce an override toward the shape of the default the `param()` call
+ * declared — the declaration is the source of truth for the value's type,
+ * whether the override came from the params panel (strings from inputs) or
+ * from an `insert(def, {...})` argument.
+ */
+export function coerceParamOverride(defaultValue: ParamVal, override: unknown): ParamVal {
+  if (Array.isArray(defaultValue)) {
+    if (Array.isArray(override)) {
+      return override;
+    }
+    if (override != null) {
+      return [override as string | number];
+    }
+    return defaultValue;
+  }
+  if (typeof defaultValue === 'boolean') {
+    if (override === true || override === 'true' || override === 1) {
+      return true;
+    }
+    if (override === false || override === 'false' || override === 0) {
+      return false;
+    }
+    return defaultValue;
+  }
+  if (typeof defaultValue === 'number') {
+    const num = Number(override);
+    if (Number.isFinite(num)) {
+      return num;
+    }
+    return defaultValue;
+  }
+  return String(override);
+}
+
 function sameAuthoredDefault(a: ParamVal, b: ParamVal): boolean {
   if (Array.isArray(a) || Array.isArray(b)) {
     if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
@@ -156,4 +168,52 @@ export function getParamRegistry(): ParamRegistry {
     currentRegistry = new ParamRegistry();
   }
   return currentRegistry;
+}
+
+/**
+ * Reinstall a previously captured registry — the part-catalog scanner swaps in
+ * a throwaway registry while it evaluates candidate files, then puts the live
+ * session's registry back so the params panel never sees a scanned file's
+ * `param()` declarations.
+ */
+export function setParamRegistry(registry: ParamRegistry): void {
+  currentRegistry = registry;
+}
+
+/**
+ * One definition build's parameter context. While a scope is active,
+ * `param()` resolves against it INSTEAD of the global registry — the part's
+ * internals stay out of the consuming file's params panel, and the insert's
+ * override map is the only value source. Scopes stack (a part materialized
+ * inside an assembly occurrence's body), and resolution consults the TOP
+ * scope only: a part's 'Length' must never accidentally resolve from an
+ * enclosing assembly's own 'Length' override.
+ */
+export type ParamScope = {
+  /** label → override value, as passed to `insert(def, {...})`. */
+  overrides: Map<string, ParamVal>;
+  /** Definitions the build declared, in first-call order — the definition's parameter interface. */
+  collected: Map<string, ParamDefinition>;
+  /** Labels the build resolved — override keys never consumed are warned about. */
+  consumed: Set<string>;
+};
+
+const scopeStack: ParamScope[] = [];
+
+export function pushParamScope(overrides: Map<string, ParamVal>): ParamScope {
+  const scope: ParamScope = { overrides, collected: new Map(), consumed: new Set() };
+  scopeStack.push(scope);
+  return scope;
+}
+
+export function popParamScope(): ParamScope {
+  const scope = scopeStack.pop();
+  if (!scope) {
+    throw new Error("popParamScope(): no parameter scope is active.");
+  }
+  return scope;
+}
+
+export function activeParamScope(): ParamScope | null {
+  return scopeStack.length > 0 ? scopeStack[scopeStack.length - 1] : null;
 }

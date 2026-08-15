@@ -2,6 +2,7 @@ export type {
   ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect,
   IGeometry, IExtrudableGeometry, IText, IRect, ISlot, IPolygon,
   ITwoObjectsTangentLine, ITangentArcTwoObjects,
+  IConnector, IPart,
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap
 } from "./interfaces.js";
 export { default as axis } from "./axis.js";
@@ -37,6 +38,10 @@ export { default as remove } from "./remove.js";
 export { default as split } from "./split.js";
 export { default as trim } from "./trim.js";
 export { default as part } from "./part.js";
+export { default as assembly } from "./assembly.js";
+export { default as connector } from "./connector.js";
+export { default as insert } from "./insert.js";
+export { default as mate } from "./mate.js";
 export * from "./2d/index.js";
 export { breakpoint } from "./breakpoint.js";
 export { default as param, type ParamType, type ParamOptionsMap, type NumberParamOptions, type SliderParamOptions, type SelectParamOptions, type CheckboxParamOptions, type TextParamOptions, type NumberParam, type StringParam, type BooleanParam, type ParamValue, resolveParam, isNumberParam, isBooleanParam } from "./param.js";

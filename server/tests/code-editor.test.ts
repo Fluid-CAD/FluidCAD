@@ -1226,6 +1226,14 @@ describe('removeStatement', () => {
     expect(result.newCode).toBe(code);
   });
 
+  // The parts panel's Delete routes an assembly instance here by its
+  // serialized source line.
+  it('removes a bound insert() chain', async () => {
+    const code = `const base = insert(plate).grounded();\nconst arm = insert(lever).translate(0, 10, 0);\n`;
+    const result = await removeStatement(code, 2);
+    expect(result.newCode).toBe(`const base = insert(plate).grounded();\n`);
+  });
+
   it('excises only the statement when it shares a line', async () => {
     const code = `const a = 1; extrude(10);\n`;
     const result = await removeStatement(code, 1);
@@ -1410,5 +1418,31 @@ describe('extractVariablesInScope numeric classification', () => {
       pick: true,
       neg: true,
     });
+  });
+
+  it('sees enclosing assembly-body declarations from a statement inside the body', async () => {
+    const code = [
+      "import { assembly, insert, param } from 'fluidcad/core';",
+      '',
+      "export const frame = assembly('frame', () => {",
+      "    const width = param('Width', 700);",
+      "    const depth = param('Depth', 800);",
+      '',
+      '    const left = insert(extrusion, { Length: depth });',
+      '    const back = insert(extrusion);',
+      '',
+      '    const late = 5;',
+      '});',
+    ].join('\n');
+    const vars = await extractVariablesInScope(code, 8); // the `back` insert line
+    const names = vars.map(v => v.name);
+    expect(names).toContain('width');
+    expect(names).toContain('depth');
+    expect(names).toContain('left');
+    // Declared after the target line — out of scope there.
+    expect(names).not.toContain('late');
+    const width = vars.find(v => v.name === 'width')!;
+    expect(width.initializer).toBe("param('Width', 700)");
+    expect(width.numeric).toBe(true);
   });
 });

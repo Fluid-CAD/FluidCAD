@@ -260,6 +260,29 @@ export async function handleGotoSource(
   editor.revealRange(range, vscode.TextEditorRevealType.InCenterIfOutsideViewport);
 }
 
+export async function handleUpdateInsertChain(
+  client: Client,
+  msg: {
+    sourceLocation: { filePath: string; line: number };
+    edit: codeApi.InsertChainEdit;
+  },
+) {
+  const editor = findEditorForCurrentFile(client);
+  if (!editor) {
+    return;
+  }
+  const doc = editor.document;
+  const result = await codeApi.updateInsertChain(
+    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.edit, client.logger,
+  );
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
 export async function handleSetPickPoints(client: Client, msg: { points: [number, number][]; sourceLocation: { line: number } }) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {
@@ -303,9 +326,25 @@ export async function handleInsertGeometry(
 }
 
 export async function handleApplyFeatureEdit(client: Client, msg: { spec: unknown }) {
-  const editor = findEditorForCurrentFile(client);
+  // The spec names its target file — cross-file edits (the assembly mate
+  // dialog editing/creating a connector() in a PART file) must apply there,
+  // not to whatever the user is looking at.
+  const specPath = (msg.spec as { filePath?: unknown } | null)?.filePath;
+  const targetPath = typeof specPath === 'string' && specPath.length > 0
+    ? specPath
+    : client.currentFileName;
+  let editor: vscode.TextEditor | undefined;
+  if (targetPath === client.currentFileName) {
+    editor = findEditorForCurrentFile(client);
+  } else {
+    try {
+      editor = await resolveEditorForPath(targetPath);
+    } catch {
+      editor = undefined;
+    }
+  }
   if (!editor) {
-    client.logger.appendLine(`[apply-feature] No editor found for ${client.currentFileName}`);
+    client.logger.appendLine(`[apply-feature] No editor found for ${targetPath}`);
     return;
   }
   const doc = editor.document;
@@ -319,7 +358,7 @@ export async function handleApplyFeatureEdit(client: Client, msg: { spec: unknow
     return;
   }
   if (await codeApi.replaceDocument(doc, result.newCode)) {
-    client.updateLiveCode(doc.fileName, doc.getText());
+    client.updateLiveCode(doc.fileName, doc.getText(), doc.fileName !== client.currentFileName);
   }
 }
 

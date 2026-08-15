@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { Client } from './client';
 import { checkVersionMismatch } from './version-check';
+import { isFluidScriptFile } from './file-kind';
 
 let client: Client;
 let currentOpenedFile: string | undefined;
@@ -36,7 +37,7 @@ async function onDidChangeActiveTextEditor(editor: vscode.TextEditor, context: v
     return;
   }
 
-  const isFluidFile = editor.document.fileName.endsWith('.fluid.js') && !editor.document.fileName.startsWith('init.js');
+  const isFluidFile = isFluidScriptFile(editor.document.fileName) && !editor.document.fileName.startsWith('init.js');
   console.log('Is FluidCAD file:', isFluidFile);
   if (!isFluidFile) {
     return;
@@ -76,13 +77,13 @@ export async function activate(context: vscode.ExtensionContext) {
     await onDidChangeActiveTextEditor(editor, context, logger);
   });
 
-  const hasFluidFile = editors.some(e => e.document.fileName.endsWith('.fluid.js'));
+  const hasFluidFile = editors.some(e => isFluidScriptFile(e.document.fileName));
 
-  // Only initialize eagerly if a .fluid.js file is already open; otherwise defer to onDidChangeActiveTextEditor
+  // Only initialize eagerly if a FluidCAD script is already open; otherwise defer to onDidChangeActiveTextEditor
   if (hasFluidFile) {
     initViewer(context, logger).then(() => {
       for (const editor of editors) {
-        if (editor.document.fileName.endsWith('.fluid.js')) {
+        if (isFluidScriptFile(editor.document.fileName)) {
           onDidChangeActiveTextEditor(editor, context, logger);
           break;
         }

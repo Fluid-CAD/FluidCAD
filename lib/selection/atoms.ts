@@ -22,6 +22,15 @@ export type Atom<B> = {
   weight: number;
   /** Number of numeric constants (fewer = more robust to dimension edits). */
   constants: number;
+  /**
+   * Geometry-valued constants baked into the rendered text — positions,
+   * lengths, diameters not linked to a user parameter (absent = 0).
+   * Dimension edits silently break these, so a verified bucket-index
+   * selector outranks any filter carrying one. Parameter-linked constants
+   * never count (the emitted name follows the user's variable), and neither
+   * do pure counts like `edgeCount(6)`, which dimension edits cannot break.
+   */
+  bakedConstants?: number;
   /** True when the predicate only evaluates correctly inside `select()`. */
   needsScope: boolean;
   /**
@@ -62,13 +71,13 @@ export type PlaneSource = { feature: SceneObject; accessor: string; plane: Plane
  * invariant intact: the emitted expression evaluates to the same number the
  * verified builder used.
  */
-function linkedConstant(value: number, params: ParameterLink[]): { text: string; value: number } {
+function linkedConstant(value: number, params: ParameterLink[]): { text: string; value: number; linked: boolean } {
   const c = formatConstant(value);
   const match = params.find(p => p.value === c.value);
   if (match) {
-    return { text: match.name, value: c.value };
+    return { text: match.name, value: c.value, linked: true };
   }
-  return c;
+  return { ...c, linked: false };
 }
 
 type PrincipalPlane = { name: 'xy' | 'xz' | 'yz'; axis: 'z' | 'y' | 'x' };
@@ -119,7 +128,7 @@ export function instantiateEdgeAtoms(
     const length = sharedNumber(probes.map(p => p.props.length));
     if (length !== null) {
       const c = linkedConstant(length, params);
-      atoms.push({ code: `.line(${c.text})`, addTo: b => b.line(c.value), weight: 15, constants: 1, needsScope: false });
+      atoms.push({ code: `.line(${c.text})`, addTo: b => b.line(c.value), weight: 15, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: false });
     }
   }
   if (curveClass === 'arc') {
@@ -127,7 +136,7 @@ export function instantiateEdgeAtoms(
     const radius = sharedNumber(probes.map(p => p.props.radius));
     if (radius !== null) {
       const c = linkedConstant(radius, params);
-      atoms.push({ code: `.arc(${c.text})`, addTo: b => b.arc(c.value), weight: 15, constants: 1, needsScope: false });
+      atoms.push({ code: `.arc(${c.text})`, addTo: b => b.arc(c.value), weight: 15, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: false });
     }
   }
   if (curveClass === 'circle') {
@@ -135,7 +144,7 @@ export function instantiateEdgeAtoms(
     const radius = sharedNumber(probes.map(p => p.props.radius));
     if (radius !== null) {
       const c = linkedConstant(radius * 2, params);
-      atoms.push({ code: `.circle(${c.text})`, addTo: b => b.circle(c.value), weight: 15, constants: 1, needsScope: false });
+      atoms.push({ code: `.circle(${c.text})`, addTo: b => b.circle(c.value), weight: 15, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: false });
     }
   }
 
@@ -193,7 +202,7 @@ export function instantiateFaceAtoms(
     const radius = sharedNumber(probes.map(p => p.props.radius));
     if (radius !== null) {
       const c = linkedConstant(radius * 2, params);
-      atoms.push({ code: `.cylinder(${c.text})`, addTo: b => b.cylinder(c.value), weight: 15, constants: 1, needsScope: false });
+      atoms.push({ code: `.cylinder(${c.text})`, addTo: b => b.cylinder(c.value), weight: 15, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: false });
     }
   }
   if (surfaceClass === 'circle') {
@@ -201,7 +210,7 @@ export function instantiateFaceAtoms(
     const radius = sharedNumber(probes.map(p => p.props.radius));
     if (radius !== null) {
       const c = linkedConstant(radius * 2, params);
-      atoms.push({ code: `.circle(${c.text})`, addTo: b => b.circle(c.value), weight: 15, constants: 1, needsScope: false });
+      atoms.push({ code: `.circle(${c.text})`, addTo: b => b.circle(c.value), weight: 15, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: false });
     }
   }
   if (surfaceClass === 'cone') {
@@ -217,7 +226,9 @@ export function instantiateFaceAtoms(
       atoms.push({
         code: `.torus(${a.text}, ${b2.text})`,
         addTo: b => b.torus(a.value, b2.value),
-        weight: 15, constants: 2, needsScope: false,
+        weight: 15, constants: 2,
+        bakedConstants: (a.linked ? 0 : 1) + (b2.linked ? 0 : 1),
+        needsScope: false,
       });
     }
   }
@@ -263,7 +274,7 @@ export function instantiateFaceAtoms(
       atoms.push({
         code: `.hasEdge(edge().circle(${c.text}))`,
         addTo: b => b.hasEdge(new EdgeFilterBuilder().circle(value)),
-        weight: 12, constants: 1, needsScope: false,
+        weight: 12, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: false,
       });
     }
   }
@@ -306,7 +317,7 @@ function belongsToFaceAtoms(probes: EdgeProbe[], params: ParameterLink[]): EdgeA
       atoms.push({
         code: `.belongsToFace(face().cylinder(${c.text}))`,
         addTo: b => b.belongsToFace(new FaceFilterBuilder().cylinder(value)),
-        weight: 14, constants: 1, needsScope: true,
+        weight: 14, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: true,
       });
     }
   }
@@ -388,7 +399,7 @@ function onPlaneAtom<B>(
   return {
     code: `.onPlane('${plane.name}', ${c.text})`,
     addTo: b => addTo(b, c.value),
-    weight: 20, constants: 1, needsScope: false,
+    weight: 20, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: false,
   };
 }
 
@@ -431,6 +442,7 @@ function thresholdAtoms<B>(
           addTo: b => above(b, plane.name, c.value),
           weight: c.value === 0 ? 21 : 10,
           constants: c.value === 0 ? 0 : 1,
+          bakedConstants: c.value === 0 ? 0 : 1,
           needsScope: false,
         });
       }
@@ -446,6 +458,7 @@ function thresholdAtoms<B>(
           addTo: b => below(b, plane.name, c.value),
           weight: c.value === 0 ? 21 : 10,
           constants: c.value === 0 ? 0 : 1,
+          bakedConstants: c.value === 0 ? 0 : 1,
           needsScope: false,
         });
       }

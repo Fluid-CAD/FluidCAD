@@ -132,15 +132,19 @@ export function createParamsRouter(
     sendToExtension({
       type: 'scene-rendered',
       absPath: data.absPath,
+      sceneKind: data.sceneKind,
       result: data.result,
       rollbackStop: data.rollbackStop,
+      ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     broadcastToUI({
       type: 'scene-rendered',
       result: data.result,
       absPath: data.absPath,
+      sceneKind: data.sceneKind,
       rollbackStop: data.rollbackStop,
       params: data.params,
+      ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     return true;
   }
@@ -187,15 +191,19 @@ export function createParamsRouter(
     sendToExtension({
       type: 'scene-rendered',
       absPath: data.absPath,
+      sceneKind: data.sceneKind,
       result: data.result,
       rollbackStop: data.rollbackStop,
+      ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     broadcastToUI({
       type: 'scene-rendered',
       result: data.result,
       absPath: data.absPath,
+      sceneKind: data.sceneKind,
       breakpointHit: data.breakpointHit,
       params: data.params,
+      ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     // A recompute that runs to completion can still leave features broken —
     // report which ones instead of a bare success. See `RenderOutcome`.

@@ -1340,7 +1340,7 @@ export class ModifyPickService {
    * the selection (misclicks shouldn't wipe it).
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
-    if (!this.feature || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
+    if (!this.feature || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane' || sub.type === 'connector') {
       return;
     }
     this.selectionMenu.hide();
@@ -1376,7 +1376,7 @@ export class ModifyPickService {
    * pick, so the seed ends up selected either way.
    */
   async handleDoubleClick(shapeId: string | null, sub: SubSelection): Promise<void> {
-    if (!this.feature || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
+    if (!this.feature || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane' || sub.type === 'connector') {
       return;
     }
     if (this.feature === 'sketch') {
@@ -1420,7 +1420,7 @@ export class ModifyPickService {
       return;
     }
     this.selectionMenu.hide();
-    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane') {
+    if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane' || sub.type === 'connector') {
       return;
     }
     this.tooltip.hide();

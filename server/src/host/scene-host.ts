@@ -16,4 +16,58 @@ export interface SceneHost {
   setBuffer(id: string, code: string): void;
   getBuffer(fileName: string): string | null;
   invalidateModule(): void;
+  /**
+   * Load a module WITHOUT the render pipeline's invoke-every-exported-function
+   * behavior — the part-catalog scanner calls exports itself so it can
+   * attribute each returned Part to its export. Optional: hosts that predate
+   * the catalog (hub) simply don't support scanning.
+   */
+  loadModuleRaw?(filePath: string): Promise<Record<string, any>>;
+  /**
+   * The workspace files a previously loaded module transitively imports,
+   * including itself — the part-catalog cache stats these to decide whether a
+   * scan is stale. Best-effort: an empty result disables caching for the file.
+   */
+  getModuleDependencies?(filePath: string): string[];
+}
+
+/**
+ * Duck-typed check for a fluidcad `assembly()` definition — the Assembly
+ * class lives in the WORKSPACE's fluidcad install, so instanceof against
+ * this server's copy would fail. Mirrors the part scanner's
+ * `getType() === 'part'` duck-typing. Used by hosts (entry-file renders run
+ * definitions at root scope) and by the part-catalog scanner.
+ */
+export function isAssemblyDefinition(value: unknown): value is { assemblyName?: string; run: () => unknown } {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const obj = value as { getType?: () => string; run?: () => unknown };
+  try {
+    return typeof obj.getType === 'function'
+      && obj.getType() === 'assembly'
+      && typeof obj.run === 'function';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Duck-typed check for a fluidcad `part()` definition — lazy since the
+ * part-parameters work; the materialized scene object keeps
+ * `getType() === 'part'`, so old-engine value exports (eagerly built Parts)
+ * and new-engine definitions stay distinguishable across module copies.
+ */
+export function isPartDefinition(value: unknown): value is { partName?: string; materialize: () => unknown } {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const obj = value as { getType?: () => string; materialize?: () => unknown };
+  try {
+    return typeof obj.getType === 'function'
+      && obj.getType() === 'part-definition'
+      && typeof obj.materialize === 'function';
+  } catch {
+    return false;
+  }
 }

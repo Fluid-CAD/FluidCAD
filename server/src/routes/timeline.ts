@@ -22,14 +22,18 @@ export function createTimelineRouter(
     sendToExtension({
       type: 'scene-rendered',
       absPath: data.absPath,
+      sceneKind: data.sceneKind,
       result: data.result,
       rollbackStop: data.rollbackStop,
+      ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     broadcastToUI({
       type: 'scene-rendered',
       result: data.result,
       absPath: data.absPath,
+      sceneKind: data.sceneKind,
       rollbackStop: data.rollbackStop,
+      ...(data.assembly ? { assembly: data.assembly } : {}),
       // The last full render's paused state — a refresh replays whatever
       // scene message went out last, and the indicator must survive it.
       breakpointHit: data.breakpointHit,

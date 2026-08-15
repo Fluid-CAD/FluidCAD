@@ -16,14 +16,15 @@ function formatDuration(ms: number): string {
 
 /**
  * Objects the scene carries but the timeline never lists: a lazy select's
- * reference holder, and the internal inputs a statement builds for itself
+ * reference holder, a lazy vertex's anchor holder (`sel.center()` inside
+ * `connector(…)`), and the internal inputs a statement builds for itself
  * (the plane behind `sketch('xy', …)`) — they have no statement of their own,
  * so a row would offer navigation and edits that belong to the statement they
  * serve. Rows keep their scene index either way, so rollback targets and the
  * edit dialogs' row lookups are unaffected.
  */
 function isHiddenRow(obj: SceneObjectRender): boolean {
-  return obj.uniqueType === 'lazy-select' || obj.internal === true;
+  return obj.uniqueType === 'lazy-select' || obj.uniqueType === 'lazy-vertex' || obj.internal === true;
 }
 
 export class TimelinePanel {
@@ -34,6 +35,17 @@ export class TimelinePanel {
    * returning true.
    */
   onFeatureIntercept?: (obj: SceneObjectRender) => boolean;
+
+  /**
+   * A part row was clicked. Part rows don't navigate: instead of the
+   * rollback preview they toggle the timeline's ACTIVE part — the part whose
+   * callback body receives newly created statements. The source jump stays.
+   * Unset (a host without the tracker), part rows keep the default rollback.
+   */
+  onPartActivate?: (obj: SceneObjectRender) => void;
+
+  /** Whether this part row is the active part (drives its highlight). */
+  isPartRowActive?: (obj: SceneObjectRender) => boolean;
 
   /**
    * A row was double-clicked (the enter-breakpoint gesture). Fired after the
@@ -258,6 +270,14 @@ export class TimelinePanel {
         if (obj && this.onFeatureIntercept?.(obj)) {
           return;
         }
+        if (obj && obj.type === 'part' && this.onPartActivate) {
+          // Part rows toggle the active part instead of rolling back; the
+          // re-render repaints the highlight from the tracker's new state.
+          this.onPartActivate(obj);
+          this.goToSource(obj);
+          this.renderTimeline();
+          return;
+        }
         if (this.sketchActive) {
           // No timeline navigation while sketching — the source jump stays.
           this.goToSource(obj);
@@ -272,6 +292,12 @@ export class TimelinePanel {
         }
         const index = parseInt(el.dataset.index!, 10);
         const obj = this.sceneObjects[index];
+        if (obj && obj.type === 'part') {
+          // Parts have no edit dialog and their single click already toggles
+          // activation — a double-click must not place a breakpoint. The
+          // context menu's "Breakpoint here" stays the explicit path.
+          return;
+        }
         if (this.sketchActive && !(obj && this.isFeatureEditable?.(obj))) {
           // The enter-breakpoint gesture is navigation — blocked while
           // sketching, except for rows that open an edit dialog: the dialog
@@ -377,6 +403,7 @@ export class TimelinePanel {
     const isCurrent = rollbackStop >= index && rollbackStop <= rollbackIndex;
     const isPast = index > rollbackStop;
     const isInvisible = obj.visible === false;
+    const isActivePart = !isChild && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
     const name = obj.name || 'Unknown';
     const iconSrc = obj.type === 'part' ? '/icons/box.png' : `/icons/${resolveIconName(obj.uniqueType, obj.type)}.png`;
 
@@ -386,12 +413,19 @@ export class TimelinePanel {
       itemClass += ' pl-7';
     }
 
-    if (isCurrent) {
+    // Part rows opt out of the "current" navigation highlight: with part
+    // clicks toggling activation instead of rolling back, a current-tinted
+    // part next to the active one would read as two active parts. Only the
+    // active part row is tinted (and carries the dot).
+    const highlightCurrent = isCurrent && obj.type !== 'part';
+    if (highlightCurrent) {
       itemClass += ' border-l-2 border-primary bg-primary/10';
+    } else if (isActivePart) {
+      itemClass += ' bg-primary/10';
     }
     if (effectiveError) {
       itemClass += ' text-error';
-    } else if (isCurrent) {
+    } else if (highlightCurrent || isActivePart) {
       itemClass += ' text-primary';
     } else if (isPast || isInvisible) {
       itemClass += ' text-base-content/60';
@@ -426,12 +460,17 @@ export class TimelinePanel {
       ? `<span class="${statusIconClass}">${ICON_CIRCLE_CHECK}</span>`
       : `<span class="${statusIconClass}">${ICON_REFRESH}</span>`;
 
+    const activeDot = isActivePart
+      ? '<span class="ml-0.5 w-1.5 h-1.5 rounded-full bg-primary shrink-0" title="Active part — new features land inside its body"></span>'
+      : '';
+
     return `
-      <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}">
+      <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}">
         ${chevron}
         ${errorDot}
         <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
         <span class="truncate">${name}</span>
+        ${activeDot}
         ${durationSpan}
         ${statusIcon}
       </div>
@@ -471,6 +510,22 @@ export class TimelinePanel {
     }
     this.historyTotalLabel.textContent = `· ${formatDuration(total)}`;
     this.historyTotalLabel.classList.remove('hidden');
+  }
+
+  dispose(): void {
+    if (this.activeDropdown) {
+      this.activeDropdown.remove();
+      this.activeDropdown = null;
+    }
+    if (this.dropdownCleanup) {
+      this.dropdownCleanup();
+      this.dropdownCleanup = null;
+    }
+    if (this.hoverPopover) {
+      this.hoverPopover.remove();
+      this.hoverPopover = null;
+    }
+    this.panel.remove();
   }
 
   private applyPanelWidth(): void {

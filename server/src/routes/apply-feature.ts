@@ -15,9 +15,10 @@ import {
   renderRevolveStatement, renderRibStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
-  renderChamferValueArgs, renderFaceTargetExpr, renderOffsetStatement, renderSlotStatement, renderTarcStatement,
-  renderTextStatement, type TextStatementOptions,
-  type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions, type CopyEditOptions,
+  renderChamferValueArgs, renderConnectorChain, renderFaceTargetExpr, renderOffsetStatement, renderSlotStatement, renderTarcStatement,
+  renderTextStatement, type TextStatementOptions, validConnectorAnchor, validConnectorRotate,
+  type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions,
+  type ConnectorAnchorSpec, type CopyEditOptions,
   type OffsetEditOptions, type SlotEditOptions,
   type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
   type HelixEditOptions,
@@ -28,7 +29,9 @@ import {
   type RevolveEditOptions, type RibEditOptions, type ShellJoinKind, type SweepEditOptions, type ValueExpr,
   type WrapEditOptions,
 } from '../apply-feature-edit.ts';
+import { readFile } from 'fs/promises';
 import { normalizePath } from '../normalize-path.ts';
+import { detectKind } from '../file-kind.ts';
 import { CHAIN_CALLEES } from '../segment-swap.ts';
 import { findEditableCallAt, getJavaScriptParser, splitLines } from '../code-editor.ts';
 
@@ -1877,7 +1880,7 @@ async function allocateProducerVars(
 }
 
 /** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'boolean', 'helix', 'plane', 'offset', 'slot', 'project', 'rib']);
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'boolean', 'helix', 'plane', 'offset', 'slot', 'project', 'rib', 'connector']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -1974,6 +1977,11 @@ type StatementEditRequest = {
   booleanTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
   /** Full replacement plane base list; absent keeps the statement's. */
   planeBases?: PlaneEditBaseInput[];
+  /**
+   * The anchor a re-picked connector source narrows to; it rides the
+   * synthesis, which appends the suffix to the args it renders.
+   */
+  connectorAnchor?: ConnectorAnchorSpec;
   /** True when a source payload carries picks — synthesis needs a boundary. */
   needsPicks: boolean;
 };
@@ -2451,6 +2459,54 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       }
       result.picks = picks;
       result.chains = chains;
+      result.needsPicks = true;
+    }
+    return result;
+  }
+
+  // Connector: the registered name plus the two frame adjustments — always
+  // explicit, so clearing the rotation stepper or an offset field drops that
+  // chain instead of keeping the statement's own. The source is either the
+  // edited expression row, a re-picked face/edge (whose anchor rides along,
+  // since the synthesis renders the suffix), or the statement's own text.
+  if (feature === 'connector') {
+    const name = body?.name;
+    if (typeof name !== 'string' || name.length > 64 || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
+      return { error: 'name must be a plain identifier (max 64 chars)' };
+    }
+    const rotate = body?.rotate ?? undefined;
+    if (!validConnectorRotate(rotate)) {
+      return { error: "rotate must be { axis: 'x'|'y'|'z', angle } with a finite angle in degrees" };
+    }
+    const frameOffset = body?.offset ?? undefined;
+    if (frameOffset !== undefined
+      && !(Array.isArray(frameOffset) && frameOffset.length === 3 && frameOffset.every((v: unknown) => Number.isFinite(v)))) {
+      return { error: 'offset must be [x, y, z] finite numbers' };
+    }
+    if (selectorOverride !== undefined
+      && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
+      return { error: 'selectorOverride must be a non-empty string (max 500 chars)' };
+    }
+    edit.connector = { name, rotate: rotate ?? null, offset: frameOffset ?? null };
+    const result: StatementEditRequest = {
+      ...base,
+      rawArgs: typeof selectorOverride === 'string' ? selectorOverride.trim() : undefined,
+    };
+    if (body?.entities !== undefined && body?.entities !== null) {
+      const picks = validatePicks(body.entities);
+      if (!picks || picks.length !== 1) {
+        return { error: 'entities must be the single {shapeId, sub:{type, index}} pick the connector attaches to' };
+      }
+      const anchor = body?.anchor;
+      if (!validConnectorAnchor(anchor)) {
+        return { error: "anchor must be {kind: 'center'|'start'|'end'} or {kind: 'offset', mode: 'relative'|'absolute', value}" };
+      }
+      result.picks = picks;
+      result.chains = [];
+      result.connectorAnchor = anchor;
+      // The synthesis renders the parts bare; the transform appends the
+      // suffix to them, the same way the create path does.
+      edit.connector.anchor = anchor;
       result.needsPicks = true;
     }
     return result;
@@ -3366,6 +3422,43 @@ export function createApplyFeatureRouter(
   const dispatcher = options.dispatcher
     ?? new FeatureEditDispatcher(fluidCadServer, sendToExtension, options);
 
+  /**
+   * The file-coupled synthesis options (producer namer + linkable params)
+   * built over the file the emitted statement will land in. Synthesis
+   * derives that file from the picked producers' own sourceLocations —
+   * under an assembly render it is the PART file, so building these over
+   * `getCurrentCode()` (the assembly buffer) would preview wrong binding
+   * names and link assembly-file constants into part-file selectors. The
+   * current buffer serves the open file; other files read from disk (an
+   * unsaved part buffer can be stale here — the editor round-trip is what
+   * verifies the final transform).
+   */
+  const synthesisOptionsForFile = async (
+    filePath: string | null | undefined,
+  ): Promise<{ namer: Awaited<ReturnType<typeof makeProducerNamer>>; params: ReturnType<typeof resolveParamValues> } | undefined> => {
+    const currentFile = fluidCadServer.getCurrentFileName();
+    let code: string | null = null;
+    if (!filePath || (currentFile && normalizePath(filePath) === normalizePath(currentFile))) {
+      code = fluidCadServer.getCurrentCode();
+    } else {
+      try {
+        code = await readFile(filePath, 'utf8');
+      } catch {
+        code = null;
+      }
+    }
+    if (!code) {
+      return undefined;
+    }
+    return {
+      namer: await makeProducerNamer(code),
+      params: resolveParamValues(
+        await extractNumericParams(code),
+        fluidCadServer.getParamDefinitions(),
+      ),
+    };
+  };
+
   // Read-only attribution report against the last rendered scene. Backs the
   // pick tooltips/debugging; never touches code.
   router.post('/selection/explain', (req, res) => {
@@ -3410,6 +3503,27 @@ export function createApplyFeatureRouter(
       return;
     }
     const newVariables = nvResult.newVariables;
+
+    // The timeline's active part: the part() statement whose callback body
+    // receives the created statement when nothing else pins a scope. Only the
+    // producer-less creates (pick-less sketch, standard-only plane,
+    // standard-axis helix) forward it — a producer-carrying spec inserts in
+    // its producers' scope regardless, so the field would be inert there.
+    let activePartLoc: SketchLoc | null = null;
+    if (req.body?.activePart !== undefined && req.body?.activePart !== null) {
+      activePartLoc = validateSketchLoc(req.body.activePart);
+      if (!activePartLoc) {
+        res.status(400).json({ error: 'activePart must be {filePath, line, column} of the part statement' });
+        return;
+      }
+    }
+    // Cross-file guard: a stale active part from another buffer never
+    // redirects an insertion in this one.
+    const activePartFor = (filePath: string | null): { line: number; column: number } | undefined =>
+      activePartLoc && filePath !== null
+        && normalizePath(activePartLoc.filePath) === normalizePath(filePath)
+        ? { line: activePartLoc.line, column: activePartLoc.column }
+        : undefined;
 
     // In-place statement edit (timeline double-click → edit dialog): the
     // statement at the location is re-parsed from the live buffer and its
@@ -3510,12 +3624,13 @@ export function createApplyFeatureRouter(
         /** Synthesize one re-picked slot against the pre-statement scene. */
         const synthesizeSlot = (
           picks: Pick[],
-          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset',
+          kind: 'extrude' | 'sweep' | 'loft' | 'revolve' | 'fillet' | 'chamfer' | 'shell' | 'wrap' | 'sketch' | 'plane' | 'helix' | 'project' | 'offset' | 'connector',
           value: ValueExpr | undefined,
           chains: { seed: Pick; members: Pick[] }[],
+          extra?: { connector?: { anchor?: ConnectorAnchorSpec } },
         ): any | null => {
           const synthesis = fluidCadServer.synthesizeApplyFeature(
-            picks, kind, value, chains, synthOptions, before,
+            picks, kind, value, chains, { ...synthOptions, ...extra }, before,
           );
           if (!synthesis) {
             res.status(404).json({ success: false, reason: 'No rendered scene' });
@@ -3752,11 +3867,15 @@ export function createApplyFeatureRouter(
           }
         }
         if (request.picks) {
+          // A connector's name rides the value channel, and its anchor rides
+          // the options — the synthesis renders the suffix onto the args, so
+          // the re-picked source reads exactly like a freshly created one.
           const synthesis = synthesizeSlot(
             request.picks,
-            request.feature as 'fillet' | 'chamfer' | 'shell' | 'project' | 'offset',
-            request.value,
+            request.feature as 'fillet' | 'chamfer' | 'shell' | 'project' | 'offset' | 'connector',
+            request.feature === 'connector' ? edit.connector!.name : request.value,
             request.chains ?? [],
+            request.feature === 'connector' ? { connector: { anchor: request.connectorAnchor } } : undefined,
           );
           if (!synthesis) {
             return;
@@ -4859,6 +4978,7 @@ export function createApplyFeatureRouter(
           res.json({ success: true, preview: statement, args: sourceArgs ?? undefined, alternatives });
           return;
         }
+        const activePart = activePartFor(filePath);
         await dispatcher.dispatch(res, {
           feature: 'helix',
           helix: options,
@@ -4867,6 +4987,7 @@ export function createApplyFeatureRouter(
           parts,
           imports,
           newVariables,
+          ...(activePart ? { activePart } : {}),
         }, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
@@ -5147,6 +5268,7 @@ export function createApplyFeatureRouter(
           res.json({ success: true, preview: statement });
           return;
         }
+        const activePart = activePartFor(filePath);
         await dispatcher.dispatch(res, {
           feature: 'plane',
           plane: options,
@@ -5155,6 +5277,7 @@ export function createApplyFeatureRouter(
           parts,
           imports: [...imports],
           newVariables,
+          ...(activePart ? { activePart } : {}),
         }, { success: true, preview: statement });
       } catch (err: any) {
         res.status(500).json({ success: false, reason: err?.message ?? String(err) });
@@ -5651,9 +5774,13 @@ export function createApplyFeatureRouter(
         res.json({ success: true, preview: statement, args: '' });
         return;
       }
+      const activePart = activePartFor(filePath);
       await dispatcher.dispatch(
         res,
-        { feature: 'sketch', sketchPlane: plane, filePath, producers: [], parts: [], imports: [] },
+        {
+          feature: 'sketch', sketchPlane: plane, filePath, producers: [], parts: [], imports: [],
+          ...(activePart ? { activePart } : {}),
+        },
         { success: true, preview: statement },
       );
       return;
@@ -5735,6 +5862,102 @@ export function createApplyFeatureRouter(
           value: undefined,
           project: { sketch: { line: sketchLoc.line, column: sketchLoc.column } },
         };
+        if (typeof selectorOverride === 'string' && selectorOverride.trim() !== synthesis.args) {
+          spec = { ...spec, rawArgs: selectorOverride.trim() };
+        }
+        await dispatcher.dispatch(res, spec, { success: true, preview: statementPreview });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
+    // Named connector (part files): the single pick is the connector's source
+    // face/edge and `name` is the identifier the statement registers. The
+    // kernel stamps the name and the enclosing part() call site into the
+    // spec; the transform lands the statement inside that part's callback
+    // body, before a trailing return.
+    if (feature === 'connector') {
+      const picks = validatePicks(req.body?.entities);
+      if (!picks) {
+        res.status(400).json({ error: 'entities must be a non-empty array of {shapeId, sub:{type, index}} picks' });
+        return;
+      }
+      const name = req.body?.name;
+      if (typeof name !== 'string' || name.length > 64 || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
+        res.status(400).json({ error: 'name must be a plain identifier (max 64 chars)' });
+        return;
+      }
+      if (selectorOverride !== undefined
+        && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
+        res.status(400).json({ error: 'selectorOverride must be a non-empty string (max 500 chars)' });
+        return;
+      }
+      const anchor = req.body?.anchor;
+      if (!validConnectorAnchor(anchor)) {
+        res.status(400).json({ error: "anchor must be {kind: 'center'|'start'|'end'} or {kind: 'offset', mode: 'relative'|'absolute', value}" });
+        return;
+      }
+      const rotate = req.body?.rotate;
+      if (!validConnectorRotate(rotate)) {
+        res.status(400).json({ error: "rotate must be { axis: 'x'|'y'|'z', angle } with a finite angle in degrees" });
+        return;
+      }
+      const frameOffset = req.body?.offset;
+      if (frameOffset !== undefined
+        && !(Array.isArray(frameOffset) && frameOffset.length === 3 && frameOffset.every((v: unknown) => Number.isFinite(v)))) {
+        res.status(400).json({ error: 'offset must be [x, y, z] finite numbers' });
+        return;
+      }
+      try {
+        const connectorOptions = {
+          anchor,
+          rotate,
+          offset: frameOffset,
+        };
+        // Two-pass: a bare synthesis learns which file the statement lands
+        // in (the picked producers' file — the PART file under an assembly
+        // render), then the real pass runs with namer/params built over
+        // that file's code so binding names and linked constants are the
+        // target file's, not the open buffer's.
+        const probe = fluidCadServer.synthesizeApplyFeature(
+          picks, 'connector', name, [], { connector: connectorOptions },
+        );
+        if (!probe) {
+          res.status(404).json({ success: false, reason: 'No rendered scene' });
+          return;
+        }
+        if (!probe.ok) {
+          res.status(422).json({ success: false, reason: probe.reason, pick: probe.pick });
+          return;
+        }
+        const fileOptions = await synthesisOptionsForFile(probe.spec.filePath);
+        const synthesis = fileOptions
+          ? fluidCadServer.synthesizeApplyFeature(
+            picks, 'connector', name, [], { ...fileOptions, connector: connectorOptions },
+          )
+          : probe;
+        if (!synthesis || !synthesis.ok) {
+          res.status(422).json({
+            success: false,
+            reason: synthesis && !synthesis.ok ? synthesis.reason : 'No rendered scene',
+          });
+          return;
+        }
+        // Composed here rather than taken from `synthesis.preview` so the
+        // previewed text is exactly what the transform writes (the args
+        // already carry the anchor suffix; the chain matches the transform's).
+        const statementPreview = `connector('${name}', ${synthesis.args})${renderConnectorChain({ rotate, offset: frameOffset })}`;
+        if (preview === true) {
+          res.json({
+            success: true,
+            preview: statementPreview,
+            args: synthesis.args,
+            alternatives: synthesis.alternatives,
+          });
+          return;
+        }
+        let spec: ApplyFeatureEditSpec = synthesis.spec;
         if (typeof selectorOverride === 'string' && selectorOverride.trim() !== synthesis.args) {
           spec = { ...spec, rawArgs: selectorOverride.trim() };
         }
@@ -6375,6 +6598,51 @@ export function createApplyFeatureRouter(
     (pick, before) => fluidCadServer.listSelectionGroups(pick, before),
     result => ({ groups: result.groups }));
 
+  // Hover-time connector anchor suggestions: the anchors a picked face/edge
+  // supports (face center; edge center/start/end) with exact frames, the
+  // synthesized source expression, and a name unique within the part. The
+  // connector tool renders the suggestion triad from these frames and the
+  // apply branch above re-synthesizes on commit.
+  router.post('/selection/connector-anchors', async (req, res) => {
+    const pick = validatePick(req.body?.entity);
+    if (!pick) {
+      res.status(400).json({ error: 'entity must be a {shapeId, sub:{type, index}} pick' });
+      return;
+    }
+    try {
+      // Two-pass, mirroring the connector create branch: the bare pass
+      // learns the statement's target file; the real pass builds
+      // namer/params over that file so the suggested args match what the
+      // commit writes.
+      const probe = fluidCadServer.suggestConnectorAnchors(pick);
+      if (!probe) {
+        res.status(404).json({ success: false, reason: 'No rendered scene' });
+        return;
+      }
+      if (probe.ok === false) {
+        res.json({ success: false, reason: probe.reason });
+        return;
+      }
+      const fileOptions = await synthesisOptionsForFile(probe.filePath);
+      const result = fileOptions
+        ? fluidCadServer.suggestConnectorAnchors(pick, fileOptions) ?? probe
+        : probe;
+      if (result.ok === false) {
+        res.json({ success: false, reason: result.reason });
+        return;
+      }
+      res.json({
+        success: true,
+        defaultName: result.defaultName,
+        args: result.args,
+        filePath: result.filePath,
+        anchors: result.anchors,
+      });
+    } catch (err: any) {
+      res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+    }
+  });
+
   // The current chain text at a segment's source line, read from the live
   // buffer — the drift guard the convert apply verifies against. Refuses when
   // code and scene are out of sync instead of guessing.
@@ -6488,6 +6756,36 @@ export function createApplyFeatureRouter(
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });
     }
+  });
+
+  // The Part tool: append an empty `part('Part N', () => {})` statement to
+  // the current part file (the transform allocates the name past every part
+  // already there). Rides the shared edit dispatcher like every other
+  // statement write; the newPart side-channel supersedes the placeholder
+  // feature field.
+  router.post('/part/new', async (req, res) => {
+    const name = req.body?.name;
+    if (name !== undefined && (typeof name !== 'string' || name.length === 0)) {
+      res.status(400).json({ error: 'name must be a non-empty string' });
+      return;
+    }
+    const filePath = fluidCadServer.getCurrentFileName();
+    if (!filePath) {
+      res.status(404).json({ success: false, reason: 'No rendered scene' });
+      return;
+    }
+    if (detectKind(filePath) === 'assembly') {
+      res.status(422).json({ success: false, reason: 'part() builds in a part file — assemblies compose parts via insert()' });
+      return;
+    }
+    await dispatcher.dispatch(res, {
+      feature: 'sketch',
+      filePath,
+      producers: [],
+      parts: [],
+      imports: [],
+      newPart: name !== undefined ? { name } : {},
+    }, { success: true });
   });
 
   // Pure source transform: the extension sends the live buffer plus the edit

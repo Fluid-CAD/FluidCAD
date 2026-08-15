@@ -11,6 +11,7 @@ import { describeEngineIncompatibility } from './compat';
 import { downloadEngine, compareVersionsDescending, type DownloadOptions } from './download';
 import { serverEntryFor } from './paths';
 import { projectInstalledEngine, readProjectPin, writeProjectPin } from './project-pin';
+import { isFluidScriptFile } from '../file-kind';
 
 /**
  * The engine resolution order, from `docs/desktop/00-architecture.md`:
@@ -175,9 +176,9 @@ export async function resolveEngine(
  * Give an unpinned project the pin for the engine it just opened with.
  *
  * Only for a workspace that already holds a model: opening a folder to look
- * around must not write files into it. Once there is a `.fluid.js` there, the
- * pin is a record of which kernel that geometry was authored against, which is
- * worth having before the first edit rather than after.
+ * around must not write files into it. Once there is a part or assembly file
+ * there, the pin is a record of which kernel that geometry was authored
+ * against, which is worth having before the first edit rather than after.
  */
 export function pinProjectIfNeeded(workspacePath: string, engine: ResolvedEngine): string | null {
   if (!engine.unpinned || !workspaceHasModel(workspacePath)) {
@@ -196,7 +197,7 @@ function workspaceHasModel(workspacePath: string): boolean {
   try {
     return fs
       .readdirSync(workspacePath, { withFileTypes: true })
-      .some((entry) => entry.isFile() && entry.name.endsWith('.fluid.js'));
+      .some((entry) => entry.isFile() && isFluidScriptFile(entry.name));
   } catch {
     return false;
   }

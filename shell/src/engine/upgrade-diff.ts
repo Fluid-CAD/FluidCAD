@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { startEngine, stopEngine } from './process';
 import type { ResolvedEngine } from './resolver';
+import { isFluidScriptFile } from '../file-kind';
 
 /**
  * Rebuilding a project against another engine and reporting what moved.
@@ -104,7 +105,7 @@ async function snapshotModel(url: string, filePath: string): Promise<ModelSnapsh
   };
 }
 
-/** Every `.fluid.js` in the workspace, shallowest first, capped. */
+/** Every model (part or assembly file) in the workspace, shallowest first, capped. */
 export function findModels(workspacePath: string): { models: string[]; skipped: string[] } {
   const found: string[] = [];
   const queue: string[] = [''];
@@ -123,7 +124,7 @@ export function findModels(workspacePath: string): { models: string[]; skipped: 
       const rel = relDir === '' ? entry.name : `${relDir}/${entry.name}`;
       if (entry.isDirectory()) {
         queue.push(rel);
-      } else if (entry.isFile() && entry.name.endsWith('.fluid.js')) {
+      } else if (entry.isFile() && isFluidScriptFile(entry.name)) {
         found.push(path.join(workspacePath, rel));
       }
     }

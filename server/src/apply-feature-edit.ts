@@ -5,6 +5,7 @@ import {
   findSketchBody,
   indentOf,
   isBreakpointStatement,
+  isExpressionText,
   splitLines,
   spliceCode,
   walkTree,
@@ -14,6 +15,15 @@ import {
 } from './code-editor.ts';
 import { applySegmentSwap, type SegmentSwapSpec } from './segment-swap.ts';
 import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
+import { applyInsertPartEdit, type InsertPartEditSpec } from './part-catalog/insert-edit.ts';
+import { applyInstancePoseEdit, type InstancePoseEditSpec } from './insert-chain-edit.ts';
+import { applyInsertParamsEdit, type InsertParamsEditSpec } from './insert-params-edit.ts';
+import {
+  applyAssemblyMateEdit,
+  applyConnectorPropsEdit,
+  type AssemblyMateEditSpec,
+  type ConnectorPropsEditSpec,
+} from './assembly-mate-edit.ts';
 
 /**
  * A dialog numeric slot: a plain number, or verbatim expression text
@@ -22,53 +32,7 @@ import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
  */
 export type ValueExpr = number | string;
 
-/**
- * Whether `text` is safe to embed as a single call argument: one line, no
- * statement separators or comments, balanced brackets, and no top-level
- * comma or assignment that would change the argument list's shape.
- */
-export function isExpressionText(text: unknown): text is string {
-  if (typeof text !== 'string') {
-    return false;
-  }
-  const t = text.trim();
-  if (!t || t.length > 200 || /[;\r\n`]/.test(t) || t.includes('//') || t.includes('/*')) {
-    return false;
-  }
-  const stack: string[] = [];
-  let quote: string | null = null;
-  for (let i = 0; i < t.length; i++) {
-    const ch = t[i];
-    if (quote !== null) {
-      if (ch === '\\') {
-        i++;
-      } else if (ch === quote) {
-        quote = null;
-      }
-      continue;
-    }
-    if (ch === "'" || ch === '"') {
-      quote = ch;
-    } else if (ch === '(' || ch === '[' || ch === '{') {
-      stack.push(ch);
-    } else if (ch === ')' || ch === ']' || ch === '}') {
-      const open = stack.pop();
-      if ((ch === ')' && open !== '(') || (ch === ']' && open !== '[') || (ch === '}' && open !== '{')) {
-        return false;
-      }
-    } else if (stack.length === 0) {
-      if (ch === ',') {
-        return false;
-      }
-      // A top-level assignment would leak a statement into the argument;
-      // comparison (`==`, `<=`, `>=`, `!=`) and arrows are fine.
-      if (ch === '=' && t[i + 1] !== '=' && t[i + 1] !== '>' && !/[=!<>]/.test(t[i - 1] ?? '')) {
-        return false;
-      }
-    }
-  }
-  return quote === null && stack.length === 0;
-}
+export { isExpressionText } from './code-editor.ts';
 
 /** A repeat count slot: an integer of at least 2, or safe expression text. */
 export function validCountValue(value: unknown): value is ValueExpr {
@@ -108,7 +72,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'rib';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'rib' | 'connector';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -140,6 +104,12 @@ export type ApplyFeatureEditSpec = {
   offset?: OffsetEditOptions;
   /** Slot-from-edge payload; the trailing `deleteSource` argument. */
   slot?: SlotEditOptions;
+  /**
+   * Connector-only payload: the name the statement registers, plus the call
+   * site of the `part(...)` block whose callback body receives the statement
+   * (end of body, before a trailing `return` or active `breakpoint();`).
+   */
+  connector?: ConnectorEditOptions;
   /** tArc-only payload; present for an in-place retarget instead of a create. */
   tarc?: TarcEditOptions;
   /**
@@ -227,6 +197,56 @@ export type ApplyFeatureEditSpec = {
    */
   paramEdit?: ParamEditSpec;
   /**
+   * Insert-dialog instance insertion: import a catalog part's export and
+   * append `const <name> = insert(...)` at the end of the assembly file.
+   * Rides the same round trip as `paramEdit`; every other spec field is
+   * ignored.
+   */
+  insertPart?: InsertPartEditSpec;
+  /**
+   * Assembly-gizmo pose commit: rewrite an `insert()` chain's
+   * `.translate()`/`.rotate()` calls to reproduce the instance's final world
+   * pose. Rides the same round trip as `insertPart`; every other spec field
+   * is ignored.
+   */
+  instancePose?: InstancePoseEditSpec;
+  /**
+   * Edit-parameters commit: merge changed parameter values into an
+   * `insert()` statement's second argument (untouched entries survive
+   * verbatim, expressions included). Rides the same round trip as
+   * `instancePose`; every other spec field is ignored.
+   */
+  insertParams?: InsertParamsEditSpec;
+  /**
+   * Mate-dialog statement write: append or re-render a
+   * `mate(type, a.connectors.x, b.connectors.y)<chain>` statement in the
+   * assembly file. Rides the same round trip as `instancePose`; every other
+   * spec field is ignored.
+   */
+  assemblyMate?: AssemblyMateEditSpec;
+  /**
+   * Mate-dialog pen-button edit: rewrite a `connector()` statement's name
+   * and adjustment chain in its part file (the spec's `filePath` addresses
+   * that file, so the current-file preflight self-skips). Rides the same
+   * round trip as `assemblyMate`; every other spec field is ignored.
+   */
+  connectorProps?: ConnectorPropsEditSpec;
+  /**
+   * Part-tool statement write: append `part('<name>', () => {})` at top
+   * level, the name auto-allocated past every part name already in the file
+   * when absent. Rides the same round trip as `insertPart`; every other
+   * spec field is ignored.
+   */
+  newPart?: { name?: string };
+  /**
+   * The `part(...)` call site whose callback body receives the created
+   * statement — the timeline's active part. Only the producer-less appends
+   * honor it (pick-less sketch, standard-only plane, standard-axis helix):
+   * a producer-carrying create already lands in its producers' scope, which
+   * is the part body exactly when the picked inputs live inside it.
+   */
+  activePart?: { line: number; column: number };
+  /**
    * Strip every `breakpoint();` after the rewrite. Set when an edit dialog
    * applies: the double-click that opened it placed a breakpoint, and
    * applying clears it so the model rebuilds to its tip. Done inside this
@@ -241,6 +261,109 @@ export type ApplyFeatureEditSpec = {
    */
   newVariables?: { name: string; initializer: string }[];
 };
+
+/**
+ * A well-known point on the connector's source face/edge, rendered as a
+ * suffix on the selector expression (`.center()`, `.offset('relative', 0.3)`).
+ */
+export type ConnectorAnchorSpec =
+  | { kind: 'center' | 'start' | 'end' }
+  | { kind: 'offset'; mode: 'relative' | 'absolute'; value: number };
+
+export type ConnectorRotateAxis = 'x' | 'y' | 'z';
+
+/**
+ * The identifier a connector may register under — mirrors the kernel's
+ * `CONNECTOR_NAME_PATTERN`, restated here so the transform stays a
+ * dependency-free string function.
+ */
+const CONNECTOR_NAME = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
+
+/**
+ * Connector create payload. `name` is the identifier the statement registers
+ * (validated against the same pattern the kernel enforces); `part` is the
+ * `part(...)` call site whose callback body receives the statement. `anchor`
+ * narrows the source expression to a well-known point; `rotate` / `offset`
+ * render the dialog's `.rotate('<axis>', n)` / `.offset(...)` chain.
+ */
+export type ConnectorEditOptions = {
+  name: string;
+  /** The `part(...)` call site whose callback body receives the statement. */
+  part?: { line: number; column: number };
+  anchor?: ConnectorAnchorSpec;
+  rotate?: { axis: ConnectorRotateAxis; angle: number };
+  offset?: [number, number, number];
+};
+
+export function validConnectorRotate(rotate: unknown): rotate is ConnectorEditOptions['rotate'] {
+  if (rotate === undefined) {
+    return true;
+  }
+  const r = rotate as { axis?: unknown; angle?: unknown };
+  if (r === null || typeof r !== 'object') {
+    return false;
+  }
+  return (r.axis === 'x' || r.axis === 'y' || r.axis === 'z') && Number.isFinite(r.angle);
+}
+
+/** `.center()` / `.offset('relative', 0.3)` — kernel-mirrored rendering. */
+export function renderConnectorAnchorSuffix(anchor: ConnectorAnchorSpec | undefined): string {
+  if (!anchor) {
+    return '';
+  }
+  if (anchor.kind === 'offset') {
+    return `.offset('${anchor.mode}', ${anchor.value})`;
+  }
+  return `.${anchor.kind}()`;
+}
+
+export function validConnectorAnchor(anchor: unknown): anchor is ConnectorAnchorSpec | undefined {
+  if (anchor === undefined) {
+    return true;
+  }
+  const a = anchor as ConnectorAnchorSpec;
+  if (a === null || typeof a !== 'object') {
+    return false;
+  }
+  if (a.kind === 'center' || a.kind === 'start' || a.kind === 'end') {
+    return true;
+  }
+  if (a.kind === 'offset') {
+    return (a.mode === 'relative' || a.mode === 'absolute') && Number.isFinite(a.value);
+  }
+  return false;
+}
+
+/**
+ * `.offset(0, 0, 5).rotate('x', 90)` — kernel-mirrored rendering. The offset
+ * comes FIRST: the kernel applies the chain in order and `.rotate()` pivots at
+ * the frame's current origin, so offsetting first turns the connector in place
+ * at its offset position instead of swinging it around the anchor.
+ */
+export function renderConnectorChain(
+  options: {
+    rotate?: { axis: ConnectorRotateAxis; angle: number };
+    offset?: [number, number, number];
+  } | undefined,
+): string {
+  if (!options) {
+    return '';
+  }
+  let out = '';
+  const offset = options.offset;
+  if (offset && offset.some(v => v !== 0)) {
+    const values = [...offset];
+    while (values.length > 1 && values[values.length - 1] === 0) {
+      values.pop();
+    }
+    out += `.offset(${values.join(', ')})`;
+  }
+  const rotate = options.rotate;
+  if (rotate && Number.isFinite(rotate.angle) && rotate.angle % 360 !== 0) {
+    out += `.rotate('${rotate.axis}', ${rotate.angle})`;
+  }
+  return out;
+}
 
 /**
  * A re-sourced sketch slot of an edited statement: keep the statement's own
@@ -357,6 +480,25 @@ export type FeatureStatementEditTarget = {
    * `slot([x1,y1], [x2,y2], r)`, …) — validated to be a single slot() chain.
    */
   slot?: { drawStatement: string };
+  /**
+   * Connector options — always explicit on an edit: a cleared rotation or
+   * offset field writes `null` and drops that chain rather than keeping the
+   * statement's own. The source expression is NOT here: it follows the
+   * selector-args contract (the edited expression row, a re-picked selection,
+   * else the statement's own text), anchor suffix included.
+   */
+  connector?: {
+    name: string;
+    rotate: { axis: ConnectorRotateAxis; angle: number } | null;
+    offset: [number, number, number] | null;
+    /**
+     * The anchor a RE-PICKED source narrows to, rendered as the suffix on the
+     * selector parts (the create path's contract — the parts carry the plain
+     * accessor). Ignored when the args come from the edited expression row or
+     * the statement's own text: both already spell the anchor out.
+     */
+    anchor?: ConnectorAnchorSpec;
+  };
   loft?: {
     op: 'add' | 'remove' | 'new';
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
@@ -1202,11 +1344,29 @@ export async function applyFeatureEdit(
   if (spec.paramEdit) {
     return ParamEditor.apply(code, spec.paramEdit);
   }
+  if (spec.insertPart) {
+    return applyInsertPartEdit(code, spec.insertPart);
+  }
+  if (spec.newPart) {
+    return applyNewPart(code, spec.newPart);
+  }
+  if (spec.instancePose) {
+    return applyInstancePoseWithDecls(code, spec);
+  }
+  if (spec.insertParams) {
+    return applyInsertParamsWithDecls(code, spec);
+  }
+  if (spec.assemblyMate) {
+    return applyAssemblyMateEdit(code, spec.assemblyMate);
+  }
+  if (spec.connectorProps) {
+    return applyConnectorPropsEdit(code, spec.connectorProps);
+  }
   if (spec.edit) {
     return applyStatementEdit(code, spec);
   }
   if (spec.feature === 'sketch' && spec.producers.length === 0 && spec.parts.length === 0) {
-    return applyPlaneSketch(code, spec.sketchPlane);
+    return applyPlaneSketch(code, spec.sketchPlane, spec.activePart);
   }
   if (spec.feature === 'extrude') {
     // The profile sketch (implicit consumption or a bound variable) is always
@@ -1300,6 +1460,7 @@ export async function applyFeatureEdit(
         () => renderHelixStatement(hx, renderHelixSourceExpr(hx.source, spec.parts, () => null)),
         'helix',
         spec.newVariables,
+        spec.activePart,
       );
     }
   } else if (spec.feature === 'chamfer') {
@@ -1373,6 +1534,7 @@ export async function applyFeatureEdit(
         () => renderPlaneStatement(pl, renderPlaneBaseExprs(pl, spec.parts, () => null)),
         'plane',
         spec.newVariables,
+        spec.activePart,
       );
     }
   } else if (spec.feature === 'repeat') {
@@ -1616,6 +1778,22 @@ export async function applyFeatureEdit(
     if (spec.text!.text.trim() === '') {
       return { newCode: code, error: 'the text string is empty' };
     }
+  } else if (spec.feature === 'connector') {
+    // A named connector: exactly one selector part (the frame derives from a
+    // single face/edge), a valid identifier name, and the part() call site
+    // whose callback body receives the statement.
+    const co = spec.connector;
+    const valid = co !== undefined
+      && typeof co.name === 'string' && CONNECTOR_NAME.test(co.name)
+      && Number.isInteger(co.part?.line) && Number.isInteger(co.part?.column)
+      && spec.producers.length >= 1 && spec.parts.length === 1
+      && validConnectorAnchor(co.anchor)
+      && validConnectorRotate(co.rotate)
+      && (co.offset === undefined
+        || (Array.isArray(co.offset) && co.offset.length === 3 && co.offset.every(v => Number.isFinite(v))));
+    if (!valid) {
+      return { newCode: code, error: 'malformed connector edit spec' };
+    }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
   }
@@ -1715,6 +1893,95 @@ export async function applyFeatureEdit(
 }
 
 /**
+ * The `instancePose` side-channel plus its expression extras: validate the
+ * per-axis translate texts as safe single-argument expressions, apply the
+ * chain rewrite, then land any declarations the gizmo's absolute-value input
+ * committed — plain `const`s directly before the insert statement at its
+ * indent, `param()` declarations after the imports (import ensured) —
+ * mirroring the dialog expression fields. Declarations splice after the pose
+ * edit so the spec's source line stays valid throughout.
+ */
+async function applyInstancePoseWithDecls(
+  code: string,
+  spec: ApplyFeatureEditSpec,
+): Promise<ApplyFeatureEditResult> {
+  const pose = spec.instancePose!;
+  for (const expr of [...(pose.translateExprs ?? []), ...(pose.rotateExprs ?? [])]) {
+    if (expr !== null && !isExpressionText(expr)) {
+      return { newCode: code, error: 'malformed pose expression' };
+    }
+  }
+  const result = await applyInstancePoseEdit(code, pose);
+  if (result.error !== undefined) {
+    return result;
+  }
+  return landNewVariableDecls(code, result.newCode, pose.sourceLine, spec.newVariables);
+}
+
+/**
+ * The Edit-parameters dialog's `insertParams` side-channel plus its
+ * expression extras: merge the changed values (verbatim `{ expr }` texts
+ * included — `applyInsertParamsEdit` validates them), then land any
+ * declarations the dialog's expression fields committed, exactly like the
+ * pose gizmo's.
+ */
+async function applyInsertParamsWithDecls(
+  code: string,
+  spec: ApplyFeatureEditSpec,
+): Promise<ApplyFeatureEditResult> {
+  const result = await applyInsertParamsEdit(code, spec.insertParams!);
+  if (result.error !== undefined) {
+    return result;
+  }
+  return landNewVariableDecls(code, result.newCode, spec.insertParams!.line, spec.newVariables);
+}
+
+/**
+ * Land `newVariables` declarations around an already-edited statement:
+ * plain `const`s directly before line `sourceLine` at its indent, `param()`
+ * declarations after the imports (import ensured). Splices AFTER the main
+ * edit so the spec's source line stays valid throughout; errors return the
+ * ORIGINAL code, keeping the transform all-or-nothing.
+ */
+async function landNewVariableDecls(
+  code: string,
+  edited: string,
+  sourceLine: number,
+  newVariables: ApplyFeatureEditSpec['newVariables'],
+): Promise<ApplyFeatureEditResult> {
+  if (!newVariables || newVariables.length === 0) {
+    return { newCode: edited };
+  }
+  let working = edited;
+  const parser = await getJavaScriptParser();
+  const useSemicolon = parser.parse(working).rootNode.namedChildren
+    .some(c => c.text.trimEnd().endsWith(';'));
+  const declsResult = renderNewVariableDecls(working, newVariables, useSemicolon);
+  if ('error' in declsResult) {
+    return { newCode: code, error: declsResult.error };
+  }
+  if (declsResult.decls.length > 0) {
+    const lines = splitLines(working);
+    const row = sourceLine - 1;
+    if (row < 0 || row >= lines.length) {
+      return { newCode: code, error: `no line ${sourceLine} to declare variables before` };
+    }
+    const indent = indentOf(lines, row);
+    let lineStart = 0;
+    for (let i = 0; i < row; i++) {
+      lineStart += lines[i].length + 1;
+    }
+    const block = declsResult.decls.map(d => `${indent}${d}\n`).join('');
+    working = spliceCode(working, lineStart, lineStart, block);
+  }
+  if (declsResult.paramDecls.length > 0) {
+    working = await ensureSymbolImport(working, 'param');
+    working = await insertDeclsAfterImports(working, declsResult.paramDecls);
+  }
+  return { newCode: working };
+}
+
+/**
  * The pick-less sketch statement: no face selector — `sketch('<plane>', ()
  * => {})` on an origin plane (bare `sketch(() => {})` when no plane rides
  * the spec), appended at top level.
@@ -1722,9 +1989,88 @@ export async function applyFeatureEdit(
 async function applyPlaneSketch(
   code: string,
   plane: 'xy' | 'xz' | 'yz' | undefined,
+  activePart?: { line: number; column: number },
 ): Promise<ApplyFeatureEditResult> {
   const args = plane ? `'${plane}', ` : '';
-  return appendTopLevelStatement(code, indent => `sketch(${args}() => {\n\n${indent}})`, 'sketch');
+  return appendTopLevelStatement(
+    code, indent => `sketch(${args}() => {\n\n${indent}})`, 'sketch', undefined, activePart,
+  );
+}
+
+/** Part names land in a single-quoted literal — no quotes or line breaks. */
+function validPartName(name: string): boolean {
+  return /^[^'"\\\r\n]{1,64}$/.test(name);
+}
+
+/**
+ * The Part tool's statement: append `export const <ident> = part('<name>',
+ * () => {})` at top level. A missing name allocates "Part N" past every
+ * part() name already in the file, so repeated clicks keep minting fresh
+ * parts. The binding is always exported — the part catalog indexes parts by
+ * their `export const` name, so an exported part is insertable from an
+ * assembly the moment it exists.
+ */
+async function applyNewPart(
+  code: string,
+  newPart: NonNullable<ApplyFeatureEditSpec['newPart']>,
+): Promise<ApplyFeatureEditResult> {
+  if (newPart.name !== undefined && !validPartName(newPart.name)) {
+    return { newCode: code, error: 'part names must be 1-64 characters without quotes or line breaks' };
+  }
+  const name = newPart.name ?? await allocateNewPartName(code);
+  const exportName = pickPartExportName(code, name);
+  return appendTopLevelStatement(
+    code,
+    indent => `export const ${exportName} = part('${name}', () => {\n\n${indent}})`,
+    'part',
+  );
+}
+
+/**
+ * The export binding's identifier, derived from the part's display name
+ * (`Part 1` → `part1`, `Box Body` → `boxBody`) — numeric-suffixed past any
+ * word already appearing in the file, the same fresh-word rule the Insert
+ * dialog's instance names follow.
+ */
+function pickPartExportName(code: string, displayName: string): string {
+  const words = displayName.split(/[^A-Za-z0-9]+/).filter(w => w.length > 0);
+  let base = words
+    .map((w, i) => i === 0 ? w.charAt(0).toLowerCase() + w.slice(1) : w.charAt(0).toUpperCase() + w.slice(1))
+    .join('');
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(base)) {
+    base = 'part';
+  }
+  if (!new RegExp(`\\b${base}\\b`).test(code)) {
+    return base;
+  }
+  for (let n = 2; ; n++) {
+    const candidate = `${base}${n}`;
+    if (!new RegExp(`\\b${candidate}\\b`).test(code)) {
+      return candidate;
+    }
+  }
+}
+
+/** The first "Part N" past every part() name already in the file. */
+async function allocateNewPartName(code: string): Promise<string> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const taken = new Set<string>();
+  for (const node of walkTree(tree.rootNode)) {
+    if (node.type !== 'call_expression' || chainRootCallee(node) !== 'part') {
+      continue;
+    }
+    const first = node.childForFieldName('arguments')?.namedChildren
+      .filter(a => a.type !== 'comment')[0];
+    if (first && first.type === 'string') {
+      taken.add(first.text.slice(1, -1));
+    }
+  }
+  let n = 1;
+  while (taken.has(`Part ${n}`)) {
+    n++;
+  }
+  return `Part ${n}`;
 }
 
 /**
@@ -1732,14 +2078,17 @@ async function applyPlaneSketch(
  * standard-base plane) after the file's last statement — before the first
  * `breakpoint();` (a paused build never runs statements after it) or a
  * trailing `return`, matching the file's semicolon style — or as an empty
- * file's first. `statementFor` receives the insertion indent (for multi-line
- * bodies) and renders without the trailing semicolon.
+ * file's first. With `partLoc` (the timeline's active part) the statement
+ * lands at the end of that `part()`'s callback body instead, under the same
+ * breakpoint/return rules. `statementFor` receives the insertion indent (for
+ * multi-line bodies) and renders without the trailing semicolon.
  */
 async function appendTopLevelStatement(
   code: string,
   statementFor: (indent: string) => string,
   callee: string,
   newVariables?: ApplyFeatureEditSpec['newVariables'],
+  partLoc?: { line: number; column: number },
 ): Promise<ApplyFeatureEditResult> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
@@ -1758,7 +2107,13 @@ async function appendTopLevelStatement(
     .join(`\n${indent}`);
 
   let result: string;
-  if (!last) {
+  if (partLoc) {
+    const target = resolvePartBodyInsertion(partLoc, [], lines, tree);
+    if ('error' in target) {
+      return { newCode: code, error: target.error };
+    }
+    result = spliceCode(code, target.index, target.index, target.wrap(block(target.indent)));
+  } else if (!last) {
     result = spliceCode(code, code.length, code.length,
       [...declsResult.decls, `${statementFor('')};`].join('\n') + '\n');
   } else {
@@ -3123,6 +3478,14 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'sketch') {
     return `sketch(${args}, () => {\n\n${indent}})`;
   }
+  if (spec.feature === 'connector') {
+    // The name is a validated identifier, so the quoting is safe. A raw
+    // override already carries the anchor suffix (the UI edits the suffixed
+    // expression); the rendered-parts path appends it here.
+    const co = spec.connector!;
+    const anchor = spec.rawArgs?.trim() ? '' : renderConnectorAnchorSuffix(co.anchor);
+    return `connector('${co.name}', ${args}${anchor})${renderConnectorChain(co)}`;
+  }
   if (spec.feature === 'chamfer') {
     return `chamfer(${renderChamferValueArgs(spec.value, spec.chamfer)}, ${args})`;
   }
@@ -3440,6 +3803,11 @@ function resolveInsertion(
   if (spec.feature === 'project') {
     return resolveSketchBodyInsertion(spec.project!.sketch, bindings, lines, tree);
   }
+  // A connector registers on the enclosing part, so it lands inside that
+  // part's callback body rather than in the producers' hoisted scope.
+  if (spec.feature === 'connector') {
+    return resolvePartBodyInsertion(spec.connector!.part, bindings, lines, tree);
+  }
   return findInsertionPoint(scope, lines, bindings);
 }
 
@@ -3485,6 +3853,84 @@ function resolveSketchBodyInsertion(
   // An empty body: open the first line of it at one level in from the sketch.
   const indent = indentOf(lines, body.startPosition.row) + '  ';
   return { index: body.startIndex + 1, indent, wrap: (stmt) => `\n${indent}${stmt}` };
+}
+
+const LOOP_NODE_TYPES = new Set([
+  'for_statement', 'for_in_statement', 'while_statement', 'do_statement',
+]);
+
+/**
+ * Insertion at the end of a part's callback body — the connector tool's
+ * target, and (with no bindings) the active-part home for the producer-less
+ * appends. Within the body, the statement prefers the producers' own nearest
+ * block: a parameterized part builds each variant inside an `if/else` branch
+ * and returns from it, so end-of-branch (before that branch's `return`) is
+ * where the statement still executes. The walk from that block up to the
+ * part body must cross only plain statement blocks — crossing a nested
+ * function or loop (a scope that runs zero-or-many times) falls back to the
+ * part body itself. Bound producers must live inside the body: a variable
+ * declared elsewhere isn't visible at the insertion point.
+ */
+function resolvePartBodyInsertion(
+  partLoc: { line: number; column: number },
+  bindings: ProducerBinding[],
+  lines: string[],
+  tree: TSTree,
+): Insertion | { error: string } {
+  const call = findEditableCallAt(tree, lines, partLoc.line);
+  if (!call || chainRootCallee(call) !== 'part') {
+    return {
+      error: `no part() call found at line ${partLoc.line} — is the file in sync with the last render?`,
+    };
+  }
+  const body = findSketchBody(call);
+  if (!body) {
+    return { error: 'the part at that line has no callback body to add the statement to' };
+  }
+
+  const insideBody = (node: TSNode) =>
+    node.startIndex >= body.startIndex && node.endIndex <= body.endIndex;
+  const outside = bindings.find(b => b.bind && !insideBody(b.statement));
+  if (outside) {
+    return {
+      error: 'the picked geometry is declared outside this part() body — '
+        + 'only features inside the part can source its connectors',
+    };
+  }
+
+  let scope = body;
+  const statement = bindings[0]?.statement;
+  if (statement && insideBody(statement)) {
+    const nearest = enclosingScope(statement);
+    let crossesRisky = false;
+    let current: TSNode | null = nearest;
+    while (current && !sameNode(current, body)) {
+      if (FUNCTION_NODE_TYPES.has(current.type) || LOOP_NODE_TYPES.has(current.type)) {
+        crossesRisky = true;
+        break;
+      }
+      current = current.parent;
+    }
+    if (!crossesRisky && current) {
+      scope = nearest;
+    }
+  }
+
+  const children = scope.namedChildren;
+  if (children.length === 0) {
+    // An empty body: open the first line of it at one level in from the part.
+    // A single-line `{}` keeps its closing brace on the opening line — move
+    // it below the statement.
+    const baseIndent = indentOf(lines, scope.startPosition.row);
+    const indent = baseIndent + '  ';
+    const singleLine = scope.startPosition.row === scope.endPosition.row;
+    return {
+      index: scope.startIndex + 1,
+      indent,
+      wrap: (stmt) => singleLine ? `\n${indent}${stmt}\n${baseIndent}` : `\n${indent}${stmt}`,
+    };
+  }
+  return findInsertionPoint(scope, lines, bindings);
 }
 
 /**
@@ -3597,7 +4043,7 @@ function enclosingSketchStatement(node: TSNode): TSNode | null {
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'slot' | 'project' | 'rib';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'slot' | 'project' | 'rib' | 'connector';
 
 /**
  * One base argument of a parsed plane statement. `kind` is what the base
@@ -3767,6 +4213,21 @@ export type ParsedFeatureStatement =
     feature: 'project';
     /** The projected source argument list, verbatim (`''` when absent). */
     argsText: string;
+  }
+  | {
+    feature: 'connector';
+    /** The identifier the statement registers the connector under. */
+    name: string;
+    /**
+     * The source argument, verbatim — the anchor suffix included, since
+     * `.center()` / `.offset('relative', 0.3)` is part of the expression the
+     * dialog's source row shows and edits (`e.endFaces(0).center()`).
+     */
+    argsText: string;
+    /** `.rotate('<axis>', deg)`, or null when the chain is absent. */
+    rotate: { axis: ConnectorRotateAxis; angle: number } | null;
+    /** `.offset(x[, y, z])` with the omitted components read as 0; null when absent. */
+    offset: [number, number, number] | null;
   }
   | {
     feature: 'chamfer';
@@ -3974,6 +4435,7 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   offset: 'offset',
   slot: 'slot',
   project: 'project',
+  connector: 'connector',
 };
 
 /**
@@ -4029,6 +4491,11 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // The sources are the root call's arguments; `.name()` and friends are
   // unrecognized members and survive verbatim.
   project: new Set(),
+  // The name and the source (anchor suffix included) are root-call arguments;
+  // the frame adjustments are the chained options the dialog edits. They are
+  // order-sensitive — an offset walks the ROTATED axes — so the parse also
+  // requires the writer's own order (rotate, then offset).
+  connector: new Set(['rotate', 'offset']),
 };
 
 type ChainSegment = { name: string; args: TSNode[]; endIndex: number };
@@ -4391,6 +4858,10 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       ? code.slice(args[0].startIndex, args[args.length - 1].endIndex)
       : '';
     return { parsed: { feature, argsText }, start, end };
+  }
+
+  if (feature === 'connector') {
+    return parseConnectorChain(args, recognized, code, start, end);
   }
 
   if (feature === 'text') {
@@ -5469,6 +5940,104 @@ function parseBooleanChain(
     start,
     end,
   };
+}
+
+/**
+ * Read a `connector('<name>', <source>)` chain into the dialog's fields. The
+ * source argument is kept verbatim (anchor suffix and all) — the dialog shows
+ * it as the source row's text and only a re-pick replaces it.
+ *
+ * The two adjustment chains must read exactly as the dialog writes them:
+ * plain numeric literals (a variable rotation has no stepper to seed), and
+ * offset BEFORE rotate — the dialog's own order, which a re-emission restores.
+ * A rotate-first pair (the order an earlier dialog wrote) folds into it
+ * exactly when the turn is a right angle ({@link foldRotatedOffset}) — same
+ * built frame, so opening the dialog never moves the connector. Other
+ * rotate-first chains refuse honestly: folding an arbitrary angle would turn
+ * clean offset literals into trigonometric decimals.
+ */
+function parseConnectorChain(
+  args: TSNode[],
+  recognized: Map<string, ChainSegment>,
+  code: string,
+  start: number,
+  end: number,
+): ChainParse {
+  if (args.length !== 2) {
+    return { error: 'a connector takes a name and one source — edit the statement in the source' };
+  }
+  const name = stringArgValue(args[0]);
+  if (name === null || !CONNECTOR_NAME.test(name)) {
+    return { error: 'the connector name is not a plain string identifier — edit it in the source' };
+  }
+  const argsText = code.slice(args[1].startIndex, args[1].endIndex);
+
+  let rotate: { axis: ConnectorRotateAxis; angle: number } | null = null;
+  const rotateSeg = recognized.get('rotate');
+  if (rotateSeg) {
+    const axis = rotateSeg.args.length === 2 ? stringArgValue(rotateSeg.args[0]) : null;
+    const angle = rotateSeg.args.length === 2 ? numericArgValue(rotateSeg.args[1]) : null;
+    if ((axis !== 'x' && axis !== 'y' && axis !== 'z') || angle === null) {
+      return { error: "the .rotate() chain is not a plain ('x'|'y'|'z', angle) pair — edit it in the source" };
+    }
+    rotate = { axis, angle };
+  }
+
+  let offset: [number, number, number] | null = null;
+  const offsetSeg = recognized.get('offset');
+  if (offsetSeg) {
+    if (offsetSeg.args.length < 1 || offsetSeg.args.length > 3) {
+      return { error: 'the .offset() chain takes one to three distances — edit it in the source' };
+    }
+    const values = offsetSeg.args.map(numericArgValue);
+    if (values.some(v => v === null)) {
+      return { error: 'the connector offsets are not plain numbers — edit them in the source' };
+    }
+    // The API defaults the omitted components to 0 (`offset(x, y = 0, z = 0)`).
+    offset = [values[0]!, values[1] ?? 0, values[2] ?? 0];
+  }
+
+  const order = [...recognized.keys()];
+  if (rotate !== null && offset !== null
+    && order.indexOf('rotate') < order.indexOf('offset')) {
+    // A rotate-first chain: its offset walked the ROTATED axes. Fold the
+    // components into the dialog's offset-first order so the connector opens
+    // — and re-applies — exactly where it was built.
+    const folded = foldRotatedOffset(rotate, offset);
+    if (folded === null) {
+      return { error: 'the connector rotates before it offsets by a non-right angle — edit the statement in the source' };
+    }
+    offset = folded;
+  }
+
+  return { parsed: { feature: 'connector', name, argsText, rotate, offset }, start, end };
+}
+
+/**
+ * Rewrite the offset of a rotate-first chain in the offset-first order the
+ * dialog holds. `.rotate()` pivots at the current origin, so
+ * `.rotate(θ).offset(o)` and `.offset(R(θ)·o).rotate(θ)` land the identical
+ * frame — the offset components just turn with the axes. Only right-angle
+ * turns fold (cos/sin stay an exact 0/±1, keeping the components clean
+ * literals); anything else returns null.
+ */
+function foldRotatedOffset(
+  rotate: { axis: ConnectorRotateAxis; angle: number },
+  offset: [number, number, number],
+): [number, number, number] | null {
+  if (rotate.angle % 90 !== 0) {
+    return null;
+  }
+  const quarter = ((rotate.angle / 90) % 4 + 4) % 4;
+  const cos = [1, 0, -1, 0][quarter];
+  const sin = [0, 1, 0, -1][quarter];
+  const [x, y, z] = offset;
+  const folded: [number, number, number] =
+    rotate.axis === 'x' ? [x, y * cos - z * sin, y * sin + z * cos]
+    : rotate.axis === 'y' ? [x * cos + z * sin, y, z * cos - x * sin]
+    : [x * cos - y * sin, x * sin + y * cos, z];
+  // ±1·0 products can land on -0 — pin them so emitted literals stay plain.
+  return folded.map(v => v === 0 ? 0 : v) as [number, number, number];
 }
 
 /** The origin plane a base's string literal names, or null. */
@@ -7228,6 +7797,31 @@ export function renderEditedStatement(
     // No value slot: the args are the whole statement — the edited expression
     // row, the re-picked selector parts, or the statement's own list.
     return { statement: `project(${editedSelectorArgs(spec, parsed.argsText, varFor)})` };
+  }
+  if (parsed.feature === 'connector') {
+    const opts = spec.edit?.connector;
+    if (!opts || typeof opts.name !== 'string' || !CONNECTOR_NAME.test(opts.name)
+      || !validConnectorRotate(opts.rotate ?? undefined)
+      || !validConnectorAnchor(opts.anchor)
+      || (opts.offset !== null
+        && !(Array.isArray(opts.offset) && opts.offset.length === 3
+          && opts.offset.every(v => Number.isFinite(v))))) {
+      return { error: 'malformed connector edit spec' };
+    }
+    const args = editedSelectorArgs(spec, parsed.argsText, varFor);
+    if (!args) {
+      return { error: 'the connector needs its source — pick a face or edge' };
+    }
+    // Only re-picked parts need the anchor appended (they render the bare
+    // accessor, exactly like the create path); the expression row and the
+    // statement's own text already spell it out.
+    const repicked = !spec.rawArgs?.trim() && spec.parts.length > 0;
+    const anchor = repicked ? renderConnectorAnchorSuffix(opts.anchor) : '';
+    const chain = renderConnectorChain({
+      rotate: opts.rotate ?? undefined,
+      offset: opts.offset ?? undefined,
+    });
+    return { statement: `connector('${opts.name}', ${args}${anchor})${chain}` };
   }
   if (parsed.feature === 'slot') {
     // The Draw tab's replacement: the freshly drawn from-dimensions statement

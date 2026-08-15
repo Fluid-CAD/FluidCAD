@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { TRANSFORMS } from '../src/editor/host/transforms';
+import { TRANSFORMS, targetPathOf } from '../src/editor/host/transforms';
 
 // The in-page editor host is a third implementation of the host contract, and
 // the thing that can silently diverge from the VS Code one is not the plumbing
@@ -13,7 +13,7 @@ const SOURCE_LOCATION = { line: 12, column: 3 };
 type Case = {
   message: Record<string, unknown>;
   endpoint: string;
-  target: 'current' | 'path';
+  target: 'current' | 'path' | 'source-location';
   body: Record<string, unknown>;
 };
 
@@ -157,6 +157,19 @@ const CASES: Record<string, Case> = {
     },
   },
 
+  // Assembly instance edits (parts panel) rewrite the insert() chain at the
+  // statement's own location — the file comes from `sourceLocation`, as in
+  // the Neovim bridge.
+  'update-insert-chain': {
+    message: {
+      sourceLocation: { filePath: '/ws/robot.assembly.js', ...SOURCE_LOCATION },
+      edit: { ground: true, name: 'Base' },
+    },
+    endpoint: 'update-insert-chain',
+    target: 'source-location',
+    body: { sourceLine: 12, edit: { ground: true, name: 'Base' } },
+  },
+
   // Timeline edits name their own file — a feature can live in an import.
   'remove-feature': {
     message: { filePath: '/ws/other.fluid.js', line: 20 },
@@ -228,6 +241,18 @@ describe('editor host transform table', () => {
       height: 2,
       sourceLocation: SOURCE_LOCATION,
     })).toEqual({ sourceLine: 12, startPoint: null, width: 1, height: 2, oldStartPoint: null });
+  });
+
+  it('resolves the target file per target flavour', () => {
+    expect(targetPathOf(TRANSFORMS['add-pick'], { sourceLocation: { filePath: '/ws/a.part.js', line: 1 } })).toBeNull();
+    expect(targetPathOf(TRANSFORMS['remove-feature'], { filePath: '/ws/other.part.js', line: 2 })).toBe('/ws/other.part.js');
+    expect(targetPathOf(TRANSFORMS['update-insert-chain'], {
+      sourceLocation: { filePath: '/ws/robot.assembly.js', line: 3 },
+      edit: {},
+    })).toBe('/ws/robot.assembly.js');
+    // A named target that is missing falls back to the current model rather
+    // than throwing inside the socket handler.
+    expect(targetPathOf(TRANSFORMS['update-insert-chain'], { edit: {} })).toBeNull();
   });
 
   it('never lets a 1-based line reach a 0-based row argument', () => {

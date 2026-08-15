@@ -14,10 +14,10 @@ interface Cut extends SceneObject {
   scope(...objects: SceneObject[]): this;
   draft(value: NumberParam | [NumberParam, NumberParam]): this;
   endOffset(value: NumberParam): this;
-  startEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  endEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  internalEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  internalFaces(...args: (number | FaceFilter)[]): SceneObject;
+  startEdges(...args: (number | EdgeFilter)[]): ISelection;
+  endEdges(...args: (number | EdgeFilter)[]): ISelection;
+  internalEdges(...args: (number | EdgeFilter)[]): ISelection;
+  internalFaces(...args: (number | FaceFilter)[]): ISelection;
   pick(...points: Point2DLike[]): this;
   thin(offset: NumberParam): this;
   thin(offset1: NumberParam, offset2: NumberParam): this;
@@ -61,7 +61,7 @@ Offsets the cut end face by a specified distance along the cut direction.
 
 Selects edges at the start of the cut path, classified by signed distance from the cut plane.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -71,7 +71,7 @@ Selects edges at the start of the cut path, classified by signed distance from t
 
 Selects edges at the end of the cut path, classified by signed distance from the cut plane.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -81,7 +81,7 @@ Selects edges at the end of the cut path, classified by signed distance from the
 
 Selects internal edges created by the cut that are not on the cut plane boundary.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -91,7 +91,7 @@ Selects internal edges created by the cut that are not on the cut plane boundary
 
 Selects internal faces exposed by the cut — newly created surfaces not from the original stock.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |

@@ -1,7 +1,7 @@
 import { monaco } from '../monaco-setup';
 import type { WorkspaceModels, ModelEntry } from '../models';
 import { ackEdit } from '../editor-api';
-import { TRANSFORMS, postCodeEdit } from './transforms';
+import { TRANSFORMS, postCodeEdit, targetPathOf } from './transforms';
 
 /**
  * The third implementation of the host contract — the one that lives in the
@@ -11,7 +11,7 @@ import { TRANSFORMS, postCodeEdit } from './transforms';
  *
  * What a host owes the server:
  *
- * - apply the 22 source transforms it dispatches, against the *live buffer*,
+ * - apply the source transforms it dispatches, against the *live buffer*,
  * - re-render after each one,
  * - settle the acked ones (`apply-feature-edit`, `undo`, `redo`) with the
  *   real outcome instead of silence,
@@ -89,7 +89,7 @@ export class EditorHost {
     if (!spec) {
       return;
     }
-    const entry = this.resolveTarget(spec.target === 'path' ? msg.filePath : null);
+    const entry = await this.resolveOrLoad(targetPathOf(spec, msg));
     if (!entry) {
       console.warn(`FluidCAD: no buffer to apply ${msg.type} to`);
       return;
@@ -119,9 +119,15 @@ export class EditorHost {
    * on — and it settles through `POST /api/code/apply-feature` itself, because
    * the spec carries the `editId`. So this deliberately does *not* call
    * `/api/editor/ack`: the round-trip is the ack.
+   *
+   * The spec names its target file. Usually that is the rendered model, but a
+   * cross-file edit — the assembly mate dialog creating or editing a
+   * `connector()` in a PART file — must land there, never in whatever the
+   * viewport shows (the IPC hosts do the same: `code-edits.ts`, `bridge.lua`).
    */
   private async applyFeatureEdit(msg: { type: string; spec?: unknown }): Promise<void> {
-    const entry = this.resolveTarget(null);
+    const specPath = (msg.spec as { filePath?: unknown } | null)?.filePath;
+    const entry = await this.resolveOrLoad(typeof specPath === 'string' && specPath.length > 0 ? specPath : null);
     if (!entry) {
       return;
     }
@@ -186,6 +192,20 @@ export class EditorHost {
   }
 
   /**
+   * The buffer an edit names, loading it when the workspace scan didn't (a
+   * file outside the editable kinds, or one that appeared since). A named
+   * target is never silently swapped for the current model — that would
+   * splice the transform into the wrong file.
+   */
+  private async resolveOrLoad(filePath: string | null): Promise<ModelEntry | undefined> {
+    const entry = this.resolveTarget(filePath);
+    if (entry || !filePath) {
+      return entry;
+    }
+    return this.load(filePath);
+  }
+
+  /**
    * Apply a transform result the host didn't dispatch itself — a breakpoint
    * toggled from the gutter. Same path as every server-driven edit, so it
    * saves and re-renders identically.
@@ -240,11 +260,16 @@ export class EditorHost {
   private renderNow(entry: ModelEntry): void {
     window.clearTimeout(this.liveRenderTimer);
     // `POST /api/render` already is the `live-update` route — the in-page host
-    // needs no new channel for it.
+    // needs no new channel for it. An edit that landed in a file other than
+    // the rendered model (a cross-file connector, a feature in an imported
+    // part) is `keepCurrent`: the server folds it in as a dependency of the
+    // current model instead of switching the viewport to the edited file —
+    // the same rule the Neovim bridge applies to every non-current buffer.
+    const keepCurrent = entry.absPath !== this.deps.currentModelPath();
     void fetch('/api/render', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ filePath: entry.absPath, code: entry.model.getValue() }),
+      body: JSON.stringify({ filePath: entry.absPath, code: entry.model.getValue(), keepCurrent }),
     }).catch((err) => {
       console.warn('FluidCAD: live render failed:', err);
     });

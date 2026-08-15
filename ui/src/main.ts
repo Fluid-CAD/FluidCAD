@@ -3,6 +3,10 @@ import { HttpEngineClient } from './http-engine-client';
 import { ShapePropertiesModal } from './ui/shape-properties-modal';
 import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 import { TimelinePanel } from './ui/timeline-panel';
+import { PartsPanel } from './ui/parts-panel';
+import { JointsPanel } from './ui/joints-panel';
+import { DofStatus } from './ui/dof-status';
+import { DragReadout } from './ui/drag-readout';
 import { ParamsPanel } from './ui/params-panel';
 import { ParamEditorDialog } from './ui/param-editor-dialog';
 import { ExportDialog } from './ui/export-dialog';
@@ -12,6 +16,9 @@ import { LoadingOverlay } from './ui/loading-overlay';
 import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
 import { Navbar } from './ui/navbar';
+import { AssemblyToolbar } from './ui/assembly-toolbar';
+import { InsertPartDialog } from './ui/insert-part/insert-part-dialog';
+import { EditParamsDialog } from './ui/edit-params-dialog';
 import { HistoryToolbar } from './ui/history-toolbar';
 import { ICON_IMG_FALLBACK } from './ui/object-icons';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
@@ -32,17 +39,24 @@ import { RepeatFeatureService } from './interactive/create-feature/repeat-servic
 import { CopyFeatureService } from './interactive/create-feature/copy-service';
 import { MirrorFeatureService } from './interactive/create-feature/mirror-service';
 import { RotateFeatureService } from './interactive/create-feature/rotate-service';
+import { ConnectorFeatureService } from './interactive/create-feature/connector-service';
 import { BooleanFeatureService } from './interactive/create-feature/boolean-service';
 import { PlaneFeatureService } from './interactive/create-feature/plane-service';
 import { isPlaneStatementRow } from './interactive/create-feature/plane-bases';
 import { FinishSketchMenu } from './interactive/create-feature/finish-sketch-menu';
+import { PartToolButton } from './interactive/create-feature/part-tool';
+import { ActivePartTracker } from './interactive/active-part-tracker';
 import { SolidPickSelection } from './interactive/solid-pick';
 import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
+import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, savePreference, gotoSource, parseFeatureAt, addBreakpoint } from './api';
+import { loadPreferences, savePreference, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider } from './api';
+import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
+import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
+import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-props-editor';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
-import type { SceneObjectRender } from './types';
+import type { ConnectorData, SceneObjectRender } from './types';
 import { applyPreferences } from './scene/viewer-settings';
 import { installHostKeyboardBridge } from './keyboard-bridge';
 import { installDesktopMenu } from './desktop';
@@ -151,6 +165,7 @@ function toggleEditorPane(): void {
   editorPaneOpenOnArrival = true;
 }
 let editorPaneOpenOnArrival = false;
+let pendingShowBuildTimings = false;
 
 const loadingOverlay = new LoadingOverlay(container);
 const engineClient = new HttpEngineClient();
@@ -164,9 +179,17 @@ const editorPreferences = { open: false, width: 420 };
 
 loadPreferences().then((prefs) => {
   if (prefs) {
-    document.documentElement.setAttribute('data-theme', prefs.theme);
+    // The server pre-applies the saved theme when it serves index.html;
+    // re-setting the same value would still fire the theme MutationObserver
+    // and trigger a needless full scene re-mesh.
+    if (document.documentElement.getAttribute('data-theme') !== prefs.theme) {
+      document.documentElement.setAttribute('data-theme', prefs.theme);
+    }
     applyPreferences(prefs);
-    timelinePanel.setShowBuildTimings(!!prefs.showBuildTimings);
+    pendingShowBuildTimings = !!prefs.showBuildTimings;
+    if (currentRail?.kind === 'part') {
+      currentRail.timeline.setShowBuildTimings(pendingShowBuildTimings);
+    }
     measureController.applyPreferences(prefs);
     editorPreferences.open = prefs.editorOpen === true;
     editorPreferences.width = typeof prefs.editorWidth === 'number' ? prefs.editorWidth : 420;
@@ -187,29 +210,317 @@ const measureController = new MeasureController(
   (handlers) => new SelectionContextMenu(container, 'fluidcad-measure-select-menu', handlers),
 );
 const exportDialog = new ExportDialog(container, engineClient, viewer.sceneContext);
+// ---------------------------------------------------------------------------
+// Left-rail abstraction. The same DOM container hosts either the part-design
+// rail (TimelinePanel, History+Shapes) or the assembly rail
+// (PartsPanel + JointsPanel + DofStatus). `ensureRailFor(kind)` swaps them
+// when the current scene's `sceneKind` changes.
+// ---------------------------------------------------------------------------
+
+type LeftRail =
+  | { kind: 'part'; timeline: TimelinePanel }
+  | { kind: 'assembly'; parts: PartsPanel; joints: JointsPanel; dof: DofStatus; dragReadout: DragReadout; instanceVisibility: Map<string, boolean> };
+
+let currentRail: LeftRail | null = null;
 
 const fileImporter = new FileImporter(container, {
   showLoading: (text) => loadingOverlay.show(text),
   hideLoading: () => loadingOverlay.hide(),
 });
 
-const timelinePanel = new TimelinePanel(
-  container,
-  engineClient,
-  (shapeId) => viewer.highlightShape(shapeId),
-  (shapeIds) => exportDialog.show(shapeIds),
-  (shapeId, visible) => viewer.setShapeVisibility(shapeId, visible),
-  (shapeId) => viewer.isShapeHidden(shapeId),
-  (shapeId, opacity) => viewer.setShapeTransparency(shapeId, opacity),
-  (shapeId) => viewer.getShapeTransparency(shapeId),
-  () => viewer.resetAllTransparency(),
-);
+// Always the live part-rail TimelinePanel — rebuilt (and re-wired) whenever
+// the rail flips back from assembly to part mode.
+let timelinePanel: TimelinePanel;
+
+// The timeline's active part — one part is ALWAYS active while the scene
+// contains any (last part by default; a part-row click re-points it, no
+// rollback). Producer-less creates (pick-less sketch, standard plane/helix)
+// land inside its callback body instead of at top level. Every apply-feature
+// payload carries its location through the provider below.
+const activePartTracker = new ActivePartTracker();
+setActivePartProvider(() => activePartTracker.location);
+
+function disposeRail(): void {
+  if (!currentRail) return;
+  if (currentRail.kind === 'part') {
+    currentRail.timeline.dispose();
+  } else if (currentRail.kind === 'assembly') {
+    currentRail.parts.dispose();
+    currentRail.joints.dispose();
+    currentRail.dof.hide();
+    currentRail.dragReadout.dispose();
+  }
+  currentRail = null;
+}
+
+function buildPartRail(): Extract<LeftRail, { kind: 'part' }> {
+  const timeline = new TimelinePanel(
+    container,
+    engineClient,
+    (shapeId) => viewer.highlightShape(shapeId),
+    (shapeIds) => exportDialog.show(shapeIds),
+    (shapeId, visible) => viewer.setShapeVisibility(shapeId, visible),
+    (shapeId) => viewer.isShapeHidden(shapeId),
+    (shapeId, opacity) => viewer.setShapeTransparency(shapeId, opacity),
+    (shapeId) => viewer.getShapeTransparency(shapeId),
+    () => viewer.resetAllTransparency(),
+  );
+  timeline.setShowBuildTimings(pendingShowBuildTimings);
+  timelinePanel = timeline;
+  wireTimelinePanel(timeline);
+  return { kind: 'part', timeline };
+}
+
+function buildAssemblyRail(): LeftRail {
+  const visibility = new Map<string, boolean>();
+  let joints!: JointsPanel;
+  const parts = new PartsPanel(
+    container,
+    (id) => {
+      joints.setSelected(null);
+      viewer.highlightInstance(id);
+    },
+    (id, visible) => {
+      visibility.set(id, visible);
+      viewer.setInstanceVisibility(id, visible);
+    },
+    (id) => {
+      const inst = findInstance(id);
+      if (inst?.sourceLocation) {
+        gotoSource(inst.sourceLocation);
+      }
+    },
+    (id, grounded) => {
+      const inst = findInstance(id);
+      // Occurrence-owned instances' statements live in the sub-assembly's
+      // file — the panel hides these actions, this is the backstop.
+      if (!inst?.sourceLocation || inst.owner) return;
+      updateInsertChain(inst.sourceLocation, { ground: grounded });
+    },
+    (id, newName) => {
+      const inst = findInstance(id);
+      if (!inst?.sourceLocation || inst.owner) return;
+      updateInsertChain(inst.sourceLocation, {
+        name: newName,
+        defaultName: defaultNameFor(inst),
+      });
+    },
+    (id) => {
+      const inst = findInstance(id);
+      if (!inst?.sourceLocation || inst.owner) return;
+      // Drops the whole `insert(...)` statement, its `const` binding included.
+      // Mates that still reference the binding are left for the user — the
+      // next render reports them, same as the timeline's Remove.
+      removeFeature(inst.sourceLocation);
+    },
+    // Occurrence header actions — the occurrence's own `insert(subAsm())`
+    // chain lives in the OPEN file, so the same statement edits instances
+    // use apply verbatim.
+    {
+      onShowInSource: (id) => {
+        const occ = findOccurrence(id);
+        if (occ?.sourceLocation) {
+          gotoSource(occ.sourceLocation);
+        }
+      },
+      onSetGround: (id, grounded) => {
+        const occ = findOccurrence(id);
+        if (!occ?.sourceLocation) return;
+        updateInsertChain(occ.sourceLocation, { ground: grounded });
+      },
+      onRename: (id, newName) => {
+        const occ = findOccurrence(id);
+        if (!occ?.sourceLocation) return;
+        updateInsertChain(occ.sourceLocation, {
+          name: newName,
+          defaultName: occ.assemblyName,
+        });
+      },
+      onDelete: (id) => {
+        const occ = findOccurrence(id);
+        if (!occ?.sourceLocation) return;
+        removeFeature(occ.sourceLocation);
+      },
+    },
+    // Edit parameters — instance rows read control metadata off their part
+    // template, occurrence headers carry their own; both merge into the
+    // insert() statement's second argument.
+    (kind, id) => {
+      if (kind === 'instance') {
+        const inst = findInstance(id);
+        if (!inst?.sourceLocation || inst.owner) return;
+        const defs = lastPartTemplates.get(inst.partId)?.params;
+        if (!Array.isArray(defs) || defs.length === 0) return;
+        editParamsDialog.show({
+          title: `${inst.name} — parameters`,
+          subtitle: inst.partName,
+          defs,
+          currentValues: inst.paramValues ?? {},
+          filePath: inst.sourceLocation.filePath,
+          line: inst.sourceLocation.line,
+        });
+      } else {
+        const occ = findOccurrence(id);
+        if (!occ?.sourceLocation || !occ.params?.length) return;
+        editParamsDialog.show({
+          title: `${occ.name} — parameters`,
+          subtitle: occ.assemblyName,
+          defs: occ.params,
+          currentValues: occ.paramValues ?? {},
+          filePath: occ.sourceLocation.filePath,
+          line: occ.sourceLocation.line,
+        });
+      }
+    },
+  );
+  joints = new JointsPanel(
+    parts.getJointsHost(),
+    (mateId) => {
+      parts.setSelected(null);
+      const mate = findMate(mateId);
+      if (!mate) return;
+      viewer.highlightMate(mate);
+    },
+    (id) => {
+      const mate = findMate(id);
+      if (mate?.sourceLocation) {
+        gotoSource(mate.sourceLocation);
+      }
+    },
+    (id) => {
+      const mate = findMate(id);
+      // Owned mates' statements live in the sub-assembly's file — the panel
+      // hides Edit for these, this is the backstop.
+      if (!mate?.sourceLocation || mate.owner) return;
+      assemblyMateService.beginEdit(mate);
+    },
+    (_id) => { /* phase 06+ */ },
+    (id) => {
+      const mate = findMate(id);
+      // Owned mates' statements live in the sub-assembly's file — the panel
+      // hides Delete for these, this is the backstop.
+      if (!mate?.sourceLocation || mate.owner) return;
+      // Drops the whole `mate(...)` statement.
+      removeFeature(mate.sourceLocation);
+    },
+  );
+  const dof = new DofStatus(container, (_mateId) => { /* phase 05+ */ });
+  dof.show();
+  const dragReadout = new DragReadout(container);
+  return { kind: 'assembly', parts, joints, dof, dragReadout, instanceVisibility: visibility };
+}
+
+function ensureRailFor(kind: 'part' | 'assembly'): LeftRail {
+  if (currentRail?.kind === kind) {
+    return currentRail;
+  }
+  disposeRail();
+  currentRail = kind === 'assembly' ? buildAssemblyRail() : buildPartRail();
+  return currentRail;
+}
+
+let lastAssemblyPayload: SerializedAssembly | null = null;
+let lastFailedMateIds = new Set<string>();
+/** partId → template serialize payload ({ name, params, paramValues }) of the last assembly render. */
+const lastPartTemplates = new Map<string, any>();
+
+function findInstance(instanceId: string) {
+  return lastAssemblyPayload?.instances.find(i => i.instanceId === instanceId);
+}
+
+function findOccurrence(occurrenceId: string) {
+  return lastAssemblyPayload?.occurrences?.find(o => o.occurrenceId === occurrenceId);
+}
+
+function findMate(mateId: string) {
+  return lastAssemblyPayload?.mates.find(m => m.mateId === mateId);
+}
+
+function instanceHasMate(instanceId: string): boolean {
+  if (!lastAssemblyPayload) return false;
+  for (const m of lastAssemblyPayload.mates) {
+    if (m.connectorA.instanceId === instanceId || m.connectorB.instanceId === instanceId) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function defaultNameFor(inst: { partName: string; instanceId: string }): string {
+  return inst.partName;
+}
+
+async function updateInsertChain(
+  sourceLocation: { filePath: string; line: number },
+  edit: {
+    ground?: boolean;
+    name?: string | null;
+    defaultName?: string;
+    translate?: [number, number, number] | null;
+  },
+): Promise<void> {
+  try {
+    await fetch('/api/update-insert-chain', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourceLocation, edit }),
+    });
+  } catch (err) {
+    console.error('Update insert chain failed:', err);
+  }
+}
+
+function applyAssemblyToRail(rail: LeftRail & { kind: 'assembly' }, assembly: SerializedAssembly): void {
+  lastAssemblyPayload = assembly;
+  for (const id of [...rail.instanceVisibility.keys()]) {
+    if (!assembly.instances.find(i => i.instanceId === id)) {
+      rail.instanceVisibility.delete(id);
+    }
+  }
+  for (const id of [...lastFailedMateIds]) {
+    if (!assembly.mates.find(m => m.mateId === id)) {
+      lastFailedMateIds.delete(id);
+    }
+  }
+  const rendered: RenderedInstance[] = assembly.instances.map(i => ({
+    ...i,
+    visible: rail.instanceVisibility.get(i.instanceId) ?? true,
+  }));
+  rail.parts.update(rendered, assembly.occurrences ?? []);
+  rail.joints.update(matesWithStatus(assembly.mates, lastFailedMateIds), rendered);
+}
+
+function matesWithStatus(
+  mates: SerializedAssembly['mates'],
+  failed: Set<string>,
+): SerializedAssembly['mates'] {
+  if (failed.size === 0) {
+    return mates;
+  }
+  return mates.map(m =>
+    failed.has(m.mateId) ? { ...m, status: 'inconsistent' as const } : m,
+  );
+}
+
+// Start in part mode — the first scene-rendered will switch to assembly if needed.
+const initialRail = buildPartRail();
+currentRail = initialRail;
 
 // Top application bar (logo, feature-tree toggle, file name) and the secondary
 // tool bar below it (host for conditionally-visible tool groups).
 const topBar = new TopBar(container, {
-  onToggleTree: () => timelinePanel.togglePanel(),
-  isTreeVisible: () => timelinePanel.isPanelVisible,
+  // One hamburger entry covers whichever rail the scene kind mounted: the
+  // part-design timeline or the assembly parts/joints column.
+  onToggleTree: () => {
+    if (currentRail?.kind === 'part') {
+      timelinePanel.togglePanel();
+    } else if (currentRail?.kind === 'assembly') {
+      currentRail.parts.togglePanel();
+    }
+  },
+  isTreeVisible: () => currentRail?.kind === 'assembly'
+    ? currentRail.parts.isPanelVisible
+    : timelinePanel.isPanelVisible,
   // A viewport-only host gets neither the menu item nor the tab affordances:
   // both handler sets are absent, which is what removes them.
   onToggleEditor: editorSurfaceEnabled ? () => toggleEditorPane() : undefined,
@@ -294,6 +605,23 @@ function exportableShapeIds(): string[] {
   return ids;
 }
 
+// Assembly workbench groups (Insert / Translate / mates), shown instead of
+// the part-design tools whenever the scene kind is assembly (navbar.setMode
+// in the scene-rendered handler). Insert opens the part-catalog browser;
+// the rest are placeholders for now.
+const insertPartDialog = new InsertPartDialog(container);
+// Parts-panel "Edit parameters…" — merges changed values into an inserted
+// instance's/occurrence's insert() statement.
+const editParamsDialog = new EditParamsDialog(container);
+// The Insert dialog reuses `currentSceneAbsPath` (declared with the history
+// toolbar above) to exclude the open assembly from inserting into itself.
+new AssemblyToolbar(navbar, {
+  onInsert: () => insertPartDialog.show(currentSceneAbsPath),
+  // The service is constructed later (it needs the gizmo driver); toolbar
+  // clicks only ever fire after startup completes.
+  onMate: (type) => assemblyMateService.enter(type),
+});
+
 const paramsPanel = new ParamsPanel(viewer.settingsPanelHost, engineClient, new ParamEditorDialog(container));
 
 viewer.setParamsToggleHandler(() => {
@@ -324,7 +652,8 @@ const syncKeepToolbar = () => sketchService.setKeepToolbar(
   || (sweepService.isActive && sweepService.sketchUISuspended)
   || (loftService.isActive && loftService.sketchUISuspended)
   || (wrapService.isActive && wrapService.sketchUISuspended)
-  || (planeService.isActive && planeService.sketchUISuspended),
+  || (planeService.isActive && planeService.sketchUISuspended)
+  || (connectorService.isActive && connectorService.sketchUISuspended),
 );
 // The Sketch button (create group) stays visible while a create dialog is
 // up — it disables instead. Recomputed on every dialog arm/disarm, alongside
@@ -334,7 +663,7 @@ const syncSketchButtonBlocked = () => {
     extrudeService.isActive || ribService.isActive || revolveService.isActive
     || sweepService.isActive || loftService.isActive || wrapService.isActive
     || helixService.isActive || repeatService.isActive || copyService.isActive
-    || mirrorService.isActive || rotateService.isActive
+    || mirrorService.isActive || rotateService.isActive || connectorService.isActive
     || booleanService.isActive || planeService.isActive,
   );
   syncKeepToolbar();
@@ -371,6 +700,7 @@ const extrudeService = new ExtrudeFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -399,6 +729,7 @@ const revolveService = new RevolveFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -425,6 +756,7 @@ const sweepService = new SweepFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -451,6 +783,7 @@ const loftService = new LoftFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -478,6 +811,7 @@ const wrapService = new WrapFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -506,6 +840,7 @@ const helixService = new HelixFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -534,6 +869,7 @@ const ribService = new RibFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     measureController.clearSelection();
@@ -570,6 +906,7 @@ const planeService = new PlaneFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     const entities = [...measureController.selection];
     textEditService.exit();
     measureController.clearSelection();
@@ -602,6 +939,7 @@ const textEditService = new TextEditService(container, viewer, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     measureController.clearSelection();
     viewer.clearHighlight();
@@ -610,40 +948,50 @@ const textEditService = new TextEditService(container, viewer, {
   onSuspendSketchUI: suspendSketchForFeature,
   onResumeSketchUI: resumeSketchForFeature,
 });
-// An armed create dialog takes sketch (or plane) rows clicked in the
-// timeline as its input instead of the default rollback-preview.
-timelinePanel.onFeatureIntercept = (obj) =>
-  extrudeService.handleTimelinePick(obj) || ribService.handleTimelinePick(obj)
-  || revolveService.handleTimelinePick(obj)
-  || sweepService.handleTimelinePick(obj) || wrapService.handleTimelinePick(obj)
-  || loftService.handleTimelinePick(obj) || helixService.handleTimelinePick(obj)
-  || repeatService.handleTimelinePick(obj) || copyService.handleTimelinePick(obj)
-  || mirrorService.handleTimelinePick(obj) || rotateService.handleTimelinePick(obj)
-  || booleanService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
-// Double-clicking an editable feature row (the enter-breakpoint gesture)
-// also opens that feature's dialog prefilled from its statement.
-timelinePanel.onFeatureEdit = (obj, index) => {
-  void openFeatureEditor(obj, index);
-};
-// Rows with an edit dialog keep the double-click gesture even while the
-// trailing sketch is active — the dialog suspends the sketch UI itself. A
-// plane row only qualifies when it is a plane() statement's own: the plane a
-// sketch builds for itself opens that sketch, and sketch rows stay blocked
-// while another sketch is being edited. (A workspace kernel new enough to
-// flag its internal objects leaves that row out of the timeline entirely.)
-timelinePanel.isFeatureEditable = (obj) =>
-  obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null
-  && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects))
-  // The in-sketch mirror shares `type: 'mirror'` with the 3D forms but has
-  // no edit dialog yet — the parse would misread its axis as a plane.
-  && obj.uniqueType !== 'mirror-shape-2d'
-  // The in-sketch rotate shares `type: 'rotate'` the same way — its leading
-  // angle would be misread as the 3D form's axis.
-  && obj.uniqueType !== 'rotate-shape-2d';
-// A 2D offset row's edit pauses the build BEFORE its statement (see
-// openFeatureEditor), so its double-click defers the generic breakpoint.
-timelinePanel.managesOwnBreakpoint = (obj) =>
-  (obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type)) || isCopy2DRow(obj);
+// Applied to every part-rail TimelinePanel — the rail rebuilds the panel when
+// the scene kind flips back from assembly, and the hooks must ride along.
+function wireTimelinePanel(panel: TimelinePanel): void {
+  // An armed create dialog takes sketch (or plane) rows clicked in the
+  // timeline as its input instead of the default rollback-preview.
+  panel.onFeatureIntercept = (obj) =>
+    extrudeService.handleTimelinePick(obj) || ribService.handleTimelinePick(obj)
+    || revolveService.handleTimelinePick(obj)
+    || sweepService.handleTimelinePick(obj) || wrapService.handleTimelinePick(obj)
+    || loftService.handleTimelinePick(obj) || helixService.handleTimelinePick(obj)
+    || repeatService.handleTimelinePick(obj) || copyService.handleTimelinePick(obj)
+    || mirrorService.handleTimelinePick(obj) || rotateService.handleTimelinePick(obj)
+    || booleanService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
+  // Part rows don't navigate: a click makes that part the active part — new
+  // statements land inside its callback body instead of at top level. One
+  // part is always active while the scene has any (tracker invariant), so
+  // re-clicking the active row is a no-op rather than a toggle.
+  panel.onPartActivate = (obj) => activePartTracker.activate(obj);
+  panel.isPartRowActive = (obj) => activePartTracker.isActive(obj);
+  // Double-clicking an editable feature row (the enter-breakpoint gesture)
+  // also opens that feature's dialog prefilled from its statement.
+  panel.onFeatureEdit = (obj, index) => {
+    void openFeatureEditor(obj, index);
+  };
+  // Rows with an edit dialog keep the double-click gesture even while the
+  // trailing sketch is active — the dialog suspends the sketch UI itself. A
+  // plane row only qualifies when it is a plane() statement's own: the plane a
+  // sketch builds for itself opens that sketch, and sketch rows stay blocked
+  // while another sketch is being edited. (A workspace kernel new enough to
+  // flag its internal objects leaves that row out of the timeline entirely.)
+  panel.isFeatureEditable = (obj) =>
+    obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null
+    && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects))
+    // The in-sketch mirror shares `type: 'mirror'` with the 3D forms but has
+    // no edit dialog yet — the parse would misread its axis as a plane.
+    && obj.uniqueType !== 'mirror-shape-2d'
+    // The in-sketch rotate shares `type: 'rotate'` the same way — its leading
+    // angle would be misread as the 3D form's axis.
+    && obj.uniqueType !== 'rotate-shape-2d';
+  // A 2D offset row's edit pauses the build BEFORE its statement (see
+  // openFeatureEditor), so its double-click defers the generic breakpoint.
+  panel.managesOwnBreakpoint = (obj) =>
+    (obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type)) || isCopy2DRow(obj);
+}
 
 /** Rows whose edit dialog pauses the build before its own statement. */
 const PAUSE_BEFORE_ROW_TYPES = new Set(['offset', 'slot', 'fillet2d']);
@@ -670,6 +1018,9 @@ const EDITABLE_ROW_TYPES = new Set([
   'copy-linear', 'copy-circular',
   'fuse', 'subtract', 'common',
   'plane',
+  // A connector row sits inside its part() body; its dialog re-opens over the
+  // statement with the frame the row itself carries.
+  'connector',
   // 2D: an offset/slot/fillet/projection row sits under its sketch, and its
   // dialog re-opens over it. (A from-dimensions slot statement parse-refuses
   // with a drag-to-edit hint — only the from-edge form has a dialog.)
@@ -785,6 +1136,14 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     booleanService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'plane') {
     planeService.enterEdit(target, parsed, info);
+  } else if (parsed.feature === 'connector') {
+    // The row carries the connector's built frame — the dialog's live gizmo
+    // recovers the anchor it stands on from it, so the rotation and offset
+    // fields preview even before the source is re-picked. A connector whose
+    // build failed serializes only its name; the dialog opens ghost-less.
+    const data = obj.object as ConnectorData | undefined;
+    const frame = data?.origin && data.xDirection && data.yDirection && data.normal ? data : null;
+    connectorService.enterEdit(target, parsed, info, frame);
   } else if (parsed.feature === 'offset') {
     const parentSketch = viewer.currentSceneObjects.find(o =>
       o.id != null && o.id === obj.parentId && o.type === 'sketch');
@@ -881,6 +1240,7 @@ function closeFeatureDialogs(opts: { keepProjection?: boolean } = {}): void {
   mirrorService.exit();
   rotateService.exit();
   booleanService.exit();
+  connectorService.exit();
   planeService.exit();
   textEditService.exit();
   measureController.clearSelection();
@@ -953,6 +1313,7 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     textEditService.exit();
     const seed = [...measureController.selection];
@@ -972,6 +1333,14 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
 // The dialogs dock at top-[196px] right-4: the sketch dialog steps aside
 // while a 2D op dialog (fillet, offset) is open and returns when it closes.
 sketchService.onOpDialogToggle = (open) => modifyService.setSketchPanelSuspended(open);
+// The Part tool appends an empty part() statement — constructed after the
+// modify service so its button prepends ahead of Sketch. The fresh part
+// becomes the active part on the render that carries it, so the next
+// sketch/plane lands inside its callback body.
+const partTool = new PartToolButton(navbar, {
+  onCreated: () => activePartTracker.activateLastOnNextRender(),
+  onRefused: (reason) => showToast(reason),
+});
 // Constructed after the modify service so its solo navbar group registers
 // after every other tool group — the Repeat button renders last, behind the
 // separator the navbar draws between visible groups.
@@ -995,6 +1364,7 @@ const repeatService = new RepeatFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     const seed = [...measureController.selection];
     textEditService.exit();
@@ -1029,6 +1399,7 @@ const copyService = new CopyFeatureService(container, viewer, navbar, {
     mirrorService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     const seed = [...measureController.selection];
     textEditService.exit();
@@ -1065,6 +1436,7 @@ const mirrorService = new MirrorFeatureService(container, viewer, navbar, {
     copyService.exit();
     rotateService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     const seed = [...measureController.selection];
     textEditService.exit();
@@ -1099,6 +1471,7 @@ const rotateService = new RotateFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     booleanService.exit();
+    connectorService.exit();
     planeService.exit();
     const seed = [...measureController.selection];
     textEditService.exit();
@@ -1113,7 +1486,7 @@ const rotateService = new RotateFeatureService(container, viewer, navbar, {
   onResumeSketchUI: resumeSketchForFeature,
 });
 // Constructed after the transform services so its own navbar group registers
-// last (…, | Mirror, Rotate, | separator |, Boolean).
+// after theirs (…, | Mirror, Rotate, | separator |, Boolean).
 const booleanService = new BooleanFeatureService(container, viewer, navbar, {
   // The current selection seeds the dialog: every selected face/edge
   // resolves to its owning solid, opening as a target chip. Captured before
@@ -1133,6 +1506,7 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
     copyService.exit();
     mirrorService.exit();
     rotateService.exit();
+    connectorService.exit();
     planeService.exit();
     const seed = [...measureController.selection];
     textEditService.exit();
@@ -1150,6 +1524,38 @@ const booleanService = new BooleanFeatureService(container, viewer, navbar, {
 // The Offset button's group renders right after the boolean group — navbar
 // groups sit in registration order, so it mounts here.
 modifyService.mountOffsetButton();
+
+// Constructed after every other part-mode tool — the connector is assembly
+// prep rather than modelling, so its group registers last and the Connector
+// button sits at the very end of the bar (…, | Boolean, | Offset, | Connector).
+const connectorService = new ConnectorFeatureService(container, viewer, navbar, {
+  onEnter: () => {
+    projectionService.exit({ resume: 'lazy' });
+    modifyService.displaceSketchSession();
+    modifyService.exit();
+    extrudeService.exit();
+    ribService.exit();
+    revolveService.exit();
+    helixService.exit();
+    sweepService.exit();
+    loftService.exit();
+    wrapService.exit();
+    repeatService.exit();
+    copyService.exit();
+    mirrorService.exit();
+    rotateService.exit();
+    booleanService.exit();
+    planeService.exit();
+    textEditService.exit();
+    measureController.clearSelection();
+    modifyService.clearPendingPlane();
+    viewer.clearHighlight();
+    selectionInfoOverlay.hide();
+  },
+  onActiveChange: syncSketchButtonBlocked,
+  onSuspendSketchUI: suspendSketchForFeature,
+  onResumeSketchUI: resumeSketchForFeature,
+});
 
 // While a sketch is active, the create-feature buttons collapse into a single
 // "Finish Sketch" button whose popup grid mirrors them and delegates clicks
@@ -1170,6 +1576,13 @@ const finishSketchMenu = new FinishSketchMenu(navbar.getGroup('create')!, [
     reflectActive: false,
     onClick: () => modifyService.startNewSketch(),
   },
+  // New Part finishes the sketch implicitly: the appended part() statement
+  // takes the tip of the timeline, so the sketch is no longer active.
+  {
+    button: partTool.button,
+    label: 'New Part',
+    reflectActive: false,
+  },
 ]);
 sketchService.onActiveChange = (active) => finishSketchMenu.setConsolidated(active);
 // Editing a consumed sketch (double-click → breakpoint): finishing removes the
@@ -1187,7 +1600,7 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
   // Continue leaves the paused build: open edit sessions end WITHOUT their
   // cancel-restore rollback — the full render Continue triggers supersedes
   // it, and a session re-assert would fight the view the user asked for.
-  for (const service of [modifyService, extrudeService, ribService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, mirrorService, rotateService, booleanService, planeService]) {
+  for (const service of [modifyService, extrudeService, ribService, revolveService, sweepService, wrapService, loftService, helixService, repeatService, copyService, mirrorService, rotateService, booleanService, planeService, connectorService]) {
     if (service.isEditing) {
       service.exit({ editEnd: 'continue' });
     }
@@ -1218,11 +1631,133 @@ shapePropertiesModal.setCentroidHandler((centroid) => {
   }
 });
 
+viewer.setInstanceDragReleaseHandler((instanceId, position) => {
+  const inst = findInstance(instanceId);
+  if (!inst?.sourceLocation) return;
+  // For mate-constrained ungrounded bodies, position is mate-derived and
+  // rotation is the meaningful drag dimension. Persisting `.translate(...)`
+  // would write the post-solve position into the source while losing the
+  // rotation entirely (`.orient()` doesn't exist yet), so on reload the
+  // body would snap back to identity orientation at the persisted
+  // position — visibly undoing the drag. Until rotation persistence
+  // exists, leave such instances at their default in source and let the
+  // mate warm-start re-derive the pose from the driver.
+  if (!inst.grounded && instanceHasMate(instanceId)) {
+    return;
+  }
+  // Occurrence-owned instances' sourceLocations point into the sub-assembly's
+  // own file, and their pose there is local to the occurrence frame — never
+  // write this view's world pose there. Live-only, like mated bodies.
+  if (inst.owner) {
+    return;
+  }
+  updateInsertChain(inst.sourceLocation, {
+    translate: [position.x, position.y, position.z],
+  });
+});
+
+viewer.setDragValueHandler((readout) => {
+  if (currentRail?.kind !== 'assembly') return;
+  currentRail.dragReadout.update(readout);
+});
+
+// The assembly transform gizmo: click a non-locked part to attach the triad,
+// drag/typed commits rewrite the insert() chain via /api/instance-pose.
+const assemblyGizmo = new AssemblyGizmoDriver({
+  viewer,
+  container,
+  findInstance,
+  instanceHasMate,
+  applyInstancePose,
+  getPoseExpressions: getInstancePoseExpressions,
+  fetchScopeVariables: (sourceLine) => getScopeVariables(sourceLine),
+  flashError: (message) => {
+    if (currentRail?.kind === 'assembly') {
+      currentRail.dragReadout.flashError(message);
+    }
+  },
+});
+
+// The mate dialog: a toolbar mate button opens it armed for connector
+// picking; apply writes the mate() statement via /api/assembly-mate.
+const assemblyMateService = new AssemblyMateService(container, viewer, {
+  getAssembly: () => lastAssemblyPayload,
+  onEnter: () => {
+    // The dialog owns the viewport: dismiss the transform gizmo and any
+    // face/edge selection so picks read unambiguously as connector picks.
+    assemblyGizmo.handleSelection(null);
+    viewer.clearHighlight();
+    viewer.clearInstanceHighlight();
+    selectionInfoOverlay.hide();
+  },
+  onExit: () => connectorPropsEditor.close(),
+  // The pen on a picked chip: the connector's own property editor, docked
+  // beside the mate dialog, editing the connector() statement in its part
+  // file.
+  onEditConnector: (state) => void connectorPropsEditor.open(state),
+});
+const connectorPropsEditor = new ConnectorPropsEditor(container, viewer, {
+  onRenamed: (slot, newName) => assemblyMateService.noteConnectorRenamed(slot, newName),
+});
+
+viewer.setSolverUpdateHandler((output) => {
+  if (currentRail?.kind !== 'assembly') return;
+  // Diff the failed set against the previous frame BEFORE replacing it.
+  // The joints panel only re-renders when this set changes, and during a
+  // drag the solver fires per pointermove (1000+ Hz on modern mice) — a
+  // full panel re-render every event pegs the CPU. The DOF readout still
+  // updates every frame since it's a single text node.
+  const newFailed = new Set(output.failed);
+  const failedChanged = failedSetsDiffer(lastFailedMateIds, newFailed);
+  lastFailedMateIds = newFailed;
+  if (output.result === 'okay') {
+    currentRail.dof.update({ result: 'okay', dof: output.dof });
+  } else if (output.result === 'inconsistent') {
+    const failed = output.failed.map((mateId) => {
+      const mate = findMate(mateId);
+      return { mateId, label: mate ? formatMateLabel(mate) : mateId };
+    });
+    currentRail.dof.update({ result: 'inconsistent', dof: output.dof, failed });
+  } else {
+    // didnt-converge / too-many-unknowns — surface as inconsistent so the
+    // user sees the assembly is unhealthy. No mate-specific failure list.
+    currentRail.dof.update({ result: 'inconsistent', dof: output.dof, failed: [] });
+  }
+  if (failedChanged && lastAssemblyPayload) {
+    const rendered: RenderedInstance[] = lastAssemblyPayload.instances.map(i => ({
+      ...i,
+      visible: currentRail!.kind === 'assembly'
+        ? currentRail!.instanceVisibility.get(i.instanceId) ?? true
+        : true,
+    }));
+    currentRail.joints.update(
+      matesWithStatus(lastAssemblyPayload.mates, lastFailedMateIds),
+      rendered,
+    );
+  }
+});
+
+function failedSetsDiffer(a: Set<string>, b: Set<string>): boolean {
+  if (a.size !== b.size) return true;
+  for (const v of a) if (!b.has(v)) return true;
+  return false;
+}
+
+function formatMateLabel(mate: SerializedAssembly['mates'][number]): string {
+  const a = mate.connectorA;
+  const b = mate.connectorB;
+  return `${mate.type} — ${a.instanceId}.${a.connectorId} ↔ ${b.instanceId}.${b.connectorId}`;
+}
+
 // An armed modify mode (fillet/chamfer) owns hover (teach-mode tooltip) and
 // right-click (tangent-chain selection).
 viewer.setHoverHandler((shapeId, sub, clientX, clientY) => {
   if (modifyService.isActive) {
     modifyService.handleHover(shapeId, sub, clientX, clientY);
+  } else if (connectorService.isActive) {
+    // The armed connector tool floats its anchor suggestion at the hovered
+    // face/edge — the gizmo nearest the cursor.
+    connectorService.handleHover(shapeId, sub, clientX, clientY);
   }
 });
 
@@ -1245,6 +1780,7 @@ const createDialogPicking = () =>
   || copyService.isPicking
   || mirrorService.isPicking
   || rotateService.isPicking
+  || connectorService.isPicking
   || booleanService.isPicking
   || planeService.isPicking
   || projectionService.isPicking;
@@ -1273,7 +1809,54 @@ viewer.setDoubleClickHandler((shapeId, sub) => {
   }
 });
 
-viewer.setSelectionHandler((shapeId, sub, modifiers) => {
+viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
+  // Assembly mode: instance-aware viewport selection drives the parts/joints
+  // panels; the part-design pick services and measure tool aren't active here.
+  if (currentRail?.kind === 'assembly') {
+    // The armed mate dialog owns every viewport click: connector picks fill
+    // its slots; nothing below (gizmo attach, face highlight) may run.
+    if (assemblyMateService.isPicking) {
+      assemblyMateService.handleClick(shapeId, sub, instanceId);
+      return;
+    }
+    if (shapeId) {
+      if (sub?.type === 'face') {
+        viewer.highlightFace(shapeId, sub.index, instanceId);
+      } else if (sub?.type === 'edge') {
+        viewer.highlightEdge(shapeId, sub.index, instanceId);
+      } else {
+        viewer.clearHighlight();
+      }
+      // One click on a part attaches the transform gizmo at its origin
+      // (non-locked instances only; the driver decides).
+      assemblyGizmo.handleSelection(instanceId);
+    } else if (instanceId) {
+      // Instance-only selection: a plain click on a draggable part. The
+      // assembly controller claims every pointerdown on those, so no face
+      // pick ever arrives — the id alone attaches the gizmo.
+      assemblyGizmo.handleSelection(instanceId);
+    } else {
+      // Click in empty 3D space — clear face/edge selection AND the
+      // parts/joints panel-driven instance tint so the user has a clean
+      // way to deselect a row.
+      viewer.clearHighlight();
+      viewer.clearInstanceHighlight();
+      currentRail.parts.setSelected(null);
+      currentRail.joints.setSelected(null);
+      assemblyGizmo.handleSelection(null);
+    }
+    shapePropertiesModal.setSelectedShape(shapeId);
+    if (shapeId !== null && sub !== null && (sub.type === 'face' || sub.type === 'edge')) {
+      if (sub.type === 'face') {
+        selectionInfoOverlay.showForFace(shapeId, sub.index);
+      } else {
+        selectionInfoOverlay.showForEdge(shapeId, sub.index);
+      }
+    } else {
+      selectionInfoOverlay.hide();
+    }
+    return;
+  }
   // The armed Project sketch tool owns every viewport click: each edge or
   // face pick toggles into the set of sources its sketch projects.
   if (projectionService.isPicking) {
@@ -1405,6 +1988,12 @@ viewer.setSelectionHandler((shapeId, sub, modifiers) => {
   // solid as a target, or (axis slot armed) an edge is the rotation axis.
   if (rotateService.isPicking) {
     rotateService.handleClick(shapeId, sub);
+    return;
+  }
+  // The armed connector tool owns clicks — a face or edge locks its floated
+  // anchor suggestion into the dialog's source slot.
+  if (connectorService.isPicking) {
+    connectorService.handleClick(shapeId, sub);
     return;
   }
   // The armed boolean dialog owns clicks — a face or edge selects its whole
@@ -1579,17 +2168,31 @@ function connectWebSocket() {
       case 'scene-rendered': {
         loadingOverlay.hide();
         const isRollback = msg.rollbackStop != null && msg.rollbackStop < msg.result.length - 1;
+        const sceneKind: 'part' | 'assembly' = msg.sceneKind === 'assembly' ? 'assembly' : 'part';
         viewer.isTrimming = !isRollback && trimService.state === 'picking-active';
         viewer.isDrawing = !isRollback && sketchService.hasActiveDrawingTool;
-        viewer.updateView(msg.result, isRollback, msg.rollbackStop);
-        // Snapshot every sketch's consumed state from complete builds only —
-        // rollbacks (and breakpoint truncations) make a tip sketch look
-        // unconsumed. The Finish Sketch edit flow reads this snapshot.
-        if (!isRollback && msg.breakpointHit !== true) {
-          sketchConsumedByKey.clear();
+        if (sceneKind === 'assembly') {
+          const assembly: SerializedAssembly = msg.assembly ?? { instances: [], mates: [] };
+          // Template serialize payloads (name, params, paramValues) keyed by
+          // partId — the Edit-parameters dialog reads control metadata here.
+          lastPartTemplates.clear();
           for (const o of msg.result as SceneObjectRender[]) {
-            if (o.type === 'sketch' && o.sourceLocation) {
-              sketchConsumedByKey.set(sketchLocKey(o.sourceLocation), o.visible === false || o.reusable === true);
+            if (o.type === 'part') {
+              lastPartTemplates.set(o.id, o.object);
+            }
+          }
+          viewer.updateAssemblyView(msg.result, assembly);
+        } else {
+          viewer.updateView(msg.result, isRollback, msg.rollbackStop);
+          // Snapshot every sketch's consumed state from complete builds only —
+          // rollbacks (and breakpoint truncations) make a tip sketch look
+          // unconsumed. The Finish Sketch edit flow reads this snapshot.
+          if (!isRollback && msg.breakpointHit !== true) {
+            sketchConsumedByKey.clear();
+            for (const o of msg.result as SceneObjectRender[]) {
+              if (o.type === 'sketch' && o.sourceLocation) {
+                sketchConsumedByKey.set(sketchLocKey(o.sourceLocation), o.visible === false || o.reusable === true);
+              }
             }
           }
         }
@@ -1657,10 +2260,40 @@ function connectWebSocket() {
         copyService.handleSceneRendered(msg.result, renderStop, isRollback);
         mirrorService.handleSceneRendered(msg.result, renderStop, isRollback);
         rotateService.handleSceneRendered(msg.result, renderStop, isRollback);
+        connectorService.handleSceneRendered(msg.result, renderStop, isRollback);
         booleanService.handleSceneRendered(msg.result, renderStop, isRollback);
         planeService.handleSceneRendered(msg.result, renderStop, isRollback);
         textEditService.handleSceneRendered(msg.result, renderStop, isRollback);
-        timelinePanel.update(msg.result, msg.rollbackStop ?? msg.result.length - 1);
+        // Re-resolve the active part before the timeline redraws so the row
+        // highlight reads the updated state (assembly scenes have no parts
+        // timeline — a stale activation must not survive the flip).
+        if (sceneKind === 'part') {
+          activePartTracker.sync(msg.result);
+        } else {
+          activePartTracker.clear();
+        }
+        // Swap the toolbar to the matching workbench alongside the left rail —
+        // part-design groups hide and the assembly groups show (or back).
+        navbar.setMode(sceneKind);
+        const rail = ensureRailFor(sceneKind);
+        if (rail.kind === 'part') {
+          rail.timeline.update(msg.result, renderStop);
+          assemblyGizmo.handleModeExit();
+        } else {
+          const raw = msg.assembly;
+          const assembly: SerializedAssembly = {
+            instances: raw?.instances ?? [],
+            mates: raw?.mates ?? [],
+            occurrences: raw?.occurrences ?? [],
+          };
+          applyAssemblyToRail(rail, assembly);
+          // Instance groups were just rebuilt/re-posed — re-anchor the
+          // gizmo (or dismiss it if its instance is gone or now locked).
+          assemblyGizmo.handleSceneRendered();
+        }
+        // The mate dialog re-resolves its picks against the re-minted scene
+        // ids (or closes, when the render switched to a part scene).
+        assemblyMateService.handleSceneRendered(sceneKind);
         if (msg.params !== undefined) {
           paramsPanel.update(msg.params);
           // Reachable from the first render on, params or not — an empty panel

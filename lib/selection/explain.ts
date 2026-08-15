@@ -12,6 +12,7 @@ import {
   ApplyFeatureEditSpec,
   ApplyFeatureKind,
   ApplyFeatureSynthesis,
+  CONNECTOR_NAME_PATTERN,
   ExplainResult,
   PickChain,
   PickDescriptors,
@@ -21,7 +22,10 @@ import {
   SelectionScene,
   SynthesizeOptions,
   nameHintFor,
+  renderConnectorAdjustments,
+  renderConnectorAnchorSuffix,
 } from "./types.js";
+import { Part } from "../features/part.js";
 
 /**
  * Read-only attribution report for a set of picks: which feature bucket each
@@ -146,6 +150,32 @@ export function synthesizeApplyFeature(
       };
     }
   }
+  if (feature === 'connector') {
+    // The pick is the connector's source geometry: a single face or edge
+    // (the frame derives from exactly one shape). The connector's name rides
+    // the `value` channel.
+    if (chains.length > 0 || refs.length !== 1) {
+      return {
+        ok: false,
+        reason: 'a connector attaches to a single face or edge — pick exactly one',
+        pick: refs[0],
+      };
+    }
+    if (typeof value !== 'string' || !CONNECTOR_NAME_PATTERN.test(value)) {
+      return {
+        ok: false,
+        reason: "a connector needs a name — a plain identifier like 'topLeft'",
+      };
+    }
+    const anchor = options.connector?.anchor;
+    if (anchor && anchor.kind !== 'center' && refs[0].sub.type !== 'edge') {
+      return {
+        ok: false,
+        reason: `${anchor.kind === 'offset' ? 'an offset anchor' : `${anchor.kind}()`} needs an edge — a face only supports its center`,
+        pick: refs[0],
+      };
+    }
+  }
 
   const index = new SelectionIndex(scene);
   try {
@@ -198,12 +228,62 @@ export function synthesizeApplyFeature(
     const renderParts = (parts: SelectorPart[]) =>
       parts.map(part => renderPartArgs(part, names)).join(', ');
 
+    // A connector statement lands inside the enclosing part() callback body,
+    // so the spec carries that call site; the name (validated above) rides
+    // the payload rather than `value`. Duplicate names are refused here so
+    // the UI hears about it before any code is written.
+    let connectorPayload: ApplyFeatureEditSpec['connector'];
+    if (feature === 'connector') {
+      const owner = attributions[0]?.solidOwner ?? null;
+      const enclosing = owner ? scene.findEnclosingPart(owner) : null;
+      if (!enclosing) {
+        return {
+          ok: false,
+          reason: 'connectors attach to geometry inside a part() block — wrap the feature statements in part(...)',
+          pick: refs[0],
+        };
+      }
+      const name = value as string;
+      const connectorOpts = options.connector;
+      const rotate = connectorOpts?.rotate;
+      const rotateActive = rotate !== undefined
+        && Number.isFinite(rotate.angle) && rotate.angle % 360 !== 0;
+      const adjustments = {
+        ...(connectorOpts?.anchor ? { anchor: connectorOpts.anchor } : {}),
+        ...(rotateActive ? { rotate: { axis: rotate!.axis, angle: rotate!.angle } } : {}),
+        ...(connectorOpts?.offset && connectorOpts.offset.some(v => v !== 0)
+          ? { offset: connectorOpts.offset } : {}),
+      };
+
+      const partLoc = enclosing.getSourceLocation();
+      if (!partLoc) {
+        return { ok: false, reason: 'the enclosing part() has no source location — re-render and try again' };
+      }
+      if (partLoc.filePath !== filePaths.values().next().value) {
+        // e.g. geometry from a part factory imported into this file — the
+        // statement would land in a body the current buffer doesn't hold.
+        return { ok: false, reason: 'the enclosing part() lives in a different file than the picked geometry' };
+      }
+      if (enclosing instanceof Part && enclosing.getNamedConnectors()[name]) {
+        return {
+          ok: false,
+          reason: `the part already has a connector named "${name}" — pick a different name`,
+        };
+      }
+      connectorPayload = {
+        name,
+        part: { line: partLoc.line, column: partLoc.column },
+        ...adjustments,
+      };
+    }
+
     const spec: ApplyFeatureEditSpec = {
       feature,
       ...(feature === 'sketch' || feature === 'extrude' || feature === 'sweep' || feature === 'loft'
         || feature === 'plane' || feature === 'revolve' || feature === 'wrap' || feature === 'helix'
-        || feature === 'project'
+        || feature === 'project' || feature === 'connector'
         ? {} : { value }),
+      ...(connectorPayload ? { connector: connectorPayload } : {}),
       filePath: filePaths.values().next().value!,
       producers: located.map(l => {
         const loc = l.feature.getSourceLocation()!;
@@ -227,12 +307,18 @@ export function synthesizeApplyFeature(
       imports: collectImports(winners),
     };
 
+    // The anchor suffix rides the args so the expression row shows (and can
+    // edit) the full source expression, e.g. `e.endFaces().center()`.
+    const anchorSuffix = feature === 'connector'
+      ? renderConnectorAnchorSuffix(options.connector?.anchor)
+      : '';
+
     // Statement-level alternatives: vary one group at a time, in group order,
     // walking each group's verified runner-ups. A runner-up referencing a
     // producer no winner bound has no variable name to render with (and
     // binding one just in case would cost the applied edit an unused const)
     // — skip it.
-    const args = renderParts(winners);
+    const args = renderParts(winners) + anchorSuffix;
     const alternatives: string[] = [];
     for (let i = 0; i < synthesis.groups.length && alternatives.length < 3; i++) {
       for (const alt of synthesis.groups[i].alternatives) {
@@ -244,14 +330,14 @@ export function synthesizeApplyFeature(
         }
         const variant = [...winners];
         variant[i] = alt;
-        alternatives.push(renderParts(variant));
+        alternatives.push(renderParts(variant) + anchorSuffix);
       }
     }
 
     return {
       ok: true,
       spec,
-      preview: renderPreview(feature, value, args),
+      preview: renderPreview(feature, value, args, options),
       args,
       alternatives,
     };
@@ -343,7 +429,12 @@ function findCoplanarClassifiedFace(index: SelectionIndex, plane: Plane): Bucket
  * One-line statement preview per feature. The transform writes sketch's
  * callback as a real multi-line empty body; the preview stands in for it.
  */
-function renderPreview(feature: ApplyFeatureKind, value: number | string | undefined, args: string): string {
+function renderPreview(
+  feature: ApplyFeatureKind,
+  value: number | string | undefined,
+  args: string,
+  options: SynthesizeOptions = {},
+): string {
   if (feature === 'sketch') {
     return `sketch(${args}, () => { ... })`;
   }
@@ -380,6 +471,11 @@ function renderPreview(feature: ApplyFeatureKind, value: number | string | undef
     // The args ARE the statement — every picked source projects onto the
     // sketch plane the emitted call lands in.
     return `project(${args})`;
+  }
+  if (feature === 'connector') {
+    // The value channel carries the connector's name; the args already carry
+    // the anchor suffix, and the dialog's rotate/offset chain follows.
+    return `connector('${value}', ${args})${renderConnectorAdjustments(options.connector)}`;
   }
   return `${feature}(${value}, ${args})`;
 }

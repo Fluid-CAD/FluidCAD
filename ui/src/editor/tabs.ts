@@ -11,8 +11,9 @@ import type { FileKind } from './editor-api';
  *
  * Tabs carry a **kind**, and the difference matters:
  *
- * - `model` — a `.fluid.js`. Activating it re-renders the scene. Exactly one
- *   is current, and that one has to be unmistakable: the scene belongs to it.
+ * - `model` — a `.part.js`, `.assembly.js` or `.fluid.js`. Activating it
+ *   re-renders the scene. Exactly one is current, and that one has to be
+ *   unmistakable: the scene belongs to it.
  * - `source` — a plain `.js` helper, `init.js`. Editor-only; activating it
  *   leaves the viewport showing whatever model is current.
  *
@@ -47,7 +48,7 @@ export class FileTabs {
   private readonly labelOnly: HTMLSpanElement;
   private tabs: FileTab[] = [];
   private activePath: string | null = null;
-  /** The `.fluid.js` the scene belongs to — not necessarily the active tab. */
+  /** The model the scene belongs to — not necessarily the active tab. */
   private currentModelPath: string | null = null;
 
   constructor(container: HTMLElement, private readonly handlers: FileTabsHandlers, tabsEnabled: boolean) {

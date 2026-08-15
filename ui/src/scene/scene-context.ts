@@ -50,10 +50,24 @@ const VIEW_SIZE = 120;
 export const FIT_PADDING = 1.1;
 
 /**
+ * Consecutive no-work frames before the animation loop stops scheduling
+ * itself. Generous enough to bridge sub-second gaps between an interaction's
+ * phases (gizmo animation hand-off, drag-start → first move); an always-on
+ * loop costs measurable CPU at idle, so it must not stay smaller than forever.
+ */
+const IDLE_STOP_FRAMES = 30;
+
+/**
  * Owns the core Three.js objects: scene, dual cameras, renderer,
  * camera-controls, gizmo, and lighting. Provides a hybrid animation
  * loop (camera-controls driven + on-demand rendering) and handles
  * window resizing.
+ *
+ * The loop is on-demand: it sleeps after {@link IDLE_STOP_FRAMES} frames with
+ * nothing to do and is woken by requestRender(), camera-controls input/
+ * transition events, or a gizmo interaction. Instant camera moves
+ * (setLookAt(..., false), updateCameraUp()) dispatch no event — callers must
+ * pair them with requestRender(), which they already do for the render itself.
  */
 export class SceneContext {
   readonly scene: Scene;
@@ -75,6 +89,9 @@ export class SceneContext {
   private animFrameId = 0;
   private gizmoWasActive = false;
   private viewShiftY = 0;
+  private running = false;
+  private idleFrames = 0;
+  private disposed = false;
 
   constructor(private container: HTMLElement) {
     Object3D.DEFAULT_UP = Z_UP.clone();
@@ -125,10 +142,7 @@ export class SceneContext {
     this.scene.add(new AmbientLight(0xddeeff, 2.5));
 
     // Camera-controls (starts with ortho)
-    this._cc = new CameraControls(this.orthoCamera, this.renderer.domElement);
-    this._cc.dollyToCursor = true;
-    this._cc.smoothTime = 0.1;
-    this._cc.draggingSmoothTime = 0.05;
+    this._cc = this.createCameraControls(this.orthoCamera);
     this.configureTouchForMode('orthographic');
     this._cc.updateCameraUp();
 
@@ -149,8 +163,11 @@ export class SceneContext {
     this.gizmo.target = this._adapter.target;
     this.gizmo.attachControls(this._adapter as any);
 
-    // Gizmo change events trigger a render request
+    // Gizmo change events trigger a render request. 'start' must wake the
+    // loop too: the click-to-snap animation is stepped inside gizmo.render(),
+    // so it only advances while frames are being rendered.
     this.gizmo.addEventListener('change', () => this.requestRender());
+    this.gizmo.addEventListener('start', () => this.requestRender());
 
     // ResizeObserver for container size changes
     this.resizeObserver = new ResizeObserver(() => this.handleResize());
@@ -162,8 +179,8 @@ export class SceneContext {
       this.requestRender();
     });
 
-    // Start animation loop
-    this.tick();
+    // First frame
+    this.requestRender();
   }
 
   /** The currently active camera. */
@@ -235,6 +252,7 @@ export class SceneContext {
   /** Schedule a render on the next animation frame tick. */
   requestRender(): void {
     this.renderRequested = true;
+    this.wake();
   }
 
   /** Fit the camera to a bounding box while preserving the current viewing angle. */
@@ -245,6 +263,9 @@ export class SceneContext {
 
     const sphere = new Sphere(center, radius * FIT_PADDING);
     this._cc.fitToSphere(sphere, enableTransition);
+    // The instant form dispatches no transitionstart — wake so the next
+    // update() applies and renders it.
+    this.wake();
   }
 
   /**
@@ -308,10 +329,7 @@ export class SceneContext {
 
     // Dispose old camera-controls and create a new one
     this._cc.dispose();
-    this._cc = new CameraControls(newCam, this.renderer.domElement);
-    this._cc.dollyToCursor = true;
-    this._cc.smoothTime = 0.1;
-    this._cc.draggingSmoothTime = 0.05;
+    this._cc = this.createCameraControls(newCam);
     this._cc.setLookAt(pos.x, pos.y, pos.z, tgt.x, tgt.y, tgt.z, false);
     this._cc.updateCameraUp();
     this.configureTouchForMode(mode);
@@ -338,6 +356,8 @@ export class SceneContext {
   }
 
   dispose(): void {
+    this.disposed = true;
+    this.running = false;
     cancelAnimationFrame(this.animFrameId);
     this.resizeObserver.disconnect();
     this._cc.dispose();
@@ -348,6 +368,37 @@ export class SceneContext {
   // ---------------------------------------------------------------------------
   // Private
   // ---------------------------------------------------------------------------
+
+  /**
+   * Build a configured CameraControls for `camera` and hook up the events
+   * that must restart the sleeping animation loop: user input (controlstart /
+   * control — the latter is the only one wheel dollies dispatch) and
+   * programmatic transitions (transitionstart).
+   */
+  private createCameraControls(camera: OrthographicCamera | PerspectiveCamera): CameraControls {
+    const cc = new CameraControls(camera, this.renderer.domElement);
+    cc.dollyToCursor = true;
+    cc.smoothTime = 0.1;
+    cc.draggingSmoothTime = 0.05;
+    cc.addEventListener('controlstart', this.wakeListener);
+    cc.addEventListener('control', this.wakeListener);
+    cc.addEventListener('transitionstart', this.wakeListener);
+    return cc;
+  }
+
+  private wakeListener = (): void => this.wake();
+
+  /** Restart the animation loop if it went to sleep. */
+  private wake(): void {
+    if (this.running || this.disposed) {
+      return;
+    }
+    this.running = true;
+    // Discard the time spent asleep — a multi-second first delta would make
+    // smoothDamp jump transitions to their end state.
+    this.clock.getDelta();
+    this.animFrameId = requestAnimationFrame(this.tick);
+  }
 
   private tick = (): void => {
     const delta = this.clock.getDelta();
@@ -370,9 +421,16 @@ export class SceneContext {
       this.gizmoWasActive = true;
     }
 
+    // While cc is disabled (gizmo animation, sketch drags) every frame
+    // renders: the gizmo's snap animation is stepped inside gizmo.render(),
+    // so rendering is what advances it.
     if (hasUpdated || this.renderRequested || !this._cc.enabled) {
       this.render();
       this.renderRequested = false;
+      this.idleFrames = 0;
+    } else if (++this.idleFrames >= IDLE_STOP_FRAMES) {
+      this.running = false;
+      return;
     }
 
     this.animFrameId = requestAnimationFrame(this.tick);

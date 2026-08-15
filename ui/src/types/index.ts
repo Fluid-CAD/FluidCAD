@@ -18,6 +18,16 @@ export type PlaneData = {
   yDirection: Vec3Data;
 };
 
+export type ConnectorData = {
+  /** The identifier registered by `connector('name', …)` — absent only on
+   *  a connector whose build failed before its frame was derived. */
+  name?: string;
+  origin: Vec3Data;
+  xDirection: Vec3Data;
+  yDirection: Vec3Data;
+  normal: Vec3Data;
+};
+
 // ---------------------------------------------------------------------------
 // Object types — every FluidCAD feature / construction element the backend emits
 // ---------------------------------------------------------------------------
@@ -55,7 +65,9 @@ export type ObjectType =
   // Direct solid reference
   | 'solid'
   // Part containers
-  | 'part';
+  | 'part'
+  // Assembly mate connectors
+  | 'connector';
 
 // ---------------------------------------------------------------------------
 // Shape types — the geometric representation of a scene object
@@ -126,6 +138,13 @@ export type SubSelection =
    * index carries no meaning (always 0).
    */
   | { type: 'plane'; index: number }
+  /**
+   * A mate-connector gizmo hit — only produced while a mate dialog has
+   * enabled `viewer.pickConnectors`; the shapeId is the connector scene
+   * object's id and the pick carries the owning assembly instance, so the
+   * index carries no meaning (always 0).
+   */
+  | { type: 'connector'; index: number }
   | null;
 
 export type SceneObjectPart = {
@@ -230,6 +249,102 @@ export interface CodeEditorState {
   error: string | null;
   isDirty: boolean;
 }
+
+// ---------------------------------------------------------------------------
+// Assembly payload (from server when sceneKind === 'assembly')
+// ---------------------------------------------------------------------------
+
+/** A parameter's resolved value — what `param()` returns. */
+export type InstanceParamValue = string | number | boolean | (string | number)[];
+
+/**
+ * Control metadata of one definition parameter, as serialized on part
+ * templates (`object.params`) and occurrences — everything the edit form
+ * needs (the declaring file's sourceLocation is deliberately absent).
+ */
+export type InstanceParamDef = {
+  label: string;
+  defaultValue: InstanceParamValue;
+  currentValue: InstanceParamValue;
+  controlType: string;
+  description?: string;
+  group?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+  options?: { label: string; value: string | number }[];
+  multi?: boolean;
+  multiControlType?: string;
+};
+
+export type SerializedAssemblyInstance = {
+  instanceId: string;
+  partId: string;
+  partName: string;
+  position: { x: number; y: number; z: number };
+  quaternion: { x: number; y: number; z: number; w: number };
+  /** EFFECTIVE grounding — the engine already applied the scoped-grounding rule. */
+  grounded: boolean;
+  /**
+   * Owning scope: "" (or absent, on older engines) for instances inserted by
+   * the open file itself; an occurrence path ("asm-0", "asm-0/asm-1") for
+   * instances a sub-assembly body inserted. Occurrence-owned instances'
+   * sourceLocations point into the SUB-ASSEMBLY's file, so statement edits
+   * (translate/ground/rename/delete) must not target them from this view.
+   */
+  owner?: string;
+  name: string;
+  /** Resolved parameter values of the instance's template variant. */
+  paramValues?: Record<string, InstanceParamValue>;
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
+/** One inserted sub-assembly: `insert(assembly('name', cb))` in the open file or nested. */
+export type SerializedAssemblyOccurrence = {
+  occurrenceId: string;
+  assemblyName: string;
+  name: string;
+  parentPath: string;
+  /** Local to the parent scope's frame (== world for root-scope occurrences). */
+  position: { x: number; y: number; z: number };
+  quaternion: { x: number; y: number; z: number; w: number };
+  /** Declared `.grounded()` on the occurrence handle. */
+  grounded: boolean;
+  /** Whether the grounded-frame chain reaches the root from here. */
+  groundConnected: boolean;
+  /** The definition's `param()` interface — the occurrence edit form's rows. */
+  params?: InstanceParamDef[];
+  /** Resolved parameter values of this occurrence's run. */
+  paramValues?: Record<string, InstanceParamValue>;
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
+export type SerializedAssemblyMate = {
+  mateId: string;
+  /** Scope the mate() statement ran in: "" (or absent) for the open file. */
+  owner?: string;
+  type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';
+  connectorA: { instanceId: string; connectorId: string };
+  connectorB: { instanceId: string; connectorId: string };
+  status: 'satisfied' | 'redundant' | 'inconsistent';
+  options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number] };
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
+export type SerializedAssembly = {
+  instances: SerializedAssemblyInstance[];
+  mates: SerializedAssemblyMate[];
+  /** Absent on engines predating assembly() definitions. */
+  occurrences?: SerializedAssemblyOccurrence[];
+};
+
+/**
+ * Per-row state used by the parts panel. Augments the server payload with
+ * UI-only fields like in-memory visibility.
+ */
+export type RenderedInstance = SerializedAssemblyInstance & {
+  visible: boolean;
+};
 
 export interface FileItem {
   name: string;

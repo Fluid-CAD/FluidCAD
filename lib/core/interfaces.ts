@@ -133,7 +133,79 @@ export interface IPlane extends ISceneObject {}
 
 export interface IAxis extends ISceneObject {}
 
-export interface ISelect extends ISceneObject {}
+/**
+ * A face/edge selection — the result of `select(...)` or of lazy accessors
+ * like `e.endFaces()` / `e.startEdges(0)` / `rect.edge('top')`. Besides
+ * feeding features directly, a selection can reference well-known points on
+ * its **first** face or edge; the returned `LazyVertex` re-derives on every
+ * render and keeps the underlying geometry's orientation, so
+ * `connector('name', e.endFaces().center())` aligns with the face normal.
+ */
+export interface ISelection extends ISceneObject {
+  /**
+   * The center of the selection's first face or edge: bounding-box center
+   * for a face, circle center for a circular edge or arc, midpoint for any
+   * other edge.
+   */
+  center(): LazyVertex;
+
+  /**
+   * The start vertex of the selection's first edge, in the edge's canonical
+   * direction (straight edges lean positive along the leading world axis,
+   * so re-selections and rebuilds agree). Not available on faces.
+   */
+  start(): LazyVertex;
+
+  /**
+   * The end vertex of the selection's first edge, in the edge's canonical
+   * direction. Not available on faces.
+   */
+  end(): LazyVertex;
+
+  /**
+   * A point along the selection's first edge.
+   * - `offset('relative', t)` — t from 0 (start) to 1 (end); works on any edge.
+   * - `offset('absolute', d)` — d units from the start, or negative for
+   *   d units back from the end; straight line edges only.
+   */
+  offset(mode: "relative" | "absolute", value: number): LazyVertex;
+}
+
+export interface ISelect extends ISelection {}
+
+/**
+ * A mate connector attached to a part — a coordinate frame the assembly
+ * pipeline can reference. Returned by the `connector(...)` DSL.
+ *
+ * `rotate` and `offset` adjust the frame in its **local** axes (not world),
+ * so the connector's own xDirection / yDirection / normal define the
+ * transform — chaining calls composes left-to-right against the *current*
+ * (already-transformed) frame.
+ */
+export interface IConnector extends ISceneObject {
+  /**
+   * Rotate the connector frame around its own local X, Y, or Z axis,
+   * pivoting at its current origin.
+   * @param axis - "x", "y", or "z" — the connector's local axis name.
+   * @param angle - Rotation in degrees.
+   */
+  rotate(axis: "x" | "y" | "z", angle: number): this;
+
+  /**
+   * Translate the connector origin along its own local axes:
+   * `x · xDirection + y · yDirection + z · normal`. Omitted `y` / `z`
+   * default to 0. Axes are unchanged.
+   */
+  offset(x: number, y?: number, z?: number): this;
+}
+
+/**
+ * A built part in the scene — one materialized variant of a `part(...)`
+ * definition, carrying the geometry and named connectors every instance of
+ * that variant shares. `part()` itself returns the lazy `PartDefinition`;
+ * this interface is the scene object the definition builds.
+ */
+export interface IPart extends ISceneObject {}
 
 export interface IGeometry extends ISceneObject {
   /**
@@ -153,7 +225,7 @@ export interface IGeometry extends ISceneObject {
    * @param roleOrIndex - A role name, or a build-order edge index.
    * @param roleIndex - Disambiguates roles that repeat (e.g. polygon sides).
    */
-  edge(roleOrIndex: string | number, roleIndex?: number): ISceneObject;
+  edge(roleOrIndex: string | number, roleIndex?: number): ISelection;
 
   /**
    * Returns a lazy-evaluated vertex at the start point of this geometry element.
@@ -396,7 +468,7 @@ export interface IPolygon extends IExtrudableGeometry {
    * Returns a specific edge of the polygon by index.
    * @param index - Zero-based edge index.
    */
-  getEdge(index: number): ISceneObject;
+  getEdge(index: number): ISelection;
 
   /**
    * Returns a lazy-evaluated vertex at a specific corner of the polygon.
@@ -460,62 +532,62 @@ export interface IExtrude extends IBooleanOperation {
    * Selects faces at the start (base) of the extrusion.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  startFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  startFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects faces at the end (cap) of the extrusion.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  endFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  endFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the start (base) faces of the extrusion.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  startEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the end (cap) faces of the extrusion.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  endEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects the lateral faces created by the extrusion.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  sideFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  sideFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the side faces, excluding edges shared with start/end faces.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects faces created inside the solid during extrusion (e.g., from holes or intersections).
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges bounding the internal geometry created during extrusion.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects the cap faces at the open ends of a thin-walled extrusion from an open profile.
    * These are the small faces connecting the inner and outer walls at the profile endpoints.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  capFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  capFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the cap faces of a thin-walled extrusion from an open profile.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Applies a draft (taper) angle to the extrusion walls.
@@ -587,25 +659,25 @@ export interface ICut extends ISceneObject {
    * Selects edges at the start of the cut path, classified by signed distance from the cut plane.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  startEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges at the end of the cut path, classified by signed distance from the cut plane.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  endEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects internal edges created by the cut that are not on the cut plane boundary.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects internal faces exposed by the cut — newly created surfaces not from the original stock.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Restricts the cut to only the sketch regions containing the given points.
@@ -663,26 +735,26 @@ export interface IRevolve extends IBooleanOperation {
    * wall of a thin-walled revolve from a closed profile).
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges bounding the internal geometry created during revolution.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects the cap faces at the open ends of a thin-walled revolve from an open profile.
    * These are the small faces connecting the inner and outer walls at the profile endpoints.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  capFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  capFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the cap faces of a thin-walled revolve from an open profile.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 }
 
 /**
@@ -727,37 +799,37 @@ export interface ILoft extends IBooleanOperation {
    * Selects faces on the first profile plane of the loft.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  startFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  startFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects faces on the last profile plane of the loft.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  endFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  endFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects the lateral faces generated between loft profiles.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  sideFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  sideFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the first profile plane of the loft.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  startEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the last profile plane of the loft.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  endEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the side faces, excluding edges shared with start/end faces.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Enables thin loft mode — offsets the profile edges of each section to create a
@@ -781,26 +853,26 @@ export interface ILoft extends IBooleanOperation {
    * wall of a thin-walled loft from closed profiles).
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges bounding the internal geometry created during loft.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects the cap faces at the open ends of a thin-walled loft from open profiles.
    * These are the small faces connecting the inner and outer walls at the profile endpoints.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  capFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  capFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the cap faces of a thin-walled loft from open profiles.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 }
 
 /** Which end of a sweep path to extend. */
@@ -811,49 +883,49 @@ export interface ISweep extends IBooleanOperation {
    * Selects faces at the start (profile plane) of the sweep.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  startFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  startFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects faces at the end of the sweep path.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  endFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  endFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects the lateral faces generated by sweeping the profile along the path.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  sideFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  sideFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the start faces of the sweep.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  startEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the end faces of the sweep.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  endEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the side faces, excluding edges shared with start/end faces.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects faces created inside the solid during the sweep (e.g., from holes).
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges bounding the internal geometry created during the sweep.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Applies a draft (taper) angle to the sweep walls.
@@ -910,13 +982,13 @@ export interface ISweep extends IBooleanOperation {
    * These are the small faces connecting the inner and outer walls at the profile endpoints.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  capFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  capFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the cap faces of a thin-walled sweep from an open profile.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 }
 
 export interface ICopy extends ISceneObject {
@@ -981,49 +1053,49 @@ export interface IRib extends IBooleanOperation {
    * Selects faces at the start (base) of the rib — the profile face at the sketch plane.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  startFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  startFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects faces at the end (top) of the rib — where the rib meets the boundary.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  endFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  endFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects the lateral wall faces of the rib.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  sideFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  sideFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects the small cap faces at the spine endpoints.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  capFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  capFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the start faces.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  startEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the end faces.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  endEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the side faces, excluding edges shared with start/end faces.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the cap faces.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  capEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Applies a draft (taper) angle to the rib walls.
@@ -1049,49 +1121,49 @@ export interface IWrap extends IBooleanOperation {
    * Selects the faces lying on the target surface (the base of the wrap).
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  startFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  startFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects the raised (or recessed) faces offset from the target surface by the wrap thickness.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  endFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  endFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the base faces of the wrap.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  startEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the offset faces of the wrap.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  endEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects the wall faces created from the outer boundary of each wrapped region.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  sideFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  sideFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges on the wall faces, excluding edges shared with base/offset faces.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  sideEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Selects the wall faces created from holes inside a wrapped region.
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges bounding the hole walls of the wrap.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Enables or disables drill mode, which partitions the sketch into face regions
@@ -1114,14 +1186,14 @@ export interface IShell extends ISceneObject {
    * Selects the inner wall faces created by the shell operation (from thickness removal).
    * @param args - Numeric indices or {@link FaceFilterBuilder} instances to filter the selection.
    */
-  internalFaces(...args: (number | FaceFilterBuilder)[]): ISceneObject;
+  internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection;
 
   /**
    * Selects edges created by the shell operation that are not from the original solid
    * or on the opening rim.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
-  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISceneObject;
+  internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
    * Sets the join type used at inner-wall corners.

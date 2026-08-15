@@ -93,7 +93,14 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
       : roleOrIndex + (roleIndex !== undefined ? `-${roleIndex}` : '');
 
     return new LazySelectionSceneObject(this.generateUniqueName(`edge-${suffix}`), (parent) => {
-      const edges = parent.getShapes().filter((s): s is Edge => s instanceof Edge);
+      // Resolve against the live shape list; when a consumer (extrude) has
+      // removed every live shape, fall back to what the build added — a late
+      // resolution (e.g. a connector on a consumed profile) still needs the
+      // edge the build produced.
+      let edges = parent.getShapes().filter((s): s is Edge => s instanceof Edge);
+      if (edges.length === 0) {
+        edges = parent.getAddedShapes().filter((s): s is Edge => s instanceof Edge);
+      }
       if (typeof roleOrIndex === 'number') {
         const indexed = edges[roleOrIndex];
         return indexed ? [indexed] : [];

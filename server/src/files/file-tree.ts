@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { createWorkspaceIgnore } from './workspace-ignore.ts';
 import { normalizePath } from '../normalize-path.ts';
+import { isFluidScriptFile } from '../file-kind.ts';
 
 /**
  * A flat listing of the workspace's editable files. Flat rather than nested
@@ -10,7 +11,10 @@ import { normalizePath } from '../normalize-path.ts';
  */
 
 export type FileKind =
-  /** A `.fluid.js` model. Opening it changes the rendered scene. */
+  /**
+   * A FluidCAD script — `.part.js`, `.assembly.js`, or the legacy `.fluid.js`
+   * (`file-kind.ts`). Opening it changes the rendered scene.
+   */
   | 'model'
   /** A plain source file the model may import. Editor-only. */
   | 'source'
@@ -33,7 +37,7 @@ const SOURCE_EXTENSIONS = new Set(['.js', '.mjs', '.cjs', '.json']);
 const MAX_ENTRIES = 20_000;
 
 export function classifyFile(filePath: string): FileKind {
-  if (filePath.endsWith('.fluid.js')) {
+  if (isFluidScriptFile(filePath)) {
     return 'model';
   }
   return SOURCE_EXTENSIONS.has(path.extname(filePath)) ? 'source' : 'other';

@@ -10,14 +10,14 @@ seeAlso: [api/types/boolean-operation]
 
 ```ts
 interface Wrap extends BooleanOperation {
-  startFaces(...args: (number | FaceFilter)[]): SceneObject;
-  endFaces(...args: (number | FaceFilter)[]): SceneObject;
-  startEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  endEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  sideFaces(...args: (number | FaceFilter)[]): SceneObject;
-  sideEdges(...args: (number | EdgeFilter)[]): SceneObject;
-  internalFaces(...args: (number | FaceFilter)[]): SceneObject;
-  internalEdges(...args: (number | EdgeFilter)[]): SceneObject;
+  startFaces(...args: (number | FaceFilter)[]): ISelection;
+  endFaces(...args: (number | FaceFilter)[]): ISelection;
+  startEdges(...args: (number | EdgeFilter)[]): ISelection;
+  endEdges(...args: (number | EdgeFilter)[]): ISelection;
+  sideFaces(...args: (number | FaceFilter)[]): ISelection;
+  sideEdges(...args: (number | EdgeFilter)[]): ISelection;
+  internalFaces(...args: (number | FaceFilter)[]): ISelection;
+  internalEdges(...args: (number | EdgeFilter)[]): ISelection;
   drill(value?: boolean): this;
   pick(...points: Point2DLike[]): this;
 }
@@ -31,7 +31,7 @@ Extends [[api/types/boolean-operation]].
 
 Selects the faces lying on the target surface (the base of the wrap).
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -41,7 +41,7 @@ Selects the faces lying on the target surface (the base of the wrap).
 
 Selects the raised (or recessed) faces offset from the target surface by the wrap thickness.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -51,7 +51,7 @@ Selects the raised (or recessed) faces offset from the target surface by the wra
 
 Selects edges on the base faces of the wrap.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -61,7 +61,7 @@ Selects edges on the base faces of the wrap.
 
 Selects edges on the offset faces of the wrap.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -71,7 +71,7 @@ Selects edges on the offset faces of the wrap.
 
 Selects the wall faces created from the outer boundary of each wrapped region.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -81,7 +81,7 @@ Selects the wall faces created from the outer boundary of each wrapped region.
 
 Selects edges on the wall faces, excluding edges shared with base/offset faces.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -91,7 +91,7 @@ Selects edges on the wall faces, excluding edges shared with base/offset faces.
 
 Selects the wall faces created from holes inside a wrapped region.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
@@ -101,7 +101,7 @@ Selects the wall faces created from holes inside a wrapped region.
 
 Selects edges bounding the hole walls of the wrap.
 
-**Returns**: [[api/types/scene-object]].
+**Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |

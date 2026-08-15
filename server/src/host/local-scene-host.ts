@@ -2,6 +2,7 @@ import { type ViteDevServer, createServer } from 'vite';
 import { dirname, resolve, isAbsolute } from 'path';
 import { normalizePath } from '../normalize-path.ts';
 import type { SceneHost } from './scene-host.ts';
+import { isAssemblyDefinition, isPartDefinition } from './scene-host.ts';
 import { getBlockedNodeModule } from './blocked-imports.ts';
 import { ensureEngineLink } from './engine-resolution.ts';
 
@@ -112,11 +113,69 @@ export class LocalSceneHost implements SceneHost {
   async loadModule(filePath: string) {
     const mod = await this.server.ssrLoadModule(filePath);
     for (const value of Object.values(mod)) {
+      let result: unknown = value;
       if (typeof value === 'function') {
-        await value();
+        result = await value();
+      }
+      // assembly() definitions are LAZY — an exported factory (or a direct
+      // definition export) creates no scene records until run. Entry-file
+      // renders execute the definition at ROOT scope, so its `.grounded()`
+      // declarations apply natively — this is what makes standalone editing
+      // of a sub-assembly file work without a "grounded" parameter hack.
+      if (isAssemblyDefinition(result)) {
+        result.run();
+      }
+      // part() definitions are lazy too — exported ones materialize their
+      // default variant so the defining file renders standalone (the
+      // definition's own variant cache dedupes when an insert already
+      // built it).
+      if (isPartDefinition(result)) {
+        result.materialize();
       }
     }
     return mod;
+  }
+
+  async loadModuleRaw(filePath: string) {
+    return this.server.ssrLoadModule(filePath);
+  }
+
+  getModuleDependencies(filePath: string): string[] {
+    const normalized = normalizePath(filePath);
+    // Live-rendered entries sit in the graph under their virtual overlay id,
+    // not the real path — try both so dependency queries work for files that
+    // were only ever rendered from an editor buffer.
+    const entry = this.server.moduleGraph.idToModuleMap.get(normalized)
+      ?? this.server.moduleGraph.getModuleById(normalized)
+      ?? this.server.moduleGraph.getModuleById(`virtual:live-render:${normalized}`);
+    if (!entry) {
+      return [];
+    }
+    const seen = new Set<string>();
+    const queue = [entry];
+    while (queue.length > 0) {
+      const mod = queue.pop()!;
+      // A virtual entry's id carries the overlay prefix — strip it so the
+      // entry resolves to its real workspace path and its imports are walked.
+      const file = (mod.file ?? mod.id ?? '').replace('virtual:live-render:', '');
+      if (!file || seen.has(file)) {
+        continue;
+      }
+      // Only workspace files gate the cache — node_modules churn is invisible
+      // to mtime checks anyway (Vite externalizes fluidcad) and never holds
+      // user parts.
+      if (!file.startsWith(this.rootPath) || file.includes('/node_modules/')) {
+        continue;
+      }
+      seen.add(file);
+      const imported = (mod as any).ssrImportedModules ?? mod.importedModules;
+      if (imported) {
+        for (const dep of imported) {
+          queue.push(dep);
+        }
+      }
+    }
+    return Array.from(seen);
   }
 
 

@@ -3,7 +3,8 @@ import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { DialogViewOffset } from './scene/dialog-view-offset';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
-import { PlaneData, SceneObjectPart, SceneObjectRender, SubSelection } from './types';
+import { PlaneData, SceneObjectPart, SceneObjectRender, SerializedAssembly, SerializedAssemblyMate, SubSelection } from './types';
+import { AssemblyController, DragValueHandler, InstanceDragReleaseHandler, SolverUpdateHandler } from './scene/assembly-controller';
 import { SettingsPanel } from './ui/settings-panel';
 import type { EngineClient } from './engine-client';
 import { CentroidIndicator } from './scene/centroid-indicator';
@@ -29,6 +30,43 @@ function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
   }
 }
 
+/**
+ * Keep only parts referenced by some `inst.partId` and the entire subtree
+ * under each kept part. An assembly file declares every part it might use
+ * (typically via factory functions like `getExtrusion(...)`), but only the
+ * ones passed to `insert(...)` should appear in the viewport. Filtering
+ * here means a `rebuildSceneMesh()` triggered by theme/region-pick can't
+ * materialize an un-inserted part at world origin.
+ */
+function filterToReferencedParts(
+  sceneObjects: SceneObjectRender[],
+  instances: SerializedAssembly['instances'],
+): SceneObjectRender[] {
+  const referencedPartIds = new Set(instances.map(i => i.partId));
+  const childrenByParent = new Map<string, SceneObjectRender[]>();
+  for (const obj of sceneObjects) {
+    if (!obj.parentId) continue;
+    const list = childrenByParent.get(obj.parentId);
+    if (list) list.push(obj);
+    else childrenByParent.set(obj.parentId, [obj]);
+  }
+  const keep = new Set<string>();
+  const stack: SceneObjectRender[] = [];
+  for (const obj of sceneObjects) {
+    if (obj.type === 'part' && obj.id && referencedPartIds.has(obj.id)) {
+      stack.push(obj);
+    }
+  }
+  while (stack.length > 0) {
+    const obj = stack.pop()!;
+    if (!obj.id || keep.has(obj.id)) continue;
+    keep.add(obj.id);
+    const children = childrenByParent.get(obj.id);
+    if (children) stack.push(...children);
+  }
+  return sceneObjects.filter(obj => obj.id && keep.has(obj.id));
+}
+
 const HIGHLIGHT_EDGE_LINE_WIDTH = 2;
 const HOVER_EDGE_LINE_WIDTH = 2;
 // Sketch wires already render at width 2 — a selected sketch needs the extra
@@ -37,18 +75,24 @@ const HIGHLIGHT_SKETCH_WIRE_LINE_WIDTH = 3;
 
 export type SelectionModifiers = { additive: boolean };
 
-/** What pickAt() resolves: a sub-shape, or a shown origin plane. */
-type PickResult = { shapeId: string; sub: SubSelection } | { standardPlane: StandardPlaneId };
+/** What pickAt() resolves: a sub-shape (with its owning assembly instance,
+ *  when the hit landed inside one), or a shown origin plane. */
+type PickResult =
+  | { shapeId: string; sub: SubSelection; instanceId?: string | null }
+  | { standardPlane: StandardPlaneId };
 
 function isPlanePick(result: PickResult | null): result is { standardPlane: StandardPlaneId } {
   return result !== null && 'standardPlane' in result;
 }
 
-// Sketch-wire, axis and plane picks route a dialog action and are never held
-// as a selection.
+// Sketch-wire, axis, plane and connector picks route a dialog action and are
+// never held as a selection.
 export type SelectedEntity = {
   shapeId: string;
-  sub: Exclude<NonNullable<SubSelection>, { type: 'sketch' } | { type: 'axis' } | { type: 'plane' }>;
+  sub: Exclude<
+    NonNullable<SubSelection>,
+    { type: 'sketch' } | { type: 'axis' } | { type: 'plane' } | { type: 'connector' }
+  >;
 };
 
 /**
@@ -125,16 +169,41 @@ export class Viewer {
    * consumer.
    */
   pickPlanes = false;
+  /**
+   * Makes assembly mate-connector gizmos pickable, independent of
+   * `pickFilter` — an armed mate dialog enables it. Connector hits resolve
+   * by screen distance through the assembly controller (the gizmos render
+   * depth-test-off on top of everything) and outrank every raycast channel.
+   * A hit returns the connector scene object's id with
+   * `sub.type === 'connector'` plus the owning instance id.
+   */
+  pickConnectors = false;
 
-  private selectionHandler: ((shapeId: string | null, sub: SubSelection, modifiers: SelectionModifiers) => void) | null = null;
+  private selectionHandler: ((shapeId: string | null, sub: SubSelection, instanceId: string | null, modifiers: SelectionModifiers) => void) | null = null;
   private hoverHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
   private contextMenuHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
   private doubleClickHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
   private centroidIndicator = new CentroidIndicator();
-  private hoverState: { shapeId: string; sub: SubSelection } | null = null;
+  private hoverState: { shapeId: string; sub: SubSelection; instanceId: string | null } | null = null;
   private hoverFaceOverlayMeshes: Mesh[] = [];
+  /**
+   * Identifies the assembly instance whose geometry was last selected. Stored
+   * as an id (not a Group reference) so it stays valid across diff updates
+   * that may replace the underlying Three.js objects. Null in part-design
+   * scenes and when nothing is selected.
+   */
+  private highlightedInstanceId: string | null = null;
   private hoverRafId: number | null = null;
   private isMouseDown = false;
+  /**
+   * After a drag-release inside the assembly controller, the cursor sits
+   * on the just-dropped part. We don't want hover to instantly re-paint
+   * its face. Track the dropped instance id and suppress hover that lands
+   * on it; clear the suppression as soon as the cursor moves to a
+   * different instance or to empty space (i.e. the user "let go" of the
+   * part with their cursor too).
+   */
+  private hoverSuppressForInstance: string | null = null;
   private standardPlanes = new StandardPlanes();
   private standardPlanePickHandler: ((plane: StandardPlaneId) => void) | null = null;
   private highlightedEntities: SelectedEntity[] = [];
@@ -155,6 +224,21 @@ export class Viewer {
   private readonly sectionClipper = new SectionClipper();
   private hiddenShapeIds = new Set<string>();
   private shapeOpacities = new Map<string, number>();
+  private assemblyController: AssemblyController | null = null;
+  /**
+   * Generic gesture-ownership hooks for overlay tools (the transform
+   * gizmo). `clickInterceptor` runs first in the mouseup-as-click handler:
+   * returning true swallows the click entirely — the tool already managed
+   * its own state and a selection pass would fight it. `hoverSuppressor`
+   * gates {@link updateHover} the same way `isDragGestureActive` does,
+   * so hover overlays never paint under a pointer that sits on a tool
+   * handle.
+   */
+  private clickInterceptor: (() => boolean) | null = null;
+  private hoverSuppressor: (() => boolean) | null = null;
+  private pendingDragReleaseHandler: InstanceDragReleaseHandler | null = null;
+  private pendingSolverUpdateHandler: SolverUpdateHandler | null = null;
+  private pendingDragValueHandler: DragValueHandler | null = null;
 
   constructor(containerId: string, client: EngineClient) {
     const container = document.getElementById(containerId)!;
@@ -199,7 +283,7 @@ export class Viewer {
     return !this.lastRenderIsRollback && isSceneEmpty(this.sceneObjects);
   }
 
-  setSelectionHandler(fn: (shapeId: string | null, sub: SubSelection, modifiers: SelectionModifiers) => void): void {
+  setSelectionHandler(fn: (shapeId: string | null, sub: SubSelection, instanceId: string | null, modifiers: SelectionModifiers) => void): void {
     this.selectionHandler = fn;
   }
 
@@ -333,6 +417,39 @@ export class Viewer {
       if (!this.selectionHandler || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
         return;
       }
+      // A gizmo gesture (drag, handle click, typed commit) owns this click
+      // completely — no selection, no highlight churn.
+      if (this.clickInterceptor?.()) {
+        return;
+      }
+      // A click on a draggable part (whether the cursor moved or not)
+      // shouldn't double as a face-selection click — otherwise a drop
+      // leaves a stray face/edge highlight on the part. Clear any
+      // pre-existing highlight too in case it was set by an earlier click.
+      const dropped = this.assemblyController?.consumeRecentDrag();
+      if (dropped) {
+        this.clearHighlight();
+        this.clearHover();
+        // The parts panel may have called assemblyController.highlightInstance
+        // earlier (whole-instance tint via assemblyOriginalColor); viewer's
+        // clearHighlight only handles selection/hover overlays, so clear the
+        // controller's own tint too.
+        this.assemblyController?.clearHighlight();
+        // Suppress hover on the part the user just dropped — they're still
+        // over it, and re-painting its face on the next mousemove would
+        // look like the highlight didn't clear. Cleared in updateHover as
+        // soon as the cursor moves to a different instance or empty space.
+        this.hoverSuppressForInstance = dropped.instanceId;
+        if (this.selectionHandler) {
+          // The claim swallowed the pick, so this is the only channel a
+          // click on a draggable part has: a finished drag clears the
+          // selection, a no-move claim IS the click — surface it as an
+          // instance-only selection (no face/edge) so the transform gizmo
+          // can attach.
+          this.selectionHandler(null, null, dropped.moved ? null : dropped.instanceId, { additive: false });
+        }
+        return;
+      }
       const dx = e.clientX - downX;
       const dy = e.clientY - downY;
       if (dx * dx + dy * dy > 64) {
@@ -347,9 +464,9 @@ export class Viewer {
         return;
       }
       if (result) {
-        this.selectionHandler(result.shapeId, result.sub, modifiers);
+        this.selectionHandler(result.shapeId, result.sub, result.instanceId ?? null, modifiers);
       } else {
-        this.selectionHandler(null, null, modifiers);
+        this.selectionHandler(null, null, null, modifiers);
       }
     });
 
@@ -390,6 +507,32 @@ export class Viewer {
       }
       this.contextMenuHandler(result?.shapeId ?? null, result?.sub ?? null, e.clientX, e.clientY);
     });
+  }
+
+  /** Walk up parents looking for an `instanceId` user-data marker. */
+  private findInstanceIdForObject(obj: Object3D): string | null {
+    let cur: Object3D | null = obj;
+    while (cur) {
+      const id = cur.userData?.instanceId;
+      if (typeof id === 'string') {
+        return id;
+      }
+      cur = cur.parent;
+    }
+    return null;
+  }
+
+  /**
+   * Resolves an instance scope to a traversal root. Returns the live
+   * controller-owned Group when the id is known, the whole scene when no id
+   * is given, and null when the id was given but no longer exists (caller
+   * should treat as "nothing to highlight").
+   */
+  private resolveScope(instanceId: string | null | undefined): Object3D | null {
+    if (!instanceId) {
+      return this.ctx.scene;
+    }
+    return this.assemblyController?.getInstanceGroup(instanceId) ?? null;
   }
 
   /** The raycast every pick query shares: candidates collected, hits by distance. */
@@ -448,6 +591,18 @@ export class Viewer {
    * plane.
    */
   private pickAt(clientX: number, clientY: number): PickResult | null {
+    // Connector gizmos render on top of everything (depth-test off), so while
+    // a mate dialog has them armed a nearby gizmo outranks all raycast hits.
+    if (this.pickConnectors && this.assemblyController) {
+      const connectorHit = this.assemblyController.pickConnectorAt(clientX, clientY);
+      if (connectorHit) {
+        return {
+          shapeId: connectorHit.connectorId,
+          sub: { type: 'connector', index: 0 },
+          instanceId: connectorHit.instanceId,
+        };
+      }
+    }
     const camera = this.ctx.camera;
     const { raycaster, faceHits, edgeHits, sketchWireHits, axisHits, planeHits, planeQuadHits } = this.castPick(clientX, clientY);
 
@@ -504,7 +659,11 @@ export class Viewer {
           const edgeIndex = edgeHit.object.userData.edgeIndex as number;
           const shapeId = this.findShapeIdForObject(edgeHit.object);
           if (shapeId) {
-            return { shapeId, sub: { type: 'edge', index: edgeIndex } };
+            return {
+              shapeId,
+              sub: { type: 'edge', index: edgeIndex },
+              instanceId: this.findInstanceIdForObject(edgeHit.object),
+            };
           }
         }
       }
@@ -540,7 +699,11 @@ export class Viewer {
       }
       const shapeId = this.findShapeIdForObject(bestFace.object);
       if (shapeId) {
-        return { shapeId, sub: { type: 'face', index: faceIndex } };
+        return {
+          shapeId,
+          sub: { type: 'face', index: faceIndex },
+          instanceId: this.findInstanceIdForObject(bestFace.object),
+        };
       }
     }
 
@@ -692,6 +855,24 @@ export class Viewer {
     this.ctx.renderer.domElement.style.cursor = '';
 
     this.removeCompiledMesh();
+    // Detach the assembly controller's group from the scene but keep its
+    // instance state so a part → assembly → part round-trip preserves the
+    // poses the user dragged. The controller's clear() is reserved for
+    // genuine assembly teardown (handled inside updateAssemblyView when the
+    // file changes — see clearAssemblyState).
+    if (this.assemblyController) {
+      const container = this.assemblyController.getContainer();
+      if (container.parent) {
+        container.parent.remove(container);
+      }
+      // Drop any per-instance hover-revealed connectors so they don't
+      // resurface when the user re-enters assembly mode.
+      this.assemblyController.setHoveredInstance(null);
+      // A drag in flight (or an unconsumed drop flag) must not survive into
+      // the part view — it would pin isDragGestureActive() true and swallow
+      // the first click via consumeRecentDrag().
+      this.assemblyController.cancelPointerGesture();
+    }
 
     if (!isRollback) {
       const activeObject = this.findActiveObject(sceneObjects);
@@ -760,20 +941,145 @@ export class Viewer {
     this.ctx.requestRender();
   }
 
-  highlightShape(shapeId: string): void {
+  highlightInstance(instanceId: string): void {
+    this.assemblyController?.highlightInstance(instanceId, themeColors.highlightColor.getHex());
+  }
+
+  highlightMate(mate: SerializedAssemblyMate): void {
+    this.assemblyController?.highlightMate(mate, themeColors.highlightColor.getHex());
+  }
+
+  clearInstanceHighlight(): void {
+    this.assemblyController?.clearHighlight();
+  }
+
+  setInstanceVisibility(instanceId: string, visible: boolean): void {
+    this.assemblyController?.setInstanceVisible(instanceId, visible);
+  }
+
+  isInstanceVisible(instanceId: string): boolean {
+    return this.assemblyController?.isInstanceVisible(instanceId) ?? true;
+  }
+
+  setInstanceDragReleaseHandler(handler: InstanceDragReleaseHandler | null): void {
+    this.pendingDragReleaseHandler = handler;
+    this.assemblyController?.setDragReleaseHandler(handler);
+  }
+
+  setSolverUpdateHandler(handler: SolverUpdateHandler | null): void {
+    this.pendingSolverUpdateHandler = handler;
+    this.assemblyController?.setSolverUpdateHandler(handler);
+  }
+
+  setDragValueHandler(handler: DragValueHandler | null): void {
+    this.pendingDragValueHandler = handler;
+    this.assemblyController?.setDragValueHandler(handler);
+  }
+
+  setClickInterceptor(fn: (() => boolean) | null): void {
+    this.clickInterceptor = fn;
+  }
+
+  setHoverSuppressor(fn: (() => boolean) | null): void {
+    this.hoverSuppressor = fn;
+  }
+
+  /**
+   * The live assembly controller — created lazily on the first assembly
+   * render and rebuilt never, but callers must still re-read it per use
+   * rather than caching (it is null until then).
+   */
+  getAssemblyController(): AssemblyController | null {
+    return this.assemblyController;
+  }
+
+  updateAssemblyView(sceneObjects: SceneObjectRender[], assembly: SerializedAssembly): void {
+    // The render result contains every Part declared in the file, including
+    // ones never passed to `insert(...)` (calling `getExtrusion('80x160', …)`
+    // for its side-effect of registering the Part in the scene puts it in
+    // the result). Drop those subtrees so a stray `rebuildSceneMesh()` (theme
+    // change, region pick) can't materialize an un-inserted part at world
+    // origin, and so the controller's part-template map / connector lookup
+    // doesn't waste time on them.
+    sceneObjects = filterToReferencedParts(sceneObjects, assembly.instances);
+    this.sceneObjects = sceneObjects;
+    this.highlightedShapeId = null;
+    this.hoverState = null;
+    this.hoverFaceOverlayMeshes = [];
+
+    this.removeCompiledMesh();
+    this.activeSketchId = null;
+    this.modeManager.enterDefaultMode();
+    this.settingsPanel.setProjectionLocked(false);
+    this.settingsPanel.setFitButtonVisible(true);
+
+    if (!this.assemblyController) {
+      this.assemblyController = new AssemblyController(
+        this.ctx.renderer,
+        this.ctx.camera,
+        () => this.ctx.requestRender(),
+        (ndcX, ndcY) => this.ctx.createPickingRaycaster(ndcX, ndcY),
+      );
+      this.assemblyController.setDragReleaseHandler(this.pendingDragReleaseHandler);
+      this.assemblyController.setSolverUpdateHandler(this.pendingSolverUpdateHandler);
+      this.assemblyController.setDragValueHandler(this.pendingDragValueHandler);
+      // When the controller claims a drag, eagerly clear any face/edge/instance
+      // highlight that was set earlier (e.g. by a prior click or parts-panel
+      // row). Otherwise it would visually "stick" through the drag and the
+      // user would see the just-dropped part still highlighted.
+      this.assemblyController.setDragClaimHandler(() => {
+        // Cancel any hover RAF that was scheduled by a mousemove fired
+        // before the drag began — otherwise its callback runs mid-drag and
+        // paints a face overlay on the part we're currently dragging.
+        if (this.hoverRafId !== null) {
+          cancelAnimationFrame(this.hoverRafId);
+          this.hoverRafId = null;
+        }
+        this.clearHighlight();
+        this.clearHover();
+        this.assemblyController?.clearHighlight();
+        if (this.selectionHandler) {
+          this.selectionHandler(null, null, null, { additive: false });
+        }
+      });
+    }
+    const container = this.assemblyController.getContainer();
+    if (!container.parent) {
+      this.ctx.scene.add(container);
+    }
+
+    this.assemblyController.update(sceneObjects, assembly);
+
+    if (!this.hasRendered) {
+      const box = new Box3();
+      expandBoxExcludingMeta(box, this.assemblyController.getContainer());
+      if (!box.isEmpty() && !this.isBoxContained(box)) {
+        this.ctx.fitToBox(box, true);
+        this.lastFitBox = box.clone();
+        this.hasRendered = true;
+      }
+    }
+
+    this.ctx.requestRender();
+  }
+
+  highlightShape(shapeId: string, instanceId: string | null = null): void {
     this.clearHighlight();
-    this.applyShapeHighlight(shapeId);
+    this.applyShapeHighlight(shapeId, instanceId);
     this.highlightedShapeId = shapeId;
+    this.highlightedInstanceId = instanceId;
     this.highlightedEntities = [];
     this.ctx.render();
   }
 
   /** Tint one whole shape (all faces of a solid, or its edges) in place. */
-  private applyShapeHighlight(shapeId: string): void {
+  private applyShapeHighlight(shapeId: string, instanceId: string | null = null): void {
     const part = this.findShapeById(shapeId);
     if (!part) return;
 
-    const group = this.findMeshByShapeId(shapeId);
+    const scope = this.resolveScope(instanceId);
+    if (!scope) return;
+    const group = this.findMeshByShapeId(shapeId, scope);
     if (!group) return;
 
     const isFaceHighlight = part.shapeType === 'solid' || part.shapeType === 'face';
@@ -840,6 +1146,7 @@ export class Viewer {
     this.faceHighlightMeshes = [];
 
     this.highlightedShapeId = null;
+    this.highlightedInstanceId = null;
     this.highlightedSolidShapeIds = [];
     this.highlightedEntities = [];
     this.highlightedSketchWires = [];
@@ -852,20 +1159,23 @@ export class Viewer {
    * optionally whole sketch wires by shape id (a create dialog's selected
    * sketch inputs), whole solids by shape id (a copy dialog's selected
    * targets) and construction-plane quads by shape id (a plane dialog's
-   * chosen plane bases). Replaces any previous highlight.
+   * chosen plane bases). Replaces any previous highlight. In assembly scenes
+   * `instanceId` scopes the face/edge highlights to that instance's group.
    */
   highlightEntities(
     entities: SelectedEntity[],
     sketchWireShapeIds: string[] = [],
     solidShapeIds: string[] = [],
     planeQuadShapeIds: string[] = [],
+    instanceId: string | null = null,
   ): void {
     this.clearHighlight();
+    this.highlightedInstanceId = instanceId;
     for (const entity of entities) {
       if (entity.sub.type === 'face') {
-        this.applyFaceHighlight(entity.shapeId, entity.sub.index);
+        this.applyFaceHighlight(entity.shapeId, entity.sub.index, instanceId);
       } else {
-        this.applyEdgeHighlight(entity.shapeId, entity.sub.index);
+        this.applyEdgeHighlight(entity.shapeId, entity.sub.index, instanceId);
       }
     }
     for (const shapeId of sketchWireShapeIds) {
@@ -910,16 +1220,18 @@ export class Viewer {
     mat.opacity = 0.3;
   }
 
-  highlightFace(shapeId: string, faceIndex: number): void {
-    this.highlightEntities([{ shapeId, sub: { type: 'face', index: faceIndex } }]);
+  highlightFace(shapeId: string, faceIndex: number, instanceId: string | null = null): void {
+    this.highlightEntities([{ shapeId, sub: { type: 'face', index: faceIndex } }], [], [], [], instanceId);
   }
 
-  highlightEdge(shapeId: string, edgeIndex: number): void {
-    this.highlightEntities([{ shapeId, sub: { type: 'edge', index: edgeIndex } }]);
+  highlightEdge(shapeId: string, edgeIndex: number, instanceId: string | null = null): void {
+    this.highlightEntities([{ shapeId, sub: { type: 'edge', index: edgeIndex } }], [], [], [], instanceId);
   }
 
-  private applyFaceHighlight(shapeId: string, faceIndex: number): void {
-    this.ctx.scene.traverse((obj) => {
+  private applyFaceHighlight(shapeId: string, faceIndex: number, instanceId: string | null = null): void {
+    const scope = this.resolveScope(instanceId);
+    if (!scope) return;
+    scope.traverse((obj) => {
       if (!(obj as Mesh).isMesh) {
         return;
       }
@@ -989,8 +1301,10 @@ export class Viewer {
     });
   }
 
-  private applyEdgeHighlight(shapeId: string, edgeIndex: number): void {
-    this.ctx.scene.traverse((obj) => {
+  private applyEdgeHighlight(shapeId: string, edgeIndex: number, instanceId: string | null = null): void {
+    const scope = this.resolveScope(instanceId);
+    if (!scope) return;
+    scope.traverse((obj) => {
       if (!(obj as LineSegments).isLine && !obj.userData.isEdgeLine) {
         return;
       }
@@ -1056,6 +1370,9 @@ export class Viewer {
 
     canvas.addEventListener('mousedown', () => {
       this.isMouseDown = true;
+      // A new gesture: the user explicitly clicked on something, so any
+      // post-drop hover suppression no longer applies.
+      this.hoverSuppressForInstance = null;
       this.clearHover();
     });
 
@@ -1065,6 +1382,13 @@ export class Viewer {
 
     canvas.addEventListener('mousemove', (e) => {
       if (this.isMouseDown || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
+        return;
+      }
+      // Authoritative drag-active gate. `isMouseDown` above is mouse-event
+      // derived; the browser sometimes suppresses compatibility mouse events
+      // (touch/pen, palm rejection, fast input). The pointer-event-driven
+      // controller state is reliable, so we always consult it.
+      if (this.assemblyController?.isDragGestureActive()) {
         return;
       }
       if (this.hoverRafId !== null) {
@@ -1078,11 +1402,31 @@ export class Viewer {
 
     canvas.addEventListener('mouseleave', () => {
       this.clearHover();
+      // Clear the hovered instance when the cursor leaves the canvas. While
+      // a mate dialog is picking, updateHover reveals connectors
+      // per-instance; without this, a connector left visible by the last
+      // hit would linger until the cursor re-enters.
+      this.assemblyController?.setHoveredInstance(null);
     });
   }
 
   private updateHover(clientX: number, clientY: number): void {
     if (!this.selectionHandler) {
+      return;
+    }
+    // A hover RAF can be scheduled by a mousemove that fired *before* a
+    // drag began; the callback then runs mid-drag. Re-check authoritative
+    // state here so a stale RAF can't paint a face overlay onto the part
+    // we're currently dragging.
+    if (this.isMouseDown || this.assemblyController?.isDragGestureActive()) {
+      return;
+    }
+    // The pointer sits on a tool handle (gizmo) — part hover must not paint
+    // underneath it.
+    if (this.hoverSuppressor?.()) {
+      if (this.hoverState) {
+        this.clearHover();
+      }
       return;
     }
 
@@ -1104,11 +1448,35 @@ export class Viewer {
       this.ctx.requestRender();
     }
 
-    // Same as current hover — skip.
+    // Track which instance the cursor is on. The controller reveals its
+    // connectors only while a mate dialog has picking armed, and otherwise
+    // just keeps the id current so an opening dialog reveals the part
+    // already under the cursor. Done unconditionally — independent of the
+    // face/edge hover dedup paths below — so connectors stay visible while
+    // the user moves around within the same part (including over the
+    // currently-selected face, which short-circuits the rest of this
+    // method).
+    this.assemblyController?.setHoveredInstance(result?.instanceId ?? null);
+
+    // Per-instance post-drop suppression: if the user just released the
+    // drag and their cursor is still on the dropped instance, don't paint
+    // hover on it. As soon as they move to a different instance or off
+    // any instance entirely, the suppression lifts.
+    if (this.hoverSuppressForInstance) {
+      if (result && (result.instanceId ?? null) === this.hoverSuppressForInstance) {
+        if (this.hoverState) this.clearHover();
+        return;
+      }
+      this.hoverSuppressForInstance = null;
+    }
+
+    // Same as current hover — skip. Include instance id so two instances of
+    // the same part don't dedupe against each other.
     if (this.hoverState && result &&
         this.hoverState.shapeId === result.shapeId &&
         this.hoverState.sub?.type === result.sub?.type &&
-        this.hoverState.sub?.index === result.sub?.index) {
+        this.hoverState.sub?.index === result.sub?.index &&
+        this.hoverState.instanceId === (result.instanceId ?? null)) {
       return;
     }
 
@@ -1120,11 +1488,12 @@ export class Viewer {
       return;
     }
 
-    // Don't hover-highlight a currently selected face/edge.
+    // Don't hover-highlight a currently selected face/edge (same instance).
     const isSelected = this.highlightedEntities.some((entity) =>
       entity.shapeId === result.shapeId &&
       entity.sub.type === result.sub?.type &&
-      entity.sub.index === result.sub?.index);
+      entity.sub.index === result.sub?.index) &&
+      this.highlightedInstanceId === (result.instanceId ?? null);
     if (isSelected) {
       if (this.hoverState) {
         this.clearHover();
@@ -1133,17 +1502,19 @@ export class Viewer {
     }
 
     this.clearHover();
-    this.hoverState = result;
+    this.hoverState = { shapeId: result.shapeId, sub: result.sub, instanceId: result.instanceId ?? null };
     this.ctx.renderer.domElement.style.cursor = 'pointer';
 
     if (result.sub?.type === 'face') {
-      this.applyHoverFace(result.shapeId, result.sub.index);
+      this.applyHoverFace(result.shapeId, result.sub.index, result.instanceId ?? null);
     } else if (result.sub?.type === 'edge') {
-      this.applyHoverEdge(result.shapeId, result.sub.index);
+      this.applyHoverEdge(result.shapeId, result.sub.index, result.instanceId ?? null);
     } else if (result.sub?.type === 'axis') {
       this.applyHoverAxis(result.shapeId);
     } else if (result.sub?.type === 'plane') {
       this.applyHoverPlaneQuad(result.shapeId);
+    } else if (result.sub?.type === 'connector') {
+      this.assemblyController?.setHighlightedConnector(result.shapeId);
     }
     this.hoverHandler?.(result.shapeId, result.sub, clientX, clientY);
   }
@@ -1173,6 +1544,9 @@ export class Viewer {
       }
     });
 
+    if (this.hoverState?.sub?.type === 'connector') {
+      this.assemblyController?.setHighlightedConnector(null);
+    }
     if (this.hoverState) {
       this.hoverHandler?.(null, null, 0, 0);
     }
@@ -1182,8 +1556,10 @@ export class Viewer {
     this.ctx.requestRender();
   }
 
-  private applyHoverFace(shapeId: string, faceIndex: number): void {
-    this.ctx.scene.traverse((obj) => {
+  private applyHoverFace(shapeId: string, faceIndex: number, instanceId: string | null): void {
+    const scope = this.resolveScope(instanceId);
+    if (!scope) return;
+    scope.traverse((obj) => {
       if (!(obj as Mesh).isMesh) {
         return;
       }
@@ -1255,8 +1631,10 @@ export class Viewer {
     this.ctx.requestRender();
   }
 
-  private applyHoverEdge(shapeId: string, edgeIndex: number): void {
-    this.ctx.scene.traverse((obj) => {
+  private applyHoverEdge(shapeId: string, edgeIndex: number, instanceId: string | null): void {
+    const scope = this.resolveScope(instanceId);
+    if (!scope) return;
+    scope.traverse((obj) => {
       if (!(obj as LineSegments).isLine && !obj.userData.isEdgeLine) {
         return;
       }
@@ -1399,9 +1777,9 @@ export class Viewer {
     return undefined;
   }
 
-  private findMeshByShapeId(shapeId: string): Object3D | undefined {
+  private findMeshByShapeId(shapeId: string, scope: Object3D = this.ctx.scene): Object3D | undefined {
     let result: Object3D | undefined;
-    this.ctx.scene.traverse((child) => {
+    scope.traverse((child) => {
       if (child.userData.shapeId === shapeId) {
         result = child;
       }
@@ -1464,6 +1842,17 @@ export class Viewer {
   /** Rebuild the scene mesh using the current scene objects (no mode transitions or auto-fit). */
   rebuildSceneMesh(): void {
     if (!this.sceneObjects) {
+      return;
+    }
+    // In assembly mode, the AssemblyController is the source of truth for
+    // geometry — its instance groups already render every referenced part
+    // at the right pose with connectors hidden. Building a separate
+    // `compiledMesh` here would draw each part again at world origin with
+    // its connectors visible (they're not inside an instance group, so the
+    // controller's `setConnectorsVisible(false)` never sees them) and the
+    // stray mesh would only get cleared on the next assembly update — i.e.
+    // the user has to edit the file before the rogue connectors disappear.
+    if (this.assemblyController?.getContainer().parent) {
       return;
     }
     this.removeCompiledMesh();

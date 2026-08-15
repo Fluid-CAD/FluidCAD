@@ -13,7 +13,9 @@ export interface HistoryToolbarHandlers {
  * there as one edit), so the group only shows once an editor host has
  * announced the capability ({@link setAvailable}); a server without an editor
  * (standalone serve, hub) never announces and the group stays hidden. The
- * `immune` flag keeps it reachable while the sketch toolbar owns the bar.
+ * `immune` flag keeps it reachable while the sketch toolbar owns the bar, and
+ * `mode: 'all'` keeps it on the bar in both the part and assembly workbenches
+ * — history is source-level, so it applies to either scene kind.
  *
  * The buttons stay enabled even when there is nothing left to undo — neither
  * editor exposes its stack depth cheaply — and simply no-op at the ends of
@@ -25,7 +27,7 @@ export class HistoryToolbar {
 
   constructor(navbar: Navbar, handlers: HistoryToolbarHandlers) {
     this.navbar = navbar;
-    const group = navbar.addGroup('history', { visible: false, immune: true });
+    const group = navbar.addGroup('history', { visible: false, immune: true, mode: 'all' });
     this.addButton(group, ICON_UNDO, 'Undo', handlers.onUndo);
     this.addButton(group, ICON_REDO, 'Redo', handlers.onRedo);
   }

@@ -30,8 +30,9 @@ export class AssemblyToolbar {
       this.addPlaceholder(insertGroup, { icon: 'insert', label: 'Insert', tip: 'Insert part' });
     }
 
-    // One button per mate type of the assembly solver (SerializedMate['type']),
-    // plus Spherical, which has artwork but no solver support yet.
+    // One button per mate type the solver implements (JOINT_SPECS in
+    // ui/src/solver/joint-model.ts). Types the solver doesn't support yet are
+    // commented out below — restore each entry when its phase lands.
     const mateGroup = navbar.addGroup('assembly-mate', { mode: 'assembly' });
     const mates: { type: AssemblyMateType; label: string }[] = [
       { type: 'fastened', label: 'Fastened' },
@@ -39,8 +40,8 @@ export class AssemblyToolbar {
       { type: 'slider', label: 'Slider' },
       { type: 'cylindrical', label: 'Cylindrical' },
       { type: 'planar', label: 'Planar' },
-      { type: 'parallel', label: 'Parallel' },
-      { type: 'pin-slot', label: 'Pin-slot' },
+      // { type: 'parallel', label: 'Parallel' },
+      // { type: 'pin-slot', label: 'Pin-slot' },
     ];
     for (const { type, label } of mates) {
       const opts = { icon: `joint-${type}`, label, tip: `${label} mate` };
@@ -50,7 +51,7 @@ export class AssemblyToolbar {
         this.addPlaceholder(mateGroup, opts);
       }
     }
-    this.addPlaceholder(mateGroup, { icon: 'joint-spherical', label: 'Spherical', tip: 'Spherical mate' });
+    // this.addPlaceholder(mateGroup, { icon: 'joint-spherical', label: 'Spherical', tip: 'Spherical mate' });
   }
 
   /** Standard toolbar button markup: icon over muted caption in a tooltip wrapper. */

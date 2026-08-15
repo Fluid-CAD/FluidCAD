@@ -36,6 +36,14 @@ import { addInstance, removeInstance } from './global-registry.ts';
 import type { CompileError } from './ws-protocol.ts';
 import { extractSourceLocation, describeOcException } from '../../lib/dist/index.js';
 
+// Load-bearing for every sourceLocation the engine reports: user modules run
+// through vite's SSR wrapper, whose transform shifts raw stack lines (+3) and
+// mangles columns unless Node applies the inline sourcemaps. Launchers pass
+// --enable-source-maps, but this must not depend on how the process was
+// forked — a launcher that forgets the flag silently mis-targets every
+// call-site-addressed edit (breakpoints, apply-feature, dimensions).
+process.setSourceMapsEnabled(true);
+
 const PORT = parseInt(process.env.FLUIDCAD_SERVER_PORT || '3100', 10);
 const WORKSPACE_PATH = normalizePath(process.env.FLUIDCAD_WORKSPACE_PATH || '');
 const UI_DIST = path.resolve(import.meta.dirname, '../../ui/dist');

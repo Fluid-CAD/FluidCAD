@@ -278,6 +278,9 @@ async function main() {
       FLUIDCAD_SERVER_PORT: String(PORT),
       FLUIDCAD_WORKSPACE_PATH: WORKSPACE_DIR,
     },
+    // Load-bearing: without it the engine's sourceLocations shift by the SSR
+    // transform's line offset, mis-targeting breakpoints and feature edits.
+    execArgv: ['--enable-source-maps'],
     stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
   });
 

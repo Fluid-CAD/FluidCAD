@@ -33,6 +33,8 @@ export interface EditorSurfaceDeps {
   send(msg: unknown): boolean;
   /** Hand the top bar the tab strip's state to render. */
   setTabs(tabs: FileTab[], activePath: string | null, currentModelPath: string | null): void;
+  /** Name the workspace in the top bar, once loading it reveals its root. */
+  setWorkspaceName?(name: string): void;
   initialOpen?: boolean;
   initialWidth?: number;
   onOpenChange?(open: boolean): void;
@@ -95,6 +97,10 @@ export class EditorSurface {
     await surface.models.loadWorkspace().catch((err) => {
       console.warn('FluidCAD: could not load workspace files:', err);
     });
+    const root = surface.models.workspacePath;
+    if (root) {
+      deps.setWorkspaceName?.(root.split(/[\\/]/).pop() || root);
+    }
     void loadEngineTypes();
     surface.installEditorCommands();
     await surface.restoreTabs().catch(() => undefined);

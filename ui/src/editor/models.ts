@@ -42,13 +42,20 @@ export class WorkspaceModels {
   private readonly savedVersions = new Map<string, number>();
   private readonly dirtyListeners = new Set<DirtyListener>();
   private lastDirtySignature = '';
+  /** Absolute workspace root, known once {@link loadWorkspace} has run. */
+  private root: string | null = null;
+
+  get workspacePath(): string | null {
+    return this.root;
+  }
 
   /**
    * Load a model for every editable workspace file. Failures are per-file:
    * one unreadable file must not cost the language service every other one.
    */
   async loadWorkspace(): Promise<void> {
-    const { files } = await listWorkspaceFiles();
+    const { workspacePath, files } = await listWorkspaceFiles();
+    this.root = workspacePath;
     await Promise.all(
       files
         .filter((file) => EDITABLE_KINDS.has(file.kind))

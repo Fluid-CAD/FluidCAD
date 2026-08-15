@@ -31,6 +31,7 @@ export class TopBar {
   private readonly el: HTMLDivElement;
   private readonly tabs: FileTabs;
   private readonly handlers: TopBarHandlers;
+  private readonly workspaceName: HTMLSpanElement;
   private menu: HTMLDivElement | null = null;
 
   constructor(container: HTMLElement, handlers: TopBarHandlers) {
@@ -66,6 +67,13 @@ export class TopBar {
     divider.className = 'w-px h-5 bg-base-content/15 mx-1 shrink-0';
     this.el.appendChild(divider);
 
+    // Workspace folder name, ahead of the tabs — the document the tabs are
+    // pages of. Hidden until a host that knows its workspace names it.
+    this.workspaceName = document.createElement('span');
+    this.workspaceName.className =
+      'hidden text-[17px] font-semibold text-base-content/80 tracking-tight truncate max-w-[20vw] shrink-0 mr-1';
+    this.el.appendChild(this.workspaceName);
+
     this.tabs = new FileTabs(this.el, handlers.tabs ?? NO_TABS, handlers.tabs !== undefined);
 
     container.appendChild(this.el);
@@ -74,6 +82,12 @@ export class TopBar {
   /** The plain label a viewport-only host shows instead of tabs. */
   setFileName(absPath: string): void {
     this.tabs.setFileName(absPath);
+  }
+
+  /** The workspace's folder name, shown ahead of the tabs. */
+  setWorkspaceName(name: string): void {
+    this.workspaceName.textContent = name;
+    this.workspaceName.classList.toggle('hidden', name === '');
   }
 
   /** Where a menu-invoked quick-open should hang from. */

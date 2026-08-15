@@ -99,6 +99,7 @@ function startEditorSurface(): void {
       container,
       send: sendToServer,
       setTabs: (tabs, activePath, currentModelPath) => topBar.setTabs(tabs, activePath, currentModelPath),
+      setWorkspaceName: (name) => topBar.setWorkspaceName(name),
       onEditRefused: (message) => showToast(message),
       initialOpen: editorPaneOpenOnArrival || editorPreferences.open,
       initialWidth: editorPreferences.width,

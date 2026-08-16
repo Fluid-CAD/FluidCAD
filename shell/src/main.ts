@@ -252,15 +252,14 @@ if (singleInstance) {
     buildApplicationMenu(menuActions);
     initAutoUpdate();
 
-    // When the last project window closes, the start screen takes its place —
-    // it is the app's home, and the preview just captured is right there.
+    // Closing a project window closes it, full stop — no start screen pops
+    // up in its place. An already-open start screen just refreshes so the
+    // thumbnail captured on close shows up.
     onProjectWindowClosed((_window, info) => {
       if (quitting || info.reopening) {
         return;
       }
-      if (allProjectWindows().length === 0) {
-        openStartScreen();
-      } else if (isStartScreenOpen()) {
+      if (isStartScreenOpen()) {
         refreshStartScreen();
       }
     });
@@ -299,8 +298,8 @@ if (singleInstance) {
   });
 
   app.on('window-all-closed', () => {
-    // A project window's `closed` handler may have just opened the start
-    // screen; only a truly empty app quits.
+    // A pin-change reopen may already be spinning up the next window; only a
+    // truly empty app quits.
     if (process.platform !== 'darwin' && BrowserWindow.getAllWindows().length === 0) {
       app.quit();
     }

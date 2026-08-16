@@ -46,12 +46,26 @@ mac:
       arch: [arm64, x64]
     - target: zip
       arch: [arm64, x64]
-  # No Developer ID yet (decision 2026-08-14): builds are unsigned, so
-  # Gatekeeper shows the "unidentified developer" prompt on first launch and
-  # electron-updater cannot self-update — `src/updater.ts` takes the
-  # notify-and-open-the-download-page path on macOS instead.
-  identity: null
-  notarize: false
+  # Signed with the "Developer ID Application" identity electron-builder
+  # imports from CSC_LINK / CSC_KEY_PASSWORD (see release-desktop.yml), then
+  # notarized through notarytool with the App Store Connect API key in
+  # APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER. Nothing is pinned by
+  # name on purpose so a local `npm run dist` keeps working: on a machine
+  # without the identity electron-builder logs that it skipped signing and,
+  # because notarization only runs after a successful sign, skips that too;
+  # on a machine that has the identity but not the API key it signs and logs
+  # that it skipped notarization. Neither is an error.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+
+dmg:
+  # The .app inside is signed and notarized; signing the disk image as well
+  # only invites the double-signature/stapling mismatches that make Gatekeeper
+  # reject an otherwise valid download.
+  sign: false
 
 win:
   target:

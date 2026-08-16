@@ -4,9 +4,10 @@ name: Build Desktop App
 # and nsis), and each build stages its own built-in engine from the tarball
 # `build-engine-tarball.ts` produces.
 #
-# Unsigned by decision (2026-08-14): no Apple Developer ID and no Windows
-# certificate yet. macOS therefore shows the "unidentified developer" prompt and
-# cannot self-update — `shell/src/updater.ts` takes the notify-only path there.
+# macOS builds are signed with a Developer ID Application certificate and
+# notarized (2026-08-16); the secrets involved are listed on the "Prepare macOS
+# signing" step below. Windows is still unsigned: no certificate yet, so
+# SmartScreen warns on first run.
 
 on:
   push:
@@ -27,7 +28,9 @@ jobs:
           - os: macos-latest
             target: darwin-arm64
             flags: --mac --arm64
-          - os: macos-13
+          # `macos-13`, the last Intel image under the plain `macos-N` label, was
+          # retired by GitHub; `macos-15-intel` is the Intel image that remains.
+          - os: macos-15-intel
             target: darwin-x64
             flags: --mac --x64
           - os: windows-latest
@@ -63,14 +66,58 @@ jobs:
         run: node scripts/stage-engine.js --target ${{ matrix.target }}
         working-directory: shell
 
+      - name: Prepare macOS signing
+        # Secrets (repository → Settings → Secrets and variables → Actions):
+        #   MACOS_CERTIFICATE      base64 of the Developer ID Application .p12
+        #                          (`openssl base64 -A -in certificate.p12`)
+        #   MACOS_CERTIFICATE_PWD  the .p12 export password
+        #   APPLE_API_KEY_B64      base64 of the App Store Connect AuthKey_*.p8
+        #   APPLE_API_KEY_ID       its 10-character Key ID
+        #   APPLE_API_ISSUER       the Issuer ID of the key
+        # electron-builder imports the .p12 into a temporary keychain from
+        # CSC_LINK / CSC_KEY_PASSWORD, and notarytool reads the .p8 from the
+        # absolute path in APPLE_API_KEY. Everything is exported through
+        # GITHUB_ENV from a macOS-only step rather than set on the build step
+        # for every runner: electron-builder would otherwise pick CSC_LINK up on
+        # Windows too and try to sign the NSIS installer with an Apple
+        # certificate.
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          key_dir="$RUNNER_TEMP/private_keys"
+          mkdir -p "$key_dir"
+          key_file="$key_dir/AuthKey_${APPLE_API_KEY_ID}.p8"
+          printf '%s' "$APPLE_API_KEY_B64" | base64 --decode > "$key_file"
+          {
+            echo "CSC_LINK=$MACOS_CERTIFICATE"
+            echo "CSC_KEY_PASSWORD=$MACOS_CERTIFICATE_PWD"
+            echo "APPLE_API_KEY=$key_file"
+            echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID"
+            echo "APPLE_API_ISSUER=$APPLE_API_ISSUER"
+          } >> "$GITHUB_ENV"
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY_B64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
       - name: Build and publish the app
         # The arch is pinned per runner: the config lists both macOS arches so a
         # local `npm run dist` builds what the machine can, but in CI each
         # runner builds its own and nothing is cross-compiled twice.
-        run: npx electron-builder ${{ matrix.flags }} --publish always
+        # `mac.forceCodeSigning` turns "skipped macOS code signing" from a log
+        # line into a failure here — a release must never publish an unsigned
+        # macOS build (Gatekeeper would refuse it and electron-updater could
+        # not install it) — while the config itself leaves it off so a machine
+        # without the certificate can still build locally.
+        run: npx electron-builder ${{ matrix.flags }} --publish always -c.mac.forceCodeSigning=true
         working-directory: shell
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No certificates configured; keep electron-builder from hunting for
-          # one in the runner's keychain and failing the build.
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          # Windows has no certificate; keep electron-builder from hunting for
+          # one and failing the build. On macOS the identity comes from the
+          # keychain the previous step's CSC_LINK is imported into, so
+          # discovery has to stay on there.
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ runner.os == 'macOS' }}

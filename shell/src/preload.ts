@@ -84,6 +84,12 @@ const shellApi = {
     openDialog: (): Promise<void> => ipcRenderer.invoke('shell:start-open-dialog'),
     newProject: (): Promise<void> => ipcRenderer.invoke('shell:start-new-project'),
     forget: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-forget', workspacePath),
+    /** Tutorials + notifications from the feed worker (cached, offline-safe). */
+    feed: (): Promise<any> => ipcRenderer.invoke('shell:start-feed'),
+    dismissNotification: (id: string): Promise<void> =>
+      ipcRenderer.invoke('shell:start-dismiss-notification', id),
+    /** Open an http(s) link in the user's browser. */
+    openLink: (url: string): Promise<void> => ipcRenderer.invoke('shell:start-open-link', url),
     /** The recents changed under the page (a project closed, a preview landed). */
     onChanged: (handler: () => void): void => {
       ipcRenderer.on('shell:start-changed', () => handler());

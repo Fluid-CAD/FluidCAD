@@ -23,11 +23,19 @@ export type DesktopState = {
   schemaVersion: 1;
   recentProjects: RecentProject[];
   windowBounds: WindowBounds | null;
+  /** Ids of start-screen feed notifications the user closed. */
+  dismissedNotifications: string[];
 };
 
 const MAX_RECENTS = 12;
+const MAX_DISMISSED = 100;
 
-const EMPTY: DesktopState = { schemaVersion: 1, recentProjects: [], windowBounds: null };
+const EMPTY: DesktopState = {
+  schemaVersion: 1,
+  recentProjects: [],
+  windowBounds: null,
+  dismissedNotifications: [],
+};
 
 export function readDesktopState(): DesktopState {
   try {
@@ -37,12 +45,15 @@ export function readDesktopState(): DesktopState {
         schemaVersion: 1,
         recentProjects: Array.isArray(parsed.recentProjects) ? parsed.recentProjects : [],
         windowBounds: parsed.windowBounds ?? null,
+        dismissedNotifications: Array.isArray(parsed.dismissedNotifications)
+          ? parsed.dismissedNotifications.filter((id: unknown) => typeof id === 'string')
+          : [],
       };
     }
   } catch {
     // First run, or a file we can't read — either way, start clean.
   }
-  return { ...EMPTY, recentProjects: [] };
+  return { ...EMPTY, recentProjects: [], dismissedNotifications: [] };
 }
 
 function writeDesktopState(state: DesktopState): void {
@@ -87,6 +98,22 @@ export function listRecentProjects(): RecentProject[] {
       return false;
     }
   });
+}
+
+export function dismissedNotificationIds(): string[] {
+  return readDesktopState().dismissedNotifications;
+}
+
+/** Remember a closed feed notification so it stays closed. */
+export function dismissNotification(id: string): void {
+  const state = readDesktopState();
+  if (state.dismissedNotifications.includes(id)) {
+    return;
+  }
+  // Newest first, oldest pruned: an id whose notification left the feed long
+  // ago is never checked again, so the list must not grow forever.
+  const dismissed = [id, ...state.dismissedNotifications].slice(0, MAX_DISMISSED);
+  writeDesktopState({ ...state, dismissedNotifications: dismissed });
 }
 
 export function rememberWindowBounds(bounds: WindowBounds): void {

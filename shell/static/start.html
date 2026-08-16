@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: https:;" />
     <title>FluidCAD</title>
     <style>
       :root {
@@ -44,6 +44,7 @@
         gap: 12px;
         padding: 22px 28px 14px;
       }
+      header .logo { flex: none; width: 42px; height: 42px; }
       header .mark { font-size: 20px; font-weight: 600; letter-spacing: 0.02em; }
       header .sub { color: var(--muted); font-size: 12px; margin-top: 1px; }
       header .spacer { flex: 1; }
@@ -234,12 +235,72 @@
         border-radius: 12px;
       }
       .empty strong { display: block; color: var(--fg); font-size: 15px; margin-bottom: 4px; }
+      /* Feed notifications: a quiet accent-tinted strip above the projects. */
+      .notices { display: grid; gap: 10px; margin: 6px 0 20px; }
+      .notice {
+        position: relative;
+        background: #4f9cf912;
+        border: 1px solid #4f9cf93d;
+        border-radius: 8px;
+        padding: 10px 40px 10px 14px;
+        font-size: 13px;
+        -webkit-user-select: text;
+        user-select: text;
+      }
+      .notice p { margin: 0 0 4px; }
+      .notice p:last-child { margin-bottom: 0; }
+      .notice a { color: var(--accent); text-decoration: none; }
+      .notice a:hover { text-decoration: underline; }
+      .notice .dismiss {
+        position: absolute;
+        top: 7px;
+        right: 7px;
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        display: grid;
+        place-items: center;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .notice .dismiss:hover { background: #ffffff1a; color: var(--fg); }
+      /* The "Learn FluidCAD" panel: tutorial cards, slightly smaller than the
+         project cards, whose click leaves for the browser. */
+      #learn h2 { margin-top: 28px; }
+      .tutorials {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        gap: 14px;
+      }
+      .tutorial .preview img { object-fit: cover; padding: 0; }
+      .tutorial .meta { padding: 9px 12px 10px; }
+      .tutorial .t-title { font-weight: 600; font-size: 13px; }
+      .tutorial .t-desc {
+        color: var(--muted);
+        font-size: 12px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
       footer { color: var(--faint); font-size: 11px; padding: 0 28px 14px; display: flex; gap: 8px; }
       [hidden] { display: none !important; }
     </style>
   </head>
   <body>
     <header>
+      <!-- The FluidCAD logo, inlined from website/static/img/logo.svg. -->
+      <svg class="logo" viewBox="0 0 500 500" aria-hidden="true">
+        <g transform="translate(250, 250)">
+          <text x="-142" y="45" font-family="'Times New Roman', serif" font-size="340" font-weight="400" text-anchor="middle" fill="#b0b0b0">{</text>
+          <text x="142" y="45" font-family="'Times New Roman', serif" font-size="340" font-weight="400" text-anchor="middle" fill="#b0b0b0">}</text>
+          <g transform="translate(0, -35)">
+            <polygon points="0,-110 -95,-55 -95,55 0,110 95,55 95,-55" fill="none" stroke="#5ba3d9" stroke-width="10" stroke-linejoin="round"/>
+            <polyline points="-95,-55 0,0 95,-55" fill="none" stroke="#5ba3d9" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+            <line x1="0" y1="0" x2="0" y2="110" stroke="#5ba3d9" stroke-width="10" stroke-linecap="round"/>
+          </g>
+        </g>
+      </svg>
       <div>
         <div class="mark">FluidCAD</div>
         <div class="sub" id="sub">Pick a project to open.</div>
@@ -250,12 +311,17 @@
     </header>
 
     <main>
+      <div id="notices" class="notices" hidden></div>
       <h2 id="heading">Recent projects</h2>
       <div id="grid" class="grid"></div>
       <div id="empty" class="empty" hidden>
         <strong>No projects yet</strong>
         Create a new project in an empty folder, or open a folder that already holds one.
       </div>
+      <section id="learn" hidden>
+        <h2>Learn FluidCAD</h2>
+        <div id="tutorials" class="tutorials"></div>
+      </section>
     </main>
 
     <footer><span id="engine"></span></footer>
@@ -264,6 +330,9 @@
       const api = window.fluidcadShell;
       const grid = document.getElementById('grid');
       const empty = document.getElementById('empty');
+      const notices = document.getElementById('notices');
+      const learn = document.getElementById('learn');
+      const tutorials = document.getElementById('tutorials');
       const engineNote = document.getElementById('engine');
       const openButton = document.getElementById('open');
       const newButton = document.getElementById('new');
@@ -456,6 +525,123 @@
         return el;
       }
 
+      // A notification body is remote HTML. This page runs with a preload
+      // bridge, so it only ever renders a sanitized copy: formatting tags and
+      // http(s) links survive, everything else is dropped or unwrapped.
+      const KEEP_TAGS = new Set(['A', 'B', 'STRONG', 'I', 'EM', 'U', 'CODE', 'BR', 'P', 'SPAN', 'UL', 'OL', 'LI']);
+      const DROP_TAGS = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'META', 'TEMPLATE', 'SVG']);
+
+      function sanitizedBody(html) {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        for (const el of [...doc.body.querySelectorAll('*')]) {
+          if (DROP_TAGS.has(el.tagName)) {
+            el.remove();
+            continue;
+          }
+          if (!KEEP_TAGS.has(el.tagName)) {
+            el.replaceWith(...el.childNodes);
+            continue;
+          }
+          for (const attr of [...el.attributes]) {
+            const keep =
+              el.tagName === 'A' && attr.name === 'href' && /^https?:\/\//.test(el.getAttribute('href') || '');
+            if (!keep) { el.removeAttribute(attr.name); }
+          }
+        }
+        const body = document.createElement('div');
+        body.append(...doc.body.childNodes);
+        return body;
+      }
+
+      function notice(entry) {
+        const el = document.createElement('div');
+        el.className = 'notice';
+        el.appendChild(sanitizedBody(entry.body));
+        const dismiss = document.createElement('button');
+        dismiss.className = 'dismiss';
+        dismiss.title = 'Dismiss';
+        dismiss.setAttribute('aria-label', 'Dismiss notification');
+        dismiss.textContent = '✕';
+        dismiss.onclick = () => {
+          el.remove();
+          notices.hidden = notices.children.length === 0;
+          void api.start.dismissNotification(entry.id);
+        };
+        el.appendChild(dismiss);
+        return el;
+      }
+
+      // Links leave for the browser; the will-navigate guard in the shell is
+      // the backstop, this is the path that normally runs.
+      notices.addEventListener('click', (event) => {
+        const link = event.target.closest('a');
+        if (link) {
+          event.preventDefault();
+          void api.start.openLink(link.getAttribute('href'));
+        }
+      });
+
+      function tutorialCard(entry) {
+        const el = document.createElement('div');
+        el.className = 'card tutorial';
+        el.tabIndex = 0;
+        el.setAttribute('role', 'link');
+        el.title = entry.url;
+
+        const preview = document.createElement('div');
+        preview.className = 'preview';
+        if (entry.thumbnail) {
+          const img = document.createElement('img');
+          img.src = entry.thumbnail;
+          img.alt = '';
+          img.draggable = false;
+          preview.appendChild(img);
+        } else {
+          const placeholder = document.createElement('div');
+          placeholder.className = 'placeholder';
+          placeholder.innerHTML = CUBE;
+          preview.appendChild(placeholder);
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const title = document.createElement('div');
+        title.className = 't-title';
+        title.textContent = entry.title;
+        meta.appendChild(title);
+        if (entry.description) {
+          const desc = document.createElement('div');
+          desc.className = 't-desc';
+          desc.textContent = entry.description;
+          meta.appendChild(desc);
+        }
+
+        const open = () => void api.start.openLink(entry.url);
+        el.onclick = open;
+        el.onkeydown = (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            open();
+          }
+        };
+
+        el.append(preview, meta);
+        return el;
+      }
+
+      async function refreshFeed() {
+        if (!api?.start.feed) { return; }
+        try {
+          const feed = await api.start.feed();
+          notices.replaceChildren(...feed.notifications.map(notice));
+          notices.hidden = feed.notifications.length === 0;
+          tutorials.replaceChildren(...feed.tutorials.map(tutorialCard));
+          learn.hidden = feed.tutorials.length === 0;
+        } catch {
+          // The feed is a nicety; the start screen works without it.
+        }
+      }
+
       async function refresh() {
         if (!api) { return; }
         const state = await api.start.list();
@@ -485,8 +671,12 @@
       newButton.onclick = () => void busy(newButton, () => api.start.newProject());
 
       api?.start.onChanged(() => void refresh());
-      window.addEventListener('focus', () => void refresh());
+      window.addEventListener('focus', () => {
+        void refresh();
+        void refreshFeed();
+      });
       void refresh();
+      void refreshFeed();
     </script>
   </body>
 </html>

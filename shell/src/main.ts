@@ -38,6 +38,13 @@ import { initAutoUpdate } from './updater';
 // here because `process.resourcesPath` only exists once Electron is running.
 process.env.FLUIDCAD_RESOURCES_PATH ??= process.resourcesPath;
 
+// An overridden home (E2E runs, a second dev instance) gets its own Electron
+// profile too: the single-instance lock lives in userData, so without this an
+// isolated instance refuses to start while the real app is open.
+if (process.env.FLUIDCAD_HOME) {
+  app.setPath('userData', path.join(path.resolve(process.env.FLUIDCAD_HOME), 'electron'));
+}
+
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) {
   app.quit();

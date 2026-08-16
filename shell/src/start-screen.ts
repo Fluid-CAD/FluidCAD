@@ -3,9 +3,10 @@ import os from 'os';
 import path from 'path';
 import { projectInstalledEngine, readProjectPin } from './engine/project-pin';
 import { defaultEngine, isEngineManagedLink } from './engine/resolver';
+import { FeedService } from './feed';
 import { createNewProject } from './new-project';
 import { findProjectWindow, type ProjectWindow } from './project-window';
-import { forgetProject, listRecentProjects } from './state';
+import { dismissedNotificationIds, dismissNotification, forgetProject, listRecentProjects } from './state';
 import { readThumbnail } from './thumbnails';
 
 /**
@@ -64,6 +65,14 @@ export function openStartScreen(): void {
   startWindow.webContents.setWindowOpenHandler(({ url }) => {
     void shell.openExternal(url);
     return { action: 'deny' };
+  });
+  // A feed notification's <a> could navigate the window itself; links leave
+  // for the browser instead, and the page never goes anywhere.
+  startWindow.webContents.on('will-navigate', (event, url) => {
+    event.preventDefault();
+    if (/^https?:\/\//.test(url)) {
+      void shell.openExternal(url);
+    }
   });
   void startWindow.loadFile(START_PAGE);
 }
@@ -139,5 +148,23 @@ export function registerStartScreenHandlers(deps: StartScreenDeps): void {
 
   ipcMain.handle('shell:start-forget', (_event, workspacePath: string) => {
     forgetProject(workspacePath);
+  });
+
+  /** Tutorials + notifications from the feed worker, minus what was dismissed. */
+  ipcMain.handle('shell:start-feed', async () => {
+    const feed = await FeedService.load();
+    const dismissed = new Set(dismissedNotificationIds());
+    return { ...feed, notifications: feed.notifications.filter((entry) => !dismissed.has(entry.id)) };
+  });
+
+  ipcMain.handle('shell:start-dismiss-notification', (_event, id: string) => {
+    dismissNotification(id);
+  });
+
+  ipcMain.handle('shell:start-open-link', (_event, url: string) => {
+    // The page's sanitizer already enforces this; keep the main process just as picky.
+    if (typeof url === 'string' && /^https?:\/\//.test(url)) {
+      void shell.openExternal(url);
+    }
   });
 }

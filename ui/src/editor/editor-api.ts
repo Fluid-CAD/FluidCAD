@@ -21,9 +21,13 @@ export type FileContents = WorkspaceFileEntry & { content: string };
 
 export type EngineTypeFile = { uri: string; content: string };
 
+export type EngineSymbolEntry = { name: string; module: string };
+
 export type EngineTypesPayload = {
   version: string;
   files: EngineTypeFile[];
+  /** Symbol→module table for auto-import completions; absent on older servers. */
+  symbols?: EngineSymbolEntry[];
   bytes: number;
 };
 

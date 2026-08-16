@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { Router } from 'express';
 import { ENGINE_NAMESPACE_SPECIFIERS } from '../../../lib/dist/browser/linking.js';
+import { listEngineSymbols, type EngineSymbol } from '../lint-fluid-js.ts';
 
 /**
  * The engine's own TypeScript declarations, for the in-page editor's language
@@ -33,6 +34,11 @@ export type EngineTypeFile = {
 
 export type EngineTypesPayload = {
   files: EngineTypeFile[];
+  /**
+   * The import linter's symbol→module table, so the page's auto-import
+   * completions offer exactly the names the `missing-imports` guard knows.
+   */
+  symbols: EngineSymbol[];
   /** Total bytes, so the page can log what it paid for. */
   bytes: number;
 };
@@ -115,7 +121,11 @@ export function readEngineTypes(): EngineTypesPayload {
     }
   }
   files.push(...buildSubpathShims());
-  cached = { files, bytes: files.reduce((sum, file) => sum + file.content.length, 0) };
+  cached = {
+    files,
+    symbols: listEngineSymbols(),
+    bytes: files.reduce((sum, file) => sum + file.content.length, 0),
+  };
   return cached;
 }
 

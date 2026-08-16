@@ -1,5 +1,6 @@
 import { javascriptDefaults } from 'monaco-editor/languages/features/typescript/register.js';
 import { fetchEngineTypes } from './editor-api';
+import { registerAutoImports } from './auto-imports';
 
 /**
  * Feed the running engine's own declarations to Monaco's TypeScript service.
@@ -22,6 +23,7 @@ export function loadEngineTypes(): Promise<void> {
         for (const file of payload.files) {
           javascriptDefaults.addExtraLib(file.content, file.uri);
         }
+        registerAutoImports(payload.symbols);
         console.info(
           `FluidCAD: loaded ${payload.files.length} engine declarations ` +
           `(${Math.round(payload.bytes / 1024)} KB) for engine ${payload.version}`,

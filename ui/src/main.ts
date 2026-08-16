@@ -526,7 +526,9 @@ const topBar = new TopBar(container, {
   onToggleEditor: editorSurfaceEnabled ? () => toggleEditorPane() : undefined,
   isEditorOpen: editorSurfaceEnabled ? () => editorSurface?.isOpen() === true : undefined,
   tabs: editorSurfaceEnabled ? {
-    onActivate: (absPath) => void editorSurface?.activateTab(absPath, { reveal: true }),
+    // Switching tabs re-targets the scene; it never opens the pane. The editor
+    // shows only when toggled on explicitly (menu / Ctrl+B) — Invariant 7.
+    onActivate: (absPath) => void editorSurface?.activateTab(absPath),
     onClose: (absPath) => editorSurface?.closeTab(absPath),
     onAdd: (anchor) => editorSurface?.showQuickOpen(anchor),
   } : undefined,

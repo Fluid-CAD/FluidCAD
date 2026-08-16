@@ -65,7 +65,7 @@ export class EditorSurface {
       onWidthChange: deps.onWidthChange,
     });
     this.quickOpen = new QuickOpen({
-      onOpen: (entry) => void this.openFile(entry.absPath, { reveal: true }),
+      onOpen: (entry) => void this.openFile(entry.absPath),
       onCreate: (relPath) => void this.createFile(relPath),
     });
     this.diagnostics = new Diagnostics(this.models);
@@ -183,9 +183,12 @@ export class EditorSurface {
   }
 
   /**
-   * @param reveal open the pane as part of activating. Only a user gesture
-   * passes true — the editor is hidden by default and following the scene into
-   * a new file must not pop it open (Invariant 7).
+   * @param reveal open the pane as part of activating. Only an explicit
+   * "show me the code" gesture ({@link gotoSource}) passes true — the editor
+   * is hidden by default and neither a tab click, a quick-open pick nor
+   * following the scene into a new file may pop it open (Invariant 7). If the
+   * file has to be loaded into Monaco first, that happens while the pane is
+   * still hidden.
    */
   async activateTab(absPath: string, options: { reveal?: boolean } = {}): Promise<void> {
     const entry = this.models.get(absPath);
@@ -236,7 +239,7 @@ export class EditorSurface {
   private async createFile(relPath: string): Promise<void> {
     try {
       const created = await createWorkspaceFile(relPath, scaffoldFor(relPath));
-      await this.openFile(created.absPath, { reveal: true });
+      await this.openFile(created.absPath);
     } catch (err) {
       console.warn(`FluidCAD: could not create ${relPath}:`, err);
     }

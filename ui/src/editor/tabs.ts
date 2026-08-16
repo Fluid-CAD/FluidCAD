@@ -1,5 +1,6 @@
 import { ICON_CUBE, ICON_FILE_CODE, ICON_CLOSE, ICON_ALERT_DOT, ICON_PLUS } from '../ui/icons';
 import { ToolbarScroller } from '../ui/navbar/toolbar-scroller';
+import { ICON_IMG_FALLBACK } from '../ui/object-icons';
 import type { FileKind } from './editor-api';
 
 /**
@@ -35,6 +36,16 @@ export interface FileTabsHandlers {
   /** The `+` button — the caller opens the quick-open popover under it. */
   onAdd(anchor: HTMLElement): void;
 }
+
+type ModelType = 'Part' | 'Assembly';
+type ModelName = { stem: string; type: ModelType };
+
+/** Model suffixes and the type they announce, in match order. */
+const MODEL_SUFFIXES: ReadonlyArray<readonly [string, ModelType]> = [
+  ['.assembly.js', 'Assembly'],
+  ['.part.js', 'Part'],
+  ['.fluid.js', 'Part'],
+];
 
 const TAB_BASE =
   'group relative flex items-center gap-1.5 h-full pl-2 pr-1.5 text-sm ' +
@@ -139,19 +150,10 @@ export class FileTabs {
     el.title = tab.relPath;
     el.addEventListener('click', () => this.handlers.onActivate(tab.absPath));
 
-    const icon = document.createElement('span');
-    // The scene's own file wears the cube in full strength; another open model
-    // wears it dimmed, and a helper gets the quieter file icon.
-    icon.className = `shrink-0 [&>svg]:size-3.5 ${
-      isCurrentModel ? 'text-primary' : 'text-base-content/40'
-    }`;
-    icon.innerHTML = tab.kind === 'model' ? ICON_CUBE : ICON_FILE_CODE;
-    el.appendChild(icon);
-
-    const label = document.createElement('span');
-    label.className = 'truncate';
-    label.textContent = tab.relPath.split('/').pop() || tab.relPath;
-    el.appendChild(label);
+    const basename = tab.relPath.split('/').pop() || tab.relPath;
+    const model = FileTabs.splitModelName(basename);
+    el.appendChild(FileTabs.buildIcon(tab, model, isCurrentModel));
+    el.appendChild(FileTabs.buildLabel(basename, model));
 
     if (tab.dirty) {
       const dot = document.createElement('span');
@@ -183,5 +185,67 @@ export class FileTabs {
     }
 
     return el;
+  }
+
+  /**
+   * The scene's own file wears its icon in full strength; another open model
+   * wears it dimmed, and a helper gets the quieter file icon. An assembly
+   * shows the toolbar's assembly picture, a part the cube — the same pair the
+   * rest of the UI uses to tell the two apart. The picture is a raster, so it
+   * dims by opacity where the SVG cube dims by colour.
+   */
+  private static buildIcon(tab: FileTab, model: ModelName | null, isCurrentModel: boolean): HTMLElement {
+    const icon = document.createElement('span');
+    if (model?.type === 'Assembly') {
+      icon.className = `shrink-0 ${isCurrentModel ? '' : 'opacity-40'}`;
+      icon.innerHTML =
+        `<img src="/icons/assembly.png" ${ICON_IMG_FALLBACK} class="size-4 object-contain" alt="" />`;
+      return icon;
+    }
+    icon.className = `shrink-0 [&>svg]:size-3.5 ${
+      isCurrentModel ? 'text-primary' : 'text-base-content/40'
+    }`;
+    icon.innerHTML = tab.kind === 'model' ? ICON_CUBE : ICON_FILE_CODE;
+    return icon;
+  }
+
+  /**
+   * The name a tab wears. A model drops its type suffix and says the type
+   * underneath instead — `bracket` over `Part`, `rig` over `Assembly` — since
+   * the suffix is the same on every model tab and only the stem tells them
+   * apart. Helpers keep their full basename: `init.js` is its own name.
+   */
+  private static buildLabel(basename: string, model: ModelName | null): HTMLElement {
+    if (!model) {
+      const label = document.createElement('span');
+      label.className = 'truncate';
+      label.textContent = basename;
+      return label;
+    }
+
+    const label = document.createElement('span');
+    label.className = 'flex flex-col min-w-0 leading-tight';
+
+    const name = document.createElement('span');
+    name.className = 'truncate';
+    name.textContent = model.stem;
+    label.appendChild(name);
+
+    const type = document.createElement('span');
+    type.className = 'truncate text-[10px] text-base-content/50';
+    type.textContent = model.type;
+    label.appendChild(type);
+
+    return label;
+  }
+
+  /** `bracket.part.js` → `{ stem: 'bracket', type: 'Part' }`; null for anything else. */
+  private static splitModelName(basename: string): ModelName | null {
+    for (const [suffix, type] of MODEL_SUFFIXES) {
+      if (basename.endsWith(suffix) && basename.length > suffix.length) {
+        return { stem: basename.slice(0, -suffix.length), type };
+      }
+    }
+    return null;
   }
 }

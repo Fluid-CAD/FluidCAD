@@ -21,6 +21,12 @@ const STARTUP_TIMEOUT_MS = 30_000;
 const FIRST_PORT = 3100;
 
 export type EngineEvents = {
+  /**
+   * The child, the moment it is forked — before it is ready. A window that
+   * closes or an app that quits during the (long) kernel bring-up needs a
+   * handle to stop it; waiting for `startEngine` to resolve leaves an orphan.
+   */
+  onSpawn?: (child: ChildProcess) => void;
   onLog?: (line: string, stream: 'stdout' | 'stderr') => void;
   /** Every IPC message from the engine, after the startup handshake. */
   onMessage?: (message: any) => void;
@@ -95,6 +101,7 @@ export async function startEngine(
     stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
   });
 
+  events.onSpawn?.(child);
   child.stdout?.on('data', (data) => events.onLog?.(String(data).trimEnd(), 'stdout'));
   child.stderr?.on('data', (data) => events.onLog?.(String(data).trimEnd(), 'stderr'));
   child.on('exit', (code, signal) => events.onExit?.(code, signal));
@@ -115,12 +122,16 @@ export async function startEngine(
         if (message.success) {
           resolve(readyUrl ?? `http://127.0.0.1:${port}`);
         } else {
+          // The process is up and listening but will never serve a scene —
+          // reap it, or every failed open leaves an engine on a port.
+          stopEngine(child);
           reject(new Error(message.error || 'The FluidCAD engine failed to initialize.'));
         }
       }
     };
     const onError = (err: Error) => {
       cleanup();
+      stopEngine(child);
       reject(err);
     };
     const onExit = (code: number | null) => {

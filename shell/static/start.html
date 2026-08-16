@@ -120,17 +120,10 @@
       }
       .path bdi { direction: ltr; unicode-bidi: isolate; }
       .when { color: var(--faint); font-size: 11px; }
-      .tools {
+      .more {
         position: absolute;
         top: 8px;
         right: 8px;
-        display: flex;
-        gap: 4px;
-        opacity: 0;
-        transition: opacity 100ms ease;
-      }
-      .card:hover .tools, .card:focus-within .tools { opacity: 1; }
-      .tools button {
         padding: 0;
         width: 26px;
         height: 26px;
@@ -139,9 +132,32 @@
         border-color: #ffffff2e;
         display: grid;
         place-items: center;
+        opacity: 0;
+        transition: opacity 100ms ease;
       }
-      .tools button:hover { background: #000000d9; }
-      .tools svg { width: 14px; height: 14px; stroke: var(--fg); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      .card:hover .more, .card:focus-within .more, .more.open { opacity: 1; }
+      .more:hover, .more.open { background: #000000d9; }
+      .more svg { width: 16px; height: 16px; fill: var(--fg); }
+      .menu {
+        position: fixed;
+        z-index: 10;
+        min-width: 180px;
+        padding: 4px;
+        background: var(--panel-hover);
+        border: 1px solid #ffffff2e;
+        border-radius: 8px;
+        box-shadow: 0 8px 24px #00000080;
+      }
+      .menu button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 6px 10px;
+        border: none;
+        border-radius: 5px;
+        background: transparent;
+      }
+      .menu button:hover, .menu button:focus-visible { background: #ffffff1a; outline: none; }
       .empty {
         color: var(--muted);
         text-align: center;
@@ -187,9 +203,8 @@
       const CUBE =
         '<svg viewBox="0 0 24 24"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9L12 3z"/>' +
         '<path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg>';
-      const REVEAL =
-        '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>';
-      const REMOVE = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+      const DOTS =
+        '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
 
       let home = '';
 
@@ -215,14 +230,64 @@
         return full;
       }
 
-      function iconButton(title, svg, onClick) {
+      // One dropdown at a time, at body level so a card's overflow can't clip it.
+      let openMenu = null;
+
+      function closeMenu() {
+        if (!openMenu) { return; }
+        openMenu.element.remove();
+        openMenu.anchor.classList.remove('open');
+        openMenu = null;
+      }
+
+      function showMenu(anchor, items) {
+        if (openMenu && openMenu.anchor === anchor) { closeMenu(); return; }
+        closeMenu();
+        const menu = document.createElement('div');
+        menu.className = 'menu';
+        menu.setAttribute('role', 'menu');
+        for (const item of items) {
+          const button = document.createElement('button');
+          button.setAttribute('role', 'menuitem');
+          button.textContent = item.label;
+          button.onclick = (event) => {
+            event.stopPropagation();
+            closeMenu();
+            void item.action();
+          };
+          menu.appendChild(button);
+        }
+        // Stop clicks inside from reaching the card underneath.
+        menu.onclick = (event) => event.stopPropagation();
+        document.body.appendChild(menu);
+        const rect = anchor.getBoundingClientRect();
+        const width = menu.offsetWidth;
+        menu.style.top = `${rect.bottom + 4}px`;
+        menu.style.left = `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`;
+        anchor.classList.add('open');
+        openMenu = { element: menu, anchor };
+        menu.querySelector('button')?.focus();
+      }
+
+      document.addEventListener('click', closeMenu);
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') { closeMenu(); }
+      });
+      document.querySelector('main').addEventListener('scroll', closeMenu);
+      window.addEventListener('resize', closeMenu);
+      window.addEventListener('blur', closeMenu);
+
+      function moreButton(items) {
         const button = document.createElement('button');
-        button.title = title;
-        button.innerHTML = svg;
+        button.className = 'more';
+        button.title = 'More';
+        button.setAttribute('aria-haspopup', 'menu');
+        button.innerHTML = DOTS;
         button.onclick = (event) => {
           event.stopPropagation();
-          onClick();
+          showMenu(button, items);
         };
+        button.onkeydown = (event) => event.stopPropagation();
         return button;
       }
 
@@ -289,15 +354,15 @@
         when.textContent = relative(project.lastOpenedAt);
         meta.append(nameRow, path, when);
 
-        const tools = document.createElement('div');
-        tools.className = 'tools';
-        tools.append(
-          iconButton('Show in folder', REVEAL, () => api.start.showInFolder(project.path)),
-          iconButton('Remove from this list', REMOVE, async () => {
-            await api.start.forget(project.path);
-            await refresh();
-          }),
-        );
+        const more = moreButton([
+          {
+            label: 'Remove from recent',
+            action: async () => {
+              await api.start.forget(project.path);
+              await refresh();
+            },
+          },
+        ]);
 
         const open = async () => {
           if (el.classList.contains('busy')) { return; }
@@ -316,13 +381,14 @@
           }
         };
 
-        el.append(preview, meta, tools);
+        el.append(preview, meta, more);
         return el;
       }
 
       async function refresh() {
         if (!api) { return; }
         const state = await api.start.list();
+        closeMenu();
         home = state.home || '';
         grid.replaceChildren(...state.projects.map(card));
         empty.hidden = state.projects.length > 0;

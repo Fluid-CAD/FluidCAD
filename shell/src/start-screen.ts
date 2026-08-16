@@ -140,8 +140,4 @@ export function registerStartScreenHandlers(deps: StartScreenDeps): void {
   ipcMain.handle('shell:start-forget', (_event, workspacePath: string) => {
     forgetProject(workspacePath);
   });
-
-  ipcMain.handle('shell:start-show-in-folder', (_event, workspacePath: string) => {
-    shell.showItemInFolder(workspacePath);
-  });
 }

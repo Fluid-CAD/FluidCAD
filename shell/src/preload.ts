@@ -84,9 +84,6 @@ const shellApi = {
     openDialog: (): Promise<void> => ipcRenderer.invoke('shell:start-open-dialog'),
     newProject: (): Promise<void> => ipcRenderer.invoke('shell:start-new-project'),
     forget: (workspacePath: string): Promise<void> => ipcRenderer.invoke('shell:start-forget', workspacePath),
-    showInFolder: (workspacePath: string): void => {
-      void ipcRenderer.invoke('shell:start-show-in-folder', workspacePath);
-    },
     /** The recents changed under the page (a project closed, a preview landed). */
     onChanged: (handler: () => void): void => {
       ipcRenderer.on('shell:start-changed', () => handler());

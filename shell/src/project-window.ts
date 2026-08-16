@@ -204,6 +204,9 @@ export class ProjectWindow {
       engine,
       this.workspacePath,
       {
+        onSpawn: (child) => {
+          this.child = child;
+        },
         onLog: (line, stream) => {
           // The engine's stdout is the shell's log. Keeping it visible is what
           // makes "it didn't open" diagnosable from a terminal launch.
@@ -341,6 +344,9 @@ export class ProjectWindow {
         engine,
         this.workspacePath,
         {
+          onSpawn: (child) => {
+            this.child = child;
+          },
           onLog: (line, stream) =>
             stream === 'stderr' ? console.error(`[engine] ${line}`) : console.log(`[engine] ${line}`),
           onExit: (code, signal) => this.onEngineExit(code, signal),

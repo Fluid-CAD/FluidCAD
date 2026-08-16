@@ -627,3 +627,14 @@ process.on('SIGTERM', () => {
   cleanupDiscovery();
   process.exit(0);
 });
+// Every host that forks the engine (the desktop shell, `fluidcad serve`, the
+// editor extensions) holds the IPC channel for the engine's lifetime, so the
+// channel closing means the host is gone — crashed, killed, or quit before
+// this engine finished starting. Nothing is served to nobody; exit rather
+// than linger as an orphan on the port.
+if (process.send) {
+  process.on('disconnect', () => {
+    cleanupDiscovery();
+    process.exit(0);
+  });
+}

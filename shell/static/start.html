@@ -119,7 +119,8 @@
         text-align: left;
       }
       .path bdi { direction: ltr; unicode-bidi: isolate; }
-      .when { color: var(--faint); font-size: 11px; }
+      .when-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+      .when { color: var(--faint); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .more {
         position: absolute;
         top: 8px;
@@ -304,7 +305,7 @@
           tag.title = 'This project has no engine pin yet; it opens with the engine that ships with the app.';
           return tag;
         }
-        tag.textContent = `engine ${project.engine}`;
+        tag.textContent = project.engine;
         if (project.engineSource === 'own') {
           tag.classList.add('own');
           tag.title = "Runs the engine from the project's own node_modules.";
@@ -343,16 +344,19 @@
         const name = document.createElement('div');
         name.className = 'name';
         name.textContent = project.name;
-        nameRow.append(name, engineTag(project));
+        nameRow.append(name);
         const path = document.createElement('div');
         path.className = 'path';
         const bdi = document.createElement('bdi');
         bdi.textContent = shortenPath(project.path);
         path.appendChild(bdi);
+        const whenRow = document.createElement('div');
+        whenRow.className = 'when-row';
         const when = document.createElement('div');
         when.className = 'when';
         when.textContent = relative(project.lastOpenedAt);
-        meta.append(nameRow, path, when);
+        whenRow.append(when, engineTag(project));
+        meta.append(nameRow, path, whenRow);
 
         const more = moreButton([
           {

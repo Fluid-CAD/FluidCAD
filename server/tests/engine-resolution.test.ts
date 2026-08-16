@@ -86,12 +86,31 @@ describe('ensureEngineLink', () => {
     expect(fs.existsSync(markerPath())).toBe(false);
   });
 
-  it('stays out of the way when an ancestor directory holds the engine', () => {
+  it('stays out of the way when an ancestor directory holds *this* engine', () => {
+    // `npx fluidcad serve` from a sub-folder of a project: the server *is* the
+    // ancestor's install, so there is nothing to shadow.
+    const project = path.join(workspace, 'nested', 'project');
+    fs.mkdirSync(project, { recursive: true });
+    fs.mkdirSync(path.join(workspace, 'node_modules'));
+    fs.symlinkSync(path.resolve(import.meta.dirname, '..', '..'), path.join(workspace, 'node_modules', 'fluidcad'), 'junction');
+    expect(ensureEngineLink(project).state).toBe('already-resolvable');
+    expect(fs.existsSync(path.join(project, 'node_modules'))).toBe(false);
+  });
+
+  it('shadows a different engine copy found in an ancestor directory', () => {
+    // A project created inside a folder that has its own fluidcad install
+    // (a workspace of test projects) resolved that copy while the desktop
+    // ran the pinned engine — two lib copies, and the startup failed on the
+    // identity check. The link in the project's own node_modules wins the walk.
     const project = path.join(workspace, 'nested', 'project');
     fs.mkdirSync(project, { recursive: true });
     installEngineAt(workspace);
-    expect(ensureEngineLink(project).state).toBe('already-resolvable');
-    expect(fs.existsSync(path.join(project, 'node_modules'))).toBe(false);
+    expect(ensureEngineLink(project).state).toBe('linked');
+    expect(fs.realpathSync(path.join(project, 'node_modules', 'fluidcad')))
+      .toBe(fs.realpathSync(path.resolve(import.meta.dirname, '..', '..')));
+    expect(fs.existsSync(path.join(project, 'node_modules', ENGINE_LINK_MARKER))).toBe(true);
+    // The ancestor's install is untouched.
+    expect(fs.existsSync(path.join(workspace, 'node_modules', 'fluidcad', 'lib', 'dist', 'index.js'))).toBe(true);
   });
 
   it('refuses to replace a real directory, even a broken one', () => {

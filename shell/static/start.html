@@ -1,0 +1,355 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:;" />
+    <title>FluidCAD</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #1c1c1c;
+        --panel: #242424;
+        --panel-hover: #2b2b2b;
+        --preview: #171717;
+        --line: #ffffff1a;
+        --fg: #e7e7e7;
+        --muted: #9a9a9a;
+        --faint: #6b6b6b;
+        --accent: #4f9cf9;
+        --ok: #7bd88f;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font: 400 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        display: flex;
+        flex-direction: column;
+        -webkit-user-select: none;
+        user-select: none;
+        overflow: hidden;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 22px 28px 14px;
+      }
+      header .mark { font-size: 20px; font-weight: 600; letter-spacing: 0.02em; }
+      header .sub { color: var(--muted); font-size: 12px; margin-top: 1px; }
+      header .spacer { flex: 1; }
+      button {
+        font: inherit;
+        color: var(--fg);
+        background: #ffffff14;
+        border: 1px solid #ffffff26;
+        border-radius: 7px;
+        padding: 6px 14px;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      button:hover:not(:disabled) { background: #ffffff24; }
+      button:disabled { opacity: 0.5; cursor: default; }
+      button.primary { background: #4f9cf933; border-color: #4f9cf966; }
+      button.primary:hover:not(:disabled) { background: #4f9cf94d; }
+      main { flex: 1; overflow-y: auto; padding: 4px 28px 28px; }
+      h2 {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin: 10px 0 12px;
+        font-weight: 500;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        overflow: hidden;
+        cursor: pointer;
+        outline: none;
+        transition: border-color 100ms ease, background 100ms ease;
+      }
+      .card:hover, .card:focus-visible { background: var(--panel-hover); border-color: #ffffff33; }
+      .card:focus-visible { box-shadow: 0 0 0 2px #4f9cf966; }
+      .card.busy { pointer-events: none; opacity: 0.6; }
+      .preview {
+        aspect-ratio: 16 / 10;
+        background: var(--preview);
+        display: grid;
+        place-items: center;
+        border-bottom: 1px solid var(--line);
+        overflow: hidden;
+      }
+      .preview img { width: 100%; height: 100%; object-fit: contain; display: block; padding: 14px; }
+      .preview .placeholder { color: var(--faint); font-size: 12px; text-align: center; display: grid; gap: 6px; justify-items: center; }
+      .preview .placeholder svg { width: 34px; height: 34px; stroke: currentColor; fill: none; stroke-width: 1.4; opacity: 0.7; }
+      .meta { padding: 10px 12px 11px; display: grid; gap: 2px; min-width: 0; }
+      .name-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .tag {
+        flex: none;
+        padding: 0 7px;
+        border-radius: 999px;
+        font-size: 11px;
+        line-height: 18px;
+        border: 1px solid var(--line);
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .tag.open { color: var(--ok); border-color: #7bd88f55; }
+      .tag.own { color: var(--accent); border-color: #4f9cf955; }
+      .path {
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        direction: rtl;
+        text-align: left;
+      }
+      .path bdi { direction: ltr; unicode-bidi: isolate; }
+      .when { color: var(--faint); font-size: 11px; }
+      .tools {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        display: flex;
+        gap: 4px;
+        opacity: 0;
+        transition: opacity 100ms ease;
+      }
+      .card:hover .tools, .card:focus-within .tools { opacity: 1; }
+      .tools button {
+        padding: 0;
+        width: 26px;
+        height: 26px;
+        border-radius: 6px;
+        background: #000000a6;
+        border-color: #ffffff2e;
+        display: grid;
+        place-items: center;
+      }
+      .tools button:hover { background: #000000d9; }
+      .tools svg { width: 14px; height: 14px; stroke: var(--fg); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+      .empty {
+        color: var(--muted);
+        text-align: center;
+        padding: 64px 20px;
+        border: 1px dashed var(--line);
+        border-radius: 12px;
+      }
+      .empty strong { display: block; color: var(--fg); font-size: 15px; margin-bottom: 4px; }
+      footer { color: var(--faint); font-size: 11px; padding: 0 28px 14px; display: flex; gap: 8px; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <div class="mark">FluidCAD</div>
+        <div class="sub" id="sub">Pick a project to open.</div>
+      </div>
+      <div class="spacer"></div>
+      <button id="open">Open project…</button>
+      <button id="new" class="primary">New project…</button>
+    </header>
+
+    <main>
+      <h2 id="heading">Recent projects</h2>
+      <div id="grid" class="grid"></div>
+      <div id="empty" class="empty" hidden>
+        <strong>No projects yet</strong>
+        Create a new project in an empty folder, or open a folder that already holds one.
+      </div>
+    </main>
+
+    <footer><span id="engine"></span></footer>
+
+    <script>
+      const api = window.fluidcadShell;
+      const grid = document.getElementById('grid');
+      const empty = document.getElementById('empty');
+      const engineNote = document.getElementById('engine');
+      const openButton = document.getElementById('open');
+      const newButton = document.getElementById('new');
+
+      const CUBE =
+        '<svg viewBox="0 0 24 24"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9L12 3z"/>' +
+        '<path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg>';
+      const REVEAL =
+        '<svg viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>';
+      const REMOVE = '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>';
+
+      let home = '';
+
+      function relative(iso) {
+        const then = new Date(iso).getTime();
+        if (!Number.isFinite(then)) { return ''; }
+        const seconds = Math.max(0, (Date.now() - then) / 1000);
+        if (seconds < 60) { return 'Opened just now'; }
+        const minutes = Math.round(seconds / 60);
+        if (minutes < 60) { return `Opened ${minutes} min ago`; }
+        const hours = Math.round(minutes / 60);
+        if (hours < 24) { return `Opened ${hours} h ago`; }
+        const days = Math.round(hours / 24);
+        if (days === 1) { return 'Opened yesterday'; }
+        if (days < 30) { return `Opened ${days} days ago`; }
+        return `Opened ${new Date(iso).toLocaleDateString()}`;
+      }
+
+      function shortenPath(full) {
+        if (home && (full === home || full.startsWith(home + '/') || full.startsWith(home + '\\'))) {
+          return '~' + full.slice(home.length);
+        }
+        return full;
+      }
+
+      function iconButton(title, svg, onClick) {
+        const button = document.createElement('button');
+        button.title = title;
+        button.innerHTML = svg;
+        button.onclick = (event) => {
+          event.stopPropagation();
+          onClick();
+        };
+        return button;
+      }
+
+      function engineTag(project) {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        if (project.open) {
+          tag.classList.add('open');
+          tag.textContent = 'open';
+          return tag;
+        }
+        if (!project.engine) {
+          tag.textContent = 'unpinned';
+          tag.title = 'This project has no engine pin yet; it opens with the engine that ships with the app.';
+          return tag;
+        }
+        tag.textContent = `engine ${project.engine}`;
+        if (project.engineSource === 'own') {
+          tag.classList.add('own');
+          tag.title = "Runs the engine from the project's own node_modules.";
+        } else {
+          tag.title = 'Pinned in fluidcad.json.';
+        }
+        return tag;
+      }
+
+      function card(project) {
+        const el = document.createElement('div');
+        el.className = 'card';
+        el.tabIndex = 0;
+        el.setAttribute('role', 'button');
+        el.title = project.path;
+
+        const preview = document.createElement('div');
+        preview.className = 'preview';
+        if (project.thumbnail) {
+          const img = document.createElement('img');
+          img.src = project.thumbnail;
+          img.alt = '';
+          img.draggable = false;
+          preview.appendChild(img);
+        } else {
+          const placeholder = document.createElement('div');
+          placeholder.className = 'placeholder';
+          placeholder.innerHTML = `${CUBE}<span>No preview yet</span>`;
+          preview.appendChild(placeholder);
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const nameRow = document.createElement('div');
+        nameRow.className = 'name-row';
+        const name = document.createElement('div');
+        name.className = 'name';
+        name.textContent = project.name;
+        nameRow.append(name, engineTag(project));
+        const path = document.createElement('div');
+        path.className = 'path';
+        const bdi = document.createElement('bdi');
+        bdi.textContent = shortenPath(project.path);
+        path.appendChild(bdi);
+        const when = document.createElement('div');
+        when.className = 'when';
+        when.textContent = relative(project.lastOpenedAt);
+        meta.append(nameRow, path, when);
+
+        const tools = document.createElement('div');
+        tools.className = 'tools';
+        tools.append(
+          iconButton('Show in folder', REVEAL, () => api.start.showInFolder(project.path)),
+          iconButton('Remove from this list', REMOVE, async () => {
+            await api.start.forget(project.path);
+            await refresh();
+          }),
+        );
+
+        const open = async () => {
+          if (el.classList.contains('busy')) { return; }
+          el.classList.add('busy');
+          try {
+            await api.start.open(project.path);
+          } finally {
+            el.classList.remove('busy');
+          }
+        };
+        el.onclick = open;
+        el.onkeydown = (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            void open();
+          }
+        };
+
+        el.append(preview, meta, tools);
+        return el;
+      }
+
+      async function refresh() {
+        if (!api) { return; }
+        const state = await api.start.list();
+        home = state.home || '';
+        grid.replaceChildren(...state.projects.map(card));
+        empty.hidden = state.projects.length > 0;
+        grid.hidden = state.projects.length === 0;
+        engineNote.textContent = state.defaultEngine
+          ? `New projects use engine ${state.defaultEngine}, the one that ships with this app.`
+          : '';
+      }
+
+      async function busy(button, action) {
+        openButton.disabled = true;
+        newButton.disabled = true;
+        try {
+          await action();
+        } finally {
+          openButton.disabled = false;
+          newButton.disabled = false;
+          await refresh();
+        }
+      }
+
+      openButton.onclick = () => void busy(openButton, () => api.start.openDialog());
+      newButton.onclick = () => void busy(newButton, () => api.start.newProject());
+
+      api?.start.onChanged(() => void refresh());
+      window.addEventListener('focus', () => void refresh());
+      void refresh();
+    </script>
+  </body>
+</html>

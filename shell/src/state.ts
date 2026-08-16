@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { desktopStateFile, fluidcadHome } from './engine/paths';
+import { deleteThumbnail } from './thumbnails';
 
 /**
  * Shell-owned state: which projects were opened recently, and how big the last
@@ -61,6 +62,11 @@ export function rememberProject(workspacePath: string, pin: string | null): void
   const others = state.recentProjects.filter((entry) => entry.path !== workspacePath);
   const recents = [{ path: workspacePath, lastOpenedAt: new Date().toISOString(), pin }, ...others];
   writeDesktopState({ ...state, recentProjects: recents.slice(0, MAX_RECENTS) });
+  // A project that fell off the list takes its start-screen preview with it;
+  // the preview only ever exists to be shown there.
+  for (const evicted of recents.slice(MAX_RECENTS)) {
+    deleteThumbnail(evicted.path);
+  }
 }
 
 export function forgetProject(workspacePath: string): void {
@@ -69,6 +75,7 @@ export function forgetProject(workspacePath: string): void {
     ...state,
     recentProjects: state.recentProjects.filter((entry) => entry.path !== workspacePath),
   });
+  deleteThumbnail(workspacePath);
 }
 
 /** Recents that still exist on disk, newest first. */

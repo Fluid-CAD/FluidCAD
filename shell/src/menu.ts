@@ -17,8 +17,9 @@ import { windowFor } from './project-window';
  */
 
 export type MenuActions = {
-  openProject: (target: string | null) => Promise<void>;
+  openProject: (target: string | null) => Promise<unknown>;
   openEngineManager: () => Promise<void>;
+  openStartScreen: () => void;
 };
 
 /** Send a command to the focused project window's page. */
@@ -76,6 +77,7 @@ export function buildApplicationMenu(actions: MenuActions): void {
           click: () => void actions.openProject(null),
         },
         { label: 'Open Recent', submenu: recentProjectsSubmenu(actions) },
+        { label: 'Start Screen', accelerator: 'CmdOrCtrl+Shift+O', click: () => actions.openStartScreen() },
         { type: 'separator' },
         { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => toPage('save') },
         { label: 'Save All', accelerator: 'CmdOrCtrl+Alt+S', click: () => toPage('save-all') },
@@ -84,7 +86,10 @@ export function buildApplicationMenu(actions: MenuActions): void {
         { label: 'Export…', accelerator: 'CmdOrCtrl+E', click: () => toPage('export') },
         { type: 'separator' },
         // Close the *project*, not a browser tab — the collision this fixes.
-        isMac ? { role: 'close', label: 'Close Project' } : { role: 'quit', label: 'Close Project' },
+        // Closing the last project brings the start screen back on every
+        // platform, so this is a window close everywhere, never a quit.
+        { role: 'close', label: 'Close Project' },
+        ...(isMac ? [] : ([{ type: 'separator' }, { role: 'quit' }] as MenuItemConstructorOptions[])),
       ],
     },
     {

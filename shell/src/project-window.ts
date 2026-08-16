@@ -6,6 +6,7 @@ import { startEngine, stopEngine } from './engine/process';
 import { EngineResolutionError, pinProjectIfNeeded, resolveEngine, type ResolvedEngine } from './engine/resolver';
 import { rememberProject, rememberWindowBounds, readDesktopState } from './state';
 import { isFluidScriptFile } from './file-kind';
+import { captureThumbnail } from './thumbnails';
 
 /**
  * One window, one project, one engine child.
@@ -22,6 +23,8 @@ export type ShellStatus =
   | { phase: 'error'; message: string };
 
 const STATIC_DIR = path.join(__dirname, '..', 'static');
+/** How long `close()` waits for the window to actually go. */
+const CLOSE_TIMEOUT_MS = 5_000;
 const STARTUP_PAGE = path.join(STATIC_DIR, 'startup.html');
 /**
  * One preload for both pages. It decides what to expose from the page's own
@@ -31,6 +34,19 @@ const STARTUP_PAGE = path.join(STATIC_DIR, 'startup.html');
 const PRELOAD = path.join(__dirname, 'preload.js');
 
 const windows = new Map<string, ProjectWindow>();
+
+export type ProjectWindowClosedListener = (window: ProjectWindow, info: { reopening: boolean }) => void;
+
+let closedListener: ProjectWindowClosedListener | null = null;
+
+/**
+ * Told after a project window is gone. `reopening` is true when the shell
+ * closed it only to open the same project again (a pin change) — the start
+ * screen must not pop up in between.
+ */
+export function onProjectWindowClosed(listener: ProjectWindowClosedListener): void {
+  closedListener = listener;
+}
 
 export function findProjectWindow(workspacePath: string): ProjectWindow | undefined {
   return windows.get(workspacePath);
@@ -55,6 +71,10 @@ export class ProjectWindow {
   private url: string | null = null;
   private stopping = false;
   private restarting = false;
+  /** Set once the thumbnail is captured (or given up on); the next `close` goes through. */
+  private closeReady = false;
+  private closePreparation: Promise<void> | null = null;
+  private reopening = false;
 
   constructor(readonly workspacePath: string) {
     const bounds = readDesktopState().windowBounds;
@@ -78,18 +98,35 @@ export class ProjectWindow {
 
     windows.set(workspacePath, this);
 
-    this.browserWindow.on('close', () => {
+    this.browserWindow.on('close', (event) => {
       const bounds = this.browserWindow.getNormalBounds();
       rememberWindowBounds(bounds);
+      if (this.closeReady) {
+        return;
+      }
+      // The thumbnail has to come from the live page, so the close waits for
+      // it: hold the window, capture, then close for real. `closeReady` is
+      // what lets the second `close()` through.
+      event.preventDefault();
+      void this.prepareClose().then(() => {
+        if (!this.browserWindow.isDestroyed()) {
+          this.browserWindow.close();
+        }
+      });
     });
 
     this.browserWindow.on('closed', () => {
-      windows.delete(workspacePath);
+      // Only our own entry: a caller that awaited `close()` and reopened the
+      // project may already have registered a newer window under this path.
+      if (windows.get(workspacePath) === this) {
+        windows.delete(workspacePath);
+      }
       this.stopping = true;
       if (this.child) {
         stopEngine(this.child);
         this.child = null;
       }
+      closedListener?.(this, { reopening: this.reopening });
     });
 
     // Links to the docs, the hub, anything external: the OS browser, not a
@@ -105,6 +142,28 @@ export class ProjectWindow {
       this.browserWindow.restore();
     }
     this.browserWindow.focus();
+  }
+
+  /**
+   * Everything that has to happen while the page and engine are still alive:
+   * today, the start-screen thumbnail. Idempotent — the close handler, a
+   * programmatic `close()` and `before-quit` can all ask, and share one job.
+   */
+  prepareClose(): Promise<void> {
+    if (!this.closePreparation) {
+      this.closePreparation = this.captureThumbnail().finally(() => {
+        this.closeReady = true;
+      });
+    }
+    return this.closePreparation;
+  }
+
+  private async captureThumbnail(): Promise<void> {
+    if (!this.url || !this.child || this.child.exitCode !== null) {
+      // No engine, no page worth photographing — keep the previous preview.
+      return;
+    }
+    await captureThumbnail(this.url, this.workspacePath);
   }
 
   /** Resolve an engine, start it, and point the window at it. */
@@ -159,6 +218,12 @@ export class ProjectWindow {
       { preferredPort: this.port ?? undefined },
     );
 
+    if (this.stopping) {
+      // The window went away while the engine was resolving or downloading;
+      // an engine nobody will ever look at must not be left running.
+      stopEngine(started.child);
+      return;
+    }
     this.child = started.child;
     this.port = started.port;
     this.url = started.url;
@@ -316,15 +381,40 @@ export class ProjectWindow {
     }
   }
 
-  close(): void {
+  /**
+   * Close the project. Waits for the thumbnail first, because the engine is
+   * stopped here and the picture needs it — and then for the window to be
+   * gone, because `closed` is asynchronous and a caller reopening the same
+   * project must not find this window still registered. `reopening` marks a
+   * close the shell makes only to reopen the same project (a pin change).
+   */
+  async close(options: { reopening?: boolean } = {}): Promise<void> {
+    this.reopening = options.reopening ?? false;
+    await this.prepareClose();
     this.stopping = true;
     if (this.child) {
       stopEngine(this.child);
       this.child = null;
     }
-    if (!this.browserWindow.isDestroyed()) {
-      this.browserWindow.close();
+    if (this.browserWindow.isDestroyed()) {
+      return;
     }
+    await new Promise<void>((resolve) => {
+      // Bounded: a page that vetoes the close from `beforeunload` would
+      // otherwise hold the caller forever; it then finds the window still
+      // open and focuses it, which is the right answer for a refused close.
+      const timeout = setTimeout(resolve, CLOSE_TIMEOUT_MS);
+      this.browserWindow.once('closed', () => {
+        clearTimeout(timeout);
+        resolve();
+      });
+      this.browserWindow.close();
+    });
+  }
+
+  /** True once the thumbnail is in hand and the window may close without waiting. */
+  get readyToClose(): boolean {
+    return this.closeReady;
   }
 
   /** Called on quit: stop the engine without waiting for window teardown. */

@@ -43,12 +43,18 @@ export async function findFreePort(start = FIRST_PORT, attempts = 200): Promise<
   throw new Error(`No free port found between ${start} and ${start + attempts}.`);
 }
 
+/**
+ * Probed on the wildcard address, the way the engine itself listens. A probe
+ * on `127.0.0.1` alone passes on macOS while another engine holds `[::]:port`
+ * (BSD lets a specific address bind next to a wildcard with SO_REUSEADDR), and
+ * the second engine then dies with EADDRINUSE.
+ */
 function isPortFree(port: number): Promise<boolean> {
   return new Promise((resolve) => {
     const server = net.createServer();
     server.once('error', () => resolve(false));
     server.once('listening', () => server.close(() => resolve(true)));
-    server.listen(port, '127.0.0.1');
+    server.listen(port);
   });
 }
 

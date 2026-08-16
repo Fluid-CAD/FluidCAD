@@ -37,9 +37,17 @@ import path from 'path';
  *   never consulted: Vite resolves externals with its own JS implementation
  *   (`fetchModule` → `tryNodeResolve`) and throws before Node is involved.
  *
- * The link is created only when resolution would otherwise fail, so a project
- * with any real install — including an npm-linked dev checkout — is never
- * touched, and `lib-identity.ts` remains the arbiter of mismatches.
+ * The link is created only when resolution would otherwise fail *or land on a
+ * different copy in an ancestor directory*. A project's own install — real or
+ * npm-linked dev checkout — is never touched, and `lib-identity.ts` remains
+ * the arbiter of mismatches there. An ancestor's install is different: a
+ * project created inside a folder that happens to hold its own
+ * `node_modules/fluidcad` (a workspace of test projects, say) would resolve
+ * that copy while the server runs another, and Invariant 1 breaks before the
+ * first render. Planting the link in the project's own `node_modules` shadows
+ * the ancestor for every resolver — unless the ancestor's copy *is* this
+ * engine (the CLI or an editor extension started from that install), in
+ * which case there is nothing to shadow.
  */
 
 /** Where `server/dist/host/engine-resolution.js` sits inside the package. */
@@ -53,8 +61,15 @@ const PACKAGE_ROOT = path.resolve(import.meta.dirname, '../../..');
  */
 export const ENGINE_LINK_MARKER = '.fluidcad-engine-link';
 
+type ResolvedEngineCopy = {
+  /** The `node_modules/fluidcad` the walk landed on. */
+  root: string;
+  /** True when it sits in the workspace's own `node_modules`, not an ancestor's. */
+  own: boolean;
+};
+
 /**
- * True when `workspacePath` can resolve `fluidcad` on its own — decided by the
+ * The `fluidcad` that `workspacePath` resolves on its own — decided by the
  * same `node_modules` walk every resolver performs, not by
  * `createRequire().resolve()`, which also consults CJS-only global folders
  * (`$NODE_PATH`, `~/node_modules`) that Node ESM and Vite ignore.
@@ -64,18 +79,28 @@ export const ENGINE_LINK_MARKER = '.fluidcad-engine-link';
  * shares the package name. Only a root carrying `lib/dist/index.js` is an
  * engine (the same guard `lib-identity.ts` applies).
  */
-function workspaceResolvesEngine(workspacePath: string): boolean {
-  let dir = path.resolve(workspacePath);
+function resolveEngineFrom(workspacePath: string): ResolvedEngineCopy | null {
+  const start = path.resolve(workspacePath);
+  let dir = start;
   for (;;) {
     const candidate = path.join(dir, 'node_modules', 'fluidcad');
     if (fs.existsSync(path.join(candidate, 'lib', 'dist', 'index.js'))) {
-      return true;
+      return { root: candidate, own: dir === start };
     }
     const parent = path.dirname(dir);
     if (parent === dir) {
-      return false;
+      return null;
     }
     dir = parent;
+  }
+}
+
+/** True when `root` is this very package on disk, through any links. */
+function isThisEngine(root: string): boolean {
+  try {
+    return fs.realpathSync(root) === fs.realpathSync(PACKAGE_ROOT);
+  } catch {
+    return false;
   }
 }
 
@@ -129,7 +154,11 @@ export function ensureEngineLink(workspacePath: string): EngineLinkResult {
     }
   }
 
-  if (workspaceResolvesEngine(workspacePath)) {
+  // The project's own install always stands, whatever it is. An ancestor's
+  // stands only when it is this engine; another copy up the tree is shadowed
+  // by the link planted below, in the project's own `node_modules`.
+  const resolved = resolveEngineFrom(workspacePath);
+  if (resolved && (resolved.own || isThisEngine(resolved.root))) {
     return { state: 'already-resolvable' };
   }
 

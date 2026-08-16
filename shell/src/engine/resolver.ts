@@ -121,6 +121,15 @@ function newestInstalled(): InstalledEngine | null {
   return engines[0] ?? null;
 }
 
+/**
+ * The engine an unpinned project gets: the one that ships with the app, or
+ * failing that the newest on disk. Also the engine a *new* project is
+ * scaffolded with, so its `init` writes the pin the resolver would have.
+ */
+export function defaultEngine(): InstalledEngine | null {
+  return builtinEngine() ?? newestInstalled();
+}
+
 export type ResolveOptions = DownloadOptions & {
   /** Called when a pinned engine has to be fetched, before the download starts. */
   onDownloadStart?: (version: string) => void;
@@ -161,7 +170,7 @@ export async function resolveEngine(
   }
 
   // 3 — no pin: the engine that ships with the app.
-  const builtin = builtinEngine() ?? newestInstalled();
+  const builtin = defaultEngine();
   if (!builtin) {
     throw new EngineResolutionError(
       'This installation has no FluidCAD engine. Reinstall the app, or open a ' +

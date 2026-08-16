@@ -62,7 +62,7 @@ function progress(message: string): void {
 }
 
 export type EngineManagerDeps = {
-  openProject: (target: string | null) => Promise<void>;
+  openProject: (target: string | null) => Promise<unknown>;
 };
 
 export function registerEngineManagerHandlers(deps: EngineManagerDeps): void {
@@ -172,7 +172,7 @@ export function registerEngineManagerHandlers(deps: EngineManagerDeps): void {
         // The running engine is the old one; the project has to be reopened to
         // pick up the new pin. Doing it here means the user never sees a window
         // whose title says one version and whose geometry came from another.
-        open.close();
+        await open.close({ reopening: true });
         await deps.openProject(workspacePath);
       }
       return { ok: true };

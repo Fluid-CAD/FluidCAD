@@ -4,8 +4,22 @@ import path from 'path';
 import { pruneEngines } from './engine/cache';
 import { buildApplicationMenu, refreshApplicationMenu } from './menu';
 import { openEngineManager, registerEngineManagerHandlers } from './engine-manager';
-import { allProjectWindows, findProjectWindow, openProjectWindow, windowFor } from './project-window';
-import { listRecentProjects, pinnedVersions, workspaceForPath } from './state';
+import {
+  allProjectWindows,
+  findProjectWindow,
+  onProjectWindowClosed,
+  openProjectWindow,
+  windowFor,
+  type ProjectWindow,
+} from './project-window';
+import {
+  closeStartScreen,
+  isStartScreenOpen,
+  openStartScreen,
+  refreshStartScreen,
+  registerStartScreenHandlers,
+} from './start-screen';
+import { pinnedVersions, workspaceForPath } from './state';
 import { initAutoUpdate } from './updater';
 
 /**
@@ -15,7 +29,9 @@ import { initAutoUpdate } from './updater';
  * user sees inside the window — the viewport, the editor, the dialogs — is the
  * engine's page, served from the engine that this project pins. That is the
  * whole design: see `docs/desktop/00-architecture.md`, and resist every urge
- * to put product UI in here.
+ * to put product UI in here. The two shell pages — the start screen and the
+ * engine manager — are the exceptions, and both exist precisely for the
+ * moments when there is no engine to show anything.
  */
 
 // `cache.ts` reads this to find the engine that ships inside the app. Set from
@@ -53,12 +69,16 @@ function pathFromArgv(argv: string[]): string | null {
   return null;
 }
 
-async function promptForProject(): Promise<string | null> {
-  const result = await dialog.showOpenDialog({
+async function promptForProject(parent: BrowserWindow | null): Promise<string | null> {
+  const options: Electron.OpenDialogOptions = {
     title: 'Open a FluidCAD project',
     properties: ['openDirectory', 'createDirectory'],
     buttonLabel: 'Open project',
-  });
+  };
+  const result =
+    parent && !parent.isDestroyed()
+      ? await dialog.showOpenDialog(parent, options)
+      : await dialog.showOpenDialog(options);
   return result.canceled ? null : result.filePaths[0] ?? null;
 }
 
@@ -97,23 +117,35 @@ function callerWindow(event?: Electron.IpcMainInvokeEvent) {
   return windowFor(browserWindow);
 }
 
-export async function openProject(target: string | null): Promise<void> {
-  const workspacePath = target ? workspaceForPath(target) : await promptForProject();
+/**
+ * Open (or focus) a project; `null` asks the user for one, as a sheet on
+ * `parent` when given. Returns the window, or null when nothing was opened —
+ * the start screen uses that to know whether it should stay up.
+ */
+export async function openProject(
+  target: string | null,
+  parent: BrowserWindow | null = null,
+): Promise<ProjectWindow | null> {
+  const workspacePath = target ? workspaceForPath(target) : await promptForProject(parent);
   if (!workspacePath) {
-    return;
+    return null;
   }
   const existing = findProjectWindow(workspacePath);
   if (existing) {
     existing.focus();
-    return;
+    closeStartScreen();
+    return existing;
   }
-  await openProjectWindow(workspacePath);
+  const opened = await openProjectWindow(workspacePath);
+  // The start screen is a launcher: once a project is up it has done its job.
+  closeStartScreen();
   // Open Recent is a snapshot taken when the menu was built; the project just
   // opened has to appear in it without restarting the app.
   refreshApplicationMenu(menuActions);
+  return opened;
 }
 
-const menuActions = { openProject, openEngineManager };
+const menuActions = { openProject, openEngineManager, openStartScreen };
 
 // ---------------------------------------------------------------------------
 // Renderer bridge
@@ -177,6 +209,7 @@ function registerIpcHandlers(): void {
   });
 
   registerEngineManagerHandlers({ openProject });
+  registerStartScreenHandlers({ openProject });
 }
 
 // ---------------------------------------------------------------------------
@@ -186,6 +219,8 @@ function registerIpcHandlers(): void {
 if (singleInstance) {
   /** A macOS `open-file` that arrived before the app was ready. */
   let pendingOpen: string | null = null;
+  /** Set on the first `before-quit`; the start screen must not reappear while windows go down. */
+  let quitting = false;
 
   app.on('second-instance', (_event, argv) => {
     const target = pathFromArgv(argv);
@@ -193,7 +228,12 @@ if (singleInstance) {
       void openProject(target);
       return;
     }
-    allProjectWindows()[0]?.focus();
+    const front = allProjectWindows()[0];
+    if (front) {
+      front.focus();
+    } else {
+      openStartScreen();
+    }
   });
 
   // macOS: double-clicking a model file in Finder, or dropping one on the icon.
@@ -212,6 +252,19 @@ if (singleInstance) {
     buildApplicationMenu(menuActions);
     initAutoUpdate();
 
+    // When the last project window closes, the start screen takes its place —
+    // it is the app's home, and the preview just captured is right there.
+    onProjectWindowClosed((_window, info) => {
+      if (quitting || info.reopening) {
+        return;
+      }
+      if (allProjectWindows().length === 0) {
+        openStartScreen();
+      } else if (isStartScreenOpen()) {
+        refreshStartScreen();
+      }
+    });
+
     // `fluidcad --engines` goes straight to the manager, and to nothing else.
     // Useful when a pinned engine won't download and the fix is to look at
     // what *is* installed.
@@ -220,16 +273,14 @@ if (singleInstance) {
       await openEngineManager();
     }
 
+    // A path on the command line (or a Finder double-click) opens that
+    // project; otherwise the app starts on the start screen and the user
+    // picks — it never assumes the last project is the one wanted now.
     const explicit = pendingOpen ?? pathFromArgv(process.argv);
-    if (explicit || !enginesOnly) {
-      await openProject(explicit ?? listRecentProjects()[0]?.path ?? null);
-    }
-
-    if (BrowserWindow.getAllWindows().length === 0) {
-      // The user cancelled the picker with nothing else open — there is no
-      // product without a project, so there is nothing to keep running.
-      app.quit();
-      return;
+    if (explicit) {
+      await openProject(explicit);
+    } else if (!enginesOnly) {
+      openStartScreen();
     }
 
     // Reclaim disk from engines nothing pins any more. Never touches a version
@@ -243,17 +294,29 @@ if (singleInstance) {
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      void openProject(listRecentProjects()[0]?.path ?? null);
+      openStartScreen();
     }
   });
 
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') {
+    // A project window's `closed` handler may have just opened the start
+    // screen; only a truly empty app quits.
+    if (process.platform !== 'darwin' && BrowserWindow.getAllWindows().length === 0) {
       app.quit();
     }
   });
 
-  app.on('before-quit', () => {
+  app.on('before-quit', (event) => {
+    quitting = true;
+    // Thumbnails come from the live pages, and the engines die below — so on
+    // the first pass hold the quit, capture every open project at once, and
+    // quit again with the pictures in hand.
+    const pending = allProjectWindows().filter((window) => !window.readyToClose);
+    if (pending.length > 0) {
+      event.preventDefault();
+      void Promise.allSettled(pending.map((window) => window.prepareClose())).then(() => app.quit());
+      return;
+    }
     for (const window of allProjectWindows()) {
       window.shutdown();
     }

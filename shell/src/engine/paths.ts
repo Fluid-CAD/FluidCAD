@@ -15,6 +15,8 @@ import path from 'path';
  *                                node_modules, so server + lib are siblings
  *                                by construction (Invariant 1)
  *     desktop.json            ← recent projects, window state
+ *     thumbnails/
+ *       <sha1(project path)>.png ← start-screen previews (thumbnails.ts)
  *     instances.json          ← written by each engine process (server/src/global-registry.ts)
  */
 
@@ -51,6 +53,10 @@ export function engineIndexFile(): string {
 
 export function desktopStateFile(): string {
   return path.join(fluidcadHome(), 'desktop.json');
+}
+
+export function thumbnailsDir(): string {
+  return path.join(fluidcadHome(), 'thumbnails');
 }
 
 /**

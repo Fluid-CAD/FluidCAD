@@ -7,7 +7,9 @@
 import { describe, it, expect, vi } from 'vitest';
 
 // The real setup module pulls in Vite `?worker` imports that have no meaning
-// under vitest; the provider only needs Range and the CompletionItemKind enum.
+// under vitest; the provider needs Range, the CompletionItemKind enum, and
+// `editor.getModels` (backed per test by `openModels`) for workspace exports.
+const openModels: any[] = [];
 vi.mock('../src/editor/monaco-setup', () => ({
   monaco: {
     Range: class {
@@ -19,8 +21,11 @@ vi.mock('../src/editor/monaco-setup', () => ({
       ) {}
     },
     languages: {
-      CompletionItemKind: { Function: 1 },
+      CompletionItemKind: { Function: 1, Class: 2, Variable: 3 },
       registerCompletionItemProvider: vi.fn(),
+    },
+    editor: {
+      getModels: () => openModels,
     },
   },
 }));
@@ -34,7 +39,7 @@ const SYMBOLS = [
 ];
 
 /** The slice of ITextModel the provider touches, backed by a plain string. */
-function fakeModel(text: string) {
+function fakeModel(text: string, path = '/ws/model.fluid.js') {
   const lines = text.split('\n');
   const lineStart = (lineNumber: number) => {
     let offset = 0;
@@ -44,6 +49,9 @@ function fakeModel(text: string) {
     return offset;
   };
   return {
+    uri: { scheme: 'file', path, toString: () => `file://${path}` },
+    getLanguageId: () => 'javascript',
+    getVersionId: () => 1,
     getValue: () => text,
     getLineContent: (n: number) => lines[n - 1] ?? '',
     getLineMaxColumn: (n: number) => (lines[n - 1] ?? '').length + 1,
@@ -77,7 +85,22 @@ function caretAtEnd(text: string) {
 
 function complete(text: string, position = caretAtEnd(text)) {
   const provider = new AutoImportCompletions(SYMBOLS);
-  return provider.provideCompletionItems(fakeModel(text), position as any);
+  const model = fakeModel(text);
+  openModels.length = 0;
+  openModels.push(model);
+  return provider.provideCompletionItems(model, position as any);
+}
+
+/** Like `complete`, with sibling workspace files open as models. */
+function completeAmong(
+  current: { text: string; path: string },
+  others: Array<{ text: string; path: string }>,
+) {
+  const provider = new AutoImportCompletions(SYMBOLS);
+  const model = fakeModel(current.text, current.path);
+  openModels.length = 0;
+  openModels.push(model, ...others.map((o) => fakeModel(o.text, o.path)));
+  return provider.provideCompletionItems(model, caretAtEnd(current.text) as any);
 }
 
 /** Apply a suggestion's import edit to the text, so assertions read as files. */
@@ -150,6 +173,60 @@ describe('AutoImportCompletions', () => {
     expect(complete(memberAccess).suggestions).toHaveLength(0);
     const importLine = 'import { re';
     expect(complete(importLine).suggestions).toHaveLength(0);
+  });
+
+  it('offers exports of other workspace models with a relative specifier', () => {
+    const current = { text: 'const w = WA', path: '/ws/model.fluid.js' };
+    const sibling = {
+      text: 'export const WALL = 2;\nexport function bracket() {}\nconst hidden = 1;',
+      path: '/ws/constants.js',
+    };
+    const list = completeAmong(current, [sibling]);
+    const wall = suggestion(list, 'WALL');
+    expect(wall.label.description).toBe('./constants.js');
+    expect(applyImportEdit(current.text, wall)).toBe(
+      'import { WALL } from "./constants.js";\n\nconst w = WA',
+    );
+    expect(suggestion(list, 'bracket')).toBeDefined();
+    expect(suggestion(list, 'hidden')).toBeUndefined();
+  });
+
+  it('walks directories and reads export lists, skipping default', () => {
+    const current = { text: 'ar', path: '/ws/assemblies/robot.assembly.js' };
+    const part = {
+      text: 'const arm = 1;\nconst pivot = 2;\nexport { arm, pivot as hinge };\nexport default arm;',
+      path: '/ws/parts/arm.part.js',
+    };
+    const list = completeAmong(current, [part]);
+    const arm = suggestion(list, 'arm');
+    expect(arm.label.description).toBe('../parts/arm.part.js');
+    expect(suggestion(list, 'hinge')).toBeDefined();
+    expect(suggestion(list, 'pivot')).toBeUndefined();
+    expect(suggestion(list, 'default')).toBeUndefined();
+    expect(applyImportEdit(current.text, arm)).toBe(
+      'import { arm } from "../parts/arm.part.js";\n\nar',
+    );
+  });
+
+  it('does not offer the current file its own exports', () => {
+    const current = { text: 'export const WALL = 2;\nWA', path: '/ws/model.fluid.js' };
+    const list = completeAmong(current, []);
+    expect(suggestion(list, 'WALL')).toBeUndefined();
+  });
+
+  it('merges a workspace export into an existing relative import', () => {
+    const current = {
+      text: 'import { WALL } from "./constants.js";\nbra',
+      path: '/ws/model.fluid.js',
+    };
+    const sibling = {
+      text: 'export const WALL = 2;\nexport function bracket() {}',
+      path: '/ws/constants.js',
+    };
+    const item = suggestion(completeAmong(current, [sibling]), 'bracket');
+    expect(applyImportEdit(current.text, item)).toBe(
+      'import { WALL, bracket } from "./constants.js";\nbra',
+    );
   });
 
   it('sorts into the auto-import tier, below in-scope entries', () => {

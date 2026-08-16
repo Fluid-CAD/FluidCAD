@@ -1,6 +1,8 @@
 import { monaco } from './monaco-setup';
 import type { EngineSymbolEntry } from './editor-api';
 
+type WorkspaceExport = { name: string; kind: monaco.languages.CompletionItemKind };
+
 /**
  * Auto-import completions for the engine's public API — the one IntelliSense
  * behaviour VS Code has that Monaco's bundled TypeScript service doesn't.
@@ -18,6 +20,13 @@ import type { EngineSymbolEntry } from './editor-api';
  * name into an existing `import { … } from "fluidcad/…"` or adds a new
  * import line, so accepting one behaves exactly like VS Code.
  *
+ * The same treatment covers the project's own files: every workspace source
+ * is already a loaded Monaco model (`WorkspaceModels` loads them eagerly so
+ * the TS service can cross-complete), so their top-level `export`s are
+ * scanned right out of the models and offered with a relative specifier
+ * (`./constants.js`) — multi-file models importing each other this way is a
+ * supported engine feature, unlike arbitrary npm packages.
+ *
  * Symbols already bound in the file (imported, or shadowed by a top-level
  * declaration) are not offered — the TS service completes those on its own,
  * and a second entry would either duplicate the list or insert a clashing
@@ -33,6 +42,19 @@ export class AutoImportCompletions implements monaco.languages.CompletionItemPro
   /** Top-level bindings that shadow an engine name (linter's philosophy: top level only). */
   private static readonly DECLARATION_RE =
     /^[ \t]*(?:export\s+)?(?:const|let|var|function|async\s+function|class)\s+([A-Za-z_$][\w$]*)/gm;
+
+  /** Top-level `export const|function|class name` (default exports have no importable name — skipped). */
+  private static readonly EXPORT_DECL_RE =
+    /^[ \t]*export\s+(?:async\s+)?(const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/gm;
+
+  /** `export { a, b as c }` clauses — re-export form included, it still exports from this file. */
+  private static readonly EXPORT_LIST_RE = /^[ \t]*export\s*\{([^}]*)\}/gm;
+
+  /** Per-file export scan, invalidated by the model's own version counter. */
+  private readonly exportCache = new Map<
+    string,
+    { versionId: number; exports: WorkspaceExport[] }
+  >();
 
   constructor(private readonly symbols: readonly EngineSymbolEntry[]) {}
 
@@ -77,7 +99,102 @@ export class AutoImportCompletions implements monaco.languages.CompletionItemPro
         additionalTextEdits: [AutoImportCompletions.importEdit(model, text, symbol)],
       });
     }
+
+    for (const found of this.workspaceExports(model)) {
+      if (bound.has(found.name)) {
+        continue;
+      }
+      suggestions.push({
+        label: { label: found.name, description: found.specifier },
+        kind: found.kind,
+        detail: `Auto import from "${found.specifier}"`,
+        insertText: found.name,
+        sortText: `16${found.name}`,
+        range,
+        additionalTextEdits: [
+          AutoImportCompletions.importEdit(model, text, {
+            name: found.name,
+            module: found.specifier,
+          }),
+        ],
+      });
+    }
     return { suggestions };
+  }
+
+  /**
+   * Exports of every other workspace model, each paired with the relative
+   * specifier that imports it from the current file.
+   */
+  private workspaceExports(
+    current: monaco.editor.ITextModel,
+  ): Array<WorkspaceExport & { specifier: string }> {
+    const found: Array<WorkspaceExport & { specifier: string }> = [];
+    for (const other of monaco.editor.getModels()) {
+      if (other === current || other.uri.scheme !== 'file' || other.getLanguageId() !== 'javascript') {
+        continue;
+      }
+      const specifier = AutoImportCompletions.relativeSpecifier(current.uri.path, other.uri.path);
+      for (const exported of this.exportsOf(other)) {
+        found.push({ ...exported, specifier });
+      }
+    }
+    return found;
+  }
+
+  private exportsOf(model: monaco.editor.ITextModel): WorkspaceExport[] {
+    const key = model.uri.toString();
+    const cached = this.exportCache.get(key);
+    if (cached && cached.versionId === model.getVersionId()) {
+      return cached.exports;
+    }
+    const text = model.getValue();
+    const exports: WorkspaceExport[] = [];
+    for (const match of text.matchAll(AutoImportCompletions.EXPORT_DECL_RE)) {
+      exports.push({ name: match[2], kind: AutoImportCompletions.kindFor(match[1]) });
+    }
+    for (const match of text.matchAll(AutoImportCompletions.EXPORT_LIST_RE)) {
+      for (const spec of match[1].split(',')) {
+        // `export { a as b }` exports `b`; `default` has no importable name.
+        const name = spec.split(/\bas\b/).pop()?.trim();
+        if (name && name !== 'default' && /^[A-Za-z_$][\w$]*$/.test(name)) {
+          exports.push({ name, kind: monaco.languages.CompletionItemKind.Variable });
+        }
+      }
+    }
+    this.exportCache.set(key, { versionId: model.getVersionId(), exports });
+    return exports;
+  }
+
+  private static kindFor(declaration: string): monaco.languages.CompletionItemKind {
+    if (declaration === 'function') {
+      return monaco.languages.CompletionItemKind.Function;
+    }
+    if (declaration === 'class') {
+      return monaco.languages.CompletionItemKind.Class;
+    }
+    return monaco.languages.CompletionItemKind.Variable;
+  }
+
+  /** `./sibling.js` or `../parts/arm.fluid.js`, posix-style like the model URIs. */
+  private static relativeSpecifier(fromFile: string, toFile: string): string {
+    const fromDirs = fromFile.split('/').slice(0, -1).filter(Boolean);
+    const toParts = toFile.split('/').filter(Boolean);
+    const toName = toParts.pop();
+    let shared = 0;
+    while (
+      shared < fromDirs.length &&
+      shared < toParts.length &&
+      fromDirs[shared] === toParts[shared]
+    ) {
+      shared++;
+    }
+    const up = fromDirs.length - shared;
+    const down = [...toParts.slice(shared), toName].join('/');
+    if (up === 0) {
+      return `./${down}`;
+    }
+    return `${'../'.repeat(up)}${down}`;
   }
 
   /**
@@ -173,14 +290,18 @@ export class AutoImportCompletions implements monaco.languages.CompletionItemPro
 
 let registered = false;
 
-/** Idempotent: the provider is global to the language, not to an editor. */
+/**
+ * Idempotent: the provider is global to the language, not to an editor.
+ * Registered even when the engine table is empty (older server) — the
+ * workspace-export half needs no server support at all.
+ */
 export function registerAutoImports(symbols: readonly EngineSymbolEntry[] | undefined): void {
-  if (registered || !symbols || symbols.length === 0) {
+  if (registered) {
     return;
   }
   registered = true;
   monaco.languages.registerCompletionItemProvider(
     'javascript',
-    new AutoImportCompletions(symbols),
+    new AutoImportCompletions(symbols ?? []),
   );
 }

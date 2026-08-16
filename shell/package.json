@@ -13,6 +13,7 @@
     "stage:engine": "node scripts/stage-engine.js",
     "dev": "npm run build && electron .",
     "pack": "npm run build && npm run stage:engine && electron-builder --dir",
+    "pack:local": "npm run build && npm run stage:engine && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --dir",
     "dist": "npm run build && npm run stage:engine && electron-builder"
   },
   "dependencies": {

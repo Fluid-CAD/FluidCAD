@@ -5,10 +5,11 @@ import { fluidcadHome } from './engine/paths';
 
 /**
  * The start-screen feed: tutorial links for the "Learn FluidCAD" panel and
- * dismissible notifications, served by the fluidcad-feed worker (the
- * FluidCAD-Feed repo). The worker already filters notifications by expiration
- * and by the app version we send it; this side adds a disk cache so the start
- * screen renders instantly and still shows something offline.
+ * dismissible notifications. The whole feed is one static `feed.json` in a
+ * public R2 bucket (edited locally from the FluidCAD-Feed repo), so all the
+ * filtering — expiration, a notification's minimum app version — happens
+ * here, plus a disk cache so the start screen renders instantly and still
+ * shows something offline.
  */
 
 export type FeedTutorial = {
@@ -32,41 +33,37 @@ export type StartFeed = {
   notifications: FeedNotification[];
 };
 
-const FEED_URL = 'https://fluidcad-feed.cf-7ad.workers.dev';
+const FEED_URL = 'https://pub-65a51652a62f42f092a714cd9f7a3020.r2.dev/feed.json';
 const FETCH_TIMEOUT_MS = 8000;
 const CACHE_MAX_AGE_MS = 15 * 60 * 1000;
 
-type CachedFeed = { fetchedAt: string; appVersion: string; feed: StartFeed };
+type CachedFeed = { fetchedAt: string; feed: StartFeed };
 
 export class FeedService {
   /**
    * The feed to show right now: the cache when it is fresh, otherwise a fetch,
    * falling back to a stale cache (or an empty feed) when the network says no.
-   * Expired notifications are re-filtered here because a cached copy may have
-   * outlived them.
+   * Filtering always runs on the way out — the file is the same for everyone,
+   * and a cached copy may have outlived an expiration date.
    */
   static async load(): Promise<StartFeed> {
     const cached = FeedService.readCache();
     if (cached && FeedService.isFresh(cached)) {
-      return FeedService.withoutExpired(cached.feed);
+      return FeedService.visible(cached.feed);
     }
     try {
-      const url = `${FeedService.baseUrl()}/feed?version=${encodeURIComponent(app.getVersion())}`;
+      const url = process.env.FLUIDCAD_FEED_URL || FEED_URL;
       const response = await fetch(url, { signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
       if (!response.ok) {
         throw new Error(`feed responded ${response.status}`);
       }
       const feed = FeedService.parseFeed(await response.json());
       FeedService.writeCache(feed);
-      return FeedService.withoutExpired(feed);
+      return FeedService.visible(feed);
     } catch {
-      // Offline, or the worker is down — the start screen must not care.
-      return FeedService.withoutExpired(cached?.feed ?? { tutorials: [], notifications: [] });
+      // Offline, or the bucket is unreachable — the start screen must not care.
+      return FeedService.visible(cached?.feed ?? { tutorials: [], notifications: [] });
     }
-  }
-
-  private static baseUrl(): string {
-    return process.env.FLUIDCAD_FEED_URL || FEED_URL;
   }
 
   private static cacheFile(): string {
@@ -75,15 +72,14 @@ export class FeedService {
 
   private static isFresh(cached: CachedFeed): boolean {
     const age = Date.now() - Date.parse(cached.fetchedAt);
-    // A version change invalidates the cache: the worker filters by version.
-    return cached.appVersion === app.getVersion() && Number.isFinite(age) && age >= 0 && age < CACHE_MAX_AGE_MS;
+    return Number.isFinite(age) && age >= 0 && age < CACHE_MAX_AGE_MS;
   }
 
   private static readCache(): CachedFeed | null {
     try {
       const parsed = JSON.parse(fs.readFileSync(FeedService.cacheFile(), 'utf8'));
-      if (typeof parsed?.fetchedAt === 'string' && typeof parsed?.appVersion === 'string') {
-        return { fetchedAt: parsed.fetchedAt, appVersion: parsed.appVersion, feed: FeedService.parseFeed(parsed.feed) };
+      if (typeof parsed?.fetchedAt === 'string') {
+        return { fetchedAt: parsed.fetchedAt, feed: FeedService.parseFeed(parsed.feed) };
       }
     } catch {
       // No cache yet, or an unreadable one — same as having none.
@@ -94,7 +90,7 @@ export class FeedService {
   private static writeCache(feed: StartFeed): void {
     try {
       fs.mkdirSync(fluidcadHome(), { recursive: true });
-      const cached: CachedFeed = { fetchedAt: new Date().toISOString(), appVersion: app.getVersion(), feed };
+      const cached: CachedFeed = { fetchedAt: new Date().toISOString(), feed };
       const file = FeedService.cacheFile();
       const tmp = `${file}.${process.pid}.tmp`;
       fs.writeFileSync(tmp, JSON.stringify(cached, null, 2) + '\n');
@@ -104,14 +100,36 @@ export class FeedService {
     }
   }
 
-  private static withoutExpired(feed: StartFeed): StartFeed {
+  /** What this app version shows: not expired, and not gated to a newer app. */
+  private static visible(feed: StartFeed): StartFeed {
     const now = Date.now();
+    const version = app.getVersion();
     return {
       tutorials: feed.tutorials,
-      notifications: feed.notifications.filter(
-        (entry) => !entry.expiresAt || !(Date.parse(entry.expiresAt) <= now),
-      ),
+      notifications: feed.notifications.filter((entry) => {
+        if (entry.expiresAt && Date.parse(entry.expiresAt) <= now) {
+          return false;
+        }
+        if (entry.minVersion && FeedService.compareVersions(version, entry.minVersion) < 0) {
+          return false;
+        }
+        return true;
+      }),
     };
+  }
+
+  /** Numeric dotted compare: negative when a < b, 0 when equal, positive when a > b. */
+  private static compareVersions(a: string, b: string): number {
+    const left = a.split('.').map((part) => parseInt(part, 10) || 0);
+    const right = b.split('.').map((part) => parseInt(part, 10) || 0);
+    const length = Math.max(left.length, right.length);
+    for (let i = 0; i < length; i++) {
+      const diff = (left[i] ?? 0) - (right[i] ?? 0);
+      if (diff !== 0) {
+        return diff;
+      }
+    }
+    return 0;
   }
 
   /** Accept only what the page knows how to render; drop anything malformed. */

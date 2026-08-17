@@ -3889,6 +3889,13 @@ function resolveSketchBodyInsertion(
   }
 
   const children = body.namedChildren;
+  // Land before an active breakpoint(); — a paused build never runs
+  // statements after it, so the projection would silently not appear.
+  const breakpointStmt = children.find(isBreakpointStatement);
+  if (breakpointStmt) {
+    const indent = indentOf(lines, breakpointStmt.startPosition.row);
+    return { index: breakpointStmt.startIndex, indent, wrap: (stmt) => `${stmt}\n${indent}` };
+  }
   const last = children.length > 0 ? children[children.length - 1] : null;
   if (last) {
     const indent = indentOf(lines, last.startPosition.row);

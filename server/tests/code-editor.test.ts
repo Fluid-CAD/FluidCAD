@@ -502,6 +502,48 @@ describe('insertGeometryCall', () => {
     ].join('\n'));
   });
 
+  it('inserts before a breakpoint() at the end of the sketch body', async () => {
+    const code = [
+      `import { sketch, line, breakpoint } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `  breakpoint()`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'line([10, 10], [20, 20])');
+    expect(result.newCode).toBe([
+      `import { sketch, line, breakpoint } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `  line([10, 10], [20, 20])`,
+      `  breakpoint()`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('inserts into a sketch with a chained modifier, before its breakpoint()', async () => {
+    const code = [
+      `import { sketch, line, breakpoint } from 'fluidcad/core';`,
+      `const s = sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `  breakpoint()`,
+      `}).reusable();`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'line([10, 10], [20, 20])');
+    expect(result.newCode).toBe([
+      `import { sketch, line, breakpoint } from 'fluidcad/core';`,
+      `const s = sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `  line([10, 10], [20, 20])`,
+      `  breakpoint()`,
+      `}).reusable();`,
+      ``,
+    ].join('\n'));
+  });
+
   it('inserts into an empty sketch body', async () => {
     const code = [
       `import { sketch } from 'fluidcad/core';`,

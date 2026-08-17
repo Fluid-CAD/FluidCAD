@@ -1032,21 +1032,28 @@ export function setFeatureName(
 
 /**
  * Find the callback body (statement_block) inside a sketch() call.
- * Looks for the last arrow_function or function argument.
+ * Looks for the last arrow_function or function argument, walking down a
+ * member chain when the outermost call is a chained modifier — for
+ * `sketch('xz', () => {...}).reusable()` the callback belongs to
+ * `sketch(...)`, not to the `.reusable()` call the line resolves to.
  */
 export function findSketchBody(call: TSNode): TSNode | null {
-  const args = getArgumentsNode(call);
-  if (!args) {
-    return null;
-  }
-  for (let i = args.namedChildren.length - 1; i >= 0; i--) {
-    const child = args.namedChildren[i];
-    if (child.type === 'arrow_function' || child.type === 'function') {
-      const body = child.childForFieldName('body');
-      if (body && body.type === 'statement_block') {
-        return body;
+  let current: TSNode | null = call;
+  while (current && current.type === 'call_expression') {
+    const args = getArgumentsNode(current);
+    if (args) {
+      for (let i = args.namedChildren.length - 1; i >= 0; i--) {
+        const child = args.namedChildren[i];
+        if (child.type === 'arrow_function' || child.type === 'function') {
+          const body = child.childForFieldName('body');
+          if (body && body.type === 'statement_block') {
+            return body;
+          }
+        }
       }
     }
+    const fn = current.childForFieldName('function');
+    current = fn && fn.type === 'member_expression' ? fn.childForFieldName('object') : null;
   }
   return null;
 }
@@ -1097,7 +1104,10 @@ export async function ensureSymbolImport(
 }
 
 /**
- * Insert a new geometry call expression at the end of a sketch's callback body.
+ * Insert a new geometry call expression at the end of a sketch's callback
+ * body — before the body's first `breakpoint();` if it has one, since a
+ * paused build never runs statements after the breakpoint and the drawn
+ * geometry would silently vanish.
  *
  * @param code - Full source code
  * @param sketchSourceLine - 1-indexed line where the sketch() call starts
@@ -1125,7 +1135,11 @@ export async function insertGeometryCall(
   let insertRow: number;
   let indent: string;
 
-  if (bodyChildren.length > 0) {
+  const breakpointStmt = bodyChildren.find(isBreakpointStatement);
+  if (breakpointStmt) {
+    insertRow = breakpointStmt.startPosition.row;
+    indent = indentOf(lines, breakpointStmt.startPosition.row);
+  } else if (bodyChildren.length > 0) {
     const lastStmt = bodyChildren[bodyChildren.length - 1];
     insertRow = lastStmt.endPosition.row + 1;
     indent = indentOf(lines, lastStmt.startPosition.row);

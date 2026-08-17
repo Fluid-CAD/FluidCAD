@@ -275,6 +275,26 @@ function pointLiteralAt(call: TSNode, pointIndex: number): TSNode | null {
   return isPointLiteral(node) ? node : null;
 }
 
+/**
+ * The innermost call of a member chain — the geometry call that owns the
+ * point argument. A missing point must be inserted there: for
+ * `rect(16, 166).centered('horizontal')` the start point belongs to
+ * `rect(...)`, not to the chained modifier the line's outermost call is.
+ */
+function chainBaseCall(call: TSNode): TSNode {
+  let current = call;
+  while (current.type === 'call_expression') {
+    const fn = current.childForFieldName('function');
+    const object = fn && fn.type === 'member_expression' ? fn.childForFieldName('object') : null;
+    if (object && object.type === 'call_expression') {
+      current = object;
+    } else {
+      break;
+    }
+  }
+  return current;
+}
+
 function collectChainPointArgs(call: TSNode): TSNode[] {
   const calls: TSNode[] = [];
   let current: TSNode | null = call;
@@ -1339,7 +1359,7 @@ export async function updateGeometryPosition(
           return applySpliceEdits(code, moveEdits);
         }
       }
-      const args = getArgumentsNode(call);
+      const args = getArgumentsNode(chainBaseCall(call));
       if (!args) {
         return null;
       }
@@ -1786,7 +1806,7 @@ export async function updatePointExpression(
           return applySpliceEdits(code, moveEdits);
         }
       }
-      const args = getArgumentsNode(call);
+      const args = getArgumentsNode(chainBaseCall(call));
       if (!args) {
         return null;
       }

@@ -53,10 +53,19 @@ let sketchTargetCalls: unknown[];
 /** Per-test result for the 2D target resolver. */
 let currentSketchTargets: any;
 
+/** Picks forwarded to the consumer-side exposure resolver. */
+let exposureCalls: unknown[];
+/** Per-test result for the exposure resolver; null keeps the normal flow. */
+let currentExposureResolution: any;
+
 const fakeServer = {
   getCurrentCode: () => currentCode,
   getCurrentFileName: () => currentFileName,
   getParamDefinitions: () => [],
+  resolvePickExposure: (pick: unknown) => {
+    exposureCalls.push(pick);
+    return currentExposureResolution;
+  },
   synthesizeSketchApplyFeature: (
     picks: unknown, feature: string, value: number | string | undefined,
     options?: { offset?: unknown; slot?: unknown; axisRefs?: unknown },
@@ -158,6 +167,8 @@ describe('apply-feature route validation', () => {
     currentQueryResult = { ok: true, members: [PICK], groups: [], picks: [] };
     anchorCalls = [];
     currentAnchors = { ok: true, defaultName: 'c1', args: 'e.endFaces(0)', anchors: [] };
+    exposureCalls = [];
+    currentExposureResolution = null;
   });
 
   it('rejects an unknown feature', async () => {
@@ -384,6 +395,136 @@ describe('apply-feature route validation', () => {
     expect(status).toBe(400);
     expect(body.error).toContain('activePart');
     expect(relayed).toHaveLength(0);
+  });
+
+  describe('foreign sketch (cross-part reference)', () => {
+    const FILE = '/ws/m.fluid.js';
+    const TWO_PART_CODE = [
+      `import { sketch, rect, extrude, part, expose } from 'fluidcad/core'`,
+      ``,
+      `export const p1 = part('Donor', () => {`,
+      `  sketch('xy', () => { rect(100, 50) })`,
+      `  const e = extrude(30)`,
+      `  expose('endFace', e.endFaces(0))`,
+      `})`,
+      ``,
+      `export const p2 = part('Consumer', () => {`,
+      `  extrude(5)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const ACTIVE = { filePath: FILE, line: 9, column: 18 };
+    const donorResolution = (matched: string | null, existingNames: string[]) => ({
+      ok: true,
+      donor: { partName: 'Donor', filePath: FILE, line: 3, column: 18, matched, existingNames },
+    });
+
+    it('relays a sketchForeign spec into the active part for a matched exposure', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = donorResolution('endFace', ['endFace']);
+
+      const { status, body } = await post({
+        feature: 'sketch', entities: [PICK], activePart: ACTIVE,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`sketch(p1.features.endFace, () => { ... })`);
+      // A matched exposure needs no donor-side synthesis and no normal
+      // sketch synthesis — the reference is composed route-side.
+      expect(synthesizeCalls).toEqual([]);
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(spec.feature).toBe('sketch');
+      expect(spec.filePath).toBe(FILE);
+      expect(spec.activePart).toEqual({ line: 9, column: 18 });
+      expect(spec.sketchForeign).toEqual({ exposeName: 'endFace', donor: { line: 3, column: 18 } });
+    });
+
+    it('allocates a fresh name and embeds the expose create spec when unmatched', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = donorResolution(null, ['g1']);
+      const exposeSpec = {
+        feature: 'expose', filePath: FILE,
+        expose: { name: 'g2', part: { line: 3, column: 18 } },
+        producers: [{ line: 5, column: 2, featureType: 'extrude', nameHint: 'e', bind: true }],
+        parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+        imports: [],
+      };
+      currentSynthesis = {
+        ok: true, spec: exposeSpec, preview: `expose('g2', e.endFaces(0))`,
+        args: 'e.endFaces(0)', alternatives: [],
+      };
+
+      const { status, body } = await post({
+        feature: 'sketch', entities: [PICK], activePart: ACTIVE,
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe(`sketch(p1.features.g2, () => { ... })`);
+      // Both synthesis passes ran the donor-side expose rail with the
+      // allocated name (g1 was taken).
+      expect(synthesizeCalls.every(c => c.feature === 'expose')).toBe(true);
+      expect(synthesizeCalls.length).toBeGreaterThan(0);
+      expect(relayed).toHaveLength(1);
+      const spec = relayed[0].spec;
+      expect(spec.sketchForeign.exposeName).toBe('g2');
+      expect(spec.sketchForeign.donor).toEqual({ line: 3, column: 18 });
+      expect(spec.sketchForeign.create).toEqual(exposeSpec);
+    });
+
+    it('keeps the normal flow when the picked part IS the active part', async () => {
+      currentCode = TWO_PART_CODE;
+      currentFileName = FILE;
+      currentExposureResolution = {
+        ok: true,
+        donor: { partName: 'Consumer', filePath: FILE, line: 9, column: 18, matched: null, existingNames: [] },
+      };
+
+      await post({ feature: 'sketch', entities: [PICK], activePart: ACTIVE, preview: true });
+      // Fell through to the ordinary pick-carrying sketch synthesis.
+      expect(synthesizeCalls).toEqual([{ feature: 'sketch', value: undefined }]);
+    });
+
+    it('surfaces the resolver refusal (assembly scenes)', async () => {
+      currentExposureResolution = { ok: false, reason: 'cross-part geometry references are authored in the part file' };
+
+      const { status, body } = await post({
+        feature: 'sketch', entities: [PICK], activePart: ACTIVE,
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('part file');
+      expect(relayed).toHaveLength(0);
+    });
+
+    it('refuses a donor that is not bound to a const', async () => {
+      currentCode = [
+        `import { sketch, rect, extrude, part } from 'fluidcad/core'`,
+        ``,
+        `export function makeDonor() {`,
+        `  return part('Donor', () => {`,
+        `    const e = extrude(30)`,
+        `    expose('endFace', e.endFaces(0))`,
+        `  })`,
+        `}`,
+        ``,
+        `export const p2 = part('Consumer', () => {`,
+        `  extrude(5)`,
+        `})`,
+        ``,
+      ].join('\n');
+      currentFileName = FILE;
+      currentExposureResolution = {
+        ok: true,
+        donor: { partName: 'Donor', filePath: FILE, line: 4, column: 9, matched: 'endFace', existingNames: ['endFace'] },
+      };
+
+      const { status, body } = await post({
+        feature: 'sketch', entities: [PICK], activePart: { filePath: FILE, line: 10, column: 18 },
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('not bound to a const');
+      expect(relayed).toHaveLength(0);
+    });
   });
 
   describe('part/new', () => {

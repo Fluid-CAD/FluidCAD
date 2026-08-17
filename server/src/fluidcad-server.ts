@@ -93,6 +93,12 @@ type SceneManager = {
     before?: SelectionBoundary,
   ): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
+  // may predate consumer-side exposure resolution.
+  resolvePickExposure?(
+    scene: any,
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+  ): any;
+  // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate connector anchor suggestions.
   suggestConnectorAnchors?(
     scene: any,
@@ -1354,6 +1360,26 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.synthesizeApplyFeature(scene, refs, feature, value, chains, options, before);
+  }
+
+  /**
+   * Consumer-side pick resolution: the picked geometry's enclosing part and
+   * that part's matching exposure, for the cross-part reference flow.
+   * Read-only over the rendered scene. Null when there is no scene or the
+   * workspace kernel predates the query — callers fall back to the ordinary
+   * same-part flow.
+   */
+  resolvePickExposure(
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+  ): any {
+    if (!this.sceneManager || !this.sceneManager.resolvePickExposure) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.resolvePickExposure(scene, ref);
   }
 
   /**

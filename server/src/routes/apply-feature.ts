@@ -18,6 +18,7 @@ import {
   renderAlineStatement,
   renderChamferValueArgs, renderConnectorChain, renderFaceTargetExpr, renderOffsetStatement, renderSlotStatement, renderTarcStatement,
   renderTextStatement, type TextStatementOptions, validConnectorAnchor, validConnectorRotate,
+  resolvePartBindingIdent,
   type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions,
   type ConnectorAnchorSpec, type CopyEditOptions,
   type OffsetEditOptions, type SlotEditOptions,
@@ -31,12 +32,24 @@ import {
   type WrapEditOptions,
 } from '../apply-feature-edit.ts';
 import { readFile } from 'fs/promises';
+import { relativeSpecifier } from './part-catalog.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 import { CHAIN_CALLEES } from '../segment-swap.ts';
 import { findEditableCallAt, getJavaScriptParser, isExpressionText, splitLines } from '../code-editor.ts';
 
 type RawPick = { shapeId?: unknown; sub?: { type?: unknown; index?: unknown } };
+
+/** First `g<n>` not taken by an existing exposure — the tool's default names. */
+function allocateExposeName(taken: string[]): string {
+  const set = new Set(taken);
+  for (let i = 1; ; i++) {
+    const candidate = `g${i}`;
+    if (!set.has(candidate)) {
+      return candidate;
+    }
+  }
+}
 
 type Pick = { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
 
@@ -6403,6 +6416,140 @@ export function createApplyFeatureRouter(
       res.status(400).json({ error: 'chains must be {seed, members} pick groups' });
       return;
     }
+
+    // Consumer-side cross-part sketch: the picked face belongs to a part
+    // OTHER than the timeline's active part. Instead of inserting into the
+    // donor (the producers' scope — surprising while another part is
+    // active), publish the face from the donor (find-or-create an expose())
+    // and sketch on the exposure reference inside the ACTIVE part's body.
+    if (feature === 'sketch' && activePartLoc && picks.length === 1
+      && chains.length === 0 && picks[0].sub.type === 'face') {
+      const resolution = fluidCadServer.resolvePickExposure?.(picks[0]);
+      if (resolution && resolution.ok === false) {
+        res.status(422).json({ success: false, reason: resolution.reason });
+        return;
+      }
+      const donor = resolution?.ok === true ? resolution.donor : null;
+      const foreign = donor != null
+        && !(normalizePath(donor.filePath) === normalizePath(activePartLoc.filePath)
+          && donor.line === activePartLoc.line && donor.column === activePartLoc.column);
+      if (foreign) {
+        try {
+          const sameFile = normalizePath(donor.filePath) === normalizePath(activePartLoc.filePath);
+          const name: string = donor.matched ?? allocateExposeName(donor.existingNames ?? []);
+
+          // Find-or-create: no exposure serves the picked face yet — run the
+          // donor-side expose synthesis (the Phase-B rail) with the same
+          // two-pass namer/params the expose arm uses.
+          let createSpec: ApplyFeatureEditSpec | null = null;
+          if (!donor.matched) {
+            const probe = fluidCadServer.synthesizeApplyFeature(picks, 'expose', name, []);
+            if (!probe) {
+              res.status(404).json({ success: false, reason: 'No rendered scene' });
+              return;
+            }
+            if (!probe.ok) {
+              res.status(422).json({ success: false, reason: probe.reason, pick: probe.pick });
+              return;
+            }
+            const fileOptions = await synthesisOptionsForFile(probe.spec.filePath);
+            const synth = fileOptions
+              ? fluidCadServer.synthesizeApplyFeature(picks, 'expose', name, [], fileOptions)
+              : probe;
+            if (!synth || !synth.ok) {
+              res.status(422).json({
+                success: false,
+                reason: synth && !synth.ok ? synth.reason : 'No rendered scene',
+              });
+              return;
+            }
+            createSpec = synth.spec;
+          }
+
+          // The identifier the reference renders: the donor's module-level
+          // binding (same file) or its export identifier plus an import
+          // (cross-file, resolved from the donor file on disk).
+          let ident: string;
+          let importFrom: string | null = null;
+          if (sameFile) {
+            const code = fluidCadServer.getCurrentCode();
+            const binding = code !== null
+              ? await resolvePartBindingIdent(code, donor.line)
+              : { error: 'No live code buffer' as const };
+            if ('error' in binding) {
+              res.status(422).json({ success: false, reason: binding.error });
+              return;
+            }
+            ident = binding.ident;
+          } else {
+            let donorCode: string;
+            try {
+              donorCode = await readFile(donor.filePath, 'utf8');
+            } catch {
+              res.status(422).json({
+                success: false,
+                reason: `could not read the donor part's file (${donor.filePath})`,
+              });
+              return;
+            }
+            const binding = await resolvePartBindingIdent(donorCode, donor.line);
+            if ('error' in binding) {
+              res.status(422).json({ success: false, reason: binding.error });
+              return;
+            }
+            if (!binding.exported) {
+              res.status(422).json({
+                success: false,
+                reason: `the part "${donor.partName}" is not exported from its file — export the binding `
+                  + `(export const ${binding.ident} = part(...)) so it can be imported here`,
+              });
+              return;
+            }
+            ident = binding.ident;
+            importFrom = relativeSpecifier(activePartLoc.filePath, donor.filePath);
+          }
+
+          const statementPreview = `sketch(${ident}.features.${name}, () => { ... })`;
+          if (preview === true) {
+            res.json({ success: true, preview: statementPreview, args: '' });
+            return;
+          }
+
+          // A cross-file exposure can't ride the consumer transform — create
+          // it in the donor file first, then land the reference. A same-file
+          // create rides the spec and stays atomic in one transform.
+          if (createSpec && !sameFile) {
+            const sent = await dispatcher.send(createSpec);
+            if (sent.error) {
+              res.status(422).json({ success: false, reason: sent.error });
+              return;
+            }
+          }
+          const spec: ApplyFeatureEditSpec = {
+            feature: 'sketch',
+            filePath: activePartLoc.filePath,
+            producers: [],
+            parts: [],
+            imports: [],
+            activePart: { line: activePartLoc.line, column: activePartLoc.column },
+            sketchForeign: {
+              exposeName: name,
+              ...(sameFile
+                ? {
+                  donor: { line: donor.line, column: donor.column },
+                  ...(createSpec ? { create: createSpec } : {}),
+                }
+                : { ident, importFrom: importFrom! }),
+            },
+          };
+          await dispatcher.dispatch(res, spec, { success: true, preview: statementPreview });
+        } catch (err: any) {
+          res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+        }
+        return;
+      }
+    }
+
     if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch'
       && feature !== 'offset') {
       res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "offset", "extrude", "rib", "sweep", "wrap", "loft", "revolve", "plane", "project", "repeat", "copy" or "boolean"' });

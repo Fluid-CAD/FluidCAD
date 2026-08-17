@@ -116,6 +116,8 @@ export type ApplyFeatureEditSpec = {
    * — the connector insertion mechanism minus the frame adjustments.
    */
   expose?: ExposeEditOptions;
+  /** Cross-part sketch payload: `sketch(<ident>.features.<name>, …)` into the active part. */
+  sketchForeign?: SketchForeignOptions;
   /** tArc-only payload; present for an in-place retarget instead of a create. */
   tarc?: TarcEditOptions;
   /** aLine-only payload; the explicit chain-start point, when the statement must carry one. */
@@ -312,6 +314,35 @@ export type ExposeEditOptions = {
   name: string;
   /** The `part(...)` call site whose callback body receives the statement. */
   part?: { line: number; column: number };
+};
+
+/**
+ * Consumer-side cross-part sketch payload: the statement rendered is
+ * `sketch(<ident>.features.<exposeName>, () => {})`, inserted into the ACTIVE
+ * part's callback body (`spec.activePart`) rather than the picked geometry's
+ * own part. Exactly one addressing mode:
+ *
+ *   - `donor` (same-file): the donor `part(...)` call site — the transform
+ *     resolves the module-level `const` its definition is bound to and
+ *     renders that identifier.
+ *   - `ident` + `importFrom` (cross-file): the donor's export identifier and
+ *     the module specifier to import it from.
+ *
+ * `create` (same-file only) is a full `'expose'` spec applied FIRST in the
+ * same transform — find-or-create stays atomic, and the part call sites are
+ * relocated across the intermediate edit before the sketch statement lands.
+ * Cross-file creation rides its own dispatch to the donor file instead.
+ */
+export type SketchForeignOptions = {
+  exposeName: string;
+  /** Same-file donor: its `part(...)` call site. */
+  donor?: { line: number; column: number };
+  /** Cross-file donor: the export identifier the reference renders. */
+  ident?: string;
+  /** Cross-file donor: module specifier `ident` is imported from. */
+  importFrom?: string;
+  /** Same-file find-or-create: the `'expose'` spec applied first, atomically. */
+  create?: ApplyFeatureEditSpec;
 };
 
 export function validConnectorRotate(rotate: unknown): rotate is ConnectorEditOptions['rotate'] {
@@ -1394,6 +1425,9 @@ export async function applyFeatureEdit(
   if (spec.edit) {
     return applyStatementEdit(code, spec);
   }
+  if (spec.feature === 'sketch' && spec.sketchForeign) {
+    return applySketchForeign(code, spec);
+  }
   if (spec.feature === 'sketch' && spec.producers.length === 0 && spec.parts.length === 0) {
     return applyPlaneSketch(code, spec.sketchPlane, spec.activePart);
   }
@@ -2047,6 +2081,176 @@ async function applyPlaneSketch(
   return appendTopLevelStatement(
     code, indent => `sketch(${args}() => {\n\n${indent}})`, 'sketch', undefined, activePart,
   );
+}
+
+/**
+ * The consumer-side cross-part sketch: render
+ * `sketch(<ident>.features.<exposeName>, () => {})` into the ACTIVE part's
+ * body. With a same-file `create` spec the exposure statement is applied
+ * first in the same transform — the part call sites are relocated across the
+ * intermediate edit by ordinal (the exposure edit never adds or removes
+ * `part()` calls), so both stages stay atomic in one editor round trip.
+ */
+async function applySketchForeign(
+  code: string,
+  spec: ApplyFeatureEditSpec,
+): Promise<ApplyFeatureEditResult> {
+  const sf = spec.sketchForeign!;
+  const sameFile = sf.donor !== undefined;
+  const valid = typeof sf.exposeName === 'string' && CONNECTOR_NAME.test(sf.exposeName)
+    && Number.isInteger(spec.activePart?.line) && Number.isInteger(spec.activePart?.column)
+    // Exactly one addressing mode: a same-file donor call site, or a
+    // cross-file identifier (with its import specifier).
+    && (sameFile !== (typeof sf.ident === 'string'))
+    && (!sameFile || (Number.isInteger(sf.donor!.line) && Number.isInteger(sf.donor!.column)))
+    && (sf.ident === undefined || CONNECTOR_NAME.test(sf.ident))
+    && (sf.importFrom === undefined || (typeof sf.importFrom === 'string' && !sameFile))
+    && (sf.create === undefined
+      || (sameFile && sf.create.feature === 'expose' && sf.create.sketchForeign === undefined))
+    && spec.producers.length === 0 && spec.parts.length === 0;
+  if (!valid) {
+    return { newCode: code, error: 'malformed foreign sketch spec' };
+  }
+
+  let working = code;
+  let activeLine = spec.activePart!.line;
+  let donorLine = sf.donor?.line;
+  if (sf.create) {
+    const created = await applyFeatureEdit(working, sf.create);
+    if (created.error) {
+      return { newCode: code, error: created.error };
+    }
+    const before = await partCallLines(working);
+    const after = await partCallLines(created.newCode);
+    const relocate = (line: number): number | null => {
+      const k = before.indexOf(line);
+      return k >= 0 && before.length === after.length ? after[k] : null;
+    };
+    const newActive = relocate(activeLine);
+    const newDonor = donorLine !== undefined ? relocate(donorLine) : undefined;
+    if (newActive === null || newDonor === null) {
+      return {
+        newCode: code,
+        error: 'could not relocate the part statements after the exposure edit — is the file in sync with the last render?',
+      };
+    }
+    working = created.newCode;
+    activeLine = newActive;
+    donorLine = newDonor;
+  }
+
+  let ident: string;
+  if (sameFile) {
+    const resolved = await resolvePartBindingIdent(working, donorLine!);
+    if ('error' in resolved) {
+      return { newCode: code, error: resolved.error };
+    }
+    ident = resolved.ident;
+  } else {
+    ident = sf.ident!;
+  }
+
+  const result = await appendTopLevelStatement(
+    working,
+    indent => `sketch(${ident}.features.${sf.exposeName}, () => {\n\n${indent}})`,
+    'sketch',
+    spec.newVariables,
+    { line: activeLine, column: spec.activePart!.column },
+  );
+  if (result.error) {
+    return { newCode: code, error: result.error };
+  }
+  let out = result.newCode;
+  if (sf.importFrom) {
+    out = await ensureSymbolImport(out, ident, sf.importFrom);
+  }
+  return { newCode: out };
+}
+
+/** Start lines (1-based) of every root `part(...)` call, in document order. */
+async function partCallLines(code: string): Promise<number[]> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const out: number[] = [];
+  for (const node of walkTree(tree.rootNode)) {
+    if (node.type !== 'call_expression') {
+      continue;
+    }
+    const fn = node.childForFieldName('function');
+    if (fn?.type === 'identifier' && fn.text === 'part') {
+      out.push(node.startPosition.row + 1);
+    }
+  }
+  return out;
+}
+
+/**
+ * The module-level `const` a `part(...)` call at `line` is bound to —
+ * the identifier a cross-part reference renders (`p1.features.<name>`).
+ * Refuses unbound forms (`return part(...)` factories) and non-module-scope
+ * bindings: the consumer statement references the identifier from another
+ * top-level part body, so nothing narrower can serve it.
+ */
+export async function resolvePartBindingIdent(
+  code: string,
+  line: number,
+): Promise<{ ident: string; exported: boolean } | { error: string }> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const lines = splitLines(code);
+  const call = findEditableCallAt(tree, lines, line);
+  if (!call || chainRootCallee(call) !== 'part') {
+    return { error: `no part() call found at line ${line} — is the file in sync with the last render?` };
+  }
+  let current: TSNode | null = call;
+  while (current && current.type !== 'variable_declarator') {
+    if (current.type === 'statement_block' || current.type === 'program') {
+      current = null;
+      break;
+    }
+    current = current.parent;
+  }
+  const name = current?.childForFieldName('name');
+  const value = current?.childForFieldName('value');
+  // The declarator's own value chain must root at THIS part call — a
+  // wrapped form (`const x = registry.add(part(...))`) binds the wrapper,
+  // not the definition, and `x.features` would not exist.
+  const directBinding = !!value
+    && chainRootCall(value)?.startIndex === chainRootCall(call)?.startIndex
+    && chainRootCall(value) !== null;
+  if (!current || !name || name.type !== 'identifier' || !directBinding) {
+    return {
+      error: `the part at line ${line} is not bound to a const — bind it `
+        + '(const p1 = part(...)) so the sketch can reference p1.features.<name>',
+    };
+  }
+  const declaration = current.parent;
+  const holder = declaration?.parent;
+  const exported = holder?.type === 'export_statement' && holder.parent?.type === 'program';
+  const moduleScope = holder?.type === 'program' || exported;
+  if (!moduleScope) {
+    return {
+      error: `the part at line ${line} is bound inside a nested scope — `
+        + `move the declaration to module scope so other parts can reference it`,
+    };
+  }
+  return { ident: name.text, exported };
+}
+
+/** The root call node of a call chain, or null when `node` holds none. */
+function chainRootCall(node: TSNode): TSNode | null {
+  let current: TSNode | null = node;
+  while (current && current.type === 'call_expression') {
+    const fn = current.childForFieldName('function');
+    if (!fn) {
+      return null;
+    }
+    if (fn.type === 'identifier') {
+      return current;
+    }
+    current = fn.type === 'member_expression' ? fn.childForFieldName('object') : null;
+  }
+  return null;
 }
 
 /** Part names land in a single-quoted literal — no quotes or line breaks. */

@@ -29,6 +29,7 @@ import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
 import { ConnectorAnchorSuggestions, suggestConnectorAnchors } from "./selection/connector-anchors.js";
+import { PickExposureResolution, resolvePickExposure } from "./selection/expose-lookup.js";
 import { synthesizeSketchApplyFeature, resolveSketchStatementTargets, SketchTargetDescriptor } from "./selection/sketch-apply.js";
 import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
 import { synthesizeTrimRegionTargets } from "./selection/trim-region.js";
@@ -215,6 +216,22 @@ class SceneManager {
     options: SynthesizeOptions = {},
   ): ConnectorAnchorSuggestions {
     return suggestConnectorAnchors(scene, ref, options);
+  }
+
+  /**
+   * Consumer-side pick resolution: the picked geometry's enclosing part and
+   * that part's matching exposure. Cross-part references are authoring-frame
+   * (parts designed in place), so assembly scenes refuse with a pointed
+   * message instead of inventing pose-aware in-context semantics.
+   */
+  resolvePickExposure(scene: Scene, ref: PickRef): PickExposureResolution {
+    if (scene instanceof AssemblyScene) {
+      return {
+        ok: false,
+        reason: "cross-part geometry references are authored in the part file — open the part's own file to reference another part's geometry",
+      };
+    }
+    return resolvePickExposure(scene, ref);
   }
 
   /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */

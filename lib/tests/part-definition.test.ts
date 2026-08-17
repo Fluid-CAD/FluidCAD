@@ -218,6 +218,53 @@ describe("insert(def, overrides)", () => {
   });
 });
 
+describe("definition reads in assembly scenes", () => {
+  beforeEach(() => {
+    getSceneManager().startScene();
+  });
+
+  it("keeps a features read's params out of the global registry", () => {
+    createParamRegistry();
+    getSceneManager().startAssemblyScene();
+    const def = part("p", () => {
+      param("Length", 100);
+      return { tag: 42 };
+    });
+    expect(def.features.tag).toBe(42);
+    expect(getParamRegistry().getDefinitions()).toHaveLength(0);
+  });
+
+  it("a features read and insert() share one scoped template", () => {
+    getSceneManager().startAssemblyScene();
+    let ran = 0;
+    const def = part("p", () => {
+      ran++;
+      param("Length", 100);
+    });
+    void def.features;
+    const inst = insert(def);
+    expect(ran).toBe(1);
+    expect(inst.record.part.params?.map(p => p.label)).toEqual(["Length"]);
+  });
+
+  it("insert() then a features read returns the inserted template", () => {
+    getSceneManager().startAssemblyScene();
+    const def = part("p", () => ({ tag: 7 }));
+    const inst = insert(def);
+    expect(def.features).toBe(inst.record.part.features);
+    expect(def.features.tag).toBe(7);
+  });
+
+  it("part-scene reads keep panel semantics", () => {
+    createParamRegistry();
+    const def = part("p", () => {
+      param("Size", 20);
+    });
+    void def.features;
+    expect(getParamRegistry().getDefinitions().map(d => d.label)).toContain("Size");
+  });
+});
+
 describe("unknown override warnings", () => {
   beforeEach(() => {
     getSceneManager().startScene();

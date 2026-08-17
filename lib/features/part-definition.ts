@@ -1,6 +1,7 @@
 import { Part } from "./part.js";
 import type { Connector } from "./connector.js";
 import type { Scene } from "../rendering/scene.js";
+import { AssemblyScene } from "../rendering/assembly-scene.js";
 import type { SourceLocation } from "../common/scene-object.js";
 import { getCurrentScene } from "../scene-manager.js";
 import { popParamScope, pushParamScope } from "../param-registry.js";
@@ -103,11 +104,24 @@ export class PartDefinition<T = unknown> {
     return this.buildVariant(scene, new Map(), false);
   }
 
-  /** `materializeInto` the current scene — the host's export arm and the legacy-access hatch. */
+  /**
+   * Materialize into the current scene — the host's export arm and the
+   * legacy-access hatch (`def.features`, `.from(def)`, transform-argument
+   * coercion). In an assembly scene the build is SCOPED like insert()'s:
+   * a read and an insert() share the default-variant template instead of
+   * racing for the cache slot with different scoping, and the definition's
+   * param() calls never leak into the consuming assembly's global registry
+   * (they are the part's insertion interface, not the assembly's panel).
+   * Part-kind scenes keep panel semantics — the same unscoped build the
+   * entry-file pass does.
+   */
   materialize(): Part {
     const scene = getCurrentScene();
     if (!scene) {
       throw new Error(`part '${this.partName}': no active scene to build into.`);
+    }
+    if (scene instanceof AssemblyScene) {
+      return this.materializeVariant(scene);
     }
     return this.materializeInto(scene);
   }

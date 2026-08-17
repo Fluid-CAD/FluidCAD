@@ -2,6 +2,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
 import { AssemblyScene } from "./assembly-scene.js";
 import { Part } from "../features/part.js";
+import { canonicalVariantKey, toOverrideMap } from "../features/param-overrides.js";
 
 type Pair = { newObj: SceneObject; oldObj: SceneObject };
 
@@ -12,14 +13,31 @@ export class AssemblyCompare {
     const newTopParts = topLevelParts(newScene);
     const oldTopParts = topLevelParts(oldScene);
 
-    const pairCount = Math.min(newTopParts.length, oldTopParts.length);
+    // Pair top-level parts by declared identity — part name plus the
+    // variant's resolved param values — not by scene position, so reordering
+    // insert()/definition statements between renders keeps caches alive.
+    // Same-key duplicates pair in scene order (the old positional behavior).
+    const oldByKey = new Map<string, Part[]>();
+    for (const oldPart of oldTopParts) {
+      const key = pairingKey(oldPart);
+      const queue = oldByKey.get(key);
+      if (queue) {
+        queue.push(oldPart);
+      } else {
+        oldByKey.set(key, [oldPart]);
+      }
+    }
 
     // Tentative matches: a part whose OWN subtree compares equal.
     const matched = new Map<Part, Pair[]>();
-    for (let i = 0; i < pairCount; i++) {
-      const subtreePairs = collectSubtreePairs(newTopParts[i], oldTopParts[i]);
+    for (const newPart of newTopParts) {
+      const oldPart = oldByKey.get(pairingKey(newPart))?.shift();
+      if (!oldPart) {
+        continue;
+      }
+      const subtreePairs = collectSubtreePairs(newPart, oldPart);
       if (subtreePairs) {
-        matched.set(newTopParts[i], subtreePairs);
+        matched.set(newPart, subtreePairs);
       }
     }
 
@@ -44,13 +62,10 @@ export class AssemblyCompare {
     for (const newPart of newTopParts) {
       const pairs = matched.get(newPart);
       if (pairs) {
-        console.log('Part MATCHED:', newPart.partName);
         for (const pair of pairs) {
           map.set(pair.oldObj, pair.newObj);
           newScene.markCached(pair.newObj);
         }
-      } else {
-        console.log('Part NO MATCH:', newPart.partName);
       }
     }
 
@@ -129,6 +144,13 @@ function owningTopLevelPart(obj: SceneObject): Part | null {
     current = parent;
   }
   return current instanceof Part ? current : null;
+}
+
+// Declared identity a top-level part pairs on across renders: its name plus
+// the variant's resolved param values (label-sorted). Root-built parts carry
+// no paramValues and key on the name alone.
+function pairingKey(part: Part): string {
+  return `${part.partName}\u0000${canonicalVariantKey(toOverrideMap(part.paramValues))}`;
 }
 
 function topLevelParts(scene: AssemblyScene): Part[] {

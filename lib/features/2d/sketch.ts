@@ -248,11 +248,28 @@ export class Sketch extends SceneObject implements Extrudable {
       return false;
     }
 
-    if (this.getOrder() !== other.getOrder()) {
+    if (this.comparableOrder() !== other.comparableOrder()) {
       return false;
     }
 
     return true;
+  }
+
+  /**
+   * Positional identity for the shallow compare — geometry is compared by
+   * the callers' child walks, so position is what tells two same-flag
+   * sketches apart (e.g. as fusion-scope references). Measured relative to
+   * the outermost ancestor (the owning part) rather than absolutely:
+   * AssemblyCompare pairs top-level parts by declared identity, so a part
+   * moved to a different scene position must still match its counterpart.
+   * Top-level sketches have no ancestor and keep their absolute order.
+   */
+  private comparableOrder(): number {
+    let base = 0;
+    for (let ancestor = this.getParent(); ancestor; ancestor = ancestor.getParent()) {
+      base = ancestor.getOrder();
+    }
+    return this.getOrder() - base;
   }
 
   getTangent(scope?: Set<SceneObject>): Point2D {

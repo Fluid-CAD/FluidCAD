@@ -98,7 +98,7 @@ async function getParser(): Promise<TSParser> {
   }
   const TreeSitter = await loadTreeSitter();
   await TreeSitter.init();
-  parser = new TreeSitter();
+  const fresh = new TreeSitter();
   // Use Node's resolver so the lookup walks up node_modules and finds the
   // wasm regardless of whether npm hoisted `tree-sitter-wasms` next to or
   // below `fluidcad`. The relative-path approach broke when fluidcad was
@@ -106,7 +106,11 @@ async function getParser(): Promise<TSParser> {
   const requireFromHere = createRequire(import.meta.url);
   const wasmPath = requireFromHere.resolve('tree-sitter-wasms/out/tree-sitter-javascript.wasm');
   const lang = await TreeSitter.Language.load(wasmPath);
-  parser.setLanguage(lang);
+  fresh.setLanguage(lang);
+  // Cache only after the language is attached: a parser cached mid-init would
+  // make every later parse() throw an opaque "Parsing failed" instead of the
+  // load error that actually broke it.
+  parser = fresh;
   return parser;
 }
 

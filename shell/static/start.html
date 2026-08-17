@@ -103,20 +103,26 @@
         translate: 0 0.5px;
       }
       .btn:focus-visible { isolation: isolate; outline-width: 2px; outline-style: solid; }
-      /* The ghost button stays flat in every state. daisyUI would paint a
-         base-200 hover fill, but against this page's --bg that lands four levels
-         above the background: a highlight you cannot quite see, which reads as a
-         box that does not line up with the solid primary beside it. Drop the
-         fill and let the label be the button. Declared after the state rules so
-         it wins the equal-specificity ties with :hover and :active. */
-      .btn-ghost, .btn-ghost:hover, .btn-ghost:active { --btn-bg: #0000; --btn-border: #0000; }
-      .btn-ghost:not(:disabled) { --btn-fg: var(--btn-color, currentColor); outline-color: currentColor; }
+      /* The outline button stays transparent in every state; the border carries
+         the shape. daisyUI would paint a base-200 hover fill, but against this
+         page's --bg that lands four levels above the background: a highlight you
+         cannot quite see, which reads as a box that does not line up with the
+         solid primary beside it. Hover brightens the border instead. Declared
+         after the state rules so it wins the equal-specificity ties with :hover
+         and :active. */
+      .btn-outline, .btn-outline:hover, .btn-outline:active { --btn-bg: #0000; }
+      .btn-outline:not(:disabled) {
+        --btn-fg: var(--btn-color, var(--color-base-content));
+        --btn-border: color-mix(in oklab, currentColor 45%, #0000);
+        outline-color: currentColor;
+      }
+      .btn-outline:not(:disabled):hover { --btn-border: color-mix(in oklab, currentColor 75%, #0000); }
       .btn:disabled {
         pointer-events: none;
         --btn-border: #0000;
         --btn-fg: color-mix(in oklch, var(--color-base-content) 20%, #0000);
       }
-      .btn:disabled:not(.btn-ghost) {
+      .btn:disabled:not(.btn-outline) {
         background-color: color-mix(in oklab, var(--color-base-content) 10%, transparent);
         box-shadow: none;
       }
@@ -283,7 +289,6 @@
         -webkit-box-orient: vertical;
         overflow: hidden;
       }
-      footer { color: var(--faint); font-size: 11px; padding: 0 28px 14px; display: flex; gap: 8px; }
       [hidden] { display: none !important; }
     </style>
   </head>
@@ -306,8 +311,8 @@
         <div class="sub" id="sub">Pick a project to open.</div>
       </div>
       <div class="spacer"></div>
-      <button id="open" class="btn btn-ghost btn-sm">Open project</button>
-      <button id="new" class="btn btn-primary btn-sm">New project</button>
+      <button id="open" class="btn btn-outline btn-sm">Open Project</button>
+      <button id="new" class="btn btn-primary btn-sm">New Project</button>
     </header>
 
     <main>
@@ -324,8 +329,6 @@
       </section>
     </main>
 
-    <footer><span id="engine"></span></footer>
-
     <script>
       const api = window.fluidcadShell;
       const grid = document.getElementById('grid');
@@ -333,7 +336,6 @@
       const notices = document.getElementById('notices');
       const learn = document.getElementById('learn');
       const tutorials = document.getElementById('tutorials');
-      const engineNote = document.getElementById('engine');
       const openButton = document.getElementById('open');
       const newButton = document.getElementById('new');
 
@@ -410,7 +412,8 @@
       document.addEventListener('keydown', (event) => {
         if (event.key === 'Escape') { closeMenu(); }
       });
-      document.querySelector('main').addEventListener('scroll', closeMenu);
+      const mainEl = document.querySelector('main');
+      mainEl.addEventListener('scroll', closeMenu);
       window.addEventListener('resize', closeMenu);
       window.addEventListener('blur', closeMenu);
 
@@ -566,6 +569,7 @@
           el.remove();
           notices.hidden = notices.children.length === 0;
           void api.start.dismissNotification(entry.id);
+          void fitWindowHeight();
         };
         el.appendChild(dismiss);
         return el;
@@ -629,6 +633,54 @@
         return el;
       }
 
+      // Size the window to the content: with the recents capped at one row, a
+      // start screen whose feed is at most one row deep should fit exactly,
+      // with no scrollbar. Only a feed that wraps to a second row keeps the
+      // window at its current height and scrolls. The shell applies the delta,
+      // clamped to the screen, so the menu bar and frame stay out of the math.
+      //
+      // A delta is only right if `innerHeight` is current, so the whole thing
+      // is single-flight: one fit at a time, requests during a fit run once
+      // more at the end, and each attempt re-measures after the previous
+      // resize landed. Nothing runs until the feed settles once — fitting to
+      // the recents alone would shrink the window and then bounce it back.
+      let feedSettled = false;
+      let fitRunning = false;
+      let fitAgain = false;
+
+      const nextFrame = () => new Promise(requestAnimationFrame);
+
+      async function fitWindowHeight() {
+        if (!api?.start.fitHeight || !feedSettled) { return; }
+        if (fitRunning) { fitAgain = true; return; }
+        fitRunning = true;
+        try {
+          do {
+            fitAgain = false;
+            // A second attempt catches a clamped or in-flight resize; a third
+            // means the shell cannot give us the height we want (screen edge),
+            // so stop rather than loop.
+            for (let attempt = 0; attempt < 3; attempt++) {
+              await nextFrame();
+              await nextFrame();
+              const feedRows = new Set([...tutorials.children].map((el) => el.offsetTop)).size;
+              if (!learn.hidden && feedRows > 1) { return; }
+              mainEl.scrollTop = 0;
+              const visible = [...mainEl.children].filter((el) => !el.hidden);
+              const last = visible[visible.length - 1];
+              if (!last) { return; }
+              // 28px is main's bottom padding; rect.bottom already includes the header.
+              const desired = Math.ceil(last.getBoundingClientRect().bottom) + 28;
+              const delta = desired - window.innerHeight;
+              if (Math.abs(delta) <= 1) { break; }
+              await api.start.fitHeight(delta);
+            }
+          } while (fitAgain);
+        } finally {
+          fitRunning = false;
+        }
+      }
+
       async function refreshFeed() {
         if (!api?.start.feed) { return; }
         try {
@@ -640,6 +692,8 @@
         } catch {
           // The feed is a nicety; the start screen works without it.
         }
+        feedSettled = true;
+        void fitWindowHeight();
       }
 
       async function refresh() {
@@ -647,12 +701,12 @@
         const state = await api.start.list();
         closeMenu();
         home = state.home || '';
-        grid.replaceChildren(...state.projects.map(card));
-        empty.hidden = state.projects.length > 0;
-        grid.hidden = state.projects.length === 0;
-        engineNote.textContent = state.defaultEngine
-          ? `New projects use engine ${state.defaultEngine}, the one that ships with this app.`
-          : '';
+        // One row of recents is enough for a home screen; the freshest four win.
+        const projects = state.projects.slice(0, 4);
+        grid.replaceChildren(...projects.map(card));
+        empty.hidden = projects.length > 0;
+        grid.hidden = projects.length === 0;
+        void fitWindowHeight();
       }
 
       async function busy(button, action) {

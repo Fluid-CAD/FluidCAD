@@ -90,6 +90,8 @@ const shellApi = {
       ipcRenderer.invoke('shell:start-dismiss-notification', id),
     /** Open an http(s) link in the user's browser. */
     openLink: (url: string): Promise<void> => ipcRenderer.invoke('shell:start-open-link', url),
+    /** Grow/shrink the window by this many CSS pixels so the content fits. */
+    fitHeight: (delta: number): Promise<void> => ipcRenderer.invoke('shell:start-fit-height', delta),
     /** The recents changed under the page (a project closed, a preview landed). */
     onChanged: (handler: () => void): void => {
       ipcRenderer.on('shell:start-changed', () => handler());

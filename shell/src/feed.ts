@@ -35,7 +35,7 @@ export type StartFeed = {
 
 const FEED_URL = 'https://feed.fluidcad.io/feed.json';
 const FETCH_TIMEOUT_MS = 8000;
-const CACHE_MAX_AGE_MS = 15 * 60 * 1000;
+const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 type CachedFeed = { fetchedAt: string; feed: StartFeed };
 

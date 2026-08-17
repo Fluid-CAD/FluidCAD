@@ -1,8 +1,8 @@
-import { BrowserWindow, ipcMain, shell } from 'electron';
+import { BrowserWindow, ipcMain, screen, shell } from 'electron';
 import os from 'os';
 import path from 'path';
 import { projectInstalledEngine, readProjectPin } from './engine/project-pin';
-import { defaultEngine, isEngineManagedLink } from './engine/resolver';
+import { isEngineManagedLink } from './engine/resolver';
 import { FeedService } from './feed';
 import { createNewProject } from './new-project';
 import { findProjectWindow, type ProjectWindow } from './project-window';
@@ -126,7 +126,6 @@ function describeProject(workspacePath: string, lastOpenedAt: string): StartScre
 export function registerStartScreenHandlers(deps: StartScreenDeps): void {
   ipcMain.handle('shell:start-list', () => ({
     projects: listRecentProjects().map((entry) => describeProject(entry.path, entry.lastOpenedAt)),
-    defaultEngine: defaultEngine()?.version ?? null,
     /** For `~/…` in the cards; the page has no `os` of its own. */
     home: os.homedir(),
   }));
@@ -159,6 +158,34 @@ export function registerStartScreenHandlers(deps: StartScreenDeps): void {
 
   ipcMain.handle('shell:start-dismiss-notification', (_event, id: string) => {
     dismissNotification(id);
+  });
+
+  /**
+   * The page asks for its height to change by `delta` CSS pixels so the
+   * content fits without a scrollbar. Sent as a delta rather than an absolute
+   * height so the menu bar and window frame — which the page cannot measure —
+   * cancel out. Clamped to the window's minimum size and the display's work
+   * area; if the content is taller than the screen, the page keeps its
+   * scrollbar for the rest.
+   */
+  ipcMain.handle('shell:start-fit-height', (_event, delta: number) => {
+    const win = startWindow;
+    if (!win || win.isDestroyed() || win.isMaximized() || win.isFullScreen()) {
+      return;
+    }
+    if (typeof delta !== 'number' || !Number.isFinite(delta)) {
+      return;
+    }
+    const bounds = win.getBounds();
+    const workArea = screen.getDisplayMatching(bounds).workArea;
+    const minHeight = win.getMinimumSize()[1];
+    const height = Math.max(minHeight, Math.min(bounds.height + Math.round(delta), workArea.height));
+    if (height === bounds.height) {
+      return;
+    }
+    // Growing must not push the window off the bottom of the screen.
+    const y = Math.max(workArea.y, Math.min(bounds.y, workArea.y + workArea.height - height));
+    win.setBounds({ ...bounds, y, height });
   });
 
   ipcMain.handle('shell:start-open-link', (_event, url: string) => {

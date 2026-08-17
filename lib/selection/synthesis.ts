@@ -92,6 +92,29 @@ export function synthesizeSelectors(
     }
   }
 
+  // One statement executes in one part() scope. The global-select and chain
+  // paths refuse multi-part pools individually below, but bucket-tier picks
+  // (and mixes of routes) used to sail through synthesis and only fail at
+  // apply time, deep in the transform — after the preview had rendered a
+  // plausible expression. Refuse up front, over every pick synthesis routes.
+  const scopePool = [...attributions, ...chains.flatMap(c => [c.seed, ...c.members])];
+  let scopePart: SceneObject | null | undefined;
+  for (const attr of scopePool) {
+    if (!attr.solidOwner) {
+      continue;
+    }
+    const enclosing = scene.findEnclosingPart(attr.solidOwner);
+    if (scopePart === undefined) {
+      scopePart = enclosing;
+    } else if (enclosing !== scopePart) {
+      return {
+        ok: false,
+        reason: 'the picked entities live in different part() scopes — one statement cannot select across parts; apply the feature per part',
+        pick: attr.ref,
+      };
+    }
+  }
+
   // Route free picks: bindable classified picks group by (producer, bucket);
   // everything else pools into a per-kind global select() attempt.
   const bucketGroups = new Map<BucketRecord, PickAttribution[]>();

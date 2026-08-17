@@ -17,7 +17,7 @@ export class AxisFromEdge extends AxisObjectBase {
     if (this.sourceObject instanceof AxisObjectBase) {
       return;
     }
-    requireShapes(this.sourceObject, "source", "axis");
+    requireShapes(this.sourceObject, "source", "axis", { filter: { excludeGuide: false } });
   }
 
   build() {

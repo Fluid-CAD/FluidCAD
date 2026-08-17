@@ -19,6 +19,7 @@ import { isFluidScriptFile } from '../file-kind';
  *   project/node_modules/fluidcad  →  use it (respects the project's lockfile)
  *   fluidcad.json pin present      →  ~/.fluidcad/engines/<version>/
  *      …not on disk                →  download, verify sha256, extract
+ *      …fetch fails, pin < shipped →  run the shipped engine, repin to it
  *   no pin                         →  built-in engine, and write the pin
  *
  * Branch 1 preserves today's behaviour exactly: every project that already
@@ -35,7 +36,7 @@ export type ResolvedEngine = {
   /** The file to fork. */
   serverEntry: string;
   source: EngineSource;
-  /** What the project pins, before any write. */
+  /** What the project pins once resolution is done (a failed fetch of an old pin repins to the shipped engine). */
   pin: string | null;
   /** True when this project has no pin and should be given one. */
   unpinned: boolean;
@@ -130,6 +131,33 @@ export function defaultEngine(): InstalledEngine | null {
   return builtinEngine() ?? newestInstalled();
 }
 
+/**
+ * When a pinned engine cannot be fetched but the pin is *older* than the
+ * engine shipped inside the app, opening with the shipped one is a plain
+ * upgrade — the direction every update already takes projects — so the
+ * failure is absorbed silently: run the shipped engine and move the pin up
+ * to match it. A pin newer than the shipped engine never falls back this
+ * way; downgrading a project's kernel behind its back is the geometry
+ * surprise the pin exists to prevent, so that failure stays an error.
+ */
+function repinToShipped(
+  workspacePath: string,
+  pinned: string,
+): { engine: InstalledEngine; pin: string } | null {
+  const shipped = builtinEngine();
+  if (!shipped || compareVersionsDescending(pinned, shipped.version) <= 0) {
+    return null;
+  }
+  try {
+    writeProjectPin(workspacePath, shipped.version);
+    return { engine: shipped, pin: shipped.version };
+  } catch {
+    // A read-only project still opens with the shipped engine; only the pin
+    // update is lost, and the next successful open will retry it.
+    return { engine: shipped, pin: pinned };
+  }
+}
+
 export type ResolveOptions = DownloadOptions & {
   /** Called when a pinned engine has to be fetched, before the download starts. */
   onDownloadStart?: (version: string) => void;
@@ -164,7 +192,17 @@ export async function resolveEngine(
     }
 
     options.onDownloadStart?.(pin.engine);
-    const downloaded = await downloadEngine(pin.engine, options);
+    let downloaded: InstalledEngine;
+    try {
+      downloaded = await downloadEngine(pin.engine, options);
+    } catch (err) {
+      const shipped = repinToShipped(workspacePath, pin.engine);
+      if (!shipped) {
+        throw err;
+      }
+      markEngineUsed(shipped.engine.version);
+      return asResolved(shipped.engine, 'builtin', shipped.pin, false);
+    }
     markEngineUsed(downloaded.version);
     return asResolved(downloaded, 'downloaded', pin.engine, false);
   }

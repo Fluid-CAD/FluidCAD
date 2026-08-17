@@ -39,6 +39,21 @@ describe("connector scope", () => {
     }).toThrow(/inside a part\(\) block/i);
   });
 
+  it("throws when nested inside a sketch() callback", () => {
+    // The part is found by scanning the container stack, but parenting goes
+    // to the top container — a connector created here would become the
+    // sketch's child and vanish from Part.getConnectors().
+    expect(() => {
+      part("nested", () => {
+        sketch("xy", () => {
+          rect(20, 20);
+          connector("mid", select(face().planar().onPlane("xy")));
+        });
+        extrude(10);
+      }).materialize();
+    }).toThrow(/directly in the part\(\) body/i);
+  });
+
   it("rejects unsupported source kinds", () => {
     expect(() => {
       part("bad-source", () => {

@@ -14,14 +14,38 @@ export class AssemblyCompare {
 
     const pairCount = Math.min(newTopParts.length, oldTopParts.length);
 
+    // Tentative matches: a part whose OWN subtree compares equal.
+    const matched = new Map<Part, Pair[]>();
     for (let i = 0; i < pairCount; i++) {
-      const newPart = newTopParts[i];
-      const oldPart = oldTopParts[i];
-
-      const subtreePairs = collectSubtreePairs(newPart, oldPart);
+      const subtreePairs = collectSubtreePairs(newTopParts[i], oldTopParts[i]);
       if (subtreePairs) {
+        matched.set(newTopParts[i], subtreePairs);
+      }
+    }
+
+    // A part can consume geometry OWNED BY ANOTHER PART — an
+    // `extrude(15, donor.features.sketch)` / `remove(donor.features.sketch)`
+    // subtree looks unchanged when only the donor's sketch body changed
+    // (leaf compareTo of a referenced source is shallow; the deep walk covers
+    // the donor's subtree, not the consumer's). Drop the match whenever a
+    // cross-part dependency's owner is rebuilding, iterated to a fixpoint so
+    // a dropped part strands its own dependents too.
+    let dropped = true;
+    while (dropped) {
+      dropped = false;
+      for (const [part, pairs] of matched) {
+        if (hasRebuildingCrossPartDependency(part, pairs, matched)) {
+          matched.delete(part);
+          dropped = true;
+        }
+      }
+    }
+
+    for (const newPart of newTopParts) {
+      const pairs = matched.get(newPart);
+      if (pairs) {
         console.log('Part MATCHED:', newPart.partName);
-        for (const pair of subtreePairs) {
+        for (const pair of pairs) {
           map.set(pair.oldObj, pair.newObj);
           newScene.markCached(pair.newObj);
         }
@@ -77,6 +101,34 @@ function cloneState(state: Map<string, any>): Map<string, any> {
     }
   }
   return out;
+}
+
+// True when any object in the part's subtree depends on (or resolves against)
+// geometry whose owning top-level part is a different part that is NOT
+// matched — that owner rebuilds, so the consumer's cached state is stale.
+function hasRebuildingCrossPartDependency(
+  part: Part,
+  pairs: Pair[],
+  matched: Map<Part, Pair[]>,
+): boolean {
+  for (const pair of pairs) {
+    const deps = [...pair.newObj.getDependencies(), ...pair.newObj.getBoundaryDependencies()];
+    for (const dep of deps) {
+      const owner = owningTopLevelPart(dep);
+      if (owner && owner !== part && !matched.has(owner)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function owningTopLevelPart(obj: SceneObject): Part | null {
+  let current: SceneObject = obj;
+  for (let parent = current.getParent(); parent; parent = current.getParent()) {
+    current = parent;
+  }
+  return current instanceof Part ? current : null;
 }
 
 function topLevelParts(scene: AssemblyScene): Part[] {

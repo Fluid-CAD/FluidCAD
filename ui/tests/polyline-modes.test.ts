@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { applyTarcToEdge } from '../src/api';
+import { applyTarcToEdge, applyAlineToEdge } from '../src/api';
+import { resolveExpressionValue, type VariableInfo } from '../src/ui/expression-core';
 import { LineMode } from '../src/interactive/tools/polyline/mode-line';
 import { ALineMode } from '../src/interactive/tools/polyline/mode-aline';
 import { ArcMode } from '../src/interactive/tools/polyline/mode-arc';
@@ -16,6 +17,7 @@ Element.prototype.scrollIntoView = () => {};
 vi.mock('../src/api', async (importOriginal) => ({
   ...(await importOriginal<object>()),
   applyTarcToEdge: vi.fn(async () => ({ success: true })),
+  applyAlineToEdge: vi.fn(async () => ({ success: true })),
 }));
 
 type Inserted = { statement: string; newVariable?: unknown };
@@ -38,6 +40,8 @@ type CtxOptions = {
   orthoOverride?: boolean;
   sceneObjects?: unknown[];
   pendingStartText?: string | null;
+  pendingStartVariables?: { name: string; initializer: string }[];
+  variables?: VariableInfo[];
 };
 
 // The XY plane in scene-payload shape, enough for the 2D edge index.
@@ -62,7 +66,9 @@ function makeCtx(opts: CtxOptions = {}) {
     atCurrent: opts.atCurrent ?? true,
     orthoOverride: opts.orthoOverride ?? false,
     pendingStartText: opts.pendingStartText ?? null,
+    pendingStartCleared: 0,
   };
+  const variables = opts.variables ?? [];
 
   const ctx = {
     plane: PLANE,
@@ -75,8 +81,15 @@ function makeCtx(opts: CtxOptions = {}) {
     startPoint: opts.startPoint ?? [0, 0],
     isAtCurrentPosition: () => state.atCurrent,
     pendingStartText: () => state.pendingStartText,
+    pendingStartVariables: () => opts.pendingStartVariables ?? [],
+    clearPendingStart: () => {
+      state.pendingStartText = null;
+      state.pendingStartCleared++;
+    },
     pixelThreshold: (px: number) => px,
     setSnapHint: (hint: string | null) => hints.push(hint),
+    resolveCommittedValue: (result: { expression: string; newVariable?: { name: string; initializer: string } }) =>
+      resolveExpressionValue(result.expression, variables, result.newVariable ?? null),
     formatPoint: (p: Point2D) => `[${p[0]}, ${p[1]}]`,
     insertGeometry: (statement: string, newVariable?: unknown) => {
       inserted.push({ statement, newVariable });
@@ -85,7 +98,7 @@ function makeCtx(opts: CtxOptions = {}) {
     isOrthoOverride: () => state.orthoOverride,
     showExpressionInput: (o: any) => {
       if (!expr.isVisible) {
-        expr.show({ ...o, variables: [] });
+        expr.show({ ...o, variables });
       }
     },
     updateExpressionValue: (v: number) => expr.updateValue(v),
@@ -350,10 +363,32 @@ describe('ALineMode', () => {
       ],
     }]);
     expect(committed).toHaveLength(1);
-    // The numeric preview fallback for a variable angle is the mouse-derived
-    // angle (20 degrees here), not the variable's initializer.
-    expect(committed[0].exitTangent?.direction[0]).toBeCloseTo(Math.cos((20 * Math.PI) / 180), 3);
-    expect(committed[0].exitTangent?.direction[1]).toBeCloseTo(Math.sin((20 * Math.PI) / 180), 3);
+    // The declared variable's value drives the drawn direction — falling
+    // back to the mouse-derived angle here once made the preview (and the
+    // edge-snap intersection) disagree with what the kernel builds.
+    expect(committed[0].exitTangent?.direction[0]).toBeCloseTo(Math.cos((30 * Math.PI) / 180), 3);
+    expect(committed[0].exitTangent?.direction[1]).toBeCloseTo(Math.sin((30 * Math.PI) / 180), 3);
+  });
+
+  it('resolves an expression angle for the locked direction', () => {
+    // Regression: parseFloat('(-45)') is NaN, and the old fallback silently
+    // locked the mouse-derived angle instead — the preview and endpoint math
+    // then drew along a direction the kernel never builds.
+    const { ctx, input, inserted, committed } = makeCtx();
+    const mode = new ALineMode();
+    mode.enter(ctx);
+
+    mode.handleMouseMove([100, 0], SNAP, 0, 0, ctx); // mouse says 0 degrees
+    type(input, '(-45)');
+    pressEnter(input);
+
+    mode.handleMouseMove([10, -10], SNAP, 0, 0, ctx);
+    type(input, '10');
+    pressEnter(input);
+
+    expect(inserted).toEqual([{ statement: 'aLine((-45), 10)', newVariable: undefined }]);
+    expect(committed[0].exitTangent?.direction[0]).toBeCloseTo(Math.cos(-Math.PI / 4), 3);
+    expect(committed[0].exitTangent?.direction[1]).toBeCloseTo(Math.sin(-Math.PI / 4), 3);
   });
 
   it('ignores a zero-length second click', () => {
@@ -575,6 +610,175 @@ describe('TArcMode edge snap', () => {
     expect(inserted).toEqual([{ statement: 'tArc(30, [80, 30])', newVariable: undefined }]);
     expect(committed[0].endpoint[0]).toBeCloseTo(80);
     expect(committed[0].endpoint[1]).toBeCloseTo(30);
+  });
+});
+
+describe('ALineMode edge snap', () => {
+  beforeEach(() => {
+    vi.mocked(applyAlineToEdge).mockClear();
+  });
+
+  /** A single-edge sketch object (one real edge shape) for the edge index. */
+  function edgeObj(shapeId: string, a: Point2D, b: Point2D, uniqueType = 'line-two-points') {
+    return {
+      parentId: 'sketch',
+      uniqueType,
+      sourceLocation: { filePath: 'f.fluid.js', line: 3, column: 0 },
+      sceneShapes: [{
+        shapeId,
+        meshes: [{ vertices: [a[0], a[1], 0, b[0], b[1], 0], indices: [0, 1] }],
+      }],
+    };
+  }
+
+  function makeSnapCtx(sceneObjects: unknown[], extra: CtxOptions = {}) {
+    return makeCtx({
+      startPoint: [50, 0],
+      tangent: { direction: [1, 0], point: [50, 0] },
+      sceneObjects,
+      ...extra,
+    });
+  }
+
+  it('snaps to a hovered line and commits the angle + target overload', async () => {
+    // Chain at (50, 0) heading +X, angle locked at 0; a vertical line at
+    // x=80. Hovering near it lands the segment at the intersection (80, 0).
+    const { ctx, committed, hints } = makeSnapCtx([edgeObj('t1', [80, -50], [80, 50])]);
+    const mode = new ALineMode();
+    mode.enter(ctx);
+
+    expect(mode.handleClick([60, 0], SNAP, ctx).kind).toBe('consumed'); // locks 0°
+    mode.handleMouseMove([79.5, 10], SNAP, 0, 0, ctx);
+    expect(hints[hints.length - 1]).toBe('Line up to intersection');
+
+    const result = mode.handleClick([79.5, 10], SNAP, ctx);
+    expect(result.kind).toBe('consumed');
+    expect(applyAlineToEdge).toHaveBeenCalledWith('0', 't1', { start: undefined, newVariables: undefined });
+
+    await vi.waitFor(() => expect(committed).toHaveLength(1));
+    expect(committed[0].endpoint[0]).toBeCloseTo(80);
+    expect(committed[0].endpoint[1]).toBeCloseTo(0);
+    expect(committed[0].exitTangent?.direction[0]).toBeCloseTo(1);
+    expect(committed[0].exitTangent?.direction[1]).toBeCloseTo(0);
+  });
+
+  it('intersects along the locked direction, not toward the cursor', async () => {
+    // Regression: with the angle locked at -45°, hovering anywhere on the
+    // line must land at the -45° intersection (80, -30) — an endpoint on the
+    // wrong ray desyncs the chain from the kernel's rendered segment.
+    const { ctx, committed } = makeSnapCtx([edgeObj('t1', [80, -50], [80, 50])]);
+    const mode = new ALineMode();
+    mode.enter(ctx);
+
+    expect(mode.handleClick([60, -10], SNAP, ctx).kind).toBe('consumed'); // locks -45°
+    mode.handleMouseMove([79.5, 10], SNAP, 0, 0, ctx);
+    mode.handleClick([79.5, 10], SNAP, ctx);
+    expect(applyAlineToEdge).toHaveBeenCalledWith('-45', 't1', { start: undefined, newVariables: undefined });
+
+    await vi.waitFor(() => expect(committed).toHaveLength(1));
+    expect(committed[0].endpoint[0]).toBeCloseTo(80);
+    expect(committed[0].endpoint[1]).toBeCloseTo(-30);
+  });
+
+  it('accepts multi-edge owners — the kernel intersects every edge', () => {
+    const rectish = {
+      parentId: 'sketch',
+      uniqueType: 'rect',
+      sourceLocation: { filePath: 'f.fluid.js', line: 3, column: 0 },
+      sceneShapes: [
+        { shapeId: 'r1', meshes: [{ vertices: [80, -50, 0, 80, 50, 0], indices: [0, 1] }] },
+        { shapeId: 'r2', meshes: [{ vertices: [80, 50, 0, 120, 50, 0], indices: [0, 1] }] },
+      ],
+    };
+    const { ctx, hints } = makeSnapCtx([rectish]);
+    const mode = new ALineMode();
+    mode.enter(ctx);
+
+    mode.handleClick([60, 0], SNAP, ctx);
+    mode.handleMouseMove([79.5, 10], SNAP, 0, 0, ctx);
+    expect(hints[hints.length - 1]).toBe('Line up to intersection');
+    mode.handleClick([79.5, 10], SNAP, ctx);
+
+    expect(applyAlineToEdge).toHaveBeenCalledWith('0', 'r1', { start: undefined, newVariables: undefined });
+  });
+
+  it('withholds the snap when the typed angle cannot be resolved', () => {
+    // `w` has no initializer here, so the locked direction is a mouse-derived
+    // guess — an intersection along it would be fiction, and committing it
+    // would desync the chain from the kernel.
+    const { ctx, input, hints } = makeSnapCtx(
+      [edgeObj('t1', [80, -50], [80, 50])],
+      { variables: [{ name: 'w' }] },
+    );
+    const mode = new ALineMode();
+    mode.enter(ctx);
+
+    mode.handleMouseMove([100, 0], SNAP, 0, 0, ctx);
+    type(input, 'w');
+    pressEnter(input);
+
+    mode.handleMouseMove([79.5, 10], SNAP, 0, 0, ctx);
+    mode.handleClick([79.5, 10], SNAP, ctx);
+
+    expect(hints.filter((h) => h !== null)).toHaveLength(0);
+    expect(applyAlineToEdge).not.toHaveBeenCalled();
+  });
+
+  it('sends the chain-start address when the chain opened away from the cursor', async () => {
+    const { ctx, committed } = makeCtx({
+      startPoint: [10, 20],
+      atCurrent: false,
+      sceneObjects: [edgeObj('t1', [80, -50], [80, 50])],
+    });
+    const mode = new ALineMode();
+    mode.enter(ctx);
+
+    mode.handleClick([20, 20], SNAP, ctx); // locks 0° from +X
+    mode.handleMouseMove([79.5, 30], SNAP, 0, 0, ctx);
+    mode.handleClick([79.5, 30], SNAP, ctx);
+
+    expect(applyAlineToEdge).toHaveBeenCalledWith('0', 't1', { start: '[10, 20]', newVariables: undefined });
+    await vi.waitFor(() => expect(committed).toHaveLength(1));
+    expect(committed[0].endpoint[0]).toBeCloseTo(80);
+    expect(committed[0].endpoint[1]).toBeCloseTo(20);
+  });
+
+  it('spends a pending typed start and its declarations on the snap commit', async () => {
+    const { ctx, state } = makeCtx({
+      startPoint: [50, 0],
+      atCurrent: true,
+      pendingStartText: '[w / 2, 0]',
+      pendingStartVariables: [{ name: 'w', initializer: '100' }],
+      sceneObjects: [edgeObj('t1', [80, -50], [80, 50])],
+    });
+    const mode = new ALineMode();
+    mode.enter(ctx);
+
+    mode.handleClick([60, 0], SNAP, ctx);
+    mode.handleMouseMove([79.5, 10], SNAP, 0, 0, ctx);
+    mode.handleClick([79.5, 10], SNAP, ctx);
+
+    expect(applyAlineToEdge).toHaveBeenCalledWith('0', 't1', {
+      start: '[w / 2, 0]',
+      newVariables: [{ name: 'w', initializer: '100' }],
+    });
+    await vi.waitFor(() => expect(state.pendingStartCleared).toBe(1));
+  });
+
+  it('falls back to the plain angle + length overload when the server refuses', async () => {
+    vi.mocked(applyAlineToEdge).mockResolvedValueOnce({ success: false, reason: 'clone' });
+    const { ctx, inserted, committed } = makeSnapCtx([edgeObj('t1', [80, -50], [80, 50])]);
+    const mode = new ALineMode();
+    mode.enter(ctx);
+
+    mode.handleClick([60, 0], SNAP, ctx);
+    mode.handleMouseMove([79.5, 10], SNAP, 0, 0, ctx);
+    mode.handleClick([79.5, 10], SNAP, ctx);
+
+    await vi.waitFor(() => expect(committed).toHaveLength(1));
+    expect(inserted).toEqual([{ statement: 'aLine(0, 30)', newVariable: undefined }]);
+    expect(committed[0].endpoint[0]).toBeCloseTo(80);
+    expect(committed[0].endpoint[1]).toBeCloseTo(0);
   });
 });
 

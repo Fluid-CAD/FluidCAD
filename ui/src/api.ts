@@ -1423,6 +1423,28 @@ export async function retargetTarcToEdge(
   });
 }
 
+/**
+ * Commit the polyline tool's angled-line-to-target snap: `aLine(<angle>,
+ * <target>)`, where the picked geometry's producing statement is bound to a
+ * variable by the server and referenced as the target. The line ends at its
+ * nearest intersection with the target along the drawn direction (in either
+ * sign). A chain opened away from the sketch cursor carries its start
+ * address as the statement's first argument — `aLine([10, 5], 30, l)`.
+ */
+export async function applyAlineToEdge(
+  angle: number | string,
+  shapeId: string,
+  options: { start?: string; newVariables?: NewVariable[] } = {},
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'aline',
+    value: angle,
+    sketchEntities: [{ shapeId }],
+    alineStart: options.start,
+    newVariables: options.newVariables?.length ? options.newVariables : undefined,
+  });
+}
+
 export type OffsetEditOptions = OffsetOptionValues & EditSessionFields & {
   value: ValueExpr;
   /** Edited target argument list; omitted keeps the statement's verbatim. */

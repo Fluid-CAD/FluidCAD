@@ -15,6 +15,7 @@ import {
   renderRevolveStatement, renderRibStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
+  renderAlineStatement,
   renderChamferValueArgs, renderConnectorChain, renderFaceTargetExpr, renderOffsetStatement, renderSlotStatement, renderTarcStatement,
   renderTextStatement, type TextStatementOptions, validConnectorAnchor, validConnectorRotate,
   type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions,
@@ -33,7 +34,7 @@ import { readFile } from 'fs/promises';
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 import { CHAIN_CALLEES } from '../segment-swap.ts';
-import { findEditableCallAt, getJavaScriptParser, splitLines } from '../code-editor.ts';
+import { findEditableCallAt, getJavaScriptParser, isExpressionText, splitLines } from '../code-editor.ts';
 
 type RawPick = { shapeId?: unknown; sub?: { type?: unknown; index?: unknown } };
 
@@ -5979,8 +5980,8 @@ export function createApplyFeatureRouter(
       }
       if (feature !== 'fillet' && feature !== 'offset' && feature !== 'slot' && feature !== 'trim'
         && feature !== 'fuse' && feature !== 'subtract' && feature !== 'common' && feature !== 'tarc'
-        && feature !== 'text' && feature !== 'copy') {
-        res.status(400).json({ error: 'feature must be "fillet", "offset", "slot", "trim", "fuse", "subtract", "common", "tarc", "text" or "copy" for sketch-edge selections' });
+        && feature !== 'aline' && feature !== 'text' && feature !== 'copy') {
+        res.status(400).json({ error: 'feature must be "fillet", "offset", "slot", "trim", "fuse", "subtract", "common", "tarc", "aline", "text" or "copy" for sketch-edge selections' });
         return;
       }
       // The 2D copy: whole-geometry targets rendered as bare variables plus
@@ -6134,6 +6135,27 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'value must be a nonzero number or expression' });
         return;
       }
+      // aLine's angle allows any finite value — zero aims straight along the
+      // chain tangent (or +X for an explicit start).
+      if (feature === 'aline' && !validValueExpr(value)) {
+        res.status(400).json({ error: 'value must be a number or expression' });
+        return;
+      }
+      // aLine's optional explicit start point: the polyline tool opens a
+      // chain away from the sketch cursor, so the appended statement must
+      // carry the address itself — `aLine([10, 5], 30, l)`.
+      let alineStart: string | undefined;
+      if (req.body?.alineStart !== undefined) {
+        if (feature !== 'aline') {
+          res.status(400).json({ error: 'alineStart only applies to aline' });
+          return;
+        }
+        if (!isExpressionText(req.body.alineStart)) {
+          res.status(400).json({ error: 'alineStart must be a point argument (e.g. "[10, 5]")' });
+          return;
+        }
+        alineStart = req.body.alineStart.trim();
+      }
       // Text-on-path: the dialog's full option payload rides the body; the
       // synthesized bare variable becomes the statement's path argument.
       let textOptions: TextStatementOptions | undefined;
@@ -6230,6 +6252,15 @@ export function createApplyFeatureRouter(
           });
           return;
         }
+        // Same rule for aLine's target: the kernel intersects a whole
+        // geometry object, so only a bare variable works.
+        if (feature === 'aline' && !/^[A-Za-z_$][\w$]*$/.test(synthesis.args)) {
+          res.status(422).json({
+            success: false,
+            reason: "the workspace's FluidCAD version does not support aLine to an edge — update its fluidcad dependency",
+          });
+          return;
+        }
         // And for a text path: the argument is ONE whole geometry, so only a
         // bare variable works.
         if (feature === 'text' && !/^[A-Za-z_$][\w$]*$/.test(synthesis.args)) {
@@ -6252,7 +6283,9 @@ export function createApplyFeatureRouter(
                 // The retarget keeps the statement's own radius argument, so
                 // its preview can only name the target.
                 ? (tarcRetarget ? `tArc(<radius>, ${synthesis.args})` : renderTarcStatement(value, synthesis.args))
-                : synthesis.preview;
+                : feature === 'aline'
+                  ? renderAlineStatement(value, synthesis.args, alineStart !== undefined ? { start: alineStart } : undefined)
+                  : synthesis.preview;
         if (preview === true) {
           res.json({
             success: true,
@@ -6276,6 +6309,9 @@ export function createApplyFeatureRouter(
         }
         if (tarcRetarget) {
           spec = { ...spec, tarc: { retarget: tarcRetarget } };
+        }
+        if (feature === 'aline' && alineStart !== undefined) {
+          spec = { ...spec, aline: { start: alineStart } };
         }
         if (newVariables) {
           spec = { ...spec, newVariables };

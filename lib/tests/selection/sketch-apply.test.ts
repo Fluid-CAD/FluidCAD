@@ -845,6 +845,123 @@ describe("sketch apply-feature synthesis", () => {
     });
   });
 
+  describe("aLine to intersection (owner-level target)", () => {
+    it("renders the picked edge's owner as the bare target variable", () => {
+      let l: SceneObject;
+      sketch("xy", () => {
+        move([0, 40]);
+        l = line([120, 40]) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(l!, 4);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(edgesOf(l!)[0])], 'aline', 30,
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('l');
+      expect(result.preview).toBe('aLine(30, l)');
+      expect(result.spec.feature).toBe('aline');
+      expect(result.spec.value).toBe(30);
+      expect(result.spec.producers).toEqual([
+        { line: 4, column: 0, featureType: 'line', nameHint: 'l', bind: true },
+      ]);
+      expect(result.spec.parts).toEqual([
+        { producer: 0, accessor: '', indices: null, filterArgs: null },
+      ]);
+    });
+
+    it("accepts a multi-edge owner — the kernel intersects every edge", () => {
+      let r: Rect;
+      sketch("xy", () => {
+        r = rect(80, 60) as Rect;
+      });
+      const scene = render();
+      setLocation(r!, 3);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(roleEdge(r!, 'top'))], 'aline', 45,
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('r');
+      expect(result.preview).toBe('aLine(45, r)');
+    });
+
+    it("accepts a guide edge as the target", () => {
+      let g: SceneObject;
+      sketch("xy", () => {
+        hLine(60);
+        move([0, 40]);
+        g = line([120, 40]).guide() as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(g!, 5);
+
+      const guideEdge = g!.getShapes({ excludeGuide: false })
+        .find((s): s is Edge => s instanceof Edge);
+      expect(guideEdge).toBeDefined();
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [{ shapeId: guideEdge!.id }], 'aline', 30,
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.preview).toBe('aLine(30, l)');
+    });
+
+    it("refuses picks spanning two geometries", () => {
+      let l: SceneObject;
+      let c: SceneObject;
+      sketch("xy", () => {
+        l = hLine(60) as unknown as SceneObject;
+        move([100, 0]);
+        c = circle(20) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(l!, 3);
+      setLocation(c!, 5);
+
+      expect(synthesizeSketchApplyFeature(
+        scene,
+        [refFor(edgesOf(l!)[0]), refFor(edgesOf(c!)[0])],
+        'aline',
+        30,
+      )).toMatchObject({ ok: false, reason: expect.stringMatching(/one target geometry/) });
+    });
+
+    it("refuses an unbindable target honestly", () => {
+      let c1: SceneObject;
+      let c2: SceneObject;
+      sketch("xy", () => {
+        c1 = circle(40) as unknown as SceneObject;
+        move([100, 0]);
+        c2 = circle(20) as unknown as SceneObject;
+      });
+      const scene = render();
+      // Same call site: both circles come from one looped statement.
+      setLocation(c1!, 4);
+      setLocation(c2!, 4);
+
+      expect(synthesizeSketchApplyFeature(
+        scene, [refFor(edgesOf(c1!)[0])], 'aline', 30,
+      )).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/call site produces multiple statements/),
+      });
+    });
+  });
+
   describe("text path (owner-level, multi-edge owners allowed)", () => {
     it("renders the picked edge's owner as the bare path variable", () => {
       let c: SceneObject;

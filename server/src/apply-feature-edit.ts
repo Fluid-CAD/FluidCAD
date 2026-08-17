@@ -72,7 +72,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'rib' | 'connector';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'aline' | 'rib' | 'connector';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -112,6 +112,8 @@ export type ApplyFeatureEditSpec = {
   connector?: ConnectorEditOptions;
   /** tArc-only payload; present for an in-place retarget instead of a create. */
   tarc?: TarcEditOptions;
+  /** aLine-only payload; the explicit chain-start point, when the statement must carry one. */
+  aline?: AlineEditOptions;
   /**
    * Text-on-path create payload: the dialog's option values, rendered around
    * the single `parts` entry (the path's bare variable). In-place edits ride
@@ -1153,6 +1155,16 @@ export type TarcEditOptions = {
 };
 
 /**
+ * An aLine-to-target create's own option: the explicit start point rendered
+ * as the statement's first argument (`aLine([10, 5], 30, l)`). Present when
+ * the polyline chain opened away from the sketch cursor — the chained form
+ * would start the line at the wrong place.
+ */
+export type AlineEditOptions = {
+  start?: string;
+};
+
+/**
  * How a loft statement is rendered and placed: `loft(<profile>, <profile>, …)`
  * plus `.guides(…)` / `.startCondition(…)` / `.endCondition(…)` /
  * `.thin(…)` / `.remove()` / `.new()` chains. Profiles are ordered —
@@ -1767,6 +1779,17 @@ export async function applyFeatureEdit(
         : validValueExpr(spec.value, { nonzero: true }));
     if (!valid) {
       return { newCode: code, error: 'malformed tArc edit spec' };
+    }
+  } else if (spec.feature === 'aline') {
+    // aLine-to-intersection takes ONE whole target geometry: exactly one
+    // bound producer rendered as a bare variable, plus the angle (any finite
+    // value — zero aims straight along the reference direction) and an
+    // optional explicit start point rendered as the first argument.
+    const valid = spec.producers.length === 1 && spec.parts.length === 1
+      && validValueExpr(spec.value)
+      && (spec.aline?.start === undefined || isExpressionText(spec.aline.start));
+    if (!valid) {
+      return { newCode: code, error: 'malformed aLine edit spec' };
     }
   } else if (spec.feature === 'text') {
     // Text-on-path takes ONE whole path geometry: exactly one bound producer
@@ -2698,6 +2721,9 @@ function statementCallee(spec: ApplyFeatureEditSpec): string {
   if (spec.feature === 'tarc') {
     return 'tArc';
   }
+  if (spec.feature === 'aline') {
+    return 'aLine';
+  }
   return spec.feature;
 }
 
@@ -3506,6 +3532,9 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'tarc') {
     return renderTarcStatement(spec.value, args);
   }
+  if (spec.feature === 'aline') {
+    return renderAlineStatement(spec.value, args, spec.aline);
+  }
   if (spec.feature === 'text') {
     return renderTextStatement(spec.text!, args);
   }
@@ -3550,6 +3579,21 @@ export function renderSlotStatement(
  */
 export function renderTarcStatement(value: ValueExpr | undefined, args: string): string {
   return `tArc(${formatValue(value)}, ${args})`;
+}
+
+/**
+ * An angled-line-to-intersection statement: `aLine(30, l)` — the angle first,
+ * then the target geometry the line runs to; an explicit chain-start address
+ * rides as the first argument (`aLine([10, 5], 30, l)`). Shared with the
+ * route's preview so the previewed text is exactly what the transform writes.
+ */
+export function renderAlineStatement(
+  value: ValueExpr | undefined,
+  args: string,
+  aline?: AlineEditOptions,
+): string {
+  const start = aline?.start !== undefined ? `${aline.start}, ` : '';
+  return `aLine(${start}${formatValue(value)}, ${args})`;
 }
 
 /** Negate an argument's source text: `12` → `-12`, `r` → `-r`, else `-(…)`. */

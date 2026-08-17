@@ -5,8 +5,8 @@ import { windowFor } from './project-window';
 /**
  * The application menu.
  *
- * Two kinds of item live here. Shell actions (open a project, manage engines,
- * quit) the main process performs itself. Everything that touches a model is
+ * Two kinds of item live here. Shell actions (open a project, quit) the main
+ * process performs itself. Everything that touches a model is
  * sent to the page as a command and the page decides what it means — which is
  * the same rule as everywhere else in this shell: the engine owns the product.
  *
@@ -18,7 +18,6 @@ import { windowFor } from './project-window';
 
 export type MenuActions = {
   openProject: (target: string | null) => Promise<unknown>;
-  openEngineManager: () => Promise<void>;
   openStartScreen: () => void;
 };
 
@@ -49,8 +48,6 @@ export function buildApplicationMenu(actions: MenuActions): void {
             label: app.name,
             submenu: [
               { role: 'about' },
-              { type: 'separator' },
-              { label: 'Engines…', click: () => void actions.openEngineManager() },
               { type: 'separator' },
               { role: 'services' },
               { type: 'separator' },
@@ -124,7 +121,6 @@ export function buildApplicationMenu(actions: MenuActions): void {
     {
       label: 'Engine',
       submenu: [
-        { label: 'Manage Engines…', click: () => void actions.openEngineManager() },
         {
           label: 'Restart Engine',
           click: () => void windowFor(BrowserWindow.getFocusedWindow())?.restartEngine(),

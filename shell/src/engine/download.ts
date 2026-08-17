@@ -244,55 +244,6 @@ export async function downloadEngine(
   }
 }
 
-/** The versions published for this platform, newest first. Best-effort. */
-export async function listPublishedEngines(signal?: AbortSignal): Promise<string[]> {
-  const base = baseUrl();
-  if (!isRemoteBase(base)) {
-    try {
-      const names = await fs.promises.readdir(path.resolve(base));
-      return collectVersions(names);
-    } catch {
-      return [];
-    }
-  }
-
-  // The releases API is the only listing GitHub offers; it needs no auth for a
-  // public repo, and a failure here is never fatal — it only means the manager
-  // UI can't offer an upgrade right now.
-  try {
-    const response = await fetch('https://api.github.com/repos/Fluid-CAD/FluidCAD/releases?per_page=30', {
-      signal,
-      headers: { accept: 'application/vnd.github+json' },
-    });
-    if (!response.ok) {
-      return [];
-    }
-    const releases = (await response.json()) as { tag_name?: string; assets?: { name?: string }[] }[];
-    const names: string[] = [];
-    for (const release of releases) {
-      for (const asset of release.assets ?? []) {
-        if (asset.name) {
-          names.push(asset.name);
-        }
-      }
-    }
-    return collectVersions(names);
-  } catch {
-    return [];
-  }
-}
-
-function collectVersions(assetNames: string[]): string[] {
-  const suffix = `-${currentTarget()}.tar.gz`;
-  const versions = new Set<string>();
-  for (const name of assetNames) {
-    if (name.startsWith('fluidcad-engine-') && name.endsWith(suffix)) {
-      versions.add(name.slice('fluidcad-engine-'.length, name.length - suffix.length));
-    }
-  }
-  return [...versions].sort(compareVersionsDescending);
-}
-
 /** Newest first. Numeric-segment comparison; anything non-numeric sorts last. */
 export function compareVersionsDescending(a: string, b: string): number {
   const parse = (v: string) => v.split('.').map((part) => Number.parseInt(part, 10));

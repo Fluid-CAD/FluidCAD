@@ -4,9 +4,9 @@ import { contextBridge, ipcRenderer } from 'electron';
  * The renderer bridge — two APIs, and which one a page gets is decided by
  * where the page came from:
  *
- * - `file:` pages are the shell's own (the startup splash, the engine
- *   manager). They exist for the moments when there is no engine to talk to
- *   yet, and they get `window.fluidcadShell`.
+ * - `file:` pages are the shell's own (the startup splash, the start screen).
+ *   They exist for the moments when there is no engine to talk to yet, and
+ *   they get `window.fluidcadShell`.
  * - everything else is the engine's page, served over HTTP from localhost. It
  *   gets `window.fluidcadDesktop`: native gestures the page cannot do for
  *   itself, and nothing more.
@@ -95,22 +95,6 @@ const shellApi = {
     /** The recents changed under the page (a project closed, a preview landed). */
     onChanged: (handler: () => void): void => {
       ipcRenderer.on('shell:start-changed', () => handler());
-    },
-  },
-
-  engines: {
-    list: (): Promise<any> => ipcRenderer.invoke('shell:engines-list'),
-    remove: (version: string): Promise<any> => ipcRenderer.invoke('shell:engines-remove', version),
-    /** Rebuild the project on both engines and report what moved. Commits nothing. */
-    previewUpgrade: (workspacePath: string, version: string): Promise<any> =>
-      ipcRenderer.invoke('shell:engines-preview-upgrade', workspacePath, version),
-    /** Move the pin, after the diff was accepted. */
-    applyPin: (workspacePath: string, version: string): Promise<any> =>
-      ipcRenderer.invoke('shell:engines-apply-pin', workspacePath, version),
-    openProject: (workspacePath: string): Promise<any> =>
-      ipcRenderer.invoke('shell:engines-open-project', workspacePath),
-    onProgress: (handler: (progress: { message: string }) => void): void => {
-      ipcRenderer.on('shell:upgrade-progress', (_event, progress: any) => handler(progress));
     },
   },
 };

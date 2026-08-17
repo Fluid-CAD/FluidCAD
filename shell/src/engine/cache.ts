@@ -205,29 +205,6 @@ export function runningEngineVersions(): Set<string> {
   return versions;
 }
 
-export function directorySize(dir: string): number {
-  let total = 0;
-  let entries: fs.Dirent[];
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return 0;
-  }
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      total += directorySize(full);
-    } else if (entry.isFile()) {
-      try {
-        total += fs.statSync(full).size;
-      } catch {
-        // Raced with a prune; skip it.
-      }
-    }
-  }
-  return total;
-}
-
 export type RemoveResult = { removed: boolean; reason?: string };
 
 /** Delete a cached engine. The built-in one is part of the app, not the cache. */

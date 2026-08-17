@@ -3,7 +3,6 @@ import fs from 'fs';
 import path from 'path';
 import { pruneEngines } from './engine/cache';
 import { buildApplicationMenu, refreshApplicationMenu } from './menu';
-import { openEngineManager, registerEngineManagerHandlers } from './engine-manager';
 import {
   allProjectWindows,
   findProjectWindow,
@@ -29,9 +28,8 @@ import { initAutoUpdate } from './updater';
  * user sees inside the window — the viewport, the editor, the dialogs — is the
  * engine's page, served from the engine that this project pins. That is the
  * whole design: see `docs/desktop/00-architecture.md`, and resist every urge
- * to put product UI in here. The two shell pages — the start screen and the
- * engine manager — are the exceptions, and both exist precisely for the
- * moments when there is no engine to show anything.
+ * to put product UI in here. The start screen is the exception, and it exists
+ * precisely for the moment when there is no engine to show anything.
  */
 
 // `cache.ts` reads this to find the engine that ships inside the app. Set from
@@ -152,7 +150,7 @@ export async function openProject(
   return opened;
 }
 
-const menuActions = { openProject, openEngineManager, openStartScreen };
+const menuActions = { openProject, openStartScreen };
 
 // ---------------------------------------------------------------------------
 // Renderer bridge
@@ -215,7 +213,6 @@ function registerIpcHandlers(): void {
     await openProject(null);
   });
 
-  registerEngineManagerHandlers({ openProject });
   registerStartScreenHandlers({ openProject });
 }
 
@@ -271,21 +268,13 @@ if (singleInstance) {
       }
     });
 
-    // `fluidcad --engines` goes straight to the manager, and to nothing else.
-    // Useful when a pinned engine won't download and the fix is to look at
-    // what *is* installed.
-    const enginesOnly = process.argv.includes('--engines');
-    if (enginesOnly) {
-      await openEngineManager();
-    }
-
     // A path on the command line (or a Finder double-click) opens that
     // project; otherwise the app starts on the start screen and the user
     // picks — it never assumes the last project is the one wanted now.
     const explicit = pendingOpen ?? pathFromArgv(process.argv);
     if (explicit) {
       await openProject(explicit);
-    } else if (!enginesOnly) {
+    } else {
       openStartScreen();
     }
 

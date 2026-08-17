@@ -7,6 +7,7 @@ export const UNIQUE_TYPE_ICONS: Record<string, string> = {
   'copy-linear-2d': 'copy-linear2d',
   'cut': 'cut',
   'cut-symmetric': 'cut',
+  'exposed': 'select',
   'extrude-by-distance': 'extrude',
   'extrude-by-two-distance': 'extrude',
   'extrude-symmetric': 'extrude',

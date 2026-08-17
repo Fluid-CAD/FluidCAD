@@ -67,7 +67,9 @@ export type ObjectType =
   // Part containers
   | 'part'
   // Assembly mate connectors
-  | 'connector';
+  | 'connector'
+  // Named geometry publications (`expose('name', …)`) — shapeless pass-throughs
+  | 'exposed';
 
 // ---------------------------------------------------------------------------
 // Shape types — the geometric representation of a scene object

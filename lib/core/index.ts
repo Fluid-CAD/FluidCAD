@@ -40,6 +40,7 @@ export { default as trim } from "./trim.js";
 export { default as part } from "./part.js";
 export { default as assembly } from "./assembly.js";
 export { default as connector } from "./connector.js";
+export { default as expose } from "./expose.js";
 export { default as insert } from "./insert.js";
 export { default as mate } from "./mate.js";
 export * from "./2d/index.js";

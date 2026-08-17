@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { setupOC, render } from "./setup.js";
 import { getSceneManager } from "../scene-manager.js";
 import sketch from "../core/sketch.js";
@@ -157,28 +157,37 @@ describe("connector scope", () => {
     expect(p.getConnectors()[0].getName()).toBe("mountTop");
   });
 
-  it("passes the user's free-form features object through unchanged", () => {
-    const p = part("flat-features", () => {
-      sketch("xy", () => rect(40, 60));
-      extrude(20);
-      const top = connector("top", select(face().planar().onPlane("xy", 20)));
-      return { top, meta: { count: 1 } };
-    }) as any;
+  it("ignores the callback's return value — features come from expose() only", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const p = part("flat-features", () => {
+        sketch("xy", () => rect(40, 60));
+        extrude(20);
+        const top = connector("top", select(face().planar().onPlane("xy", 20)));
+        return { top, meta: { count: 1 } };
+      }) as any;
 
-    expect(p.features).toBeDefined();
-    expect(p.features.top).toBeInstanceOf(Connector);
-    expect(p.features.meta).toEqual({ count: 1 });
+      expect(p.features).toEqual({});
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("expose("));
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("the features return no longer affects the named-connector map", () => {
-    const p = part("features-ignored", () => {
-      sketch("xy", () => rect(40, 60));
-      extrude(20);
-      const top = connector("top", select(face().planar().onPlane("xy", 20)));
-      // A stale-style return renaming the connector must NOT change the map.
-      return { connectors: { renamed: top } };
-    }) as unknown as Part;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const p = part("features-ignored", () => {
+        sketch("xy", () => rect(40, 60));
+        extrude(20);
+        const top = connector("top", select(face().planar().onPlane("xy", 20)));
+        // A stale-style return renaming the connector must NOT change the map.
+        return { connectors: { renamed: top } };
+      }) as unknown as Part;
 
-    expect(Object.keys(p.getNamedConnectors())).toEqual(["top"]);
+      expect(Object.keys(p.getNamedConnectors())).toEqual(["top"]);
+    } finally {
+      warn.mockRestore();
+    }
   });
 });

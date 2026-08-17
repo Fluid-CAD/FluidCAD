@@ -8,10 +8,10 @@ import part from "../core/part.js";
 import insert from "../core/insert.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
+import expose from "../core/expose.js";
 import remove from "../core/remove.js";
 import param from "../core/param.js";
 import { rect } from "../core/2d/index.js";
-import type { Sketch } from "../features/2d/sketch.js";
 
 // Mirrors the server's per-render module reload: every render creates fresh
 // part definitions and a fresh assembly scene, then inserts both parts. The
@@ -26,7 +26,7 @@ function buildAssembly(withExtraRect: boolean): AssemblyScene {
         rect(5, 5);
       }
     }).reusable();
-    return { profile: s as unknown as Sketch };
+    expose("profile", s);
   });
   const consumer = part("Consumer", () => {
     extrude(15, donor.features.profile);

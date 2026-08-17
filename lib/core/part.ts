@@ -10,13 +10,15 @@ import { PartDefinition } from "../features/part-definition.js";
  *
  *     export const extrusion = part('Extrusion', () => {
  *       const length = param('Length', 150, 'number', { min: 20 });
- *       sketch("front", () => { rect(80, 80).centered(); });
+ *       const s = sketch("front", () => { rect(80, 80).centered(); });
  *       const e = extrude(-length);
  *       connector('start', e.startFaces());
+ *       expose('profile', s);
  *     });
  *
  * Equal override values share one template per scene (repeat inserts are
- * cheap); the callback's return value is exposed as `def.features`.
+ * cheap); geometry published with `expose('name', source)` is read back as
+ * `def.features.<name>` (the callback's return value is ignored).
  */
 function part<T>(name: string, callback: () => T): PartDefinition<T> {
   if (typeof name !== "string" || name.length === 0) {

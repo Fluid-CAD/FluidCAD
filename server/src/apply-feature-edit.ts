@@ -72,7 +72,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'aline' | 'rib' | 'connector';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'aline' | 'rib' | 'connector' | 'expose';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -110,6 +110,12 @@ export type ApplyFeatureEditSpec = {
    * (end of body, before a trailing `return` or active `breakpoint();`).
    */
   connector?: ConnectorEditOptions;
+  /**
+   * Expose-only payload: the name the statement registers, plus the call
+   * site of the `part(...)` block whose callback body receives the statement
+   * — the connector insertion mechanism minus the frame adjustments.
+   */
+  expose?: ExposeEditOptions;
   /** tArc-only payload; present for an in-place retarget instead of a create. */
   tarc?: TarcEditOptions;
   /** aLine-only payload; the explicit chain-start point, when the statement must carry one. */
@@ -295,6 +301,17 @@ export type ConnectorEditOptions = {
   anchor?: ConnectorAnchorSpec;
   rotate?: { axis: ConnectorRotateAxis; angle: number };
   offset?: [number, number, number];
+};
+
+/**
+ * Expose create payload. `name` is the identifier the statement registers
+ * (same pattern the kernel enforces); `part` is the `part(...)` call site
+ * whose callback body receives the statement.
+ */
+export type ExposeEditOptions = {
+  name: string;
+  /** The `part(...)` call site whose callback body receives the statement. */
+  part?: { line: number; column: number };
 };
 
 export function validConnectorRotate(rotate: unknown): rotate is ConnectorEditOptions['rotate'] {
@@ -1816,6 +1833,18 @@ export async function applyFeatureEdit(
         || (Array.isArray(co.offset) && co.offset.length === 3 && co.offset.every(v => Number.isFinite(v))));
     if (!valid) {
       return { newCode: code, error: 'malformed connector edit spec' };
+    }
+  } else if (spec.feature === 'expose') {
+    // A named exposure: exactly one selector part (the source is a single
+    // face/edge), a valid identifier name, and the part() call site whose
+    // callback body receives the statement.
+    const ex = spec.expose;
+    const valid = ex !== undefined
+      && typeof ex.name === 'string' && CONNECTOR_NAME.test(ex.name)
+      && Number.isInteger(ex.part?.line) && Number.isInteger(ex.part?.column)
+      && spec.producers.length >= 1 && spec.parts.length === 1;
+    if (!valid) {
+      return { newCode: code, error: 'malformed expose edit spec' };
     }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
@@ -3512,6 +3541,10 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     const anchor = spec.rawArgs?.trim() ? '' : renderConnectorAnchorSuffix(co.anchor);
     return `connector('${co.name}', ${args}${anchor})${renderConnectorChain(co)}`;
   }
+  if (spec.feature === 'expose') {
+    // The name is a validated identifier, so the quoting is safe.
+    return `expose('${spec.expose!.name}', ${args})`;
+  }
   if (spec.feature === 'chamfer') {
     return `chamfer(${renderChamferValueArgs(spec.value, spec.chamfer)}, ${args})`;
   }
@@ -3847,10 +3880,14 @@ function resolveInsertion(
   if (spec.feature === 'project') {
     return resolveSketchBodyInsertion(spec.project!.sketch, bindings, lines, tree);
   }
-  // A connector registers on the enclosing part, so it lands inside that
-  // part's callback body rather than in the producers' hoisted scope.
+  // A connector or exposure registers on the enclosing part, so it lands
+  // inside that part's callback body rather than in the producers' hoisted
+  // scope.
   if (spec.feature === 'connector') {
     return resolvePartBodyInsertion(spec.connector!.part, bindings, lines, tree);
+  }
+  if (spec.feature === 'expose') {
+    return resolvePartBodyInsertion(spec.expose!.part, bindings, lines, tree);
   }
   return findInsertionPoint(scope, lines, bindings);
 }
@@ -3945,7 +3982,7 @@ function resolvePartBodyInsertion(
   if (outside) {
     return {
       error: 'the picked geometry is declared outside this part() body — '
-        + 'only features inside the part can source its connectors',
+        + 'only features inside the part can source its connectors and exposures',
     };
   }
 

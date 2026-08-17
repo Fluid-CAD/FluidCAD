@@ -1,12 +1,11 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Connector } from "./connector.js";
+import { Exposed } from "./exposed.js";
 import { IPart } from "../core/interfaces.js";
 import { serializableParamDefs } from "./param-overrides.js";
 import type { ParamDefinition, ParamVal } from "../param-registry.js";
 
 export class Part extends SceneObject implements IPart {
-  /** The definition callback's return value, exposed to code as `def.features`. */
-  features?: unknown;
   /**
    * The definition's parameter interface, collected while this variant
    * materialized under a parameter scope (insert path). Entry-file root
@@ -68,6 +67,29 @@ export class Part extends SceneObject implements IPart {
       out[c.connectorName] = c;
     }
     return out;
+  }
+
+  getExposed(): Exposed[] {
+    return this.getChildren().filter(c => c instanceof Exposed) as Exposed[];
+  }
+
+  /**
+   * The part's exposures keyed by the name each `expose('name', …)` statement
+   * registered, serving the SOURCE rather than the `Exposed` wrapper —
+   * a consumer's `extrude(15, def.features.profile)` must depend on the
+   * donor-owned object so cross-part dependency resolution keeps working.
+   */
+  getNamedExposures(): Record<string, SceneObject> {
+    const out: Record<string, SceneObject> = {};
+    for (const e of this.getExposed()) {
+      out[e.exposeName] = e.source;
+    }
+    return out;
+  }
+
+  /** The part's geometry interface: exposure sources by name (`def.features.<name>`). */
+  get features(): Record<string, SceneObject> {
+    return this.getNamedExposures();
   }
 
   serialize() {

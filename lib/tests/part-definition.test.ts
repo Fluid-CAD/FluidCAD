@@ -8,6 +8,7 @@ import part from "../core/part.js";
 import param from "../core/param.js";
 import assembly from "../core/assembly.js";
 import connector from "../core/connector.js";
+import expose from "../core/expose.js";
 import insert from "../core/insert.js";
 import translate from "../core/translate.js";
 import { rect } from "../core/2d/index.js";
@@ -68,11 +69,27 @@ describe("part() definitions", () => {
     expect(ran).toBe(1);
   });
 
-  it("exposes the callback's return value as features (auto-materializing)", () => {
-    const def = part("feat", () => ({ tag: 42 }));
-    expect(def.features.tag).toBe(42);
+  it("serves expose() sources as features (auto-materializing)", () => {
+    const def = part("feat", () => {
+      const s = sketch("xy", () => rect(10, 10)).reusable();
+      expose("profile", s);
+    });
+    expect(def.features.profile.getType()).toBe("sketch");
     const parts = getCurrentScene().getAllSceneObjects().filter(o => o instanceof Part);
     expect(parts).toHaveLength(1);
+  });
+
+  it("warns once when the callback still returns an object, and ignores it", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const def = part("legacy-return", () => ({ tag: 42 }));
+      expect(def.features).toEqual({});
+      void def.features;
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("expose("));
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("can be created without any scene (library modules)", () => {
@@ -228,9 +245,10 @@ describe("definition reads in assembly scenes", () => {
     getSceneManager().startAssemblyScene();
     const def = part("p", () => {
       param("Length", 100);
-      return { tag: 42 };
+      const s = sketch("xy", () => rect(10, 10)).reusable();
+      expose("profile", s);
     });
-    expect(def.features.tag).toBe(42);
+    expect(Object.keys(def.features)).toEqual(["profile"]);
     expect(getParamRegistry().getDefinitions()).toHaveLength(0);
   });
 
@@ -247,12 +265,14 @@ describe("definition reads in assembly scenes", () => {
     expect(inst.record.part.params?.map(p => p.label)).toEqual(["Length"]);
   });
 
-  it("insert() then a features read returns the inserted template", () => {
+  it("insert() then a features read serves the inserted template's sources", () => {
     getSceneManager().startAssemblyScene();
-    const def = part("p", () => ({ tag: 7 }));
+    const def = part("p", () => {
+      const s = sketch("xy", () => rect(10, 10)).reusable();
+      expose("profile", s);
+    });
     const inst = insert(def);
-    expect(def.features).toBe(inst.record.part.features);
-    expect(def.features.tag).toBe(7);
+    expect(def.features.profile).toBe(inst.record.part.features.profile);
   });
 
   it("part-scene reads keep panel semantics", () => {

@@ -33,7 +33,7 @@ export type StartFeed = {
   notifications: FeedNotification[];
 };
 
-const FEED_URL = 'https://pub-65a51652a62f42f092a714cd9f7a3020.r2.dev/feed.json';
+const FEED_URL = 'https://feed.fluidcad.io/feed.json';
 const FETCH_TIMEOUT_MS = 8000;
 const CACHE_MAX_AGE_MS = 15 * 60 * 1000;
 

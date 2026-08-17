@@ -24,7 +24,7 @@
  * No dependencies. Node >= 18.
  */
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -480,7 +480,11 @@ export function formatReport(inv) {
         .map(([r, v]) => `${r}="${v}"`)
         .join('  ')}`,
   );
-  section('READER QUESTIONS for the user:', inv.questions, (q) => `- ${q}`);
+  section(
+    'READER QUESTIONS — triage per the skill before asking anyone (convention and arithmetic answer most; only the remainder goes to the user):',
+    inv.questions,
+    (q) => `- ${q}`,
+  );
   return lines.join('\n');
 }
 
@@ -546,9 +550,19 @@ function main(argv) {
   return 0;
 }
 
-const isDirectRun =
-  process.argv[1] !== undefined &&
-  import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
+// realpathSync: node resolves the main module through symlinks, so a
+// symlinked invocation path must be resolved the same way or the guard
+// silently never fires (exit 0, nothing written).
+const isDirectRun = (() => {
+  if (process.argv[1] === undefined) {
+    return false;
+  }
+  try {
+    return import.meta.url === pathToFileURL(realpathSync(resolve(process.argv[1]))).href;
+  } catch {
+    return false;
+  }
+})();
 if (isDirectRun) {
   process.exit(main(process.argv.slice(2)));
 }

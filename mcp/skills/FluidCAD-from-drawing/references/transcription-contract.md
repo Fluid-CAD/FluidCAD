@@ -20,6 +20,20 @@ interpret the part.
 - **Never silently guess a digit.** If a number is blurry or ambiguous, give
   your best reading, set `confidence` to `"low"`, and add an entry to
   `questions` describing exactly what is unclear and where.
+- **`questions` are for illegible print, not for convention.** If standard
+  drafting practice already answers it — no units stated but the callouts are
+  metric (`M12×1.75`, decimal values) → mm; `4X 12 THRU` on a hole pattern →
+  ⌀12; blank title-block fields → genuinely absent — record the conventional
+  reading with `confidence: "medium"` and say so in `notes`. Do not ask.
+- **Referent doubt goes in `notes`, not `questions`.** If you are unsure which
+  edges an extension line spans or which feature a leader touches, give your
+  best reading in `notes` on that entry; the orchestrator resolves referents
+  against dimension-chain arithmetic and the finished model, not by asking.
+- **Never report a dimension as missing.** The sheet is complete: a feature
+  with no printed number is dimensioned implicitly (symmetry, tangency,
+  concentricity, equal spacing, chain closure), and deriving it is the
+  orchestrator's job, not a question. You still transcribe only what is
+  printed — do not invent entries for derived values.
 - **Dashed lines are hidden geometry** (bores, pockets seen through material);
   dimensions attached to them still get entries, noted as such in `notes`.
 
@@ -96,8 +110,10 @@ path plus your `questions` list; otherwise reply with the JSON itself.
     anything that pins down the referent.
   - General notes with dimensional meaning (`"ALL UNMARKED FILLETS R2"`,
     `"BREAK SHARP EDGES"`) are entries with `kind: "note"` and no `value`.
-- `questions` — everything illegible or ambiguous, phrased so the part's
-  owner can answer from the original sheet.
+- `questions` — only what is illegible or ambiguous *as printed* and not
+  settled by convention (see "How to read"), phrased so the part's owner can
+  answer from the original sheet. An empty list is the normal case on a
+  cleanly rendered sheet.
 
 ## What you must not do
 

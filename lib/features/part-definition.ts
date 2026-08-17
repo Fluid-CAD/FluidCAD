@@ -5,6 +5,7 @@ import type { SceneObject } from "../common/scene-object.js";
 import type { Scene } from "../rendering/scene.js";
 import { AssemblyScene } from "../rendering/assembly-scene.js";
 import type { SourceLocation } from "../common/scene-object.js";
+import { BreakpointHit } from "../common/breakpoint-hit.js";
 import { getCurrentScene } from "../scene-manager.js";
 import { popParamScope, pushParamScope } from "../param-registry.js";
 import type { ParamOverrides, ParamVal } from "../param-registry.js";
@@ -162,6 +163,16 @@ export class PartDefinition<T = unknown> {
           scene.endProgressiveContainer();
         }
       });
+    } catch (e) {
+      if (e instanceof BreakpointHit) {
+        // A paused build IS this variant's world: the partial Part is already
+        // in the scene, so record it — otherwise a second materialization
+        // pass (the host's export arm plus the leftover-definitions pass both
+        // materialize entry-file definitions) re-runs the callback and lands
+        // a DUPLICATE partial part in the same scene.
+        variants.set(key, partObj);
+      }
+      throw e;
     } finally {
       if (scope) {
         popParamScope();

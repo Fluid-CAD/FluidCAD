@@ -2,6 +2,7 @@ import { FeatureOp, OpTabs, ThinControl } from './panel-controls';
 import { FeaturePanel } from './feature-panel';
 import { SketchProfileOption, keepChip, sourceChip } from './sketch-profiles';
 import { SketchSlotControl } from './sketch-slot';
+import { ScopeSlotControl } from './scope-slot';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { NewVariable, ValueExpr } from '../../api';
 import { collectNewVariables } from '../../ui/expression-field';
@@ -48,14 +49,19 @@ export class SweepPanel extends FeaturePanel {
   onRemovePathChip?: (index: number) => void;
   /** An edge chip is hovered (its index) or left (null) — viewport preview. */
   onPathChipHover?: (index: number | null) => void;
+  /** The scope chip at `index` was removed — the service owns the choices. */
+  onRemoveScope?: (index: number) => void;
+  /** The armed slot changed — the service re-aims the viewer pick channels. */
+  onArmedSlotChange?: () => void;
 
   /** The slot a timeline/wire sketch pick fills — the one last clicked. */
-  armedSlot: 'profile' | 'path' = 'path';
+  armedSlot: 'profile' | 'path' | 'scope' = 'path';
 
   private tabs: OpTabs;
   private thin: ThinControl;
   private profileSlot: SketchSlotControl;
   private pathSlot: PickSlot;
+  private scopeSlot: ScopeSlotControl;
   private options: SketchProfileOption[] = [];
   private allowEdgePicking = false;
   private pathState: PathState = null;
@@ -75,6 +81,7 @@ export class SweepPanel extends FeaturePanel {
         <div data-role="profile-slot"></div>
         <div data-role="path-slot"></div>
         <div data-role="thin-host" class="contents"></div>
+        <div data-role="scope-slot"></div>
       `,
     });
 
@@ -83,7 +90,10 @@ export class SweepPanel extends FeaturePanel {
       { op: 'remove', label: 'Remove', title: 'Cut the swept solid out of the model — sweep().remove()' },
       { op: 'new', label: 'New', title: 'Keep the swept solid as a separate body — sweep().new()' },
     ]);
-    this.tabs.onChange = () => this.onChange?.();
+    this.tabs.onChange = () => {
+      this.syncScopeVisible();
+      this.onChange?.();
+    };
     this.thin = new ThinControl(this.role('thin-host'));
     this.thin.onChange = () => this.onChange?.();
     this.thin.onSubmit = () => this.onApply?.();
@@ -111,6 +121,10 @@ export class SweepPanel extends FeaturePanel {
         this.onPathChipHover?.(index);
       }
     };
+
+    this.scopeSlot = new ScopeSlotControl(this.role('scope-slot'));
+    this.scopeSlot.onRemove = (index) => this.onRemoveScope?.(index);
+    this.scopeSlot.onArm = () => this.armSlot('scope');
   }
 
   show(options: SketchProfileOption[], allowEdgePicking: boolean): void {
@@ -127,6 +141,8 @@ export class SweepPanel extends FeaturePanel {
     this.allowEdgePicking = allowEdgePicking;
     this.profileSlot.reset(profileOptions(options));
     this.pathState = this.defaultPath();
+    this.scopeSlot.setChips([]);
+    this.syncScopeVisible();
     this.renderPath();
     this.armSlot('path');
     this.shell.show();
@@ -150,6 +166,7 @@ export class SweepPanel extends FeaturePanel {
     this.shell.setTitle('Edit sweep');
     this.tabs.setOp(state.op);
     this.thin.setValues(state.thin);
+    this.syncScopeVisible();
     this.renderPath();
     this.armSlot('path');
     this.shell.show();
@@ -238,6 +255,27 @@ export class SweepPanel extends FeaturePanel {
     this.thin.setVariables(variables);
   }
 
+  /** The boolean operation tab — gates the scope section (New writes none). */
+  get op(): FeatureOp {
+    return this.tabs.op;
+  }
+
+  /** The scope chips (the service owns the choices). */
+  setScopeChips(chips: PickSlotChip[]): void {
+    this.scopeSlot.setChips(chips);
+  }
+
+  /**
+   * A separate body has no boolean to scope — the section hides on the New
+   * tab, handing the armed border back to the path slot.
+   */
+  private syncScopeVisible(): void {
+    this.scopeSlot.setVisible(this.tabs.op !== 'new');
+    if (!this.scopeSlot.visible && this.armedSlot === 'scope') {
+      this.armSlot('path');
+    }
+  }
+
   private renderPath(): void {
     const state = this.pathState;
     if (state?.kind === 'keep') {
@@ -266,10 +304,15 @@ export class SweepPanel extends FeaturePanel {
     return other ? { kind: 'sketch', option: other } : null;
   }
 
-  private armSlot(slot: 'profile' | 'path'): void {
+  private armSlot(slot: 'profile' | 'path' | 'scope'): void {
+    const changed = this.armedSlot !== slot;
     this.armedSlot = slot;
     this.profileSlot.setArmed(slot === 'profile');
     this.pathSlot.setArmed(slot === 'path');
+    this.scopeSlot.setArmed(slot === 'scope');
+    if (changed) {
+      this.onArmedSlotChange?.();
+    }
   }
 }
 

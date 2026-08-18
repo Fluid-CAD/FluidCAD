@@ -32,6 +32,25 @@ export function findActivePart(sceneObjects: SceneObjectRender[]): SceneObjectRe
 }
 
 /**
+ * The part() row an object belongs to — the nearest `type === 'part'`
+ * ancestor of its parentId chain — or undefined for a top-level object (or
+ * one nested only in non-part containers).
+ */
+export function findEnclosingPartRow(
+  obj: SceneObjectRender,
+  sceneObjects: SceneObjectRender[],
+): SceneObjectRender | undefined {
+  let current: SceneObjectRender | undefined = obj;
+  while (current?.parentId != null) {
+    current = sceneObjects.find(o => o.id === current!.parentId);
+    if (current?.type === 'part') {
+      return current;
+    }
+  }
+  return undefined;
+}
+
+/**
  * The rows of the active scope, in scene order: the active part's direct
  * children while a part is active, else every top-level row. New statements
  * land at the end of this scope, so its tail is "where the user is working".

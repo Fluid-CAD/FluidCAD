@@ -1,9 +1,8 @@
 import {
   applyRib, applyRibEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget, GhostSolid,
-  ParsedFeatureStatement, RibApplyOptions, RibEditOptions, RibEditScopeRef, SketchSourceRef,
-  SourceSlotRef,
+  ParsedFeatureStatement, RibApplyOptions, RibEditOptions, SourceSlotRef,
 } from '../../api';
-import { SceneObjectRender, SubSelection } from '../../types';
+import { SceneObjectRender, SourceLocation, SubSelection } from '../../types';
 import { Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
@@ -14,23 +13,12 @@ import { ApplyRunner } from './apply-runner';
 import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
-import { collectSolidTargets, solidTargetForRow, solidTargetForShapeId, SolidTargetOption } from './solid-targets';
+import { collectSolidTargets, SolidTargetOption } from './solid-targets';
+import { enclosingPartLocOf, ScopeTargetList, scopePartLocation } from './scope-targets';
 import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
-  SketchProfileOption, sketchWireShapeIds, sourceChip,
+  SketchProfileOption, sketchWireShapeIds,
 } from './sketch-profiles';
-
-/**
- * One chosen scope target: a whole-solid pick resolved to its statement, or —
- * edit mode only — a kept `.scope(…)` argument by its position in the parsed
- * `scopeTexts`, preserved verbatim. A keep whose expression resolved to a
- * statement carries that statement's location (`loc`): it converts into its
- * solid option at the rollback boundary, so the chip shows the statement's
- * own label and a re-pick toggles it like create mode.
- */
-type RibScopeChoice =
-  | { kind: 'option'; option: SolidTargetOption }
-  | { kind: 'keep'; sourceIndex: number; label: string; loc?: { filePath: string; line: number; column: number } };
 
 /**
  * The Rib dialog on the create rails: extrude a wall from an open sketch
@@ -50,9 +38,12 @@ export class RibFeatureService {
   private armed = false;
   private available = false;
   private options: SketchProfileOption[] = [];
+  /** Scene-wide solid count — the button's availability, not the picker's pool. */
   private targetOptions: SolidTargetOption[] = [];
-  /** The chosen scope targets, in pick order — the `.scope(…)` argument order. */
-  private scope: RibScopeChoice[] = [];
+  /** The `.scope(…)` targets, part-restricted whole-solid picks. */
+  private scope = new ScopeTargetList();
+  /** The edited statement's enclosing part — the scope picker's restriction. */
+  private editPartLoc: SourceLocation | null = null;
   private sceneObjects: SceneObjectRender[] = [];
   private sceneSketchActive = false;
   /** Statement being edited in place (timeline double-click), or null. */
@@ -118,7 +109,7 @@ export class RibFeatureService {
       this.runner.schedulePreview();
     };
     this.panel.onRemoveScope = (index) => {
-      this.scope.splice(index, 1);
+      this.scope.removeAt(index);
       this.panel.setMessage(null);
       this.refreshScope();
       this.runner.schedulePreview();
@@ -221,24 +212,13 @@ export class RibFeatureService {
       }
       return;
     }
-    // At the boundary: rebuild options from the pre-statement scene.
+    // At the boundary: rebuild options from the pre-statement scene. A keep
+    // chip whose argument named a statement becomes that statement's option.
     this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.options = collectSketchProfiles(sceneObjects);
     this.targetOptions = collectSolidTargets(sceneObjects);
-    // Picked scope targets re-match by source line. A keep that resolved to
-    // a solid statement becomes that statement's option — proper label,
-    // create-mode toggling; unresolved keeps stay text-addressed verbatim.
-    this.scope = this.scope.flatMap((target): RibScopeChoice[] => {
-      if (target.kind === 'keep') {
-        const match = target.loc && this.targetOptions.find(o =>
-          o.filePath === target.loc!.filePath && o.line === target.loc!.line);
-        return match ? [{ kind: 'option', option: match }] : [target];
-      }
-      const match = this.targetOptions.find(o =>
-        o.filePath === target.option.filePath && o.line === target.option.line);
-      return match ? [{ kind: 'option', option: match }] : [];
-    });
+    this.scope.setScene(sceneObjects, this.scopePartLoc(), { resolveKeeps: true });
     this.viewer.pickSketchWires = true;
     this.panel.setOptions(this.options);
     if (!this.sourceSpine) {
@@ -281,14 +261,7 @@ export class RibFeatureService {
     }
     // Chosen scope targets re-match against the fresh options by source
     // line; keeps survive (they are text-addressed).
-    this.scope = this.scope.flatMap((target): RibScopeChoice[] => {
-      if (target.kind === 'keep') {
-        return [target];
-      }
-      const match = this.targetOptions.find(o =>
-        o.filePath === target.option.filePath && o.line === target.option.line);
-      return match ? [{ kind: 'option', option: match }] : [];
-    });
+    this.scope.setScene(sceneObjects, this.scopePartLoc());
     this.viewer.pickSketchWires = true;
     this.panel.setOptions(this.options);
     void this.relabeler.refresh(this.options);
@@ -316,15 +289,10 @@ export class RibFeatureService {
     this.editTarget = target;
     this.sourceSpine = null;
     this.sourceScope = null;
-    this.scope = parsed.scopeTexts.map((label, sourceIndex) => {
-      const ref = parsed.scopeRefs[sourceIndex];
-      return {
-        kind: 'keep' as const,
-        sourceIndex,
-        label,
-        loc: ref ? { filePath: target.filePath, line: ref.line, column: ref.column } : undefined,
-      };
-    });
+    // The statement's enclosing part restricts the scope picker — derived
+    // from the pre-rollback scene, where the edited row still renders.
+    this.editPartLoc = enclosingPartLocOf(target, this.sceneObjects);
+    this.scope.seedKeeps(parsed, target.filePath);
     this.syncButton();
     this.sketchUI.suspend();
     this.viewer.pickSketchWires = true;
@@ -350,7 +318,8 @@ export class RibFeatureService {
     this.session.end('continue');
     this.hooks.onEnter?.();
     this.armed = true;
-    this.scope = [];
+    this.scope.clear();
+    this.editPartLoc = null;
     // Composing the rib means looking at the whole scene, not down the
     // active sketch plane — leave sketch editing right away (resumed on
     // cancel; an apply's re-render takes over).
@@ -386,7 +355,8 @@ export class RibFeatureService {
     this.editTarget = null;
     this.sourceSpine = null;
     this.sourceScope = null;
-    this.scope = [];
+    this.scope.clear();
+    this.editPartLoc = null;
     this.solidPick.set([]);
     this.viewer.pickSketchWires = false;
     this.viewer.clearHighlight();
@@ -414,7 +384,7 @@ export class RibFeatureService {
       this.pickSketch(sketch);
       return true;
     }
-    const option = solidTargetForRow(obj, this.targetOptions);
+    const option = this.scope.optionForRow(obj);
     if (!option) {
       return false;
     }
@@ -444,9 +414,9 @@ export class RibFeatureService {
     if (!this.armed || !shapeId || !sub || (sub.type !== 'face' && sub.type !== 'edge')) {
       return;
     }
-    const option = solidTargetForShapeId(shapeId, this.targetOptions);
+    const option = this.scope.optionForShapeId(shapeId);
     if (!option) {
-      this.panel.setMessage('That shape cannot scope the rib — pick a solid.');
+      this.panel.setMessage('That shape cannot scope the rib — pick a solid in the same part.');
       return;
     }
     this.toggleScope(option);
@@ -467,19 +437,24 @@ export class RibFeatureService {
 
   /** Toggle a solid scope chip (viewport or timeline pick). */
   private toggleScope(option: SolidTargetOption): void {
-    // A kept target that resolved to this statement counts as the same chip
-    // — the pick toggles it off instead of duplicating the solid.
-    const existing = this.scope.findIndex(t => t.kind === 'option'
-      ? t.option.filePath === option.filePath && t.option.line === option.line
-      : t.loc !== undefined && t.loc.filePath === option.filePath && t.loc.line === option.line);
-    if (existing >= 0) {
-      this.scope.splice(existing, 1);
-    } else {
-      this.scope.push({ kind: 'option', option });
-    }
+    this.scope.toggle(option);
     this.panel.setMessage(null);
     this.refreshScope();
     this.runner.schedulePreview();
+  }
+
+  /**
+   * The part the scope picker is restricted to: the edited statement's own
+   * enclosing part, or — create mode — the chosen spine's (producers win:
+   * the statement inserts in the spine's scope), falling back to the
+   * timeline's active part.
+   */
+  private scopePartLoc(): SourceLocation | null {
+    if (this.editTarget) {
+      return this.editPartLoc;
+    }
+    const option = this.panel.selectedOption();
+    return scopePartLocation(option ? { filePath: option.filePath, line: option.line } : null, this.sceneObjects);
   }
 
   private async refreshScopeVariables(): Promise<void> {
@@ -532,7 +507,7 @@ export class RibFeatureService {
     const wireIds = option && (option.kind === 'other' || this.editTarget)
       ? sketchWireShapeIds(option, this.sceneObjects)
       : [];
-    this.solidPick.set(this.scope.flatMap(t => t.kind === 'option' ? t.option.shapeIds : []));
+    this.solidPick.set(this.scope.shapeIds());
     this.solidPick.refreshHighlight({ wireIds });
   }
 
@@ -541,9 +516,7 @@ export class RibFeatureService {
     if (!this.armed) {
       return;
     }
-    this.panel.setScope(this.scope.map(target => target.kind === 'keep'
-      ? { label: `Current: ${target.label}`, removable: true }
-      : sourceChip(target.option, { removable: true })));
+    this.panel.setScope(this.scope.chips());
     this.refreshHighlight();
   }
 
@@ -634,7 +607,7 @@ export class RibFeatureService {
    */
   private ghostScope(): { filePath: string; line: number }[] | null {
     const refs: { filePath: string; line: number }[] = [];
-    for (const target of this.scope) {
+    for (const target of this.scope.entries) {
       if (target.kind === 'option') {
         refs.push({ filePath: target.option.filePath, line: target.option.line });
         continue;
@@ -663,10 +636,6 @@ export class RibFeatureService {
     if (!option) {
       return { error: 'No sketch for the rib spine.' };
     }
-    // Create mode never carries keep entries — every chip is a picked solid.
-    const scope: SketchSourceRef[] = this.scope.flatMap(t => t.kind === 'option'
-      ? [{ filePath: t.option.filePath, line: t.option.line, column: t.option.column }]
-      : []);
     return {
       ...values,
       spine: {
@@ -675,7 +644,8 @@ export class RibFeatureService {
         line: option.line,
         column: option.column,
       },
-      scope,
+      // Create mode never carries keep entries — every chip is a picked solid.
+      scope: this.scope.createRefs(),
     };
   }
 
@@ -700,19 +670,11 @@ export class RibFeatureService {
         column: selection.option.column,
       }
       : undefined;
-    const scope: RibEditScopeRef[] = this.scope.map(t => t.kind === 'keep'
-      ? { kind: 'verbatim' as const, sourceIndex: t.sourceIndex }
-      : {
-        kind: 'feature' as const,
-        filePath: t.option.filePath,
-        line: t.option.line,
-        column: t.option.column,
-      });
     return {
       ...values,
       expectedStatement: this.session.expectedStatement,
       spine,
-      scope,
+      scope: this.scope.editRefs(),
     };
   }
 }

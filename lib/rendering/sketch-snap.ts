@@ -5,6 +5,7 @@ import { Part } from "../features/part.js";
 import { Plane } from "../math/plane.js";
 import { SectionOps } from "../oc/section-ops.js";
 import { Explorer } from "../oc/explorer.js";
+import { EdgeQuery } from "../oc/edge-query.js";
 
 /** Matches the snap dedup tolerance the sketcher UI uses for mesh vertices. */
 const DEDUP_EPSILON_SQ = 1e-6;
@@ -27,11 +28,12 @@ const snapCache = new WeakMap<Shape, { planeKey: string; vertices: [number, numb
  * Give the interactive sketcher snap targets from the rest of the scene,
  * without drawing anything. Runs after a full render: when the tip object is
  * a sketch (the only state the sketch UI activates on), every prior shape
- * contributes two kinds of plane-local 2D points on the sketch's rendered
- * payload — where the sketch plane slices it (the vertices an intersect()
- * statement would produce) and the projection of its topological vertices
- * onto the plane (the model corners the user sees behind the sketch in the
- * look-down-the-normal view).
+ * contributes plane-local 2D points on the sketch's rendered payload — where
+ * the sketch plane slices it (the vertices an intersect() statement would
+ * produce, plus the centers of circular crossings like bores and bosses) and
+ * the projection of its topological vertices and circular-edge centers onto
+ * the plane (the model corners and hole/arc centers the user sees behind the
+ * sketch in the look-down-the-normal view).
  */
 export function attachSketchSnapVertices(scene: Scene): void {
   const sketch = findTipSketch(scene);
@@ -120,6 +122,7 @@ function snapVerticesFor(shape: Shape, plane: Plane, planeKey: string): [number,
       collectSectionVertices(shape, plane, vertices);
     }
     collectProjectedVertices(shape, plane, vertices);
+    collectProjectedCurveCenters(shape, plane, vertices);
   } catch {
     // Snap targets are best-effort — a failure must never break a render.
     // Cache the (possibly partial) result so it isn't retried on every
@@ -133,6 +136,15 @@ function snapVerticesFor(shape: Shape, plane: Plane, planeKey: string): [number,
 /** Open endpoints of the plane's section through the shape. */
 function collectSectionVertices(shape: Shape, plane: Plane, out: [number, number][]): void {
   for (const edge of SectionOps.sectionShapeWithPlane(plane, shape)) {
+    // A circular section edge is the plane crossing a bore or boss — its
+    // center is the axis crossing, snappable even when the loop is closed
+    // and contributes no endpoints. Section curves lie in the plane, so
+    // worldToLocal is exact here.
+    if (EdgeQuery.getEdgeCurveType(edge) === "circle") {
+      const center = plane.worldToLocal(EdgeQuery.getCircleDataFromEdge(edge).center);
+      pushUnique(out, [center.x, center.y]);
+    }
+
     const first = edge.getFirstVertex();
     const last = edge.getLastVertex();
     const p1 = first.toPoint();
@@ -159,6 +171,22 @@ function collectProjectedVertices(shape: Shape, plane: Plane, out: [number, numb
     vertex.dispose();
     const local = plane.worldToLocal(point);
     pushUnique(out, [local.x, local.y]);
+  }
+}
+
+/**
+ * Centers of the shape's circular edges — full circles and open arcs alike
+ * (GeomAbs_Circle covers both) — projected orthogonally onto the plane.
+ * Rim circles of holes and bosses land on their axis; fillet and slot arcs
+ * land on the point a concentric feature would be placed at.
+ */
+function collectProjectedCurveCenters(shape: Shape, plane: Plane, out: [number, number][]): void {
+  for (const edge of Explorer.findEdgesWrapped(shape)) {
+    if (EdgeQuery.getEdgeCurveType(edge) === "circle") {
+      const local = plane.worldToLocal(EdgeQuery.getCircleDataFromEdge(edge).center);
+      pushUnique(out, [local.x, local.y]);
+    }
+    edge.dispose();
   }
 }
 

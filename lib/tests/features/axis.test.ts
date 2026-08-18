@@ -3,7 +3,7 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import axis from "../../core/axis.js";
-import { rect } from "../../core/2d/index.js";
+import { rect, vLine } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { AxisObjectBase } from "../../features/axis-renderable-base.js";
 import { Point } from "../../math/point.js";
@@ -110,6 +110,23 @@ describe("axis", () => {
       const ax = a.getAxis();
       // Edge is on the end face at z=30
       expect(ax.origin.z).toBeCloseTo(30);
+    });
+
+    it("should extract axis from a 2D guide line", () => {
+      let guideLine: any;
+      sketch("xy", () => {
+        rect(100, 50);
+        guideLine = vLine([10, 0], 40).guide();
+      });
+
+      const a = axis(guideLine) as AxisObjectBase;
+
+      render();
+
+      const ax = a.getAxis();
+      expect(ax.origin.x).toBeCloseTo(10);
+      expect(Math.abs(ax.direction.y)).toBeCloseTo(1);
+      expect(ax.direction.z).toBeCloseTo(0);
     });
 
     it("should apply transform options to extracted axis", () => {

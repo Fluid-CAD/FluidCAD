@@ -98,7 +98,7 @@ async function getParser(): Promise<TSParser> {
   }
   const TreeSitter = await loadTreeSitter();
   await TreeSitter.init();
-  parser = new TreeSitter();
+  const fresh = new TreeSitter();
   // The JavaScript grammar is vendored in this package (`server/vendor/`)
   // rather than pulled from `tree-sitter-wasms`, which ships 50 MB of grammars
   // for every language to deliver the one file we load. Resolving it against
@@ -110,7 +110,11 @@ async function getParser(): Promise<TSParser> {
   // approach when fluidcad was installed from npm.
   const wasmPath = path.resolve(import.meta.dirname, '../vendor/tree-sitter-javascript.wasm');
   const lang = await TreeSitter.Language.load(wasmPath);
-  parser.setLanguage(lang);
+  fresh.setLanguage(lang);
+  // Cache only after the language is attached: a parser cached mid-init would
+  // make every later parse() throw an opaque "Parsing failed" instead of the
+  // load error that actually broke it.
+  parser = fresh;
   return parser;
 }
 
@@ -273,6 +277,26 @@ function pointLiteralAt(call: TSNode, pointIndex: number): TSNode | null {
   }
   const node = pointArgs[idx];
   return isPointLiteral(node) ? node : null;
+}
+
+/**
+ * The innermost call of a member chain — the geometry call that owns the
+ * point argument. A missing point must be inserted there: for
+ * `rect(16, 166).centered('horizontal')` the start point belongs to
+ * `rect(...)`, not to the chained modifier the line's outermost call is.
+ */
+function chainBaseCall(call: TSNode): TSNode {
+  let current = call;
+  while (current.type === 'call_expression') {
+    const fn = current.childForFieldName('function');
+    const object = fn && fn.type === 'member_expression' ? fn.childForFieldName('object') : null;
+    if (object && object.type === 'call_expression') {
+      current = object;
+    } else {
+      break;
+    }
+  }
+  return current;
 }
 
 function collectChainPointArgs(call: TSNode): TSNode[] {
@@ -1012,21 +1036,28 @@ export function setFeatureName(
 
 /**
  * Find the callback body (statement_block) inside a sketch() call.
- * Looks for the last arrow_function or function argument.
+ * Looks for the last arrow_function or function argument, walking down a
+ * member chain when the outermost call is a chained modifier — for
+ * `sketch('xz', () => {...}).reusable()` the callback belongs to
+ * `sketch(...)`, not to the `.reusable()` call the line resolves to.
  */
 export function findSketchBody(call: TSNode): TSNode | null {
-  const args = getArgumentsNode(call);
-  if (!args) {
-    return null;
-  }
-  for (let i = args.namedChildren.length - 1; i >= 0; i--) {
-    const child = args.namedChildren[i];
-    if (child.type === 'arrow_function' || child.type === 'function') {
-      const body = child.childForFieldName('body');
-      if (body && body.type === 'statement_block') {
-        return body;
+  let current: TSNode | null = call;
+  while (current && current.type === 'call_expression') {
+    const args = getArgumentsNode(current);
+    if (args) {
+      for (let i = args.namedChildren.length - 1; i >= 0; i--) {
+        const child = args.namedChildren[i];
+        if (child.type === 'arrow_function' || child.type === 'function') {
+          const body = child.childForFieldName('body');
+          if (body && body.type === 'statement_block') {
+            return body;
+          }
+        }
       }
     }
+    const fn = current.childForFieldName('function');
+    current = fn && fn.type === 'member_expression' ? fn.childForFieldName('object') : null;
   }
   return null;
 }
@@ -1077,7 +1108,10 @@ export async function ensureSymbolImport(
 }
 
 /**
- * Insert a new geometry call expression at the end of a sketch's callback body.
+ * Insert a new geometry call expression at the end of a sketch's callback
+ * body — before the body's first `breakpoint();` if it has one, since a
+ * paused build never runs statements after the breakpoint and the drawn
+ * geometry would silently vanish.
  *
  * @param code - Full source code
  * @param sketchSourceLine - 1-indexed line where the sketch() call starts
@@ -1105,7 +1139,11 @@ export async function insertGeometryCall(
   let insertRow: number;
   let indent: string;
 
-  if (bodyChildren.length > 0) {
+  const breakpointStmt = bodyChildren.find(isBreakpointStatement);
+  if (breakpointStmt) {
+    insertRow = breakpointStmt.startPosition.row;
+    indent = indentOf(lines, breakpointStmt.startPosition.row);
+  } else if (bodyChildren.length > 0) {
     const lastStmt = bodyChildren[bodyChildren.length - 1];
     insertRow = lastStmt.endPosition.row + 1;
     indent = indentOf(lines, lastStmt.startPosition.row);
@@ -1339,7 +1377,7 @@ export async function updateGeometryPosition(
           return applySpliceEdits(code, moveEdits);
         }
       }
-      const args = getArgumentsNode(call);
+      const args = getArgumentsNode(chainBaseCall(call));
       if (!args) {
         return null;
       }
@@ -1786,7 +1824,7 @@ export async function updatePointExpression(
           return applySpliceEdits(code, moveEdits);
         }
       }
-      const args = getArgumentsNode(call);
+      const args = getArgumentsNode(chainBaseCall(call));
       if (!args) {
         return null;
       }

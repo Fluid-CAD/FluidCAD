@@ -120,8 +120,11 @@ export class JointsPanel {
 
     let html = '';
     for (const mate of this.mates) {
-      const aName = this.instancesById.get(mate.connectorA.instanceId)?.name ?? '?';
-      const bName = this.instancesById.get(mate.connectorB.instanceId)?.name ?? '?';
+      // Tangent mates carry geometry sides instead of connector sides.
+      const aId = mate.connectorA?.instanceId ?? mate.geometryA?.instanceId;
+      const bId = mate.connectorB?.instanceId ?? mate.geometryB?.instanceId;
+      const aName = (aId !== undefined ? this.instancesById.get(aId)?.name : undefined) ?? '?';
+      const bName = (bId !== undefined ? this.instancesById.get(bId)?.name : undefined) ?? '?';
       const dotColor = STATUS_COLORS[mate.status];
       const selected = this.selectedId === mate.mateId;
       const selectedClass = selected ? ' bg-primary/10' : '';

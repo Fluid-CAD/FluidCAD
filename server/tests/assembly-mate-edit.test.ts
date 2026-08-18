@@ -426,3 +426,130 @@ describe('applyConnectorPropsEdit', () => {
     expect(badName.error).toMatch(/not a valid connector name/);
   });
 });
+
+// Tangent mates: geometry sides render through `.features.<name>`, the only
+// option is `.noPropagate()`, and the per-type side-kind rule refuses every
+// mismatched combination (17-mate-tangent §3.1/§7.2).
+describe('applyAssemblyMateEdit — tangent', () => {
+  const CODE = `${HEADER}\nconst cam1 = insert(cam());\nconst fol1 = insert(follower());\n`;
+
+  it('appends a tangent mate referencing instance.features on both sides', async () => {
+    const result = await applyAssemblyMateEdit(CODE, {
+      create: {
+        type: 'tangent',
+        geometryA: { instanceLine: 3, exposeName: 'profile' },
+        geometryB: { instanceLine: 4, exposeName: 'tip' },
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `mate('tangent', cam1.features.profile, fol1.features.tip);`,
+    );
+  });
+
+  it('renders .noPropagate() only for an explicit false', async () => {
+    const noProp = await applyAssemblyMateEdit(CODE, {
+      create: {
+        type: 'tangent',
+        geometryA: { instanceLine: 3, exposeName: 'profile' },
+        geometryB: { instanceLine: 4, exposeName: 'tip' },
+        options: { propagate: false },
+      },
+    });
+    expect(noProp.newCode).toContain(
+      `mate('tangent', cam1.features.profile, fol1.features.tip).noPropagate();`,
+    );
+    const onByDefault = await applyAssemblyMateEdit(CODE, {
+      create: {
+        type: 'tangent',
+        geometryA: { instanceLine: 3, exposeName: 'profile' },
+        geometryB: { instanceLine: 4, exposeName: 'tip' },
+        options: { propagate: true },
+      },
+    });
+    expect(onByDefault.newCode).toContain(
+      `mate('tangent', cam1.features.profile, fol1.features.tip);`,
+    );
+    expect(onByDefault.newCode).not.toContain('noPropagate');
+  });
+
+  it('refuses connector sides on tangent and geometry sides on other types', async () => {
+    const connectorOnTangent = await applyAssemblyMateEdit(CODE, {
+      create: {
+        type: 'tangent',
+        connectorA: { instanceLine: 3, connectorName: 'top' },
+        connectorB: { instanceLine: 4, connectorName: 'top' },
+      },
+    });
+    expect(connectorOnTangent.error).toMatch(/exposed geometry sides/);
+    const geometryOnRevolute = await applyAssemblyMateEdit(CODE, {
+      create: {
+        type: 'revolute',
+        geometryA: { instanceLine: 3, exposeName: 'profile' },
+        geometryB: { instanceLine: 4, exposeName: 'tip' },
+      },
+    });
+    expect(geometryOnRevolute.error).toMatch(/connector sides/);
+  });
+
+  it('refuses flip/rotate/offset/limits on tangent, and propagate elsewhere', async () => {
+    const flipped = await applyAssemblyMateEdit(CODE, {
+      create: {
+        type: 'tangent',
+        geometryA: { instanceLine: 3, exposeName: 'profile' },
+        geometryB: { instanceLine: 4, exposeName: 'tip' },
+        options: { flip: true },
+      },
+    });
+    expect(flipped.error).toMatch(/no flip\/rotate\/offset\/limits/);
+    const propagateOnRevolute = await applyAssemblyMateEdit(CODE, {
+      create: {
+        type: 'revolute',
+        connectorA: { instanceLine: 3, connectorName: 'top' },
+        connectorB: { instanceLine: 4, connectorName: 'top' },
+        options: { propagate: false },
+      },
+    });
+    expect(propagateOnRevolute.error).toMatch(/only applies to tangent/);
+  });
+
+  it('refuses a geometry self-mate; allows two exposures of one instance', async () => {
+    const self = await applyAssemblyMateEdit(CODE, {
+      create: {
+        type: 'tangent',
+        geometryA: { instanceLine: 3, exposeName: 'profile' },
+        geometryB: { instanceLine: 3, exposeName: 'profile' },
+      },
+    });
+    expect(self.error).toMatch(/cannot be mated to itself/);
+    const twoExposures = await applyAssemblyMateEdit(CODE, {
+      create: {
+        type: 'tangent',
+        geometryA: { instanceLine: 3, exposeName: 'profile' },
+        geometryB: { instanceLine: 3, exposeName: 'rim' },
+      },
+    });
+    expect(twoExposures.error).toBeUndefined();
+    expect(twoExposures.newCode).toContain(
+      `mate('tangent', cam1.features.profile, cam1.features.rim);`,
+    );
+  });
+
+  it('edit re-renders a tangent statement in place', async () => {
+    const code = `${CODE}\nmate('tangent', cam1.features.profile, fol1.features.tip);\n`;
+    const result = await applyAssemblyMateEdit(code, {
+      edit: {
+        sourceLine: 6,
+        type: 'tangent',
+        geometryA: { instanceLine: 3, exposeName: 'profile' },
+        geometryB: { instanceLine: 4, exposeName: 'tip' },
+        options: { propagate: false },
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `mate('tangent', cam1.features.profile, fol1.features.tip).noPropagate();`,
+    );
+    expect(result.newCode.match(/mate\(/g)).toHaveLength(1);
+  });
+});

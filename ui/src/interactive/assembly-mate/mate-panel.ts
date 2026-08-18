@@ -15,6 +15,8 @@ export type MateOptionValues =
       offset: [number, number, number];
       /** Motion limits (slider mm / revolute deg); null when unset. */
       limits: [number, number] | null;
+      /** Tangent propagation (contact may slide across the G1 chain); on by default. */
+      propagate: boolean;
     }
   | { error: string };
 
@@ -26,6 +28,7 @@ const MATE_TYPE_LABELS: Record<AssemblyMateType, string> = {
   'planar': 'Planar',
   'parallel': 'Parallel',
   'pin-slot': 'Pin-slot',
+  'tangent': 'Tangent',
 };
 
 /** Types whose offset must stay on the Z axis (mirrors the kernel's MateBuilder). */
@@ -42,6 +45,7 @@ export type MateSeedOptions = {
   rotate?: number;
   offset?: [number, number, number];
   limits?: [number, number];
+  propagate?: boolean;
 };
 
 /**
@@ -70,6 +74,11 @@ export class MatePanel extends FeaturePanel {
   private limitsEnable: HTMLInputElement;
   private limitsUnit: HTMLSpanElement;
   private limitInputs: [HTMLInputElement, HTMLInputElement];
+  private propagateRow: HTMLElement;
+  private propagateInput: HTMLInputElement;
+  private flipRow: HTMLElement;
+  private rotateRow: HTMLElement;
+  private offsetRow: HTMLElement;
 
   constructor(container: HTMLElement) {
     super(container, {
@@ -87,18 +96,23 @@ export class MatePanel extends FeaturePanel {
         </label>
         <div data-role="slot-a"></div>
         <div data-role="slot-b"></div>
-        <label class="flex items-center gap-2 cursor-pointer"
+        <label data-role="propagate-row" class="hidden flex items-center gap-2 cursor-pointer"
+          title="Contact may slide across smoothly connected neighbor faces">
+          <input data-role="propagate" type="checkbox" class="checkbox checkbox-xs" checked />
+          <span class="text-base-content/70">Tangent propagation</span>
+        </label>
+        <label data-role="flip-row" class="flex items-center gap-2 cursor-pointer"
           title="Turn connector B's frame 180° so its Z axis opposes A's">
           <input data-role="flip" type="checkbox" class="checkbox checkbox-xs" />
           <span class="text-base-content/70">Flip</span>
         </label>
-        <label class="flex flex-col gap-1.5"
+        <label data-role="rotate-row" class="flex flex-col gap-1.5"
           title="Extra rotation of B about the mate's Z axis, in degrees">
           <span class="text-base-content/70">Rotate (°)</span>
           <input data-role="rotate" type="number" step="any" placeholder="0"
             class="input input-sm input-bordered w-full text-xs" />
         </label>
-        <div class="flex flex-col gap-1.5"
+        <div data-role="offset-row" class="flex flex-col gap-1.5"
           title="Offset between the connector frames — for slider, cylindrical and planar mates only Z is free">
           <span class="text-base-content/70">Offset (X, Y, Z)</span>
           <div class="flex gap-1.5">
@@ -143,6 +157,13 @@ export class MatePanel extends FeaturePanel {
 
     this.flipInput = this.role<HTMLInputElement>('flip');
     this.flipInput.addEventListener('change', () => this.onChange?.());
+
+    this.propagateRow = this.role('propagate-row');
+    this.propagateInput = this.role<HTMLInputElement>('propagate');
+    this.propagateInput.addEventListener('change', () => this.onChange?.());
+    this.flipRow = this.role('flip-row');
+    this.rotateRow = this.role('rotate-row');
+    this.offsetRow = this.role('offset-row');
 
     this.rotateInput = this.role<HTMLInputElement>('rotate');
     this.offsetInputs = [
@@ -204,6 +225,8 @@ export class MatePanel extends FeaturePanel {
       input.value = limits ? String(limits[i]) : '';
       input.disabled = limits === null;
     });
+    // Propagation is the tangent default — only an explicit false unchecks.
+    this.propagateInput.checked = seed?.propagate !== false;
     this.syncTypeConstraints();
     this.shell.show();
   }
@@ -243,6 +266,18 @@ export class MatePanel extends FeaturePanel {
 
   values(): MateOptionValues {
     const type = this.getType();
+    if (type === 'tangent') {
+      // Tangent has no flip/rotate/offset/limits — the contact side is
+      // canonical; the propagation checkbox is the one option.
+      return {
+        type,
+        flip: false,
+        rotate: 0,
+        offset: [0, 0, 0],
+        limits: null,
+        propagate: this.propagateInput.checked,
+      };
+    }
     const rotateRaw = this.rotateInput.value.trim();
     const rotate = rotateRaw === '' ? 0 : Number(rotateRaw);
     if (!Number.isFinite(rotate)) {
@@ -275,6 +310,7 @@ export class MatePanel extends FeaturePanel {
       rotate,
       offset: offset as [number, number, number],
       limits,
+      propagate: true,
     };
   }
 
@@ -282,9 +318,20 @@ export class MatePanel extends FeaturePanel {
    * Apply the kernel's per-type rules to the option rows: X/Y offsets lock
    * (and blank) for the axis/plane mates whose offset must be Z-only, and
    * the limits section only shows for slider (mm) and revolute (deg).
+   * Tangent reshapes the panel wholesale: geometry slots instead of
+   * connector slots, and the propagation checkbox as the only option.
    */
   private syncTypeConstraints(): void {
     const type = this.getType();
+    const tangent = type === 'tangent';
+    this.propagateRow.classList.toggle('hidden', !tangent);
+    this.flipRow.classList.toggle('hidden', tangent);
+    this.rotateRow.classList.toggle('hidden', tangent);
+    this.offsetRow.classList.toggle('hidden', tangent);
+    this.slots.a.setLabel(tangent ? 'Face / edge A' : 'Connector A');
+    this.slots.b.setLabel(tangent ? 'Face / edge B' : 'Connector B');
+    this.renderSlot('a');
+    this.renderSlot('b');
     const zOnly = Z_ONLY_OFFSET.has(type);
     for (const input of [this.offsetInputs[0], this.offsetInputs[1]]) {
       input.disabled = zOnly;
@@ -301,19 +348,24 @@ export class MatePanel extends FeaturePanel {
   }
 
   private renderSlot(slot: MateSlotKey): void {
+    const tangent = this.getType() === 'tangent';
     const label = this.chipLabels[slot];
     if (label !== null) {
       this.slots[slot].setChips([{
         label,
         badge: '●',
         removable: true,
-        onEdit: () => this.onEditConnector?.(slot),
-        editTitle: "Edit this connector's properties",
+        // Tangent chips carry no pen — a picked face/edge has no
+        // connector-style properties to edit.
+        ...(tangent ? {} : {
+          onEdit: () => this.onEditConnector?.(slot),
+          editTitle: "Edit this connector's properties",
+        }),
       }]);
       this.slots[slot].setPrompt(null);
     } else {
       this.slots[slot].setChips([]);
-      this.slots[slot].setPrompt('Click a connector in 3D');
+      this.slots[slot].setPrompt(tangent ? 'Click a face or edge in 3D' : 'Click a connector in 3D');
     }
   }
 }

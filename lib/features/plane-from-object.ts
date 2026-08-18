@@ -26,7 +26,7 @@ export class PlaneFromObject extends PlaneObjectBase {
     if (this.sourceObject instanceof PlaneObjectBase) {
       return;
     }
-    requireShapes(this.sourceObject, "source", "plane");
+    requireShapes(this.sourceObject, "source", "plane", { filter: { excludeGuide: false } });
   }
 
   build(context?: BuildSceneObjectContext) {

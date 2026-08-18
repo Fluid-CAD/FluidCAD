@@ -13,7 +13,7 @@ import { themeColors } from './scene/theme-colors';
 import { StandardPlaneId, StandardPlanes } from './scene/standard-planes';
 import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates } from './interactive/pick-candidates';
-import { isSceneEmpty } from './helpers/scene-utils';
+import { findActiveObject, isSceneEmpty } from './helpers/scene-utils';
 
 /** Recursively expand `box` to include `object`, skipping meta-shape subtrees. */
 function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
@@ -333,7 +333,7 @@ export class Viewer {
     if (!this.sketchEditingSuspended || this.lastRenderIsRollback) {
       return false;
     }
-    const active = this.findActiveObject(this.sceneObjects);
+    const active = findActiveObject(this.sceneObjects);
     return active?.type === 'sketch' && !!active.object?.plane;
   }
 
@@ -373,7 +373,7 @@ export class Viewer {
     // Re-engaging the lock re-squares the view: free rotation while unlocked
     // may have tilted the camera, and a locked camera must face the plane.
     if (enabled) {
-      const active = this.findActiveObject(this.sceneObjects);
+      const active = findActiveObject(this.sceneObjects);
       if (active?.type === 'sketch' && active.object?.plane) {
         this.modeManager.enforceSketchNormal(active.object.plane);
       }
@@ -875,7 +875,7 @@ export class Viewer {
     }
 
     if (!isRollback) {
-      const activeObject = this.findActiveObject(sceneObjects);
+      const activeObject = findActiveObject(sceneObjects);
 
       // A disabled mode manager (suspendSketchEditing / region picking) makes
       // a trailing sketch render like any other scene — no camera lock, no
@@ -1785,19 +1785,6 @@ export class Viewer {
       }
     });
     return result;
-  }
-
-  /** Find the last root-level (or Part-child) object — this is the "active" feature.
-   *  Returns regardless of visibility so that a non-sketch last item with no shapes
-   *  doesn't fall through to an earlier sketch and wrongly enter sketch mode. */
-  private findActiveObject(objects: SceneObjectRender[]): SceneObjectRender | undefined {
-    for (let i = objects.length - 1; i >= 0; i--) {
-      const obj = objects[i];
-      if (!obj.parentId) return obj;
-      const parent = objects.find(o => o.id === obj.parentId);
-      if (parent?.type === 'part') return obj;
-    }
-    return undefined;
   }
 
   /** During rollback the current "active" sketch is the rolled-back target's

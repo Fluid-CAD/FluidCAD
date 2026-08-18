@@ -2,6 +2,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
 import { AssemblyScene } from "./assembly-scene.js";
 import { Part } from "../features/part.js";
+import { canonicalVariantKey, toOverrideMap } from "../features/param-overrides.js";
 
 type Pair = { newObj: SceneObject; oldObj: SceneObject };
 
@@ -12,21 +13,59 @@ export class AssemblyCompare {
     const newTopParts = topLevelParts(newScene);
     const oldTopParts = topLevelParts(oldScene);
 
-    const pairCount = Math.min(newTopParts.length, oldTopParts.length);
+    // Pair top-level parts by declared identity — part name plus the
+    // variant's resolved param values — not by scene position, so reordering
+    // insert()/definition statements between renders keeps caches alive.
+    // Same-key duplicates pair in scene order (the old positional behavior).
+    const oldByKey = new Map<string, Part[]>();
+    for (const oldPart of oldTopParts) {
+      const key = pairingKey(oldPart);
+      const queue = oldByKey.get(key);
+      if (queue) {
+        queue.push(oldPart);
+      } else {
+        oldByKey.set(key, [oldPart]);
+      }
+    }
 
-    for (let i = 0; i < pairCount; i++) {
-      const newPart = newTopParts[i];
-      const oldPart = oldTopParts[i];
-
+    // Tentative matches: a part whose OWN subtree compares equal.
+    const matched = new Map<Part, Pair[]>();
+    for (const newPart of newTopParts) {
+      const oldPart = oldByKey.get(pairingKey(newPart))?.shift();
+      if (!oldPart) {
+        continue;
+      }
       const subtreePairs = collectSubtreePairs(newPart, oldPart);
       if (subtreePairs) {
-        console.log('Part MATCHED:', newPart.partName);
-        for (const pair of subtreePairs) {
+        matched.set(newPart, subtreePairs);
+      }
+    }
+
+    // A part can consume geometry OWNED BY ANOTHER PART — an
+    // `extrude(15, donor.features.sketch)` / `remove(donor.features.sketch)`
+    // subtree looks unchanged when only the donor's sketch body changed
+    // (leaf compareTo of a referenced source is shallow; the deep walk covers
+    // the donor's subtree, not the consumer's). Drop the match whenever a
+    // cross-part dependency's owner is rebuilding, iterated to a fixpoint so
+    // a dropped part strands its own dependents too.
+    let dropped = true;
+    while (dropped) {
+      dropped = false;
+      for (const [part, pairs] of matched) {
+        if (hasRebuildingCrossPartDependency(part, pairs, matched)) {
+          matched.delete(part);
+          dropped = true;
+        }
+      }
+    }
+
+    for (const newPart of newTopParts) {
+      const pairs = matched.get(newPart);
+      if (pairs) {
+        for (const pair of pairs) {
           map.set(pair.oldObj, pair.newObj);
           newScene.markCached(pair.newObj);
         }
-      } else {
-        console.log('Part NO MATCH:', newPart.partName);
       }
     }
 
@@ -45,12 +84,16 @@ export class AssemblyCompare {
       const oldState = oldObj.getFullState();
       const newState = cloneState(oldState);
 
-      const oldRemovedShapes = newState.get('removedShapes') as { shape: Shape; removedBy: SceneObject }[];
-      const newRemovedShapes: { shape: Shape; removedBy: SceneObject }[] = [];
+      const oldRemovedShapes = newState.get('removedShapes') as { shape: Shape; removedBy: SceneObject; soft?: boolean }[];
+      const newRemovedShapes: { shape: Shape; removedBy: SceneObject; soft?: boolean }[] = [];
       for (const r of oldRemovedShapes) {
         const removedByNewObj = map.get(r.removedBy);
         if (removedByNewObj) {
-          newRemovedShapes.push({ shape: r.shape, removedBy: removedByNewObj });
+          // Spread keeps the record's flags — dropping `soft` here turned
+          // expose()'s render-only removal into a hard consumption, so a
+          // cached re-render served the exposure with no shapes and its
+          // contact classification (tangent mates) silently came back null.
+          newRemovedShapes.push({ ...r, removedBy: removedByNewObj });
         }
       }
       newState.set('removedShapes', newRemovedShapes);
@@ -77,6 +120,41 @@ function cloneState(state: Map<string, any>): Map<string, any> {
     }
   }
   return out;
+}
+
+// True when any object in the part's subtree depends on (or resolves against)
+// geometry whose owning top-level part is a different part that is NOT
+// matched — that owner rebuilds, so the consumer's cached state is stale.
+function hasRebuildingCrossPartDependency(
+  part: Part,
+  pairs: Pair[],
+  matched: Map<Part, Pair[]>,
+): boolean {
+  for (const pair of pairs) {
+    const deps = [...pair.newObj.getDependencies(), ...pair.newObj.getBoundaryDependencies()];
+    for (const dep of deps) {
+      const owner = owningTopLevelPart(dep);
+      if (owner && owner !== part && !matched.has(owner)) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function owningTopLevelPart(obj: SceneObject): Part | null {
+  let current: SceneObject = obj;
+  for (let parent = current.getParent(); parent; parent = current.getParent()) {
+    current = parent;
+  }
+  return current instanceof Part ? current : null;
+}
+
+// Declared identity a top-level part pairs on across renders: its name plus
+// the variant's resolved param values (label-sorted). Root-built parts carry
+// no paramValues and key on the name alone.
+function pairingKey(part: Part): string {
+  return `${part.partName}\u0000${canonicalVariantKey(toOverrideMap(part.paramValues))}`;
 }
 
 function topLevelParts(scene: AssemblyScene): Part[] {

@@ -3,16 +3,18 @@ import {
   ExtrudeProfileRef, FeatureEditTarget, GhostSolid, ParsedFeatureStatement, SourceSlotRef,
 } from '../../api';
 import { toggleEntity } from '../../helpers/entities';
-import { SceneObjectRender, SubSelection } from '../../types';
+import { SceneObjectRender, SourceLocation, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
+import { SolidPickSelection } from '../solid-pick';
 import { ExtrudePanel } from './extrude-panel';
 import { FeatureButton } from './feature-button';
 import { ApplyRunner } from './apply-runner';
 import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
+import { enclosingPartLocOf, ScopeTargetList, scopePartLocation } from './scope-targets';
 import {
   collectExtrudeProfiles, labelWithSketchNames, optionsSignature, resolveProfileByShapeId, resolveProfileRow,
   SketchProfileOption, sketchWireShapeIds,
@@ -46,6 +48,12 @@ export class ExtrudeFeatureService {
   private sceneSketchActive = false;
   /** The picked up-to-face target ("Up to face" direction, both modes). */
   private toFaceEntity: SelectedEntity | null = null;
+  /** The `.scope(…)` targets, part-restricted whole-solid picks. */
+  private scope = new ScopeTargetList();
+  /** The edited statement's enclosing part — the scope picker's restriction. */
+  private editPartLoc: SourceLocation | null = null;
+  /** The shared whole-solid highlight (the scope chips' viewport echo). */
+  private solidPick: SolidPickSelection;
   /** A full render arrived mid-session — a re-picked face's shape id died. */
   private editSceneStale = false;
   /** Statement being edited in place (timeline double-click), or null. */
@@ -92,6 +100,7 @@ export class ExtrudeFeatureService {
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
     this.ghost = new FeatureGhostOverlay(viewer);
+    this.solidPick = new SolidPickSelection(viewer, { multiple: true });
 
     this.panel = new ExtrudePanel(container);
     this.panel.onApply = () => void this.runner.apply();
@@ -99,7 +108,9 @@ export class ExtrudeFeatureService {
     this.panel.onChange = () => {
       this.panel.setMessage(null);
       this.syncFacePickMode();
-      this.refreshHighlight();
+      // The profile choice drives the scope's part restriction (producers
+      // win — the statement inserts in the profile's scope).
+      this.refreshScope();
       this.runner.schedulePreview();
     };
     this.panel.onRemoveFace = () => {
@@ -109,6 +120,13 @@ export class ExtrudeFeatureService {
       this.refreshHighlight();
       this.runner.schedulePreview();
     };
+    this.panel.onRemoveScope = (index) => {
+      this.scope.removeAt(index);
+      this.panel.setMessage(null);
+      this.refreshScope();
+      this.runner.schedulePreview();
+    };
+    this.panel.onArmedPickChange = () => this.syncFacePickMode();
 
     this.runner = new ApplyRunner({
       panel: this.panel,
@@ -172,9 +190,15 @@ export class ExtrudeFeatureService {
    * Face picks are live while the dialog's direction is "Up to face" — the
    * click sets the extrusion's target face. In edit mode the pick resolves
    * against the rolled-back pre-statement scene (the loft edit behavior).
+   * The armed scope slot takes the clicks over instead (whole-solid picks).
    */
   get isFacePicking(): boolean {
-    return this.armed && this.panel.isToFace();
+    return this.armed && this.panel.isToFace() && !this.panel.scopePickArmed;
+  }
+
+  /** The scope slot is armed — face/edge clicks toggle whole scope solids. */
+  get isScopePicking(): boolean {
+    return this.armed && this.panel.scopePickArmed;
   }
 
   /** True while an edit session has suspended sketch editing. */
@@ -213,10 +237,12 @@ export class ExtrudeFeatureService {
       }
       return;
     }
-    // At the boundary: rebuild options from the pre-statement scene.
+    // At the boundary: rebuild options from the pre-statement scene. A keep
+    // chip whose argument named a statement becomes that statement's option.
     this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.options = collectExtrudeProfiles(sceneObjects);
+    this.scope.setScene(sceneObjects, this.scopePartLoc(), { resolveKeeps: true });
     if (this.editSceneStale) {
       this.editSceneStale = false;
       // A scene rebuild killed the re-picked face's shape id; the keep chip
@@ -235,6 +261,7 @@ export class ExtrudeFeatureService {
       void this.loadEditSources();
     }
     void this.relabeler.refresh(this.options);
+    this.panel.setScopeChips(this.scope.chips());
     this.refreshHighlight();
     this.runner.schedulePreview();
   }
@@ -274,16 +301,19 @@ export class ExtrudeFeatureService {
       this.sketchUI.suspend();
     }
     // Shape ids changed with the render — a picked target face is stale and
-    // drops back to the pick prompt (the loft behavior).
+    // drops back to the pick prompt (the loft behavior). Chosen scope solids
+    // re-match by source line instead.
     if (this.toFaceEntity) {
       this.toFaceEntity = null;
       this.panel.setFaceChip(null);
     }
+    this.scope.setScene(sceneObjects, this.scopePartLoc());
     this.viewer.pickSketchWires = true;
     this.viewer.pickProfileWires = true;
     this.panel.setOptions(this.options);
     this.syncFacePickMode();
     void this.relabeler.refresh(this.options);
+    this.panel.setScopeChips(this.scope.chips());
     this.refreshHighlight();
     this.runner.schedulePreview();
   }
@@ -311,6 +341,10 @@ export class ExtrudeFeatureService {
     this.sourceToFace = null;
     this.toFaceEntity = null;
     this.editSceneStale = false;
+    // The statement's enclosing part restricts the scope picker — derived
+    // from the pre-rollback scene, where the edited row still renders.
+    this.editPartLoc = enclosingPartLocOf(target, this.sceneObjects);
+    this.scope.seedKeeps(parsed, target.filePath);
     this.syncButton();
     this.sketchUI.suspend();
     this.viewer.pickSketchWires = true;
@@ -331,6 +365,7 @@ export class ExtrudeFeatureService {
       toFaceLabel: parsed.toFaceText,
       toFaceKind: parsed.toFaceKind,
     });
+    this.panel.setScopeChips(this.scope.chips());
     this.syncFacePickMode();
     this.runner.schedulePreview();
   }
@@ -373,6 +408,8 @@ export class ExtrudeFeatureService {
     this.hooks.onEnter?.();
     this.armed = true;
     this.toFaceEntity = null;
+    this.scope.clear();
+    this.editPartLoc = null;
     // Composing the extrude — and looking over its ghost preview — means the
     // whole scene, not the view down the active sketch plane: leave sketch
     // editing right away (resumed on cancel; an apply's re-render takes over).
@@ -389,7 +426,7 @@ export class ExtrudeFeatureService {
     // when the dialog reopens on "Up to face".
     this.syncFacePickMode();
     void this.relabeler.refresh(this.options);
-    this.refreshHighlight();
+    this.refreshScope();
     this.runner.schedulePreview();
   }
 
@@ -415,6 +452,9 @@ export class ExtrudeFeatureService {
     this.sourceProfile = null;
     this.sourceToFace = null;
     this.toFaceEntity = null;
+    this.scope.clear();
+    this.editPartLoc = null;
+    this.solidPick.set([]);
     this.editSceneStale = false;
     this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
@@ -461,11 +501,33 @@ export class ExtrudeFeatureService {
         faces.push(...this.sourceToFace.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub })));
       }
     }
-    if (wireIds.length > 0 || faces.length > 0) {
-      this.viewer.highlightEntities(faces, wireIds);
-    } else {
-      this.viewer.clearHighlight();
+    // The chosen scope solids ride the same pass, highlighted whole.
+    this.solidPick.set(this.scope.shapeIds());
+    this.solidPick.refreshHighlight({ entities: faces, wireIds });
+  }
+
+  /**
+   * The part the scope picker is restricted to: the edited statement's own
+   * enclosing part, or — create mode — the chosen profile's (producers win:
+   * the new statement inserts in the profile's scope), falling back to the
+   * timeline's active part. Null offers top-level solids only.
+   */
+  private scopePartLoc(): SourceLocation | null {
+    if (this.editTarget) {
+      return this.editPartLoc;
     }
+    const option = this.panel.selectedOption();
+    return scopePartLocation(option ? { filePath: option.filePath, line: option.line } : null, this.sceneObjects);
+  }
+
+  /** Recompute the offered scope solids, the chips and the highlight. */
+  private refreshScope(): void {
+    if (!this.armed) {
+      return;
+    }
+    this.scope.setScene(this.sceneObjects, this.scopePartLoc());
+    this.panel.setScopeChips(this.scope.chips());
+    this.refreshHighlight();
   }
 
   private syncButton(): void {
@@ -488,11 +550,18 @@ export class ExtrudeFeatureService {
       return false;
     }
     const sketch = resolveProfileRow(obj, this.sceneObjects);
-    if (!sketch?.sourceLocation) {
-      return false;
+    if (sketch?.sourceLocation) {
+      this.pickSketch(sketch);
+      return true;
     }
-    this.pickSketch(sketch);
-    return true;
+    // A solid row toggles it in the scope list — unambiguous, so no arming
+    // is needed. Rows outside the scope's part fall through untouched.
+    const option = this.scope.optionForRow(obj);
+    if (option && this.scopeOffered()) {
+      this.toggleScope(option);
+      return true;
+    }
+    return false;
   }
 
   /** A sketch wire was clicked in the 3D view: selects it as the profile. */
@@ -522,11 +591,24 @@ export class ExtrudeFeatureService {
   }
 
   /**
-   * Routes viewer clicks while face picking is live: a face click sets the
-   * up-to-face target (clicking the picked face again clears it); empty-space
-   * clicks keep it.
+   * Routes viewer clicks: with the scope slot armed, any face or edge click
+   * selects the owning solid whole and toggles it in the scope list; while
+   * face picking is live instead, a face click sets the up-to-face target
+   * (clicking the picked face again clears it). Empty-space clicks keep both.
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
+    if (this.isScopePicking) {
+      if (!shapeId || !sub || (sub.type !== 'face' && sub.type !== 'edge')) {
+        return;
+      }
+      const option = this.scope.optionForShapeId(shapeId);
+      if (!option) {
+        this.panel.setMessage('That shape cannot scope the boolean — pick a solid in the same part.');
+        return;
+      }
+      this.toggleScope(option);
+      return;
+    }
     if (!this.isFacePicking || !shapeId || !sub || sub.type !== 'face') {
       return;
     }
@@ -537,16 +619,30 @@ export class ExtrudeFeatureService {
     this.runner.schedulePreview();
   }
 
+  /** The scope section applies at all — hidden outright on the New op. */
+  private scopeOffered(): boolean {
+    return this.panel.op !== 'new';
+  }
+
+  /** Toggle a solid scope chip (viewport or timeline pick). */
+  private toggleScope(option: NonNullable<ReturnType<ScopeTargetList['optionForRow']>>): void {
+    this.scope.toggle(option);
+    this.panel.setMessage(null);
+    this.refreshScope();
+    this.runner.schedulePreview();
+  }
+
   /**
-   * The viewer's pick mode follows the direction select: "Up to face" picks
-   * faces only. (The sketch suspension is owned by enter/exit — the dialog
-   * holds the free 3D view for its whole lifetime.)
+   * The viewer's pick mode follows the armed slot: "Up to face" picks faces
+   * only; the armed scope slot opens everything — any face or edge click
+   * resolves to its owning solid. (The sketch suspension is owned by
+   * enter/exit — the dialog holds the free 3D view for its whole lifetime.)
    */
   private syncFacePickMode(): void {
     if (!this.armed) {
       return;
     }
-    this.viewer.pickFilter = this.panel.isToFace() ? 'face' : 'all';
+    this.viewer.pickFilter = this.isFacePicking ? 'face' : 'all';
   }
 
   /** Green while the extrusion adds material, red while it cuts. */
@@ -629,6 +725,9 @@ export class ExtrudeFeatureService {
       profile: profileRef(option),
       toFace: this.panel.faceTarget()
         ?? (this.panel.isToFace() ? this.toFaceEntity ?? undefined : undefined),
+      // A separate body has no boolean to scope — the hidden section's picks
+      // stay parked in case the user switches back.
+      scope: values.op === 'new' ? undefined : this.scope.createRefs(),
     };
   }
 
@@ -670,6 +769,10 @@ export class ExtrudeFeatureService {
       before: toFace?.kind === 'face' ? this.session.boundary ?? undefined : undefined,
       profile,
       toFace,
+      // The dialog owns the chain it shows: the full list on Add/Remove, and
+      // an explicit drop on New — `.new()` resets the fusion scope, so a
+      // statement rewritten to a separate body must not keep one.
+      scope: values.op === 'new' ? [] : this.scope.editRefs(),
     };
   }
 }

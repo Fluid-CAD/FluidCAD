@@ -1,7 +1,11 @@
 import { Part } from "./part.js";
 import type { Connector } from "./connector.js";
+import type { Exposed } from "./exposed.js";
+import type { SceneObject } from "../common/scene-object.js";
 import type { Scene } from "../rendering/scene.js";
+import { AssemblyScene } from "../rendering/assembly-scene.js";
 import type { SourceLocation } from "../common/scene-object.js";
+import { BreakpointHit } from "../common/breakpoint-hit.js";
 import { getCurrentScene } from "../scene-manager.js";
 import { popParamScope, pushParamScope } from "../param-registry.js";
 import type { ParamOverrides, ParamVal } from "../param-registry.js";
@@ -23,6 +27,10 @@ import { canonicalVariantKey, collectedParamValues, toOverrideMap, warnUnknownOv
  * `getType() === 'part-definition'`; the materialized scene object keeps
  * `getType() === 'part'`, so old-engine/new-server combinations stay
  * classifiable.
+ *
+ * The `T` parameter (the callback's return type) is deprecated: the return
+ * value no longer feeds `def.features` — kept only so user code that passes
+ * definitions around stays typed.
  */
 export class PartDefinition<T = unknown> {
   /**
@@ -33,6 +41,9 @@ export class PartDefinition<T = unknown> {
 
   /** Display name new variants materialize with — `.name()` overrides partName. */
   private displayName: string;
+
+  /** One warning per definition when a callback still returns a features object. */
+  private warnedReturn = false;
 
   constructor(
     public readonly partName: string,
@@ -103,11 +114,24 @@ export class PartDefinition<T = unknown> {
     return this.buildVariant(scene, new Map(), false);
   }
 
-  /** `materializeInto` the current scene — the host's export arm and the legacy-access hatch. */
+  /**
+   * Materialize into the current scene — the host's export arm and the
+   * legacy-access hatch (`def.features`, `.from(def)`, transform-argument
+   * coercion). In an assembly scene the build is SCOPED like insert()'s:
+   * a read and an insert() share the default-variant template instead of
+   * racing for the cache slot with different scoping, and the definition's
+   * param() calls never leak into the consuming assembly's global registry
+   * (they are the part's insertion interface, not the assembly's panel).
+   * Part-kind scenes keep panel semantics — the same unscoped build the
+   * entry-file pass does.
+   */
   materialize(): Part {
     const scene = getCurrentScene();
     if (!scene) {
       throw new Error(`part '${this.partName}': no active scene to build into.`);
+    }
+    if (scene instanceof AssemblyScene) {
+      return this.materializeVariant(scene);
     }
     return this.materializeInto(scene);
   }
@@ -139,14 +163,30 @@ export class PartDefinition<T = unknown> {
           scene.endProgressiveContainer();
         }
       });
+    } catch (e) {
+      if (e instanceof BreakpointHit) {
+        // A paused build IS this variant's world: the partial Part is already
+        // in the scene, so record it — otherwise a second materialization
+        // pass (the host's export arm plus the leftover-definitions pass both
+        // materialize entry-file definitions) re-runs the callback and lands
+        // a DUPLICATE partial part in the same scene.
+        variants.set(key, partObj);
+      }
+      throw e;
     } finally {
       if (scope) {
         popParamScope();
       }
     }
 
-    if (extensions && typeof extensions === 'object') {
-      partObj.features = extensions;
+    if (extensions && typeof extensions === 'object' && !this.warnedReturn) {
+      // Hard cutover: the callback's return value no longer feeds
+      // `def.features` — publications are declared with expose().
+      this.warnedReturn = true;
+      console.warn(
+        `part '${this.partName}': the callback's return value is ignored — `
+        + `declare publications with expose('name', source); consumers keep reading def.features.<name>.`,
+      );
     }
     if (scope) {
       if (scope.collected.size > 0) {
@@ -161,12 +201,16 @@ export class PartDefinition<T = unknown> {
   }
 
   /**
-   * Legacy-access hatches: the eager `part()` returned the built Part, so
-   * old code reads `.features` / connectors straight off the return value.
+   * The definition's geometry interface: exposure sources by name, as
+   * registered by the part body's `expose('name', source)` statements.
    * First touch materializes the default variant into the current scene.
+   *
+   * Untyped by design (mirroring `InstanceConnectors`): the `T` inferred
+   * from the callback no longer types this — the callback return value is
+   * a deprecated contract and no longer feeds `features`.
    */
-  get features(): T {
-    return this.materialize().features as T;
+  get features(): Record<string, SceneObject> {
+    return this.materialize().features;
   }
 
   getConnectors(): Connector[] {
@@ -175,6 +219,14 @@ export class PartDefinition<T = unknown> {
 
   getNamedConnectors(): Record<string, Connector> {
     return this.materialize().getNamedConnectors();
+  }
+
+  getExposed(): Exposed[] {
+    return this.materialize().getExposed();
+  }
+
+  getNamedExposures(): Record<string, SceneObject> {
+    return this.materialize().getNamedExposures();
   }
 }
 

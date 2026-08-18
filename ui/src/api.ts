@@ -1,4 +1,5 @@
 import type { VariableInfo } from './ui/expression-input';
+import type { ContactEntity } from './solver/types';
 import type {
   SceneObjectMesh,
   SceneObjectRender,
@@ -1427,6 +1428,28 @@ export async function retargetTarcToEdge(
   });
 }
 
+/**
+ * Commit the polyline tool's angled-line-to-target snap: `aLine(<angle>,
+ * <target>)`, where the picked geometry's producing statement is bound to a
+ * variable by the server and referenced as the target. The line ends at its
+ * nearest intersection with the target along the drawn direction (in either
+ * sign). A chain opened away from the sketch cursor carries its start
+ * address as the statement's first argument — `aLine([10, 5], 30, l)`.
+ */
+export async function applyAlineToEdge(
+  angle: number | string,
+  shapeId: string,
+  options: { start?: string; newVariables?: NewVariable[] } = {},
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'aline',
+    value: angle,
+    sketchEntities: [{ shapeId }],
+    alineStart: options.start,
+    newVariables: options.newVariables?.length ? options.newVariables : undefined,
+  });
+}
+
 export type OffsetEditOptions = OffsetOptionValues & EditSessionFields & {
   value: ValueExpr;
   /** Edited target argument list; omitted keeps the statement's verbatim. */
@@ -1707,6 +1730,8 @@ export type ExtrudeApplyOptions = ExtrudeOptionValues & {
   profile: ExtrudeProfileRef;
   /** Up-to-face target replacing the distance(s): a picked face, or first/last. */
   toFace?: ApplyFeatureEntity | ExtrudeFaceTarget;
+  /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
+  scope?: SketchSourceRef[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -1732,6 +1757,7 @@ export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyF
     newVariables: options.newVariables,
     profile: options.profile,
     toFace: options.toFace,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
@@ -1810,6 +1836,8 @@ export type RevolveAxisRef =
 export type RevolveApplyOptions = RevolveOptionValues & {
   profile: ExtrudeProfileRef;
   axis: RevolveAxisRef;
+  /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
+  scope?: SketchSourceRef[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -1830,6 +1858,7 @@ export async function applyRevolve(options: RevolveApplyOptions): Promise<ApplyF
     newVariables: options.newVariables,
     profile: options.profile,
     axis: options.axis,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
@@ -1907,6 +1936,8 @@ export type SweepApplyOptions = {
   path:
     | ({ kind: 'sketch' } & SketchSourceRef)
     | { kind: 'edges'; entities: ApplyFeatureEntity[]; chains?: ApplyFeatureChain[] };
+  /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
+  scope?: SketchSourceRef[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -1925,6 +1956,7 @@ export async function applySweep(options: SweepApplyOptions): Promise<ApplyFeatu
     newVariables: options.newVariables,
     profile: options.profile,
     path: options.path,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
@@ -1985,6 +2017,8 @@ export type LoftApplyOptions = {
   guides: SketchSourceRef[];
   startCondition: LoftConditionRef | null;
   endCondition: LoftConditionRef | null;
+  /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
+  scope?: SketchSourceRef[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -2005,6 +2039,7 @@ export async function applyLoft(options: LoftApplyOptions): Promise<ApplyFeature
     guides: options.guides,
     startCondition: options.startCondition,
     endCondition: options.endCondition,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
@@ -2407,12 +2442,28 @@ export type ParsedPlaneBase = {
 };
 
 /**
+ * A statement's parsed `.scope(…)` chain (mirror of the server's
+ * `ParsedScopeChain`), shared by every feature that writes one — rib,
+ * extrude, sweep, loft and revolve.
+ */
+export type ParsedScopeChain = {
+  /** `.scope(…)` argument texts, verbatim; empty when the chain is absent. */
+  scopeTexts: string[];
+  /**
+   * Source location of the statement each scope argument references, or
+   * null when it names none. Same length as `scopeTexts`; seeds the scope
+   * chips as their solid rows.
+   */
+  scopeRefs: ({ line: number; column: number } | null)[];
+};
+
+/**
  * An existing statement's dialog-editable reading (mirror of the server's
  * `ParsedFeatureStatement`). Expressions the dialogs don't edit (profiles,
  * paths, selector args) arrive as verbatim source text.
  */
 export type ParsedFeatureStatement =
-  | {
+  | (ParsedScopeChain & {
       feature: 'extrude';
       op: FeatureOpKind;
       distance: ValueExpr | null;
@@ -2431,8 +2482,8 @@ export type ParsedFeatureStatement =
        * literal; null for a distance extrude.
        */
       toFaceKind: 'selector' | ExtrudeFaceTarget | null;
-    }
-  | {
+    })
+  | (ParsedScopeChain & {
       feature: 'rib';
       op: FeatureOpKind;
       /** Wall thickness; the sign picks the side of the sketch plane. */
@@ -2442,22 +2493,14 @@ export type ParsedFeatureStatement =
       draft: ValueExpr | null;
       /** Trailing spine argument text (`s`), or null for implicit consumption. */
       spineText: string | null;
-      /** `.scope(…)` argument texts, verbatim; empty when the chain is absent. */
-      scopeTexts: string[];
-      /**
-       * Source location of the statement each scope argument references, or
-       * null when it names none. Same length as `scopeTexts`; seeds the scope
-       * chips as their solid rows.
-       */
-      scopeRefs: ({ line: number; column: number } | null)[];
-    }
-  | {
+    })
+  | (ParsedScopeChain & {
       feature: 'sweep';
       op: FeatureOpKind;
       thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
       pathText: string;
       profileText: string | null;
-    }
+    })
   | {
       feature: 'wrap';
       op: FeatureOpKind;
@@ -2468,7 +2511,7 @@ export type ParsedFeatureStatement =
       /** Target face argument text, verbatim (`e.sideFaces(0)`). */
       faceText: string;
     }
-  | {
+  | (ParsedScopeChain & {
       feature: 'revolve';
       op: FeatureOpKind;
       /** Sweep angle in degrees; null = omitted (the 360° API default). */
@@ -2479,7 +2522,7 @@ export type ParsedFeatureStatement =
       /** Axis argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`). */
       axisText: string;
       profileText: string | null;
-    }
+    })
   | {
       feature: 'helix';
       /** Source argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`, `e.sideFaces(0)`). */
@@ -2494,7 +2537,7 @@ export type ParsedFeatureStatement =
       startOffset: ValueExpr | null;
       endOffset: ValueExpr | null;
     }
-  | {
+  | (ParsedScopeChain & {
       feature: 'loft';
       op: FeatureOpKind;
       thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
@@ -2502,7 +2545,7 @@ export type ParsedFeatureStatement =
       guideTexts: string[];
       startCondition: LoftConditionRef | null;
       endCondition: LoftConditionRef | null;
-    }
+    })
   | {
       feature: 'shell';
       value: ValueExpr;
@@ -2742,6 +2785,16 @@ export type EditSessionFields = {
   before?: SelectionBoundaryRef;
 };
 
+/**
+ * One target of an edited `.scope(…)` chain, in argument order: an untouched
+ * target by its position in the statement's own argument list, or a re-picked
+ * solid statement by call site. Shared by every dialog that writes the chain
+ * (rib, extrude, sweep, loft, revolve).
+ */
+export type ScopeTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
 export type ExtrudeEditOptions = ExtrudeOptionValues & EditSessionFields & {
   /** Re-sourced profile (a sketch or a top-level offset); omitted keeps the statement's own. */
   profile?: { mode: 'bound'; feature?: 'sketch' | 'offset' } & SketchSourceRef;
@@ -2751,6 +2804,11 @@ export type ExtrudeEditOptions = ExtrudeOptionValues & EditSessionFields & {
    * Omitted writes the distance form (dropping any target the statement had).
    */
   toFace?: { kind: 'keep' | ExtrudeFaceTarget } | { kind: 'face'; entity: ApplyFeatureEntity };
+  /**
+   * Full replacement scope list; omitted keeps the statement's own chain,
+   * an empty list drops it (back to whole-scene fusion).
+   */
+  scope?: ScopeTargetRef[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -2776,18 +2834,10 @@ export async function applyExtrudeEdit(
     newVariables: options.newVariables,
     profile: options.profile,
     toFace: options.toFace,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
-
-/**
- * One scope target of an edited rib, in argument order: an untouched target
- * by its position in the statement's own `.scope(…)` argument list, or a
- * re-picked solid statement by call site.
- */
-export type RibEditScopeRef =
-  | { kind: 'verbatim'; sourceIndex: number }
-  | ({ kind: 'feature' } & SketchSourceRef);
 
 export type RibEditOptions = RibOptionValues & EditSessionFields & {
   /** Re-sourced spine sketch; omitted keeps the statement's own. */
@@ -2796,7 +2846,7 @@ export type RibEditOptions = RibOptionValues & EditSessionFields & {
    * Full replacement scope list; omitted keeps the statement's own chain,
    * an empty list drops it (back to whole-scene fusion).
    */
-  scope?: RibEditScopeRef[];
+  scope?: ScopeTargetRef[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -2833,6 +2883,11 @@ export type SweepEditOptions = EditSessionFields & {
     | { kind: 'edges'; entities: ApplyFeatureEntity[]; chains: ApplyFeatureChain[] };
   /** Re-sourced profile sketch; omitted keeps the statement's own. */
   profile?: { kind: 'sketch' } & SketchSourceRef;
+  /**
+   * Full replacement scope list; omitted keeps the statement's own chain,
+   * an empty list drops it (back to whole-scene fusion).
+   */
+  scope?: ScopeTargetRef[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -2852,6 +2907,7 @@ export async function applySweepEdit(
     newVariables: options.newVariables,
     path: options.path,
     profile: options.profile,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
@@ -2892,6 +2948,11 @@ export type RevolveEditOptions = RevolveOptionValues & EditSessionFields & {
   profile?: { mode: 'bound' } & SketchSourceRef;
   /** Re-sourced axis; omitted keeps the statement's own. */
   axis?: RevolveAxisRef;
+  /**
+   * Full replacement scope list; omitted keeps the statement's own chain,
+   * an empty list drops it (back to whole-scene fusion).
+   */
+  scope?: ScopeTargetRef[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -2913,6 +2974,7 @@ export async function applyRevolveEdit(
     newVariables: options.newVariables,
     profile: options.profile,
     axis: options.axis,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
@@ -2969,6 +3031,11 @@ export type LoftEditOptions = EditSessionFields & {
   profiles?: LoftEditProfileRef[];
   /** Full replacement guide list; omitted keeps the statement's own. */
   guides?: LoftEditGuideRef[];
+  /**
+   * Full replacement scope list; omitted keeps the statement's own chain,
+   * an empty list drops it (back to whole-scene fusion).
+   */
+  scope?: ScopeTargetRef[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -2990,6 +3057,7 @@ export async function applyLoftEdit(
     endCondition: options.endCondition,
     profiles: options.profiles,
     guides: options.guides,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
@@ -3554,8 +3622,8 @@ export function recompute(): void {
   postFireAndForget('/api/recompute');
 }
 
-export function rollback(index: number): void {
-  postFireAndForget('/api/rollback', { index });
+export function rollback(index: number, scope?: 'part'): void {
+  postFireAndForget('/api/rollback', scope ? { index, scope } : { index });
 }
 
 export function addBreakpoint(sourceLocation: SourceLocationParam): void {
@@ -3938,7 +4006,7 @@ export async function getInsertParamExpressions(
 
 /** The mate types the assembly solver supports (mirrors the kernel's mate()). */
 export type AssemblyMateType =
-  | 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';
+  | 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot' | 'tangent';
 
 /**
  * One side of a mate statement: the instance whose `insert()` chain starts on
@@ -3956,12 +4024,28 @@ export type AssemblyMateOptions = {
   rotate?: number;
   offset?: [number, number, number] | null;
   limits?: [number, number] | null;
+  /** Tangent only: false writes `.noPropagate()`; true/absent writes nothing. */
+  propagate?: boolean;
+};
+
+/**
+ * One side of a tangent mate: the instance address plus EITHER the matched
+ * exposure's name or the raw pick the server find-or-creates one from at
+ * apply time.
+ */
+export type AssemblyMateGeometryRef = {
+  instanceLine: number;
+  exposeName?: string;
+  pick?: { shapeId: string; sub: { type: 'face' | 'edge'; index: number } };
 };
 
 export type AssemblyMatePayload = {
   type: AssemblyMateType;
-  connectorA: AssemblyMateConnectorRef;
-  connectorB: AssemblyMateConnectorRef;
+  connectorA?: AssemblyMateConnectorRef;
+  connectorB?: AssemblyMateConnectorRef;
+  /** Tangent sides (the per-type side-kind rule is validated server-side). */
+  geometryA?: AssemblyMateGeometryRef;
+  geometryB?: AssemblyMateGeometryRef;
   options?: AssemblyMateOptions;
 };
 
@@ -3990,6 +4074,47 @@ export async function applyAssemblyMate(
     return body ?? { success: false, reason: 'Empty server response' };
   } catch {
     return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/** What one tangent-mate pick resolves to (17-mate-tangent §7.3). */
+export type ContactPickResult = {
+  /** The picked geometry's enclosing part and its exposure bookkeeping. */
+  donor: {
+    partName: string;
+    filePath: string;
+    line: number;
+    column: number;
+    /** Exposure already serving the picked shape, or null (Apply creates one). */
+    matched: string | null;
+    existingNames: string[];
+  } | null;
+  /** Canonical contact classification; null seed = unsupported surface form. */
+  seed: ContactEntity | null;
+  chain: ContactEntity[];
+};
+
+/**
+ * Resolve a tangent-mate face/edge pick: donor part + find-or-create
+ * exposure data + the contact classification the provisional solve and the
+ * in-panel pair validation consume.
+ */
+export async function classifyContactPick(
+  pick: { shapeId: string; sub: { type: 'face' | 'edge'; index: number } },
+): Promise<ContactPickResult | { error: string }> {
+  try {
+    const res = await fetch('/api/classify-contact', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ pick }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { error: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body as ContactPickResult;
+  } catch {
+    return { error: 'Could not reach the FluidCAD server' };
   }
 }
 

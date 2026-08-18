@@ -1,6 +1,7 @@
 import { ICON_WAND } from '../ui/icons';
 import { RegionPickMode } from './region-pick-mode';
 import { insertPoint, setPickPoints, addPick, removePick } from '../api';
+import { activeScopeObjects } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
 import { Navbar } from '../ui/navbar';
@@ -201,10 +202,10 @@ export class RegionPickService {
   } {
     const SKIP_TYPES = ['plane', 'axis'];
     let lastObj: SceneObjectRender | undefined;
-    for (let i = sceneObjects.length - 1; i >= 0; i--) {
-      const obj = sceneObjects[i] as any;
-      if (!obj.parentId && !SKIP_TYPES.includes(obj.type)) {
-        lastObj = obj;
+    const scope = activeScopeObjects(sceneObjects);
+    for (let i = scope.length - 1; i >= 0; i--) {
+      if (!SKIP_TYPES.includes(scope[i].type as string)) {
+        lastObj = scope[i];
         break;
       }
     }

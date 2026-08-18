@@ -396,10 +396,10 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   }
 
   private get removedShapes() {
-    return this.state.get('removedShapes') as { shape: Shape, removedBy: SceneObject }[];
+    return this.state.get('removedShapes') as { shape: Shape, removedBy: SceneObject, soft?: boolean }[];
   }
 
-  private set removedShapes(shapes: { shape: Shape, removedBy: SceneObject }[]) {
+  private set removedShapes(shapes: { shape: Shape, removedBy: SceneObject, soft?: boolean }[]) {
     this.state.set('removedShapes', shapes);
   }
 
@@ -513,6 +513,36 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     }
   }
 
+  /**
+   * Render-only consumption: hide this object's shapes from the rendered
+   * scene from `removedBy`'s timeline position on, WITHOUT consuming them
+   * for feature reads — scope-less `getShapes()` keeps serving them.
+   *
+   * For references that PUBLISH geometry rather than transform it
+   * (`expose('name', select(...))`): the selection highlight disappears
+   * from the final scene exactly like a consumed selection (and reappears
+   * when the timeline is scrubbed before the publication), while contact
+   * classification, pick matching (`sourceServes`) and cross-part
+   * consumers — which all read the source without a scope — keep working.
+   * Reusable sources stay fully visible, mirroring `removeShapes`.
+   */
+  removeShapesFromDisplay(removedBy: SceneObject) {
+    if (this._reusable) {
+      return;
+    }
+
+    if (this.isContainer()) {
+      for (const child of this.children) {
+        child.removeShapesFromDisplay(removedBy);
+      }
+      return;
+    }
+
+    for (const shape of this.addedShapes) {
+      this.removedShapes.push({ shape, removedBy, soft: true });
+    }
+  }
+
   recordAddedFace(face: Face, addedBy: SceneObject) {
     this.addedFaces.push({ shape: face, addedBy });
   }
@@ -609,8 +639,16 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
       excludeGuide: filter?.excludeGuide ?? true,
     }
 
+    // Removal semantics by read kind: scoped reads (the render passes —
+    // full render and rollback both pass their scope) honor every removal
+    // whose remover is in scope — hard and soft alike. Scope-less reads
+    // (feature builds, pick matching, exposure classification) honor only
+    // HARD removals: a soft (render-only) removal hides the shape from the
+    // screen, never from readers.
     const shapes = this.addedShapes.filter(s =>
-      !this.removedShapes.find(r => r.shape === s && (!scope || scope.has(r.removedBy)))
+      !this.removedShapes.find(r =>
+        r.shape === s && (scope ? scope.has(r.removedBy) : !r.soft)
+      )
     );
 
     let filteredShapes = shapes;

@@ -52,6 +52,7 @@ import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences, savePreference, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider } from './api';
+import { setActivePartLocationProvider, isRollbackViewTruncated } from './helpers/scene-utils';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
 import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-props-editor';
@@ -239,6 +240,11 @@ let timelinePanel: TimelinePanel;
 // payload carries its location through the provider below.
 const activePartTracker = new ActivePartTracker();
 setActivePartProvider(() => activePartTracker.location);
+// The scene-utils scope helpers (findActiveObject & co.) read the same
+// tracker: the "active" feature is the active part's last child, so the
+// viewer, sketch toolbar, timeline and pick services all follow the part a
+// timeline click chose instead of whatever part the file happens to end in.
+setActivePartLocationProvider(() => activePartTracker.location);
 
 function disposeRail(): void {
   if (!currentRail) return;
@@ -439,7 +445,9 @@ function findMate(mateId: string) {
 function instanceHasMate(instanceId: string): boolean {
   if (!lastAssemblyPayload) return false;
   for (const m of lastAssemblyPayload.mates) {
-    if (m.connectorA.instanceId === instanceId || m.connectorB.instanceId === instanceId) {
+    const aId = m.connectorA?.instanceId ?? m.geometryA?.instanceId;
+    const bId = m.connectorB?.instanceId ?? m.geometryB?.instanceId;
+    if (aId === instanceId || bId === instanceId) {
       return true;
     }
   }
@@ -964,10 +972,18 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     || mirrorService.handleTimelinePick(obj) || rotateService.handleTimelinePick(obj)
     || booleanService.handleTimelinePick(obj) || planeService.handleTimelinePick(obj);
   // Part rows don't navigate: a click makes that part the active part — new
-  // statements land inside its callback body instead of at top level. One
-  // part is always active while the scene has any (tracker invariant), so
-  // re-clicking the active row is a no-op rather than a toggle.
-  panel.onPartActivate = (obj) => activePartTracker.activate(obj);
+  // statements land inside its callback body instead of at top level, and
+  // the view re-derives its mode from the new scope (a part ending in a
+  // sketch enters sketch editing). One part is always active while the
+  // scene has any (tracker invariant), so re-clicking the active row is a
+  // no-op rather than a toggle.
+  panel.onPartActivate = (obj) => {
+    if (activePartTracker.isActive(obj)) {
+      return;
+    }
+    activePartTracker.activate(obj);
+    refreshActivePartScope();
+  };
   panel.isPartRowActive = (obj) => activePartTracker.isActive(obj);
   // Double-clicking an editable feature row (the enter-breakpoint gesture)
   // also opens that feature's dialog prefilled from its statement.
@@ -1746,9 +1762,14 @@ function failedSetsDiffer(a: Set<string>, b: Set<string>): boolean {
 }
 
 function formatMateLabel(mate: SerializedAssembly['mates'][number]): string {
+  if (mate.geometryA && mate.geometryB) {
+    const a = mate.geometryA;
+    const b = mate.geometryB;
+    return `${mate.type} — ${a.instanceId}.${a.exposeName} ↔ ${b.instanceId}.${b.exposeName}`;
+  }
   const a = mate.connectorA;
   const b = mate.connectorB;
-  return `${mate.type} — ${a.instanceId}.${a.connectorId} ↔ ${b.instanceId}.${b.connectorId}`;
+  return `${mate.type} — ${a?.instanceId}.${a?.connectorId} ↔ ${b?.instanceId}.${b?.connectorId}`;
 }
 
 // An armed modify mode (fillet/chamfer) owns hover (teach-mode tooltip) and
@@ -1771,6 +1792,7 @@ viewer.setHoverHandler((shapeId, sub, clientX, clientY) => {
 const createDialogPicking = () =>
   (extrudeService.isActive && !extrudeService.isEditing)
   || extrudeService.isFacePicking
+  || extrudeService.isScopePicking
   || ribService.isPicking
   || revolveService.isAxisPicking
   || (sweepService.isActive && !sweepService.isEditing)
@@ -1947,8 +1969,9 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
     return;
   }
   // The extrude dialog owns face clicks while its direction is "Up to face"
-  // — the pick is the extrusion's target face.
-  if (extrudeService.isFacePicking) {
+  // — the pick is the extrusion's target face — and any face/edge click
+  // while its scope slot is armed (a whole-solid toggle).
+  if (extrudeService.isFacePicking || extrudeService.isScopePicking) {
     extrudeService.handleClick(shapeId, sub);
     return;
   }
@@ -2144,6 +2167,97 @@ function scheduleCameraStatePush(): void {
 
 viewer.sceneContext.cameraControls.addEventListener('update', scheduleCameraStatePush);
 
+/**
+ * The scope-sensitive service cascade every scene render runs (and a
+ * timeline part-row click replays — see {@link refreshActivePartScope}):
+ * the trim/region pick triggers, the sketch toolbar, and each dialog
+ * service's own scene handling, in the order the services expect.
+ */
+function runSceneServices(result: SceneObjectRender[], renderStop: number, isRollback: boolean): void {
+  if (isRollback) {
+    trimService.reset();
+    regionService.reset();
+    sketchService.update([]);
+  } else {
+    trimService.update(result);
+    regionService.update(result);
+    // While a pick mode has sketch editing suspended, the sketch
+    // toolbar must not re-take the bar on incoming renders. An open
+    // projection EDIT counts too (its session owns the rolled-back
+    // view); the create-armed Project tool does not — its sketch
+    // staying in the scene is what keeps it armed.
+    const sketchSuspended = modifyService.sketchUISuspended
+      || sweepService.sketchUISuspended || wrapService.sketchUISuspended
+      || loftService.sketchUISuspended || repeatService.sketchUISuspended
+      || copyService.sketchUISuspended || mirrorService.sketchUISuspended
+      || rotateService.sketchUISuspended || booleanService.sketchUISuspended
+      || planeService.sketchUISuspended || extrudeService.sketchUISuspended
+      || ribService.sketchUISuspended
+      || revolveService.sketchUISuspended || helixService.sketchUISuspended
+      || projectionService.isEditing
+      || textEditService.isActive;
+    sketchService.update(sketchSuspended ? [] : result);
+  }
+  // The edit-capable services see every render: an open edit session
+  // keeps the view rolled back to just before its statement and
+  // rebuilds options/seeds at that boundary; without one this is the
+  // plain update (empty list on rollbacks, as before).
+  modifyService.handleSceneRendered(result, renderStop, isRollback);
+  // The projection service sees every render: an open edit session
+  // keeps the view rolled back to just before its statement and
+  // re-seeds its sources there; without one, a (non-rollback) render
+  // drops an armed tool's now-unaddressable picks.
+  projectionService.handleSceneRendered(result, renderStop, isRollback);
+  // Once the modify service has (re)adopted the active sketch for this
+  // render, the Finish Sketch button knows whether it should offer the
+  // grid or just remove the breakpoint (editing a consumed sketch).
+  finishSketchMenu.setResumeMode(modifyService.isEditingConsumedSketch);
+  extrudeService.handleSceneRendered(result, renderStop, isRollback);
+  ribService.handleSceneRendered(result, renderStop, isRollback);
+  revolveService.handleSceneRendered(result, renderStop, isRollback);
+  sweepService.handleSceneRendered(result, renderStop, isRollback);
+  wrapService.handleSceneRendered(result, renderStop, isRollback);
+  loftService.handleSceneRendered(result, renderStop, isRollback);
+  helixService.handleSceneRendered(result, renderStop, isRollback);
+  repeatService.handleSceneRendered(result, renderStop, isRollback);
+  copyService.handleSceneRendered(result, renderStop, isRollback);
+  mirrorService.handleSceneRendered(result, renderStop, isRollback);
+  rotateService.handleSceneRendered(result, renderStop, isRollback);
+  connectorService.handleSceneRendered(result, renderStop, isRollback);
+  booleanService.handleSceneRendered(result, renderStop, isRollback);
+  planeService.handleSceneRendered(result, renderStop, isRollback);
+  textEditService.handleSceneRendered(result, renderStop, isRollback);
+}
+
+/**
+ * The last part-scene render, kept so a timeline part-row click can replay
+ * it: activation changes the active scope without a new render arriving.
+ * Cleared on assembly renders (their rail has no part rows to click).
+ */
+let lastPartRender: { result: SceneObjectRender[]; isRollback: boolean; rollbackStop?: number } | null = null;
+
+/**
+ * A part-row click repointed the active part: re-run the render cascade's
+ * scope-derived pieces against the current scene so the view reacts now —
+ * a newly active part ending in a sketch enters sketch editing (camera,
+ * ghosting, toolbar, sketch dialog); anything else leaves it. Safe by
+ * construction: this is the exact sequence a real render runs, and every
+ * service already handles the scene's active sketch appearing or vanishing
+ * between renders. Rolled-back views are left alone — their mode derives
+ * from the rollback stop, not the active scope, and the next full render
+ * re-derives everything.
+ */
+function refreshActivePartScope(): void {
+  if (!lastPartRender || lastPartRender.isRollback) {
+    return;
+  }
+  const { result, rollbackStop } = lastPartRender;
+  viewer.isTrimming = trimService.state === 'picking-active';
+  viewer.isDrawing = sketchService.hasActiveDrawingTool;
+  viewer.updateView(result, false, rollbackStop);
+  runSceneServices(result, rollbackStop ?? result.length - 1, false);
+}
+
 function connectWebSocket() {
   // Protocol-relative: plain ws:// is blocked from an https page.
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
@@ -2169,8 +2283,24 @@ function connectWebSocket() {
         break;
       case 'scene-rendered': {
         loadingOverlay.hide();
-        const isRollback = msg.rollbackStop != null && msg.rollbackStop < msg.result.length - 1;
+        // "Rolled back" means something is actually hidden. A part-scoped
+        // stop on that part's LAST feature hides nothing — the view is the
+        // full render and must stay fully interactive (sketch-mode entry,
+        // service triggers), with only the timeline marking the clicked row.
+        const isRollback = msg.rollbackStop != null
+          && isRollbackViewTruncated(msg.result, msg.rollbackStop, msg.rollbackScopePartId ?? null);
         const sceneKind: 'part' | 'assembly' = msg.sceneKind === 'assembly' ? 'assembly' : 'part';
+        // Re-resolve the active part BEFORE the viewer or any service reads
+        // this render — the scope helpers (findActiveObject & co.) consult the
+        // tracker, so a stale activation would derive the sketch-mode entry
+        // (and the timeline highlight) from the wrong part. Assembly scenes
+        // have no parts timeline — a stale activation must not survive the
+        // flip.
+        if (sceneKind === 'part') {
+          activePartTracker.sync(msg.result);
+        } else {
+          activePartTracker.clear();
+        }
         viewer.isTrimming = !isRollback && trimService.state === 'picking-active';
         viewer.isDrawing = !isRollback && sketchService.hasActiveDrawingTool;
         if (sceneKind === 'assembly') {
@@ -2184,7 +2314,9 @@ function connectWebSocket() {
             }
           }
           viewer.updateAssemblyView(msg.result, assembly);
+          lastPartRender = null;
         } else {
+          lastPartRender = { result: msg.result, isRollback, rollbackStop: msg.rollbackStop };
           viewer.updateView(msg.result, isRollback, msg.rollbackStop);
           // Snapshot every sketch's consumed state from complete builds only —
           // rollbacks (and breakpoint truncations) make a tip sketch look
@@ -2213,73 +2345,13 @@ function connectWebSocket() {
           editorSurface.onSceneRendered(msg.result as SceneObjectRender[], msg.compileError ?? null);
         }
         const renderStop = msg.rollbackStop ?? msg.result.length - 1;
-        if (isRollback) {
-          trimService.reset();
-          regionService.reset();
-          sketchService.update([]);
-        } else {
-          trimService.update(msg.result);
-          regionService.update(msg.result);
-          // While a pick mode has sketch editing suspended, the sketch
-          // toolbar must not re-take the bar on incoming renders. An open
-          // projection EDIT counts too (its session owns the rolled-back
-          // view); the create-armed Project tool does not — its sketch
-          // staying in the scene is what keeps it armed.
-          const sketchSuspended = modifyService.sketchUISuspended
-            || sweepService.sketchUISuspended || wrapService.sketchUISuspended
-            || loftService.sketchUISuspended || repeatService.sketchUISuspended
-            || copyService.sketchUISuspended || mirrorService.sketchUISuspended
-            || rotateService.sketchUISuspended || booleanService.sketchUISuspended
-            || planeService.sketchUISuspended || extrudeService.sketchUISuspended
-            || ribService.sketchUISuspended
-            || revolveService.sketchUISuspended || helixService.sketchUISuspended
-            || projectionService.isEditing
-            || textEditService.isActive;
-          sketchService.update(sketchSuspended ? [] : msg.result);
-        }
-        // The edit-capable services see every render: an open edit session
-        // keeps the view rolled back to just before its statement and
-        // rebuilds options/seeds at that boundary; without one this is the
-        // plain update (empty list on rollbacks, as before).
-        modifyService.handleSceneRendered(msg.result, renderStop, isRollback);
-        // The projection service sees every render: an open edit session
-        // keeps the view rolled back to just before its statement and
-        // re-seeds its sources there; without one, a (non-rollback) render
-        // drops an armed tool's now-unaddressable picks.
-        projectionService.handleSceneRendered(msg.result, renderStop, isRollback);
-        // Once the modify service has (re)adopted the active sketch for this
-        // render, the Finish Sketch button knows whether it should offer the
-        // grid or just remove the breakpoint (editing a consumed sketch).
-        finishSketchMenu.setResumeMode(modifyService.isEditingConsumedSketch);
-        extrudeService.handleSceneRendered(msg.result, renderStop, isRollback);
-        ribService.handleSceneRendered(msg.result, renderStop, isRollback);
-        revolveService.handleSceneRendered(msg.result, renderStop, isRollback);
-        sweepService.handleSceneRendered(msg.result, renderStop, isRollback);
-        wrapService.handleSceneRendered(msg.result, renderStop, isRollback);
-        loftService.handleSceneRendered(msg.result, renderStop, isRollback);
-        helixService.handleSceneRendered(msg.result, renderStop, isRollback);
-        repeatService.handleSceneRendered(msg.result, renderStop, isRollback);
-        copyService.handleSceneRendered(msg.result, renderStop, isRollback);
-        mirrorService.handleSceneRendered(msg.result, renderStop, isRollback);
-        rotateService.handleSceneRendered(msg.result, renderStop, isRollback);
-        connectorService.handleSceneRendered(msg.result, renderStop, isRollback);
-        booleanService.handleSceneRendered(msg.result, renderStop, isRollback);
-        planeService.handleSceneRendered(msg.result, renderStop, isRollback);
-        textEditService.handleSceneRendered(msg.result, renderStop, isRollback);
-        // Re-resolve the active part before the timeline redraws so the row
-        // highlight reads the updated state (assembly scenes have no parts
-        // timeline — a stale activation must not survive the flip).
-        if (sceneKind === 'part') {
-          activePartTracker.sync(msg.result);
-        } else {
-          activePartTracker.clear();
-        }
+        runSceneServices(msg.result, renderStop, isRollback);
         // Swap the toolbar to the matching workbench alongside the left rail —
         // part-design groups hide and the assembly groups show (or back).
         navbar.setMode(sceneKind);
         const rail = ensureRailFor(sceneKind);
         if (rail.kind === 'part') {
-          rail.timeline.update(msg.result, renderStop);
+          rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null);
           assemblyGizmo.handleModeExit();
         } else {
           const raw = msg.assembly;

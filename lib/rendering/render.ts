@@ -74,11 +74,17 @@ export class SceneRenderer {
 
     this.batchTriangulate(sceneObjects, skippedContainers);
 
+    // The render scope: every object in the scene. Passing it makes the
+    // shape collection honor render-only (soft) removals — an exposure's
+    // published selection stays out of the picture — while feature reads,
+    // which call getShapes() scope-less, keep seeing those shapes.
+    const renderScope = new Set<SceneObject>(sceneObjects);
+
     const prepared = new Map<SceneObject, { renderedSceneShapes: RenderedShape[]; ownShapeCount: number; prepError?: string }>();
     for (const object of sceneObjects) {
       const profiler = profilers.get(object);
       const start = performance.now();
-      prepared.set(object, this.prepareRenderedShapes(object, profiler));
+      prepared.set(object, this.prepareRenderedShapes(object, profiler, renderScope));
       const meshMs = performance.now() - start;
       const existing = buildDurations.get(object);
       if (existing !== undefined) {
@@ -103,13 +109,22 @@ export class SceneRenderer {
     return scene;
   }
 
-  renderRollback(scene: Scene, rollbackIndex: number): Scene {
+  /**
+   * Re-emit the scene restricted to `scope` — the view-only rollback pass
+   * (nothing rebuilds; consumed shapes whose consumer is out of scope
+   * reappear via the membership rule in getOwnShapes). Without an explicit
+   * scope the classic prefix `[0..rollbackIndex]` is used; callers that
+   * want a non-prefix view (part-scoped rollback) pass their own set.
+   */
+  renderRollback(scene: Scene, rollbackIndex: number, scope?: Set<SceneObject>): Scene {
     console.log("============ Rollback Rendering ==============", rollbackIndex);
 
     const allObjects = scene.getAllSceneObjects();
-    const scope = new Set<SceneObject>();
-    for (let i = 0; i <= rollbackIndex && i < allObjects.length; i++) {
-      scope.add(allObjects[i]);
+    if (!scope) {
+      scope = new Set<SceneObject>();
+      for (let i = 0; i <= rollbackIndex && i < allObjects.length; i++) {
+        scope.add(allObjects[i]);
+      }
     }
 
     scene.clearRenderedObjects();
@@ -195,13 +210,14 @@ export class SceneRenderer {
   private prepareRenderedShapes(
     obj: SceneObject,
     profiler: Profiler | undefined,
+    renderScope: Set<SceneObject>,
   ): { renderedSceneShapes: RenderedShape[]; ownShapeCount: number; prepError?: string } {
     const renderedSceneShapes: RenderedShape[] = [];
     if (obj.isLazy()) {
       return { renderedSceneShapes, ownShapeCount: 0 };
     }
     try {
-      const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false });
+      const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false }, renderScope);
       if (sceneShapes.length) {
         console.log(` - Scene shapes: ${sceneShapes.length}`);
         for (const shape of sceneShapes) {

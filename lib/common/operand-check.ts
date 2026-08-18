@@ -1,5 +1,5 @@
 import { SceneObject } from "./scene-object.js";
-import { Shape } from "./shape.js";
+import { Shape, ShapeFilter } from "./shape.js";
 import { BuildError } from "./build-error.js";
 
 interface RequireShapesOpts {
@@ -7,6 +7,8 @@ interface RequireShapesOpts {
   count?: number;
   /** Require every shape to be of this type. */
   type?: string;
+  /** Shape filter — pass { excludeGuide: false } when the consumer's build also reads guide shapes. */
+  filter?: ShapeFilter;
 }
 
 /**
@@ -31,7 +33,7 @@ export function requireShapes(
     return [];
   }
 
-  const shapes = obj.getShapes();
+  const shapes = obj.getShapes(opts?.filter);
 
   if (shapes.length === 0) {
     const removed = obj.getRemovedShapes();

@@ -40,6 +40,19 @@ function build(context: SceneParserContext): ConnectorFunction {
         + "and reference it as instance.connectors.<name> in mate().",
       );
     }
+    // The part is found by scanning the container stack, but parenting goes
+    // to the TOP container — a connector nested in e.g. a sketch() callback
+    // would become the sketch's child, invisible to Part.getConnectors()
+    // and every instance.connectors lookup. Refuse instead of silently
+    // registering nowhere.
+    const container = scene.getActiveContainer();
+    if (container !== part) {
+      throw new Error(
+        `connector() must be declared directly in the part() body — this call is nested inside `
+        + `${container ? container.getType() + '(...)' : 'another callback'}, so the connector would not `
+        + `register on the part "${part.partName}". Move the statement out of the nested callback.`,
+      );
+    }
     if (typeof name !== "string" || !CONNECTOR_NAME_PATTERN.test(name)) {
       const got = typeof name === "string" ? JSON.stringify(name) : `a ${typeof name}`;
       throw new Error(

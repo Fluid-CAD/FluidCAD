@@ -135,11 +135,15 @@ export type SerializedAssemblyInstance = {
 
 export type SerializedAssemblyMate = {
   mateId: string;
-  type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';
-  connectorA: { instanceId: string; connectorId: string };
-  connectorB: { instanceId: string; connectorId: string };
+  type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot' | 'tangent';
+  /** Connector sides — every mate type except tangent. */
+  connectorA?: { instanceId: string; connectorId: string };
+  connectorB?: { instanceId: string; connectorId: string };
+  /** Geometry sides — tangent mates only (exposure resolved per instance). */
+  geometryA?: { instanceId: string; exposeName: string };
+  geometryB?: { instanceId: string; exposeName: string };
   status: 'satisfied' | 'redundant' | 'inconsistent';
-  options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number] };
+  options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number]; propagate?: boolean };
   sourceLocation?: { filePath: string; line: number; column: number };
 };
 
@@ -154,6 +158,8 @@ export type SceneRenderedMessage = {
   sceneKind: 'part' | 'assembly';
   result: any[];
   rollbackStop: number;
+  /** Part-scoped rollback: only this part is truncated at rollbackStop. */
+  rollbackScopePartId?: string;
   compileError?: CompileError;
   assembly?: SerializedAssembly;
 };
@@ -404,6 +410,8 @@ export type UISceneRenderedMessage = {
   absPath: string;
   sceneKind: 'part' | 'assembly';
   rollbackStop?: number;
+  /** Part-scoped rollback: only this part is truncated at rollbackStop. */
+  rollbackScopePartId?: string;
   breakpointHit?: boolean;
   compileError?: CompileError;
   assembly?: SerializedAssembly;

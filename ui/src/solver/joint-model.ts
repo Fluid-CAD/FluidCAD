@@ -61,6 +61,13 @@ export type JointSpec = {
   limitParam?: 'rotZ' | 'slideZ';   // what .limits(min,max) applies to
   /** Joint DOF shown in the footer table for a tree edge of this type. */
   freeDof: number;
+  /**
+   * Residual-only contact mate (tangent): never a spanning-tree edge, no
+   * pose()/extract()/dragDelta() — its rows come from contact-model.ts,
+   * not from the lower-pair decomposition below. `freeDof` is only the
+   * nominal display fallback; real accounting is the rank-based loop DOF.
+   */
+  contact?: boolean;
 };
 
 /**
@@ -77,6 +84,7 @@ export const JOINT_SPECS: Partial<Record<MateType, JointSpec>> = {
   slider: { freeSlideZ: true, limitParam: 'slideZ', freeDof: 1 },
   cylindrical: { freeRotZ: true, freeSlideZ: true, dragRotZ: true, freeDof: 2 },
   planar: { freeRotZ: true, freeSlideXY: true, freeDof: 3 },
+  tangent: { freeDof: 5, contact: true },
 };
 
 /** The joint's configuration in the driver connector's frame. */
@@ -354,7 +362,9 @@ export function residual(
   options: MateOptions = {},
 ): number[] {
   const spec = JOINT_SPECS[type];
-  if (!spec) return [];
+  // Contact mates (tangent) have no connector-frame decomposition — their
+  // rows come from contact-model.ts (resolveContact + contactResidual).
+  if (!spec || spec.contact) return [];
 
   // Fastened compares full body poses against the target pose — the
   // historical formulation (body-origin delta rather than connector
@@ -443,7 +453,7 @@ export function isSatisfied(
   options: MateOptions = {},
 ): boolean {
   const spec = JOINT_SPECS[type];
-  if (!spec) return false;
+  if (!spec || spec.contact) return false;
 
   const d = connectorFrame(driver, driverConn);
   const fOrigin = connectorOriginWorld(follower, followerConn);
@@ -599,7 +609,9 @@ export function dragDelta(
  */
 export function residualDimension(type: MateType): number {
   const spec = JOINT_SPECS[type];
-  if (!spec) return 0;
+  // Contact mates: per-RECORD row counts (contactRowCount) — the pair of
+  // surface forms, not the type, fixes the dimension.
+  if (!spec || spec.contact) return 0;
   return (spec.freeSlideXY ? 0 : 2)
     + (spec.freeSlideZ ? 0 : 1)
     + (spec.freeRotZ ? 2 : 3);
@@ -753,7 +765,7 @@ export function findFastenedCluster(rootId: string, mates: MateRecord[]): Set<st
   while (changed) {
     changed = false;
     for (const m of mates) {
-      if (m.type !== 'fastened') continue;
+      if (m.type !== 'fastened' || !m.connectorA || !m.connectorB) continue;
       const a = m.connectorA.instanceId;
       const b = m.connectorB.instanceId;
       if (cluster.has(a) && !cluster.has(b)) {
@@ -790,7 +802,7 @@ export function buildFastenedClusterCache(
   const adj = new Map<string, string[]>();
   for (const b of bodies) adj.set(b.instanceId, []);
   for (const m of mates) {
-    if (m.type !== 'fastened') continue;
+    if (m.type !== 'fastened' || !m.connectorA || !m.connectorB) continue;
     const a = m.connectorA.instanceId;
     const b = m.connectorB.instanceId;
     adj.get(a)?.push(b);

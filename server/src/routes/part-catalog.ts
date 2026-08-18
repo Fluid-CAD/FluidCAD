@@ -154,7 +154,7 @@ function validParams(params: unknown): boolean {
 }
 
 /** `./`-prefixed posix module specifier from the assembly file to the part file. */
-function relativeSpecifier(fromFile: string, toFile: string): string {
+export function relativeSpecifier(fromFile: string, toFile: string): string {
   let rel = relative(dirname(fromFile), toFile).replace(/\\/g, '/');
   if (!rel.startsWith('.')) {
     rel = './' + rel;

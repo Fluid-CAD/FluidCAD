@@ -3,7 +3,7 @@ import { TrimRegionMode } from './trim-region-mode';
 import { TrimMode } from './trim-dialog';
 import { SnapManager } from '../snapping/snap-manager';
 import { insertPoint, addPick, removePick, removeFeature, applyTrimRegion } from '../api';
-import { isTopLevel } from '../helpers/scene-utils';
+import { findActiveObject } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
 import { Mesh, Object3D } from 'three';
@@ -338,13 +338,7 @@ export class TrimPickService {
     trimObj?: SceneObjectRender & { sourceLocation?: any };
     sketchObj?: SceneObjectRender;
   } {
-    let lastRoot: SceneObjectRender | null = null;
-    for (let i = sceneObjects.length - 1; i >= 0; i--) {
-      if (isTopLevel(sceneObjects[i], sceneObjects)) {
-        lastRoot = sceneObjects[i];
-        break;
-      }
-    }
+    const lastRoot = findActiveObject(sceneObjects) ?? null;
 
     if (!lastRoot || lastRoot.type !== 'sketch' || !lastRoot.id || !lastRoot.object?.plane) {
       return { hasTrigger: false };

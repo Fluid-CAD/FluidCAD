@@ -64,6 +64,13 @@ export function resolveScopedScene(
  */
 export const CONNECTOR_NAME_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
+/**
+ * Exposure names key `def.features.<name>` reads and ride generated code as
+ * string literals — same identifier rule as connectors. Shared alias so the
+ * two name-first part statements can't drift apart.
+ */
+export const MEMBER_NAME_PATTERN = CONNECTOR_NAME_PATTERN;
+
 /** A picked sub-shape, exactly as the viewer's `pickAt()` produces it. */
 export type PickSubRef = { type: 'edge' | 'face'; index: number };
 export type PickRef = { shapeId: string; sub: PickSubRef };
@@ -110,7 +117,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'text' | 'copy' | 'connector';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'aline' | 'text' | 'copy' | 'connector' | 'expose';
 
 /**
  * A tangent chain from the "Select with tangents" gesture: the pick the user
@@ -169,6 +176,16 @@ export type ApplyFeatureEditSpec = {
     anchor?: ConnectorAnchor;
     rotate?: { axis: ConnectorRotateAxis; angle: number };
     offset?: [number, number, number];
+  };
+  /**
+   * Expose-only payload: the name the statement registers, plus the call
+   * site of the `part(...)` block whose callback body receives the
+   * statement — the connector mechanism minus the frame adjustments.
+   */
+  expose?: {
+    name: string;
+    /** The `part(...)` call site whose body receives the statement. */
+    part?: { line: number; column: number };
   };
   filePath: string;
   producers: {

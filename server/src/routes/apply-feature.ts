@@ -15,8 +15,10 @@ import {
   renderRevolveStatement, renderRibStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
+  renderAlineStatement,
   renderChamferValueArgs, renderConnectorChain, renderFaceTargetExpr, renderOffsetStatement, renderSlotStatement, renderTarcStatement,
   renderTextStatement, type TextStatementOptions, validConnectorAnchor, validConnectorRotate,
+  resolvePartBindingIdent,
   type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions,
   type ConnectorAnchorSpec, type CopyEditOptions,
   type OffsetEditOptions, type SlotEditOptions,
@@ -30,12 +32,24 @@ import {
   type WrapEditOptions,
 } from '../apply-feature-edit.ts';
 import { readFile } from 'fs/promises';
+import { relativeSpecifier } from './part-catalog.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 import { CHAIN_CALLEES } from '../segment-swap.ts';
-import { findEditableCallAt, getJavaScriptParser, splitLines } from '../code-editor.ts';
+import { findEditableCallAt, getJavaScriptParser, isExpressionText, splitLines } from '../code-editor.ts';
 
 type RawPick = { shapeId?: unknown; sub?: { type?: unknown; index?: unknown } };
+
+/** First `g<n>` not taken by an existing exposure — the tool's default names. */
+export function allocateExposeName(taken: string[]): string {
+  const set = new Set(taken);
+  for (let i = 1; ; i++) {
+    const candidate = `g${i}`;
+    if (!set.has(candidate)) {
+      return candidate;
+    }
+  }
+}
 
 type Pick = { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
 
@@ -298,6 +312,8 @@ type ExtrudeOptionSet = {
 type ExtrudeRequest = ExtrudeOptionSet & {
   profile: { mode: 'active' | 'bound'; feature: 'sketch' | 'offset' } & SketchLoc;
   toFace?: Pick | ExtrudeFaceTarget;
+  /** Solid statements the boolean is scoped to; empty writes no `.scope(…)`. */
+  scope: SketchLoc[];
 };
 
 /**
@@ -383,8 +399,44 @@ function validateExtrudeOptions(body: any, toFace = false): ExtrudeOptionSet | {
   };
 }
 
-/** How many solid statements a rib's `.scope(…)` can name. */
-export const MAX_RIB_SCOPE = 16;
+/** How many solid statements a `.scope(…)` chain can name. */
+export const MAX_SCOPE_TARGETS = 16;
+
+/**
+ * Validate a create request's `scope` list — 0-16 distinct solid-statement
+ * locations (whole-solid picks) that render as the `.scope(…)` chain. Shared
+ * by every feature dialog that writes one (rib, extrude, sweep, loft,
+ * revolve). `op` gates the boolean-only features: `.new()` resets the fusion
+ * scope, so a separate body cannot carry one (rib passes null — its scope
+ * also drives conforming and composes with `.new()`).
+ */
+function validateScopeLocs(
+  body: any,
+  op: 'add' | 'remove' | 'new' | null = null,
+): { scope: SketchLoc[] } | { error: string } {
+  const rawScope = body?.scope ?? [];
+  if (!Array.isArray(rawScope) || rawScope.length > MAX_SCOPE_TARGETS) {
+    return { error: `scope must be 0-${MAX_SCOPE_TARGETS} solid statements` };
+  }
+  if (op === 'new' && rawScope.length > 0) {
+    return { error: 'a separate body (op "new") takes no scope — the scope narrows the boolean operation' };
+  }
+  const scope: SketchLoc[] = [];
+  const seen = new Set<string>();
+  for (const raw of rawScope) {
+    const target = validateSketchLoc(raw);
+    if (!target) {
+      return { error: 'each scope target must be the {filePath, line} of a solid statement' };
+    }
+    const key = `${target.filePath}:${target.line}`;
+    if (seen.has(key)) {
+      return { error: 'the same solid was picked twice — each scope target must be different' };
+    }
+    seen.add(key);
+    scope.push(target);
+  }
+  return { scope };
+}
 
 /** The dialog-editable rib options, shared by the create and edit paths. */
 type RibOptionSet = {
@@ -447,25 +499,11 @@ function validateRib(body: any): RibRequest | { error: string } {
   if ((mode !== 'active' && mode !== 'bound') || !loc) {
     return { error: 'spine must be {mode: "active"|"bound", filePath, line} of the sketch' };
   }
-  const rawScope = body?.scope ?? [];
-  if (!Array.isArray(rawScope) || rawScope.length > MAX_RIB_SCOPE) {
-    return { error: `scope must be 0-${MAX_RIB_SCOPE} solid statements` };
+  const scopeResult = validateScopeLocs(body);
+  if ('error' in scopeResult) {
+    return scopeResult;
   }
-  const scope: SketchLoc[] = [];
-  const seen = new Set<string>();
-  for (const raw of rawScope) {
-    const target = validateSketchLoc(raw);
-    if (!target) {
-      return { error: 'each scope target must be the {filePath, line} of a solid statement' };
-    }
-    const key = `${target.filePath}:${target.line}`;
-    if (seen.has(key)) {
-      return { error: 'the same solid was picked twice — each scope target must be different' };
-    }
-    seen.add(key);
-    scope.push(target);
-  }
-  return { ...options, spine: { mode, ...loc }, scope };
+  return { ...options, spine: { mode, ...loc }, scope: scopeResult.scope };
 }
 
 function validateExtrude(body: any): ExtrudeRequest | { error: string } {
@@ -484,18 +522,23 @@ function validateExtrude(body: any): ExtrudeRequest | { error: string } {
   if (profileFeature === 'offset' && mode !== 'bound') {
     return { error: 'an offset profile is always bound to a variable' };
   }
+  const scopeResult = validateScopeLocs(body, options.op);
+  if ('error' in scopeResult) {
+    return scopeResult;
+  }
+  const scope = scopeResult.scope;
   const profile = { mode, feature: profileFeature, ...loc };
   if (!hasToFace) {
-    return { ...options, profile };
+    return { ...options, profile, scope };
   }
   if (target === 'first-face' || target === 'last-face') {
-    return { ...options, profile, toFace: target };
+    return { ...options, profile, toFace: target, scope };
   }
   const pick = validatePick(target);
   if (!pick || pick.sub.type !== 'face') {
     return { error: 'toFace must be "first-face", "last-face" or a {shapeId, sub:{type:"face", index}} pick' };
   }
-  return { ...options, profile, toFace: pick };
+  return { ...options, profile, toFace: pick, scope };
 }
 
 /**
@@ -509,6 +552,8 @@ type SweepRequest = {
   path:
     | ({ kind: 'sketch' } & SketchLoc)
     | { kind: 'edges'; picks: Pick[]; chains: { seed: Pick; members: Pick[] }[] };
+  /** Solid statements the boolean is scoped to; empty writes no `.scope(…)`. */
+  scope: SketchLoc[];
 };
 
 function validateSweep(body: any): SweepRequest | { error: string } {
@@ -525,7 +570,13 @@ function validateSweep(body: any): SweepRequest | { error: string } {
   if ((mode !== 'active' && mode !== 'bound') || !profileLoc) {
     return { error: 'profile must be {mode: "active"|"bound", filePath, line} of the sketch' };
   }
-  const base = { op, thin: thinResult.offsets, profile: { mode, ...profileLoc } };
+  const scopeResult = validateScopeLocs(body, op);
+  if ('error' in scopeResult) {
+    return scopeResult;
+  }
+  const base = {
+    op, thin: thinResult.offsets, profile: { mode, ...profileLoc }, scope: scopeResult.scope,
+  };
   if (path?.kind === 'sketch') {
     const pathLoc = validateSketchLoc(path);
     if (!pathLoc) {
@@ -608,6 +659,8 @@ type RevolveRequest = {
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: { mode: 'active' | 'bound' } & SketchLoc;
   axis: RevolveAxisInput;
+  /** Solid statements the boolean is scoped to; empty writes no `.scope(…)`. */
+  scope: SketchLoc[];
 };
 
 /** One revolve axis field: standard string, axis statement, or edge pick. */
@@ -662,9 +715,14 @@ function validateRevolve(body: any): RevolveRequest | { error: string } {
   if (axis.kind === 'axis' && axis.loc.filePath !== profileLoc.filePath) {
     return { error: 'the axis and the profile sketch live in different files' };
   }
+  const scopeResult = validateScopeLocs(body, op);
+  if ('error' in scopeResult) {
+    return scopeResult;
+  }
   return {
     op, angle, symmetric: symmetric === true,
     thin: thinResult.offsets, profile: { mode, ...profileLoc }, axis,
+    scope: scopeResult.scope,
   };
 }
 
@@ -777,6 +835,8 @@ type LoftRequest = {
   guides: SketchLoc[];
   startCondition: LoftCondition | null;
   endCondition: LoftCondition | null;
+  /** Solid statements the boolean is scoped to; empty writes no `.scope(…)`. */
+  scope: SketchLoc[];
 };
 
 const MAX_LOFT_PROFILES = 16;
@@ -889,9 +949,14 @@ function validateLoft(body: any): LoftRequest | { error: string } {
   if (guideLocs.length > 0 && thinResult.offsets) {
     return { error: 'loft guides cannot be combined with thin walls' };
   }
+  const scopeResult = validateScopeLocs(body, op);
+  if ('error' in scopeResult) {
+    return scopeResult;
+  }
   return {
     op, thin: thinResult.offsets, profiles: result, guides: guideLocs,
     startCondition: startResult.condition, endCondition: endResult.condition,
+    scope: scopeResult.scope,
   };
 }
 
@@ -1756,6 +1821,48 @@ function makeProducerMerger(): {
 }
 
 /**
+ * Fold a create request's `.scope(…)` locs into an arm's producer list,
+ * returning the producer indices in pick order. A loc already in the list —
+ * a selector part's own producer doubling as the scope target — is reused
+ * with its featureType intact (the transform's scope check accepts any
+ * bound solid-bearing producer); the rest append as bound `feature`
+ * producers. Matching is by LINE, the statement key everywhere else — a
+ * duplicate producer for one statement would bind `const` twice. Shared by
+ * the extrude, sweep, revolve and loft arms (rib's merger-based arm folds
+ * its own).
+ */
+function mergeScopeProducers(
+  producers: ApplyFeatureEditSpec['producers'],
+  scope: SketchLoc[],
+): number[] {
+  return scope.map(loc => {
+    const existing = producers.findIndex(p => p.line === loc.line);
+    if (existing >= 0) {
+      return existing;
+    }
+    producers.push({
+      line: loc.line, column: loc.column,
+      featureType: 'feature', nameHint: 'f', bind: true,
+    });
+    return producers.length - 1;
+  });
+}
+
+/**
+ * The cross-file guard every scope-carrying create arm runs: scope solids
+ * must live in the statement's own file (their bound variables are
+ * referenced from it).
+ */
+function scopeCrossFileError(scope: SketchLoc[], filePath: string): string | null {
+  for (const loc of scope) {
+    if (normalizePath(loc.filePath) !== normalizePath(filePath)) {
+      return 'a scope solid comes from a different file than the feature inputs';
+    }
+  }
+  return null;
+}
+
+/**
  * One picked create-arm input (axis edge / mirror face) synthesized into its
  * own selector part, reusing the single-selection synthesis kinds ('revolve'
  * names one edge, 'plane' one face) — shared by the repeat, copy, mirror and
@@ -1893,6 +2000,9 @@ type EditLoftGuideInput =
   | { kind: 'verbatim'; sourceIndex: number }
   | ({ kind: 'sketch' } & SketchLoc);
 
+/** One edited scope target: keep by source index, or a re-picked solid statement. */
+type EditScopeTargetInput = { kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc };
+
 type StatementEditRequest = {
   feature: ApplyFeatureEditSpec['feature'];
   target: SketchLoc;
@@ -1914,8 +2024,13 @@ type StatementEditRequest = {
   extrudeToFace?: Pick;
   /** Re-sourced rib spine sketch; absent keeps the statement's. */
   ribSpine?: SketchLoc;
-  /** Full replacement rib scope list; absent keeps the statement's own. */
-  ribScope?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
+  /**
+   * Full replacement `.scope(…)` list, mixing kept targets (`verbatim` by
+   * source index) with re-picked solid statements; absent keeps the
+   * statement's own chain, `[]` drops it. Shared by every feature dialog
+   * that writes the chain (rib, extrude, sweep, loft, revolve).
+   */
+  scope?: EditScopeTargetInput[];
   /** Re-sourced sweep path; absent keeps the statement's. */
   sweepPath?: ({ kind: 'sketch' } & SketchLoc)
     | { kind: 'edges'; picks: Pick[]; chains: { seed: Pick; members: Pick[] }[] };
@@ -2032,6 +2147,50 @@ function isKeepSlot(raw: any): boolean {
 }
 
 /**
+ * Validate an edit request's `scope` field. The field owns the `.scope(…)`
+ * chain outright when present: an empty list drops the statement's chain
+ * (back to whole-scene fusion); absent (`scope: undefined` in the result)
+ * keeps it verbatim. Kept targets travel by their `sourceIndex` into the
+ * statement's own argument list, re-picked solids by call site. Shared by
+ * every feature dialog that writes the chain (rib, extrude, sweep, loft,
+ * revolve).
+ */
+function validateScopeEdits(body: any): { scope: EditScopeTargetInput[] | undefined } | { error: string } {
+  if (body?.scope === undefined || body?.scope === null) {
+    return { scope: undefined };
+  }
+  if (!Array.isArray(body.scope) || body.scope.length > MAX_SCOPE_TARGETS) {
+    return { error: `scope must be 0-${MAX_SCOPE_TARGETS} kept or re-picked solid statements` };
+  }
+  const scope: EditScopeTargetInput[] = [];
+  const seenIndices = new Set<number>();
+  const seenLocs = new Set<string>();
+  for (const raw of body.scope) {
+    if (raw?.kind === 'verbatim') {
+      if (!Number.isInteger(raw.sourceIndex) || raw.sourceIndex < 0 || seenIndices.has(raw.sourceIndex)) {
+        return { error: 'each kept scope target must carry a distinct {sourceIndex} into the statement' };
+      }
+      seenIndices.add(raw.sourceIndex);
+      scope.push({ kind: 'verbatim', sourceIndex: raw.sourceIndex });
+    } else if (raw?.kind === 'feature') {
+      const loc = validateSketchLoc(raw);
+      if (!loc) {
+        return { error: 'each re-picked scope target must be the {filePath, line} of a solid statement' };
+      }
+      const key = `${loc.filePath}:${loc.line}`;
+      if (seenLocs.has(key)) {
+        return { error: 'the same solid was picked twice — each scope target must be different' };
+      }
+      seenLocs.add(key);
+      scope.push({ kind: 'feature', loc });
+    } else {
+      return { error: 'each scope target must be {kind: "verbatim"|"feature", …}' };
+    }
+  }
+  return { scope };
+}
+
+/**
  * The in-place edit request's shape: the statement location plus the
  * dialog-editable options for that feature, plus optional re-sourced slots —
  * a re-picked selection, profile, path, or profile/guide list. Slots the
@@ -2071,6 +2230,11 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     }
     edit.extrude = options;
     const result: StatementEditRequest = base;
+    const scopeResult = validateScopeEdits(body);
+    if ('error' in scopeResult) {
+      return scopeResult;
+    }
+    result.scope = scopeResult.scope;
     if (hasToFace) {
       if (toFaceRaw.kind === 'keep' || toFaceRaw.kind === 'first-face' || toFaceRaw.kind === 'last-face') {
         edit.extrude.toFace = { kind: toFaceRaw.kind };
@@ -2103,40 +2267,11 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     }
     edit.rib = options;
     const result: StatementEditRequest = base;
-    // The scope field owns the chain outright when present: an empty list
-    // drops the statement's `.scope(…)` (back to whole-scene fusion); absent
-    // keeps it verbatim.
-    if (body?.scope !== undefined && body?.scope !== null) {
-      if (!Array.isArray(body.scope) || body.scope.length > MAX_RIB_SCOPE) {
-        return { error: `scope must be 0-${MAX_RIB_SCOPE} kept or re-picked solid statements` };
-      }
-      const scope: NonNullable<StatementEditRequest['ribScope']> = [];
-      const seenIndices = new Set<number>();
-      const seenLocs = new Set<string>();
-      for (const raw of body.scope) {
-        if (raw?.kind === 'verbatim') {
-          if (!Number.isInteger(raw.sourceIndex) || raw.sourceIndex < 0 || seenIndices.has(raw.sourceIndex)) {
-            return { error: 'each kept scope target must carry a distinct {sourceIndex} into the statement' };
-          }
-          seenIndices.add(raw.sourceIndex);
-          scope.push({ kind: 'verbatim', sourceIndex: raw.sourceIndex });
-        } else if (raw?.kind === 'feature') {
-          const loc = validateSketchLoc(raw);
-          if (!loc) {
-            return { error: 'each re-picked scope target must be the {filePath, line} of a solid statement' };
-          }
-          const key = `${loc.filePath}:${loc.line}`;
-          if (seenLocs.has(key)) {
-            return { error: 'the same solid was picked twice — each scope target must be different' };
-          }
-          seenLocs.add(key);
-          scope.push({ kind: 'feature', loc });
-        } else {
-          return { error: 'each scope target must be {kind: "verbatim"|"feature", …}' };
-        }
-      }
-      result.ribScope = scope;
+    const scopeResult = validateScopeEdits(body);
+    if ('error' in scopeResult) {
+      return scopeResult;
     }
+    result.scope = scopeResult.scope;
     if (isKeepSlot(body?.spine)) {
       return result;
     }
@@ -2227,6 +2362,11 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     }
     edit.revolve = { op, angle, symmetric: symmetric === true, thin: thin.offsets };
     const result: StatementEditRequest = base;
+    const scopeResult = validateScopeEdits(body);
+    if ('error' in scopeResult) {
+      return scopeResult;
+    }
+    result.scope = scopeResult.scope;
     if (!isKeepSlot(body?.axis)) {
       const axis = validateRevolveAxis(body.axis);
       if ('error' in axis) {
@@ -2308,6 +2448,11 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
     if (feature === 'sweep') {
       edit.sweep = { op, thin: thin.offsets };
       const result: StatementEditRequest = base;
+      const scopeResult = validateScopeEdits(body);
+      if ('error' in scopeResult) {
+        return scopeResult;
+      }
+      result.scope = scopeResult.scope;
       if (!isKeepSlot(body?.path)) {
         if (body.path?.kind === 'sketch') {
           const loc = validateSketchLoc(body.path);
@@ -2358,6 +2503,11 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       endCondition: endResult.condition ?? undefined,
     };
     const result: StatementEditRequest = base;
+    const scopeResult = validateScopeEdits(body);
+    if ('error' in scopeResult) {
+      return scopeResult;
+    }
+    result.scope = scopeResult.scope;
     if (body?.profiles !== undefined && body?.profiles !== null) {
       const parsed = validateEditLoftProfiles(body.profiles);
       if ('error' in parsed) {
@@ -3413,27 +3563,20 @@ export type ApplyFeatureRouterOptions = EditDispatcherOptions & {
   dispatcher?: FeatureEditDispatcher;
 };
 
-export function createApplyFeatureRouter(
-  fluidCadServer: FluidCadServer,
-  sendToExtension: (msg: any) => boolean | void,
-  options: ApplyFeatureRouterOptions = {},
-): Router {
-  const router = Router();
-  const dispatcher = options.dispatcher
-    ?? new FeatureEditDispatcher(fluidCadServer, sendToExtension, options);
-
-  /**
-   * The file-coupled synthesis options (producer namer + linkable params)
-   * built over the file the emitted statement will land in. Synthesis
-   * derives that file from the picked producers' own sourceLocations —
-   * under an assembly render it is the PART file, so building these over
-   * `getCurrentCode()` (the assembly buffer) would preview wrong binding
-   * names and link assembly-file constants into part-file selectors. The
-   * current buffer serves the open file; other files read from disk (an
-   * unsaved part buffer can be stale here — the editor round-trip is what
-   * verifies the final transform).
-   */
-  const synthesisOptionsForFile = async (
+/**
+ * The file-coupled synthesis options (producer namer + linkable params)
+ * built over the file the emitted statement will land in. Synthesis
+ * derives that file from the picked producers' own sourceLocations —
+ * under an assembly render it is the PART file, so building these over
+ * `getCurrentCode()` (the assembly buffer) would preview wrong binding
+ * names and link assembly-file constants into part-file selectors. The
+ * current buffer serves the open file; other files read from disk (an
+ * unsaved part buffer can be stale here — the editor round-trip is what
+ * verifies the final transform). Shared with the assembly-mate route's
+ * tangent find-or-create.
+ */
+export function makeSynthesisOptionsForFile(fluidCadServer: FluidCadServer) {
+  return async (
     filePath: string | null | undefined,
   ): Promise<{ namer: Awaited<ReturnType<typeof makeProducerNamer>>; params: ReturnType<typeof resolveParamValues> } | undefined> => {
     const currentFile = fluidCadServer.getCurrentFileName();
@@ -3458,6 +3601,18 @@ export function createApplyFeatureRouter(
       ),
     };
   };
+}
+
+export function createApplyFeatureRouter(
+  fluidCadServer: FluidCadServer,
+  sendToExtension: (msg: any) => boolean | void,
+  options: ApplyFeatureRouterOptions = {},
+): Router {
+  const router = Router();
+  const dispatcher = options.dispatcher
+    ?? new FeatureEditDispatcher(fluidCadServer, sendToExtension, options);
+
+  const synthesisOptionsForFile = makeSynthesisOptionsForFile(fluidCadServer);
 
   // Read-only attribution report against the last rendered scene. Backs the
   // pick tooltips/debugging; never touches code.
@@ -3558,7 +3713,7 @@ export function createApplyFeatureRouter(
         const sketchLocs: SketchLoc[] = [
           ...(request.extrudeProfile ? [request.extrudeProfile] : []),
           ...(request.ribSpine ? [request.ribSpine] : []),
-          ...(request.ribScope ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
+          ...(request.scope ?? []).flatMap(t => t.kind === 'feature' ? [t.loc] : []),
           ...(request.sweepPath?.kind === 'sketch' ? [request.sweepPath] : []),
           ...(request.sweepProfile ? [request.sweepProfile] : []),
           ...(request.wrapSketch ? [request.wrapSketch] : []),
@@ -3694,8 +3849,12 @@ export function createApplyFeatureRouter(
         if (request.ribSpine) {
           edit.rib!.spine = { kind: 'sketch', producer: sketchRef(request.ribSpine, 's') };
         }
-        if (request.ribScope) {
-          edit.rib!.scope = request.ribScope.map(target => target.kind === 'verbatim'
+        if (request.scope) {
+          // The full replacement `.scope(…)` list — keeps stay text-addressed
+          // by their position in the statement, re-picked solids bind feature
+          // producers. One list shape for every dialog that writes the chain;
+          // it lands on whichever feature this edit carries.
+          const scopeTargets = request.scope.map(target => target.kind === 'verbatim'
             ? { kind: 'verbatim' as const, sourceIndex: target.sourceIndex }
             : {
               kind: 'feature' as const,
@@ -3704,6 +3863,10 @@ export function createApplyFeatureRouter(
                 featureType: 'feature', nameHint: 'f', bind: true,
               }),
             });
+          const scoped = edit.rib ?? edit.extrude ?? edit.sweep ?? edit.loft ?? edit.revolve;
+          if (scoped) {
+            scoped.scope = scopeTargets;
+          }
         }
         if (request.sweepPath) {
           if (request.sweepPath.kind === 'sketch') {
@@ -4355,6 +4518,11 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: request.error });
         return;
       }
+      const crossFile = scopeCrossFileError(request.scope, request.profile.filePath);
+      if (crossFile) {
+        res.status(422).json({ success: false, reason: crossFile });
+        return;
+      }
       try {
         const code = fluidCadServer.getCurrentCode();
         // The profile stays producers[0] in both modes — the transform's
@@ -4419,6 +4587,7 @@ export function createApplyFeatureRouter(
           toFace = 'selector';
         }
 
+        const scope = mergeScopeProducers(producers, request.scope);
         const options: ExtrudeEditOptions = {
           op: request.op,
           distance: request.distance,
@@ -4430,15 +4599,15 @@ export function createApplyFeatureRouter(
           thin: request.thin,
           profile: request.profile.mode === 'bound' ? 'bound' : 'implicit',
           toFace,
+          scope,
         };
-        // Truthful preview name for a bound profile: the same resolution the
-        // transform runs (reused const, collision-suffixed hint).
-        let profileVar: string | null = null;
-        if (request.profile.mode === 'bound' && code) {
-          const namer = await makeProducerNamer(code);
-          profileVar = namer([{ line: request.profile.line, nameHint: profileHint, featureType: profileType }])[0];
-        }
-        const statement = renderExtrudeStatement(options, profileVar, faceArgs);
+        // Truthful preview names: the same resolution the transform runs
+        // (reused consts, collision-suffixed hints).
+        const producerVars = await allocateProducerVars(producers, code);
+        const profileVar = request.profile.mode === 'bound' ? producerVars[0] ?? profileHint : null;
+        const statement = renderExtrudeStatement(
+          options, profileVar, faceArgs, scope.map(index => producerVars[index] ?? 'f'),
+        );
         if (preview === true) {
           res.json({ success: true, preview: statement });
           return;
@@ -4527,6 +4696,11 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: request.error });
         return;
       }
+      const crossFile = scopeCrossFileError(request.scope, request.profile.filePath);
+      if (crossFile) {
+        res.status(422).json({ success: false, reason: crossFile });
+        return;
+      }
       try {
         const code = fluidCadServer.getCurrentCode();
         const producers: ApplyFeatureEditSpec['producers'] = [];
@@ -4598,33 +4772,18 @@ export function createApplyFeatureRouter(
           ? { producer: producers.length - 1 }
           : 'implicit';
 
-        // Truthful preview names for the sketch inputs — one namer pass so
-        // collision suffixes stay consistent across both.
-        let pathVar: string | null = null;
-        let profileVar: string | null = null;
-        if (code) {
-          const namer = await makeProducerNamer(code);
-          const queries: { line: number; nameHint: string; featureType?: string }[] = [];
-          if (request.path.kind === 'sketch') {
-            queries.push({ line: request.path.line, nameHint: 'p', featureType: 'wire' });
-          }
-          if (request.profile.mode === 'bound') {
-            queries.push({ line: request.profile.line, nameHint: 's', featureType: 'sketch' });
-          }
-          const names = queries.length > 0 ? namer(queries) : [];
-          let next = 0;
-          if (request.path.kind === 'sketch') {
-            pathVar = names[next++];
-          }
-          if (request.profile.mode === 'bound') {
-            profileVar = names[next++];
-          }
-        }
-
-        const options: SweepEditOptions = { op: request.op, thin: request.thin, profile, path };
-        const pathExpr = request.path.kind === 'edges' ? pathArgs! : (pathVar ?? 'p');
+        const scope = mergeScopeProducers(producers, request.scope);
+        // Truthful preview names: the same resolution the transform runs
+        // (reused consts, collision-suffixed hints) in one pass, so
+        // collision suffixes stay consistent across every input.
+        const producerVars = await allocateProducerVars(producers, code);
+        const options: SweepEditOptions = { op: request.op, thin: request.thin, profile, path, scope };
+        const pathExpr = path.kind === 'sketch' ? producerVars[path.producer] ?? 'p' : pathArgs!;
         const statement = renderSweepStatement(
-          options, pathExpr, request.profile.mode === 'bound' ? profileVar ?? 's' : null,
+          options,
+          pathExpr,
+          profile === 'implicit' ? null : producerVars[profile.producer] ?? 's',
+          scope.map(index => producerVars[index] ?? 'f'),
         );
         if (preview === true) {
           res.json({ success: true, preview: statement, args: pathArgs ?? undefined, alternatives });
@@ -4745,6 +4904,11 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: request.error });
         return;
       }
+      const crossFile = scopeCrossFileError(request.scope, request.profile.filePath);
+      if (crossFile) {
+        res.status(422).json({ success: false, reason: crossFile });
+        return;
+      }
       try {
         const code = fluidCadServer.getCurrentCode();
         // The profile stays producers[0] in both modes — the transform's
@@ -4813,6 +4977,7 @@ export function createApplyFeatureRouter(
           axis = { kind: 'standard', axis: request.axis.axis };
         }
 
+        const scope = mergeScopeProducers(producers, request.scope);
         const options: RevolveEditOptions = {
           op: request.op,
           angle: request.angle,
@@ -4820,36 +4985,21 @@ export function createApplyFeatureRouter(
           thin: request.thin,
           profile: request.profile.mode === 'bound' ? 'bound' : 'implicit',
           axis,
+          scope,
         };
 
-        // Truthful preview names for the axis/profile inputs — one namer
-        // pass so collision suffixes stay consistent across both.
-        let axisVar: string | null = null;
-        let profileVar: string | null = null;
-        if (code) {
-          const namer = await makeProducerNamer(code);
-          const queries: { line: number; nameHint: string; featureType?: string }[] = [];
-          if (request.axis.kind === 'axis') {
-            queries.push({ line: request.axis.loc.line, nameHint: 'a', featureType: 'axis' });
-          }
-          if (request.profile.mode === 'bound') {
-            queries.push({ line: request.profile.line, nameHint: 's', featureType: 'sketch' });
-          }
-          const names = queries.length > 0 ? namer(queries) : [];
-          let next = 0;
-          if (request.axis.kind === 'axis') {
-            axisVar = names[next++];
-          }
-          if (request.profile.mode === 'bound') {
-            profileVar = names[next++];
-          }
-        }
-
+        // Truthful preview names: the same resolution the transform runs
+        // (reused consts, collision-suffixed hints) in one pass, so
+        // collision suffixes stay consistent across every input.
+        const producerVars = await allocateProducerVars(producers, code);
         const axisExpr = axis.kind === 'selector'
           ? `axis(${axisArgs})`
-          : axis.kind === 'axis' ? (axisVar ?? 'a') : `'${axis.axis}'`;
+          : axis.kind === 'axis' ? (producerVars[axis.producer] ?? 'a') : `'${axis.axis}'`;
         const statement = renderRevolveStatement(
-          options, axisExpr, request.profile.mode === 'bound' ? profileVar ?? 's' : null,
+          options,
+          axisExpr,
+          request.profile.mode === 'bound' ? producerVars[0] ?? 's' : null,
+          scope.map(index => producerVars[index] ?? 'f'),
         );
         if (preview === true) {
           res.json({ success: true, preview: statement, args: axisArgs ?? undefined, alternatives });
@@ -5102,6 +5252,18 @@ export function createApplyFeatureRouter(
           });
         }
 
+        // Scope solids fold in last — a profile's own producer can double as
+        // the scope target, matched by line like every statement key (no
+        // later mergeProducer call runs, so the direct pushes stay aligned).
+        if (filePath !== null) {
+          const crossFile = scopeCrossFileError(request.scope, filePath);
+          if (crossFile) {
+            res.status(422).json({ success: false, reason: crossFile });
+            return;
+          }
+        }
+        const scope = mergeScopeProducers(producers, request.scope);
+
         const producerVars = await allocateProducerVars(producers, code);
 
         const profileExprs = profiles.map(profile => {
@@ -5124,8 +5286,11 @@ export function createApplyFeatureRouter(
           guides: guides.length > 0 ? guides : undefined,
           startCondition: request.startCondition ?? undefined,
           endCondition: request.endCondition ?? undefined,
+          scope,
         };
-        const statement = renderLoftStatement(options, profileExprs, guideExprs);
+        const statement = renderLoftStatement(
+          options, profileExprs, guideExprs, scope.map(index => producerVars[index] ?? 'f'),
+        );
         if (preview === true) {
           res.json({ success: true, preview: statement });
           return;
@@ -5968,6 +6133,76 @@ export function createApplyFeatureRouter(
       return;
     }
 
+    // Named exposure (part files): the single pick is the exposure's source
+    // face/edge and `name` is the identifier the statement registers under
+    // `def.features.<name>`. Same rails as the connector arm — the kernel
+    // stamps the name and the enclosing part() call site into the spec, the
+    // transform lands the statement inside that part's callback body — minus
+    // the frame adjustments (an exposure has no anchor/rotate/offset).
+    if (feature === 'expose') {
+      const picks = validatePicks(req.body?.entities);
+      if (!picks) {
+        res.status(400).json({ error: 'entities must be a non-empty array of {shapeId, sub:{type, index}} picks' });
+        return;
+      }
+      const name = req.body?.name;
+      if (typeof name !== 'string' || name.length > 64 || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name)) {
+        res.status(400).json({ error: 'name must be a plain identifier (max 64 chars)' });
+        return;
+      }
+      if (selectorOverride !== undefined
+        && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
+        res.status(400).json({ error: 'selectorOverride must be a non-empty string (max 500 chars)' });
+        return;
+      }
+      try {
+        // Two-pass, like the connector arm: a bare synthesis learns which
+        // file the statement lands in (the picked producers' file — the PART
+        // file under an assembly render), then the real pass runs with
+        // namer/params built over that file's code.
+        const probe = fluidCadServer.synthesizeApplyFeature(picks, 'expose', name, []);
+        if (!probe) {
+          res.status(404).json({ success: false, reason: 'No rendered scene' });
+          return;
+        }
+        if (!probe.ok) {
+          res.status(422).json({ success: false, reason: probe.reason, pick: probe.pick });
+          return;
+        }
+        const fileOptions = await synthesisOptionsForFile(probe.spec.filePath);
+        const synthesis = fileOptions
+          ? fluidCadServer.synthesizeApplyFeature(picks, 'expose', name, [], fileOptions)
+          : probe;
+        if (!synthesis || !synthesis.ok) {
+          res.status(422).json({
+            success: false,
+            reason: synthesis && !synthesis.ok ? synthesis.reason : 'No rendered scene',
+          });
+          return;
+        }
+        // Composed here rather than taken from `synthesis.preview` so the
+        // previewed text is exactly what the transform writes.
+        const statementPreview = `expose('${name}', ${synthesis.args})`;
+        if (preview === true) {
+          res.json({
+            success: true,
+            preview: statementPreview,
+            args: synthesis.args,
+            alternatives: synthesis.alternatives,
+          });
+          return;
+        }
+        let spec: ApplyFeatureEditSpec = synthesis.spec;
+        if (typeof selectorOverride === 'string' && selectorOverride.trim() !== synthesis.args) {
+          spec = { ...spec, rawArgs: selectorOverride.trim() };
+        }
+        await dispatcher.dispatch(res, spec, { success: true, preview: statementPreview });
+      } catch (err: any) {
+        res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+      }
+      return;
+    }
+
     // Sketch-edge picks (2D branch): 1 shapeId = 1 sketch edge, no sub refs.
     // Synthesis resolves them through the sketch edge index and the emitted
     // statement lands inside the sketch body via the same edit-spec transform.
@@ -5979,8 +6214,8 @@ export function createApplyFeatureRouter(
       }
       if (feature !== 'fillet' && feature !== 'offset' && feature !== 'slot' && feature !== 'trim'
         && feature !== 'fuse' && feature !== 'subtract' && feature !== 'common' && feature !== 'tarc'
-        && feature !== 'text' && feature !== 'copy') {
-        res.status(400).json({ error: 'feature must be "fillet", "offset", "slot", "trim", "fuse", "subtract", "common", "tarc", "text" or "copy" for sketch-edge selections' });
+        && feature !== 'aline' && feature !== 'text' && feature !== 'copy') {
+        res.status(400).json({ error: 'feature must be "fillet", "offset", "slot", "trim", "fuse", "subtract", "common", "tarc", "aline", "text" or "copy" for sketch-edge selections' });
         return;
       }
       // The 2D copy: whole-geometry targets rendered as bare variables plus
@@ -6134,6 +6369,27 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'value must be a nonzero number or expression' });
         return;
       }
+      // aLine's angle allows any finite value — zero aims straight along the
+      // chain tangent (or +X for an explicit start).
+      if (feature === 'aline' && !validValueExpr(value)) {
+        res.status(400).json({ error: 'value must be a number or expression' });
+        return;
+      }
+      // aLine's optional explicit start point: the polyline tool opens a
+      // chain away from the sketch cursor, so the appended statement must
+      // carry the address itself — `aLine([10, 5], 30, l)`.
+      let alineStart: string | undefined;
+      if (req.body?.alineStart !== undefined) {
+        if (feature !== 'aline') {
+          res.status(400).json({ error: 'alineStart only applies to aline' });
+          return;
+        }
+        if (!isExpressionText(req.body.alineStart)) {
+          res.status(400).json({ error: 'alineStart must be a point argument (e.g. "[10, 5]")' });
+          return;
+        }
+        alineStart = req.body.alineStart.trim();
+      }
       // Text-on-path: the dialog's full option payload rides the body; the
       // synthesized bare variable becomes the statement's path argument.
       let textOptions: TextStatementOptions | undefined;
@@ -6230,6 +6486,15 @@ export function createApplyFeatureRouter(
           });
           return;
         }
+        // Same rule for aLine's target: the kernel intersects a whole
+        // geometry object, so only a bare variable works.
+        if (feature === 'aline' && !/^[A-Za-z_$][\w$]*$/.test(synthesis.args)) {
+          res.status(422).json({
+            success: false,
+            reason: "the workspace's FluidCAD version does not support aLine to an edge — update its fluidcad dependency",
+          });
+          return;
+        }
         // And for a text path: the argument is ONE whole geometry, so only a
         // bare variable works.
         if (feature === 'text' && !/^[A-Za-z_$][\w$]*$/.test(synthesis.args)) {
@@ -6252,7 +6517,9 @@ export function createApplyFeatureRouter(
                 // The retarget keeps the statement's own radius argument, so
                 // its preview can only name the target.
                 ? (tarcRetarget ? `tArc(<radius>, ${synthesis.args})` : renderTarcStatement(value, synthesis.args))
-                : synthesis.preview;
+                : feature === 'aline'
+                  ? renderAlineStatement(value, synthesis.args, alineStart !== undefined ? { start: alineStart } : undefined)
+                  : synthesis.preview;
         if (preview === true) {
           res.json({
             success: true,
@@ -6277,6 +6544,9 @@ export function createApplyFeatureRouter(
         if (tarcRetarget) {
           spec = { ...spec, tarc: { retarget: tarcRetarget } };
         }
+        if (feature === 'aline' && alineStart !== undefined) {
+          spec = { ...spec, aline: { start: alineStart } };
+        }
         if (newVariables) {
           spec = { ...spec, newVariables };
         }
@@ -6297,6 +6567,140 @@ export function createApplyFeatureRouter(
       res.status(400).json({ error: 'chains must be {seed, members} pick groups' });
       return;
     }
+
+    // Consumer-side cross-part sketch: the picked face belongs to a part
+    // OTHER than the timeline's active part. Instead of inserting into the
+    // donor (the producers' scope — surprising while another part is
+    // active), publish the face from the donor (find-or-create an expose())
+    // and sketch on the exposure reference inside the ACTIVE part's body.
+    if (feature === 'sketch' && activePartLoc && picks.length === 1
+      && chains.length === 0 && picks[0].sub.type === 'face') {
+      const resolution = fluidCadServer.resolvePickExposure?.(picks[0]);
+      if (resolution && resolution.ok === false) {
+        res.status(422).json({ success: false, reason: resolution.reason });
+        return;
+      }
+      const donor = resolution?.ok === true ? resolution.donor : null;
+      const foreign = donor != null
+        && !(normalizePath(donor.filePath) === normalizePath(activePartLoc.filePath)
+          && donor.line === activePartLoc.line && donor.column === activePartLoc.column);
+      if (foreign) {
+        try {
+          const sameFile = normalizePath(donor.filePath) === normalizePath(activePartLoc.filePath);
+          const name: string = donor.matched ?? allocateExposeName(donor.existingNames ?? []);
+
+          // Find-or-create: no exposure serves the picked face yet — run the
+          // donor-side expose synthesis (the Phase-B rail) with the same
+          // two-pass namer/params the expose arm uses.
+          let createSpec: ApplyFeatureEditSpec | null = null;
+          if (!donor.matched) {
+            const probe = fluidCadServer.synthesizeApplyFeature(picks, 'expose', name, []);
+            if (!probe) {
+              res.status(404).json({ success: false, reason: 'No rendered scene' });
+              return;
+            }
+            if (!probe.ok) {
+              res.status(422).json({ success: false, reason: probe.reason, pick: probe.pick });
+              return;
+            }
+            const fileOptions = await synthesisOptionsForFile(probe.spec.filePath);
+            const synth = fileOptions
+              ? fluidCadServer.synthesizeApplyFeature(picks, 'expose', name, [], fileOptions)
+              : probe;
+            if (!synth || !synth.ok) {
+              res.status(422).json({
+                success: false,
+                reason: synth && !synth.ok ? synth.reason : 'No rendered scene',
+              });
+              return;
+            }
+            createSpec = synth.spec;
+          }
+
+          // The identifier the reference renders: the donor's module-level
+          // binding (same file) or its export identifier plus an import
+          // (cross-file, resolved from the donor file on disk).
+          let ident: string;
+          let importFrom: string | null = null;
+          if (sameFile) {
+            const code = fluidCadServer.getCurrentCode();
+            const binding = code !== null
+              ? await resolvePartBindingIdent(code, donor.line)
+              : { error: 'No live code buffer' as const };
+            if ('error' in binding) {
+              res.status(422).json({ success: false, reason: binding.error });
+              return;
+            }
+            ident = binding.ident;
+          } else {
+            let donorCode: string;
+            try {
+              donorCode = await readFile(donor.filePath, 'utf8');
+            } catch {
+              res.status(422).json({
+                success: false,
+                reason: `could not read the donor part's file (${donor.filePath})`,
+              });
+              return;
+            }
+            const binding = await resolvePartBindingIdent(donorCode, donor.line);
+            if ('error' in binding) {
+              res.status(422).json({ success: false, reason: binding.error });
+              return;
+            }
+            if (!binding.exported) {
+              res.status(422).json({
+                success: false,
+                reason: `the part "${donor.partName}" is not exported from its file — export the binding `
+                  + `(export const ${binding.ident} = part(...)) so it can be imported here`,
+              });
+              return;
+            }
+            ident = binding.ident;
+            importFrom = relativeSpecifier(activePartLoc.filePath, donor.filePath);
+          }
+
+          const statementPreview = `sketch(${ident}.features.${name}, () => { ... })`;
+          if (preview === true) {
+            res.json({ success: true, preview: statementPreview, args: '' });
+            return;
+          }
+
+          // A cross-file exposure can't ride the consumer transform — create
+          // it in the donor file first, then land the reference. A same-file
+          // create rides the spec and stays atomic in one transform.
+          if (createSpec && !sameFile) {
+            const sent = await dispatcher.send(createSpec);
+            if (sent.error) {
+              res.status(422).json({ success: false, reason: sent.error });
+              return;
+            }
+          }
+          const spec: ApplyFeatureEditSpec = {
+            feature: 'sketch',
+            filePath: activePartLoc.filePath,
+            producers: [],
+            parts: [],
+            imports: [],
+            activePart: { line: activePartLoc.line, column: activePartLoc.column },
+            sketchForeign: {
+              exposeName: name,
+              ...(sameFile
+                ? {
+                  donor: { line: donor.line, column: donor.column },
+                  ...(createSpec ? { create: createSpec } : {}),
+                }
+                : { ident, importFrom: importFrom! }),
+            },
+          };
+          await dispatcher.dispatch(res, spec, { success: true, preview: statementPreview });
+        } catch (err: any) {
+          res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+        }
+        return;
+      }
+    }
+
     if (feature !== 'fillet' && feature !== 'chamfer' && feature !== 'shell' && feature !== 'sketch'
       && feature !== 'offset') {
       res.status(400).json({ error: 'feature must be "fillet", "chamfer", "shell", "sketch", "offset", "extrude", "rib", "sweep", "wrap", "loft", "revolve", "plane", "project", "repeat", "copy" or "boolean"' });

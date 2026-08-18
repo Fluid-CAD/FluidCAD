@@ -386,6 +386,88 @@ describe('applyFeatureEdit — sketch-body tArc to target (2D)', () => {
   });
 });
 
+describe('applyFeatureEdit — sketch-body aLine to target (2D)', () => {
+  const alineSpec = (overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec => sketchSpec({
+    feature: 'aline',
+    value: 30,
+    producers: [{ line: 5, column: 0, featureType: 'line', nameHint: 'l', bind: true }],
+    parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
+    ...overrides,
+  });
+
+  it('binds the target statement and appends the aLine at the chain end', async () => {
+    const code = [
+      `import { sketch, hLine, move, line } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  move([0, 40])`,
+      `  hLine(60)`,
+      `  move([50, 0])`,
+      `  line([120, 0])`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, alineSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe([
+      `import {aLine, sketch, hLine, move, line } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  move([0, 40])`,
+      `  const l = hLine(60)`,
+      `  move([50, 0])`,
+      `  line([120, 0])`,
+      `  aLine(30, l)`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('renders the explicit start point as the first argument', async () => {
+    const code = [
+      `import { sketch, hLine, line } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      ``,
+      `  hLine(60)`,
+      `  line([120, 0])`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, alineSpec({ aline: { start: '[10, 5]' } }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const l = hLine(60)`);
+    expect(result.newCode).toContain(`  aLine([10, 5], 30, l)`);
+  });
+
+  it('accepts a zero angle — straight along the reference direction', async () => {
+    const code = [
+      `import { sketch, hLine, line } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      ``,
+      `  hLine(60)`,
+      `  line([120, 0])`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, alineSpec({ value: 0 }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  aLine(0, l)`);
+  });
+
+  it('refuses an unsafe start point as malformed', async () => {
+    const result = await applyFeatureEdit(
+      `sketch('xy', () => {})\n`,
+      alineSpec({ aline: { start: '[0, 0]; die()' } }),
+    );
+    expect(result.error).toBe('malformed aLine edit spec');
+  });
+});
+
 describe('applyFeatureEdit — sketch-body text on path (2D)', () => {
   const textSpec = (overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec => sketchSpec({
     feature: 'text',

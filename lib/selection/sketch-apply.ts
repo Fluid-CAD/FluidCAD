@@ -22,7 +22,7 @@ import {
 /** A sketch edge pick: 1 shapeId = 1 edge (the Stage 0 emission invariant). */
 export type SketchPickRef = { shapeId: string };
 
-export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'text' | 'copy';
+export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'aline' | 'text' | 'copy';
 
 export type SketchSynthesizeOptions = SynthesizeOptions & {
   /**
@@ -108,6 +108,10 @@ export function synthesizeSketchApplyFeature(
 
   if (feature === 'tarc') {
     return synthesizeSketchTarc(scene, refs, value, options);
+  }
+
+  if (feature === 'aline') {
+    return synthesizeSketchAline(scene, refs, value, options);
   }
 
   if (feature === 'text') {
@@ -367,25 +371,18 @@ function renderTarcToTargetPreview(value: number | string | undefined, args: str
 }
 
 /**
- * `tArc(radius, target)` from the polyline tool's edge snap is owner-level
- * like slot: the target argument is ONE whole geometry (the kernel's
- * `QualifiedSceneObject.toQualifiedShape()` reads the object's first shape),
- * so the picked edge stands for its producing primitive and the emitted
- * target is a bare variable — `tArc(12, l1)`. Only single-edge geometries
- * (line, circle, arc) are accepted: on a multi-edge owner the first-shape
- * rule would silently aim the arc at an arbitrary edge. Guide edges are
- * valid targets — construction geometry is the classic thing to arc up to,
- * and `toQualifiedShape` includes guides in its first-shape resolution.
+ * Resolve owner-level picks (slot/tArc/aLine/text): every picked edge stands
+ * for its producing primitive, which must be ONE bindable owner. Guides are
+ * included — construction geometry is a classic reference target.
  */
-function synthesizeSketchTarc(
+function resolveSingleOwner(
   scene: SelectionScene,
   refs: SketchPickRef[],
-  value: number | string | undefined,
-  options: SketchSynthesizeOptions,
-): ApplyFeatureSynthesis {
+  reasonForMany: string,
+): { owner: SceneObject } | { reason: string } {
   const resolution = resolvePicks(scene, refs, { includeGuides: true });
   if ('reason' in resolution) {
-    return { ok: false, reason: resolution.reason };
+    return { reason: resolution.reason };
   }
 
   const owners: SceneObject[] = [];
@@ -395,34 +392,34 @@ function synthesizeSketchTarc(
     }
   }
   if (owners.length > 1) {
-    return { ok: false, reason: 'tArc takes one target geometry — pick a single edge' };
+    return { reason: reasonForMany };
   }
   const owner = owners[0];
   const bindFailure = checkSketchBindable(scene, owner);
   if (bindFailure) {
-    return { ok: false, reason: bindFailure };
+    return { reason: bindFailure };
   }
+  return { owner };
+}
 
-  // The kernel resolves the target through the owner's FIRST shape (guides
-  // included, meta excluded — matching this exact query), so the owner must
-  // consist of exactly one edge, real or guide.
-  const shapes = owner.getShapes({ excludeGuide: false });
-  const edges = shapes.filter((s): s is Edge => s instanceof Edge);
-  if (edges.length !== 1 || shapes[0] !== edges[0]) {
-    return {
-      ok: false,
-      reason: `tArc targets a single-edge geometry (a line, circle, or arc) — not a ${owner.getType()}()`,
-    };
-  }
-
+/**
+ * The one-bound-producer / bare-variable spec the owner-level features share:
+ * the owner's statement binds to a variable and the emitted argument is that
+ * variable, verbatim.
+ */
+function singleOwnerSpec(
+  feature: SketchApplyFeatureKind,
+  owner: SceneObject,
+  options: SketchSynthesizeOptions,
+  value?: number | string,
+): { spec: ApplyFeatureEditSpec; args: string } {
   const names = allocateNames([owner], options.namer);
   const parts = [part(owner, '', null, null, 0)];
   const args = renderPartArgs(parts[0], names);
 
   const loc = owner.getSourceLocation()!;
   const spec: ApplyFeatureEditSpec = {
-    feature: 'tarc',
-    value,
+    feature,
     filePath: loc.filePath,
     producers: [{
       line: loc.line,
@@ -439,11 +436,89 @@ function synthesizeSketchTarc(
     })),
     imports: [],
   };
+  if (value !== undefined) {
+    spec.value = value;
+  }
+  return { spec, args };
+}
 
+/**
+ * `tArc(radius, target)` from the polyline tool's edge snap is owner-level
+ * like slot: the target argument is ONE whole geometry (the kernel's
+ * `QualifiedSceneObject.toQualifiedShape()` reads the object's first shape),
+ * so the picked edge stands for its producing primitive and the emitted
+ * target is a bare variable — `tArc(12, l1)`. Only single-edge geometries
+ * (line, circle, arc) are accepted: on a multi-edge owner the first-shape
+ * rule would silently aim the arc at an arbitrary edge. Guide edges are
+ * valid targets — construction geometry is the classic thing to arc up to,
+ * and `toQualifiedShape` includes guides in its first-shape resolution.
+ */
+function synthesizeSketchTarc(
+  scene: SelectionScene,
+  refs: SketchPickRef[],
+  value: number | string | undefined,
+  options: SketchSynthesizeOptions,
+): ApplyFeatureSynthesis {
+  const resolved = resolveSingleOwner(scene, refs, 'tArc takes one target geometry — pick a single edge');
+  if ('reason' in resolved) {
+    return { ok: false, reason: resolved.reason };
+  }
+  const owner = resolved.owner;
+
+  // The kernel resolves the target through the owner's FIRST shape (guides
+  // included, meta excluded — matching this exact query), so the owner must
+  // consist of exactly one edge, real or guide.
+  const shapes = owner.getShapes({ excludeGuide: false });
+  const edges = shapes.filter((s): s is Edge => s instanceof Edge);
+  if (edges.length !== 1 || shapes[0] !== edges[0]) {
+    return {
+      ok: false,
+      reason: `tArc targets a single-edge geometry (a line, circle, or arc) — not a ${owner.getType()}()`,
+    };
+  }
+
+  const { spec, args } = singleOwnerSpec('tarc', owner, options, value);
   return {
     ok: true,
     spec,
     preview: renderTarcToTargetPreview(value, args),
+    args,
+    alternatives: [],
+  };
+}
+
+/**
+ * `aLine(angle, target)` from the polyline tool's edge snap is owner-level
+ * like text: the target argument is ONE whole geometry (the kernel intersects
+ * the drawn direction with EVERY edge of the target, guides included, and
+ * keeps the nearest hit in either sign), so any picked edge stands for its
+ * producing primitive and the emitted target is a bare variable —
+ * `aLine(30, l1)`. Unlike tArc, multi-edge owners (rect, polygon, slot) are
+ * valid targets. The route may prepend an explicit start argument; the
+ * synthesis owns only the angle and the target.
+ */
+function synthesizeSketchAline(
+  scene: SelectionScene,
+  refs: SketchPickRef[],
+  value: number | string | undefined,
+  options: SketchSynthesizeOptions,
+): ApplyFeatureSynthesis {
+  const resolved = resolveSingleOwner(scene, refs, 'aLine takes one target geometry — pick edges of a single geometry');
+  if ('reason' in resolved) {
+    return { ok: false, reason: resolved.reason };
+  }
+  const owner = resolved.owner;
+
+  const edges = owner.getShapes({ excludeGuide: false }).filter((s): s is Edge => s instanceof Edge);
+  if (edges.length === 0) {
+    return { ok: false, reason: `a ${owner.getType()}() has no edges for aLine to intersect` };
+  }
+
+  const { spec, args } = singleOwnerSpec('aline', owner, options, value);
+  return {
+    ok: true,
+    spec,
+    preview: `aLine(${value}, ${args})`,
     args,
     alternatives: [],
   };
@@ -466,30 +541,15 @@ function synthesizeSketchTextPath(
   refs: SketchPickRef[],
   options: SketchSynthesizeOptions,
 ): ApplyFeatureSynthesis {
-  const resolution = resolvePicks(scene, refs, { includeGuides: true });
-  if ('reason' in resolution) {
-    return { ok: false, reason: resolution.reason };
+  const resolved = resolveSingleOwner(scene, refs, 'text follows one path geometry — pick edges of a single geometry');
+  if ('reason' in resolved) {
+    return { ok: false, reason: resolved.reason };
   }
-
-  const owners: SceneObject[] = [];
-  for (const pick of resolution.picks) {
-    if (!owners.includes(pick.owner)) {
-      owners.push(pick.owner);
-    }
-  }
-  if (owners.length > 1) {
-    return { ok: false, reason: 'text follows one path geometry — pick edges of a single geometry' };
-  }
-  const owner = owners[0];
-  const bindFailure = checkSketchBindable(scene, owner);
-  if (bindFailure) {
-    return { ok: false, reason: bindFailure };
-  }
+  const owner = resolved.owner;
 
   // Text chains every edge of the path into a single wire; edges that do not
   // connect would fail the build, so refuse them before writing the statement.
-  const shapes = owner.getShapes({ excludeGuide: false });
-  const edges = shapes.filter((s): s is Edge => s instanceof Edge);
+  const edges = owner.getShapes({ excludeGuide: false }).filter((s): s is Edge => s instanceof Edge);
   if (edges.length === 0) {
     return { ok: false, reason: `a ${owner.getType()}() has no edges for text to follow` };
   }
@@ -500,30 +560,7 @@ function synthesizeSketchTextPath(
     };
   }
 
-  const names = allocateNames([owner], options.namer);
-  const parts = [part(owner, '', null, null, 0)];
-  const args = renderPartArgs(parts[0], names);
-
-  const loc = owner.getSourceLocation()!;
-  const spec: ApplyFeatureEditSpec = {
-    feature: 'text',
-    filePath: loc.filePath,
-    producers: [{
-      line: loc.line,
-      column: loc.column,
-      featureType: owner.getType(),
-      nameHint: nameHintFor(owner.getType()),
-      bind: true,
-    }],
-    parts: parts.map(p => ({
-      producer: 0,
-      accessor: p.accessor,
-      indices: p.indices,
-      filterArgs: p.filterArgs,
-    })),
-    imports: [],
-  };
-
+  const { spec, args } = singleOwnerSpec('text', owner, options);
   return {
     ok: true,
     spec,

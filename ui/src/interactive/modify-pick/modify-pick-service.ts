@@ -5,7 +5,7 @@ import {
   ValueExpr,
 } from '../../api';
 import { mergeUniqueEntities } from '../../helpers/entities';
-import { isTopLevel } from '../../helpers/scene-utils';
+import { findActiveObject } from '../../helpers/scene-utils';
 import { collectPlaneOptions, planeOptionForLocation, PlaneOption, resolvePlaneByShapeId } from '../create-feature/plane-bases';
 import { SketchStartPanel } from '../create-feature/sketch-panel';
 import { FeatureGhostOverlay } from '../create-feature/feature-ghost';
@@ -480,7 +480,7 @@ export class ModifyPickService {
   update(sceneObjects: SceneObjectRender[]): void {
     const hasSolid = sceneObjects.some(o =>
       o.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide));
-    const active = this.findActiveObject(sceneObjects);
+    const active = findActiveObject(sceneObjects);
     const sketchMode = active?.type === 'sketch';
     // Fillet/Chamfer/Shell need a solid to pick on, and stay out of the way
     // while a sketch is being edited. A blank document is the exception: it
@@ -1083,7 +1083,7 @@ export class ModifyPickService {
 
   /** The active (trailing) sketch's source location, or null. */
   private activeSketchLoc(): SketchSourceRef | null {
-    const active = this.findActiveObject(this.viewer.currentSceneObjects);
+    const active = findActiveObject(this.viewer.currentSceneObjects);
     if (active?.type === 'sketch' && active.sourceLocation) {
       const { filePath, line, column } = active.sourceLocation;
       return { filePath, line, column };
@@ -1960,13 +1960,4 @@ export class ModifyPickService {
       || (this.feature !== null && this.feature !== 'sketch'));
   }
 
-  /** Last root-level (or Part-child) object — mirrors Viewer.findActiveObject. */
-  private findActiveObject(objects: SceneObjectRender[]): SceneObjectRender | undefined {
-    for (let i = objects.length - 1; i >= 0; i--) {
-      if (isTopLevel(objects[i], objects)) {
-        return objects[i];
-      }
-    }
-    return undefined;
-  }
 }

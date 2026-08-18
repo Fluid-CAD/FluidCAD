@@ -23,7 +23,8 @@
 // rigid mate is honored as the tree edge and the looser one defers to
 // LM as a closure.
 
-import type { BodyState, ConnectorState, MateRecord } from './types.js';
+import { mateSideIds, type BodyState, type ConnectorState, type MateRecord } from './types.js';
+import { resolveContact } from './contact-model.js';
 
 export type TreeEdge = {
   parent: BodyState;
@@ -53,12 +54,23 @@ export type Component = {
   treeEdges: TreeEdge[];
   /** Mates that close cycles (do not appear in treeEdges). */
   closureEdges: MateRecord[];
+  /**
+   * Tangent (contact) mates in this component. They count for component
+   * connectivity but are NEVER spanning-forest edge candidates — they
+   * contribute residual rows to the LM exactly like closure edges (kept
+   * separate for clarity; LM treats both as row sources).
+   */
+  contactEdges: MateRecord[];
   /** Set of instance ids that lie on at least one cycle. */
   loopBodies: Set<string>;
   /**
-   * Roots of the BFS forest: ALL grounded bodies in the component, or —
-   * when the component has none — a single fallback root (the dragged
-   * body if present, else the first body by input order).
+   * Roots of the BFS forest: ALL grounded bodies in the component, plus
+   * one root per tree-connected cluster the connector-mate BFS can't
+   * reach (a body attached only through contact edges is un-parented by
+   * the contact-free spanning forest and becomes an additional —
+   * ungrounded — root). Components with no grounded body and no contact
+   * edges keep the single fallback root (dragged body if present, else
+   * first by input order).
    */
   roots: BodyState[];
 };
@@ -78,6 +90,9 @@ const MATE_RIGIDITY: Record<MateRecord['type'], number> = {
   planar: 4,
   'pin-slot': 5,
   parallel: 6,
+  // Moot — contact edges never enter tree candidacy (kept for the
+  // exhaustive-record type check).
+  tangent: 7,
 };
 
 type AdjEntry = {
@@ -107,15 +122,34 @@ export function buildMateGraph(
 ): MateGraph {
   const byId = new Map(bodies.map(b => [b.instanceId, b]));
 
-  // Adjacency, with both directions stored so BFS can walk either way.
+  // Adjacency (tree-edge candidates), with both directions stored so BFS
+  // can walk either way. Contact (tangent) mates are EXCLUDED — they are
+  // never spanning-forest candidates — and tracked separately below.
   const adjacency = new Map<string, AdjEntry[]>();
   for (const b of bodies) adjacency.set(b.instanceId, []);
+  // Contact mates count for component CONNECTIVITY only (a ball touching
+  // a grounded plate is one component — one LM problem).
+  const contactNeighbors = new Map<string, BodyState[]>();
+  for (const b of bodies) contactNeighbors.set(b.instanceId, []);
+  const contactMates: MateRecord[] = [];
   for (const mate of mates) {
+    if (mate.type === 'tangent') {
+      // Both sides must resolve to a supported classified exposure —
+      // unresolvable contact mates are dropped like invalid connector
+      // mates (the record-build layer reports them loudly upstream).
+      const rc = resolveContact(mate, byId);
+      if (!rc) continue;
+      contactMates.push(mate);
+      contactNeighbors.get(rc.a.instanceId)!.push(rc.b);
+      contactNeighbors.get(rc.b.instanceId)!.push(rc.a);
+      continue;
+    }
+    if (!mate.connectorA || !mate.connectorB) continue;
     const aBody = byId.get(mate.connectorA.instanceId);
     const bBody = byId.get(mate.connectorB.instanceId);
     if (!aBody || !bBody) continue;
-    const aConn = aBody.connectors.find(c => c.connectorId === mate.connectorA.connectorId);
-    const bConn = bBody.connectors.find(c => c.connectorId === mate.connectorB.connectorId);
+    const aConn = aBody.connectors.find(c => c.connectorId === mate.connectorA!.connectorId);
+    const bConn = bBody.connectors.find(c => c.connectorId === mate.connectorB!.connectorId);
     if (!aConn || !bConn) continue;
     adjacency.get(aBody.instanceId)!.push({
       neighbor: bBody, selfConn: aConn, neighborConn: bConn, mate, selfIsA: true,
@@ -134,6 +168,8 @@ export function buildMateGraph(
 
     // Discover the component via plain BFS (any seed works for component
     // membership; spanning-tree BFS happens below from the chosen seed).
+    // Contact mates count here — a ball touching a grounded plate is one
+    // component — even though they never become tree edges below.
     const componentBodies: BodyState[] = [];
     const inComponent = new Set<string>();
     const discoverQueue: BodyState[] = [startBody];
@@ -147,7 +183,15 @@ export function buildMateGraph(
           discoverQueue.push(adj.neighbor);
         }
       }
+      for (const neighbor of contactNeighbors.get(b.instanceId)!) {
+        if (!inComponent.has(neighbor.instanceId)) {
+          discoverQueue.push(neighbor);
+        }
+      }
     }
+
+    const contactEdges = contactMates.filter(m =>
+      inComponent.has(m.geometryA!.instanceId));
 
     // Root selection. ALL grounded bodies are roots: pre-visiting every
     // grounded body means a mate reaching one classifies as a closure
@@ -170,53 +214,72 @@ export function buildMateGraph(
     const consumedMates = new Set<string>();
 
     let frontier: BodyState[] = [...roots];
-    while (frontier.length > 0) {
-      // Group candidate edges by target body so we can pick the most
-      // rigid edge per target as the tree edge.
-      type Candidate = AdjEntry & { from: BodyState };
-      const candidatesByTarget = new Map<string, Candidate[]>();
+    // Outer loop: the tree adjacency omits contact mates, so a component
+    // held together only by contacts splits into several tree-connected
+    // clusters. Each unreached cluster gets its own (ungrounded) root —
+    // the LM gives every ungrounded forest root a 6-var pose block.
+    for (;;) {
+      while (frontier.length > 0) {
+        // Group candidate edges by target body so we can pick the most
+        // rigid edge per target as the tree edge.
+        type Candidate = AdjEntry & { from: BodyState };
+        const candidatesByTarget = new Map<string, Candidate[]>();
 
-      for (const fromBody of frontier) {
-        for (const adj of adjacency.get(fromBody.instanceId)!) {
-          if (consumedMates.has(adj.mate.mateId)) continue;
-          if (treeVisited.has(adj.neighbor.instanceId)) {
-            // Edge connects two already-visited bodies → closure edge.
-            consumedMates.add(adj.mate.mateId);
-            closureMates.push(adj.mate);
-            continue;
+        for (const fromBody of frontier) {
+          for (const adj of adjacency.get(fromBody.instanceId)!) {
+            if (consumedMates.has(adj.mate.mateId)) continue;
+            if (treeVisited.has(adj.neighbor.instanceId)) {
+              // Edge connects two already-visited bodies → closure edge.
+              consumedMates.add(adj.mate.mateId);
+              closureMates.push(adj.mate);
+              continue;
+            }
+            const list = candidatesByTarget.get(adj.neighbor.instanceId) ?? [];
+            list.push({ ...adj, from: fromBody });
+            candidatesByTarget.set(adj.neighbor.instanceId, list);
           }
-          const list = candidatesByTarget.get(adj.neighbor.instanceId) ?? [];
-          list.push({ ...adj, from: fromBody });
-          candidatesByTarget.set(adj.neighbor.instanceId, list);
         }
+
+        const nextFrontier: BodyState[] = [];
+        for (const candidates of candidatesByTarget.values()) {
+          candidates.sort((c1, c2) =>
+            MATE_RIGIDITY[c1.mate.type] - MATE_RIGIDITY[c2.mate.type]);
+          const treePick = candidates[0];
+          consumedMates.add(treePick.mate.mateId);
+          treeEdges.push({
+            parent: treePick.from,
+            child: treePick.neighbor,
+            parentConn: treePick.selfConn,
+            childConn: treePick.neighborConn,
+            mate: treePick.mate,
+            parentIsA: treePick.selfIsA,
+          });
+          treeVisited.add(treePick.neighbor.instanceId);
+          orderedBodies.push(treePick.neighbor);
+          nextFrontier.push(treePick.neighbor);
+
+          // Other candidates to the same target are closure edges.
+          for (let i = 1; i < candidates.length; i++) {
+            if (consumedMates.has(candidates[i].mate.mateId)) continue;
+            consumedMates.add(candidates[i].mate.mateId);
+            closureMates.push(candidates[i].mate);
+          }
+        }
+        frontier = nextFrontier;
       }
 
-      const nextFrontier: BodyState[] = [];
-      for (const candidates of candidatesByTarget.values()) {
-        candidates.sort((c1, c2) =>
-          MATE_RIGIDITY[c1.mate.type] - MATE_RIGIDITY[c2.mate.type]);
-        const treePick = candidates[0];
-        consumedMates.add(treePick.mate.mateId);
-        treeEdges.push({
-          parent: treePick.from,
-          child: treePick.neighbor,
-          parentConn: treePick.selfConn,
-          childConn: treePick.neighborConn,
-          mate: treePick.mate,
-          parentIsA: treePick.selfIsA,
-        });
-        treeVisited.add(treePick.neighbor.instanceId);
-        orderedBodies.push(treePick.neighbor);
-        nextFrontier.push(treePick.neighbor);
-
-        // Other candidates to the same target are closure edges.
-        for (let i = 1; i < candidates.length; i++) {
-          if (consumedMates.has(candidates[i].mate.mateId)) continue;
-          consumedMates.add(candidates[i].mate.mateId);
-          closureMates.push(candidates[i].mate);
-        }
+      // Seed the next contact-only cluster, preferring the dragged body
+      // as its root (same policy as the ungrounded-component fallback).
+      let extraRoot = componentBodies.find(b => !treeVisited.has(b.instanceId));
+      if (!extraRoot) break;
+      if (draggedInstanceId && !treeVisited.has(draggedInstanceId)) {
+        const dragged = componentBodies.find(b => b.instanceId === draggedInstanceId);
+        if (dragged) extraRoot = dragged;
       }
-      frontier = nextFrontier;
+      roots.push(extraRoot);
+      treeVisited.add(extraRoot.instanceId);
+      orderedBodies.push(extraRoot);
+      frontier = [extraRoot];
     }
 
     const loopBodies = identifyLoopBodies(closureMates, treeEdges);
@@ -226,6 +289,7 @@ export function buildMateGraph(
       bodies: orderedBodies,
       treeEdges,
       closureEdges: closureMates,
+      contactEdges,
       loopBodies,
       roots,
     });
@@ -294,8 +358,9 @@ function identifyLoopBodies(
 
   const loop = new Set<string>();
   for (const mate of closureMates) {
-    const aId = mate.connectorA.instanceId;
-    const bId = mate.connectorB.instanceId;
+    const sides = mateSideIds(mate);
+    if (!sides) continue;
+    const { aId, bId } = sides;
 
     const aPath: string[] = [];
     const aSet = new Set<string>();

@@ -47,10 +47,25 @@ export type ModeContext = {
    * chained form, even when the address lands on the cursor.
    */
   pendingStartText(): string | null;
+  /** Declarations riding the pending chain start (a typed address's variables). */
+  pendingStartVariables(): NewVariable[];
+  /**
+   * Mark the pending chain start as spent by an out-of-band commit (the
+   * apply-feature path writes the statement server-side), so the next
+   * segment doesn't write it again.
+   */
+  clearPendingStart(): void;
   /** Convert a pixel distance to sketch units at the current zoom. */
   pixelThreshold(px: number): number;
   /** Show (or clear, with null) a hint line under the cursor's mode badge. */
   setSnapHint(hint: string | null): void;
+  /**
+   * Best-effort numeric value of a committed expression: arithmetic over the
+   * in-scope variables plus the commit's own declaration. Null when the
+   * expression can't be resolved statically — geometry that depends on it
+   * (preview directions, snap intersections) must not pretend to know it.
+   */
+  resolveCommittedValue(result: CommitResult): number | null;
   formatPoint(p: Point2D): string;
   insertGeometry(statement: string, newVariable?: NewVariable | NewVariable[]): void;
   requestRender(): void;

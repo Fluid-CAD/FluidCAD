@@ -40,6 +40,8 @@ export class AssemblyToolbar {
       { type: 'slider', label: 'Slider' },
       { type: 'cylindrical', label: 'Cylindrical' },
       { type: 'planar', label: 'Planar' },
+      // Placeholder icon (copy of joint-planar) — replace with a real one.
+      { type: 'tangent', label: 'Tangent' },
       // { type: 'parallel', label: 'Parallel' },
       // { type: 'pin-slot', label: 'Pin-slot' },
     ];

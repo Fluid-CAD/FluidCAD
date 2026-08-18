@@ -86,6 +86,40 @@ export class FeatureEditDispatcher {
   }
 
   /**
+   * Dispatch a spec WITHOUT answering an HTTP response — the first stage of a
+   * two-file edit sequence (a cross-file exposure created before the consumer
+   * statement lands in the current buffer). Same preflight/ack semantics as
+   * {@link dispatch}; the caller folds the returned error into its own
+   * response. A send with no host process keeps the legacy immediate success.
+   */
+  async send(spec: ApplyFeatureEditSpec): Promise<{ error?: string }> {
+    if (this.preflightEnabled && spec.filePath === this.fluidCadServer.getCurrentFileName()) {
+      const code = this.fluidCadServer.getCurrentCode();
+      if (code !== null) {
+        try {
+          const dryRun = await applyFeatureEdit(code, spec);
+          if (dryRun.error) {
+            return { error: dryRun.error };
+          }
+        } catch {
+          // A preflight crash is not a verdict — the editor round-trip decides.
+        }
+      }
+    }
+    const { editId, result } = this.acks.register();
+    const delivered = this.sendToExtension({ type: 'apply-feature-edit', spec: { ...spec, editId } }) === true;
+    if (!delivered) {
+      this.acks.cancel(editId);
+      return {};
+    }
+    const ack = await result;
+    if (ack === null) {
+      return { error: `the editor did not apply the edit within ${this.ackTimeoutMs}ms — check the editor for errors` };
+    }
+    return ack.error ? { error: ack.error } : {};
+  }
+
+  /**
    * Dispatch a plain editor action (undo/redo) and answer the waiting request
    * with the host's IPC `edit-ack`. Unlike {@link dispatch} there is no
    * transform to preflight and no HTTP round-trip to carry the ack, and a

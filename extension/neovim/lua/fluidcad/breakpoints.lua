@@ -1,6 +1,7 @@
 local M = {}
 
 local code_api = require('fluidcad.code_api')
+local file_kind = require('fluidcad.file_kind')
 
 local SIGN_NAME = 'FluidCadBreakpoint'
 local SIGN_GROUP = 'fluidcad-breakpoints'
@@ -51,7 +52,7 @@ function M.refresh(bufnr)
     return
   end
   local name = vim.api.nvim_buf_get_name(bufnr)
-  if not name:match('%.fluid%.js$') then
+  if not file_kind.is_fluid_script(name) then
     return
   end
   ensure_sign_defined()
@@ -68,7 +69,7 @@ end
 function M.toggle()
   local bufnr = vim.api.nvim_get_current_buf()
   local name = vim.api.nvim_buf_get_name(bufnr)
-  if not (name:match('%.part%.js$') or name:match('%.assembly%.js$') or name:match('%.fluid%.js$')) then
+  if not file_kind.is_fluid_script(name) then
     vim.notify('[fluidcad] Not a FluidCAD script buffer', vim.log.levels.WARN)
     return
   end
@@ -89,7 +90,7 @@ function M.clear_all(file_path)
     return
   end
   local name = vim.api.nvim_buf_get_name(bufnr)
-  if not name:match('%.fluid%.js$') then
+  if not file_kind.is_fluid_script(name) then
     return
   end
 
@@ -110,7 +111,7 @@ function M.add_after(file_path, src_line)
     return
   end
   local name = vim.api.nvim_buf_get_name(bufnr)
-  if not name:match('%.fluid%.js$') then
+  if not file_kind.is_fluid_script(name) then
     return
   end
 

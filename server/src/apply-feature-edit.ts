@@ -21,6 +21,7 @@ import { applyInsertParamsEdit, type InsertParamsEditSpec } from './insert-param
 import {
   applyAssemblyMateEdit,
   applyConnectorPropsEdit,
+  mateSideRefs,
   type AssemblyMateEditSpec,
   type ConnectorPropsEditSpec,
 } from './assembly-mate-edit.ts';
@@ -72,7 +73,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'rib' | 'connector';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'aline' | 'rib' | 'connector' | 'expose';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -110,8 +111,18 @@ export type ApplyFeatureEditSpec = {
    * (end of body, before a trailing `return` or active `breakpoint();`).
    */
   connector?: ConnectorEditOptions;
+  /**
+   * Expose-only payload: the name the statement registers, plus the call
+   * site of the `part(...)` block whose callback body receives the statement
+   * — the connector insertion mechanism minus the frame adjustments.
+   */
+  expose?: ExposeEditOptions;
+  /** Cross-part sketch payload: `sketch(<ident>.features.<name>, …)` into the active part. */
+  sketchForeign?: SketchForeignOptions;
   /** tArc-only payload; present for an in-place retarget instead of a create. */
   tarc?: TarcEditOptions;
+  /** aLine-only payload; the explicit chain-start point, when the statement must carry one. */
+  aline?: AlineEditOptions;
   /**
    * Text-on-path create payload: the dialog's option values, rendered around
    * the single `parts` entry (the path's bare variable). In-place edits ride
@@ -295,6 +306,46 @@ export type ConnectorEditOptions = {
   offset?: [number, number, number];
 };
 
+/**
+ * Expose create payload. `name` is the identifier the statement registers
+ * (same pattern the kernel enforces); `part` is the `part(...)` call site
+ * whose callback body receives the statement.
+ */
+export type ExposeEditOptions = {
+  name: string;
+  /** The `part(...)` call site whose callback body receives the statement. */
+  part?: { line: number; column: number };
+};
+
+/**
+ * Consumer-side cross-part sketch payload: the statement rendered is
+ * `sketch(<ident>.features.<exposeName>, () => {})`, inserted into the ACTIVE
+ * part's callback body (`spec.activePart`) rather than the picked geometry's
+ * own part. Exactly one addressing mode:
+ *
+ *   - `donor` (same-file): the donor `part(...)` call site — the transform
+ *     resolves the module-level `const` its definition is bound to and
+ *     renders that identifier.
+ *   - `ident` + `importFrom` (cross-file): the donor's export identifier and
+ *     the module specifier to import it from.
+ *
+ * `create` (same-file only) is a full `'expose'` spec applied FIRST in the
+ * same transform — find-or-create stays atomic, and the part call sites are
+ * relocated across the intermediate edit before the sketch statement lands.
+ * Cross-file creation rides its own dispatch to the donor file instead.
+ */
+export type SketchForeignOptions = {
+  exposeName: string;
+  /** Same-file donor: its `part(...)` call site. */
+  donor?: { line: number; column: number };
+  /** Cross-file donor: the export identifier the reference renders. */
+  ident?: string;
+  /** Cross-file donor: module specifier `ident` is imported from. */
+  importFrom?: string;
+  /** Same-file find-or-create: the `'expose'` spec applied first, atomically. */
+  create?: ApplyFeatureEditSpec;
+};
+
 export function validConnectorRotate(rotate: unknown): rotate is ConnectorEditOptions['rotate'] {
   if (rotate === undefined) {
     return true;
@@ -429,6 +480,13 @@ export type FeatureStatementEditTarget = {
      * (dropping any target the statement had).
      */
     toFace?: { kind: 'keep' | ExtrudeTargetKind };
+    /**
+     * Full replacement `.scope(…)` list — `verbatim` keeps by position in the
+     * statement's own argument texts, re-picked solid statements by bound
+     * producer. Absent keeps the statement's scope chain; an empty list drops
+     * it (back to whole-scene fusion).
+     */
+    scope?: RepeatEditTargetSource[];
   };
   rib?: {
     op: 'add' | 'remove' | 'new';
@@ -453,6 +511,8 @@ export type FeatureStatementEditTarget = {
     path?: EditPathSource;
     /** Re-sourced profile; absent keeps the statement's profile text. */
     profile?: EditSketchSource;
+    /** Full replacement `.scope(…)` list; absent keeps, `[]` drops the chain. */
+    scope?: RepeatEditTargetSource[];
   };
   wrap?: {
     op: 'add' | 'remove' | 'new';
@@ -511,6 +571,8 @@ export type FeatureStatementEditTarget = {
      * `[]` removes them all.
      */
     guides?: EditLoftGuide[];
+    /** Full replacement `.scope(…)` list; absent keeps, `[]` drops the chain. */
+    scope?: RepeatEditTargetSource[];
   };
   revolve?: {
     op: 'add' | 'remove' | 'new';
@@ -523,6 +585,8 @@ export type FeatureStatementEditTarget = {
     profile?: EditSketchSource;
     /** Re-sourced axis; absent keeps the statement's axis text. */
     axis?: RevolveAxisSpec;
+    /** Full replacement `.scope(…)` list; absent keeps, `[]` drops the chain. */
+    scope?: RepeatEditTargetSource[];
   };
   /**
    * Helix options. The chained geometry configurators edit in place; the
@@ -765,6 +829,12 @@ export type ExtrudeEditOptions = {
    * `distance`/`distance2`/`symmetric`.
    */
   toFace?: ExtrudeTargetKind;
+  /**
+   * Producer indices of the `.scope(…)` targets, in pick order — the
+   * solid-bearing statements the boolean fuses with or cuts from (rib's
+   * contract). Absent or empty writes no chain (whole-scene fusion).
+   */
+  scope?: number[];
 };
 
 /**
@@ -806,6 +876,8 @@ export type SweepEditOptions = {
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: 'implicit' | { producer: number };
   path: { kind: 'sketch'; producer: number } | { kind: 'selector' };
+  /** Producer indices of the `.scope(…)` targets, in pick order. */
+  scope?: number[];
 };
 
 /**
@@ -866,6 +938,8 @@ export type RevolveEditOptions = {
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
   profile: 'implicit' | 'bound';
   axis: RevolveAxisSpec;
+  /** Producer indices of the `.scope(…)` targets, in pick order. */
+  scope?: number[];
 };
 
 /**
@@ -1153,6 +1227,16 @@ export type TarcEditOptions = {
 };
 
 /**
+ * An aLine-to-target create's own option: the explicit start point rendered
+ * as the statement's first argument (`aLine([10, 5], 30, l)`). Present when
+ * the polyline chain opened away from the sketch cursor — the chained form
+ * would start the line at the wrong place.
+ */
+export type AlineEditOptions = {
+  start?: string;
+};
+
+/**
  * How a loft statement is rendered and placed: `loft(<profile>, <profile>, …)`
  * plus `.guides(…)` / `.startCondition(…)` / `.endCondition(…)` /
  * `.thin(…)` / `.remove()` / `.new()` chains. Profiles are ordered —
@@ -1174,6 +1258,8 @@ export type LoftEditOptions = {
   startCondition?: LoftConditionSpec;
   /** Arrival constraint at the last profile; absent renders no chain. */
   endCondition?: LoftConditionSpec;
+  /** Producer indices of the `.scope(…)` targets, in pick order. */
+  scope?: number[];
 };
 
 /**
@@ -1357,13 +1443,16 @@ export async function applyFeatureEdit(
     return applyInsertParamsWithDecls(code, spec);
   }
   if (spec.assemblyMate) {
-    return applyAssemblyMateEdit(code, spec.assemblyMate);
+    return applyAssemblyMateWithExposeCreates(code, spec.assemblyMate);
   }
   if (spec.connectorProps) {
     return applyConnectorPropsEdit(code, spec.connectorProps);
   }
   if (spec.edit) {
     return applyStatementEdit(code, spec);
+  }
+  if (spec.feature === 'sketch' && spec.sketchForeign) {
+    return applySketchForeign(code, spec);
   }
   if (spec.feature === 'sketch' && spec.producers.length === 0 && spec.parts.length === 0) {
     return applyPlaneSketch(code, spec.sketchPlane, spec.activePart);
@@ -1372,11 +1461,14 @@ export async function applyFeatureEdit(
     // The profile sketch (implicit consumption or a bound variable) is always
     // producers[0]. A picked-face target carries exactly one selector part —
     // the face, whose own producers follow the profile in the list; a distance
-    // or first/last-face extrude carries none.
+    // or first/last-face extrude carries none beyond its scope targets, which
+    // are bound feature producers trailing the list.
+    const scope = spec.extrude?.scope ?? [];
     const valid = spec.extrude !== undefined && spec.producers.length >= 1
+      && scope.every(p => isScopeTargetProducer(spec, p))
       && (spec.extrude.toFace === 'selector'
         ? spec.parts.length === 1
-        : spec.producers.length === 1 && spec.parts.length === 0);
+        : spec.producers.length === 1 + scope.length && spec.parts.length === 0);
     if (!valid) {
       return { newCode: code, error: 'malformed extrude edit spec' };
     }
@@ -1390,7 +1482,7 @@ export async function applyFeatureEdit(
       && validValueExpr(rb.thickness, { nonzero: true })
       && (rb.draft === null || validValueExpr(rb.draft, { nonzero: true }))
       && spec.parts.length === 0
-      && rb.scope.every(p => isFeatureProducer(spec, p));
+      && rb.scope.every(p => isScopeTargetProducer(spec, p));
     if (!valid) {
       return { newCode: code, error: 'malformed rib edit spec' };
     }
@@ -1399,11 +1491,12 @@ export async function applyFeatureEdit(
     const valid = sw !== undefined
       && spec.producers.length > 0
       // The path is any wire source (a sketch or a helix); the profile must
-      // be a planar sketch.
+      // be a planar sketch; the scope targets are bound feature producers.
       && (sw.path.kind === 'selector'
         ? spec.parts.length >= 1
         : spec.parts.length === 0 && isWireProducer(spec, sw.path.producer))
-      && (sw.profile === 'implicit' || isSketchProducer(spec, sw.profile.producer));
+      && (sw.profile === 'implicit' || isSketchProducer(spec, sw.profile.producer))
+      && (sw.scope ?? []).every(p => isScopeTargetProducer(spec, p));
     if (!valid) {
       return { newCode: code, error: 'malformed sweep edit spec' };
     }
@@ -1423,16 +1516,19 @@ export async function applyFeatureEdit(
     // The profile sketch (implicit consumption or a bound variable) is always
     // producers[0]. A standard axis involves no other producer; an axis
     // statement binds one; a picked edge carries exactly one selector part,
-    // whose own producers follow the profile in the list.
+    // whose own producers follow the profile in the list. Scope targets are
+    // bound feature producers trailing the list.
     const rev = spec.revolve;
+    const scope = rev?.scope ?? [];
     const valid = rev !== undefined && spec.producers.length >= 1
       && spec.producers[0].featureType === 'sketch'
       && validValueExpr(rev.angle, { nonzero: true })
+      && scope.every(p => isScopeTargetProducer(spec, p))
       && (rev.axis.kind === 'selector'
         ? spec.parts.length === 1
         : spec.parts.length === 0
           && (rev.axis.kind === 'standard'
-            ? spec.producers.length === 1
+            ? spec.producers.length === 1 + scope.length
             : isAxisProducer(spec, rev.axis.producer)));
     if (!valid) {
       return { newCode: code, error: 'malformed revolve edit spec' };
@@ -1485,6 +1581,7 @@ export async function applyFeatureEdit(
       && Array.isArray(guides) && guides.length <= 2
       // A guide is any wire source (a sketch or a helix).
       && guides.every(g => g?.kind === 'sketch' && isWireProducer(spec, g.producer))
+      && (lo.scope ?? []).every(p => isScopeTargetProducer(spec, p))
       && [lo.startCondition, lo.endCondition].every(c => c === undefined
         || ((c.type === 'normal' || c.type === 'tangent')
           && validValueExpr(c.magnitude, { nonzero: true })));
@@ -1768,6 +1865,17 @@ export async function applyFeatureEdit(
     if (!valid) {
       return { newCode: code, error: 'malformed tArc edit spec' };
     }
+  } else if (spec.feature === 'aline') {
+    // aLine-to-intersection takes ONE whole target geometry: exactly one
+    // bound producer rendered as a bare variable, plus the angle (any finite
+    // value — zero aims straight along the reference direction) and an
+    // optional explicit start point rendered as the first argument.
+    const valid = spec.producers.length === 1 && spec.parts.length === 1
+      && validValueExpr(spec.value)
+      && (spec.aline?.start === undefined || isExpressionText(spec.aline.start));
+    if (!valid) {
+      return { newCode: code, error: 'malformed aLine edit spec' };
+    }
   } else if (spec.feature === 'text') {
     // Text-on-path takes ONE whole path geometry: exactly one bound producer
     // rendered as a bare variable, plus the dialog's full option payload.
@@ -1793,6 +1901,18 @@ export async function applyFeatureEdit(
         || (Array.isArray(co.offset) && co.offset.length === 3 && co.offset.every(v => Number.isFinite(v))));
     if (!valid) {
       return { newCode: code, error: 'malformed connector edit spec' };
+    }
+  } else if (spec.feature === 'expose') {
+    // A named exposure: exactly one selector part (the source is a single
+    // face/edge), a valid identifier name, and the part() call site whose
+    // callback body receives the statement.
+    const ex = spec.expose;
+    const valid = ex !== undefined
+      && typeof ex.name === 'string' && CONNECTOR_NAME.test(ex.name)
+      && Number.isInteger(ex.part?.line) && Number.isInteger(ex.part?.column)
+      && spec.producers.length >= 1 && spec.parts.length === 1;
+    if (!valid) {
+      return { newCode: code, error: 'malformed expose edit spec' };
     }
   } else if (!spec.producers.length || !spec.parts.length) {
     return { newCode: code, error: 'empty edit spec' };
@@ -1995,6 +2115,269 @@ async function applyPlaneSketch(
   return appendTopLevelStatement(
     code, indent => `sketch(${args}() => {\n\n${indent}})`, 'sketch', undefined, activePart,
   );
+}
+
+/**
+ * The consumer-side cross-part sketch: render
+ * `sketch(<ident>.features.<exposeName>, () => {})` into the ACTIVE part's
+ * body. With a same-file `create` spec the exposure statement is applied
+ * first in the same transform — the part call sites are relocated across the
+ * intermediate edit by ordinal (the exposure edit never adds or removes
+ * `part()` calls), so both stages stay atomic in one editor round trip.
+ */
+async function applySketchForeign(
+  code: string,
+  spec: ApplyFeatureEditSpec,
+): Promise<ApplyFeatureEditResult> {
+  const sf = spec.sketchForeign!;
+  const sameFile = sf.donor !== undefined;
+  const valid = typeof sf.exposeName === 'string' && CONNECTOR_NAME.test(sf.exposeName)
+    && Number.isInteger(spec.activePart?.line) && Number.isInteger(spec.activePart?.column)
+    // Exactly one addressing mode: a same-file donor call site, or a
+    // cross-file identifier (with its import specifier).
+    && (sameFile !== (typeof sf.ident === 'string'))
+    && (!sameFile || (Number.isInteger(sf.donor!.line) && Number.isInteger(sf.donor!.column)))
+    && (sf.ident === undefined || CONNECTOR_NAME.test(sf.ident))
+    && (sf.importFrom === undefined || (typeof sf.importFrom === 'string' && !sameFile))
+    && (sf.create === undefined
+      || (sameFile && sf.create.feature === 'expose' && sf.create.sketchForeign === undefined))
+    && spec.producers.length === 0 && spec.parts.length === 0;
+  if (!valid) {
+    return { newCode: code, error: 'malformed foreign sketch spec' };
+  }
+
+  let working = code;
+  let activeLine = spec.activePart!.line;
+  let donorLine = sf.donor?.line;
+  if (sf.create) {
+    const created = await applyFeatureEdit(working, sf.create);
+    if (created.error) {
+      return { newCode: code, error: created.error };
+    }
+    const before = await partCallLines(working);
+    const after = await partCallLines(created.newCode);
+    const relocate = (line: number): number | null => {
+      const k = before.indexOf(line);
+      return k >= 0 && before.length === after.length ? after[k] : null;
+    };
+    const newActive = relocate(activeLine);
+    const newDonor = donorLine !== undefined ? relocate(donorLine) : undefined;
+    if (newActive === null || newDonor === null) {
+      return {
+        newCode: code,
+        error: 'could not relocate the part statements after the exposure edit — is the file in sync with the last render?',
+      };
+    }
+    working = created.newCode;
+    activeLine = newActive;
+    donorLine = newDonor;
+  }
+
+  let ident: string;
+  if (sameFile) {
+    const resolved = await resolvePartBindingIdent(working, donorLine!);
+    if ('error' in resolved) {
+      return { newCode: code, error: resolved.error };
+    }
+    ident = resolved.ident;
+  } else {
+    ident = sf.ident!;
+  }
+
+  const result = await appendTopLevelStatement(
+    working,
+    indent => `sketch(${ident}.features.${sf.exposeName}, () => {\n\n${indent}})`,
+    'sketch',
+    spec.newVariables,
+    { line: activeLine, column: spec.activePart!.column },
+  );
+  if (result.error) {
+    return { newCode: code, error: result.error };
+  }
+  let out = result.newCode;
+  if (sf.importFrom) {
+    out = await ensureSymbolImport(out, ident, sf.importFrom);
+  }
+  return { newCode: out };
+}
+
+/**
+ * The tangent mate's same-file find-or-create fold: apply every embedded
+ * `'expose'` create-spec first, relocating the mate payload's line anchors
+ * across each intermediate edit by insert()/mate() call ORDINALS (exposure
+ * edits never add or remove insert()/mate() calls, so the k-th call before
+ * is the k-th call after), then run the ordinary mate transform — one
+ * document replacement, atomic. Cross-file creations ride their own
+ * dispatches to the donor files instead (the route sequences them).
+ */
+async function applyAssemblyMateWithExposeCreates(
+  code: string,
+  mateSpec: AssemblyMateEditSpec,
+): Promise<ApplyFeatureEditResult> {
+  const creates = (mateSpec.exposeCreates ?? []) as ApplyFeatureEditSpec[];
+  if (creates.length === 0) {
+    return applyAssemblyMateEdit(code, mateSpec);
+  }
+  if (creates.some(c => c.feature !== 'expose' || c.assemblyMate !== undefined)) {
+    return { newCode: code, error: 'malformed tangent mate spec: exposeCreates must be expose specs' };
+  }
+  const payload = mateSpec.create ?? mateSpec.edit;
+  const sides = payload ? mateSideRefs(payload) : null;
+  if (!payload || !sides) {
+    return { newCode: code, error: 'malformed tangent mate spec: missing geometry sides' };
+  }
+
+  let working = code;
+  let lineA = sides.a.instanceLine;
+  let lineB = sides.b.instanceLine;
+  let mateLine = mateSpec.edit?.sourceLine;
+  for (const create of creates) {
+    const insertsBefore = await callLines(working, 'insert');
+    const matesBefore = await callLines(working, 'mate');
+    const applied = await applyFeatureEdit(working, create);
+    if (applied.error) {
+      return { newCode: code, error: applied.error };
+    }
+    const insertsAfter = await callLines(applied.newCode, 'insert');
+    const matesAfter = await callLines(applied.newCode, 'mate');
+    const relocate = (line: number, before: number[], after: number[]): number | null => {
+      const k = before.indexOf(line);
+      return k >= 0 && before.length === after.length ? after[k] : null;
+    };
+    const newA = relocate(lineA, insertsBefore, insertsAfter);
+    const newB = relocate(lineB, insertsBefore, insertsAfter);
+    const newMate = mateLine !== undefined ? relocate(mateLine, matesBefore, matesAfter) : undefined;
+    if (newA === null || newB === null || newMate === null) {
+      return {
+        newCode: code,
+        error: 'could not relocate the insert()/mate() statements after the exposure edit — is the file in sync with the last render?',
+      };
+    }
+    working = applied.newCode;
+    lineA = newA;
+    lineB = newB;
+    mateLine = newMate;
+  }
+
+  const patchSides = (p: NonNullable<AssemblyMateEditSpec['create']>) => ({
+    ...p,
+    ...(p.connectorA && p.connectorB
+      ? {
+        connectorA: { ...p.connectorA, instanceLine: lineA },
+        connectorB: { ...p.connectorB, instanceLine: lineB },
+      }
+      : {
+        geometryA: { ...p.geometryA!, instanceLine: lineA },
+        geometryB: { ...p.geometryB!, instanceLine: lineB },
+      }),
+  });
+  const patched: AssemblyMateEditSpec = mateSpec.create
+    ? { create: patchSides(mateSpec.create) }
+    : { edit: { ...patchSides(mateSpec.edit!), sourceLine: mateLine! } };
+  return applyAssemblyMateEdit(working, patched);
+}
+
+/** Start lines (1-based) of every `<callee>(...)` call, in document order. */
+async function callLines(code: string, callee: string): Promise<number[]> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const out: number[] = [];
+  for (const node of walkTree(tree.rootNode)) {
+    if (node.type !== 'call_expression') {
+      continue;
+    }
+    const fn = node.childForFieldName('function');
+    if (fn?.type === 'identifier' && fn.text === callee) {
+      out.push(node.startPosition.row + 1);
+    }
+  }
+  return out;
+}
+
+/** Start lines (1-based) of every root `part(...)` call, in document order. */
+async function partCallLines(code: string): Promise<number[]> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const out: number[] = [];
+  for (const node of walkTree(tree.rootNode)) {
+    if (node.type !== 'call_expression') {
+      continue;
+    }
+    const fn = node.childForFieldName('function');
+    if (fn?.type === 'identifier' && fn.text === 'part') {
+      out.push(node.startPosition.row + 1);
+    }
+  }
+  return out;
+}
+
+/**
+ * The module-level `const` a `part(...)` call at `line` is bound to —
+ * the identifier a cross-part reference renders (`p1.features.<name>`).
+ * Refuses unbound forms (`return part(...)` factories) and non-module-scope
+ * bindings: the consumer statement references the identifier from another
+ * top-level part body, so nothing narrower can serve it.
+ */
+export async function resolvePartBindingIdent(
+  code: string,
+  line: number,
+): Promise<{ ident: string; exported: boolean } | { error: string }> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const lines = splitLines(code);
+  const call = findEditableCallAt(tree, lines, line);
+  if (!call || chainRootCallee(call) !== 'part') {
+    return { error: `no part() call found at line ${line} — is the file in sync with the last render?` };
+  }
+  let current: TSNode | null = call;
+  while (current && current.type !== 'variable_declarator') {
+    if (current.type === 'statement_block' || current.type === 'program') {
+      current = null;
+      break;
+    }
+    current = current.parent;
+  }
+  const name = current?.childForFieldName('name');
+  const value = current?.childForFieldName('value');
+  // The declarator's own value chain must root at THIS part call — a
+  // wrapped form (`const x = registry.add(part(...))`) binds the wrapper,
+  // not the definition, and `x.features` would not exist.
+  const directBinding = !!value
+    && chainRootCall(value)?.startIndex === chainRootCall(call)?.startIndex
+    && chainRootCall(value) !== null;
+  if (!current || !name || name.type !== 'identifier' || !directBinding) {
+    return {
+      error: `the part at line ${line} is not bound to a const — bind it `
+        + '(const p1 = part(...)) so the sketch can reference p1.features.<name>',
+    };
+  }
+  const declaration = current.parent;
+  const holder = declaration?.parent;
+  const exported = holder?.type === 'export_statement' && holder.parent?.type === 'program';
+  const moduleScope = holder?.type === 'program' || exported;
+  if (!moduleScope) {
+    return {
+      error: `the part at line ${line} is bound inside a nested scope — `
+        + `move the declaration to module scope so other parts can reference it`,
+    };
+  }
+  return { ident: name.text, exported };
+}
+
+/** The root call node of a call chain, or null when `node` holds none. */
+function chainRootCall(node: TSNode): TSNode | null {
+  let current: TSNode | null = node;
+  while (current && current.type === 'call_expression') {
+    const fn = current.childForFieldName('function');
+    if (!fn) {
+      return null;
+    }
+    if (fn.type === 'identifier') {
+      return current;
+    }
+    current = fn.type === 'member_expression' ? fn.childForFieldName('object') : null;
+  }
+  return null;
 }
 
 /** Part names land in a single-quoted literal — no quotes or line breaks. */
@@ -2371,6 +2754,25 @@ function isFeatureProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
 }
 
 /**
+ * Whether producer index `i` can serve as a `.scope(…)` target: a bound
+ * producer of a solid-bearing statement — the dedicated `feature` type, or a
+ * selector part's own producer (whose featureType is the producing feature,
+ * e.g. 'extrude') doubling as the scope target when both reference the same
+ * statement. The identity-referenced kinds (sketch/plane/axis/wire, and the
+ * extrude profile's 'offset') never bear solids, so they never qualify.
+ */
+function isScopeTargetProducer(spec: ApplyFeatureEditSpec, i: number): boolean {
+  if (!Number.isInteger(i) || i < 0 || i >= spec.producers.length) {
+    return false;
+  }
+  const producer = spec.producers[i];
+  return producer.bind !== false
+    && requiredChainRoots(producer.featureType) === null
+    && producer.featureType !== 'offset'
+    && SKETCH_PRODUCER_CALLEES[producer.featureType] === undefined;
+}
+
+/**
  * Whether producer index `i` may be a copy target: a 3D feature producer, or
  * — the 2D in-sketch form — a sketch-geometry producer (rect, circle, …).
  */
@@ -2698,14 +3100,27 @@ function statementCallee(spec: ApplyFeatureEditSpec): string {
   if (spec.feature === 'tarc') {
     return 'tArc';
   }
+  if (spec.feature === 'aline') {
+    return 'aLine';
+  }
   return spec.feature;
 }
 
 /** The `.thin(…)` / `.remove()` / `.new()` chains shared by sweep and loft. */
+/**
+ * Render the `.scope(…)` chain from its target expressions; an empty list
+ * renders nothing (whole-scene fusion, the kernel default). Always the LAST
+ * chain — `.remove()`/`.new()` reset the fusion scope, so the scope must be
+ * written after them to survive.
+ */
+function renderScopeChain(scopeExprs: string[]): string {
+  return scopeExprs.length > 0 ? `.scope(${scopeExprs.join(', ')})` : '';
+}
+
 function renderOpChains(opts: {
   op: 'add' | 'remove' | 'new';
   thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
-}): string {
+}, scopeExprs: string[] = []): string {
   let chains = '';
   if (opts.thin) {
     chains += `.thin(${opts.thin.map(formatValue).join(', ')})`;
@@ -2715,24 +3130,25 @@ function renderOpChains(opts: {
   } else if (opts.op === 'new') {
     chains += '.new()';
   }
-  return chains;
+  return chains + renderScopeChain(scopeExprs);
 }
 
 /**
  * Render a sweep statement: `sweep(<path>[, <profile>])` plus `.thin(…)` and
- * the `.remove()` / `.new()` operation chains. Shared with the route's
- * preview so the previewed text is exactly what the transform writes.
+ * the `.remove()` / `.new()` / `.scope(…)` operation chains. Shared with the
+ * route's preview so the previewed text is exactly what the transform writes.
  */
 export function renderSweepStatement(
   sw: Pick<SweepEditOptions, 'op' | 'thin'>,
   pathExpr: string,
   profileVar: string | null,
+  scopeExprs: string[] = [],
 ): string {
   const args = [pathExpr];
   if (profileVar) {
     args.push(profileVar);
   }
-  return `sweep(${args.join(', ')})` + renderOpChains(sw);
+  return `sweep(${args.join(', ')})` + renderOpChains(sw, scopeExprs);
 }
 
 /**
@@ -2828,14 +3244,16 @@ export function renderTextStatement(
 
 /**
  * Render a revolve statement: `revolve(<axis>[, <angle>][, <profile>])` plus
- * `.symmetric()`, `.thin(…)` and the `.remove()` / `.new()` operation chains.
- * The 360° API default renders no angle argument. Shared with the route's
- * preview so the previewed text is exactly what the transform writes.
+ * `.symmetric()`, `.thin(…)` and the `.remove()` / `.new()` / `.scope(…)`
+ * operation chains. The 360° API default renders no angle argument. Shared
+ * with the route's preview so the previewed text is exactly what the
+ * transform writes.
  */
 export function renderRevolveStatement(
   rev: Pick<RevolveEditOptions, 'op' | 'angle' | 'symmetric' | 'thin'>,
   axisExpr: string,
   profileExpr: string | null,
+  scopeExprs: string[] = [],
 ): string {
   const args = [axisExpr];
   if (rev.angle !== 360) {
@@ -2845,7 +3263,7 @@ export function renderRevolveStatement(
     args.push(profileExpr);
   }
   const symmetric = rev.symmetric ? '.symmetric()' : '';
-  return `revolve(${args.join(', ')})` + symmetric + renderOpChains(rev);
+  return `revolve(${args.join(', ')})` + symmetric + renderOpChains(rev, scopeExprs);
 }
 
 /**
@@ -3145,6 +3563,7 @@ export function renderLoftStatement(
   lo: Pick<LoftEditOptions, 'op' | 'thin' | 'startCondition' | 'endCondition'>,
   profileExprs: string[],
   guideExprs: string[] = [],
+  scopeExprs: string[] = [],
 ): string {
   let statement = `loft(${profileExprs.join(', ')})`;
   if (guideExprs.length > 0) {
@@ -3152,7 +3571,7 @@ export function renderLoftStatement(
   }
   statement += renderConditionChain('startCondition', lo.startCondition);
   statement += renderConditionChain('endCondition', lo.endCondition);
-  return statement + renderOpChains(lo);
+  return statement + renderOpChains(lo, scopeExprs);
 }
 
 function renderConditionChain(method: string, condition: LoftConditionSpec | undefined): string {
@@ -3222,6 +3641,7 @@ export function renderExtrudeStatement(
   ext: ExtrudeEditOptions,
   profileVar: string | null,
   faceExpr: string | null = null,
+  scopeExprs: string[] = [],
 ): string {
   const callee = ext.op === 'remove' ? 'cut' : 'extrude';
   const callArgs: string[] = [];
@@ -3256,7 +3676,7 @@ export function renderExtrudeStatement(
   if (ext.op === 'new') {
     statement += '.new()';
   }
-  return statement;
+  return statement + renderScopeChain(scopeExprs);
 }
 
 /**
@@ -3290,10 +3710,7 @@ export function renderRibStatement(
   } else if (rib.op === 'new') {
     statement += '.new()';
   }
-  if (scopeExprs.length > 0) {
-    statement += `.scope(${scopeExprs.join(', ')})`;
-  }
-  return statement;
+  return statement + renderScopeChain(scopeExprs);
 }
 
 /**
@@ -3381,6 +3798,9 @@ export function renderPlaneBaseExprs(
  * variable as the trailing argument — plus `.thin(…)` and `.new()` chains.
  */
 function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[], indent: string): string {
+  /** The bound variable names of a create spec's `.scope(…)` producers. */
+  const scopeVarNames = (scope: number[] | undefined): string[] =>
+    (scope ?? []).map(p => bindings[p].varName!);
   if (spec.feature === 'extrude') {
     const target = spec.extrude!.toFace;
     let faceExpr: string | null = null;
@@ -3390,12 +3810,12 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     } else if (target !== undefined) {
       faceExpr = renderFaceTargetExpr(target);
     }
-    return renderExtrudeStatement(spec.extrude!, bindings[0].varName, faceExpr);
+    return renderExtrudeStatement(spec.extrude!, bindings[0].varName, faceExpr, scopeVarNames(spec.extrude!.scope));
   }
   if (spec.feature === 'rib') {
     const rb = spec.rib!;
     const spineVar = rb.spine === 'bound' ? bindings[0].varName : null;
-    return renderRibStatement(rb, spineVar, rb.scope.map(p => bindings[p].varName!));
+    return renderRibStatement(rb, spineVar, scopeVarNames(rb.scope));
   }
   if (spec.feature === 'sweep') {
     const sw = spec.sweep!;
@@ -3403,7 +3823,7 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
       ? bindings[sw.path.producer].varName!
       : renderSelectorArgs(spec, bindings);
     const profileVar = sw.profile === 'implicit' ? null : bindings[sw.profile.producer].varName!;
-    return renderSweepStatement(sw, pathExpr, profileVar);
+    return renderSweepStatement(sw, pathExpr, profileVar, scopeVarNames(sw.scope));
   }
   if (spec.feature === 'wrap') {
     const wr = spec.wrap!;
@@ -3414,7 +3834,9 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'revolve') {
     const rev = spec.revolve!;
     const axisExpr = renderRevolveAxisExpr(rev.axis, spec.parts, i => bindings[i].varName);
-    return renderRevolveStatement(rev, axisExpr, rev.profile === 'bound' ? bindings[0].varName : null);
+    return renderRevolveStatement(
+      rev, axisExpr, rev.profile === 'bound' ? bindings[0].varName : null, scopeVarNames(rev.scope),
+    );
   }
   if (spec.feature === 'helix') {
     const hx = spec.helix!;
@@ -3463,7 +3885,7 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
       return renderSelectorPartExpr(part, part.producer === null ? null : bindings[part.producer].varName, i => bindings[i].varName);
     });
     const guideExprs = (lo.guides ?? []).map(guide => bindings[guide.producer].varName!);
-    return renderLoftStatement(lo, profileExprs, guideExprs);
+    return renderLoftStatement(lo, profileExprs, guideExprs, scopeVarNames(lo.scope));
   }
   if (spec.feature === 'plane') {
     const pl = spec.plane!;
@@ -3486,6 +3908,10 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     const anchor = spec.rawArgs?.trim() ? '' : renderConnectorAnchorSuffix(co.anchor);
     return `connector('${co.name}', ${args}${anchor})${renderConnectorChain(co)}`;
   }
+  if (spec.feature === 'expose') {
+    // The name is a validated identifier, so the quoting is safe.
+    return `expose('${spec.expose!.name}', ${args})`;
+  }
   if (spec.feature === 'chamfer') {
     return `chamfer(${renderChamferValueArgs(spec.value, spec.chamfer)}, ${args})`;
   }
@@ -3505,6 +3931,9 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   }
   if (spec.feature === 'tarc') {
     return renderTarcStatement(spec.value, args);
+  }
+  if (spec.feature === 'aline') {
+    return renderAlineStatement(spec.value, args, spec.aline);
   }
   if (spec.feature === 'text') {
     return renderTextStatement(spec.text!, args);
@@ -3550,6 +3979,21 @@ export function renderSlotStatement(
  */
 export function renderTarcStatement(value: ValueExpr | undefined, args: string): string {
   return `tArc(${formatValue(value)}, ${args})`;
+}
+
+/**
+ * An angled-line-to-intersection statement: `aLine(30, l)` — the angle first,
+ * then the target geometry the line runs to; an explicit chain-start address
+ * rides as the first argument (`aLine([10, 5], 30, l)`). Shared with the
+ * route's preview so the previewed text is exactly what the transform writes.
+ */
+export function renderAlineStatement(
+  value: ValueExpr | undefined,
+  args: string,
+  aline?: AlineEditOptions,
+): string {
+  const start = aline?.start !== undefined ? `${aline.start}, ` : '';
+  return `aLine(${start}${formatValue(value)}, ${args})`;
 }
 
 /** Negate an argument's source text: `12` → `-12`, `r` → `-r`, else `-(…)`. */
@@ -3803,10 +4247,14 @@ function resolveInsertion(
   if (spec.feature === 'project') {
     return resolveSketchBodyInsertion(spec.project!.sketch, bindings, lines, tree);
   }
-  // A connector registers on the enclosing part, so it lands inside that
-  // part's callback body rather than in the producers' hoisted scope.
+  // A connector or exposure registers on the enclosing part, so it lands
+  // inside that part's callback body rather than in the producers' hoisted
+  // scope.
   if (spec.feature === 'connector') {
     return resolvePartBodyInsertion(spec.connector!.part, bindings, lines, tree);
+  }
+  if (spec.feature === 'expose') {
+    return resolvePartBodyInsertion(spec.expose!.part, bindings, lines, tree);
   }
   return findInsertionPoint(scope, lines, bindings);
 }
@@ -3845,6 +4293,13 @@ function resolveSketchBodyInsertion(
   }
 
   const children = body.namedChildren;
+  // Land before an active breakpoint(); — a paused build never runs
+  // statements after it, so the projection would silently not appear.
+  const breakpointStmt = children.find(isBreakpointStatement);
+  if (breakpointStmt) {
+    const indent = indentOf(lines, breakpointStmt.startPosition.row);
+    return { index: breakpointStmt.startIndex, indent, wrap: (stmt) => `${stmt}\n${indent}` };
+  }
   const last = children.length > 0 ? children[children.length - 1] : null;
   if (last) {
     const indent = indentOf(lines, last.startPosition.row);
@@ -3894,7 +4349,7 @@ function resolvePartBodyInsertion(
   if (outside) {
     return {
       error: 'the picked geometry is declared outside this part() body — '
-        + 'only features inside the part can source its connectors',
+        + 'only features inside the part can source its connectors and exposures',
     };
   }
 
@@ -4070,6 +4525,21 @@ export type ParsedPlaneBase = {
 };
 
 /**
+ * A statement's parsed `.scope(…)` chain, shared by every feature that
+ * writes one (rib, extrude, sweep, loft, revolve). `scopeTexts` carries the
+ * argument expressions verbatim; `scopeRefs` (same length) carries the
+ * source location of the feature statement each argument references — a
+ * plain identifier's bound call — or null when it names none; it lets the
+ * edit dialog seed scope chips as their solid rows.
+ */
+export type ParsedScopeChain = {
+  /** `.scope(…)` argument texts, verbatim; empty when the chain is absent. */
+  scopeTexts: string[];
+  /** Statement location per argument, or null (same length as `scopeTexts`). */
+  scopeRefs: ({ line: number; column: number } | null)[];
+};
+
+/**
  * An existing statement's dialog-editable reading. Argument expressions the
  * dialogs don't edit (profiles, paths, selector args) are carried as
  * verbatim source text and re-emitted unchanged; numeric options must be
@@ -4077,7 +4547,7 @@ export type ParsedPlaneBase = {
  * not this dialog.
  */
 export type ParsedFeatureStatement =
-  | {
+  | (ParsedScopeChain & {
     feature: 'extrude';
     op: 'add' | 'remove' | 'new';
     /** null = through-all remove (`cut()` with no distance). */
@@ -4100,8 +4570,8 @@ export type ParsedFeatureStatement =
      * literal; null for a distance extrude.
      */
     toFaceKind: ExtrudeTargetKind | null;
-  }
-  | {
+  })
+  | (ParsedScopeChain & {
     feature: 'rib';
     op: 'add' | 'remove' | 'new';
     /** Wall thickness; the sign picks the side of the sketch plane. */
@@ -4112,23 +4582,14 @@ export type ParsedFeatureStatement =
     draft: ValueExpr | null;
     /** Trailing spine argument text (`s`), or null for implicit consumption. */
     spineText: string | null;
-    /** `.scope(…)` argument texts, verbatim; empty when the chain is absent. */
-    scopeTexts: string[];
-    /**
-     * Source location of the feature statement each scope argument references
-     * (a plain identifier's bound call), or null when it names none. Same
-     * length as `scopeTexts`; lets the edit dialog seed scope chips as their
-     * solid rows.
-     */
-    scopeRefs: ({ line: number; column: number } | null)[];
-  }
-  | {
+  })
+  | (ParsedScopeChain & {
     feature: 'sweep';
     op: 'add' | 'remove' | 'new';
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
     pathText: string;
     profileText: string | null;
-  }
+  })
   | {
     feature: 'wrap';
     op: 'add' | 'remove' | 'new';
@@ -4139,7 +4600,7 @@ export type ParsedFeatureStatement =
     /** Target face argument text, verbatim (`e.sideFaces(0)`). */
     faceText: string;
   }
-  | {
+  | (ParsedScopeChain & {
     feature: 'revolve';
     op: 'add' | 'remove' | 'new';
     /** Sweep angle in degrees; null = omitted (the 360° API default). */
@@ -4151,7 +4612,7 @@ export type ParsedFeatureStatement =
     axisText: string;
     /** Trailing profile argument text (`s`), or null for implicit consumption. */
     profileText: string | null;
-  }
+  })
   | {
     feature: 'helix';
     /** Source argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`, `e.sideFaces(0)`). */
@@ -4166,7 +4627,7 @@ export type ParsedFeatureStatement =
     startOffset: ValueExpr | null;
     endOffset: ValueExpr | null;
   }
-  | {
+  | (ParsedScopeChain & {
     feature: 'loft';
     op: 'add' | 'remove' | 'new';
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
@@ -4174,7 +4635,7 @@ export type ParsedFeatureStatement =
     guideTexts: string[];
     startCondition: LoftConditionSpec | null;
     endCondition: LoftConditionSpec | null;
-  }
+  })
   | {
     feature: 'shell';
     value: ValueExpr;
@@ -4446,14 +4907,14 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
  * statement, so that shape refuses to parse.
  */
 const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
-  extrude: new Set(['symmetric', 'draft', 'endOffset', 'drill', 'thin', 'remove', 'new']),
+  extrude: new Set(['symmetric', 'draft', 'endOffset', 'drill', 'thin', 'remove', 'new', 'scope']),
   rib: new Set(['parallel', 'extend', 'draft', 'remove', 'new', 'scope']),
-  sweep: new Set(['thin', 'remove', 'new']),
-  loft: new Set(['guides', 'startCondition', 'endCondition', 'thin', 'remove', 'new']),
+  sweep: new Set(['thin', 'remove', 'new', 'scope']),
+  loft: new Set(['guides', 'startCondition', 'endCondition', 'thin', 'remove', 'new', 'scope']),
   shell: new Set(['join']),
   fillet: new Set(),
   chamfer: new Set(),
-  revolve: new Set(['symmetric', 'thin', 'remove', 'new']),
+  revolve: new Set(['symmetric', 'thin', 'remove', 'new', 'scope']),
   text: new Set(['font', 'size', 'weight', 'bold', 'italic', 'align', 'lineSpacing', 'letterSpacing', 'offset', 'startAt', 'flip']),
   // Wrap has no thin mode — only the boolean-operation chains.
   wrap: new Set(['remove', 'new']),
@@ -4711,6 +5172,19 @@ type ChainParse =
  * member — the range an edit replaces; a `const x = ` binding before it and
  * unrecognized chained calls after it survive untouched.
  */
+/**
+ * Read a chain's recognized `.scope(…)` member into its parsed texts + refs
+ * (both empty when the chain is absent) — shared by every feature that
+ * writes one (rib, extrude, sweep, loft, revolve).
+ */
+function parseScopeSegment(recognized: Map<string, ChainSegment>, start: number): ParsedScopeChain {
+  const scopeNodes = recognized.get('scope')?.args ?? [];
+  return {
+    scopeTexts: scopeNodes.map(n => n.text),
+    scopeRefs: scopeNodes.map(n => resolveRepeatTargetRef(n, start)),
+  };
+}
+
 function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> = new Set()): ChainParse {
   const chain = decomposeChain(call);
   if (!chain) {
@@ -5063,6 +5537,7 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       parsed: {
         feature, op, distance, distance2, symmetric, draft, endOffset, drill, thin,
         profileText, toFaceText, toFaceKind,
+        ...parseScopeSegment(recognized, start),
       },
       start,
       end,
@@ -5109,9 +5584,6 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       }
     }
 
-    const scopeSeg = recognized.get('scope');
-    const scopeNodes = scopeSeg ? scopeSeg.args : [];
-
     return {
       parsed: {
         feature,
@@ -5121,8 +5593,7 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
         extend: extendSeg !== undefined,
         draft,
         spineText,
-        scopeTexts: scopeNodes.map(n => n.text),
-        scopeRefs: scopeNodes.map(n => resolveRepeatTargetRef(n, start)),
+        ...parseScopeSegment(recognized, start),
       },
       start,
       end,
@@ -5134,7 +5605,10 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       return { error: 'the sweep has more arguments than the dialog understands' };
     }
     return {
-      parsed: { feature, op, thin, pathText: args[0].text, profileText: args[1]?.text ?? null },
+      parsed: {
+        feature, op, thin, pathText: args[0].text, profileText: args[1]?.text ?? null,
+        ...parseScopeSegment(recognized, start),
+      },
       start,
       end,
     };
@@ -5187,7 +5661,10 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
     }
     const symmetric = symmetricSeg !== undefined;
     return {
-      parsed: { feature, op, angle, symmetric, thin, axisText, profileText: rest[0]?.text ?? null },
+      parsed: {
+        feature, op, angle, symmetric, thin, axisText, profileText: rest[0]?.text ?? null,
+        ...parseScopeSegment(recognized, start),
+      },
       start,
       end,
     };
@@ -5286,6 +5763,7 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       guideTexts: guideSeg ? guideSeg.args.map(a => a.text) : [],
       startCondition: startParse.condition,
       endCondition: endParse.condition,
+      ...parseScopeSegment(recognized, start),
     },
     start,
     end,
@@ -7426,6 +7904,49 @@ function renderEditedPlane(
  * text. Shared with the route's preview so the previewed text is exactly
  * what the transform writes.
  */
+/**
+ * Resolve an edited statement's replacement `.scope(…)` list into rendered
+ * expressions: `verbatim` keeps re-read the statement's own argument texts
+ * by position, re-picked solids render their bound producers' variables. An
+ * absent list keeps the statement's own texts; an EMPTY list is legal — it
+ * drops the chain (whole-scene fusion). Shared by every feature that writes
+ * the chain (rib, extrude, sweep, loft, revolve).
+ */
+function resolveEditedScopeExprs(
+  spec: EditRenderSpec,
+  feature: string,
+  scope: RepeatEditTargetSource[] | undefined,
+  scopeTexts: string[],
+  varFor: (producer: number) => string | null,
+): { exprs: string[] } | { error: string } {
+  if (scope === undefined) {
+    return { exprs: scopeTexts };
+  }
+  if (!Array.isArray(scope)) {
+    return { error: `malformed ${feature} edit spec` };
+  }
+  const usedVerbatim = new Set<number>();
+  const exprs: string[] = [];
+  for (const target of scope) {
+    if (target?.kind === 'verbatim') {
+      if (!Number.isInteger(target.sourceIndex) || target.sourceIndex < 0
+        || target.sourceIndex >= scopeTexts.length || usedVerbatim.has(target.sourceIndex)) {
+        return { error: `malformed ${feature} edit spec: a kept scope target no longer matches the statement` };
+      }
+      usedVerbatim.add(target.sourceIndex);
+      exprs.push(scopeTexts[target.sourceIndex]);
+    } else if (target?.kind === 'feature') {
+      if (!isScopeTargetProducer(spec as ApplyFeatureEditSpec, target.producer)) {
+        return { error: `malformed ${feature} edit spec: a scope target references a non-feature producer` };
+      }
+      exprs.push(varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f');
+    } else {
+      return { error: `malformed ${feature} edit spec: unknown scope target kind` };
+    }
+  }
+  return { exprs };
+}
+
 export function renderEditedStatement(
   parsed: ParsedFeatureStatement,
   spec: EditRenderSpec,
@@ -7499,12 +8020,17 @@ export function renderEditedStatement(
       }
       profileText = varName;
     }
-    const { toFace, ...rest } = opts;
+    const scope = resolveEditedScopeExprs(spec, 'extrude', opts.scope, parsed.scopeTexts, varFor);
+    if ('error' in scope) {
+      return scope;
+    }
+    const { toFace, scope: _scope, ...rest } = opts;
     return {
       statement: renderExtrudeStatement(
         { ...rest, profile: profileText ? 'bound' : 'implicit', toFace: target },
         profileText,
         faceExpr,
+        scope.exprs,
       ),
     };
   }
@@ -7527,38 +8053,12 @@ export function renderEditedStatement(
       }
       spineText = varName;
     }
-    // The scope list mirrors an edited copy's targets: `verbatim` keeps
-    // re-read the statement's own argument texts by position, re-picked
-    // solids render their bound producers' variables. Unlike a copy an
-    // EMPTY list is legal — it drops the chain (whole-scene fusion).
-    let scopeExprs = parsed.scopeTexts;
-    if (opts.scope !== undefined) {
-      if (!Array.isArray(opts.scope)) {
-        return { error: 'malformed rib edit spec' };
-      }
-      const usedVerbatim = new Set<number>();
-      const exprs: string[] = [];
-      for (const target of opts.scope) {
-        if (target?.kind === 'verbatim') {
-          if (!Number.isInteger(target.sourceIndex) || target.sourceIndex < 0
-            || target.sourceIndex >= parsed.scopeTexts.length || usedVerbatim.has(target.sourceIndex)) {
-            return { error: 'malformed rib edit spec: a kept scope target no longer matches the statement' };
-          }
-          usedVerbatim.add(target.sourceIndex);
-          exprs.push(parsed.scopeTexts[target.sourceIndex]);
-        } else if (target?.kind === 'feature') {
-          if (!isFeatureProducer(spec as ApplyFeatureEditSpec, target.producer)) {
-            return { error: 'malformed rib edit spec: a scope target references a non-feature producer' };
-          }
-          exprs.push(varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f');
-        } else {
-          return { error: 'malformed rib edit spec: unknown scope target kind' };
-        }
-      }
-      scopeExprs = exprs;
+    const scope = resolveEditedScopeExprs(spec, 'rib', opts.scope, parsed.scopeTexts, varFor);
+    if ('error' in scope) {
+      return scope;
     }
     return {
-      statement: renderRibStatement(opts, spineText, scopeExprs),
+      statement: renderRibStatement(opts, spineText, scope.exprs),
     };
   }
   if (parsed.feature === 'sweep') {
@@ -7592,8 +8092,12 @@ export function renderEditedStatement(
       }
       profileText = varName;
     }
+    const scope = resolveEditedScopeExprs(spec, 'sweep', opts.scope, parsed.scopeTexts, varFor);
+    if ('error' in scope) {
+      return scope;
+    }
     return {
-      statement: renderSweepStatement({ op: opts.op, thin: opts.thin }, pathText, profileText),
+      statement: renderSweepStatement({ op: opts.op, thin: opts.thin }, pathText, profileText, scope.exprs),
     };
   }
   if (parsed.feature === 'wrap') {
@@ -7654,9 +8158,14 @@ export function renderEditedStatement(
       }
       profileText = varName;
     }
+    const scope = resolveEditedScopeExprs(spec, 'revolve', opts.scope, parsed.scopeTexts, varFor);
+    if ('error' in scope) {
+      return scope;
+    }
     return {
       statement: renderRevolveStatement(
-        { op: opts.op, angle: opts.angle, symmetric: opts.symmetric, thin: opts.thin }, axisExpr, profileText,
+        { op: opts.op, angle: opts.angle, symmetric: opts.symmetric, thin: opts.thin },
+        axisExpr, profileText, scope.exprs,
       ),
     };
   }
@@ -7706,11 +8215,16 @@ export function renderEditedStatement(
     if (sources.guideExprs.length > 0 && opts.thin) {
       return { error: 'loft guides cannot be combined with thin walls' };
     }
+    const scope = resolveEditedScopeExprs(spec, 'loft', opts.scope, parsed.scopeTexts, varFor);
+    if ('error' in scope) {
+      return scope;
+    }
     return {
       statement: renderLoftStatement(
         { op: opts.op, thin: opts.thin, startCondition: opts.startCondition, endCondition: opts.endCondition },
         sources.profileExprs,
         sources.guideExprs,
+        scope.exprs,
       ),
     };
   }

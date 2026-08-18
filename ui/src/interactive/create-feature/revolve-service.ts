@@ -4,16 +4,18 @@ import {
   RevolveEditOptions, SourceSlotRef,
 } from '../../api';
 import { toggleEntity } from '../../helpers/entities';
-import { SceneObjectRender, SubSelection } from '../../types';
+import { SceneObjectRender, SourceLocation, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
+import { SolidPickSelection } from '../solid-pick';
 import { RevolvePanel } from './revolve-panel';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
+import { enclosingPartLocOf, ScopeTargetList, scopePartLocation } from './scope-targets';
 import {
   collectSketchProfiles, labelWithSketchNames, optionsSignature, resolveSketchByShapeId, resolveSketchRow,
   SketchProfileOption, sketchWireShapeIds,
@@ -49,6 +51,12 @@ export class RevolveFeatureService {
   private sketchUI: SketchUISuspender;
   /** The picked axis edge (the axis slot's `edge` mode), or null. */
   private axisEdgeEntity: SelectedEntity | null = null;
+  /** The `.scope(…)` targets, part-restricted whole-solid picks. */
+  private scope = new ScopeTargetList();
+  /** The edited statement's enclosing part — the scope picker's restriction. */
+  private editPartLoc: SourceLocation | null = null;
+  /** The shared whole-solid highlight (the scope chips' viewport echo). */
+  private solidPick: SolidPickSelection;
   /** Statement being edited in place (timeline double-click), or null. */
   private editTarget: FeatureEditTarget | null = null;
   /** View-state half of edit mode: pre-statement rollback + boundary. */
@@ -90,13 +98,16 @@ export class RevolveFeatureService {
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
     this.ghost = new FeatureGhostOverlay(viewer);
+    this.solidPick = new SolidPickSelection(viewer, { multiple: true });
 
     this.panel = new RevolvePanel(container);
     this.panel.onApply = () => void this.runner.apply();
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
-      this.refreshHighlight();
+      // The profile choice drives the scope's part restriction (producers
+      // win — the statement inserts in the profile's scope).
+      this.refreshScope();
       this.runner.schedulePreview();
     };
     this.panel.onAxisModeChange = () => {
@@ -106,6 +117,12 @@ export class RevolveFeatureService {
       this.refreshHighlight();
     };
     this.panel.onArmedSlotChange = () => this.syncPickChannels();
+    this.panel.onRemoveScope = (index) => {
+      this.scope.removeAt(index);
+      this.panel.setMessage(null);
+      this.refreshScope();
+      this.runner.schedulePreview();
+    };
 
     this.runner = new ApplyRunner({
       panel: this.panel,
@@ -204,11 +221,14 @@ export class RevolveFeatureService {
       }
       return;
     }
-    // At the boundary: rebuild options from the pre-statement scene.
+    // At the boundary: rebuild options from the pre-statement scene. A keep
+    // chip whose argument named a statement becomes that statement's option.
     this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.profiles = collectSketchProfiles(sceneObjects);
     this.axes = collectAxisOptions(sceneObjects);
+    this.scope.setScene(sceneObjects, this.scopePartLoc(), { resolveKeeps: true });
+    this.panel.setScopeChips(this.scope.chips());
     if (this.editSceneStale) {
       this.editSceneStale = false;
       // A scene rebuild killed the re-picked edge's shape id; the keep chip
@@ -259,11 +279,14 @@ export class RevolveFeatureService {
     }
     this.syncPickChannels();
     // Shape ids changed with the render — a picked axis edge is stale and
-    // drops back to the pick prompt.
+    // drops back to the pick prompt. Chosen scope solids re-match by source
+    // line instead.
     if (this.axisEdgeEntity) {
       this.axisEdgeEntity = null;
       this.panel.setAxisEdgeChip(null);
     }
+    this.scope.setScene(sceneObjects, this.scopePartLoc());
+    this.panel.setScopeChips(this.scope.chips());
     this.panel.setOptions(this.profiles, this.axes);
     this.refreshLabels();
     this.refreshHighlight();
@@ -293,6 +316,10 @@ export class RevolveFeatureService {
     this.axisEdgeEntity = null;
     this.sourceSlots = null;
     this.editSceneStale = false;
+    // The statement's enclosing part restricts the scope picker — derived
+    // from the pre-rollback scene, where the edited row still renders.
+    this.editPartLoc = enclosingPartLocOf(target, this.sceneObjects);
+    this.scope.seedKeeps(parsed, target.filePath);
     this.syncButton();
     this.sketchUI.suspend();
     this.session.begin({ ...info, target });
@@ -306,6 +333,7 @@ export class RevolveFeatureService {
       axisLabel: parsed.axisText,
       profileLabel: parsed.profileText,
     });
+    this.panel.setScopeChips(this.scope.chips());
     this.syncPickChannels();
     this.runner.schedulePreview();
   }
@@ -343,6 +371,8 @@ export class RevolveFeatureService {
     this.hooks.onEnter?.();
     this.armed = true;
     this.axisEdgeEntity = null;
+    this.scope.clear();
+    this.editPartLoc = null;
     // Composing a revolve means looking at the whole scene, not down the
     // active sketch plane — leave sketch editing right away (resumed on
     // cancel; an apply's re-render takes over).
@@ -354,7 +384,7 @@ export class RevolveFeatureService {
     this.panel.show(this.profiles, this.axes);
     this.syncPickChannels();
     this.refreshLabels();
-    this.refreshHighlight();
+    this.refreshScope();
     this.runner.schedulePreview();
   }
 
@@ -378,6 +408,9 @@ export class RevolveFeatureService {
     this.sourceSlots = null;
     this.editSceneStale = false;
     this.axisEdgeEntity = null;
+    this.scope.clear();
+    this.editPartLoc = null;
+    this.solidPick.set([]);
     this.syncButton();
     this.runner.cancelPreview();
     // The overlay is a compiledMesh sibling, so no render tears it down —
@@ -398,6 +431,17 @@ export class RevolveFeatureService {
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
     if (!this.isAxisPicking || !shapeId || !sub) {
+      return;
+    }
+    // The armed scope slot takes any face or edge click as a whole-solid
+    // toggle; axis lines keep their meaning (they never scope anything).
+    if (this.panel.armedSlot === 'scope' && (sub.type === 'face' || sub.type === 'edge')) {
+      const option = this.scope.optionForShapeId(shapeId);
+      if (!option) {
+        this.panel.setMessage('That shape cannot scope the boolean — pick a solid in the same part.');
+        return;
+      }
+      this.toggleScope(option);
       return;
     }
     if (sub.type === 'axis') {
@@ -438,11 +482,18 @@ export class RevolveFeatureService {
       return true;
     }
     const sketch = resolveSketchRow(obj, this.sceneObjects);
-    if (!sketch?.sourceLocation) {
-      return false;
+    if (sketch?.sourceLocation) {
+      this.pickSketch(sketch);
+      return true;
     }
-    this.pickSketch(sketch);
-    return true;
+    // A solid row toggles it in the scope list — unambiguous, so no arming
+    // is needed. Rows outside the scope's part fall through untouched.
+    const option = this.scope.optionForRow(obj);
+    if (option && this.panel.op !== 'new') {
+      this.toggleScope(option);
+      return true;
+    }
+    return false;
   }
 
   /** A sketch wire was clicked in the 3D view: selects it as the profile. */
@@ -608,6 +659,9 @@ export class RevolveFeatureService {
         column: profile.column,
       },
       axis,
+      // A separate body has no boolean to scope — the hidden section's picks
+      // stay parked in case the user switches back.
+      scope: values.op === 'new' ? undefined : this.scope.createRefs(),
     };
   }
 
@@ -650,6 +704,9 @@ export class RevolveFeatureService {
       thin: values.thin,
       profile,
       axis,
+      // The dialog owns the chain it shows: the full list on Add/Remove, an
+      // explicit drop on New (`.new()` resets the fusion scope).
+      scope: values.op === 'new' ? [] : this.scope.editRefs(),
       expectedStatement: this.session.expectedStatement,
       before: axis?.kind === 'edge' ? this.session.boundary ?? undefined : undefined,
     };
@@ -658,17 +715,51 @@ export class RevolveFeatureService {
   /**
    * The viewer's pick channels follow the panel's armed slot, so the slot
    * border says exactly where the next 3D click lands: profile armed →
-   * sketch wires only; axis armed → solid edges and axis lines only.
-   * Timeline rows are typed and always route (re-arming their slot).
+   * sketch wires only; axis armed → solid edges and axis lines only; scope
+   * armed → everything, resolved to whole solids. Timeline rows are typed
+   * and always route (re-arming their slot).
    */
   private syncPickChannels(): void {
     if (!this.armed) {
       return;
     }
     const axisArmed = this.panel.armedSlot === 'axis';
+    const scopeArmed = this.panel.armedSlot === 'scope';
     this.viewer.pickSketchWires = !axisArmed;
     this.viewer.pickAxes = axisArmed;
-    this.viewer.pickFilter = axisArmed ? 'edge' : 'none';
+    this.viewer.pickFilter = scopeArmed ? 'all' : axisArmed ? 'edge' : 'none';
+  }
+
+  /**
+   * The part the scope picker is restricted to: the edited statement's own
+   * enclosing part, or — create mode — the chosen profile's (producers win:
+   * the statement inserts in the profile's scope), falling back to the
+   * timeline's active part.
+   */
+  private scopePartLoc(): SourceLocation | null {
+    if (this.editTarget) {
+      return this.editPartLoc;
+    }
+    const option = this.panel.selectedProfile();
+    return scopePartLocation(option ? { filePath: option.filePath, line: option.line } : null, this.sceneObjects);
+  }
+
+  /** Recompute the offered scope solids, the chips and the highlight. */
+  private refreshScope(): void {
+    if (!this.armed) {
+      return;
+    }
+    this.scope.setScene(this.sceneObjects, this.scopePartLoc());
+    this.panel.setScopeChips(this.scope.chips());
+    this.refreshHighlight();
+  }
+
+  /** Toggle a solid scope chip (viewport or timeline pick). */
+  private toggleScope(option: NonNullable<ReturnType<ScopeTargetList['optionForRow']>>): void {
+    this.scope.toggle(option);
+    this.panel.setMessage(null);
+    this.refreshScope();
+    this.runner.schedulePreview();
   }
 
   /**
@@ -716,11 +807,9 @@ export class RevolveFeatureService {
       entities.push(...this.sourceSlots.axis.entities.map(e => ({ shapeId: e.shapeId, sub: e.sub })));
     }
 
-    if (wireIds.length > 0 || entities.length > 0) {
-      this.viewer.highlightEntities(entities, wireIds);
-    } else {
-      this.viewer.clearHighlight();
-    }
+    // The chosen scope solids ride the same pass, highlighted whole.
+    this.solidPick.set(this.scope.shapeIds());
+    this.solidPick.refreshHighlight({ entities, wireIds });
   }
 
   private syncButton(): void {

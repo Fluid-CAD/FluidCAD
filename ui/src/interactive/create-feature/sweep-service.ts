@@ -7,15 +7,17 @@ import { mergeUniqueEntities } from '../../helpers/entities';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { PickSelection } from '../pick-selection';
 import { SelectionContextMenu } from '../selection-menu';
-import { SceneObjectRender, SubSelection } from '../../types';
+import { SceneObjectRender, SourceLocation, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
+import { SolidPickSelection } from '../solid-pick';
 import { SweepPanel } from './sweep-panel';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
+import { enclosingPartLocOf, ScopeTargetList, scopePartLocation } from './scope-targets';
 import {
   collectWireSources, labelWithSketchNames, optionsSignature, resolveWireByShapeId, resolveWireRow,
   SketchProfileOption, sketchWireShapeIds,
@@ -62,6 +64,12 @@ export class SweepFeatureService {
   private picks = new PickSelection();
   /** The rendered path chip rows — chip index to pick members. */
   private pathChipRows: { label: string; members: SelectedEntity[] }[] = [];
+  /** The `.scope(…)` targets, part-restricted whole-solid picks. */
+  private scope = new ScopeTargetList();
+  /** The edited statement's enclosing part — the scope picker's restriction. */
+  private editPartLoc: SourceLocation | null = null;
+  /** The shared whole-solid highlight (the scope chips' viewport echo). */
+  private solidPick: SolidPickSelection;
   private selectionMenu: SelectionContextMenu;
   private runner: ApplyRunner<SweepApplyOptions | SweepEditRequest>;
   private relabeler: OptionRelabeler<SketchProfileOption[]>;
@@ -96,16 +104,26 @@ export class SweepFeatureService {
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
     this.ghost = new FeatureGhostOverlay(viewer);
+    this.solidPick = new SolidPickSelection(viewer, { multiple: true });
 
     this.panel = new SweepPanel(container);
     this.panel.onApply = () => void this.runner.apply();
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
-      this.refreshHighlight();
+      // The profile choice drives the scope's part restriction (producers
+      // win — the statement inserts in the profile's scope).
+      this.refreshScope();
       this.runner.schedulePreview();
     };
     this.panel.onPathModeChange = () => this.syncPathMode();
+    this.panel.onArmedSlotChange = () => this.syncPickFilter();
+    this.panel.onRemoveScope = (index) => {
+      this.scope.removeAt(index);
+      this.panel.setMessage(null);
+      this.refreshScope();
+      this.runner.schedulePreview();
+    };
     this.panel.onRemovePathChip = (index) => this.removePathChip(index);
     this.panel.onPathChipHover = (index) => {
       // Hovering a chip shows just that chip's edges, so the row can be told
@@ -223,10 +241,13 @@ export class SweepFeatureService {
       }
       return;
     }
-    // At the boundary: rebuild options from the pre-statement scene.
+    // At the boundary: rebuild options from the pre-statement scene. A keep
+    // chip whose argument named a statement becomes that statement's option.
     this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.profiles = collectWireSources(sceneObjects);
+    this.scope.setScene(sceneObjects, this.scopePartLoc(), { resolveKeeps: true });
+    this.panel.setScopeChips(this.scope.chips());
     this.hideContextMenu();
     if (this.editSceneStale) {
       this.editSceneStale = false;
@@ -276,9 +297,12 @@ export class SweepFeatureService {
       this.sketchUI.suspend();
     }
     this.viewer.pickSketchWires = true;
-    this.viewer.pickFilter = 'edge';
-    // Shape ids changed with the render; the viewer already cleared highlights.
+    this.syncPickFilter();
+    // Shape ids changed with the render; the viewer already cleared
+    // highlights. Chosen scope solids re-match by source line instead.
     this.picks.clear();
+    this.scope.setScene(sceneObjects, this.scopePartLoc());
+    this.panel.setScopeChips(this.scope.chips());
     this.panel.setOptions(this.profiles, this.hasSolid);
     void this.relabeler.refresh(this.profiles);
     this.refreshPathChips();
@@ -311,10 +335,13 @@ export class SweepFeatureService {
     this.sourceSlots = null;
     this.pathSeedApplied = false;
     this.editSceneStale = false;
+    // The statement's enclosing part restricts the scope picker — derived
+    // from the pre-rollback scene, where the edited row still renders.
+    this.editPartLoc = enclosingPartLocOf(target, this.sceneObjects);
+    this.scope.seedKeeps(parsed, target.filePath);
     this.syncButton();
     this.sketchUI.suspend();
     this.viewer.pickSketchWires = true;
-    this.viewer.pickFilter = 'edge';
     this.session.begin({ ...info, target });
     void this.loadEditSources();
     void this.refreshScopeVariables();
@@ -324,6 +351,8 @@ export class SweepFeatureService {
       pathLabel: parsed.pathText,
       profileLabel: parsed.profileText,
     });
+    this.panel.setScopeChips(this.scope.chips());
+    this.syncPickFilter();
     this.runner.schedulePreview();
   }
 
@@ -369,6 +398,8 @@ export class SweepFeatureService {
     this.session.end('continue');
     this.hooks.onEnter?.();
     this.armed = true;
+    this.scope.clear();
+    this.editPartLoc = null;
     // Composing a sweep means looking at the whole scene, not down the
     // active sketch plane — leave sketch editing right away (resumed on
     // cancel; an apply's re-render takes over).
@@ -376,13 +407,13 @@ export class SweepFeatureService {
       this.sketchUI.suspend();
     }
     this.viewer.pickSketchWires = true;
-    this.viewer.pickFilter = 'edge';
     this.syncButton();
     void this.refreshScopeVariables();
     this.panel.show(this.profiles, this.hasSolid);
+    this.syncPickFilter();
     void this.relabeler.refresh(this.profiles);
     this.refreshPathChips();
-    this.refreshHighlight();
+    this.refreshScope();
     this.runner.schedulePreview();
   }
 
@@ -406,6 +437,9 @@ export class SweepFeatureService {
     this.sourceSlots = null;
     this.pathSeedApplied = false;
     this.editSceneStale = false;
+    this.scope.clear();
+    this.editPartLoc = null;
+    this.solidPick.set([]);
     this.syncButton();
     this.runner.cancelPreview();
     // The overlay is a compiledMesh sibling, so no render tears it down —
@@ -429,6 +463,20 @@ export class SweepFeatureService {
    * deselects its whole chain), empty-space clicks keep the selection.
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
+    // The armed scope slot takes any face or edge click as a whole-solid
+    // toggle instead of a path edge.
+    if (this.armed && this.panel.armedSlot === 'scope') {
+      if (!shapeId || !sub || (sub.type !== 'face' && sub.type !== 'edge')) {
+        return;
+      }
+      const option = this.scope.optionForShapeId(shapeId);
+      if (!option) {
+        this.panel.setMessage('That shape cannot scope the boolean — pick a solid in the same part.');
+        return;
+      }
+      this.toggleScope(option);
+      return;
+    }
     if (!this.isEdgePicking || !shapeId || !sub || sub.type !== 'edge') {
       return;
     }
@@ -560,11 +608,18 @@ export class SweepFeatureService {
       return false;
     }
     const sketch = resolveWireRow(obj, this.sceneObjects);
-    if (!sketch?.sourceLocation) {
-      return false;
+    if (sketch?.sourceLocation) {
+      this.pickSketch(sketch);
+      return true;
     }
-    this.pickSketch(sketch);
-    return true;
+    // A solid row toggles it in the scope list — unambiguous, so no arming
+    // is needed. Rows outside the scope's part fall through untouched.
+    const option = this.scope.optionForRow(obj);
+    if (option && this.panel.op !== 'new') {
+      this.toggleScope(option);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -586,8 +641,12 @@ export class SweepFeatureService {
   private pickSketch(sketch: SceneObjectRender): void {
     const loc = sketch.sourceLocation!;
     // A helix is a bare wire: it can only be the path, never the planar
-    // profile. Route it to the path slot regardless of which slot is armed.
-    const slot = sketch.type === 'helix' ? 'path' : this.panel.armedSlot;
+    // profile. Route it to the path slot regardless of which slot is armed;
+    // a sketch pick while the scope slot is armed lands in the path too (a
+    // sketch is never a scope solid).
+    const slot = sketch.type === 'helix' || this.panel.armedSlot === 'scope'
+      ? 'path'
+      : this.panel.armedSlot;
     if (!this.panel.selectSketch(slot, loc.filePath, loc.line)) {
       this.panel.setMessage(sketch.type === 'helix'
         ? 'That helix was already consumed — only helixes still rendered in the scene can be used.'
@@ -738,6 +797,9 @@ export class SweepFeatureService {
         column: profile.column,
       },
       path,
+      // A separate body has no boolean to scope — the hidden section's picks
+      // stay parked in case the user switches back.
+      scope: values.op === 'new' ? undefined : this.scope.createRefs(),
     };
   }
 
@@ -793,6 +855,9 @@ export class SweepFeatureService {
       thin: values.thin,
       path,
       profile,
+      // The dialog owns the chain it shows: the full list on Add/Remove, an
+      // explicit drop on New (`.new()` resets the fusion scope).
+      scope: values.op === 'new' ? [] : this.scope.editRefs(),
       expectedStatement: this.session.expectedStatement,
       before: path?.kind === 'edges' ? this.session.boundary ?? undefined : undefined,
     };
@@ -857,11 +922,53 @@ export class SweepFeatureService {
     }
     const wireIds = sketches.flatMap(option => sketchWireShapeIds(option, this.sceneObjects));
     const shown = mergeUniqueEntities(mergeUniqueEntities(this.picks.entities, keepEntities), previewMembers);
-    if (shown.length > 0 || wireIds.length > 0) {
-      this.viewer.highlightEntities(shown, wireIds);
-    } else {
-      this.viewer.clearHighlight();
+    // The chosen scope solids ride the same pass, highlighted whole.
+    this.solidPick.set(this.scope.shapeIds());
+    this.solidPick.refreshHighlight({ entities: shown, wireIds });
+  }
+
+  /**
+   * The part the scope picker is restricted to: the edited statement's own
+   * enclosing part, or — create mode — the chosen profile's (producers win:
+   * the statement inserts in the profile's scope), falling back to the
+   * timeline's active part.
+   */
+  private scopePartLoc(): SourceLocation | null {
+    if (this.editTarget) {
+      return this.editPartLoc;
     }
+    const option = this.panel.selectedProfile();
+    return scopePartLocation(option ? { filePath: option.filePath, line: option.line } : null, this.sceneObjects);
+  }
+
+  /** Recompute the offered scope solids, the chips and the highlight. */
+  private refreshScope(): void {
+    if (!this.armed) {
+      return;
+    }
+    this.scope.setScene(this.sceneObjects, this.scopePartLoc());
+    this.panel.setScopeChips(this.scope.chips());
+    this.refreshHighlight();
+  }
+
+  /** Toggle a solid scope chip (viewport or timeline pick). */
+  private toggleScope(option: NonNullable<ReturnType<ScopeTargetList['optionForRow']>>): void {
+    this.scope.toggle(option);
+    this.panel.setMessage(null);
+    this.refreshScope();
+    this.runner.schedulePreview();
+  }
+
+  /**
+   * The viewer's pick filter follows the armed slot: the scope slot opens
+   * everything (any face or edge click resolves to its owning solid), the
+   * others keep the full-time edge picking the path slot owns.
+   */
+  private syncPickFilter(): void {
+    if (!this.armed) {
+      return;
+    }
+    this.viewer.pickFilter = this.panel.armedSlot === 'scope' ? 'all' : 'edge';
   }
 
   /**

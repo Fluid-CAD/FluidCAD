@@ -3,9 +3,11 @@ import { FeaturePanel } from './feature-panel';
 import { SketchProfileOption } from './sketch-profiles';
 import { SketchSlotControl, SketchSlotSelection } from './sketch-slot';
 import { EntitySlotControl, EntitySlotSelection } from './entity-slot';
+import { ScopeSlotControl } from './scope-slot';
 import { ExtrudeFaceTarget, ExtrudeOptionValues, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
+import { PickSlotChip } from '../pick-slot';
 
 /**
  * How the extrusion distributes around the sketch plane. The last three end
@@ -31,12 +33,24 @@ export type ExtrudeValues = ExtrudeOptionValues | { error: string };
 export class ExtrudePanel extends FeaturePanel {
   /** The face chip's ✕ — the service owns the picked entity. */
   onRemoveFace?: () => void;
+  /** The scope chip at `index` was removed — the service owns the choices. */
+  onRemoveScope?: (index: number) => void;
+  /** The armed solid-pick slot moved — the service re-aims its pick channels. */
+  onArmedPickChange?: () => void;
+
+  /**
+   * Which slot whole-solid viewport picks land in: the up-to-face target or
+   * the scope list. The face slot is the default whenever it is shown;
+   * clicking either slot moves the border.
+   */
+  private armedSolidSlot: 'face' | 'scope' = 'face';
 
   private tabs: OpTabs;
   private thin: ThinControl;
   private profileSlot: SketchSlotControl;
   private faceSlot: EntitySlotControl;
   private faceSlotWrap: HTMLElement;
+  private scopeSlot: ScopeSlotControl;
   private directionSelect: HTMLSelectElement;
   private distanceWrap: HTMLElement;
   private distanceLabel: HTMLElement;
@@ -105,6 +119,7 @@ export class ExtrudePanel extends FeaturePanel {
           <input data-role="drill" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
         </label>
         <div data-role="thin-host" class="contents"></div>
+        <div data-role="scope-slot"></div>
       `,
     });
 
@@ -129,9 +144,12 @@ export class ExtrudePanel extends FeaturePanel {
       label: 'Up to face',
       prompt: 'Pick a face',
     });
-    // The slot is the live pick target the whole time it is shown.
-    this.faceSlot.setArmed(true);
     this.faceSlot.onRemove = () => this.onRemoveFace?.();
+    this.faceSlot.onArm = () => this.armSolidSlot('face');
+
+    this.scopeSlot = new ScopeSlotControl(this.role('scope-slot'));
+    this.scopeSlot.onRemove = (index) => this.onRemoveScope?.(index);
+    this.scopeSlot.onArm = () => this.armSolidSlot('scope');
 
     this.directionSelect = this.role('direction');
     this.distanceWrap = this.role('distance-wrap');
@@ -144,6 +162,11 @@ export class ExtrudePanel extends FeaturePanel {
     this.drillCheckbox = this.role('drill');
 
     this.directionSelect.addEventListener('change', () => {
+      // Entering the picked up-to-face mode re-arms its slot — the next face
+      // click is the target, not a scope solid.
+      if (this.isToFace()) {
+        this.armedSolidSlot = 'face';
+      }
       this.syncControls();
       this.onChange?.();
     });
@@ -172,6 +195,8 @@ export class ExtrudePanel extends FeaturePanel {
     // would otherwise be revived by source-line matching. The slot opens on
     // the first offered sketch (the active one, in sketch mode).
     this.faceSlot.reset();
+    this.armedSolidSlot = 'face';
+    this.scopeSlot.setChips([]);
     this.shell.setTitle(null);
     this.profileSlot.reset(options);
     this.syncProfileArmed();
@@ -199,6 +224,7 @@ export class ExtrudePanel extends FeaturePanel {
     // Only a picked face is a keep-able target: switching a first/last-face
     // statement to "Up to face" must ask for a pick, not re-emit the literal.
     this.faceSlot.seedKeep(state.toFaceKind === 'selector' ? state.toFaceLabel : null);
+    this.armedSolidSlot = 'face';
     this.profileSlot.seedKeep(state.profileLabel);
     this.syncProfileArmed();
     this.shell.setTitle('Edit extrude');
@@ -272,6 +298,31 @@ export class ExtrudePanel extends FeaturePanel {
   /** The face slot's state, `keep` included (edit mode only). */
   faceSelection(): EntitySlotSelection | null {
     return this.faceSlot.selection();
+  }
+
+  /** The boolean operation tab — gates the scope section (New writes none). */
+  get op(): 'add' | 'remove' | 'new' {
+    return this.tabs.op;
+  }
+
+  /** The scope chips (the service owns the choices). */
+  setScopeChips(chips: PickSlotChip[]): void {
+    this.scopeSlot.setChips(chips);
+  }
+
+  /** Whole-solid viewport picks land in the scope list, not the face slot. */
+  get scopePickArmed(): boolean {
+    return this.scopeSlot.visible && this.armedSolidSlot === 'scope';
+  }
+
+  /** A slot was clicked — move the armed border and re-aim the pick channels. */
+  private armSolidSlot(slot: 'face' | 'scope'): void {
+    if (this.armedSolidSlot === slot) {
+      return;
+    }
+    this.armedSolidSlot = slot;
+    this.syncControls();
+    this.onArmedPickChange?.();
   }
 
   values(): ExtrudeValues {
@@ -378,6 +429,14 @@ export class ExtrudePanel extends FeaturePanel {
     this.throughWrap.classList.toggle('flex', throughOffered);
     this.distanceInput.disabled = this.throughAllActive();
     this.endOffsetInput.disabled = this.throughAllActive();
+    // A separate body has no boolean to scope; a hidden scope slot hands the
+    // armed border back to the face slot.
+    this.scopeSlot.setVisible(this.tabs.op !== 'new');
+    if (!this.scopeSlot.visible) {
+      this.armedSolidSlot = 'face';
+    }
+    this.faceSlot.setArmed(toFace && this.armedSolidSlot === 'face');
+    this.scopeSlot.setArmed(this.scopeSlot.visible && this.armedSolidSlot === 'scope');
   }
 }
 

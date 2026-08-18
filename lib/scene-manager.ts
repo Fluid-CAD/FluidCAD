@@ -29,6 +29,8 @@ import type { MeasureInput } from "./oc/measure/measure-ops.js";
 import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
 import { ConnectorAnchorSuggestions, suggestConnectorAnchors } from "./selection/connector-anchors.js";
+import { PickExposureResolution, resolvePickExposure } from "./selection/expose-lookup.js";
+import { ContactPickResolution, resolveContactPick } from "./selection/contact-pick.js";
 import { synthesizeSketchApplyFeature, resolveSketchStatementTargets, SketchTargetDescriptor } from "./selection/sketch-apply.js";
 import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
 import { synthesizeTrimRegionTargets } from "./selection/trim-region.js";
@@ -90,8 +92,45 @@ class SceneManager {
     };
   }
 
-  rollbackScene(scene: Scene, rollbackIndex: number) {
-    return this.renderer.renderRollback(scene, rollbackIndex);
+  /**
+   * Re-emit the scene rolled back to `rollbackIndex` (view-only — nothing
+   * rebuilds). With `partScoped`, the rollback isolates the target object's
+   * enclosing part: everything outside that part stays fully rendered and
+   * only the part's own features after the index are hidden. Falls back to
+   * the classic global prefix when the index lands outside any part.
+   *
+   * Returns the stop hosts should echo as `rollbackStop` — the raw index
+   * for global rollbacks (preserving the historical echo, which may exceed
+   * the last index), the clamped target index for scoped ones — plus the
+   * scoped part's id. The stop stays on the clicked row even when the scope
+   * hides nothing (the part's last feature): the current marker belongs on
+   * that row, and whether the view is actually truncated is derivable from
+   * stop + part id (see the UI's isRollbackViewTruncated).
+   */
+  rollbackScene(
+    scene: Scene,
+    rollbackIndex: number,
+    opts?: { partScoped?: boolean },
+  ): { stop: number; scopePartId: string | null } {
+    const allObjects = scene.getAllSceneObjects();
+    const lastIndex = allObjects.length - 1;
+    const clamped = Math.min(rollbackIndex, lastIndex);
+    const target = clamped >= 0 ? allObjects[clamped] : undefined;
+    const part = opts?.partScoped && target ? scene.findEnclosingPart(target) : null;
+    if (!part) {
+      this.renderer.renderRollback(scene, clamped);
+      return { stop: rollbackIndex, scopePartId: null };
+    }
+
+    // Membership scope, not an index range: lazily materialized donor parts
+    // can interleave with another part's children in the flat list, so "the
+    // rest of the scene" must be selected by findEnclosingPart, never by
+    // position relative to the clicked part.
+    const scope = new Set(
+      allObjects.filter((obj, i) => i <= clamped || scene.findEnclosingPart(obj) !== part),
+    );
+    this.renderer.renderRollback(scene, clamped, scope);
+    return { stop: clamped, scopePartId: part.id };
   }
 
   compare(previous: Scene, current: Scene) {
@@ -215,6 +254,39 @@ class SceneManager {
     options: SynthesizeOptions = {},
   ): ConnectorAnchorSuggestions {
     return suggestConnectorAnchors(scene, ref, options);
+  }
+
+  /**
+   * Consumer-side pick resolution: the picked geometry's enclosing part and
+   * that part's matching exposure. Cross-part references are authoring-frame
+   * (parts designed in place), so assembly scenes refuse with a pointed
+   * message instead of inventing pose-aware in-context semantics — EXCEPT
+   * for mate picks (`context: 'mate'`): a tangent mate names geometry, not
+   * coordinates, so the pose-dependence rationale doesn't apply and the
+   * lookup runs over the assembly's part templates.
+   */
+  resolvePickExposure(
+    scene: Scene,
+    ref: PickRef,
+    options: { context?: 'sketch' | 'mate' } = {},
+  ): PickExposureResolution {
+    if (scene instanceof AssemblyScene && options.context !== 'mate') {
+      return {
+        ok: false,
+        reason: "cross-part geometry references are authored in the part file — open the part's own file to reference another part's geometry",
+      };
+    }
+    return resolvePickExposure(scene, ref);
+  }
+
+  /**
+   * Tangent-mate pick resolution: the exposure find-or-create data plus the
+   * picked face/edge's canonical contact classification (seed + G1 chain +
+   * bounds). Allowed over assembly scenes — a tangent pick names geometry,
+   * not authoring-frame coordinates.
+   */
+  resolveContactPick(scene: Scene, ref: PickRef): ContactPickResolution {
+    return resolveContactPick(scene, ref);
   }
 
   /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */

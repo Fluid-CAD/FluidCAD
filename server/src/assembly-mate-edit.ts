@@ -17,7 +17,7 @@ import {
  * dependency-free string function.
  */
 export const ASSEMBLY_MATE_TYPES = [
-  'fastened', 'revolute', 'slider', 'cylindrical', 'planar', 'parallel', 'pin-slot',
+  'fastened', 'revolute', 'slider', 'cylindrical', 'planar', 'parallel', 'pin-slot', 'tangent',
 ] as const;
 
 export type AssemblyMateType = (typeof ASSEMBLY_MATE_TYPES)[number];
@@ -28,9 +28,9 @@ const CONNECTOR_NAME = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const NUMBER_DECIMALS = 6;
 
 /**
- * One side of the mate: the instance whose `insert()` chain starts on
- * `instanceLine` (1-based, the serialized instance's sourceLocation), and the
- * part-owned connector's name, dereferenced as
+ * One side of a connector-authored mate: the instance whose `insert()` chain
+ * starts on `instanceLine` (1-based, the serialized instance's
+ * sourceLocation), and the part-owned connector's name, dereferenced as
  * `<binding>.connectors.<connectorName>`.
  */
 export type MateConnectorRef = {
@@ -39,15 +39,45 @@ export type MateConnectorRef = {
 };
 
 /**
+ * One side of a tangent mate: the same stable instance address, but the
+ * part-owned exposure's name, dereferenced as
+ * `<binding>.features.<exposeName>`.
+ */
+export type MateGeometryRef = {
+  instanceLine: number;
+  exposeName: string;
+};
+
+/**
  * The dialog's option state, rendered as the canonical chain
  * `.flip().rotate(deg).offset(x, y, z).limits(min, max)` — each call omitted
  * at its no-op value so an untouched dialog writes a bare `mate(...)`.
+ * Tangent mates carry only `propagate` (false → `.noPropagate()`; true /
+ * absent serializes to nothing — propagation is the default).
  */
 export type AssemblyMateOptions = {
   flip?: boolean;
   rotate?: number;
   offset?: [number, number, number] | null;
   limits?: [number, number] | null;
+  propagate?: boolean;
+};
+
+/**
+ * A mate payload's two sides: connector-authored (every type but tangent)
+ * or geometry-authored (tangent only) — `validateMatePayload` enforces the
+ * per-type side-kind rule.
+ */
+export type MateSideRefs = {
+  connectorA?: MateConnectorRef;
+  connectorB?: MateConnectorRef;
+  geometryA?: MateGeometryRef;
+  geometryB?: MateGeometryRef;
+};
+
+export type AssemblyMatePayload = MateSideRefs & {
+  type: AssemblyMateType;
+  options?: AssemblyMateOptions;
 };
 
 /**
@@ -58,21 +88,32 @@ export type AssemblyMateOptions = {
  * `sourceLine` in place from the dialog's full state.
  */
 export type AssemblyMateEditSpec = {
-  create?: {
-    type: AssemblyMateType;
-    connectorA: MateConnectorRef;
-    connectorB: MateConnectorRef;
-    options?: AssemblyMateOptions;
-  };
-  edit?: {
+  create?: AssemblyMatePayload;
+  edit?: AssemblyMatePayload & {
     /** 1-based row the `mate()` statement starts on (serialized sourceLocation.line). */
     sourceLine: number;
-    type: AssemblyMateType;
-    connectorA: MateConnectorRef;
-    connectorB: MateConnectorRef;
-    options?: AssemblyMateOptions;
   };
+  /**
+   * Tangent same-file find-or-create: full `'expose'` apply-feature specs
+   * applied FIRST in the same transform (apply-feature-edit folds them and
+   * relocates the payload's line anchors by insert()/mate() call ordinals
+   * before this module's transform runs — exposure edits never add or
+   * remove those calls, so ordinal relocation stays valid). Typed loosely
+   * so this module stays free of apply-feature-edit imports.
+   */
+  exposeCreates?: unknown[];
 };
+
+/** The two anchor refs of a payload, side-kind agnostic (validated upstream). */
+export function mateSideRefs(payload: MateSideRefs): { a: { instanceLine: number }; b: { instanceLine: number } } | null {
+  if (payload.connectorA && payload.connectorB) {
+    return { a: payload.connectorA, b: payload.connectorB };
+  }
+  if (payload.geometryA && payload.geometryB) {
+    return { a: payload.geometryA, b: payload.geometryB };
+  }
+  return null;
+}
 
 export type AssemblyMateEditResult = { newCode: string; error?: string };
 
@@ -104,12 +145,15 @@ export async function applyAssemblyMateEdit(
   // `import { mate }` line would shift every row the spec points at.
   let working = code;
 
-  const refA = await resolveMateSideRef(working, payload.connectorA);
+  const sides = mateSideRefs(payload)!; // validateMatePayload guaranteed the pair
+  const sideA = payload.connectorA ?? payload.geometryA!;
+  const sideB = payload.connectorB ?? payload.geometryB!;
+  const refA = await resolveMateSideRef(working, sideA);
   if ('error' in refA) {
     return { newCode: code, error: refA.error };
   }
   working = refA.newCode;
-  const refB = await resolveMateSideRef(working, payload.connectorB);
+  const refB = await resolveMateSideRef(working, sideB);
   if ('error' in refB) {
     return { newCode: code, error: refB.error };
   }
@@ -120,10 +164,10 @@ export async function applyAssemblyMateEdit(
   const result = spec.edit
     ? await replaceMateStatement(
       working, spec.edit.sourceLine, statement,
-      [payload.connectorA.instanceLine, payload.connectorB.instanceLine],
+      [sides.a.instanceLine, sides.b.instanceLine],
     )
     : await appendStatementInScope(
-      working, statement, payload.connectorA.instanceLine, payload.connectorB.instanceLine,
+      working, statement, sides.a.instanceLine, sides.b.instanceLine,
     );
   if (result.error) {
     return { newCode: code, error: result.error };
@@ -131,14 +175,46 @@ export async function applyAssemblyMateEdit(
   return { newCode: await ensureSymbolImport(result.newCode, 'mate') };
 }
 
-function validateMatePayload(payload: {
-  type: AssemblyMateType;
-  connectorA: MateConnectorRef;
-  connectorB: MateConnectorRef;
-  options?: AssemblyMateOptions;
-}): string | null {
+export function validateMatePayload(payload: AssemblyMatePayload): string | null {
   if (!ASSEMBLY_MATE_TYPES.includes(payload.type)) {
     return `unknown mate type "${payload.type}"`;
+  }
+  // Per-type side-kind rule: tangent is authored on exposed geometry,
+  // every other type on connectors.
+  if (payload.type === 'tangent') {
+    if (!payload.geometryA || !payload.geometryB) {
+      return 'tangent mates take exposed geometry sides (instance.features.<name>), not connectors';
+    }
+    if (payload.connectorA || payload.connectorB) {
+      return 'tangent mates take exposed geometry sides only';
+    }
+    for (const side of [payload.geometryA, payload.geometryB]) {
+      if (!CONNECTOR_NAME.test(side.exposeName)) {
+        return `"${side.exposeName}" is not a valid exposure name`;
+      }
+    }
+    if (
+      payload.geometryA.instanceLine === payload.geometryB.instanceLine
+      && payload.geometryA.exposeName === payload.geometryB.exposeName
+    ) {
+      return 'geometry cannot be mated to itself';
+    }
+    // No-options rule: contact side is canonical (no flip), there is no
+    // joint frame (no rotate/offset) and no limitParam. Only propagate.
+    const opts = payload.options ?? {};
+    if (opts.flip || opts.rotate || (opts.offset && opts.offset.some(n => n !== 0)) || opts.limits) {
+      return 'tangent mates take no flip/rotate/offset/limits — the contact side is canonical';
+    }
+    return null;
+  }
+  if (!payload.connectorA || !payload.connectorB) {
+    return `${payload.type} mates take connector sides (instance.connectors.<name>)`;
+  }
+  if (payload.geometryA || payload.geometryB) {
+    return `${payload.type} mates take connector sides only — geometry sides are for tangent mates`;
+  }
+  if (payload.options?.propagate !== undefined) {
+    return 'tangent propagation only applies to tangent mates';
   }
   for (const side of [payload.connectorA, payload.connectorB]) {
     if (!CONNECTOR_NAME.test(side.connectorName)) {
@@ -179,30 +255,29 @@ function validateMatePayload(payload: {
 }
 
 /**
- * The expression one side of the mate is written as: the connector
- * dereferenced through the insert binding (`arm1.connectors.hinge`).
+ * The expression one side of the mate is written as: the connector or
+ * exposure dereferenced through the insert binding (`arm1.connectors.hinge`
+ * / `cam1.features.profile`).
  */
 async function resolveMateSideRef(
   code: string,
-  ref: MateConnectorRef,
+  ref: MateConnectorRef | MateGeometryRef,
 ): Promise<{ newCode: string; expression: string } | { error: string }> {
   const instanceBinding = await resolveInstanceBinding(code, ref.instanceLine);
   if ('error' in instanceBinding) {
     return { error: instanceBinding.error };
   }
+  const member = 'connectorName' in ref
+    ? `connectors.${ref.connectorName}`
+    : `features.${ref.exposeName}`;
   return {
     newCode: instanceBinding.newCode,
-    expression: `${instanceBinding.name}.connectors.${ref.connectorName}`,
+    expression: `${instanceBinding.name}.${member}`,
   };
 }
 
-function renderMateStatement(
-  payload: {
-    type: AssemblyMateType;
-    connectorA: MateConnectorRef;
-    connectorB: MateConnectorRef;
-    options?: AssemblyMateOptions;
-  },
+export function renderMateStatement(
+  payload: AssemblyMatePayload,
   a: string,
   b: string,
 ): string {
@@ -219,6 +294,11 @@ function renderMateStatement(
   }
   if (opts.limits) {
     statement += `.limits(${opts.limits.map(formatNumber).join(', ')})`;
+  }
+  // Propagation is the tangent default and serializes to nothing; only the
+  // unchecked box writes.
+  if (payload.type === 'tangent' && opts.propagate === false) {
+    statement += '.noPropagate()';
   }
   return `${statement};`;
 }

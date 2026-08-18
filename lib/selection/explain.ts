@@ -13,6 +13,7 @@ import {
   ApplyFeatureKind,
   ApplyFeatureSynthesis,
   CONNECTOR_NAME_PATTERN,
+  MEMBER_NAME_PATTERN,
   ExplainResult,
   PickChain,
   PickDescriptors,
@@ -176,6 +177,23 @@ export function synthesizeApplyFeature(
       };
     }
   }
+  if (feature === 'expose') {
+    // The pick is the exposure's source geometry: a single face or edge.
+    // The exposure's name rides the `value` channel.
+    if (chains.length > 0 || refs.length !== 1) {
+      return {
+        ok: false,
+        reason: 'an exposure publishes a single face or edge — pick exactly one',
+        pick: refs[0],
+      };
+    }
+    if (typeof value !== 'string' || !MEMBER_NAME_PATTERN.test(value)) {
+      return {
+        ok: false,
+        reason: "an exposure needs a name — a plain identifier like 'profile'",
+      };
+    }
+  }
 
   const index = new SelectionIndex(scene);
   try {
@@ -277,13 +295,48 @@ export function synthesizeApplyFeature(
       };
     }
 
+    // An exposure lands inside the enclosing part() body exactly like a
+    // connector — same call-site payload, same refusals — minus the frame
+    // adjustments (an exposure has no anchor/rotate/offset).
+    let exposePayload: ApplyFeatureEditSpec['expose'];
+    if (feature === 'expose') {
+      const owner = attributions[0]?.solidOwner ?? null;
+      const enclosing = owner ? scene.findEnclosingPart(owner) : null;
+      if (!enclosing) {
+        return {
+          ok: false,
+          reason: 'exposures publish geometry inside a part() block — wrap the feature statements in part(...)',
+          pick: refs[0],
+        };
+      }
+      const name = value as string;
+      const partLoc = enclosing.getSourceLocation();
+      if (!partLoc) {
+        return { ok: false, reason: 'the enclosing part() has no source location — re-render and try again' };
+      }
+      if (partLoc.filePath !== filePaths.values().next().value) {
+        return { ok: false, reason: 'the enclosing part() lives in a different file than the picked geometry' };
+      }
+      if (enclosing instanceof Part && enclosing.getNamedExposures()[name]) {
+        return {
+          ok: false,
+          reason: `the part already exposes "${name}" — pick a different name`,
+        };
+      }
+      exposePayload = {
+        name,
+        part: { line: partLoc.line, column: partLoc.column },
+      };
+    }
+
     const spec: ApplyFeatureEditSpec = {
       feature,
       ...(feature === 'sketch' || feature === 'extrude' || feature === 'sweep' || feature === 'loft'
         || feature === 'plane' || feature === 'revolve' || feature === 'wrap' || feature === 'helix'
-        || feature === 'project' || feature === 'connector'
+        || feature === 'project' || feature === 'connector' || feature === 'expose'
         ? {} : { value }),
       ...(connectorPayload ? { connector: connectorPayload } : {}),
+      ...(exposePayload ? { expose: exposePayload } : {}),
       filePath: filePaths.values().next().value!,
       producers: located.map(l => {
         const loc = l.feature.getSourceLocation()!;
@@ -476,6 +529,10 @@ function renderPreview(
     // The value channel carries the connector's name; the args already carry
     // the anchor suffix, and the dialog's rotate/offset chain follows.
     return `connector('${value}', ${args})${renderConnectorAdjustments(options.connector)}`;
+  }
+  if (feature === 'expose') {
+    // The value channel carries the exposure's name.
+    return `expose('${value}', ${args})`;
   }
   return `${feature}(${value}, ${args})`;
 }

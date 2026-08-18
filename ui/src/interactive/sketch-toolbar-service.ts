@@ -20,7 +20,7 @@ import {
   insertGeometry, addGuide, removeGuide, getScopeVariables, applySketchOp, gotoSource, FeatureEditTarget,
   ParsedFeatureStatement,
 } from '../api';
-import { isTopLevel } from '../helpers/scene-utils';
+import { findActiveObject } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData } from '../types';
 import { Viewer } from '../viewer';
 import { TrimPickService } from './trim-pick-service';
@@ -417,13 +417,7 @@ export class SketchToolbarService {
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
-    let lastRoot: SceneObjectRender | null = null;
-    for (let i = sceneObjects.length - 1; i >= 0; i--) {
-      if (isTopLevel(sceneObjects[i], sceneObjects)) {
-        lastRoot = sceneObjects[i];
-        break;
-      }
-    }
+    const lastRoot = findActiveObject(sceneObjects) ?? null;
 
     if (lastRoot?.type === 'sketch' && lastRoot.id && lastRoot.object?.plane && lastRoot.sourceLocation) {
       const plane: PlaneData = lastRoot.object.plane;

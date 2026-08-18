@@ -502,6 +502,48 @@ describe('insertGeometryCall', () => {
     ].join('\n'));
   });
 
+  it('inserts before a breakpoint() at the end of the sketch body', async () => {
+    const code = [
+      `import { sketch, line, breakpoint } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `  breakpoint()`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'line([10, 10], [20, 20])');
+    expect(result.newCode).toBe([
+      `import { sketch, line, breakpoint } from 'fluidcad/core';`,
+      `sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `  line([10, 10], [20, 20])`,
+      `  breakpoint()`,
+      `})`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('inserts into a sketch with a chained modifier, before its breakpoint()', async () => {
+    const code = [
+      `import { sketch, line, breakpoint } from 'fluidcad/core';`,
+      `const s = sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `  breakpoint()`,
+      `}).reusable();`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'line([10, 10], [20, 20])');
+    expect(result.newCode).toBe([
+      `import { sketch, line, breakpoint } from 'fluidcad/core';`,
+      `const s = sketch(XY, () => {`,
+      `  line([0, 0], [10, 10])`,
+      `  line([10, 10], [20, 20])`,
+      `  breakpoint()`,
+      `}).reusable();`,
+      ``,
+    ].join('\n'));
+  });
+
   it('inserts into an empty sketch body', async () => {
     const code = [
       `import { sketch } from 'fluidcad/core';`,
@@ -685,6 +727,12 @@ describe('updateGeometryPosition', () => {
       '',
     ].join('\n'));
   });
+
+  it('promotes the chain base call, not a chained modifier', async () => {
+    const code = `rect(16, 166).centered('horizontal')\n`;
+    const result = await updateGeometryPosition(code, 1, [-8, 12]);
+    expect(result.newCode).toBe(`rect([-8, 12], 16, 166).centered('horizontal')\n`);
+  });
 });
 
 describe('updatePointExpression', () => {
@@ -698,6 +746,12 @@ describe('updatePointExpression', () => {
     const code = `circle(20)\n`;
     const result = await updatePointExpression(code, 1, '100', '103');
     expect(result.newCode).toBe(`circle([100, 103], 20)\n`);
+  });
+
+  it('promotes the chain base call, not a chained modifier', async () => {
+    const code = `rect(16, 166).centered('horizontal')\n`;
+    const result = await updatePointExpression(code, 1, '-8', '12');
+    expect(result.newCode).toBe(`rect([-8, 12], 16, 166).centered('horizontal')\n`);
   });
 
   it('targets the Nth point of a two-point call', async () => {

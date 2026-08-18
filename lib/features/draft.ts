@@ -3,6 +3,7 @@ import { Face, Shape } from "../common/shapes.js";
 import { IDraft } from "../core/interfaces.js";
 import { DraftOps } from "../oc/draft-ops.js";
 import { requireShapes } from "../common/operand-check.js";
+import { recordModifierHistory } from "../helpers/scene-helpers.js";
 
 export class Draft extends SceneObject implements IDraft {
 
@@ -53,9 +54,10 @@ export class Draft extends SceneObject implements IDraft {
           continue;
         }
 
-        newShapes.push(result);
+        newShapes.push(result.shape);
         const originalObj = shapeObjMap.get(shape);
         originalObj.removeShape(shape, this);
+        recordModifierHistory(result.history, originalObj, this);
       } catch (e) {
         newShapes.push(shape);
         console.warn("Draft: Failed to apply draft angle.", e);

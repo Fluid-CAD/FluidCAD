@@ -549,11 +549,12 @@ export class TimelinePanel {
     const highlightCurrent = isCurrent && obj.type !== 'part';
     // A viewer pick outranks the navigation tints: the picked row answers
     // "which feature made this face?", so it must read distinctly even when
-    // it is also the current or active-part row. Tailwind resolves competing
-    // bg- classes by stylesheet order, not class order — a branch, not an
-    // append.
+    // it is also the current or active-part row. Light gray (base-content
+    // wash, like the hover state) rather than primary, so it never reads as
+    // navigation. Tailwind resolves competing bg- classes by stylesheet
+    // order, not class order — a branch, not an append.
     if (isPicked) {
-      itemClass += ' bg-primary/15 ring-1 ring-inset ring-primary/40';
+      itemClass += ' bg-base-content/10 ring-1 ring-inset ring-base-content/30';
       if (this.pickedFlash) {
         itemClass += ' animate-[timeline-pick-flash_0.9s_ease-out] motion-reduce:animate-none';
       }
@@ -564,7 +565,7 @@ export class TimelinePanel {
     }
     if (effectiveError) {
       itemClass += ' text-error';
-    } else if (isPicked || highlightCurrent || isActivePart) {
+    } else if (highlightCurrent || isActivePart) {
       itemClass += ' text-primary';
     } else if (isPast || isInvisible) {
       itemClass += ' text-base-content/60';

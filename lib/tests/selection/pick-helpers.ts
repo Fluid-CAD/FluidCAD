@@ -37,6 +37,13 @@ export function allEdgeRefs(solid: Shape): PickRef[] {
   }));
 }
 
+export function allFaceRefs(solid: Shape): PickRef[] {
+  return Explorer.findFacesWrapped(solid).map((_, index) => ({
+    shapeId: solid.id,
+    sub: { type: 'face' as const, index },
+  }));
+}
+
 /** Refs of the solid's edges whose midpoint satisfies `where`. */
 export function edgeRefsWhere(solid: Shape, where: (mid: { x: number; y: number; z: number }) => boolean): PickRef[] {
   const refs: PickRef[] = [];

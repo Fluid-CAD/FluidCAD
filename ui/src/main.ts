@@ -1926,9 +1926,11 @@ async function resolveTimelinePick(entity: SelectedEntity, signal: AbortSignal):
     const pick = result?.picks?.[0];
     // The classified producer is the feature that CREATED the sub-entity
     // (an early extrude's side face stays the extrude's, whoever owns the
-    // tip solid now); unattributable picks — fillet/chamfer/draft faces
-    // record no history — fall back to the solid's owning statement.
-    featureId = pick?.producer?.featureId ?? pick?.solidOwnerId ?? null;
+    // tip solid now). creatorId covers what buckets can't: the classified
+    // ancestor of a since-reshaped face and the recorded creator of
+    // unclassified geometry (fillet/chamfer/draft surfaces). The solid's
+    // owning statement is the last resort.
+    featureId = pick?.producer?.featureId ?? pick?.creatorId ?? pick?.solidOwnerId ?? null;
   } catch {
     // Aborted or unreachable — the shapeId join below still resolves the
     // owning statement.

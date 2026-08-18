@@ -3603,6 +3603,12 @@ export type ExplainedPick = {
   attributed: boolean;
   error?: string;
   expression?: string;
+  /**
+   * SceneObjectRender.id of the feature that CREATED the picked sub-entity
+   * when no bucket attributes it (fillet/chamfer/draft surfaces, faces those
+   * ops reshaped). Unset when `producer` is present.
+   */
+  creatorId?: string;
   /** SceneObjectRender.id of the statement owning the picked solid. */
   solidOwnerId?: string;
   producer?: {

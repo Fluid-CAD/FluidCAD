@@ -7,6 +7,14 @@ import { PickRef, SelectionScene } from "./types.js";
 export type LineageInfo = {
   /** Classified ancestor's bucket, when one was found walking history back. */
   classified: BucketHit | null;
+  /**
+   * Set instead of `classified` when the walk ended on an ancestor claimed by
+   * a creator (added-sub-shape) record rather than a bucket — e.g. a fillet
+   * arc face that a later fillet trimmed. A classified ancestor anywhere in
+   * the walk wins over a creator hit: pass-through fusions re-record surviving
+   * sub-shapes as their own additions, so creator claims are the weaker signal.
+   */
+  creator: SceneObject | null;
   /** Features that modified the sub-shape between classification and now. */
   modifiedBy: SceneObject[];
 };
@@ -24,6 +32,12 @@ export type PickAttribution = {
   producer: BucketHit | null;
   /** Set when no bucket contains the pick but lineage found an ancestor. */
   lineage: LineageInfo | null;
+  /**
+   * The feature whose added-sub-shape record claims the pick directly, when
+   * neither a bucket nor lineage resolves it — e.g. an untouched fillet arc
+   * face. Creation provenance only; never feeds selector synthesis.
+   */
+  creator: SceneObject | null;
   error?: string;
 };
 
@@ -36,7 +50,7 @@ const LINEAGE_MAX_DEPTH = 8;
  */
 export function attributePick(scene: SelectionScene, index: SelectionIndex, ref: PickRef): PickAttribution {
   const none: PickAttribution = {
-    ref, picked: null, pickedKey: null, solidOwner: null, solidShape: null, producer: null, lineage: null,
+    ref, picked: null, pickedKey: null, solidOwner: null, solidShape: null, producer: null, lineage: null, creator: null,
   };
 
   const resolved = resolvePickShape(scene, ref);
@@ -48,6 +62,10 @@ export function attributePick(scene: SelectionScene, index: SelectionIndex, ref:
   const hits = index.findHits(pickedKey, ref.sub.type);
   const producer = hits.length > 0 ? hits[0] : null;
   const lineage = producer ? null : findLineage(scene, index, pickedKey, ref.sub.type);
+  // Direct creator claims rank below lineage: a pass-through fusion re-records
+  // a surviving (possibly earlier-modified) sub-shape as its own addition, and
+  // only the modification walk sees past that.
+  const creator = producer || lineage ? null : index.creatorOf(pickedKey);
 
   return {
     ref,
@@ -57,6 +75,7 @@ export function attributePick(scene: SelectionScene, index: SelectionIndex, ref:
     solidShape: resolved.shape,
     producer,
     lineage,
+    creator,
   };
 }
 
@@ -112,6 +131,10 @@ function findLineage(
 
   const visited = new Set<number>([pickedKey]);
   let frontier: { key: number; chain: SceneObject[] }[] = [{ key: pickedKey, chain: [] }];
+  // A classified ancestor anywhere in the walk beats a creator claim at any
+  // depth (creator claims are polluted by pass-through fusion re-additions),
+  // so a creator hit is only remembered while the walk keeps going.
+  let creatorCandidate: { creator: SceneObject; modifiedBy: SceneObject[] } | null = null;
 
   for (let depth = 0; depth < LINEAGE_MAX_DEPTH && frontier.length > 0; depth++) {
     const next: typeof frontier = [];
@@ -129,7 +152,13 @@ function findLineage(
           visited.add(sourceKey);
           const hits = index.findHits(sourceKey, kind);
           if (hits.length > 0) {
-            return { classified: hits[0], modifiedBy: newChain };
+            return { classified: hits[0], creator: null, modifiedBy: newChain };
+          }
+          if (!creatorCandidate) {
+            const creator = index.creatorOf(sourceKey);
+            if (creator) {
+              creatorCandidate = { creator, modifiedBy: newChain };
+            }
           }
           next.push({ key: sourceKey, chain: newChain });
         }
@@ -138,5 +167,8 @@ function findLineage(
     frontier = next;
   }
 
+  if (creatorCandidate) {
+    return { classified: null, creator: creatorCandidate.creator, modifiedBy: creatorCandidate.modifiedBy };
+  }
   return null;
 }

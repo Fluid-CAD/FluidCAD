@@ -160,12 +160,12 @@ html {
 
 /* One-shot attention flash when a 3D pick highlights its creating feature's
    timeline row (TimelinePanel.setPickedFeature) — settles into the row's
-   steady bg-primary/15. */
+   steady bg-base-content/10. */
 @keyframes timeline-pick-flash {
   from {
-    background-color: color-mix(in oklab, var(--color-primary) 45%, transparent);
+    background-color: color-mix(in oklab, var(--color-base-content) 30%, transparent);
   }
   to {
-    background-color: color-mix(in oklab, var(--color-primary) 15%, transparent);
+    background-color: color-mix(in oklab, var(--color-base-content) 10%, transparent);
   }
 }

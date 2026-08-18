@@ -11,9 +11,16 @@ import { WireOps } from "./wire-ops.js";
 import { rad } from "../helpers/math-helpers.js";
 import { ColorTransfer } from "./color-transfer.js";
 import { Explorer } from "./explorer.js";
+import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
+
+export type FilletResult = {
+  solids: Solid[];
+  /** Maker history against the input solid — the caller records provenance. */
+  history: ShapeHistory;
+};
 
 export class FilletOps {
-  static makeFillet(solid: Shape, edges: Edge[], radius: number): Solid[] {
+  static makeFillet(solid: Shape, edges: Edge[], radius: number): FilletResult {
     const oc = getOC();
     const maker = new oc.BRepFilletAPI_MakeFillet(solid.getShape(), oc.ChFi3d_FilletShape.ChFi3d_Rational);
 
@@ -34,11 +41,12 @@ export class FilletOps {
     const solids = FilletOps.wrapResultSolids(result);
     ColorTransfer.applyThroughMaker([solid], solids, maker);
     ColorTransfer.applyBleeding([solid], solids, maker);
+    const history = ShapeHistoryTracker.collect(maker, [solid]);
     maker.delete();
-    return solids;
+    return { solids, history };
   }
 
-  static makeChamfer(solid: Shape, edges: Edge[], distance: number): Solid[] {
+  static makeChamfer(solid: Shape, edges: Edge[], distance: number): FilletResult {
     const oc = getOC();
     const maker = new oc.BRepFilletAPI_MakeChamfer(solid.getShape());
 
@@ -59,8 +67,9 @@ export class FilletOps {
     const solids = FilletOps.wrapResultSolids(result);
     ColorTransfer.applyThroughMaker([solid], solids, maker);
     ColorTransfer.applyBleeding([solid], solids, maker);
+    const history = ShapeHistoryTracker.collect(maker, [solid]);
     maker.delete();
-    return solids;
+    return { solids, history };
   }
 
   private static wrapResultSolids(result: any): Solid[] {
@@ -72,7 +81,7 @@ export class FilletOps {
     return solidRaws.map(r => Solid.fromTopoDSSolid(Explorer.toSolid(r)));
   }
 
-  static makeChamferTwoDistances(solid: Shape, edges: Edge[], distance1: number, distance2: number, faces: Face[], isAngle: boolean = false): Solid[] {
+  static makeChamferTwoDistances(solid: Shape, edges: Edge[], distance1: number, distance2: number, faces: Face[], isAngle: boolean = false): FilletResult {
     const oc = getOC();
     const maker = new oc.BRepFilletAPI_MakeChamfer(solid.getShape());
 
@@ -102,8 +111,9 @@ export class FilletOps {
     const solids = FilletOps.wrapResultSolids(result);
     ColorTransfer.applyThroughMaker([solid], solids, maker);
     ColorTransfer.applyBleeding([solid], solids, maker);
+    const history = ShapeHistoryTracker.collect(maker, [solid]);
     maker.delete();
-    return solids;
+    return { solids, history };
   }
 
   static fillet2d(shape: Wire | Edge, plane: Plane, radius: number): Wire {

@@ -645,6 +645,10 @@ function explainPick(scene: SelectionScene, index: SelectionIndex, ref: PickRef)
 
   explanation.descriptors = describe(attr);
 
+  if (attr.solidOwner) {
+    explanation.solidOwnerId = attr.solidOwner.id;
+  }
+
   if (attr.producer) {
     const feature = attr.producer.bucket.feature;
     const def = attr.producer.bucket.def;
@@ -652,6 +656,7 @@ function explainPick(scene: SelectionScene, index: SelectionIndex, ref: PickRef)
     explanation.producer = {
       featureType: feature.getType(),
       featureName: feature.getName(),
+      featureId: feature.id,
       accessor: def.accessor,
       bucketKey: def.key,
       index: attr.producer.index,

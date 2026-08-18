@@ -66,6 +66,7 @@ describe("selection attribution", () => {
     for (let i = 0; i < topRefs.length; i++) {
       const pick = result.picks[i];
       expect(pick.producer!.accessor).toBe("endEdges");
+      expect(pick.producer!.featureId).toBe((e as unknown as SceneObject).id);
       // Resolve the reported index through the real accessor and check it
       // lands on the same edge (IsSame via geometric identity of midpoints).
       const bucket = (e as unknown as SceneObject).getState('end-edges') as Edge[];
@@ -142,7 +143,7 @@ describe("selection attribution", () => {
     });
     extrude(30);
     select(edge().verticalTo("xy"));
-    fillet(5);
+    const f = fillet(5);
 
     const scene = render();
     const solid = findSolid(scene);
@@ -152,6 +153,11 @@ describe("selection attribution", () => {
     const result = explainSelection(scene, allEdgeRefs(solid));
     const unattributed = result.picks.filter(p => !p.attributed && !p.error);
     expect(unattributed.length).toBeGreaterThan(0);
+    // Unattributable picks still carry the solid's owning statement, the
+    // fallback identity for UI highlights.
+    for (const pick of unattributed) {
+      expect(pick.solidOwnerId).toBe((f as unknown as SceneObject).id);
+    }
   });
 });
 

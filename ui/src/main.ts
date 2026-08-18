@@ -1,4 +1,4 @@
-import { Viewer } from './viewer';
+import { Viewer, type SelectedEntity } from './viewer';
 import { HttpEngineClient } from './http-engine-client';
 import { ShapePropertiesModal } from './ui/shape-properties-modal';
 import { SelectionInfoOverlay } from './ui/selection-info-overlay';
@@ -51,7 +51,7 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider } from './api';
+import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection } from './api';
 import { setActivePartLocationProvider, isRollbackViewTruncated } from './helpers/scene-utils';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
@@ -1898,6 +1898,54 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   measureController.handleClick(shapeId, sub, modifiers.additive);
 });
 
+// A neutral-mode pick highlights the creating feature's timeline row. The
+// AbortController doubles as the sequence token: every new selection (and
+// every scene render) aborts the in-flight explain so a stale response can
+// never repaint a highlight that was just cleared or superseded.
+let timelinePickAbort: AbortController | null = null;
+
+function updateTimelinePickHighlight(selection: SelectedEntity[]): void {
+  timelinePickAbort?.abort();
+  timelinePickAbort = null;
+  if (currentRail?.kind !== 'part') {
+    return;
+  }
+  if (selection.length !== 1) {
+    currentRail.timeline.setPickedFeature(null);
+    return;
+  }
+  const abort = new AbortController();
+  timelinePickAbort = abort;
+  void resolveTimelinePick(selection[0], abort.signal);
+}
+
+async function resolveTimelinePick(entity: SelectedEntity, signal: AbortSignal): Promise<void> {
+  let featureId: string | null = null;
+  try {
+    const result = await explainSelection([entity], signal);
+    const pick = result?.picks?.[0];
+    // The classified producer is the feature that CREATED the sub-entity
+    // (an early extrude's side face stays the extrude's, whoever owns the
+    // tip solid now); unattributable picks — fillet/chamfer/draft faces
+    // record no history — fall back to the solid's owning statement.
+    featureId = pick?.producer?.featureId ?? pick?.solidOwnerId ?? null;
+  } catch {
+    // Aborted or unreachable — the shapeId join below still resolves the
+    // owning statement.
+  }
+  if (signal.aborted) {
+    return;
+  }
+  if (featureId === null) {
+    const owner = viewer.currentSceneObjects.find(
+      (o) => o.sceneShapes?.some((s) => s.shapeId === entity.shapeId));
+    featureId = owner?.id ?? null;
+  }
+  if (currentRail?.kind === 'part') {
+    currentRail.timeline.setPickedFeature(featureId);
+  }
+}
+
 measureController.onSelectionChanged = (selection) => {
   // The Offset toolbar button shows exactly while a face is highlighted.
   modifyService.noteNeutralSelection(selection);
@@ -1913,6 +1961,7 @@ measureController.onSelectionChanged = (selection) => {
     shapePropertiesModal.setSelectedShape(selection.length > 0 ? selection[0].shapeId : null);
     selectionInfoOverlay.hide();
   }
+  updateTimelinePickHighlight(selection);
 };
 
 // ---------------------------------------------------------------------------
@@ -2159,6 +2208,11 @@ function connectWebSocket() {
             }
           }
         }
+        // The render wipes the viewer selection and the timeline clears its
+        // pick highlight in update() below — a pre-render explain response
+        // must not repaint it.
+        timelinePickAbort?.abort();
+        timelinePickAbort = null;
         measureController.onSceneRendered();
         if (msg.absPath) {
           topBar.setFileName(msg.absPath);

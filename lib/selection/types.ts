@@ -94,6 +94,8 @@ export type PickExplanation = {
   producer?: {
     featureType: string;
     featureName: string;
+    /** Producing SceneObject's id — matches the rendered SceneObjectRender.id. */
+    featureId: string;
     accessor: string;
     bucketKey: string;
     index: number;
@@ -111,6 +113,8 @@ export type PickExplanation = {
   descriptors?: PickDescriptors;
   /** Teach-mode label, e.g. `e.endEdges(2) — end edge of extrude() @ line 4`. */
   expression?: string;
+  /** Id of the statement owning the picked solid — matches SceneObjectRender.id. */
+  solidOwnerId?: string;
 };
 
 export type ExplainResult = {

@@ -1,5 +1,5 @@
 import type { SceneObjectRender } from '../types';
-import { findActiveObject, rollbackScopeIds, isRollbackViewTruncated } from '../helpers/scene-utils';
+import { findActiveObject, findEnclosingPartRow, rollbackScopeIds, isRollbackViewTruncated } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
@@ -379,6 +379,9 @@ export class TimelinePanel {
       return;
     }
     const obj = this.sceneObjects[index];
+    if (obj) {
+      this.activateEnclosingPart(obj);
+    }
     if (!(obj && this.managesOwnBreakpoint?.(obj))) {
       this.addBreakpointAfter(index);
     }
@@ -386,6 +389,30 @@ export class TimelinePanel {
     if (obj) {
       this.onFeatureEdit?.(obj, index);
     }
+  }
+
+  /**
+   * The pause gestures work "here": pausing a build inside a part makes that
+   * part the user's working scope, so an inactive enclosing part is activated
+   * first — the same path as clicking its row. Without this the breakpoint
+   * render derives sketch-mode entry (and every scope-sensitive service) from
+   * the previously active part — whose build the pause never touches, since
+   * the leftover-definitions pass still materializes it fully — and a paused
+   * tip sketch never opens for editing. Skipped while sketching: the only
+   * gestures allowed then either stay inside the active part or open an edit
+   * dialog that suspends the active sketch and restores it on exit, which a
+   * scope switch would close for good instead.
+   */
+  private activateEnclosingPart(obj: SceneObjectRender): void {
+    if (this.sketchActive || !this.onPartActivate) {
+      return;
+    }
+    const part = findEnclosingPartRow(obj, this.sceneObjects);
+    if (!part || this.isPartRowActive?.(part) === true) {
+      return;
+    }
+    this.onPartActivate(part);
+    this.renderTimeline();
   }
 
   /**
@@ -697,6 +724,9 @@ export class TimelinePanel {
 
     dropdown.querySelector('[data-action="rollback"]')?.addEventListener('click', () => {
       this.closeDropdown();
+      // Same scope rule as the edit gesture: the pause makes this row's part
+      // the working scope, so a paused tip sketch actually enters sketch mode.
+      this.activateEnclosingPart(obj);
       this.addBreakpointAfter(index);
       this.goToSource(obj);
     });

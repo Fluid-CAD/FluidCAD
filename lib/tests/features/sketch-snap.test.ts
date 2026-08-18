@@ -4,7 +4,8 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cylinder from "../../core/cylinder.js";
 import plane from "../../core/plane.js";
-import { rect } from "../../core/2d/index.js";
+import { rect, slot } from "../../core/2d/index.js";
+import part from "../../core/part.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { Point } from "../../math/point.js";
 import { IPlane } from "../../core/interfaces.js";
@@ -67,7 +68,37 @@ describe("sketch snap vertices", () => {
     }
   });
 
-  it("skips closed section loops; only projected seam vertices remain", () => {
+  it("snaps to other parts' bodies when sketching inside a part", () => {
+    part("donor", () => {
+      sketch("top", () => {
+        rect(20, 10).centered();
+      });
+      extrude(10);
+    });
+
+    let front: Sketch;
+    part("consumer", () => {
+      front = sketch("front", () => {}) as unknown as Sketch;
+    });
+
+    const scene = render();
+    const verts = scene.getRenderedObject(front!)!.snapVertices!;
+    expect(verts).toBeDefined();
+    // Same geometry as the top-level case: the donor part's box crosses the
+    // front plane in a rectangle at x=±10, z∈{0,10}, and its corners project
+    // onto the same 4 points — part boundaries must not filter it out.
+    expect(verts.length).toBe(4);
+
+    const p = front!.getPlane();
+    for (const [wx, wy, wz] of [[-10, 0, 0], [10, 0, 0], [-10, 0, 10], [10, 0, 10]]) {
+      const local = p.worldToLocal(new Point(wx, wy, wz));
+      const hit = verts.some(v =>
+        (v[0] - local.x) * (v[0] - local.x) + (v[1] - local.y) * (v[1] - local.y) < 1e-6);
+      expect(hit, `expected a snap vertex at world (${wx}, ${wy}, ${wz})`).toBe(true);
+    }
+  });
+
+  it("skips closed section loops' endpoints but snaps their centers", () => {
     cylinder(5, 20);
     const mid = plane("top", 10) as IPlane;
     const s = sketch(mid, () => {}) as unknown as Sketch;
@@ -75,12 +106,44 @@ describe("sketch snap vertices", () => {
     const scene = render();
     const verts = scene.getRenderedObject(s)!.snapVertices!;
     // The mid-height section is a full circle — a closed loop with no model
-    // crossing, so it contributes nothing. What remains is the projection of
-    // the cylinder's two seam vertices (both at x=r, y=0), one point in 2D.
-    expect(verts.length).toBe(1);
-    const seam = s.getPlane().worldToLocal(new Point(5, 0, 0));
-    expect(verts[0][0]).toBeCloseTo(seam.x);
-    expect(verts[0][1]).toBeCloseTo(seam.y);
+    // crossing, so no endpoints — but its center is the cylinder axis, and
+    // the rim circles' projected centers dedup onto the same point. The
+    // projection pass adds the two seam vertices (both at x=r, y=0 → one
+    // 2D point). Two snap targets total.
+    expect(verts.length).toBe(2);
+
+    const p = s.getPlane();
+    for (const [wx, wy, wz] of [[0, 0, 10], [5, 0, 10]]) {
+      const local = p.worldToLocal(new Point(wx, wy, wz));
+      const hit = verts.some(v =>
+        (v[0] - local.x) * (v[0] - local.x) + (v[1] - local.y) * (v[1] - local.y) < 1e-6);
+      expect(hit, `expected a snap vertex at world (${wx}, ${wy}, ${wz})`).toBe(true);
+    }
+  });
+
+  it("projects arc centers onto the plane", () => {
+    sketch("top", () => {
+      slot([-10, 0], [10, 0], 4);
+    });
+    extrude(5);
+
+    const off = plane("top", 20) as IPlane;
+    const s = sketch(off, () => {}) as unknown as Sketch;
+
+    const scene = render();
+    const verts = scene.getRenderedObject(s)!.snapVertices!;
+    // The plane misses the body: 8 arc/line junction vertices project to 4
+    // points, and the end-cap arcs at both z levels project their centers
+    // onto the two cap-center points — where a concentric hole would go.
+    expect(verts.length).toBe(6);
+
+    const p = s.getPlane();
+    for (const [wx, wy] of [[-10, 0], [10, 0]]) {
+      const local = p.worldToLocal(new Point(wx, wy, 0));
+      const hit = verts.some(v =>
+        (v[0] - local.x) * (v[0] - local.x) + (v[1] - local.y) * (v[1] - local.y) < 1e-6);
+      expect(hit, `expected the cap-arc center (${wx}, ${wy})`).toBe(true);
+    }
   });
 
   it("leaves renders whose tip is not a sketch untouched", () => {

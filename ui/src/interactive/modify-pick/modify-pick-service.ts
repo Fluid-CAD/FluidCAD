@@ -189,13 +189,13 @@ export class ModifyPickService {
   /** The rendered selection chip rows — chip index to pick members. */
   private chipRows: { label: string; members: SelectedEntity[] }[] = [];
   private applying = false;
-  /** Last entered value per feature — a fillet radius makes a bad shell thickness. */
-  private valueByFeature = new Map<ModifyFeatureKind, string>();
-  /** Last chosen shell join type — restored the next time shell arms. */
-  private lastJoinType: ShellJoinType = 'arc';
-  /** Last chosen chamfer type — restored the next time chamfer arms. */
+  /** The chamfer type while a chamfer dialog is up; every arming starts equal. */
   private chamferKind: ChamferKind = 'equal';
-  /** Last entered second value per two-value kind — a distance makes a bad angle. */
+  /**
+   * Second values entered per two-value kind within THIS arming — a distance
+   * makes a bad angle when the kind dropdown switches mid-session. Cleared on
+   * every enter, so nothing carries over to the next operation.
+   */
   private chamferValue2 = new Map<'distances' | 'angle', string>();
 
   private previewTimer: number | null = null;
@@ -308,9 +308,6 @@ export class ModifyPickService {
     // re-synthesize the statement — but every one of them changes the geometry
     // the ghost draws.
     this.panel.onValueInput = () => {
-      if (this.feature) {
-        this.valueByFeature.set(this.feature, this.panel.valueText);
-      }
       this.syncExprPrefix();
       this.scheduleGhost();
     };
@@ -329,12 +326,7 @@ export class ModifyPickService {
       this.syncExprPrefix();
       this.scheduleGhost();
     };
-    this.panel.onJoinChange = () => {
-      if (this.feature === 'shell') {
-        this.lastJoinType = this.panel.joinValue;
-      }
-      this.syncExprSuffix();
-    };
+    this.panel.onJoinChange = () => this.syncExprSuffix();
     this.panel.expression.onSubmit = () => this.apply();
 
     // Teach-mode tooltip: follows the hovered edge/face while the mode is armed.
@@ -576,6 +568,7 @@ export class ModifyPickService {
     this.selection.clear();
     this.seedSignature = null;
     this.editSceneStale = false;
+    this.chamferValue2.clear();
     this.cancelPreview();
     this.viewer.clearHover();
     this.viewer.clearHighlight();
@@ -721,15 +714,18 @@ export class ModifyPickService {
 
     this.panel.setTitle(feature, config.label);
     this.panel.configureValue(config.valueLabel!, config.valueSign);
-    this.panel.valueField.setValue(this.valueByFeature.get(feature) ?? String(config.defaultValue));
+    // Every arming starts from the feature's defaults — the value, chamfer
+    // type and join type never carry over from a previous operation or edit.
+    this.panel.valueField.setValue(String(config.defaultValue));
+    this.chamferValue2.clear();
     if (feature === 'chamfer') {
-      this.applyChamferControls(this.chamferKind);
+      this.applyChamferControls('equal');
     } else {
       this.panel.setChamferControls(null);
     }
     void this.refreshScopeVariables();
     if (config.joinRow) {
-      this.panel.joinValue = this.lastJoinType;
+      this.panel.joinValue = 'arc';
       this.panel.setJoinVisible(true);
     } else {
       this.panel.setJoinVisible(false);
@@ -1745,7 +1741,7 @@ export class ModifyPickService {
   /**
    * Show the chamfer rows for `kind` and seed the second-value field: the
    * statement's own value on an edit open (`seed`), else the last one entered
-   * for that kind, else the kind's default.
+   * for that kind within this arming, else the kind's default.
    */
   private applyChamferControls(kind: ChamferKind, seed?: ValueExpr | null): void {
     this.chamferKind = kind;

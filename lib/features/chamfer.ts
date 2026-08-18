@@ -2,9 +2,11 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Edge, Face, Shape, Solid } from "../common/shapes.js";
 import { FilletOps } from "../oc/fillet-ops.js";
 import { Explorer } from "../oc/explorer.js";
-import { ShapeOps } from "../oc/shape-ops.js";
+import { CleanShapeLineage, ShapeOps } from "../oc/shape-ops.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
 import { requireShapes } from "../common/operand-check.js";
+import { recordModifierHistory } from "../helpers/scene-helpers.js";
+import { ShapeHistory } from "../common/shape-history-tracker.js";
 
 export class Chamfer extends SceneObject {
   private _selections: SceneObject[] = [];
@@ -88,8 +90,9 @@ export class Chamfer extends SceneObject {
 
       try {
         let preCleanSolids: Solid[];
+        let history: ShapeHistory;
         if (!this.distance2) {
-          preCleanSolids = FilletOps.makeChamfer(solid, targetEdges, this.distance);
+          ({ solids: preCleanSolids, history } = FilletOps.makeChamfer(solid, targetEdges, this.distance));
         } else {
           const faces = solid.getFaces();
           const commonFaces: Face[] = [];
@@ -104,7 +107,7 @@ export class Chamfer extends SceneObject {
             commonFaces.push(firstCommonFace);
           }
 
-          preCleanSolids = FilletOps.makeChamferTwoDistances(solid, targetEdges, this.distance, this.distance2, commonFaces, this.isAngle);
+          ({ solids: preCleanSolids, history } = FilletOps.makeChamferTwoDistances(solid, targetEdges, this.distance, this.distance2, commonFaces, this.isAngle));
         }
 
         const obj = shapeObjectMap.get(shape);
@@ -112,12 +115,19 @@ export class Chamfer extends SceneObject {
 
         // Clean each chamfer result and chain colors through the cleanup's
         // UnifySameDomain history so any merged faces keep their colors.
+        const cleanups: CleanShapeLineage[] = [];
         for (const preClean of preCleanSolids) {
           const cleanup = ShapeOps.cleanShapeWithLineage(preClean);
           ColorTransfer.applyThroughCleanup(preClean, cleanup);
           const cleaned = cleanup.shape as Solid;
-          cleanup.dispose();
+          cleanups.push(cleanup);
           newShapes.push(cleaned);
+        }
+        // The maker history references pre-clean faces/edges — chain it
+        // through the same cleanups before they are disposed.
+        recordModifierHistory(history, obj, this, cleanups);
+        for (const cleanup of cleanups) {
+          cleanup.dispose();
         }
       } catch {
         // OCCT refused the chamfer (distance too large for the adjacent

@@ -356,6 +356,80 @@ function recordFusionHistory(
   claimedEdges.delete();
 }
 
+/**
+ * Record a single-solid modifier's maker history (fillet/chamfer/draft):
+ * modifications and removals land on the input solid's previous owner with
+ * `modifiedBy = caller`, everything the maker created lands on the caller as
+ * additions — the counterpart of `recordFusionHistory` for ops whose maker
+ * reports its own history. `remaps` chains the records through post-op
+ * cleanups (UnifySameDomain): a merged-away result drops from its record
+ * (sources become removals), a sub-shape a cleanup never saw passes through
+ * unchanged.
+ */
+export function recordModifierHistory(
+  history: ShapeHistory,
+  owner: SceneObject,
+  caller: SceneObject,
+  remaps: CleanShapeLineage[] = [],
+): void {
+  const remapFace = (face: Face): Face[] => {
+    for (const r of remaps) {
+      const mapped = r.remapFace(face);
+      if (mapped !== null) {
+        return mapped;
+      }
+    }
+    return [face];
+  };
+  const remapEdge = (edge: Edge): Edge[] => {
+    for (const r of remaps) {
+      const mapped = r.remapEdge(edge);
+      if (mapped !== null) {
+        return mapped;
+      }
+    }
+    return [edge];
+  };
+
+  for (const record of history.modifiedFaces) {
+    const results = record.results.flatMap(remapFace);
+    if (results.length === 0) {
+      for (const src of record.sources) {
+        owner.recordRemovedFace(src, caller);
+      }
+      continue;
+    }
+    owner.recordModifiedFaces(record.sources, results, caller);
+  }
+  for (const record of history.modifiedEdges) {
+    const results = record.results.flatMap(remapEdge);
+    if (results.length === 0) {
+      for (const src of record.sources) {
+        owner.recordRemovedEdge(src, caller);
+      }
+      continue;
+    }
+    owner.recordModifiedEdges(record.sources, results, caller);
+  }
+  for (const face of history.removedFaces) {
+    owner.recordRemovedFace(face, caller);
+  }
+  for (const edge of history.removedEdges) {
+    owner.recordRemovedEdge(edge, caller);
+  }
+
+  // Generated results (e.g. the fillet surfaces born from the filleted edges)
+  // are new geometry exactly like the unclaimed additions.
+  const newFaces = [...history.addedFaces, ...history.generatedFaces.flatMap(r => r.results)];
+  for (const face of newFaces.flatMap(remapFace)) {
+    caller.recordAddedFace(face, caller);
+  }
+  const newEdges = [...history.addedEdges, ...history.generatedEdges.flatMap(r => r.results)];
+  for (const edge of newEdges.flatMap(remapEdge)) {
+    caller.recordAddedEdge(edge, caller);
+  }
+}
+
 export function cutWithSceneObjects(
   sceneObjects: SceneObject[],
   toolShapes: Shape[],

@@ -5,6 +5,7 @@ import { FusionScope } from "./extrude-options.js";
 import { FilletOps } from "../oc/fillet-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { requireShapes } from "../common/operand-check.js";
+import { recordModifierHistory } from "../helpers/scene-helpers.js";
 
 export class Fillet extends SceneObject {
   private _targetEdges: SceneObject[] = [];
@@ -103,10 +104,13 @@ export class Fillet extends SceneObject {
       edges = edges.filter(e => !targetEdges.includes(e));
 
       try {
-        const newSolids = FilletOps.makeFillet(solid, targetEdges, this.radius);
+        const { solids: newSolids, history } = FilletOps.makeFillet(solid, targetEdges, this.radius);
 
         const obj = sceneShapeObjectMap.get(shape);
         removedShapes.push({ shape: solid, owner: obj });
+        if (obj) {
+          recordModifierHistory(history, obj, this);
+        }
 
         for (const newSolid of newSolids) {
           addedShapes.push(newSolid);

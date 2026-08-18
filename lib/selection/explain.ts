@@ -645,6 +645,10 @@ function explainPick(scene: SelectionScene, index: SelectionIndex, ref: PickRef)
 
   explanation.descriptors = describe(attr);
 
+  if (attr.solidOwner) {
+    explanation.solidOwnerId = attr.solidOwner.id;
+  }
+
   if (attr.producer) {
     const feature = attr.producer.bucket.feature;
     const def = attr.producer.bucket.def;
@@ -652,6 +656,7 @@ function explainPick(scene: SelectionScene, index: SelectionIndex, ref: PickRef)
     explanation.producer = {
       featureType: feature.getType(),
       featureName: feature.getName(),
+      featureId: feature.id,
       accessor: def.accessor,
       bucketKey: def.key,
       index: attr.producer.index,
@@ -673,12 +678,18 @@ function explainPick(scene: SelectionScene, index: SelectionIndex, ref: PickRef)
       explanation.expression =
         `${def.key.replace('-', ' ')} of ${feature.getType()}()${at} (${why}) — a geometric select() will be synthesized`;
     }
-  } else if (attr.lineage) {
-    explanation.lineage = {
-      classifiedAccessor: attr.lineage.classified?.bucket.def.accessor ?? null,
-      classifiedFeatureType: attr.lineage.classified?.bucket.feature.getType() ?? null,
-      modifiedBy: [...new Set(attr.lineage.modifiedBy.map(m => m.getType()))],
-    };
+  } else {
+    const creator = attr.lineage?.classified?.bucket.feature ?? attr.lineage?.creator ?? attr.creator;
+    if (creator) {
+      explanation.creatorId = creator.id;
+    }
+    if (attr.lineage) {
+      explanation.lineage = {
+        classifiedAccessor: attr.lineage.classified?.bucket.def.accessor ?? null,
+        classifiedFeatureType: attr.lineage.classified?.bucket.feature.getType() ?? null,
+        modifiedBy: [...new Set(attr.lineage.modifiedBy.map(m => m.getType()))],
+      };
+    }
   }
   return explanation;
 }

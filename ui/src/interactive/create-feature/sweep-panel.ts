@@ -137,6 +137,8 @@ export class SweepPanel extends FeaturePanel {
     this.pathEdgeChips = [];
     this.editMode = false;
     this.shell.setTitle(null);
+    this.tabs.reset();
+    this.thin.reset();
     this.options = options;
     this.allowEdgePicking = allowEdgePicking;
     this.profileSlot.reset(profileOptions(options));

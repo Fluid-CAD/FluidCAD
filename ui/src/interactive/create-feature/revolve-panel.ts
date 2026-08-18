@@ -119,8 +119,10 @@ export class RevolvePanel extends FeaturePanel {
     // on the first offered sketch (the active one, in sketch mode); the axis
     // on the world Z default, a pick replacing it.
     this.shell.setTitle(null);
+    this.tabs.reset();
     this.angleField.setValue(360);
     this.symmetricCheckbox.checked = false;
+    this.thin.reset();
     this.profileSlot.reset(profiles);
     this.axisSlot.reset();
     this.axisSlot.setOptions(axes);

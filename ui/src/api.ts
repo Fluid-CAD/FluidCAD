@@ -3602,11 +3602,32 @@ async function selectionQuery<T>(
   }
 }
 
+/** UI mirror of the server's PickExplanation — only the fields the UI reads. */
+export type ExplainedPick = {
+  attributed: boolean;
+  error?: string;
+  expression?: string;
+  /**
+   * SceneObjectRender.id of the feature that CREATED the picked sub-entity
+   * when no bucket attributes it (fillet/chamfer/draft surfaces, faces those
+   * ops reshaped). Unset when `producer` is present.
+   */
+  creatorId?: string;
+  /** SceneObjectRender.id of the statement owning the picked solid. */
+  solidOwnerId?: string;
+  producer?: {
+    featureType: string;
+    featureName: string;
+    /** SceneObjectRender.id of the feature whose bucket claimed the pick. */
+    featureId: string;
+  };
+};
+
 export function explainSelection(
   entities: ApplyFeatureEntity[],
   signal?: AbortSignal,
   before?: SelectionBoundaryRef,
-): Promise<{ picks: any[] } | null> {
+): Promise<{ picks: ExplainedPick[] } | null> {
   return postJson('/api/selection/explain', { entities, before }, signal);
 }
 

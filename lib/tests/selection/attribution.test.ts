@@ -22,7 +22,7 @@ import { explainSelection, synthesizeApplyFeature } from "../../selection/explai
 import { expandBucket, expandTangentChain } from "../../selection/expand.js";
 import type { PickRef } from "../../selection/types.js";
 import {
-  allEdgeRefs, edgeRefsWhere, faceRefsWhere, findSolid, findSolids, setLocation,
+  allEdgeRefs, allFaceRefs, edgeRefsWhere, faceRefsWhere, findSolid, findSolids, setLocation,
 } from "./pick-helpers.js";
 
 describe("selection attribution", () => {
@@ -66,6 +66,7 @@ describe("selection attribution", () => {
     for (let i = 0; i < topRefs.length; i++) {
       const pick = result.picks[i];
       expect(pick.producer!.accessor).toBe("endEdges");
+      expect(pick.producer!.featureId).toBe((e as unknown as SceneObject).id);
       // Resolve the reported index through the real accessor and check it
       // lands on the same edge (IsSame via geometric identity of midpoints).
       const bucket = (e as unknown as SceneObject).getState('end-edges') as Edge[];
@@ -142,7 +143,7 @@ describe("selection attribution", () => {
     });
     extrude(30);
     select(edge().verticalTo("xy"));
-    fillet(5);
+    const f = fillet(5);
 
     const scene = render();
     const solid = findSolid(scene);
@@ -152,6 +153,71 @@ describe("selection attribution", () => {
     const result = explainSelection(scene, allEdgeRefs(solid));
     const unattributed = result.picks.filter(p => !p.attributed && !p.error);
     expect(unattributed.length).toBeGreaterThan(0);
+    // Unattributable picks still carry the solid's owning statement, the
+    // fallback identity for UI highlights — and now a creator: fillet-born
+    // edges resolve to the fillet, edges the fillet merely trimmed walk
+    // lineage back to the extrude.
+    const filletId = (f as unknown as SceneObject).id;
+    const creatorIds = new Set<string | undefined>();
+    for (const pick of unattributed) {
+      expect(pick.solidOwnerId).toBe(filletId);
+      expect(pick.creatorId).toBeDefined();
+      creatorIds.add(pick.creatorId);
+    }
+    expect(creatorIds.has(filletId)).toBe(true);
+  });
+
+  it("resolves fillet faces to the fillet and reshaped faces to the extrude", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30) as Extrude;
+    select(edge().verticalTo("xy"));
+    const f = fillet(5);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const refs = allFaceRefs(solid);
+    // 4 trimmed sides + trimmed top and bottom + 4 arc faces.
+    expect(refs).toHaveLength(10);
+
+    const extrudeId = (e as unknown as SceneObject).id;
+    const filletId = (f as unknown as SceneObject).id;
+    const result = explainSelection(scene, refs);
+    const byCreator = new Map<string | undefined, number>();
+    for (const pick of result.picks) {
+      expect(pick.attributed).toBe(false);
+      byCreator.set(pick.creatorId, (byCreator.get(pick.creatorId) ?? 0) + 1);
+    }
+    // The 4 arc faces are the fillet's own; every reshaped planar face walks
+    // its modification record back to the extrude's classified original.
+    expect(byCreator.get(filletId)).toBe(4);
+    expect(byCreator.get(extrudeId)).toBe(6);
+  });
+
+  it("resolves chamfer faces to the chamfer through the cleanup remap", () => {
+    sketch("xy", () => {
+      rect(100, 50);
+    });
+    const e = extrude(30) as Extrude;
+    select(edge().verticalTo("xy"));
+    const c = chamfer(5);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const refs = allFaceRefs(solid);
+    expect(refs).toHaveLength(10);
+
+    const extrudeId = (e as unknown as SceneObject).id;
+    const chamferId = (c as unknown as SceneObject).id;
+    const result = explainSelection(scene, refs);
+    const byCreator = new Map<string | undefined, number>();
+    for (const pick of result.picks) {
+      expect(pick.attributed).toBe(false);
+      byCreator.set(pick.creatorId, (byCreator.get(pick.creatorId) ?? 0) + 1);
+    }
+    expect(byCreator.get(chamferId)).toBe(4);
+    expect(byCreator.get(extrudeId)).toBe(6);
   });
 });
 

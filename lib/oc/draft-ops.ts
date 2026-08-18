@@ -7,9 +7,16 @@ import { ShapeOps } from "./shape-ops.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
+import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
+
+export type DraftResult = {
+  shape: Shape;
+  /** Maker history against the input solid — the caller records provenance. */
+  history: ShapeHistory;
+};
 
 export class DraftOps {
-  static applyDraft(solid: Shape, faceRaws: TopoDS_Shape[], angle: number): Shape {
+  static applyDraft(solid: Shape, faceRaws: TopoDS_Shape[], angle: number): DraftResult | null {
     const oc = getOC();
     const solidRaw = solid.getShape();
     const bbox = ShapeOps.getBoundingBox(solid);
@@ -62,8 +69,9 @@ export class DraftOps {
       }
 
       const result = draftMaker.Shape();
+      const history = ShapeHistoryTracker.collect(draftMaker, [solid]);
       draftMaker.delete();
-      return ShapeFactory.fromShape(result);
+      return { shape: ShapeFactory.fromShape(result), history };
     } finally {
       disposeDir();
       disposePln();

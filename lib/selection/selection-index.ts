@@ -71,6 +71,15 @@ export class SelectionIndex {
   private hits = new Map<number, BucketHit[]>();
   readonly buckets: BucketRecord[] = [];
   private callSiteCounts = new Map<string, number>();
+  /**
+   * Sub-shape key → the feature whose added-face/edge history record claims
+   * it. Deliberately OUTSIDE the bucket index: creator records have no public
+   * accessor, so they must never feed selector synthesis — only attribution's
+   * "which feature created this?" fallback. Populated earliest-first because
+   * a fusion re-records untouched pass-through sub-shapes as its own
+   * additions; the first recorder is the true creator.
+   */
+  private creators = new Map<number, SceneObject>();
 
   constructor(scene: SelectionScene) {
     const objects = scene.getAllSceneObjects();
@@ -82,6 +91,7 @@ export class SelectionIndex {
       if (key) {
         this.callSiteCounts.set(key, (this.callSiteCounts.get(key) ?? 0) + 1);
       }
+      this.indexCreators(obj);
     }
   }
 
@@ -100,6 +110,15 @@ export class SelectionIndex {
       return [];
     }
     return all.filter(h => h.bucket.def.kind === kind);
+  }
+
+  /**
+   * The feature whose added-sub-shape record claims `key`, if any. This is
+   * creation provenance, not classification — a fillet's arc face resolves
+   * here even though no bucket (and no accessor) will ever contain it.
+   */
+  creatorOf(key: number): SceneObject | null {
+    return this.creators.get(key) ?? null;
   }
 
   /**
@@ -138,6 +157,21 @@ export class SelectionIndex {
       const members = feature.getState(def.key) as Face[] | undefined;
       if (members && members.length > 0) {
         this.addBucket(feature, def, members);
+      }
+    }
+  }
+
+  private indexCreators(feature: SceneObject): void {
+    for (const face of feature.getAddedFaces()) {
+      const key = this.hasher.key(face.getShape());
+      if (!this.creators.has(key)) {
+        this.creators.set(key, feature);
+      }
+    }
+    for (const edge of feature.getAddedEdges()) {
+      const key = this.hasher.key(edge.getShape());
+      if (!this.creators.has(key)) {
+        this.creators.set(key, feature);
       }
     }
   }

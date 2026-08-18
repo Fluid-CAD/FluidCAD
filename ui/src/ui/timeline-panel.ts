@@ -1,5 +1,5 @@
 import type { SceneObjectRender } from '../types';
-import { findActiveObject, rollbackScopeIds, isRollbackViewTruncated } from '../helpers/scene-utils';
+import { findActiveObject, findEnclosingPartRow, rollbackScopeIds, isRollbackViewTruncated } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
@@ -94,6 +94,14 @@ export class TimelinePanel {
    */
   private sketchActive = false;
   private collapsedIds = new Set<string>();
+  /**
+   * Row highlight for a 3D viewer pick: the id of the feature the picked
+   * face/edge attributed to. Cleared on every update() — ids are re-minted
+   * per render and the viewer selection dies with the old scene anyway.
+   */
+  private pickedFeatureId: string | null = null;
+  /** True only for the render setPickedFeature triggers — one-shot flash. */
+  private pickedFlash = false;
   private timelineExpanded = true;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
@@ -167,6 +175,7 @@ export class TimelinePanel {
   }
 
   update(sceneObjects: SceneObjectRender[], rollbackStop: number, rollbackScopePartId: string | null = null): void {
+    this.pickedFeatureId = null;
     this.sceneObjects = sceneObjects;
     this.rollbackStop = rollbackStop;
     this.rollbackScopePartId = rollbackScopePartId;
@@ -175,6 +184,80 @@ export class TimelinePanel {
     this.renderTimeline(true);
     this.shapesPanel.update(sceneObjects);
     this.updateHistoryTotal();
+  }
+
+  /**
+   * Highlight the row of the feature a 3D pick attributed to (null clears).
+   * The row is revealed IDE-style: a collapsed enclosing group expands and
+   * the row — or the nearest rendered ancestor standing in for it — flashes
+   * and scrolls into view. The History accordion and the panel's own
+   * visibility stay untouched; the highlight paints whenever they reopen.
+   */
+  setPickedFeature(id: string | null): void {
+    if (id === this.pickedFeatureId) {
+      if (id !== null) {
+        this.scrollPickedIntoView();
+      }
+      return;
+    }
+    this.pickedFeatureId = id;
+    if (id === null) {
+      this.renderTimeline();
+      return;
+    }
+    const rowId = this.resolvePickedRowId();
+    if (rowId !== null) {
+      const row = this.sceneObjects.find((o) => o.id === rowId);
+      if (row?.parentId != null) {
+        this.collapsedIds.delete(row.parentId);
+      }
+    }
+    this.pickedFlash = true;
+    this.renderTimeline();
+    this.pickedFlash = false;
+    this.scrollPickedIntoView();
+  }
+
+  /**
+   * The rendered row standing in for pickedFeatureId: the feature's own row,
+   * or the nearest ancestor that has one — grandchildren (only two depths
+   * render), descendants of hide-children containers, and hidden rows have
+   * no row of their own.
+   */
+  private resolvePickedRowId(): string | null {
+    if (this.pickedFeatureId === null) {
+      return null;
+    }
+    const byId = (id: string) => this.sceneObjects.find((o) => o.id === id);
+    const visited = new Set<string>();
+    let obj = byId(this.pickedFeatureId);
+    while (obj && obj.id != null && !visited.has(obj.id)) {
+      visited.add(obj.id);
+      if (this.hasRenderedRow(obj)) {
+        return obj.id;
+      }
+      obj = obj.parentId != null ? byId(obj.parentId) : undefined;
+    }
+    return null;
+  }
+
+  /** Whether renderTimeline emits a row for this object (collapse aside). */
+  private hasRenderedRow(obj: SceneObjectRender): boolean {
+    if (isHiddenRow(obj)) {
+      return false;
+    }
+    if (obj.parentId == null) {
+      return true;
+    }
+    const parent = this.sceneObjects.find((o) => o.id === obj.parentId);
+    return parent != null && parent.parentId == null && !isHiddenRow(parent) && parent.hideChildren !== true;
+  }
+
+  private scrollPickedIntoView(): void {
+    const el = this.timelineBody.querySelector<HTMLElement>('[data-picked="true"]');
+    if (el) {
+      el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
   }
 
   setShowBuildTimings(value: boolean): void {
@@ -235,6 +318,7 @@ export class TimelinePanel {
     }
 
     const scopedIds = rollbackScopeIds(items, this.rollbackScopePartId);
+    const pickedRowId = this.resolvePickedRowId();
 
     let html = '';
 
@@ -257,7 +341,7 @@ export class TimelinePanel {
       const effectiveError = obj.hasError === true || childHasError;
       const rollbackIndex = hidesChildren ? this.lastDescendantIndex(items, i) : i;
 
-      html += this.renderTimelineItem(obj, i, rollbackStop, false, hasChildren, isCollapsed, effectiveError, rollbackIndex, scopedIds);
+      html += this.renderTimelineItem(obj, i, rollbackStop, false, hasChildren, isCollapsed, effectiveError, rollbackIndex, scopedIds, pickedRowId !== null && obj.id === pickedRowId);
 
       if (hasChildren && !isCollapsed) {
         for (let j = 0; j < items.length; j++) {
@@ -266,7 +350,7 @@ export class TimelinePanel {
           }
           if (items[j].parentId === obj.id) {
             const childRollbackIndex = items[j].hideChildren === true ? this.lastDescendantIndex(items, j) : j;
-            html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true, childRollbackIndex, scopedIds);
+            html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true, childRollbackIndex, scopedIds, pickedRowId !== null && items[j].id === pickedRowId);
           }
         }
       }
@@ -379,6 +463,9 @@ export class TimelinePanel {
       return;
     }
     const obj = this.sceneObjects[index];
+    if (obj) {
+      this.activateEnclosingPart(obj);
+    }
     if (!(obj && this.managesOwnBreakpoint?.(obj))) {
       this.addBreakpointAfter(index);
     }
@@ -386,6 +473,30 @@ export class TimelinePanel {
     if (obj) {
       this.onFeatureEdit?.(obj, index);
     }
+  }
+
+  /**
+   * The pause gestures work "here": pausing a build inside a part makes that
+   * part the user's working scope, so an inactive enclosing part is activated
+   * first — the same path as clicking its row. Without this the breakpoint
+   * render derives sketch-mode entry (and every scope-sensitive service) from
+   * the previously active part — whose build the pause never touches, since
+   * the leftover-definitions pass still materializes it fully — and a paused
+   * tip sketch never opens for editing. Skipped while sketching: the only
+   * gestures allowed then either stay inside the active part or open an edit
+   * dialog that suspends the active sketch and restores it on exit, which a
+   * scope switch would close for good instead.
+   */
+  private activateEnclosingPart(obj: SceneObjectRender): void {
+    if (this.sketchActive || !this.onPartActivate) {
+      return;
+    }
+    const part = findEnclosingPartRow(obj, this.sceneObjects);
+    if (!part || this.isPartRowActive?.(part) === true) {
+      return;
+    }
+    this.onPartActivate(part);
+    this.renderTimeline();
   }
 
   /**
@@ -412,7 +523,7 @@ export class TimelinePanel {
     return last;
   }
 
-  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean, rollbackIndex: number, scopedIds: Set<string> | null): string {
+  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean, rollbackIndex: number, scopedIds: Set<string> | null, isPicked: boolean): string {
     // Rows outside a part-scoped rollback's part are fully rendered — they
     // never read as past or current, whatever their flat index.
     const inRollbackScope = scopedIds === null || (obj.id != null && scopedIds.has(obj.id));
@@ -436,7 +547,18 @@ export class TimelinePanel {
     // part next to the active one would read as two active parts. Only the
     // active part row is tinted (and carries the dot).
     const highlightCurrent = isCurrent && obj.type !== 'part';
-    if (highlightCurrent) {
+    // A viewer pick outranks the navigation tints: the picked row answers
+    // "which feature made this face?", so it must read distinctly even when
+    // it is also the current or active-part row. Light gray (base-content
+    // wash, like the hover state) rather than primary, so it never reads as
+    // navigation. Tailwind resolves competing bg- classes by stylesheet
+    // order, not class order — a branch, not an append.
+    if (isPicked) {
+      itemClass += ' bg-base-content/10 ring-1 ring-inset ring-base-content/30';
+      if (this.pickedFlash) {
+        itemClass += ' animate-[timeline-pick-flash_0.9s_ease-out] motion-reduce:animate-none';
+      }
+    } else if (highlightCurrent) {
       itemClass += ' border-l-2 border-primary bg-primary/10';
     } else if (isActivePart) {
       itemClass += ' bg-primary/10';
@@ -483,7 +605,7 @@ export class TimelinePanel {
       : '';
 
     return `
-      <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}">
+      <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-picked="${isPicked}">
         ${chevron}
         ${errorDot}
         <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
@@ -697,6 +819,9 @@ export class TimelinePanel {
 
     dropdown.querySelector('[data-action="rollback"]')?.addEventListener('click', () => {
       this.closeDropdown();
+      // Same scope rule as the edit gesture: the pause makes this row's part
+      // the working scope, so a paused tip sketch actually enters sketch mode.
+      this.activateEnclosingPart(obj);
       this.addBreakpointAfter(index);
       this.goToSource(obj);
     });

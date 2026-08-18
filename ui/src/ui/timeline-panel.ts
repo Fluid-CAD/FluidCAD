@@ -1,5 +1,5 @@
 import type { SceneObjectRender } from '../types';
-import { isTopLevel } from '../helpers/scene-utils';
+import { findActiveObject } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
@@ -162,10 +162,6 @@ export class TimelinePanel {
   update(sceneObjects: SceneObjectRender[], rollbackStop: number): void {
     this.sceneObjects = sceneObjects;
     this.rollbackStop = rollbackStop;
-    // Mirrors the viewer's sketch-mode derivation: a full (non-rolled-back)
-    // render whose last top-level object is a sketch.
-    this.sketchActive = rollbackStop >= sceneObjects.length - 1
-      && this.findActiveObject(sceneObjects)?.type === 'sketch';
     this.loaded = true;
     this.syncVisibility();
     this.renderTimeline(true);
@@ -206,6 +202,13 @@ export class TimelinePanel {
   private renderTimeline(scrollToCurrent = false): void {
     const items = this.sceneObjects;
     const rollbackStop = this.rollbackStop;
+
+    // Mirrors the viewer's sketch-mode derivation: a full (non-rolled-back)
+    // render whose active scope ends in a sketch. Derived here rather than in
+    // update() so a part-row click — which repoints the active part and
+    // re-renders without a new scene — reads the new scope's state.
+    this.sketchActive = rollbackStop >= items.length - 1
+      && findActiveObject(items)?.type === 'sketch';
 
     const parentIds = new Set<string>();
     const childErrorByParent = new Map<string, boolean>();
@@ -642,7 +645,7 @@ export class TimelinePanel {
     // except on the active sketch's own children: a breakpoint there replays
     // the sketch up to that shape without leaving sketch mode.
     const activeSketchChild = this.sketchActive && obj.parentId != null
-      && this.findActiveObject(this.sceneObjects)?.id === obj.parentId;
+      && findActiveObject(this.sceneObjects)?.id === obj.parentId;
     const breakpointItem = this.sketchActive && !activeSketchChild ? '' : `
         <li><button data-action="rollback" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PAUSE}</span>
@@ -850,16 +853,6 @@ export class TimelinePanel {
       return;
     }
     this.client.editor?.gotoSource(obj.sourceLocation);
-  }
-
-  /** Last root-level (or Part-child) object — mirrors Viewer.findActiveObject. */
-  private findActiveObject(objects: SceneObjectRender[]): SceneObjectRender | undefined {
-    for (let i = objects.length - 1; i >= 0; i--) {
-      if (isTopLevel(objects[i], objects)) {
-        return objects[i];
-      }
-    }
-    return undefined;
   }
 
   private escapeHtml(text: string): string {

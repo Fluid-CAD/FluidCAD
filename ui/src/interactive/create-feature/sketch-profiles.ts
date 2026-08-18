@@ -1,5 +1,5 @@
 import { fetchSketchNames, gotoSource } from '../../api';
-import { isTopLevel } from '../../helpers/scene-utils';
+import { findActiveObject, isTopLevel } from '../../helpers/scene-utils';
 import { SceneObjectPart, SceneObjectRender } from '../../types';
 import { PickSlotChip } from '../pick-slot';
 
@@ -24,20 +24,14 @@ export type SketchProfileOption = {
 
 /**
  * The sketches a feature could consume right now: the active sketch (the
- * last top-level object, while sketch mode is on) plus every other sketch
- * still rendering geometry — a consumed sketch's shapes are removed by its
- * consumer, so "has visible shapes" is exactly "unconsumed". The active
- * sketch is offered even while empty; Apply refuses it with a hint.
+ * active scope's last object, while sketch mode is on) plus every other
+ * sketch still rendering geometry — a consumed sketch's shapes are removed
+ * by its consumer, so "has visible shapes" is exactly "unconsumed". The
+ * active sketch is offered even while empty; Apply refuses it with a hint.
  */
 export function collectSketchProfiles(sceneObjects: SceneObjectRender[]): SketchProfileOption[] {
-  let lastTopLevel: SceneObjectRender | undefined;
-  for (let i = sceneObjects.length - 1; i >= 0; i--) {
-    if (isTopLevel(sceneObjects[i], sceneObjects)) {
-      lastTopLevel = sceneObjects[i];
-      break;
-    }
-  }
-  const active = lastTopLevel?.type === 'sketch' && lastTopLevel.sourceLocation ? lastTopLevel : undefined;
+  const tip = findActiveObject(sceneObjects);
+  const active = tip?.type === 'sketch' && tip.sourceLocation ? tip : undefined;
 
   const options: SketchProfileOption[] = [];
   if (active) {

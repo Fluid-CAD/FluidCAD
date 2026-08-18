@@ -73,6 +73,8 @@ export class WrapPanel extends FeaturePanel {
     // opens on the first offered one (the active one, in sketch mode).
     this.faceSlot.reset();
     this.shell.setTitle(null);
+    this.tabs.reset();
+    this.thicknessField.setValue(1);
     this.sketchSlot.reset(options);
     // The face slot opens empty and awaiting a pick — it starts armed.
     this.armSlot('face');

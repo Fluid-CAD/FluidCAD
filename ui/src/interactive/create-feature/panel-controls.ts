@@ -18,8 +18,10 @@ export class ChoiceTabs<T extends string> {
 
   private tabs = new Map<T, HTMLButtonElement>();
   private current: T;
+  private readonly initial: T;
 
   constructor(host: HTMLElement, choices: { key: T; label: string; title: string; disabled?: boolean }[], initial: T) {
+    this.initial = initial;
     this.current = initial;
     for (const { key, label, title, disabled } of choices) {
       const tab = document.createElement('button');
@@ -48,6 +50,11 @@ export class ChoiceTabs<T extends string> {
     for (const [kind, tab] of this.tabs) {
       tab.className = kind === key ? TAB_ACTIVE : TAB_BASE;
     }
+  }
+
+  /** Back to the construction-time tab (fresh-arming defaults); no change event fires. */
+  reset(): void {
+    this.setValue(this.initial);
   }
 
   private set(key: T): void {
@@ -161,14 +168,21 @@ export class ThinControl {
     }
   }
 
-  /** Programmatic offsets (edit-mode prefill); no change event fires. */
+  /**
+   * Programmatic offsets (edit-mode prefill); no change event fires. A null
+   * turns the toggle off and reseeds the fields' defaults — a statement
+   * without thin() must not show a stale thickness once re-enabled.
+   */
   setValues(thin: [ValueExpr] | [ValueExpr, ValueExpr] | null): void {
     this.checkbox.checked = thin !== null;
-    if (thin !== null) {
-      this.field.setValue(thin[0]);
-    }
+    this.field.setValue(thin !== null ? thin[0] : 2);
     this.field2.setValue(thin?.[1] ?? '');
     this.sync();
+  }
+
+  /** Back to the defaults: toggle off, thickness 2, single-sided. */
+  reset(): void {
+    this.setValues(null);
   }
 
   /** The `.thin()` offsets, null when off, or the message for a bad value. */

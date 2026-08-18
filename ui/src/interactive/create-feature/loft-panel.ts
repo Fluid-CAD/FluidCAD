@@ -189,14 +189,16 @@ export class LoftPanel extends FeaturePanel {
   }
 
   show(): void {
-    // A fresh arming starts from empty profile/guide/scope lists and
-    // unconditioned takeoffs.
+    // A fresh arming starts from empty profile/guide/scope lists,
+    // unconditioned takeoffs and default form values.
     this.shell.setTitle(null);
+    this.tabs.reset();
     this.setProfiles([]);
     this.setGuides([]);
     this.setScopeChips([]);
     this.startCondition.reset();
     this.endCondition.reset();
+    this.thin.reset();
     this.setThinBlocked(false);
     this.syncScopeVisible();
     this.setArmedSection('profiles');

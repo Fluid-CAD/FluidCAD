@@ -98,7 +98,14 @@ export class RibPanel extends FeaturePanel {
   }
 
   show(options: SketchProfileOption[]): void {
+    // A fresh arming starts from defaults — the previous session's form
+    // values would otherwise carry over.
     this.shell.setTitle(null);
+    this.tabs.reset();
+    this.thicknessField.setValue(5);
+    this.parallelCheckbox.checked = false;
+    this.extendCheckbox.checked = false;
+    this.draftField.setValue(0);
     this.spineSlot.reset(options);
     this.syncSpineArmed();
     this.shell.show();

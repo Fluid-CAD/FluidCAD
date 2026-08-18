@@ -191,13 +191,22 @@ export class ExtrudePanel extends FeaturePanel {
   }
 
   show(options: SketchProfileOption[]): void {
-    // A fresh arming starts from defaults — the previous session's choice
-    // would otherwise be revived by source-line matching. The slot opens on
-    // the first offered sketch (the active one, in sketch mode).
+    // A fresh arming starts from defaults — the previous session's choices
+    // (its slot picks AND its form values) would otherwise carry over. The
+    // slot opens on the first offered sketch (the active one, in sketch mode).
     this.faceSlot.reset();
     this.armedSolidSlot = 'face';
     this.scopeSlot.setChips([]);
     this.shell.setTitle(null);
+    this.tabs.reset();
+    this.directionSelect.value = 'one';
+    this.distanceField.setValue(25);
+    this.distance2Field.setValue(25);
+    this.throughCheckbox.checked = false;
+    this.draftField.setValue(0);
+    this.endOffsetField.setValue('');
+    this.drillCheckbox.checked = true;
+    this.thin.reset();
     this.profileSlot.reset(options);
     this.syncProfileArmed();
     this.syncControls();
@@ -230,12 +239,11 @@ export class ExtrudePanel extends FeaturePanel {
     this.shell.setTitle('Edit extrude');
     this.tabs.setOp(state.op);
     this.directionSelect.value = directionOf(state);
-    if (state.distance !== null) {
-      this.distanceField.setValue(state.distance);
-    }
-    if (state.distance2 !== null) {
-      this.distance2Field.setValue(state.distance2);
-    }
+    // A distance the statement doesn't carry (up-to-face, through-all,
+    // one-direction) seeds the create default — switching the direction
+    // mid-edit must not reveal a previous session's value.
+    this.distanceField.setValue(state.distance ?? 25);
+    this.distance2Field.setValue(state.distance2 ?? 25);
     // An up-to-face statement has no distance, but it is not a through-all.
     this.throughCheckbox.checked = state.distance === null && state.toFaceKind === null;
     this.draftField.setValue(state.draft ?? 0);

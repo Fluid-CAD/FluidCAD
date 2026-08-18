@@ -84,12 +84,16 @@ export class AssemblyCompare {
       const oldState = oldObj.getFullState();
       const newState = cloneState(oldState);
 
-      const oldRemovedShapes = newState.get('removedShapes') as { shape: Shape; removedBy: SceneObject }[];
-      const newRemovedShapes: { shape: Shape; removedBy: SceneObject }[] = [];
+      const oldRemovedShapes = newState.get('removedShapes') as { shape: Shape; removedBy: SceneObject; soft?: boolean }[];
+      const newRemovedShapes: { shape: Shape; removedBy: SceneObject; soft?: boolean }[] = [];
       for (const r of oldRemovedShapes) {
         const removedByNewObj = map.get(r.removedBy);
         if (removedByNewObj) {
-          newRemovedShapes.push({ shape: r.shape, removedBy: removedByNewObj });
+          // Spread keeps the record's flags — dropping `soft` here turned
+          // expose()'s render-only removal into a hard consumption, so a
+          // cached re-render served the exposure with no shapes and its
+          // contact classification (tangent mates) silently came back null.
+          newRemovedShapes.push({ ...r, removedBy: removedByNewObj });
         }
       }
       newState.set('removedShapes', newRemovedShapes);

@@ -34,6 +34,19 @@ const TWO_PI = Math.PI * 2;
 const LINEAR_MARGIN = 0.5; // mm
 /** distLL parallel-configuration fallback threshold on 1 − (u₁·u₂)². */
 const PARALLEL_EPS = 1e-12;
+/**
+ * Active-pair |gap| tie-break tolerance: gaps this close count as equal and
+ * the earlier chain pair keeps the slot. A zero-clearance fit (a pin exactly
+ * filling a slot) makes the two OPPOSING walls tie in |gap| at EVERY pose —
+ * their signed gaps are ±y with only ~1e-15 of float noise between the
+ * magnitudes. A strict `<` here lets that noise flip the winner between the
+ * residual, FD-probe, and trial evaluates of one LM solve, attaching one
+ * wall's gradient to the other wall's sign-flipped residual — the
+ * Gauss-Newton step reverses, every trial is rejected, and the mate stalls
+ * at the warm-start pose. With the tolerance the pick is deterministic and
+ * the emitted row is one wall's smooth signed gap.
+ */
+const GAP_TIE_EPS = 1e-9;
 
 // ---------------------------------------------------------------------------
 // World-frame entities
@@ -466,7 +479,7 @@ export function contactResidual(rc: ResolvedContact): number[] {
       if (
         best === null
         || excess < best.excess - 1e-12
-        || (Math.abs(excess - best.excess) <= 1e-12 && absGap < best.absGap)
+        || (Math.abs(excess - best.excess) <= 1e-12 && absGap < best.absGap - GAP_TIE_EPS)
       ) {
         best = { rows: ev.rows, excess, absGap };
       }

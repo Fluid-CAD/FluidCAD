@@ -4,16 +4,18 @@ import {
   LoftProfileRef, ParsedFeatureStatement, SketchSourceRef, SourceSlotRef,
 } from '../../api';
 import { sameEntity } from '../../helpers/entities';
-import { SceneObjectRender, SubSelection } from '../../types';
+import { SceneObjectRender, SourceLocation, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
 import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
+import { SolidPickSelection } from '../solid-pick';
 import { LoftPanel } from './loft-panel';
 import { FeatureButton } from './feature-button';
 import { FeatureGhostOverlay, GhostKind } from './feature-ghost';
 import { ApplyRunner } from './apply-runner';
 import { SketchUISuspender } from './sketch-suspender';
 import { OptionRelabeler, refreshScopeVariables } from './option-relabeler';
+import { enclosingPartLocOf, ScopeTargetList, scopePartLocation } from './scope-targets';
 import {
   collectWireSources, labelWithSketchNames, optionsSignature, resolveWireByShapeId, resolveWireRow,
   sourceChip, SketchProfileOption, sketchWireShapeIds,
@@ -74,6 +76,12 @@ export class LoftFeatureService {
 
   private items: LoftProfileItem[] = [];
   private guides: LoftGuideItem[] = [];
+  /** The `.scope(…)` targets, part-restricted whole-solid picks. */
+  private scope = new ScopeTargetList();
+  /** The edited statement's enclosing part — the scope picker's restriction. */
+  private editPartLoc: SourceLocation | null = null;
+  /** The shared whole-solid highlight (the scope chips' viewport echo). */
+  private solidPick: SolidPickSelection;
   private runner: ApplyRunner<LoftApplyOptions | LoftEditRequest>;
   private relabeler: OptionRelabeler<SketchProfileOption[]>;
   /** The translucent body the current chips and values would skin. */
@@ -107,17 +115,28 @@ export class LoftFeatureService {
     };
     this.sketchUI = new SketchUISuspender(viewer, hooks);
     this.ghost = new FeatureGhostOverlay(viewer);
+    this.solidPick = new SolidPickSelection(viewer, { multiple: true });
 
     this.panel = new LoftPanel(container);
     this.panel.onApply = () => void this.applyThroughRunner();
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
       this.panel.setMessage(null);
+      // The op tab gates the scope section (hidden on New) — re-derive its
+      // chips and the highlight alongside the preview.
+      this.refreshScope();
       this.runner.schedulePreview();
     };
     this.panel.onRemoveProfile = (index) => this.removeProfile(index);
     this.panel.onReorderProfile = (from, to) => this.reorderProfile(from, to);
     this.panel.onRemoveGuide = (index) => this.removeGuide(index);
+    this.panel.onArmedSectionChange = () => this.syncPickFilter();
+    this.panel.onRemoveScope = (index) => {
+      this.scope.removeAt(index);
+      this.panel.setMessage(null);
+      this.refreshScope();
+      this.runner.schedulePreview();
+    };
 
     this.runner = new ApplyRunner({
       panel: this.panel,
@@ -230,10 +249,12 @@ export class LoftFeatureService {
       }
       return;
     }
-    // At the boundary: rebuild options from the pre-statement scene.
+    // At the boundary: rebuild options from the pre-statement scene. A keep
+    // chip whose argument named a statement becomes that statement's option.
     this.ghost.clear();
     this.sceneObjects = sceneObjects;
     this.profiles = collectWireSources(sceneObjects);
+    this.scope.setScene(sceneObjects, this.scopePartLoc(), { resolveKeeps: true });
     if (this.editSceneStale) {
       this.editSceneStale = false;
       // A scene rebuild killed every picked face's shape id; sketch chips
@@ -304,11 +325,12 @@ export class LoftFeatureService {
     if (this.sceneSketchActive) {
       this.sketchUI.suspend();
     }
-    this.viewer.pickFilter = 'face';
+    this.syncPickFilter();
     this.viewer.pickSketchWires = true;
     // Shape ids changed with the render: face chips are stale and drop;
-    // sketch chips (and guides) are line-addressed and survive while still
-    // offered.
+    // sketch chips (and guides) — and the chosen scope solids — are
+    // line-addressed and survive while still offered.
+    this.scope.setScene(sceneObjects, this.scopePartLoc());
     this.items = this.items.filter((item): item is LoftProfileItem & { kind: 'sketch' } => {
       if (item.kind !== 'sketch') {
         return false;
@@ -361,9 +383,12 @@ export class LoftFeatureService {
     this.guides = parsed.guideTexts.map((label, sourceIndex) => ({ kind: 'verbatim', sourceIndex, label }));
     this.sourceSlots = null;
     this.editSceneStale = false;
+    // The statement's enclosing part restricts the scope picker — derived
+    // from the pre-rollback scene, where the edited row still renders.
+    this.editPartLoc = enclosingPartLocOf(target, this.sceneObjects);
+    this.scope.seedKeeps(parsed, target.filePath);
     this.syncButton();
     this.sketchUI.suspend();
-    this.viewer.pickFilter = 'face';
     this.viewer.pickSketchWires = true;
     this.session.begin({ ...info, target });
     void this.loadEditSources();
@@ -374,6 +399,8 @@ export class LoftFeatureService {
       startCondition: parsed.startCondition,
       endCondition: parsed.endCondition,
     });
+    this.panel.setScopeChips(this.scope.chips());
+    this.syncPickFilter();
     this.refreshProfilesUI();
     this.runner.schedulePreview();
   }
@@ -429,13 +456,16 @@ export class LoftFeatureService {
       this.sketchUI.suspend();
     }
     this.syncButton();
-    this.viewer.pickFilter = 'face';
     this.viewer.pickSketchWires = true;
     this.items = [];
     this.guides = [];
+    this.scope.clear();
+    this.editPartLoc = null;
     void this.refreshScopeVariables();
     this.panel.show();
+    this.syncPickFilter();
     void this.relabeler.refresh(this.profiles);
+    this.refreshScope();
     this.refreshProfilesUI();
     this.runner.schedulePreview();
   }
@@ -459,6 +489,9 @@ export class LoftFeatureService {
     this.editTarget = null;
     this.sourceSlots = null;
     this.editSceneStale = false;
+    this.scope.clear();
+    this.editPartLoc = null;
+    this.solidPick.set([]);
     this.syncButton();
     this.runner.cancelPreview();
     // The overlay is a compiledMesh sibling, so no render tears it down —
@@ -479,6 +512,20 @@ export class LoftFeatureService {
    * clicks keep the list.
    */
   handleClick(shapeId: string | null, sub: SubSelection): void {
+    // The armed scope slot takes any face or edge click as a whole-solid
+    // toggle instead of a profile pick.
+    if (this.armed && this.panel.armedSection === 'scope') {
+      if (!shapeId || !sub || (sub.type !== 'face' && sub.type !== 'edge')) {
+        return;
+      }
+      const option = this.scope.optionForShapeId(shapeId);
+      if (!option) {
+        this.panel.setMessage('That shape cannot scope the boolean — pick a solid in the same part.');
+        return;
+      }
+      this.toggleScope(option);
+      return;
+    }
     if (!this.armed || !shapeId || !sub || sub.type !== 'face') {
       return;
     }
@@ -504,11 +551,18 @@ export class LoftFeatureService {
       return false;
     }
     const sketch = resolveWireRow(obj, this.sceneObjects);
-    if (!sketch?.sourceLocation) {
-      return false;
+    if (sketch?.sourceLocation) {
+      this.pickSketch(sketch);
+      return true;
     }
-    this.pickSketch(sketch);
-    return true;
+    // A solid row toggles it in the scope list — unambiguous, so no arming
+    // is needed. Rows outside the scope's part fall through untouched.
+    const option = this.scope.optionForRow(obj);
+    if (option && this.panel.op !== 'new') {
+      this.toggleScope(option);
+      return true;
+    }
+    return false;
   }
 
   /** A sketch wire was clicked in the 3D view: same as a timeline pick. */
@@ -797,6 +851,9 @@ export class LoftFeatureService {
       guides,
       startCondition: values.startCondition,
       endCondition: values.endCondition,
+      // A separate body has no boolean to scope — the hidden section's picks
+      // stay parked in case the user switches back.
+      scope: values.op === 'new' ? undefined : this.scope.createRefs(),
     };
   }
 
@@ -864,6 +921,9 @@ export class LoftFeatureService {
       endCondition: values.endCondition,
       profiles,
       guides,
+      // The dialog owns the chain it shows: the full list on Add/Remove, an
+      // explicit drop on New (`.new()` resets the fusion scope).
+      scope: values.op === 'new' ? [] : this.scope.editRefs(),
       expectedStatement: this.session.expectedStatement,
       before: hasFacePicks ? this.session.boundary ?? undefined : undefined,
     };
@@ -926,14 +986,58 @@ export class LoftFeatureService {
       }
     }
     // Every selected input lights up: picked faces plus the wires of every
-    // profile and guide sketch.
+    // profile and guide sketch, and the chosen scope solids whole.
     const wireIds = sketches.flatMap(option => sketchWireShapeIds(option, this.sceneObjects));
-    if (faces.length > 0 || wireIds.length > 0) {
-      this.viewer.highlightEntities(faces, wireIds);
-    } else {
-      this.viewer.clearHighlight();
-    }
+    this.solidPick.set(this.scope.shapeIds());
+    this.solidPick.refreshHighlight({ entities: faces, wireIds });
     this.syncApplyEnabled();
+  }
+
+  /**
+   * The part the scope picker is restricted to: the edited statement's own
+   * enclosing part, or — create mode — the first sketch profile's (producers
+   * win: the statement inserts in its producers' scope), falling back to the
+   * timeline's active part.
+   */
+  private scopePartLoc(): SourceLocation | null {
+    if (this.editTarget) {
+      return this.editPartLoc;
+    }
+    const first = this.items.find((item): item is LoftProfileItem & { kind: 'sketch' } => item.kind === 'sketch');
+    return scopePartLocation(
+      first ? { filePath: first.option.filePath, line: first.option.line } : null,
+      this.sceneObjects,
+    );
+  }
+
+  /** Recompute the offered scope solids, the chips and the highlight. */
+  private refreshScope(): void {
+    if (!this.armed) {
+      return;
+    }
+    this.scope.setScene(this.sceneObjects, this.scopePartLoc());
+    this.panel.setScopeChips(this.scope.chips());
+    this.refreshProfilesUI();
+  }
+
+  /** Toggle a solid scope chip (viewport or timeline pick). */
+  private toggleScope(option: NonNullable<ReturnType<ScopeTargetList['optionForRow']>>): void {
+    this.scope.toggle(option);
+    this.panel.setMessage(null);
+    this.refreshScope();
+    this.runner.schedulePreview();
+  }
+
+  /**
+   * The viewer's pick filter follows the armed section: the scope slot opens
+   * everything (any face or edge click resolves to its owning solid), the
+   * others keep the full-time face picking the profiles slot owns.
+   */
+  private syncPickFilter(): void {
+    if (!this.armed) {
+      return;
+    }
+    this.viewer.pickFilter = this.panel.armedSection === 'scope' ? 'all' : 'face';
   }
 
   private findOption(filePath: string, line: number): SketchProfileOption | undefined {

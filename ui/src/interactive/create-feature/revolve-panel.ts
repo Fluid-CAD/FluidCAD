@@ -4,9 +4,11 @@ import { SketchProfileOption } from './sketch-profiles';
 import { AxisOption } from './axis-options';
 import { AxisSelection, AxisSlotControl } from './axis-slot';
 import { SketchSlotControl, SketchSlotSelection } from './sketch-slot';
+import { ScopeSlotControl } from './scope-slot';
 import { RevolveOptionValues, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
+import { PickSlotChip } from '../pick-slot';
 
 /** Validated form values, or the message to show when a field is invalid. */
 export type RevolveValues = RevolveOptionValues | { error: string };
@@ -31,14 +33,17 @@ export class RevolvePanel extends FeaturePanel {
   onAxisModeChange?: () => void;
   /** The armed slot changed — the service re-aims the viewer pick channels. */
   onArmedSlotChange?: () => void;
+  /** The scope chip at `index` was removed — the service owns the choices. */
+  onRemoveScope?: (index: number) => void;
 
   /** The slot 3D picks land in — the one last clicked. */
-  armedSlot: 'profile' | 'axis' = 'axis';
+  armedSlot: 'profile' | 'axis' | 'scope' = 'axis';
 
   private tabs: OpTabs;
   private thin: ThinControl;
   private profileSlot: SketchSlotControl;
   private axisSlot: AxisSlotControl;
+  private scopeSlot: ScopeSlotControl;
   private angleField: ExpressionField;
   private symmetricCheckbox: HTMLInputElement;
 
@@ -65,6 +70,7 @@ export class RevolvePanel extends FeaturePanel {
           <input data-role="symmetric" type="checkbox" class="toggle toggle-sm toggle-primary" />
         </label>
         <div data-role="thin-host" class="contents"></div>
+        <div data-role="scope-slot"></div>
       `,
     });
 
@@ -73,7 +79,10 @@ export class RevolvePanel extends FeaturePanel {
       { op: 'remove', label: 'Remove', title: 'Cut the revolved solid out of the model — revolve().remove()' },
       { op: 'new', label: 'New', title: 'Keep the revolved solid as a separate body — revolve().new()' },
     ]);
-    this.tabs.onChange = () => this.onChange?.();
+    this.tabs.onChange = () => {
+      this.syncScopeVisible();
+      this.onChange?.();
+    };
     this.thin = new ThinControl(this.role('thin-host'));
     this.thin.onChange = () => this.onChange?.();
     this.thin.onSubmit = () => this.onApply?.();
@@ -88,6 +97,10 @@ export class RevolvePanel extends FeaturePanel {
     this.axisSlot.onArm = () => this.armSlot('axis');
     this.axisSlot.onChange = () => this.onChange?.();
     this.axisSlot.onModeChange = () => this.onAxisModeChange?.();
+
+    this.scopeSlot = new ScopeSlotControl(this.role('scope-slot'));
+    this.scopeSlot.onRemove = (index) => this.onRemoveScope?.(index);
+    this.scopeSlot.onArm = () => this.armSlot('scope');
 
     this.angleField = this.enhance('angle');
     this.symmetricCheckbox = this.role('symmetric');
@@ -112,6 +125,8 @@ export class RevolvePanel extends FeaturePanel {
     this.axisSlot.reset();
     this.axisSlot.setOptions(axes);
     this.axisSlot.selectStandard('z');
+    this.scopeSlot.setChips([]);
+    this.syncScopeVisible();
     // The profile pre-fills; the axis is the explicit next step.
     this.armSlot('axis');
     this.shell.show();
@@ -136,6 +151,7 @@ export class RevolvePanel extends FeaturePanel {
     this.thin.setValues(state.thin);
     this.profileSlot.seedKeep(state.profileLabel);
     this.axisSlot.seedKeep(state.axisLabel);
+    this.syncScopeVisible();
     this.armSlot('axis');
     this.shell.show();
   }
@@ -212,16 +228,38 @@ export class RevolvePanel extends FeaturePanel {
     };
   }
 
+  /** The boolean operation tab — gates the scope section (New writes none). */
+  get op(): 'add' | 'remove' | 'new' {
+    return this.tabs.op;
+  }
+
+  /** The scope chips (the service owns the choices). */
+  setScopeChips(chips: PickSlotChip[]): void {
+    this.scopeSlot.setChips(chips);
+  }
+
+  /**
+   * A separate body has no boolean to scope — the section hides on the New
+   * tab, handing the armed border back to the axis slot.
+   */
+  private syncScopeVisible(): void {
+    this.scopeSlot.setVisible(this.tabs.op !== 'new');
+    if (!this.scopeSlot.visible && this.armedSlot === 'scope') {
+      this.armSlot('axis');
+    }
+  }
+
   /**
    * Arm one slot: it takes the 3D picks and wears the primary border; the
-   * other goes quiet. The service re-aims the viewer pick channels on every
+   * others go quiet. The service re-aims the viewer pick channels on every
    * actual change.
    */
-  private armSlot(slot: 'profile' | 'axis'): void {
+  private armSlot(slot: 'profile' | 'axis' | 'scope'): void {
     const changed = this.armedSlot !== slot;
     this.armedSlot = slot;
     this.profileSlot.setArmed(slot === 'profile');
     this.axisSlot.setArmed(slot === 'axis');
+    this.scopeSlot.setArmed(slot === 'scope');
     if (changed) {
       this.onArmedSlotChange?.();
     }

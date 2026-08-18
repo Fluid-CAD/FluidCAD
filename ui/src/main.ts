@@ -1633,6 +1633,7 @@ viewer.setHoverHandler((shapeId, sub, clientX, clientY) => {
 const createDialogPicking = () =>
   (extrudeService.isActive && !extrudeService.isEditing)
   || extrudeService.isFacePicking
+  || extrudeService.isScopePicking
   || ribService.isPicking
   || revolveService.isAxisPicking
   || (sweepService.isActive && !sweepService.isEditing)
@@ -1809,8 +1810,9 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
     return;
   }
   // The extrude dialog owns face clicks while its direction is "Up to face"
-  // — the pick is the extrusion's target face.
-  if (extrudeService.isFacePicking) {
+  // — the pick is the extrusion's target face — and any face/edge click
+  // while its scope slot is armed (a whole-solid toggle).
+  if (extrudeService.isFacePicking || extrudeService.isScopePicking) {
     extrudeService.handleClick(shapeId, sub);
     return;
   }

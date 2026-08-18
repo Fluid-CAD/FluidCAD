@@ -1843,7 +1843,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'extrude', op: 'add', distance: 30, distance2: null, symmetric: false,
         draft: null, endOffset: null, drill: true, thin: null, profileText: null,
-        toFaceText: null, toFaceKind: null,
+        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
       },
       statement: 'extrude(30)',
     });
@@ -1857,7 +1857,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'extrude', op: 'new', distance: 25, distance2: null, symmetric: false,
         draft: null, endOffset: null, drill: true, thin: [2], profileText: 's',
-        toFaceText: null, toFaceKind: null,
+        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
       },
       statement: 'extrude(25, s).thin(2).new()',
     });
@@ -1871,7 +1871,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'extrude', op: 'add', distance: 25, distance2: null, symmetric: false,
         draft: null, endOffset: null, drill: true, thin: [-2, 3.5], profileText: 's',
-        toFaceText: null, toFaceKind: null,
+        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
       },
       statement: 'extrude(25, s).thin(-2, 3.5)',
     });
@@ -1885,7 +1885,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'extrude', op: 'remove', distance: null, distance2: null, symmetric: false,
         draft: null, endOffset: null, drill: true, thin: null, profileText: 's',
-        toFaceText: null, toFaceKind: null,
+        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
       },
       statement: 'cut(s)',
     });
@@ -1899,7 +1899,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'extrude', op: 'add', distance: 10, distance2: 20, symmetric: false,
         draft: 5, endOffset: null, drill: false, thin: null, profileText: 's',
-        toFaceText: null, toFaceKind: null,
+        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
       },
       statement: 'extrude(10, 20, s).draft(5).drill(false)',
     });
@@ -1913,7 +1913,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'extrude', op: 'remove', distance: 20, distance2: null, symmetric: false,
         draft: null, endOffset: 1.5, drill: true, thin: null, profileText: null,
-        toFaceText: null, toFaceKind: null,
+        toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
       },
       statement: 'cut(20).endOffset(1.5)',
     });
@@ -1978,7 +1978,10 @@ describe('parseFeatureStatement', () => {
     const result = await parseFeatureStatement(code, 5);
     expect(result).toEqual({
       ok: true,
-      parsed: { feature: 'sweep', op: 'remove', thin: null, pathText: 'p', profileText: 's' },
+      parsed: {
+        feature: 'sweep', op: 'remove', thin: null, pathText: 'p', profileText: 's',
+        scopeTexts: [], scopeRefs: [],
+      },
       statement: 'sweep(p, s).remove()',
     });
   });
@@ -2138,7 +2141,7 @@ describe('parseFeatureStatement', () => {
       parsed: {
         feature: 'extrude', op: 'add', distance: null, distance2: null, symmetric: false,
         draft: 3, endOffset: null, drill: true, thin: null, profileText: 's',
-        toFaceText: 'e.endFaces()', toFaceKind: 'selector',
+        toFaceText: 'e.endFaces()', toFaceKind: 'selector', scopeTexts: [], scopeRefs: [],
       },
       statement: 'extrude(e.endFaces(), s).draft(3)',
     });
@@ -3513,7 +3516,7 @@ describe('parseFeatureStatement — revolve', () => {
       ok: true,
       parsed: {
         feature: 'revolve', op: 'add', angle: null, symmetric: false, thin: null,
-        axisText: `'z'`, profileText: null,
+        axisText: `'z'`, profileText: null, scopeTexts: [], scopeRefs: [],
       },
       statement: `revolve('z')`,
     });
@@ -3535,7 +3538,7 @@ describe('parseFeatureStatement — revolve', () => {
       ok: true,
       parsed: {
         feature: 'revolve', op: 'remove', angle: null, symmetric: false, thin: null,
-        axisText: 'a', profileText: 's',
+        axisText: 'a', profileText: 's', scopeTexts: [], scopeRefs: [],
       },
       statement: `revolve(a, s).remove()`,
     });
@@ -7203,6 +7206,272 @@ describe('applyFeatureEdit (rib in-place statement edit)', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`rib(9, s).color('red')\n`);
+  });
+});
+
+describe('.scope() chains — extrude, sweep, loft, revolve', () => {
+  // A solid to scope to (line 3) ahead of the inputs each feature consumes.
+  const scopedCreateBase = [
+    `import { sketch, rect, extrude } from 'fluidcad/core'`,
+    ``,
+    `const base = extrude(30)`,
+    `sketch('xy', () => { rect(100, 50) })`,
+    ``,
+  ].join('\n');
+
+  function scopedExtrudeSpec(
+    extrude: Partial<NonNullable<ApplyFeatureEditSpec['extrude']>> = {},
+    overrides: Partial<ApplyFeatureEditSpec> = {},
+  ): ApplyFeatureEditSpec {
+    return {
+      feature: 'extrude',
+      filePath: '/ws/model.fluid.js',
+      extrude: {
+        op: 'add', distance: 25, distance2: null, symmetric: false, draft: null, endOffset: null,
+        drill: true, thin: null, profile: 'implicit', scope: [1], ...extrude,
+      },
+      producers: [
+        { line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: false },
+        { line: 3, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+      parts: [],
+      imports: [],
+      ...overrides,
+    };
+  }
+
+  it('extrude reuses a bound scope solid and chains .scope() last', async () => {
+    const result = await applyFeatureEdit(scopedCreateBase, scopedExtrudeSpec({ thin: [2] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`extrude(25).thin(2).scope(base)`);
+  });
+
+  it('extrude renders a scoped cut', async () => {
+    const result = await applyFeatureEdit(scopedCreateBase, scopedExtrudeSpec({ op: 'remove', distance: 7 }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`cut(7).scope(base)`);
+  });
+
+  it('extrude binds an unbound scope solid to a variable', async () => {
+    const code = [
+      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      ``,
+      `extrude(30)`,
+      `sketch('xy', () => { rect(100, 50) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, scopedExtrudeSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`const f = extrude(30)`);
+    expect(result.newCode).toContain(`extrude(25).scope(f)`);
+  });
+
+  it('extrude refuses a scope index pointing at an identity-typed producer', async () => {
+    const result = await applyFeatureEdit(scopedCreateBase, scopedExtrudeSpec({ scope: [0] }));
+    expect(result.error).toContain('malformed extrude edit spec');
+    expect(result.newCode).toBe(scopedCreateBase);
+  });
+
+  it('sweep chains .scope() after the op chains', async () => {
+    const code = [
+      `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `const base = extrude(30)`,
+      `sketch('xz', () => { circle(5) })`,
+      `sketch('xy', () => { rect(10, 10) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, {
+      feature: 'sweep',
+      filePath: '/ws/model.fluid.js',
+      sweep: {
+        op: 'remove', thin: null, profile: 'implicit',
+        path: { kind: 'sketch', producer: 0 },
+        scope: [2],
+      },
+      producers: [
+        { line: 4, column: 0, featureType: 'sketch', nameHint: 'p', bind: true },
+        { line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: false },
+        { line: 3, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+      parts: [],
+      imports: [],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`sweep(p).remove().scope(base)`);
+  });
+
+  it('loft chains .scope() after the op chains', async () => {
+    const code = [
+      `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `const base = extrude(30)`,
+      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xz', () => { circle(5) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, {
+      feature: 'loft',
+      filePath: '/ws/model.fluid.js',
+      loft: {
+        op: 'add', thin: null,
+        profiles: [{ kind: 'sketch', producer: 0 }, { kind: 'sketch', producer: 1 }],
+        scope: [2],
+      },
+      producers: [
+        { line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+        { line: 5, column: 0, featureType: 'sketch', nameHint: 's', bind: true },
+        { line: 3, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+      parts: [],
+      imports: [],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`loft(s, s2).scope(base)`);
+  });
+
+  it('revolve chains .scope() on a standard axis', async () => {
+    const code = [
+      `import { sketch, circle, extrude } from 'fluidcad/core'`,
+      ``,
+      `const base = extrude(30)`,
+      `sketch('xz', () => { circle([80, 0], 40) })`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, {
+      feature: 'revolve',
+      filePath: '/ws/model.fluid.js',
+      revolve: {
+        op: 'add', angle: 360, symmetric: false, thin: null, profile: 'implicit',
+        axis: { kind: 'standard', axis: 'z' },
+        scope: [1],
+      },
+      producers: [
+        { line: 4, column: 0, featureType: 'sketch', nameHint: 's', bind: false },
+        { line: 3, column: 0, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+      parts: [],
+      imports: [],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`revolve('z').scope(base)`);
+  });
+});
+
+describe('parseFeatureStatement — .scope() chains', () => {
+  const scopeParseBase = [
+    `import { sketch, rect, extrude, cut, sweep, loft, revolve, circle } from 'fluidcad/core'`,
+    ``,
+    `const body = extrude(30)`,
+    `const tower = extrude(50).new()`,
+    `const s = sketch('front', () => { circle(20) })`,
+  ].join('\n');
+
+  it('reads an extrude scope chain with refs', async () => {
+    const code = `${scopeParseBase}\ncut(10).scope(body, tower)\n`;
+    const result = await parseFeatureStatement(code, 6);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'extrude', op: 'remove', distance: 10, scopeTexts: ['body', 'tower'] },
+    });
+    if (result.ok === true && result.parsed.feature === 'extrude') {
+      expect(result.parsed.scopeRefs.map(r => r?.line)).toEqual([3, 4]);
+    }
+  });
+
+  it('reads a sweep scope chain', async () => {
+    const code = `${scopeParseBase}\nconst p = sketch('xz', () => { circle(5) })\nsweep(p, s).thin(2).scope(body)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'sweep', op: 'add', thin: [2], pathText: 'p', scopeTexts: ['body'] },
+    });
+  });
+
+  it('reads a loft scope chain', async () => {
+    const code = `${scopeParseBase}\nconst s2 = sketch('back', () => { circle(10) })\nloft(s, s2).remove().scope(body)\n`;
+    const result = await parseFeatureStatement(code, 7);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'loft', op: 'remove', profileTexts: ['s', 's2'], scopeTexts: ['body'] },
+    });
+  });
+
+  it('reads a revolve scope chain', async () => {
+    const code = `${scopeParseBase}\nrevolve('z', 90, s).scope(body)\n`;
+    const result = await parseFeatureStatement(code, 6);
+    expect(result).toMatchObject({
+      ok: true,
+      parsed: { feature: 'revolve', op: 'add', angle: 90, axisText: `'z'`, scopeTexts: ['body'] },
+    });
+  });
+});
+
+describe('applyFeatureEdit (.scope() in-place statement edits)', () => {
+  const scopeEditBase = [
+    `import { sketch, rect, extrude, cut, sweep, loft, revolve, circle } from 'fluidcad/core'`,
+    ``,
+    `const body = extrude(30)`,
+    `const tower = extrude(50).new()`,
+    `const s = sketch('front', () => { circle(20) })`,
+  ].join('\n');
+
+  it('extrude mixes kept and re-picked scope targets', async () => {
+    const code = `${scopeEditBase}\nextrude(25, s).scope(body)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 6, column: 0,
+      extrude: extrudeEditOptions({
+        scope: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'feature', producer: 0 },
+        ],
+      }),
+    }, {
+      producers: [{ line: 4, column: 0, featureType: 'feature', nameHint: 'f', bind: true }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`extrude(25, s).scope(body, tower)\n`);
+  });
+
+  it('extrude keeps the scope chain verbatim when the edit omits it', async () => {
+    const code = `${scopeEditBase}\nextrude(25, s).scope(body)\n`;
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 6, column: 0,
+      extrude: extrudeEditOptions({ distance: 40 }),
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`extrude(40, s).scope(body)\n`);
+  });
+
+  it('revolve drops the scope chain on an empty replacement list', async () => {
+    const code = `${scopeEditBase}\nrevolve('z', 90, s).scope(body)\n`;
+    const result = await applyFeatureEdit(code, editSpec('revolve', {
+      line: 6, column: 0,
+      revolve: { op: 'add', angle: 90, symmetric: false, thin: null, scope: [] },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`revolve('z', 90, s)\n`);
+    expect(result.newCode).not.toContain(`.scope(`);
+  });
+
+  it('sweep keeps the scope chain across an option edit', async () => {
+    const code = `${scopeEditBase}\nconst p = sketch('xz', () => { circle(5) })\nsweep(p, s).scope(body)\n`;
+    const result = await applyFeatureEdit(code, editSpec('sweep', {
+      line: 7, column: 0,
+      sweep: { op: 'add', thin: [2] },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`sweep(p, s).thin(2).scope(body)\n`);
+  });
+
+  it('loft rewrites the op ahead of a kept scope chain', async () => {
+    const code = `${scopeEditBase}\nconst s2 = sketch('back', () => { circle(10) })\nloft(s, s2).scope(body)\n`;
+    const result = await applyFeatureEdit(code, editSpec('loft', {
+      line: 7, column: 0,
+      loft: { op: 'remove', thin: null },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`loft(s, s2).remove().scope(body)\n`);
   });
 });
 

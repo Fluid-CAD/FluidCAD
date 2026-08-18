@@ -1,6 +1,7 @@
 import { LoftConditionRef, NewVariable, ValueExpr } from '../../api';
 import { FeatureOp, OpTabs, ThinControl } from './panel-controls';
 import { FeaturePanel } from './feature-panel';
+import { ScopeSlotControl } from './scope-slot';
 import { PickSlot, PickSlotChip } from '../pick-slot';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
@@ -111,9 +112,13 @@ export class LoftPanel extends FeaturePanel {
   onReorderProfile?: (from: number, to: number) => void;
   /** The guide chip at `index` was removed. */
   onRemoveGuide?: (index: number) => void;
+  /** The scope chip at `index` was removed — the service owns the choices. */
+  onRemoveScope?: (index: number) => void;
+  /** The armed section changed — the service re-aims the pick channels. */
+  onArmedSectionChange?: () => void;
 
   /** The slot a timeline/viewport sketch pick fills — last clicked. */
-  armedSection: 'profiles' | 'guides' = 'profiles';
+  armedSection: 'profiles' | 'guides' | 'scope' = 'profiles';
 
   private tabs: OpTabs;
   private thin: ThinControl;
@@ -121,6 +126,7 @@ export class LoftPanel extends FeaturePanel {
   private endCondition: ConditionRow;
   private profilesSlot: PickSlot;
   private guidesSlot: PickSlot;
+  private scopeSlot: ScopeSlotControl;
 
   constructor(container: HTMLElement) {
     super(container, {
@@ -134,6 +140,7 @@ export class LoftPanel extends FeaturePanel {
         <div data-role="start-condition"></div>
         <div data-role="end-condition"></div>
         <div data-role="thin-host" class="contents"></div>
+        <div data-role="scope-slot"></div>
       `,
     });
 
@@ -142,7 +149,10 @@ export class LoftPanel extends FeaturePanel {
       { op: 'remove', label: 'Remove', title: 'Cut the lofted solid out of the model — loft().remove()' },
       { op: 'new', label: 'New', title: 'Keep the lofted solid as a separate body — loft().new()' },
     ]);
-    this.tabs.onChange = () => this.onChange?.();
+    this.tabs.onChange = () => {
+      this.syncScopeVisible();
+      this.onChange?.();
+    };
     this.thin = new ThinControl(this.role('thin-host'));
     this.thin.onChange = () => this.onChange?.();
     this.thin.onSubmit = () => this.onApply?.();
@@ -172,17 +182,23 @@ export class LoftPanel extends FeaturePanel {
     this.profilesSlot.onRemove = (index) => this.onRemoveProfile?.(index);
     this.profilesSlot.onReorder = (from, to) => this.onReorderProfile?.(from, to);
     this.guidesSlot.onRemove = (index) => this.onRemoveGuide?.(index);
+
+    this.scopeSlot = new ScopeSlotControl(this.role('scope-slot'));
+    this.scopeSlot.onRemove = (index) => this.onRemoveScope?.(index);
+    this.scopeSlot.onArm = () => this.setArmedSection('scope');
   }
 
   show(): void {
-    // A fresh arming starts from empty profile/guide lists and
+    // A fresh arming starts from empty profile/guide/scope lists and
     // unconditioned takeoffs.
     this.shell.setTitle(null);
     this.setProfiles([]);
     this.setGuides([]);
+    this.setScopeChips([]);
     this.startCondition.reset();
     this.endCondition.reset();
     this.setThinBlocked(false);
+    this.syncScopeVisible();
     this.setArmedSection('profiles');
     this.shell.show();
   }
@@ -207,6 +223,7 @@ export class LoftPanel extends FeaturePanel {
     this.thin.setValues(state.thin);
     this.startCondition.set(state.startCondition);
     this.endCondition.set(state.endCondition);
+    this.syncScopeVisible();
     this.setArmedSection('profiles');
     this.shell.show();
   }
@@ -268,10 +285,36 @@ export class LoftPanel extends FeaturePanel {
     this.endCondition.setVariables(variables);
   }
 
-  private setArmedSection(section: 'profiles' | 'guides'): void {
+  /** The boolean operation tab — gates the scope section (New writes none). */
+  get op(): FeatureOp {
+    return this.tabs.op;
+  }
+
+  /** The scope chips (the service owns the choices). */
+  setScopeChips(chips: PickSlotChip[]): void {
+    this.scopeSlot.setChips(chips);
+  }
+
+  /**
+   * A separate body has no boolean to scope — the section hides on the New
+   * tab, handing the armed border back to the profiles slot.
+   */
+  private syncScopeVisible(): void {
+    this.scopeSlot.setVisible(this.tabs.op !== 'new');
+    if (!this.scopeSlot.visible && this.armedSection === 'scope') {
+      this.setArmedSection('profiles');
+    }
+  }
+
+  private setArmedSection(section: 'profiles' | 'guides' | 'scope'): void {
+    const changed = this.armedSection !== section;
     this.armedSection = section;
     this.profilesSlot.setArmed(section === 'profiles');
     this.guidesSlot.setArmed(section === 'guides');
+    this.scopeSlot.setArmed(section === 'scope');
+    if (changed) {
+      this.onArmedSectionChange?.();
+    }
   }
 
   /** Profile progress prompt while more profiles are needed; null hides it. */

@@ -701,6 +701,54 @@ describe('apply-feature route validation', () => {
     expect(body.preview).toBe('extrude(30).symmetric().draft(5).endOffset(2).drill(false)');
   });
 
+  it('relays scope solids as feature producers and previews the .scope() chain', async () => {
+    const { status, body } = await post({
+      feature: 'extrude', op: 'add', distance: 25, profile: PROFILE,
+      scope: [{ filePath: '/ws/m.fluid.js', line: 7, column: 0 }],
+    });
+    expect(status).toBe(200);
+    expect(body.preview).toBe('extrude(25).scope(f)');
+    expect(relayed).toHaveLength(1);
+    expect(relayed[0].spec).toMatchObject({
+      feature: 'extrude',
+      extrude: { scope: [1] },
+      producers: [
+        { line: 3, featureType: 'sketch', bind: false },
+        { line: 7, featureType: 'feature', nameHint: 'f', bind: true },
+      ],
+    });
+  });
+
+  it('rejects scope solids on a separate body (op new)', async () => {
+    const { status, body } = await post({
+      feature: 'extrude', op: 'new', distance: 25, profile: PROFILE,
+      scope: [{ filePath: '/ws/m.fluid.js', line: 7, column: 0 }],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('separate body');
+  });
+
+  it('rejects the same scope solid picked twice', async () => {
+    const { status, body } = await post({
+      feature: 'extrude', op: 'add', distance: 25, profile: PROFILE,
+      scope: [
+        { filePath: '/ws/m.fluid.js', line: 7, column: 0 },
+        { filePath: '/ws/m.fluid.js', line: 7, column: 4 },
+      ],
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('picked twice');
+  });
+
+  it('rejects a scope solid from another file', async () => {
+    const { status, body } = await post({
+      feature: 'extrude', op: 'add', distance: 25, profile: PROFILE,
+      scope: [{ filePath: '/ws/other.fluid.js', line: 7, column: 0 }],
+    });
+    expect(status).toBe(422);
+    expect(body.reason).toContain('different file');
+  });
+
   it('rejects a zero endOffset — no chain is the way to write none', async () => {
     const { status, body } = await post({
       feature: 'extrude', op: 'add', distance: 30, endOffset: 0, profile: PROFILE,
@@ -1900,7 +1948,7 @@ describe('apply-feature route validation', () => {
         parsed: {
           feature: 'extrude', op: 'add', distance: 30, distance2: null, symmetric: false,
           draft: null, endOffset: null, drill: true, thin: null, profileText: null,
-          toFaceText: null, toFaceKind: null,
+          toFaceText: null, toFaceKind: null, scopeTexts: [], scopeRefs: [],
         },
         statement: 'extrude(30)',
       });
@@ -1947,6 +1995,51 @@ describe('apply-feature route validation', () => {
       expect(status).toBe(200);
       expect(body.preview).toBe('cut()');
       expect(relayed).toHaveLength(0);
+    });
+
+    it('relays an edited scope list — keeps by index, re-picks as bound feature producers', async () => {
+      currentCode = [
+        `import { sketch, rect, extrude } from 'fluidcad/core'`,
+        ``,
+        `const body = extrude(30)`,
+        `const tower = extrude(50).new()`,
+        `extrude(10).scope(body)`,
+        ``,
+      ].join('\n');
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'extrude', edit: { filePath: '/ws/m.fluid.js', line: 5, column: 0 },
+        op: 'add', distance: 10, thin: null,
+        scope: [
+          { kind: 'verbatim', sourceIndex: 0 },
+          { kind: 'feature', filePath: '/ws/m.fluid.js', line: 4, column: 0 },
+        ],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('extrude(10).scope(body, tower)');
+      expect(relayed).toHaveLength(1);
+      expect(relayed[0].spec).toMatchObject({
+        edit: {
+          extrude: {
+            scope: [
+              { kind: 'verbatim', sourceIndex: 0 },
+              { kind: 'feature', producer: 0 },
+            ],
+          },
+        },
+        producers: [{ line: 4, featureType: 'feature', nameHint: 'f', bind: true }],
+      });
+    });
+
+    it('rejects a malformed edited scope entry', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'extrude', edit: EDIT_TARGET, op: 'add', distance: 10, thin: null,
+        scope: [{ kind: 'feature' }],
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('scope target');
     });
 
     it('rejects a malformed edit op', async () => {

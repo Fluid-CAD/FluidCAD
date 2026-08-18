@@ -1726,6 +1726,8 @@ export type ExtrudeApplyOptions = ExtrudeOptionValues & {
   profile: ExtrudeProfileRef;
   /** Up-to-face target replacing the distance(s): a picked face, or first/last. */
   toFace?: ApplyFeatureEntity | ExtrudeFaceTarget;
+  /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
+  scope?: SketchSourceRef[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -1751,6 +1753,7 @@ export async function applyExtrude(options: ExtrudeApplyOptions): Promise<ApplyF
     newVariables: options.newVariables,
     profile: options.profile,
     toFace: options.toFace,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
@@ -1829,6 +1832,8 @@ export type RevolveAxisRef =
 export type RevolveApplyOptions = RevolveOptionValues & {
   profile: ExtrudeProfileRef;
   axis: RevolveAxisRef;
+  /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
+  scope?: SketchSourceRef[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -1849,6 +1854,7 @@ export async function applyRevolve(options: RevolveApplyOptions): Promise<ApplyF
     newVariables: options.newVariables,
     profile: options.profile,
     axis: options.axis,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
@@ -1926,6 +1932,8 @@ export type SweepApplyOptions = {
   path:
     | ({ kind: 'sketch' } & SketchSourceRef)
     | { kind: 'edges'; entities: ApplyFeatureEntity[]; chains?: ApplyFeatureChain[] };
+  /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
+  scope?: SketchSourceRef[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -1944,6 +1952,7 @@ export async function applySweep(options: SweepApplyOptions): Promise<ApplyFeatu
     newVariables: options.newVariables,
     profile: options.profile,
     path: options.path,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
@@ -2004,6 +2013,8 @@ export type LoftApplyOptions = {
   guides: SketchSourceRef[];
   startCondition: LoftConditionRef | null;
   endCondition: LoftConditionRef | null;
+  /** The solid statements the `.scope(…)` chain names; empty writes no chain. */
+  scope?: SketchSourceRef[];
   /** Render the statement preview without applying. */
   preview?: boolean;
   signal?: AbortSignal;
@@ -2024,6 +2035,7 @@ export async function applyLoft(options: LoftApplyOptions): Promise<ApplyFeature
     guides: options.guides,
     startCondition: options.startCondition,
     endCondition: options.endCondition,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
@@ -2426,12 +2438,28 @@ export type ParsedPlaneBase = {
 };
 
 /**
+ * A statement's parsed `.scope(…)` chain (mirror of the server's
+ * `ParsedScopeChain`), shared by every feature that writes one — rib,
+ * extrude, sweep, loft and revolve.
+ */
+export type ParsedScopeChain = {
+  /** `.scope(…)` argument texts, verbatim; empty when the chain is absent. */
+  scopeTexts: string[];
+  /**
+   * Source location of the statement each scope argument references, or
+   * null when it names none. Same length as `scopeTexts`; seeds the scope
+   * chips as their solid rows.
+   */
+  scopeRefs: ({ line: number; column: number } | null)[];
+};
+
+/**
  * An existing statement's dialog-editable reading (mirror of the server's
  * `ParsedFeatureStatement`). Expressions the dialogs don't edit (profiles,
  * paths, selector args) arrive as verbatim source text.
  */
 export type ParsedFeatureStatement =
-  | {
+  | (ParsedScopeChain & {
       feature: 'extrude';
       op: FeatureOpKind;
       distance: ValueExpr | null;
@@ -2450,8 +2478,8 @@ export type ParsedFeatureStatement =
        * literal; null for a distance extrude.
        */
       toFaceKind: 'selector' | ExtrudeFaceTarget | null;
-    }
-  | {
+    })
+  | (ParsedScopeChain & {
       feature: 'rib';
       op: FeatureOpKind;
       /** Wall thickness; the sign picks the side of the sketch plane. */
@@ -2461,22 +2489,14 @@ export type ParsedFeatureStatement =
       draft: ValueExpr | null;
       /** Trailing spine argument text (`s`), or null for implicit consumption. */
       spineText: string | null;
-      /** `.scope(…)` argument texts, verbatim; empty when the chain is absent. */
-      scopeTexts: string[];
-      /**
-       * Source location of the statement each scope argument references, or
-       * null when it names none. Same length as `scopeTexts`; seeds the scope
-       * chips as their solid rows.
-       */
-      scopeRefs: ({ line: number; column: number } | null)[];
-    }
-  | {
+    })
+  | (ParsedScopeChain & {
       feature: 'sweep';
       op: FeatureOpKind;
       thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
       pathText: string;
       profileText: string | null;
-    }
+    })
   | {
       feature: 'wrap';
       op: FeatureOpKind;
@@ -2487,7 +2507,7 @@ export type ParsedFeatureStatement =
       /** Target face argument text, verbatim (`e.sideFaces(0)`). */
       faceText: string;
     }
-  | {
+  | (ParsedScopeChain & {
       feature: 'revolve';
       op: FeatureOpKind;
       /** Sweep angle in degrees; null = omitted (the 360° API default). */
@@ -2498,7 +2518,7 @@ export type ParsedFeatureStatement =
       /** Axis argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`). */
       axisText: string;
       profileText: string | null;
-    }
+    })
   | {
       feature: 'helix';
       /** Source argument text, verbatim (`'z'`, `a`, `axis(e.edges(3))`, `e.sideFaces(0)`). */
@@ -2513,7 +2533,7 @@ export type ParsedFeatureStatement =
       startOffset: ValueExpr | null;
       endOffset: ValueExpr | null;
     }
-  | {
+  | (ParsedScopeChain & {
       feature: 'loft';
       op: FeatureOpKind;
       thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
@@ -2521,7 +2541,7 @@ export type ParsedFeatureStatement =
       guideTexts: string[];
       startCondition: LoftConditionRef | null;
       endCondition: LoftConditionRef | null;
-    }
+    })
   | {
       feature: 'shell';
       value: ValueExpr;
@@ -2761,6 +2781,16 @@ export type EditSessionFields = {
   before?: SelectionBoundaryRef;
 };
 
+/**
+ * One target of an edited `.scope(…)` chain, in argument order: an untouched
+ * target by its position in the statement's own argument list, or a re-picked
+ * solid statement by call site. Shared by every dialog that writes the chain
+ * (rib, extrude, sweep, loft, revolve).
+ */
+export type ScopeTargetRef =
+  | { kind: 'verbatim'; sourceIndex: number }
+  | ({ kind: 'feature' } & SketchSourceRef);
+
 export type ExtrudeEditOptions = ExtrudeOptionValues & EditSessionFields & {
   /** Re-sourced profile (a sketch or a top-level offset); omitted keeps the statement's own. */
   profile?: { mode: 'bound'; feature?: 'sketch' | 'offset' } & SketchSourceRef;
@@ -2770,6 +2800,11 @@ export type ExtrudeEditOptions = ExtrudeOptionValues & EditSessionFields & {
    * Omitted writes the distance form (dropping any target the statement had).
    */
   toFace?: { kind: 'keep' | ExtrudeFaceTarget } | { kind: 'face'; entity: ApplyFeatureEntity };
+  /**
+   * Full replacement scope list; omitted keeps the statement's own chain,
+   * an empty list drops it (back to whole-scene fusion).
+   */
+  scope?: ScopeTargetRef[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -2795,18 +2830,10 @@ export async function applyExtrudeEdit(
     newVariables: options.newVariables,
     profile: options.profile,
     toFace: options.toFace,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
-
-/**
- * One scope target of an edited rib, in argument order: an untouched target
- * by its position in the statement's own `.scope(…)` argument list, or a
- * re-picked solid statement by call site.
- */
-export type RibEditScopeRef =
-  | { kind: 'verbatim'; sourceIndex: number }
-  | ({ kind: 'feature' } & SketchSourceRef);
 
 export type RibEditOptions = RibOptionValues & EditSessionFields & {
   /** Re-sourced spine sketch; omitted keeps the statement's own. */
@@ -2815,7 +2842,7 @@ export type RibEditOptions = RibOptionValues & EditSessionFields & {
    * Full replacement scope list; omitted keeps the statement's own chain,
    * an empty list drops it (back to whole-scene fusion).
    */
-  scope?: RibEditScopeRef[];
+  scope?: ScopeTargetRef[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -2852,6 +2879,11 @@ export type SweepEditOptions = EditSessionFields & {
     | { kind: 'edges'; entities: ApplyFeatureEntity[]; chains: ApplyFeatureChain[] };
   /** Re-sourced profile sketch; omitted keeps the statement's own. */
   profile?: { kind: 'sketch' } & SketchSourceRef;
+  /**
+   * Full replacement scope list; omitted keeps the statement's own chain,
+   * an empty list drops it (back to whole-scene fusion).
+   */
+  scope?: ScopeTargetRef[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -2871,6 +2903,7 @@ export async function applySweepEdit(
     newVariables: options.newVariables,
     path: options.path,
     profile: options.profile,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
@@ -2911,6 +2944,11 @@ export type RevolveEditOptions = RevolveOptionValues & EditSessionFields & {
   profile?: { mode: 'bound' } & SketchSourceRef;
   /** Re-sourced axis; omitted keeps the statement's own. */
   axis?: RevolveAxisRef;
+  /**
+   * Full replacement scope list; omitted keeps the statement's own chain,
+   * an empty list drops it (back to whole-scene fusion).
+   */
+  scope?: ScopeTargetRef[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -2932,6 +2970,7 @@ export async function applyRevolveEdit(
     newVariables: options.newVariables,
     profile: options.profile,
     axis: options.axis,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }
@@ -2988,6 +3027,11 @@ export type LoftEditOptions = EditSessionFields & {
   profiles?: LoftEditProfileRef[];
   /** Full replacement guide list; omitted keeps the statement's own. */
   guides?: LoftEditGuideRef[];
+  /**
+   * Full replacement scope list; omitted keeps the statement's own chain,
+   * an empty list drops it (back to whole-scene fusion).
+   */
+  scope?: ScopeTargetRef[];
   preview?: boolean;
   signal?: AbortSignal;
 };
@@ -3009,6 +3053,7 @@ export async function applyLoftEdit(
     endCondition: options.endCondition,
     profiles: options.profiles,
     guides: options.guides,
+    scope: options.scope,
     preview: options.preview,
   }, options.signal);
 }

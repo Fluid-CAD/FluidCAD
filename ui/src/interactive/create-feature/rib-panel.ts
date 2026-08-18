@@ -2,7 +2,8 @@ import { OpTabs } from './panel-controls';
 import { FeaturePanel } from './feature-panel';
 import { SketchProfileOption } from './sketch-profiles';
 import { SketchSlotControl, SketchSlotSelection } from './sketch-slot';
-import { PickSlot, PickSlotChip } from '../pick-slot';
+import { ScopeSlotControl } from './scope-slot';
+import { PickSlotChip } from '../pick-slot';
 import { RibOptionValues, ValueExpr } from '../../api';
 import { ExpressionField, collectNewVariables } from '../../ui/expression-field';
 import { VariableInfo } from '../../ui/expression-core';
@@ -26,7 +27,7 @@ export class RibPanel extends FeaturePanel {
 
   private tabs: OpTabs;
   private spineSlot: SketchSlotControl;
-  private scopeSlot: PickSlot;
+  private scopeSlot: ScopeSlotControl;
   private thicknessField: ExpressionField;
   private draftField: ExpressionField;
   private parallelCheckbox: HTMLInputElement;
@@ -76,7 +77,7 @@ export class RibPanel extends FeaturePanel {
     this.spineSlot = new SketchSlotControl(this.role('spine-slot'), { label: 'Spine sketch' });
     this.spineSlot.onChange = () => this.onChange?.();
 
-    this.scopeSlot = new PickSlot(this.role('scope-slot'), { label: 'Scope solids', multiple: true });
+    this.scopeSlot = new ScopeSlotControl(this.role('scope-slot'));
     // The slot is a live pick target the whole time the dialog is up — solid
     // clicks land here, sketch-wire clicks in the spine slot.
     this.scopeSlot.setArmed(true);
@@ -146,12 +147,9 @@ export class RibPanel extends FeaturePanel {
     this.spineSlot.selectIndex(index);
   }
 
-  /** The scope chips (the service owns the choices). */
+  /** The scope chips (the service owns the choices; prompts are the slot's). */
   setScope(chips: PickSlotChip[]): void {
     this.scopeSlot.setChips(chips);
-    this.scopeSlot.setPrompt(chips.length > 0
-      ? 'Pick more solids, or leave as is'
-      : 'Pick solids in 3D — empty means the whole scene');
   }
 
   values(): RibValues {

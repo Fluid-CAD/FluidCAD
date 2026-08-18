@@ -1,5 +1,6 @@
 local bridge = require('fluidcad.bridge')
 local breakpoints = require('fluidcad.breakpoints')
+local file_kind = require('fluidcad.file_kind')
 
 local M = {}
 
@@ -53,7 +54,7 @@ function M.setup(_config)
 
   vim.api.nvim_create_user_command('FluidCadProcessFile', function()
     local file = vim.fn.expand('%:p')
-    if not (file:match('%.part%.js$') or file:match('%.assembly%.js$') or file:match('%.fluid%.js$')) then
+    if not file_kind.is_fluid_script(file) then
       vim.notify('[fluidcad] Current file is not a FluidCAD script (.part.js / .assembly.js / .fluid.js)', vim.log.levels.WARN)
       return
     end

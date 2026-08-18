@@ -379,13 +379,7 @@ local function find_buffer_for_path(file_path)
   return nil
 end
 
---- Mirror of the server's file-kind suffixes: part, assembly, and legacy
---- .fluid.js sources are all fluid scripts.
-local function is_fluid_script(name)
-  return name:match('%.part%.js$') ~= nil
-    or name:match('%.assembly%.js$') ~= nil
-    or name:match('%.fluid%.js$') ~= nil
-end
+local is_fluid_script = require('fluidcad.file_kind').is_fluid_script
 
 --- Server-driven editor history: run native undo/redo inside the buffer for
 --- `msg.filePath` and ack the outcome. Deliberately no current-buffer

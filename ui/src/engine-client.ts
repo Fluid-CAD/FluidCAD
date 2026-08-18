@@ -36,7 +36,14 @@ export interface EngineEditorClient {
  */
 export interface EngineClient {
   recompute(): void;
-  rollback(index: number): void;
+  /**
+   * View-only rollback. `scope: 'part'` truncates only the target index's
+   * enclosing part and keeps the rest of the scene fully rendered (the
+   * timeline's one-click preview); without it the whole scene rolls back —
+   * the exact-index semantics edit-session boundaries depend on. Hosts that
+   * predate the scope simply ignore it and stay global.
+   */
+  rollback(index: number, scope?: 'part'): void;
   setParam(label: string, value: unknown): void;
   resetParams(): void;
   getShapeProperties(shapeId: string): Promise<ShapeProperties | null>;

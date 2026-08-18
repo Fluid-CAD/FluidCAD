@@ -27,6 +27,8 @@ export interface BrowserObjectBuildError {
 export interface BrowserRenderResult {
   result: unknown[];
   rollbackStop: number;
+  /** Part-scoped rollback: only this part is truncated at rollbackStop. */
+  rollbackScopePartId?: string;
   breakpointHit: boolean;
   params?: ParamDefinition[];
   objectErrors: BrowserObjectBuildError[];

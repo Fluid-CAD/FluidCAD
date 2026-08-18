@@ -57,6 +57,51 @@ export function findActiveObject(sceneObjects: SceneObjectRender[]): SceneObject
   return scope.length > 0 ? scope[scope.length - 1] : undefined;
 }
 
+/**
+ * The rows a part-scoped rollback truncates: the scoped part's row and every
+ * descendant. Null without a scope part (global rollback / full render). A
+ * single forward pass suffices — parents always precede their descendants in
+ * the flat list, even when lazily materialized parts interleave.
+ */
+export function rollbackScopeIds(sceneObjects: SceneObjectRender[], scopePartId: string | null): Set<string> | null {
+  if (scopePartId === null) {
+    return null;
+  }
+  const ids = new Set<string>([scopePartId]);
+  for (const obj of sceneObjects) {
+    if (obj.parentId != null && obj.id != null && ids.has(obj.parentId)) {
+      ids.add(obj.id);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Whether a render at this stop actually hides anything. A global rollback
+ * hides the flat tail past the stop; a part-scoped one hides only the scoped
+ * part's rows past it — so a scoped stop on the part's LAST feature hides
+ * nothing and the view IS the full render. That distinction, not
+ * `stop === length - 1`, decides rollback state: sketch-mode entry, service
+ * interactivity, and the timeline's navigation guard all key off it.
+ */
+export function isRollbackViewTruncated(
+  sceneObjects: SceneObjectRender[],
+  rollbackStop: number,
+  scopePartId: string | null,
+): boolean {
+  const scopedIds = rollbackScopeIds(sceneObjects, scopePartId);
+  if (scopedIds === null) {
+    return rollbackStop < sceneObjects.length - 1;
+  }
+  for (let i = rollbackStop + 1; i < sceneObjects.length; i++) {
+    const id = sceneObjects[i].id;
+    if (id != null && scopedIds.has(id)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /** The object carries real material: a solid, not a meta or guide shape. */
 function hasSolidShape(obj: SceneObjectRender): boolean {
   return obj.sceneShapes?.some(s => s.shapeType === 'solid' && !s.isMetaShape && !s.isGuide) === true;

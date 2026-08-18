@@ -52,7 +52,7 @@ import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
 import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider } from './api';
-import { setActivePartLocationProvider } from './helpers/scene-utils';
+import { setActivePartLocationProvider, isRollbackViewTruncated } from './helpers/scene-utils';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
 import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-props-editor';
@@ -2110,7 +2110,12 @@ function connectWebSocket() {
         break;
       case 'scene-rendered': {
         loadingOverlay.hide();
-        const isRollback = msg.rollbackStop != null && msg.rollbackStop < msg.result.length - 1;
+        // "Rolled back" means something is actually hidden. A part-scoped
+        // stop on that part's LAST feature hides nothing — the view is the
+        // full render and must stay fully interactive (sketch-mode entry,
+        // service triggers), with only the timeline marking the clicked row.
+        const isRollback = msg.rollbackStop != null
+          && isRollbackViewTruncated(msg.result, msg.rollbackStop, msg.rollbackScopePartId ?? null);
         const sceneKind: 'part' | 'assembly' = msg.sceneKind === 'assembly' ? 'assembly' : 'part';
         // Re-resolve the active part BEFORE the viewer or any service reads
         // this render — the scope helpers (findActiveObject & co.) consult the
@@ -2164,7 +2169,7 @@ function connectWebSocket() {
         navbar.setMode(sceneKind);
         const rail = ensureRailFor(sceneKind);
         if (rail.kind === 'part') {
-          rail.timeline.update(msg.result, renderStop);
+          rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null);
           assemblyGizmo.handleModeExit();
         } else {
           const raw = msg.assembly;

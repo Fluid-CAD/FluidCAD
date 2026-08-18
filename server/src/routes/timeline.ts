@@ -9,12 +9,19 @@ export function createTimelineRouter(
   const router = Router();
 
   router.post('/rollback', async (req, res) => {
-    const { index } = req.body;
+    const { index, scope } = req.body;
     if (typeof index !== 'number' || index < 0) {
       res.status(400).json({ error: 'Invalid index' });
       return;
     }
-    const data = await fluidCadServer.rollbackFromUI(index);
+    // 'part' scopes the rollback to the target's enclosing part (the
+    // timeline's one-click preview); absent keeps the global prefix
+    // (edit-session boundaries, MCP, older clients).
+    if (scope !== undefined && scope !== 'part') {
+      res.status(400).json({ error: "scope must be 'part' when present" });
+      return;
+    }
+    const data = await fluidCadServer.rollbackFromUI(index, scope);
     if (!data) {
       res.status(404).json({ error: 'No active scene' });
       return;
@@ -25,6 +32,7 @@ export function createTimelineRouter(
       sceneKind: data.sceneKind,
       result: data.result,
       rollbackStop: data.rollbackStop,
+      ...(data.rollbackScopePartId ? { rollbackScopePartId: data.rollbackScopePartId } : {}),
       ...(data.assembly ? { assembly: data.assembly } : {}),
     });
     broadcastToUI({
@@ -33,6 +41,7 @@ export function createTimelineRouter(
       absPath: data.absPath,
       sceneKind: data.sceneKind,
       rollbackStop: data.rollbackStop,
+      ...(data.rollbackScopePartId ? { rollbackScopePartId: data.rollbackScopePartId } : {}),
       ...(data.assembly ? { assembly: data.assembly } : {}),
       // The last full render's paused state — a refresh replays whatever
       // scene message went out last, and the indicator must survive it.

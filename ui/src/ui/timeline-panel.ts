@@ -1,5 +1,5 @@
 import type { SceneObjectRender } from '../types';
-import { findActiveObject } from '../helpers/scene-utils';
+import { findActiveObject, rollbackScopeIds, isRollbackViewTruncated } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
@@ -80,6 +80,13 @@ export class TimelinePanel {
   private sceneObjects: SceneObjectRender[] = [];
   private rollbackStop = -1;
   /**
+   * Set while the displayed render is a part-scoped rollback (the server
+   * derived it from the clicked row): only that part's rows past the stop
+   * are the hidden tail — rows of every other part stay fully rendered, so
+   * they must not read as "past".
+   */
+  private rollbackScopePartId: string | null = null;
+  /**
    * The scene ends with an unconsumed sketch (scene-derived sketch mode).
    * While it does, the timeline doesn't navigate: a rollback or breakpoint
    * would tear the sketch view down mid-edit. Row clicks still jump to
@@ -159,9 +166,10 @@ export class TimelinePanel {
 
   }
 
-  update(sceneObjects: SceneObjectRender[], rollbackStop: number): void {
+  update(sceneObjects: SceneObjectRender[], rollbackStop: number, rollbackScopePartId: string | null = null): void {
     this.sceneObjects = sceneObjects;
     this.rollbackStop = rollbackStop;
+    this.rollbackScopePartId = rollbackScopePartId;
     this.loaded = true;
     this.syncVisibility();
     this.renderTimeline(true);
@@ -203,11 +211,13 @@ export class TimelinePanel {
     const items = this.sceneObjects;
     const rollbackStop = this.rollbackStop;
 
-    // Mirrors the viewer's sketch-mode derivation: a full (non-rolled-back)
-    // render whose active scope ends in a sketch. Derived here rather than in
-    // update() so a part-row click — which repoints the active part and
-    // re-renders without a new scene — reads the new scope's state.
-    this.sketchActive = rollbackStop >= items.length - 1
+    // Mirrors the viewer's sketch-mode derivation: a non-truncated render
+    // whose active scope ends in a sketch — including a part-scoped stop on
+    // the active part's tip sketch, which hides nothing and DOES enter
+    // sketch editing. Derived here rather than in update() so a part-row
+    // click — which repoints the active part and re-renders without a new
+    // scene — reads the new scope's state.
+    this.sketchActive = !isRollbackViewTruncated(items, rollbackStop, this.rollbackScopePartId)
       && findActiveObject(items)?.type === 'sketch';
 
     const parentIds = new Set<string>();
@@ -223,6 +233,8 @@ export class TimelinePanel {
         }
       }
     }
+
+    const scopedIds = rollbackScopeIds(items, this.rollbackScopePartId);
 
     let html = '';
 
@@ -245,7 +257,7 @@ export class TimelinePanel {
       const effectiveError = obj.hasError === true || childHasError;
       const rollbackIndex = hidesChildren ? this.lastDescendantIndex(items, i) : i;
 
-      html += this.renderTimelineItem(obj, i, rollbackStop, false, hasChildren, isCollapsed, effectiveError, rollbackIndex);
+      html += this.renderTimelineItem(obj, i, rollbackStop, false, hasChildren, isCollapsed, effectiveError, rollbackIndex, scopedIds);
 
       if (hasChildren && !isCollapsed) {
         for (let j = 0; j < items.length; j++) {
@@ -254,7 +266,7 @@ export class TimelinePanel {
           }
           if (items[j].parentId === obj.id) {
             const childRollbackIndex = items[j].hideChildren === true ? this.lastDescendantIndex(items, j) : j;
-            html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true, childRollbackIndex);
+            html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true, childRollbackIndex, scopedIds);
           }
         }
       }
@@ -400,11 +412,14 @@ export class TimelinePanel {
     return last;
   }
 
-  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean, rollbackIndex: number): string {
+  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean, rollbackIndex: number, scopedIds: Set<string> | null): string {
+    // Rows outside a part-scoped rollback's part are fully rendered — they
+    // never read as past or current, whatever their flat index.
+    const inRollbackScope = scopedIds === null || (obj.id != null && scopedIds.has(obj.id));
     // A row that stands in for hidden descendants (rollbackIndex > index) is
     // current whenever the rollback stop lands anywhere inside its range.
-    const isCurrent = rollbackStop >= index && rollbackStop <= rollbackIndex;
-    const isPast = index > rollbackStop;
+    const isCurrent = inRollbackScope && rollbackStop >= index && rollbackStop <= rollbackIndex;
+    const isPast = inRollbackScope && index > rollbackStop;
     const isInvisible = obj.visible === false;
     const isActivePart = !isChild && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
     const name = obj.name || 'Unknown';
@@ -837,7 +852,11 @@ export class TimelinePanel {
   }
 
   private rollbackTo(index: number): void {
-    this.client.rollback(index);
+    // One-click preview: scope the rollback to the clicked row's enclosing
+    // part — the rest of the scene keeps its full render. Rows outside any
+    // part (and hosts that predate the scope) fall back to the global
+    // prefix server-side.
+    this.client.rollback(index, 'part');
   }
 
   private addBreakpointAfter(index: number): void {

@@ -63,7 +63,7 @@ type SceneManager = {
   startAssemblyScene(): any;
   renderScene(scene: any): any;
   getAssemblyData(scene: any): SerializedAssembly | null;
-  rollbackScene(scene: any, rollbackIndex: number): any;
+  rollbackScene(scene: any, rollbackIndex: number, opts?: { partScoped?: boolean }): any;
   compare(previousScene: any, currentScene: any): any;
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate scene disposal.
@@ -227,6 +227,15 @@ export type SceneRenderedData = {
   sceneKind: FluidScriptKind;
   result: any[];
   rollbackStop: number;
+  /**
+   * Set when this render is a part-scoped rollback: only this part's
+   * features after `rollbackStop` are hidden, everything else is fully
+   * rendered — and when the stop is the part's last feature, nothing is
+   * hidden at all (the UI derives truncation from stop + part id, and the
+   * stop stays on the clicked row for the timeline's current marker).
+   * Absent on global rollbacks and full renders.
+   */
+  rollbackScopePartId?: string;
   breakpointHit?: boolean;
   assembly?: SerializedAssembly;
   params?: ParamDefinition[];
@@ -691,6 +700,8 @@ export type SceneSummary = {
   file: string;
   objects: SceneSummaryObject[];
   rollbackStop: number;
+  /** Present while a part-scoped rollback is displayed — see SceneRenderedData. */
+  rollbackScopePartId?: string;
   compileError: CompileError | null;
 };
 
@@ -751,6 +762,8 @@ export class FluidCadServer {
   private currentFileName: string = '';
   private currentFilePath: string = '';
   private lastRollbackStop: number = -1;
+  /** Part id of the last part-scoped rollback; null for global/full views. */
+  private lastRollbackScopePartId: string | null = null;
   /**
    * Whether the last full render paused at a breakpoint. Rollbacks don't
    * re-run the module, so they carry this last known state — without it the
@@ -867,6 +880,7 @@ export class FluidCadServer {
         const fromCache = this.renderingCache.get(sessionId);
         if (fromCache) {
           this.lastRollbackStop = fromCache.result.length - 1;
+          this.lastRollbackScopePartId = null;
           this.compileError = null;
           return {
             absPath: normalizedFileName,
@@ -989,6 +1003,7 @@ export class FluidCadServer {
         this.invalidateDependentSessions(sessionId, normalizedFileName);
 
         this.lastRollbackStop = result.length - 1;
+        this.lastRollbackScopePartId = null;
         this.compileError = null;
 
         return {
@@ -1100,6 +1115,7 @@ export class FluidCadServer {
       this.currentFileName = fileName;
       this.currentFilePath = `virtual:live-render:${fileName}`;
       this.lastRollbackStop = cached.data.rollbackStop;
+      this.lastRollbackScopePartId = null;
       return cached.data;
     }
 
@@ -1140,8 +1156,8 @@ export class FluidCadServer {
     return this.processFileInternal(current, this.currentFilePath ?? current, true);
   }
 
-  async rollbackFromUI(index: number): Promise<SceneRenderedData | null> {
-    return this.rollback(this.currentFileName, index);
+  async rollbackFromUI(index: number, scope?: 'part'): Promise<SceneRenderedData | null> {
+    return this.rollback(this.currentFileName, index, scope);
   }
 
   /**
@@ -1198,7 +1214,15 @@ export class FluidCadServer {
     return this.processFileInternal(sessionId, this.currentFilePath, true);
   }
 
-  async rollback(fileName: string, index: number): Promise<SceneRenderedData | null> {
+  /**
+   * View-only rollback re-emission. `scope: 'part'` asks for a part-scoped
+   * view: only the target index's enclosing part is truncated, everything
+   * else keeps its full render (falls back to the classic global prefix
+   * when the index lands outside any part). The scene manager owns the
+   * clamp, the scope derivation, and the echoed stop (normalized to the
+   * scene tip when a scoped rollback hides nothing).
+   */
+  async rollback(fileName: string, index: number, scope?: 'part'): Promise<SceneRenderedData | null> {
     if (!this.sceneManager) {
       return null;
     }
@@ -1208,20 +1232,25 @@ export class FluidCadServer {
       return null;
     }
 
-    const totalObjects = scene.getAllSceneObjects().length;
-
-    const rollbackIndex = index >= totalObjects - 1 ? totalObjects - 1 : index;
-    this.sceneManager.rollbackScene(scene, rollbackIndex);
+    // The manager may come from an older workspace install whose
+    // rollbackScene returns the scene and knows no options — that renders
+    // the classic global prefix, so report it as one.
+    const rollbackResult = this.sceneManager.rollbackScene(scene, index, { partScoped: scope === 'part' });
+    const { stop, scopePartId } = typeof rollbackResult?.stop === 'number'
+      ? rollbackResult as { stop: number; scopePartId: string | null }
+      : { stop: index, scopePartId: null };
     const result = scene.getRenderedObjects();
     const assembly = this.sceneManager.getAssemblyData(scene);
 
-    this.lastRollbackStop = index;
+    this.lastRollbackStop = stop;
+    this.lastRollbackScopePartId = scopePartId;
 
     return {
       absPath: fileName,
       sceneKind: detectKind(fileName) ?? 'part',
       result,
-      rollbackStop: index,
+      rollbackStop: stop,
+      ...(scopePartId ? { rollbackScopePartId: scopePartId } : {}),
       // A rollback doesn't re-run the module — the paused state persists.
       breakpointHit: this.lastBreakpointHit,
       objectErrors: FluidCadServer.collectObjectErrors(result),
@@ -1758,6 +1787,7 @@ export class FluidCadServer {
     this.currentFileName = fileName;
     this.previousScenes.set(fileName, scene);
     this.lastRollbackStop = rollbackStop;
+    this.lastRollbackScopePartId = null;
   }
 
   /**
@@ -1818,6 +1848,7 @@ export class FluidCadServer {
       file: this.currentFileName,
       objects,
       rollbackStop: this.lastRollbackStop,
+      ...(this.lastRollbackScopePartId ? { rollbackScopePartId: this.lastRollbackScopePartId } : {}),
       compileError: this.compileError,
     };
   }

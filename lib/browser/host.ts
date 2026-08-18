@@ -180,21 +180,23 @@ export class BrowserEngineHost {
 
   /**
    * Timeline scrub: re-mesh the existing scene up to `index` without
-   * re-running the module (FluidCadServer.rollback).
+   * re-running the module (FluidCadServer.rollback). `scope: 'part'`
+   * truncates only the target's enclosing part and keeps the rest of the
+   * scene fully rendered — the manager owns the clamp, the scope
+   * derivation, and the echoed stop.
    */
-  rollback(index: number): BrowserRenderResult | null {
+  rollback(index: number, scope?: 'part'): BrowserRenderResult | null {
     if (!this.manager || !this.previousScene) {
       return null;
     }
     const scene = this.previousScene;
-    const totalObjects = scene.getAllSceneObjects().length;
-    const rollbackIndex = index >= totalObjects - 1 ? totalObjects - 1 : index;
-    this.manager.rollbackScene(scene, rollbackIndex);
+    const { stop, scopePartId } = this.manager.rollbackScene(scene, index, { partScoped: scope === 'part' });
     const result = scene.getRenderedObjects();
-    this.lastRollbackStop = index;
+    this.lastRollbackStop = stop;
     return {
       result,
-      rollbackStop: index,
+      rollbackStop: stop,
+      ...(scopePartId ? { rollbackScopePartId: scopePartId } : {}),
       // A rollback doesn't re-run the module — the paused state persists.
       breakpointHit: this.lastBreakpointHit,
       objectErrors: BrowserEngineHost.collectObjectErrors(result),

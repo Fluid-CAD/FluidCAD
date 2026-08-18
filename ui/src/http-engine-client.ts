@@ -57,8 +57,8 @@ export class HttpEngineClient implements EngineClient {
     recompute();
   }
 
-  rollback(index: number): void {
-    rollback(index);
+  rollback(index: number, scope?: 'part'): void {
+    rollback(index, scope);
   }
 
   setParam(label: string, value: unknown): void {

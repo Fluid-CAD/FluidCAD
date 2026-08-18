@@ -3573,8 +3573,8 @@ export function recompute(): void {
   postFireAndForget('/api/recompute');
 }
 
-export function rollback(index: number): void {
-  postFireAndForget('/api/rollback', { index });
+export function rollback(index: number, scope?: 'part'): void {
+  postFireAndForget('/api/rollback', scope ? { index, scope } : { index });
 }
 
 export function addBreakpoint(sourceLocation: SourceLocationParam): void {

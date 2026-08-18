@@ -92,8 +92,45 @@ class SceneManager {
     };
   }
 
-  rollbackScene(scene: Scene, rollbackIndex: number) {
-    return this.renderer.renderRollback(scene, rollbackIndex);
+  /**
+   * Re-emit the scene rolled back to `rollbackIndex` (view-only — nothing
+   * rebuilds). With `partScoped`, the rollback isolates the target object's
+   * enclosing part: everything outside that part stays fully rendered and
+   * only the part's own features after the index are hidden. Falls back to
+   * the classic global prefix when the index lands outside any part.
+   *
+   * Returns the stop hosts should echo as `rollbackStop` — the raw index
+   * for global rollbacks (preserving the historical echo, which may exceed
+   * the last index), the clamped target index for scoped ones — plus the
+   * scoped part's id. The stop stays on the clicked row even when the scope
+   * hides nothing (the part's last feature): the current marker belongs on
+   * that row, and whether the view is actually truncated is derivable from
+   * stop + part id (see the UI's isRollbackViewTruncated).
+   */
+  rollbackScene(
+    scene: Scene,
+    rollbackIndex: number,
+    opts?: { partScoped?: boolean },
+  ): { stop: number; scopePartId: string | null } {
+    const allObjects = scene.getAllSceneObjects();
+    const lastIndex = allObjects.length - 1;
+    const clamped = Math.min(rollbackIndex, lastIndex);
+    const target = clamped >= 0 ? allObjects[clamped] : undefined;
+    const part = opts?.partScoped && target ? scene.findEnclosingPart(target) : null;
+    if (!part) {
+      this.renderer.renderRollback(scene, clamped);
+      return { stop: rollbackIndex, scopePartId: null };
+    }
+
+    // Membership scope, not an index range: lazily materialized donor parts
+    // can interleave with another part's children in the flat list, so "the
+    // rest of the scene" must be selected by findEnclosingPart, never by
+    // position relative to the clicked part.
+    const scope = new Set(
+      allObjects.filter((obj, i) => i <= clamped || scene.findEnclosingPart(obj) !== part),
+    );
+    this.renderer.renderRollback(scene, clamped, scope);
+    return { stop: clamped, scopePartId: part.id };
   }
 
   compare(previous: Scene, current: Scene) {

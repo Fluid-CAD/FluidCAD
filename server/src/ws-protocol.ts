@@ -157,6 +157,8 @@ export type SceneRenderedMessage = {
   sceneKind: 'part' | 'assembly';
   result: any[];
   rollbackStop: number;
+  /** Part-scoped rollback: only this part is truncated at rollbackStop. */
+  rollbackScopePartId?: string;
   compileError?: CompileError;
   assembly?: SerializedAssembly;
 };
@@ -407,6 +409,8 @@ export type UISceneRenderedMessage = {
   absPath: string;
   sceneKind: 'part' | 'assembly';
   rollbackStop?: number;
+  /** Part-scoped rollback: only this part is truncated at rollbackStop. */
+  rollbackScopePartId?: string;
   breakpointHit?: boolean;
   compileError?: CompileError;
   assembly?: SerializedAssembly;

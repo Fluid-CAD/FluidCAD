@@ -109,13 +109,22 @@ export class SceneRenderer {
     return scene;
   }
 
-  renderRollback(scene: Scene, rollbackIndex: number): Scene {
+  /**
+   * Re-emit the scene restricted to `scope` — the view-only rollback pass
+   * (nothing rebuilds; consumed shapes whose consumer is out of scope
+   * reappear via the membership rule in getOwnShapes). Without an explicit
+   * scope the classic prefix `[0..rollbackIndex]` is used; callers that
+   * want a non-prefix view (part-scoped rollback) pass their own set.
+   */
+  renderRollback(scene: Scene, rollbackIndex: number, scope?: Set<SceneObject>): Scene {
     console.log("============ Rollback Rendering ==============", rollbackIndex);
 
     const allObjects = scene.getAllSceneObjects();
-    const scope = new Set<SceneObject>();
-    for (let i = 0; i <= rollbackIndex && i < allObjects.length; i++) {
-      scope.add(allObjects[i]);
+    if (!scope) {
+      scope = new Set<SceneObject>();
+      for (let i = 0; i <= rollbackIndex && i < allObjects.length; i++) {
+        scope.add(allObjects[i]);
+      }
     }
 
     scene.clearRenderedObjects();

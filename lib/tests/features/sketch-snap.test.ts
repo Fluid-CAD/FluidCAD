@@ -5,6 +5,7 @@ import extrude from "../../core/extrude.js";
 import cylinder from "../../core/cylinder.js";
 import plane from "../../core/plane.js";
 import { rect } from "../../core/2d/index.js";
+import part from "../../core/part.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { Point } from "../../math/point.js";
 import { IPlane } from "../../core/interfaces.js";
@@ -64,6 +65,36 @@ describe("sketch snap vertices", () => {
           expect(hit, `expected the projection of corner (${wx}, ${wy}, ${wz})`).toBe(true);
         }
       }
+    }
+  });
+
+  it("snaps to other parts' bodies when sketching inside a part", () => {
+    part("donor", () => {
+      sketch("top", () => {
+        rect(20, 10).centered();
+      });
+      extrude(10);
+    });
+
+    let front: Sketch;
+    part("consumer", () => {
+      front = sketch("front", () => {}) as unknown as Sketch;
+    });
+
+    const scene = render();
+    const verts = scene.getRenderedObject(front!)!.snapVertices!;
+    expect(verts).toBeDefined();
+    // Same geometry as the top-level case: the donor part's box crosses the
+    // front plane in a rectangle at x=±10, z∈{0,10}, and its corners project
+    // onto the same 4 points — part boundaries must not filter it out.
+    expect(verts.length).toBe(4);
+
+    const p = front!.getPlane();
+    for (const [wx, wy, wz] of [[-10, 0, 0], [10, 0, 0], [-10, 0, 10], [10, 0, 10]]) {
+      const local = p.worldToLocal(new Point(wx, wy, wz));
+      const hit = verts.some(v =>
+        (v[0] - local.x) * (v[0] - local.x) + (v[1] - local.y) * (v[1] - local.y) < 1e-6);
+      expect(hit, `expected a snap vertex at world (${wx}, ${wy}, ${wz})`).toBe(true);
     }
   });
 

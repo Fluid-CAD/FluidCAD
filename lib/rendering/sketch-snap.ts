@@ -93,7 +93,9 @@ function findTipSketch(scene: Scene): Sketch | null {
 
 function collectSnapSources(scene: Scene, sketch: Sketch): Set<Shape> {
   const shapes = new Set<Shape>();
-  for (const obj of scene.getPartScopedActiveObjectsUpTo(sketch)) {
+  // Deliberately not part-scoped: snap targets are coordinate hints, not
+  // references, so other parts' geometry is fair game — same as top level.
+  for (const obj of scene.getActiveSceneObjectsUpTo(sketch)) {
     // Containers re-expose their children's shapes and lazy accessors /
     // selects re-expose other objects' — only owning objects contribute.
     if (obj.isContainer() || obj.isLazy() || obj.isSelection()) {

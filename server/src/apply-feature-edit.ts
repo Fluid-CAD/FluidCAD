@@ -21,6 +21,7 @@ import { applyInsertParamsEdit, type InsertParamsEditSpec } from './insert-param
 import {
   applyAssemblyMateEdit,
   applyConnectorPropsEdit,
+  mateSideRefs,
   type AssemblyMateEditSpec,
   type ConnectorPropsEditSpec,
 } from './assembly-mate-edit.ts';
@@ -1417,7 +1418,7 @@ export async function applyFeatureEdit(
     return applyInsertParamsWithDecls(code, spec);
   }
   if (spec.assemblyMate) {
-    return applyAssemblyMateEdit(code, spec.assemblyMate);
+    return applyAssemblyMateWithExposeCreates(code, spec.assemblyMate);
   }
   if (spec.connectorProps) {
     return applyConnectorPropsEdit(code, spec.connectorProps);
@@ -2165,6 +2166,99 @@ async function applySketchForeign(
     out = await ensureSymbolImport(out, ident, sf.importFrom);
   }
   return { newCode: out };
+}
+
+/**
+ * The tangent mate's same-file find-or-create fold: apply every embedded
+ * `'expose'` create-spec first, relocating the mate payload's line anchors
+ * across each intermediate edit by insert()/mate() call ORDINALS (exposure
+ * edits never add or remove insert()/mate() calls, so the k-th call before
+ * is the k-th call after), then run the ordinary mate transform — one
+ * document replacement, atomic. Cross-file creations ride their own
+ * dispatches to the donor files instead (the route sequences them).
+ */
+async function applyAssemblyMateWithExposeCreates(
+  code: string,
+  mateSpec: AssemblyMateEditSpec,
+): Promise<ApplyFeatureEditResult> {
+  const creates = (mateSpec.exposeCreates ?? []) as ApplyFeatureEditSpec[];
+  if (creates.length === 0) {
+    return applyAssemblyMateEdit(code, mateSpec);
+  }
+  if (creates.some(c => c.feature !== 'expose' || c.assemblyMate !== undefined)) {
+    return { newCode: code, error: 'malformed tangent mate spec: exposeCreates must be expose specs' };
+  }
+  const payload = mateSpec.create ?? mateSpec.edit;
+  const sides = payload ? mateSideRefs(payload) : null;
+  if (!payload || !sides) {
+    return { newCode: code, error: 'malformed tangent mate spec: missing geometry sides' };
+  }
+
+  let working = code;
+  let lineA = sides.a.instanceLine;
+  let lineB = sides.b.instanceLine;
+  let mateLine = mateSpec.edit?.sourceLine;
+  for (const create of creates) {
+    const insertsBefore = await callLines(working, 'insert');
+    const matesBefore = await callLines(working, 'mate');
+    const applied = await applyFeatureEdit(working, create);
+    if (applied.error) {
+      return { newCode: code, error: applied.error };
+    }
+    const insertsAfter = await callLines(applied.newCode, 'insert');
+    const matesAfter = await callLines(applied.newCode, 'mate');
+    const relocate = (line: number, before: number[], after: number[]): number | null => {
+      const k = before.indexOf(line);
+      return k >= 0 && before.length === after.length ? after[k] : null;
+    };
+    const newA = relocate(lineA, insertsBefore, insertsAfter);
+    const newB = relocate(lineB, insertsBefore, insertsAfter);
+    const newMate = mateLine !== undefined ? relocate(mateLine, matesBefore, matesAfter) : undefined;
+    if (newA === null || newB === null || newMate === null) {
+      return {
+        newCode: code,
+        error: 'could not relocate the insert()/mate() statements after the exposure edit — is the file in sync with the last render?',
+      };
+    }
+    working = applied.newCode;
+    lineA = newA;
+    lineB = newB;
+    mateLine = newMate;
+  }
+
+  const patchSides = (p: NonNullable<AssemblyMateEditSpec['create']>) => ({
+    ...p,
+    ...(p.connectorA && p.connectorB
+      ? {
+        connectorA: { ...p.connectorA, instanceLine: lineA },
+        connectorB: { ...p.connectorB, instanceLine: lineB },
+      }
+      : {
+        geometryA: { ...p.geometryA!, instanceLine: lineA },
+        geometryB: { ...p.geometryB!, instanceLine: lineB },
+      }),
+  });
+  const patched: AssemblyMateEditSpec = mateSpec.create
+    ? { create: patchSides(mateSpec.create) }
+    : { edit: { ...patchSides(mateSpec.edit!), sourceLine: mateLine! } };
+  return applyAssemblyMateEdit(working, patched);
+}
+
+/** Start lines (1-based) of every `<callee>(...)` call, in document order. */
+async function callLines(code: string, callee: string): Promise<number[]> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const out: number[] = [];
+  for (const node of walkTree(tree.rootNode)) {
+    if (node.type !== 'call_expression') {
+      continue;
+    }
+    const fn = node.childForFieldName('function');
+    if (fn?.type === 'identifier' && fn.text === callee) {
+      out.push(node.startPosition.row + 1);
+    }
+  }
+  return out;
 }
 
 /** Start lines (1-based) of every root `part(...)` call, in document order. */

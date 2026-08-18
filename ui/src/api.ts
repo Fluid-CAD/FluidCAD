@@ -1,4 +1,5 @@
 import type { VariableInfo } from './ui/expression-input';
+import type { ContactEntity } from './solver/types';
 import type {
   SceneObjectMesh,
   SceneObjectRender,
@@ -3956,7 +3957,7 @@ export async function getInsertParamExpressions(
 
 /** The mate types the assembly solver supports (mirrors the kernel's mate()). */
 export type AssemblyMateType =
-  | 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';
+  | 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot' | 'tangent';
 
 /**
  * One side of a mate statement: the instance whose `insert()` chain starts on
@@ -3974,12 +3975,28 @@ export type AssemblyMateOptions = {
   rotate?: number;
   offset?: [number, number, number] | null;
   limits?: [number, number] | null;
+  /** Tangent only: false writes `.noPropagate()`; true/absent writes nothing. */
+  propagate?: boolean;
+};
+
+/**
+ * One side of a tangent mate: the instance address plus EITHER the matched
+ * exposure's name or the raw pick the server find-or-creates one from at
+ * apply time.
+ */
+export type AssemblyMateGeometryRef = {
+  instanceLine: number;
+  exposeName?: string;
+  pick?: { shapeId: string; sub: { type: 'face' | 'edge'; index: number } };
 };
 
 export type AssemblyMatePayload = {
   type: AssemblyMateType;
-  connectorA: AssemblyMateConnectorRef;
-  connectorB: AssemblyMateConnectorRef;
+  connectorA?: AssemblyMateConnectorRef;
+  connectorB?: AssemblyMateConnectorRef;
+  /** Tangent sides (the per-type side-kind rule is validated server-side). */
+  geometryA?: AssemblyMateGeometryRef;
+  geometryB?: AssemblyMateGeometryRef;
   options?: AssemblyMateOptions;
 };
 
@@ -4008,6 +4025,47 @@ export async function applyAssemblyMate(
     return body ?? { success: false, reason: 'Empty server response' };
   } catch {
     return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/** What one tangent-mate pick resolves to (17-mate-tangent §7.3). */
+export type ContactPickResult = {
+  /** The picked geometry's enclosing part and its exposure bookkeeping. */
+  donor: {
+    partName: string;
+    filePath: string;
+    line: number;
+    column: number;
+    /** Exposure already serving the picked shape, or null (Apply creates one). */
+    matched: string | null;
+    existingNames: string[];
+  } | null;
+  /** Canonical contact classification; null seed = unsupported surface form. */
+  seed: ContactEntity | null;
+  chain: ContactEntity[];
+};
+
+/**
+ * Resolve a tangent-mate face/edge pick: donor part + find-or-create
+ * exposure data + the contact classification the provisional solve and the
+ * in-panel pair validation consume.
+ */
+export async function classifyContactPick(
+  pick: { shapeId: string; sub: { type: 'face' | 'edge'; index: number } },
+): Promise<ContactPickResult | { error: string }> {
+  try {
+    const res = await fetch('/api/classify-contact', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ pick }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { error: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body as ContactPickResult;
+  } catch {
+    return { error: 'Could not reach the FluidCAD server' };
   }
 }
 

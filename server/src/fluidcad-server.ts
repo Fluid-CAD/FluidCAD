@@ -47,11 +47,13 @@ export type SerializedAssembly = {
   }>;
   mates: Array<{
     mateId: string;
-    type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';
-    connectorA: { instanceId: string; connectorId: string };
-    connectorB: { instanceId: string; connectorId: string };
+    type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot' | 'tangent';
+    connectorA?: { instanceId: string; connectorId: string };
+    connectorB?: { instanceId: string; connectorId: string };
+    geometryA?: { instanceId: string; exposeName: string };
+    geometryB?: { instanceId: string; exposeName: string };
     status: 'satisfied' | 'redundant' | 'inconsistent';
-    options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number] };
+    options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number]; propagate?: boolean };
     sourceLocation?: { filePath: string; line: number; column: number };
   }>;
 };
@@ -95,6 +97,11 @@ type SceneManager = {
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate consumer-side exposure resolution.
   resolvePickExposure?(
+    scene: any,
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+  ): any;
+  // Optional: may predate the tangent mate's contact classification.
+  resolveContactPick?(
     scene: any,
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
   ): any;
@@ -1380,6 +1387,25 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.resolvePickExposure(scene, ref);
+  }
+
+  /**
+   * Tangent-mate pick resolution: exposure find-or-create data plus the
+   * picked face/edge's contact classification (seed + G1 chain + bounds).
+   * Read-only over the rendered scene; null when there is no scene or the
+   * workspace kernel predates the query.
+   */
+  resolveContactPick(
+    ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
+  ): any {
+    if (!this.sceneManager || !this.sceneManager.resolveContactPick) {
+      return null;
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return null;
+    }
+    return this.sceneManager.resolveContactPick(scene, ref);
   }
 
   /**

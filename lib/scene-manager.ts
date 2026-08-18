@@ -30,6 +30,7 @@ import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
 import { ConnectorAnchorSuggestions, suggestConnectorAnchors } from "./selection/connector-anchors.js";
 import { PickExposureResolution, resolvePickExposure } from "./selection/expose-lookup.js";
+import { ContactPickResolution, resolveContactPick } from "./selection/contact-pick.js";
 import { synthesizeSketchApplyFeature, resolveSketchStatementTargets, SketchTargetDescriptor } from "./selection/sketch-apply.js";
 import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
 import { synthesizeTrimRegionTargets } from "./selection/trim-region.js";
@@ -222,16 +223,33 @@ class SceneManager {
    * Consumer-side pick resolution: the picked geometry's enclosing part and
    * that part's matching exposure. Cross-part references are authoring-frame
    * (parts designed in place), so assembly scenes refuse with a pointed
-   * message instead of inventing pose-aware in-context semantics.
+   * message instead of inventing pose-aware in-context semantics — EXCEPT
+   * for mate picks (`context: 'mate'`): a tangent mate names geometry, not
+   * coordinates, so the pose-dependence rationale doesn't apply and the
+   * lookup runs over the assembly's part templates.
    */
-  resolvePickExposure(scene: Scene, ref: PickRef): PickExposureResolution {
-    if (scene instanceof AssemblyScene) {
+  resolvePickExposure(
+    scene: Scene,
+    ref: PickRef,
+    options: { context?: 'sketch' | 'mate' } = {},
+  ): PickExposureResolution {
+    if (scene instanceof AssemblyScene && options.context !== 'mate') {
       return {
         ok: false,
         reason: "cross-part geometry references are authored in the part file — open the part's own file to reference another part's geometry",
       };
     }
     return resolvePickExposure(scene, ref);
+  }
+
+  /**
+   * Tangent-mate pick resolution: the exposure find-or-create data plus the
+   * picked face/edge's canonical contact classification (seed + G1 chain +
+   * bounds). Allowed over assembly scenes — a tangent pick names geometry,
+   * not authoring-frame coordinates.
+   */
+  resolveContactPick(scene: Scene, ref: PickRef): ContactPickResolution {
+    return resolveContactPick(scene, ref);
   }
 
   /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */

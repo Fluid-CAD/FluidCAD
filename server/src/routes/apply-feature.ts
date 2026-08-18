@@ -41,7 +41,7 @@ import { findEditableCallAt, getJavaScriptParser, isExpressionText, splitLines }
 type RawPick = { shapeId?: unknown; sub?: { type?: unknown; index?: unknown } };
 
 /** First `g<n>` not taken by an existing exposure — the tool's default names. */
-function allocateExposeName(taken: string[]): string {
+export function allocateExposeName(taken: string[]): string {
   const set = new Set(taken);
   for (let i = 1; ; i++) {
     const candidate = `g${i}`;
@@ -3427,27 +3427,20 @@ export type ApplyFeatureRouterOptions = EditDispatcherOptions & {
   dispatcher?: FeatureEditDispatcher;
 };
 
-export function createApplyFeatureRouter(
-  fluidCadServer: FluidCadServer,
-  sendToExtension: (msg: any) => boolean | void,
-  options: ApplyFeatureRouterOptions = {},
-): Router {
-  const router = Router();
-  const dispatcher = options.dispatcher
-    ?? new FeatureEditDispatcher(fluidCadServer, sendToExtension, options);
-
-  /**
-   * The file-coupled synthesis options (producer namer + linkable params)
-   * built over the file the emitted statement will land in. Synthesis
-   * derives that file from the picked producers' own sourceLocations —
-   * under an assembly render it is the PART file, so building these over
-   * `getCurrentCode()` (the assembly buffer) would preview wrong binding
-   * names and link assembly-file constants into part-file selectors. The
-   * current buffer serves the open file; other files read from disk (an
-   * unsaved part buffer can be stale here — the editor round-trip is what
-   * verifies the final transform).
-   */
-  const synthesisOptionsForFile = async (
+/**
+ * The file-coupled synthesis options (producer namer + linkable params)
+ * built over the file the emitted statement will land in. Synthesis
+ * derives that file from the picked producers' own sourceLocations —
+ * under an assembly render it is the PART file, so building these over
+ * `getCurrentCode()` (the assembly buffer) would preview wrong binding
+ * names and link assembly-file constants into part-file selectors. The
+ * current buffer serves the open file; other files read from disk (an
+ * unsaved part buffer can be stale here — the editor round-trip is what
+ * verifies the final transform). Shared with the assembly-mate route's
+ * tangent find-or-create.
+ */
+export function makeSynthesisOptionsForFile(fluidCadServer: FluidCadServer) {
+  return async (
     filePath: string | null | undefined,
   ): Promise<{ namer: Awaited<ReturnType<typeof makeProducerNamer>>; params: ReturnType<typeof resolveParamValues> } | undefined> => {
     const currentFile = fluidCadServer.getCurrentFileName();
@@ -3472,6 +3465,18 @@ export function createApplyFeatureRouter(
       ),
     };
   };
+}
+
+export function createApplyFeatureRouter(
+  fluidCadServer: FluidCadServer,
+  sendToExtension: (msg: any) => boolean | void,
+  options: ApplyFeatureRouterOptions = {},
+): Router {
+  const router = Router();
+  const dispatcher = options.dispatcher
+    ?? new FeatureEditDispatcher(fluidCadServer, sendToExtension, options);
+
+  const synthesisOptionsForFile = makeSynthesisOptionsForFile(fluidCadServer);
 
   // Read-only attribution report against the last rendered scene. Backs the
   // pick tooltips/debugging; never touches code.

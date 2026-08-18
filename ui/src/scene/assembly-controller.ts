@@ -1,9 +1,9 @@
 import { Box3, Camera, Group, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, WebGLRenderer } from 'three';
-import { ConnectorData, SceneObjectRender, SerializedAssembly, SerializedAssemblyInstance, SerializedAssemblyMate } from '../types';
+import { ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyInstance, SerializedAssemblyMate } from '../types';
 import { buildObjectMesh } from '../meshes/mesh-factory';
 import { onThemeChange } from './theme-colors';
 import { Solver, buildMateGraph, isInstanceFullyLocked, mateReadoutValue } from '../solver';
-import type { BodyState, ConnectorState, MateReadout, MateRecord, SolverInput, SolverOutput } from '../solver';
+import type { BodyState, ConnectorState, ContactState, MateReadout, MateRecord, SolverInput, SolverOutput } from '../solver';
 
 const DRAG_THRESHOLD_PX = 4;
 /** Screen radius a click may miss a connector-gizmo origin by and still pick it. */
@@ -22,6 +22,8 @@ type InstanceState = {
   data: SerializedAssemblyInstance;
   group: Group;
   connectors: ConnectorState[];
+  /** Classified exposures of the instance's part — tangent-mate geometry. */
+  contacts: ContactState[];
 };
 
 export type InstanceDragReleaseHandler = (
@@ -249,6 +251,7 @@ export class AssemblyController {
 
     for (const inst of assembly.instances) {
       const connectors = this.collectConnectorStates(inst.partId);
+      const contacts = this.collectExposureStates(inst.partId);
       const existing = this.instances.get(inst.instanceId);
       // SceneCompare flips `fromCache` to false on any object it had to
       // rebuild — including when a parameter change shifts a partName (and
@@ -267,6 +270,7 @@ export class AssemblyController {
       if (existing && !partChanged && (!subtreeFresh || isDragging)) {
         existing.data = inst;
         existing.connectors = connectors;
+        existing.contacts = contacts;
         existing.group.userData.grounded = inst.grounded;
         existing.group.userData.draggable = !inst.grounded;
         if (!isDragging) {
@@ -284,7 +288,7 @@ export class AssemblyController {
       }
       const group = this.buildInstanceGroup(inst);
       if (!group) continue;
-      this.instances.set(inst.instanceId, { data: inst, group, connectors });
+      this.instances.set(inst.instanceId, { data: inst, group, connectors, contacts });
       this.container.add(group);
     }
 
@@ -445,6 +449,26 @@ export class AssemblyController {
   }
 
   /**
+   * The classified exposures one instance carries: the part's own
+   * `expose()` publications, shared by every instance of the part —
+   * exactly the connector-frames pattern, but for tangent-mate geometry.
+   */
+  private collectExposureStates(partId: string): ContactState[] {
+    const out: ContactState[] = [];
+    for (const obj of this.allObjects) {
+      if (obj.type !== 'exposed' || !obj.id || obj.parentId !== partId) continue;
+      const data = obj.object as ExposedData | undefined;
+      if (!data?.name) continue;
+      out.push({
+        exposeName: data.name,
+        seed: data.seed ?? null,
+        chain: data.chain ?? [],
+      });
+    }
+    return out;
+  }
+
+  /**
    * Set of instance ids that are immovable in the current assembly: a body
    * is "locked" iff its tree-path to its component seed is entirely
    * fastened mates AND the seed is grounded. A grounded body trivially
@@ -463,6 +487,7 @@ export class AssemblyController {
         quaternion: state.group.quaternion.clone(),
         grounded: state.data.grounded,
         connectors: state.connectors,
+        contacts: state.contacts,
       });
     }
     return bodies;
@@ -1336,17 +1361,31 @@ export class AssemblyController {
    */
   highlightMate(mate: SerializedAssemblyMate, color: number): void {
     this.clearHighlight();
-    const a = this.instances.get(mate.connectorA.instanceId);
-    const b = this.instances.get(mate.connectorB.instanceId);
+    // Tangent mates carry geometry sides — tint the instances, no
+    // connector gizmos to pin.
+    const aId = mate.connectorA?.instanceId ?? mate.geometryA?.instanceId;
+    const bId = mate.connectorB?.instanceId ?? mate.geometryB?.instanceId;
+    const a = aId !== undefined ? this.instances.get(aId) : undefined;
+    const b = bId !== undefined ? this.instances.get(bId) : undefined;
     if (a) {
       this.tintInstance(a, color);
-      this.pinConnectorOnInstance(a, mate.connectorA.connectorId);
+      if (mate.connectorA) this.pinConnectorOnInstance(a, mate.connectorA.connectorId);
     }
     if (b) {
       this.tintInstance(b, color);
-      this.pinConnectorOnInstance(b, mate.connectorB.connectorId);
+      if (mate.connectorB) this.pinConnectorOnInstance(b, mate.connectorB.connectorId);
     }
     this.requestRender();
+  }
+
+  /**
+   * The classified exposure one instance publishes under `exposeName` —
+   * the tangent edit dialog's chip seeding and the provisional record's
+   * inline contact data both read from here.
+   */
+  getContactState(instanceId: string, exposeName: string): ContactState | null {
+    const state = this.instances.get(instanceId);
+    return state?.contacts.find(c => c.exposeName === exposeName) ?? null;
   }
 
   private tintInstance(state: InstanceState, color: number): void {
@@ -1434,6 +1473,8 @@ function toMateRecord(m: SerializedAssemblyMate): MateRecord {
     type: m.type,
     connectorA: m.connectorA,
     connectorB: m.connectorB,
+    geometryA: m.geometryA,
+    geometryB: m.geometryB,
     options: m.options,
   };
 }

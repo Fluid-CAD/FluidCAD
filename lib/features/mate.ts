@@ -1,22 +1,26 @@
 import { AssemblyMate, MateType } from "../rendering/assembly-scene.js";
 import { BoundConnector } from "./connector.js";
+import { BoundExposure } from "./exposed.js";
 import { SourceLocation } from "../common/scene-object.js";
 
 export class MateBuilder {
   constructor(private readonly mate: AssemblyMate) {}
 
   flip(): this {
+    this.rejectOnTangent('flip()', 'contact side is canonical from the B-rep face orientation, so there is no side to flip');
     this.ensureOptions().flip = !this.mate.options!.flip;
     return this;
   }
 
   rotate(deg: number): this {
+    this.rejectOnTangent(`rotate(${deg})`, 'a tangent mate has no joint frame to rotate in');
     const opts = this.ensureOptions();
     opts.rotate = (opts.rotate ?? 0) + deg;
     return this;
   }
 
   offset(x: number, y: number = 0, z: number = 0): this {
+    this.rejectOnTangent(`offset(${x}, ${y}, ${z})`, 'a tangent mate has no joint frame to offset in — a future .gap(d) would set tangency at a distance');
     if (
       (this.mate.type === "slider" || this.mate.type === "cylindrical")
       && (x !== 0 || y !== 0)
@@ -54,6 +58,26 @@ export class MateBuilder {
     return this;
   }
 
+  /**
+   * Tangent only: restrict the contact to the picked seed face/edge instead
+   * of its whole tangent-continuous chain (propagation is on by default).
+   */
+  noPropagate(): this {
+    if (this.mate.type !== "tangent") {
+      throw new Error(
+        `mate('${this.mate.type}').noPropagate() — tangent propagation only applies to 'tangent' mates.`,
+      );
+    }
+    this.ensureOptions().propagate = false;
+    return this;
+  }
+
+  private rejectOnTangent(call: string, why: string): void {
+    if (this.mate.type === "tangent") {
+      throw new Error(`mate('tangent').${call} — not supported on tangent mates: ${why}.`);
+    }
+  }
+
   private ensureOptions() {
     if (!this.mate.options) {
       this.mate.options = {};
@@ -78,6 +102,25 @@ export function makeAssemblyMate(
     type,
     connectorA: { instanceId: a.instanceId, connector: a.connector },
     connectorB: { instanceId: b.instanceId, connector: b.connector },
+    options: {},
+    sourceLocation,
+  };
+}
+
+export function makeTangentAssemblyMate(
+  a: BoundExposure,
+  b: BoundExposure,
+  mateId: string,
+  owner: string,
+  sourceLocation: SourceLocation | undefined,
+): AssemblyMate {
+  // Live Exposed references for the same staleness reason as connectors.
+  return {
+    mateId,
+    owner,
+    type: "tangent",
+    geometryA: { instanceId: a.instanceId, exposed: a.exposed },
+    geometryB: { instanceId: b.instanceId, exposed: b.exposed },
     options: {},
     sourceLocation,
   };

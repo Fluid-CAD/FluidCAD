@@ -9,5 +9,9 @@ export type {
   SolvedBody,
   BodyState,
   ConnectorState,
+  ContactBounds,
+  ContactEntity,
+  ContactForm,
+  ContactState,
   MateRecord,
 } from './types.js';

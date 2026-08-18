@@ -15,6 +15,9 @@ let relayed: any[];
 let delivered: boolean;
 let currentCode: string;
 let currentFileName: string;
+// Tangent fixtures: what resolveContactPick / synthesizeApplyFeature answer.
+let contactPickResult: any;
+let synthesizeResult: any;
 
 const ASSEMBLY_CODE = [
   `import { insert, mate } from 'fluidcad/core';`,
@@ -32,6 +35,8 @@ const fakeServer = {
   getCurrentCode: () => currentCode,
   getCurrentFileName: () => currentFileName,
   getParamDefinitions: () => [],
+  resolveContactPick: () => contactPickResult,
+  synthesizeApplyFeature: () => synthesizeResult,
 };
 
 async function postMate(body: unknown): Promise<{ status: number; body: any }> {
@@ -103,6 +108,8 @@ describe('assembly-mate route', () => {
     delivered = true;
     currentCode = ASSEMBLY_CODE;
     currentFileName = '/ws/m.assembly.js';
+    contactPickResult = null;
+    synthesizeResult = null;
   });
 
   it('rejects a malformed body', async () => {
@@ -219,6 +226,202 @@ describe('assembly-mate route', () => {
     const { status, body } = await postMate(CREATE_BODY);
     expect(status).toBe(200);
     expect(body).toMatchObject({ success: true });
+  });
+
+  // Tangent mates (17-mate-tangent §7.2/§7.3): geometry sides, the classify
+  // route, and the find-or-create sequencing incl. mid-sequence failure.
+  describe('tangent', () => {
+    const PLANE_SEED = {
+      form: 'plane', point: [0, 0, 10], dir: [0, 0, 1], xDir: [1, 0, 0], convex: true,
+    };
+
+    it('matched exposures ride straight to the mate statement', async () => {
+      const applied = postMate({
+        filePath: '/ws/m.assembly.js',
+        create: {
+          type: 'tangent',
+          geometryA: { instanceLine: 5, exposeName: 'profile' },
+          geometryB: { instanceLine: 6, exposeName: 'tip' },
+          options: { propagate: false },
+        },
+      });
+      const msg = await untilRelayed();
+      expect(msg.spec.assemblyMate.create).toMatchObject({ type: 'tangent' });
+      expect(msg.spec.assemblyMate.exposeCreates).toBeUndefined();
+      const roundTrip = await postRoundTrip(ASSEMBLY_CODE, msg.spec);
+      expect(roundTrip.body.error).toBeUndefined();
+      expect(roundTrip.body.newCode).toContain(
+        `mate('tangent', arm1.features.profile, base1.features.tip).noPropagate();`,
+      );
+      const { status, body } = await applied;
+      expect(status).toBe(200);
+      expect(body).toMatchObject({ success: true });
+    });
+
+    it('rejects mixed side kinds at validation', async () => {
+      const { status } = await postMate({
+        filePath: '/ws/m.assembly.js',
+        create: {
+          type: 'tangent',
+          connectorA: { instanceLine: 5, connectorName: 'tip' },
+          connectorB: { instanceLine: 6, connectorName: 'tip' },
+        },
+      });
+      expect(status).toBe(400);
+      expect(relayed).toEqual([]);
+    });
+
+    it('refuses an unsupported surface form with the pointed message', async () => {
+      contactPickResult = {
+        ok: true,
+        donor: {
+          partName: 'Arm', filePath: '/ws/arm.part.js', line: 3, column: 0,
+          matched: null, existingNames: [],
+        },
+        seed: null,
+        chain: [],
+      };
+      const { status, body } = await postMate({
+        filePath: '/ws/m.assembly.js',
+        create: {
+          type: 'tangent',
+          geometryA: { instanceLine: 5, pick: { shapeId: 's1', sub: { type: 'face', index: 0 } } },
+          geometryB: { instanceLine: 6, exposeName: 'tip' },
+        },
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain("isn't supported yet");
+      expect(relayed).toEqual([]);
+    });
+
+    it('sequences a cross-file expose create before the mate dispatch', async () => {
+      contactPickResult = {
+        ok: true,
+        donor: {
+          partName: 'Arm', filePath: '/ws/arm.part.js', line: 3, column: 0,
+          matched: null, existingNames: ['g1'],
+        },
+        seed: PLANE_SEED,
+        chain: [PLANE_SEED],
+      };
+      synthesizeResult = {
+        ok: true,
+        spec: {
+          feature: 'expose',
+          filePath: '/ws/arm.part.js',
+          expose: { name: 'g2', part: { line: 3, column: 24 } },
+          producers: [{ line: 4, column: 2, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+          imports: [],
+        },
+      };
+      const applied = postMate({
+        filePath: '/ws/m.assembly.js',
+        create: {
+          type: 'tangent',
+          geometryA: { instanceLine: 5, pick: { shapeId: 's1', sub: { type: 'face', index: 0 } } },
+          geometryB: { instanceLine: 6, exposeName: 'tip' },
+        },
+      });
+      // First relay: the donor-file expose spec (dispatcher.send).
+      const exposeMsg = await untilRelayed();
+      expect(exposeMsg.spec.feature).toBe('expose');
+      expect(exposeMsg.spec.filePath).toBe('/ws/arm.part.js');
+      const donorCode = [
+        `import { part, sketch, rect, extrude } from 'fluidcad/core';`,
+        ``,
+        `export const arm = () => part('Arm', () => {`,
+        `  const e = extrude(10)`,
+        `});`,
+      ].join('\n');
+      const exposeTrip = await postRoundTrip(donorCode, exposeMsg.spec);
+      expect(exposeTrip.body.error).toBeUndefined();
+      expect(exposeTrip.body.newCode).toContain(`expose('g2', e.endFaces(0))`);
+      // Second relay: the mate spec against the assembly file, referencing
+      // the freshly allocated name.
+      let mateMsg: any;
+      for (let i = 0; i < 100 && !mateMsg; i++) {
+        mateMsg = relayed.find(m => m.spec.assemblyMate);
+        if (!mateMsg) await new Promise(r => setTimeout(r, 5));
+      }
+      expect(mateMsg.spec.assemblyMate.create.geometryA.exposeName).toBe('g2');
+      const mateTrip = await postRoundTrip(ASSEMBLY_CODE, mateMsg.spec);
+      expect(mateTrip.body.newCode).toContain(
+        `mate('tangent', arm1.features.g2, base1.features.tip);`,
+      );
+      const { status, body } = await applied;
+      expect(status).toBe(200);
+      expect(body).toMatchObject({ success: true });
+    });
+
+    it('a failing cross-file create surfaces a 422 naming the exposure', async () => {
+      contactPickResult = {
+        ok: true,
+        donor: {
+          partName: 'Arm', filePath: '/ws/arm.part.js', line: 3, column: 0,
+          matched: null, existingNames: [],
+        },
+        seed: PLANE_SEED,
+        chain: [PLANE_SEED],
+      };
+      synthesizeResult = {
+        ok: true,
+        spec: {
+          feature: 'expose',
+          filePath: '/ws/arm.part.js',
+          expose: { name: 'g1', part: { line: 3, column: 24 } },
+          producers: [{ line: 4, column: 2, featureType: 'extrude', nameHint: 'e', bind: true }],
+          parts: [{ producer: 0, accessor: 'endFaces', indices: [0], filterArgs: null }],
+          imports: [],
+        },
+      };
+      const applied = postMate({
+        filePath: '/ws/m.assembly.js',
+        create: {
+          type: 'tangent',
+          geometryA: { instanceLine: 5, pick: { shapeId: 's1', sub: { type: 'face', index: 0 } } },
+          geometryB: { instanceLine: 6, exposeName: 'tip' },
+        },
+      });
+      const exposeMsg = await untilRelayed();
+      // Ack the expose against code with no part() at the addressed line —
+      // the transform fails and dispatcher.send reports the error.
+      const exposeTrip = await postRoundTrip(`const nothing = 1;\n`, exposeMsg.spec);
+      expect(exposeTrip.body.error).toBeDefined();
+      const { status, body } = await applied;
+      expect(status).toBe(422);
+      expect(body.reason).toContain(`expose('g1')`);
+      expect(body.reason).toContain('arm.part.js');
+    });
+
+    it('classify-contact resolves a pick and 422s a failed attribution', async () => {
+      contactPickResult = {
+        ok: true,
+        donor: {
+          partName: 'Arm', filePath: '/ws/arm.part.js', line: 3, column: 0,
+          matched: 'g1', existingNames: ['g1'],
+        },
+        seed: PLANE_SEED,
+        chain: [PLANE_SEED],
+      };
+      const okRes = await fetch(`${baseUrl}/api/classify-contact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pick: { shapeId: 's1', sub: { type: 'face', index: 0 } } }),
+      });
+      expect(okRes.status).toBe(200);
+      const okBody = await okRes.json();
+      expect(okBody.donor.matched).toBe('g1');
+      expect(okBody.seed.form).toBe('plane');
+
+      contactPickResult = { ok: false, reason: 'pick does not resolve' };
+      const badRes = await fetch(`${baseUrl}/api/classify-contact`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pick: { shapeId: 's1', sub: { type: 'face', index: 0 } } }),
+      });
+      expect(badRes.status).toBe(422);
+    });
   });
 
   // The pen-button endpoints: property read from the part file, write through

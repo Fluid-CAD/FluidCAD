@@ -332,7 +332,9 @@ function findMate(mateId: string) {
 function instanceHasMate(instanceId: string): boolean {
   if (!lastAssemblyPayload) return false;
   for (const m of lastAssemblyPayload.mates) {
-    if (m.connectorA.instanceId === instanceId || m.connectorB.instanceId === instanceId) {
+    const aId = m.connectorA?.instanceId ?? m.geometryA?.instanceId;
+    const bId = m.connectorB?.instanceId ?? m.geometryB?.instanceId;
+    if (aId === instanceId || bId === instanceId) {
       return true;
     }
   }
@@ -1587,9 +1589,14 @@ function failedSetsDiffer(a: Set<string>, b: Set<string>): boolean {
 }
 
 function formatMateLabel(mate: SerializedAssembly['mates'][number]): string {
+  if (mate.geometryA && mate.geometryB) {
+    const a = mate.geometryA;
+    const b = mate.geometryB;
+    return `${mate.type} — ${a.instanceId}.${a.exposeName} ↔ ${b.instanceId}.${b.exposeName}`;
+  }
   const a = mate.connectorA;
   const b = mate.connectorB;
-  return `${mate.type} — ${a.instanceId}.${a.connectorId} ↔ ${b.instanceId}.${b.connectorId}`;
+  return `${mate.type} — ${a?.instanceId}.${a?.connectorId} ↔ ${b?.instanceId}.${b?.connectorId}`;
 }
 
 // An armed modify mode (fillet/chamfer) owns hover (teach-mode tooltip) and

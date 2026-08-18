@@ -1,6 +1,7 @@
 import { Scene } from "./scene.js";
 import { Part } from "../features/part.js";
 import { Connector } from "../features/connector.js";
+import { Exposed } from "../features/exposed.js";
 import { SourceLocation } from "../common/scene-object.js";
 import type { ParamDefinition, ParamVal } from "../param-registry.js";
 import { serializableParamDefs } from "../features/param-overrides.js";
@@ -61,7 +62,20 @@ export type MateType =
   | 'cylindrical'
   | 'planar'
   | 'parallel'
-  | 'pin-slot';
+  | 'pin-slot'
+  | 'tangent';
+
+export type MateOptions = {
+  rotate?: number;
+  flip?: boolean;
+  offset?: [number, number, number];
+  limits?: [number, number];
+  /** Tangent only: false = contact restricted to the picked seed ( `.noPropagate()` ). Absent = on. */
+  propagate?: boolean;
+};
+
+/** Wire form of a tangent mate side: the exposure is resolved per instance. */
+export type MateGeometrySide = { instanceId: string; exposeName: string };
 
 /**
  * Live mate record. `connectorA/B.connector` is a live SceneObject
@@ -71,17 +85,32 @@ export type MateType =
  * snapshotted id taken at mate() call time would point at the
  * fresh-UUID value before the inherit. Mirrors how `AssemblyInstance`
  * keeps a live `part: Part` ref and reads `part.id` live.
+ *
+ * Sides are per-type: lower-pair mates carry two connector sides; tangent
+ * mates carry two geometry sides (live `Exposed` refs, names read at
+ * serialize time for the same staleness reason as connector ids).
  */
 export type AssemblyMate = {
   mateId: string;
   /** Scope the mate() statement ran in: "" for root, else an occurrence path. */
   owner: string;
   type: MateType;
-  connectorA: { instanceId: string; connector: Connector };
-  connectorB: { instanceId: string; connector: Connector };
-  options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number] };
+  options?: MateOptions;
   sourceLocation?: SourceLocation;
-};
+} & (
+  | {
+    connectorA: { instanceId: string; connector: Connector };
+    connectorB: { instanceId: string; connector: Connector };
+    geometryA?: undefined;
+    geometryB?: undefined;
+  }
+  | {
+    connectorA?: undefined;
+    connectorB?: undefined;
+    geometryA: { instanceId: string; exposed: Exposed };
+    geometryB: { instanceId: string; exposed: Exposed };
+  }
+);
 
 export type SerializedInstance = {
   instanceId: string;
@@ -123,10 +152,14 @@ export type SerializedMate = {
   mateId: string;
   owner: string;
   type: MateType;
-  connectorA: { instanceId: string; connectorId: string };
-  connectorB: { instanceId: string; connectorId: string };
+  /** Connector sides — every mate type except tangent. */
+  connectorA?: { instanceId: string; connectorId: string };
+  connectorB?: { instanceId: string; connectorId: string };
+  /** Geometry sides — tangent mates only. */
+  geometryA?: MateGeometrySide;
+  geometryB?: MateGeometrySide;
   status: 'satisfied' | 'redundant' | 'inconsistent';
-  options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number] };
+  options?: MateOptions;
   sourceLocation?: SourceLocation;
 };
 
@@ -351,19 +384,28 @@ export class AssemblyScene extends Scene {
   }
 
   getSerializedMates(): SerializedMate[] {
-    // Read connector ids live — SceneCompare.inheritIdentityFrom may have
-    // rewritten them after the mate was added during parse.
+    // Read connector ids / exposure names live — SceneCompare's
+    // inheritIdentityFrom may have rewritten them after the mate was added
+    // during parse.
     return this._mates.map(mate => ({
       mateId: mate.mateId,
       owner: mate.owner,
       type: mate.type,
-      connectorA: {
+      connectorA: mate.connectorA && {
         instanceId: mate.connectorA.instanceId,
         connectorId: mate.connectorA.connector.id,
       },
-      connectorB: {
+      connectorB: mate.connectorB && {
         instanceId: mate.connectorB.instanceId,
         connectorId: mate.connectorB.connector.id,
+      },
+      geometryA: mate.geometryA && {
+        instanceId: mate.geometryA.instanceId,
+        exposeName: mate.geometryA.exposed.exposeName,
+      },
+      geometryB: mate.geometryB && {
+        instanceId: mate.geometryB.instanceId,
+        exposeName: mate.geometryB.exposed.exposeName,
       },
       // Parse-time placeholder: the UI solver evaluates real mate
       // health per solve (SolverOutput.failed) and overrides this live

@@ -8,6 +8,48 @@ export type ConnectorState = {
   localNormal: Vector3;
 };
 
+/**
+ * Canonical-parametrization extents of a contact entity (computed lib-side
+ * at classification time — see lib/oc/contact-classify.ts for the exact
+ * frame conventions per form). Angular intervals spanning ≥ 2π mean the
+ * full revolution.
+ */
+export type ContactBounds = { uMin: number; uMax: number; vMin?: number; vMax?: number };
+
+export type ContactForm = 'plane' | 'cylinder' | 'sphere' | 'cone' | 'line' | 'circle';
+
+/**
+ * Plain-JS canonical contact geometry in BODY-LOCAL frame — everything a
+ * tangent residual needs, no OCCT. World placement comes from the body
+ * pose at evaluation time, same as connector frames.
+ */
+export type ContactEntity = {
+  form: ContactForm;
+  /** Plane point / axis point / sphere-circle center / cone APEX. */
+  point: [number, number, number];
+  /** Plane outward normal / axis direction / circle-plane normal (unit). */
+  dir: [number, number, number];
+  /** Reference direction the bounds are measured from (unit, ⊥ dir). */
+  xDir?: [number, number, number];
+  radius?: number;
+  halfAngleDeg?: number;
+  /** Material side: shaft/boss = true, bore/pocket = false (planes/edges: true). */
+  convex: boolean;
+  bounds?: ContactBounds;
+};
+
+/**
+ * One exposure published by the body's part (`expose('name', …)`), with its
+ * classified contact geometry. `seed: null` marks an unsupported surface
+ * form — a tangent mate referencing it is unenforceable and reported failed.
+ */
+export type ContactState = {
+  exposeName: string;
+  seed: ContactEntity | null;
+  /** Tangent-propagation set, seed first; [] when the seed is unsupported. */
+  chain: ContactEntity[];
+};
+
 /** One rigid body in the solver. Pose is in world space. */
 export type BodyState = {
   instanceId: string;
@@ -15,6 +57,8 @@ export type BodyState = {
   quaternion: Quaternion;
   grounded: boolean;
   connectors: ConnectorState[];
+  /** Classified exposures, present when the part publishes geometry (tangent mates resolve through these). */
+  contacts?: ContactState[];
   /**
    * Set by the warm-start when the body's orientation is fully determined
    * by its driver (a follower whose quaternion the warm-start has already
@@ -31,14 +75,53 @@ export type BodyState = {
   lockPosition?: boolean;
 };
 
-/** One mate (joint) between two connectors. */
+/**
+ * One mate between two bodies. Every type except 'tangent' is authored on
+ * connectors (connectorA/B set); 'tangent' is authored on exposed geometry
+ * (geometryA/B set) and resolves each side's contact chain through
+ * `BodyState.contacts` by exposure name.
+ */
+/**
+ * A tangent mate side. `seed`/`chain` are normally resolved through the
+ * body's published `contacts` by exposure name; the mate dialog's
+ * PROVISIONAL record instead carries them INLINE (`seed` set) — the picked
+ * geometry's exposure may not exist in the source yet (17-mate-tangent
+ * §7.3).
+ */
+export type MateGeometrySide = {
+  instanceId: string;
+  exposeName: string;
+  seed?: ContactEntity | null;
+  chain?: ContactEntity[];
+};
+
 export type MateRecord = {
   mateId: string;
-  type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';
-  connectorA: { instanceId: string; connectorId: string };
-  connectorB: { instanceId: string; connectorId: string };
-  options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number] };
+  type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot' | 'tangent';
+  connectorA?: { instanceId: string; connectorId: string };
+  connectorB?: { instanceId: string; connectorId: string };
+  geometryA?: MateGeometrySide;
+  geometryB?: MateGeometrySide;
+  options?: {
+    rotate?: number;
+    flip?: boolean;
+    offset?: [number, number, number];
+    limits?: [number, number];
+    /** Tangent only: false restricts contact to the picked seed (`.noPropagate()`). Absent = on. */
+    propagate?: boolean;
+  };
 };
+
+/** The two body-side references of a mate, connector- or geometry-authored. */
+export function mateSideIds(mate: MateRecord): { aId: string; bId: string } | null {
+  if (mate.connectorA && mate.connectorB) {
+    return { aId: mate.connectorA.instanceId, bId: mate.connectorB.instanceId };
+  }
+  if (mate.geometryA && mate.geometryB) {
+    return { aId: mate.geometryA.instanceId, bId: mate.geometryB.instanceId };
+  }
+  return null;
+}
 
 export type SolverInput = {
   bodies: BodyState[];

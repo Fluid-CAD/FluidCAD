@@ -2,6 +2,8 @@
 // Common types
 // ---------------------------------------------------------------------------
 
+import type { ContactEntity } from '../solver/types';
+
 export type SourceLocation = { filePath: string; line: number; column: number };
 
 // ---------------------------------------------------------------------------
@@ -26,6 +28,18 @@ export type ConnectorData = {
   xDirection: Vec3Data;
   yDirection: Vec3Data;
   normal: Vec3Data;
+};
+
+/**
+ * Serialized `expose('name', …)` payload: the exposure name plus the
+ * canonical contact geometry a tangent mate solves against (part-local
+ * frame, classified lib-side). `seed`/`chain` are absent on engines
+ * predating the tangent mate.
+ */
+export type ExposedData = {
+  name: string;
+  seed?: ContactEntity | null;
+  chain?: ContactEntity[];
 };
 
 // ---------------------------------------------------------------------------
@@ -325,11 +339,15 @@ export type SerializedAssemblyMate = {
   mateId: string;
   /** Scope the mate() statement ran in: "" (or absent) for the open file. */
   owner?: string;
-  type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot';
-  connectorA: { instanceId: string; connectorId: string };
-  connectorB: { instanceId: string; connectorId: string };
+  type: 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot' | 'tangent';
+  /** Connector sides — every mate type except tangent. */
+  connectorA?: { instanceId: string; connectorId: string };
+  connectorB?: { instanceId: string; connectorId: string };
+  /** Geometry sides — tangent mates only (exposure resolved per instance). */
+  geometryA?: { instanceId: string; exposeName: string };
+  geometryB?: { instanceId: string; exposeName: string };
   status: 'satisfied' | 'redundant' | 'inconsistent';
-  options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number] };
+  options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number]; propagate?: boolean };
   sourceLocation?: { filePath: string; line: number; column: number };
 };
 

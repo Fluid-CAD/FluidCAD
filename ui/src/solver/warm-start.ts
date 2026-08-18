@@ -314,6 +314,7 @@ export function mateReadoutValue(
   followerConn: ConnectorState,
 ): MateReadout | null {
   if (mate.type !== 'revolute' && mate.type !== 'slider') return null;
+  if (!mate.connectorA) return null;
   const driverIsA = mate.connectorA.instanceId === driver.instanceId
     && mate.connectorA.connectorId === driverConn.connectorId;
   const sign = !driverIsA && mate.options?.flip ? -1 : 1;

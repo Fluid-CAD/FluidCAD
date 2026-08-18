@@ -19,6 +19,7 @@
 import { Vector3 } from 'three';
 import { buildMateGraph, type MateGraph } from './graph.js';
 import { residual } from './joint-model.js';
+import { contactResidualMaxAbs, resolveContact } from './contact-model.js';
 import { applyLoopRelaxations } from './loop-relaxation.js';
 import type { BodyState, SolverInput, SolverOutput } from './types.js';
 import {
@@ -102,7 +103,7 @@ export class Solver {
     // onto its drag target in the output pose. Applied to `out` (not
     // `input`) so the tree fixup below still reads each driver's frame-N
     // input pose, and before the fixup so followers carry along.
-    applyDraggedOriginTarget(input, out);
+    applyDraggedOriginTarget(input, out, graph);
 
     // Dragging a LOCKED body of an ungrounded, closure-free component
     // (a fastened sibling, a chain follower) translates the whole tree
@@ -136,19 +137,39 @@ export class Solver {
 function collectFailedMates(input: SolverInput, out: SolverOutput): string[] {
   const inputById = new Map(input.bodies.map(b => [b.instanceId, b]));
   const solvedById = new Map(out.bodies.map(b => [b.instanceId, b]));
+  // Bodies at the OUTPUT poses, keyed by id — shared by both mate kinds.
+  const atOutput = (id: string): BodyState | null => {
+    const bodyIn = inputById.get(id);
+    const solved = solvedById.get(id);
+    if (!bodyIn || !solved) return null;
+    return { ...bodyIn, position: solved.position, quaternion: solved.quaternion };
+  };
   const failed: string[] = [];
   for (const mate of input.mates) {
+    // Tangent: contact rows are mm-scale (translation-like) except the
+    // W-scaled orientation rows, so FAILED_MATE_EPS applies unchanged.
+    // A both-grounded tangent degenerates to exactly this check.
+    if (mate.type === 'tangent') {
+      if (!mate.geometryA || !mate.geometryB) continue;
+      const a = atOutput(mate.geometryA.instanceId);
+      const b = atOutput(mate.geometryB.instanceId);
+      if (!a || !b) continue;
+      const solvedById2 = new Map([[a.instanceId, a], [b.instanceId, b]]);
+      const rc = resolveContact(mate, solvedById2);
+      if (!rc) continue;
+      if (contactResidualMaxAbs(rc) > FAILED_MATE_EPS) failed.push(mate.mateId);
+      continue;
+    }
+    if (!mate.connectorA || !mate.connectorB) continue;
     const aIn = inputById.get(mate.connectorA.instanceId);
     const bIn = inputById.get(mate.connectorB.instanceId);
     if (!aIn || !bIn) continue;
-    const aConn = aIn.connectors.find(c => c.connectorId === mate.connectorA.connectorId);
-    const bConn = bIn.connectors.find(c => c.connectorId === mate.connectorB.connectorId);
+    const aConn = aIn.connectors.find(c => c.connectorId === mate.connectorA!.connectorId);
+    const bConn = bIn.connectors.find(c => c.connectorId === mate.connectorB!.connectorId);
     if (!aConn || !bConn) continue;
-    const aSolved = solvedById.get(aIn.instanceId);
-    const bSolved = solvedById.get(bIn.instanceId);
-    if (!aSolved || !bSolved) continue;
-    const a: BodyState = { ...aIn, position: aSolved.position, quaternion: aSolved.quaternion };
-    const b: BodyState = { ...bIn, position: bSolved.position, quaternion: bSolved.quaternion };
+    const a = atOutput(aIn.instanceId);
+    const b = atOutput(bIn.instanceId);
+    if (!a || !b) continue;
     const r = residual(mate.type, a, aConn, b, bConn, mate.options ?? {});
     let maxAbs = 0;
     for (const v of r) {
@@ -168,11 +189,23 @@ function collectFailedMates(input: SolverInput, out: SolverOutput): string[] {
  * by the warm-start) are skipped — their pose comes from the warm-start /
  * LM and the post-solve tree fixup.
  */
-function applyDraggedOriginTarget(input: SolverInput, out: SolverOutput): void {
+function applyDraggedOriginTarget(
+  input: SolverInput,
+  out: SolverOutput,
+  graph: MateGraph,
+): void {
   const id = input.draggedInstanceId;
   if (id === undefined) return;
   const body = input.bodies.find(b => b.instanceId === id);
   if (!body || body.grounded || body.lockPosition) return;
+  // A dragged body in a component with contact edges was posed by the
+  // LM (contact rows + drag rows); snapping its origin to the raw drag
+  // target here would pull it straight off the contact surface.
+  const componentIndex = graph.bodyComponent.get(id);
+  if (componentIndex !== undefined
+    && graph.components[componentIndex].contactEdges.length > 0) {
+    return;
+  }
   const target = resolveDragTarget(input);
   if (!target) return;
   const solved = out.bodies.find(b => b.instanceId === id);
@@ -203,6 +236,9 @@ function applyUngroundedClusterDrag(
   if (componentIndex === undefined) return;
   const component = graph.components[componentIndex];
   if (component.closureEdges.length > 0) return;
+  // Contact components run the LM (which owns the drag) — the rigid
+  // whole-tree translation would fight it.
+  if (component.contactEdges.length > 0) return;
   if (component.roots.length !== 1 || component.roots[0].grounded) return;
   const rootOut = out.bodies.find(b => b.instanceId === component.roots[0].instanceId);
   const draggedOut = out.bodies.find(b => b.instanceId === id);

@@ -61,6 +61,12 @@ import {
   type MateOptions,
 } from './joint-model.js';
 import { matrixRank, runLM } from './relaxation.js';
+import {
+  contactResidual,
+  contactRowCount,
+  resolveContact,
+  type ResolvedContact,
+} from './contact-model.js';
 import type { BodyState, ConnectorState, MateRecord } from './types.js';
 
 export type LoopDragInfo = {
@@ -141,6 +147,9 @@ export function applyLoopRelaxations(
 
 function shouldRelax(component: Component, drag: LoopDragInfo): boolean {
   if (component.closureEdges.length > 0) return true;
+  // Contact (tangent) edges are residual-only — LM is the only thing
+  // that enforces them, so a component with contacts is never drag-only.
+  if (component.contactEdges.length > 0) return true;
   if (drag.draggedInstanceId === undefined) return false;
   return component.bodies.some(b => b.instanceId === drag.draggedInstanceId);
 }
@@ -168,14 +177,21 @@ function relaxComponent(
   }
 
   const closures = resolveClosures(component, bodyById);
+  const contacts: ResolvedContact[] = [];
+  for (const mate of component.contactEdges) {
+    const rc = resolveContact(mate, bodyById);
+    if (rc) contacts.push(rc);
+  }
 
-  // Variable layout: [root pose (6, ungrounded single root only)] then
-  // each tree edge's free params in BFS order.
+  // Variable layout: [one 6-var pose block (3 pos + 3 rotation-vector)
+  // per UNGROUNDED forest root, in roots order] then each tree edge's
+  // free params in BFS order. Grounded roots contribute nothing. With
+  // the contact-free spanning forest, a body attached to ground only
+  // through tangent mates is an additional ungrounded root — that's
+  // what forced this multi-root generalization.
   const edgeStates: EdgeState[] = [];
   const limitEntries: LimitEntry[] = [];
-  const ungroundedRoot = component.roots.length === 1 && !component.roots[0].grounded
-    ? component.roots[0]
-    : null;
+  const ungroundedRoots = component.roots.filter(r => !r.grounded);
 
   // Drag-only components with an ungrounded root skip LM entirely: the
   // 3-row drag residual under-determines the root's 6 DOF, and the
@@ -186,10 +202,13 @@ function relaxComponent(
   // `applyUngroundedClusterDrag` (solver.ts). Trade-off: floating
   // (ungrounded) multi-joint chains don't get LM inverse kinematics —
   // they translate rigidly beyond the grabbed joint's own motion, which
-  // is deterministic and jitter-free.
-  if (closures.length === 0 && ungroundedRoot) return null;
+  // is deterministic and jitter-free. A component with contact edges is
+  // never drag-only — LM is the only thing enforcing the contacts.
+  if (closures.length === 0 && contacts.length === 0 && ungroundedRoots.length > 0) {
+    return null;
+  }
 
-  let n = ungroundedRoot ? 6 : 0;
+  let n = 6 * ungroundedRoots.length;
 
   for (const edge of component.treeEdges) {
     const spec = JOINT_SPECS[edge.mate.type]!;
@@ -246,26 +265,32 @@ function relaxComponent(
     && component.bodies.some(b => b.instanceId === drag.draggedInstanceId);
 
   // Nothing to optimize (all-fastened / fully grounded): tree mates are
-  // exact by construction and no variable could move a closure — any
-  // closure misfit is irreducible and the mechanism has zero loop DOF.
-  if (n === 0) return closures.length > 0 ? 0 : null;
+  // exact by construction and no variable could move a closure or a
+  // contact — any misfit is irreducible (a both-grounded tangent
+  // degenerates to a pure check via collectFailedMates) and the
+  // mechanism has zero loop DOF.
+  if (n === 0) return closures.length + contacts.length > 0 ? 0 : null;
   // Nothing pulling on the variables.
-  if (closures.length === 0 && !dragApplies) return null;
+  if (closures.length === 0 && contacts.length === 0 && !dragApplies) return null;
 
-  const dragWeight = component.closureEdges.length > 0 ? CLOSURE_DRAG_WEIGHT : 1;
+  const dragWeight = component.closureEdges.length + component.contactEdges.length > 0
+    ? CLOSURE_DRAG_WEIGHT
+    : 1;
   const draggedBody = dragApplies ? bodyById.get(drag.draggedInstanceId!) : undefined;
 
   // x0 from the warm-started state.
   const x0 = new Float64Array(n);
-  const rootBase = ungroundedRoot
-    ? { position: ungroundedRoot.position.clone(), quaternion: ungroundedRoot.quaternion.clone() }
-    : null;
-  if (ungroundedRoot && rootBase) {
-    x0[0] = rootBase.position.x;
-    x0[1] = rootBase.position.y;
-    x0[2] = rootBase.position.z;
+  const rootStates = ungroundedRoots.map((root, i) => ({
+    root,
+    base: { position: root.position.clone(), quaternion: root.quaternion.clone() },
+    offset: 6 * i,
+  }));
+  for (const rs of rootStates) {
+    x0[rs.offset + 0] = rs.base.position.x;
+    x0[rs.offset + 1] = rs.base.position.y;
+    x0[rs.offset + 2] = rs.base.position.z;
     // Rotation-vector increment on the warm-started orientation → 0.
-    x0[3] = 0; x0[4] = 0; x0[5] = 0;
+    x0[rs.offset + 3] = 0; x0[rs.offset + 4] = 0; x0[rs.offset + 5] = 0;
   }
   for (const es of edgeStates) {
     for (const slot of es.slots) {
@@ -286,21 +311,25 @@ function relaxComponent(
   }));
 
   const evaluate = (x: Float64Array): Float64Array => {
-    applyForwardKinematics(x, ungroundedRoot, rootBase, edgeStates);
-    return computeResiduals(closures, dragApplies ? draggedBody : undefined, drag, dragWeight);
+    applyForwardKinematics(x, rootStates, edgeStates);
+    return computeResiduals(
+      closures, contacts, dragApplies ? draggedBody : undefined, drag, dragWeight,
+    );
   };
 
   // Loop DOF at a solution point: variables minus the independent
-  // closure constraints. The closure block of the Jacobian is rebuilt
-  // by centered FD (tiny: closure rows × joint params) and its rank
-  // taken via column-pivoted QR. Callers re-run FK afterwards — the FD
-  // probes leave the bodies perturbed.
-  const closureRowCount = closures.reduce(
+  // constraint rows (closures + contacts — the drag rows are excluded).
+  // The constraint block of the Jacobian is rebuilt by centered FD
+  // (tiny: constraint rows × joint params) and its rank taken via
+  // column-pivoted QR. Callers re-run FK afterwards — the FD probes
+  // leave the bodies perturbed. Contact rows are per-RECORD (the pair
+  // of surface forms fixes the dimension), not per-type.
+  const constraintRowCount = closures.reduce(
     (sum, c) => sum + residualDimension(c.mate.type), 0,
-  );
-  const closureRankAt = (xAt: Float64Array): number => {
-    if (closureRowCount === 0) return 0;
-    const J = new Float64Array(closureRowCount * n);
+  ) + contacts.reduce((sum, rc) => sum + contactRowCount(rc), 0);
+  const constraintRankAt = (xAt: Float64Array): number => {
+    if (constraintRowCount === 0) return 0;
+    const J = new Float64Array(constraintRowCount * n);
     const x = new Float64Array(xAt);
     for (let j = 0; j < n; j++) {
       const h = 1e-6 * Math.max(1, Math.abs(x[j]));
@@ -310,19 +339,19 @@ function relaxComponent(
       x[j] = saved0 - h;
       const rMinus = evaluate(x);
       x[j] = saved0;
-      for (let k = 0; k < closureRowCount; k++) {
+      for (let k = 0; k < constraintRowCount; k++) {
         J[k * n + j] = (rPlus[k] - rMinus[k]) / (2 * h);
       }
     }
-    return matrixRank(J, closureRowCount, n);
+    return matrixRank(J, constraintRowCount, n);
   };
   const finishWithLoopDof = (xFinal: Float64Array): number | null => {
-    if (closures.length === 0) {
-      applyForwardKinematics(xFinal, ungroundedRoot, rootBase, edgeStates);
+    if (constraintRowCount === 0) {
+      applyForwardKinematics(xFinal, rootStates, edgeStates);
       return null;
     }
-    const dof = Math.max(0, n - closureRankAt(xFinal));
-    applyForwardKinematics(xFinal, ungroundedRoot, rootBase, edgeStates);
+    const dof = Math.max(0, n - constraintRankAt(xFinal));
+    applyForwardKinematics(xFinal, rootStates, edgeStates);
     return dof;
   };
 
@@ -375,21 +404,29 @@ function relaxComponent(
   return null;
 }
 
+type RootState = {
+  root: BodyState;
+  base: { position: Vector3; quaternion: Quaternion };
+  /** This root's 6-var block offset in the variable vector. */
+  offset: number;
+};
+
 /**
- * Write the variable vector into body poses: optional root pose, then
- * every tree edge's child re-posed from its (already updated) parent in
- * BFS order. Tree mates are exact by construction after this.
+ * Write the variable vector into body poses: every ungrounded root's
+ * pose block, then every tree edge's child re-posed from its (already
+ * updated) parent in BFS order. Tree mates are exact by construction
+ * after this.
  */
 function applyForwardKinematics(
   x: Float64Array,
-  ungroundedRoot: BodyState | null,
-  rootBase: { position: Vector3; quaternion: Quaternion } | null,
+  rootStates: RootState[],
   edgeStates: EdgeState[],
 ): void {
-  if (ungroundedRoot && rootBase) {
-    ungroundedRoot.position.set(x[0], x[1], x[2]);
-    ungroundedRoot.quaternion
-      .copy(rotationVectorQuat(x[3], x[4], x[5]).multiply(rootBase.quaternion));
+  for (const rs of rootStates) {
+    const o = rs.offset;
+    rs.root.position.set(x[o], x[o + 1], x[o + 2]);
+    rs.root.quaternion
+      .copy(rotationVectorQuat(x[o + 3], x[o + 4], x[o + 5]).multiply(rs.base.quaternion));
   }
   for (const es of edgeStates) {
     for (const slot of es.slots) {
@@ -435,11 +472,12 @@ function resolveClosures(
 ): ResolvedClosure[] {
   const out: ResolvedClosure[] = [];
   for (const closure of component.closureEdges) {
+    if (!closure.connectorA || !closure.connectorB) continue;
     const a = bodyById.get(closure.connectorA.instanceId);
     const b = bodyById.get(closure.connectorB.instanceId);
     if (!a || !b) continue;
-    const aConn = a.connectors.find(c => c.connectorId === closure.connectorA.connectorId);
-    const bConn = b.connectors.find(c => c.connectorId === closure.connectorB.connectorId);
+    const aConn = a.connectors.find(c => c.connectorId === closure.connectorA!.connectorId);
+    const bConn = b.connectors.find(c => c.connectorId === closure.connectorB!.connectorId);
     if (!aConn || !bConn) continue;
     out.push({ mate: closure, a, b, aConn, bConn });
   }
@@ -448,6 +486,7 @@ function resolveClosures(
 
 function computeResiduals(
   closures: ResolvedClosure[],
+  contacts: ResolvedContact[],
   draggedBody: BodyState | undefined,
   drag: LoopDragInfo,
   dragWeight: number,
@@ -455,6 +494,12 @@ function computeResiduals(
   const rows: number[] = [];
   for (const c of closures) {
     const r = residual(c.mate.type, c.a, c.aConn, c.b, c.bConn, c.mate.options ?? {});
+    for (const v of r) rows.push(v);
+  }
+  // Contact rows follow the closures so the [closure + contact] block
+  // stays the leading constraint slice the rank computation reads.
+  for (const rc of contacts) {
+    const r = contactResidual(rc);
     for (const v of r) rows.push(v);
   }
   if (draggedBody && drag.draggedGrabLocal && drag.draggedCursorWorld) {

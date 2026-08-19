@@ -14,7 +14,7 @@ describe("solver-core purity", () => {
   const files = readdirSync(CORE_DIR).filter((f) => f.endsWith(".ts"));
 
   it("has the expected modules", () => {
-    expect(files.sort()).toEqual(["index.ts", "linalg.ts", "lm.ts", "rank.ts"]);
+    expect(files.sort()).toEqual(["index.ts", "linalg.ts", "lm-sparse.ts", "lm.ts", "rank.ts"]);
   });
 
   for (const file of files) {

@@ -90,3 +90,127 @@ export function vecInfNorm(v: ArrayLike<number>): number {
   }
   return s;
 }
+
+// ---------------------------------------------------------------------------
+// Envelope (skyline) Cholesky.
+//
+// For the damped normal matrix of a sketch system under a
+// bandwidth-reducing param ordering (lib/sketch-solver/decompose.ts
+// runs reverse Cuthill-McKee), row i of A has its first structural
+// nonzero at column firstNz[i] ≤ i. Cholesky fill never escapes the
+// envelope (L[i][j] = 0 for j < firstNz[i] — provable by induction on
+// the Banachiewicz recurrence), so factorization and solves can skip
+// the known zeros: O(Σ profile·b) ≈ O(n·b²) for bandwidth b instead
+// of O(n³/6). The surviving flops run in the same k-ascending order
+// as the dense routines, so results are bit-identical to
+// cholesky/choleskySolve on the same matrix.
+//
+// Storage stays dense row-major (entries outside the envelope are
+// never read or written), which keeps the format shared with the
+// dense path and lets callers reuse one buffer across iterations
+// without re-zeroing it.
+
+/**
+ * Envelope Cholesky A = L Lᵀ into a caller-provided L buffer (n×n
+ * row-major; entries outside the envelope are left untouched — every
+ * reader below respects the envelope). Returns false if A is not
+ * positive definite (NaN pivots fail the factorization, as in
+ * `cholesky`).
+ */
+export function choleskyEnvelopeInto(
+  A: Float64Array,
+  n: number,
+  firstNz: Int32Array,
+  L: Float64Array,
+): boolean {
+  for (let i = 0; i < n; i++) {
+    const fi = firstNz[i];
+    const rowI = i * n;
+    for (let j = fi; j <= i; j++) {
+      let sum = A[rowI + j];
+      const rowJ = j * n;
+      const k0 = Math.max(fi, firstNz[j]);
+      for (let k = k0; k < j; k++) {
+        sum -= L[rowI + k] * L[rowJ + k];
+      }
+      if (i === j) {
+        if (!(sum > 0)) {
+          return false;
+        }
+        L[rowI + j] = Math.sqrt(sum);
+      } else {
+        L[rowI + j] = sum / L[rowJ + j];
+      }
+    }
+  }
+  return true;
+}
+
+/**
+ * Column adjacency of an envelope: for each column i, the rows k > i
+ * with firstNz[k] ≤ i (i.e. the sub-diagonal entries of column i of
+ * L), listed in ascending k. Precomputed once per structure so the
+ * back-substitution in choleskyEnvelopeSolveInto can walk exactly the
+ * dense summation order restricted to structural nonzeros.
+ */
+export type EnvelopeColumns = {
+  /** Prefix offsets into `rows`, length n+1. */
+  start: Int32Array;
+  /** Row indices, grouped per column, ascending within each column. */
+  rows: Int32Array;
+};
+
+export function envelopeColumns(firstNz: Int32Array, n: number): EnvelopeColumns {
+  const start = new Int32Array(n + 1);
+  for (let k = 0; k < n; k++) {
+    for (let i = firstNz[k]; i < k; i++) {
+      start[i + 1]++;
+    }
+  }
+  for (let i = 0; i < n; i++) {
+    start[i + 1] += start[i];
+  }
+  const rows = new Int32Array(start[n]);
+  const cursor = new Int32Array(n);
+  for (let k = 0; k < n; k++) {
+    for (let i = firstNz[k]; i < k; i++) {
+      rows[start[i] + cursor[i]++] = k;
+    }
+  }
+  return { start, rows };
+}
+
+/**
+ * Solve L Lᵀ y = b over an envelope factor from choleskyEnvelopeInto,
+ * writing into caller-provided scratch z and output y (no
+ * allocations). Flop-for-flop the dense choleskySolve restricted to
+ * structural nonzeros, in the same summation order — bit-identical
+ * results.
+ */
+export function choleskyEnvelopeSolveInto(
+  L: Float64Array,
+  b: Float64Array,
+  n: number,
+  firstNz: Int32Array,
+  cols: EnvelopeColumns,
+  z: Float64Array,
+  y: Float64Array,
+): void {
+  for (let i = 0; i < n; i++) {
+    let s = b[i];
+    const rowI = i * n;
+    for (let k = firstNz[i]; k < i; k++) {
+      s -= L[rowI + k] * z[k];
+    }
+    z[i] = s / L[rowI + i];
+  }
+  for (let i = n - 1; i >= 0; i--) {
+    let s = z[i];
+    const end = cols.start[i + 1];
+    for (let idx = cols.start[i]; idx < end; idx++) {
+      const k = cols.rows[idx];
+      s -= L[k * n + i] * y[k];
+    }
+    y[i] = s / L[i * n + i];
+  }
+}

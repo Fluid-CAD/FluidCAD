@@ -5,6 +5,23 @@
 
 export { runLM, fdJacobian } from './lm.js';
 export type { LMOptions, LMResult, LMOutcome } from './lm.js';
-export { cholesky, choleskySolve, vecNorm, vecNorm2, vecInfNorm } from './linalg.js';
+export { runLMSparse, createSparseLMWorkspace } from './lm-sparse.js';
+export type {
+  SparseStructure,
+  SparseLMOptions,
+  SparseLMResult,
+  SparseLMWorkspace,
+} from './lm-sparse.js';
+export {
+  cholesky,
+  choleskySolve,
+  choleskyEnvelopeInto,
+  choleskyEnvelopeSolveInto,
+  envelopeColumns,
+  vecNorm,
+  vecNorm2,
+  vecInfNorm,
+} from './linalg.js';
+export type { EnvelopeColumns } from './linalg.js';
 export { matrixRank, matrixRankWithPivots } from './rank.js';
 export type { MatrixRankInfo } from './rank.js';

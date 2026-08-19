@@ -25,7 +25,9 @@ import type { SolvedDragMode, SolvedDragTarget, SolvedHit } from '../../sketch-s
 import type { SketchMesh } from '../../meshes/containers/sketch-mesh';
 import { DRAG_THRESHOLD_PX } from './types';
 
-const VERTEX_GRAB_PX = 10;
+// Equal thresholds: a grab that can see both must take the vertex — a
+// line's endpoint is on the line, so the body is always in range there too.
+const VERTEX_GRAB_PX = 12;
 const EDGE_GRAB_PX = 12;
 
 type PendingSolvedHit = {

@@ -63,6 +63,22 @@ describe('constraintOptions', () => {
   it('two points + line: symmetric', () => {
     expect(enabledIds([endA, startB, lineA]).includes('symmetric')).toBe(true);
   });
+
+  it('REGRESSION: a point never pairs with its OWN entity — a line grabbed as an edge next to its endpoint must not offer the degenerate point-on-own-line forms', () => {
+    // distance(l2, l2.start(), …) is identically zero — the exact statement
+    // a near-endpoint mis-pick emitted (Marwan's triangle report).
+    const startA: SolvedPick = { entityId: 0, kind: 'line', role: 'start', sourceLocation: loc(5) };
+    expect(enabledIds([lineA, startA])).toEqual([]);
+    expect(dimensionFormFor([lineA, startA])).toBeNull();
+    expect(dimensionFormFor([startA, lineA])).toBeNull();
+    // Same guard for circles: the center against its own circle is a radius
+    // in disguise — the single-pick diameter form owns that.
+    const centerC: SolvedPick = { entityId: 2, kind: 'circle', role: 'center', sourceLocation: loc(7) };
+    expect(dimensionFormFor([centerC, circleC])).toBeNull();
+    expect(enabledIds([centerC, circleC])).toEqual([]);
+    // Cross-entity point-on stays legal.
+    expect(enabledIds([startA, lineB]).sort()).toEqual(['coincident', 'dimension', 'midpoint'].sort());
+  });
 });
 
 describe('dimensionFormFor', () => {

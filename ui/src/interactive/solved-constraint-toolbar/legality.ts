@@ -84,9 +84,11 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
       }
       const pa = isPointPick(a);
       const pb = isPointPick(b);
+      // Point-on-entity is degenerate when the point belongs to that entity
+      // (a line's own endpoint is on the line by construction).
       return (pa && pb)
-        || (pa && (isLine(b) || isRound(b)))
-        || (pb && (isLine(a) || isRound(a)));
+        || (pa && (isLine(b) || isRound(b)) && a.entityId !== b.entityId)
+        || (pb && (isLine(a) || isRound(a)) && a.entityId !== b.entityId);
     }
     case 'horizontal':
     case 'vertical':
@@ -106,7 +108,7 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
     case 'concentric':
       return picks.length === 2 && isRound(a) && isRound(b) && a.entityId !== b.entityId;
     case 'midpoint':
-      return picks.length === 2
+      return picks.length === 2 && a.entityId !== b.entityId
         && ((isPointPick(a) && isLine(b)) || (isPointPick(b) && isLine(a)));
     case 'symmetric':
       return picks.length === 3
@@ -144,9 +146,13 @@ export function dimensionFormFor(picks: SolvedPick[]): DimensionForm | null {
   if (isPointPick(a) && isPointPick(b)) {
     return { kind: 'distance', axisChoice: true };
   }
+  // Point–entity, but never a point against its OWN entity: a line's
+  // endpoint is on the line (distance identically zero — the statement the
+  // solver can only report as a conflict), and a circle/arc's own points
+  // reduce to radius forms that radius()/diameter() already own.
   const point = isPointPick(a) ? a : isPointPick(b) ? b : null;
   const entity = point === a ? b : a;
-  if (point && (isLine(entity) || isRound(entity))) {
+  if (point && (isLine(entity) || isRound(entity)) && point.entityId !== entity.entityId) {
     return { kind: 'distance', axisChoice: false };
   }
   if (((isLine(a) && isLine(b)) || (isRound(a) && isRound(b))) && a.entityId !== b.entityId) {

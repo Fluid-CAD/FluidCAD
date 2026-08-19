@@ -24,8 +24,11 @@ import {
 import type { SolvedEntityKind } from '../sketch-solver-client';
 
 const HIGHLIGHT_THRESHOLD_PX = 12;
-/** Grab radius for solved entity vertices (they beat edge hover). */
-const VERTEX_PICK_PX = 10;
+/** Grab radius for solved entity vertices. Deliberately equal to the edge
+ * threshold: a click that can see both must prefer the vertex, or a
+ * near-endpoint pick silently records the edge instead (a line's endpoint
+ * is ON the line, so the edge is always in range there too). */
+const VERTEX_PICK_PX = 12;
 
 /** An ordered pick the solved constraint toolbar consumes: a whole entity
  * (edge click) or one of its named points (vertex click). */

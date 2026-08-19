@@ -10,7 +10,7 @@ import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
 import { SceneContext } from '../../scene/scene-context';
-import { PlaneData, SceneObjectRender, SourceLocation } from '../../types';
+import { SceneObjectRender, SourceLocation } from '../../types';
 import { applySketchConstraint, removeFeature } from '../../api';
 import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
 import { themeColors } from '../../scene/theme-colors';
@@ -40,7 +40,6 @@ const GHOST_EPS = 1e-6;
 export class SolvedConstraintToolbarService {
   private view: SolvedConstraintToolbar;
   private valueInput: ExpressionInput;
-  private handler: SketchHoverSelectHandler | null = null;
   private model: SolvedSketchModel | null = null;
   private sketchInfo: { line: number; filePath?: string } | null = null;
   private picks: SolvedPick[] = [];
@@ -87,7 +86,6 @@ export class SolvedConstraintToolbarService {
     this.picks = [];
     this.model = null;
     this.sketchInfo = null;
-    this.handler = null;
   }
 
   /** Per-render: rebuild the read model, re-resolve the picked constraint,
@@ -97,7 +95,6 @@ export class SolvedConstraintToolbarService {
     sketchObj: SceneObjectRender,
     handler: SketchHoverSelectHandler | null,
   ): void {
-    this.handler = handler;
     this.model = buildSolvedSketchModel(sketchObj, sceneObjects);
     this.sketchInfo = sketchObj.sourceLocation
       ? { line: sketchObj.sourceLocation.line, filePath: sketchObj.sourceLocation.filePath }
@@ -117,22 +114,48 @@ export class SolvedConstraintToolbarService {
 
   /** The shared selection changed — recompute the pick list and options. */
   selectionChanged(handler: SketchHoverSelectHandler | null): void {
-    this.handler = handler;
     this.picks = handler?.getSolvedPicks() ?? [];
     this.clearGhost();
     this.view.setOptions(constraintOptions(this.picks));
     this.view.setDeleteEnabled(this.pickedConstraint !== null);
     // The armed dimension tool fires as soon as the picks form a legal
     // dimension — the second pick opens the value input (locked plan §0.4).
-    if (this.dimensionArmed && !this.valueInput.isVisible && dimensionFormFor(this.picks)) {
-      this.openValueInput('dimension');
+    if (this.dimensionArmed && !this.valueInput.isVisible) {
+      const picks = this.armedDimensionPicks();
+      if (picks) {
+        this.openValueInput('dimension', picks);
+      }
     }
+  }
+
+  /** The pick set the armed dimension tool dimensions: the full set when it
+   * forms a dimension, else the MOST RECENT picks — the armed flow's toggle
+   * policy accumulates, so a stray earlier pick (an edge caught next to the
+   * intended vertex) must not wedge the tool shut. */
+  private armedDimensionPicks(): SolvedPick[] | null {
+    if (dimensionFormFor(this.picks)) {
+      return this.picks;
+    }
+    if (this.picks.length > 2 && dimensionFormFor(this.picks.slice(-2))) {
+      return this.picks.slice(-2);
+    }
+    if (this.picks.length > 1 && dimensionFormFor(this.picks.slice(-1))) {
+      return this.picks.slice(-1);
+    }
+    return null;
   }
 
   /** A constraint badge was clicked — remember it for delete. */
   noteConstraintPick(pick: { objId?: string; sourceLocation?: SourceLocation }): void {
     this.pickedConstraint = pick;
     this.view.setDeleteEnabled(true);
+  }
+
+  /** While the two-pick dimension tool is armed, plain clicks must
+   * ACCUMULATE picks (the selection handler's toggle policy) — pick one,
+   * pick two, get the value input; nobody holds Ctrl inside an armed tool. */
+  get isDimensionArmed(): boolean {
+    return this.dimensionArmed;
   }
 
   handleEscape(): boolean {
@@ -178,7 +201,7 @@ export class SolvedConstraintToolbarService {
     }
 
     if (id === 'dimension' || id === 'angle') {
-      this.openValueInput(id);
+      this.openValueInput(id, this.picks);
       return;
     }
 
@@ -205,18 +228,18 @@ export class SolvedConstraintToolbarService {
     return this.picks;
   }
 
-  private openValueInput(id: 'dimension' | 'angle'): void {
+  private openValueInput(id: 'dimension' | 'angle', dimPicks: SolvedPick[]): void {
     const model = this.model;
     if (!model) {
       return;
     }
     const form = id === 'angle'
       ? { kind: 'angle' as const, axisChoice: false }
-      : dimensionFormFor(this.picks);
+      : dimensionFormFor(dimPicks);
     if (!form) {
       return;
     }
-    const picks = [...this.picks];
+    const picks = [...dimPicks];
     const measured = measureDimension(model, picks, form);
     if (measured === null) {
       return;

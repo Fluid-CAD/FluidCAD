@@ -820,8 +820,11 @@ export class SketchToolbarService {
       // The copy dialog's picks accumulate like its 3D counterpart's: every
       // click toggles a target in or out and an empty-space click keeps the
       // list — a multi-slot dialog's pick set must not vanish under a stray
-      // click. The single-value ops keep the classic replace-and-clear rails.
-      () => (this.toolbar.activeTool === 'copy' ? 'toggle' : 'replace'),
+      // click. The armed two-pick dimension tool accumulates the same way
+      // (its second plain click must not replace the first pick). The
+      // single-value ops keep the classic replace-and-clear rails.
+      () => (this.toolbar.activeTool === 'copy' || this.solvedToolbar.isDimensionArmed
+        ? 'toggle' : 'replace'),
     );
     this.activeHoverSelectHandler.onSelectionChange = () => {
       this.activeOpService()?.refresh();

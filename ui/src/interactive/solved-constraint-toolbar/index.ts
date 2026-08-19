@@ -4,8 +4,15 @@ export {
   candidateSpec,
   constraintOptions,
   dimensionFormFor,
+  dimensionPreviewLayout,
+  expandDimensionPicks,
   isPointPick,
   measureDimension,
   pickRef,
 } from './legality';
-export type { ConstraintButtonId, ConstraintOption, DimensionForm } from './legality';
+export type {
+  ConstraintButtonId,
+  ConstraintOption,
+  DimensionForm,
+  DimensionPreviewLayout,
+} from './legality';

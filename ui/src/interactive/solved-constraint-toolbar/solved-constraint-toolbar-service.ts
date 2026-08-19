@@ -5,7 +5,7 @@
 // client-side solve previewing the candidate constraint before anything is
 // written.
 
-import { Group } from 'three';
+import { BufferGeometry, Float32BufferAttribute, Group, Line, LineBasicMaterial } from 'three';
 import { Line2 } from 'three/examples/jsm/lines/Line2.js';
 import { LineGeometry } from 'three/examples/jsm/lines/LineGeometry.js';
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js';
@@ -14,7 +14,7 @@ import { SceneObjectRender, SourceLocation } from '../../types';
 import { applySketchConstraint, removeFeature } from '../../api';
 import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
 import { themeColors } from '../../scene/theme-colors';
-import { localToWorld } from '../sketch-plane-utils';
+import { localToWorld, sketchToClient } from '../sketch-plane-utils';
 import type { SketchHoverSelectHandler, SolvedPick } from '../sketch-hover-select-handler';
 import {
   LiveSolvedSystem,
@@ -26,9 +26,13 @@ import { LineResolutionRegistry } from '../../meshes/shape-meshes/line-resolutio
 import { SolvedConstraintToolbar } from './solved-constraint-toolbar';
 import {
   ConstraintButtonId,
+  DimensionForm,
+  DimensionPreviewLayout,
   candidateSpec,
   constraintOptions,
   dimensionFormFor,
+  dimensionPreviewLayout,
+  expandDimensionPicks,
   isPointPick,
   measureDimension,
 } from './legality';
@@ -36,6 +40,12 @@ import {
 const GHOST_OPACITY = 0.45;
 /** Entities whose params moved more than this ghost-preview. */
 const GHOST_EPS = 1e-6;
+/** = the committed leader's LEADER_OPACITY (solved-constraint-meshes). */
+const PREVIEW_LEADER_OPACITY = 0.45;
+
+function picksKey(picks: SolvedPick[]): string {
+  return picks.map(p => `${p.entityId}:${p.role ?? 'entity'}`).join('|');
+}
 
 export class SolvedConstraintToolbarService {
   private view: SolvedConstraintToolbar;
@@ -47,6 +57,10 @@ export class SolvedConstraintToolbarService {
   private dimensionArmed = false;
   private pickedConstraint: { objId?: string; sourceLocation?: SourceLocation } | null = null;
   private ghostGroup: Group | null = null;
+  /** The dimension the open value input is creating — drives the preview
+   * leader line and survives re-renders (picks are entityId:role keyed). */
+  private pendingDimension: { picks: SolvedPick[]; form: DimensionForm } | null = null;
+  private previewGroup: Group | null = null;
   private cachedVariables: VariableInfo[] = [];
   private boundKeyDown: (e: KeyboardEvent) => void;
 
@@ -81,6 +95,7 @@ export class SolvedConstraintToolbarService {
     this.view.hide();
     this.valueInput.hide();
     this.clearGhost();
+    this.clearDimensionPreview();
     this.dimensionArmed = false;
     this.pickedConstraint = null;
     this.picks = [];
@@ -109,7 +124,29 @@ export class SolvedConstraintToolbarService {
         ? { objId: match.obj.id, sourceLocation: match.obj.sourceLocation }
         : null;
     }
+    this.refreshPendingDimension();
     this.selectionChanged(handler);
+  }
+
+  /** A re-render landed while the value input is open: re-anchor the
+   * preview line and the input to the new model, and refresh the measured
+   * seed (updateValue respects typed text). Geometry gone ⇒ close. */
+  private refreshPendingDimension(): void {
+    if (!this.pendingDimension || !this.valueInput.isVisible) {
+      return;
+    }
+    const { picks, form } = this.pendingDimension;
+    const model = this.model;
+    const measured = model ? measureDimension(model, picks, form) : null;
+    if (!model || measured === null) {
+      this.valueInput.hide();
+      return;
+    }
+    const layout = dimensionPreviewLayout(model, picks, form);
+    this.drawDimensionPreview(layout);
+    const pos = this.inputPosition(model, layout);
+    this.valueInput.updatePosition(pos.clientX, pos.clientY);
+    this.valueInput.updateValue(measured);
   }
 
   /** The shared selection changed — recompute the pick list and options. */
@@ -120,9 +157,18 @@ export class SolvedConstraintToolbarService {
     this.view.setDeleteEnabled(this.pickedConstraint !== null);
     // The armed dimension tool fires as soon as the picks form a legal
     // dimension — the second pick opens the value input (locked plan §0.4).
-    if (this.dimensionArmed && !this.valueInput.isVisible) {
+    // A further pick while the input is open RE-TARGETS it (a lone line's
+    // length upgrades to line–line when the second line lands), unless the
+    // user already typed a value.
+    if (this.dimensionArmed) {
       const picks = this.armedDimensionPicks();
-      if (picks) {
+      if (!picks) {
+        return;
+      }
+      const retarget = this.valueInput.isVisible
+        && !this.valueInput.isTyping
+        && picksKey(expandDimensionPicks(picks)) !== picksKey(this.pendingDimension?.picks ?? []);
+      if (!this.valueInput.isVisible || retarget) {
         this.openValueInput('dimension', picks);
       }
     }
@@ -239,18 +285,24 @@ export class SolvedConstraintToolbarService {
     if (!form) {
       return;
     }
-    const picks = [...dimPicks];
+    // A lone line dimensions its own length — the endpoint-pair distance.
+    const picks = id === 'dimension' ? expandDimensionPicks(dimPicks) : [...dimPicks];
     const measured = measureDimension(model, picks, form);
     if (measured === null) {
       return;
     }
-    const rect = this.container.getBoundingClientRect();
+    // The input opens at the label spot of the dimension it will create,
+    // with the leader line previewed between the anchors (drawn after
+    // show() — a re-targeting show() runs the previous cycle's onHide).
+    const layout = dimensionPreviewLayout(model, picks, form);
+    const { clientX, clientY } = this.inputPosition(model, layout);
     this.valueInput.show({
       label: form.kind === 'angle' ? '∠' : form.kind === 'radius' ? 'R' : form.kind === 'diameter' ? '⌀' : 'D',
       value: String(measured),
-      clientX: rect.left + rect.width / 2 - 60,
-      clientY: rect.top + 190,
+      clientX,
+      clientY,
       variables: this.cachedVariables,
+      onHide: () => this.clearDimensionPreview(),
       onCommit: ({ expression, newVariable }) => {
         this.valueInput.hide();
         this.setDimensionArmed(false);
@@ -266,6 +318,77 @@ export class SolvedConstraintToolbarService {
         void this.emit(kind as ConstraintButtonId, picks, finalExpr, undefined);
       },
     });
+    this.pendingDimension = { picks, form };
+    this.drawDimensionPreview(layout);
+  }
+
+  /** The value input sits at the preview's label anchor, clamped into the
+   * viewport; without an anchor it falls back to the under-toolbar spot. */
+  private inputPosition(
+    model: SolvedSketchModel,
+    layout: DimensionPreviewLayout | null,
+  ): { clientX: number; clientY: number } {
+    const rect = this.container.getBoundingClientRect();
+    if (!layout) {
+      return { clientX: rect.left + rect.width / 2 - 60, clientY: rect.top + 190 };
+    }
+    const { clientX, clientY } = sketchToClient(this.ctx, model.plane, layout.at);
+    return {
+      clientX: Math.min(Math.max(clientX, rect.left + 8), rect.right - 180),
+      clientY: Math.min(Math.max(clientY, rect.top + 60), rect.bottom - 24),
+    };
+  }
+
+  /** Leader line between the dimension's anchors while the value input is
+   * open — same styling as the committed glyph's leader, so commit only
+   * swaps in the label. */
+  private drawDimensionPreview(layout: DimensionPreviewLayout | null): void {
+    this.removePreviewLine();
+    const model = this.model;
+    if (!layout?.line || !model) {
+      return;
+    }
+    const from = localToWorld(layout.line[0], model.plane);
+    const to = localToWorld(layout.line[1], model.plane);
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([
+      from.x, from.y, from.z,
+      to.x, to.y, to.z,
+    ], 3));
+    const material = new LineBasicMaterial({
+      color: themeColors.constraintColor,
+      transparent: true,
+      opacity: PREVIEW_LEADER_OPACITY,
+      depthTest: false,
+    });
+    const line = new Line(geometry, material);
+    line.renderOrder = 2;
+    const group = new Group();
+    group.renderOrder = 2;
+    group.userData.isMetaShape = true;
+    group.add(line);
+    this.ctx.scene.add(group);
+    this.previewGroup = group;
+    this.ctx.requestRender();
+  }
+
+  private removePreviewLine(): void {
+    if (!this.previewGroup) {
+      return;
+    }
+    this.ctx.scene.remove(this.previewGroup);
+    this.previewGroup.traverse((child) => {
+      const mesh = child as unknown as { geometry?: { dispose(): void }; material?: { dispose(): void } };
+      mesh.geometry?.dispose?.();
+      mesh.material?.dispose?.();
+    });
+    this.previewGroup = null;
+    this.ctx.requestRender();
+  }
+
+  private clearDimensionPreview(): void {
+    this.pendingDimension = null;
+    this.removePreviewLine();
   }
 
   private async emit(

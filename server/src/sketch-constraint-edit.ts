@@ -142,6 +142,9 @@ export async function applySketchConstraint(
   const used = collectIdentifiers(tree);
   const hoists: { start: number; text: string }[] = [];
   const argNames: string[] = [];
+  // Two targets can name the same statement (a line's length is
+  // distance(l.start(), l.end(), …)) — hoist it once and reuse the name.
+  const hoistedNames = new Map<number, string>();
 
   for (const target of spec.targets) {
     const call = findEditableCallAt(tree, lines, target.line);
@@ -157,7 +160,7 @@ export async function applySketchConstraint(
     }
 
     const statement = enclosingStatement(call);
-    let name = boundVariableName(statement);
+    let name = boundVariableName(statement) ?? hoistedNames.get(statement.startIndex) ?? null;
     if (!name) {
       const hint = NAME_HINTS[callee] ?? 'e';
       let n = 1;
@@ -166,6 +169,7 @@ export async function applySketchConstraint(
       }
       name = `${hint}${n}`;
       used.add(name);
+      hoistedNames.set(statement.startIndex, name);
       hoists.push({ start: statement.startIndex, text: `const ${name} = ` });
     }
     argNames.push(target.role ? `${name}.${target.role}()` : name);

@@ -53,6 +53,37 @@ describe('applySketchConstraint', () => {
     expect(result.newCode).toContain(`distance(a.start(), l1.end(), 25.5, 'x');`);
   });
 
+  it('two targets on the SAME unbound statement hoist once and share the name (a lone line\'s length is distance(l.start(), l.end(), …))', async () => {
+    const result = await applySketchConstraint(SKETCH, {
+      sketchLine: 4,
+      kind: 'distance',
+      targets: [
+        { line: 6, role: 'start', featureType: 'line' },
+        { line: 6, role: 'end', featureType: 'line' },
+      ],
+      valueExpr: '40',
+    });
+    expect(result.error).toBeUndefined();
+    // A per-target hoist would emit `const l2 = const l1 = line(…)`.
+    expect(result.newCode).toContain(`  const l1 = line([100, 0], [100, 50]);`);
+    expect(result.newCode).not.toContain('const l2');
+    expect(result.newCode).toContain(`distance(l1.start(), l1.end(), 40);`);
+  });
+
+  it('two targets on the same bound statement reuse its binding', async () => {
+    const result = await applySketchConstraint(SKETCH, {
+      sketchLine: 4,
+      kind: 'distance',
+      targets: [
+        { line: 5, role: 'start', featureType: 'line' },
+        { line: 5, role: 'end', featureType: 'line' },
+      ],
+      valueExpr: '100',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`distance(a.start(), a.end(), 100);`);
+  });
+
   it('a chained statement hoists at the statement, and the base callee is checked', async () => {
     const result = await applySketchConstraint(SKETCH, {
       sketchLine: 4,

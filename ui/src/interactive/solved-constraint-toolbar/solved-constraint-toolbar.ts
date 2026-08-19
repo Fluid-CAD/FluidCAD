@@ -158,7 +158,7 @@ export class SolvedConstraintToolbar {
       btn.disabled = !enabled;
       btn.className = armed ? BTN_ARMED : enabled ? BTN_ENABLED : BTN_DISABLED;
       tip.textContent = armed
-        ? 'Dimension armed — pick two points/entities (or one circle/arc)'
+        ? 'Dimension armed — pick two points/entities, one line, or one circle/arc'
         : option?.enabled
           ? `Add ${label.toLowerCase()}`
           : option?.reason

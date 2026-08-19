@@ -3,6 +3,8 @@ import {
   candidateSpec,
   constraintOptions,
   dimensionFormFor,
+  dimensionPreviewLayout,
+  expandDimensionPicks,
   measureDimension,
 } from '../src/interactive/solved-constraint-toolbar/legality';
 import type { SolvedPick } from '../src/interactive/sketch-hover-select-handler';
@@ -23,8 +25,8 @@ function enabledIds(picks: SolvedPick[]): string[] {
 }
 
 describe('constraintOptions', () => {
-  it('one line: horizontal/vertical only', () => {
-    expect(enabledIds([lineA])).toEqual(['horizontal', 'vertical']);
+  it('one line: horizontal/vertical, and dimension (its own length)', () => {
+    expect(enabledIds([lineA])).toEqual(['dimension', 'horizontal', 'vertical']);
   });
 
   it('two lines: the line-pair family + dimension/angle', () => {
@@ -89,8 +91,19 @@ describe('dimensionFormFor', () => {
     expect(dimensionFormFor([circleC, arcD])).toEqual({ kind: 'distance', axisChoice: false });
     expect(dimensionFormFor([circleC])).toEqual({ kind: 'diameter', axisChoice: false });
     expect(dimensionFormFor([arcD])).toEqual({ kind: 'radius', axisChoice: false });
-    expect(dimensionFormFor([lineA])).toBeNull();
     expect(dimensionFormFor([lineA, lineA])).toBeNull();
+  });
+
+  it('a lone line dimensions its own length — the endpoint-pair distance', () => {
+    expect(dimensionFormFor([lineA])).toEqual({ kind: 'distance', axisChoice: true });
+    expect(expandDimensionPicks([lineA])).toEqual([
+      { ...lineA, role: 'start' },
+      { ...lineA, role: 'end' },
+    ]);
+    // Expansion is lone-line only: vertex picks and pairs pass through.
+    expect(expandDimensionPicks([endA])).toEqual([endA]);
+    expect(expandDimensionPicks([lineA, lineB])).toEqual([lineA, lineB]);
+    expect(expandDimensionPicks([circleC])).toEqual([circleC]);
   });
 });
 
@@ -141,6 +154,52 @@ describe('measureDimension', () => {
     expect(measureDimension(model, [circleC], { kind: 'radius', axisChoice: false })).toBe(5);
     expect(measureDimension(model, [circleC], { kind: 'diameter', axisChoice: false })).toBe(10);
   });
+
+  it('measures a lone line as its length', () => {
+    expect(measureDimension(model, [lineA], { kind: 'distance', axisChoice: true })).toBe(10);
+    expect(measureDimension(model, [lineB], { kind: 'distance', axisChoice: true })).toBe(8);
+  });
+});
+
+describe('dimensionPreviewLayout', () => {
+  const distance = { kind: 'distance' as const, axisChoice: true };
+  const end1: SolvedPick = { entityId: 1, kind: 'line', role: 'end', sourceLocation: loc(6) };
+
+  it('point–point: leader between the vertices, input at the midpoint', () => {
+    expect(dimensionPreviewLayout(model, [endA, end1], distance)).toEqual({
+      line: [[10, 0], [10, 8]],
+      at: [10, 4],
+    });
+  });
+
+  it('a lone line: leader along the line, input at its midpoint', () => {
+    expect(dimensionPreviewLayout(model, [lineA], distance)).toEqual({
+      line: [[0, 0], [10, 0]],
+      at: [5, 0],
+    });
+  });
+
+  it('point–line: leader from the point to its perpendicular foot', () => {
+    expect(dimensionPreviewLayout(model, [end1, lineA], { kind: 'distance', axisChoice: false })).toEqual({
+      line: [[10, 8], [10, 0]],
+      at: [10, 4],
+    });
+  });
+
+  it('radius: leader from the center to the rim label spot', () => {
+    const layout = dimensionPreviewLayout(model, [circleC], { kind: 'radius', axisChoice: false });
+    expect(layout).not.toBeNull();
+    expect(layout!.line![0]).toEqual([30, 0]);
+    expect(layout!.line![1][0]).toBeCloseTo(30 + 5 * Math.SQRT1_2, 10);
+    expect(layout!.at).toEqual(layout!.line![1]);
+  });
+
+  it('angle: no leader, input at the line intersection', () => {
+    expect(dimensionPreviewLayout(model, [lineA, lineB], { kind: 'angle', axisChoice: false })).toEqual({
+      line: null,
+      at: [10, 0],
+    });
+  });
 });
 
 describe('candidateSpec', () => {
@@ -164,6 +223,12 @@ describe('candidateSpec', () => {
     });
     expect(candidateSpec('dimension', [endA, startB], 8, 'y')).toEqual({
       kind: 'distance', a: { entity: 0, point: 'end' }, b: { entity: 1, point: 'start' }, value: 8, axis: 'y',
+    });
+  });
+
+  it('a lone-line dimension expands to the endpoint-pair distance', () => {
+    expect(candidateSpec('dimension', [lineA], 10)).toEqual({
+      kind: 'distance', a: { entity: 0, point: 'start' }, b: { entity: 0, point: 'end' }, value: 10,
     });
   });
 

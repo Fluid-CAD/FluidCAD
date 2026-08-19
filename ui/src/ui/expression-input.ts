@@ -23,6 +23,10 @@ export type ExpressionInputOptions = {
   clientY: number;
   variables: VariableInfo[];
   onCommit: (result: CommitResult) => void;
+  /** Fired once when the input hides, whatever closed it (commit, Escape
+   * inside the field, or an external hide()) — for cleanup the host draws
+   * alongside the input, like the dimension preview line. */
+  onHide?: () => void;
   numericOnly?: boolean;
   /** Declarations disabled; the committed text must evaluate to a finite
    * number (arithmetic over `variables`). The host writes numbers, not
@@ -41,6 +45,7 @@ export class ExpressionInput {
   private paramMode = false;
   private paramAvailable = false;
   private onCommit: ((result: CommitResult) => void) | null = null;
+  private onHide: (() => void) | null = null;
   private visible = false;
   private userIsTyping = false;
   private variables: VariableInfo[] = [];
@@ -149,8 +154,16 @@ export class ExpressionInput {
   }
 
   show(opts: ExpressionInputOptions): void {
+    // Re-opening over a visible input is a re-target — run the old cycle's
+    // cleanup before the new one begins.
+    if (this.visible && this.onHide) {
+      const cb = this.onHide;
+      this.onHide = null;
+      cb();
+    }
     this.label.textContent = opts.label;
     this.onCommit = opts.onCommit;
+    this.onHide = opts.onHide ?? null;
     this.variables = opts.variables;
     this.numericOnly = opts.numericOnly ?? false;
     this.arithmeticOnly = opts.arithmeticOnly ?? false;
@@ -180,10 +193,19 @@ export class ExpressionInput {
     this.clearInlineError();
     this.onCommit = null;
     this.input.blur();
+    const cb = this.onHide;
+    this.onHide = null;
+    cb?.();
   }
 
   get isVisible(): boolean {
     return this.visible;
+  }
+
+  /** True once the user typed into the field — live refreshes (re-targets,
+   * per-render value updates) must not clobber typed text. */
+  get isTyping(): boolean {
+    return this.userIsTyping;
   }
 
   containsElement(el: EventTarget | null): boolean {

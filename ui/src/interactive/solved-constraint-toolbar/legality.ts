@@ -6,11 +6,16 @@
 import type { ConstraintSpec, SolverRef } from '../../../../lib/sketch-solver/types.js';
 import type { SolvedPick } from '../sketch-hover-select-handler';
 import type { SolvedSketchModel } from '../../sketch-solver-client';
+import { distanceSpecEndpoints } from '../../sketch-solver-client';
 import {
+  Vec2,
+  entityAnchor,
   entityFor,
   footOnLine,
   lineDir,
+  lineIntersection,
   lineMid,
+  mid,
   norm,
   refPoint,
   sub,
@@ -58,6 +63,16 @@ export function pickRef(p: SolvedPick): SolverRef {
   return { entity: p.entityId, point: p.role };
 }
 
+/** A lone line pick dimensions its own length: expand it to the line's
+ * endpoint pair so every consumer (form, measure, ghost spec, emission)
+ * sees the point–point distance form the solver already owns. */
+export function expandDimensionPicks(picks: SolvedPick[]): SolvedPick[] {
+  if (picks.length === 1 && isLine(picks[0])) {
+    return [{ ...picks[0], role: 'start' }, { ...picks[0], role: 'end' }];
+  }
+  return picks;
+}
+
 const NEED = {
   coincident: 'pick two points, or a point and an entity',
   horizontal: 'pick a line, or two points',
@@ -71,7 +86,7 @@ const NEED = {
   midpoint: 'pick a point and a line',
   symmetric: 'pick two points and their mirror line',
   fix: 'pick one point',
-  dimension: 'pick two points/entities, or one circle/arc',
+  dimension: 'pick two points/entities, one line, or one circle/arc',
   angle: 'pick two lines',
 } as const;
 
@@ -130,8 +145,10 @@ export function constraintOptions(picks: SolvedPick[]): ConstraintOption[] {
 
 /** Which dimension a pick set selects (the two-pick flow, locked plan §0.4):
  * point–point / point–entity / entity–entity → distance, single circle →
- * diameter, single arc → radius. Angle has its own button. */
-export function dimensionFormFor(picks: SolvedPick[]): DimensionForm | null {
+ * diameter, single arc → radius, single line → its length (the endpoint
+ * pair). Angle has its own button. */
+export function dimensionFormFor(rawPicks: SolvedPick[]): DimensionForm | null {
+  const picks = expandDimensionPicks(rawPicks);
   if (picks.length === 1) {
     const p = picks[0];
     if (isRound(p)) {
@@ -165,10 +182,11 @@ export function dimensionFormFor(picks: SolvedPick[]): DimensionForm | null {
  * input's opening seed, in display units (degrees for angle). */
 export function measureDimension(
   model: SolvedSketchModel,
-  picks: SolvedPick[],
+  rawPicks: SolvedPick[],
   form: DimensionForm,
   axis?: 'x' | 'y',
 ): number | null {
+  const picks = expandDimensionPicks(rawPicks);
   const round2 = (v: number): number => Math.round(v * 100) / 100;
 
   if (form.kind === 'radius' || form.kind === 'diameter') {
@@ -291,11 +309,62 @@ export function candidateSpec(
       if (form.kind === 'diameter') {
         return { kind: 'diameter', a: pickRef(a), value };
       }
-      const spec: ConstraintSpec = { kind: 'distance', a: pickRef(a), b: pickRef(b), value };
+      const [da, db] = expandDimensionPicks(picks);
+      const spec: ConstraintSpec = { kind: 'distance', a: pickRef(da), b: pickRef(db), value };
       if (axis !== undefined) {
         (spec as { axis?: 'x' | 'y' }).axis = axis;
       }
       return spec;
     }
   }
+}
+
+export type DimensionPreviewLayout = {
+  /** Leader endpoints in sketch coords; null = no leader (angle). */
+  line: [Vec2, Vec2] | null;
+  /** Where the value input anchors — the committed glyph's label spot. */
+  at: Vec2;
+};
+
+/** Where the dimension a pick set would create will sit: the same anchors
+ * the committed glyph's leader uses (distanceSpecEndpoints — the preview
+ * lands exactly where the real dimension will render), with the value
+ * input anchored at the label position. */
+export function dimensionPreviewLayout(
+  model: SolvedSketchModel,
+  rawPicks: SolvedPick[],
+  form: DimensionForm,
+  axis?: 'x' | 'y',
+): DimensionPreviewLayout | null {
+  const picks = expandDimensionPicks(rawPicks);
+  if (form.kind === 'radius' || form.kind === 'diameter') {
+    const e = entityFor(model, pickRef(picks[0]));
+    const rim = e?.center ? entityAnchor(e) : null;
+    return e?.center && rim ? { line: [e.center, rim], at: rim } : null;
+  }
+  if (form.kind === 'angle') {
+    const a = entityFor(model, pickRef(picks[0]));
+    const b = picks[1] ? entityFor(model, pickRef(picks[1])) : undefined;
+    if (!a || !b) {
+      return null;
+    }
+    let at = lineIntersection(a, b);
+    if (!at) {
+      const ma = lineMid(a);
+      const mb = lineMid(b);
+      at = ma && mb ? mid(ma, mb) : null;
+    }
+    return at ? { line: null, at } : null;
+  }
+  if (picks.length !== 2) {
+    return null;
+  }
+  const spec: Extract<ConstraintSpec, { kind: 'distance' }> = {
+    kind: 'distance', a: pickRef(picks[0]), b: pickRef(picks[1]), value: 0,
+  };
+  if (axis !== undefined) {
+    spec.axis = axis;
+  }
+  const endpoints = distanceSpecEndpoints(model, spec);
+  return endpoints ? { line: endpoints, at: mid(endpoints[0], endpoints[1]) } : null;
 }

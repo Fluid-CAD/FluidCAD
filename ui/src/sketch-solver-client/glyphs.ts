@@ -3,6 +3,7 @@
 // layer (solved-constraint meshes) and the badge hit index both consume
 // these, so what is drawn is exactly what is pickable.
 
+import type { ConstraintSpec } from '../../../lib/sketch-solver/types.js';
 import type { SourceLocation } from '../types';
 import type { SolvedConstraintView, SolvedSketchModel } from './model';
 import { specEntityIds } from './model';
@@ -215,7 +216,7 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
       }
 
       case 'distance': {
-        const points = distanceEndpoints(model, c);
+        const points = distanceSpecEndpoints(model, spec);
         if (points) {
           const [from, to] = points;
           const dir = normalize(sub(to, from));
@@ -297,15 +298,13 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
   return glyphs;
 }
 
-/** The two anchor points a distance dimension spans, by resolved form. */
-function distanceEndpoints(
+/** The two anchor points a distance dimension spans, by resolved form.
+ * Shared with the toolbar's dimension preview (P4.5) so the preview line
+ * lands exactly where the committed glyph's leader will. */
+export function distanceSpecEndpoints(
   model: SolvedSketchModel,
-  c: SolvedConstraintView,
+  spec: Extract<ConstraintSpec, { kind: 'distance' }>,
 ): [Vec2, Vec2] | null {
-  if (c.spec.kind !== 'distance') {
-    return null;
-  }
-  const spec = c.spec;
   const pa = refPoint(model, spec.a);
   const pb = refPoint(model, spec.b);
   if (pa && pb) {

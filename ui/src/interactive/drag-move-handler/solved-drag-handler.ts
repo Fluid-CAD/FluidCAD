@@ -22,6 +22,7 @@ import {
   updateDragTargets,
 } from '../../sketch-solver-client';
 import type { SolvedDragMode, SolvedDragTarget, SolvedHit } from '../../sketch-solver-client';
+import type { SolveOutcome } from '../../../../lib/sketch-solver/types.js';
 import type { SketchMesh } from '../../meshes/containers/sketch-mesh';
 import { DRAG_THRESHOLD_PX } from './types';
 
@@ -55,6 +56,11 @@ export class SolvedDragHandler {
    * exactly one target (its center). */
   private dragMode: SolvedDragMode = 'vertex';
   private grabStart: [number, number] | null = null;
+  /** Outcome of the latest dragSolve — a commit is only honest for a real
+   * solution. Writing back a least-squares compromise (conflicted sketch)
+   * would bake a non-solution into the source literals — that is how the
+   * pre-guard collapse bug turned a drag into zero-length line literals. */
+  private lastDragOutcome: SolveOutcome | null = null;
   /** True while the write-back round-trip is in flight — a re-render landing
    * meanwhile must win over our stale preview reset. */
   private committing = false;
@@ -235,7 +241,7 @@ export class SolvedDragHandler {
     const snapped = this.snapController.snap(raw).point2d;
     updateDragTargets(this.dragMode, this.targets, this.grabStart, snapped);
 
-    this.live.dragSolve(this.targets.map(t => t.point));
+    this.lastDragOutcome = this.live.dragSolve(this.targets.map(t => t.point));
     this.sketchMesh?.updateSolvedGeometry(id => this.live!.entityGeometry(id));
     this.ctx.requestRender();
   }
@@ -273,6 +279,11 @@ export class SolvedDragHandler {
     const { edits, filePath } = buildPositionWriteBack(model, id => live.entityGeometry(id));
     if (edits.length === 0) {
       // Nothing drifted beyond 2dp — put the preview back on the payload.
+      this.resetPreview();
+      return;
+    }
+    if (this.lastDragOutcome !== 'solved') {
+      this.showMessage('Sketch constraints are not satisfied — the drag was not saved');
       this.resetPreview();
       return;
     }

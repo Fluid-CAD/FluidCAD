@@ -16,7 +16,8 @@
 
 import { runLMSparse } from '../solver-core/index.js';
 import { buildPlan } from './decompose.js';
-import type { SolvePlan } from './decompose.js';
+import type { SizePin, SolvePlan } from './decompose.js';
+import { PARAM_COUNT } from './system.js';
 import type { SketchSystem } from './system.js';
 import type { ComponentSolveResult, SolveOptions, SolveResult } from './types.js';
 
@@ -30,6 +31,27 @@ const DRAG_PASS_MAX_ITERS = 60;
 const DRAG_PASS_FTOL = 1e-6;
 /** Points closer than this (both axes) coincide by value. */
 const GLUE_TOL = 1e-6;
+
+// Degenerate-collapse guard. Direction constraints with absolute
+// residuals (a vertical's dx, a parallel's cross product) vanish as
+// an entity's size → 0, while scale-invariant residuals (angle's
+// atan2) stay satisfiable at any tiny size — so LM can "solve" a
+// truly conflicting sketch by collapsing an entity (the H + V +
+// angle(80°) triangle collapses its vertical leg to ~1e-8 and
+// reports solved with nothing for diagnose to name). An entity whose
+// guess size was healthy but whose solved size fell to ~0 marks the
+// solution bogus: restore its guess params and re-solve with an
+// internal size-pin row, so the real inconsistency materializes as
+// residual and diagnose names the conflicting constraints. The
+// collapse floor is absolute on purpose — escape sizes scale with
+// residualTol, not with the sketch.
+const COLLAPSED_SIZE = 1e-4;
+/** Entities whose guess size was already below this never pin — they
+ * were authored degenerate, not collapsed by the solver. */
+const HEALTHY_GUESS_SIZE = 1e-3;
+/** Pinning one entity can unmask a collapse of another (equal-length
+ * chains); bounded whack-a-mole. */
+const MAX_PIN_ROUNDS = 3;
 
 export function solve(sys: SketchSystem, opts: SolveOptions = {}): SolveResult {
   const compiled = sys.compiled();
@@ -70,8 +92,76 @@ export function solve(sys: SketchSystem, opts: SolveOptions = {}): SolveResult {
     }, DRAG_PASS_FTOL).iters;
   }
   const finalPlan = obtainPlan(sys, compiled, glueKey, gluePairs, []);
-  const result = runPlan(sys, finalPlan, opts);
-  return { ...result, iters: iters + result.iters };
+  let result = runPlan(sys, finalPlan, opts);
+  iters += result.iters;
+
+  let pins: SizePin[] = [];
+  for (let round = 0; round < MAX_PIN_ROUNDS; round++) {
+    const fresh = collapsedEntities(sys, pins);
+    if (fresh.length === 0) {
+      break;
+    }
+    pins = pins.concat(fresh);
+    restoreGuessParams(sys, fresh);
+    const pinnedPlan = obtainPlan(sys, compiled, glueKey, gluePairs, [], pins);
+    result = runPlan(sys, pinnedPlan, opts);
+    iters += result.iters;
+  }
+  if (pins.length > 0) {
+    return { ...result, iters, collapsed: pins.map((pin) => pin.entity) };
+  }
+  return { ...result, iters };
+}
+
+/** Entities (beyond the already-pinned ones) whose size collapsed
+ * from a healthy guess to ~zero in the current values. */
+function collapsedEntities(sys: SketchSystem, pinned: SizePin[]): SizePin[] {
+  const values = sys.values;
+  const guesses = sys.guesses;
+  const done = new Set(pinned.map((pin) => pin.entity));
+  const out: SizePin[] = [];
+  for (const e of sys.entities()) {
+    if (e.fixed || e.kind === 'point' || done.has(e.id)) {
+      continue;
+    }
+    const o = e.paramOffset;
+    if (e.kind === 'line') {
+      const guessLen = Math.hypot(guesses[o + 2] - guesses[o], guesses[o + 3] - guesses[o + 1]);
+      const len = Math.hypot(values[o + 2] - values[o], values[o + 3] - values[o + 1]);
+      if (guessLen >= HEALTHY_GUESS_SIZE && len < COLLAPSED_SIZE) {
+        out.push({
+          entity: e.id,
+          kind: 'length',
+          sx: o,
+          sy: o + 1,
+          ex: o + 2,
+          ey: o + 3,
+          target: guessLen,
+        });
+      }
+    } else {
+      const guessR = Math.abs(guesses[o + 2]);
+      const r = Math.abs(values[o + 2]);
+      if (guessR >= HEALTHY_GUESS_SIZE && r < COLLAPSED_SIZE) {
+        out.push({ entity: e.id, kind: 'radius', ir: o + 2, target: guessR });
+      }
+    }
+  }
+  return out;
+}
+
+/** A pinned entity restarts from its guesses — at the collapsed
+ * values the length-pin gradient is degenerate (0/0). */
+function restoreGuessParams(sys: SketchSystem, pins: SizePin[]): void {
+  const values = sys.values;
+  const guesses = sys.guesses;
+  for (const pin of pins) {
+    const e = sys.entity(pin.entity);
+    const count = PARAM_COUNT[e.kind];
+    for (let i = 0; i < count; i++) {
+      values[e.paramOffset + i] = guesses[e.paramOffset + i];
+    }
+  }
 }
 
 function ensurePlanCache(sys: SketchSystem, version: number): void {
@@ -86,13 +176,16 @@ function obtainPlan(
   glueKey: string,
   gluePairs: GluePair[],
   dragPoints: { ix: number; iy: number }[],
+  sizePins: SizePin[] = [],
 ): SolvePlan {
-  const key = `g:${glueKey}|d:${dragPoints.map((p) => p.ix).join(',')}`;
+  const key = `g:${glueKey}|d:${dragPoints.map((p) => p.ix).join(',')}|p:${sizePins
+    .map((pin) => pin.entity)
+    .join(',')}`;
   const cached = sys.planCache!.plans.get(key);
   if (cached) {
     return cached as SolvePlan;
   }
-  const plan = buildPlan(compiled, gluePairs, dragPoints);
+  const plan = buildPlan(compiled, gluePairs, dragPoints, sizePins);
   sys.planCache!.plans.set(key, plan);
   return plan;
 }

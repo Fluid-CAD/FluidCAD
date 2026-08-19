@@ -213,6 +213,16 @@ export type PlanComponent = {
 
 export type DragTarget = { x: number; y: number; w: number };
 
+/**
+ * Anti-collapse size pin (solve.ts degenerate-collapse guard): holds
+ * an entity's size at its guess so LM cannot satisfy direction
+ * constraints vacuously by shrinking the entity to nothing. Param
+ * indices are global; the target is the guess-time size.
+ */
+export type SizePin =
+  | { entity: number; kind: 'length'; sx: number; sy: number; ex: number; ey: number; target: number }
+  | { entity: number; kind: 'radius'; ir: number; target: number };
+
 export type SolvePlan = {
   comps: PlanComponent[];
   /** Full-table scratch shared by all component closures. */
@@ -226,14 +236,16 @@ export type SolvePlan = {
 
 /**
  * Build the executable plan for base rows + optional glue pairs
- * (value-coincidence, drag only) + drag points. Cached by the caller
- * per (structural version, glue pairs, drag params) — a drag gesture
- * reuses one plan and only rewrites dragTargets.
+ * (value-coincidence, drag only) + size pins (collapse guard) + drag
+ * points. Cached by the caller per (structural version, glue pairs,
+ * pinned entities, drag params) — a drag gesture reuses one plan and
+ * only rewrites dragTargets.
  */
 export function buildPlan(
   compiled: CompiledSystem,
   gluePairs: { aix: number; aiy: number; bix: number; biy: number }[],
   dragPoints: { ix: number; iy: number }[],
+  sizePins: SizePin[] = [],
 ): SolvePlan {
   const work = new Float64Array(compiled.paramCount);
   const dragTargets: DragTarget[] = dragPoints.map(() => ({ x: 0, y: 0, w: 0.1 }));
@@ -242,6 +254,9 @@ export function buildPlan(
   for (const pair of gluePairs) {
     allRows.push(diffRow(pair.aix, pair.bix));
     allRows.push(diffRow(pair.aiy, pair.biy));
+  }
+  for (const pin of sizePins) {
+    allRows.push(pinRow(pin));
   }
   const dragStart = allRows.length;
   for (let i = 0; i < dragPoints.length; i++) {
@@ -364,6 +379,33 @@ function diffRow(a: number, b: number): CompiledRow {
     jac: (_p, out) => {
       out[0] = 1;
       out[1] = -1;
+    },
+  };
+}
+
+function pinRow(pin: SizePin): CompiledRow {
+  if (pin.kind === 'radius') {
+    const { ir, target } = pin;
+    return {
+      params: [ir],
+      eval: (p) => p[ir] - target,
+      jac: (_p, out) => {
+        out[0] = 1;
+      },
+    };
+  }
+  const { sx, sy, ex, ey, target } = pin;
+  return {
+    params: [sx, sy, ex, ey],
+    eval: (p) => Math.hypot(p[ex] - p[sx], p[ey] - p[sy]) - target,
+    jac: (p, out) => {
+      const dx = p[ex] - p[sx];
+      const dy = p[ey] - p[sy];
+      const len = Math.max(Math.hypot(dx, dy), 1e-12);
+      out[0] = -dx / len;
+      out[1] = -dy / len;
+      out[2] = dx / len;
+      out[3] = dy / len;
     },
   };
 }

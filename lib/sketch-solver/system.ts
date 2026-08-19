@@ -21,7 +21,7 @@ import type {
   SolverRef,
 } from './types.js';
 
-const PARAM_COUNT: Record<EntityKind, number> = { point: 2, line: 4, circle: 3, arc: 7 };
+export const PARAM_COUNT: Record<EntityKind, number> = { point: 2, line: 4, circle: 3, arc: 7 };
 
 export type EntityOptions = {
   /** Explicit id (≥ 0); auto-assigned when omitted. */
@@ -191,6 +191,11 @@ export class SketchSystem {
 
   get paramCount(): number {
     return this.guessList.length;
+  }
+
+  /** Original statement-time guesses, parallel to `values`. */
+  get guesses(): readonly number[] {
+    return this.guessList;
   }
 
   get version(): number {

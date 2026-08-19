@@ -5,10 +5,26 @@ import { Point, Point2D } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Edge } from "../common/edge.js";
 
+/**
+ * Degenerate inputs (coincident points, ~zero radius) make several
+ * OCCT GC_ constructors raise Standard_ConstructionError, which the
+ * WASM binding cannot dispatch — it aborts with "null function or
+ * function signature mismatch" before IsDone() is reachable. Validate
+ * here, at the wrapper boundary, so every caller gets a real error.
+ * Matches OCCT's Precision::Confusion (1e-7): anything smaller is
+ * geometrically meaningless downstream anyway.
+ */
+const DEGENERATE_TOL = 1e-7;
+
 export class Geometry {
   // ── Shape factories ────────────────────────────────────────────────────────
 
   static makeSegment(p1: Point, p2: Point): Geom_TrimmedCurve {
+    if (p1.distanceTo(p2) < DEGENERATE_TOL) {
+      throw new Error(
+        `Cannot create a zero-length segment — start and end coincide at (${p1.x}, ${p1.y}, ${p1.z})`,
+      );
+    }
     const oc = getOC();
     const [transformedP1, disposeP1] = Convert.toGpPnt(p1);
     const [transformedP2, disposeP2] = Convert.toGpPnt(p2);
@@ -30,6 +46,13 @@ export class Geometry {
   }
 
   static makeArcThreePoints(start: Point, end: Point, p3: Point): Geom_TrimmedCurve {
+    if (
+      start.distanceTo(end) < DEGENERATE_TOL ||
+      start.distanceTo(p3) < DEGENERATE_TOL ||
+      end.distanceTo(p3) < DEGENERATE_TOL
+    ) {
+      throw new Error('Cannot create an arc through coincident points');
+    }
     const oc = getOC();
     const [gpStart, disposeStart] = Convert.toGpPnt(start);
     const [gpEnd, disposeEnd] = Convert.toGpPnt(end);
@@ -55,6 +78,9 @@ export class Geometry {
   }
 
   static makeArc(center: Point, radius: number, normal: Vector3d, start: Point, end: Point): Geom_TrimmedCurve {
+    if (radius < DEGENERATE_TOL) {
+      throw new Error(`Cannot create an arc with radius ${radius} — the radius must be positive`);
+    }
     const oc = getOC();
     const [c, disposeC] = Convert.toGpPnt(center);
     const [s, disposeS] = Convert.toGpPnt(start);
@@ -86,6 +112,9 @@ export class Geometry {
   }
 
   static makeArcFromAngle(center: Point, radius: number, normal: Vector3d, start: Point, angle: number): Geom_TrimmedCurve {
+    if (radius < DEGENERATE_TOL) {
+      throw new Error(`Cannot create an arc with radius ${radius} — the radius must be positive`);
+    }
     const oc = getOC();
     const [gpCenter, disposeCenter] = Convert.toGpPnt(center);
     const [gpDir, disposeDir] = Convert.toGpDir(normal);
@@ -143,6 +172,9 @@ export class Geometry {
   }
 
   static makeCircle(center: Point, radius: number, normal: Vector3d): Geom_Circle {
+    if (radius < DEGENERATE_TOL) {
+      throw new Error(`Cannot create a circle with radius ${radius} — the radius must be positive`);
+    }
     const oc = getOC();
     const [gpCenter, disposeCenter] = Convert.toGpPnt(center);
     const [gpDir, disposeDir] = Convert.toGpDir(normal);

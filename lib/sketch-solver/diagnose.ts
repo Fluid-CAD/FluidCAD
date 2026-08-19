@@ -17,6 +17,16 @@ import type { ComponentDiagnostics, DiagnoseOptions, SketchDiagnostics } from '.
  */
 const INTERNAL_ROW_SCALE = 10;
 
+/**
+ * In a conflicted component LM stops at a least-squares compromise
+ * where EVERY coupled row carries residual crumbs proportional to
+ * the dominant inconsistency (Jᵀr = 0 spreads it), so an absolute
+ * tolerance would name innocent rows. A row is conflicting only if
+ * its residual is also a meaningful fraction of the component's
+ * worst — solved components (worst ~residualTol) are unaffected.
+ */
+const CONFLICT_REL_TOL = 1e-3;
+
 export function diagnose(sys: SketchSystem, opts: DiagnoseOptions = {}): SketchDiagnostics {
   const conflictTol = opts.conflictTol ?? 1e-6;
   const compiled = sys.compiled();
@@ -83,9 +93,14 @@ export function diagnose(sys: SketchSystem, opts: DiagnoseOptions = {}): SketchD
     }
     const { rank, pivots } = matrixRankWithPivots(Jt, n, m);
     const pivotSet = new Set(pivots);
+    let worstResidual = 0;
+    for (let k = 0; k < m; k++) {
+      worstResidual = Math.max(worstResidual, Math.abs(residuals[k]));
+    }
+    const componentTol = Math.max(conflictTol, CONFLICT_REL_TOL * worstResidual);
     for (let k = 0; k < m; k++) {
       const id = records[compiled.rowConstraint[component.rows[k]]].id;
-      if (Math.abs(residuals[k]) > conflictTol) {
+      if (Math.abs(residuals[k]) > componentTol) {
         conflicting.add(id);
       } else if (!pivotSet.has(k)) {
         redundant.add(id);

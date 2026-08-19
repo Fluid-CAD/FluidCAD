@@ -123,6 +123,13 @@ export type SolveResult = {
   /** Max component residual ∞-norm (drag rows excluded). */
   residualInfNorm: number;
   components: ComponentSolveResult[];
+  /**
+   * Entities that collapsed to ~zero size in the unpinned solve —
+   * present only when the degenerate-collapse guard re-solved with
+   * internal size pins (solve.ts); outcome/params are the pinned
+   * re-solve's.
+   */
+  collapsed?: number[];
 };
 
 export type DragPoint = { ref: SolverRef; x: number; y: number };

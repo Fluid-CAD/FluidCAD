@@ -4,7 +4,7 @@ import { getSceneManager } from "../../../scene-manager.js";
 import sketch from "../../../core/sketch.js";
 import { line, circle, rect, hLine, tArc, point } from "../../../core/2d/index.js";
 import {
-  coincident, horizontal, fix, distance, parallel,
+  coincident, horizontal, vertical, fix, distance, parallel, angle,
 } from "../../../core/constraints/index.js";
 import { Scene } from "../../../rendering/scene.js";
 
@@ -110,6 +110,46 @@ describe("solved sketch diagnostics and mode-mixing errors", () => {
     // Least-bad geometry still renders an edge.
     const solved = renderedByUniqueType(scene, 'solved-line')[0];
     expect(solved.sceneShapes.length).toBeGreaterThan(0);
+  });
+
+  it("H + V + angle(80°) conflicts instead of collapsing the vertical leg", () => {
+    // Marwan's triangle: horizontal + vertical lock the angle at 90°,
+    // then angle() demands 80°. Pre-guard, the solver collapsed l3 to
+    // ~1e-8 length ("solved", no diagnostics — the triangle rendered
+    // as one horizontal line); the collapse guard + relative conflict
+    // threshold name exactly the inconsistent cluster.
+    sketch('xy', () => {
+      const l2 = line([234.16, 199.21], [120.59, 160.45]);
+      const l1 = line([120.59, 160.45], [234.16, 160.45]);
+      const l3 = line([234.16, 160.45], [234.16, 199.21]);
+      horizontal(l1);
+      coincident(l2.end(), l1.start());
+      coincident(l3.start(), l1.end());
+      vertical(l3);
+      coincident(l2.start(), l3.end());
+      distance(l2.end(), l2.start(), 120);
+      angle(l3, l1, 80);
+    }, true);
+    const scene = render();
+
+    const angleRow = renderedByUniqueType(scene, 'constraint-angle')[0];
+    for (const type of ['constraint-horizontal', 'constraint-vertical', 'constraint-angle']) {
+      const row = renderedByUniqueType(scene, type)[0];
+      expect(row.hasError).toBe(true);
+      expect(row.errorMessage).toContain('conflicts with');
+    }
+    for (const type of ['constraint-coincident', 'constraint-distance']) {
+      expect(renderedByUniqueType(scene, type).every(r => !r.hasError)).toBe(true);
+    }
+
+    // The vertical leg still holds its drawn size, not collapsed.
+    const payload =
+      scene.getRenderedObject(scene.getSceneObjectById(angleRow.parentId)!).object;
+    const l3Entity = payload.solver.entities[2];
+    expect(l3Entity.kind).toBe('line');
+    const p = payload.solver.params;
+    const o = l3Entity.paramOffset;
+    expect(Math.hypot(p[o + 2] - p[o], p[o + 3] - p[o + 1])).toBeGreaterThan(1);
   });
 
   it("reports duplicated constraints as redundant, not as errors", () => {

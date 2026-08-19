@@ -1,5 +1,6 @@
 import { Point2DLike } from "../../math/point.js";
 import { Circle } from "../../features/2d/circle.js";
+import { SolvedCircle } from "../../features/2d/solved/circle.js";
 import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
@@ -28,6 +29,20 @@ function build(context: SceneParserContext): CircleFunction {
     let circle: Circle;
 
     const argCount = arguments.length;
+
+    // Solved-mode sketch: circle(center, diameter) becomes a solver entity.
+    // The center-less forms fall through to the legacy class, whose
+    // validate() rejects them with a per-statement build error.
+    const activeSketch = context.getActiveSketch();
+    if (activeSketch && activeSketch.isSolvedMode() && argCount === 2) {
+      const solved = new SolvedCircle(
+        normalizePoint2D(arguments[0]).asPoint2D(),
+        resolveParam(arguments[1] as NumberParam) || 40,
+      );
+      context.addSceneObject(solved);
+      solved.register(activeSketch);
+      return solved;
+    }
 
     if (argCount === 0) {
       diameter = 40;

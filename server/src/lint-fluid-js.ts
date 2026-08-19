@@ -40,13 +40,17 @@ const CORE_SYMBOLS = new Set<string>([
   'line', 'circle', 'ellipse', 'rect', 'hMove', 'vMove', 'rMove',
   'hLine', 'vLine', 'tLine', 'tCircle', 'tArc', 'arc', 'move', 'pMove',
   'aLine', 'slot', 'connect', 'polygon', 'offset', 'project', 'intersect',
-  'bezier', 'center', 'back',
+  'bezier', 'center', 'back', 'point',
 ]);
 
 const FILTER_SYMBOLS = new Set<string>(['face', 'edge']);
 
 const CONSTRAINT_SYMBOLS = new Set<string>([
   'outside', 'enclosed', 'enclosing', 'unqualified',
+  // Solved-sketch constraint statements (sketch-rewrite P2).
+  'coincident', 'horizontal', 'vertical', 'parallel', 'perpendicular',
+  'tangent', 'angle', 'distance', 'radius', 'diameter', 'equal',
+  'concentric', 'collinear', 'midpoint', 'symmetric', 'fix',
 ]);
 
 const MODULE_FOR_SYMBOL = new Map<string, string>();

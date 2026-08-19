@@ -8,11 +8,46 @@ import { Wire } from "../../common/wire.js";
 import { ShapeFilter } from "../../common/shape.js";
 import { Extrudable } from "../../helpers/types.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import { SketchSolverContext } from "./solved/solver-context.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 
-  constructor(public planeObj: PlaneObjectBase) {
+  private _solvedMode: boolean;
+  private _solver: SketchSolverContext | null;
+  private _solveDone = false;
+
+  constructor(public planeObj: PlaneObjectBase, solvedMode: boolean = false) {
     super();
+    this._solvedMode = solvedMode;
+    this._solver = solvedMode ? new SketchSolverContext() : null;
+  }
+
+  /** Solved (constraint) mode vs legacy pen mode — set by the third
+   * argument of sketch(plane, callback, mode). */
+  isSolvedMode(): boolean {
+    return this._solvedMode;
+  }
+
+  solver(): SketchSolverContext | null {
+    return this._solver;
+  }
+
+  /**
+   * The one solve of the render pass. Triggered by the first solved child's
+   * build() — the sketch callback has fully executed by then, so the solver
+   * system holds the complete statement graph. Stores the serializable
+   * snapshot in state so cached re-renders and rollbacks keep serving it.
+   */
+  ensureSolvedForBuild(): void {
+    if (!this._solvedMode || this._solveDone || !this._solver) {
+      return;
+    }
+    this._solveDone = true;
+    const summary = this._solver.ensureSolved();
+    this.setState('solver-system', summary.snapshot);
+    if (summary.sketchError) {
+      this.setError(summary.sketchError);
+    }
   }
 
   isContainer(): boolean {
@@ -236,7 +271,7 @@ export class Sketch extends SceneObject implements Extrudable {
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const planeObj = (remap.get(this.planeObj) as PlaneObjectBase) || this.planeObj;
-    return new Sketch(planeObj);
+    return new Sketch(planeObj, this._solvedMode);
   }
 
   compareTo(other: Sketch): boolean {
@@ -245,6 +280,10 @@ export class Sketch extends SceneObject implements Extrudable {
     }
 
     if (!super.compareTo(other)) {
+      return false;
+    }
+
+    if (this._solvedMode !== other._solvedMode) {
       return false;
     }
 
@@ -311,14 +350,22 @@ export class Sketch extends SceneObject implements Extrudable {
       // The plane could not be built (e.g. a sketch on a non-planar face); the
       // plane object already carries the real error. Emit a benign payload so
       // this sketch doesn't crash serialization with a null dereference.
-      return { plane: this.planeObj.serialize() };
+      return this._solvedMode
+        ? { plane: this.planeObj.serialize(), solvedMode: true, solver: this.getState('solver-system') ?? null }
+        : { plane: this.planeObj.serialize() };
     }
     const tangent = this.getTangent(scope);
-    return {
+    const payload = {
       currentPosition: plane.localToWorld(this.getLastPosition(scope)),
       currentTangent: plane.localToWorld(tangent),
       plane: this.planeObj.serialize(),
+    };
+    if (this._solvedMode) {
+      // The SketchSolverSystem snapshot (entities/constraints/params/
+      // diagnostics) — the UI's read model (P3) and drag client seed (P4).
+      return { ...payload, solvedMode: true, solver: this.getState('solver-system') ?? null };
     }
+    return payload;
   }
 
   override toString(): string {

@@ -14,6 +14,8 @@ import { FilterBuilderBase } from "../../filters/filter-builder-base.js";
 import { ShapeFilter } from "../../filters/filter.js";
 import type { SketchInteractivity } from "../../rendering/scene.js";
 import { IGeometry } from "../../core/interfaces.js";
+import { BuildError } from "../../common/build-error.js";
+import { solvedModeRejection } from "./solved/mode-errors.js";
 
 export type GeometryOrientation = "cw" | "ccw";
 
@@ -46,17 +48,33 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
   }
 
   get sketch() {
-    let parent = this.getParent();
-    while (parent && !(parent instanceof Sketch)) {
-      parent = parent.getParent();
-    }
-
+    const parent = this.enclosingSketch();
     if (!parent) {
       console.warn('GeometrySceneObject is not contained within a Sketch');
       return null;
     }
 
-    return parent as Sketch;
+    return parent;
+  }
+
+  private enclosingSketch(): Sketch | null {
+    let parent = this.getParent();
+    while (parent && !(parent instanceof Sketch)) {
+      parent = parent.getParent();
+    }
+    return parent instanceof Sketch ? parent : null;
+  }
+
+  /** A solved-mode sketch rejects pen/imperative statements per statement —
+   * the rest of the sketch still builds. */
+  override validate(): void {
+    const sk = this.enclosingSketch();
+    if (sk && sk.isSolvedMode()) {
+      const rejection = solvedModeRejection(this.getUniqueType());
+      if (rejection) {
+        throw new BuildError(rejection);
+      }
+    }
   }
 
   protected getCurrentPosition(): Point2D {

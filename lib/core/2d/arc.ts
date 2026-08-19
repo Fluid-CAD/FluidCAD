@@ -1,11 +1,20 @@
 import { isPoint2DLike, Point2DLike } from "../../math/point.js";
 import { Arc } from "../../features/2d/arc.js";
+import { SolvedArc } from "../../features/2d/solved/arc.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
-import { IArcPoints, IArcAngles } from "../interfaces.js";
+import { IArcPoints, IArcAngles, ISolvedArc } from "../interfaces.js";
 import { type NumberParam, resolveParam } from "../param.js";
 
 interface ArcFunction {
+  /**
+   * Constraint sketches only: draws an arc fully specified by start, end and
+   * center guesses. Chain `.cw()` to flip the sweep side.
+   * @param startPoint - The start point
+   * @param endPoint - The end point
+   * @param centerPoint - The center point
+   */
+  (startPoint: Point2DLike, endPoint: Point2DLike, centerPoint: Point2DLike): ISolvedArc;
   /**
    * Draws an arc to an end point from the current position.
    * Chain `.radius(r)` to set bulge radius, or `.center(point)` to specify the circle center.
@@ -34,6 +43,23 @@ interface ArcFunction {
 
 function build(context: SceneParserContext): ArcFunction {
   return function arc() {
+    // Solved-mode sketch: arc(start, end, center) becomes a solver entity.
+    // Every other form falls through to the legacy class, whose validate()
+    // rejects it with a per-statement build error.
+    const activeSketch = context.getActiveSketch();
+    if (activeSketch && activeSketch.isSolvedMode()
+        && arguments.length >= 3
+        && isPoint2DLike(arguments[0]) && isPoint2DLike(arguments[1]) && isPoint2DLike(arguments[2])) {
+      const solved = new SolvedArc(
+        normalizePoint2D(arguments[0] as Point2DLike).asPoint2D(),
+        normalizePoint2D(arguments[1] as Point2DLike).asPoint2D(),
+        normalizePoint2D(arguments[2] as Point2DLike).asPoint2D(),
+      );
+      context.addSceneObject(solved);
+      solved.register(activeSketch);
+      return solved;
+    }
+
     // (startPoint, endPoint) — two Point2DLike args, default center = current position
     if (arguments.length >= 2 && isPoint2DLike(arguments[0]) && isPoint2DLike(arguments[1])) {
       const start = normalizePoint2D(arguments[0] as Point2DLike);

@@ -1,6 +1,6 @@
 export type {
   ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect,
-  IGeometry, IExtrudableGeometry, IText, IRect, ISlot, IPolygon,
+  IGeometry, IExtrudableGeometry, ISolvedLine, ISolvedArc, ISolvedCircle, IText, IRect, ISlot, IPolygon,
   ITwoObjectsTangentLine, ITangentArcTwoObjects,
   IConnector, IPart,
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap

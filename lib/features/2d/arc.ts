@@ -7,6 +7,7 @@ import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { GeometrySceneObject } from "./geometry.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
+import { fitArcThroughEndpoints } from "./arc-fit.js";
 import { IArcPoints, IArcRadius, IArcCenter, IArcAngles } from "../../core/interfaces.js";
 import { SceneObject } from "../../common/scene-object.js";
 
@@ -288,45 +289,15 @@ export class Arc extends GeometrySceneObject implements IArcPoints, IArcRadius, 
     this.buildCenterArc(plane, startPt, this._endPoint.asPoint2D(), this._centerPoint.asPoint2D());
   }
 
-  /**
-   * Arc through both authored endpoints, sweeping around centerPt in the
-   * requested direction. The authored center only picks the sweep side and
-   * nominal radius: the actual circle is fitted through start/mid/end, so an
-   * authored endpoint slightly off the center's circle (rounded coordinates)
-   * still lands exactly on the built edge — downstream chaining and closing
-   * rely on the endpoints being exact.
-   */
+  /** See fitArcThroughEndpoints — the authored center picks the sweep side
+   * and nominal radius; the built circle passes exactly through both
+   * authored endpoints. */
   private buildCenterArc(plane: Plane, startPt: Point2D, endPt: Point2D, centerPt: Point2D): void {
-    const aStart = Math.atan2(startPt.y - centerPt.y, startPt.x - centerPt.x);
-    const aEnd = Math.atan2(endPt.y - centerPt.y, endPt.x - centerPt.x);
-    let sweep = this._clockwise ? aStart - aEnd : aEnd - aStart;
-    if (sweep <= 0) {
-      sweep += 2 * Math.PI;
-    }
-    const midAngle = this._clockwise ? aStart - sweep / 2 : aStart + sweep / 2;
-    const rStart = Math.sqrt((startPt.x - centerPt.x) ** 2 + (startPt.y - centerPt.y) ** 2);
-    const rEnd = Math.sqrt((endPt.x - centerPt.x) ** 2 + (endPt.y - centerPt.y) ** 2);
-    const rMid = (rStart + rEnd) / 2;
-    const midPt = new Point2D(
-      centerPt.x + rMid * Math.cos(midAngle),
-      centerPt.y + rMid * Math.sin(midAngle),
+    const { edge, actualCenter, endTangent } = fitArcThroughEndpoints(
+      plane, startPt, endPt, centerPt, this._clockwise,
     );
 
-    const actualCenter = Arc.circumcenter(startPt, midPt, endPt);
-
-    const endAngle = Math.atan2(endPt.y - actualCenter.y, endPt.x - actualCenter.x);
-
-    const start = plane.localToWorld(startPt);
-    const end = plane.localToWorld(endPt);
-    const mid = plane.localToWorld(midPt);
-
-    const arc = Geometry.makeArcThreePoints(start, mid, end);
-    const edge = Geometry.makeEdgeFromCurve(arc);
-
-    const sign = this._clockwise ? -1 : 1;
-    const tx = sign * (-Math.sin(endAngle));
-    const ty = sign * Math.cos(endAngle);
-    this.setTangent(new Point2D(tx, ty));
+    this.setTangent(endTangent);
 
     this.setState('start', Vertex.fromPoint2D(startPt));
     this.setState('end', Vertex.fromPoint2D(endPt));

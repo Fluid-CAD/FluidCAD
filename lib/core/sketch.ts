@@ -15,24 +15,29 @@ interface SketchFunction {
    * Draws 2D geometry on a standard plane.
    * @param plane - The plane to sketch on
    * @param sketcher - Callback containing sketch operations
+   * @param mode - true for a solved (constraint) sketch: geometry statements
+   * are fully-specified guesses and constraint statements drive the solve.
+   * Defaults to the legacy pen sketcher.
    */
-  <T>(plane: PlaneLike, sketcher: () => T): ISceneObject & Extend<T>;
+  <T>(plane: PlaneLike, sketcher: () => T, mode?: boolean): ISceneObject & Extend<T>;
   /**
    * Draws 2D geometry on a face selection.
    * @param face - The face to sketch on
    * @param sketcher - Callback containing sketch operations
+   * @param mode - true for a solved (constraint) sketch
    */
-  <T>(face: ISceneObject, sketcher: () => T): ISceneObject & Extend<T>;
+  <T>(face: ISceneObject, sketcher: () => T, mode?: boolean): ISceneObject & Extend<T>;
   /**
    * Draws 2D geometry on an existing Plane object.
    * @param plane - The Plane object to sketch on
    * @param sketcher - Callback containing sketch operations
+   * @param mode - true for a solved (constraint) sketch
    */
-  <T>(plane: IPlane, sketcher: () => T): ISceneObject & Extend<T>;
+  <T>(plane: IPlane, sketcher: () => T, mode?: boolean): ISceneObject & Extend<T>;
 }
 
 function build(context: SceneParserContext): SketchFunction {
-  return function sketch<T>(p: PlaneLike | SceneObject, sketcher: () => T): ISceneObject & Extend<T> {
+  return function sketch<T>(p: PlaneLike | SceneObject, sketcher: () => T, mode?: boolean): ISceneObject & Extend<T> {
     let planeObj: PlaneObjectBase;
 
     // A plane the sketch makes for itself is internal: it carries the
@@ -57,7 +62,7 @@ function build(context: SceneParserContext): SketchFunction {
       throw new Error('Invalid argument for sketch: expected a plane or a scene object');
     }
 
-    const sketch = new Sketch(planeObj);
+    const sketch = new Sketch(planeObj, mode === true);
 
     context.startProgressiveContainer(sketch);
     const extensions = sketcher();

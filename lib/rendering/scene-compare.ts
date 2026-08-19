@@ -1,6 +1,7 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Scene } from "./scene.js";
 import { SceneDisposal } from "./scene-disposal.js";
+import { Sketch } from "../features/2d/sketch.js";
 
 // State entries whose records reference the scene object that performed the
 // action. On transfer they are pruned to actors that survived the compare —
@@ -24,24 +25,45 @@ export class SceneCompare {
 
     const map = new Map<SceneObject, SceneObject>();
 
-    for (let i = 0; i < newScene.getSceneObjects().length; i++) {
+    const objectCount = newScene.getSceneObjects().length;
+    let i = 0;
+    while (i < objectCount) {
       const newObj = newScene.getSceneObjectAt(i);
       const oldObj = oldScene.getSceneObjectAt(i);
 
       console.log('Checking:', newObj?.getUniqueType());
-
-      let oldMatch: SceneObject = null;
 
       if (!oldObj || oldObj.getUniqueType() !== newObj.getUniqueType() || !oldObj.compareTo(newObj)) {
         console.log('NO MATCH:', newObj.getUniqueType());
         break;
       }
 
+      // Solved sketches match container-atomically: the solve couples every
+      // child, so either the whole subtree (sketch + children) matches
+      // structurally and is cached as one unit, or none of it is — a
+      // sketch cached without its rebuilding children would never re-run
+      // the solve those children read from.
+      if (newObj instanceof Sketch && newObj.isSolvedMode()) {
+        const newRun = SceneCompare.subtreeRun(newScene, i);
+        const oldRun = SceneCompare.subtreeRun(oldScene, i);
+        if (!SceneCompare.runsMatch(oldRun, newRun)) {
+          console.log('NO MATCH (solved sketch subtree):', newObj.getUniqueType());
+          break;
+        }
+        for (let j = 0; j < newRun.length; j++) {
+          newScene.markCached(newRun[j]);
+          map.set(oldRun[j], newRun[j]);
+        }
+        console.log('MATCHED (atomic):', newObj.getUniqueType());
+        i += newRun.length;
+        continue;
+      }
+
       console.log('MATCHED:', oldObj.getUniqueType());
-      oldMatch = oldObj;
 
       newScene.markCached(newObj);
-      map.set(oldMatch, newObj);
+      map.set(oldObj, newObj);
+      i++;
     }
 
     // Snapshot before the state rewrite below prunes cross-references out of
@@ -76,6 +98,42 @@ export class SceneCompare {
     }
 
     return newScene;
+  }
+
+  /** The container at `index` plus the contiguous run of its descendants. */
+  private static subtreeRun(scene: Scene, index: number): SceneObject[] {
+    const container = scene.getSceneObjectAt(index);
+    const run: SceneObject[] = [container];
+    const objects = scene.getSceneObjects();
+    for (let i = index + 1; i < objects.length; i++) {
+      if (!SceneCompare.isDescendantOf(objects[i], container)) {
+        break;
+      }
+      run.push(objects[i]);
+    }
+    return run;
+  }
+
+  private static isDescendantOf(obj: SceneObject, ancestor: SceneObject): boolean {
+    for (let parent = obj.getParent(); parent; parent = parent.getParent()) {
+      if (parent === ancestor) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static runsMatch(oldRun: SceneObject[], newRun: SceneObject[]): boolean {
+    if (oldRun.length !== newRun.length) {
+      return false;
+    }
+    for (let i = 0; i < newRun.length; i++) {
+      if (oldRun[i].getUniqueType() !== newRun[i].getUniqueType()
+          || !oldRun[i].compareTo(newRun[i])) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /**

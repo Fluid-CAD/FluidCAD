@@ -1,3 +1,9 @@
+// fluidcad/constraints — since the sketch-solver rewrite (P2) this module
+// also carries the constraint statement commands for solved-mode sketches.
+// The outside/enclosing/enclosed qualifiers below serve the legacy
+// closed-form tangency solves and are removed with them in P7.
+export * from "../../../core/constraints/index.js";
+
 import { SceneObject } from "../../../common/scene-object.js";
 import { ISceneObject } from "../../../core/interfaces.js";
 import { QualifiedSceneObject } from "./qualified-geometry.js";

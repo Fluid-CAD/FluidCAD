@@ -246,6 +246,37 @@ export interface IGeometry extends ISceneObject {
 
 export interface IExtrudableGeometry extends IGeometry {}
 
+/** A solved (constraint-sketch) line statement. */
+export interface ISolvedLine extends IGeometry {
+  /**
+   * Returns a lazy-evaluated vertex at the line's midpoint. In constraints
+   * it is accepted by coincident(), which lowers it to the midpoint
+   * constraint.
+   */
+  mid(): LazyVertex;
+}
+
+/** A solved (constraint-sketch) arc statement. */
+export interface ISolvedArc extends IGeometry {
+  /**
+   * Sweeps the arc clockwise from start to end (display/topology only — the
+   * solver has no sweep parameter).
+   */
+  cw(): this;
+
+  /** Sweeps the arc counter-clockwise from start to end (the default). */
+  ccw(): this;
+
+  /** Returns a lazy-evaluated vertex at the arc's center. */
+  center(): LazyVertex;
+}
+
+/** A solved (constraint-sketch) circle statement. */
+export interface ISolvedCircle extends IExtrudableGeometry {
+  /** Returns a lazy-evaluated vertex at the circle's center. */
+  center(): LazyVertex;
+}
+
 export interface IText extends IExtrudableGeometry {
   /**
    * Sets the text height (em size) in model units. Default 10.

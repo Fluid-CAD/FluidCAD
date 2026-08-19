@@ -31,6 +31,9 @@ function readAll() {
   themeColors.ghostRemoveFaceColor.set(readCssVar('--scene-ghost-remove-face', '#e5534b'));
   themeColors.ghostRemoveEdgeColor.set(readCssVar('--scene-ghost-remove-edge', '#c93c37'));
   themeColors.ghostWireColor.set(readCssVar('--scene-ghost-wire', '#2297ff'));
+  themeColors.sketchConstrainedColor.set(readCssVar('--scene-sketch-constrained', '#44c767'));
+  themeColors.constraintConflictColor.set(readCssVar('--scene-constraint-conflict', '#e5534b'));
+  themeColors.constraintRedundantColor.set(readCssVar('--scene-constraint-redundant', '#d29922'));
   themeColors.backgroundColor.set(readCssVar('--color-base-100', '#1e1e1e'));
 }
 
@@ -54,6 +57,13 @@ export const themeColors = {
   // taken away, so it wears the blue a standalone wire renders in once applied
   // (STANDALONE_EDGE_STYLE, shape-group.ts) instead of a direction color.
   ghostWireColor: new Color('#2297ff'),
+  // Solved-sketch read model (sketch-rewrite P3): entity edges when the
+  // sketch is fully constrained, and the diagnostic states of constraint
+  // badges/entities. Conflict red matches the error family, redundant is
+  // the warning amber.
+  sketchConstrainedColor: new Color('#44c767'),
+  constraintConflictColor: new Color('#e5534b'),
+  constraintRedundantColor: new Color('#d29922'),
   backgroundColor: new Color('#1e1e1e'),
 };
 

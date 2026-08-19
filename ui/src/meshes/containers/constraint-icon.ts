@@ -1,6 +1,5 @@
 import {
   BufferGeometry,
-  CanvasTexture,
   DoubleSide,
   Float32BufferAttribute,
   Group,
@@ -12,6 +11,7 @@ import {
   Vector3,
 } from 'three';
 import { PlaneData, SceneObjectPart, SceneObjectRender, Vec3Data } from '../../types';
+import { getIconTexture, getTextTexture } from './badge-textures';
 import { worldToSketch2D } from '../../interactive/sketch-plane-utils';
 import { applyConstantPixelSize, pixelScale, pixelsToWorld } from '../screen-scale';
 import { themeColors } from '../../scene/theme-colors';
@@ -30,7 +30,6 @@ const TARC_TYPES = new Set(['tarc-to-point', 'tarc-to-point-tangent', 'tarc-with
 const ICON_OFFSET_PX = 22;
 const ICON_PLANE_SIZE = 5;
 const ICON_PX_SIZE = 16;
-const CANVAS_SIZE = 64;
 const ICON_RENDER_ORDER = 3;
 
 // The aline angle indicator: a dimension arc at the segment's start vertex,
@@ -64,91 +63,6 @@ export function angleIndicatorFrame(
     dir[0] * sin + dir[1] * cos,
   ];
   return { startAngle: Math.atan2(incoming[1], incoming[0]), sweepRad };
-}
-
-type IconTexture = { texture: CanvasTexture; aspect: number };
-
-const textureCache = new Map<string, IconTexture>();
-
-const ICON_FONT = `${CANVAS_SIZE * 0.55}px sans-serif`;
-
-function getIconTexture(label: string, colorHex: string): IconTexture {
-  const key = `${label}|${colorHex}`;
-  const cached = textureCache.get(key);
-  if (cached) {
-    return cached;
-  }
-
-  const canvas = document.createElement('canvas');
-  const measure = canvas.getContext('2d')!;
-  measure.font = ICON_FONT;
-  // Multi-character labels (the aline angle) widen the badge to fit.
-  const textWidth = measure.measureText(label).width;
-  const width = Math.max(CANVAS_SIZE, Math.ceil(textWidth + CANVAS_SIZE * 0.4));
-
-  canvas.width = width;
-  canvas.height = CANVAS_SIZE;
-  const ctx = canvas.getContext('2d')!;
-
-  const stroke = 4;
-  const pad = 4;
-  const r = 10;
-  const x = pad;
-  const y = pad;
-  const w = width - pad * 2;
-  const h = CANVAS_SIZE - pad * 2;
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-  ctx.lineWidth = stroke;
-  ctx.strokeStyle = colorHex;
-  ctx.stroke();
-
-  ctx.fillStyle = colorHex;
-  ctx.font = ICON_FONT;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(label, width / 2, CANVAS_SIZE / 2);
-
-  const entry = { texture: new CanvasTexture(canvas), aspect: width / CANVAS_SIZE };
-  textureCache.set(key, entry);
-  return entry;
-}
-
-/** Box-less text texture for the aline angle readout. */
-function getTextTexture(text: string, colorHex: string): IconTexture {
-  const key = `text:${text}|${colorHex}`;
-  const cached = textureCache.get(key);
-  if (cached) {
-    return cached;
-  }
-
-  const font = `${CANVAS_SIZE * 0.7}px sans-serif`;
-  const canvas = document.createElement('canvas');
-  const measure = canvas.getContext('2d')!;
-  measure.font = font;
-  const width = Math.max(CANVAS_SIZE, Math.ceil(measure.measureText(text).width + 8));
-
-  canvas.width = width;
-  canvas.height = CANVAS_SIZE;
-  const ctx = canvas.getContext('2d')!;
-  ctx.font = font;
-  ctx.fillStyle = colorHex;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(text, width / 2, CANVAS_SIZE / 2);
-
-  const entry = { texture: new CanvasTexture(canvas), aspect: width / CANVAS_SIZE };
-  textureCache.set(key, entry);
-  return entry;
 }
 
 type EdgeSample = { position: Vector3; tangent2d: [number, number] };

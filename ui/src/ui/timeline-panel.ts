@@ -23,6 +23,15 @@ function formatDuration(ms: number): string {
  * serve. Rows keep their scene index either way, so rollback targets and the
  * edit dialogs' row lookups are unaffected.
  */
+/**
+ * Constraint statements of a solved sketch (sketch-rewrite P3). They render
+ * grouped behind one "N constraints" toggle row under their sketch —
+ * FreeCAD-style — instead of flooding the timeline.
+ */
+function isConstraintRow(obj: SceneObjectRender): boolean {
+  return obj.uniqueType?.startsWith('constraint-') === true;
+}
+
 function isHiddenRow(obj: SceneObjectRender): boolean {
   return obj.uniqueType === 'lazy-select' || obj.uniqueType === 'lazy-vertex' || obj.internal === true;
 }
@@ -94,6 +103,8 @@ export class TimelinePanel {
    */
   private sketchActive = false;
   private collapsedIds = new Set<string>();
+  /** Sketch ids whose grouped constraint rows are shown (hidden by default). */
+  private expandedConstraintIds = new Set<string>();
   /**
    * Row highlight for a 3D viewer pick: the id of the feature the picked
    * face/edge attributed to. Cleared on every update() — ids are re-minted
@@ -210,6 +221,9 @@ export class TimelinePanel {
       const row = this.sceneObjects.find((o) => o.id === rowId);
       if (row?.parentId != null) {
         this.collapsedIds.delete(row.parentId);
+        if (isConstraintRow(row)) {
+          this.expandedConstraintIds.add(row.parentId);
+        }
       }
     }
     this.pickedFlash = true;
@@ -344,13 +358,28 @@ export class TimelinePanel {
       html += this.renderTimelineItem(obj, i, rollbackStop, false, hasChildren, isCollapsed, effectiveError, rollbackIndex, scopedIds, pickedRowId !== null && obj.id === pickedRowId);
 
       if (hasChildren && !isCollapsed) {
+        const constraintRows: number[] = [];
         for (let j = 0; j < items.length; j++) {
           if (isHiddenRow(items[j])) {
             continue;
           }
           if (items[j].parentId === obj.id) {
+            if (isConstraintRow(items[j])) {
+              constraintRows.push(j);
+              continue;
+            }
             const childRollbackIndex = items[j].hideChildren === true ? this.lastDescendantIndex(items, j) : j;
             html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true, childRollbackIndex, scopedIds, pickedRowId !== null && items[j].id === pickedRowId);
+          }
+        }
+        if (constraintRows.length > 0 && obj.id != null) {
+          const shown = this.expandedConstraintIds.has(obj.id);
+          const anyError = constraintRows.some((j) => items[j].hasError === true);
+          html += this.renderConstraintSummaryRow(obj.id, constraintRows.length, shown, anyError);
+          if (shown) {
+            for (const j of constraintRows) {
+              html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true, j, scopedIds, pickedRowId !== null && items[j].id === pickedRowId);
+            }
           }
         }
       }
@@ -423,6 +452,19 @@ export class TimelinePanel {
           this.collapsedIds.delete(id);
         } else {
           this.collapsedIds.add(id);
+        }
+        this.renderTimeline();
+      });
+    });
+
+    this.timelineBody.querySelectorAll<HTMLElement>('[data-constraints-toggle]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = el.dataset.constraintsToggle!;
+        if (this.expandedConstraintIds.has(id)) {
+          this.expandedConstraintIds.delete(id);
+        } else {
+          this.expandedConstraintIds.add(id);
         }
         this.renderTimeline();
       });
@@ -521,6 +563,29 @@ export class TimelinePanel {
       }
     }
     return last;
+  }
+
+  /**
+   * The "N constraints" toggle row of a solved sketch. Carries no data-index
+   * on purpose: it is not a statement — no rollback, rename or context menu —
+   * only the show/hide toggle for the grouped constraint rows below it.
+   */
+  private renderConstraintSummaryRow(sketchId: string, count: number, shown: boolean, anyError: boolean): string {
+    const rotation = shown ? 'rotate-90' : '';
+    const textClass = anyError ? 'text-error' : 'text-base-content/60';
+    const errorDot = anyError
+      ? `<span class="text-error shrink-0 [&>svg]:w-2.5 [&>svg]:h-2.5">${ICON_ALERT_DOT}</span>`
+      : '';
+    return `
+      <div class="flex items-center gap-1 px-3 py-1.5 pl-7 cursor-pointer hover:bg-base-content/[0.06] text-sm ${textClass}" data-constraints-toggle="${sketchId}">
+        <span class="flex items-center justify-center w-5 h-5 opacity-50 hover:opacity-100 transition-transform ${rotation}">
+          ${ICON_CHEVRON_RIGHT}
+        </span>
+        ${errorDot}
+        <img src="/icons/constraint-horizontal.png" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
+        <span class="truncate">${count} constraint${count === 1 ? '' : 's'}</span>
+      </div>
+    `;
   }
 
   private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean, rollbackIndex: number, scopedIds: Set<string> | null, isPicked: boolean): string {

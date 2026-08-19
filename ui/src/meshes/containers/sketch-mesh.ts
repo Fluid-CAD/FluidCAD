@@ -15,6 +15,13 @@ import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { createMetaEdgeMesh, createMetaFaceMesh } from './shape-group';
 import { isDraggableSketchObject } from '../../interactive/sketch-edge-utils';
 import { buildConstraintIcons } from './constraint-icon';
+import { buildSolvedConstraintMeshes } from './solved-constraint-meshes';
+import {
+  SolvedSketchModel,
+  buildSolvedSketchModel,
+  layoutConstraintGlyphs,
+} from '../../sketch-solver-client';
+import { themeColors } from '../../scene/theme-colors';
 import { applyConstantPixelSize } from '../screen-scale';
 
 const SKETCH_EDGE_COLOR = '#2297ff';
@@ -47,9 +54,14 @@ const TANGENT_PX_LENGTH = 54;
  * at the current drawing position.
  */
 export class SketchMesh extends Group {
+  /** Read model of a solved-mode sketch; null for legacy sketches. */
+  private solvedModel: SolvedSketchModel | null;
+
   constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], activeSketchId: string | null, _camera: Camera) {
     super();
     this.userData.isSketchRoot = true;
+    this.userData.sketchObjectId = sceneObject.id;
+    this.solvedModel = buildSolvedSketchModel(sceneObject, allObjects);
     this.buildEdges(sceneObject, allObjects);
     this.buildVertices(sceneObject, allObjects);
     this.addConstraintIcons(sceneObject, allObjects);
@@ -65,8 +77,7 @@ export class SketchMesh extends Group {
         continue;
       }
 
-      const interactive = isDraggableSketchObject(obj);
-      const edgeColor = interactive ? SKETCH_EDGE_COLOR : NON_INTERACTIVE_EDGE_COLOR;
+      const edgeColor = this.edgeColorFor(obj);
 
       for (const shape of obj.sceneShapes) {
         if (shape.isMetaShape || shape.isGuide) {
@@ -108,16 +119,31 @@ export class SketchMesh extends Group {
 
   private buildVertices(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[]): void {
     const normal = sceneObject.object?.plane?.normal;
-    const endpoints: Vector3[] = [];
-    const nonInteractiveEndpoints: Vector3[] = [];
+    // Endpoint dots bucketed by style: legacy interactive/non-interactive
+    // plus one bucket per solved-entity edge color (conflict/constrained).
+    const buckets = new Map<string, { positions: Vector3[]; pxRadius: number; opacity: number }>();
     const metaVertices: Vector3[] = [];
+
+    const bucketFor = (color: string, pxRadius: number, opacity: number): Vector3[] => {
+      const key = `${color}|${pxRadius}|${opacity}`;
+      let bucket = buckets.get(key);
+      if (!bucket) {
+        bucket = { positions: [], pxRadius, opacity };
+        buckets.set(key, bucket);
+      }
+      return bucket.positions;
+    };
 
     for (const obj of allObjects) {
       if (obj.parentId !== sceneObject.id || !obj.sceneShapes.length) {
         continue;
       }
 
-      const interactive = isDraggableSketchObject(obj);
+      const interactive = isDraggableSketchObject(obj) || this.isSolvedEntity(obj);
+      const color = this.edgeColorFor(obj);
+      const target = interactive
+        ? bucketFor(color, VERTEX_PX_RADIUS, 1)
+        : bucketFor(color, NON_INTERACTIVE_VERTEX_PX_RADIUS, NON_INTERACTIVE_VERTEX_OPACITY);
 
       for (const shape of obj.sceneShapes) {
         if (shape.isGuide) {
@@ -136,8 +162,6 @@ export class SketchMesh extends Group {
           }
           continue;
         }
-
-        const target = interactive ? endpoints : nonInteractiveEndpoints;
 
         for (const meshData of shape.meshes) {
           if (!meshData.indices.length) {
@@ -164,16 +188,54 @@ export class SketchMesh extends Group {
 
     const EPSILON_SQ = 1e-12;
 
-    const uniqueEndpoints = this.dedup(endpoints, EPSILON_SQ);
-    const uniqueNonInteractive = this.dedup(nonInteractiveEndpoints, EPSILON_SQ);
+    for (const [key, bucket] of buckets) {
+      const color = key.split('|')[0];
+      const unique = this.dedup(bucket.positions, EPSILON_SQ);
+      this.addVertexDots(unique, normal, VERTEX_RADIUS, bucket.pxRadius, color, bucket.opacity);
+    }
     const uniqueMeta = this.dedup(metaVertices, EPSILON_SQ);
-
-    this.addVertexDots(uniqueEndpoints, normal, VERTEX_RADIUS, VERTEX_PX_RADIUS, SKETCH_EDGE_COLOR, 1);
-    this.addVertexDots(uniqueNonInteractive, normal, VERTEX_RADIUS, NON_INTERACTIVE_VERTEX_PX_RADIUS, NON_INTERACTIVE_EDGE_COLOR, NON_INTERACTIVE_VERTEX_OPACITY);
     this.addVertexDots(uniqueMeta, normal, META_VERTEX_RADIUS, META_VERTEX_PX_RADIUS, META_VERTEX_COLOR, 0.5);
   }
 
+  /** Solved-entity child of this solved sketch (they report 'selectable'
+   * until P4, but must read as first-class sketch geometry, not derived
+   * curves). */
+  private isSolvedEntity(obj: SceneObjectRender): boolean {
+    return this.solvedModel !== null
+      && typeof obj.object?.entityId === 'number'
+      && this.solvedModel.entities.has(obj.object.entityId);
+  }
+
+  /** Edge (and endpoint-dot) color: solved entities carry the diagnostic
+   * tints — conflict red for members of unsatisfiable constraints, the
+   * constrained tint when the whole sketch is at 0 DOF. */
+  private edgeColorFor(obj: SceneObjectRender): string {
+    const model = this.solvedModel;
+    if (model && this.isSolvedEntity(obj)) {
+      const entityId = obj.object.entityId as number;
+      if (model.conflictingEntityIds.has(entityId) || obj.hasError) {
+        return `#${themeColors.constraintConflictColor.getHexString()}`;
+      }
+      if (model.fullyConstrained) {
+        return `#${themeColors.sketchConstrainedColor.getHexString()}`;
+      }
+      return SKETCH_EDGE_COLOR;
+    }
+    return isDraggableSketchObject(obj) ? SKETCH_EDGE_COLOR : NON_INTERACTIVE_EDGE_COLOR;
+  }
+
   private addConstraintIcons(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[]): void {
+    if (this.solvedModel) {
+      const glyphs = layoutConstraintGlyphs(this.solvedModel);
+      const { groups, hitTargets } = buildSolvedConstraintMeshes(this.solvedModel, glyphs);
+      for (const group of groups) {
+        this.add(group);
+      }
+      // The sketch hover/select handler picks badges from here (screen-space
+      // hit test — badges float a pixel offset away from their anchors).
+      this.userData.solvedBadgeTargets = hitTargets;
+      return;
+    }
     for (const icon of buildConstraintIcons(sceneObject, allObjects)) {
       this.add(icon);
     }

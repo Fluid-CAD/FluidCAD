@@ -21,7 +21,7 @@ import {
   ParsedFeatureStatement,
 } from '../api';
 import { findActiveObject } from '../helpers/scene-utils';
-import { SceneObjectRender, PlaneData } from '../types';
+import { SceneObjectRender, PlaneData, SourceLocation } from '../types';
 import { Viewer } from '../viewer';
 import { TrimPickService } from './trim-pick-service';
 import { TrimDialog } from './trim-dialog';
@@ -33,6 +33,8 @@ import { ConstraintToolbarService } from './constraint-toolbar';
 import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
 import { Navbar } from '../ui/navbar';
+import { SketchDofStatus } from '../ui/sketch-dof-status';
+import { buildSolvedSketchModel, computeSketchDofState } from '../sketch-solver-client';
 
 export class SketchToolbarService {
   /**
@@ -48,6 +50,13 @@ export class SketchToolbarService {
    * Finish Sketch popup while a sketch is being edited.
    */
   onActiveChange?: (active: boolean) => void;
+
+  /**
+   * Fires when a solved-sketch constraint badge/dimension is clicked. The
+   * service already jumps to the statement's source; main.ts adds the
+   * timeline row flash.
+   */
+  onConstraintPick?: (pick: { objId?: string; sourceLocation?: SourceLocation }) => void;
 
   private viewer: Viewer;
   private container: HTMLElement;
@@ -68,6 +77,8 @@ export class SketchToolbarService {
   private toolbar: SketchToolbar;
   /** The floating segment-conversion mini bar below the main toolbar. */
   private constraintToolbar: ConstraintToolbarService;
+  /** Bottom-center DOF pill for solved sketches (hidden for legacy). */
+  private dofStatus: SketchDofStatus;
   private activeSketchInfo: {
     sketchObj: SceneObjectRender;
     plane: PlaneData;
@@ -136,6 +147,8 @@ export class SketchToolbarService {
     this.toolbar.shortcutSuspend = pillWantsKeys;
 
     this.bezierHandles = new BezierHandlesOverlay(viewer.sceneContext);
+
+    this.dofStatus = new SketchDofStatus(container, (loc) => gotoSource(loc));
 
     const opSelection: SketchOpSelection = {
       ids: () => [...(this.activeHoverSelectHandler?.selectedIds ?? [])],
@@ -491,6 +504,8 @@ export class SketchToolbarService {
         lastRoot.id,
         this.activeDrawingTool ? null : this.activeHoverSelectHandler,
       );
+
+      this.dofStatus.update(computeSketchDofState(buildSolvedSketchModel(lastRoot, sceneObjects)));
     } else {
       if (this.activeDrawingTool) {
         this.activeDrawingTool.deactivate();
@@ -525,6 +540,7 @@ export class SketchToolbarService {
       this.deactivateDragHandler();
       this.bezierHandles.deactivate();
       this.constraintToolbar.hide();
+      this.dofStatus.update({ result: 'hidden' });
       this.activeSketchInfo = null;
       if (this.keepToolbar) {
         // A create-feature dialog launched from this sketch has suspended
@@ -735,6 +751,12 @@ export class SketchToolbarService {
     this.activeHoverSelectHandler.onSelectionChange = () => {
       this.activeOpService()?.refresh();
       this.constraintToolbar.selectionChanged(this.activeHoverSelectHandler);
+    };
+    this.activeHoverSelectHandler.onConstraintPick = (pick) => {
+      if (pick.sourceLocation) {
+        gotoSource(pick.sourceLocation);
+      }
+      this.onConstraintPick?.(pick);
     };
     this.activeHoverSelectHandler.updateSceneData(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!);
     this.activeHoverSelectHandler.activate();

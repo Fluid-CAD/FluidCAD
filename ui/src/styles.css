@@ -50,6 +50,9 @@
   --scene-ghost-remove-face: #e5534b;
   --scene-ghost-remove-edge: #c93c37;
   --scene-ghost-wire: #2297ff;
+  --scene-sketch-constrained: #44c767;
+  --scene-constraint-conflict: #e5534b;
+  --scene-constraint-redundant: #d29922;
 }
 
 @plugin "daisyui/theme" {
@@ -99,6 +102,9 @@
      standalone wire is this exact blue in both themes, and the ghost's job is
      to look like the curve that is coming. */
   --scene-ghost-wire: #2297ff;
+  --scene-sketch-constrained: #1a7f37;
+  --scene-constraint-conflict: #cf222e;
+  --scene-constraint-redundant: #9a6700;
 }
 
 /* App-shell UI: overlay offsets (top-[106px] constraint bar, top-[116px]

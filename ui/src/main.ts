@@ -1156,6 +1156,11 @@ function showActionToast(message: string): void {
   }, 5000);
 }
 const sketchService = new SketchToolbarService(container, viewer, trimService, projectionService, navbar);
+sketchService.onConstraintPick = (pick) => {
+  if (currentRail?.kind === 'part' && pick.objId) {
+    currentRail.timeline.setPickedFeature(pick.objId);
+  }
+};
 const modifyService = new ModifyPickService(container, viewer, navbar, {
   // Hand the current highlight over as the tool's initial input: whatever the
   // user already clicked (measure owns that selection) seeds the pick set.

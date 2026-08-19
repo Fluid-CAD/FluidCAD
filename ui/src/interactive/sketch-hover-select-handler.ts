@@ -10,19 +10,26 @@ import {
   Vector3,
 } from 'three';
 import { SceneContext } from '../scene/scene-context';
-import { PlaneData, SceneObjectRender } from '../types';
+import { PlaneData, SceneObjectRender, SourceLocation } from '../types';
 import { projectToSketch, pixelToSketchThreshold, localToWorld } from './sketch-plane-utils';
 import { EdgeEntry, CenterEntry, buildEdgeIndex, buildCenterIndex, pointToSegmentDist } from './sketch-edge-utils';
 import { themeColors } from '../scene/theme-colors';
-import { applyConstantPixelSize } from '../meshes/screen-scale';
+import { applyConstantPixelSize, pixelsToWorld } from '../meshes/screen-scale';
+import { BadgeHitTarget } from '../meshes/containers/solved-constraint-meshes';
 
 const HIGHLIGHT_THRESHOLD_PX = 12;
 const CENTER_OVERLAY_RADIUS = 2.0;
 const CENTER_OVERLAY_PX_RADIUS = 6;
+/** Extra slack around a constraint badge's box before a hover counts. */
+const BADGE_HIT_SLACK_PX = 3;
 
 export class SketchHoverSelectHandler {
   /** Fired after any click mutates the selected set (operations read it). */
   onSelectionChange?: () => void;
+
+  /** Fired when a solved-sketch constraint badge/dimension is clicked —
+   * selecting the constraint statement (goto-source, timeline flash). */
+  onConstraintPick?: (pick: { objId?: string; sourceLocation?: SourceLocation }) => void;
 
   private ctx: SceneContext;
   private plane: PlaneData;
@@ -33,6 +40,12 @@ export class SketchHoverSelectHandler {
   private hoveredCenterOverlay: Group | null = null;
   private hoveredCenterPoint: [number, number] | null = null;
   private selectedShapeIds = new Set<string>();
+  /** Solved-sketch constraint glyph pick targets (from the SketchMesh). */
+  private badgeTargets: BadgeHitTarget[] = [];
+  /** entityId → the entity statement's edge shapeIds (badge hover tint). */
+  private entityShapeIds = new Map<number, string[]>();
+  private hoveredBadge: BadgeHitTarget | null = null;
+  private hoveredBadgeShapeIds: string[] = [];
   private isExternalResizing: () => boolean;
   private clickPolicy?: () => 'replace' | 'toggle';
 
@@ -77,6 +90,7 @@ export class SketchHoverSelectHandler {
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
     this.clearHover();
+    this.clearBadgeHover();
     this.clearSelection();
     this.removeCenterOverlay();
   }
@@ -91,6 +105,22 @@ export class SketchHoverSelectHandler {
     // drag-resize, or grow vertex dots).
     this.edges = buildEdgeIndex(sceneObjects, sketchId, this.plane, { includeGuides: true });
     this.centers = buildCenterIndex(sceneObjects, sketchId, this.plane);
+    // The mesh tree was rebuilt with this scene — re-collect the solved
+    // sketch's badge pick targets and the entity→shape join for hover tints.
+    this.clearBadgeHover();
+    this.badgeTargets = this.collectBadgeTargets(sketchId);
+    this.entityShapeIds = new Map();
+    for (const obj of sceneObjects) {
+      if (obj.parentId !== sketchId || typeof obj.object?.entityId !== 'number') {
+        continue;
+      }
+      const ids = (obj.sceneShapes ?? [])
+        .filter(shape => shape.shapeId && !shape.isMetaShape)
+        .map(shape => shape.shapeId as string);
+      if (ids.length) {
+        this.entityShapeIds.set(obj.object.entityId, ids);
+      }
+    }
     const validIds = new Set(this.edges.map(e => e.shapeId));
     for (const c of this.centers) {
       validIds.add(c.shapeId);
@@ -120,6 +150,23 @@ export class SketchHoverSelectHandler {
       if (this.hoveredShapeId) {
         this.clearHover();
       }
+      return;
+    }
+
+    const badge = this.findBadgeAt(e.clientX, e.clientY);
+    if (badge !== this.hoveredBadge) {
+      this.clearBadgeHover();
+      if (badge) {
+        this.applyBadgeHover(badge);
+      }
+    }
+    if (badge) {
+      // Badges draw over the geometry — while one is hovered it owns the
+      // cursor and no edge hover competes.
+      if (this.hoveredShapeId) {
+        this.clearHover();
+      }
+      this.canvas.style.cursor = 'pointer';
       return;
     }
 
@@ -174,6 +221,14 @@ export class SketchHoverSelectHandler {
     const dx = e.clientX - this.downX;
     const dy = e.clientY - this.downY;
     if (dx * dx + dy * dy > 64) {
+      return;
+    }
+
+    if (this.hoveredBadge) {
+      this.onConstraintPick?.({
+        objId: this.hoveredBadge.objId,
+        sourceLocation: this.hoveredBadge.sourceLocation,
+      });
       return;
     }
 
@@ -384,6 +439,102 @@ export class SketchHoverSelectHandler {
     this.clearSelection();
     this.ctx.requestRender();
     this.onSelectionChange?.();
+  }
+
+  /** The active sketch's badge pick targets, stashed on its SketchMesh. */
+  private collectBadgeTargets(sketchId: string): BadgeHitTarget[] {
+    let targets: BadgeHitTarget[] = [];
+    this.ctx.scene.traverse((obj: Object3D) => {
+      if (obj.userData.isSketchRoot && obj.userData.sketchObjectId === sketchId
+        && Array.isArray(obj.userData.solvedBadgeTargets)) {
+        targets = obj.userData.solvedBadgeTargets as BadgeHitTarget[];
+      }
+    });
+    return targets;
+  }
+
+  /** Screen position of a badge's center: its anchor projected, pushed the
+   * glyph's pixel offset along its (projected) offset direction — the same
+   * math the badge meshes run per frame in onBeforeRender. */
+  private badgeScreenCenter(target: BadgeHitTarget): { x: number; y: number } | null {
+    const camera = this.ctx.camera;
+    const rect = this.canvas.getBoundingClientRect();
+    const projected = target.anchorWorld.clone().project(camera);
+    if (projected.z > 1) {
+      return null;
+    }
+    let x = rect.left + ((projected.x + 1) / 2) * rect.width;
+    let y = rect.top + ((1 - projected.y) / 2) * rect.height;
+    if (target.offsetDirWorld && target.offsetPx) {
+      const step = pixelsToWorld(this.ctx.renderer, camera, target.anchorWorld, 100);
+      const stepped = target.anchorWorld.clone()
+        .addScaledVector(target.offsetDirWorld, step)
+        .project(camera);
+      const sx = rect.left + ((stepped.x + 1) / 2) * rect.width - x;
+      const sy = rect.top + ((1 - stepped.y) / 2) * rect.height - y;
+      const len = Math.hypot(sx, sy);
+      if (len > 1e-6) {
+        x += (sx / len) * target.offsetPx;
+        y += (sy / len) * target.offsetPx;
+      }
+    }
+    return { x, y };
+  }
+
+  private findBadgeAt(clientX: number, clientY: number): BadgeHitTarget | null {
+    let best: BadgeHitTarget | null = null;
+    let bestDist = Infinity;
+    for (const target of this.badgeTargets) {
+      const centerPos = this.badgeScreenCenter(target);
+      if (!centerPos) {
+        continue;
+      }
+      const dx = Math.abs(clientX - centerPos.x);
+      const dy = Math.abs(clientY - centerPos.y);
+      if (dx > target.halfWidthPx + BADGE_HIT_SLACK_PX || dy > target.halfHeightPx + BADGE_HIT_SLACK_PX) {
+        continue;
+      }
+      const d = dx * dx + dy * dy;
+      if (d < bestDist) {
+        bestDist = d;
+        best = target;
+      }
+    }
+    return best;
+  }
+
+  private applyBadgeHover(target: BadgeHitTarget): void {
+    this.hoveredBadge = target;
+    for (const material of target.materials) {
+      material.color.set(themeColors.highlightColor);
+    }
+    // Light up the entities the constraint references.
+    this.hoveredBadgeShapeIds = [];
+    for (const entityId of target.refEntityIds) {
+      for (const shapeId of this.entityShapeIds.get(entityId) ?? []) {
+        this.hoveredBadgeShapeIds.push(shapeId);
+        this.applyHoverHighlight(shapeId);
+      }
+    }
+    this.ctx.requestRender();
+  }
+
+  private clearBadgeHover(): void {
+    if (!this.hoveredBadge) {
+      return;
+    }
+    for (const material of this.hoveredBadge.materials) {
+      material.color.copy(this.hoveredBadge.baseColor);
+    }
+    for (const shapeId of this.hoveredBadgeShapeIds) {
+      this.removeHoverHighlight(shapeId);
+    }
+    this.hoveredBadgeShapeIds = [];
+    this.hoveredBadge = null;
+    if (!this.hoveredShapeId) {
+      this.canvas.style.cursor = '';
+    }
+    this.ctx.requestRender();
   }
 
   private traverseShapeEdges(shapeId: string, fn: (line: LineSegments) => void): void {

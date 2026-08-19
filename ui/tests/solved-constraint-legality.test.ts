@@ -7,6 +7,7 @@ import {
   expandDimensionPicks,
   measureDimension,
 } from '../src/interactive/solved-constraint-toolbar/legality';
+import { angleSectorAt } from '../src/interactive/solved-constraint-toolbar/angle-sector';
 import type { SolvedPick } from '../src/interactive/sketch-hover-select-handler';
 import type { SolvedEntityView, SolvedSketchModel } from '../src/sketch-solver-client/model';
 
@@ -146,8 +147,12 @@ describe('measureDimension', () => {
     expect(measureDimension(model, [endA, circleC], { kind: 'distance', axisChoice: false })).toBe(15);
   });
 
-  it('measures angle between lines in degrees', () => {
-    expect(measureDimension(model, [lineA, lineB], { kind: 'angle', axisChoice: false })).toBe(90);
+  it('measures angle between lines in degrees — always positive, whatever the pick order', () => {
+    const angleForm = { kind: 'angle' as const, axisChoice: false };
+    expect(measureDimension(model, [lineA, lineB], angleForm)).toBe(90);
+    // The reversed pick order used to measure −90 (the signed directed
+    // angle); a sector's angle is its own positive measure.
+    expect(measureDimension(model, [lineB, lineA], angleForm)).toBe(90);
   });
 
   it('measures radius and diameter', () => {
@@ -194,10 +199,14 @@ describe('dimensionPreviewLayout', () => {
     expect(layout!.at).toEqual(layout!.line![1]);
   });
 
-  it('angle: no leader, input at the line intersection', () => {
+  it('angle: no leader, sector arc at the line intersection', () => {
+    // The default sector's a-boundary ray (+x) points AWAY from a's
+    // segment (the intersection is a's far endpoint) — the arc's end
+    // needs the dashed tail stub there; b's segment covers its ray.
     expect(dimensionPreviewLayout(model, [lineA, lineB], { kind: 'angle', axisChoice: false })).toEqual({
       line: null,
       at: [10, 0],
+      arc: { startAngle: 0, sweep: Math.PI / 2, extensions: [], tails: [0] },
     });
   });
 });
@@ -214,10 +223,10 @@ describe('candidateSpec', () => {
     expect(candidateSpec('fix', [pointP])).toEqual({ kind: 'fix', p: { entity: 4 } });
   });
 
-  it('angle converts degrees to radians; dimension picks its constraint kind', () => {
-    const angle = candidateSpec('angle', [lineA, lineB], 90);
-    expect(angle).toMatchObject({ kind: 'angle' });
-    expect((angle as any).value).toBeCloseTo(Math.PI / 2, 12);
+  it('angle converts degrees to radians via its sector; dimension picks its constraint kind', () => {
+    const sector = angleSectorAt(model, lineA, lineB, null)!;
+    const angle = candidateSpec('angle', [lineA, lineB], 90, undefined, sector);
+    expect(angle).toEqual({ kind: 'angle', a: { entity: 0 }, b: { entity: 1 }, value: Math.PI / 2 });
     expect(candidateSpec('dimension', [circleC], 10)).toEqual({
       kind: 'diameter', a: { entity: 2 }, value: 10,
     });
@@ -232,8 +241,9 @@ describe('candidateSpec', () => {
     });
   });
 
-  it('returns null for illegal picks or missing values', () => {
+  it('returns null for illegal picks or missing values/sector', () => {
     expect(candidateSpec('tangent', [lineA, lineB])).toBeNull();
     expect(candidateSpec('angle', [lineA, lineB])).toBeNull();
+    expect(candidateSpec('angle', [lineA, lineB], 90)).toBeNull();
   });
 });

@@ -44,8 +44,11 @@ export type ConstraintSpec =
   | { kind: 'parallel'; a: SolverRef; b: SolverRef }
   /** Line–line (1). */
   | { kind: 'perpendicular'; a: SolverRef; b: SolverRef }
-  /** Directed angle from line a to line b, radians, wrapped to
-   * (−π, π] (1). */
+  /** Counterclockwise angle from line a's oriented direction to line
+   * b's, radians, [0, 2π) (1). A bare line ref (or its 'end' point)
+   * orients start→end; a 'start' point ref reverses it — the four
+   * sectors at the lines' intersection are all expressible with a
+   * positive value. */
   | { kind: 'angle'; a: SolverRef; b: SolverRef; value: number }
   /** Line–circle/arc (1) or circle–circle (1); branch from guesses. */
   | { kind: 'tangent'; a: SolverRef; b: SolverRef }

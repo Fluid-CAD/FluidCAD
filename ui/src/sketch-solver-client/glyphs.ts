@@ -12,16 +12,18 @@ import {
   entityAnchor,
   entityFor,
   footOnLine,
-  lineDir,
   lineIntersection,
   lineMid,
   mid,
   normalize,
   offsetDirAt,
+  orientedLineDir,
   perp,
   pointOnCircumference,
   refAnchor,
   refPoint,
+  segmentCoversRay,
+  segmentExtensionTo,
   sub,
   tangencyPoint,
 } from './resolve';
@@ -48,8 +50,20 @@ export type ConstraintGlyph = GlyphBase & (
   /** World-scale dimension leader line. */
   | { type: 'leader'; from: Vec2; to: Vec2 }
   /** Angle dimension: arc swept from `startAngle` by `sweep` around `at`,
-   * with the readout at mid-arc. */
-  | { type: 'angle-arc'; at: Vec2; startAngle: number; sweep: number; label: string }
+   * with the readout at mid-arc. `extensions` are dashed helper leaders
+   * from each segment's nearest endpoint to a virtual intersection the
+   * segments don't reach (empty when both cross `at`); `tails` are the
+   * ray angles whose sector boundary no segment covers — the arc's ends
+   * touch a screen-constant dashed stub drawn through the center there. */
+  | {
+      type: 'angle-arc';
+      at: Vec2;
+      startAngle: number;
+      sweep: number;
+      label: string;
+      extensions: [Vec2, Vec2][];
+      tails: number[];
+    }
 );
 
 export const BADGE_LABELS: Record<string, string> = {
@@ -262,8 +276,19 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
         if (a && b) {
           const at = lineIntersection(a, b);
           const label = `${formatDim(c.value ?? (spec.value * 180) / Math.PI)}°`;
-          const da = lineDir(a);
-          if (at && da) {
+          // The refs orient their lines ('start' reverses) — the arc sweeps
+          // counterclockwise from a's ray by the (positive) target, landing
+          // in exactly the sector the statement dimensions.
+          const da = orientedLineDir(a, spec.a);
+          const db = orientedLineDir(b, spec.b);
+          if (at && da && db) {
+            const tails: number[] = [];
+            if (!segmentCoversRay(a, at, da)) {
+              tails.push(Math.atan2(da[1], da[0]));
+            }
+            if (!segmentCoversRay(b, at, db)) {
+              tails.push(Math.atan2(db[1], db[0]));
+            }
             glyphs.push({
               ...base,
               type: 'angle-arc',
@@ -271,6 +296,9 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
               startAngle: Math.atan2(da[1], da[0]),
               sweep: spec.value,
               label,
+              extensions: [segmentExtensionTo(a, at), segmentExtensionTo(b, at)]
+                .filter((e): e is [Vec2, Vec2] => e !== null),
+              tails,
             });
           } else {
             // Near-parallel lines have no usable intersection — fall back

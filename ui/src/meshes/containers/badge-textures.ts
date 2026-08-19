@@ -73,7 +73,14 @@ export function getTextTexture(text: string, colorHex: string): IconTexture {
   if (cached) {
     return cached;
   }
+  const entry = createTextTexture(text, colorHex);
+  textureCache.set(key, entry);
+  return entry;
+}
 
+/** Uncached text texture — for labels that change every frame (the angle
+ * placement preview's live readout); the caller owns disposal. */
+export function createTextTexture(text: string, colorHex: string): IconTexture {
   const font = `${CANVAS_SIZE * 0.7}px sans-serif`;
   const canvas = document.createElement('canvas');
   const measure = canvas.getContext('2d')!;
@@ -89,7 +96,5 @@ export function getTextTexture(text: string, colorHex: string): IconTexture {
   ctx.textBaseline = 'middle';
   ctx.fillText(text, width / 2, CANVAS_SIZE / 2);
 
-  const entry = { texture: new CanvasTexture(canvas), aspect: width / CANVAS_SIZE };
-  textureCache.set(key, entry);
-  return entry;
+  return { texture: new CanvasTexture(canvas), aspect: width / CANVAS_SIZE };
 }

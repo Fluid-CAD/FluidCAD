@@ -14,7 +14,8 @@ import { SceneObjectRender, SourceLocation } from '../../types';
 import { applySketchConstraint, removeFeature } from '../../api';
 import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
 import { themeColors } from '../../scene/theme-colors';
-import { localToWorld, sketchToClient } from '../sketch-plane-utils';
+import { localToWorld, projectToSketch, sketchToClient } from '../sketch-plane-utils';
+import { buildAngleArc, buildAngleExtensions } from '../../meshes/containers/solved-constraint-meshes';
 import type { SketchHoverSelectHandler, SolvedPick } from '../sketch-hover-select-handler';
 import {
   LiveSolvedSystem,
@@ -36,12 +37,26 @@ import {
   isPointPick,
   measureDimension,
 } from './legality';
+import {
+  AngleSector,
+  angleSectorAt,
+  angleSectorFor,
+  angleSectorTargets,
+} from './angle-sector';
 
 const GHOST_OPACITY = 0.45;
 /** Entities whose params moved more than this ghost-preview. */
 const GHOST_EPS = 1e-6;
 /** = the committed leader's LEADER_OPACITY (solved-constraint-meshes). */
 const PREVIEW_LEADER_OPACITY = 0.45;
+/** Live sector preview during angle placement (label included). */
+const PLACEMENT_OPACITY = 0.65;
+/** Pixel offset from the arc center to the value input — the committed
+ * glyph's label radius ((ANGLE_ARC_RADIUS + textSize) in arc px). */
+const ANGLE_INPUT_OFFSET_PX = 46;
+/** Below this pointer travel a mousedown+up pair reads as a click (the
+ * drag handlers' shared threshold) — placement commits, orbits pass. */
+const CLICK_THRESHOLD_PX = 4;
 
 function picksKey(picks: SolvedPick[]): string {
   return picks.map(p => `${p.entityId}:${p.role ?? 'entity'}`).join('|');
@@ -58,11 +73,30 @@ export class SolvedConstraintToolbarService {
   private pickedConstraint: { objId?: string; sourceLocation?: SourceLocation } | null = null;
   private ghostGroup: Group | null = null;
   /** The dimension the open value input is creating — drives the preview
-   * leader line and survives re-renders (picks are entityId:role keyed). */
-  private pendingDimension: { picks: SolvedPick[]; form: DimensionForm } | null = null;
+   * leader line and survives re-renders (picks are entityId:role keyed).
+   * Angles carry their locked sector (roles are stable; geometry
+   * re-anchors). */
+  private pendingDimension: {
+    picks: SolvedPick[];
+    form: DimensionForm;
+    sector?: AngleSector | null;
+  } | null = null;
   private previewGroup: Group | null = null;
+  /** Interactive angle placement (FreeCAD-style): the sector under the
+   * cursor previews live; a click locks it and opens the value input. */
+  private anglePlacement: {
+    picks: [SolvedPick, SolvedPick];
+    sector: AngleSector;
+    lastCursor: [number, number] | null;
+  } | null = null;
+  private placementGroup: Group | null = null;
+  private placementTexture: { dispose(): void } | null = null;
+  private placementDown: { x: number; y: number; onCanvas: boolean } | null = null;
   private cachedVariables: VariableInfo[] = [];
   private boundKeyDown: (e: KeyboardEvent) => void;
+  private boundPlacementMove: (e: MouseEvent) => void;
+  private boundPlacementDown: (e: MouseEvent) => void;
+  private boundPlacementUp: (e: MouseEvent) => void;
 
   constructor(
     private container: HTMLElement,
@@ -76,6 +110,9 @@ export class SolvedConstraintToolbarService {
     this.view.onDelete = () => this.deletePicked();
     this.view.onHoverButton = (id) => this.updateGhost(id);
     this.boundKeyDown = this.handleKeyDown.bind(this);
+    this.boundPlacementMove = this.handlePlacementMove.bind(this);
+    this.boundPlacementDown = this.handlePlacementDown.bind(this);
+    this.boundPlacementUp = this.handlePlacementUp.bind(this);
   }
 
   show(): void {
@@ -96,6 +133,7 @@ export class SolvedConstraintToolbarService {
     this.valueInput.hide();
     this.clearGhost();
     this.clearDimensionPreview();
+    this.cancelAnglePlacement();
     this.dimensionArmed = false;
     this.pickedConstraint = null;
     this.picks = [];
@@ -125,7 +163,28 @@ export class SolvedConstraintToolbarService {
         : null;
     }
     this.refreshPendingDimension();
+    this.refreshAnglePlacement();
     this.selectionChanged(handler);
+  }
+
+  /** A re-render landed during angle placement: re-anchor the sector
+   * preview against the fresh model (roles are the stable identity).
+   * Geometry gone ⇒ cancel. */
+  private refreshAnglePlacement(): void {
+    const p = this.anglePlacement;
+    const model = this.model;
+    if (!p) {
+      return;
+    }
+    const sector = model
+      ? angleSectorFor(model, p.picks[0], p.picks[1], p.sector.aRole, p.sector.bRole)
+      : null;
+    if (!sector || !sector.at) {
+      this.cancelAnglePlacement();
+      return;
+    }
+    p.sector = sector;
+    this.drawPlacementPreview(sector);
   }
 
   /** A re-render landed while the value input is open: re-anchor the
@@ -137,12 +196,25 @@ export class SolvedConstraintToolbarService {
     }
     const { picks, form } = this.pendingDimension;
     const model = this.model;
-    const measured = model ? measureDimension(model, picks, form) : null;
+    // Re-derive a locked angle sector against the fresh geometry (the roles
+    // are its stable identity) and store it back: the commit reads the
+    // stored sector, whose emission ORDER can legitimately flip when the
+    // moving geometry carries the turn across 180°.
+    let sector = this.pendingDimension.sector;
+    if (sector && model) {
+      sector = angleSectorFor(model, picks[0], picks[1], sector.aRole, sector.bRole);
+      this.pendingDimension.sector = sector;
+      if (!sector) {
+        this.valueInput.hide();
+        return;
+      }
+    }
+    const measured = model ? measureDimension(model, picks, form, undefined, sector) : null;
     if (!model || measured === null) {
       this.valueInput.hide();
       return;
     }
-    const layout = dimensionPreviewLayout(model, picks, form);
+    const layout = dimensionPreviewLayout(model, picks, form, undefined, sector);
     this.drawDimensionPreview(layout);
     const pos = this.inputPosition(model, layout);
     this.valueInput.updatePosition(pos.clientX, pos.clientY);
@@ -209,6 +281,10 @@ export class SolvedConstraintToolbarService {
       this.valueInput.hide();
       return true;
     }
+    if (this.anglePlacement) {
+      this.cancelAnglePlacement();
+      return true;
+    }
     if (this.dimensionArmed) {
       this.setDimensionArmed(false);
       return true;
@@ -217,11 +293,21 @@ export class SolvedConstraintToolbarService {
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
-    if (e.key !== 'Delete' && e.key !== 'Backspace') {
+    if (e.key !== 'Delete' && e.key !== 'Backspace' && e.key !== 'Escape') {
       return;
     }
     const target = e.target as HTMLElement | null;
     if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+      return;
+    }
+    // The drawing-tool Esc ladder (sketch-toolbar) only fires while a
+    // drawing tool is armed — the solved flows (angle placement, armed
+    // dimension, open value input) own their Escape here.
+    if (e.key === 'Escape') {
+      if (this.handleEscape()) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
       return;
     }
     if (this.pickedConstraint) {
@@ -235,10 +321,154 @@ export class SolvedConstraintToolbarService {
     this.view.setDimensionArmed(armed);
   }
 
+  // -- interactive angle placement -------------------------------------------
+
+  /** ∠ on two picked lines: preview the sector under the cursor (arc +
+   * live readout at the intersection, FreeCAD-style); a click locks the
+   * sector and opens the value input there. Near-parallel lines have no
+   * sectors to choose — skip straight to the input on the default sector. */
+  private startAnglePlacement(): void {
+    const model = this.model;
+    if (!model || this.picks.length !== 2) {
+      return;
+    }
+    this.valueInput.hide();
+    const [a, b] = this.picks;
+    const sector = angleSectorAt(model, a, b, null);
+    if (!sector) {
+      return;
+    }
+    if (!sector.at) {
+      this.openValueInput('angle', [a, b], sector);
+      return;
+    }
+    this.anglePlacement = { picks: [a, b], sector, lastCursor: null };
+    this.drawPlacementPreview(sector);
+    this.ctx.renderer.domElement.addEventListener('mousemove', this.boundPlacementMove);
+    // Capture-phase on window: the commit click must not reach the hover
+    // handler's selection toggle; >4px travels (orbits) pass through.
+    window.addEventListener('mousedown', this.boundPlacementDown, true);
+    window.addEventListener('mouseup', this.boundPlacementUp, true);
+  }
+
+  private cancelAnglePlacement(): void {
+    if (!this.anglePlacement) {
+      return;
+    }
+    this.anglePlacement = null;
+    this.placementDown = null;
+    this.ctx.renderer.domElement.removeEventListener('mousemove', this.boundPlacementMove);
+    window.removeEventListener('mousedown', this.boundPlacementDown, true);
+    window.removeEventListener('mouseup', this.boundPlacementUp, true);
+    this.removePlacementPreview();
+  }
+
+  private handlePlacementMove(e: MouseEvent): void {
+    const p = this.anglePlacement;
+    const model = this.model;
+    if (!p || !model) {
+      return;
+    }
+    const cursor = projectToSketch(this.ctx, model.plane, e.clientX, e.clientY);
+    if (!cursor) {
+      return;
+    }
+    p.lastCursor = cursor;
+    const sector = angleSectorAt(model, p.picks[0], p.picks[1], cursor);
+    if (!sector || !sector.at) {
+      return;
+    }
+    // Geometry is static during placement — only a sector CHANGE redraws.
+    const changed = sector.aRole !== p.sector.aRole || sector.bRole !== p.sector.bRole;
+    p.sector = sector;
+    if (changed) {
+      this.drawPlacementPreview(sector);
+    }
+  }
+
+  private handlePlacementDown(e: MouseEvent): void {
+    if (!this.anglePlacement) {
+      return;
+    }
+    this.placementDown = {
+      x: e.clientX,
+      y: e.clientY,
+      onCanvas: e.target === this.ctx.renderer.domElement,
+    };
+  }
+
+  private handlePlacementUp(e: MouseEvent): void {
+    const p = this.anglePlacement;
+    const down = this.placementDown;
+    this.placementDown = null;
+    if (!p || !down || !down.onCanvas) {
+      return;
+    }
+    if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_THRESHOLD_PX) {
+      return;
+    }
+    e.stopPropagation();
+    e.preventDefault();
+    const { picks, sector } = p;
+    this.cancelAnglePlacement();
+    this.openValueInput('angle', picks, sector);
+  }
+
+  private drawPlacementPreview(sector: AngleSector): void {
+    this.removePlacementPreview();
+    const model = this.model;
+    if (!model || !sector.at) {
+      return;
+    }
+    const visual = buildAngleArc(
+      sector.at,
+      sector.startAngle,
+      sector.sweep,
+      `${sector.valueDeg}°`,
+      model.plane,
+      model.plane.normal,
+      themeColors.constraintColor,
+      PLACEMENT_OPACITY,
+      sector.tails,
+    );
+    // World-scale dashed extensions ride OUTSIDE the screen-scaled arc
+    // group — a plain wrapper keeps one handle for add/dispose.
+    const wrapper = new Group();
+    wrapper.userData.isMetaShape = true;
+    wrapper.add(visual.group);
+    const ext = buildAngleExtensions(
+      sector.extensions, model.plane, themeColors.constraintColor, PLACEMENT_OPACITY,
+    );
+    if (ext) {
+      wrapper.add(ext);
+    }
+    this.ctx.scene.add(wrapper);
+    this.placementGroup = wrapper;
+    this.placementTexture = visual.ownedTexture;
+    this.ctx.requestRender();
+  }
+
+  private removePlacementPreview(): void {
+    if (!this.placementGroup) {
+      return;
+    }
+    this.ctx.scene.remove(this.placementGroup);
+    this.placementGroup.traverse((child) => {
+      const mesh = child as unknown as { geometry?: { dispose(): void }; material?: { dispose(): void } };
+      mesh.geometry?.dispose?.();
+      mesh.material?.dispose?.();
+    });
+    this.placementTexture?.dispose();
+    this.placementTexture = null;
+    this.placementGroup = null;
+    this.ctx.requestRender();
+  }
+
   private async apply(id: ConstraintButtonId): Promise<void> {
     if (this.busy || !this.model || !this.sketchInfo) {
       return;
     }
+    this.cancelAnglePlacement();
 
     if (id === 'dimension' && !dimensionFormFor(this.picks)) {
       // Arm the two-pick flow: the next legal pick pair opens the value input.
@@ -246,7 +476,12 @@ export class SolvedConstraintToolbarService {
       return;
     }
 
-    if (id === 'dimension' || id === 'angle') {
+    if (id === 'angle') {
+      this.startAnglePlacement();
+      return;
+    }
+
+    if (id === 'dimension') {
       this.openValueInput(id, this.picks);
       return;
     }
@@ -274,7 +509,11 @@ export class SolvedConstraintToolbarService {
     return this.picks;
   }
 
-  private openValueInput(id: 'dimension' | 'angle', dimPicks: SolvedPick[]): void {
+  private openValueInput(
+    id: 'dimension' | 'angle',
+    dimPicks: SolvedPick[],
+    sector?: AngleSector | null,
+  ): void {
     const model = this.model;
     if (!model) {
       return;
@@ -287,14 +526,22 @@ export class SolvedConstraintToolbarService {
     }
     // A lone line dimensions its own length — the endpoint-pair distance.
     const picks = id === 'dimension' ? expandDimensionPicks(dimPicks) : [...dimPicks];
-    const measured = measureDimension(model, picks, form);
+    // An angle dimensions a SECTOR — the placement-locked one, or the
+    // default between the start→end directions.
+    const angleSector = id === 'angle'
+      ? sector ?? angleSectorAt(model, picks[0], picks[1], null)
+      : null;
+    if (id === 'angle' && !angleSector) {
+      return;
+    }
+    const measured = measureDimension(model, picks, form, undefined, angleSector);
     if (measured === null) {
       return;
     }
     // The input opens at the label spot of the dimension it will create,
     // with the leader line previewed between the anchors (drawn after
     // show() — a re-targeting show() runs the previous cycle's onHide).
-    const layout = dimensionPreviewLayout(model, picks, form);
+    const layout = dimensionPreviewLayout(model, picks, form, undefined, angleSector);
     const { clientX, clientY } = this.inputPosition(model, layout);
     this.valueInput.show({
       label: form.kind === 'angle' ? '∠' : form.kind === 'radius' ? 'R' : form.kind === 'diameter' ? '⌀' : 'D',
@@ -303,11 +550,25 @@ export class SolvedConstraintToolbarService {
       clientY,
       variables: this.cachedVariables,
       onHide: () => this.clearDimensionPreview(),
-      onCommit: ({ expression, newVariable }) => {
-        this.valueInput.hide();
-        this.setDimensionArmed(false);
+      // There are no negative angles — a sector's angle is its own positive
+      // measure; the other side is another sector. Inline refusal keeps the
+      // input open for a corrected value.
+      validate: form.kind !== 'angle' ? undefined : (expression) => {
         const num = parseFloat(expression);
         const isNumeric = !isNaN(num) && String(num) === expression;
+        return isNumeric && (num < 0 || num >= 360)
+          ? 'Angles are 0–360° — dimension the other side by picking its sector'
+          : null;
+      },
+      onCommit: ({ expression, newVariable }) => {
+        const num = parseFloat(expression);
+        const isNumeric = !isNaN(num) && String(num) === expression;
+        // Re-renders under the open input re-derive the sector (its
+        // emission ORDER can flip past 180°) — read the fresh one before
+        // hide() clears it.
+        const sectorNow = this.pendingDimension?.sector ?? angleSector;
+        this.valueInput.hide();
+        this.setDimensionArmed(false);
         // add-constraint has no variable-declaration plumbing yet (P8):
         // a P-toggled commit falls back to its numeric initializer so the
         // emitted statement is always valid.
@@ -315,10 +576,16 @@ export class SolvedConstraintToolbarService {
           ? newVariable.initializer
           : isNumeric ? String(Math.round(num * 100) / 100) : expression;
         const kind = form.kind === 'angle' ? 'angle' : form.kind;
-        void this.emit(kind as ConstraintButtonId, picks, finalExpr, undefined);
+        // The sector orders the arguments and orients each line ('start'
+        // renders as the .start() accessor) so the statement names the
+        // dimensioned sector with a positive value.
+        const emitPicks = form.kind === 'angle' && sectorNow
+          ? angleSectorTargets(picks[0], picks[1], sectorNow)
+          : picks;
+        void this.emit(kind as ConstraintButtonId, emitPicks, finalExpr, undefined);
       },
     });
-    this.pendingDimension = { picks, form };
+    this.pendingDimension = { picks, form, sector: angleSector };
     this.drawDimensionPreview(layout);
   }
 
@@ -332,7 +599,21 @@ export class SolvedConstraintToolbarService {
     if (!layout) {
       return { clientX: rect.left + rect.width / 2 - 60, clientY: rect.top + 190 };
     }
-    const { clientX, clientY } = sketchToClient(this.ctx, model.plane, layout.at);
+    let { clientX, clientY } = sketchToClient(this.ctx, model.plane, layout.at);
+    if (layout.arc) {
+      // Sit at the arc's label spot: offset from the intersection along the
+      // sector bisector, in screen pixels (the arc radius is screen-constant).
+      const midAngle = layout.arc.startAngle + layout.arc.sweep / 2;
+      const probe = sketchToClient(this.ctx, model.plane, [
+        layout.at[0] + Math.cos(midAngle),
+        layout.at[1] + Math.sin(midAngle),
+      ]);
+      const dx = probe.clientX - clientX;
+      const dy = probe.clientY - clientY;
+      const len = Math.hypot(dx, dy) || 1;
+      clientX += (dx / len) * ANGLE_INPUT_OFFSET_PX;
+      clientY += (dy / len) * ANGLE_INPUT_OFFSET_PX;
+    }
     return {
       clientX: Math.min(Math.max(clientX, rect.left + 8), rect.right - 180),
       clientY: Math.min(Math.max(clientY, rect.top + 60), rect.bottom - 24),
@@ -345,7 +626,37 @@ export class SolvedConstraintToolbarService {
   private drawDimensionPreview(layout: DimensionPreviewLayout | null): void {
     this.removePreviewLine();
     const model = this.model;
-    if (!layout?.line || !model) {
+    if (!layout || !model) {
+      return;
+    }
+    if (layout.arc) {
+      // Label-less sector arc — the open value input IS the readout.
+      const visual = buildAngleArc(
+        layout.at,
+        layout.arc.startAngle,
+        layout.arc.sweep,
+        null,
+        model.plane,
+        model.plane.normal,
+        themeColors.constraintColor,
+        PREVIEW_LEADER_OPACITY,
+        layout.arc.tails,
+      );
+      const wrapper = new Group();
+      wrapper.userData.isMetaShape = true;
+      wrapper.add(visual.group);
+      const ext = buildAngleExtensions(
+        layout.arc.extensions, model.plane, themeColors.constraintColor,
+      );
+      if (ext) {
+        wrapper.add(ext);
+      }
+      this.ctx.scene.add(wrapper);
+      this.previewGroup = wrapper;
+      this.ctx.requestRender();
+      return;
+    }
+    if (!layout.line) {
       return;
     }
     const from = localToWorld(layout.line[0], model.plane);
@@ -453,11 +764,15 @@ export class SolvedConstraintToolbarService {
       return;
     }
     let value: number | undefined;
+    let sector: AngleSector | null = null;
     if (id === 'dimension' || id === 'angle') {
       const form = id === 'angle' ? { kind: 'angle' as const, axisChoice: false } : dimensionFormFor(this.picks);
-      value = form ? measureDimension(model, this.picks, form) ?? undefined : undefined;
+      if (id === 'angle' && this.picks.length === 2) {
+        sector = angleSectorAt(model, this.picks[0], this.picks[1], null);
+      }
+      value = form ? measureDimension(model, this.picks, form, undefined, sector) ?? undefined : undefined;
     }
-    const spec = candidateSpec(id, this.picks, value);
+    const spec = candidateSpec(id, this.picks, value, undefined, sector);
     if (!spec) {
       return;
     }

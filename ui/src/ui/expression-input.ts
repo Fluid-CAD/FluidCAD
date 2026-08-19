@@ -32,6 +32,10 @@ export type ExpressionInputOptions = {
    * number (arithmetic over `variables`). The host writes numbers, not
    * source expressions. */
   arithmeticOnly?: boolean;
+  /** Host-side commit gate: return an error message to refuse the value
+   * (shown inline, input stays open), null to accept. Runs on the
+   * expression a commit would emit; declarations gate their initializer. */
+  validate?: (expression: string) => string | null;
 };
 
 export class ExpressionInput {
@@ -57,6 +61,7 @@ export class ExpressionInput {
   private errorVisible = false;
   private numericOnly = false;
   private arithmeticOnly = false;
+  private validate: ((expression: string) => string | null) | null = null;
 
   onSpaceOverride: (() => void) | null = null;
 
@@ -167,6 +172,7 @@ export class ExpressionInput {
     this.variables = opts.variables;
     this.numericOnly = opts.numericOnly ?? false;
     this.arithmeticOnly = opts.arithmeticOnly ?? false;
+    this.validate = opts.validate ?? null;
     this.visible = true;
     this.userIsTyping = false;
     this.selectedIndex = -1;
@@ -192,6 +198,7 @@ export class ExpressionInput {
     this.dropdown.classList.add('hidden');
     this.clearInlineError();
     this.onCommit = null;
+    this.validate = null;
     this.input.blur();
     const cb = this.onHide;
     this.onHide = null;
@@ -284,6 +291,14 @@ export class ExpressionInput {
     if (classified.kind === 'error') {
       this.showInlineError(classified.message);
       return false;
+    }
+    if (this.validate) {
+      const gated = classified.kind === 'declare' ? classified.initializer : classified.expression;
+      const refusal = this.validate(gated);
+      if (refusal !== null) {
+        this.showInlineError(refusal);
+        return false;
+      }
     }
     if (classified.kind === 'declare') {
       this.onCommit({

@@ -1,11 +1,15 @@
-// angle — directed angle from line a's direction to line b's,
-// atan2(cross, dot) − target, wrapped to (−π, π]. Unique solution
-// modulo full turns (a sin-only form would also accept θ+π). The wrap
-// makes the residual jump at the ±π antipode — standard sketcher
+// angle — counterclockwise angle from line a's oriented direction to
+// line b's: atan2(cross, dot) − target, wrapped to (−π, π). Targets are
+// positive, [0, 2π); orientation is carried by the refs — a bare line
+// ref (or its 'end' point) means start→end, a 'start' point ref means
+// the reversed direction, so every sector at the intersection of two
+// lines is expressible without signed values. Unique solution modulo
+// full turns (a sin-only form would also accept θ+π). The wrap makes
+// the residual jump at the target's antipode — standard sketcher
 // behavior; guesses near the antipode may converge to the far branch.
 
-import type { ConstraintSpec } from '../types.js';
-import type { CompiledRow, CompileCtx } from './types.js';
+import type { ConstraintSpec, SolverRef } from '../types.js';
+import type { CompiledRow, CompileCtx, ResolvedLine } from './types.js';
 import {
   crossPartials,
   dirPair,
@@ -18,9 +22,23 @@ import {
 
 type Spec = Extract<ConstraintSpec, { kind: 'angle' }>;
 
+/** Resolve a line ref whose optional point role orients it: 'end' (or no
+ * role) keeps start→end, 'start' reverses — the resolved endpoint indices
+ * swap, so the shared direction-pair math needs no sign plumbing. */
+function orientedLine(ctx: CompileCtx, ref: SolverRef, what: string): ResolvedLine {
+  const l = ctx.line({ entity: ref.entity }, what);
+  if (ref.point === undefined || ref.point === 'end') {
+    return l;
+  }
+  if (ref.point === 'start') {
+    return { sx: l.ex, sy: l.ey, ex: l.sx, ey: l.sy };
+  }
+  throw new Error(`${what}: a line has no '${ref.point}' direction — use .start() or .end()`);
+}
+
 export function compileAngle(spec: Spec, ctx: CompileCtx): CompiledRow[] {
-  const a = ctx.line(spec.a, 'angle first line');
-  const b = ctx.line(spec.b, 'angle second line');
+  const a = orientedLine(ctx, spec.a, 'angle first line');
+  const b = orientedLine(ctx, spec.b, 'angle second line');
   const target = spec.value;
   const dp = makeDirPair();
   const dCross = new Array<number>(8);

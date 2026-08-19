@@ -233,6 +233,52 @@ describe('constraint glyph layout', () => {
     expect(arc.at[1]).toBeCloseTo(0, 9);
     expect(arc.label).toBe('90°');
     expect(arc.sweep).toBeCloseTo(Math.PI / 2, 9);
+    // Both segments extend along their sector rays — no extension
+    // leaders, no tail stubs.
+    expect(arc.extensions).toEqual([]);
+    expect(arc.tails).toEqual([]);
+  });
+
+  it('draws dashed extension leaders when the segments stop short of the intersection', () => {
+    const objects = [
+      line(0, [0, 0], [40, 0]),
+      line(1, [100, 80], [100, 20]),
+      constraint('angle', 0, { kind: 'angle', a: { entity: 0 }, b: { entity: 1 }, value: Math.PI / 2 }, 90),
+    ];
+    const { glyphs } = glyphsOf(objects);
+    const arc = glyphs[0] as any;
+    expect(arc.type).toBe('angle-arc');
+    expect(arc.at).toEqual([100, 0]);
+    // Each extension runs from the segment's NEAREST endpoint to the
+    // virtual intersection.
+    expect(arc.extensions).toEqual([
+      [[40, 0], [100, 0]],
+      [[100, 20], [100, 0]],
+    ]);
+    // Neither segment covers its sector-boundary ray — both arc ends get
+    // dashed tail stubs (along +da and +db).
+    expect(arc.tails).toEqual([0, -Math.PI / 2]);
+  });
+
+  it('starts the angle arc on the ORIENTED ray — a start-point ref reverses its line', () => {
+    const objects = [
+      line(0, [0, 0], [100, 0]),
+      line(1, [0, 0], [0, -80]),
+      constraint('angle', 0, {
+        kind: 'angle',
+        a: { entity: 0, point: 'start' },
+        b: { entity: 1 },
+        value: Math.PI / 2,
+      }, 90),
+    ];
+    const { glyphs } = glyphsOf(objects);
+    const arc = glyphs[0] as any;
+    expect(arc.type).toBe('angle-arc');
+    // a oriented toward its start points at −x: the arc starts at ±180°
+    // (atan2 of the negated axis) and sweeps CCW by 90° into the sector
+    // between −x and −y, where b is.
+    expect(Math.abs(arc.startAngle)).toBeCloseTo(Math.PI, 9);
+    expect(arc.sweep).toBeCloseTo(Math.PI / 2, 9);
   });
 
   it('falls back to a text readout for near-parallel angle members', () => {

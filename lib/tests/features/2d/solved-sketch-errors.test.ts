@@ -152,6 +152,51 @@ describe("solved sketch diagnostics and mode-mixing errors", () => {
     expect(Math.hypot(p[o + 2] - p[o], p[o + 3] - p[o + 1])).toBeGreaterThan(1);
   });
 
+  it("rejects negative angle values with the swapped-pair hint", () => {
+    sketch('xy', () => {
+      const a = line([0, 0], [50, 0]);
+      const b = line([0, 0], [40, 30]);
+      angle(a, b, -60);
+    }, true);
+    const scene = render();
+
+    const row = renderedByUniqueType(scene, 'constraint-angle')[0];
+    expect(row.hasError).toBe(true);
+    expect(row.errorMessage).toContain('no negative angles');
+    expect(row.errorMessage).toContain('angle(b, a, 60)');
+  });
+
+  it("endpoint accessors orient the angle's directions — the supplementary sector solves", () => {
+    sketch('xy', () => {
+      const a = line([0, 0], [100, 0]);
+      fix(a.start());
+      fix(a.end());
+      // Guessed near 236° so the solve converges on the intended branch.
+      const b = line([100, 0], [55, -80]);
+      coincident(a.end(), b.start());
+      distance(b.start(), b.end(), 100);
+      // CCW from a (+x) to b oriented toward its START = 60° — b itself
+      // must point at 240°. The bare-ref form can't name this sector
+      // with a positive value; the accessor form is the encoding.
+      angle(a, b.start(), 60);
+    }, true);
+    const scene = render();
+
+    const row = renderedByUniqueType(scene, 'constraint-angle')[0];
+    expect(row.hasError).toBe(false);
+
+    const payload = scene.getRenderedObject(scene.getSceneObjectById(row.parentId)!).object;
+    const record = payload.solver.constraints.find((c: any) => c.spec.kind === 'angle');
+    expect(record.spec.b.point).toBe('start');
+    expect(record.spec.value).toBeCloseTo(Math.PI / 3, 10);
+
+    const bEntity = payload.solver.entities[1];
+    const p = payload.solver.params;
+    const o = bEntity.paramOffset;
+    expect(p[o + 2] - p[o]).toBeCloseTo(100 * Math.cos((240 * Math.PI) / 180), 4);
+    expect(p[o + 3] - p[o + 1]).toBeCloseTo(100 * Math.sin((240 * Math.PI) / 180), 4);
+  });
+
   it("reports duplicated constraints as redundant, not as errors", () => {
     sketch('xy', () => {
       const a = line([0, 0], [50, 1]);

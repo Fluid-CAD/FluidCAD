@@ -12,14 +12,13 @@ import {
   entityAnchor,
   entityFor,
   footOnLine,
-  lineDir,
-  lineIntersection,
   lineMid,
   mid,
   norm,
   refPoint,
   sub,
 } from '../../sketch-solver-client/resolve';
+import { AngleSector, angleSectorAt, angleSectorFor, angleSectorSpec } from './angle-sector';
 
 export type ConstraintButtonId =
   | 'coincident' | 'horizontal' | 'vertical' | 'parallel' | 'perpendicular'
@@ -179,12 +178,15 @@ export function dimensionFormFor(rawPicks: SolvedPick[]): DimensionForm | null {
 }
 
 /** Measured value of the dimension a pick set would create — the value
- * input's opening seed, in display units (degrees for angle). */
+ * input's opening seed, in display units (degrees for angle). Angles
+ * measure a SECTOR (always positive, ≤ 180°): the given one, or the
+ * default sector between the two start→end directions. */
 export function measureDimension(
   model: SolvedSketchModel,
   rawPicks: SolvedPick[],
   form: DimensionForm,
   axis?: 'x' | 'y',
+  sector?: AngleSector | null,
 ): number | null {
   const picks = expandDimensionPicks(rawPicks);
   const round2 = (v: number): number => Math.round(v * 100) / 100;
@@ -198,21 +200,10 @@ export function measureDimension(
   }
 
   if (form.kind === 'angle') {
-    const a = entityFor(model, pickRef(picks[0]));
-    const b = entityFor(model, pickRef(picks[1]));
-    const da = a ? lineDir(a) : null;
-    const db = b ? lineDir(b) : null;
-    if (!da || !db) {
-      return null;
-    }
-    let deg = (Math.atan2(db[1], db[0]) - Math.atan2(da[1], da[0])) * (180 / Math.PI);
-    if (deg <= -180) {
-      deg += 360;
-    }
-    if (deg > 180) {
-      deg -= 360;
-    }
-    return round2(deg);
+    const s = sector
+      ? angleSectorFor(model, picks[0], picks[1], sector.aRole, sector.bRole)
+      : angleSectorAt(model, picks[0], picks[1], null);
+    return s ? s.valueDeg : null;
   }
 
   const [a, b] = picks;
@@ -262,6 +253,7 @@ export function candidateSpec(
   picks: SolvedPick[],
   value?: number,
   axis?: 'x' | 'y',
+  sector?: AngleSector | null,
 ): ConstraintSpec | null {
   if (!pairEnabled(id, picks)) {
     return null;
@@ -294,10 +286,14 @@ export function candidateSpec(
     }
     case 'fix':
       return { kind: 'fix', p: pickRef(a) };
-    case 'angle':
-      return value === undefined
-        ? null
-        : { kind: 'angle', a: pickRef(a), b: pickRef(b), value: (value * Math.PI) / 180 };
+    case 'angle': {
+      if (value === undefined || !sector) {
+        return null;
+      }
+      // The sector orders the refs and orients each line so the
+      // counterclockwise value is the sector's own — always positive.
+      return angleSectorSpec(a, b, sector, value);
+    }
     case 'dimension': {
       const form = dimensionFormFor(picks);
       if (!form || value === undefined) {
@@ -324,17 +320,29 @@ export type DimensionPreviewLayout = {
   line: [Vec2, Vec2] | null;
   /** Where the value input anchors — the committed glyph's label spot. */
   at: Vec2;
+  /** Angle only: the sector arc around `at` (screen-constant radius, same
+   * as the committed glyph), plus dashed extension leaders for segments
+   * that don't reach the intersection and the tail-stub ray angles that
+   * make the arc's ends touch them. Absent for near-parallel lines. */
+  arc?: {
+    startAngle: number;
+    sweep: number;
+    extensions: [Vec2, Vec2][];
+    tails: number[];
+  };
 };
 
 /** Where the dimension a pick set would create will sit: the same anchors
  * the committed glyph's leader uses (distanceSpecEndpoints — the preview
  * lands exactly where the real dimension will render), with the value
- * input anchored at the label position. */
+ * input anchored at the label position. Angles preview the given sector
+ * (default: between the start→end directions). */
 export function dimensionPreviewLayout(
   model: SolvedSketchModel,
   rawPicks: SolvedPick[],
   form: DimensionForm,
   axis?: 'x' | 'y',
+  sector?: AngleSector | null,
 ): DimensionPreviewLayout | null {
   const picks = expandDimensionPicks(rawPicks);
   if (form.kind === 'radius' || form.kind === 'diameter') {
@@ -343,18 +351,34 @@ export function dimensionPreviewLayout(
     return e?.center && rim ? { line: [e.center, rim], at: rim } : null;
   }
   if (form.kind === 'angle') {
-    const a = entityFor(model, pickRef(picks[0]));
-    const b = picks[1] ? entityFor(model, pickRef(picks[1])) : undefined;
-    if (!a || !b) {
+    if (!picks[1]) {
       return null;
     }
-    let at = lineIntersection(a, b);
-    if (!at) {
-      const ma = lineMid(a);
-      const mb = lineMid(b);
-      at = ma && mb ? mid(ma, mb) : null;
+    const s = sector
+      ? angleSectorFor(model, picks[0], picks[1], sector.aRole, sector.bRole)
+      : angleSectorAt(model, picks[0], picks[1], null);
+    if (!s) {
+      return null;
     }
-    return at ? { line: null, at } : null;
+    if (s.at) {
+      return {
+        line: null,
+        at: s.at,
+        arc: {
+          startAngle: s.startAngle,
+          sweep: s.sweep,
+          extensions: s.extensions,
+          tails: s.tails,
+        },
+      };
+    }
+    // Near-parallel lines have no usable intersection — anchor between
+    // the two midpoints, like the committed glyph's fallback readout.
+    const a = entityFor(model, pickRef(picks[0]));
+    const b = entityFor(model, pickRef(picks[1]));
+    const ma = a ? lineMid(a) : null;
+    const mb = b ? lineMid(b) : null;
+    return ma && mb ? { line: null, at: mid(ma, mb) } : null;
   }
   if (picks.length !== 2) {
     return null;

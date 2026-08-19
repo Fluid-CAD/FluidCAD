@@ -76,6 +76,50 @@ export function lineDir(e: SolvedEntityView): Vec2 | null {
   return normalize(sub(e.end, e.start));
 }
 
+/** Extension from the segment's nearest endpoint to `p`, when `p` lies
+ * beyond the segment along its infinite line — the dashed helper leader an
+ * angle dimension draws to a virtual intersection the segments don't
+ * reach. Null when the segment already contains `p`'s projection. */
+export function segmentExtensionTo(e: SolvedEntityView, p: Vec2): [Vec2, Vec2] | null {
+  if (!e.start || !e.end) {
+    return null;
+  }
+  const d = sub(e.end, e.start);
+  const len2 = d[0] * d[0] + d[1] * d[1];
+  if (len2 < 1e-18) {
+    return null;
+  }
+  const t = ((p[0] - e.start[0]) * d[0] + (p[1] - e.start[1]) * d[1]) / len2;
+  if (t >= 0 && t <= 1) {
+    return null;
+  }
+  return [t < 0 ? e.start : e.end, p];
+}
+
+/** Does the segment extend from `at` along direction `r` (unit)? True when
+ * an endpoint lies on the +r side — the sector-boundary ray is then covered
+ * by visible geometry near `at`; false means an angle arc's end would float
+ * in empty space there and needs a dashed tail to touch. */
+export function segmentCoversRay(e: SolvedEntityView, at: Vec2, r: Vec2): boolean {
+  if (!e.start || !e.end) {
+    return false;
+  }
+  const ds = (e.start[0] - at[0]) * r[0] + (e.start[1] - at[1]) * r[1];
+  const de = (e.end[0] - at[0]) * r[0] + (e.end[1] - at[1]) * r[1];
+  return Math.max(ds, de) > 1e-9;
+}
+
+/** A line's direction oriented by a ref's point role: a bare ref (or its
+ * 'end' point) is start→end, a 'start' point ref reverses — the angle
+ * constraint's sector encoding (each ref orients its own line). */
+export function orientedLineDir(e: SolvedEntityView, ref: SolverRef): Vec2 | null {
+  const d = lineDir(e);
+  if (!d) {
+    return null;
+  }
+  return ref.point === 'start' ? [-d[0], -d[1]] : d;
+}
+
 /** Point on an arc halfway between its endpoints, on the drawn side. */
 export function arcMidPoint(e: SolvedEntityView): Vec2 | null {
   if (!e.center || !e.start || !e.end || e.radius === undefined) {

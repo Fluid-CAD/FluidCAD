@@ -16,6 +16,7 @@ import {
   Group,
   Line,
   LineBasicMaterial,
+  LineDashedMaterial,
   Mesh,
   MeshBasicMaterial,
   PlaneGeometry,
@@ -27,7 +28,7 @@ import type { ConstraintGlyph, GlyphColorRole, SolvedSketchModel } from '../../s
 import { localToWorld } from '../../interactive/sketch-plane-utils';
 import { applyConstantPixelSize, pixelScale, pixelsToWorld } from '../screen-scale';
 import { themeColors } from '../../scene/theme-colors';
-import { getIconTexture, getTextTexture, IconTexture } from './badge-textures';
+import { createTextTexture, getIconTexture, getTextTexture, IconTexture } from './badge-textures';
 
 const ICON_OFFSET_PX = 22;
 const ICON_PLANE_SIZE = 5;
@@ -136,6 +137,174 @@ function createOffsetSprite(
   };
 
   return { group, material };
+}
+
+/**
+ * Dashed helper leaders from each segment's nearest endpoint to the virtual
+ * intersection an angle dimension anchors on (Fusion/FreeCAD extension
+ * lines). World-scale — deliberately OUTSIDE the screen-constant arc group.
+ * Dash length is proportional to each extension so density reads the same
+ * whatever the sketch's size. Null when there is nothing to draw.
+ */
+export function buildAngleExtensions(
+  extensions: [[number, number], [number, number]][],
+  plane: PlaneData,
+  color: Color,
+  opacity = LEADER_OPACITY,
+): Group | null {
+  if (extensions.length === 0) {
+    return null;
+  }
+  const group = new Group();
+  group.renderOrder = ICON_RENDER_ORDER - 1;
+  group.userData.isConstraintIcon = true;
+  for (const [fromLocal, toLocal] of extensions) {
+    const from = localToWorld(fromLocal, plane);
+    const to = localToWorld(toLocal, plane);
+    const len = from.distanceTo(to);
+    if (len < 1e-9) {
+      continue;
+    }
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([
+      from.x, from.y, from.z,
+      to.x, to.y, to.z,
+    ], 3));
+    // Quantize the pattern so the line starts AND ends on a full dash —
+    // len = (n+1)·dash + n·gap with gap = 0.7·dash, n = 8 gaps. A
+    // free-running pattern can end mid-gap, visibly detaching the leader
+    // from the arc it must touch (and from the solid segment behind it).
+    const dash = len / (1 + 1.7 * 8);
+    const material = new LineDashedMaterial({
+      color,
+      transparent: true,
+      opacity,
+      depthTest: false,
+      dashSize: dash,
+      gapSize: 0.7 * dash,
+    });
+    const line = new Line(geometry, material);
+    // Dash rendering is inert without per-vertex line distances.
+    line.computeLineDistances();
+    line.renderOrder = ICON_RENDER_ORDER - 1;
+    group.add(line);
+  }
+  return group.children.length > 0 ? group : null;
+}
+
+export type AngleArcVisual = {
+  group: Group;
+  /** World position of the arc center (the lines' intersection). */
+  position: Vector3;
+  midAngle: number;
+  /** Pixel radius of the label anchor from the arc center. */
+  textPxRadius: number;
+  textAspect: number;
+  materials: (MeshBasicMaterial | LineBasicMaterial)[];
+  /** Uncached label texture (opacity previews) — dispose with the group. */
+  ownedTexture: IconTexture['texture'] | null;
+};
+
+/**
+ * Screen-constant angle dimension arc + readout, shared by the committed
+ * glyph and the toolbar's placement/pending previews. `opacity < 1` marks a
+ * preview: its label texture is created uncached (live readouts change
+ * every frame) and returned for disposal.
+ */
+export function buildAngleArc(
+  at: [number, number],
+  startAngle: number,
+  sweep: number,
+  label: string | null,
+  plane: PlaneData,
+  normal: Vec3Data,
+  color: Color,
+  opacity = 0.9,
+  tails: number[] = [],
+): AngleArcVisual {
+  const position = localToWorld(at, plane);
+  const group = new Group();
+  group.renderOrder = ICON_RENDER_ORDER;
+  group.userData.isConstraintIcon = true;
+  orientToPlane(group, position, plane, normal);
+
+  const arcPoints: number[] = [];
+  for (let i = 0; i <= ANGLE_ARC_SEGMENTS; i++) {
+    const a = startAngle + sweep * (i / ANGLE_ARC_SEGMENTS);
+    arcPoints.push(Math.cos(a) * ANGLE_ARC_RADIUS, Math.sin(a) * ANGLE_ARC_RADIUS, 0);
+  }
+  const arcGeometry = new BufferGeometry();
+  arcGeometry.setAttribute('position', new Float32BufferAttribute(arcPoints, 3));
+  const arcMaterial = new LineBasicMaterial({
+    color, transparent: true, opacity, depthTest: false,
+  });
+  const arc = new Line(arcGeometry, arcMaterial);
+  arc.renderOrder = ICON_RENDER_ORDER;
+  group.add(arc);
+
+  // Dashed tail stubs from the center to just past the rim along sector
+  // rays no segment covers — with the world-scale extension leader arriving
+  // on the opposite ray, the pair reads as one straight dashed line through
+  // the intersection that TOUCHES the arc's end. Group-local units, so the
+  // dashes stay screen-constant like the arc.
+  const tailRadius = ANGLE_ARC_RADIUS * 1.25;
+  for (const angle of tails) {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new Float32BufferAttribute([
+      0, 0, 0,
+      Math.cos(angle) * tailRadius, Math.sin(angle) * tailRadius, 0,
+    ], 3));
+    // 3 gaps + 4 dashes, dash-aligned at both ends (see buildAngleExtensions).
+    const dash = tailRadius / (1 + 1.7 * 3);
+    const material = new LineDashedMaterial({
+      color, transparent: true, opacity: Math.min(opacity, LEADER_OPACITY),
+      depthTest: false, dashSize: dash, gapSize: 0.7 * dash,
+    });
+    const tail = new Line(geometry, material);
+    tail.computeLineDistances();
+    tail.renderOrder = ICON_RENDER_ORDER - 1;
+    group.add(tail);
+  }
+
+  const materials: (MeshBasicMaterial | LineBasicMaterial)[] = [arcMaterial];
+  const midAngle = startAngle + sweep / 2;
+  const textSize = ANGLE_ARC_RADIUS * (ANGLE_TEXT_PX_SIZE / ANGLE_ARC_PX_RADIUS);
+  const textRadius = ANGLE_ARC_RADIUS + textSize;
+  let textAspect = 1;
+  let ownedTexture: IconTexture['texture'] | null = null;
+  let sizeAnchor: Mesh | Line = arc;
+  if (label !== null) {
+    const cached = opacity >= 0.9;
+    const texture = cached ? getTextTexture(label, '#ffffff') : createTextTexture(label, '#ffffff');
+    textAspect = texture.aspect;
+    if (!cached) {
+      ownedTexture = texture.texture;
+    }
+    const textMaterial = new MeshBasicMaterial({
+      map: texture.texture, transparent: true, opacity, depthTest: false, side: DoubleSide, color,
+    });
+    const textMesh = new Mesh(
+      new PlaneGeometry(textSize * texture.aspect, textSize),
+      textMaterial,
+    );
+    textMesh.renderOrder = ICON_RENDER_ORDER;
+    textMesh.position.set(Math.cos(midAngle) * textRadius, Math.sin(midAngle) * textRadius, 0);
+    group.add(textMesh);
+    materials.push(textMaterial);
+    sizeAnchor = textMesh;
+  }
+
+  applyConstantPixelSize(sizeAnchor, group, position, ANGLE_ARC_PX_RADIUS, ANGLE_ARC_RADIUS);
+
+  return {
+    group,
+    position,
+    midAngle,
+    textPxRadius: (textRadius / ANGLE_ARC_RADIUS) * ANGLE_ARC_PX_RADIUS,
+    textAspect,
+    materials,
+    ownedTexture,
+  };
 }
 
 export function buildSolvedConstraintMeshes(
@@ -249,55 +418,27 @@ export function buildSolvedConstraintMeshes(
       }
 
       case 'angle-arc': {
-        const position = localToWorld(glyph.at, plane);
-        const group = new Group();
-        group.renderOrder = ICON_RENDER_ORDER;
-        group.userData.isConstraintIcon = true;
-        orientToPlane(group, position, plane, normal);
-
-        const arcPoints: number[] = [];
-        for (let i = 0; i <= ANGLE_ARC_SEGMENTS; i++) {
-          const a = glyph.startAngle + glyph.sweep * (i / ANGLE_ARC_SEGMENTS);
-          arcPoints.push(Math.cos(a) * ANGLE_ARC_RADIUS, Math.sin(a) * ANGLE_ARC_RADIUS, 0);
-        }
-        const arcGeometry = new BufferGeometry();
-        arcGeometry.setAttribute('position', new Float32BufferAttribute(arcPoints, 3));
-        const arcMaterial = new LineBasicMaterial({
-          color, transparent: true, opacity: 0.9, depthTest: false,
-        });
-        const arc = new Line(arcGeometry, arcMaterial);
-        arc.renderOrder = ICON_RENDER_ORDER;
-        group.add(arc);
-
-        const texture = getTextTexture(glyph.label, white);
-        const textSize = ANGLE_ARC_RADIUS * (ANGLE_TEXT_PX_SIZE / ANGLE_ARC_PX_RADIUS);
-        const textMaterial = new MeshBasicMaterial({
-          map: texture.texture, transparent: true, depthTest: false, side: DoubleSide, color,
-        });
-        const textMesh = new Mesh(
-          new PlaneGeometry(textSize * texture.aspect, textSize),
-          textMaterial,
+        const visual = buildAngleArc(
+          glyph.at, glyph.startAngle, glyph.sweep, glyph.label, plane, normal, color,
+          undefined, glyph.tails,
         );
-        textMesh.renderOrder = ICON_RENDER_ORDER;
-        const midAngle = glyph.startAngle + glyph.sweep / 2;
-        const textRadius = ANGLE_ARC_RADIUS + textSize;
-        textMesh.position.set(Math.cos(midAngle) * textRadius, Math.sin(midAngle) * textRadius, 0);
-        group.add(textMesh);
-
-        applyConstantPixelSize(textMesh, group, position, ANGLE_ARC_PX_RADIUS, ANGLE_ARC_RADIUS);
-        groups.push(group);
-
-        const textPxRadius = (textRadius / ANGLE_ARC_RADIUS) * ANGLE_ARC_PX_RADIUS;
+        groups.push(visual.group);
+        // Dashed extension leaders to a virtual intersection — context,
+        // not pick targets (like distance leaders).
+        const ext = buildAngleExtensions(glyph.extensions, plane, color);
+        if (ext) {
+          groups.push(ext);
+        }
         hitTargets.push({
           objId: glyph.objId,
           sourceLocation: glyph.sourceLocation,
           refEntityIds: glyph.refEntityIds,
-          anchorWorld: position,
-          offsetDirWorld: dirToWorld([Math.cos(midAngle), Math.sin(midAngle)], plane),
-          offsetPx: textPxRadius,
-          halfWidthPx: (ANGLE_TEXT_PX_SIZE * texture.aspect) / 2,
+          anchorWorld: visual.position,
+          offsetDirWorld: dirToWorld([Math.cos(visual.midAngle), Math.sin(visual.midAngle)], plane),
+          offsetPx: visual.textPxRadius,
+          halfWidthPx: (ANGLE_TEXT_PX_SIZE * visual.textAspect) / 2,
           halfHeightPx: ANGLE_TEXT_PX_SIZE / 2,
-          materials: [textMaterial, arcMaterial],
+          materials: visual.materials,
           baseColor: color,
         });
         break;

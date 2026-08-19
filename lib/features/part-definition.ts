@@ -1,4 +1,5 @@
 import { Part } from "./part.js";
+import { registerPartDefinitionClass } from "./part-args.js";
 import type { Connector } from "./connector.js";
 import type { Exposed } from "./exposed.js";
 import type { SceneObject } from "../common/scene-object.js";
@@ -238,6 +239,4 @@ export class PartDefinition<T = unknown> {
  * keeps build order: the donor's geometry enters the scene before the
  * consuming statement does.
  */
-export function materializePartArgs(args: unknown[]): any[] {
-  return args.map(a => (a instanceof PartDefinition ? a.materialize() : a));
-}
+registerPartDefinitionClass(PartDefinition);

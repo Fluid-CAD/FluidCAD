@@ -1,7 +1,7 @@
 import { PlaneLike } from "../../math/plane.js";
 import { normalizePlane } from "../../helpers/normalize.js";
 import { Edge, Face } from "../../common/shapes.js";
-import { materializePartArgs } from "../../features/part-definition.js";
+import { materializePartArgs } from "../../features/part-args.js";
 import { FilterBuilderBase } from "../filter-builder-base.js";
 import { CircleFilter, NotCircleFilter } from "./circle-filter.js";
 import { ArcFilter, NotArcFilter } from "./curve-filter.js";

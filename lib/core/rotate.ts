@@ -3,7 +3,7 @@ import { normalizeAxis } from "../helpers/normalize.js";
 import { Rotate } from "../features/rotate.js";
 import { AxisLike } from "../math/axis.js";
 import { SceneObject } from "../common/scene-object.js";
-import { materializePartArgs } from "../features/part-definition.js";
+import { materializePartArgs } from "../features/part-args.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisObject } from "../features/axis.js";
 import { Rotate2D } from "../features/rotate2d.js";

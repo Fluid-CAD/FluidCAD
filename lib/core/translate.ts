@@ -6,7 +6,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { Vertex } from "../common/vertex.js";
 import { LazyVertex } from "../features/lazy-vertex.js";
 import { ISceneObject, ITranslate } from "./interfaces.js";
-import { materializePartArgs } from "../features/part-definition.js";
+import { materializePartArgs } from "../features/part-args.js";
 import { type NumberParam, type BooleanParam, isNumberParam, isBooleanParam, resolveParam } from "./param.js";
 
 interface TranslateFunction {

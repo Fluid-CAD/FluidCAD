@@ -1,7 +1,7 @@
 import { SceneObject } from "../common/scene-object.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { Remove } from "../features/remove.js";
-import { materializePartArgs } from "../features/part-definition.js";
+import { materializePartArgs } from "../features/part-args.js";
 import { ISceneObject } from "./interfaces.js";
 
 interface RemoveFunction {

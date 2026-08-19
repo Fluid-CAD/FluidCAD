@@ -7106,6 +7106,59 @@ export function createApplyFeatureRouter(
     }
   });
 
+  // Solved-sketch constraint emission (sketch-rewrite P4): the toolbar's
+  // picks arrive as entity statement lines + point roles; the transform
+  // hoists unbound producers and appends the constraint statement at the
+  // sketch body's end — one edit, riding the generic apply-feature-edit
+  // round trip (preflight + drift-honest ack).
+  router.post('/sketch/add-constraint', async (req, res) => {
+    const { sketchLine, filePath, kind, targets, valueExpr, axis } = req.body ?? {};
+    if (typeof sketchLine !== 'number' || typeof kind !== 'string'
+      || !Array.isArray(targets) || targets.length === 0 || targets.length > 3
+      || (filePath !== undefined && typeof filePath !== 'string')
+      || (valueExpr !== undefined && typeof valueExpr !== 'string')
+      || (axis !== undefined && axis !== 'x' && axis !== 'y')) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const validRoles = new Set(['start', 'end', 'center', 'mid']);
+    const validTypes = new Set(['line', 'arc', 'circle', 'point']);
+    const cleanTargets: { line: number; role?: string; featureType?: string }[] = [];
+    for (const t of targets) {
+      if (typeof t !== 'object' || t === null || typeof t.line !== 'number'
+        || (t.role !== undefined && !validRoles.has(t.role))
+        || (t.featureType !== undefined && !validTypes.has(t.featureType))) {
+        res.status(400).json({ error: 'Invalid request body' });
+        return;
+      }
+      cleanTargets.push({
+        line: t.line,
+        ...(t.role !== undefined ? { role: t.role } : {}),
+        ...(t.featureType !== undefined ? { featureType: t.featureType } : {}),
+      });
+    }
+    const targetFile = filePath ?? fluidCadServer.getCurrentFileName();
+    if (!targetFile) {
+      res.status(422).json({ success: false, reason: 'No rendered scene' });
+      return;
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: targetFile,
+      producers: [],
+      parts: [],
+      imports: [],
+      sketchConstraint: {
+        sketchLine,
+        kind,
+        targets: cleanTargets as any,
+        ...(valueExpr !== undefined ? { valueExpr } : {}),
+        ...(axis !== undefined ? { axis } : {}),
+      },
+    };
+    await dispatcher.dispatch(res, spec, { success: true });
+  });
+
   // Apply one conversion: re-run the analysis fresh (never trust a stale
   // option), verify the target is enabled and the buffer unchanged, then ride
   // the generic apply-feature-edit round trip through the extension.

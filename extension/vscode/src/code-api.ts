@@ -167,6 +167,23 @@ export function setChainPositions(
   return postCodeEdit<CodeEditResult>(serverUrl, 'set-chain-positions', { code, sourceLine, updates }, logger);
 }
 
+export type SketchPositionEditPayload = {
+  sourceLine: number;
+  points?: { pointIndex: number; position: [number, number]; expected?: [number, number] }[];
+  scalar?: { value: number; expected?: number };
+};
+
+/** Unlike the other transforms this one can refuse (drift guard) — the
+ * refusal rides `error` beside the untouched code. */
+export type SketchPositionsResult = { newCode: string; error?: string };
+
+export function updateSketchPositions(
+  serverUrl: string, code: string,
+  edits: SketchPositionEditPayload[], logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<SketchPositionsResult>(serverUrl, 'update-sketch-positions', { code, edits }, logger);
+}
+
 export function setRectDimensions(
   serverUrl: string, code: string, sourceLine: number,
   startPoint: [number, number] | null, width: number, height: number, logger: vscode.OutputChannel,

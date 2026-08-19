@@ -105,7 +105,7 @@ app.use('/api', createParamsRouter(fluidCadServer, sendToExtension, broadcastToU
 app.use('/api', createHitTestRouter(fluidCadServer));
 app.use('/api', createMeasureRouter(fluidCadServer));
 app.use('/api', createTimelineRouter(fluidCadServer, sendToExtension, broadcastToUI));
-app.use('/api', createSketchEditsRouter(fluidCadServer, sendToExtension, WORKSPACE_PATH));
+app.use('/api', createSketchEditsRouter(fluidCadServer, sendToExtension, WORKSPACE_PATH, editDispatcher));
 app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToExtension, { dispatcher: editDispatcher }));
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
 app.use('/api', createScreenshotRouter(requestScreenshot));

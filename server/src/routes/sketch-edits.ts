@@ -21,6 +21,8 @@ import {
   updateGeometryPosition,
   setLinePosition,
   setChainPositions,
+  updateSketchPositions,
+  type SketchPositionEdit,
   updateDimension,
   updateDimensionExpressionWithVariable,
   getDimensionExpression,
@@ -30,6 +32,48 @@ import {
   setRectDimensions,
 } from '../code-editor.ts';
 import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts';
+import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
+
+/** One statement's worth of a solved-sketch drag write-back (P4). */
+function validateSketchPositionEdit(input: unknown): SketchPositionEdit | null {
+  if (typeof input !== 'object' || input === null) {
+    return null;
+  }
+  const obj = input as Record<string, unknown>;
+  if (typeof obj.sourceLine !== 'number') {
+    return null;
+  }
+  const edit: SketchPositionEdit = { sourceLine: obj.sourceLine };
+  if (obj.points !== undefined) {
+    if (!Array.isArray(obj.points)) {
+      return null;
+    }
+    const points: SketchPositionEdit['points'] = [];
+    for (const p of obj.points) {
+      if (typeof p !== 'object' || p === null
+        || typeof (p as any).pointIndex !== 'number'
+        || !validPoint((p as any).position)
+        || ((p as any).expected !== undefined && !validPoint((p as any).expected))) {
+        return null;
+      }
+      points.push({
+        pointIndex: (p as any).pointIndex,
+        position: (p as any).position,
+        ...((p as any).expected !== undefined ? { expected: (p as any).expected } : {}),
+      });
+    }
+    edit.points = points;
+  }
+  if (obj.scalar !== undefined) {
+    const s = obj.scalar as Record<string, unknown> | null;
+    if (typeof s !== 'object' || s === null || typeof s.value !== 'number'
+      || (s.expected !== undefined && typeof s.expected !== 'number')) {
+      return null;
+    }
+    edit.scalar = { value: s.value, ...(s.expected !== undefined ? { expected: s.expected as number } : {}) };
+  }
+  return edit;
+}
 
 const NEW_VAR_NAME_RE = /^[a-zA-Z_$][\w$]*$/;
 
@@ -78,6 +122,7 @@ export function createSketchEditsRouter(
   fluidCadServer: FluidCadServer,
   sendToExtension: (msg: any) => void,
   workspacePath: string,
+  dispatcher?: FeatureEditDispatcher,
 ): Router {
   const router = Router();
 
@@ -329,6 +374,57 @@ export function createSketchEditsRouter(
       sourceLocation,
     });
     res.json({ success: true });
+  });
+
+  // Solved-sketch batch write-back (sketch-rewrite P4): every drifted literal
+  // across multiple statements in one edit (one undo step). Unlike the legacy
+  // fire-and-forget position routes this one answers with the edit's true
+  // outcome: a preflight dry-run refuses drift fast, then the editor's
+  // edit-ack settles the request (422 on refusal, 504 on a silent editor,
+  // 503 with no editor attached).
+  router.post('/update-sketch-positions', async (req, res) => {
+    const { filePath, edits } = req.body ?? {};
+    if (!Array.isArray(edits) || edits.length === 0
+      || (filePath !== undefined && typeof filePath !== 'string')) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const validated: SketchPositionEdit[] = [];
+    for (const edit of edits) {
+      const v = validateSketchPositionEdit(edit);
+      if (!v) {
+        res.status(400).json({ error: 'Invalid request body' });
+        return;
+      }
+      validated.push(v);
+    }
+
+    if (!filePath || filePath === fluidCadServer.getCurrentFileName()) {
+      const code = fluidCadServer.getCurrentCode();
+      if (code !== null) {
+        try {
+          const dryRun = await updateSketchPositions(code, validated);
+          if (dryRun.error) {
+            res.status(422).json({ success: false, reason: dryRun.error });
+            return;
+          }
+        } catch {
+          // A preflight crash is not a verdict — the editor round-trip decides.
+        }
+      }
+    }
+
+    if (!dispatcher) {
+      sendToExtension({ type: 'update-sketch-positions', filePath, edits: validated });
+      res.json({ success: true });
+      return;
+    }
+    await dispatcher.dispatchAction(res, (editId) => ({
+      type: 'update-sketch-positions',
+      editId,
+      filePath,
+      edits: validated,
+    }));
   });
 
   router.post('/update-dimension', (req, res) => {
@@ -859,6 +955,29 @@ export function createSketchEditsRouter(
     }
     try {
       const result = await setChainPositions(code, sourceLine, updates);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  router.post('/code/update-sketch-positions', async (req, res) => {
+    const { code, edits } = req.body ?? {};
+    if (typeof code !== 'string' || !Array.isArray(edits) || edits.length === 0) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const validated: SketchPositionEdit[] = [];
+    for (const edit of edits) {
+      const v = validateSketchPositionEdit(edit);
+      if (!v) {
+        res.status(400).json({ error: 'Invalid request body' });
+        return;
+      }
+      validated.push(v);
+    }
+    try {
+      const result = await updateSketchPositions(code, validated);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

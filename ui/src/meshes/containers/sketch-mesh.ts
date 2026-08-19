@@ -10,6 +10,8 @@ import {
   Quaternion,
   Vector3,
 } from 'three';
+import type { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
+import type { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { SceneObjectRender } from '../../types';
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { createMetaEdgeMesh, createMetaFaceMesh } from './shape-group';
@@ -20,7 +22,10 @@ import {
   SolvedSketchModel,
   buildSolvedSketchModel,
   layoutConstraintGlyphs,
+  tessellateSolvedEntity,
 } from '../../sketch-solver-client';
+import type { LiveEntityGeometry } from '../../sketch-solver-client';
+import { localToWorld } from '../../interactive/sketch-plane-utils';
 import { themeColors } from '../../scene/theme-colors';
 import { applyConstantPixelSize } from '../screen-scale';
 
@@ -56,6 +61,12 @@ const TANGENT_PX_LENGTH = 54;
 export class SketchMesh extends Group {
   /** Read model of a solved-mode sketch; null for legacy sketches. */
   private solvedModel: SolvedSketchModel | null;
+  /** Solved entity id → its edge meshes, for live drag updates (P4). */
+  private solvedEdgeMeshes = new Map<number, EdgeMesh[]>();
+  /** Vertex-dot groups bound to solved entity points, for live drag moves. */
+  private solvedDotBindings: { group: Group; entityId: number; role: 'point' | 'start' | 'end' | 'center' }[] = [];
+  /** The current glyph groups — replaced wholesale on live updates. */
+  private solvedGlyphGroups: Group[] = [];
 
   constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], activeSketchId: string | null, _camera: Camera) {
     super();
@@ -64,11 +75,169 @@ export class SketchMesh extends Group {
     this.solvedModel = buildSolvedSketchModel(sceneObject, allObjects);
     this.buildEdges(sceneObject, allObjects);
     this.buildVertices(sceneObject, allObjects);
+    this.bindSolvedDots();
     this.addConstraintIcons(sceneObject, allObjects);
     if (activeSketchId && sceneObject.id === activeSketchId) {
       this.buildCursor(sceneObject);
       this.buildTangentArrow(sceneObject);
     }
+  }
+
+  get solved(): SolvedSketchModel | null {
+    return this.solvedModel;
+  }
+
+  /**
+   * Live drag frame (P4): pull every entity's current geometry from the
+   * client-side solve, mutate the read model in place, rewrite edge mesh
+   * positions, move bound vertex dots, and re-layout the constraint glyphs.
+   * The next real render replaces this mesh wholesale.
+   */
+  updateSolvedGeometry(read: (entityId: number) => LiveEntityGeometry | null): void {
+    const model = this.solvedModel;
+    if (!model) {
+      return;
+    }
+
+    for (const [entityId, view] of model.entities) {
+      const g = read(entityId);
+      if (!g) {
+        continue;
+      }
+      if (g.point) {
+        view.point = g.point;
+      }
+      if (g.start) {
+        view.start = g.start;
+      }
+      if (g.end) {
+        view.end = g.end;
+      }
+      if (g.center) {
+        view.center = g.center;
+      }
+      if (g.radius !== undefined) {
+        view.radius = g.radius;
+      }
+    }
+
+    for (const [entityId, meshes] of this.solvedEdgeMeshes) {
+      const view = model.entities.get(entityId);
+      if (!view) {
+        continue;
+      }
+      for (const edgeMesh of meshes) {
+        for (const child of edgeMesh.children) {
+          if (!child.userData.isEdgeLine) {
+            continue;
+          }
+          const line = child as LineSegments2;
+          const geometry = line.geometry as LineSegmentsGeometry;
+          // setPositions must keep the segment count the mesh was built
+          // with — the renderer caches the instance count per geometry, so
+          // a different count clips or overruns the draw.
+          const segments = geometry.attributes.instanceStart?.count;
+          if (!segments) {
+            continue;
+          }
+          const points = tessellateSolvedEntity(view, segments);
+          if (!points || points.length !== segments + 1) {
+            continue;
+          }
+          const positions = new Float32Array(segments * 6);
+          let offset = 0;
+          let prev = localToWorld(points[0], model.plane);
+          for (let i = 1; i < points.length; i++) {
+            const next = localToWorld(points[i], model.plane);
+            positions[offset++] = prev.x;
+            positions[offset++] = prev.y;
+            positions[offset++] = prev.z;
+            positions[offset++] = next.x;
+            positions[offset++] = next.y;
+            positions[offset++] = next.z;
+            prev = next;
+          }
+          geometry.setPositions(positions);
+          geometry.computeBoundingBox();
+          geometry.computeBoundingSphere();
+        }
+      }
+    }
+
+    for (const binding of this.solvedDotBindings) {
+      const view = model.entities.get(binding.entityId);
+      if (!view) {
+        continue;
+      }
+      const at = binding.role === 'point' ? view.point
+        : binding.role === 'start' ? view.start
+          : binding.role === 'end' ? view.end : view.center;
+      if (at) {
+        // The group's own position vector is the screen-scale anchor too
+        // (addVertexDots hands it to applyConstantPixelSize), so this move
+        // keeps the constant-pixel sizing tracking the dot.
+        binding.group.position.copy(localToWorld(at, model.plane));
+      }
+    }
+
+    this.rebuildSolvedGlyphs();
+  }
+
+  /** Bind each vertex dot to the solved entity point it sits on, by world
+   * position — dots are derived from tessellation and carry no identity of
+   * their own. A junction dot binds to its first matching point; coincident
+   * points move together during solves, so any member tracks it. */
+  private bindSolvedDots(): void {
+    const model = this.solvedModel;
+    if (!model) {
+      return;
+    }
+    const slots: { entityId: number; role: 'point' | 'start' | 'end' | 'center'; world: Vector3 }[] = [];
+    for (const [entityId, e] of model.entities) {
+      const push = (role: 'point' | 'start' | 'end' | 'center', at: [number, number] | undefined) => {
+        if (at) {
+          slots.push({ entityId, role, world: localToWorld(at, model.plane) });
+        }
+      };
+      push('point', e.point);
+      push('start', e.start);
+      push('end', e.end);
+      push('center', e.center);
+    }
+    const EPS_SQ = 1e-10;
+    for (const child of this.children) {
+      if (!child.userData.isVertexDot) {
+        continue;
+      }
+      const slot = slots.find(s => s.world.distanceToSquared(child.position) < EPS_SQ);
+      if (slot) {
+        this.solvedDotBindings.push({ group: child as Group, entityId: slot.entityId, role: slot.role });
+      }
+    }
+  }
+
+  private rebuildSolvedGlyphs(): void {
+    const model = this.solvedModel;
+    if (!model) {
+      return;
+    }
+    for (const group of this.solvedGlyphGroups) {
+      this.remove(group);
+      group.traverse(child => {
+        const mesh = child as Mesh;
+        // Textures are shared through the badge-texture cache; material
+        // disposal deliberately leaves them alive.
+        (mesh.geometry as { dispose?: () => void } | undefined)?.dispose?.();
+        (mesh.material as { dispose?: () => void } | undefined)?.dispose?.();
+      });
+    }
+    const glyphs = layoutConstraintGlyphs(model);
+    const { groups, hitTargets } = buildSolvedConstraintMeshes(model, glyphs);
+    this.solvedGlyphGroups = groups;
+    for (const group of groups) {
+      this.add(group);
+    }
+    this.userData.solvedBadgeTargets = hitTargets;
   }
 
   private buildEdges(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[]): void {
@@ -111,6 +280,13 @@ export class SketchMesh extends Group {
           // Sketch wires are pickable only through the viewer's opt-in
           // sketch-pick channel (create dialogs) — mark the raycastable lines.
           edgeMesh.traverse(child => { child.userData.isSketchWire = true; });
+        }
+        if (this.isSolvedEntity(obj)) {
+          const entityId = obj.object.entityId as number;
+          edgeMesh.userData.entityId = entityId;
+          const list = this.solvedEdgeMeshes.get(entityId) ?? [];
+          list.push(edgeMesh);
+          this.solvedEdgeMeshes.set(entityId, list);
         }
         this.add(edgeMesh);
       }
@@ -228,6 +404,7 @@ export class SketchMesh extends Group {
     if (this.solvedModel) {
       const glyphs = layoutConstraintGlyphs(this.solvedModel);
       const { groups, hitTargets } = buildSolvedConstraintMeshes(this.solvedModel, glyphs);
+      this.solvedGlyphGroups = groups;
       for (const group of groups) {
         this.add(group);
       }
@@ -286,7 +463,9 @@ export class SketchMesh extends Group {
         ));
       }
 
-      applyConstantPixelSize(dot, dotGroup, pos, targetPixels, radius);
+      // The group's own position is the scale anchor, so live drag moves
+      // (updateSolvedGeometry) keep the constant-pixel sizing tracking.
+      applyConstantPixelSize(dot, dotGroup, dotGroup.position, targetPixels, radius);
 
       this.add(dotGroup);
     }

@@ -37,6 +37,12 @@ export function findHitGeometry(
       continue;
     }
     const uniqueType = (child as any).uniqueType as string | undefined;
+    // Solved entities report 'draggable' but belong to the solver-driven
+    // drag path (SolvedDragHandler) — the per-type ladders here would
+    // misread them through the catch-all branches.
+    if (uniqueType && uniqueType.startsWith('solved-')) {
+      continue;
+    }
     const sourceLocation = child.sourceLocation;
 
     if (uniqueType && uniqueType.startsWith('bezier-')) {

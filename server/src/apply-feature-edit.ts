@@ -14,6 +14,7 @@ import {
   type TSTree,
 } from './code-editor.ts';
 import { applySegmentSwap, type SegmentSwapSpec } from './segment-swap.ts';
+import { applySketchConstraint, type SketchConstraintEditSpec } from './sketch-constraint-edit.ts';
 import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
 import { applyInsertPartEdit, type InsertPartEditSpec } from './part-catalog/insert-edit.ts';
 import { applyInstancePoseEdit, type InstancePoseEditSpec } from './insert-chain-edit.ts';
@@ -200,6 +201,13 @@ export type ApplyFeatureEditSpec = {
    * apply-feature-edit round trip; every other spec field is ignored.
    */
   segmentSwap?: SegmentSwapSpec;
+  /**
+   * Solved-sketch constraint emission (sketch-rewrite P4): hoist unbound
+   * entity statements and append a constraint statement at the sketch body's
+   * end, in one edit. Rides the same round trip as `segmentSwap`; every
+   * other spec field is ignored.
+   */
+  sketchConstraint?: SketchConstraintEditSpec;
   /**
    * Parameters-panel declaration edit: add, retype/rename, or delete a
    * `param()` call. Rides the same round trip for the same reason a segment
@@ -1426,6 +1434,9 @@ export async function applyFeatureEdit(
 ): Promise<ApplyFeatureEditResult> {
   if (spec.segmentSwap) {
     return applySegmentSwap(code, spec.segmentSwap);
+  }
+  if (spec.sketchConstraint) {
+    return applySketchConstraint(code, spec.sketchConstraint);
   }
   if (spec.paramEdit) {
     return ParamEditor.apply(code, spec.paramEdit);

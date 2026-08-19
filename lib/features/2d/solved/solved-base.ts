@@ -90,9 +90,9 @@ export abstract class SolvedGeometryBase extends GeometrySceneObject {
     return this._entityId === other._entityId;
   }
 
-  /** P4 flips solved entities to 'draggable' when the UI drag client speaks
-   * the solver; until then they are pick targets only. */
+  /** Solved entities drag through the UI's solver client (P4); fixed
+   * reference geometry (P6 project()/intersect() outputs) stays pick-only. */
   override getSketchInteractivity(): SketchInteractivity {
-    return 'selectable';
+    return 'draggable';
   }
 }

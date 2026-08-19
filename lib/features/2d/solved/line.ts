@@ -104,6 +104,12 @@ export class SolvedLine extends SolvedGeometryBase {
       entityId: this.entityId,
       start: solved?.start ?? { x: this.startGuess.x, y: this.startGuess.y },
       end: solved?.end ?? { x: this.endGuess.x, y: this.endGuess.y },
+      // Statement-time argument values: the drag write-back drift-guards its
+      // literal splices against these (P4).
+      guess: {
+        start: { x: this.startGuess.x, y: this.startGuess.y },
+        end: { x: this.endGuess.x, y: this.endGuess.y },
+      },
     };
   }
 }

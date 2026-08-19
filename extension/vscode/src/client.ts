@@ -33,6 +33,7 @@ import {
   handleUpdatePosition,
   handleSetLinePosition,
   handleSetChainPositions,
+  handleUpdateSketchPositions,
   handleUpdateDimension,
   handleUpdateDimensionExpression,
   handleUpdatePointExpression,
@@ -213,6 +214,12 @@ export class Client {
       }
       case 'set-chain-positions': {
         handleSetChainPositions(this, msg);
+        break;
+      }
+      case 'update-sketch-positions': {
+        handleUpdateSketchPositions(this, msg).catch((err) => {
+          this.logger.appendLine(`[update-sketch-positions] error: ${err?.stack || err}`);
+        });
         break;
       }
       case 'update-dimension': {

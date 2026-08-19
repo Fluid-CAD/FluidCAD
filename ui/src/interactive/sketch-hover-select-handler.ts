@@ -16,8 +16,40 @@ import { EdgeEntry, CenterEntry, buildEdgeIndex, buildCenterIndex, pointToSegmen
 import { themeColors } from '../scene/theme-colors';
 import { applyConstantPixelSize, pixelsToWorld } from '../meshes/screen-scale';
 import { BadgeHitTarget } from '../meshes/containers/solved-constraint-meshes';
+import {
+  SolvedSketchModel,
+  buildSolvedSketchModel,
+  solvedHitTest,
+} from '../sketch-solver-client';
+import type { SolvedEntityKind } from '../sketch-solver-client';
 
 const HIGHLIGHT_THRESHOLD_PX = 12;
+/** Grab radius for solved entity vertices (they beat edge hover). */
+const VERTEX_PICK_PX = 10;
+
+/** An ordered pick the solved constraint toolbar consumes: a whole entity
+ * (edge click) or one of its named points (vertex click). */
+export type SolvedPick = {
+  entityId: number;
+  kind: SolvedEntityKind;
+  /** Point pick: 'start'/'end'/'center', or null for a point entity's own
+   * point. Undefined = the whole entity (edge pick). */
+  role?: 'start' | 'end' | 'center' | null;
+  sourceLocation?: SourceLocation;
+};
+
+type SelectedVertexPick = {
+  entityId: number;
+  role: 'start' | 'end' | 'center' | null;
+  overlay: Group;
+};
+
+type HoveredVertex = {
+  key: string;
+  entityId: number;
+  role: 'start' | 'end' | 'center' | null;
+  at: [number, number];
+};
 const CENTER_OVERLAY_RADIUS = 2.0;
 const CENTER_OVERLAY_PX_RADIUS = 6;
 /** Extra slack around a constraint badge's box before a hover counts. */
@@ -31,6 +63,15 @@ export class SketchHoverSelectHandler {
    * selecting the constraint statement (goto-source, timeline flash). */
   onConstraintPick?: (pick: { objId?: string; sourceLocation?: SourceLocation }) => void;
 
+  /** Fired when a badge/dimension glyph is double-clicked — the dimensional
+   * constraints open their value input from here (P4). */
+  onConstraintDoubleClick?: (pick: {
+    objId?: string;
+    sourceLocation?: SourceLocation;
+    clientX: number;
+    clientY: number;
+  }) => void;
+
   private ctx: SceneContext;
   private plane: PlaneData;
   private canvas: HTMLCanvasElement;
@@ -40,6 +81,17 @@ export class SketchHoverSelectHandler {
   private hoveredCenterOverlay: Group | null = null;
   private hoveredCenterPoint: [number, number] | null = null;
   private selectedShapeIds = new Set<string>();
+  /** Read model of the active solved sketch — vertex picking (P4). */
+  private solvedModel: SolvedSketchModel | null = null;
+  /** Selected solved-entity vertices, keyed `entityId:role`, each with its
+   * own overlay ring. Vertex identity is stable across renders (unlike
+   * shapeIds), so these survive re-renders and only re-anchor. */
+  private selectedVertexPicks = new Map<string, SelectedVertexPick>();
+  /** Every pick in click order — `e:<shapeId>` and `v:<vertexKey>` — the
+   * constraint toolbar's ordered two-pick currency. */
+  private pickSequence: string[] = [];
+  private hoveredVertex: HoveredVertex | null = null;
+  private hoveredVertexOverlay: Group | null = null;
   /** Solved-sketch constraint glyph pick targets (from the SketchMesh). */
   private badgeTargets: BadgeHitTarget[] = [];
   /** entityId → the entity statement's edge shapeIds (badge hover tint). */
@@ -52,6 +104,7 @@ export class SketchHoverSelectHandler {
   private boundMouseMove: (e: MouseEvent) => void;
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
+  private boundDoubleClick: (e: MouseEvent) => void;
   private downX = 0;
   private downY = 0;
 
@@ -77,20 +130,24 @@ export class SketchHoverSelectHandler {
     this.boundMouseMove = this.handleMouseMove.bind(this);
     this.boundMouseDown = this.handleMouseDown.bind(this);
     this.boundMouseUp = this.handleMouseUp.bind(this);
+    this.boundDoubleClick = this.handleDoubleClick.bind(this);
   }
 
   activate(): void {
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
+    this.canvas.addEventListener('dblclick', this.boundDoubleClick);
   }
 
   deactivate(): void {
     this.canvas.removeEventListener('mousemove', this.boundMouseMove);
     this.canvas.removeEventListener('mousedown', this.boundMouseDown);
     this.canvas.removeEventListener('mouseup', this.boundMouseUp);
+    this.canvas.removeEventListener('dblclick', this.boundDoubleClick);
     this.clearHover();
     this.clearBadgeHover();
+    this.clearVertexHover();
     this.clearSelection();
     this.removeCenterOverlay();
   }
@@ -132,8 +189,87 @@ export class SketchHoverSelectHandler {
       if (!validIds.has(id)) {
         this.removeSelectionHighlight(id);
         this.selectedShapeIds.delete(id);
+        this.dropFromSequence(`e:${id}`);
       }
     }
+
+    // The solved read model for vertex picking. Vertex identity (entityId +
+    // role) is stable across renders, so selected vertices survive — they
+    // just re-anchor to the fresh solve's positions (or drop if the entity
+    // is gone).
+    const sketchObj = sceneObjects.find(o => o.id === sketchId) ?? null;
+    this.solvedModel = sketchObj ? buildSolvedSketchModel(sketchObj, sceneObjects) : null;
+    this.clearVertexHover();
+    for (const [key, pick] of this.selectedVertexPicks) {
+      const at = this.vertexPosition(pick.entityId, pick.role);
+      if (!at) {
+        this.disposeVertexOverlay(pick.overlay);
+        this.selectedVertexPicks.delete(key);
+        this.dropFromSequence(`v:${key}`);
+        continue;
+      }
+      pick.overlay.position.copy(localToWorld(at, this.plane));
+    }
+  }
+
+  /** Sketch-local position of a solved entity's named point, if it exists. */
+  private vertexPosition(entityId: number, role: 'start' | 'end' | 'center' | null): [number, number] | null {
+    const e = this.solvedModel?.entities.get(entityId);
+    if (!e) {
+      return null;
+    }
+    if (role === null) {
+      return e.point ?? null;
+    }
+    return e[role] ?? null;
+  }
+
+  private dropFromSequence(key: string): void {
+    const index = this.pickSequence.indexOf(key);
+    if (index >= 0) {
+      this.pickSequence.splice(index, 1);
+    }
+  }
+
+  /**
+   * The current picks in click order, resolved to solver entities: edge
+   * picks map to their owning entity (guides and non-entity edges are
+   * skipped), vertex picks carry their point role. The solved constraint
+   * toolbar consumes this (P4).
+   */
+  getSolvedPicks(): SolvedPick[] {
+    const model = this.solvedModel;
+    if (!model) {
+      return [];
+    }
+    const shapeToEntity = new Map<string, number>();
+    for (const [entityId, shapeIds] of this.entityShapeIds) {
+      for (const shapeId of shapeIds) {
+        shapeToEntity.set(shapeId, entityId);
+      }
+    }
+    const picks: SolvedPick[] = [];
+    for (const key of this.pickSequence) {
+      if (key.startsWith('v:')) {
+        const pick = this.selectedVertexPicks.get(key.slice(2));
+        const e = pick ? model.entities.get(pick.entityId) : undefined;
+        if (pick && e) {
+          picks.push({
+            entityId: pick.entityId,
+            kind: e.kind,
+            role: pick.role,
+            sourceLocation: e.obj.sourceLocation,
+          });
+        }
+      } else {
+        const entityId = shapeToEntity.get(key.slice(2));
+        const e = entityId !== undefined ? model.entities.get(entityId) : undefined;
+        if (e) {
+          picks.push({ entityId: e.entityId, kind: e.kind, sourceLocation: e.obj.sourceLocation });
+        }
+      }
+    }
+    return picks;
   }
 
   get selectedIds(): ReadonlySet<string> {
@@ -175,7 +311,36 @@ export class SketchHoverSelectHandler {
       if (this.hoveredShapeId) {
         this.clearHover();
       }
+      this.clearVertexHover();
       return;
+    }
+
+    // Solved entity vertices beat edge hover: a line endpoint is pickable on
+    // top of its own edge (constraint targets are usually points).
+    if (this.solvedModel) {
+      const vertexHit = solvedHitTest(
+        this.solvedModel, point2d, pixelToSketchThreshold(this.ctx, VERTEX_PICK_PX), 0,
+      );
+      if (vertexHit && vertexHit.type === 'vertex') {
+        const key = `${vertexHit.entityId}:${vertexHit.role ?? 'point'}`;
+        if (this.hoveredVertex?.key !== key) {
+          this.clearVertexHover();
+          this.hoveredVertex = {
+            key,
+            entityId: vertexHit.entityId,
+            role: vertexHit.role,
+            at: vertexHit.at,
+          };
+          this.hoveredVertexOverlay = this.buildVertexOverlay(vertexHit.at, 0.9);
+          this.ctx.requestRender();
+        }
+        if (this.hoveredShapeId) {
+          this.clearHover();
+        }
+        this.canvas.style.cursor = 'pointer';
+        return;
+      }
+      this.clearVertexHover();
     }
 
     const threshold = pixelToSketchThreshold(this.ctx, HIGHLIGHT_THRESHOLD_PX);
@@ -234,6 +399,29 @@ export class SketchHoverSelectHandler {
 
     const isMulti = e.ctrlKey || e.metaKey || this.clickPolicy?.() === 'toggle';
 
+    if (this.hoveredVertex) {
+      const key = this.hoveredVertex.key;
+      const existing = this.selectedVertexPicks.get(key);
+      if (existing) {
+        this.disposeVertexOverlay(existing.overlay);
+        this.selectedVertexPicks.delete(key);
+        this.dropFromSequence(`v:${key}`);
+      } else {
+        if (!isMulti) {
+          this.clearSelection();
+        }
+        this.selectedVertexPicks.set(key, {
+          entityId: this.hoveredVertex.entityId,
+          role: this.hoveredVertex.role,
+          overlay: this.buildVertexOverlay(this.hoveredVertex.at, 1),
+        });
+        this.pickSequence.push(`v:${key}`);
+      }
+      this.ctx.requestRender();
+      this.onSelectionChange?.();
+      return;
+    }
+
     if (!this.hoveredShapeId) {
       if (!isMulti) {
         this.clearSelection();
@@ -247,14 +435,17 @@ export class SketchHoverSelectHandler {
       if (this.selectedShapeIds.has(this.hoveredShapeId)) {
         this.removeSelectionHighlight(this.hoveredShapeId);
         this.selectedShapeIds.delete(this.hoveredShapeId);
+        this.dropFromSequence(`e:${this.hoveredShapeId}`);
         this.applyHoverHighlight(this.hoveredShapeId);
       } else {
         this.selectedShapeIds.add(this.hoveredShapeId);
+        this.pickSequence.push(`e:${this.hoveredShapeId}`);
         this.applySelectionHighlight(this.hoveredShapeId);
       }
     } else {
       this.clearSelection();
       this.selectedShapeIds.add(this.hoveredShapeId);
+      this.pickSequence.push(`e:${this.hoveredShapeId}`);
       this.applySelectionHighlight(this.hoveredShapeId);
     }
 
@@ -383,6 +574,55 @@ export class SketchHoverSelectHandler {
       this.removeSelectionHighlight(id);
     }
     this.selectedShapeIds.clear();
+    for (const pick of this.selectedVertexPicks.values()) {
+      this.disposeVertexOverlay(pick.overlay);
+    }
+    this.selectedVertexPicks.clear();
+    this.pickSequence = [];
+  }
+
+  /** Screen-constant ring at a solved vertex: hover feedback and the
+   * selected-pick marker (opacity tells them apart). */
+  private buildVertexOverlay(point2d: [number, number], opacity: number): Group {
+    const pos = localToWorld(point2d, this.plane);
+    const normal = this.plane.normal;
+    const geo = new CircleGeometry(CENTER_OVERLAY_RADIUS, 16);
+    const mat = new MeshBasicMaterial({
+      color: themeColors.highlightColor,
+      side: DoubleSide,
+      depthTest: false,
+      transparent: true,
+      opacity,
+    });
+    const dot = new Mesh(geo, mat);
+    dot.renderOrder = 6;
+    const group = new Group();
+    group.renderOrder = 6;
+    group.userData.isMetaShape = true;
+    group.add(dot);
+    group.position.copy(pos);
+    group.lookAt(pos.clone().add(new Vector3(normal.x, normal.y, normal.z)));
+    // The group's own position anchors the scaling, so re-anchoring a
+    // surviving pick after a re-render keeps its size honest.
+    applyConstantPixelSize(dot, group, group.position, CENTER_OVERLAY_PX_RADIUS, CENTER_OVERLAY_RADIUS);
+    this.ctx.scene.add(group);
+    return group;
+  }
+
+  private disposeVertexOverlay(group: Group): void {
+    this.ctx.scene.remove(group);
+    const dot = group.children[0] as Mesh;
+    dot.geometry.dispose();
+    (dot.material as MeshBasicMaterial).dispose();
+  }
+
+  private clearVertexHover(): void {
+    if (this.hoveredVertexOverlay) {
+      this.disposeVertexOverlay(this.hoveredVertexOverlay);
+      this.hoveredVertexOverlay = null;
+      this.ctx.requestRender();
+    }
+    this.hoveredVertex = null;
   }
 
   /**
@@ -393,6 +633,7 @@ export class SketchHoverSelectHandler {
   selectShape(shapeId: string): void {
     this.clearSelection();
     this.selectedShapeIds.add(shapeId);
+    this.pickSequence.push(`e:${shapeId}`);
     this.applySelectionHighlight(shapeId);
     this.ctx.requestRender();
     this.onSelectionChange?.();
@@ -409,6 +650,7 @@ export class SketchHoverSelectHandler {
     for (const shapeId of shapeIds) {
       if (known.has(shapeId) && !this.selectedShapeIds.has(shapeId)) {
         this.selectedShapeIds.add(shapeId);
+        this.pickSequence.push(`e:${shapeId}`);
         this.applySelectionHighlight(shapeId);
       }
     }
@@ -426,6 +668,7 @@ export class SketchHoverSelectHandler {
     }
     this.removeSelectionHighlight(shapeId);
     this.selectedShapeIds.delete(shapeId);
+    this.dropFromSequence(`e:${shapeId}`);
     this.ctx.requestRender();
     this.onSelectionChange?.();
   }
@@ -481,10 +724,38 @@ export class SketchHoverSelectHandler {
     return { x, y };
   }
 
+  /** Offset badges take pick priority over geometry — the solved drag
+   * handler consults this before claiming a pointerdown (P4). */
+  hasBadgeAt(clientX: number, clientY: number): boolean {
+    return this.findBadgeAt(clientX, clientY) !== null;
+  }
+
+  private handleDoubleClick(e: MouseEvent): void {
+    if (this.isExternalResizing()) {
+      return;
+    }
+    const badge = this.findBadgeAt(e.clientX, e.clientY);
+    if (badge) {
+      this.onConstraintDoubleClick?.({
+        objId: badge.objId,
+        sourceLocation: badge.sourceLocation,
+        clientX: e.clientX,
+        clientY: e.clientY,
+      });
+    }
+  }
+
   private findBadgeAt(clientX: number, clientY: number): BadgeHitTarget | null {
     let best: BadgeHitTarget | null = null;
     let bestDist = Infinity;
     for (const target of this.badgeTargets) {
+      // On-geometry glyphs (coincident dots sit permanently ON the shared
+      // vertex) are annotations, not pick targets — hover/click/drag on that
+      // spot belongs to the vertex; the statement is picked from the
+      // timeline's constraint group instead (P4).
+      if (target.onGeometry) {
+        continue;
+      }
       const centerPos = this.badgeScreenCenter(target);
       if (!centerPos) {
         continue;

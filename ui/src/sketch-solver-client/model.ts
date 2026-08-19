@@ -16,6 +16,16 @@ import type {
 
 export type SolvedEntityKind = 'point' | 'line' | 'circle' | 'arc';
 
+/** Statement-time argument values (the source literals, when the args are
+ * literals) — the drag write-back drift-guards its splices against these. */
+export type SolvedEntityGuess = {
+  point?: [number, number];
+  start?: [number, number];
+  end?: [number, number];
+  center?: [number, number];
+  diameter?: number;
+};
+
 export type SolvedEntityView = {
   entityId: number;
   obj: SceneObjectRender;
@@ -27,6 +37,7 @@ export type SolvedEntityView = {
   center?: [number, number];
   radius?: number;
   cw?: boolean;
+  guess?: SolvedEntityGuess;
 };
 
 export type ConstraintStatus = 'ok' | 'redundant' | 'conflicting';
@@ -78,9 +89,27 @@ function toPair(p: { x: number; y: number } | undefined): [number, number] | und
   return [p.x, p.y];
 }
 
+function parseGuess(payload: any): SolvedEntityGuess | undefined {
+  const raw = payload?.guess;
+  if (!raw || typeof raw !== 'object') {
+    return undefined;
+  }
+  const guess: SolvedEntityGuess = {};
+  for (const key of ['point', 'start', 'end', 'center'] as const) {
+    const pair = toPair(raw[key]);
+    if (pair) {
+      guess[key] = pair;
+    }
+  }
+  if (typeof raw.diameter === 'number') {
+    guess.diameter = raw.diameter;
+  }
+  return guess;
+}
+
 function entityView(obj: SceneObjectRender, kind: SolvedEntityKind): SolvedEntityView {
   const payload = obj.object ?? {};
-  const view: SolvedEntityView = { entityId: payload.entityId, obj, kind };
+  const view: SolvedEntityView = { entityId: payload.entityId, obj, kind, guess: parseGuess(payload) };
   switch (kind) {
     case 'point':
       if (typeof payload.x === 'number' && typeof payload.y === 'number') {

@@ -517,6 +517,56 @@ export async function handleSetChainPositions(
   }
 }
 
+/**
+ * Solved-sketch batch position write-back (sketch-rewrite P4). One
+ * `replaceDocument` = one undo step for every drifted statement of the drag;
+ * the transform's outcome (including drift refusals) rides back to the
+ * waiting HTTP request via the IPC edit-ack.
+ */
+export async function handleUpdateSketchPositions(
+  client: Client,
+  msg: {
+    editId?: string;
+    filePath?: string;
+    edits: codeApi.SketchPositionEditPayload[];
+  },
+) {
+  const ack = (error?: string) => {
+    if (msg.editId) {
+      client.sendToServer({ type: 'edit-ack', editId: msg.editId, error });
+    }
+  };
+  try {
+    const editor = msg.filePath
+      ? await resolveEditorForPath(msg.filePath)
+      : findEditorForCurrentFile(client);
+    if (!editor) {
+      ack("no editor is showing the sketch's file");
+      return;
+    }
+    const doc = editor.document;
+    const result = await codeApi.updateSketchPositions(
+      client.serverUrl, doc.getText(), msg.edits, client.logger,
+    );
+    if (!result) {
+      ack('the code transform request failed — check the FluidCAD output channel');
+      return;
+    }
+    if (result.error) {
+      ack(result.error);
+      return;
+    }
+    if (await codeApi.replaceDocument(doc, result.newCode)) {
+      client.updateLiveCode(doc.fileName, doc.getText());
+      ack(undefined);
+    } else {
+      ack('the editor rejected the buffer edit');
+    }
+  } catch (err: any) {
+    ack(err?.message || String(err));
+  }
+}
+
 export async function handleSetRectDimensions(
   client: Client,
   msg: {

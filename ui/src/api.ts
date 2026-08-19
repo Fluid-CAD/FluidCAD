@@ -829,6 +829,46 @@ export function updatePosition(
   });
 }
 
+/** One statement's worth of a solved-sketch drag write-back (P4). */
+export type SketchPositionEditParam = {
+  sourceLine: number;
+  points?: {
+    pointIndex: number;
+    position: [number, number];
+    /** Statement-time literal value from the payload — drift guard. */
+    expected?: [number, number];
+  }[];
+  /** Scalar dimension of the base call (circle diameter). */
+  scalar?: { value: number; expected?: number };
+};
+
+/**
+ * Batch write-back of a solved-sketch drag: every drifted literal across
+ * multiple statements in one buffer edit (one undo step). Unlike the legacy
+ * fire-and-forget position calls this answers with the edit's true outcome —
+ * a refusal means the source did NOT change and the caller must reset its
+ * preview to the payload state.
+ */
+export async function updateSketchPositions(
+  edits: SketchPositionEditParam[],
+  filePath?: string,
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/update-sketch-positions', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ edits, filePath }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 /**
  * Rewrite a point from per-axis expressions — the coordinate pill's commit.
  * `updatePosition` above stays the numeric drag path.
@@ -1654,6 +1694,42 @@ export async function fetchSegmentConversions(
  * `expectedStatement` guards against the buffer having drifted since the
  * options were fetched.
  */
+/** One target of a solved-sketch constraint statement (P4). */
+export type SketchConstraintTargetParam = {
+  line: number;
+  role?: 'start' | 'end' | 'center' | 'mid';
+  featureType?: 'line' | 'arc' | 'circle' | 'point';
+};
+
+/**
+ * Emit a constraint statement into a solved sketch: the server hoists
+ * unbound entity statements to `const` bindings and appends the statement at
+ * the sketch body's end, one edit, riding the apply-feature-edit round trip.
+ */
+export async function applySketchConstraint(options: {
+  sketchLine: number;
+  filePath?: string;
+  kind: string;
+  targets: SketchConstraintTargetParam[];
+  valueExpr?: string;
+  axis?: 'x' | 'y';
+}): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/sketch/add-constraint', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(options),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 export async function convertSegment(
   shapeId: string,
   target: ConversionTarget,

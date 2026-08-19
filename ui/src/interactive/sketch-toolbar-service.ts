@@ -12,6 +12,7 @@ import { BezierTool } from './tools/bezier-tool';
 import { PolygonTool } from './tools/polygon-tool';
 import { TextTool } from './tools/text-tool';
 import { DragMoveHandler } from './drag-move-handler';
+import { SolvedDragHandler } from './drag-move-handler/solved-drag-handler';
 import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { BezierHandlesOverlay } from './bezier-handles-overlay';
 import { SnapManager } from '../snapping/snap-manager';
@@ -34,7 +35,9 @@ import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
 import { Navbar } from '../ui/navbar';
 import { SketchDofStatus } from '../ui/sketch-dof-status';
-import { buildSolvedSketchModel, computeSketchDofState } from '../sketch-solver-client';
+import { buildSolvedSketchModel, computeSketchDofState, isSolvedSketch } from '../sketch-solver-client';
+import { SolvedDimensionEditor } from './solved-dimension-editor';
+import { SolvedConstraintToolbarService } from './solved-constraint-toolbar';
 
 export class SketchToolbarService {
   /**
@@ -77,8 +80,13 @@ export class SketchToolbarService {
   private toolbar: SketchToolbar;
   /** The floating segment-conversion mini bar below the main toolbar. */
   private constraintToolbar: ConstraintToolbarService;
+  /** The solved-sketch constraint bar (P4) — shown instead of the legacy
+   * conversion bar inside solved sketches. */
+  private solvedToolbar: SolvedConstraintToolbarService;
   /** Bottom-center DOF pill for solved sketches (hidden for legacy). */
   private dofStatus: SketchDofStatus;
+  /** Value input behind a dimension glyph's double-click (solved sketches). */
+  private solvedDimensionEditor: SolvedDimensionEditor;
   private activeSketchInfo: {
     sketchObj: SceneObjectRender;
     plane: PlaneData;
@@ -86,6 +94,9 @@ export class SketchToolbarService {
   } | null = null;
   private activeDrawingTool: SketchTool | null = null;
   private activeDragHandler: DragMoveHandler | null = null;
+  /** Solver-driven drag for solved sketches (P4) — activated INSTEAD of the
+   * legacy DragMoveHandler; the two never coexist. */
+  private activeSolvedDragHandler: SolvedDragHandler | null = null;
   private activeHoverSelectHandler: SketchHoverSelectHandler | null = null;
   private bezierHandles: BezierHandlesOverlay;
   private shortcuts: ShortcutManager;
@@ -238,6 +249,17 @@ export class SketchToolbarService {
     };
 
     this.constraintToolbar = new ConstraintToolbarService(container, (message) => this.showOpMessage(message));
+    this.solvedToolbar = new SolvedConstraintToolbarService(
+      container,
+      viewer.sceneContext,
+      (message) => this.showOpMessage(message),
+      () => this.fetchScopeVariables(),
+    );
+    this.solvedDimensionEditor = new SolvedDimensionEditor(
+      container,
+      () => this.fetchScopeVariables(),
+      () => this.activeSketchInfo?.sourceLocation.line ?? null,
+    );
 
     this.trimDialog = new TrimDialog(container, () => this.handleToolSelect(null));
     this.trimDialog.onModeChange = (mode) => this.trimService.setMode(mode);
@@ -407,6 +429,9 @@ export class SketchToolbarService {
     if (this.activeDragHandler) {
       this.activeDragHandler['snapController'].snapToVertices = checked;
     }
+    if (this.activeSolvedDragHandler) {
+      this.activeSolvedDragHandler['snapController'].snapToVertices = checked;
+    }
   }
 
   /** The sketch dialog's snap-to-grid toggle; live tools follow along. */
@@ -417,6 +442,9 @@ export class SketchToolbarService {
     }
     if (this.activeDragHandler) {
       this.activeDragHandler['snapController'].snapToGrid = checked;
+    }
+    if (this.activeSolvedDragHandler) {
+      this.activeSolvedDragHandler['snapController'].snapToGrid = checked;
     }
   }
 
@@ -445,7 +473,15 @@ export class SketchToolbarService {
         this.toolbar.show();
         this.shortcuts.enable();
       }
-      this.constraintToolbar.show();
+      // Solved sketches get the constraint bar (P4); legacy sketches keep
+      // the segment-conversion bar until P7 deletes it.
+      if (isSolvedSketch(lastRoot)) {
+        this.constraintToolbar.hide();
+        this.solvedToolbar.show();
+      } else {
+        this.solvedToolbar.hide();
+        this.constraintToolbar.show();
+      }
 
       this.bezierHandles.activate();
       this.bezierHandles.update(sceneObjects, lastRoot.id, plane);
@@ -472,14 +508,15 @@ export class SketchToolbarService {
           }
           this.activeDrawingTool.onSceneUpdate(sceneObjects, lastRoot.id);
         }
-      } else if (this.activeDragHandler) {
-        this.activeDragHandler.updatePlane(plane);
+      } else if (this.activeDragHandler || this.activeSolvedDragHandler) {
+        const dragHandler = (this.activeDragHandler ?? this.activeSolvedDragHandler)!;
+        dragHandler.updatePlane(plane);
         const snapManager = SnapManager.fromSceneObjects(sceneObjects, lastRoot.id, plane, this.viewer.sceneContext);
         const snapCtrl = new SnapController(snapManager, plane);
         snapCtrl.snapToVertices = this.snapToVertices;
         snapCtrl.snapToGrid = this.snapToGrid;
-        this.activeDragHandler.updateSnapController(snapCtrl);
-        this.activeDragHandler.updateSceneData(sceneObjects, lastRoot.id);
+        dragHandler.updateSnapController(snapCtrl);
+        dragHandler.updateSceneData(sceneObjects, lastRoot.id);
         if (this.activeHoverSelectHandler) {
           this.activeHoverSelectHandler.updatePlane(plane);
           this.activeHoverSelectHandler.updateSceneData(sceneObjects, lastRoot.id);
@@ -499,11 +536,19 @@ export class SketchToolbarService {
       // After the handlers have digested the new scene (ids change every
       // render): replay a pending post-convert re-selection and refresh the
       // mini bar's options. No selection exists while a drawing tool is armed.
-      this.constraintToolbar.sketchUpdated(
-        sceneObjects,
-        lastRoot.id,
-        this.activeDrawingTool ? null : this.activeHoverSelectHandler,
-      );
+      if (isSolvedSketch(lastRoot)) {
+        this.solvedToolbar.sketchUpdated(
+          sceneObjects,
+          lastRoot,
+          this.activeDrawingTool ? null : this.activeHoverSelectHandler,
+        );
+      } else {
+        this.constraintToolbar.sketchUpdated(
+          sceneObjects,
+          lastRoot.id,
+          this.activeDrawingTool ? null : this.activeHoverSelectHandler,
+        );
+      }
 
       this.dofStatus.update(computeSketchDofState(buildSolvedSketchModel(lastRoot, sceneObjects)));
     } else {
@@ -540,6 +585,8 @@ export class SketchToolbarService {
       this.deactivateDragHandler();
       this.bezierHandles.deactivate();
       this.constraintToolbar.hide();
+      this.solvedToolbar.hide();
+      this.solvedDimensionEditor.hide();
       this.dofStatus.update({ result: 'hidden' });
       this.activeSketchInfo = null;
       if (this.keepToolbar) {
@@ -719,29 +766,57 @@ export class SketchToolbarService {
     }
   }
 
+  /** A dimension glyph was double-clicked: resolve the constraint statement
+   * in the current model and open its value input (P4). */
+  private openSolvedDimensionEditor(pick: { objId?: string; clientX: number; clientY: number }): void {
+    if (!this.activeSketchInfo || !pick.objId) {
+      return;
+    }
+    const model = buildSolvedSketchModel(this.activeSketchInfo.sketchObj, this.viewer.currentSceneObjects);
+    const constraint = model?.constraints.find(c => c.obj.id === pick.objId);
+    if (constraint && SolvedDimensionEditor.isDimensional(constraint)) {
+      this.solvedDimensionEditor.refreshVariables();
+      this.solvedDimensionEditor.show(constraint, pick.clientX, pick.clientY);
+    }
+  }
+
   private activateDragHandler(): void {
-    if (this.activeDragHandler || !this.activeSketchInfo) {
+    if (this.activeDragHandler || this.activeSolvedDragHandler || !this.activeSketchInfo) {
       return;
     }
     const snapManager = SnapManager.fromSceneObjects(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!, this.activeSketchInfo.plane, this.viewer.sceneContext);
     const snapCtrl = new SnapController(snapManager, this.activeSketchInfo.plane);
     snapCtrl.snapToVertices = this.snapToVertices;
     snapCtrl.snapToGrid = this.snapToGrid;
-    this.activeDragHandler = new DragMoveHandler(
-      this.viewer.sceneContext,
-      this.activeSketchInfo.plane,
-      snapCtrl,
-      this.container,
-      () => this.fetchScopeVariables(),
-      () => this.activeSketchInfo?.sourceLocation.line ?? null,
-    );
-    this.activeDragHandler.updateSceneData(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!);
-    this.activeDragHandler.activate();
+    if (isSolvedSketch(this.activeSketchInfo.sketchObj)) {
+      // Solved sketches drag through the solver client, never the per-type
+      // constraint ladders.
+      this.activeSolvedDragHandler = new SolvedDragHandler(
+        this.viewer.sceneContext,
+        this.activeSketchInfo.plane,
+        snapCtrl,
+        (x, y) => this.activeHoverSelectHandler?.hasBadgeAt(x, y) ?? false,
+        (message) => this.showOpMessage(message),
+      );
+      this.activeSolvedDragHandler.updateSceneData(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!);
+      this.activeSolvedDragHandler.activate();
+    } else {
+      this.activeDragHandler = new DragMoveHandler(
+        this.viewer.sceneContext,
+        this.activeSketchInfo.plane,
+        snapCtrl,
+        this.container,
+        () => this.fetchScopeVariables(),
+        () => this.activeSketchInfo?.sourceLocation.line ?? null,
+      );
+      this.activeDragHandler.updateSceneData(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!);
+      this.activeDragHandler.activate();
+    }
 
     this.activeHoverSelectHandler = new SketchHoverSelectHandler(
       this.viewer.sceneContext,
       this.activeSketchInfo.plane,
-      () => this.activeDragHandler?.isResizing ?? false,
+      () => (this.activeDragHandler?.isResizing || this.activeSolvedDragHandler?.isResizing) ?? false,
       // The copy dialog's picks accumulate like its 3D counterpart's: every
       // click toggles a target in or out and an empty-space click keeps the
       // list — a multi-slot dialog's pick set must not vanish under a stray
@@ -751,12 +826,17 @@ export class SketchToolbarService {
     this.activeHoverSelectHandler.onSelectionChange = () => {
       this.activeOpService()?.refresh();
       this.constraintToolbar.selectionChanged(this.activeHoverSelectHandler);
+      this.solvedToolbar.selectionChanged(this.activeHoverSelectHandler);
     };
     this.activeHoverSelectHandler.onConstraintPick = (pick) => {
       if (pick.sourceLocation) {
         gotoSource(pick.sourceLocation);
       }
+      this.solvedToolbar.noteConstraintPick(pick);
       this.onConstraintPick?.(pick);
+    };
+    this.activeHoverSelectHandler.onConstraintDoubleClick = (pick) => {
+      this.openSolvedDimensionEditor(pick);
     };
     this.activeHoverSelectHandler.updateSceneData(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!);
     this.activeHoverSelectHandler.activate();
@@ -771,6 +851,10 @@ export class SketchToolbarService {
       this.activeDragHandler.deactivate();
       this.activeDragHandler = null;
     }
+    if (this.activeSolvedDragHandler) {
+      this.activeSolvedDragHandler.deactivate();
+      this.activeSolvedDragHandler = null;
+    }
   }
 
   private handleToolSelect(toolId: ToolId | null): void {
@@ -780,6 +864,11 @@ export class SketchToolbarService {
       return;
     }
     if (!toolId && this.activeDrawingTool?.handleEscape?.()) {
+      return;
+    }
+    // First Escape in a solved sketch closes the dimension value input or
+    // disarms the two-pick dimension tool before anything else folds.
+    if (!toolId && this.solvedToolbar.handleEscape()) {
       return;
     }
 

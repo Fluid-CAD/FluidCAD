@@ -112,6 +112,12 @@ export class SolvedCircle extends SolvedGeometryBase implements Extrudable {
       entityId: this.entityId,
       center: solved?.center ?? { x: this.centerGuess.x, y: this.centerGuess.y },
       diameter: solved?.diameter ?? this.diameter,
+      // Statement-time argument values: the drag write-back drift-guards its
+      // literal splices against these (P4).
+      guess: {
+        center: { x: this.centerGuess.x, y: this.centerGuess.y },
+        diameter: this.diameter,
+      },
     };
   }
 }

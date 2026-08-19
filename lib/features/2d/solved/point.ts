@@ -82,6 +82,9 @@ export class SolvedPoint extends SolvedGeometryBase {
       entityId: this.entityId,
       x: solved?.x ?? this.position.x,
       y: solved?.y ?? this.position.y,
+      // Statement-time argument values: the drag write-back drift-guards its
+      // literal splices against these (P4).
+      guess: { point: { x: this.position.x, y: this.position.y } },
     };
   }
 }

@@ -270,6 +270,8 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.set_chain_positions(code, msg.sourceLocation.line, msg.updates)
       end)
+    elseif msg.type == 'update-sketch-positions' then
+      M.handle_update_sketch_positions(msg)
     elseif msg.type == 'set-rect-dimensions' then
       local old_start = msg.oldStartPoint
       if old_start == vim.NIL then
@@ -412,6 +414,61 @@ function M.handle_undo_redo(msg)
     end
   end
   M.send({ type = 'edit-ack', editId = msg.editId, error = err })
+end
+
+--- Solved-sketch batch position write-back (sketch-rewrite P4): one buffer
+--- write (one undo block) covering every drifted statement of a drag; the
+--- transform's outcome — including drift refusals — rides back over the IPC
+--- edit-ack so the waiting HTTP request answers honestly.
+function M.handle_update_sketch_positions(msg)
+  local code_api = require('fluidcad.code_api')
+  local ack = function(err)
+    if msg.editId and msg.editId ~= vim.NIL then
+      M.send({ type = 'edit-ack', editId = msg.editId, error = err })
+    end
+  end
+
+  local file_path = msg.filePath
+  if file_path == vim.NIL then
+    file_path = nil
+  end
+  local buf = find_buffer_for_path(file_path)
+  if not buf and file_path then
+    -- A named target that isn't loaded must be loaded, never silently
+    -- swapped for the current buffer (same rule as apply_code_edit).
+    if vim.fn.filereadable(file_path) ~= 1 then
+      ack('cannot edit ' .. file_path .. ' — file not readable')
+      return
+    end
+    buf = vim.fn.bufadd(file_path)
+    vim.fn.bufload(buf)
+  end
+  if not buf then
+    buf = vim.api.nvim_get_current_buf()
+  end
+
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  local code = table.concat(lines, '\n')
+  local result = code_api.update_sketch_positions(code, msg.edits)
+  if not result or type(result.newCode) ~= 'string' then
+    ack('the code transform request failed')
+    return
+  end
+  if result.error and result.error ~= vim.NIL then
+    ack(result.error)
+    return
+  end
+  if not code_api.replace_buffer(buf, result.newCode) then
+    ack('the editor rejected the buffer edit')
+    return
+  end
+  M.send({
+    type = 'live-update',
+    fileName = vim.api.nvim_buf_get_name(buf),
+    code = result.newCode,
+    keepCurrent = (buf ~= vim.api.nvim_get_current_buf()),
+  })
+  ack(nil)
 end
 
 function M.update_diagnostics(result, compile_error)

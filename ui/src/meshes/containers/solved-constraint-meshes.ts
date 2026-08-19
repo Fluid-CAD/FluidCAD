@@ -59,6 +59,10 @@ export type BadgeHitTarget = {
   /** Materials to recolor while hovered. */
   materials: (MeshBasicMaterial | LineBasicMaterial)[];
   baseColor: Color;
+  /** Drawn ON the geometry (coincident dots sit on the shared vertex):
+   * clicks still pick the statement, but the glyph must not veto vertex
+   * drags the way offset badges do (P4). */
+  onGeometry?: boolean;
 };
 
 export type SolvedConstraintVisuals = {
@@ -214,6 +218,7 @@ export function buildSolvedConstraintMeshes(
           halfHeightPx: DOT_PX_RADIUS + 2,
           materials: [material],
           baseColor: color,
+          onGeometry: true,
         });
         break;
       }

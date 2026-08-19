@@ -304,6 +304,30 @@ export type SetChainPositionsMessage = {
   sourceLocation: { line: number; column: number };
 };
 
+/**
+ * Solved-sketch batch position write-back (sketch-rewrite P4): splice every
+ * drifted literal of a drag across multiple statements in one buffer edit
+ * (one undo step). The host round-trips through /code/update-sketch-positions
+ * and answers with an `edit-ack` carrying the transform's error, if any.
+ */
+export type UpdateSketchPositionsMessage = {
+  type: 'update-sketch-positions';
+  /** Correlates the host's edit-ack with the waiting HTTP request. */
+  editId?: string;
+  filePath?: string;
+  edits: {
+    sourceLine: number;
+    points?: {
+      pointIndex: number;
+      position: [number, number];
+      /** Statement-time literal value — drift guard. */
+      expected?: [number, number];
+    }[];
+    /** Scalar dimension of the base call (circle diameter). */
+    scalar?: { value: number; expected?: number };
+  }[];
+};
+
 export type UpdateDimensionMessage = {
   type: 'update-dimension';
   newValue: number;
@@ -378,6 +402,7 @@ export type ServerToExtensionMessage =
   | UpdatePointExpressionMessage
   | SetLinePositionMessage
   | SetChainPositionsMessage
+  | UpdateSketchPositionsMessage
   | UpdateDimensionMessage
   | UpdateDimensionExpressionMessage
   | SetRectDimensionsMessage

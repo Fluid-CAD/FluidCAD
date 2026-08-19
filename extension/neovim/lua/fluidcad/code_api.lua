@@ -123,6 +123,10 @@ function M.set_chain_positions(code, source_line, updates)
   return post('set-chain-positions', { code = code, sourceLine = source_line, updates = updates })
 end
 
+function M.update_sketch_positions(code, edits)
+  return post('update-sketch-positions', { code = code, edits = edits })
+end
+
 function M.set_rect_dimensions(code, source_line, start_point, width, height, old_start_point)
   return post('set-rect-dimensions', { code = code, sourceLine = source_line, startPoint = start_point, width = width, height = height, oldStartPoint = old_start_point })
 end

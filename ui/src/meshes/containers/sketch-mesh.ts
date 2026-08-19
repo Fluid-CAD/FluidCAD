@@ -349,14 +349,27 @@ export class SketchMesh extends Group {
             count.set(idx, (count.get(idx) || 0) + 1);
           }
 
+          const endpoints: number[] = [];
           for (const [idx, c] of count) {
             if (c === 1) {
-              target.push(new Vector3(
-                meshData.vertices[idx * 3],
-                meshData.vertices[idx * 3 + 1],
-                meshData.vertices[idx * 3 + 2],
-              ));
+              endpoints.push(idx);
             }
+          }
+
+          // A closed curve's polyline duplicates its seam vertex at both
+          // ends, so the two lone indices coincide. That seam is not a
+          // topological endpoint — a circle grows no endpoint dot (it also
+          // has no solver point role, so a seam dot could never track drags).
+          if (endpoints.length === 2 && this.samePosition(meshData.vertices, endpoints[0], endpoints[1])) {
+            continue;
+          }
+
+          for (const idx of endpoints) {
+            target.push(new Vector3(
+              meshData.vertices[idx * 3],
+              meshData.vertices[idx * 3 + 1],
+              meshData.vertices[idx * 3 + 2],
+            ));
           }
         }
       }
@@ -416,6 +429,13 @@ export class SketchMesh extends Group {
     for (const icon of buildConstraintIcons(sceneObject, allObjects)) {
       this.add(icon);
     }
+  }
+
+  private samePosition(vertices: number[], a: number, b: number): boolean {
+    const dx = vertices[a * 3] - vertices[b * 3];
+    const dy = vertices[a * 3 + 1] - vertices[b * 3 + 1];
+    const dz = vertices[a * 3 + 2] - vertices[b * 3 + 2];
+    return dx * dx + dy * dy + dz * dz < 1e-12;
   }
 
   private dedup(points: Vector3[], epsilonSq: number): Vector3[] {

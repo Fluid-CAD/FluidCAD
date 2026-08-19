@@ -101,6 +101,9 @@ export class SketchHoverSelectHandler {
   private entityShapeIds = new Map<number, string[]>();
   private hoveredBadge: BadgeHitTarget | null = null;
   private hoveredBadgeShapeIds: string[] = [];
+  /** The active sketch's id — the key for finding its SketchMesh (whose
+   * read model is the one mutated in place during live drags). */
+  private sketchId = '';
   private isExternalResizing: () => boolean;
   private clickPolicy?: () => 'replace' | 'toggle';
 
@@ -160,6 +163,7 @@ export class SketchHoverSelectHandler {
   }
 
   updateSceneData(sceneObjects: SceneObjectRender[], sketchId: string): void {
+    this.sketchId = sketchId;
     // Guides are hover/selectable here — the Guide toggle converts a selected
     // construction statement back to real geometry (they still don't snap,
     // drag-resize, or grow vertex dots).
@@ -227,6 +231,42 @@ export class SketchHoverSelectHandler {
     return e[role] ?? null;
   }
 
+  /**
+   * The read model that tracks a live drag: the SketchMesh mutates its own
+   * model instance in place per drag frame (updateSolvedGeometry), while
+   * `this.solvedModel` is a payload-time copy that never sees mid-drag
+   * state. Falls back to the copy when the mesh is gone.
+   */
+  private liveSolvedModel(): SolvedSketchModel | null {
+    let live: SolvedSketchModel | null = null;
+    this.ctx.scene.traverse((obj: Object3D) => {
+      if (obj.userData.isSketchRoot && obj.userData.sketchObjectId === this.sketchId) {
+        live = (obj as unknown as { solved?: SolvedSketchModel | null }).solved ?? null;
+      }
+    });
+    return live ?? this.solvedModel;
+  }
+
+  /** Mid-drag: move the selected picks' rings onto the live model's current
+   * positions, so a selected vertex being dragged keeps its ring instead of
+   * leaving it stranded at the grab position. */
+  private reanchorVertexPicks(): void {
+    if (this.selectedVertexPicks.size === 0) {
+      return;
+    }
+    const model = this.liveSolvedModel();
+    if (!model) {
+      return;
+    }
+    for (const pick of this.selectedVertexPicks.values()) {
+      const e = model.entities.get(pick.entityId);
+      const at = !e ? null : pick.role === null ? e.point ?? null : e[pick.role] ?? null;
+      if (at) {
+        pick.overlay.position.copy(localToWorld(at, this.plane));
+      }
+    }
+  }
+
   private dropFromSequence(key: string): void {
     const index = this.pickSequence.indexOf(key);
     if (index >= 0) {
@@ -286,9 +326,14 @@ export class SketchHoverSelectHandler {
 
   private handleMouseMove(e: MouseEvent): void {
     if (this.isExternalResizing()) {
+      // A drag owns the cursor: hover feedback (edge tint, vertex ring)
+      // must not linger at the grab position while the geometry moves away
+      // from under it.
       if (this.hoveredShapeId) {
         this.clearHover();
       }
+      this.clearVertexHover();
+      this.reanchorVertexPicks();
       return;
     }
 

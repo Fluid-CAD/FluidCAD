@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
+  axisDimensionPicks,
+  axisFromCursor,
   candidateSpec,
   constraintOptions,
   dimensionFormFor,
@@ -86,12 +88,12 @@ describe('constraintOptions', () => {
 });
 
 describe('dimensionFormFor', () => {
-  it('selects the constraint form per pick pair; circle/arc pairs offer the tangency choice', () => {
+  it('selects the constraint form per pick pair; circle/arc pairs offer the tangency choice; point/round pairs offer the axis choice', () => {
     expect(dimensionFormFor([endA, startB])).toEqual({ kind: 'distance', axisChoice: true, tangencyChoice: false });
     expect(dimensionFormFor([endA, lineB])).toEqual({ kind: 'distance', axisChoice: false, tangencyChoice: false });
-    expect(dimensionFormFor([endA, circleC])).toEqual({ kind: 'distance', axisChoice: false, tangencyChoice: true });
+    expect(dimensionFormFor([endA, circleC])).toEqual({ kind: 'distance', axisChoice: true, tangencyChoice: true });
     expect(dimensionFormFor([lineA, lineB])).toEqual({ kind: 'distance', axisChoice: false, tangencyChoice: false });
-    expect(dimensionFormFor([circleC, arcD])).toEqual({ kind: 'distance', axisChoice: false, tangencyChoice: true });
+    expect(dimensionFormFor([circleC, arcD])).toEqual({ kind: 'distance', axisChoice: true, tangencyChoice: true });
     expect(dimensionFormFor([lineA, circleC])).toEqual({ kind: 'distance', axisChoice: false, tangencyChoice: true });
     expect(dimensionFormFor([arcD, lineB])).toEqual({ kind: 'distance', axisChoice: false, tangencyChoice: true });
     expect(dimensionFormFor([circleC])).toEqual({ kind: 'diameter', axisChoice: false, tangencyChoice: false });
@@ -109,6 +111,54 @@ describe('dimensionFormFor', () => {
     expect(expandDimensionPicks([endA])).toEqual([endA]);
     expect(expandDimensionPicks([lineA, lineB])).toEqual([lineA, lineB]);
     expect(expandDimensionPicks([circleC])).toEqual([circleC]);
+  });
+});
+
+describe('axisDimensionPicks', () => {
+  it('passes point pairs through, expands a lone line to its endpoints', () => {
+    expect(axisDimensionPicks([endA, startB])).toEqual([endA, startB]);
+    expect(axisDimensionPicks([lineA])).toEqual([
+      { ...lineA, role: 'start' },
+      { ...lineA, role: 'end' },
+    ]);
+  });
+
+  it('substitutes circle/arc picks with their centers', () => {
+    expect(axisDimensionPicks([endA, circleC])).toEqual([endA, { ...circleC, role: 'center' }]);
+    expect(axisDimensionPicks([circleC, arcD])).toEqual([
+      { ...circleC, role: 'center' },
+      { ...arcD, role: 'center' },
+    ]);
+  });
+
+  it('line picks (other than the lone-line expansion) have no axis form', () => {
+    expect(axisDimensionPicks([lineA, lineB])).toBeNull();
+    expect(axisDimensionPicks([endA, lineB])).toBeNull();
+    expect(axisDimensionPicks([lineA, circleC])).toBeNull();
+    expect(axisDimensionPicks([endA])).toBeNull();
+  });
+});
+
+describe('axisFromCursor', () => {
+  const a: [number, number] = [0, 0];
+  const b: [number, number] = [10, 8];
+
+  it('the smart-dimension regions: above/below within the x-range → x, beside within the y-range → y, inside or diagonal → aligned', () => {
+    expect(axisFromCursor(a, b, [5, 20])).toBe('x');
+    expect(axisFromCursor(a, b, [5, -3])).toBe('x');
+    expect(axisFromCursor(a, b, [-4, 4])).toBe('y');
+    expect(axisFromCursor(a, b, [15, 4])).toBe('y');
+    expect(axisFromCursor(a, b, [5, 4])).toBeUndefined();
+    expect(axisFromCursor(a, b, [20, 20])).toBeUndefined();
+    expect(axisFromCursor(a, b, [-3, -3])).toBeUndefined();
+  });
+
+  it('never offers an axis whose measure rounds to zero', () => {
+    // A horizontal pair: the y sliver would dimension Δy = 0.
+    expect(axisFromCursor([0, 0], [10, 0], [20, 0])).toBeUndefined();
+    expect(axisFromCursor([0, 0], [10, 0], [5, 5])).toBe('x');
+    expect(axisFromCursor([0, 0], [0, 8], [0.0, 20])).toBeUndefined();
+    expect(axisFromCursor([0, 0], [0, 8], [5, 4])).toBe('y');
   });
 });
 
@@ -178,6 +228,15 @@ describe('measureDimension', () => {
     expect(measureDimension(model, [endA, circleC], form, undefined, null, 'max')).toBe(25);
   });
 
+  it('measures center-substituted round picks along an axis (the placement flow)', () => {
+    const center2: SolvedPick = { ...circleC, role: 'center' };
+    const form = { kind: 'distance' as const, axisChoice: true, tangencyChoice: false };
+    // endA (10,0) to circleC's center (30,0).
+    expect(measureDimension(model, [endA, center2], form)).toBe(20);
+    expect(measureDimension(model, [endA, center2], form, 'x')).toBe(20);
+    expect(measureDimension(model, [endA, center2], form, 'y')).toBe(0);
+  });
+
   it('measures a lone line as its length', () => {
     expect(measureDimension(model, [lineA], { kind: 'distance', axisChoice: true, tangencyChoice: false })).toBe(10);
     expect(measureDimension(model, [lineB], { kind: 'distance', axisChoice: true, tangencyChoice: false })).toBe(8);
@@ -225,6 +284,26 @@ describe('dimensionPreviewLayout', () => {
   it('a lone line: leader along the line, input at its midpoint', () => {
     expect(dimensionPreviewLayout(model, [lineA], distance)).toEqual({
       line: [[0, 0], [10, 0]],
+      at: [5, 0],
+    });
+  });
+
+  it('axis forms: leader drawn axis-aligned from the first anchor, dashed witness extension to the floating far point', () => {
+    const start0: SolvedPick = { entityId: 0, kind: 'line', role: 'start', sourceLocation: loc(5) };
+    // start0 (0,0), end1 (10,8).
+    expect(dimensionPreviewLayout(model, [start0, end1], distance, 'x')).toEqual({
+      line: [[0, 0], [10, 0]],
+      at: [5, 0],
+      extensions: [[[10, 0], [10, 8]]],
+    });
+    expect(dimensionPreviewLayout(model, [start0, end1], distance, 'y')).toEqual({
+      line: [[0, 0], [0, 8]],
+      at: [0, 4],
+      extensions: [[[0, 8], [10, 8]]],
+    });
+    // A pair already on the axis needs no witness line.
+    expect(dimensionPreviewLayout(model, [endA, { ...endA, role: 'start' }], distance, 'x')).toEqual({
+      line: [[10, 0], [0, 0]],
       at: [5, 0],
     });
   });

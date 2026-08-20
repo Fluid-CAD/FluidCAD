@@ -15,7 +15,11 @@ import { applySketchConstraint, removeFeature } from '../../api';
 import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
 import { themeColors } from '../../scene/theme-colors';
 import { localToWorld, projectToSketch, sketchToClient } from '../sketch-plane-utils';
-import { buildAngleArc, buildAngleExtensions } from '../../meshes/containers/solved-constraint-meshes';
+import {
+  buildAngleArc,
+  buildAngleExtensions,
+  buildDimensionReadout,
+} from '../../meshes/containers/solved-constraint-meshes';
 import type { SketchHoverSelectHandler, SolvedPick } from '../sketch-hover-select-handler';
 import {
   LiveSolvedSystem,
@@ -24,11 +28,15 @@ import {
   tessellateSolvedEntity,
 } from '../../sketch-solver-client';
 import { LineResolutionRegistry } from '../../meshes/shape-meshes/line-resolution';
+import type { Vec2 } from '../../sketch-solver-client/resolve';
+import { refPoint } from '../../sketch-solver-client/resolve';
 import { SolvedConstraintToolbar } from './solved-constraint-toolbar';
 import {
   ConstraintButtonId,
   DimensionForm,
   DimensionPreviewLayout,
+  axisDimensionPicks,
+  axisFromCursor,
   candidateSpec,
   constraintOptions,
   dimensionFormFor,
@@ -37,6 +45,7 @@ import {
   inferTangency,
   isPointPick,
   measureDimension,
+  pickRef,
 } from './legality';
 import {
   AngleSector,
@@ -83,6 +92,11 @@ export class SolvedConstraintToolbarService {
     sector?: AngleSector | null;
     /** Circle/arc distances: near (min, default) or far (max) side. */
     tangency?: 'min' | 'max';
+    /** Distance: measured along one axis (placement-locked). */
+    axis?: 'x' | 'y';
+    /** Identity of the ORIGINAL picks (pre center-substitution) — the
+     * armed flow's retarget test keys on it. */
+    rawKey?: string;
   } | null = null;
   private previewGroup: Group | null = null;
   /** Interactive angle placement (FreeCAD-style): the sector under the
@@ -92,12 +106,25 @@ export class SolvedConstraintToolbarService {
     sector: AngleSector;
     lastCursor: [number, number] | null;
   } | null = null;
+  /** Interactive distance placement: the cursor's smart-dimension region
+   * picks the form — within the pair's x-range above/below → horizontal,
+   * within the y-range beside → vertical, else aligned — and a click locks
+   * it and opens the value input (mirrors the angle placement). */
+  private distancePlacement: {
+    /** Expanded original picks — the aligned region measures/emits these. */
+    rawPicks: SolvedPick[];
+    /** Center-substituted point pair — the axis regions measure/emit these. */
+    axisPicks: [SolvedPick, SolvedPick];
+    form: DimensionForm;
+    axis: 'x' | 'y' | undefined;
+  } | null = null;
   private placementGroup: Group | null = null;
   private placementTexture: { dispose(): void } | null = null;
   private placementDown: { x: number; y: number; onCanvas: boolean } | null = null;
   private cachedVariables: VariableInfo[] = [];
   private boundKeyDown: (e: KeyboardEvent) => void;
   private boundPlacementMove: (e: MouseEvent) => void;
+  private boundDistanceMove: (e: MouseEvent) => void;
   private boundPlacementDown: (e: MouseEvent) => void;
   private boundPlacementUp: (e: MouseEvent) => void;
 
@@ -114,6 +141,7 @@ export class SolvedConstraintToolbarService {
     this.view.onHoverButton = (id) => this.updateGhost(id);
     this.boundKeyDown = this.handleKeyDown.bind(this);
     this.boundPlacementMove = this.handlePlacementMove.bind(this);
+    this.boundDistanceMove = this.handleDistanceMove.bind(this);
     this.boundPlacementDown = this.handlePlacementDown.bind(this);
     this.boundPlacementUp = this.handlePlacementUp.bind(this);
   }
@@ -137,6 +165,7 @@ export class SolvedConstraintToolbarService {
     this.clearGhost();
     this.clearDimensionPreview();
     this.cancelAnglePlacement();
+    this.cancelDistancePlacement();
     this.dimensionArmed = false;
     this.pickedConstraint = null;
     this.picks = [];
@@ -167,7 +196,17 @@ export class SolvedConstraintToolbarService {
     }
     this.refreshPendingDimension();
     this.refreshAnglePlacement();
+    this.refreshDistancePlacement();
     this.selectionChanged(handler);
+  }
+
+  /** A re-render landed during distance placement: redraw the preview
+   * against the fresh model (picks are entityId:role keyed — stable).
+   * Geometry gone ⇒ drawDistancePreview cancels itself. */
+  private refreshDistancePlacement(): void {
+    if (this.distancePlacement) {
+      this.drawDistancePreview();
+    }
   }
 
   /** A re-render landed during angle placement: re-anchor the sector
@@ -212,13 +251,13 @@ export class SolvedConstraintToolbarService {
         return;
       }
     }
-    const tangency = this.pendingDimension.tangency;
-    const measured = model ? measureDimension(model, picks, form, undefined, sector, tangency) : null;
+    const { tangency, axis } = this.pendingDimension;
+    const measured = model ? measureDimension(model, picks, form, axis, sector, tangency) : null;
     if (!model || measured === null) {
       this.valueInput.hide();
       return;
     }
-    const layout = dimensionPreviewLayout(model, picks, form, undefined, sector, tangency);
+    const layout = dimensionPreviewLayout(model, picks, form, axis, sector, tangency);
     this.drawDimensionPreview(layout);
     const pos = this.inputPosition(model, layout);
     this.valueInput.updatePosition(pos.clientX, pos.clientY);
@@ -241,13 +280,35 @@ export class SolvedConstraintToolbarService {
       if (!picks) {
         return;
       }
+      const key = picksKey(expandDimensionPicks(picks));
+      // An active placement on the same picks stays as-is (re-renders and
+      // selection echoes must not reset the cursor-chosen form).
+      const placing = this.distancePlacement !== null
+        && picksKey(this.distancePlacement.rawPicks) === key;
       const retarget = this.valueInput.isVisible
         && !this.valueInput.isTyping
-        && picksKey(expandDimensionPicks(picks)) !== picksKey(this.pendingDimension?.picks ?? []);
-      if (!this.valueInput.isVisible || retarget) {
-        this.openValueInput('dimension', picks);
+        && key !== (this.pendingDimension?.rawKey ?? '');
+      if ((!this.valueInput.isVisible && !placing) || retarget) {
+        this.beginDimension(picks);
       }
     }
+  }
+
+  /** Route a legal dimension pick set to its flow: axis-capable distances
+   * (point pairs, a lone line's length, circle/arc pairs and point–round
+   * via their centers) go through cursor placement — the mouse position
+   * picks aligned vs horizontal vs vertical before the value input opens;
+   * everything else opens the input directly. */
+  private beginDimension(picks: SolvedPick[]): void {
+    const form = dimensionFormFor(picks);
+    if (!form) {
+      return;
+    }
+    if (form.kind === 'distance' && form.axisChoice) {
+      this.startDistancePlacement(picks, form);
+      return;
+    }
+    this.openValueInput('dimension', picks);
   }
 
   /** The pick set the armed dimension tool dimensions: the full set when it
@@ -287,6 +348,10 @@ export class SolvedConstraintToolbarService {
     }
     if (this.anglePlacement) {
       this.cancelAnglePlacement();
+      return true;
+    }
+    if (this.distancePlacement) {
+      this.cancelDistancePlacement();
       return true;
     }
     if (this.dimensionArmed) {
@@ -391,7 +456,7 @@ export class SolvedConstraintToolbarService {
   }
 
   private handlePlacementDown(e: MouseEvent): void {
-    if (!this.anglePlacement) {
+    if (!this.anglePlacement && !this.distancePlacement) {
       return;
     }
     this.placementDown = {
@@ -402,10 +467,9 @@ export class SolvedConstraintToolbarService {
   }
 
   private handlePlacementUp(e: MouseEvent): void {
-    const p = this.anglePlacement;
     const down = this.placementDown;
     this.placementDown = null;
-    if (!p || !down || !down.onCanvas) {
+    if ((!this.anglePlacement && !this.distancePlacement) || !down || !down.onCanvas) {
       return;
     }
     if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > CLICK_THRESHOLD_PX) {
@@ -413,9 +477,18 @@ export class SolvedConstraintToolbarService {
     }
     e.stopPropagation();
     e.preventDefault();
-    const { picks, sector } = p;
-    this.cancelAnglePlacement();
-    this.openValueInput('angle', picks, sector);
+    if (this.anglePlacement) {
+      const { picks, sector } = this.anglePlacement;
+      this.cancelAnglePlacement();
+      this.openValueInput('angle', picks, sector);
+      return;
+    }
+    const d = this.distancePlacement!;
+    const picks = d.axis !== undefined ? d.axisPicks : d.rawPicks;
+    const rawKey = picksKey(d.rawPicks);
+    const axis = d.axis;
+    this.cancelDistancePlacement();
+    this.openValueInput('dimension', picks, null, axis, rawKey);
   }
 
   private drawPlacementPreview(sector: AngleSector): void {
@@ -468,11 +541,124 @@ export class SolvedConstraintToolbarService {
     this.ctx.requestRender();
   }
 
+  // -- interactive distance placement -----------------------------------------
+
+  /** Axis-capable distance picks: preview the form the cursor's region
+   * selects (aligned / horizontal / vertical, with a live readout); a click
+   * locks it and opens the value input. Picks without an axis form fall
+   * back to the direct input. */
+  private startDistancePlacement(dimPicks: SolvedPick[], form: DimensionForm): void {
+    const axisPicks = axisDimensionPicks(dimPicks);
+    if (!this.model || !axisPicks) {
+      this.openValueInput('dimension', dimPicks);
+      return;
+    }
+    this.valueInput.hide();
+    this.cancelDistancePlacement();
+    this.distancePlacement = {
+      rawPicks: expandDimensionPicks(dimPicks),
+      axisPicks,
+      form,
+      axis: undefined,
+    };
+    this.drawDistancePreview();
+    if (!this.distancePlacement) {
+      // The preview couldn't resolve its anchors — drawDistancePreview
+      // cancelled the placement (listeners were never installed).
+      return;
+    }
+    this.ctx.renderer.domElement.addEventListener('mousemove', this.boundDistanceMove);
+    // Capture-phase on window, like the angle placement: the commit click
+    // must not reach the hover handler's selection toggle.
+    window.addEventListener('mousedown', this.boundPlacementDown, true);
+    window.addEventListener('mouseup', this.boundPlacementUp, true);
+  }
+
+  private cancelDistancePlacement(): void {
+    if (!this.distancePlacement) {
+      return;
+    }
+    this.distancePlacement = null;
+    this.placementDown = null;
+    this.ctx.renderer.domElement.removeEventListener('mousemove', this.boundDistanceMove);
+    window.removeEventListener('mousedown', this.boundPlacementDown, true);
+    window.removeEventListener('mouseup', this.boundPlacementUp, true);
+    this.removePlacementPreview();
+  }
+
+  private handleDistanceMove(e: MouseEvent): void {
+    const p = this.distancePlacement;
+    const model = this.model;
+    if (!p || !model) {
+      return;
+    }
+    const cursor = projectToSketch(this.ctx, model.plane, e.clientX, e.clientY);
+    const a = refPoint(model, pickRef(p.axisPicks[0]));
+    const b = refPoint(model, pickRef(p.axisPicks[1]));
+    if (!cursor || !a || !b) {
+      return;
+    }
+    const axis = axisFromCursor(a, b, cursor);
+    // Geometry is static during placement — only a region CHANGE redraws.
+    if (axis === p.axis) {
+      return;
+    }
+    p.axis = axis;
+    this.drawDistancePreview();
+  }
+
+  /** The leader of the form the current region selects (exactly where the
+   * committed glyph will land) plus a live value readout offset from its
+   * midpoint. Anchors gone (deleted under a re-render) ⇒ cancel. */
+  private drawDistancePreview(): void {
+    this.removePlacementPreview();
+    const p = this.distancePlacement;
+    const model = this.model;
+    if (!p || !model) {
+      return;
+    }
+    const axisForm = p.axis !== undefined;
+    const picks = axisForm ? p.axisPicks : p.rawPicks;
+    const tangency = axisForm ? undefined : inferTangency(model, p.rawPicks, p.form);
+    const measured = measureDimension(model, picks, p.form, p.axis, null, tangency);
+    const layout = dimensionPreviewLayout(model, picks, p.form, p.axis, null, tangency);
+    if (measured === null || !layout?.line) {
+      this.cancelDistancePlacement();
+      return;
+    }
+    const wrapper = new Group();
+    wrapper.userData.isMetaShape = true;
+    wrapper.add(this.buildLeaderGroup(layout.line, model, PLACEMENT_OPACITY));
+    // Dashed witness extensions to anchors the axis leader doesn't reach.
+    const ext = buildAngleExtensions(
+      layout.extensions ?? [], model.plane, themeColors.constraintColor, PLACEMENT_OPACITY,
+    );
+    if (ext) {
+      wrapper.add(ext);
+    }
+    // Readout offset perpendicular to the leader, like the committed label.
+    const dx = layout.line[1][0] - layout.line[0][0];
+    const dy = layout.line[1][1] - layout.line[0][1];
+    const len = Math.hypot(dx, dy);
+    const offsetDir: Vec2 = len < 1e-9 ? [0, 1] : [-dy / len, dx / len];
+    const label = p.axis === 'x' ? `H ${measured}` : p.axis === 'y' ? `V ${measured}` : String(measured);
+    const readout = buildDimensionReadout(
+      layout.at, label, offsetDir, model.plane, model.plane.normal,
+      themeColors.constraintColor, PLACEMENT_OPACITY,
+    );
+    wrapper.add(readout.group);
+    this.ctx.scene.add(wrapper);
+    this.placementGroup = wrapper;
+    this.placementTexture = readout.ownedTexture;
+    this.ctx.requestRender();
+  }
+
   private async apply(id: ConstraintButtonId): Promise<void> {
     if (this.busy || !this.model || !this.sketchInfo) {
       return;
     }
     this.cancelAnglePlacement();
+    this.cancelDistancePlacement();
 
     if (id === 'dimension' && !dimensionFormFor(this.picks)) {
       // Arm the two-pick flow: the next legal pick pair opens the value input.
@@ -486,7 +672,7 @@ export class SolvedConstraintToolbarService {
     }
 
     if (id === 'dimension') {
-      this.openValueInput(id, this.picks);
+      this.beginDimension(this.picks);
       return;
     }
 
@@ -517,6 +703,8 @@ export class SolvedConstraintToolbarService {
     id: 'dimension' | 'angle',
     dimPicks: SolvedPick[],
     sector?: AngleSector | null,
+    axis?: 'x' | 'y',
+    rawKey?: string,
   ): void {
     const model = this.model;
     if (!model) {
@@ -542,18 +730,22 @@ export class SolvedConstraintToolbarService {
     // on the side of the circumference facing the other target measures the
     // near side (min, the default); the opposite side measures far (max).
     // The timeline row's "Use min/max tangent" flips a committed statement.
-    const tangency = inferTangency(model, picks, form);
-    const measured = measureDimension(model, picks, form, undefined, angleSector, tangency);
+    // Axis forms measure center-to-center — no tangency side exists.
+    const tangency = axis !== undefined ? undefined : inferTangency(model, picks, form);
+    const measured = measureDimension(model, picks, form, axis, angleSector, tangency);
     if (measured === null) {
       return;
     }
     // The input opens at the label spot of the dimension it will create,
     // with the leader line previewed between the anchors (drawn after
     // show() — a re-targeting show() runs the previous cycle's onHide).
-    const layout = dimensionPreviewLayout(model, picks, form, undefined, angleSector, tangency);
+    const layout = dimensionPreviewLayout(model, picks, form, axis, angleSector, tangency);
     const { clientX, clientY } = this.inputPosition(model, layout);
     this.valueInput.show({
-      label: form.kind === 'angle' ? '∠' : form.kind === 'radius' ? 'R' : form.kind === 'diameter' ? '⌀' : 'D',
+      label: form.kind === 'angle' ? '∠'
+        : form.kind === 'radius' ? 'R'
+          : form.kind === 'diameter' ? '⌀'
+            : axis === 'x' ? 'H' : axis === 'y' ? 'V' : 'D',
       value: String(measured),
       clientX,
       clientY,
@@ -592,12 +784,15 @@ export class SolvedConstraintToolbarService {
           ? angleSectorTargets(picks[0], picks[1], sectorNow)
           : picks;
         void this.emit(
-          kind as ConstraintButtonId, emitPicks, finalExpr, undefined,
+          kind as ConstraintButtonId, emitPicks, finalExpr, axis,
           tangency === 'max' ? 'max' : undefined,
         );
       },
     });
-    this.pendingDimension = { picks, form, sector: angleSector, tangency };
+    this.pendingDimension = {
+      picks, form, sector: angleSector, tangency, axis,
+      rawKey: rawKey ?? picksKey(picks),
+    };
     this.drawDimensionPreview(layout);
   }
 
@@ -671,8 +866,27 @@ export class SolvedConstraintToolbarService {
     if (!layout.line) {
       return;
     }
-    const from = localToWorld(layout.line[0], model.plane);
-    const to = localToWorld(layout.line[1], model.plane);
+    const group = this.buildLeaderGroup(layout.line, model, PREVIEW_LEADER_OPACITY);
+    group.userData.isMetaShape = true;
+    const ext = buildAngleExtensions(
+      layout.extensions ?? [], model.plane, themeColors.constraintColor, PREVIEW_LEADER_OPACITY,
+    );
+    if (ext) {
+      group.add(ext);
+    }
+    this.ctx.scene.add(group);
+    this.previewGroup = group;
+    this.ctx.requestRender();
+  }
+
+  /** One world-scale leader segment, styled like the committed glyph's. */
+  private buildLeaderGroup(
+    seg: [Vec2, Vec2],
+    model: SolvedSketchModel,
+    opacity: number,
+  ): Group {
+    const from = localToWorld(seg[0], model.plane);
+    const to = localToWorld(seg[1], model.plane);
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new Float32BufferAttribute([
       from.x, from.y, from.z,
@@ -681,18 +895,15 @@ export class SolvedConstraintToolbarService {
     const material = new LineBasicMaterial({
       color: themeColors.constraintColor,
       transparent: true,
-      opacity: PREVIEW_LEADER_OPACITY,
+      opacity,
       depthTest: false,
     });
     const line = new Line(geometry, material);
     line.renderOrder = 2;
     const group = new Group();
     group.renderOrder = 2;
-    group.userData.isMetaShape = true;
     group.add(line);
-    this.ctx.scene.add(group);
-    this.previewGroup = group;
-    this.ctx.requestRender();
+    return group;
   }
 
   private removePreviewLine(): void {

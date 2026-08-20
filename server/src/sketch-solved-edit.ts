@@ -354,8 +354,12 @@ export async function applySolvedEmission(
     constraintRow = breakpointStmt.startPosition.row;
     constraintIndent = indentOf(resultLines, breakpointStmt.startPosition.row);
   } else if (bodyChildren.length > 0) {
+    // "Body end" stops BEFORE a trailing return (hand-written sketches
+    // return their entity bag) — a statement after it never runs.
     const lastStmt = bodyChildren[bodyChildren.length - 1];
-    constraintRow = lastStmt.endPosition.row + 1;
+    constraintRow = lastStmt.type === 'return_statement'
+      ? lastStmt.startPosition.row
+      : lastStmt.endPosition.row + 1;
     constraintIndent = indentOf(resultLines, lastStmt.startPosition.row);
   } else {
     constraintRow = body.startPosition.row + 1;

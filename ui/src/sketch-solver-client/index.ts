@@ -15,7 +15,9 @@ export type {
   SolvedEntityKind,
   SolvedSketchModel,
 } from './model';
-export { layoutConstraintGlyphs, distanceSpecEndpoints, formatDim, BADGE_LABELS } from './glyphs';
+export {
+  layoutConstraintGlyphs, distanceSpecEndpoints, distanceSpecExtensions, formatDim, BADGE_LABELS,
+} from './glyphs';
 export type { ConstraintGlyph, GlyphColorRole } from './glyphs';
 export { computeSketchDofState } from './dof-state';
 export type { SketchDofState, FailedConstraint } from './dof-state';

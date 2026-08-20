@@ -307,6 +307,38 @@ export function buildAngleArc(
   };
 }
 
+export type DimensionReadoutVisual = {
+  group: Group;
+  /** Uncached label texture (live readouts change per region) — dispose
+   * with the group. */
+  ownedTexture: IconTexture['texture'];
+};
+
+/**
+ * Screen-constant live value readout for the toolbar's distance placement
+ * preview — bare dimension text offset from its sketch anchor like the
+ * committed glyph's label, with an uncached texture (the label changes as
+ * the cursor crosses form regions).
+ */
+export function buildDimensionReadout(
+  at: [number, number],
+  label: string,
+  offsetDir: [number, number],
+  plane: PlaneData,
+  normal: Vec3Data,
+  color: Color,
+  opacity: number,
+): DimensionReadoutVisual {
+  const texture = createTextTexture(label, '#ffffff');
+  const position = localToWorld(at, plane);
+  const { group, material } = createOffsetSprite(
+    texture, color, position, dirToWorld(offsetDir, plane),
+    TEXT_OFFSET_PX, TEXT_PX_SIZE, plane, normal,
+  );
+  material.opacity = opacity;
+  return { group, ownedTexture: texture.texture };
+}
+
 export function buildSolvedConstraintMeshes(
   model: SolvedSketchModel,
   glyphs: ConstraintGlyph[],
@@ -413,6 +445,12 @@ export function buildSolvedConstraintMeshes(
         group.userData.isConstraintIcon = true;
         group.add(line);
         groups.push(group);
+        // Dashed witness extensions to anchors the leader doesn't reach
+        // (axis-locked distances) — same styling as the angle extensions.
+        const leaderExt = buildAngleExtensions(glyph.extensions ?? [], plane, color);
+        if (leaderExt) {
+          groups.push(leaderExt);
+        }
         // Leaders are context, not pick targets — the paired text glyph is.
         break;
       }

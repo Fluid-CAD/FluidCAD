@@ -6,7 +6,7 @@
 import type { ConstraintSpec, SolverRef } from '../../../../lib/sketch-solver/types.js';
 import type { SolvedPick } from '../sketch-hover-select-handler';
 import type { SolvedSketchModel } from '../../sketch-solver-client';
-import { distanceSpecEndpoints } from '../../sketch-solver-client';
+import { distanceSpecEndpoints, distanceSpecExtensions } from '../../sketch-solver-client';
 import {
   Vec2,
   entityAnchor,
@@ -73,6 +73,45 @@ export function expandDimensionPicks(picks: SolvedPick[]): SolvedPick[] {
     return [{ ...picks[0], role: 'start' }, { ...picks[0], role: 'end' }];
   }
   return picks;
+}
+
+/** The point pair a horizontal/vertical distance measures, or null when the
+ * picks have no axis form. Point picks pass through; a circle/arc pick
+ * measures its CENTER (the arc-condition center default every mainstream
+ * sketcher uses for axis dims — the solver's axis rows want point refs, and
+ * the emission renders the `.center()` accessor). A line pick other than
+ * the lone-line length expansion has no axis form — its distance is
+ * perpendicular by definition. Callers gate on dimensionFormFor first. */
+export function axisDimensionPicks(rawPicks: SolvedPick[]): [SolvedPick, SolvedPick] | null {
+  const picks = expandDimensionPicks(rawPicks);
+  if (picks.length !== 2) {
+    return null;
+  }
+  const toPoint = (p: SolvedPick): SolvedPick | null =>
+    isPointPick(p) ? p : isRound(p) ? { ...p, role: 'center' } : null;
+  const a = toPoint(picks[0]);
+  const b = toPoint(picks[1]);
+  return a && b ? [a, b] : null;
+}
+
+/** Which distance form the cursor's position picks during placement — the
+ * classic smart-dimension regions around the measured point pair: within
+ * the pair's x-range above/below → horizontal (Δx), within the y-range
+ * beside → vertical (Δy), inside the box or in a diagonal corner →
+ * aligned. An axis whose measure rounds to 0 (2dp — the write-back
+ * precision) is never offered: a zero dimension is a conflict in waiting,
+ * and the aligned form already IS that measurement. */
+export function axisFromCursor(a: Vec2, b: Vec2, cursor: Vec2): 'x' | 'y' | undefined {
+  const ZERO = 0.005;
+  const inX = cursor[0] >= Math.min(a[0], b[0]) && cursor[0] <= Math.max(a[0], b[0]);
+  const inY = cursor[1] >= Math.min(a[1], b[1]) && cursor[1] <= Math.max(a[1], b[1]);
+  if (inX && !inY && Math.abs(b[0] - a[0]) >= ZERO) {
+    return 'x';
+  }
+  if (inY && !inX && Math.abs(b[1] - a[1]) >= ZERO) {
+    return 'y';
+  }
+  return undefined;
 }
 
 const NEED = {
@@ -172,12 +211,18 @@ export function dimensionFormFor(rawPicks: SolvedPick[]): DimensionForm | null {
   const point = isPointPick(a) ? a : isPointPick(b) ? b : null;
   const entity = point === a ? b : a;
   if (point && (isLine(entity) || isRound(entity)) && point.entityId !== entity.entityId) {
-    return { kind: 'distance', axisChoice: false, tangencyChoice: isRound(entity) };
+    // Round targets also offer the axis forms — measured to the CENTER
+    // (axisDimensionPicks substitutes the role).
+    return { kind: 'distance', axisChoice: isRound(entity), tangencyChoice: isRound(entity) };
   }
   // Entity–entity: line–line, circle–circle, and line–circle/arc (the
   // perpendicular gap to the circumference).
   if ((isLine(a) || isRound(a)) && (isLine(b) || isRound(b)) && a.entityId !== b.entityId) {
-    return { kind: 'distance', axisChoice: false, tangencyChoice: isRound(a) || isRound(b) };
+    return {
+      kind: 'distance',
+      axisChoice: isRound(a) && isRound(b),
+      tangencyChoice: isRound(a) || isRound(b),
+    };
   }
   return null;
 }
@@ -401,6 +446,9 @@ export function candidateSpec(
 export type DimensionPreviewLayout = {
   /** Leader endpoints in sketch coords; null = no leader (angle). */
   line: [Vec2, Vec2] | null;
+  /** Dashed witness leaders from a synthetic leader end to the real
+   * anchor (axis forms — the committed glyph draws the same). */
+  extensions?: [Vec2, Vec2][];
   /** Where the value input anchors — the committed glyph's label spot. */
   at: Vec2;
   /** Angle only: the sector arc around `at` (screen-constant radius, same
@@ -477,5 +525,13 @@ export function dimensionPreviewLayout(
     spec.tangency = 'max';
   }
   const endpoints = distanceSpecEndpoints(model, spec);
-  return endpoints ? { line: endpoints, at: mid(endpoints[0], endpoints[1]) } : null;
+  if (!endpoints) {
+    return null;
+  }
+  const extensions = distanceSpecExtensions(model, spec);
+  return {
+    line: endpoints,
+    at: mid(endpoints[0], endpoints[1]),
+    ...(extensions.length > 0 ? { extensions } : {}),
+  };
 }

@@ -47,8 +47,11 @@ export type ConstraintGlyph = GlyphBase & (
   | { type: 'dot'; at: Vec2 }
   /** Box-less dimension readout, offset like a badge. */
   | { type: 'text'; label: string; at: Vec2; offsetDir: Vec2; stackIndex: number }
-  /** World-scale dimension leader line. */
-  | { type: 'leader'; from: Vec2; to: Vec2 }
+  /** World-scale dimension leader line. `extensions` are dashed witness
+   * leaders from a synthetic leader end to the real anchor it measures
+   * (axis-locked distances draw the leader axis-aligned, so the far point
+   * can float off it — the angle glyph's extension convention). */
+  | { type: 'leader'; from: Vec2; to: Vec2; extensions?: [Vec2, Vec2][] }
   /** Angle dimension: arc swept from `startAngle` by `sweep` around `at`,
    * with the readout at mid-arc. `extensions` are dashed helper leaders
    * from each segment's nearest endpoint to a virtual intersection the
@@ -235,7 +238,11 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
           const [from, to] = points;
           const dir = normalize(sub(to, from));
           const offsetDir = perp(dir);
-          glyphs.push({ ...base, type: 'leader', from, to });
+          const extensions = distanceSpecExtensions(model, spec);
+          glyphs.push({
+            ...base, type: 'leader', from, to,
+            ...(extensions.length > 0 ? { extensions } : {}),
+          });
           const at = mid(from, to);
           glyphs.push({
             ...base,
@@ -333,6 +340,30 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
  * for max-tangency dimensions. */
 function mirrorAcross(c: Vec2, p: Vec2): Vec2 {
   return [2 * c[0] - p[0], 2 * c[1] - p[1]];
+}
+
+/**
+ * Dashed witness extensions for a distance leader that doesn't reach its
+ * real anchors. Axis-locked point pairs measure one component: the leader
+ * runs axis-aligned from `a`, so its far end is a synthetic corner —
+ * extend from it to the real second point when they differ (the angle
+ * glyph's dashed extension-leader convention).
+ */
+export function distanceSpecExtensions(
+  model: SolvedSketchModel,
+  spec: Extract<ConstraintSpec, { kind: 'distance' }>,
+): [Vec2, Vec2][] {
+  if (spec.axis === undefined) {
+    return [];
+  }
+  const pa = refPoint(model, spec.a);
+  const pb = refPoint(model, spec.b);
+  if (!pa || !pb) {
+    return [];
+  }
+  const corner: Vec2 = spec.axis === 'x' ? [pb[0], pa[1]] : [pa[0], pb[1]];
+  const gap = spec.axis === 'x' ? Math.abs(pb[1] - pa[1]) : Math.abs(pb[0] - pa[0]);
+  return gap < 1e-9 ? [] : [[corner, pb]];
 }
 
 export function distanceSpecEndpoints(

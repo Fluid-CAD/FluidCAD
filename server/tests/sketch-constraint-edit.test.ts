@@ -109,6 +109,19 @@ describe('applySketchConstraint', () => {
     expect(result.newCode).toContain(`radius(c1, 10);`);
   });
 
+  it('REGRESSION: appends before a trailing return statement — a constraint after it never runs', async () => {
+    const withReturn = SKETCH.replace(`  horizontal(a);`, `  horizontal(a);\n  return { a };`);
+    const result = await applySketchConstraint(withReturn, {
+      sketchLine: 4,
+      kind: 'distance',
+      targets: [{ line: 5, role: 'start' }, { line: 5, role: 'end' }],
+      valueExpr: '100',
+      axis: 'x',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  distance(a.start(), a.end(), 100, 'x');\n  return { a };`);
+  });
+
   it('appends before an active breakpoint', async () => {
     const withBp = SKETCH.replace(`  horizontal(a);`, `  horizontal(a);\n  breakpoint();`);
     const result = await applySketchConstraint(withBp, {

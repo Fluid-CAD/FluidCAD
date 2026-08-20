@@ -15,6 +15,7 @@ import {
 } from './code-editor.ts';
 import { applySegmentSwap, type SegmentSwapSpec } from './segment-swap.ts';
 import { applySketchConstraint, type SketchConstraintEditSpec } from './sketch-constraint-edit.ts';
+import { applySolvedEmission, type SolvedEmissionSpec } from './sketch-solved-edit.ts';
 import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
 import { applyInsertPartEdit, type InsertPartEditSpec } from './part-catalog/insert-edit.ts';
 import { applyInstancePoseEdit, type InstancePoseEditSpec } from './insert-chain-edit.ts';
@@ -208,6 +209,14 @@ export type ApplyFeatureEditSpec = {
    * other spec field is ignored.
    */
   sketchConstraint?: SketchConstraintEditSpec;
+  /**
+   * Solved-sketch drawing-tool emission (sketch-rewrite P5): insert geometry
+   * statements (before the body's first constraint statement) and constraint
+   * statements (appended at the body end) in one edit, hoisting/binding as
+   * needed. Rides the same round trip as `sketchConstraint`; every other
+   * spec field is ignored.
+   */
+  sketchEmission?: SolvedEmissionSpec;
   /**
    * Parameters-panel declaration edit: add, retype/rename, or delete a
    * `param()` call. Rides the same round trip for the same reason a segment
@@ -1438,6 +1447,10 @@ export async function applyFeatureEdit(
   if (spec.sketchConstraint) {
     return applySketchConstraint(code, spec.sketchConstraint);
   }
+  if (spec.sketchEmission) {
+    const { newCode, error } = await applySolvedEmission(code, spec.sketchEmission);
+    return { newCode, ...(error !== undefined ? { error } : {}) };
+  }
   if (spec.paramEdit) {
     return ParamEditor.apply(code, spec.paramEdit);
   }
@@ -2124,7 +2137,7 @@ async function applyPlaneSketch(
 ): Promise<ApplyFeatureEditResult> {
   const args = plane ? `'${plane}', ` : '';
   return appendTopLevelStatement(
-    code, indent => `sketch(${args}() => {\n\n${indent}})`, 'sketch', undefined, activePart,
+    code, indent => `sketch(${args}() => {\n\n${indent}}, true)`, 'sketch', undefined, activePart,
   );
 }
 
@@ -2197,7 +2210,7 @@ async function applySketchForeign(
 
   const result = await appendTopLevelStatement(
     working,
-    indent => `sketch(${ident}.features.${sf.exposeName}, () => {\n\n${indent}})`,
+    indent => `sketch(${ident}.features.${sf.exposeName}, () => {\n\n${indent}}, true)`,
     'sketch',
     spec.newVariables,
     { line: activeLine, column: spec.activePart!.column },
@@ -3905,11 +3918,11 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     );
   }
   if (spec.feature === 'sketch' && spec.sketchOnPlane) {
-    return `sketch(${bindings[0].varName}, () => {\n\n${indent}})`;
+    return `sketch(${bindings[0].varName}, () => {\n\n${indent}}, true)`;
   }
   const args = renderSelectorArgs(spec, bindings);
   if (spec.feature === 'sketch') {
-    return `sketch(${args}, () => {\n\n${indent}})`;
+    return `sketch(${args}, () => {\n\n${indent}}, true)`;
   }
   if (spec.feature === 'connector') {
     // The name is a validated identifier, so the quoting is safe. A raw
@@ -4717,6 +4730,10 @@ export type ParsedFeatureStatement =
     targetText: string | null;
     /** The body callback argument text, verbatim — never dialog-edited. */
     bodyText: string;
+    /** The trailing solved-mode flag (`true`/`false`), verbatim; null when
+     * absent. A retarget must re-render it — dropping it would silently
+     * flip a solved sketch back to legacy. */
+    solvedText: string | null;
   }
   | {
     feature: 'text';
@@ -5354,19 +5371,32 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
   }
 
   if (feature === 'sketch') {
-    // sketch(() => {…}) / sketch(<target>, () => {…}): only the target
-    // argument (a plane string, plane variable, or face selector) is
-    // dialog-editable; the body callback is preserved verbatim.
-    if (args.length < 1 || args.length > 2) {
+    // sketch(() => {…}) / sketch(<target>, () => {…}[, true]): only the
+    // target argument (a plane string, plane variable, or face selector) is
+    // dialog-editable; the body callback and the solved-mode flag are
+    // preserved verbatim.
+    const positional = [...args];
+    let solvedText: string | null = null;
+    const last = positional[positional.length - 1];
+    if (last && (last.type === 'true' || last.type === 'false')) {
+      solvedText = last.text;
+      positional.pop();
+    }
+    if (positional.length < 1 || positional.length > 2) {
       return { error: 'the sketch has an argument shape the dialog cannot edit' };
     }
-    const body = args[args.length - 1];
+    const body = positional[positional.length - 1];
     if (body.type !== 'arrow_function' && body.type !== 'function_expression'
       && body.type !== 'function' && body.type !== 'identifier') {
       return { error: 'the sketch body is not a function — edit it in the source' };
     }
     return {
-      parsed: { feature, targetText: args.length === 2 ? args[0].text : null, bodyText: body.text },
+      parsed: {
+        feature,
+        targetText: positional.length === 2 ? positional[0].text : null,
+        bodyText: body.text,
+        solvedText,
+      },
       start,
       end,
     };
@@ -8269,7 +8299,9 @@ export function renderEditedStatement(
     } else {
       return { error: 'malformed sketch edit spec' };
     }
-    return { statement: `sketch(${targetExpr}, ${parsed.bodyText})` };
+    return {
+      statement: `sketch(${targetExpr}, ${parsed.bodyText}${parsed.solvedText ? `, ${parsed.solvedText}` : ''})`,
+    };
   }
   if (parsed.feature === 'repeat') {
     return renderEditedRepeat(parsed, spec, varFor);

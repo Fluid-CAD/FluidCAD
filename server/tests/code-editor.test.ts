@@ -502,6 +502,25 @@ describe('insertGeometryCall', () => {
     ].join('\n'));
   });
 
+  it('inserts before the first constraint statement in a solved sketch (layout convention §0.2)', async () => {
+    const code = [
+      `import { sketch, line } from 'fluidcad/core';`,
+      `import { horizontal, coincident } from 'fluidcad/constraints';`,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [10, 0]);`,
+      `  horizontal(a);`,
+      `  coincident(a.end(), a.start());`,
+      `}, true)`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 3, 'trim()');
+    expect(result.newCode).toContain([
+      `  const a = line([0, 0], [10, 0]);`,
+      `  trim()`,
+      `  horizontal(a);`,
+    ].join('\n'));
+  });
+
   it('inserts before a breakpoint() at the end of the sketch body', async () => {
     const code = [
       `import { sketch, line, breakpoint } from 'fluidcad/core';`,

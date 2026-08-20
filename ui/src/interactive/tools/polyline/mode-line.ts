@@ -11,6 +11,7 @@ import {
 import type { SegmentMode, ModeContext, ClickResult, Point2D } from './types';
 import type { SnapResult } from '../../../snapping/types';
 import type { CommitResult } from '../../../ui/expression-input';
+import { dimMagnitude, type SolvedConstraintParam } from '../solved-emission';
 
 export class LineMode implements SegmentMode {
   readonly id = 'line' as const;
@@ -33,7 +34,7 @@ export class LineMode implements SegmentMode {
     ctx.hideExpressionInput();
   }
 
-  handleClick(point: Point2D, _snapResult: SnapResult, ctx: ModeContext): ClickResult {
+  handleClick(point: Point2D, snapResult: SnapResult, ctx: ModeContext): ClickResult {
     if (ctx.isExpressionVisible()) {
       ctx.commitExpressionValue();
       return { kind: 'ignored' };
@@ -55,17 +56,28 @@ export class LineMode implements SegmentMode {
         return { kind: 'ignored' };
       }
 
-      const fn = isHorizontal ? 'hLine' : 'vLine';
-      const statement = atCurrent
-        ? `${fn}(${rounded})`
-        : `${fn}(${startText}, ${rounded})`;
-      ctx.insertGeometry(statement);
-      ctx.hideExpressionInput();
-
       const endPoint: Point2D = isHorizontal
         ? [roundedStart[0] + rounded, roundedStart[1]]
         : [roundedStart[0], roundedStart[1] + rounded];
       const snappedEnd = roundPoint(endPoint);
+
+      if (ctx.solved) {
+        ctx.solved.emitSegment({
+          kind: 'line',
+          text: `line(${startText}, ${ctx.formatPoint(snappedEnd)})`,
+          constraints: [{ kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] }],
+          endSnap: snapResult,
+          endPoint: snappedEnd,
+        });
+      } else {
+        const fn = isHorizontal ? 'hLine' : 'vLine';
+        const statement = atCurrent
+          ? `${fn}(${rounded})`
+          : `${fn}(${startText}, ${rounded})`;
+        ctx.insertGeometry(statement);
+      }
+      ctx.hideExpressionInput();
+
       const exitDir: Point2D = isHorizontal
         ? [Math.sign(rounded) || 1, 0]
         : [0, Math.sign(rounded) || 1];
@@ -79,10 +91,19 @@ export class LineMode implements SegmentMode {
       };
     }
 
-    const statement = atCurrent
-      ? `line(${ctx.formatPoint(roundedEnd)})`
-      : `line(${startText}, ${ctx.formatPoint(roundedEnd)})`;
-    ctx.insertGeometry(statement);
+    if (ctx.solved) {
+      ctx.solved.emitSegment({
+        kind: 'line',
+        text: `line(${startText}, ${ctx.formatPoint(roundedEnd)})`,
+        endSnap: snapResult,
+        endPoint: roundedEnd,
+      });
+    } else {
+      const statement = atCurrent
+        ? `line(${ctx.formatPoint(roundedEnd)})`
+        : `line(${startText}, ${ctx.formatPoint(roundedEnd)})`;
+      ctx.insertGeometry(statement);
+    }
 
     const len = Math.sqrt(dx * dx + dy * dy);
     const exitTangent = len > 1e-10
@@ -146,19 +167,42 @@ export class LineMode implements SegmentMode {
 
     const pendingStart = ctx.pendingStartText();
     const atCurrent = pendingStart === null && ctx.isAtCurrentPosition(roundedStart);
-    const fn = isHorizontal ? 'hLine' : 'vLine';
-    const statement = atCurrent
-      ? `${fn}(${dimExpr})`
-      : `${fn}(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${dimExpr})`;
-    ctx.insertGeometry(statement, newVariable);
-    ctx.hideExpressionInput();
-
     const committedDist = parseFloat(dimExpr);
     const resolvedDist = isNaN(committedDist) ? Math.round(sign * Math.abs(rawDistance) * 100) / 100 : committedDist;
     const endPoint: Point2D = isHorizontal
       ? [roundedStart[0] + resolvedDist, roundedStart[1]]
       : [roundedStart[0], roundedStart[1] + resolvedDist];
     const roundedEnd = roundPoint(endPoint);
+
+    if (ctx.solved) {
+      // A TYPED magnitude becomes an explicit length dimension (the sign
+      // only picks which side the guess endpoint lands on); a click-committed
+      // pill value stays a guess.
+      const constraints: SolvedConstraintParam[] = [
+        { kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] },
+      ];
+      if (ctx.isExpressionTyping()) {
+        constraints.push({
+          kind: 'distance',
+          targets: [{ newIndex: 0, role: 'start' }, { newIndex: 0, role: 'end' }],
+          valueExpr: dimMagnitude(expression),
+        });
+      }
+      ctx.solved.emitSegment({
+        kind: 'line',
+        text: `line(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${ctx.formatPoint(roundedEnd)})`,
+        constraints,
+        endPoint: roundedEnd,
+        newVariable,
+      });
+    } else {
+      const fn = isHorizontal ? 'hLine' : 'vLine';
+      const statement = atCurrent
+        ? `${fn}(${dimExpr})`
+        : `${fn}(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${dimExpr})`;
+      ctx.insertGeometry(statement, newVariable);
+    }
+    ctx.hideExpressionInput();
     const exitDir: Point2D = isHorizontal
       ? [Math.sign(resolvedDist) || 1, 0]
       : [0, Math.sign(resolvedDist) || 1];

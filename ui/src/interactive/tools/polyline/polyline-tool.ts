@@ -23,8 +23,25 @@ import {
   type Point2D,
   type TangentInfo,
   type ClickResult,
+  type SolvedSegmentSpec,
 } from './types';
-import type { SnapType } from '../../../snapping/types';
+import type { SnapResult, SnapType, SolvedVertexRef } from '../../../snapping/types';
+import { coincident, newTarget, refTarget, type SolvedConstraintParam } from '../solved-emission';
+import { buildSolvedSketchModel, type SolvedEntityView } from '../../../sketch-solver-client/model';
+import { dist2D } from '../../sketch-plane-utils';
+
+/** The previous solved chain segment: what the next segment's junction
+ * coincident and tangent/angle constraints reference. */
+type SolvedPrev = {
+  /** 1-indexed source line of the segment's statement. */
+  line: number;
+  featureType: 'line' | 'arc';
+  /** Which of its endpoints the chain continues from. */
+  junctionRole: 'start' | 'end';
+  /** The segment's own oriented (start→end) direction — lines only; the
+   * angle constraint's CCW rule is defined on it. */
+  orientedDir: Point2D | null;
+};
 
 export class PolylineTool extends SketchTool {
   readonly id = 'polyline' as const;
@@ -51,6 +68,19 @@ export class PolylineTool extends SketchTool {
   private lastClientY = 0;
 
   private ctrlHeld = false;
+
+  // ------------------------------------------------- solved-sketch chaining
+  /** The previous emitted segment (solved sketches), or null at chain start. */
+  private solvedPrev: SolvedPrev | null = null;
+  /** A chain-start snap ref awaiting the first segment's start coincident
+   * (a circle center, a point, …) — endpoint refs become solvedPrev instead. */
+  private solvedStartRef: SolvedVertexRef | null = null;
+  /** Emissions are serialized so each knows its predecessor's source line. */
+  private solvedEmitChain: Promise<void> = Promise.resolve();
+  /** Emissions still awaiting their response. The render can beat the HTTP
+   * response (the editor round trip re-renders first), and a resync against
+   * the then-STALE solvedPrev would drag the chain start back a segment. */
+  private solvedEmitsPending = 0;
 
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
@@ -122,6 +152,8 @@ export class PolylineTool extends SketchTool {
     this.startPoint = null;
     this.tangent = null;
     this.pendingStart = null;
+    this.solvedPrev = null;
+    this.solvedStartRef = null;
     this.ctrlHeld = false;
 
     this.removePreviewFromScene();
@@ -135,7 +167,11 @@ export class PolylineTool extends SketchTool {
     this.refreshVariables();
 
     if (this.phase === PolylinePhase.DRAWING && this.startPoint) {
-      this.resyncChainStateFromScene();
+      if (this.solvedCtx) {
+        this.resyncSolvedChain();
+      } else {
+        this.resyncChainStateFromScene();
+      }
     }
   }
 
@@ -159,6 +195,8 @@ export class PolylineTool extends SketchTool {
       this.startPoint = null;
       this.tangent = null;
       this.pendingStart = null;
+      this.solvedPrev = null;
+      this.solvedStartRef = null;
       this.rebuildPreview();
       return true;            // chain ended; tool stays armed for a new chain
     }
@@ -190,6 +228,16 @@ export class PolylineTool extends SketchTool {
       resolveCommittedValue: (result) => SketchTool.resolveCommittedValue(result, this.cachedVariables),
       formatPoint: (p) => this.formatPoint(p),
       insertGeometry: (stmt, nv) => this.insertSegment(stmt, nv),
+      solved: this.solvedCtx
+        ? {
+          prevEntity: () => this.solvedPrev
+            ? { line: this.solvedPrev.line, featureType: this.solvedPrev.featureType }
+            : null,
+          prevKind: () => this.solvedPrev?.featureType ?? null,
+          prevOrientedDir: () => this.solvedPrev?.orientedDir ?? null,
+          emitSegment: (spec) => this.emitSolvedSegment(spec),
+        }
+        : null,
       requestRender: () => this.requestRender(),
       isOrthoOverride: () => this.ctrlHeld,
       showExpressionInput: (opts) => {
@@ -204,6 +252,7 @@ export class PolylineTool extends SketchTool {
       updateExpressionPosition: (x, y) => this.expressionInput.updatePosition(x, y),
       hideExpressionInput: () => this.expressionInput.hide(),
       isExpressionVisible: () => this.expressionInput.isVisible,
+      isExpressionTyping: () => this.expressionInput.isTyping,
       commitExpressionValue: () => this.expressionInput.commitCurrentValue(),
       onSegmentCommitted: (result) => this.handleModeCommit(result),
     };
@@ -247,7 +296,7 @@ export class PolylineTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (this.phase === PolylinePhase.IDLE) {
-      this.beginChainAt(this.applyPointInput(result.point2d));
+      this.beginChainAt(this.applyPointInput(result.point2d), result);
       return;
     }
 
@@ -283,10 +332,12 @@ export class PolylineTool extends SketchTool {
    * `move(dx, dy)`: the chained forms that follow are exactly the relative
    * emission the offset asks for.
    */
-  private beginChainAt(picked: PickedPoint): void {
+  private beginChainAt(picked: PickedPoint, snap?: SnapResult): void {
     this.pendingStart = null;
+    this.solvedPrev = null;
+    this.solvedStartRef = null;
     if (picked.typed) {
-      if (picked.relative) {
+      if (picked.relative && !this.solvedCtx) {
         const statement = this.relativeMovePrefix(picked) ?? `move(${this.formatPoint(picked)})`;
         this.insertGeometry(
           statement,
@@ -294,6 +345,26 @@ export class PolylineTool extends SketchTool {
         );
       } else {
         this.pendingStart = picked;
+      }
+    }
+
+    if (this.solvedCtx && !picked.typed && snap?.ref && !this.ctrlHeld) {
+      // Opening the chain on an existing entity vertex: an endpoint of a
+      // line/arc chains fully (junction coincident + tangent modes, exactly
+      // like mid-chain); any other vertex just pins the first segment's
+      // start with a coincident.
+      const ref = snap.ref;
+      if ((ref.featureType === 'line' || ref.featureType === 'arc')
+        && (ref.role === 'start' || ref.role === 'end')) {
+        const entity = this.findSolvedEntityByLine(ref.line);
+        this.solvedPrev = {
+          line: ref.line,
+          featureType: ref.featureType,
+          junctionRole: ref.role,
+          orientedDir: entity ? solvedLineOrientedDir(entity) : null,
+        };
+      } else {
+        this.solvedStartRef = ref;
       }
     }
 
@@ -308,6 +379,11 @@ export class PolylineTool extends SketchTool {
     // continuation: tangent modes don't apply, even when the address lands
     // on the cursor.
     this.tangent = this.pendingStart ? null : this.findTangentAtPoint(this.startPoint);
+    if (this.solvedCtx) {
+      // Solved sketches have no kernel pen; the tangent comes from the
+      // (resumed) previous segment's geometry at the junction.
+      this.tangent = this.solvedPrev ? this.solvedJunctionTangent() : null;
+    }
 
     if (!this.isModeUsable(this.currentMode, this.buildModeContext())) {
       this.advanceToNextValidMode();
@@ -360,6 +436,13 @@ export class PolylineTool extends SketchTool {
       if (modeCtx) {
         this.currentMode.handleMouseMove(result.point2d, result, e.clientX, e.clientY, modeCtx);
       }
+    }
+
+    // Solved sketches: make the coincident inference visible before commit —
+    // a snapped entity vertex will emit a constraint, Ctrl suppresses it.
+    // (The edge-snap hints that share this line are legacy-only.)
+    if (this.solvedCtx) {
+      this.modeIndicator.setHint(result.ref && !this.ctrlHeld ? 'coincident' : null);
     }
 
     this.rebuildPreview();
@@ -506,6 +589,152 @@ export class PolylineTool extends SketchTool {
     return null;
   }
 
+  // ------------------------------------------------- solved-sketch chaining
+
+  /**
+   * Assemble and send one segment through the atomic insert-solved rail
+   * (P5): the mode's geometry + constraints, prefixed by the junction
+   * coincident to the previous segment (or the chain-start snap ref) and
+   * suffixed by the end-snap coincident. Emissions are serialized on a
+   * promise chain so each knows its predecessor's source line; a refusal
+   * ends the chain (the preview no longer matches the source).
+   */
+  private emitSolvedSegment(spec: SolvedSegmentSpec): void {
+    if (!this.solvedCtx) {
+      return;
+    }
+    const constraints: SolvedConstraintParam[] = [];
+    const prev = this.solvedPrev;
+    const startRef = this.solvedStartRef;
+    this.solvedStartRef = null;
+
+    if (prev) {
+      constraints.push(coincident(
+        newTarget(0, 'start'),
+        { line: prev.line, role: prev.junctionRole, featureType: prev.featureType },
+      ));
+    } else if (startRef) {
+      constraints.push(coincident(newTarget(0, 'start'), refTarget(startRef)));
+    }
+    constraints.push(...(spec.constraints ?? []));
+
+    const endRef = spec.endSnap?.ref;
+    const endMatchesSnap = !spec.endPoint || !spec.endSnap
+      || dist2D(spec.endPoint, spec.endSnap.point2d) < 1e-6;
+    const isJunctionRef = (ref: SolvedVertexRef) =>
+      (prev && ref.line === prev.line && ref.role === prev.junctionRole)
+      || (startRef && ref.line === startRef.line && ref.role === startRef.role);
+    if (endRef && endMatchesSnap && !this.ctrlHeld && !isJunctionRef(endRef)) {
+      constraints.push(coincident(newTarget(0, 'end'), refTarget(endRef)));
+    }
+
+    // Spend the pending typed start's declarations (mirrors insertSegment).
+    const pending = this.pendingStart;
+    this.pendingStart = null;
+    const modeVars = spec.newVariable === undefined
+      ? []
+      : Array.isArray(spec.newVariable) ? spec.newVariable : [spec.newVariable];
+    const newVariables = [...(pending?.newVariables ?? []), ...modeVars];
+
+    const emission = {
+      geometry: [{ kind: spec.kind, text: spec.text }],
+      constraints,
+      ...(newVariables.length > 0 ? { newVariables } : {}),
+    };
+    // Optimistic bookkeeping so the NEXT segment's angle/tangent math has
+    // its direction even before the line number arrives.
+    const orientedDir = spec.kind === 'line' && spec.endPoint
+      ? normalizedDir(this.startPoint, spec.endPoint) : null;
+    const solvedCtx = this.solvedCtx;
+    this.solvedEmitsPending++;
+    this.solvedEmitChain = this.solvedEmitChain.then(async () => {
+      const result = await solvedCtx.emit(emission);
+      this.solvedEmitsPending--;
+      if (result.success && result.geometryLines?.length) {
+        this.solvedPrev = {
+          line: result.geometryLines[0],
+          featureType: spec.kind,
+          junctionRole: 'end',
+          orientedDir,
+        };
+      } else if (!result.success && this.phase === PolylinePhase.DRAWING) {
+        // The source refused the segment — the drawn chain no longer matches
+        // reality, so end it (the toast already named the reason).
+        this.phase = PolylinePhase.IDLE;
+        this.startPoint = null;
+        this.tangent = null;
+        this.solvedPrev = null;
+        this.expressionInput.hide();
+        this.rebuildPreview();
+      }
+    });
+  }
+
+  /** The solved entity view whose statement starts at `line`, if rendered. */
+  private findSolvedEntityByLine(line: number): SolvedEntityView | null {
+    const sketchObj = this.sceneObjects.find(obj => obj.id === this.sketchId);
+    if (!sketchObj) {
+      return null;
+    }
+    const model = buildSolvedSketchModel(sketchObj, this.sceneObjects);
+    for (const e of model?.entities.values() ?? []) {
+      if (e.obj.sourceLocation?.line === line) {
+        return e;
+      }
+    }
+    return null;
+  }
+
+  /** The drawing-direction tangent at the solved chain's junction — the
+   * previous segment's geometric tangent, pointing away from the junction. */
+  private solvedJunctionTangent(): TangentInfo | null {
+    const prev = this.solvedPrev;
+    if (!prev || !this.startPoint) {
+      return null;
+    }
+    const entity = this.findSolvedEntityByLine(prev.line);
+    if (!entity) {
+      // Not rendered yet — fall back to the optimistic bookkeeping.
+      return prev.orientedDir
+        ? {
+          direction: prev.junctionRole === 'end'
+            ? prev.orientedDir
+            : [-prev.orientedDir[0], -prev.orientedDir[1]],
+          point: this.startPoint,
+        }
+        : null;
+    }
+    const dir = solvedTangentAt(entity, prev.junctionRole);
+    return dir ? { direction: dir, point: this.startPoint } : null;
+  }
+
+  /**
+   * Re-anchor the solved chain from the payload after each render: the
+   * previous segment's statement may have re-solved (constraints move
+   * guesses), so the chain continues from the entity's actual junction.
+   */
+  private resyncSolvedChain(): void {
+    const prev = this.solvedPrev;
+    if (!prev || this.solvedEmitsPending > 0) {
+      return;
+    }
+    const entity = this.findSolvedEntityByLine(prev.line);
+    if (!entity) {
+      return;
+    }
+    const junction = entity[prev.junctionRole];
+    if (!junction) {
+      return;
+    }
+    this.startPoint = [junction[0], junction[1]];
+    this.solvedPrev = { ...prev, orientedDir: solvedLineOrientedDir(entity) };
+    const tangent = this.solvedJunctionTangent();
+    if (tangent) {
+      this.tangent = tangent;
+    }
+    this.rebuildPreview();
+  }
+
   /**
    * Re-anchor the drawing chain to the kernel's rendered cursor after each
    * render. The tool's analytic bookkeeping (rounded endpoints, projected
@@ -548,4 +777,48 @@ export class PolylineTool extends SketchTool {
 
     this.requestRender();
   }
+}
+
+function normalizedDir(from: Point2D, to: Point2D): Point2D | null {
+  const dx = to[0] - from[0];
+  const dy = to[1] - from[1];
+  const len = Math.hypot(dx, dy);
+  return len > 1e-10 ? [dx / len, dy / len] : null;
+}
+
+/** A solved line entity's oriented (start→end) direction; null for arcs. */
+function solvedLineOrientedDir(entity: SolvedEntityView): Point2D | null {
+  if (entity.kind !== 'line' || !entity.start || !entity.end) {
+    return null;
+  }
+  return normalizedDir(entity.start, entity.end);
+}
+
+/** The drawing-direction tangent leaving a solved line/arc at one of its
+ * endpoints: away from the junction along the entity's geometry. */
+function solvedTangentAt(entity: SolvedEntityView, role: 'start' | 'end'): Point2D | null {
+  if (entity.kind === 'line') {
+    const dir = solvedLineOrientedDir(entity);
+    if (!dir) {
+      return null;
+    }
+    return role === 'end' ? dir : [-dir[0], -dir[1]];
+  }
+  if (entity.kind === 'arc' && entity.center) {
+    const p = entity[role];
+    if (!p) {
+      return null;
+    }
+    const dx = p[0] - entity.center[0];
+    const dy = p[1] - entity.center[1];
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-10) {
+      return null;
+    }
+    // Sweep tangent at p: CCW = (-dy, dx); .cw() flips. Leaving from the
+    // START runs backward along the sweep.
+    const sweep: Point2D = entity.cw ? [dy / len, -dx / len] : [-dy / len, dx / len];
+    return role === 'end' ? sweep : [-sweep[0], -sweep[1]];
+  }
+  return null;
 }

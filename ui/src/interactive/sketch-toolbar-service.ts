@@ -18,9 +18,10 @@ import { BezierHandlesOverlay } from './bezier-handles-overlay';
 import { SnapManager } from '../snapping/snap-manager';
 import { SnapController } from '../snapping/snap-controller';
 import {
-  insertGeometry, addGuide, removeGuide, getScopeVariables, applySketchOp, gotoSource, FeatureEditTarget,
-  ParsedFeatureStatement,
+  insertGeometry, insertSolvedGeometry, addGuide, removeGuide, getScopeVariables, applySketchOp, gotoSource,
+  FeatureEditTarget, ParsedFeatureStatement,
 } from '../api';
+import type { SolvedToolContext } from './tools/solved-emission';
 import { findActiveObject } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData, SourceLocation } from '../types';
 import { Viewer } from '../viewer';
@@ -92,6 +93,10 @@ export class SketchToolbarService {
     plane: PlaneData;
     sourceLocation: { filePath: string; line: number; column: number };
   } | null = null;
+  /** The sketch statement's post-edit line reported by the last solved
+   * emission — used until the next render refreshes activeSketchInfo, so a
+   * rapid drawing chain can't target a line that an added import shifted. */
+  private solvedEmitSketchLine: number | null = null;
   private activeDrawingTool: SketchTool | null = null;
   private activeDragHandler: DragMoveHandler | null = null;
   /** Solver-driven drag for solved sketches (P4) — activated INSTEAD of the
@@ -463,11 +468,23 @@ export class SketchToolbarService {
     if (lastRoot?.type === 'sketch' && lastRoot.id && lastRoot.object?.plane && lastRoot.sourceLocation) {
       const plane: PlaneData = lastRoot.object.plane;
       const prevSketchId = this.activeSketchInfo?.sketchObj.id;
+      // Solved sketches are container-atomic in the render cache (P2): every
+      // emission rebuilds the whole subtree and mints a NEW sketch id, so id
+      // equality would tear down the drawing tool mid-chain. The statement
+      // identity is the file + line — with the line tracked through the
+      // emission's own shift report (an added import moves the statement).
+      const prevLoc = this.activeSketchInfo?.sourceLocation;
+      const sameSolvedStatement = isSolvedSketch(lastRoot)
+        && prevLoc?.filePath === lastRoot.sourceLocation.filePath
+        && (this.solvedEmitSketchLine ?? prevLoc?.line) === lastRoot.sourceLocation.line;
+      const sameSketch = prevSketchId === lastRoot.id || sameSolvedStatement;
       this.activeSketchInfo = {
         sketchObj: lastRoot,
         plane,
         sourceLocation: lastRoot.sourceLocation,
       };
+      // The fresh payload's sourceLocation is authoritative again.
+      this.solvedEmitSketchLine = null;
 
       if (!this.toolbar.isVisible) {
         this.toolbar.show();
@@ -496,7 +513,7 @@ export class SketchToolbarService {
       }
 
       if (this.activeDrawingTool) {
-        if (prevSketchId !== lastRoot.id) {
+        if (!sameSketch) {
           this.handleToolSelect(this.toolbar.activeTool);
         } else {
           this.activeDrawingTool.updatePlane(plane);
@@ -589,6 +606,7 @@ export class SketchToolbarService {
       this.solvedDimensionEditor.hide();
       this.dofStatus.update({ result: 'hidden' });
       this.activeSketchInfo = null;
+      this.solvedEmitSketchLine = null;
       if (this.keepToolbar) {
         // A create-feature dialog launched from this sketch has suspended
         // editing to pick in the free 3D view — keep (or restore, when a
@@ -720,25 +738,74 @@ export class SketchToolbarService {
 
     const fetchVars = () => this.fetchScopeVariables();
 
+    // Solved sketches (P5): tools emit fully-specified primitives + explicit
+    // constraints through the atomic insert-solved rail. The guide latch is
+    // applied here (per geometry entry — never to a constraint, which the
+    // legacy last-line withGuideSuffix would decorate). An insertOverride
+    // (the slot dialog's statement-replace edit) keeps the string channel —
+    // it can only target a legacy statement.
+    const solved = !insertOverride && this.activeSketchInfo && isSolvedSketch(this.activeSketchInfo.sketchObj);
+    const solvedCtx: SolvedToolContext | null = solved
+      ? {
+        emit: async (request) => {
+          const info = this.activeSketchInfo;
+          if (!info) {
+            return { success: false, reason: 'no active sketch' };
+          }
+          const result = await insertSolvedGeometry({
+            // Emissions can outpace the render: an added import shifts the
+            // sketch statement, and the route reports where it landed. The
+            // override is cleared by every fresh payload (update()).
+            sketchLine: this.solvedEmitSketchLine ?? info.sourceLocation.line,
+            filePath: info.sourceLocation.filePath,
+            geometry: this.toolbar.guideModeChecked
+              ? request.geometry.map(g => ({ ...g, guide: true }))
+              : request.geometry,
+            constraints: request.constraints,
+            ...(request.newVariables && request.newVariables.length > 0
+              ? { newVariables: request.newVariables } : {}),
+          });
+          if (!result.success) {
+            this.showOpMessage(result.reason ?? 'the sketch edit was refused');
+          } else if (result.sketchLine !== undefined) {
+            this.solvedEmitSketchLine = result.sketchLine;
+          }
+          return result;
+        },
+      }
+      : null;
+
+    if (solved && (toolId === 'bezier' || toolId === 'text')) {
+      // No solver bezier until P8; text is pen-anchored ("at the sketch
+      // cursor") and has no absolute position form yet.
+      this.showOpMessage(`the ${toolId} tool isn't available in constraint sketches yet`);
+      return null;
+    }
+
+    const applySolvedContext = (tool: SketchTool | null): SketchTool | null => {
+      tool?.setSolvedContext(solvedCtx);
+      return tool;
+    };
+
     switch (toolId) {
       case 'line': {
-        const tool = new LineTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        const tool = applySolvedContext(new LineTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars))!;
         tool.onSceneUpdate(sceneObjects, sketchId);
         return tool;
       }
       case 'circle':
-        return new CircleTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        return applySolvedContext(new CircleTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars));
       case 'polygon':
-        return new PolygonTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        return applySolvedContext(new PolygonTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars));
       case 'arc2':
-        return new CenterArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        return applySolvedContext(new CenterArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars));
       case 'arc3': {
-        const tool = new ThreePointArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        const tool = applySolvedContext(new ThreePointArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars))!;
         tool.onSceneUpdate(sceneObjects, sketchId);
         return tool;
       }
       case 'polyline': {
-        const tool = new PolylineTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        const tool = applySolvedContext(new PolylineTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars))!;
         tool.onSceneUpdate(sceneObjects, sketchId);
         return tool;
       }
@@ -748,11 +815,11 @@ export class SketchToolbarService {
         return tool;
       }
       case 'rect':
-        return new RectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.rectCenteredChecked);
+        return applySolvedContext(new RectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.rectCenteredChecked));
       case 'rounded-rect':
-        return new RoundedRectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.rectCenteredChecked);
+        return applySolvedContext(new RoundedRectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.rectCenteredChecked));
       case 'slot':
-        return new SlotTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.slotOp.drawToggleChecked);
+        return applySolvedContext(new SlotTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.slotOp.drawToggleChecked));
       case 'text': {
         const tool = new TextTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container,
           () => this.handleToolSelect(null));
@@ -951,6 +1018,10 @@ export class SketchToolbarService {
 
     const tool = this.createTool(toolId, this.activeSketchInfo.plane, this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!);
     if (!tool) {
+      // A tool unavailable in this sketch mode (bezier/text in a solved
+      // sketch) — don't leave its button stuck armed with no tool behind it.
+      this.toolbar.setActiveTool(null);
+      this.activateDragHandler();
       return;
     }
 

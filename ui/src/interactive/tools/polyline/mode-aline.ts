@@ -10,6 +10,7 @@ import {
 } from '../tool-preview-utils';
 import { buildPathTargetIndex, closestPointOnSegment, PathTargetEntry } from '../../sketch-edge-utils';
 import { applyAlineToEdge } from '../../../api';
+import { chainAngleConstraint, dimMagnitude, type SolvedConstraintParam } from '../solved-emission';
 import { themeColors } from '../../../scene/theme-colors';
 import type { SceneObjectRender } from '../../../types';
 import type { SegmentMode, ModeContext, ClickResult, Point2D, SegmentCommitResult } from './types';
@@ -186,7 +187,7 @@ export class ALineMode implements SegmentMode {
     if (rounded === 0) {
       return { kind: 'ignored' };
     }
-    return { kind: 'committed', result: this.emit(String(rounded), rounded, null, ctx) };
+    return { kind: 'committed', result: this.emit(String(rounded), rounded, null, ctx, false) };
   }
 
   handleMouseMove(point: Point2D, snapResult: SnapResult, clientX: number, clientY: number, ctx: ModeContext): void {
@@ -293,8 +294,10 @@ export class ALineMode implements SegmentMode {
   private updateHover(point: Point2D, ctx: ModeContext): void {
     this.hoverTarget = null;
     // A mouse-fallback angle draws along a direction the kernel won't — an
-    // intersection along it would be fiction, so the snap stands down.
-    if (!this.angleResolved) {
+    // intersection along it would be fiction, so the snap stands down. The
+    // to-target apply-feature rail emits a pen `aLine(…)` — a build error in
+    // a solved sketch, so the snap stands down there too.
+    if (!this.angleResolved || ctx.solved) {
       ctx.setSnapHint(null);
       return;
     }
@@ -428,7 +431,7 @@ export class ALineMode implements SegmentMode {
       } else {
         const rounded = Math.round(target.t * 100) / 100;
         if (rounded !== 0) {
-          ctx.onSegmentCommitted(this.emit(String(rounded), rounded, null, ctx));
+          ctx.onSegmentCommitted(this.emit(String(rounded), rounded, null, ctx, false));
         }
       }
     });
@@ -439,10 +442,12 @@ export class ALineMode implements SegmentMode {
     const { expression, newVariable } = result;
     const value = ctx.resolveCommittedValue(result);
     const numericLength = value ?? Math.round(this.previewLength * 100) / 100;
-    ctx.onSegmentCommitted(this.emit(expression, numericLength, newVariable ?? null, ctx));
+    // Only a TYPED length becomes a dimension; a click merely commits the
+    // pill's mouse-tracked value.
+    ctx.onSegmentCommitted(this.emit(expression, numericLength, newVariable ?? null, ctx, ctx.isExpressionTyping()));
   }
 
-  private emit(lengthExpr: string, numericLength: number, lengthVariable: NewVariable | null, ctx: ModeContext): SegmentCommitResult {
+  private emit(lengthExpr: string, numericLength: number, lengthVariable: NewVariable | null, ctx: ModeContext, typedLength: boolean): SegmentCommitResult {
     const angleArg = this.angleExpr ?? String(this.lockedAngle ?? 0);
     // The explicit-start overload's angle is absolute (from +X): only correct
     // when the preview measured from +X too, i.e. the chain has no tangent
@@ -450,21 +455,6 @@ export class ALineMode implements SegmentMode {
     // even mid-render-lag when the cursor hasn't caught up yet.
     const pendingStart = ctx.pendingStartText();
     const roundedStart = roundPoint(ctx.startPoint);
-    const explicitStart = ctx.tangent === null
-      && (pendingStart !== null || !ctx.isAtCurrentPosition(roundedStart));
-    const statement = explicitStart
-      ? `aLine(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${angleArg}, ${lengthExpr})`
-      : `aLine(${angleArg}, ${lengthExpr})`;
-
-    const vars: NewVariable[] = [];
-    if (this.angleVariable) {
-      vars.push(this.angleVariable);
-    }
-    if (lengthVariable) {
-      vars.push(lengthVariable);
-    }
-    ctx.insertGeometry(statement, vars.length > 0 ? vars : undefined);
-    ctx.hideExpressionInput();
 
     const dir = this.lockedDir(ctx);
     const endpoint = roundPoint([
@@ -476,7 +466,67 @@ export class ALineMode implements SegmentMode {
     const sign = numericLength < 0 ? -1 : 1;
     const exitDir: Point2D = [dir[0] * sign, dir[1] * sign];
 
+    if (ctx.solved) {
+      this.emitSolvedLine(endpoint, exitDir, typedLength ? lengthExpr : null, lengthVariable, ctx);
+    } else {
+      const explicitStart = ctx.tangent === null
+        && (pendingStart !== null || !ctx.isAtCurrentPosition(roundedStart));
+      const statement = explicitStart
+        ? `aLine(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${angleArg}, ${lengthExpr})`
+        : `aLine(${angleArg}, ${lengthExpr})`;
+
+      const vars: NewVariable[] = [];
+      if (this.angleVariable) {
+        vars.push(this.angleVariable);
+      }
+      if (lengthVariable) {
+        vars.push(lengthVariable);
+      }
+      ctx.insertGeometry(statement, vars.length > 0 ? vars : undefined);
+    }
+    ctx.hideExpressionInput();
+
     return { endpoint, exitTangent: { direction: exitDir, point: endpoint } };
+  }
+
+  /**
+   * Solved emission (locked §0.1): a fully-specified line whose angle intent
+   * becomes an `angle(prev, new, deg)` statement per the CCW ≤ 180° rule —
+   * only expressible against a previous LINE (angle is line–line; off an arc
+   * or a free chain start the geometry keeps its drawn guesses). A typed
+   * length becomes a `distance` dimension.
+   */
+  private emitSolvedLine(
+    endpoint: Point2D,
+    exitDir: Point2D,
+    lengthExpr: string | null,
+    lengthVariable: NewVariable | null,
+    ctx: ModeContext,
+  ): void {
+    const solved = ctx.solved!;
+    const constraints: SolvedConstraintParam[] = [];
+    const prev = solved.prevEntity();
+    const prevDir = solved.prevOrientedDir();
+    if (prev && prevDir && solved.prevKind() === 'line') {
+      const angle = chainAngleConstraint(prev, { newIndex: 0 }, prevDir, exitDir);
+      if (angle) {
+        constraints.push(angle);
+      }
+    }
+    if (lengthExpr !== null) {
+      constraints.push({
+        kind: 'distance',
+        targets: [{ newIndex: 0, role: 'start' }, { newIndex: 0, role: 'end' }],
+        valueExpr: dimMagnitude(lengthExpr),
+      });
+    }
+    solved.emitSegment({
+      kind: 'line',
+      text: `line(${ctx.pendingStartText() ?? ctx.formatPoint(roundPoint(ctx.startPoint))}, ${ctx.formatPoint(endpoint)})`,
+      constraints,
+      endPoint: endpoint,
+      newVariable: lengthVariable ?? undefined,
+    });
   }
 
   rebuildPreview(ctx: ModeContext): void {

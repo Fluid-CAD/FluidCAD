@@ -381,13 +381,29 @@ export class ThreePointArcTool extends SketchTool {
   ): void {
     const rc = roundPoint(center);
     const cwSuffix = ccw ? '' : '.cw()';
-    const suffix = `.center(${this.formatPoint(rc)})${cwSuffix}`;
-    this.insertAtPoint(
-      start,
-      (point) => `arc(${point}, ${this.formatPoint(end)})${suffix}`,
-      () => `arc(${this.formatPoint(end)})${suffix}`,
-      [...end.newVariables, ...(newVariable ? [newVariable] : [])],
-    );
+
+    if (this.solvedCtx) {
+      const startText = this.formatPoint(start.relative ? roundPoint(start.value) : start);
+      const endText = this.formatPoint(end.relative ? roundPoint(end.value) : end);
+      void this.solvedCtx.emit({
+        geometry: [{
+          kind: 'arc',
+          text: `arc(${startText}, ${endText}, ${this.formatPoint(rc)})${cwSuffix}`,
+        }],
+        constraints: [],
+        ...(start.newVariables.length + end.newVariables.length + (newVariable ? 1 : 0) > 0
+          ? { newVariables: [...start.newVariables, ...end.newVariables, ...(newVariable ? [newVariable] : [])] }
+          : {}),
+      });
+    } else {
+      const suffix = `.center(${this.formatPoint(rc)})${cwSuffix}`;
+      this.insertAtPoint(
+        start,
+        (point) => `arc(${point}, ${this.formatPoint(end)})${suffix}`,
+        () => `arc(${this.formatPoint(end)})${suffix}`,
+        [...end.newVariables, ...(newVariable ? [newVariable] : [])],
+      );
+    }
     this.expressionInput.hide();
     this.resetState();
     this.rebuildPreview();

@@ -1,9 +1,10 @@
 import { Vector3 } from 'three';
-import { Snapper, SnapResult } from './types';
-import { VertexSnapper } from './vertex-snapper';
+import { Snapper, SnapResult, SolvedVertexRef } from './types';
+import { VertexSnapper, VertexCandidate } from './vertex-snapper';
 import { GridSnapper, computeAdaptiveGridSpacing } from './grid-snapper';
 import { PlaneData, SceneObjectRender } from '../types';
 import { SceneContext } from '../scene/scene-context';
+import { buildSolvedSketchModel, isSolvedSketch } from '../sketch-solver-client/model';
 
 const DEFAULT_SNAP_THRESHOLD_PX = 15;
 
@@ -101,21 +102,51 @@ export class SnapManager {
     ctx?: SceneContext,
   ): SnapManager {
     // Extract vertex positions from sketch child mesh data
-    const vertices2d: [number, number][] = [];
+    const candidates: VertexCandidate[] = [];
     const EPSILON_SQ = 1e-6;
-    const pushUnique = (u: number, v: number) => {
-      const isDup = vertices2d.some(
-        p => (p[0] - u) * (p[0] - u) + (p[1] - v) * (p[1] - v) < EPSILON_SQ,
+    const pushUnique = (u: number, v: number, ref?: SolvedVertexRef) => {
+      const isDup = candidates.some(
+        ({ point: p }) => (p[0] - u) * (p[0] - u) + (p[1] - v) * (p[1] - v) < EPSILON_SQ,
       );
       if (!isDup) {
-        vertices2d.push([u, v]);
+        candidates.push({ point: [u, v], ...(ref ? { ref } : {}) });
       }
     };
+
+    // Solved sketches: every entity vertex is snappable — with provenance,
+    // so an endpoint snap can emit a coincident() (P5). This deliberately
+    // includes interior/closed-loop junctions and guide entities, which the
+    // degree-1 mesh scan below can never surface. Pushed first so a
+    // position-duplicate mesh endpoint doesn't shadow the ref.
+    const solvedSketchObj = sceneObjects.find(obj => obj.id === sketchId);
+    if (isSolvedSketch(solvedSketchObj)) {
+      const model = buildSolvedSketchModel(solvedSketchObj!, sceneObjects);
+      for (const e of model?.entities.values() ?? []) {
+        const line = e.obj.sourceLocation?.line;
+        if (!line) {
+          continue;
+        }
+        const roles: ('start' | 'end' | 'center')[] =
+          e.kind === 'line' ? ['start', 'end']
+            : e.kind === 'arc' ? ['start', 'end', 'center']
+              : e.kind === 'circle' ? ['center'] : [];
+        for (const role of roles) {
+          const p = e[role];
+          if (p) {
+            pushUnique(p[0], p[1], { line, role, featureType: e.kind });
+          }
+        }
+        if (e.kind === 'point' && e.point) {
+          pushUnique(e.point[0], e.point[1], { line, featureType: 'point' });
+        }
+      }
+    }
 
     // The plane center is the sketch's default start position (the face
     // center when sketching on a face) — make it snappable like any vertex.
     if (plane.center) {
-      vertices2d.push(SnapManager.worldToPlane2d(plane.center.x, plane.center.y, plane.center.z, plane));
+      const [u, v] = SnapManager.worldToPlane2d(plane.center.x, plane.center.y, plane.center.z, plane);
+      pushUnique(u, v);
     }
 
     for (const obj of sceneObjects) {
@@ -157,14 +188,13 @@ export class SnapManager {
     // the sketch plane slices the scene's bodies (the vertices an
     // intersect() would produce) plus prior shapes' vertices projected onto
     // the plane. Nothing is drawn; they only feed the vertex snapper.
-    const sketchObj = sceneObjects.find(obj => obj.id === sketchId);
-    for (const [u, v] of sketchObj?.snapVertices ?? []) {
+    for (const [u, v] of solvedSketchObj?.snapVertices ?? []) {
       pushUnique(u, v);
     }
 
     // Priority order: vertex snap first, then grid snap
     const snappers: Snapper[] = [
-      new VertexSnapper(vertices2d, plane),
+      new VertexSnapper(candidates, plane),
       new GridSnapper(plane),
     ];
 

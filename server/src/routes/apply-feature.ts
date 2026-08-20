@@ -37,6 +37,13 @@ import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 import { CHAIN_CALLEES } from '../segment-swap.ts';
 import { findEditableCallAt, getJavaScriptParser, isExpressionText, splitLines } from '../code-editor.ts';
+import {
+  applySolvedEmission,
+  type SolvedConstraintEmission,
+  type SolvedEmissionTarget,
+  type SolvedGeometryEmission,
+} from '../sketch-solved-edit.ts';
+import { SOLVED_CONSTRAINT_KINDS, SOLVED_ENTITY_CALLEES } from '../sketch-symbols.ts';
 
 type RawPick = { shapeId?: unknown; sub?: { type?: unknown; index?: unknown } };
 
@@ -5915,7 +5922,7 @@ export function createApplyFeatureRouter(
             featureType: 'plane', nameHint: 'p', bind: true,
           }];
           const producerVars = await allocateProducerVars(producers, fluidCadServer.getCurrentCode());
-          const statement = `sketch(${producerVars[0] ?? 'p'}, () => {\n\n})`;
+          const statement = `sketch(${producerVars[0] ?? 'p'}, () => {\n\n}, true)`;
           if (preview === true) {
             res.json({ success: true, preview: statement, args: '' });
             return;
@@ -5934,7 +5941,7 @@ export function createApplyFeatureRouter(
         res.status(404).json({ success: false, reason: 'No rendered scene' });
         return;
       }
-      const statement = `sketch(${plane ? `'${plane}', ` : ''}() => {\n\n})`;
+      const statement = `sketch(${plane ? `'${plane}', ` : ''}() => {\n\n}, true)`;
       if (preview === true) {
         res.json({ success: true, preview: statement, args: '' });
         return;
@@ -6660,7 +6667,7 @@ export function createApplyFeatureRouter(
             importFrom = relativeSpecifier(activePartLoc.filePath, donor.filePath);
           }
 
-          const statementPreview = `sketch(${ident}.features.${name}, () => { ... })`;
+          const statementPreview = `sketch(${ident}.features.${name}, () => { ... }, true)`;
           if (preview === true) {
             res.json({ success: true, preview: statementPreview, args: '' });
             return;
@@ -7157,6 +7164,127 @@ export function createApplyFeatureRouter(
       },
     };
     await dispatcher.dispatch(res, spec, { success: true });
+  });
+
+  // Solved-sketch drawing-tool emission (sketch-rewrite P5): geometry +
+  // constraint statements in one edit, geometry before the body's first
+  // constraint statement (locked plan §0.2), constraints appended at the
+  // body end. Preflights against the server's code copy so the response can
+  // carry each geometry statement's final line — the polyline chain
+  // references its previous segment by line without waiting for a render.
+  router.post('/sketch/insert-solved', async (req, res) => {
+    const { sketchLine, filePath, geometry, constraints, newVariables } = req.body ?? {};
+    if (typeof sketchLine !== 'number'
+      || !Array.isArray(geometry) || !Array.isArray(constraints)
+      || geometry.length + constraints.length === 0
+      || (filePath !== undefined && typeof filePath !== 'string')
+      || (newVariables !== undefined && !Array.isArray(newVariables))) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const cleanGeometry: SolvedGeometryEmission[] = [];
+    for (const g of geometry) {
+      if (typeof g !== 'object' || g === null || !SOLVED_ENTITY_CALLEES.has(g.kind)
+        || typeof g.text !== 'string' || (g.guide !== undefined && typeof g.guide !== 'boolean')) {
+        res.status(400).json({ error: 'Invalid request body' });
+        return;
+      }
+      cleanGeometry.push({
+        kind: g.kind, text: g.text,
+        ...(g.guide !== undefined ? { guide: g.guide } : {}),
+      });
+    }
+    const validRoles = new Set(['start', 'end', 'center', 'mid']);
+    const validTypes = new Set(['line', 'arc', 'circle', 'point']);
+    const cleanConstraints: SolvedConstraintEmission[] = [];
+    for (const c of constraints) {
+      if (typeof c !== 'object' || c === null || !SOLVED_CONSTRAINT_KINDS.has(c.kind)
+        || !Array.isArray(c.targets) || c.targets.length === 0 || c.targets.length > 3
+        || (c.valueExpr !== undefined && typeof c.valueExpr !== 'string')
+        || (c.axis !== undefined && c.axis !== 'x' && c.axis !== 'y')) {
+        res.status(400).json({ error: 'Invalid request body' });
+        return;
+      }
+      const cleanTargets: SolvedEmissionTarget[] = [];
+      for (const t of c.targets) {
+        const byLine = typeof t?.line === 'number';
+        const byNew = typeof t?.newIndex === 'number';
+        if (typeof t !== 'object' || t === null || byLine === byNew
+          || (t.role !== undefined && !validRoles.has(t.role))
+          || (t.featureType !== undefined && !validTypes.has(t.featureType))) {
+          res.status(400).json({ error: 'Invalid request body' });
+          return;
+        }
+        cleanTargets.push({
+          ...(byLine ? { line: t.line } : { newIndex: t.newIndex }),
+          ...(t.role !== undefined ? { role: t.role } : {}),
+          ...(t.featureType !== undefined ? { featureType: t.featureType } : {}),
+        });
+      }
+      cleanConstraints.push({
+        kind: c.kind, targets: cleanTargets,
+        ...(c.valueExpr !== undefined ? { valueExpr: c.valueExpr } : {}),
+        ...(c.axis !== undefined ? { axis: c.axis } : {}),
+      });
+    }
+    const cleanVariables: { name: string; initializer: string }[] = [];
+    for (const v of newVariables ?? []) {
+      if (typeof v !== 'object' || v === null
+        || typeof v.name !== 'string' || typeof v.initializer !== 'string') {
+        res.status(400).json({ error: 'Invalid request body' });
+        return;
+      }
+      cleanVariables.push({ name: v.name, initializer: v.initializer });
+    }
+    const targetFile = filePath ?? fluidCadServer.getCurrentFileName();
+    if (!targetFile) {
+      res.status(422).json({ success: false, reason: 'No rendered scene' });
+      return;
+    }
+    const emission = {
+      sketchLine,
+      geometry: cleanGeometry,
+      constraints: cleanConstraints,
+      ...(cleanVariables.length > 0 ? { newVariables: cleanVariables } : {}),
+    };
+
+    // Preflight for the line info (and a fast honest 422); the dispatcher
+    // preflights again for the drift guard, which is cheap.
+    let geometryLines: number[] | undefined;
+    let names: (string | null)[] | undefined;
+    let newSketchLine: number | undefined;
+    if (targetFile === fluidCadServer.getCurrentFileName()) {
+      const code = fluidCadServer.getCurrentCode();
+      if (code !== null) {
+        try {
+          const dryRun = await applySolvedEmission(code, emission);
+          if (dryRun.error) {
+            res.status(422).json({ success: false, reason: dryRun.error });
+            return;
+          }
+          geometryLines = dryRun.geometryLines;
+          names = dryRun.names;
+          newSketchLine = dryRun.sketchLine;
+        } catch {
+          // A preflight crash is not a verdict — the editor round-trip decides.
+        }
+      }
+    }
+
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: targetFile,
+      producers: [],
+      parts: [],
+      imports: [],
+      sketchEmission: emission,
+    };
+    await dispatcher.dispatch(res, spec, {
+      success: true,
+      ...(geometryLines !== undefined ? { geometryLines } : {}),
+      ...(names !== undefined ? { names } : {}),
+      ...(newSketchLine !== undefined ? { sketchLine: newSketchLine } : {}),
+    });
   });
 
   // Apply one conversion: re-run the analysis fresh (never trust a stale

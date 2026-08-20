@@ -785,7 +785,7 @@ describe("shell and sketch synthesis", () => {
     if (result.ok) {
       expect(result.spec.value).toBeUndefined();
       expect(result.spec.parts).toHaveLength(1);
-      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... })");
+      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... }, true)");
       expect(result.args).toBe("e.endFaces()");
     }
   });
@@ -816,7 +816,7 @@ describe("shell and sketch synthesis", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.args).toBe("e.endFaces()");
-      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... })");
+      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... }, true)");
       expect(result.spec.parts).toHaveLength(1);
       expect(result.spec.parts[0].accessor).toBe("endFaces");
     }
@@ -947,7 +947,7 @@ describe("shell and sketch synthesis", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.args).toBe("e.endFaces()");
-      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... })");
+      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... }, true)");
     }
   });
 

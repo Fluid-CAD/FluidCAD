@@ -500,7 +500,7 @@ describe('shell and sketch statement templates', () => {
       `const e = extrude(30)`,
       `sketch(e.endFaces(), () => {`,
       ``,
-      `})`,
+      `}, true)`,
       ``,
     ].join('\n'));
   });
@@ -527,7 +527,7 @@ describe('shell and sketch statement templates', () => {
     expect(result.newCode).toContain([
       `  sketch(e.endFaces(), () => {`,
       ``,
-      `  });`,
+      `  }, true);`,
       `  return e;`,
     ].join('\n'));
   });
@@ -595,7 +595,7 @@ describe('plane sketch (no picks)', () => {
       `extrude(30)`,
       `sketch(() => {`,
       ``,
-      `})`,
+      `}, true)`,
       ``,
     ].join('\n'));
   });
@@ -607,7 +607,7 @@ describe('plane sketch (no picks)', () => {
       `import { sketch } from 'fluidcad/core';`,
       `sketch(() => {`,
       ``,
-      `});`,
+      `}, true);`,
       ``,
     ].join('\n'));
   });
@@ -632,7 +632,7 @@ describe('plane sketch (no picks)', () => {
       `sketch('xy', () => { rect(100, 50) });`,
       `sketch(() => {`,
       ``,
-      `});`,
+      `}, true);`,
     ].join('\n'));
   });
 });
@@ -666,7 +666,7 @@ describe('sketch on a plane feature', () => {
       `extrude(30)`,
       `sketch(p, () => {`,
       ``,
-      `})`,
+      `}, true)`,
       ``,
     ].join('\n'));
   });
@@ -826,7 +826,7 @@ describe('breakpoint-aware insertion', () => {
       `extrude(30)`,
       `sketch(() => {`,
       ``,
-      `})`,
+      `}, true)`,
       `breakpoint()`,
       ``,
     ].join('\n'));
@@ -3949,7 +3949,7 @@ describe('parseFeatureStatement — sketch', () => {
     const result = await parseFeatureStatement(code, 3);
     expect(result).toEqual({
       ok: true,
-      parsed: { feature: 'sketch', targetText: `'xy'`, bodyText: '() => { rect(100, 50) }' },
+      parsed: { feature: 'sketch', targetText: `'xy'`, bodyText: '() => { rect(100, 50) }', solvedText: null },
       statement: `sketch('xy', () => { rect(100, 50) })`,
     });
   });
@@ -3993,6 +3993,41 @@ describe('applyFeatureEdit (sketch retarget)', () => {
       `}).name('base')`,
       ``,
     ].join('\n'));
+  });
+
+  it('preserves the solved-mode flag of a 3-arg sketch through a retarget (P5)', async () => {
+    const code = [
+      `import { sketch, line } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  line([0, 0], [10, 0]);`,
+      `}, true)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('sketch', {
+      line: 3, column: 0,
+      sketch: { target: { kind: 'standard', plane: 'xz' } },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`sketch('xz', () => {`);
+    expect(result.newCode).toContain(`}, true)`);
+  });
+
+  it('retargets a bare solved sketch (callback + flag only) onto a plane, keeping the flag', async () => {
+    const code = [
+      `import { sketch } from 'fluidcad/core'`,
+      ``,
+      `sketch(() => {`,
+      `}, true)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('sketch', {
+      line: 3, column: 0,
+      sketch: { target: { kind: 'standard', plane: 'xz' } },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`sketch('xz', () => {`);
+    expect(result.newCode).toContain(`}, true)`);
   });
 
   it('gives a bare one-argument sketch its first target argument', async () => {
@@ -8213,7 +8248,7 @@ describe('active part insertion', () => {
       `  extrude(30)`,
       `  sketch('xy', () => {`,
       ``,
-      `  })`,
+      `  }, true)`,
       `})`,
       ``,
     ].join('\n'));
@@ -8234,7 +8269,7 @@ describe('active part insertion', () => {
       `part('Body', () => {`,
       `  sketch('xy', () => {`,
       ``,
-      `  })`,
+      `  }, true)`,
       `})`,
       ``,
     ].join('\n'));
@@ -8257,7 +8292,7 @@ describe('active part insertion', () => {
       `export const part1 = part('Part 1', () => {`,
       `  sketch('xy', () => {`,
       ``,
-      `  })`,
+      `  }, true)`,
       ``,
       `})`,
       ``,
@@ -8281,7 +8316,7 @@ describe('active part insertion', () => {
       `  extrude(30)`,
       `  sketch('xy', () => {`,
       ``,
-      `  })`,
+      `  }, true)`,
       `  breakpoint()`,
     ].join('\n'));
   });

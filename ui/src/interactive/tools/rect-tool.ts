@@ -19,6 +19,7 @@ import {
   addDot,
   addDashedRect,
 } from './tool-preview-utils';
+import { dimMagnitude, rectEmission } from './solved-emission';
 
 type ExpressionPhase = 'width' | 'height';
 
@@ -41,6 +42,10 @@ export class RectTool extends SketchTool {
   private widthExpression: CommitResult | null = null;
   private lockedWidth: number | null = null;
   private widthIsNumeric = false;
+  /** Whether each pill value was actually TYPED (not click-committed) —
+   * typed sizes become explicit dimensions in a solved sketch. */
+  private widthTyped = false;
+  private heightTyped = false;
 
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
@@ -288,6 +293,7 @@ export class RectTool extends SketchTool {
     const num = parseFloat(result.expression);
     const isNumeric = !isNaN(num) && String(num) === result.expression;
 
+    this.widthTyped = this.expressionInput.isTyping;
     this.widthIsNumeric = isNumeric;
     this.widthExpression = result;
     this.lockedWidth = isNumeric ? num : this.previewMagnitude(result);
@@ -318,6 +324,7 @@ export class RectTool extends SketchTool {
       return;
     }
 
+    this.heightTyped = this.expressionInput.isTyping;
     const num = parseFloat(result.expression);
     const isNumeric = !isNaN(num) && String(num) === result.expression;
 
@@ -397,15 +404,55 @@ export class RectTool extends SketchTool {
     widthResult: CommitResult,
     heightResult: CommitResult,
   ): void {
-    const suffix = this.centered ? '.centered()' : '';
     const newVariables = [widthResult.newVariable, heightResult.newVariable]
       .filter((v): v is NonNullable<typeof v> => v !== undefined);
+
+    if (this.solvedCtx) {
+      const w = this.resolveSolvedDim(widthResult);
+      const h = this.resolveSolvedDim(heightResult);
+      if (w === null || h === null || w === 0 || h === 0) {
+        return;
+      }
+      // Centered gestures anchor at the rect's centre — the emitted corner
+      // is centre − half-extent; the primitives are the same 4 lines.
+      const corner: [number, number] = this.centered
+        ? [start.value[0] - w / 2, start.value[1] - h / 2]
+        : [start.value[0], start.value[1]];
+      const emission = rectEmission({
+        corner,
+        w,
+        h,
+        ...(this.widthTyped ? { widthDim: dimMagnitude(widthResult.expression) } : {}),
+        ...(this.heightTyped ? { heightDim: dimMagnitude(heightResult.expression) } : {}),
+      });
+      const variables = [...start.newVariables, ...newVariables];
+      void this.solvedCtx.emit({
+        ...emission,
+        ...(variables.length > 0 ? { newVariables: variables } : {}),
+      });
+      this.widthTyped = false;
+      this.heightTyped = false;
+      return;
+    }
+
+    const suffix = this.centered ? '.centered()' : '';
     this.insertAtPoint(
       start,
       (point) => `rect(${point}, ${widthResult.expression}, ${heightResult.expression})${suffix}`,
       () => `rect(${widthResult.expression}, ${heightResult.expression})${suffix}`,
       newVariables,
     );
+  }
+
+  /** A committed dim's signed numeric value for corner math: the literal, a
+   * statically-resolved expression, or the mouse-derived size as a last
+   * resort. */
+  protected resolveSolvedDim(result: CommitResult): number | null {
+    const num = parseFloat(result.expression);
+    if (!isNaN(num) && String(num) === result.expression) {
+      return num;
+    }
+    return SketchTool.resolveCommittedValue(result, this.cachedVariables);
   }
 
   protected rebuildPreview(): void {

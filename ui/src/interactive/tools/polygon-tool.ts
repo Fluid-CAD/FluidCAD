@@ -12,6 +12,7 @@ import {
   pixelToSketchThreshold,
 } from '../sketch-plane-utils';
 import { ICON_POLYGON } from '../../ui/icons';
+import { dimMagnitude, polygonEmission } from './solved-emission';
 import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
 import {
   START_POINT_COLOR,
@@ -45,6 +46,9 @@ export class PolygonTool extends SketchTool {
 
   private expressionPhase: ExpressionPhase = 'diameter';
   private diameterExpression: CommitResult | null = null;
+  /** Whether the ⌀ was actually TYPED — typed sizes become explicit
+   * dimensions in a solved sketch. */
+  private diameterTyped = false;
   private lockedDiameter: number | null = null;
   private currentSides = DEFAULT_SIDES;
 
@@ -261,6 +265,7 @@ export class PolygonTool extends SketchTool {
     const num = parseFloat(result.expression);
     const isNumeric = !isNaN(num) && String(num) === result.expression;
 
+    this.diameterTyped = this.expressionInput.isTyping;
     this.diameterExpression = result;
     this.lockedDiameter = isNumeric ? num : this.previewDiameter(result);
     this.expressionPhase = 'sides';
@@ -314,6 +319,34 @@ export class PolygonTool extends SketchTool {
   ): void {
     const newVariables = [sidesResult.newVariable, diameterResult.newVariable]
       .filter((v): v is NonNullable<typeof v> => v !== undefined);
+
+    if (this.solvedCtx) {
+      const sides = parseInt(sidesResult.expression, 10);
+      const diameter = (() => {
+        const num = parseFloat(diameterResult.expression);
+        if (!isNaN(num) && String(num) === diameterResult.expression) {
+          return num;
+        }
+        return SketchTool.resolveCommittedValue(diameterResult, this.cachedVariables);
+      })();
+      if (isNaN(sides) || sides < 3 || diameter === null || diameter <= 0) {
+        return;
+      }
+      const emission = polygonEmission({
+        center: center.value,
+        diameter,
+        sides,
+        ...(this.diameterTyped ? { diameterDim: dimMagnitude(diameterResult.expression) } : {}),
+      });
+      const variables = [...center.newVariables, ...newVariables];
+      void this.solvedCtx.emit({
+        ...emission,
+        ...(variables.length > 0 ? { newVariables: variables } : {}),
+      });
+      this.diameterTyped = false;
+      return;
+    }
+
     this.insertAtPoint(
       center,
       (point) => `polygon(${point}, ${sidesResult.expression}, ${diameterResult.expression})`,

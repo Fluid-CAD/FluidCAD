@@ -1,16 +1,23 @@
 import { Vector3 } from 'three';
-import { Snapper, SnapResult } from './types';
+import { Snapper, SnapResult, SolvedVertexRef } from './types';
 import { PlaneData } from '../types';
 
 const EXCLUSION_EPSILON_SQ = 1e-6;
 
+/** A snappable vertex; `ref` carries solved-sketch provenance (which entity
+ * statement vertex this is) so tools can emit coincident constraints. */
+export type VertexCandidate = {
+  point: [number, number];
+  ref?: SolvedVertexRef;
+};
+
 export class VertexSnapper implements Snapper {
-  private vertices2d: [number, number][] = [];
+  private candidates: VertexCandidate[] = [];
   private excluded: [number, number][] = [];
   private plane: PlaneData;
 
-  constructor(vertices2d: [number, number][], plane: PlaneData) {
-    this.vertices2d = vertices2d;
+  constructor(candidates: VertexCandidate[], plane: PlaneData) {
+    this.candidates = candidates;
     this.plane = plane;
   }
 
@@ -32,18 +39,18 @@ export class VertexSnapper implements Snapper {
 
   snap(point2d: [number, number], threshold: number): SnapResult | null {
     let minDist = Infinity;
-    let closest: [number, number] | null = null;
+    let closest: VertexCandidate | null = null;
 
-    for (const v of this.vertices2d) {
-      if (this.isExcluded(v)) {
+    for (const c of this.candidates) {
+      if (this.isExcluded(c.point)) {
         continue;
       }
-      const dx = point2d[0] - v[0];
-      const dy = point2d[1] - v[1];
+      const dx = point2d[0] - c.point[0];
+      const dy = point2d[1] - c.point[1];
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < threshold && dist < minDist) {
         minDist = dist;
-        closest = v;
+        closest = c;
       }
     }
 
@@ -52,9 +59,10 @@ export class VertexSnapper implements Snapper {
     }
 
     return {
-      point2d: closest,
-      worldPoint: localToWorld(closest, this.plane),
+      point2d: closest.point,
+      worldPoint: localToWorld(closest.point, this.plane),
       snapType: 'vertex',
+      ...(closest.ref ? { ref: closest.ref } : {}),
     };
   }
 }

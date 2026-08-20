@@ -105,8 +105,11 @@ function makeCtx(opts: CtxOptions = {}) {
     updateExpressionPosition: () => {},
     hideExpressionInput: () => expr.hide(),
     isExpressionVisible: () => expr.isVisible,
+    isExpressionTyping: () => expr.isTyping,
     commitExpressionValue: () => expr.commitCurrentValue(),
     onSegmentCommitted: (r: SegmentCommitResult) => committed.push(r),
+    // These suites exercise the LEGACY (pen-statement) emissions.
+    solved: null,
   } as unknown as ModeContext;
 
   const input = container.querySelector('.expression-input') as HTMLInputElement;

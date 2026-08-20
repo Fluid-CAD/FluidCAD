@@ -542,7 +542,7 @@ describe('select→apply-feature end to end', () => {
     if (synthesis.ok !== true) {
       return;
     }
-    expect(synthesis.preview).toBe('sketch(e.endFaces(), () => { ... })');
+    expect(synthesis.preview).toBe('sketch(e.endFaces(), () => { ... }, true)');
     expect(synthesis.spec.value).toBeUndefined();
 
     const edited = await applyFeatureEdit(code, synthesis.spec);
@@ -550,7 +550,7 @@ describe('select→apply-feature end to end', () => {
     expect(edited.newCode).toContain([
       `sketch(e.endFaces(), () => {`,
       ``,
-      `})`,
+      `}, true)`,
     ].join('\n'));
 
     // The empty sketch must not break the model: no compile error (runFluid

@@ -9,6 +9,7 @@ import {
 import { PointInput, PointCommit } from '../ui/point-input';
 import { resolveExpressionValue, VariableInfo } from '../ui/expression-core';
 import { addDot, START_POINT_COLOR } from './tools/tool-preview-utils';
+import type { SolvedToolContext } from './tools/solved-emission';
 
 export type ToolId = 'line' | 'polyline' | 'circle' | 'polygon' | 'arc3' | 'arc2' | 'rect' | 'rounded-rect' | 'slot' | 'trim' | 'fillet' | 'offset' | 'copy' | 'fuse' | 'subtract' | 'common' | 'bezier' | 'text' | 'project';
 
@@ -47,6 +48,12 @@ export abstract class SketchTool {
   protected container: HTMLElement;
   protected currentPosition: [number, number] | null = null;
   protected currentTangent: [number, number] | null = null;
+
+  /** Non-null inside a solved sketch (sketch-rewrite P5): emissions go
+   * through the atomic insert-solved rail as fully-specified primitives +
+   * explicit constraints instead of `insertGeometry` pen statements. Set by
+   * the toolbar service right after construction. */
+  protected solvedCtx: SolvedToolContext | null = null;
 
   /** The coordinate pill. Shown while `awaitingPoint()` holds. */
   protected pointInput: PointInput;
@@ -303,6 +310,14 @@ export abstract class SketchTool {
 
   updatePlane(plane: PlaneData): void {
     this.plane = plane;
+  }
+
+  setSolvedContext(ctx: SolvedToolContext | null): void {
+    this.solvedCtx = ctx;
+  }
+
+  protected isSolvedMode(): boolean {
+    return this.solvedCtx !== null;
   }
 
   /** True once the pill holds a typed axis — the point is an address, not a

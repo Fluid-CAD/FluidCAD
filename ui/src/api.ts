@@ -1730,6 +1730,67 @@ export async function applySketchConstraint(options: {
   }
 }
 
+/** One target of a solved-emission constraint: an existing statement by
+ * 1-indexed line, or a geometry entry of the same emission by index. */
+export type SolvedEmissionTargetParam = {
+  line?: number;
+  newIndex?: number;
+  role?: 'start' | 'end' | 'center' | 'mid';
+  featureType?: 'line' | 'arc' | 'circle' | 'point';
+};
+
+export type SolvedGeometryParam = {
+  kind: 'line' | 'arc' | 'circle' | 'point';
+  /** Rendered call text without binding or `;` — `line([0, 0], [40, 0])`. */
+  text: string;
+  guide?: boolean;
+};
+
+export type SolvedConstraintParam = {
+  kind: string;
+  targets: SolvedEmissionTargetParam[];
+  valueExpr?: string;
+  axis?: 'x' | 'y';
+};
+
+/**
+ * The solved-sketch drawing-tool emission (sketch-rewrite P5): geometry +
+ * constraint statements in ONE edit — geometry before the body's first
+ * constraint statement, constraints appended at the body end, unbound
+ * targets hoisted. Resolves with each geometry statement's final source
+ * line so a drawing chain can reference its previous segment.
+ */
+export async function insertSolvedGeometry(options: {
+  sketchLine: number;
+  filePath?: string;
+  geometry: SolvedGeometryParam[];
+  constraints: SolvedConstraintParam[];
+  newVariables?: { name: string; initializer: string }[];
+}): Promise<{
+  success: boolean;
+  reason?: string;
+  geometryLines?: number[];
+  names?: (string | null)[];
+  /** The sketch statement's post-edit line — added imports shift it, and a
+   * chained follow-up emission before the next render must target it. */
+  sketchLine?: number;
+}> {
+  try {
+    const res = await fetch('/api/sketch/insert-solved', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(options),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
 export async function convertSegment(
   shapeId: string,
   target: ConversionTarget,

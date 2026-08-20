@@ -3,6 +3,7 @@ import { PlaneData, SceneObjectRender } from '../../../types';
 import { CommitResult } from '../../../ui/expression-input';
 import { SnapResult } from '../../../snapping/types';
 import { NewVariable } from '../../sketch-tool';
+import type { SolvedConstraintParam, SolvedEmissionTargetParam } from '../solved-emission';
 
 export type Point2D = [number, number];
 
@@ -29,6 +30,40 @@ export type ClickResult =
   | { kind: 'consumed' }
   | { kind: 'committed'; result: SegmentCommitResult }
   | { kind: 'ignored' };
+
+/** One fully-specified segment emission from a mode (solved sketches). The
+ * TOOL owns the chain bookkeeping: it prepends the junction coincident to the
+ * previous segment (or the chain-start snap ref) and appends the end-snap
+ * coincident, then sends everything through the atomic insert-solved rail. */
+export type SolvedSegmentSpec = {
+  kind: 'line' | 'arc';
+  /** Rendered geometry text, e.g. `line([0, 0], [40, 0])` / `arc(…).cw()`. */
+  text: string;
+  /** Mode-specific constraints: `{newIndex: 0}` targets the new segment,
+   * `ctx.solved.prevEntity()` the previous one. */
+  constraints?: SolvedConstraintParam[];
+  /** The end click's snap — the tool derives the end coincident from its
+   * provenance (suppressed under Ctrl, or when the emitted endpoint was
+   * quantized away from the snapped vertex). */
+  endSnap?: SnapResult | null;
+  /** The endpoint the segment text actually wrote, to validate endSnap. */
+  endPoint?: Point2D;
+  newVariable?: NewVariable | NewVariable[];
+};
+
+/** Solved-sketch face of the polyline chain (sketch-rewrite P5); null in
+ * legacy sketches — modes then emit pen statements via insertGeometry. */
+export type SolvedModeContext = {
+  /** The previous chain segment as a constraint target (no role), or null
+   * when the chain opened free. */
+  prevEntity(): SolvedEmissionTargetParam | null;
+  prevKind(): 'line' | 'arc' | null;
+  /** The previous segment's own start→end direction (lines only) — the
+   * angle constraint's CCW rule is defined on it, NOT on the junction
+   * tangent (they differ when the chain resumed from a line's start). */
+  prevOrientedDir(): [number, number] | null;
+  emitSegment(spec: SolvedSegmentSpec): void;
+};
 
 export type ModeContext = {
   readonly plane: PlaneData;
@@ -68,6 +103,7 @@ export type ModeContext = {
   resolveCommittedValue(result: CommitResult): number | null;
   formatPoint(p: Point2D): string;
   insertGeometry(statement: string, newVariable?: NewVariable | NewVariable[]): void;
+  solved: SolvedModeContext | null;
   requestRender(): void;
   isOrthoOverride(): boolean;
   showExpressionInput(opts: {
@@ -81,6 +117,10 @@ export type ModeContext = {
   updateExpressionPosition(clientX: number, clientY: number): void;
   hideExpressionInput(): void;
   isExpressionVisible(): boolean;
+  /** Whether the visible expression input holds USER-TYPED text — a typed
+   * value becomes an explicit dimension in a solved sketch, a click-committed
+   * one stays a guess. */
+  isExpressionTyping(): boolean;
   commitExpressionValue(): void;
   onSegmentCommitted(result: SegmentCommitResult): void;
 };

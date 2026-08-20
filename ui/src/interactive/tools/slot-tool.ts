@@ -13,6 +13,7 @@ import {
 import { ICON_SLOT } from '../../ui/icons';
 import { ExpressionInput, CommitResult } from '../../ui/expression-input';
 import { classifyDelta } from './ortho-snap';
+import { dimMagnitude, slotEmission } from './solved-emission';
 import {
   START_POINT_COLOR,
   SNAP_VERTEX_COLOR,
@@ -55,6 +56,9 @@ export class SlotTool extends SketchTool {
   private distanceExpression: CommitResult | null = null;
   /** `.rotate(...)` chain locked with the distance; '' for horizontal. */
   private rotateSuffix = '';
+  /** Whether the distance pill's value was actually TYPED — typed sizes
+   * become explicit dimensions in a solved sketch. */
+  private distanceTyped = false;
   /** Unit axis direction locked at the distance commit. */
   private lockedDir: [number, number] | null = null;
   /** Numeric full length for the preview, signed along {@link lockedDir}. */
@@ -385,6 +389,7 @@ export class SlotTool extends SketchTool {
     const direction = classifyDelta(dx, dy, this.ctrlHeld);
     const factor = this.centered ? 2 : 1;
 
+    this.distanceTyped = this.expressionInput.isTyping;
     if (direction === 'horizontal' || direction === 'vertical') {
       const axisDelta = direction === 'horizontal' ? dx : dy;
       const sign = Math.sign(axisDelta) || 1;
@@ -441,9 +446,45 @@ export class SlotTool extends SketchTool {
     distanceResult: CommitResult,
     radiusResult: CommitResult,
   ): void {
-    const suffix = `${this.rotateSuffix}${this.centered ? '.centered()' : ''}`;
     const newVariables = [distanceResult.newVariable, radiusResult.newVariable]
       .filter((v): v is NonNullable<typeof v> => v !== undefined);
+
+    if (this.solvedCtx) {
+      const radiusTyped = this.expressionInput.isTyping;
+      const dist = this.lockedDistance;
+      const dir = this.lockedDir;
+      const radius = (() => {
+        const num = parseFloat(radiusResult.expression);
+        if (!isNaN(num) && String(num) === radiusResult.expression) {
+          return num;
+        }
+        return SketchTool.resolveCommittedValue(radiusResult, this.cachedVariables);
+      })();
+      if (dist === null || !dir || radius === null || radius <= 0 || dist === 0) {
+        return;
+      }
+      const anchor = start.value;
+      const p0: [number, number] = this.centered
+        ? [anchor[0] - dir[0] * dist / 2, anchor[1] - dir[1] * dist / 2]
+        : [anchor[0], anchor[1]];
+      const p1: [number, number] = [p0[0] + dir[0] * dist, p0[1] + dir[1] * dist];
+      const emission = slotEmission({
+        p0,
+        p1,
+        radius,
+        ...(this.distanceTyped ? { lengthDim: dimMagnitude(distanceResult.expression) } : {}),
+        ...(radiusTyped ? { radiusDim: dimMagnitude(radiusResult.expression) } : {}),
+      });
+      const variables = [...start.newVariables, ...newVariables];
+      void this.solvedCtx.emit({
+        ...emission,
+        ...(variables.length > 0 ? { newVariables: variables } : {}),
+      });
+      this.distanceTyped = false;
+      return;
+    }
+
+    const suffix = `${this.rotateSuffix}${this.centered ? '.centered()' : ''}`;
     this.insertAtPoint(
       start,
       (point) => `slot(${point}, ${distanceResult.expression}, ${radiusResult.expression})${suffix}`,

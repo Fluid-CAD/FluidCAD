@@ -24,6 +24,8 @@ import {
   tangentFromVertices,
 } from './tangent-utils';
 import { classifyDelta, orthoEffectiveEnd, LineDirection } from './ortho-snap';
+import { coincident, dimMagnitude, newTarget, refTarget, type SolvedConstraintParam } from './solved-emission';
+import type { SnapResult, SolvedVertexRef } from '../../snapping/types';
 
 export class LineTool extends SketchTool {
   readonly id = 'line' as const;
@@ -33,6 +35,10 @@ export class LineTool extends SketchTool {
   private startPoint: [number, number] | null = null;
   /** The start as picked: same position, plus any typed axis expressions. */
   private startPick: PickedPoint | null = null;
+  /** Solved sketches: the start click's snap provenance (for the coincident). */
+  private startSnapRef: SolvedVertexRef | null = null;
+  /** Solved sketches: the latest cursor snap (the end click's provenance). */
+  private lastSnapRef: SolvedVertexRef | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private shiftHeld = false;
@@ -123,7 +129,7 @@ export class LineTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (!this.startPoint) {
-      this.consumeStart(this.applyPointInput(result.point2d));
+      this.consumeStart(this.applyPointInput(result.point2d), result);
       return;
     }
 
@@ -155,9 +161,10 @@ export class LineTool extends SketchTool {
 
   /** Single writer for both halves of the anchor, so the position the preview
    * draws and the expressions the statement emits cannot drift. */
-  private consumeStart(start: PickedPoint): void {
+  private consumeStart(start: PickedPoint, snap?: SnapResult): void {
     this.startPick = start;
     this.startPoint = start.value;
+    this.startSnapRef = !start.typed && !this.ctrlHeld ? snap?.ref ?? null : null;
     this.syncPointInput();
     this.rebuildPreview();
   }
@@ -178,6 +185,7 @@ export class LineTool extends SketchTool {
     const result = this.snapController.snap(raw);
     this.mousePoint = result.point2d;
     this.lastSnapType = result.snapType;
+    this.lastSnapRef = result.ref ?? null;
     this.rebuildPreview();
     this.updateDimensionInput();
   }
@@ -372,13 +380,38 @@ export class LineTool extends SketchTool {
     const sign = isHorizontal ? Math.sign(dx) : Math.sign(dy);
     const dimExpr = SketchTool.applySignedDimension(expression, sign);
 
-    const fn = isHorizontal ? 'hLine' : 'vLine';
-    this.insertAtPoint(
-      this.startPick!,
-      (point) => `${fn}(${point}, ${dimExpr})`,
-      () => `${fn}(${dimExpr})`,
-      newVariable ? [newVariable] : [],
-    );
+    if (this.solvedCtx) {
+      const committedDist = parseFloat(dimExpr);
+      const resolvedDist = isNaN(committedDist)
+        ? Math.round(sign * Math.abs(isHorizontal ? dx : dy) * 100) / 100
+        : committedDist;
+      const start = this.startPick!.value;
+      const end: [number, number] = isHorizontal
+        ? [start[0] + resolvedDist, start[1]]
+        : [start[0], start[1] + resolvedDist];
+      const constraints: SolvedConstraintParam[] = [
+        { kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] },
+      ];
+      // Only a TYPED value becomes a dimension; a click merely commits the
+      // pill's mouse-tracked value.
+      if (this.expressionInput.isTyping) {
+        constraints.push({
+          kind: 'distance',
+          targets: [{ newIndex: 0, role: 'start' }, { newIndex: 0, role: 'end' }],
+          valueExpr: dimMagnitude(expression),
+        });
+      }
+      this.emitSolvedLine(this.startPick!, roundPoint(end), null, constraints,
+        newVariable ? [newVariable] : []);
+    } else {
+      const fn = isHorizontal ? 'hLine' : 'vLine';
+      this.insertAtPoint(
+        this.startPick!,
+        (point) => `${fn}(${point}, ${dimExpr})`,
+        () => `${fn}(${dimExpr})`,
+        newVariable ? [newVariable] : [],
+      );
+    }
 
     this.expressionInput.hide();
     this.startPoint = null;
@@ -425,6 +458,23 @@ export class LineTool extends SketchTool {
     const dy = roundedEnd[1] - start.value[1];
     const dir = this.classifyDelta(dx, dy);
 
+    if (this.solvedCtx) {
+      if (dir === 'free') {
+        this.emitSolvedLine(start, roundedEnd, this.lastSnapRef, []);
+      } else {
+        const isHorizontal = dir === 'horizontal';
+        const effectiveEnd = roundPoint(orthoEffectiveEnd(start.value, roundedEnd, dir));
+        // The ortho quantization may have moved the end off the snapped
+        // vertex — the coincident only holds when it didn't.
+        const stillSnapped = this.lastSnapRef
+          && Math.hypot(effectiveEnd[0] - roundedEnd[0], effectiveEnd[1] - roundedEnd[1]) < 1e-6;
+        this.emitSolvedLine(start, effectiveEnd, stillSnapped ? this.lastSnapRef : null, [
+          { kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] },
+        ]);
+      }
+      return;
+    }
+
     if (dir === 'horizontal') {
       const distance = roundPoint([dx, 0])[0];
       this.insertAtPoint(
@@ -450,6 +500,38 @@ export class LineTool extends SketchTool {
       (point) => `line(${point}, ${this.formatPoint(roundedEnd)})`,
       () => `line(${this.formatPoint(roundedEnd)})`,
     );
+  }
+
+  /** Solved emission for one line: geometry + the given constraints, plus
+   * the start/end snap coincidents (Ctrl suppresses inference). */
+  private emitSolvedLine(
+    start: PickedPoint,
+    end: [number, number],
+    endRef: SolvedVertexRef | null,
+    constraints: SolvedConstraintParam[],
+    newVariables: { name: string; initializer: string }[] = [],
+  ): void {
+    const all: SolvedConstraintParam[] = [];
+    if (this.startSnapRef) {
+      all.push(coincident(newTarget(0, 'start'), refTarget(this.startSnapRef)));
+    }
+    if (endRef && !this.ctrlHeld
+      && !(this.startSnapRef && endRef.line === this.startSnapRef.line && endRef.role === this.startSnapRef.role)) {
+      all.push(coincident(newTarget(0, 'end'), refTarget(endRef)));
+    }
+    all.push(...constraints);
+    void this.solvedCtx!.emit({
+      geometry: [{
+        kind: 'line',
+        // A relative pick's axis expressions are offsets, not coordinates —
+        // only the resolved value is a valid solved-mode literal.
+        text: `line(${this.formatPoint(start.relative ? roundPoint(start.value) : start)}, ${this.formatPoint(end)})`,
+      }],
+      constraints: all,
+      ...(start.newVariables.length + newVariables.length > 0
+        ? { newVariables: [...start.newVariables, ...newVariables] } : {}),
+    });
+    this.startSnapRef = null;
   }
 
   private rebuildPreview(): void {

@@ -428,7 +428,7 @@ describe('apply-feature route validation', () => {
         feature: 'sketch', entities: [PICK], activePart: ACTIVE,
       });
       expect(status).toBe(200);
-      expect(body.preview).toBe(`sketch(p1.features.endFace, () => { ... })`);
+      expect(body.preview).toBe(`sketch(p1.features.endFace, () => { ... }, true)`);
       // A matched exposure needs no donor-side synthesis and no normal
       // sketch synthesis — the reference is composed route-side.
       expect(synthesizeCalls).toEqual([]);
@@ -460,7 +460,7 @@ describe('apply-feature route validation', () => {
         feature: 'sketch', entities: [PICK], activePart: ACTIVE,
       });
       expect(status).toBe(200);
-      expect(body.preview).toBe(`sketch(p1.features.g2, () => { ... })`);
+      expect(body.preview).toBe(`sketch(p1.features.g2, () => { ... }, true)`);
       // Both synthesis passes ran the donor-side expose rail with the
       // allocated name (g1 was taken).
       expect(synthesizeCalls.every(c => c.feature === 'expose')).toBe(true);

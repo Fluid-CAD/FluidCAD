@@ -1,4 +1,5 @@
 import { createRequire } from 'module';
+import { SOLVED_CONSTRAINT_KINDS } from './sketch-symbols.ts';
 
 export type TSNode = {
   type: string;
@@ -379,6 +380,24 @@ export function isBreakpointStatement(node: TSNode): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * Recognise a solved-sketch constraint statement (`coincident(…);`,
+ * `distance(…);`, …): an expression_statement whose call's chain-base callee
+ * is one of the constraint commands. Geometry inserts before the first of
+ * these — the geometry-then-constraints layout convention (plan §0.2).
+ */
+export function isSolvedConstraintStatement(node: TSNode): boolean {
+  if (node.type !== 'expression_statement') {
+    return false;
+  }
+  const call = node.namedChild(0);
+  if (!call || call.type !== 'call_expression') {
+    return false;
+  }
+  const fn = chainBaseCall(call).childForFieldName('function');
+  return !!fn && fn.type === 'identifier' && SOLVED_CONSTRAINT_KINDS.has(fn.text);
 }
 
 function findBreakpointStatementAt(tree: TSTree, row: number): TSNode | null {
@@ -1135,8 +1154,16 @@ export async function insertGeometryCall(
   let insertRow: number;
   let indent: string;
 
+  // Geometry-then-constraints layout convention (sketch-rewrite, locked plan
+  // §0.2): geometry inserts before the body's first constraint statement.
+  // Legacy sketches have no constraint statements, so nothing changes there.
   const breakpointStmt = bodyChildren.find(isBreakpointStatement);
-  if (breakpointStmt) {
+  const firstConstraintStmt = bodyChildren.find(s => isSolvedConstraintStatement(s));
+  if (firstConstraintStmt
+    && (!breakpointStmt || firstConstraintStmt.startPosition.row < breakpointStmt.startPosition.row)) {
+    insertRow = firstConstraintStmt.startPosition.row;
+    indent = indentOf(lines, firstConstraintStmt.startPosition.row);
+  } else if (breakpointStmt) {
     insertRow = breakpointStmt.startPosition.row;
     indent = indentOf(lines, breakpointStmt.startPosition.row);
   } else if (bodyChildren.length > 0) {

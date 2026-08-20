@@ -24,12 +24,15 @@ export class ArcMode implements SegmentMode {
 
   private subState: ArcSubState = ArcSubState.AWAITING_END;
   private endPoint: Point2D | null = null;
+  /** The end click's snap, kept for the commit's coincident provenance. */
+  private endSnap: SnapResult | null = null;
   private mousePoint: Point2D | null = null;
   private lastSnapType: SnapResult['snapType'] = 'none';
 
   enter(_ctx: ModeContext): void {
     this.subState = ArcSubState.AWAITING_END;
     this.endPoint = null;
+    this.endSnap = null;
     this.mousePoint = null;
     this.lastSnapType = 'none';
   }
@@ -37,15 +40,17 @@ export class ArcMode implements SegmentMode {
   exit(_ctx: ModeContext): void {
     this.subState = ArcSubState.AWAITING_END;
     this.endPoint = null;
+    this.endSnap = null;
     this.mousePoint = null;
   }
 
-  handleClick(point: Point2D, _snapResult: SnapResult, ctx: ModeContext): ClickResult {
+  handleClick(point: Point2D, snapResult: SnapResult, ctx: ModeContext): ClickResult {
     if (this.subState === ArcSubState.AWAITING_END) {
       if (dist2D(ctx.startPoint, point) < 1e-6) {
         return { kind: 'ignored' };
       }
       this.endPoint = point;
+      this.endSnap = snapResult;
       this.subState = ArcSubState.AWAITING_THROUGH;
       return { kind: 'consumed' };
     }
@@ -67,10 +72,19 @@ export class ArcMode implements SegmentMode {
     const pendingStart = ctx.pendingStartText();
     const atCurrent = pendingStart === null && ctx.isAtCurrentPosition(roundedStart);
 
-    const statement = atCurrent
-      ? `arc(${ctx.formatPoint(roundedEnd)}).center(${ctx.formatPoint(roundedCenter)})${cwSuffix}`
-      : `arc(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${ctx.formatPoint(roundedEnd)}).center(${ctx.formatPoint(roundedCenter)})${cwSuffix}`;
-    ctx.insertGeometry(statement);
+    if (ctx.solved) {
+      ctx.solved.emitSegment({
+        kind: 'arc',
+        text: `arc(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${ctx.formatPoint(roundedEnd)}, ${ctx.formatPoint(roundedCenter)})${cwSuffix}`,
+        endSnap: this.endSnap,
+        endPoint: roundedEnd,
+      });
+    } else {
+      const statement = atCurrent
+        ? `arc(${ctx.formatPoint(roundedEnd)}).center(${ctx.formatPoint(roundedCenter)})${cwSuffix}`
+        : `arc(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${ctx.formatPoint(roundedEnd)}).center(${ctx.formatPoint(roundedCenter)})${cwSuffix}`;
+      ctx.insertGeometry(statement);
+    }
 
     const exitTangent = this.computeExitTangent(roundedEnd, roundedCenter, ccw);
 
@@ -88,6 +102,7 @@ export class ArcMode implements SegmentMode {
   handleEscape(_ctx: ModeContext): boolean {
     if (this.subState === ArcSubState.AWAITING_THROUGH) {
       this.endPoint = null;
+      this.endSnap = null;
       this.subState = ArcSubState.AWAITING_END;
       return true;
     }

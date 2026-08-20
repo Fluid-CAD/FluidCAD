@@ -12,6 +12,7 @@ import {
   sketchToClient,
 } from '../sketch-plane-utils';
 import { ICON_ROUNDED_RECT } from '../../ui/icons';
+import { dimMagnitude, roundedRectEmission } from './solved-emission';
 import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
 import {
   START_POINT_COLOR,
@@ -46,6 +47,10 @@ export class RoundedRectTool extends SketchTool {
   private lockedHeight: number | null = null;
   private widthIsNumeric = false;
   private heightIsNumeric = false;
+  /** Whether each pill value was actually TYPED (not click-committed) —
+   * typed sizes become explicit dimensions in a solved sketch. */
+  private widthTyped = false;
+  private heightTyped = false;
 
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
@@ -389,6 +394,7 @@ export class RoundedRectTool extends SketchTool {
     const num = parseFloat(result.expression);
     const isNumeric = !isNaN(num) && String(num) === result.expression;
 
+    this.widthTyped = this.expressionInput.isTyping;
     this.widthIsNumeric = isNumeric;
     this.widthExpression = result;
     this.lockedWidth = isNumeric ? num : this.previewMagnitude(result, 'width');
@@ -423,6 +429,7 @@ export class RoundedRectTool extends SketchTool {
     const num = parseFloat(result.expression);
     const isNumeric = !isNaN(num) && String(num) === result.expression;
 
+    this.heightTyped = this.expressionInput.isTyping;
     this.heightIsNumeric = isNumeric;
     this.heightExpression = result;
     this.lockedHeight = isNumeric ? num : this.previewMagnitude(result, 'height');
@@ -531,15 +538,56 @@ export class RoundedRectTool extends SketchTool {
     heightResult: CommitResult,
     radiusResult: CommitResult,
   ): void {
-    const suffix = `.radius(${radiusResult.expression})${this.centered ? '.centered()' : ''}`;
     const newVariables = [widthResult.newVariable, heightResult.newVariable, radiusResult.newVariable]
       .filter((v): v is NonNullable<typeof v> => v !== undefined);
+
+    if (this.solvedCtx) {
+      const radiusTyped = this.expressionInput.isTyping;
+      const w = this.solvedDimValue(widthResult);
+      const h = this.solvedDimValue(heightResult);
+      const r = this.solvedDimValue(radiusResult);
+      if (w === null || h === null || r === null || w === 0 || h === 0 || r <= 0) {
+        return;
+      }
+      const corner: [number, number] = this.centered
+        ? [start.value[0] - w / 2, start.value[1] - h / 2]
+        : [start.value[0], start.value[1]];
+      const emission = roundedRectEmission({
+        corner,
+        w,
+        h,
+        radius: r,
+        ...(this.widthTyped ? { widthDim: dimMagnitude(widthResult.expression) } : {}),
+        ...(this.heightTyped ? { heightDim: dimMagnitude(heightResult.expression) } : {}),
+        ...(radiusTyped ? { radiusDim: dimMagnitude(radiusResult.expression) } : {}),
+      });
+      const variables = [...start.newVariables, ...newVariables];
+      void this.solvedCtx.emit({
+        ...emission,
+        ...(variables.length > 0 ? { newVariables: variables } : {}),
+      });
+      this.widthTyped = false;
+      this.heightTyped = false;
+      return;
+    }
+
+    const suffix = `.radius(${radiusResult.expression})${this.centered ? '.centered()' : ''}`;
     this.insertAtPoint(
       start,
       (point) => `rect(${point}, ${widthResult.expression}, ${heightResult.expression})${suffix}`,
       () => `rect(${widthResult.expression}, ${heightResult.expression})${suffix}`,
       newVariables,
     );
+  }
+
+  /** A committed dim's signed numeric value for corner math (literal or a
+   * statically-resolved expression). */
+  private solvedDimValue(result: CommitResult): number | null {
+    const num = parseFloat(result.expression);
+    if (!isNaN(num) && String(num) === result.expression) {
+      return num;
+    }
+    return SketchTool.resolveCommittedValue(result, this.cachedVariables);
   }
 
   private rebuildPreview(): void {

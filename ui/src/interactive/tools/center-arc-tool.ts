@@ -299,13 +299,29 @@ export class CenterArcTool extends SketchTool {
   ): void {
     const re = roundPoint(end);
     const cwSuffix = ccw ? '' : '.cw()';
-    const suffix = `.center(${this.formatPoint(center)})${cwSuffix}`;
-    this.insertAtPoint(
-      start,
-      (point) => `arc(${point}, ${this.formatPoint(re)})${suffix}`,
-      () => `arc(${this.formatPoint(re)})${suffix}`,
-      [...center.newVariables, ...(newVariable ? [newVariable] : [])],
-    );
+
+    if (this.solvedCtx) {
+      const startText = this.formatPoint(start.relative ? roundPoint(start.value) : start);
+      const centerText = this.formatPoint(center.relative ? roundPoint(center.value) : center);
+      void this.solvedCtx.emit({
+        geometry: [{
+          kind: 'arc',
+          text: `arc(${startText}, ${this.formatPoint(re)}, ${centerText})${cwSuffix}`,
+        }],
+        constraints: [],
+        ...(start.newVariables.length + center.newVariables.length + (newVariable ? 1 : 0) > 0
+          ? { newVariables: [...start.newVariables, ...center.newVariables, ...(newVariable ? [newVariable] : [])] }
+          : {}),
+      });
+    } else {
+      const suffix = `.center(${this.formatPoint(center)})${cwSuffix}`;
+      this.insertAtPoint(
+        start,
+        (point) => `arc(${point}, ${this.formatPoint(re)})${suffix}`,
+        () => `arc(${this.formatPoint(re)})${suffix}`,
+        [...center.newVariables, ...(newVariable ? [newVariable] : [])],
+      );
+    }
     this.expressionInput.hide();
     this.resetState();
     this.rebuildPreview();

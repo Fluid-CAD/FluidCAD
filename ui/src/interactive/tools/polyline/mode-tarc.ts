@@ -67,7 +67,7 @@ export class TArcMode implements SegmentMode {
     ctx.setSnapHint(null);
   }
 
-  handleClick(point: Point2D, _snapResult: SnapResult, ctx: ModeContext): ClickResult {
+  handleClick(point: Point2D, snapResult: SnapResult, ctx: ModeContext): ClickResult {
     if (!ctx.tangent) {
       return { kind: 'ignored' };
     }
@@ -76,7 +76,7 @@ export class TArcMode implements SegmentMode {
       return this.commitToTarget(this.hoverTarget, ctx);
     }
 
-    const result = this.commitRadiusToPoint(point, ctx);
+    const result = this.commitRadiusToPoint(point, ctx, snapResult);
     if (!result) {
       return { kind: 'ignored' };
     }
@@ -92,7 +92,7 @@ export class TArcMode implements SegmentMode {
    * (the written endpoint re-projected onto that circle) — otherwise the
    * tool's position drifts off the rendered geometry a little per arc.
    */
-  private commitRadiusToPoint(point: Point2D, ctx: ModeContext): SegmentCommitResult | null {
+  private commitRadiusToPoint(point: Point2D, ctx: ModeContext, snapResult?: SnapResult): SegmentCommitResult | null {
     if (!ctx.tangent) {
       return null;
     }
@@ -115,7 +115,24 @@ export class TArcMode implements SegmentMode {
     if (!built) {
       return null;
     }
-    ctx.insertGeometry(`tArc(${radius}, ${ctx.formatPoint(written)})`);
+
+    if (ctx.solved) {
+      const prev = ctx.solved.prevEntity();
+      const roundedStart = roundPoint(ctx.startPoint);
+      ctx.solved.emitSegment({
+        kind: 'arc',
+        text: `arc(${ctx.pendingStartText() ?? ctx.formatPoint(roundedStart)}, ${ctx.formatPoint(written)}, ${ctx.formatPoint(roundPoint(built.center))})${built.ccw ? '' : '.cw()'}`,
+        constraints: prev
+          ? [{ kind: 'tangent', targets: [prev, { newIndex: 0 }] }]
+          : [],
+        // The snapped vertex is ~half a rounding step off the written end —
+        // the coincident is exactly how the solver closes that gap.
+        endSnap: snapResult ?? null,
+        newVariable: undefined,
+      });
+    } else {
+      ctx.insertGeometry(`tArc(${radius}, ${ctx.formatPoint(written)})`);
+    }
 
     return {
       endpoint: built.end,
@@ -195,7 +212,10 @@ export class TArcMode implements SegmentMode {
   /** Re-evaluate the snap target under the cursor and the hint that goes with it. */
   private updateHover(point: Point2D, ctx: ModeContext): void {
     this.hoverTarget = null;
-    if (!ctx.tangent) {
+    // The edge-target apply-feature rail emits a pen `tArc(…)` — a build
+    // error in a solved sketch; the point form + tangent constraint covers
+    // the gesture there.
+    if (!ctx.tangent || ctx.solved) {
       ctx.setSnapHint(null);
       return;
     }

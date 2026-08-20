@@ -19,6 +19,8 @@ import {
   addDot,
   addDashedCircle,
 } from './tool-preview-utils';
+import { coincident, newTarget, refTarget, type SolvedConstraintParam } from './solved-emission';
+import type { SolvedVertexRef } from '../../snapping/types';
 
 export class CircleTool extends SketchTool {
   readonly id = 'circle' as const;
@@ -28,6 +30,9 @@ export class CircleTool extends SketchTool {
   private centerPoint: [number, number] | null = null;
   /** The centre as picked: same position, plus any typed axis expressions. */
   private centerPick: PickedPoint | null = null;
+  /** Solved sketches: the centre click's snap provenance (concentric-style
+   * coincident on the centre point). */
+  private centerSnapRef: SolvedVertexRef | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private expressionInput: ExpressionInput;
@@ -115,7 +120,9 @@ export class CircleTool extends SketchTool {
     if (!this.centerPoint) {
       // The pill contributes any axis the user typed; free axes come from the
       // cursor, so a plain click behaves exactly as it always did.
-      this.consumeCenter(this.applyPointInput(result.point2d));
+      const picked = this.applyPointInput(result.point2d);
+      this.consumeCenter(picked);
+      this.centerSnapRef = !picked.typed && !(e.ctrlKey || e.metaKey) ? result.ref ?? null : null;
       return;
     }
 
@@ -127,7 +134,7 @@ export class CircleTool extends SketchTool {
       if (diameter <= 0) {
         return;
       }
-      this.commitCircle(this.centerPick!, { expression: String(diameter) });
+      this.commitCircle(this.centerPick!, { expression: String(diameter) }, false);
     }
     this.expressionInput.hide();
     this.consumeCenter(null);
@@ -138,6 +145,9 @@ export class CircleTool extends SketchTool {
     // preview draws and the expressions the statement emits cannot drift.
     this.centerPick = center;
     this.centerPoint = center ? center.value : null;
+    if (!center) {
+      this.centerSnapRef = null;
+    }
     this.syncPointInput();
     this.rebuildPreview();
   }
@@ -194,7 +204,9 @@ export class CircleTool extends SketchTool {
         variables: this.cachedVariables,
         onCommit: (result) => {
           if (this.centerPoint) {
-            this.commitCircle(this.centerPick!, result);
+            // Only a TYPED ⌀ becomes a dimension; a click merely commits the
+            // pill's mouse-tracked value.
+            this.commitCircle(this.centerPick!, result, this.expressionInput.isTyping);
             this.expressionInput.hide();
             this.consumeCenter(null);
           }
@@ -206,8 +218,28 @@ export class CircleTool extends SketchTool {
     }
   }
 
-  private commitCircle(center: PickedPoint, result: CommitResult): void {
+  private commitCircle(center: PickedPoint, result: CommitResult, typed: boolean): void {
     const { expression, newVariable } = result;
+
+    if (this.solvedCtx) {
+      const constraints: SolvedConstraintParam[] = [];
+      if (this.centerSnapRef) {
+        constraints.push(coincident(newTarget(0, 'center'), refTarget(this.centerSnapRef)));
+      }
+      if (typed) {
+        constraints.push({ kind: 'diameter', targets: [{ newIndex: 0 }], valueExpr: expression });
+      }
+      const centerText = this.formatPoint(center.relative ? roundPoint(center.value) : center);
+      const variables = [...center.newVariables, ...(newVariable ? [newVariable] : [])];
+      void this.solvedCtx.emit({
+        geometry: [{ kind: 'circle', text: `circle(${centerText}, ${expression})` }],
+        constraints,
+        ...(variables.length > 0 ? { newVariables: variables } : {}),
+      });
+      this.centerSnapRef = null;
+      return;
+    }
+
     this.insertAtPoint(
       center,
       (point) => `circle(${point}, ${expression})`,

@@ -6,6 +6,7 @@ import {
   addDashedLine,
 } from '../tool-preview-utils';
 import type { SegmentMode, ModeContext, ClickResult, Point2D } from './types';
+import { dimMagnitude } from '../solved-emission';
 import type { SnapResult } from '../../../snapping/types';
 
 export class TLineMode implements SegmentMode {
@@ -55,13 +56,17 @@ export class TLineMode implements SegmentMode {
       return { kind: 'ignored' };
     }
 
-    ctx.insertGeometry(`tLine(${rounded})`);
-    ctx.hideExpressionInput();
-
     const endPoint = roundPoint([
       ctx.startPoint[0] + ctx.tangent.direction[0] * distance,
       ctx.startPoint[1] + ctx.tangent.direction[1] * distance,
     ]);
+
+    if (ctx.solved) {
+      this.emitSolved(endPoint, undefined, undefined, ctx);
+    } else {
+      ctx.insertGeometry(`tLine(${rounded})`);
+    }
+    ctx.hideExpressionInput();
 
     return {
       kind: 'committed',
@@ -70,6 +75,42 @@ export class TLineMode implements SegmentMode {
         exitTangent: { direction: ctx.tangent.direction, point: endPoint },
       },
     };
+  }
+
+  /**
+   * Solved emission: a fully-specified line, related to the previous segment
+   * by what "tangent continuation" means for it — `tangent` off an arc,
+   * `collinear` off a line (locked §0.1 — never a pen `tLine`).
+   */
+  private emitSolved(
+    endPoint: Point2D,
+    lengthExpr: string | undefined,
+    newVariable: { name: string; initializer: string } | undefined,
+    ctx: ModeContext,
+  ): void {
+    const solved = ctx.solved!;
+    const prev = solved.prevEntity();
+    const constraints = [];
+    if (prev) {
+      constraints.push({
+        kind: solved.prevKind() === 'arc' ? 'tangent' : 'collinear',
+        targets: [prev, { newIndex: 0 }],
+      });
+    }
+    if (lengthExpr !== undefined) {
+      constraints.push({
+        kind: 'distance',
+        targets: [{ newIndex: 0, role: 'start' as const }, { newIndex: 0, role: 'end' as const }],
+        valueExpr: lengthExpr,
+      });
+    }
+    solved.emitSegment({
+      kind: 'line',
+      text: `line(${ctx.pendingStartText() ?? ctx.formatPoint(roundPoint(ctx.startPoint))}, ${ctx.formatPoint(endPoint)})`,
+      constraints,
+      endPoint,
+      newVariable,
+    });
   }
 
   handleMouseMove(point: Point2D, _snapResult: SnapResult, clientX: number, clientY: number, ctx: ModeContext): void {
@@ -114,13 +155,26 @@ export class TLineMode implements SegmentMode {
     const sign = Math.sign(distance);
     const dimExpr = SketchTool.applySignedDimension(expression, sign);
 
-    ctx.insertGeometry(`tLine(${dimExpr})`, newVariable);
-    ctx.hideExpressionInput();
-
+    const committedDist = parseFloat(dimExpr);
+    const resolvedDist = isNaN(committedDist) ? distance : committedDist;
     const endPoint = roundPoint([
-      ctx.startPoint[0] + ctx.tangent.direction[0] * distance,
-      ctx.startPoint[1] + ctx.tangent.direction[1] * distance,
+      ctx.startPoint[0] + ctx.tangent.direction[0] * resolvedDist,
+      ctx.startPoint[1] + ctx.tangent.direction[1] * resolvedDist,
     ]);
+
+    if (ctx.solved) {
+      // Only a TYPED value becomes a dimension; a click-committed one stays
+      // a guess.
+      this.emitSolved(
+        endPoint,
+        ctx.isExpressionTyping() ? dimMagnitude(expression) : undefined,
+        newVariable,
+        ctx,
+      );
+    } else {
+      ctx.insertGeometry(`tLine(${dimExpr})`, newVariable);
+    }
+    ctx.hideExpressionInput();
     ctx.onSegmentCommitted({
       endpoint: endPoint,
       exitTangent: { direction: ctx.tangent.direction, point: endPoint },

@@ -8,7 +8,8 @@ import type { ConstraintSpec } from "../../sketch-solver/index.js";
  * Distance dimension. Forms by what the targets resolve to: point–point
  * (optionally measured along one axis), point–line (perpendicular),
  * point–circle/arc (to the circumference), line–line (pair with parallel),
- * circle–circle (gap between circumferences).
+ * line–circle/arc (perpendicular to the circumference), circle–circle
+ * (gap between circumferences).
  * @param a - First point/entity
  * @param b - Second point/entity
  * @param value - The distance value

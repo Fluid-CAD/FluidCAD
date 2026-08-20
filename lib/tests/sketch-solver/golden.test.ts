@@ -136,6 +136,39 @@ describe("golden solves", () => {
     expect(diagnose(sys).dof).toBe(0);
   });
 
+  it("line–arc distance: gap measured to the circumference, not the center", () => {
+    const sys = new SketchSystem();
+    const l = sys.line(0, 0, 0, 100);
+    const a = sys.arc(148, 50, 128, 50, 168, 50);
+    sys.constrain({ kind: "vertical", a: entityRef(l) });
+    sys.constrain({ kind: "fix", p: start(l) });
+    sys.constrain({ kind: "distance", a: start(l), b: end(l), value: 100 });
+    sys.constrain({ kind: "radius", a: entityRef(a), value: 20 });
+    sys.constrain({ kind: "distance", a: entityRef(l), b: entityRef(a), value: 130 });
+    perturb(sys, 0.4, 31);
+    const result = solve(sys);
+    expect(result.outcome).toBe("solved");
+    // Gap 130 to a radius-20 circumference puts the center 150 off the line.
+    expect(sys.pointValue(center(a)).x).toBeCloseTo(150, 6);
+    expect(sys.values[sys.entity(a).paramOffset + 2]).toBeCloseTo(20, 6);
+  });
+
+  it("line–circle distance: crossing guess locks the chord-depth branch", () => {
+    const sys = new SketchSystem();
+    const l = sys.line(0, 0, 20, 0);
+    const c = sys.circle(5, 2, 10); // center 2 above a line that crosses it
+    sys.constrain({ kind: "horizontal", a: entityRef(l) });
+    sys.constrain({ kind: "fix", p: start(l) });
+    sys.constrain({ kind: "distance", a: start(l), b: end(l), value: 20 });
+    sys.constrain({ kind: "radius", a: entityRef(c), value: 10 });
+    sys.constrain({ kind: "distance", a: entityRef(c), b: entityRef(l), value: 4 });
+    perturb(sys, 0.3, 37);
+    const result = solve(sys);
+    expect(result.outcome).toBe("solved");
+    // Crossing branch: r − |perp| = 4 → the center sits 6 above, still inside.
+    expect(sys.pointValue(center(c)).y).toBeCloseTo(6, 6);
+  });
+
   it("under-constrained: untouched DOF stay exactly at their guesses", () => {
     const sys = new SketchSystem();
     const a = sys.line(0, 0, 10, 0);

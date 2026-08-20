@@ -171,7 +171,9 @@ export function dimensionFormFor(rawPicks: SolvedPick[]): DimensionForm | null {
   if (point && (isLine(entity) || isRound(entity)) && point.entityId !== entity.entityId) {
     return { kind: 'distance', axisChoice: false };
   }
-  if (((isLine(a) && isLine(b)) || (isRound(a) && isRound(b))) && a.entityId !== b.entityId) {
+  // Entity–entity: line–line, circle–circle, and line–circle/arc (the
+  // perpendicular gap to the circumference).
+  if ((isLine(a) || isRound(a)) && (isLine(b) || isRound(b)) && a.entityId !== b.entityId) {
     return { kind: 'distance', axisChoice: false };
   }
   return null;
@@ -237,6 +239,12 @@ export function measureDimension(
       const from = lineMid(eb);
       const foot = from ? footOnLine(ea, from) : null;
       return from && foot ? round2(norm(sub(from, foot))) : null;
+    }
+    const lineE = ea.kind === 'line' ? ea : eb.kind === 'line' ? eb : null;
+    const roundE = lineE === ea ? eb : ea;
+    if (lineE && roundE.center && roundE.radius !== undefined) {
+      const foot = footOnLine(lineE, roundE.center);
+      return foot ? round2(Math.abs(norm(sub(roundE.center, foot)) - roundE.radius)) : null;
     }
     if (ea.center && eb.center && ea.radius !== undefined && eb.radius !== undefined) {
       return round2(Math.abs(norm(sub(eb.center, ea.center)) - ea.radius - eb.radius));

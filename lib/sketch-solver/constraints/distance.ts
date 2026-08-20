@@ -4,6 +4,9 @@
 //   point–circle/arc       distance to the circumference, side-locked
 //   line–line              b's midpoint to a's infinite line (pair
 //                          with parallel for the classic dim)
+//   line–circle/arc        perpendicular distance from the center to
+//                          the infinite line, minus the radius (side
+//                          + outside/crossing locked from the guess)
 //   circle–circle          gap between circumferences (containment vs
 //                          external locked from the guess)
 // Side locks come from the guesses at compile time so a dimensioned
@@ -143,6 +146,39 @@ export function compileDistance(spec: Spec, ctx: CompileCtx): CompiledRow[] {
           out[5] = (s * d.dWy) / 2;
           out[6] = (s * d.dWx) / 2;
           out[7] = (s * d.dWy) / 2;
+        },
+      },
+    ];
+  }
+
+  if ((ctx.isLine(spec.a) && ctx.isCircle(spec.b)) || (ctx.isCircle(spec.a) && ctx.isLine(spec.b))) {
+    const lRef: SolverRef = ctx.isLine(spec.a) ? spec.a : spec.b;
+    const cRef: SolverRef = ctx.isLine(spec.a) ? spec.b : spec.a;
+    const l = ctx.line(lRef, 'distance line');
+    const c = ctx.circle(cRef, 'distance circle/arc');
+    const d = makeLinePointDeriv();
+    linePointSignedDist(ctx.guess, l, ctx.guess[c.cx], ctx.guess[c.cy], d);
+    // s1 locks which side of the line the center sits; s2 locks whether
+    // the line clears the circle (gap) or crosses it (chord depth).
+    const s1 = guessSign(d.g);
+    const s2 = guessSign(s1 * d.g - ctx.guess[c.r]);
+    const k = s2 * s1;
+    return [
+      {
+        params: [l.sx, l.sy, l.ex, l.ey, c.cx, c.cy, c.r],
+        eval: (p) => {
+          linePointSignedDist(p, l, p[c.cx], p[c.cy], d);
+          return s2 * (s1 * d.g - p[c.r]) - t;
+        },
+        jac: (p, out) => {
+          linePointSignedDist(p, l, p[c.cx], p[c.cy], d);
+          out[0] = k * d.dSx;
+          out[1] = k * d.dSy;
+          out[2] = k * d.dEx;
+          out[3] = k * d.dEy;
+          out[4] = k * d.dWx;
+          out[5] = k * d.dWy;
+          out[6] = -s2;
         },
       },
     ];

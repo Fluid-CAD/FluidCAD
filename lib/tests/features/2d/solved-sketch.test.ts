@@ -130,6 +130,26 @@ describe("solved sketch (constraint mode)", () => {
     expect(linePayload.end.y).toBeCloseTo(0, 6);
   });
 
+  it("dimensions a line against an arc's circumference (line–arc distance)", () => {
+    sketch('xy', () => {
+      const l1 = line([0, 0], [0, 100]);
+      const a1 = (arc([140, 30], [140, 70], [140, 50]) as ISolvedArc);
+      vertical(l1);
+      fix(l1.start());
+      distance(l1.start(), l1.end(), 100);
+      radius(a1, 20);
+      distance(l1, a1, 130);
+    }, true);
+    const scene = render();
+
+    const arcPayload = renderedByUniqueType(scene, 'solved-arc')[0].object;
+    // Gap 130 to the circumference of a radius-20 arc: the center sits
+    // 150 off the (vertical, x=0) line — not 130, which would be the
+    // center-distance reading.
+    expect(arcPayload.center.x).toBeCloseTo(150, 6);
+    expect(arcPayload.radius).toBeCloseTo(20, 6);
+  });
+
   it("solves circles with diameter dims and points with fix", () => {
     sketch('xy', () => {
       const p = point([3, 4]);

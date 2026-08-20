@@ -371,6 +371,14 @@ export function distanceSpecEndpoints(
       const foot = from ? footOnLine(ea, from) : null;
       return from && foot ? [from, foot] : null;
     }
+    // Line–circle/arc: from the rim to the center's foot on the line.
+    const lineE = ea.kind === 'line' ? ea : eb.kind === 'line' ? eb : null;
+    const roundE = lineE === ea ? eb : ea;
+    if (lineE && roundE.center) {
+      const foot = footOnLine(lineE, roundE.center);
+      const rim = foot ? pointOnCircumference(roundE, foot) : null;
+      return foot && rim ? [rim, foot] : null;
+    }
     // Circle–circle: between circumferences along the center line.
     if (ea.center && eb.center) {
       const fromRim = pointOnCircumference(ea, eb.center);

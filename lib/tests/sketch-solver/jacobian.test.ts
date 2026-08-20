@@ -81,13 +81,16 @@ describe("constraint jacobians vs finite differences", () => {
     sys.constrain({ kind: "tangent", a: entityRef(arcA), b: entityRef(lineC) });
     sys.constrain({ kind: "tangent", a: entityRef(circleA), b: entityRef(circleB) });
     sys.constrain({ kind: "tangent", a: entityRef(circleE), b: entityRef(circleF) });
-    // distance: p–p, axis x, axis y, p–line, p–circle, line–line, c–c external + containment
+    // distance: p–p, axis x, axis y, p–line, p–circle, line–line,
+    // line–circle gap + crossing, c–c external + containment
     sys.constrain({ kind: "distance", a: entityRef(pA), b: entityRef(pB), value: 6.5 });
     sys.constrain({ kind: "distance", a: entityRef(pA), b: end(lineA), value: 4.1, axis: "x" });
     sys.constrain({ kind: "distance", a: start(lineC), b: entityRef(pB), value: 3.3, axis: "y" });
     sys.constrain({ kind: "distance", a: entityRef(pB), b: entityRef(lineC), value: 5.5 });
     sys.constrain({ kind: "distance", a: entityRef(pA), b: entityRef(circleB), value: 2.2 });
     sys.constrain({ kind: "distance", a: entityRef(lineA), b: entityRef(lineB), value: 4.4 });
+    sys.constrain({ kind: "distance", a: entityRef(lineB), b: entityRef(circleA), value: 2.1 });
+    sys.constrain({ kind: "distance", a: entityRef(circleE), b: entityRef(lineA), value: 0.8 });
     sys.constrain({ kind: "distance", a: entityRef(circleA), b: entityRef(circleB), value: 1.7 });
     sys.constrain({ kind: "distance", a: entityRef(circleC), b: entityRef(circleD), value: 0.9 });
     // radius / diameter / equal
@@ -103,13 +106,13 @@ describe("constraint jacobians vs finite differences", () => {
     sys.constrain({ kind: "symmetric", a: entityRef(pA), b: entityRef(pB), l: entityRef(lineC) });
     sys.constrain({ kind: "fix", p: start(lineA) });
 
-    // 33 user constraint statements + 1 internal arc-consistency.
-    expect(sys.constraints().length).toBe(34);
+    // 35 user constraint statements + 1 internal arc-consistency.
+    expect(sys.constraints().length).toBe(36);
     // Row count: coincident 2+1+1+1, h/v 4×1, par/perp/angle 3×1,
-    // tangent 4×1, distance 8×1, radius/diameter 3×1, equal 2×1,
+    // tangent 4×1, distance 10×1, radius/diameter 3×1, equal 2×1,
     // concentric 2, collinear 2, midpoint 2, symmetric 2, fix 2,
     // arc-consistency 2.
-    expect(sys.compiled().rows.length).toBe(41);
+    expect(sys.compiled().rows.length).toBe(43);
     fdCheckRows(sys, [11, 29, 53], 0.25);
   });
 

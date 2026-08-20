@@ -51,8 +51,8 @@ describe('constraintOptions', () => {
     expect(enabledIds([endA, circleC])).toEqual(['coincident', 'dimension'].sort());
   });
 
-  it('line + circle: tangent only (the solver has no line-circle distance form)', () => {
-    expect(enabledIds([lineA, circleC])).toEqual(['tangent']);
+  it('line + circle: tangent, and dimension (gap to the circumference)', () => {
+    expect(enabledIds([lineA, circleC])).toEqual(['dimension', 'tangent']);
     expect(enabledIds([circleC, arcD])).toEqual(
       ['concentric', 'dimension', 'equal', 'tangent'].sort(),
     );
@@ -90,6 +90,8 @@ describe('dimensionFormFor', () => {
     expect(dimensionFormFor([endA, lineB])).toEqual({ kind: 'distance', axisChoice: false });
     expect(dimensionFormFor([lineA, lineB])).toEqual({ kind: 'distance', axisChoice: false });
     expect(dimensionFormFor([circleC, arcD])).toEqual({ kind: 'distance', axisChoice: false });
+    expect(dimensionFormFor([lineA, circleC])).toEqual({ kind: 'distance', axisChoice: false });
+    expect(dimensionFormFor([arcD, lineB])).toEqual({ kind: 'distance', axisChoice: false });
     expect(dimensionFormFor([circleC])).toEqual({ kind: 'diameter', axisChoice: false });
     expect(dimensionFormFor([arcD])).toEqual({ kind: 'radius', axisChoice: false });
     expect(dimensionFormFor([lineA, lineA])).toBeNull();
@@ -160,6 +162,13 @@ describe('measureDimension', () => {
     expect(measureDimension(model, [circleC], { kind: 'diameter', axisChoice: false })).toBe(10);
   });
 
+  it('measures line–circle as the perpendicular gap to the circumference', () => {
+    const form = { kind: 'distance' as const, axisChoice: false };
+    // Center (30,0) is 20 off lineB's infinite line (x=10); r=5 → gap 15.
+    expect(measureDimension(model, [lineB, circleC], form)).toBe(15);
+    expect(measureDimension(model, [circleC, lineB], form)).toBe(15);
+  });
+
   it('measures a lone line as its length', () => {
     expect(measureDimension(model, [lineA], { kind: 'distance', axisChoice: true })).toBe(10);
     expect(measureDimension(model, [lineB], { kind: 'distance', axisChoice: true })).toBe(8);
@@ -188,6 +197,13 @@ describe('dimensionPreviewLayout', () => {
     expect(dimensionPreviewLayout(model, [end1, lineA], { kind: 'distance', axisChoice: false })).toEqual({
       line: [[10, 8], [10, 0]],
       at: [10, 4],
+    });
+  });
+
+  it('line–circle: leader from the rim to the center\'s foot on the line', () => {
+    expect(dimensionPreviewLayout(model, [lineB, circleC], { kind: 'distance', axisChoice: false })).toEqual({
+      line: [[25, 0], [10, 0]],
+      at: [17.5, 0],
     });
   });
 

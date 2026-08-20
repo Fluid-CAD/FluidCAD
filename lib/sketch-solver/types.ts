@@ -58,7 +58,9 @@ export type ConstraintSpec =
    * the guess), point–line (side-locked perpendicular distance),
    * point–circle/arc (distance to the circumference), line–line
    * (distance from b's midpoint to a's infinite line — pair with
-   * `parallel` for the parallel-lines dimension), circle–circle
+   * `parallel` for the parallel-lines dimension), line–circle/arc
+   * (perpendicular distance from the center minus the radius; side
+   * and outside/crossing locked from the guess), circle–circle
    * (gap between circumferences; containment vs external from the
    * guess).
    */

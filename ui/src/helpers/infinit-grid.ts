@@ -1,5 +1,10 @@
 import { Color, FrontSide, Mesh, PlaneGeometry, ShaderMaterial, Vector3 } from 'three';
 
+/** Optional in-plane frame: aligns the grid lattice with a sketch plane's
+ * x/y directions and anchors a lattice crossing at its origin. Without it
+ * the tangent basis is derived from the normal alone (default 3D view). */
+export type GridFrame = { xDirection: Vector3; origin: Vector3 };
+
 // Author: Fyrestar https://mevedia.com (https://github.com/Fyrestar/THREE.InfiniteGridHelper)
 class InfiniteGridHelper extends Mesh {
     constructor(
@@ -7,7 +12,8 @@ class InfiniteGridHelper extends Mesh {
         size2 : number = 100,
         color = new Color('white'),
         distance : number = 8000,
-        normal : Vector3 = new Vector3(0, 1, 0)
+        normal : Vector3 = new Vector3(0, 1, 0),
+        frame? : GridFrame
     ) {
 
         const geometry = new PlaneGeometry(2, 2, 1, 1);
@@ -34,32 +40,49 @@ class InfiniteGridHelper extends Mesh {
                 },
                 uNormal: {
                     value: normal.normalize()
+                },
+                // Zero = derive the tangent from the normal (legacy behavior).
+                uXDir: {
+                    value: frame ? frame.xDirection.clone().normalize() : new Vector3(0, 0, 0)
+                },
+                uOrigin: {
+                    value: frame ? frame.origin.clone() : new Vector3(0, 0, 0)
                 }
             },
             transparent: true,
             vertexShader: `
 
-            varying vec3 worldPosition;
+            varying vec2 vPlaneCoords;
+            varying vec2 vCameraPlanar;
 
             uniform float uDistance;
             uniform vec3 uNormal;
+            uniform vec3 uXDir;
+            uniform vec3 uOrigin;
 
             void main() {
-                    // Create a coordinate system based on the normal
-                    vec3 up = abs(uNormal.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-                    vec3 tangent = normalize(cross(uNormal, up));
-                    vec3 bitangent = cross(uNormal, tangent);
+                    // In-plane basis: the sketch frame when provided, else
+                    // derived from the normal alone.
+                    vec3 tangent;
+                    if (dot(uXDir, uXDir) > 0.5) {
+                        tangent = normalize(uXDir);
+                    } else {
+                        vec3 up = abs(uNormal.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+                        tangent = normalize(cross(uNormal, up));
+                    }
+                    vec3 bitangent = normalize(cross(uNormal, tangent));
 
-                    // Transform the position to align with the plane defined by the normal
-                    vec3 pos = (position.x * tangent + position.y * bitangent) * uDistance;
-                    pos += cameraPosition;
-
-                    // Project camera position onto the plane
+                    // Span the quad around the camera's projection onto the plane.
                     float dist = dot(cameraPosition, uNormal);
                     vec3 projectedCamera = cameraPosition - uNormal * dist;
-                    pos = (position.x * tangent + position.y * bitangent) * uDistance + projectedCamera;
+                    vec3 pos = (position.x * tangent + position.y * bitangent) * uDistance + projectedCamera;
 
-                    worldPosition = pos;
+                    // Lattice coordinates relative to the anchor, in TRUE world
+                    // space (the mesh's translation onto the sketch plane counts),
+                    // so grid lines run along the frame and cross at the origin.
+                    vec3 world = (modelMatrix * vec4(pos, 1.0)).xyz;
+                    vPlaneCoords = vec2(dot(world - uOrigin, tangent), dot(world - uOrigin, bitangent));
+                    vCameraPlanar = vec2(dot(cameraPosition - uOrigin, tangent), dot(cameraPosition - uOrigin, bitangent));
 
                     gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
 
@@ -69,13 +92,13 @@ class InfiniteGridHelper extends Mesh {
 
             fragmentShader: `
 
-            varying vec3 worldPosition;
+            varying vec2 vPlaneCoords;
+            varying vec2 vCameraPlanar;
 
             uniform float uSize1;
             uniform float uSize2;
             uniform vec3 uColor;
             uniform float uDistance;
-            uniform vec3 uNormal;
 
 
 
@@ -90,21 +113,11 @@ class InfiniteGridHelper extends Mesh {
                 }
 
             void main() {
-                    // Create the same coordinate system as in vertex shader
-                    vec3 up = abs(uNormal.y) < 0.9 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
-                    vec3 tangent = normalize(cross(uNormal, up));
-                    vec3 bitangent = cross(uNormal, tangent);
 
-                    // Project world position onto the plane coordinate system
-                    vec2 planeCoords = vec2(dot(worldPosition, tangent), dot(worldPosition, bitangent));
+                    float d = 1.0 - min(distance(vCameraPlanar, vPlaneCoords) / uDistance, 1.0);
 
-                    // Project camera position onto the plane coordinate system
-                    vec2 cameraPlanarPos = vec2(dot(cameraPosition, tangent), dot(cameraPosition, bitangent));
-
-                    float d = 1.0 - min(distance(cameraPlanarPos, planeCoords) / uDistance, 1.0);
-
-                    float g1 = getGrid(uSize1, planeCoords);
-                    float g2 = getGrid(uSize2, planeCoords);
+                    float g1 = getGrid(uSize1, vPlaneCoords);
+                    float g2 = getGrid(uSize2, vPlaneCoords);
 
                     gl_FragColor = vec4(uColor.rgb, mix(g2, g1, g1) * pow(d, 3.0));
                     gl_FragColor.a = mix(0.5 * gl_FragColor.a, gl_FragColor.a, g2);

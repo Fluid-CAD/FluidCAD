@@ -8,16 +8,18 @@ import { SceneObject } from "../../common/scene-object.js";
 import { SolvedConstraint } from "../../features/2d/constraints/solved/constraint.js";
 import { SolvedGeometryBase } from "../../features/2d/solved/solved-base.js";
 import { SolvedPointRef } from "../../features/2d/solved/refs.js";
+import { SketchDatum } from "../../features/2d/solved/datum.js";
 import { LazyVertex } from "../../features/lazy-vertex.js";
 import { ISceneObject } from "../interfaces.js";
 import type { ConstraintSpec, SolverRef } from "../../sketch-solver/index.js";
 
 /**
  * What a constraint statement may reference: a solved entity statement
- * (line/arc/circle/point) or one of its point accessors
- * (`l.start()`, `l.end()`, `c.center()`).
+ * (line/arc/circle/point), one of its point accessors
+ * (`l.start()`, `l.end()`, `c.center()`), or a sketch datum
+ * (`origin()`, `xAxis()`, `yAxis()`).
  */
-export type ConstraintTarget = ISceneObject | LazyVertex;
+export type ConstraintTarget = ISceneObject | LazyVertex | SketchDatum;
 
 export function toRef(arg: ConstraintTarget, what: string): SolverRef {
   if (arg instanceof SolvedPointRef) {
@@ -29,11 +31,14 @@ export function toRef(arg: ConstraintTarget, what: string): SolverRef {
     }
     return { entity: arg.owner.entityId, point: arg.role };
   }
+  if (arg instanceof SketchDatum) {
+    return arg.ref();
+  }
   if (arg instanceof SolvedGeometryBase) {
     return arg.ref();
   }
   throw new Error(
-    `${what}: expected solved sketch geometry — a line/arc/circle/point statement or a .start()/.end()/.center() accessor`,
+    `${what}: expected solved sketch geometry — a line/arc/circle/point statement, a .start()/.end()/.center() accessor, or a datum (origin()/xAxis()/yAxis())`,
   );
 }
 
@@ -73,6 +78,17 @@ export function emitConstraint(
   }
 
   statement.register(sketch, () => {
+    const present = args.filter((a): a is ConstraintTarget => a !== undefined);
+    if (present.length > 0 && present.every(a => a instanceof SketchDatum)) {
+      throw new Error(`${kind}: references only the sketch datums (origin/axes), which are fixed — constrain at least one drawn entity`);
+    }
+    for (const arg of present) {
+      if (arg instanceof SketchDatum && arg.sketch !== sketch) {
+        throw new Error(arg.sketch === null
+          ? `${kind}: ${arg.commandName} was called outside a sketch — call it inside the sketch callback`
+          : `${kind}: ${arg.commandName} belongs to another sketch — cross-sketch constraints are not supported`);
+      }
+    }
     for (const dep of deps) {
       if (dep instanceof SolvedGeometryBase && dep.sketch !== sketch) {
         throw new Error(`${kind}: references geometry from another sketch — cross-sketch constraints are not supported`);
@@ -97,7 +113,15 @@ export function twoTargetCommand(
 ): (a: ConstraintTarget, b: ConstraintTarget) => ISceneObject {
   return registerBuilder((context: SceneParserContext) =>
     function (a: ConstraintTarget, b: ConstraintTarget): ISceneObject {
-      return emitConstraint(context, kind, undefined, () =>
-        ({ kind, a: toRef(a, kind), b: toRef(b, kind) } as ConstraintSpec), [a, b]);
+      return emitConstraint(context, kind, undefined, () => {
+        if (kind === 'equal') {
+          for (const t of [a, b]) {
+            if (t instanceof SketchDatum && t.isAxis) {
+              throw new Error(`equal: ${t.commandName} is an infinite axis — it has no length to equate`);
+            }
+          }
+        }
+        return { kind, a: toRef(a, kind), b: toRef(b, kind) } as ConstraintSpec;
+      }, [a, b]);
     });
 }

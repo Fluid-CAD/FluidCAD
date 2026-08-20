@@ -34,6 +34,9 @@ function readAll() {
   themeColors.sketchConstrainedColor.set(readCssVar('--scene-sketch-constrained', '#44c767'));
   themeColors.constraintConflictColor.set(readCssVar('--scene-constraint-conflict', '#e5534b'));
   themeColors.constraintRedundantColor.set(readCssVar('--scene-constraint-redundant', '#d29922'));
+  themeColors.sketchAxisXColor.set(readCssVar('--scene-sketch-axis-x', '#e0524e'));
+  themeColors.sketchAxisYColor.set(readCssVar('--scene-sketch-axis-y', '#3fbf62'));
+  themeColors.sketchOriginColor.set(readCssVar('--scene-sketch-origin', '#e0e0e0'));
   themeColors.backgroundColor.set(readCssVar('--color-base-100', '#1e1e1e'));
 }
 
@@ -64,6 +67,11 @@ export const themeColors = {
   sketchConstrainedColor: new Color('#44c767'),
   constraintConflictColor: new Color('#e5534b'),
   constraintRedundantColor: new Color('#d29922'),
+  // Sketch datums: axis lines through the origin along the plane's x/y
+  // directions, and the origin marker at local (0,0).
+  sketchAxisXColor: new Color('#e0524e'),
+  sketchAxisYColor: new Color('#3fbf62'),
+  sketchOriginColor: new Color('#e0e0e0'),
   backgroundColor: new Color('#1e1e1e'),
 };
 

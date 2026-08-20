@@ -253,14 +253,18 @@ type GluePair = { aix: number; aiy: number; bix: number; biy: number };
  * Glue pairs between point slots that coincide by value: sweep the
  * slots sorted by (x, y, entity, role) and union everything within
  * GLUE_TOL, then pair each cluster member to its first slot.
- * Deterministic; pairs where both slots are fixed carry no free
- * params and are dropped.
+ * Deterministic; fixed slots never enter the sweep — value
+ * coincidence with reference geometry (datums, P6 projections) must
+ * not glue, or a point drawn at the origin without a constraint would
+ * snap back on every drag. Sticking to reference geometry takes an
+ * explicit coincident.
  */
 function valueCoincidencePairs(sys: SketchSystem, freeMask: Uint8Array): GluePair[] {
   const values = sys.values;
   const roleOrder: Record<string, number> = { point: 0, start: 1, end: 2, center: 3 };
   const slots = sys
     .pointSlots()
+    .filter((s) => freeMask[s.ix])
     .map((s) => ({ ...s, x: values[s.ix], y: values[s.iy] }))
     .sort(
       (a, b) =>
@@ -293,9 +297,6 @@ function valueCoincidencePairs(sys: SketchSystem, freeMask: Uint8Array): GluePai
     }
     const a = slots[root];
     const b = slots[i];
-    if (!freeMask[a.ix] && !freeMask[b.ix]) {
-      continue;
-    }
     pairs.push({ aix: a.ix, aiy: a.iy, bix: b.ix, biy: b.iy });
   }
   return pairs;

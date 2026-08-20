@@ -19,9 +19,10 @@ import { BadgeHitTarget } from '../meshes/containers/solved-constraint-meshes';
 import {
   SolvedSketchModel,
   buildSolvedSketchModel,
+  datumHitTest,
   solvedHitTest,
 } from '../sketch-solver-client';
-import type { SolvedEntityKind } from '../sketch-solver-client';
+import type { SketchDatumName, SolvedDatumHit, SolvedEntityKind } from '../sketch-solver-client';
 
 const HIGHLIGHT_THRESHOLD_PX = 12;
 /** Grab radius for solved entity vertices. Deliberately equal to the edge
@@ -44,6 +45,9 @@ export type SolvedPick = {
    * near-side touch reads min, far-side max. Valid for the render the pick
    * was made in; consumers use it at pick time only. */
   at?: [number, number];
+  /** Datum picks: the implicit origin/axes (reserved negative entityIds, no
+   * source statement — emission addresses them by this name instead). */
+  datum?: SketchDatumName;
 };
 
 type SelectedVertexPick = {
@@ -100,6 +104,15 @@ export class SketchHoverSelectHandler {
   private pickSequence: string[] = [];
   private hoveredVertex: HoveredVertex | null = null;
   private hoveredVertexOverlay: Group | null = null;
+  /** Hovered datum (origin/axes) — lowest hover priority, solved sketches
+   * with datums only. Origin hover wears a vertex-style ring; axis hover
+   * tints the scene-mode axis line. */
+  private hoveredDatum: SolvedDatumHit | null = null;
+  private hoveredDatumOverlay: Group | null = null;
+  /** Selected datum picks, keyed by datum name — `d:<name>` in the pick
+   * sequence. Origin selection keeps a ring overlay; axis selection keeps
+   * the line tinted. */
+  private selectedDatums = new Map<SketchDatumName, { overlay: Group | null }>();
   /** Solved-sketch constraint glyph pick targets (from the SketchMesh). */
   private badgeTargets: BadgeHitTarget[] = [];
   /** entityId → the entity statement's edge shapeIds (badge hover tint). */
@@ -161,6 +174,7 @@ export class SketchHoverSelectHandler {
     this.clearHover();
     this.clearBadgeHover();
     this.clearVertexHover();
+    this.clearDatumHover();
     this.clearSelection();
     this.removeCenterOverlay();
   }
@@ -214,6 +228,20 @@ export class SketchHoverSelectHandler {
     const sketchObj = sceneObjects.find(o => o.id === sketchId) ?? null;
     this.solvedModel = sketchObj ? buildSolvedSketchModel(sketchObj, sceneObjects) : null;
     this.clearVertexHover();
+    this.clearDatumHover();
+    if (!this.solvedModel?.hasDatums) {
+      for (const datum of [...this.selectedDatums.keys()]) {
+        this.deselectDatum(datum);
+      }
+    } else {
+      // Axis lines are rebuilt on sketch-mode transitions — re-apply the
+      // selection tint so a selected axis stays lit.
+      for (const datum of this.selectedDatums.keys()) {
+        if (datum !== 'origin') {
+          this.tintAxis(datum, true);
+        }
+      }
+    }
     for (const [key, pick] of this.selectedVertexPicks) {
       const at = this.vertexPosition(pick.entityId, pick.role);
       if (!at) {
@@ -300,6 +328,17 @@ export class SketchHoverSelectHandler {
     }
     const picks: SolvedPick[] = [];
     for (const key of this.pickSequence) {
+      if (key.startsWith('d:')) {
+        const datum = key.slice(2) as SketchDatumName;
+        if (this.selectedDatums.has(datum) && model.hasDatums) {
+          picks.push({
+            entityId: datum === 'origin' ? -1 : datum === 'x-axis' ? -2 : -3,
+            kind: datum === 'origin' ? 'point' : 'line',
+            datum,
+          });
+        }
+        continue;
+      }
       if (key.startsWith('v:')) {
         const pick = this.selectedVertexPicks.get(key.slice(2));
         const e = pick ? model.entities.get(pick.entityId) : undefined;
@@ -374,6 +413,7 @@ export class SketchHoverSelectHandler {
         this.clearHover();
       }
       this.clearVertexHover();
+      this.clearDatumHover();
       return;
     }
 
@@ -399,14 +439,45 @@ export class SketchHoverSelectHandler {
         if (this.hoveredShapeId) {
           this.clearHover();
         }
+        this.clearDatumHover();
         this.canvas.style.cursor = 'pointer';
         return;
       }
       this.clearVertexHover();
+
+      // The origin datum: vertex-like, but loses to real vertices (above) —
+      // a coincident endpoint at (0,0) stays the pick.
+      const originHit = datumHitTest(
+        this.solvedModel, point2d, pixelToSketchThreshold(this.ctx, VERTEX_PICK_PX), 0,
+      );
+      if (originHit) {
+        this.applyDatumHover(originHit);
+        if (this.hoveredShapeId) {
+          this.clearHover();
+        }
+        this.canvas.style.cursor = 'pointer';
+        return;
+      }
     }
 
     const threshold = pixelToSketchThreshold(this.ctx, HIGHLIGHT_THRESHOLD_PX);
     const hit = this.findNearestEdge(point2d, threshold);
+
+    // Datum axes: the lowest hover priority — real geometry near an axis
+    // always wins (it is pickable elsewhere; the axis is infinite).
+    if (!hit && this.solvedModel) {
+      const axisHit = datumHitTest(this.solvedModel, point2d, 0, threshold);
+      if (axisHit) {
+        this.applyDatumHover(axisHit);
+        if (this.hoveredShapeId) {
+          this.clearHover();
+        }
+        this.canvas.style.cursor = 'pointer';
+        return;
+      }
+    }
+    this.clearDatumHover();
+
     const nearest = hit?.shapeId ?? null;
 
     if (nearest !== this.hoveredShapeId) {
@@ -478,6 +549,21 @@ export class SketchHoverSelectHandler {
           overlay: this.buildVertexOverlay(this.hoveredVertex.at, 1),
         });
         this.pickSequence.push(`v:${key}`);
+      }
+      this.ctx.requestRender();
+      this.onSelectionChange?.();
+      return;
+    }
+
+    if (this.hoveredDatum) {
+      const datum = this.hoveredDatum.datum;
+      if (this.selectedDatums.has(datum)) {
+        this.deselectDatum(datum);
+      } else {
+        if (!isMulti) {
+          this.clearSelection();
+        }
+        this.selectDatum(this.hoveredDatum);
       }
       this.ctx.requestRender();
       this.onSelectionChange?.();
@@ -649,7 +735,103 @@ export class SketchHoverSelectHandler {
       this.disposeVertexOverlay(pick.overlay);
     }
     this.selectedVertexPicks.clear();
+    for (const [datum, sel] of this.selectedDatums) {
+      if (sel.overlay) {
+        this.disposeVertexOverlay(sel.overlay);
+      }
+      if (datum !== 'origin') {
+        this.tintAxis(datum, false);
+      }
+    }
+    this.selectedDatums.clear();
     this.pickSequence = [];
+  }
+
+  // -- datum (origin/axes) hover & selection --------------------------------
+
+  private selectDatum(hit: SolvedDatumHit): void {
+    const overlay = hit.datum === 'origin' ? this.buildVertexOverlay([0, 0], 1) : null;
+    if (hit.datum !== 'origin') {
+      this.tintAxis(hit.datum, true);
+    }
+    this.selectedDatums.set(hit.datum, { overlay });
+    this.pickSequence.push(`d:${hit.datum}`);
+  }
+
+  private deselectDatum(datum: SketchDatumName): void {
+    const sel = this.selectedDatums.get(datum);
+    if (!sel) {
+      return;
+    }
+    if (sel.overlay) {
+      this.disposeVertexOverlay(sel.overlay);
+    }
+    if (datum !== 'origin') {
+      // Keep the tint while still hovered — the move handler restores it.
+      this.tintAxis(datum, this.hoveredDatum?.datum === datum);
+    }
+    this.selectedDatums.delete(datum);
+    this.dropFromSequence(`d:${datum}`);
+  }
+
+  private applyDatumHover(hit: SolvedDatumHit): void {
+    if (this.hoveredDatum?.datum === hit.datum) {
+      return;
+    }
+    this.clearDatumHover();
+    this.hoveredDatum = hit;
+    if (hit.datum === 'origin') {
+      if (!this.selectedDatums.has('origin')) {
+        this.hoveredDatumOverlay = this.buildVertexOverlay([0, 0], 0.9);
+      }
+    } else {
+      this.tintAxis(hit.datum, true);
+    }
+    this.ctx.requestRender();
+  }
+
+  private clearDatumHover(): void {
+    if (!this.hoveredDatum) {
+      return;
+    }
+    const datum = this.hoveredDatum.datum;
+    if (this.hoveredDatumOverlay) {
+      this.disposeVertexOverlay(this.hoveredDatumOverlay);
+      this.hoveredDatumOverlay = null;
+    }
+    if (datum !== 'origin' && !this.selectedDatums.has(datum)) {
+      this.tintAxis(datum, false);
+    }
+    this.hoveredDatum = null;
+    this.ctx.requestRender();
+  }
+
+  /** Tint a scene-mode datum axis line (hover/selection feedback). The line
+   * is scene furniture rebuilt on sketch-mode transitions, so the original
+   * color/opacity ride its userData rather than handler state. */
+  private tintAxis(datum: SketchDatumName, on: boolean): void {
+    this.ctx.scene.traverse((obj: Object3D) => {
+      if (!obj.userData.isSketchDatumAxis || obj.userData.datum !== datum) {
+        return;
+      }
+      const material = (obj as LineSegments).material as { color?: Color; opacity?: number };
+      if (!(material.color instanceof Color)) {
+        return;
+      }
+      if (on) {
+        if (obj.userData.datumBaseColor === undefined) {
+          obj.userData.datumBaseColor = material.color.getHex();
+          obj.userData.datumBaseOpacity = material.opacity;
+        }
+        material.color.set(themeColors.highlightColor);
+        material.opacity = 1;
+      } else if (obj.userData.datumBaseColor !== undefined) {
+        material.color.setHex(obj.userData.datumBaseColor);
+        material.opacity = obj.userData.datumBaseOpacity;
+        delete obj.userData.datumBaseColor;
+        delete obj.userData.datumBaseOpacity;
+      }
+    });
   }
 
   /** Screen-constant ring at a solved vertex: hover feedback and the

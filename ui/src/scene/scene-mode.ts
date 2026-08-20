@@ -1,13 +1,37 @@
-import { AxesHelper, Matrix4, Object3D, Plane, Vector3 } from 'three';
-import InfiniteGridHelper from '../helpers/infinit-grid';
+import {
+  AxesHelper,
+  BufferGeometry,
+  CircleGeometry,
+  Group,
+  Line,
+  LineBasicMaterial,
+  Mesh,
+  MeshBasicMaterial,
+  Object3D,
+  Plane,
+  RingGeometry,
+  Vector3,
+} from 'three';
+import InfiniteGridHelper, { GridFrame } from '../helpers/infinit-grid';
 import { PlaneData, Vec3Data } from '../types';
 import { SceneContext } from './scene-context';
 import { viewerSettings } from './viewer-settings';
 import { themeColors, onThemeChange } from './theme-colors';
+import { applyConstantPixelSize } from '../meshes/screen-scale';
 
 const Z_UP = new Vector3(0, 0, 1);
 const DEFAULT_CAMERA_POSITION = new Vector3(50, -50, 40);
 const SKETCH_CAMERA_DISTANCE = 50;
+
+// Sketch datum visuals: the x/y axis lines through the sketch origin and the
+// origin marker. Both directions, matching the reach of the old AxesHelper.
+const AXIS_EXTENT = 1000;
+const AXIS_OPACITY = 0.55;
+/** Nudge the datum visuals just below the sketch plane (the grid sits at
+ * −0.01) so sketch geometry drawn ON an axis renders cleanly above it. */
+const DATUM_PLANE_OFFSET = -0.005;
+const ORIGIN_MARKER_PX = 10;
+const ORIGIN_MARKER_UNITS = 3;
 
 export type SceneMode = 'default' | 'sketch';
 
@@ -27,6 +51,10 @@ export class SceneModeManager {
   private enabled = true;
   private lastGridNormal = Z_UP.clone();
   private lastGridPosition: Vector3 | undefined;
+  private lastGridFrame: GridFrame | undefined;
+  /** The plane of the current sketch session — datum visuals rebuild from it
+   * on theme changes. */
+  private lastSketchPlane: PlaneData | null = null;
   private _sectionPlane: Plane | null = null;
 
   constructor(private ctx: SceneContext) {
@@ -35,8 +63,14 @@ export class SceneModeManager {
 
     viewerSettings.subscribe(() => this.applyGridVisibility());
 
-    // Rebuild grid when theme changes so grid color updates
-    onThemeChange(() => this.rebuildGrid());
+    // Rebuild theme-colored scene furniture (grid, sketch datums) on switch
+    onThemeChange(() => {
+      this.rebuildGrid();
+      if (this.mode === 'sketch' && this.lastSketchPlane) {
+        this.showSketchAxes(this.lastSketchPlane);
+        this.ctx.requestRender();
+      }
+    });
   }
 
   get currentMode(): SceneMode {
@@ -81,6 +115,7 @@ export class SceneModeManager {
     }
 
     this.mode = 'default';
+    this.lastSketchPlane = null;
 
     this.ctx.camera.up.copy(Object3D.DEFAULT_UP);
     this.ctx.cameraControls.updateCameraUp();
@@ -107,7 +142,10 @@ export class SceneModeManager {
 
     const normal = toVec3(plane.normal);
     const origin = toVec3(plane.origin);
-    this.setupGrid(normal, origin.add(normal.clone().multiplyScalar(-0.01)));
+    this.setupGrid(normal, origin.clone().add(normal.clone().multiplyScalar(-0.01)), {
+      xDirection: toVec3(plane.xDirection),
+      origin,
+    });
 
     this.createSectionPlane(plane);
   }
@@ -136,7 +174,10 @@ export class SceneModeManager {
     this.showSketchAxes(plane);
 
     const origin = toVec3(plane.origin);
-    this.setupGrid(normal, origin.add(normal.clone().multiplyScalar(-0.01)));
+    this.setupGrid(normal, origin.clone().add(normal.clone().multiplyScalar(-0.01)), {
+      xDirection: toVec3(plane.xDirection),
+      origin,
+    });
 
     this.createSectionPlane(plane);
   }
@@ -211,26 +252,79 @@ export class SceneModeManager {
     if (axes) axes.visible = true;
   }
 
+  /**
+   * The sketch datum visuals: x/y axis lines through the sketch origin (both
+   * directions, plane-frame aligned) and the origin marker at local (0,0) —
+   * what the solver's implicit datum entities look like. Replaces the old
+   * one-directional AxesHelper rays; the out-of-plane normal ray is gone on
+   * purpose (grid + axes carry the orientation story). Hover/pick of the
+   * datums is analytic 2D in the sketch handler — these meshes are visuals,
+   * found by userData for hover highlighting only.
+   */
   private showSketchAxes(plane: PlaneData): void {
     const defaultAxes = this.ctx.scene.getObjectByName('defaultAxesHelper');
     if (defaultAxes) defaultAxes.visible = false;
 
     this.removeByName('sketchAxesHelper');
+    this.lastSketchPlane = plane;
 
-    const axes = new AxesHelper(1000);
-    axes.name = 'sketchAxesHelper';
+    const normal = toVec3(plane.normal).normalize();
+    const origin = toVec3(plane.origin).add(normal.clone().multiplyScalar(DATUM_PLANE_OFFSET));
+    const xDir = toVec3(plane.xDirection).normalize();
+    const yDir = toVec3(plane.yDirection).normalize();
 
-    const origin = toVec3(plane.origin);
-    const xDir = toVec3(plane.xDirection);
-    const yDir = toVec3(plane.yDirection);
-    const normal = toVec3(plane.normal);
+    const group = new Group();
+    group.name = 'sketchAxesHelper';
+    // Scene furniture, not model content — keep it out of camera fits.
+    group.userData.isMetaShape = true;
 
-    const matrix = new Matrix4().makeBasis(xDir, yDir, normal);
-    matrix.setPosition(origin);
-    axes.matrix.copy(matrix);
-    axes.matrixAutoUpdate = false;
+    group.add(this.buildAxisLine(origin, xDir, themeColors.sketchAxisXColor.getHex(), 'x-axis'));
+    group.add(this.buildAxisLine(origin, yDir, themeColors.sketchAxisYColor.getHex(), 'y-axis'));
+    group.add(this.buildOriginMarker(origin, normal));
 
-    this.ctx.scene.add(axes);
+    this.ctx.scene.add(group);
+  }
+
+  private buildAxisLine(origin: Vector3, dir: Vector3, color: number, datum: 'x-axis' | 'y-axis'): Line {
+    const geometry = new BufferGeometry().setFromPoints([
+      origin.clone().addScaledVector(dir, -AXIS_EXTENT),
+      origin.clone().addScaledVector(dir, AXIS_EXTENT),
+    ]);
+    const material = new LineBasicMaterial({
+      color,
+      transparent: true,
+      opacity: AXIS_OPACITY,
+      depthWrite: false,
+    });
+    const line = new Line(geometry, material);
+    line.userData.isSketchDatumAxis = true;
+    line.userData.datum = datum;
+    return line;
+  }
+
+  private buildOriginMarker(origin: Vector3, normal: Vector3): Group {
+    const color = themeColors.sketchOriginColor.getHex();
+    const ring = new Mesh(
+      new RingGeometry(ORIGIN_MARKER_UNITS * 0.72, ORIGIN_MARKER_UNITS, 32),
+      new MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false }),
+    );
+    const dot = new Mesh(
+      new CircleGeometry(ORIGIN_MARKER_UNITS * 0.28, 24),
+      new MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false }),
+    );
+    ring.renderOrder = 2;
+    dot.renderOrder = 2;
+
+    const marker = new Group();
+    marker.renderOrder = 2;
+    marker.userData.isSketchOriginMarker = true;
+    marker.userData.datum = 'origin';
+    marker.add(ring);
+    marker.add(dot);
+    marker.position.copy(origin);
+    marker.lookAt(origin.clone().add(normal));
+    applyConstantPixelSize(ring, marker, marker.position, ORIGIN_MARKER_PX, ORIGIN_MARKER_UNITS);
+    return marker;
   }
 
   // -------------------------------------------------------------------------
@@ -238,16 +332,19 @@ export class SceneModeManager {
   // -------------------------------------------------------------------------
 
   private rebuildGrid(): void {
-    this.setupGrid(this.lastGridNormal, this.lastGridPosition);
+    this.setupGrid(this.lastGridNormal, this.lastGridPosition, this.lastGridFrame);
     this.ctx.requestRender();
   }
 
-  private setupGrid(normal: Vector3, position?: Vector3): void {
+  private setupGrid(normal: Vector3, position?: Vector3, frame?: GridFrame): void {
     this.lastGridNormal = normal.clone();
     this.lastGridPosition = position?.clone();
+    this.lastGridFrame = frame
+      ? { xDirection: frame.xDirection.clone(), origin: frame.origin.clone() }
+      : undefined;
     this.removeByName('grid');
 
-    const grid = new InfiniteGridHelper(10, 100, themeColors.gridColor, 100000, normal);
+    const grid = new InfiniteGridHelper(10, 100, themeColors.gridColor, 100000, normal, frame);
     grid.name = 'grid';
 
     if (position) {

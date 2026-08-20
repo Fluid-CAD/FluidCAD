@@ -45,6 +45,15 @@ export function isPointPick(p: SolvedPick): boolean {
   return p.role !== undefined || p.kind === 'point';
 }
 
+/** Datum picks: the origin (a point) and the x/y axes (infinite lines). */
+export function isDatumPick(p: SolvedPick): boolean {
+  return p.datum !== undefined;
+}
+
+function isAxisPick(p: SolvedPick): boolean {
+  return p.datum === 'x-axis' || p.datum === 'y-axis';
+}
+
 function isEntityPick(p: SolvedPick, ...kinds: SolvedPick['kind'][]): boolean {
   return p.role === undefined && kinds.includes(p.kind);
 }
@@ -67,10 +76,23 @@ export function pickRef(p: SolvedPick): SolverRef {
 
 /** A lone line pick dimensions its own length: expand it to the line's
  * endpoint pair so every consumer (form, measure, ghost spec, emission)
- * sees the point–point distance form the solver already owns. */
+ * sees the point–point distance form the solver already owns. A datum
+ * axis never expands — it is infinite and has no length. */
 export function expandDimensionPicks(picks: SolvedPick[]): SolvedPick[] {
-  if (picks.length === 1 && isLine(picks[0])) {
+  if (picks.length === 1 && isLine(picks[0]) && !isAxisPick(picks[0])) {
     return [{ ...picks[0], role: 'start' }, { ...picks[0], role: 'end' }];
+  }
+  return picks;
+}
+
+/** Entity–entity distances measure b's midpoint to a's infinite line — a
+ * datum axis has no meaningful midpoint, so it always takes the a slot
+ * (symmetric in meaning for the parallel-lines dim; every other form is
+ * order-agnostic). Mirrors the kernel statement layer's normalization so
+ * measure/ghost/preview agree with the emitted statement. */
+export function normalizeDistancePicks(picks: SolvedPick[]): SolvedPick[] {
+  if (picks.length === 2 && isAxisPick(picks[1]) && isLine(picks[0]) && !isAxisPick(picks[0])) {
+    return [picks[1], picks[0]];
   }
   return picks;
 }
@@ -132,6 +154,11 @@ const NEED = {
 } as const;
 
 function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
+  // Datums are fixed reference geometry: a constraint whose every target is
+  // a datum has nothing to solve (the kernel refuses it too).
+  if (picks.length > 0 && picks.every(isDatumPick)) {
+    return false;
+  }
   const [a, b] = picks;
   switch (id) {
     case 'coincident': {
@@ -148,7 +175,9 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
     }
     case 'horizontal':
     case 'vertical':
-      return (picks.length === 1 && isLine(a))
+      // An axis is already exactly horizontal or vertical — pointless
+      // either way (redundant or a guaranteed conflict).
+      return (picks.length === 1 && isLine(a) && !isAxisPick(a))
         || (picks.length === 2 && isPointPick(a) && isPointPick(b));
     case 'parallel':
     case 'perpendicular':
@@ -159,13 +188,21 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
       return picks.length === 2 && a.entityId !== b.entityId
         && ((isLine(a) && isRound(b)) || (isRound(a) && isLine(b)) || (isRound(a) && isRound(b)));
     case 'equal':
+      // A datum axis is infinite — it has no length to equate.
       return picks.length === 2 && a.entityId !== b.entityId
+        && !isAxisPick(a) && !isAxisPick(b)
         && ((isLine(a) && isLine(b)) || (isRound(a) && isRound(b)));
     case 'concentric':
       return picks.length === 2 && isRound(a) && isRound(b) && a.entityId !== b.entityId;
-    case 'midpoint':
-      return picks.length === 2 && a.entityId !== b.entityId
-        && ((isPointPick(a) && isLine(b)) || (isPointPick(b) && isLine(a)));
+    case 'midpoint': {
+      if (picks.length !== 2 || a.entityId === b.entityId) {
+        return false;
+      }
+      // The carrier line's midpoint must exist — never a datum axis.
+      const line = isPointPick(a) ? b : isPointPick(b) ? a : null;
+      const point = line === b ? a : line === a ? b : null;
+      return !!line && !!point && isPointPick(point) && isLine(line) && !isAxisPick(line);
+    }
     case 'symmetric':
       return picks.length === 3
         && picks.filter(isPointPick).length === 2
@@ -190,6 +227,10 @@ export function constraintOptions(picks: SolvedPick[]): ConstraintOption[] {
  * pair). Angle has its own button. */
 export function dimensionFormFor(rawPicks: SolvedPick[]): DimensionForm | null {
   const picks = expandDimensionPicks(rawPicks);
+  // All-datum measurements are constants — nothing to dimension.
+  if (picks.length > 0 && picks.every(isDatumPick)) {
+    return null;
+  }
   if (picks.length === 1) {
     const p = picks[0];
     if (isRound(p)) {
@@ -297,7 +338,7 @@ export function measureDimension(
   sector?: AngleSector | null,
   tangency?: 'min' | 'max',
 ): number | null {
-  const picks = expandDimensionPicks(rawPicks);
+  const picks = normalizeDistancePicks(expandDimensionPicks(rawPicks));
   const round2 = (v: number): number => Math.round(v * 100) / 100;
   const far = tangency === 'max';
 
@@ -430,7 +471,7 @@ export function candidateSpec(
       if (form.kind === 'diameter') {
         return { kind: 'diameter', a: pickRef(a), value };
       }
-      const [da, db] = expandDimensionPicks(picks);
+      const [da, db] = normalizeDistancePicks(expandDimensionPicks(picks));
       const spec: ConstraintSpec = { kind: 'distance', a: pickRef(da), b: pickRef(db), value };
       if (axis !== undefined) {
         (spec as { axis?: 'x' | 'y' }).axis = axis;
@@ -476,7 +517,7 @@ export function dimensionPreviewLayout(
   sector?: AngleSector | null,
   tangency?: 'min' | 'max',
 ): DimensionPreviewLayout | null {
-  const picks = expandDimensionPicks(rawPicks);
+  const picks = normalizeDistancePicks(expandDimensionPicks(rawPicks));
   if (form.kind === 'radius' || form.kind === 'diameter') {
     const e = entityFor(model, pickRef(picks[0]));
     const rim = e?.center ? entityAnchor(e) : null;

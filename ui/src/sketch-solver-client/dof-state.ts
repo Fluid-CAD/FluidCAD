@@ -36,8 +36,8 @@ export function computeSketchDofState(model: SolvedSketchModel | null): SketchDo
       const entity = entityId !== undefined ? model.entities.get(entityId) : undefined;
       if (entity) {
         failed.push({
-          label: statementLabel(entity.obj.name ?? entity.kind, entity.obj.sourceLocation),
-          sourceLocation: entity.obj.sourceLocation,
+          label: statementLabel(entity.obj?.name ?? entity.kind, entity.obj?.sourceLocation),
+          sourceLocation: entity.obj?.sourceLocation,
         });
       }
     }

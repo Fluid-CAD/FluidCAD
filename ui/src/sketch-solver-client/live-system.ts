@@ -56,6 +56,14 @@ export class LiveSolvedSystem {
         if (o + PARAM_COUNT[e.kind] > p.length) {
           return null;
         }
+        if (e.id < 0) {
+          // Datum records (origin/axes, reserved negative ids): re-register
+          // through ensureDatums — datums lead the snapshot's entity list,
+          // so param offsets stay aligned for the wholesale copy below.
+          system.ensureDatums();
+          kinds.set(e.id, e.kind);
+          continue;
+        }
         const opts = { id: e.id, fixed: e.fixed };
         switch (e.kind) {
           case 'point':

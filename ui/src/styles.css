@@ -53,6 +53,9 @@
   --scene-sketch-constrained: #44c767;
   --scene-constraint-conflict: #e5534b;
   --scene-constraint-redundant: #d29922;
+  --scene-sketch-axis-x: #e0524e;
+  --scene-sketch-axis-y: #3fbf62;
+  --scene-sketch-origin: #e0e0e0;
 }
 
 @plugin "daisyui/theme" {
@@ -105,6 +108,9 @@
   --scene-sketch-constrained: #1a7f37;
   --scene-constraint-conflict: #cf222e;
   --scene-constraint-redundant: #9a6700;
+  --scene-sketch-axis-x: #c22f2b;
+  --scene-sketch-axis-y: #188a3c;
+  --scene-sketch-origin: #333333;
 }
 
 /* App-shell UI: overlay offsets (top-[106px] constraint bar, top-[116px]

@@ -37,8 +37,27 @@ export function mid(a: Vec2, b: Vec2): Vec2 {
   return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 }
 
+/** Synthesized read-model views of the implicit datums (origin + axes,
+ * reserved negative ids). They have no statement child, so `model.entities`
+ * never holds them; geometry is fixed by definition — the axes span the
+ * visual extent so midpoints land on the origin and angle-glyph ray checks
+ * see them as covering. `obj` is absent: datums have no source statement. */
+const AXIS_VIEW_EXTENT = 1000;
+const DATUM_VIEWS: Record<number, SolvedEntityView> = {
+  [-1]: { entityId: -1, kind: 'point', point: [0, 0] },
+  [-2]: { entityId: -2, kind: 'line', start: [-AXIS_VIEW_EXTENT, 0], end: [AXIS_VIEW_EXTENT, 0] },
+  [-3]: { entityId: -3, kind: 'line', start: [0, -AXIS_VIEW_EXTENT], end: [0, AXIS_VIEW_EXTENT] },
+};
+
 export function entityFor(model: SolvedSketchModel, ref: SolverRef): SolvedEntityView | undefined {
-  return model.entities.get(ref.entity);
+  const own = model.entities.get(ref.entity);
+  if (own) {
+    return own;
+  }
+  if (ref.entity < 0 && model.hasDatums) {
+    return DATUM_VIEWS[ref.entity];
+  }
+  return undefined;
 }
 
 /** The named point of a ref, when it has one (or the ref names a point

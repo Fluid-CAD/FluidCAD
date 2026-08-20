@@ -12,6 +12,40 @@ export type EntityKind = 'point' | 'line' | 'circle' | 'arc';
 export type PointRole = 'start' | 'end' | 'center';
 
 /**
+ * Sketch datums — the implicit fixed reference entities every solved
+ * sketch registers up front (SketchSystem.ensureDatums): the origin
+ * point at local (0,0) and the x/y axis lines along the plane's u/v
+ * directions. Reserved negative ids keep the statement-entity range
+ * (≥ 0) untouched; the axis lines carry a unit guess extent and act
+ * as infinite lines in every constraint that treats lines as
+ * carriers.
+ */
+export type DatumName = 'origin' | 'x-axis' | 'y-axis';
+
+export const ORIGIN_ENTITY = -1;
+export const X_AXIS_ENTITY = -2;
+export const Y_AXIS_ENTITY = -3;
+
+export const DATUM_ENTITY_IDS: Record<DatumName, number> = {
+  origin: ORIGIN_ENTITY,
+  'x-axis': X_AXIS_ENTITY,
+  'y-axis': Y_AXIS_ENTITY,
+};
+
+export function datumNameOf(entityId: number): DatumName | null {
+  switch (entityId) {
+    case ORIGIN_ENTITY:
+      return 'origin';
+    case X_AXIS_ENTITY:
+      return 'x-axis';
+    case Y_AXIS_ENTITY:
+      return 'y-axis';
+    default:
+      return null;
+  }
+}
+
+/**
  * Reference to an entity or one of its points. Without `point` it
  * names the entity itself (a point entity doubles as its own point);
  * with `point` it names a vertex: line start/end, circle center, arc

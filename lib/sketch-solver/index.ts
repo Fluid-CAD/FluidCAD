@@ -9,8 +9,12 @@ export { SketchSystem } from './system.js';
 export type { CompiledSystem, EntityOptions } from './system.js';
 export { solve } from './solve.js';
 export { diagnose } from './diagnose.js';
-export { center, end, entityRef, start } from './types.js';
+export {
+  center, end, entityRef, start,
+  DATUM_ENTITY_IDS, ORIGIN_ENTITY, X_AXIS_ENTITY, Y_AXIS_ENTITY, datumNameOf,
+} from './types.js';
 export type {
+  DatumName,
   ComponentDiagnostics,
   ComponentSolveResult,
   ConstraintKind,

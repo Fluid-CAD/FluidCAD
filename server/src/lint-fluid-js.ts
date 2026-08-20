@@ -41,6 +41,8 @@ const CORE_SYMBOLS = new Set<string>([
   'hLine', 'vLine', 'tLine', 'tCircle', 'tArc', 'arc', 'move', 'pMove',
   'aLine', 'slot', 'connect', 'polygon', 'offset', 'project', 'intersect',
   'bezier', 'center', 'back', 'point',
+  // Sketch datum accessors (origin + axes, constraint sketches).
+  'origin', 'xAxis', 'yAxis',
 ]);
 
 const FILTER_SYMBOLS = new Set<string>(['face', 'edge']);

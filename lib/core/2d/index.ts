@@ -25,3 +25,5 @@ export { default as bezier } from './bezier.js';
 export { default as text } from './text.js';
 export { default as center } from './center.js';
 export { default as back } from './back.js';
+export { origin, xAxis, yAxis } from './datum.js';
+export type { SketchDatum } from '../../features/2d/solved/datum.js';

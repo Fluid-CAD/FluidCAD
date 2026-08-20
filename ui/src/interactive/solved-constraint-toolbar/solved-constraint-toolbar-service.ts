@@ -937,12 +937,16 @@ export class SolvedConstraintToolbarService {
       return;
     }
     const statementKind = kind === 'dimension' ? 'distance' : kind;
-    const targets = picks.map(p => ({
-      line: p.sourceLocation?.line ?? -1,
-      ...(p.role !== undefined && p.role !== null ? { role: p.role } : {}),
-      featureType: p.kind,
-    }));
-    if (targets.some(t => t.line < 0)) {
+    const targets = picks.map(p => p.datum !== undefined
+      // Datum picks (origin/axes) have no source statement — the server
+      // renders the accessor call (origin()/xAxis()/yAxis()) instead.
+      ? { datum: p.datum }
+      : {
+        line: p.sourceLocation?.line ?? -1,
+        ...(p.role !== undefined && p.role !== null ? { role: p.role } : {}),
+        featureType: p.kind,
+      });
+    if (targets.some(t => 'line' in t && t.line < 0)) {
       this.showMessage('The picked geometry has no source statement');
       return;
     }

@@ -10,6 +10,12 @@ import type {
   ResolvedLine,
   ResolvedPoint,
 } from './constraints/types.js';
+import {
+  ORIGIN_ENTITY,
+  X_AXIS_ENTITY,
+  Y_AXIS_ENTITY,
+  datumNameOf,
+} from './types.js';
 import type {
   ConstraintRecord,
   ConstraintSpec,
@@ -105,6 +111,22 @@ export class SketchSystem {
     return id;
   }
 
+  /**
+   * Register the implicit sketch datums — origin point + x/y axis
+   * lines — as fixed entities under their reserved negative ids.
+   * Idempotent. Call before any statement entity so param offsets stay
+   * identical between the kernel system and a UI rebuild from its
+   * snapshot (datums first, statements after).
+   */
+  ensureDatums(): void {
+    if (this.entityById.has(ORIGIN_ENTITY)) {
+      return;
+    }
+    this.insertEntity('point', [0, 0], ORIGIN_ENTITY, true);
+    this.insertEntity('line', [0, 0, 1, 0], X_AXIS_ENTITY, true);
+    this.insertEntity('line', [0, 0, 0, 1], Y_AXIS_ENTITY, true);
+  }
+
   private addEntity(kind: EntityKind, guesses: number[], opts: EntityOptions): number {
     let id: number;
     if (opts.id !== undefined) {
@@ -122,10 +144,14 @@ export class SketchSystem {
       }
       id = this.nextEntityId++;
     }
+    return this.insertEntity(kind, guesses, id, opts.fixed === true);
+  }
+
+  private insertEntity(kind: EntityKind, guesses: number[], id: number, fixed: boolean): number {
     const record: EntityRecord = {
       id,
       kind,
-      fixed: opts.fixed === true,
+      fixed,
       paramOffset: this.guessList.length,
     };
     this.entityList.push(record);
@@ -393,7 +419,7 @@ export class SketchSystem {
         break;
     }
     throw new Error(
-      `${what}: ${e.kind} entity ${e.id} does not resolve to a point` +
+      `${what}: ${entityLabel(e.kind, e.id)} does not resolve to a point` +
         (role !== undefined ? ` via role '${role}'` : ' (missing point role)'),
     );
   }
@@ -419,6 +445,22 @@ export class SketchSystem {
   }
 }
 
+/** Statement-speak entity naming for resolution errors — datums get
+ * their names, never a raw negative id (cross-cutting rule 6). */
+function entityLabel(kind: EntityKind, id: number): string {
+  const datum = datumNameOf(id);
+  if (datum === 'origin') {
+    return 'the sketch origin';
+  }
+  if (datum === 'x-axis') {
+    return 'the sketch x-axis';
+  }
+  if (datum === 'y-axis') {
+    return 'the sketch y-axis';
+  }
+  return `${kind} entity ${id}`;
+}
+
 function addLink(map: Map<number, Set<number>>, key: number, value: number): void {
   let set = map.get(key);
   if (!set) {
@@ -429,5 +471,6 @@ function addLink(map: Map<number, Set<number>>, key: number, value: number): voi
 }
 
 function describeRef(kind: EntityKind, ref: SolverRef): string {
-  return ref.point !== undefined ? `${kind} entity ${ref.entity} role '${ref.point}'` : `${kind} entity ${ref.entity}`;
+  const label = entityLabel(kind, ref.entity);
+  return ref.point !== undefined ? `${label} role '${ref.point}'` : label;
 }

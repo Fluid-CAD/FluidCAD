@@ -1639,11 +1639,14 @@ export async function fetchSegmentConversions(
  * `expectedStatement` guards against the buffer having drifted since the
  * options were fetched.
  */
-/** One target of a solved-sketch constraint statement (P4). */
+/** One target of a solved-sketch constraint statement (P4): a statement
+ * addressed by source line (+role), or an implicit sketch datum rendered
+ * as its accessor call (origin()/xAxis()/yAxis()). */
 export type SketchConstraintTargetParam = {
-  line: number;
+  line?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
   featureType?: 'line' | 'arc' | 'circle' | 'point';
+  datum?: 'origin' | 'x-axis' | 'y-axis';
 };
 
 /**
@@ -1704,12 +1707,14 @@ export async function setDistanceTangency(options: {
 }
 
 /** One target of a solved-emission constraint: an existing statement by
- * 1-indexed line, or a geometry entry of the same emission by index. */
+ * 1-indexed line, a geometry entry of the same emission by index, or an
+ * implicit sketch datum (rendered as origin()/xAxis()/yAxis()). */
 export type SolvedEmissionTargetParam = {
   line?: number;
   newIndex?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
   featureType?: 'line' | 'arc' | 'circle' | 'point';
+  datum?: 'origin' | 'x-axis' | 'y-axis';
 };
 
 export type SolvedGeometryParam = {

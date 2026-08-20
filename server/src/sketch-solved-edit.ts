@@ -50,13 +50,23 @@ export type SolvedGeometryEmission = {
 export type SolvedEmissionTarget = {
   /** 1-indexed line of an existing entity statement… */
   line?: number;
-  /** …or an index into this emission's `geometry` array. */
+  /** …or an index into this emission's `geometry` array… */
   newIndex?: number;
+  /** …or an implicit sketch datum, rendered as its accessor call
+   * (origin()/xAxis()/yAxis()) — datums have no source statement. */
+  datum?: 'origin' | 'x-axis' | 'y-axis';
   /** Point accessor rendered as `.role()`; absent = the entity itself. */
   role?: SolvedEmissionRole;
   /** For `line` targets: the entity command the statement must call — a
    * mismatch means the source changed under the picks and refuses the edit. */
   featureType?: SolvedEntityKind;
+};
+
+/** Datum name → the fluidcad/core accessor command it renders as. */
+const DATUM_COMMANDS: Record<string, string> = {
+  origin: 'origin',
+  'x-axis': 'xAxis',
+  'y-axis': 'yAxis',
 };
 
 export type SolvedConstraintEmission = {
@@ -232,8 +242,15 @@ export async function applySolvedEmission(
     for (const t of c.targets) {
       const byLine = typeof t.line === 'number';
       const byNew = typeof t.newIndex === 'number';
-      if (byLine === byNew) {
-        return refuse(code, 'a constraint target names exactly one of line/newIndex');
+      const byDatum = t.datum !== undefined;
+      if (Number(byLine) + Number(byNew) + Number(byDatum) !== 1) {
+        return refuse(code, 'a constraint target names exactly one of line/newIndex/datum');
+      }
+      if (byDatum && DATUM_COMMANDS[t.datum!] === undefined) {
+        return refuse(code, `unknown datum '${t.datum}'`);
+      }
+      if (byDatum && t.role !== undefined) {
+        return refuse(code, 'a datum target takes no point role');
       }
       if (byNew && (t.newIndex! < 0 || t.newIndex! >= spec.geometry.length)) {
         return refuse(code, `constraint target newIndex ${t.newIndex} is out of range`);
@@ -290,10 +307,17 @@ export async function applySolvedEmission(
     return name;
   };
 
+  const datumImports = new Set<string>();
   const constraintTexts: string[] = [];
   for (const c of spec.constraints) {
     const argNames: string[] = [];
     for (const target of c.targets) {
+      if (target.datum !== undefined) {
+        const command = DATUM_COMMANDS[target.datum];
+        datumImports.add(command);
+        argNames.push(`${command}()`);
+        continue;
+      }
       let name: string;
       if (typeof target.newIndex === 'number') {
         name = newNames[target.newIndex]
@@ -393,6 +417,9 @@ export async function applySolvedEmission(
 
   for (const kind of new Set(spec.geometry.map(g => g.kind))) {
     result = await ensureSymbolImport(result, kind, 'fluidcad/core');
+  }
+  for (const command of datumImports) {
+    result = await ensureSymbolImport(result, command, 'fluidcad/core');
   }
   for (const kind of new Set(spec.constraints.map(c => c.kind))) {
     result = await ensureSymbolImport(result, kind, 'fluidcad/constraints');

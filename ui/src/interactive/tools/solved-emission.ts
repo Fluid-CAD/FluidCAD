@@ -84,6 +84,9 @@ export function pointText(p: [number, number] | PickedPoint): string {
 
 /** A snap ref as an emission constraint target. */
 export function refTarget(ref: SolvedVertexRef): SolvedEmissionTargetParam {
+  if (ref.datum !== undefined) {
+    return { datum: ref.datum };
+  }
   return {
     line: ref.line,
     ...(ref.role !== undefined ? { role: ref.role } : {}),

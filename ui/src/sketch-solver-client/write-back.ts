@@ -42,7 +42,7 @@ export function buildPositionWriteBack(
   let filePath: string | undefined;
 
   for (const [entityId, view] of model.entities) {
-    const loc = view.obj.sourceLocation;
+    const loc = view.obj?.sourceLocation;
     const guess = view.guess;
     if (!loc || !guess) {
       continue;

@@ -182,6 +182,11 @@ export class Sketch extends SceneObject implements Extrudable {
   }
 
   build(context?: BuildSceneObjectContext) {
+    // Statements registered during module evaluation, so the graph is
+    // complete here even before any child builds — and an empty solved
+    // sketch (no children to trigger the solve) still stores its snapshot,
+    // which carries the datums the UI renders and picks.
+    this.ensureSolvedForBuild();
     this.setState('tangent', new Point2D(1, 0));
     this.planeObj.removeShapes(this);
 

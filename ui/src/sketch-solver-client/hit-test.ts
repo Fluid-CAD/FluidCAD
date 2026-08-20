@@ -26,6 +26,59 @@ export type SolvedEdgeHit = {
 
 export type SolvedHit = SolvedVertexHit | SolvedEdgeHit;
 
+export type SketchDatumName = 'origin' | 'x-axis' | 'y-axis';
+
+export type SolvedDatumHit = {
+  type: 'datum';
+  datum: SketchDatumName;
+  /** Reserved solver entity id (-1/-2/-3). */
+  entityId: number;
+  /** 'point' for the origin, 'line' for the axes — the legality matrix's
+   * vocabulary. */
+  kind: 'point' | 'line';
+  distSq: number;
+};
+
+const DATUM_IDS: Record<SketchDatumName, number> = { origin: -1, 'x-axis': -2, 'y-axis': -3 };
+
+/**
+ * Hit test the implicit datums, sketch-local: the origin as a vertex-like
+ * target, the axes as INFINITE lines (x-axis: |y|, y-axis: |x|). Callers
+ * rank datums below real geometry — run this only after solvedHitTest
+ * misses (origin after real vertices, axes after real edges).
+ */
+export function datumHitTest(
+  model: SolvedSketchModel,
+  point: Vec2,
+  originThreshold: number,
+  axisThreshold: number,
+): SolvedDatumHit | null {
+  if (!model.hasDatums) {
+    return null;
+  }
+  const originDistSq = point[0] * point[0] + point[1] * point[1];
+  if (originThreshold > 0 && originDistSq <= originThreshold * originThreshold) {
+    return { type: 'datum', datum: 'origin', entityId: DATUM_IDS.origin, kind: 'point', distSq: originDistSq };
+  }
+  if (axisThreshold <= 0) {
+    return null;
+  }
+  const limit = axisThreshold * axisThreshold;
+  const dx = point[0] * point[0]; // distance² to the y axis (x = 0)
+  const dy = point[1] * point[1]; // distance² to the x axis (y = 0)
+  const best: SketchDatumName | null = dy <= dx ? (dy <= limit ? 'x-axis' : null) : (dx <= limit ? 'y-axis' : null);
+  if (!best) {
+    return null;
+  }
+  return {
+    type: 'datum',
+    datum: best,
+    entityId: DATUM_IDS[best],
+    kind: 'line',
+    distSq: best === 'x-axis' ? dy : dx,
+  };
+}
+
 type VertexSlot = { role: PointRole | null; at: Vec2 | undefined };
 
 function vertexSlots(e: SolvedEntityView): VertexSlot[] {

@@ -1,6 +1,7 @@
 import { Vector3 } from 'three';
 import { Snapper, SnapResult, SolvedVertexRef } from './types';
 import { VertexSnapper, VertexCandidate } from './vertex-snapper';
+import { AxisSnapper } from './axis-snapper';
 import { GridSnapper, computeAdaptiveGridSpacing } from './grid-snapper';
 import { PlaneData, SceneObjectRender } from '../types';
 import { SceneContext } from '../scene/scene-context';
@@ -119,10 +120,18 @@ export class SnapManager {
     // degree-1 mesh scan below can never surface. Pushed first so a
     // position-duplicate mesh endpoint doesn't shadow the ref.
     const solvedSketchObj = sceneObjects.find(obj => obj.id === sketchId);
+    let hasDatums = false;
     if (isSolvedSketch(solvedSketchObj)) {
       const model = buildSolvedSketchModel(solvedSketchObj!, sceneObjects);
+      hasDatums = model?.hasDatums ?? false;
+      // The origin datum, first of all: drawing at (0,0) pins to origin()
+      // even when an entity vertex already sits there (the strongest intent;
+      // pushUnique dedups by position, first ref wins).
+      if (hasDatums) {
+        pushUnique(0, 0, { datum: 'origin' });
+      }
       for (const e of model?.entities.values() ?? []) {
-        const line = e.obj.sourceLocation?.line;
+        const line = e.obj?.sourceLocation?.line;
         if (!line) {
           continue;
         }
@@ -192,9 +201,10 @@ export class SnapManager {
       pushUnique(u, v);
     }
 
-    // Priority order: vertex snap first, then grid snap
+    // Priority order: vertex snap, then the datum axes, then grid snap
     const snappers: Snapper[] = [
       new VertexSnapper(candidates, plane),
+      ...(hasDatums ? [new AxisSnapper(plane)] : []),
       new GridSnapper(plane),
     ];
 

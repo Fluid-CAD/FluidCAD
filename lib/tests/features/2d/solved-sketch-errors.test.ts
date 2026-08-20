@@ -166,7 +166,8 @@ describe("solved sketch diagnostics and mode-mixing errors", () => {
     // The vertical leg still holds its drawn size, not collapsed.
     const payload =
       scene.getRenderedObject(scene.getSceneObjectById(angleRow.parentId)!).object;
-    const l3Entity = payload.solver.entities[2];
+    // Datums (negative ids) lead the entity list; statements follow.
+    const l3Entity = payload.solver.entities.filter((e: any) => e.id >= 0)[2];
     expect(l3Entity.kind).toBe('line');
     const p = payload.solver.params;
     const o = l3Entity.paramOffset;
@@ -211,7 +212,7 @@ describe("solved sketch diagnostics and mode-mixing errors", () => {
     expect(record.spec.b.point).toBe('start');
     expect(record.spec.value).toBeCloseTo(Math.PI / 3, 10);
 
-    const bEntity = payload.solver.entities[1];
+    const bEntity = payload.solver.entities.filter((e: any) => e.id >= 0)[1];
     const p = payload.solver.params;
     const o = bEntity.paramOffset;
     expect(p[o + 2] - p[o]).toBeCloseTo(100 * Math.cos((240 * Math.PI) / 180), 4);

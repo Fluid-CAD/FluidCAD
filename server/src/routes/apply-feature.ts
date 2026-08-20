@@ -7082,9 +7082,25 @@ export function createApplyFeatureRouter(
     }
     const validRoles = new Set(['start', 'end', 'center', 'mid']);
     const validTypes = new Set(['line', 'arc', 'circle', 'point']);
-    const cleanTargets: { line: number; role?: string; featureType?: string }[] = [];
+    const validDatums = new Set(['origin', 'x-axis', 'y-axis']);
+    const cleanTargets: { line?: number; role?: string; featureType?: string; datum?: string }[] = [];
     for (const t of targets) {
-      if (typeof t !== 'object' || t === null || typeof t.line !== 'number'
+      if (typeof t !== 'object' || t === null) {
+        res.status(400).json({ error: 'Invalid request body' });
+        return;
+      }
+      // A datum target (origin/axes) has no source statement — it is the
+      // accessor call, exclusive with line/role/featureType.
+      if (t.datum !== undefined) {
+        if (!validDatums.has(t.datum) || t.line !== undefined || t.role !== undefined
+          || t.featureType !== undefined) {
+          res.status(400).json({ error: 'Invalid request body' });
+          return;
+        }
+        cleanTargets.push({ datum: t.datum });
+        continue;
+      }
+      if (typeof t.line !== 'number'
         || (t.role !== undefined && !validRoles.has(t.role))
         || (t.featureType !== undefined && !validTypes.has(t.featureType))) {
         res.status(400).json({ error: 'Invalid request body' });
@@ -7186,9 +7202,24 @@ export function createApplyFeatureRouter(
       }
       const cleanTargets: SolvedEmissionTarget[] = [];
       for (const t of c.targets) {
-        const byLine = typeof t?.line === 'number';
-        const byNew = typeof t?.newIndex === 'number';
-        if (typeof t !== 'object' || t === null || byLine === byNew
+        if (typeof t !== 'object' || t === null) {
+          res.status(400).json({ error: 'Invalid request body' });
+          return;
+        }
+        // Datum target (origin/axes): no statement line, role or type.
+        if (t.datum !== undefined) {
+          if (!['origin', 'x-axis', 'y-axis'].includes(t.datum)
+            || t.line !== undefined || t.newIndex !== undefined
+            || t.role !== undefined || t.featureType !== undefined) {
+            res.status(400).json({ error: 'Invalid request body' });
+            return;
+          }
+          cleanTargets.push({ datum: t.datum });
+          continue;
+        }
+        const byLine = typeof t.line === 'number';
+        const byNew = typeof t.newIndex === 'number';
+        if (byLine === byNew
           || (t.role !== undefined && !validRoles.has(t.role))
           || (t.featureType !== undefined && !validTypes.has(t.featureType))) {
           res.status(400).json({ error: 'Invalid request body' });

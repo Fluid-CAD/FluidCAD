@@ -28,7 +28,9 @@ export type SolvedEntityGuess = {
 
 export type SolvedEntityView = {
   entityId: number;
-  obj: SceneObjectRender;
+  /** The entity statement's render object. Absent only on the synthesized
+   * datum views (resolve.ts's entityFor) — datums have no statement. */
+  obj?: SceneObjectRender;
   kind: SolvedEntityKind;
   /** Sketch-local 2D geometry from the child's serialize payload. */
   point?: [number, number];
@@ -61,6 +63,11 @@ export type SolvedSketchModel = {
   solver: SketchSolverSystem | null;
   entities: Map<number, SolvedEntityView>;
   constraints: SolvedConstraintView[];
+  /** True when the snapshot carries the implicit datum entities (origin +
+   * axes, reserved negative ids). Datums stay OUT of `entities` — they have
+   * no statement child, axes are infinite (not segment-shaped), and their
+   * hit testing/rendering is dedicated (analytic, scene-mode visuals). */
+  hasDatums: boolean;
   /** Entities to tint as conflict members: referenced by a conflicting
    * constraint, or owning conflicting internal (arc-consistency) rows. */
   conflictingEntityIds: Set<number>;
@@ -229,6 +236,7 @@ export function buildSolvedSketchModel(
     solver,
     entities,
     constraints,
+    hasDatums: solver?.entities.some(e => e.id < 0) ?? false,
     conflictingEntityIds,
     dof,
     outcome,

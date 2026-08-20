@@ -86,7 +86,9 @@ describe("solved sketch (constraint mode)", () => {
     expect(payload.solver.dof).toBe(0);
     expect(payload.solver.conflicting).toEqual([]);
     expect(payload.solver.redundant).toEqual([]);
-    expect(payload.solver.entities).toHaveLength(4);
+    // 4 statement entities + the 3 implicit datums (origin + axes).
+    expect(payload.solver.entities.filter((e: any) => e.id >= 0)).toHaveLength(4);
+    expect(payload.solver.entities.filter((e: any) => e.id < 0)).toHaveLength(3);
     // 8 user constraints + no internal records for lines.
     expect(payload.solver.constraints.filter((c: any) => !c.internal)).toHaveLength(11);
   });

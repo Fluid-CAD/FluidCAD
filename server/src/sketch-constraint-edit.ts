@@ -13,8 +13,11 @@ import {
 import type { SolvedEntityKind } from './sketch-symbols.ts';
 
 export type SketchConstraintTarget = {
-  /** 1-indexed line of the entity statement. */
-  line: number;
+  /** 1-indexed line of the entity statement… */
+  line?: number;
+  /** …or an implicit sketch datum, rendered as its accessor call
+   * (origin()/xAxis()/yAxis()) — datums have no source statement. */
+  datum?: 'origin' | 'x-axis' | 'y-axis';
   /** Point accessor rendered as `.role()`; absent = the entity itself. */
   role?: SolvedEmissionRole;
   /** The entity command the statement must call — a mismatch means the

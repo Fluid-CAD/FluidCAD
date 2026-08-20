@@ -26,6 +26,13 @@ export type SolveSummary = {
 export class SketchSolverContext {
   readonly system = new SketchSystem();
 
+  constructor() {
+    // Implicit datums: every solved sketch exposes origin + axes as fixed
+    // reference entities, registered before any statement entity so param
+    // offsets match a UI rebuild from the snapshot.
+    this.system.ensureDatums();
+  }
+
   private entityStatements = new Map<number, SceneObject>();
   private constraintStatements = new Map<number, SceneObject>();
   private statementErrors = new Map<SceneObject, string>();
@@ -76,7 +83,9 @@ export class SketchSolverContext {
     let diagnostics: SketchDiagnostics | null = null;
     let sketchError: string | null = null;
 
-    if (this.system.paramCount > 0) {
+    // Gate on statements, not params — the datums alone (an empty sketch)
+    // warrant no solve and no DOF verdict.
+    if (this.entityStatements.size > 0 || this.constraintStatements.size > 0) {
       result = solve(this.system);
       diagnostics = diagnose(this.system);
       this.attributeConflicts(diagnostics.conflicting);

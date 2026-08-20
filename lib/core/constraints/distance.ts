@@ -2,6 +2,8 @@ import { SceneParserContext, registerBuilder } from "../../index.js";
 import { IDistance } from "../interfaces.js";
 import { type NumberParam, resolveParam } from "../param.js";
 import { SolvedDistance } from "../../features/2d/constraints/solved/distance.js";
+import { SketchDatum } from "../../features/2d/solved/datum.js";
+import { SolvedGeometryBase } from "../../features/2d/solved/solved-base.js";
 import {
   ConstraintTarget, emitConstraint, isRoundEntityTarget, requireValue, toRef,
 } from "./common.js";
@@ -33,10 +35,20 @@ function build(context: SceneParserContext) {
       if (axis !== undefined && axis !== 'x' && axis !== 'y') {
         throw new Error(`distance: axis must be 'x' or 'y', got '${axis}'`);
       }
+      // Line–line distance measures b's midpoint to a's infinite line; an
+      // axis datum has no meaningful midpoint, so it always takes the a
+      // slot (the measurement is symmetric for a parallel-lines dim, and
+      // every other form is order-agnostic).
+      let ta = a;
+      let tb = b;
+      if (tb instanceof SketchDatum && tb.isAxis
+        && ta instanceof SolvedGeometryBase && ta.solverKind === 'line') {
+        [ta, tb] = [tb, ta];
+      }
       const spec: Extract<ConstraintSpec, { kind: 'distance' }> = {
         kind: 'distance',
-        a: toRef(a, 'distance'),
-        b: toRef(b, 'distance'),
+        a: toRef(ta, 'distance'),
+        b: toRef(tb, 'distance'),
         value: requireValue(resolved, 'distance'),
       };
       if (axis !== undefined) {

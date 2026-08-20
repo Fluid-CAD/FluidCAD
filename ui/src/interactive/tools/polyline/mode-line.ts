@@ -62,10 +62,14 @@ export class LineMode implements SegmentMode {
       const snappedEnd = roundPoint(endPoint);
 
       if (ctx.solved) {
+        // Auto-constraints off: the ortho quantization still applies (a
+        // drafting aid, as in legacy sketches) but the H/V stays unwritten.
         ctx.solved.emitSegment({
           kind: 'line',
           text: `line(${startText}, ${ctx.formatPoint(snappedEnd)})`,
-          constraints: [{ kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] }],
+          constraints: ctx.solved.autoConstraints()
+            ? [{ kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] }]
+            : [],
           endSnap: snapResult,
           endPoint: snappedEnd,
         });
@@ -177,10 +181,11 @@ export class LineMode implements SegmentMode {
     if (ctx.solved) {
       // A TYPED magnitude becomes an explicit length dimension (the sign
       // only picks which side the guess endpoint lands on); a click-committed
-      // pill value stays a guess.
-      const constraints: SolvedConstraintParam[] = [
-        { kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] },
-      ];
+      // pill value stays a guess. The H/V is inference — the Auto-constraints
+      // toggle gates it; the typed dimension is explicit and always lands.
+      const constraints: SolvedConstraintParam[] = ctx.solved.autoConstraints()
+        ? [{ kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] }]
+        : [];
       if (ctx.isExpressionTyping()) {
         constraints.push({
           kind: 'distance',

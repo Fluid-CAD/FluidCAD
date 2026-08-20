@@ -4,7 +4,7 @@ import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
 import { SnapManager } from '../../snapping/snap-manager';
-import { SnapType } from '../../snapping/types';
+import { SnapType, SolvedVertexRef } from '../../snapping/types';
 import {
   projectToSketch,
   localToWorld,
@@ -26,6 +26,7 @@ import {
   centerFromChordAndRadius,
 } from './tool-preview-utils';
 import { pixelsToWorld } from '../../meshes/screen-scale';
+import { coincident, newTarget, refTarget, type SolvedConstraintParam } from './solved-emission';
 
 const enum State {
   IDLE,
@@ -45,6 +46,11 @@ export class ThreePointArcTool extends SketchTool {
   private endPoint: [number, number] | null = null;
   /** The end as picked, carrying any typed axis expressions. */
   private endPick: PickedPoint | null = null;
+  /** Solved sketches: the two anchor clicks' snap provenance (start/end
+   * coincidents on emission). The bulge click carries none — the center is
+   * derived, never picked. */
+  private startSnapRef: SolvedVertexRef | null = null;
+  private endSnapRef: SolvedVertexRef | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private expressionInput: ExpressionInput;
@@ -117,11 +123,14 @@ export class ThreePointArcTool extends SketchTool {
   }
 
   /** Single writer for both halves of each anchor, so the position the
-   * preview draws and the expressions the statement emits cannot drift. */
+   * preview draws and the expressions the statement emits cannot drift.
+   * Clears the anchor's snap ref — the mouse pick path re-captures it right
+   * after (typed picks never carry one). */
   private consumePoint(picked: PickedPoint): void {
     if (this.state === State.IDLE) {
       this.startPick = picked;
       this.startPoint = picked.value;
+      this.startSnapRef = null;
       this.state = State.START_PLACED;
     } else if (this.state === State.START_PLACED) {
       if (dist2D(this.startPoint!, picked.value) <= 0) {
@@ -129,6 +138,7 @@ export class ThreePointArcTool extends SketchTool {
       }
       this.endPick = picked;
       this.endPoint = picked.value;
+      this.endSnapRef = null;
       this.state = State.END_PLACED;
     }
     this.syncPointInput();
@@ -139,8 +149,10 @@ export class ThreePointArcTool extends SketchTool {
     this.state = State.IDLE;
     this.startPoint = null;
     this.startPick = null;
+    this.startSnapRef = null;
     this.endPoint = null;
     this.endPick = null;
+    this.endSnapRef = null;
     this.mousePoint = null;
   }
 
@@ -166,9 +178,9 @@ export class ThreePointArcTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (this.state === State.IDLE) {
-      this.consumePoint(this.applyPointInput(result.point2d));
-      return;
-      this.rebuildPreview();
+      const picked = this.applyPointInput(result.point2d);
+      this.consumePoint(picked);
+      this.startSnapRef = !picked.typed && !(e.ctrlKey || e.metaKey) ? result.ref ?? null : null;
       return;
     }
 
@@ -176,9 +188,9 @@ export class ThreePointArcTool extends SketchTool {
       if (dist2D(this.startPoint!, point) <= 0) {
         return;
       }
-      this.consumePoint(this.applyPointInput(result.point2d));
-      return;
-      this.rebuildPreview();
+      const picked = this.applyPointInput(result.point2d);
+      this.consumePoint(picked);
+      this.endSnapRef = !picked.typed && !(e.ctrlKey || e.metaKey) ? result.ref ?? null : null;
       return;
     }
 
@@ -218,11 +230,13 @@ export class ThreePointArcTool extends SketchTool {
       if (this.state === State.END_PLACED) {
         this.endPoint = null;
         this.endPick = null;
+        this.endSnapRef = null;
         this.state = State.START_PLACED;
         this.expressionInput.hide();
       } else if (this.state === State.START_PLACED) {
         this.startPoint = null;
         this.startPick = null;
+        this.startSnapRef = null;
         this.state = State.IDLE;
       }
       this.rebuildPreview();
@@ -385,12 +399,26 @@ export class ThreePointArcTool extends SketchTool {
     if (this.solvedCtx) {
       const startText = this.formatPoint(start.relative ? roundPoint(start.value) : start);
       const endText = this.formatPoint(end.relative ? roundPoint(end.value) : end);
+      // Snap provenance on the two anchor clicks → coincidents (the
+      // Auto-constraints toggle gates the inference; Ctrl suppressed the
+      // capture per pick).
+      const constraints: SolvedConstraintParam[] = [];
+      if (this.autoConstraintsEnabled()) {
+        if (this.startSnapRef) {
+          constraints.push(coincident(newTarget(0, 'start'), refTarget(this.startSnapRef)));
+        }
+        if (this.endSnapRef
+          && !(this.startSnapRef && this.endSnapRef.line === this.startSnapRef.line
+            && this.endSnapRef.role === this.startSnapRef.role)) {
+          constraints.push(coincident(newTarget(0, 'end'), refTarget(this.endSnapRef)));
+        }
+      }
       void this.solvedCtx.emit({
         geometry: [{
           kind: 'arc',
           text: `arc(${startText}, ${endText}, ${this.formatPoint(rc)})${cwSuffix}`,
         }],
-        constraints: [],
+        constraints,
         ...(start.newVariables.length + end.newVariables.length + (newVariable ? 1 : 0) > 0
           ? { newVariables: [...start.newVariables, ...end.newVariables, ...(newVariable ? [newVariable] : [])] }
           : {}),

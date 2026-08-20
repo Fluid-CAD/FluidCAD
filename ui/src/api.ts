@@ -1574,61 +1574,6 @@ export async function applyFillet2DEdit(
   }, options.signal);
 }
 
-export type SlotEditOptions = SlotOptionValues & EditSessionFields & {
-  value: ValueExpr;
-  /** Edited source argument; omitted keeps the statement's verbatim. */
-  selectorOverride?: string;
-  /** Re-picked source edge(s); omitted keeps the statement's own source. */
-  entities?: SketchApplyEntity[];
-  /** Declarations the dialog's expression field committed (`myVar = 50`). */
-  newVariables?: NewVariable[];
-  preview?: boolean;
-  signal?: AbortSignal;
-};
-
-/**
- * Replace the whole `slot()` statement at `edit` with a freshly drawn
- * from-dimensions form (the edit dialog's Draw tab): the drawing tool's
- * statement text swaps in verbatim, converting a from-edge slot back to a
- * drawn one.
- */
-export async function applySlotDrawEdit(
-  edit: FeatureEditTarget,
-  options: EditSessionFields & {
-    statement: string;
-    newVariables?: NewVariable[];
-    signal?: AbortSignal;
-  },
-): Promise<ApplyFeatureResponse> {
-  return postApplyFeature({
-    feature: 'slot',
-    edit,
-    expectedStatement: options.expectedStatement,
-    before: options.before,
-    drawStatement: options.statement,
-    newVariables: options.newVariables,
-  }, options.signal);
-}
-
-/** Rewrite the 2D `slot(<source>, <radius>[, false])` statement at `edit` in place. */
-export async function applySlotEdit(
-  edit: FeatureEditTarget,
-  options: SlotEditOptions,
-): Promise<ApplyFeatureResponse> {
-  return postApplyFeature({
-    feature: 'slot',
-    edit,
-    expectedStatement: options.expectedStatement,
-    before: options.before,
-    value: options.value,
-    removeOriginal: options.removeOriginal,
-    selectorOverride: options.selectorOverride,
-    sketchEntities: options.entities,
-    newVariables: options.newVariables,
-    preview: options.preview,
-  }, options.signal);
-}
-
 /** The constrained/free forms a chained sketch segment can be rewritten to. */
 export type ConversionTarget = 'hLine' | 'vLine' | 'tLine' | 'aLine' | 'tArc' | 'free';
 

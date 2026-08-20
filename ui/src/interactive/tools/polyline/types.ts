@@ -63,6 +63,10 @@ export type SolvedModeContext = {
    * tangent (they differ when the chain resumed from a line's start). */
   prevOrientedDir(): [number, number] | null;
   emitSegment(spec: SolvedSegmentSpec): void;
+  /** The sketch dialog's Auto-constraints toggle — gates the INFERRED
+   * constraints a mode adds (auto ortho horizontal/vertical), never the
+   * gesture-intrinsic ones (tangent/angle modes, typed dimensions). */
+  autoConstraints(): boolean;
 };
 
 export type ModeContext = {

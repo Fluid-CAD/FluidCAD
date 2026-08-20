@@ -223,7 +223,7 @@ export class CircleTool extends SketchTool {
 
     if (this.solvedCtx) {
       const constraints: SolvedConstraintParam[] = [];
-      if (this.centerSnapRef) {
+      if (this.centerSnapRef && this.autoConstraintsEnabled()) {
         constraints.push(coincident(newTarget(0, 'center'), refTarget(this.centerSnapRef)));
       }
       if (typed) {

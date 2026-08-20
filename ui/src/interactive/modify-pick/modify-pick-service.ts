@@ -230,6 +230,8 @@ export class ModifyPickService {
       onSnapVerticesChange?: (checked: boolean) => void;
       /** The sketch dialog's snap-to-grid toggle changed. */
       onSnapGridChange?: (checked: boolean) => void;
+      /** The sketch dialog's auto-constraints toggle changed. */
+      onAutoConstraintsChange?: (checked: boolean) => void;
     } = {},
   ) {
     this.sketchUI = new SketchUISuspender(viewer, hooks);
@@ -280,6 +282,7 @@ export class ModifyPickService {
     this.sketchPanel.onLockCameraToggle = (enabled) => this.viewer.setSketchCameraLockEnabled(enabled);
     this.sketchPanel.onSnapVerticesToggle = (checked) => hooks.onSnapVerticesChange?.(checked);
     this.sketchPanel.onSnapGridToggle = (checked) => hooks.onSnapGridChange?.(checked);
+    this.sketchPanel.onAutoConstraintsToggle = (checked) => hooks.onAutoConstraintsChange?.(checked);
     this.viewer.setSectionViewControl({
       setVisible: (visible) => this.sketchPanel.setSectionViewVisible(visible),
       setActive: (active) => this.sketchPanel.setSectionViewActive(active),

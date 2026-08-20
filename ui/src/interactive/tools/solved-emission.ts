@@ -36,6 +36,11 @@ export type SolvedEmissionRequest = {
  * sketches): the awaited emission rail, guide latch already applied. */
 export type SolvedToolContext = {
   emit(request: SolvedEmissionRequest): Promise<SolvedEmitResult>;
+  /** The sketch dialog's Auto-constraints toggle (live) — gates the
+   * INFERRED constraints (snap coincidents, auto ortho horizontal/vertical),
+   * never the gesture-intrinsic ones (shape recipes, chain junctions,
+   * tangent/angle modes, typed dimensions). */
+  autoConstraints(): boolean;
 };
 
 const fmt = (n: number): string => String(Math.round(n * 100) / 100);

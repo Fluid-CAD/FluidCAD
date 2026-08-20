@@ -236,6 +236,7 @@ export class PolylineTool extends SketchTool {
           prevKind: () => this.solvedPrev?.featureType ?? null,
           prevOrientedDir: () => this.solvedPrev?.orientedDir ?? null,
           emitSegment: (spec) => this.emitSolvedSegment(spec),
+          autoConstraints: () => this.autoConstraintsEnabled(),
         }
         : null,
       requestRender: () => this.requestRender(),
@@ -348,7 +349,7 @@ export class PolylineTool extends SketchTool {
       }
     }
 
-    if (this.solvedCtx && !picked.typed && snap?.ref && !this.ctrlHeld) {
+    if (this.solvedCtx && !picked.typed && snap?.ref && !this.ctrlHeld && this.autoConstraintsEnabled()) {
       // Opening the chain on an existing entity vertex: an endpoint of a
       // line/arc chains fully (junction coincident + tangent modes, exactly
       // like mid-chain); any other vertex just pins the first segment's
@@ -439,10 +440,13 @@ export class PolylineTool extends SketchTool {
     }
 
     // Solved sketches: make the coincident inference visible before commit —
-    // a snapped entity vertex will emit a constraint, Ctrl suppresses it.
+    // a snapped entity vertex will emit a constraint, Ctrl or the dialog's
+    // Auto-constraints toggle suppresses it.
     // (The edge-snap hints that share this line are legacy-only.)
     if (this.solvedCtx) {
-      this.modeIndicator.setHint(result.ref && !this.ctrlHeld ? 'coincident' : null);
+      this.modeIndicator.setHint(
+        result.ref && !this.ctrlHeld && this.autoConstraintsEnabled() ? 'coincident' : null,
+      );
     }
 
     this.rebuildPreview();
@@ -624,7 +628,8 @@ export class PolylineTool extends SketchTool {
     const isJunctionRef = (ref: SolvedVertexRef) =>
       (prev && ref.line === prev.line && ref.role === prev.junctionRole)
       || (startRef && ref.line === startRef.line && ref.role === startRef.role);
-    if (endRef && endMatchesSnap && !this.ctrlHeld && !isJunctionRef(endRef)) {
+    if (endRef && endMatchesSnap && !this.ctrlHeld && this.autoConstraintsEnabled()
+      && !isJunctionRef(endRef)) {
       constraints.push(coincident(newTarget(0, 'end'), refTarget(endRef)));
     }
 

@@ -1,5 +1,5 @@
 import {
-  applyFillet2DEdit, applyOffsetEdit, applySketchOp, applySlotDrawEdit, applySlotEdit, clearBreakpoints,
+  applyFillet2DEdit, applyOffsetEdit, applySketchOp, clearBreakpoints,
   fetchFeatureGhost, fetchSketchFeatureSources, FeatureEditTarget, Fillet2DGhostRequest, GhostSolid,
   NewVariable, OffsetGhostRequest, OffsetOptionValues, ParsedFeatureStatement,
   SketchApplyEntity, SketchOpFeature, SlotOptionValues, ValueExpr,
@@ -92,8 +92,8 @@ export type SketchOpConfig = {
   /**
    * Two-mode dialog (slot): a first tab that keeps the classic drawing tool
    * armed — the dialog shows only that tab's hint — and a second tab running
-   * the pick body. A fresh dialog opens on the draw tab; {@link enterEdit}
-   * hides the tab row and stays in pick mode (there is nothing to re-draw).
+   * the pick body. A fresh dialog opens on the draw tab. Tabbed dialogs are
+   * create-only ({@link enterEdit} serves the tab-less offset/fillet).
    */
   tabs?: {
     draw: {
@@ -105,8 +105,8 @@ export type SketchOpConfig = {
   };
 };
 
-/** An `offset()`, `slot()` or 2D `fillet()` statement as the parse route reads it. */
-type ParsedSketchOp = Extract<ParsedFeatureStatement, { feature: 'offset' } | { feature: 'slot' } | { feature: 'fillet' }>;
+/** An `offset()` or 2D `fillet()` statement as the parse route reads it. */
+type ParsedSketchOp = Extract<ParsedFeatureStatement, { feature: 'offset' } | { feature: 'fillet' }>;
 
 const SLOT_ROW_BASE = 'flex items-center justify-between gap-2 rounded-md border px-2.5 py-1.5 cursor-pointer transition-colors';
 const SLOT_ROW_ARMED = `${SLOT_ROW_BASE} border-primary/60 bg-primary/10`;
@@ -123,7 +123,7 @@ const SLOT_ROW_IDLE = `${SLOT_ROW_BASE} border-base-300 hover:border-base-conten
  * verified alternatives.
  *
  * The same dialog edits an existing statement in place ({@link enterEdit},
- * offset, slot and fillet today): the timeline double-click's breakpoint pauses the build
+ * offset and fillet today — slot lost its edit mode): the timeline double-click's breakpoint pauses the build
  * just BEFORE that statement, so the sketch on screen is the one its
  * arguments see — the statement's own result absent, a removed original
  * visible again — its options seed the fields, its targets seed the
@@ -548,21 +548,15 @@ export class SketchOpService {
     this.valueField?.setValue(parsed.value);
     this.setToggles(parsed.feature === 'offset'
       ? { removeOriginal: parsed.removeOriginal, close: parsed.close }
-      : parsed.feature === 'slot'
-        ? { removeOriginal: parsed.removeOriginal }
-        : {});
+      : {});
     // Options the edited statement's context makes invalid (a face offset
     // outside a sketch takes neither removeOriginal nor close) hide their
     // rows; a hidden toggle also unchecks, so an apply writes the valid form.
     this.setHiddenToggles(opts.hideToggles ?? []);
-    // An edit opens on the pick tab; switching to Draw stays available —
-    // drawing there replaces the statement with the drawn form (see
-    // {@link applyDrawnStatement}).
+    // An edit always opens (and stays) on the pick tab — only the tab-less
+    // offset/fillet dialogs edit today.
     this.currentMode = 'pick';
     this.tabsControl?.setValue('pick');
-    if (this.drawHint && this.config.tabs) {
-      this.drawHint.textContent = `${this.config.tabs.draw.hint} The drawn slot replaces this statement.`;
-    }
     this.syncModeUI();
     this.panel.classList.remove('hidden');
     viewportChrome.setDialogOpen(this.panel.id, true);
@@ -975,9 +969,6 @@ export class SketchOpService {
         preview: options.preview,
         signal: options.signal,
       };
-      if (this.config.feature === 'slot') {
-        return applySlotEdit(this.editTarget, { ...this.slotOptions()!, ...editOptions });
-      }
       if (this.config.feature === 'fillet') {
         return applyFillet2DEdit(this.editTarget, editOptions);
       }
@@ -1024,42 +1015,6 @@ export class SketchOpService {
       } else {
         this.setError(result.reason ?? `Could not apply the ${this.config.feature}`);
         this.applyBtn.disabled = false;
-      }
-    } finally {
-      this.applying = false;
-    }
-  }
-
-  /**
-   * The Draw tab's commit while editing: the toolbar service routes the
-   * drawing tool's insert here, and the drawn from-dimensions statement
-   * replaces the edited one wholesale (converting a from-edge slot back to a
-   * drawn one). Success closes the dialog exactly like Apply.
-   */
-  async applyDrawnStatement(
-    statement: string,
-    newVariable?: NewVariable | NewVariable[],
-  ): Promise<void> {
-    if (!this.editTarget || this.applying) {
-      return;
-    }
-    const newVariables = newVariable === undefined
-      ? undefined
-      : Array.isArray(newVariable) ? newVariable : [newVariable];
-    this.applying = true;
-    try {
-      const result = await applySlotDrawEdit(this.editTarget, {
-        statement,
-        expectedStatement: this.expectedStatement,
-        newVariables,
-      });
-      if (result.success) {
-        // The rewrite strips the double-click's breakpoint atomically with
-        // the edit, like Apply's own path.
-        this.exit('apply');
-        this.onDone();
-      } else {
-        this.setError(result.reason ?? 'Could not apply the drawn slot');
       }
     } finally {
       this.applying = false;

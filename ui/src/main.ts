@@ -855,7 +855,7 @@ function wireTimelinePanel(panel: TimelinePanel): void {
 }
 
 /** Rows whose edit dialog pauses the build before its own statement. */
-const PAUSE_BEFORE_ROW_TYPES = new Set(['offset', 'slot', 'fillet2d']);
+const PAUSE_BEFORE_ROW_TYPES = new Set(['offset', 'fillet2d']);
 
 /**
  * A copy statement parses identically in 2D and 3D — the row's unique type
@@ -882,11 +882,10 @@ const EDITABLE_ROW_TYPES = new Set([
   // A connector row sits inside its part() body; its dialog re-opens over the
   // statement with the frame the row itself carries.
   'connector',
-  // 2D: an offset/slot/fillet/projection row sits under its sketch, and its
-  // dialog re-opens over it. (A from-dimensions slot statement parse-refuses
-  // with a drag-to-edit hint — only the from-edge form has a dialog.)
+  // 2D: an offset/fillet/projection row sits under its sketch, and its
+  // dialog re-opens over it. (Slot rows are deliberately absent — the slot
+  // edit dialog was removed; a slot statement is edited in code or redrawn.)
   'offset',
-  'slot',
   'fillet2d',
   'projection',
 ]);
@@ -925,7 +924,7 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     return;
   }
   const target = obj.sourceLocation;
-  // A pause-before row (offset, slot, 2D copy) deferred the double-click's
+  // A pause-before row (offset, 2D fillet, 2D copy) deferred the double-click's
   // breakpoint so the parse above reads the unshifted buffer; every outcome
   // except that row's own dialog owes the gesture its classic
   // after-the-statement pause.
@@ -939,7 +938,7 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     showEditRefusal(result.reason);
     return;
   }
-  if (deferredBreakpoint && result.parsed.feature !== 'offset' && result.parsed.feature !== 'slot'
+  if (deferredBreakpoint && result.parsed.feature !== 'offset'
     && result.parsed.feature !== 'fillet' && !(result.parsed.feature === 'copy' && isCopy2DRow(obj))) {
     addBreakpoint(target);
   }
@@ -1024,12 +1023,6 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
       addBreakpoint(target);
       modifyService.enterEdit(target, parsed, info);
     }
-  } else if (parsed.feature === 'slot') {
-    // Same pause-before contract as the offset edit: the slot's consumed
-    // source edge is visible and re-pickable in the paused sketch.
-    closeFeatureDialogs();
-    pauseBeforeSketchStatement(obj, index);
-    sketchService.enterSlotEdit(target, parsed, result.statement);
   } else if (parsed.feature === 'fillet' && obj.type === 'fillet2d') {
     // A fillet statement parses identically in 2D and 3D — the row's type
     // tells them apart. The 2D one follows the offset's pause-before
@@ -1047,6 +1040,11 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     // placed) — its own re-entry closes it.
     closeFeatureDialogs({ keepProjection: true });
     sketchService.enterProjectionEdit(target, parsed, info);
+  } else if (parsed.feature === 'slot') {
+    // Unreachable via the timeline (slot rows are filtered out of
+    // EDITABLE_ROW_TYPES — the slot edit dialog was removed); this branch
+    // only narrows the parse union.
+    return;
   } else {
     // What's left of the parse union: the shell/fillet/chamfer dialog's.
     modifyService.enterEdit(target, parsed, info);
@@ -1193,6 +1191,7 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
   // state and pushes changes into the live tools' snap controllers.
   onSnapVerticesChange: (checked) => sketchService.setSnapToVertices(checked),
   onSnapGridChange: (checked) => sketchService.setSnapToGrid(checked),
+  onAutoConstraintsChange: (checked) => sketchService.setAutoConstraints(checked),
 });
 // The dialogs dock at top-[196px] right-4: the sketch dialog steps aside
 // while a 2D op dialog (fillet, offset) is open and returns when it closes.

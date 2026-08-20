@@ -389,9 +389,9 @@ export class LineTool extends SketchTool {
       const end: [number, number] = isHorizontal
         ? [start[0] + resolvedDist, start[1]]
         : [start[0], start[1] + resolvedDist];
-      const constraints: SolvedConstraintParam[] = [
-        { kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] },
-      ];
+      const constraints: SolvedConstraintParam[] = this.autoConstraintsEnabled()
+        ? [{ kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] }]
+        : [];
       // Only a TYPED value becomes a dimension; a click merely commits the
       // pill's mouse-tracked value.
       if (this.expressionInput.isTyping) {
@@ -468,9 +468,12 @@ export class LineTool extends SketchTool {
         // vertex — the coincident only holds when it didn't.
         const stillSnapped = this.lastSnapRef
           && Math.hypot(effectiveEnd[0] - roundedEnd[0], effectiveEnd[1] - roundedEnd[1]) < 1e-6;
-        this.emitSolvedLine(start, effectiveEnd, stillSnapped ? this.lastSnapRef : null, [
-          { kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] },
-        ]);
+        // Auto-constraints off: the ortho quantization still applies (a
+        // drafting aid, as in legacy sketches) but the H/V stays unwritten.
+        this.emitSolvedLine(start, effectiveEnd, stillSnapped ? this.lastSnapRef : null,
+          this.autoConstraintsEnabled()
+            ? [{ kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] }]
+            : []);
       }
       return;
     }
@@ -503,7 +506,8 @@ export class LineTool extends SketchTool {
   }
 
   /** Solved emission for one line: geometry + the given constraints, plus
-   * the start/end snap coincidents (Ctrl suppresses inference). */
+   * the start/end snap coincidents (Ctrl and the Auto-constraints toggle
+   * suppress inference). */
   private emitSolvedLine(
     start: PickedPoint,
     end: [number, number],
@@ -511,11 +515,12 @@ export class LineTool extends SketchTool {
     constraints: SolvedConstraintParam[],
     newVariables: { name: string; initializer: string }[] = [],
   ): void {
+    const infer = this.autoConstraintsEnabled();
     const all: SolvedConstraintParam[] = [];
-    if (this.startSnapRef) {
+    if (this.startSnapRef && infer) {
       all.push(coincident(newTarget(0, 'start'), refTarget(this.startSnapRef)));
     }
-    if (endRef && !this.ctrlHeld
+    if (endRef && infer && !this.ctrlHeld
       && !(this.startSnapRef && endRef.line === this.startSnapRef.line && endRef.role === this.startSnapRef.role)) {
       all.push(coincident(newTarget(0, 'end'), refTarget(endRef)));
     }

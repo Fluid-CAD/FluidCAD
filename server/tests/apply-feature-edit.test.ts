@@ -6856,7 +6856,7 @@ describe('parseFeatureStatement — slot', () => {
   });
 });
 
-describe('applyFeatureEdit (slot in-place statement edit)', () => {
+describe('applyFeatureEdit (slot edits removed)', () => {
   const base = [
     `import { sketch, hLine, slot } from 'fluidcad/core'`,
     ``,
@@ -6864,112 +6864,15 @@ describe('applyFeatureEdit (slot in-place statement edit)', () => {
     `  const l = hLine(60)`,
   ].join('\n');
   const codeWith = (statement: string) => `${base}\n  ${statement}\n})\n`;
-  const slotSpec = (
-    slot: { removeOriginal: boolean } | undefined,
-    overrides: Partial<ApplyFeatureEditSpec> = {},
-  ) => editSpec('slot', { line: 5, column: 2 }, { value: 12, slot, ...overrides });
 
-  it('replaces the radius and keeps the source verbatim', async () => {
-    const result = await applyFeatureEdit(
-      codeWith(`slot(l, 10)`),
-      slotSpec({ removeOriginal: true }),
-    );
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  slot(l, 12)\n`);
-  });
-
-  it('writes and clears the trailing deleteSource flag', async () => {
-    const kept = await applyFeatureEdit(
-      codeWith(`slot(l, 10)`),
-      slotSpec({ removeOriginal: false }),
-    );
-    expect(kept.error).toBeUndefined();
-    expect(kept.newCode).toContain(`  slot(l, 12, false)\n`);
-
-    const removed = await applyFeatureEdit(
-      codeWith(`slot(l, 10, false)`),
-      slotSpec({ removeOriginal: true }),
-    );
-    expect(removed.error).toBeUndefined();
-    expect(removed.newCode).toContain(`  slot(l, 12)\n`);
-    expect(removed.newCode).not.toContain('false');
-  });
-
-  it('keeps the statement flag when the spec carries none', async () => {
-    const result = await applyFeatureEdit(
-      codeWith(`slot(l, 10, false)`),
-      slotSpec(undefined),
-    );
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  slot(l, 12, false)\n`);
-  });
-
-  it('renders a re-picked source over the statement’s own', async () => {
-    const code = [
-      `import { sketch, hLine, vLine, slot } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      `  const l = hLine(60)`,
-      `  const v = vLine(40)`,
-      `  slot(l, 10)`,
-      `})`,
-      ``,
-    ].join('\n');
-    const result = await applyFeatureEdit(code, editSpec('slot', { line: 6, column: 2 }, {
-      value: 12,
-      slot: { removeOriginal: true },
-      producers: [{ line: 5, column: 2, featureType: 'line', nameHint: 'l', bind: true }],
-      parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
-    }));
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  slot(v, 12)\n`);
-  });
-
-  it('refuses a non-positive radius', async () => {
+  it('refuses an edit-addressed slot spec — the slot edit dialog is gone', async () => {
     const code = codeWith(`slot(l, 10)`);
-    const result = await applyFeatureEdit(code, slotSpec({ removeOriginal: true }, { value: -2 }));
-    expect(result.error).toContain('positive');
+    const result = await applyFeatureEdit(
+      code,
+      editSpec('slot', { line: 5, column: 2 }, { value: 12, slot: { removeOriginal: true } }),
+    );
+    expect(result.error).toBe('slot statements no longer support dialog editing');
     expect(result.newCode).toBe(code);
-  });
-
-  it('replaces the statement with a drawn from-dimensions form', async () => {
-    const result = await applyFeatureEdit(
-      codeWith(`slot(l, 10)`),
-      editSpec('slot', { line: 5, column: 2, slot: { drawStatement: 'slot([0, 0], [40, 20], 8)' } }),
-    );
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  slot([0, 0], [40, 20], 8)\n`);
-    expect(result.newCode).not.toContain('slot(l, 10)');
-    // The source line's own statement survives.
-    expect(result.newCode).toContain('const l = hLine(60)');
-  });
-
-  it('writes the drawn statement’s committed variables alongside', async () => {
-    const result = await applyFeatureEdit(
-      codeWith(`slot(l, 10)`),
-      editSpec('slot', { line: 5, column: 2, slot: { drawStatement: 'slot(len, r)' } }, {
-        newVariables: [
-          { name: 'len', initializer: '40' },
-          { name: 'r', initializer: '8' },
-        ],
-      }),
-    );
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain('const len = 40');
-    expect(result.newCode).toContain('const r = 8');
-    expect(result.newCode).toContain(`  slot(len, r)\n`);
-  });
-
-  it('refuses draw text that is not a single slot() statement', async () => {
-    for (const bad of ['rect(40, 20)', 'slot(1, 2); rect(3)', 'require("fs")']) {
-      const code = codeWith(`slot(l, 10)`);
-      const result = await applyFeatureEdit(
-        code,
-        editSpec('slot', { line: 5, column: 2, slot: { drawStatement: bad } }),
-      );
-      expect(result.error).toContain('single slot() statement');
-      expect(result.newCode).toBe(code);
-    }
   });
 });
 

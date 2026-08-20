@@ -563,13 +563,6 @@ export type FeatureStatementEditTarget = {
    */
   chamfer?: ChamferEditOptions;
   /**
-   * Slot draw-replace (the edit dialog's Draw tab): swap the whole from-edge
-   * statement for the freshly drawn from-dimensions form, verbatim. The text
-   * is what the slot drawing tool would insert (`slot(40, 8)`,
-   * `slot([x1,y1], [x2,y2], r)`, …) — validated to be a single slot() chain.
-   */
-  slot?: { drawStatement: string };
-  /**
    * Connector options — always explicit on an edit: a cleared rotation or
    * offset field writes `null` and drops that chain rather than keeping the
    * statement's own. The source expression is NOT here: it follows the
@@ -1488,6 +1481,11 @@ export async function applyFeatureEdit(
     return applyConnectorPropsEdit(code, spec.connectorProps);
   }
   if (spec.edit) {
+    if (spec.feature === 'slot') {
+      // The slot edit dialog was removed — slot statements are create-only
+      // (timeline slot rows are no longer editable); refuse honestly.
+      return { newCode: code, error: 'slot statements no longer support dialog editing' };
+    }
     return applyStatementEdit(code, spec);
   }
   if (spec.feature === 'sketch' && spec.sketchForeign) {
@@ -1885,7 +1883,9 @@ export async function applyFeatureEdit(
     }
   } else if (spec.feature === 'slot') {
     // Slot from edge takes ONE whole source geometry: exactly one bound
-    // producer rendered as a bare variable, plus a positive radius.
+    // producer rendered as a bare variable, plus a positive radius. Create
+    // only — edit-addressed slot specs were refused at the dispatch above
+    // (the slot edit dialog was removed).
     const valid = spec.producers.length === 1 && spec.parts.length === 1
       && validValueExpr(spec.value, { positive: true });
     if (!valid) {
@@ -7160,28 +7160,6 @@ export async function parseOffsetTargetDescriptors(
   return { ok: true, descriptors, feature: chain.root.name };
 }
 
-/**
- * Validate the Draw tab's replacement text: exactly one `slot(...)` call
- * chain — the slot drawing tool's own emission, nothing else reaches this
- * path. Returns a refusal message, or null when the text is sound.
- */
-export async function validateSlotDrawStatement(text: string): Promise<string | null> {
-  const parser = await getJavaScriptParser();
-  const tree = parser.parse(text);
-  const statements = tree.rootNode.namedChildren.filter(n => n.type !== 'comment');
-  const expr = statements.length === 1 && statements[0].type === 'expression_statement'
-    ? statements[0].namedChildren.find(n => n.type !== 'comment')
-    : undefined;
-  if (!expr || expr.type !== 'call_expression') {
-    return 'the drawn slot must be a single slot() statement';
-  }
-  const chain = decomposeChain(expr);
-  if (!chain || chain.root.name !== 'slot') {
-    return 'the drawn slot must be a single slot() statement';
-  }
-  return null;
-}
-
 /** A plain numeric literal's value, or null for any other expression. */
 function literalNumber(node: TSNode): number | null {
   const value = Number(node.text);
@@ -8395,27 +8373,6 @@ export function renderEditedStatement(
     });
     return { statement: `connector('${opts.name}', ${args}${anchor})${chain}` };
   }
-  if (parsed.feature === 'slot') {
-    // The Draw tab's replacement: the freshly drawn from-dimensions statement
-    // swaps in verbatim (validated as a slot() chain by the caller).
-    const draw = spec.edit?.slot?.drawStatement;
-    if (draw !== undefined) {
-      return { statement: draw };
-    }
-    if (!validValueExpr(spec.value, { positive: true })) {
-      return { error: 'the slot radius must be a positive number or expression' };
-    }
-    // An edit spec without slot options keeps the statement's own flag.
-    const slot = spec.slot ?? { removeOriginal: parsed.removeOriginal };
-    if (typeof slot.removeOriginal !== 'boolean') {
-      return { error: 'malformed slot edit spec' };
-    }
-    const args = editedSelectorArgs(spec, parsed.argsText, varFor);
-    if (!args) {
-      return { error: 'the slot needs its source geometry — pick an edge' };
-    }
-    return { statement: renderSlotStatement(spec.value, args, slot) };
-  }
   if (!validValueExpr(spec.value, { nonzero: true })) {
     return { error: `the ${parsed.feature} value must be a nonzero number or expression` };
   }
@@ -8503,13 +8460,6 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
       error: 'the statement changed since the dialog opened — re-open it to edit the current code',
     };
   }
-  if (edit.slot?.drawStatement !== undefined) {
-    const drawError = await validateSlotDrawStatement(edit.slot.drawStatement);
-    if (drawError) {
-      return { newCode: code, error: drawError };
-    }
-  }
-
   let bindings: ProducerBinding[] = [];
   if (spec.producers.length > 0 || spec.parts.length > 0) {
     const resolved = resolveProducerBindings(tree, lines, spec);

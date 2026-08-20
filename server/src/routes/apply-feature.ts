@@ -1993,8 +1993,9 @@ async function allocateProducerVars(
   });
 }
 
-/** Features whose statements the dialogs can rewrite in place. */
-const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'boolean', 'helix', 'plane', 'offset', 'slot', 'project', 'rib', 'connector']);
+/** Features whose statements the dialogs can rewrite in place. (Slot is
+ * create-only: its edit dialog was removed, so slot edit requests refuse.) */
+const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector']);
 
 /** One edited loft profile as the request carries it. */
 type EditLoftProfileInput =
@@ -2018,8 +2019,6 @@ type StatementEditRequest = {
   rawArgs?: string;
   /** Offset's toggles; always explicit on an edit (a cleared box clears the option). */
   offset?: OffsetEditOptions;
-  /** Slot's toggle; always explicit on an edit (a cleared box writes `false`). */
-  slot?: SlotEditOptions;
   /** Re-picked selection for shell/fillet/chamfer; absent keeps the args. */
   picks?: Pick[];
   chains?: { seed: Pick; members: Pick[] }[];
@@ -2712,52 +2711,6 @@ function validateStatementEdit(body: any): StatementEditRequest | { error: strin
       result.picks = picks;
       result.chains = chains;
       result.needsPicks = true;
-    }
-    return result;
-  }
-
-  // Slot from edge (2D): the radius, the Remove-original toggle, and either
-  // an edited source argument (the expression row) or a re-picked edge of the
-  // source geometry. Like offset, the picks carry no boundary — the
-  // double-click paused the build at the edited statement. The Draw tab
-  // instead replaces the whole statement with a freshly drawn
-  // from-dimensions form, carried verbatim as `drawStatement`.
-  if (feature === 'slot') {
-    const { value, drawStatement } = body ?? {};
-    if (drawStatement !== undefined) {
-      if (typeof drawStatement !== 'string' || drawStatement.trim().length === 0 || drawStatement.length > 500) {
-        return { error: 'drawStatement must be a non-empty string (max 500 chars)' };
-      }
-      if (value !== undefined || body?.removeOriginal !== undefined
-        || selectorOverride !== undefined || body?.sketchEntities !== undefined) {
-        return { error: 'drawStatement replaces the whole statement — it takes no other slot fields' };
-      }
-      edit.slot = { drawStatement: drawStatement.trim() };
-      return base;
-    }
-    if (!validValueExpr(value, { positive: true })) {
-      return { error: 'value must be a positive number or expression' };
-    }
-    const slot = validateSlotOptions(body);
-    if ('error' in slot) {
-      return slot;
-    }
-    if (selectorOverride !== undefined
-      && (typeof selectorOverride !== 'string' || selectorOverride.trim().length === 0 || selectorOverride.length > 500)) {
-      return { error: 'selectorOverride must be a non-empty string (max 500 chars)' };
-    }
-    const result: StatementEditRequest = {
-      ...base,
-      value,
-      slot: slot.options,
-      rawArgs: typeof selectorOverride === 'string' ? selectorOverride.trim() : undefined,
-    };
-    if (body?.sketchEntities !== undefined && body?.sketchEntities !== null) {
-      const picks = validateSketchPicks(body.sketchEntities);
-      if (!picks) {
-        return { error: 'sketchEntities must be a non-empty array of {shapeId} picks' };
-      }
-      result.sketchPicks = picks;
     }
     return result;
   }
@@ -4405,11 +4358,10 @@ export function createApplyFeatureRouter(
           // (a slot's single source renders as its bare variable).
           const synthesis = fluidCadServer.synthesizeSketchApplyFeature(
             request.sketchPicks,
-            request.feature === 'slot' ? 'slot'
-              : request.feature === 'fillet' ? 'fillet'
-                : request.feature === 'text' ? 'text' : 'offset',
+            request.feature === 'fillet' ? 'fillet'
+              : request.feature === 'text' ? 'text' : 'offset',
             request.value,
-            { ...synthOptions, offset: request.offset, slot: request.slot },
+            { ...synthOptions, offset: request.offset },
           );
           if (!synthesis) {
             res.status(404).json({ success: false, reason: 'No rendered scene' });
@@ -4455,7 +4407,6 @@ export function createApplyFeatureRouter(
           feature: request.feature,
           value: request.value,
           offset: request.offset,
-          slot: request.slot,
           rawArgs,
           filePath: request.target.filePath,
           producers,

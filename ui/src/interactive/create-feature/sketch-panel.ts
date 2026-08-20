@@ -31,6 +31,9 @@ export class SketchStartPanel {
   onSnapVerticesToggle?: (enabled: boolean) => void;
   /** The snap-to-grid toggle — snapping while drawing/dragging. */
   onSnapGridToggle?: (enabled: boolean) => void;
+  /** The auto-constraints toggle — constraint inference (snap coincidents,
+   * auto horizontal/vertical) while drawing in solved sketches. */
+  onAutoConstraintsToggle?: (enabled: boolean) => void;
 
   private shell: PanelShell;
   private slot: PickSlot;
@@ -64,6 +67,14 @@ export class SketchStartPanel {
           <span class="text-base-content/70">Snap to grid</span>
           <input data-role="snap-grid" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
         </label>
+        <div class="border-t border-base-content/10 pt-2 flex flex-col gap-2">
+          <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">Auto-constraints</span>
+          <label class="flex items-center justify-between cursor-pointer"
+            title="Add the constraints inferred while drawing — coincident on snapped vertices, horizontal/vertical on near-axis lines (Ctrl skips one commit)">
+            <span class="text-base-content/70">Infer while drawing</span>
+            <input data-role="auto-constraints" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
+          </label>
+        </div>
       </div>
       <div class="flex items-center pt-1">
         <button data-role="cancel" class="btn btn-ghost btn-sm flex-1"
@@ -93,6 +104,10 @@ export class SketchStartPanel {
     const snapGridInput = this.shell.body.querySelector('[data-role="snap-grid"]') as HTMLInputElement;
     snapGridInput.addEventListener('change', () => {
       this.onSnapGridToggle?.(snapGridInput.checked);
+    });
+    const autoConstraintsInput = this.shell.body.querySelector('[data-role="auto-constraints"]') as HTMLInputElement;
+    autoConstraintsInput.addEventListener('change', () => {
+      this.onAutoConstraintsToggle?.(autoConstraintsInput.checked);
     });
   }
 

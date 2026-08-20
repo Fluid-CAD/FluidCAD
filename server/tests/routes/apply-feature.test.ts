@@ -2298,114 +2298,25 @@ describe('apply-feature route validation', () => {
       });
     });
 
-    describe('slot (2D) edits', () => {
-      const SLOT_CODE = [
-        `import { sketch, hLine, slot } from 'fluidcad/core'`,
-        ``,
-        `sketch('xy', () => {`,
-        `  const l = hLine(60)`,
-        `  slot(l, 10)`,
-        `})`,
-        ``,
-      ].join('\n');
-      const SLOT_EDIT = { filePath: '/ws/m.fluid.js', line: 5, column: 2 };
-
-      beforeEach(() => {
-        currentCode = SLOT_CODE;
-        currentFileName = '/ws/m.fluid.js';
-      });
-
-      it('rewrites the radius and the flag, keeping the source', async () => {
-        const { status, body } = await post({
-          feature: 'slot', edit: SLOT_EDIT, value: 12, removeOriginal: false,
-        });
-        expect(status).toBe(200);
-        expect(body.preview).toBe('slot(l, 12, false)');
-        expect(sketchSynthesizeCalls).toHaveLength(0);
-        expect(relayed[0].spec).toMatchObject({
-          feature: 'slot',
-          value: 12,
-          slot: { removeOriginal: false },
-          edit: { line: 5, column: 2 },
-          parts: [],
-          clearBreakpoints: true,
-        });
-      });
-
-      it('synthesizes a re-picked source without a boundary', async () => {
-        currentSynthesis = {
-          ok: true,
-          spec: {
-            feature: 'slot', value: 12, slot: { removeOriginal: true }, filePath: '/ws/m.fluid.js',
-            producers: [{ line: 4, column: 2, featureType: 'line', nameHint: 'l', bind: true }],
-            parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
-            imports: [],
-          },
-          preview: 'slot(l, 12)',
-          args: 'l',
-          alternatives: [],
-        };
-        const { status, body } = await post({
-          feature: 'slot', edit: SLOT_EDIT, value: 12,
-          sketchEntities: [{ shapeId: 'edge-7' }], preview: true,
-        });
-        expect(status).toBe(200);
-        expect(body.preview).toBe('slot(l, 12)');
-        expect(body.args).toBe('l');
-        expect(sketchSynthesizeCalls).toEqual([
-          {
-            picks: [{ shapeId: 'edge-7' }],
-            feature: 'slot',
-            value: 12,
-            slot: { removeOriginal: true },
-          },
-        ]);
-        expect(relayed).toHaveLength(0);
-      });
-
-      it('rejects a non-positive radius', async () => {
-        const { status, body } = await post({ feature: 'slot', edit: SLOT_EDIT, value: 0 });
-        expect(status).toBe(400);
-        expect(body.error).toContain('positive');
-      });
-
-      it('replaces the statement via drawStatement (the Draw tab)', async () => {
-        const { status, body } = await post({
-          feature: 'slot', edit: SLOT_EDIT, drawStatement: 'slot([0, 0], [40, 20], 8)',
-        });
-        expect(status).toBe(200);
-        expect(body.preview).toBe('slot([0, 0], [40, 20], 8)');
-        expect(sketchSynthesizeCalls).toHaveLength(0);
-        expect(relayed[0].spec.edit).toMatchObject({
-          line: 5, column: 2,
-          slot: { drawStatement: 'slot([0, 0], [40, 20], 8)' },
-        });
-      });
-
-      it('rejects drawStatement combined with other slot fields', async () => {
-        const { status, body } = await post({
-          feature: 'slot', edit: SLOT_EDIT, drawStatement: 'slot(40, 8)', value: 12,
-        });
-        expect(status).toBe(400);
-        expect(body.error).toContain('no other slot fields');
-      });
-
-      it('422s an edit whose statement is a from-dimensions slot', async () => {
+    describe('slot (2D) edits removed', () => {
+      it('refuses a slot edit request — the slot edit dialog is gone', async () => {
         currentCode = [
-          `import { sketch, slot } from 'fluidcad/core'`,
+          `import { sketch, hLine, slot } from 'fluidcad/core'`,
           ``,
           `sketch('xy', () => {`,
-          `  slot(40, 8)`,
+          `  const l = hLine(60)`,
+          `  slot(l, 10)`,
           `})`,
           ``,
         ].join('\n');
+        currentFileName = '/ws/m.fluid.js';
         const { status, body } = await post({
           feature: 'slot',
-          edit: { filePath: '/ws/m.fluid.js', line: 4, column: 2 },
+          edit: { filePath: '/ws/m.fluid.js', line: 5, column: 2 },
           value: 12,
         });
-        expect(status).toBe(422);
-        expect(body.reason).toContain('dimensions');
+        expect(status).toBe(400);
+        expect(body.error).toContain('for an edit');
         expect(relayed).toHaveLength(0);
       });
     });

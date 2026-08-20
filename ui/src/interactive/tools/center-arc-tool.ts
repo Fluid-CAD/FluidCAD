@@ -4,7 +4,7 @@ import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
 import { SnapManager } from '../../snapping/snap-manager';
-import { SnapType } from '../../snapping/types';
+import { SnapType, SolvedVertexRef } from '../../snapping/types';
 import {
   projectToSketch,
   roundPoint,
@@ -23,6 +23,7 @@ import {
   pointOnCircle,
   isCCW,
 } from './tool-preview-utils';
+import { coincident, newTarget, refTarget, type SolvedConstraintParam } from './solved-emission';
 
 const enum State {
   IDLE,
@@ -42,6 +43,13 @@ export class CenterArcTool extends SketchTool {
   private startPoint: [number, number] | null = null;
   /** The start as picked, carrying any typed axis expressions. */
   private startPick: PickedPoint | null = null;
+  /** Solved sketches: the two anchor clicks' snap provenance (center/start
+   * coincidents on emission). */
+  private centerSnapRef: SolvedVertexRef | null = null;
+  private startSnapRef: SolvedVertexRef | null = null;
+  /** The cursor's snap provenance — the sweep click's endpoint coincident,
+   * valid only when the on-circle projection kept the snapped position. */
+  private lastSnapRef: SolvedVertexRef | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private expressionInput: ExpressionInput;
@@ -108,11 +116,14 @@ export class CenterArcTool extends SketchTool {
   }
 
   /** Single writer for both halves of each anchor, so the position the
-   * preview draws and the expressions the statement emits cannot drift. */
+   * preview draws and the expressions the statement emits cannot drift.
+   * Clears the anchor's snap ref — the mouse pick path re-captures it right
+   * after (typed picks never carry one). */
   private consumePoint(picked: PickedPoint): void {
     if (this.state === State.IDLE) {
       this.centerPick = picked;
       this.centerPoint = picked.value;
+      this.centerSnapRef = null;
       this.state = State.CENTER_PLACED;
     } else if (this.state === State.CENTER_PLACED) {
       if (dist2D(this.centerPoint!, picked.value) <= 0) {
@@ -120,6 +131,7 @@ export class CenterArcTool extends SketchTool {
       }
       this.startPick = picked;
       this.startPoint = picked.value;
+      this.startSnapRef = null;
       this.state = State.START_PLACED;
     }
     this.syncPointInput();
@@ -130,8 +142,11 @@ export class CenterArcTool extends SketchTool {
     this.state = State.IDLE;
     this.centerPoint = null;
     this.centerPick = null;
+    this.centerSnapRef = null;
     this.startPoint = null;
     this.startPick = null;
+    this.startSnapRef = null;
+    this.lastSnapRef = null;
     this.mousePoint = null;
   }
 
@@ -156,7 +171,9 @@ export class CenterArcTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (this.state === State.IDLE) {
-      this.consumePoint(this.applyPointInput(result.point2d));
+      const picked = this.applyPointInput(result.point2d);
+      this.consumePoint(picked);
+      this.centerSnapRef = !picked.typed && !(e.ctrlKey || e.metaKey) ? result.ref ?? null : null;
       return;
     }
 
@@ -164,7 +181,9 @@ export class CenterArcTool extends SketchTool {
       if (dist2D(this.centerPoint!, point) <= 0) {
         return;
       }
-      this.consumePoint(this.applyPointInput(result.point2d));
+      const picked = this.applyPointInput(result.point2d);
+      this.consumePoint(picked);
+      this.startSnapRef = !picked.typed && !(e.ctrlKey || e.metaKey) ? result.ref ?? null : null;
       return;
     }
 
@@ -172,7 +191,7 @@ export class CenterArcTool extends SketchTool {
       if (this.expressionInput.isVisible) {
         this.expressionInput.commitCurrentValue();
       } else {
-        this.commitFromMouse();
+        this.commitFromMouse(e.ctrlKey || e.metaKey);
       }
     }
   }
@@ -192,6 +211,7 @@ export class CenterArcTool extends SketchTool {
     const result = this.snapController.snap(raw);
     this.mousePoint = result.point2d;
     this.lastSnapType = result.snapType;
+    this.lastSnapRef = result.ref ?? null;
     this.rebuildPreview();
     if (this.state === State.START_PLACED) {
       this.updateDimensionInput();
@@ -203,11 +223,13 @@ export class CenterArcTool extends SketchTool {
       if (this.state === State.START_PLACED) {
         this.startPoint = null;
         this.startPick = null;
+        this.startSnapRef = null;
         this.state = State.CENTER_PLACED;
         this.expressionInput.hide();
       } else if (this.state === State.CENTER_PLACED) {
         this.centerPoint = null;
         this.centerPick = null;
+        this.centerSnapRef = null;
         this.state = State.IDLE;
       }
       this.rebuildPreview();
@@ -261,7 +283,7 @@ export class CenterArcTool extends SketchTool {
     }
   }
 
-  private commitFromMouse(): void {
+  private commitFromMouse(suppressEndRef: boolean): void {
     if (!this.centerPoint || !this.startPoint || !this.mousePoint) {
       return;
     }
@@ -269,7 +291,12 @@ export class CenterArcTool extends SketchTool {
     const radius = dist2D(this.centerPoint, this.startPoint);
     const endAngle = angleFromCenter(this.centerPoint, this.mousePoint);
     const endPoint = pointOnCircle(this.centerPoint, radius, endAngle);
-    this.emitArc(this.startPick!, endPoint, this.centerPick!, ccw);
+    // The end coincident only holds when the on-circle projection didn't
+    // move the endpoint off the snapped vertex.
+    const endRef = !suppressEndRef && this.lastSnapRef
+      && dist2D(endPoint, this.mousePoint) < 1e-6
+      ? this.lastSnapRef : null;
+    this.emitArc(this.startPick!, endPoint, this.centerPick!, ccw, undefined, endRef);
   }
 
   private commitFromExpression(result: CommitResult): void {
@@ -296,6 +323,7 @@ export class CenterArcTool extends SketchTool {
     center: PickedPoint,
     ccw: boolean,
     newVariable?: { name: string; initializer: string },
+    endRef: SolvedVertexRef | null = null,
   ): void {
     const re = roundPoint(end);
     const cwSuffix = ccw ? '' : '.cw()';
@@ -303,12 +331,28 @@ export class CenterArcTool extends SketchTool {
     if (this.solvedCtx) {
       const startText = this.formatPoint(start.relative ? roundPoint(start.value) : start);
       const centerText = this.formatPoint(center.relative ? roundPoint(center.value) : center);
+      // Snap provenance on the picks → coincidents (the Auto-constraints
+      // toggle gates the inference; Ctrl suppressed each capture).
+      const constraints: SolvedConstraintParam[] = [];
+      if (this.autoConstraintsEnabled()) {
+        if (this.centerSnapRef) {
+          constraints.push(coincident(newTarget(0, 'center'), refTarget(this.centerSnapRef)));
+        }
+        if (this.startSnapRef) {
+          constraints.push(coincident(newTarget(0, 'start'), refTarget(this.startSnapRef)));
+        }
+        if (endRef
+          && !(this.startSnapRef && endRef.line === this.startSnapRef.line
+            && endRef.role === this.startSnapRef.role)) {
+          constraints.push(coincident(newTarget(0, 'end'), refTarget(endRef)));
+        }
+      }
       void this.solvedCtx.emit({
         geometry: [{
           kind: 'arc',
           text: `arc(${startText}, ${this.formatPoint(re)}, ${centerText})${cwSuffix}`,
         }],
-        constraints: [],
+        constraints,
         ...(start.newVariables.length + center.newVariables.length + (newVariable ? 1 : 0) > 0
           ? { newVariables: [...start.newVariables, ...center.newVariables, ...(newVariable ? [newVariable] : [])] }
           : {}),

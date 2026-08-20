@@ -1,5 +1,5 @@
 import { SketchToolbar } from '../ui/sketch-toolbar';
-import { NewVariable, SketchTool, ToolId } from './sketch-tool';
+import { SketchTool, ToolId } from './sketch-tool';
 import { LineTool } from './tools/line-tool';
 import { CircleTool } from './tools/circle-tool';
 import { CenterArcTool } from './tools/center-arc-tool';
@@ -113,6 +113,10 @@ export class SketchToolbarService {
   // setters below (session-only state, deliberately not persisted).
   private snapToVertices = true;
   private snapToGrid = true;
+  /** The sketch dialog's Auto-constraints toggle — whether solved-sketch
+   * drawing infers constraints (snap coincidents, auto ortho H/V). Read live
+   * by the tools through the solved context, so no push is needed. */
+  private autoConstraints = true;
   /** Last-reported sketch-active state, so {@link onActiveChange} fires on edges only. */
   private lastActive = false;
   /**
@@ -375,31 +379,6 @@ export class SketchToolbarService {
   }
 
   /**
-   * Open the slot dialog over the `slot(<source>, <radius>)` statement at
-   * `target` (timeline double-click) — the same pause-before contract as the
-   * offset edit: the sketch on screen is the one the slot's arguments see,
-   * a consumed source edge visible and re-pickable again.
-   */
-  enterSlotEdit(
-    target: FeatureEditTarget,
-    parsed: Extract<ParsedFeatureStatement, { feature: 'slot' }>,
-    expectedStatement: string,
-  ): void {
-    const service = this.slotOp;
-    // Same contract as the offset edit: never disarm an already-editing
-    // dialog here — that would cancel it and clear the fresh breakpoint.
-    if (!service.isEditing) {
-      this.handleToolSelect(null);
-    }
-    this.toolbar.setActiveTool('slot');
-    service.enterEdit(target, parsed, expectedStatement);
-    if (this.activeSketchInfo) {
-      service.noteSketchActive();
-      this.activateDragHandler();
-    }
-  }
-
-  /**
    * Open the projection dialog over the `project()` statement at `target`
    * (timeline double-click). The projection service's edit session rolls the
    * viewport back to just before that row (the fillet/chamfer edit pattern);
@@ -451,6 +430,12 @@ export class SketchToolbarService {
     if (this.activeSolvedDragHandler) {
       this.activeSolvedDragHandler['snapController'].snapToGrid = checked;
     }
+  }
+
+  /** The sketch dialog's Auto-constraints toggle. Tools read the flag live
+   * through their solved context, so there is nothing to push. */
+  setAutoConstraints(checked: boolean): void {
+    this.autoConstraints = checked;
   }
 
   /**
@@ -719,14 +704,13 @@ export class SketchToolbarService {
     plane: PlaneData,
     sceneObjects: SceneObjectRender[],
     sketchId: string,
-    insertOverride?: (statement: string, newVariable?: NewVariable | NewVariable[]) => void,
   ): SketchTool | null {
     const snapManager = SnapManager.fromSceneObjects(sceneObjects, sketchId, plane, this.viewer.sceneContext);
     const snapCtrl = new SnapController(snapManager, plane);
     snapCtrl.snapToVertices = this.snapToVertices;
     snapCtrl.snapToGrid = this.snapToGrid;
 
-    const doInsertGeometry = insertOverride ?? ((
+    const doInsertGeometry = (
       statement: string,
       newVariable?: { name: string; initializer: string } | { name: string; initializer: string }[],
     ) => {
@@ -734,17 +718,15 @@ export class SketchToolbarService {
         return;
       }
       insertGeometry(this.withGuideSuffix(statement), this.activeSketchInfo.sourceLocation, newVariable);
-    });
+    };
 
     const fetchVars = () => this.fetchScopeVariables();
 
     // Solved sketches (P5): tools emit fully-specified primitives + explicit
     // constraints through the atomic insert-solved rail. The guide latch is
     // applied here (per geometry entry — never to a constraint, which the
-    // legacy last-line withGuideSuffix would decorate). An insertOverride
-    // (the slot dialog's statement-replace edit) keeps the string channel —
-    // it can only target a legacy statement.
-    const solved = !insertOverride && this.activeSketchInfo && isSolvedSketch(this.activeSketchInfo.sketchObj);
+    // legacy last-line withGuideSuffix would decorate).
+    const solved = this.activeSketchInfo && isSolvedSketch(this.activeSketchInfo.sketchObj);
     const solvedCtx: SolvedToolContext | null = solved
       ? {
         emit: async (request) => {
@@ -772,6 +754,7 @@ export class SketchToolbarService {
           }
           return result;
         },
+        autoConstraints: () => this.autoConstraints,
       }
       : null;
 
@@ -1050,17 +1033,8 @@ export class SketchToolbarService {
       if (this.activeDrawingTool) {
         return;
       }
-      // While the dialog edits an existing statement, the drawn slot
-      // REPLACES it instead of inserting a new one.
-      const service = this.slotOp;
-      const insertOverride = service.isEditing
-        ? (statement: string, newVariable?: NewVariable | NewVariable[]) => {
-          void service.applyDrawnStatement(statement, newVariable);
-        }
-        : undefined;
       const tool = this.createTool(
         'slot', this.activeSketchInfo.plane, this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!,
-        insertOverride,
       );
       if (!tool) {
         return;

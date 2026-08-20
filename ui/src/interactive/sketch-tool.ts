@@ -320,6 +320,13 @@ export abstract class SketchTool {
     return this.solvedCtx !== null;
   }
 
+  /** The sketch dialog's Auto-constraints toggle — whether snap/ortho
+   * constraint inference is on. Legacy sketches (no solved context) have no
+   * constraints to infer, so the answer there is moot. */
+  protected autoConstraintsEnabled(): boolean {
+    return this.solvedCtx?.autoConstraints() ?? true;
+  }
+
   /** True once the pill holds a typed axis — the point is an address, not a
    * click, so the emitted statement must carry it explicitly. */
   protected hasTypedPoint(): boolean {

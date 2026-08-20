@@ -292,7 +292,9 @@ describe('constraint glyph layout', () => {
     expect(glyphs[0].type).toBe('text');
   });
 
-  it('stacks badges sharing an anchor', () => {
+  // Stacking itself moved to the screen-space declutterer (P5.5); the glyph
+  // pass only has to hand it a shared anchor and the edge's two axes.
+  it('gives badges sharing an anchor the same anchor and an along-edge axis', () => {
     const objects = [
       line(0, [0, 0], [100, 0]),
       line(1, [0, 0], [100, 0]),
@@ -301,8 +303,43 @@ describe('constraint glyph layout', () => {
     ];
     const { glyphs } = glyphsOf(objects);
     const atMid = glyphs.filter(g => g.type === 'badge' && (g as any).at[0] === 50) as any[];
-    const indices = atMid.map(g => g.stackIndex).sort();
-    expect(new Set(indices).size).toBe(atMid.length);
+    expect(atMid.length).toBeGreaterThan(1);
+    for (const badge of atMid) {
+      expect(badge.at).toEqual([50, 0]);
+      // Row axis runs ALONG the line, offset axis across it.
+      expect(Math.abs(badge.alongDir[0])).toBeCloseTo(1, 9);
+      expect(Math.abs(badge.offsetDir[1])).toBeCloseTo(1, 9);
+    }
+  });
+
+  it('ranks visually-obvious constraints as the first to collapse', () => {
+    const objects = [
+      line(0, [0, 0], [100, 0]),
+      circle(1, [50, 20], 20),
+      constraint('horizontal', 0, { kind: 'horizontal', a: { entity: 0 } }),
+      constraint('tangent', 1, { kind: 'tangent', a: { entity: 0 }, b: { entity: 1 } }),
+    ];
+    const { glyphs } = glyphsOf(objects);
+    const rank = new Map(glyphs.map(g => [(g as any).label, (g as any).rank]));
+    expect(rank.get('T')).toBeLessThan(rank.get('H'));
+  });
+
+  it('gives dimension labels a slide axis along their leader', () => {
+    const objects = [
+      line(0, [0, 0], [100, 0]),
+      constraint('distance', 0, {
+        kind: 'distance',
+        a: { entity: 0, point: 'start' },
+        b: { entity: 0, point: 'end' },
+        value: 100,
+      }, 100),
+    ];
+    const { glyphs } = glyphsOf(objects);
+    const text = glyphs.find(g => g.type === 'text') as any;
+    expect(text.style).toBe('span');
+    expect(text.slideRange).toBeCloseTo(50, 9);
+    expect(Math.abs(text.alongDir[0])).toBeCloseTo(1, 9);
+    expect(text.leader).toEqual([[0, 0], [100, 0]]);
   });
 
   it('carries diagnostic colors onto glyphs', () => {

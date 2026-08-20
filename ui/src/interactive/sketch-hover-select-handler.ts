@@ -14,7 +14,7 @@ import { PlaneData, SceneObjectRender, SourceLocation } from '../types';
 import { projectToSketch, pixelToSketchThreshold, localToWorld } from './sketch-plane-utils';
 import { EdgeEntry, CenterEntry, buildEdgeIndex, buildCenterIndex, pointToSegmentDist } from './sketch-edge-utils';
 import { themeColors } from '../scene/theme-colors';
-import { applyConstantPixelSize, pixelsToWorld } from '../meshes/screen-scale';
+import { applyConstantPixelSize } from '../meshes/screen-scale';
 import { BadgeHitTarget } from '../meshes/containers/solved-constraint-meshes';
 import {
   SolvedSketchModel,
@@ -949,32 +949,24 @@ export class SketchHoverSelectHandler {
     return targets;
   }
 
-  /** Screen position of a badge's center: its anchor projected, pushed the
-   * glyph's pixel offset along its (projected) offset direction — the same
-   * math the badge meshes run per frame in onBeforeRender. */
+  /** Screen position of a badge's center: its anchor projected, plus the
+   * screen-pixel offset the layout pass parked it at. Hidden glyphs (rows
+   * that collapsed into a `+N` pill) report no position at all — the pill
+   * itself is read-only and never a pick target. */
   private badgeScreenCenter(target: BadgeHitTarget): { x: number; y: number } | null {
+    if (!target.placement.visible) {
+      return null;
+    }
     const camera = this.ctx.camera;
     const rect = this.canvas.getBoundingClientRect();
     const projected = target.anchorWorld.clone().project(camera);
     if (projected.z > 1) {
       return null;
     }
-    let x = rect.left + ((projected.x + 1) / 2) * rect.width;
-    let y = rect.top + ((1 - projected.y) / 2) * rect.height;
-    if (target.offsetDirWorld && target.offsetPx) {
-      const step = pixelsToWorld(this.ctx.renderer, camera, target.anchorWorld, 100);
-      const stepped = target.anchorWorld.clone()
-        .addScaledVector(target.offsetDirWorld, step)
-        .project(camera);
-      const sx = rect.left + ((stepped.x + 1) / 2) * rect.width - x;
-      const sy = rect.top + ((1 - stepped.y) / 2) * rect.height - y;
-      const len = Math.hypot(sx, sy);
-      if (len > 1e-6) {
-        x += (sx / len) * target.offsetPx;
-        y += (sy / len) * target.offsetPx;
-      }
-    }
-    return { x, y };
+    return {
+      x: rect.left + ((projected.x + 1) / 2) * rect.width + target.placement.dx,
+      y: rect.top + ((1 - projected.y) / 2) * rect.height + target.placement.dy,
+    };
   }
 
   /** Offset badges take pick priority over geometry — the solved drag

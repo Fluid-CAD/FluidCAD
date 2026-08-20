@@ -25,6 +25,7 @@ import { ViewportGizmo } from 'three-viewport-gizmo';
 import { CameraControlsAdapter } from './camera-controls-adapter';
 import { themeColors, onThemeChange } from './theme-colors';
 import { LineResolutionRegistry } from '../meshes/shape-meshes/line-resolution';
+import { runFrameHooks } from '../meshes/frame-hooks';
 import { setScreenScaleSource } from '../meshes/screen-scale';
 
 // Install camera-controls with only the Three.js submodules it needs
@@ -351,6 +352,10 @@ export class SceneContext {
   /** Immediately render one frame. */
   render(): void {
     this.updateLightPositions();
+    // Screen-space layout passes (solved-sketch annotation declutter) decide
+    // what is visible this frame, so they must run before the draw — Three's
+    // own onBeforeRender never fires for the objects they need to un-hide.
+    runFrameHooks(this.renderer, this.camera);
     this.renderer.render(this.scene, this.camera);
     this.gizmo.render();
   }

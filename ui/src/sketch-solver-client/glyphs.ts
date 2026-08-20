@@ -5,13 +5,17 @@
 
 import type { ConstraintSpec } from '../../../lib/sketch-solver/types.js';
 import type { SourceLocation } from '../types';
-import type { SolvedConstraintView, SolvedSketchModel } from './model';
+import type { SolvedConstraintView, SolvedEntityView, SolvedSketchModel } from './model';
 import { specEntityIds } from './model';
 import {
   Vec2,
+  alongDirAt,
+  dist,
   entityAnchor,
   entityFor,
+  entitySpan,
   footOnLine,
+  lineDir,
   lineIntersection,
   lineMid,
   mid,
@@ -24,6 +28,7 @@ import {
   refPoint,
   segmentCoversRay,
   segmentExtensionTo,
+  sketchCentroid,
   sub,
   tangencyPoint,
 } from './resolve';
@@ -40,13 +45,38 @@ type GlyphBase = {
 };
 
 export type ConstraintGlyph = GlyphBase & (
-  /** Boxed-letter badge, screen-constant, offset from `at` along
-   * `offsetDir` (stacked badges shift further out). */
-  | { type: 'badge'; label: string; at: Vec2; offsetDir: Vec2; stackIndex: number }
+  /** Boxed-letter badge, screen-constant. `offsetDir` is the outward normal
+   * it floats along, `alongDir` the edge tangent a group of them rows up
+   * against; the screen-space declutterer picks the final slot from those
+   * two axes (see declutter/). */
+  | {
+      type: 'badge';
+      label: string;
+      at: Vec2;
+      offsetDir: Vec2;
+      alongDir: Vec2;
+      /** Host edge length in sketch units — the row's space budget once the
+       * view scale turns it into pixels. 0 = no host edge. */
+      span: number;
+      /** Survival order inside a crowded row — low keeps its slot. */
+      rank: number;
+    }
   /** Coincidence ring centered on the shared point. */
   | { type: 'dot'; at: Vec2 }
-  /** Box-less dimension readout, offset like a badge. */
-  | { type: 'text'; label: string; at: Vec2; offsetDir: Vec2; stackIndex: number }
+  /** Box-less dimension readout. `offsetDir` pushes it clear of the
+   * dimension line, `alongDir` is the axis it may slide along, and
+   * `slideRange` how far (sketch units, one way). `leader` carries the
+   * dimension line so a pushed-out label can draw a link back to it. */
+  | {
+      type: 'text';
+      label: string;
+      at: Vec2;
+      offsetDir: Vec2;
+      alongDir: Vec2;
+      style: 'span' | 'radial';
+      slideRange: number;
+      leader?: [Vec2, Vec2];
+    }
   /** World-scale dimension leader line. `extensions` are dashed witness
    * leaders from a synthetic leader end to the real anchor it measures
    * (axis-locked distances draw the leader axis-aligned, so the far point
@@ -84,6 +114,32 @@ export const BADGE_LABELS: Record<string, string> = {
   'point-on': '⊙',
 };
 
+/**
+ * Which badges keep their slot when a row overflows into a `+N` pill.
+ *
+ * The rule is "how much does the picture already tell you?". A horizontal
+ * line looks horizontal, so its H badge is the cheapest thing to collapse; a
+ * tangency, a fix or a symmetry is invisible in the geometry and has to stay
+ * on screen. Ties fall back to statement order, so the surviving set is
+ * stable across zoom steps rather than reshuffling every frame.
+ */
+const BADGE_RANK: Record<string, number> = {
+  fix: 0,
+  tangent: 1,
+  symmetric: 2,
+  perpendicular: 3,
+  parallel: 4,
+  collinear: 5,
+  concentric: 6,
+  equal: 7,
+  midpoint: 8,
+  'point-on': 9,
+  horizontal: 10,
+  vertical: 10,
+};
+
+const DEFAULT_BADGE_RANK = 5;
+
 export function formatDim(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
@@ -95,22 +151,21 @@ function statusColor(c: SolvedConstraintView): GlyphColorRole {
   return c.status === 'redundant' ? 'redundant' : 'normal';
 }
 
-/** Layout the glyphs for every constraint statement of a solved sketch.
- * Badges sharing an anchor get increasing stack indices so they fan out
- * instead of overdrawing. */
+/**
+ * Layout the glyphs for every constraint statement of a solved sketch.
+ *
+ * This pass is camera-free: it fixes each glyph's ANCHOR and its two local
+ * axes (outward normal + edge tangent) in sketch coordinates. Where a glyph
+ * actually lands on screen — how far out, which side, whether it collapses
+ * into a `+N` pill — is decided per zoom step by the declutterer, which is
+ * the only thing that knows how many pixels there are to spend.
+ */
 export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyph[] {
   const glyphs: ConstraintGlyph[] = [];
-  const stackCounts = new Map<string, number>();
   const drawnDots = new Set<string>();
+  const centroid = sketchCentroid(model);
 
   const stackKey = (at: Vec2): string => `${Math.round(at[0] * 1e3)},${Math.round(at[1] * 1e3)}`;
-
-  const nextStack = (at: Vec2): number => {
-    const key = stackKey(at);
-    const index = stackCounts.get(key) ?? 0;
-    stackCounts.set(key, index + 1);
-    return index;
-  };
 
   for (const c of model.constraints) {
     const base: GlyphBase = {
@@ -120,10 +175,27 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
       refEntityIds: specEntityIds(c.spec),
     };
 
-    const badge = (label: string, at: Vec2 | null, offsetDir: Vec2 = [0, 1]): void => {
-      if (at) {
-        glyphs.push({ ...base, type: 'badge', label, at, offsetDir, stackIndex: nextStack(at) });
+    /** `kind` keys both the glyph letter and its overflow rank; `on` is the
+     * entity the badge rides, which fixes its outward/tangent axes. */
+    const badge = (
+      kind: string,
+      at: Vec2 | null,
+      on?: SolvedEntityView,
+      axes?: { out: Vec2; along: Vec2; span: number },
+    ): void => {
+      if (!at) {
+        return;
       }
+      glyphs.push({
+        ...base,
+        type: 'badge',
+        label: BADGE_LABELS[kind] ?? kind,
+        at,
+        offsetDir: axes?.out ?? offsetDirAt(on, at, centroid),
+        alongDir: axes?.along ?? alongDirAt(on, at),
+        span: axes?.span ?? entitySpan(on),
+        rank: BADGE_RANK[kind] ?? DEFAULT_BADGE_RANK,
+      });
     };
 
     const spec = c.spec;
@@ -146,7 +218,7 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
           const point = pa ?? pb;
           const targetRef = pa ? spec.b : spec.a;
           if (point) {
-            badge(BADGE_LABELS['point-on'], point, offsetDirAt(entityFor(model, targetRef), point));
+            badge('point-on', point, entityFor(model, targetRef));
           }
         }
         break;
@@ -154,18 +226,21 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
 
       case 'horizontal':
       case 'vertical': {
-        const label = BADGE_LABELS[spec.kind];
         if (spec.b) {
           const pa = refPoint(model, spec.a);
           const pb = refPoint(model, spec.b);
           if (pa && pb) {
+            // A two-point H/V has no owning entity — the pair itself is the
+            // edge, so it supplies the row axis and budget directly.
             const dir = normalize(sub(pb, pa));
-            badge(label, mid(pa, pb), perp(dir));
+            badge(spec.kind, mid(pa, pb), undefined, {
+              out: perp(dir), along: dir, span: dist(pa, pb),
+            });
           }
         } else {
           const e = entityFor(model, spec.a);
           if (e) {
-            badge(label, entityAnchor(e), offsetDirAt(e, entityAnchor(e) ?? [0, 0]));
+            badge(spec.kind, entityAnchor(e), e);
           }
         }
         break;
@@ -175,14 +250,10 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
       case 'perpendicular':
       case 'equal':
       case 'collinear': {
-        const label = BADGE_LABELS[spec.kind];
         for (const ref of [spec.a, spec.b]) {
           const e = entityFor(model, ref);
           if (e) {
-            const at = entityAnchor(e);
-            if (at) {
-              badge(label, at, offsetDirAt(e, at));
-            }
+            badge(spec.kind, entityAnchor(e), e);
           }
         }
         break;
@@ -195,40 +266,33 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
           const at = tangencyPoint(a, b);
           if (at) {
             const round = a.kind === 'circle' || a.kind === 'arc' ? a : b;
-            badge(BADGE_LABELS.tangent, at, offsetDirAt(round, at));
+            badge('tangent', at, round);
           }
         }
         break;
       }
 
       case 'concentric': {
-        const at = entityFor(model, spec.a)?.center ?? entityFor(model, spec.b)?.center ?? null;
-        badge(BADGE_LABELS.concentric, at);
+        const e = entityFor(model, spec.a) ?? entityFor(model, spec.b);
+        badge('concentric', e?.center ?? null);
         break;
       }
 
       case 'midpoint': {
         const at = refPoint(model, spec.p);
-        const line = entityFor(model, spec.l);
-        if (at) {
-          badge(BADGE_LABELS.midpoint, at, line ? offsetDirAt(line, at) : [0, 1]);
-        }
+        badge('midpoint', at, entityFor(model, spec.l));
         break;
       }
 
       case 'symmetric': {
         for (const ref of [spec.a, spec.b]) {
-          const at = refPoint(model, ref);
-          if (at) {
-            badge(BADGE_LABELS.symmetric, at);
-          }
+          badge('symmetric', refPoint(model, ref));
         }
         break;
       }
 
       case 'fix': {
-        const at = refPoint(model, spec.p);
-        badge(BADGE_LABELS.fix, at);
+        badge('fix', refPoint(model, spec.p));
         break;
       }
 
@@ -237,20 +301,23 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
         if (points) {
           const [from, to] = points;
           const dir = normalize(sub(to, from));
-          const offsetDir = perp(dir);
           const extensions = distanceSpecExtensions(model, spec);
           glyphs.push({
             ...base, type: 'leader', from, to,
             ...(extensions.length > 0 ? { extensions } : {}),
           });
-          const at = mid(from, to);
           glyphs.push({
             ...base,
             type: 'text',
             label: formatDim(c.value ?? spec.value),
-            at,
-            offsetDir,
-            stackIndex: nextStack(at),
+            at: mid(from, to),
+            // Push clear of the dimension line, slide along it — the label
+            // stays ON its own dimension wherever the declutterer parks it.
+            offsetDir: perp(dir),
+            alongDir: dir,
+            style: 'span',
+            slideRange: dist(from, to) / 2,
+            leader: [from, to],
           });
         }
         break;
@@ -269,8 +336,13 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
               type: 'text',
               label: `${prefix}${formatDim(c.value ?? spec.value)}`,
               at: rim,
+              // Radial dims push out along the radius first; sliding walks
+              // the label around the rim, so it is the fallback axis.
               offsetDir: offsetDirAt(e, rim),
-              stackIndex: nextStack(rim),
+              alongDir: alongDirAt(e, rim),
+              style: 'radial',
+              slideRange: (e.radius ?? 0) / 2,
+              leader: [e.center, rim],
             });
           }
         }
@@ -313,14 +385,16 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
             const ma = lineMid(a);
             const mb = lineMid(b);
             if (ma && mb) {
-              const fallbackAt = mid(ma, mb);
+              const dir = lineDir(a) ?? [1, 0];
               glyphs.push({
                 ...base,
                 type: 'text',
                 label,
-                at: fallbackAt,
-                offsetDir: [0, 1],
-                stackIndex: nextStack(fallbackAt),
+                at: mid(ma, mb),
+                offsetDir: perp(dir),
+                alongDir: dir,
+                style: 'span',
+                slideRange: 0,
               });
             }
           }

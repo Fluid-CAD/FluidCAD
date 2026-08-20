@@ -7,6 +7,7 @@ import {
   Group,
   Mesh,
   MeshBasicMaterial,
+  Object3D,
   Quaternion,
   Vector3,
 } from 'three';
@@ -18,6 +19,8 @@ import { createMetaEdgeMesh, createMetaFaceMesh } from './shape-group';
 import { isDraggableSketchObject } from '../../interactive/sketch-edge-utils';
 import { buildConstraintIcons } from './constraint-icon';
 import { buildSolvedConstraintMeshes } from './solved-constraint-meshes';
+import type { SolvedGlyphLayout } from './solved-glyph-layout';
+import { addFrameHook } from '../frame-hooks';
 import {
   SolvedSketchModel,
   buildSolvedSketchModel,
@@ -53,6 +56,9 @@ const TANGENT_HEAD_LENGTH = 5;
 const TANGENT_HEAD_WIDTH = 2.5;
 const TANGENT_TOTAL_LENGTH = TANGENT_SHAFT_LENGTH + TANGENT_HEAD_LENGTH;
 const TANGENT_PX_LENGTH = 54;
+/** Frames a glyph-layout hook waits for its mesh to reach the scene before
+ * assuming it never will (a mesh built and then dropped). */
+const DETACHED_GRACE_FRAMES = 300;
 
 /**
  * Renders a sketch: all child edges in blue, plus an optional cursor circle
@@ -67,6 +73,11 @@ export class SketchMesh extends Group {
   private solvedDotBindings: { group: Group; entityId: number; role: 'point' | 'start' | 'end' | 'center' }[] = [];
   /** The current glyph groups — replaced wholesale on live updates. */
   private solvedGlyphGroups: Group[] = [];
+  /** Screen-space annotation placement (P5.5); null without annotations. */
+  private glyphLayout: SolvedGlyphLayout | null = null;
+  private layoutHookOff: (() => void) | null = null;
+  private layoutAttached = false;
+  private detachedFrames = 0;
 
   constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], activeSketchId: string | null, _camera: Camera) {
     super();
@@ -221,6 +232,7 @@ export class SketchMesh extends Group {
     if (!model) {
       return;
     }
+    this.glyphLayout?.dispose();
     for (const group of this.solvedGlyphGroups) {
       this.remove(group);
       group.traverse(child => {
@@ -232,12 +244,51 @@ export class SketchMesh extends Group {
       });
     }
     const glyphs = layoutConstraintGlyphs(model);
-    const { groups, hitTargets } = buildSolvedConstraintMeshes(model, glyphs);
+    const { groups, hitTargets, layout } = buildSolvedConstraintMeshes(model, glyphs);
     this.solvedGlyphGroups = groups;
+    this.glyphLayout = layout;
     for (const group of groups) {
       this.add(group);
     }
     this.userData.solvedBadgeTargets = hitTargets;
+    this.ensureGlyphLayoutHook();
+  }
+
+  /**
+   * Drive the screen-space annotation layout once per frame.
+   *
+   * The hook self-retires when this mesh leaves the scene: a render pass
+   * replaces the whole `compiledMesh` subtree without telling its children,
+   * so there is no disposal signal to hang the unregister on. Detachment
+   * only counts once the mesh has actually been seen in the scene — it is
+   * built before it is added, and an on-demand render can land in between.
+   * A mesh that is never added at all retires on the grace counter instead
+   * of leaking a hook forever.
+   */
+  private ensureGlyphLayoutHook(): void {
+    if (this.layoutHookOff || !this.glyphLayout) {
+      return;
+    }
+    this.layoutHookOff = addFrameHook((renderer, camera) => {
+      if (this.isInScene()) {
+        this.layoutAttached = true;
+      } else if (this.layoutAttached || ++this.detachedFrames > DETACHED_GRACE_FRAMES) {
+        this.layoutHookOff?.();
+        this.layoutHookOff = null;
+        this.glyphLayout?.dispose();
+        this.glyphLayout = null;
+        return;
+      }
+      this.glyphLayout?.update(renderer, camera);
+    });
+  }
+
+  private isInScene(): boolean {
+    let node: Object3D | null = this;
+    while (node.parent) {
+      node = node.parent;
+    }
+    return (node as { isScene?: boolean }).isScene === true;
   }
 
   private buildEdges(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[]): void {
@@ -415,15 +466,10 @@ export class SketchMesh extends Group {
 
   private addConstraintIcons(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[]): void {
     if (this.solvedModel) {
-      const glyphs = layoutConstraintGlyphs(this.solvedModel);
-      const { groups, hitTargets } = buildSolvedConstraintMeshes(this.solvedModel, glyphs);
-      this.solvedGlyphGroups = groups;
-      for (const group of groups) {
-        this.add(group);
-      }
-      // The sketch hover/select handler picks badges from here (screen-space
-      // hit test — badges float a pixel offset away from their anchors).
-      this.userData.solvedBadgeTargets = hitTargets;
+      // Same path as a live-drag refresh: build the glyphs, hand them to the
+      // layout, and let the frame hook place them (screen-space hit test —
+      // badges float a pixel offset away from their anchors).
+      this.rebuildSolvedGlyphs();
       return;
     }
     for (const icon of buildConstraintIcons(sceneObject, allObjects)) {

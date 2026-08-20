@@ -37,6 +37,10 @@ export function mid(a: Vec2, b: Vec2): Vec2 {
   return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
 }
 
+export function dist(a: Vec2, b: Vec2): number {
+  return Math.hypot(a[0] - b[0], a[1] - b[1]);
+}
+
 /** Synthesized read-model views of the implicit datums (origin + axes,
  * reserved negative ids). They have no statement child, so `model.entities`
  * never holds them; geometry is fixed by definition — the axes span the
@@ -184,20 +188,88 @@ export function refAnchor(model: SolvedSketchModel, ref: SolverRef): Vec2 | null
 }
 
 /** Offset direction for a badge at `at` on the entity: perpendicular to a
- * line, radial on a circle/arc, up for points. */
-export function offsetDirAt(e: SolvedEntityView | undefined, at: Vec2): Vec2 {
+ * line, radial on a circle/arc, up for points. `away` (the sketch centroid,
+ * when known) breaks the perpendicular's sign ambiguity by pushing the badge
+ * OUT of the profile — annotations belong outside the shape they describe.
+ * Radial directions already point outward and are left alone. */
+export function offsetDirAt(
+  e: SolvedEntityView | undefined,
+  at: Vec2,
+  away: Vec2 | null = null,
+): Vec2 {
   if (!e) {
     return [0, 1];
   }
   if (e.kind === 'line') {
     const d = lineDir(e);
-    return d ? perp(d) : [0, 1];
+    if (!d) {
+      return [0, 1];
+    }
+    const n = perp(d);
+    if (!away) {
+      return n;
+    }
+    const outward = sub(at, away);
+    return n[0] * outward[0] + n[1] * outward[1] < 0 ? [-n[0], -n[1]] : n;
   }
   if ((e.kind === 'circle' || e.kind === 'arc') && e.center) {
     const radial = sub(at, e.center);
     return norm(radial) > 1e-9 ? normalize(radial) : [0, 1];
   }
   return [0, 1];
+}
+
+/** Tangential direction at `at` — the axis a badge row runs along so the
+ * group stays glued to its edge instead of marching away from it. */
+export function alongDirAt(e: SolvedEntityView | undefined, at: Vec2): Vec2 {
+  if (!e) {
+    return [1, 0];
+  }
+  if (e.kind === 'line') {
+    return lineDir(e) ?? [1, 0];
+  }
+  if ((e.kind === 'circle' || e.kind === 'arc') && e.center) {
+    const radial = sub(at, e.center);
+    return norm(radial) > 1e-9 ? perp(normalize(radial)) : [1, 0];
+  }
+  return [1, 0];
+}
+
+/**
+ * Characteristic length of the entity in sketch units — how much room a
+ * badge row riding it may claim. A line gives its full length; a circle or
+ * arc gives its radius (about 57° of rim, comfortably inside the curve's
+ * near-straight stretch). 0 means "no host edge", and the consumer applies
+ * a flat allowance instead.
+ */
+export function entitySpan(e: SolvedEntityView | undefined): number {
+  if (!e) {
+    return 0;
+  }
+  if (e.kind === 'line') {
+    return e.start && e.end ? dist(e.start, e.end) : 0;
+  }
+  if (e.kind === 'circle' || e.kind === 'arc') {
+    return e.radius ?? 0;
+  }
+  return 0;
+}
+
+/** Centroid of every entity anchor — the "inside" reference `offsetDirAt`
+ * pushes away from. Null when the sketch has nothing anchorable. */
+export function sketchCentroid(model: SolvedSketchModel): Vec2 | null {
+  let x = 0;
+  let y = 0;
+  let count = 0;
+  for (const e of model.entities.values()) {
+    const at = e.center ?? entityAnchor(e);
+    if (at) {
+      x += at[0];
+      y += at[1];
+      count += 1;
+    }
+  }
+  return count > 0 ? [x / count, y / count] : null;
 }
 
 /** Foot of the perpendicular from `p` onto the infinite line of `e`. */

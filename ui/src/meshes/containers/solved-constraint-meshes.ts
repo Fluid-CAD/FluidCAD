@@ -1,12 +1,19 @@
-// Meshes for the solved-sketch constraint glyphs (sketch-rewrite P3).
+// Meshes for the solved-sketch constraint glyphs (sketch-rewrite P3, P5.5).
 //
 // Consumes the pure glyph descriptors from ui/src/sketch-solver-client and
 // builds the Three groups: boxed badges and dimension text screen-constant
 // like the legacy constraint icons, dimension leaders world-scale. Textures
 // render white and are tinted through material.color, so diagnostic states
 // (redundant amber, conflict red) and hover highlights recolor without new
-// textures. Each glyph also yields a screen-space hit target — the sketch
-// hover/select handler uses those for badge hover + click-to-statement.
+// textures.
+//
+// Badges and dimension labels do NOT position themselves any more: this pass
+// only builds them and hands the pieces to a SolvedGlyphLayout, which decides
+// per zoom step where each one sits and which ones collapse behind a `+N`
+// pill (see solved-glyph-layout.ts). Each glyph still yields a screen-space
+// hit target, and that target shares the layout's Placement object by
+// reference — so what is drawn stays exactly what is pickable however the
+// camera moves.
 
 import {
   BufferGeometry,
@@ -25,24 +32,33 @@ import {
 } from 'three';
 import type { PlaneData, SourceLocation, Vec3Data } from '../../types';
 import type { ConstraintGlyph, GlyphColorRole, SolvedSketchModel } from '../../sketch-solver-client';
+import type { Placement } from '../../sketch-solver-client/declutter';
 import { localToWorld } from '../../interactive/sketch-plane-utils';
 import { applyConstantPixelSize, pixelScale, pixelsToWorld } from '../screen-scale';
 import { themeColors } from '../../scene/theme-colors';
 import { createTextTexture, getIconTexture, getTextTexture, IconTexture } from './badge-textures';
+import {
+  ANGLE_LABEL_PX_SIZE,
+  BADGE_PX_SIZE,
+  GLYPH_PLANE_SIZE,
+  GLYPH_RENDER_ORDER,
+  LABEL_PX_SIZE,
+  SolvedGlyphLayout,
+  createGlyphSprite,
+  createLinkLine,
+} from './solved-glyph-layout';
+import type { BadgeSprite, DimensionSprite, FixedAnnotation } from './solved-glyph-layout';
 
-const ICON_OFFSET_PX = 22;
-const ICON_PLANE_SIZE = 5;
-const ICON_PX_SIZE = 16;
-const ICON_STACK_GAP_PX = 4;
-const ICON_RENDER_ORDER = 3;
+const ICON_PLANE_SIZE = GLYPH_PLANE_SIZE;
+const ICON_RENDER_ORDER = GLYPH_RENDER_ORDER;
 const TEXT_OFFSET_PX = 14;
-const TEXT_PX_SIZE = 16;
+const TEXT_PX_SIZE = LABEL_PX_SIZE;
 const DOT_PLANE_RADIUS = 2;
 const DOT_PX_RADIUS = 8;
 const LEADER_OPACITY = 0.45;
 const ANGLE_ARC_RADIUS = 5;
 const ANGLE_ARC_PX_RADIUS = 26;
-const ANGLE_TEXT_PX_SIZE = 20;
+const ANGLE_TEXT_PX_SIZE = ANGLE_LABEL_PX_SIZE;
 const ANGLE_ARC_SEGMENTS = 32;
 
 /** Screen-space pick target for one glyph — what the hover handler tests. */
@@ -52,9 +68,9 @@ export type BadgeHitTarget = {
   refEntityIds: number[];
   /** World position of the glyph's sketch anchor. */
   anchorWorld: Vector3;
-  /** Unit world direction the glyph is pushed along (null = centered). */
-  offsetDirWorld: Vector3 | null;
-  offsetPx: number;
+  /** Live screen-pixel offset from that anchor. Owned by the layout pass —
+   * a hidden glyph's placement reports `visible: false` and must not pick. */
+  placement: Placement;
   halfWidthPx: number;
   halfHeightPx: number;
   /** Materials to recolor while hovered. */
@@ -69,6 +85,9 @@ export type BadgeHitTarget = {
 export type SolvedConstraintVisuals = {
   groups: Group[];
   hitTargets: BadgeHitTarget[];
+  /** Drives the screen-space placement every frame; null when the sketch has
+   * no placeable annotation. */
+  layout: SolvedGlyphLayout | null;
 };
 
 function roleColor(role: GlyphColorRole): Color {
@@ -97,7 +116,8 @@ function orientToPlane(group: Group, position: Vector3, plane: PlaneData, normal
 }
 
 /** Screen-constant textured plane (badge box or bare text) offset from its
- * anchor along a world direction by a pixel amount. */
+ * anchor along a world direction by a pixel amount. Self-positioning — used
+ * by the toolbar's placement previews, which sit outside the layout pass. */
 function createOffsetSprite(
   texture: IconTexture,
   color: Color,
@@ -339,6 +359,11 @@ export function buildDimensionReadout(
   return { group, ownedTexture: texture.texture };
 }
 
+/** Anchor identity: badges resolving to the same sketch point share a row. */
+function anchorKey(at: [number, number]): string {
+  return `${Math.round(at[0] * 1e3)},${Math.round(at[1] * 1e3)}`;
+}
+
 export function buildSolvedConstraintMeshes(
   model: SolvedSketchModel,
   glyphs: ConstraintGlyph[],
@@ -347,13 +372,13 @@ export function buildSolvedConstraintMeshes(
   const normal = plane.normal;
   const groups: Group[] = [];
   const hitTargets: BadgeHitTarget[] = [];
+  const badgeSprites: BadgeSprite[] = [];
+  const dimensionSprites: DimensionSprite[] = [];
+  const fixedAnnotations: FixedAnnotation[] = [];
+  const leaderSegments: [[number, number], [number, number]][] = [];
   const white = '#ffffff';
-  // One pixel ladder per anchor: glyphs sharing an anchor point stack
-  // outward along their offset direction whatever their type mix — a badge
-  // and a dimension label on the same midpoint must not overdraw.
-  const stackCursor = new Map<string, number>();
 
-  for (const glyph of glyphs) {
+  glyphs.forEach((glyph, order) => {
     const color = roleColor(glyph.color);
 
     switch (glyph.type) {
@@ -364,25 +389,55 @@ export function buildSolvedConstraintMeshes(
           ? getIconTexture(glyph.label, white)
           : getTextTexture(glyph.label, white);
         const position = localToWorld(glyph.at, plane);
-        const offsetDirWorld = dirToWorld(glyph.offsetDir, plane);
-        const baseOffset = isBadge ? ICON_OFFSET_PX : TEXT_OFFSET_PX;
-        const pxSize = isBadge ? ICON_PX_SIZE : TEXT_PX_SIZE;
-        const key = `${Math.round(glyph.at[0] * 1e3)},${Math.round(glyph.at[1] * 1e3)}`;
-        const offsetPx = Math.max(baseOffset, stackCursor.get(key) ?? 0);
-        stackCursor.set(key, offsetPx + pxSize + ICON_STACK_GAP_PX);
-        const { group, material } = createOffsetSprite(
-          texture, color, position, offsetDirWorld, offsetPx, pxSize, plane, normal,
-        );
+        const pxSize = isBadge ? BADGE_PX_SIZE : TEXT_PX_SIZE;
+        const { group, material } = createGlyphSprite(texture.texture, texture.aspect, color);
+        const placement: Placement = { visible: false, dx: 0, dy: 0 };
         groups.push(group);
+
+        const common = {
+          group,
+          anchorLocal: glyph.at,
+          anchorWorld: position,
+          placement,
+          pxSize,
+          halfWidthPx: (pxSize * texture.aspect) / 2,
+          halfHeightPx: pxSize / 2,
+        };
+        if (isBadge) {
+          badgeSprites.push({
+            ...common,
+            outLocal: glyph.offsetDir,
+            alongLocal: glyph.alongDir,
+            span: glyph.span,
+            groupKey: anchorKey(glyph.at),
+            rank: glyph.rank,
+            order,
+          });
+        } else {
+          const link = glyph.leader ? createLinkLine(color) : null;
+          if (link) {
+            groups.push(wrapLink(link));
+          }
+          dimensionSprites.push({
+            ...common,
+            pushLocal: glyph.offsetDir,
+            slideLocal: glyph.alongDir,
+            style: glyph.style,
+            slideRange: glyph.slideRange,
+            leader: glyph.leader ?? null,
+            link,
+            order,
+          });
+        }
+
         hitTargets.push({
           objId: glyph.objId,
           sourceLocation: glyph.sourceLocation,
           refEntityIds: glyph.refEntityIds,
           anchorWorld: position,
-          offsetDirWorld,
-          offsetPx,
-          halfWidthPx: (pxSize * texture.aspect) / 2,
-          halfHeightPx: pxSize / 2,
+          placement,
+          halfWidthPx: common.halfWidthPx,
+          halfHeightPx: common.halfHeightPx,
           materials: [material],
           baseColor: color,
         });
@@ -413,8 +468,8 @@ export function buildSolvedConstraintMeshes(
           sourceLocation: glyph.sourceLocation,
           refEntityIds: glyph.refEntityIds,
           anchorWorld: position,
-          offsetDirWorld: null,
-          offsetPx: 0,
+          // Rings sit ON their vertex — no offset, and never decluttered.
+          placement: { visible: true, dx: 0, dy: 0 },
           halfWidthPx: DOT_PX_RADIUS + 2,
           halfHeightPx: DOT_PX_RADIUS + 2,
           materials: [material],
@@ -425,6 +480,7 @@ export function buildSolvedConstraintMeshes(
       }
 
       case 'leader': {
+        leaderSegments.push([glyph.from, glyph.to]);
         const from = localToWorld(glyph.from, plane);
         const to = localToWorld(glyph.to, plane);
         const geometry = new BufferGeometry();
@@ -467,13 +523,24 @@ export function buildSolvedConstraintMeshes(
         if (ext) {
           groups.push(ext);
         }
+        // The readout rides its arc (a geometric construction, not a free
+        // label), so the layout only RESERVES its box — nothing else may
+        // land on it — and keeps the pick offset in step.
+        const placement: Placement = { visible: true, dx: 0, dy: 0 };
+        fixedAnnotations.push({
+          anchorWorld: visual.position,
+          dirLocal: [Math.cos(visual.midAngle), Math.sin(visual.midAngle)],
+          radiusPx: visual.textPxRadius,
+          halfWidthPx: (ANGLE_TEXT_PX_SIZE * visual.textAspect) / 2,
+          halfHeightPx: ANGLE_TEXT_PX_SIZE / 2,
+          placement,
+        });
         hitTargets.push({
           objId: glyph.objId,
           sourceLocation: glyph.sourceLocation,
           refEntityIds: glyph.refEntityIds,
           anchorWorld: visual.position,
-          offsetDirWorld: dirToWorld([Math.cos(visual.midAngle), Math.sin(visual.midAngle)], plane),
-          offsetPx: visual.textPxRadius,
+          placement,
           halfWidthPx: (ANGLE_TEXT_PX_SIZE * visual.textAspect) / 2,
           halfHeightPx: ANGLE_TEXT_PX_SIZE / 2,
           materials: visual.materials,
@@ -482,7 +549,26 @@ export function buildSolvedConstraintMeshes(
         break;
       }
     }
+  });
+
+  const placeable = badgeSprites.length + dimensionSprites.length + fixedAnnotations.length;
+  let layout: SolvedGlyphLayout | null = null;
+  if (placeable > 0) {
+    layout = new SolvedGlyphLayout(
+      plane, badgeSprites, dimensionSprites, fixedAnnotations, model, leaderSegments,
+      themeColors.constraintColor,
+    );
+    groups.push(layout.pillGroup);
   }
 
-  return { groups, hitTargets };
+  return { groups, hitTargets, layout };
+}
+
+/** Link stubs are plain Lines; the disposal walk expects Groups. */
+function wrapLink(link: Line): Group {
+  const group = new Group();
+  group.renderOrder = ICON_RENDER_ORDER - 1;
+  group.userData.isConstraintIcon = true;
+  group.add(link);
+  return group;
 }

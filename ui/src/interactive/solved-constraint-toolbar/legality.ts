@@ -35,6 +35,9 @@ export type DimensionForm = {
   kind: 'distance' | 'angle' | 'radius' | 'diameter';
   /** Point–point distances may measure along one axis. */
   axisChoice: boolean;
+  /** Distances against a circle/arc may measure to the near (min,
+   * default) or far (max) side of the circumference. */
+  tangencyChoice: boolean;
 };
 
 /** A pick is a point when it names a vertex or IS a point entity. */
@@ -151,7 +154,7 @@ export function dimensionFormFor(rawPicks: SolvedPick[]): DimensionForm | null {
   if (picks.length === 1) {
     const p = picks[0];
     if (isRound(p)) {
-      return { kind: p.kind === 'circle' ? 'diameter' : 'radius', axisChoice: false };
+      return { kind: p.kind === 'circle' ? 'diameter' : 'radius', axisChoice: false, tangencyChoice: false };
     }
     return null;
   }
@@ -160,7 +163,7 @@ export function dimensionFormFor(rawPicks: SolvedPick[]): DimensionForm | null {
   }
   const [a, b] = picks;
   if (isPointPick(a) && isPointPick(b)) {
-    return { kind: 'distance', axisChoice: true };
+    return { kind: 'distance', axisChoice: true, tangencyChoice: false };
   }
   // Point–entity, but never a point against its OWN entity: a line's
   // endpoint is on the line (distance identically zero — the statement the
@@ -169,14 +172,72 @@ export function dimensionFormFor(rawPicks: SolvedPick[]): DimensionForm | null {
   const point = isPointPick(a) ? a : isPointPick(b) ? b : null;
   const entity = point === a ? b : a;
   if (point && (isLine(entity) || isRound(entity)) && point.entityId !== entity.entityId) {
-    return { kind: 'distance', axisChoice: false };
+    return { kind: 'distance', axisChoice: false, tangencyChoice: isRound(entity) };
   }
   // Entity–entity: line–line, circle–circle, and line–circle/arc (the
   // perpendicular gap to the circumference).
   if ((isLine(a) || isRound(a)) && (isLine(b) || isRound(b)) && a.entityId !== b.entityId) {
-    return { kind: 'distance', axisChoice: false };
+    return { kind: 'distance', axisChoice: false, tangencyChoice: isRound(a) || isRound(b) };
   }
   return null;
+}
+
+/**
+ * Which tangency side a dimension's picks imply, from the TOUCH on the
+ * clicked circle/arc: a touch on the side of the circumference facing the
+ * other target measures near (min, the default); the opposite side
+ * measures far (max). Picks without a touch point (vertex picks,
+ * programmatic selection) read min. The timeline row's "Use min/max
+ * tangent" flips a committed statement.
+ */
+export function inferTangency(
+  model: SolvedSketchModel,
+  rawPicks: SolvedPick[],
+  form: DimensionForm,
+): 'min' | 'max' {
+  if (form.kind !== 'distance' || !form.tangencyChoice) {
+    return 'min';
+  }
+  const picks = expandDimensionPicks(rawPicks);
+  if (picks.length !== 2) {
+    return 'min';
+  }
+  // The freshest round touch decides — the later click carries the intent.
+  for (let i = picks.length - 1; i >= 0; i--) {
+    const p = picks[i];
+    if (!isRound(p) || !p.at) {
+      continue;
+    }
+    const e = entityFor(model, pickRef(p));
+    if (!e?.center) {
+      continue;
+    }
+    const anchor = towardAnchor(model, picks[1 - i], e.center);
+    if (!anchor) {
+      continue;
+    }
+    const touch = sub(p.at, e.center);
+    const toward = sub(anchor, e.center);
+    return touch[0] * toward[0] + touch[1] * toward[1] >= 0 ? 'min' : 'max';
+  }
+  return 'min';
+}
+
+/** The point the distance measures toward, for the touch-side test: the
+ * other pick's vertex, the circle center's foot on the other line, or the
+ * other circle's center. */
+function towardAnchor(model: SolvedSketchModel, other: SolvedPick, center: Vec2): Vec2 | null {
+  if (isPointPick(other)) {
+    return refPoint(model, pickRef(other));
+  }
+  const e = entityFor(model, pickRef(other));
+  if (!e) {
+    return null;
+  }
+  if (e.kind === 'line') {
+    return footOnLine(e, center);
+  }
+  return e.center ?? null;
 }
 
 /** Measured value of the dimension a pick set would create — the value
@@ -189,9 +250,11 @@ export function measureDimension(
   form: DimensionForm,
   axis?: 'x' | 'y',
   sector?: AngleSector | null,
+  tangency?: 'min' | 'max',
 ): number | null {
   const picks = expandDimensionPicks(rawPicks);
   const round2 = (v: number): number => Math.round(v * 100) / 100;
+  const far = tangency === 'max';
 
   if (form.kind === 'radius' || form.kind === 'diameter') {
     const e = entityFor(model, pickRef(picks[0]));
@@ -229,7 +292,8 @@ export function measureDimension(
       return foot ? round2(norm(sub(point, foot))) : null;
     }
     if (e.center && e.radius !== undefined) {
-      return round2(Math.abs(norm(sub(point, e.center)) - e.radius));
+      const d = norm(sub(point, e.center));
+      return round2(far ? d + e.radius : Math.abs(d - e.radius));
     }
   }
   const ea = entityFor(model, pickRef(a));
@@ -244,10 +308,17 @@ export function measureDimension(
     const roundE = lineE === ea ? eb : ea;
     if (lineE && roundE.center && roundE.radius !== undefined) {
       const foot = footOnLine(lineE, roundE.center);
-      return foot ? round2(Math.abs(norm(sub(roundE.center, foot)) - roundE.radius)) : null;
+      if (!foot) {
+        return null;
+      }
+      const d = norm(sub(roundE.center, foot));
+      return round2(far ? d + roundE.radius : Math.abs(d - roundE.radius));
     }
     if (ea.center && eb.center && ea.radius !== undefined && eb.radius !== undefined) {
-      return round2(Math.abs(norm(sub(eb.center, ea.center)) - ea.radius - eb.radius));
+      const d = norm(sub(eb.center, ea.center));
+      return round2(far
+        ? d + ea.radius + eb.radius
+        : Math.abs(d - ea.radius - eb.radius));
     }
   }
   return null;
@@ -262,6 +333,7 @@ export function candidateSpec(
   value?: number,
   axis?: 'x' | 'y',
   sector?: AngleSector | null,
+  tangency?: 'min' | 'max',
 ): ConstraintSpec | null {
   if (!pairEnabled(id, picks)) {
     return null;
@@ -318,6 +390,9 @@ export function candidateSpec(
       if (axis !== undefined) {
         (spec as { axis?: 'x' | 'y' }).axis = axis;
       }
+      if (tangency === 'max' && form.tangencyChoice) {
+        (spec as { tangency?: 'min' | 'max' }).tangency = 'max';
+      }
       return spec;
     }
   }
@@ -351,6 +426,7 @@ export function dimensionPreviewLayout(
   form: DimensionForm,
   axis?: 'x' | 'y',
   sector?: AngleSector | null,
+  tangency?: 'min' | 'max',
 ): DimensionPreviewLayout | null {
   const picks = expandDimensionPicks(rawPicks);
   if (form.kind === 'radius' || form.kind === 'diameter') {
@@ -396,6 +472,9 @@ export function dimensionPreviewLayout(
   };
   if (axis !== undefined) {
     spec.axis = axis;
+  }
+  if (tangency === 'max' && form.tangencyChoice) {
+    spec.tangency = 'max';
   }
   const endpoints = distanceSpecEndpoints(model, spec);
   return endpoints ? { line: endpoints, at: mid(endpoints[0], endpoints[1]) } : null;

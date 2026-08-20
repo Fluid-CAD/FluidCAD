@@ -1713,9 +1713,37 @@ export async function applySketchConstraint(options: {
   targets: SketchConstraintTargetParam[];
   valueExpr?: string;
   axis?: 'x' | 'y';
+  /** distance only: far-side circle/arc measurement — renders `.max()`. */
+  tangency?: 'max';
 }): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('/api/sketch/add-constraint', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify(options),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+/**
+ * Rewrite a distance dimension's tangency condition (the timeline's
+ * "Use min/max tangent"): strips any chained `.max()`/`.min()` on the
+ * statement and appends `.max()` when the far side is requested.
+ */
+export async function setDistanceTangency(options: {
+  line: number;
+  filePath?: string;
+  tangency: 'min' | 'max';
+}): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/sketch/set-distance-tangency', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(options),

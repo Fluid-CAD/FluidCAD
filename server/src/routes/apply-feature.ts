@@ -7119,12 +7119,13 @@ export function createApplyFeatureRouter(
   // sketch body's end — one edit, riding the generic apply-feature-edit
   // round trip (preflight + drift-honest ack).
   router.post('/sketch/add-constraint', async (req, res) => {
-    const { sketchLine, filePath, kind, targets, valueExpr, axis } = req.body ?? {};
+    const { sketchLine, filePath, kind, targets, valueExpr, axis, tangency } = req.body ?? {};
     if (typeof sketchLine !== 'number' || typeof kind !== 'string'
       || !Array.isArray(targets) || targets.length === 0 || targets.length > 3
       || (filePath !== undefined && typeof filePath !== 'string')
       || (valueExpr !== undefined && typeof valueExpr !== 'string')
-      || (axis !== undefined && axis !== 'x' && axis !== 'y')) {
+      || (axis !== undefined && axis !== 'x' && axis !== 'y')
+      || (tangency !== undefined && tangency !== 'max')) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
@@ -7161,7 +7162,34 @@ export function createApplyFeatureRouter(
         targets: cleanTargets as any,
         ...(valueExpr !== undefined ? { valueExpr } : {}),
         ...(axis !== undefined ? { axis } : {}),
+        ...(tangency !== undefined ? { tangency } : {}),
       },
+    };
+    await dispatcher.dispatch(res, spec, { success: true });
+  });
+
+  // Distance-dimension tangency rewrite (timeline "Use min/max tangent"):
+  // strip/append the statement's chained `.max()` in one edit.
+  router.post('/sketch/set-distance-tangency', async (req, res) => {
+    const { filePath, line, tangency } = req.body ?? {};
+    if (typeof line !== 'number'
+      || (tangency !== 'min' && tangency !== 'max')
+      || (filePath !== undefined && typeof filePath !== 'string')) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const targetFile = filePath ?? fluidCadServer.getCurrentFileName();
+    if (!targetFile) {
+      res.status(422).json({ success: false, reason: 'No rendered scene' });
+      return;
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath: targetFile,
+      producers: [],
+      parts: [],
+      imports: [],
+      distanceTangency: { line, tangency },
     };
     await dispatcher.dispatch(res, spec, { success: true });
   });

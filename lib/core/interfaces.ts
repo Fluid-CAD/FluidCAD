@@ -277,6 +277,25 @@ export interface ISolvedCircle extends IExtrudableGeometry {
   center(): LazyVertex;
 }
 
+/** A distance dimension statement in a constraint-mode sketch. */
+export interface IDistance extends ISceneObject {
+  /**
+   * Measures to the FAR side of any circle/arc in the pair (the
+   * SolidWorks/Onshape arc-condition "max"): point–circle and
+   * line–circle measure `center distance + radius`, circle–circle
+   * measures between the far circumferences. Requires a circle or arc
+   * entity target. For a center distance, dimension the accessor
+   * instead: `distance(l, a.center(), v)`.
+   */
+  max(): this;
+
+  /**
+   * Measures to the NEAR side of the circumference — the default; an
+   * explicit `.min()` only documents intent.
+   */
+  min(): this;
+}
+
 export interface IText extends IExtrudableGeometry {
   /**
    * Sets the text height (em size) in model units. Default 10.

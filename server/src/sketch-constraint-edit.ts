@@ -31,6 +31,8 @@ export type SketchConstraintEditSpec = {
   valueExpr?: string;
   /** distance only: measure along one axis. */
   axis?: 'x' | 'y';
+  /** distance only: far-side circle/arc measurement — renders `.max()`. */
+  tangency?: 'max';
 };
 
 export async function applySketchConstraint(
@@ -45,6 +47,7 @@ export async function applySketchConstraint(
       targets: spec.targets,
       ...(spec.valueExpr !== undefined ? { valueExpr: spec.valueExpr } : {}),
       ...(spec.axis !== undefined ? { axis: spec.axis } : {}),
+      ...(spec.tangency !== undefined ? { tangency: spec.tangency } : {}),
     }],
   });
   return { newCode: result.newCode, ...(result.error !== undefined ? { error: result.error } : {}) };

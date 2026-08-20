@@ -34,6 +34,7 @@ import {
   dimensionFormFor,
   dimensionPreviewLayout,
   expandDimensionPicks,
+  inferTangency,
   isPointPick,
   measureDimension,
 } from './legality';
@@ -80,6 +81,8 @@ export class SolvedConstraintToolbarService {
     picks: SolvedPick[];
     form: DimensionForm;
     sector?: AngleSector | null;
+    /** Circle/arc distances: near (min, default) or far (max) side. */
+    tangency?: 'min' | 'max';
   } | null = null;
   private previewGroup: Group | null = null;
   /** Interactive angle placement (FreeCAD-style): the sector under the
@@ -209,12 +212,13 @@ export class SolvedConstraintToolbarService {
         return;
       }
     }
-    const measured = model ? measureDimension(model, picks, form, undefined, sector) : null;
+    const tangency = this.pendingDimension.tangency;
+    const measured = model ? measureDimension(model, picks, form, undefined, sector, tangency) : null;
     if (!model || measured === null) {
       this.valueInput.hide();
       return;
     }
-    const layout = dimensionPreviewLayout(model, picks, form, undefined, sector);
+    const layout = dimensionPreviewLayout(model, picks, form, undefined, sector, tangency);
     this.drawDimensionPreview(layout);
     const pos = this.inputPosition(model, layout);
     this.valueInput.updatePosition(pos.clientX, pos.clientY);
@@ -519,7 +523,7 @@ export class SolvedConstraintToolbarService {
       return;
     }
     const form = id === 'angle'
-      ? { kind: 'angle' as const, axisChoice: false }
+      ? { kind: 'angle' as const, axisChoice: false, tangencyChoice: false }
       : dimensionFormFor(dimPicks);
     if (!form) {
       return;
@@ -534,14 +538,19 @@ export class SolvedConstraintToolbarService {
     if (id === 'angle' && !angleSector) {
       return;
     }
-    const measured = measureDimension(model, picks, form, undefined, angleSector);
+    // Circle/arc distances pick their tangency side from the TOUCH: a click
+    // on the side of the circumference facing the other target measures the
+    // near side (min, the default); the opposite side measures far (max).
+    // The timeline row's "Use min/max tangent" flips a committed statement.
+    const tangency = inferTangency(model, picks, form);
+    const measured = measureDimension(model, picks, form, undefined, angleSector, tangency);
     if (measured === null) {
       return;
     }
     // The input opens at the label spot of the dimension it will create,
     // with the leader line previewed between the anchors (drawn after
     // show() — a re-targeting show() runs the previous cycle's onHide).
-    const layout = dimensionPreviewLayout(model, picks, form, undefined, angleSector);
+    const layout = dimensionPreviewLayout(model, picks, form, undefined, angleSector, tangency);
     const { clientX, clientY } = this.inputPosition(model, layout);
     this.valueInput.show({
       label: form.kind === 'angle' ? '∠' : form.kind === 'radius' ? 'R' : form.kind === 'diameter' ? '⌀' : 'D',
@@ -582,10 +591,13 @@ export class SolvedConstraintToolbarService {
         const emitPicks = form.kind === 'angle' && sectorNow
           ? angleSectorTargets(picks[0], picks[1], sectorNow)
           : picks;
-        void this.emit(kind as ConstraintButtonId, emitPicks, finalExpr, undefined);
+        void this.emit(
+          kind as ConstraintButtonId, emitPicks, finalExpr, undefined,
+          tangency === 'max' ? 'max' : undefined,
+        );
       },
     });
-    this.pendingDimension = { picks, form, sector: angleSector };
+    this.pendingDimension = { picks, form, sector: angleSector, tangency };
     this.drawDimensionPreview(layout);
   }
 
@@ -707,6 +719,7 @@ export class SolvedConstraintToolbarService {
     picks: SolvedPick[],
     valueExpr: string | undefined,
     axis: 'x' | 'y' | undefined,
+    tangency?: 'max',
   ): Promise<void> {
     const info = this.sketchInfo;
     if (!info) {
@@ -731,6 +744,7 @@ export class SolvedConstraintToolbarService {
       targets,
       ...(valueExpr !== undefined ? { valueExpr } : {}),
       ...(axis !== undefined ? { axis } : {}),
+      ...(tangency !== undefined ? { tangency } : {}),
     });
     this.busy = false;
     this.view.setBusy(false);
@@ -766,7 +780,7 @@ export class SolvedConstraintToolbarService {
     let value: number | undefined;
     let sector: AngleSector | null = null;
     if (id === 'dimension' || id === 'angle') {
-      const form = id === 'angle' ? { kind: 'angle' as const, axisChoice: false } : dimensionFormFor(this.picks);
+      const form = id === 'angle' ? { kind: 'angle' as const, axisChoice: false, tangencyChoice: false } : dimensionFormFor(this.picks);
       if (id === 'angle' && this.picks.length === 2) {
         sector = angleSectorAt(model, this.picks[0], this.picks[1], null);
       }

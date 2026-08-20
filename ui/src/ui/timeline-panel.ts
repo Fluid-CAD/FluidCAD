@@ -1,4 +1,5 @@
 import type { SceneObjectRender } from '../types';
+import { setDistanceTangency } from '../api';
 import { findActiveObject, findEnclosingPartRow, rollbackScopeIds, isRollbackViewTruncated } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH } from './icons';
@@ -853,12 +854,18 @@ export class TimelinePanel {
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PAUSE}</span>
           <span>Breakpoint here</span>
         </button></li>`;
+    const tangencyAction = this.distanceTangencyAction(obj);
+    const tangencyItem = !tangencyAction ? '' : `
+        <li><button data-action="tangency" class="flex items-center gap-2">
+          <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_REFRESH}</span>
+          <span>${tangencyAction.label}</span>
+        </button></li>`;
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
         <li><button data-action="rename" class="flex items-center gap-2">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_PENCIL}</span>
           <span>Rename</span>
-        </button></li>${editItem}${breakpointItem}
+        </button></li>${editItem}${tangencyItem}${breakpointItem}
         <li><button data-action="remove" class="flex items-center gap-2 text-error">
           <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5">${ICON_TRASH}</span>
           <span>Remove</span>
@@ -891,6 +898,15 @@ export class TimelinePanel {
       this.goToSource(obj);
     });
 
+    dropdown.querySelector('[data-action="tangency"]')?.addEventListener('click', () => {
+      this.closeDropdown();
+      void setDistanceTangency({
+        line: obj.sourceLocation!.line,
+        filePath: obj.sourceLocation!.filePath,
+        tangency: tangencyAction!.tangency,
+      });
+    });
+
     dropdown.querySelector('[data-action="remove"]')!.addEventListener('click', () => {
       this.closeDropdown();
       this.client.editor?.removeFeature(obj.sourceLocation!);
@@ -909,6 +925,36 @@ export class TimelinePanel {
       document.removeEventListener('click', onClickOutside);
       document.removeEventListener('contextmenu', onClickOutside);
     };
+  }
+
+  /**
+   * The tangency rewrite a distance-constraint row offers ("Use min/max
+   * tangent" — flip which side of the circle/arc the dimension measures
+   * to), or null when the row isn't a distance against a circle/arc.
+   */
+  private distanceTangencyAction(
+    obj: SceneObjectRender,
+  ): { label: string; tangency: 'min' | 'max' } | null {
+    if (obj.uniqueType !== 'constraint-distance' || !obj.sourceLocation) {
+      return null;
+    }
+    const spec = obj.object?.spec;
+    if (!spec || spec.axis !== undefined) {
+      return null;
+    }
+    // Tangency needs a circle/arc ENTITY reference (a ref without a point
+    // role, resolving to a sibling solved-circle/arc row).
+    const hasRound = [spec.a, spec.b].some((ref: { entity: number; point?: string } | undefined) =>
+      ref && ref.point === undefined && this.sceneObjects.some(o =>
+        o.parentId === obj.parentId
+        && (o.uniqueType === 'solved-circle' || o.uniqueType === 'solved-arc')
+        && o.object?.entityId === ref.entity));
+    if (!hasRound) {
+      return null;
+    }
+    return spec.tangency === 'max'
+      ? { label: 'Use min tangent', tangency: 'min' }
+      : { label: 'Use max tangent', tangency: 'max' };
   }
 
   /**

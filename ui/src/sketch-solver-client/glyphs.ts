@@ -329,10 +329,17 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
 /** The two anchor points a distance dimension spans, by resolved form.
  * Shared with the toolbar's dimension preview (P4.5) so the preview line
  * lands exactly where the committed glyph's leader will. */
+/** `p` reflected across `c` — probes the FAR side of a circumference
+ * for max-tangency dimensions. */
+function mirrorAcross(c: Vec2, p: Vec2): Vec2 {
+  return [2 * c[0] - p[0], 2 * c[1] - p[1]];
+}
+
 export function distanceSpecEndpoints(
   model: SolvedSketchModel,
   spec: Extract<ConstraintSpec, { kind: 'distance' }>,
 ): [Vec2, Vec2] | null {
+  const far = spec.tangency === 'max';
   const pa = refPoint(model, spec.a);
   const pb = refPoint(model, spec.b);
   if (pa && pb) {
@@ -359,7 +366,8 @@ export function distanceSpecEndpoints(
       return foot ? [point, foot] : null;
     }
     if (entity.kind === 'circle' || entity.kind === 'arc') {
-      const rim = pointOnCircumference(entity, point);
+      const probe = far && entity.center ? mirrorAcross(entity.center, point) : point;
+      const rim = pointOnCircumference(entity, probe);
       return rim ? [point, rim] : null;
     }
   }
@@ -371,18 +379,21 @@ export function distanceSpecEndpoints(
       const foot = from ? footOnLine(ea, from) : null;
       return from && foot ? [from, foot] : null;
     }
-    // Line–circle/arc: from the rim to the center's foot on the line.
+    // Line–circle/arc: from the rim (near or far side) to the center's
+    // foot on the line.
     const lineE = ea.kind === 'line' ? ea : eb.kind === 'line' ? eb : null;
     const roundE = lineE === ea ? eb : ea;
     if (lineE && roundE.center) {
       const foot = footOnLine(lineE, roundE.center);
-      const rim = foot ? pointOnCircumference(roundE, foot) : null;
+      const probe = foot && far ? mirrorAcross(roundE.center, foot) : foot;
+      const rim = probe ? pointOnCircumference(roundE, probe) : null;
       return foot && rim ? [rim, foot] : null;
     }
-    // Circle–circle: between circumferences along the center line.
+    // Circle–circle: between circumferences along the center line —
+    // near sides, or the far sides for a max dimension.
     if (ea.center && eb.center) {
-      const fromRim = pointOnCircumference(ea, eb.center);
-      const toRim = pointOnCircumference(eb, ea.center);
+      const fromRim = pointOnCircumference(ea, far ? mirrorAcross(ea.center, eb.center) : eb.center);
+      const toRim = pointOnCircumference(eb, far ? mirrorAcross(eb.center, ea.center) : ea.center);
       return fromRim && toRim ? [fromRim, toRim] : null;
     }
   }

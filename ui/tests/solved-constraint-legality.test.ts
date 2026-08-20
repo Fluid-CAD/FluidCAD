@@ -5,6 +5,7 @@ import {
   dimensionFormFor,
   dimensionPreviewLayout,
   expandDimensionPicks,
+  inferTangency,
   measureDimension,
 } from '../src/interactive/solved-constraint-toolbar/legality';
 import { angleSectorAt } from '../src/interactive/solved-constraint-toolbar/angle-sector';
@@ -85,20 +86,21 @@ describe('constraintOptions', () => {
 });
 
 describe('dimensionFormFor', () => {
-  it('selects the constraint form per pick pair', () => {
-    expect(dimensionFormFor([endA, startB])).toEqual({ kind: 'distance', axisChoice: true });
-    expect(dimensionFormFor([endA, lineB])).toEqual({ kind: 'distance', axisChoice: false });
-    expect(dimensionFormFor([lineA, lineB])).toEqual({ kind: 'distance', axisChoice: false });
-    expect(dimensionFormFor([circleC, arcD])).toEqual({ kind: 'distance', axisChoice: false });
-    expect(dimensionFormFor([lineA, circleC])).toEqual({ kind: 'distance', axisChoice: false });
-    expect(dimensionFormFor([arcD, lineB])).toEqual({ kind: 'distance', axisChoice: false });
-    expect(dimensionFormFor([circleC])).toEqual({ kind: 'diameter', axisChoice: false });
-    expect(dimensionFormFor([arcD])).toEqual({ kind: 'radius', axisChoice: false });
+  it('selects the constraint form per pick pair; circle/arc pairs offer the tangency choice', () => {
+    expect(dimensionFormFor([endA, startB])).toEqual({ kind: 'distance', axisChoice: true, tangencyChoice: false });
+    expect(dimensionFormFor([endA, lineB])).toEqual({ kind: 'distance', axisChoice: false, tangencyChoice: false });
+    expect(dimensionFormFor([endA, circleC])).toEqual({ kind: 'distance', axisChoice: false, tangencyChoice: true });
+    expect(dimensionFormFor([lineA, lineB])).toEqual({ kind: 'distance', axisChoice: false, tangencyChoice: false });
+    expect(dimensionFormFor([circleC, arcD])).toEqual({ kind: 'distance', axisChoice: false, tangencyChoice: true });
+    expect(dimensionFormFor([lineA, circleC])).toEqual({ kind: 'distance', axisChoice: false, tangencyChoice: true });
+    expect(dimensionFormFor([arcD, lineB])).toEqual({ kind: 'distance', axisChoice: false, tangencyChoice: true });
+    expect(dimensionFormFor([circleC])).toEqual({ kind: 'diameter', axisChoice: false, tangencyChoice: false });
+    expect(dimensionFormFor([arcD])).toEqual({ kind: 'radius', axisChoice: false, tangencyChoice: false });
     expect(dimensionFormFor([lineA, lineA])).toBeNull();
   });
 
   it('a lone line dimensions its own length — the endpoint-pair distance', () => {
-    expect(dimensionFormFor([lineA])).toEqual({ kind: 'distance', axisChoice: true });
+    expect(dimensionFormFor([lineA])).toEqual({ kind: 'distance', axisChoice: true, tangencyChoice: false });
     expect(expandDimensionPicks([lineA])).toEqual([
       { ...lineA, role: 'start' },
       { ...lineA, role: 'end' },
@@ -137,7 +139,7 @@ const model: SolvedSketchModel = {
 describe('measureDimension', () => {
   it('measures point pairs, with and without an axis', () => {
     const picks = [endA, { entityId: 1, kind: 'line', role: 'end', sourceLocation: loc(6) } as SolvedPick];
-    const form = { kind: 'distance' as const, axisChoice: true };
+    const form = { kind: 'distance' as const, axisChoice: true, tangencyChoice: false };
     expect(measureDimension(model, picks, form)).toBe(8);
     expect(measureDimension(model, picks, form, 'x')).toBe(0);
     expect(measureDimension(model, picks, form, 'y')).toBe(8);
@@ -145,12 +147,12 @@ describe('measureDimension', () => {
 
   it('measures point–line perpendicular and point–circle gap', () => {
     const end1: SolvedPick = { entityId: 1, kind: 'line', role: 'end', sourceLocation: loc(6) };
-    expect(measureDimension(model, [end1, lineA], { kind: 'distance', axisChoice: false })).toBe(8);
-    expect(measureDimension(model, [endA, circleC], { kind: 'distance', axisChoice: false })).toBe(15);
+    expect(measureDimension(model, [end1, lineA], { kind: 'distance', axisChoice: false, tangencyChoice: false })).toBe(8);
+    expect(measureDimension(model, [endA, circleC], { kind: 'distance', axisChoice: false, tangencyChoice: false })).toBe(15);
   });
 
   it('measures angle between lines in degrees — always positive, whatever the pick order', () => {
-    const angleForm = { kind: 'angle' as const, axisChoice: false };
+    const angleForm = { kind: 'angle' as const, axisChoice: false, tangencyChoice: false };
     expect(measureDimension(model, [lineA, lineB], angleForm)).toBe(90);
     // The reversed pick order used to measure −90 (the signed directed
     // angle); a sector's angle is its own positive measure.
@@ -158,25 +160,59 @@ describe('measureDimension', () => {
   });
 
   it('measures radius and diameter', () => {
-    expect(measureDimension(model, [circleC], { kind: 'radius', axisChoice: false })).toBe(5);
-    expect(measureDimension(model, [circleC], { kind: 'diameter', axisChoice: false })).toBe(10);
+    expect(measureDimension(model, [circleC], { kind: 'radius', axisChoice: false, tangencyChoice: false })).toBe(5);
+    expect(measureDimension(model, [circleC], { kind: 'diameter', axisChoice: false, tangencyChoice: false })).toBe(10);
   });
 
   it('measures line–circle as the perpendicular gap to the circumference', () => {
-    const form = { kind: 'distance' as const, axisChoice: false };
+    const form = { kind: 'distance' as const, axisChoice: false, tangencyChoice: false };
     // Center (30,0) is 20 off lineB's infinite line (x=10); r=5 → gap 15.
     expect(measureDimension(model, [lineB, circleC], form)).toBe(15);
     expect(measureDimension(model, [circleC, lineB], form)).toBe(15);
   });
 
+  it('measures the FAR side under the max tangency condition', () => {
+    const form = { kind: 'distance' as const, axisChoice: false, tangencyChoice: true };
+    // Line–circle: 20 + r 5; point–circle: d 20 + r 5.
+    expect(measureDimension(model, [lineB, circleC], form, undefined, null, 'max')).toBe(25);
+    expect(measureDimension(model, [endA, circleC], form, undefined, null, 'max')).toBe(25);
+  });
+
   it('measures a lone line as its length', () => {
-    expect(measureDimension(model, [lineA], { kind: 'distance', axisChoice: true })).toBe(10);
-    expect(measureDimension(model, [lineB], { kind: 'distance', axisChoice: true })).toBe(8);
+    expect(measureDimension(model, [lineA], { kind: 'distance', axisChoice: true, tangencyChoice: false })).toBe(10);
+    expect(measureDimension(model, [lineB], { kind: 'distance', axisChoice: true, tangencyChoice: false })).toBe(8);
+  });
+});
+
+describe('inferTangency', () => {
+  const form = { kind: 'distance' as const, axisChoice: false, tangencyChoice: true };
+
+  it('reads min from a near-side touch, max from a far-side touch', () => {
+    // lineB is x=10; circleC center (30,0) r=5 — near rim faces the line.
+    expect(inferTangency(model, [lineB, { ...circleC, at: [25.2, 0.4] }], form)).toBe('min');
+    expect(inferTangency(model, [lineB, { ...circleC, at: [34.8, 0.4] }], form)).toBe('max');
+    // Pick order doesn't matter — the touch is on the circle either way.
+    expect(inferTangency(model, [{ ...circleC, at: [34.8, 0.4] }, lineB], form)).toBe('max');
+  });
+
+  it('point–circle touches work the same way', () => {
+    // endA is (10,0): the near rim is at x=25, the far rim at x=35.
+    expect(inferTangency(model, [endA, { ...circleC, at: [26, 1] }], form)).toBe('min');
+    expect(inferTangency(model, [endA, { ...circleC, at: [34, -1] }], form)).toBe('max');
+  });
+
+  it('defaults to min without a touch or a tangency choice', () => {
+    expect(inferTangency(model, [lineB, circleC], form)).toBe('min');
+    expect(inferTangency(
+      model,
+      [lineA, { ...lineB, at: [10, 4] }],
+      { kind: 'distance', axisChoice: false, tangencyChoice: false },
+    )).toBe('min');
   });
 });
 
 describe('dimensionPreviewLayout', () => {
-  const distance = { kind: 'distance' as const, axisChoice: true };
+  const distance = { kind: 'distance' as const, axisChoice: true, tangencyChoice: false };
   const end1: SolvedPick = { entityId: 1, kind: 'line', role: 'end', sourceLocation: loc(6) };
 
   it('point–point: leader between the vertices, input at the midpoint', () => {
@@ -194,21 +230,29 @@ describe('dimensionPreviewLayout', () => {
   });
 
   it('point–line: leader from the point to its perpendicular foot', () => {
-    expect(dimensionPreviewLayout(model, [end1, lineA], { kind: 'distance', axisChoice: false })).toEqual({
+    expect(dimensionPreviewLayout(model, [end1, lineA], { kind: 'distance', axisChoice: false, tangencyChoice: false })).toEqual({
       line: [[10, 8], [10, 0]],
       at: [10, 4],
     });
   });
 
   it('line–circle: leader from the rim to the center\'s foot on the line', () => {
-    expect(dimensionPreviewLayout(model, [lineB, circleC], { kind: 'distance', axisChoice: false })).toEqual({
+    expect(dimensionPreviewLayout(model, [lineB, circleC], { kind: 'distance', axisChoice: false, tangencyChoice: false })).toEqual({
       line: [[25, 0], [10, 0]],
       at: [17.5, 0],
     });
   });
 
+  it('line–circle max: leader from the FAR rim to the foot', () => {
+    const form = { kind: 'distance' as const, axisChoice: false, tangencyChoice: true };
+    expect(dimensionPreviewLayout(model, [lineB, circleC], form, undefined, null, 'max')).toEqual({
+      line: [[35, 0], [10, 0]],
+      at: [22.5, 0],
+    });
+  });
+
   it('radius: leader from the center to the rim label spot', () => {
-    const layout = dimensionPreviewLayout(model, [circleC], { kind: 'radius', axisChoice: false });
+    const layout = dimensionPreviewLayout(model, [circleC], { kind: 'radius', axisChoice: false, tangencyChoice: false });
     expect(layout).not.toBeNull();
     expect(layout!.line![0]).toEqual([30, 0]);
     expect(layout!.line![1][0]).toBeCloseTo(30 + 5 * Math.SQRT1_2, 10);
@@ -219,7 +263,7 @@ describe('dimensionPreviewLayout', () => {
     // The default sector's a-boundary ray (+x) points AWAY from a's
     // segment (the intersection is a's far endpoint) — the arc's end
     // needs the dashed tail stub there; b's segment covers its ray.
-    expect(dimensionPreviewLayout(model, [lineA, lineB], { kind: 'angle', axisChoice: false })).toEqual({
+    expect(dimensionPreviewLayout(model, [lineA, lineB], { kind: 'angle', axisChoice: false, tangencyChoice: false })).toEqual({
       line: null,
       at: [10, 0],
       arc: { startAngle: 0, sweep: Math.PI / 2, extensions: [], tails: [0] },
@@ -248,6 +292,16 @@ describe('candidateSpec', () => {
     });
     expect(candidateSpec('dimension', [endA, startB], 8, 'y')).toEqual({
       kind: 'distance', a: { entity: 0, point: 'end' }, b: { entity: 1, point: 'start' }, value: 8, axis: 'y',
+    });
+  });
+
+  it('max tangency rides the spec only when the pair has a circle/arc', () => {
+    expect(candidateSpec('dimension', [lineB, circleC], 25, undefined, null, 'max')).toEqual({
+      kind: 'distance', a: { entity: 1 }, b: { entity: 2 }, value: 25, tangency: 'max',
+    });
+    // Point pairs have no tangency side — a stray 'max' is dropped.
+    expect(candidateSpec('dimension', [endA, startB], 8, undefined, null, 'max')).toEqual({
+      kind: 'distance', a: { entity: 0, point: 'end' }, b: { entity: 1, point: 'start' }, value: 8,
     });
   });
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { applySketchConstraint } from '../src/sketch-constraint-edit.ts';
+import { applyDistanceTangency } from '../src/sketch-solved-edit.ts';
 
 // Constraint emission for solved sketches (sketch-rewrite P4): hoisting of
 // unbound entity statements + body-end insertion + constraints import, all
@@ -51,6 +52,18 @@ describe('applySketchConstraint', () => {
     });
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`distance(a.start(), l1.end(), 25.5, 'x');`);
+  });
+
+  it('renders the max tangency condition as a chained .max()', async () => {
+    const result = await applySketchConstraint(SKETCH, {
+      sketchLine: 4,
+      kind: 'distance',
+      targets: [{ line: 5, featureType: 'line' }, { line: 7, featureType: 'circle' }],
+      valueExpr: '70',
+      tangency: 'max',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`distance(a, c1, 70).max();`);
   });
 
   it('two targets on the SAME unbound statement hoist once and share the name (a lone line\'s length is distance(l.start(), l.end(), …))', async () => {
@@ -140,5 +153,52 @@ describe('applySketchConstraint', () => {
       targets: [{ line: 5 }],
     });
     expect(result.error).toContain('no sketch statement at line 2');
+  });
+});
+
+describe('applyDistanceTangency', () => {
+  const DIMMED = [
+    `import { sketch, line, arc } from "fluidcad/core";`,
+    `import { distance, radius } from "fluidcad/constraints";`,
+    ``,
+    `sketch('xy', () => {`,
+    `  const l1 = line([0, 0], [0, 100]);`,
+    `  const a1 = arc([140, 30], [140, 70], [140, 50]);`,
+    `  radius(a1, 20);`,
+    `  distance(l1, a1, 130);`,
+    `}, true);`,
+  ].join('\n');
+
+  it('appends .max() to a bare distance statement', async () => {
+    const result = await applyDistanceTangency(DIMMED, { line: 8, tangency: 'max' });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`distance(l1, a1, 130).max();`);
+  });
+
+  it('strips .max() when switching back to min; min on a bare statement is a no-op', async () => {
+    const withMax = DIMMED.replace('distance(l1, a1, 130);', 'distance(l1, a1, 130).max();');
+    const back = await applyDistanceTangency(withMax, { line: 8, tangency: 'min' });
+    expect(back.error).toBeUndefined();
+    expect(back.newCode).toContain(`distance(l1, a1, 130);`);
+    expect(back.newCode).not.toContain('.max()');
+
+    const noop = await applyDistanceTangency(DIMMED, { line: 8, tangency: 'min' });
+    expect(noop.newCode).toBe(DIMMED);
+  });
+
+  it('replaces an explicit .min() and survives other chained calls', async () => {
+    const chained = DIMMED.replace(
+      'distance(l1, a1, 130);',
+      `distance(l1, a1, 130).min().name('gap');`,
+    );
+    const result = await applyDistanceTangency(chained, { line: 8, tangency: 'max' });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`distance(l1, a1, 130).name('gap').max();`);
+  });
+
+  it('refuses a line that is not a distance statement', async () => {
+    const result = await applyDistanceTangency(DIMMED, { line: 7, tangency: 'max' });
+    expect(result.error).toContain('not a distance() statement');
+    expect(result.newCode).toBe(DIMMED);
   });
 });

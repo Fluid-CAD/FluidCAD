@@ -47,15 +47,21 @@ function ownerOf(arg: ConstraintTarget | undefined): SolvedGeometryBase | null {
   return null;
 }
 
+/** Does a target reference a circle/arc ENTITY (not a point accessor)? */
+export function isRoundEntityTarget(arg: ConstraintTarget | undefined): boolean {
+  return arg instanceof SolvedGeometryBase
+    && (arg.solverKind === 'circle' || arg.solverKind === 'arc');
+}
+
 export function emitConstraint(
   context: SceneParserContext,
   kind: string,
   displayValue: number | undefined,
   specFn: () => ConstraintSpec,
   args: (ConstraintTarget | undefined)[],
+  statement: SolvedConstraint = new SolvedConstraint(kind, displayValue),
 ): ISceneObject {
   const sketch = context.getActiveSketch();
-  const statement = new SolvedConstraint(kind, displayValue);
   context.addSceneObject(statement);
 
   const deps: SceneObject[] = [];

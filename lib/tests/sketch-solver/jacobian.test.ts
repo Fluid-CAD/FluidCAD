@@ -93,6 +93,10 @@ describe("constraint jacobians vs finite differences", () => {
     sys.constrain({ kind: "distance", a: entityRef(circleE), b: entityRef(lineA), value: 0.8 });
     sys.constrain({ kind: "distance", a: entityRef(circleA), b: entityRef(circleB), value: 1.7 });
     sys.constrain({ kind: "distance", a: entityRef(circleC), b: entityRef(circleD), value: 0.9 });
+    // distance tangency max: p–circle, line–circle, c–c far sides
+    sys.constrain({ kind: "distance", a: entityRef(pA), b: entityRef(circleB), value: 9.9, tangency: "max" });
+    sys.constrain({ kind: "distance", a: entityRef(lineB), b: entityRef(circleA), value: 15.2, tangency: "max" });
+    sys.constrain({ kind: "distance", a: entityRef(circleA), b: entityRef(circleB), value: 12.1, tangency: "max" });
     // radius / diameter / equal
     sys.constrain({ kind: "radius", a: entityRef(circleA), value: 2.5 });
     sys.constrain({ kind: "radius", a: entityRef(arcA), value: 3.0 });
@@ -106,13 +110,13 @@ describe("constraint jacobians vs finite differences", () => {
     sys.constrain({ kind: "symmetric", a: entityRef(pA), b: entityRef(pB), l: entityRef(lineC) });
     sys.constrain({ kind: "fix", p: start(lineA) });
 
-    // 35 user constraint statements + 1 internal arc-consistency.
-    expect(sys.constraints().length).toBe(36);
+    // 38 user constraint statements + 1 internal arc-consistency.
+    expect(sys.constraints().length).toBe(39);
     // Row count: coincident 2+1+1+1, h/v 4×1, par/perp/angle 3×1,
-    // tangent 4×1, distance 10×1, radius/diameter 3×1, equal 2×1,
+    // tangent 4×1, distance 13×1, radius/diameter 3×1, equal 2×1,
     // concentric 2, collinear 2, midpoint 2, symmetric 2, fix 2,
     // arc-consistency 2.
-    expect(sys.compiled().rows.length).toBe(43);
+    expect(sys.compiled().rows.length).toBe(46);
     fdCheckRows(sys, [11, 29, 53], 0.25);
   });
 

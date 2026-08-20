@@ -150,6 +150,25 @@ describe("solved sketch (constraint mode)", () => {
     expect(arcPayload.radius).toBeCloseTo(20, 6);
   });
 
+  it("distance(l, a).max() dimensions the arc's FAR side", () => {
+    sketch('xy', () => {
+      const l1 = line([0, 0], [0, 100]);
+      const a1 = (arc([140, 30], [140, 70], [140, 50]) as ISolvedArc);
+      vertical(l1);
+      fix(l1.start());
+      distance(l1.start(), l1.end(), 100);
+      radius(a1, 20);
+      distance(l1, a1, 170).max();
+    }, true);
+    const scene = render();
+
+    const arcPayload = renderedByUniqueType(scene, 'solved-arc')[0].object;
+    // Far side 170 with r = 20 → the center lands 150 off the (x=0) line;
+    // the near-side default would have pushed it to 190.
+    expect(arcPayload.center.x).toBeCloseTo(150, 6);
+    expect(arcPayload.radius).toBeCloseTo(20, 6);
+  });
+
   it("solves circles with diameter dims and points with fix", () => {
     sketch('xy', () => {
       const p = point([3, 4]);

@@ -169,6 +169,46 @@ describe("golden solves", () => {
     expect(sys.pointValue(center(c)).y).toBeCloseTo(6, 6);
   });
 
+  it("line–circle max distance: measured to the FAR side of the circumference", () => {
+    const sys = new SketchSystem();
+    const l = sys.line(0, 0, 0, 100);
+    const c = sys.circle(140, 50, 20);
+    sys.constrain({ kind: "vertical", a: entityRef(l) });
+    sys.constrain({ kind: "fix", p: start(l) });
+    sys.constrain({ kind: "distance", a: start(l), b: end(l), value: 100 });
+    sys.constrain({ kind: "radius", a: entityRef(c), value: 20 });
+    sys.constrain({ kind: "distance", a: entityRef(l), b: entityRef(c), value: 170, tangency: "max" });
+    perturb(sys, 0.4, 43);
+    const result = solve(sys);
+    expect(result.outcome).toBe("solved");
+    // Far side at 170 with r = 20 → the center sits 150 off the line
+    // (the near-side reading of the same layout would be 130).
+    expect(sys.pointValue(center(c)).x).toBeCloseTo(150, 6);
+    expect(sys.values[sys.entity(c).paramOffset + 2]).toBeCloseTo(20, 6);
+  });
+
+  it("point–circle max distance measures d + r; tangency without a circle is refused", () => {
+    const sys = new SketchSystem();
+    const p = sys.point(0, 0);
+    const c = sys.circle(80, 0, 15);
+    sys.constrain({ kind: "fix", p: entityRef(p) });
+    sys.constrain({ kind: "radius", a: entityRef(c), value: 15 });
+    sys.constrain({ kind: "horizontal", a: entityRef(p), b: center(c) });
+    sys.constrain({ kind: "distance", a: entityRef(p), b: entityRef(c), value: 115, tangency: "max" });
+    perturb(sys, 0.3, 47);
+    const result = solve(sys);
+    expect(result.outcome).toBe("solved");
+    // d + r = 115 with r = 15 → the center lands 100 out.
+    expect(Math.abs(sys.pointValue(center(c)).x)).toBeCloseTo(100, 6);
+
+    const bad = new SketchSystem();
+    const l1 = bad.line(0, 0, 10, 0);
+    const l2 = bad.line(0, 5, 10, 5);
+    expect(() => bad.constrain({
+      kind: "distance", a: entityRef(l1), b: entityRef(l2), value: 5, tangency: "max",
+    })).toThrow(/tangency requires a circle or arc/);
+  });
+
   it("under-constrained: untouched DOF stay exactly at their guesses", () => {
     const sys = new SketchSystem();
     const a = sys.line(0, 0, 10, 0);

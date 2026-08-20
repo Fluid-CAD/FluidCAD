@@ -62,9 +62,11 @@ export type ConstraintSpec =
    * (perpendicular distance from the center minus the radius; side
    * and outside/crossing locked from the guess), circle–circle
    * (gap between circumferences; containment vs external from the
-   * guess).
+   * guess). `tangency: 'max'` measures to the FAR side of any
+   * circle/arc in the pair (SolidWorks arc-condition max); absent or
+   * 'min' is the near side. Requires a circle/arc reference.
    */
-  | { kind: 'distance'; a: SolverRef; b: SolverRef; value: number; axis?: 'x' | 'y' }
+  | { kind: 'distance'; a: SolverRef; b: SolverRef; value: number; axis?: 'x' | 'y'; tangency?: 'min' | 'max' }
   | { kind: 'radius'; a: SolverRef; value: number }
   | { kind: 'diameter'; a: SolverRef; value: number }
   /** Equal line lengths or equal radii (1). */

@@ -11,6 +11,11 @@
 //                          external locked from the guess)
 // Side locks come from the guesses at compile time so a dimensioned
 // point can't wander to the mirror solution during a warm re-solve.
+//
+// `tangency: 'max'` (SolidWorks arc-condition max) flips every
+// circle/arc measurement to the FAR side of the circumference:
+// point–circle d + r, line–circle |g| + r, circle–circle d + r1 + r2.
+// All max forms are smooth sums — no outside/crossing branch to lock.
 
 import type { ConstraintSpec, SolverRef } from '../types.js';
 import type { CompiledRow, CompileCtx } from './types.js';
@@ -26,11 +31,15 @@ type Spec = Extract<ConstraintSpec, { kind: 'distance' }>;
 
 export function compileDistance(spec: Spec, ctx: CompileCtx): CompiledRow[] {
   const t = spec.value;
+  const far = spec.tangency === 'max';
   const aPoint = ctx.isPoint(spec.a);
   const bPoint = ctx.isPoint(spec.b);
 
   if (spec.axis !== undefined && !(aPoint && bPoint)) {
     throw new Error('distance axis variants require two point references');
+  }
+  if (spec.tangency !== undefined && !ctx.isCircle(spec.a) && !ctx.isCircle(spec.b)) {
+    throw new Error('distance: min/max tangency requires a circle or arc reference');
   }
 
   if (aPoint && bPoint) {
@@ -100,6 +109,25 @@ export function compileDistance(spec: Spec, ctx: CompileCtx): CompiledRow[] {
     }
     const c = ctx.circle(eRef, 'distance circle/arc');
     const pd = makePointDistDeriv();
+    if (far) {
+      return [
+        {
+          params: [pt.ix, pt.iy, c.cx, c.cy, c.r],
+          eval: (p) => {
+            pointDist(p, pt.ix, pt.iy, c.cx, c.cy, pd);
+            return pd.d + p[c.r] - t;
+          },
+          jac: (p, out) => {
+            pointDist(p, pt.ix, pt.iy, c.cx, c.cy, pd);
+            out[0] = pd.dAx;
+            out[1] = pd.dAy;
+            out[2] = -pd.dAx;
+            out[3] = -pd.dAy;
+            out[4] = 1;
+          },
+        },
+      ];
+    }
     pointDist(ctx.guess, pt.ix, pt.iy, c.cx, c.cy, pd);
     const s = guessSign(pd.d - ctx.guess[c.r]);
     return [
@@ -160,15 +188,17 @@ export function compileDistance(spec: Spec, ctx: CompileCtx): CompiledRow[] {
     linePointSignedDist(ctx.guess, l, ctx.guess[c.cx], ctx.guess[c.cy], d);
     // s1 locks which side of the line the center sits; s2 locks whether
     // the line clears the circle (gap) or crosses it (chord depth).
+    // Far side (max): |g| + r — always positive, no s2 branch.
     const s1 = guessSign(d.g);
-    const s2 = guessSign(s1 * d.g - ctx.guess[c.r]);
+    const s2 = far ? 1 : guessSign(s1 * d.g - ctx.guess[c.r]);
+    const rCoef = far ? 1 : -s2;
     const k = s2 * s1;
     return [
       {
         params: [l.sx, l.sy, l.ex, l.ey, c.cx, c.cy, c.r],
         eval: (p) => {
           linePointSignedDist(p, l, p[c.cx], p[c.cy], d);
-          return s2 * (s1 * d.g - p[c.r]) - t;
+          return k * d.g + rCoef * p[c.r] - t;
         },
         jac: (p, out) => {
           linePointSignedDist(p, l, p[c.cx], p[c.cy], d);
@@ -178,7 +208,7 @@ export function compileDistance(spec: Spec, ctx: CompileCtx): CompiledRow[] {
           out[3] = k * d.dEy;
           out[4] = k * d.dWx;
           out[5] = k * d.dWy;
-          out[6] = -s2;
+          out[6] = rCoef;
         },
       },
     ];
@@ -188,6 +218,26 @@ export function compileDistance(spec: Spec, ctx: CompileCtx): CompiledRow[] {
     const a = ctx.circle(spec.a, 'distance first circle/arc');
     const b = ctx.circle(spec.b, 'distance second circle/arc');
     const pd = makePointDistDeriv();
+    if (far) {
+      return [
+        {
+          params: [a.cx, a.cy, b.cx, b.cy, a.r, b.r],
+          eval: (p) => {
+            pointDist(p, a.cx, a.cy, b.cx, b.cy, pd);
+            return pd.d + p[a.r] + p[b.r] - t;
+          },
+          jac: (p, out) => {
+            pointDist(p, a.cx, a.cy, b.cx, b.cy, pd);
+            out[0] = pd.dAx;
+            out[1] = pd.dAy;
+            out[2] = -pd.dAx;
+            out[3] = -pd.dAy;
+            out[4] = 1;
+            out[5] = 1;
+          },
+        },
+      ];
+    }
     pointDist(ctx.guess, a.cx, a.cy, b.cx, b.cy, pd);
     const d0 = pd.d;
     const r1 = ctx.guess[a.r];

@@ -66,6 +66,8 @@ export type SolvedConstraintEmission = {
   valueExpr?: string;
   /** distance only: measure along one axis. */
   axis?: 'x' | 'y';
+  /** distance only: far-side circle/arc measurement — renders `.max()`. */
+  tangency?: 'max';
 };
 
 export type SolvedEmissionSpec = {
@@ -92,6 +94,56 @@ export type SolvedEmissionResult = {
 
 function refuse(code: string, error: string): SolvedEmissionResult {
   return { newCode: code, error };
+}
+
+export type DistanceTangencySpec = {
+  /** 1-indexed line of the distance() statement. */
+  line: number;
+  tangency: 'min' | 'max';
+};
+
+/**
+ * Rewrite a distance() statement's tangency condition: strip any chained
+ * `.max()`/`.min()` and append `.max()` when the far side is requested.
+ * Min is the bare default — no `.min()` is written.
+ */
+export async function applyDistanceTangency(
+  code: string,
+  spec: DistanceTangencySpec,
+): Promise<{ newCode: string; error?: string }> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const lines = splitLines(code);
+  const call = findEditableCallAt(tree, lines, spec.line);
+  if (!call || calleeName(chainBase(call)) !== 'distance') {
+    return { newCode: code, error: `line ${spec.line} is not a distance() statement` };
+  }
+  // Existing tangency segments in the chain, outermost first (walk order),
+  // so back-to-front splices keep inner indices valid.
+  const removals: { start: number; end: number }[] = [];
+  let cur: TSNode | null = call;
+  while (cur && cur.type === 'call_expression') {
+    const fn = cur.childForFieldName('function');
+    const obj = fn && fn.type === 'member_expression' ? fn.childForFieldName('object') : null;
+    if (!obj || obj.type !== 'call_expression') {
+      break;
+    }
+    const prop = fn!.childForFieldName('property');
+    if (prop && (prop.text === 'max' || prop.text === 'min')) {
+      removals.push({ start: obj.endIndex, end: cur.endIndex });
+    }
+    cur = obj;
+  }
+  let result = code;
+  for (const r of removals) {
+    result = spliceCode(result, r.start, r.end, '');
+  }
+  if (spec.tangency === 'max') {
+    const removed = removals.reduce((sum, r) => sum + (r.end - r.start), 0);
+    const at = call.endIndex - removed;
+    result = spliceCode(result, at, at, '.max()');
+  }
+  return { newCode: result };
 }
 
 /** The innermost call of a member chain — the entity command itself,
@@ -277,7 +329,8 @@ export async function applySolvedEmission(
     if (c.axis !== undefined) {
       args.push(`'${c.axis}'`);
     }
-    constraintTexts.push(`${c.kind}(${args.join(', ')});`);
+    const suffix = c.tangency === 'max' ? '.max()' : '';
+    constraintTexts.push(`${c.kind}(${args.join(', ')})${suffix};`);
   }
 
   // Hoists are same-line insertions (no row shifts), applied back-to-front

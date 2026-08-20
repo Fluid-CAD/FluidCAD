@@ -15,7 +15,12 @@ import {
 } from './code-editor.ts';
 import { applySegmentSwap, type SegmentSwapSpec } from './segment-swap.ts';
 import { applySketchConstraint, type SketchConstraintEditSpec } from './sketch-constraint-edit.ts';
-import { applySolvedEmission, type SolvedEmissionSpec } from './sketch-solved-edit.ts';
+import {
+  applyDistanceTangency,
+  applySolvedEmission,
+  type DistanceTangencySpec,
+  type SolvedEmissionSpec,
+} from './sketch-solved-edit.ts';
 import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
 import { applyInsertPartEdit, type InsertPartEditSpec } from './part-catalog/insert-edit.ts';
 import { applyInstancePoseEdit, type InstancePoseEditSpec } from './insert-chain-edit.ts';
@@ -217,6 +222,13 @@ export type ApplyFeatureEditSpec = {
    * spec field is ignored.
    */
   sketchEmission?: SolvedEmissionSpec;
+  /**
+   * Distance-dimension tangency rewrite (timeline "Use min/max tangent"):
+   * strip any chained `.max()`/`.min()` on the statement and append `.max()`
+   * when the far side is requested. Rides the same round trip as
+   * `sketchConstraint`; every other spec field is ignored.
+   */
+  distanceTangency?: DistanceTangencySpec;
   /**
    * Parameters-panel declaration edit: add, retype/rename, or delete a
    * `param()` call. Rides the same round trip for the same reason a segment
@@ -1450,6 +1462,9 @@ export async function applyFeatureEdit(
   if (spec.sketchEmission) {
     const { newCode, error } = await applySolvedEmission(code, spec.sketchEmission);
     return { newCode, ...(error !== undefined ? { error } : {}) };
+  }
+  if (spec.distanceTangency) {
+    return applyDistanceTangency(code, spec.distanceTangency);
   }
   if (spec.paramEdit) {
     return ParamEditor.apply(code, spec.paramEdit);

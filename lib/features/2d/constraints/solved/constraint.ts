@@ -49,6 +49,24 @@ export class SolvedConstraint extends SceneObject {
     }
   }
 
+  /**
+   * Post-registration spec refinement for chained modifiers (`.max()`).
+   * The solver holds the spec by reference and compiles rows fresh per
+   * solve, so a mutation here — statement time, before the first build —
+   * is picked up. Validation failures are stashed like registration
+   * errors, never thrown.
+   */
+  protected refineSpec(fn: (spec: ConstraintSpec) => void): void {
+    if (this._registrationError || !this._spec) {
+      return;
+    }
+    try {
+      fn(this._spec);
+    } catch (error) {
+      this._registrationError = error instanceof Error ? error.message : String(error);
+    }
+  }
+
   build(): void {
     if (this._registrationError) {
       throw new BuildError(this._registrationError);

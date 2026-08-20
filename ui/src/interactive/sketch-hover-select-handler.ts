@@ -39,6 +39,11 @@ export type SolvedPick = {
    * point. Undefined = the whole entity (edge pick). */
   role?: 'start' | 'end' | 'center' | null;
   sourceLocation?: SourceLocation;
+  /** Edge picks: where on the sketch plane the click landed (the "touch").
+   * Circle/arc dimensions read the side of the circumference from it —
+   * near-side touch reads min, far-side max. Valid for the render the pick
+   * was made in; consumers use it at pick time only. */
+  at?: [number, number];
 };
 
 type SelectedVertexPick = {
@@ -99,6 +104,8 @@ export class SketchHoverSelectHandler {
   private badgeTargets: BadgeHitTarget[] = [];
   /** entityId → the entity statement's edge shapeIds (badge hover tint). */
   private entityShapeIds = new Map<number, string[]>();
+  /** Sketch-space click point per selected edge pick (see SolvedPick.at). */
+  private edgePickAt = new Map<string, [number, number]>();
   private hoveredBadge: BadgeHitTarget | null = null;
   private hoveredBadgeShapeIds: string[] = [];
   /** The active sketch's id — the key for finding its SketchMesh (whose
@@ -305,10 +312,17 @@ export class SketchHoverSelectHandler {
           });
         }
       } else {
-        const entityId = shapeToEntity.get(key.slice(2));
+        const shapeId = key.slice(2);
+        const entityId = shapeToEntity.get(shapeId);
         const e = entityId !== undefined ? model.entities.get(entityId) : undefined;
         if (e) {
-          picks.push({ entityId: e.entityId, kind: e.kind, sourceLocation: e.obj.sourceLocation });
+          const at = this.edgePickAt.get(shapeId);
+          picks.push({
+            entityId: e.entityId,
+            kind: e.kind,
+            sourceLocation: e.obj.sourceLocation,
+            ...(at ? { at } : {}),
+          });
         }
       }
     }
@@ -479,20 +493,28 @@ export class SketchHoverSelectHandler {
       return;
     }
 
+    const touch = projectToSketch(this.ctx, this.plane, e.clientX, e.clientY);
     if (isMulti) {
       if (this.selectedShapeIds.has(this.hoveredShapeId)) {
         this.removeSelectionHighlight(this.hoveredShapeId);
         this.selectedShapeIds.delete(this.hoveredShapeId);
+        this.edgePickAt.delete(this.hoveredShapeId);
         this.dropFromSequence(`e:${this.hoveredShapeId}`);
         this.applyHoverHighlight(this.hoveredShapeId);
       } else {
         this.selectedShapeIds.add(this.hoveredShapeId);
+        if (touch) {
+          this.edgePickAt.set(this.hoveredShapeId, touch);
+        }
         this.pickSequence.push(`e:${this.hoveredShapeId}`);
         this.applySelectionHighlight(this.hoveredShapeId);
       }
     } else {
       this.clearSelection();
       this.selectedShapeIds.add(this.hoveredShapeId);
+      if (touch) {
+        this.edgePickAt.set(this.hoveredShapeId, touch);
+      }
       this.pickSequence.push(`e:${this.hoveredShapeId}`);
       this.applySelectionHighlight(this.hoveredShapeId);
     }
@@ -622,6 +644,7 @@ export class SketchHoverSelectHandler {
       this.removeSelectionHighlight(id);
     }
     this.selectedShapeIds.clear();
+    this.edgePickAt.clear();
     for (const pick of this.selectedVertexPicks.values()) {
       this.disposeVertexOverlay(pick.overlay);
     }

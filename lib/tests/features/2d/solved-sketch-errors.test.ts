@@ -7,6 +7,7 @@ import {
   coincident, horizontal, vertical, fix, distance, parallel, angle,
 } from "../../../core/constraints/index.js";
 import { Scene } from "../../../rendering/scene.js";
+import type { ISolvedCircle } from "../../../core/interfaces.js";
 
 function renderedByUniqueType(scene: Scene, uniqueType: string) {
   return scene.getRenderedObjects().filter(r => r.uniqueType === uniqueType);
@@ -41,6 +42,26 @@ describe("solved sketch diagnostics and mode-mixing errors", () => {
     const solved = renderedByUniqueType(scene, 'solved-line')[0];
     expect(solved.hasError).toBe(false);
     expect(solved.sceneShapes.length).toBeGreaterThan(0);
+  });
+
+  it("rejects .max() on a distance with no circle/arc entity target", () => {
+    sketch('xy', () => {
+      const a = line([0, 0], [50, 0]);
+      const b = line([0, 20], [50, 20]);
+      const c = circle([100, 0], 10) as unknown as ISolvedCircle;
+      fix(a.start());
+      distance(a, b, 20).max();
+      // The accessor form is a point reference — no tangency side either.
+      distance(a, c.center(), 100).max();
+    }, true);
+    const scene = render();
+
+    const dims = renderedByUniqueType(scene, 'constraint-distance');
+    expect(dims).toHaveLength(2);
+    for (const dim of dims) {
+      expect(dim.hasError).toBe(true);
+      expect(dim.errorMessage).toContain('circle or arc target');
+    }
   });
 
   it("rejects the center-less circle form in a solved sketch", () => {

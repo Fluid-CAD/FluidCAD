@@ -90,13 +90,12 @@ export type BadgeItem = BoxSize & {
   order: number;
 };
 
-export type DimensionStyle = 'span' | 'radial' | 'chord';
+export type DimensionStyle = 'span' | 'aligned';
 
 /** One dimension label. `anchor + slide·a + push·b` spans its candidates. */
 export type DimensionItem = BoxSize & {
   anchor: Pt;
-  /** Unit direction the label may slide along (the dimension line, or the
-   * rim tangent for a radius). */
+  /** Unit direction the label may slide along — its own dimension line. */
   slide: Pt;
   /** Unit direction the label offsets along; the sign is the preferred side. */
   push: Pt;
@@ -168,18 +167,15 @@ const ALONG_LINE_STOPS = [0, 0.45, -0.45, 0.8, -0.8];
  * How far along its own dimension line a label may park, as a fraction of
  * the slide range, cheapest first.
  *
- * `span` (distance dims) mirrors drafting practice: sit at the middle of the
- * dimension line, one gap clear of it; when that is taken, slide along the
- * line before stepping further away from it. `radial` (a radius) pushes out
- * along the radius first — sliding tangentially walks the label around the
- * circle, away from the leader it belongs to. `chord` (a diameter) parks
- * like a span; it is a style of its own because the sprite layer also ROLLS
- * it to lie along the chord.
+ * Both styles mirror drafting practice: sit at the middle of the dimension
+ * line, one gap clear of it; when that is taken, slide along the line
+ * before stepping further away from it. They stay distinct because the
+ * sprite layer treats them differently — an `aligned` label (a diameter's
+ * chord, a radius) also ROLLS to lie along its line.
  */
 const SLIDE_STOPS: Record<DimensionStyle, number[]> = {
   span: ALONG_LINE_STOPS,
-  radial: [0, 0.5, -0.5],
-  chord: ALONG_LINE_STOPS,
+  aligned: ALONG_LINE_STOPS,
 };
 
 /** Candidate positions for one dimension label, cheapest first. */

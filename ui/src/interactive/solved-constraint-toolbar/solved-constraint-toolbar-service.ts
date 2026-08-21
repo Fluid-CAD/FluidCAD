@@ -20,7 +20,9 @@ import {
   buildAngleExtensions,
   buildDimensionReadout,
 } from '../../meshes/containers/solved-constraint-meshes';
+import { buildDimensionArrows } from '../../meshes/containers/dimension-arrows';
 import type { SketchHoverSelectHandler, SolvedPick } from '../sketch-hover-select-handler';
+import type { ArrowEnds } from '../../sketch-solver-client';
 import {
   LiveSolvedSystem,
   SolvedSketchModel,
@@ -628,7 +630,7 @@ export class SolvedConstraintToolbarService {
     }
     const wrapper = new Group();
     wrapper.userData.isMetaShape = true;
-    wrapper.add(this.buildLeaderGroup(layout.line, model, PLACEMENT_OPACITY));
+    wrapper.add(this.buildLeaderGroup(layout.line, model, PLACEMENT_OPACITY, layout.arrows));
     // Dashed witness extensions to anchors the axis leader doesn't reach.
     const ext = buildAngleExtensions(
       layout.extensions ?? [], model.plane, themeColors.constraintColor, PLACEMENT_OPACITY,
@@ -866,7 +868,7 @@ export class SolvedConstraintToolbarService {
     if (!layout.line) {
       return;
     }
-    const group = this.buildLeaderGroup(layout.line, model, PREVIEW_LEADER_OPACITY);
+    const group = this.buildLeaderGroup(layout.line, model, PREVIEW_LEADER_OPACITY, layout.arrows);
     group.userData.isMetaShape = true;
     const ext = buildAngleExtensions(
       layout.extensions ?? [], model.plane, themeColors.constraintColor, PREVIEW_LEADER_OPACITY,
@@ -879,11 +881,13 @@ export class SolvedConstraintToolbarService {
     this.ctx.requestRender();
   }
 
-  /** One world-scale leader segment, styled like the committed glyph's. */
+  /** One world-scale leader segment, styled like the committed glyph's —
+   * arrowheads included, so committing only swaps in the label. */
   private buildLeaderGroup(
     seg: [Vec2, Vec2],
     model: SolvedSketchModel,
     opacity: number,
+    arrows?: ArrowEnds,
   ): Group {
     const from = localToWorld(seg[0], model.plane);
     const to = localToWorld(seg[1], model.plane);
@@ -903,6 +907,14 @@ export class SolvedConstraintToolbarService {
     const group = new Group();
     group.renderOrder = 2;
     group.add(line);
+    if (arrows) {
+      const heads = buildDimensionArrows(
+        seg, model.plane, model.plane.normal, themeColors.constraintColor, opacity, 2, arrows,
+      );
+      if (heads) {
+        group.add(heads);
+      }
+    }
     return group;
   }
 

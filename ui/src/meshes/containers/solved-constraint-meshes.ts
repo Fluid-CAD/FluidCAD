@@ -37,6 +37,7 @@ import { localToWorld } from '../../interactive/sketch-plane-utils';
 import { applyConstantPixelSize, pixelScale, pixelsToWorld } from '../screen-scale';
 import { themeColors } from '../../scene/theme-colors';
 import { createTextTexture, getIconTexture, getTextTexture, IconTexture } from './badge-textures';
+import { buildDimensionArrows } from './dimension-arrows';
 import {
   ANGLE_LABEL_PX_SIZE,
   BADGE_PX_SIZE,
@@ -426,9 +427,9 @@ export function buildSolvedConstraintMeshes(
             order,
           });
         } else {
-          // An aligned label (a diameter's `chord`) lies centered ON its
+          // An `aligned` label (a diameter chord, a radius) lies centered ON its
           // line already — a link stub back to it would only add a line.
-          const link = glyph.leader && glyph.style !== 'chord' ? createLinkLine(color) : null;
+          const link = glyph.leader && glyph.style !== 'aligned' ? createLinkLine(color) : null;
           if (link) {
             groups.push(wrapLink(link));
           }
@@ -506,6 +507,15 @@ export function buildSolvedConstraintMeshes(
         group.renderOrder = ICON_RENDER_ORDER - 1;
         group.userData.isConstraintIcon = true;
         group.add(line);
+        if (glyph.arrows) {
+          const arrows = buildDimensionArrows(
+            [glyph.from, glyph.to], plane, normal, color, LEADER_OPACITY,
+            ICON_RENDER_ORDER - 1, glyph.arrows,
+          );
+          if (arrows) {
+            group.add(arrows);
+          }
+        }
         groups.push(group);
         // Dashed witness extensions to anchors the leader doesn't reach
         // (axis-locked distances) — same styling as the angle extensions.

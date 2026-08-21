@@ -46,6 +46,12 @@ type GlyphBase = {
   refEntityIds: number[];
 };
 
+/** Which ends of a dimension leader carry an arrowhead: `both` for a
+ * measured span (a distance, a diameter chord), `end` for a leader that
+ * only lands on one thing — a radius runs OUT of its center, which is not
+ * a measured point. */
+export type ArrowEnds = 'both' | 'end';
+
 export type ConstraintGlyph = GlyphBase & (
   /** Boxed-letter badge, screen-constant. `offsetDir` is the outward normal
    * it floats along, `alongDir` the edge tangent a group of them rows up
@@ -83,8 +89,15 @@ export type ConstraintGlyph = GlyphBase & (
   /** World-scale dimension leader line. `extensions` are dashed witness
    * leaders from a synthetic leader end to the real anchor it measures
    * (axis-locked distances draw the leader axis-aligned, so the far point
-   * can float off it — the angle glyph's extension convention). */
-  | { type: 'leader'; from: Vec2; to: Vec2; extensions?: [Vec2, Vec2][] }
+   * can float off it — the angle glyph's extension convention).
+   * `arrows` caps the ends with screen-constant drafting arrowheads. */
+  | {
+      type: 'leader';
+      from: Vec2;
+      to: Vec2;
+      extensions?: [Vec2, Vec2][];
+      arrows?: ArrowEnds;
+    }
   /** Angle dimension: arc swept from `startAngle` by `sweep` around `at`,
    * with the readout at mid-arc. `extensions` are dashed helper leaders
    * from each segment's nearest endpoint to a virtual intersection the
@@ -306,7 +319,7 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
           const dir = normalize(sub(to, from));
           const extensions = distanceSpecExtensions(model, spec);
           glyphs.push({
-            ...base, type: 'leader', from, to,
+            ...base, type: 'leader', from, to, arrows: 'both',
             ...(extensions.length > 0 ? { extensions } : {}),
           });
           glyphs.push({
@@ -331,17 +344,23 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
         if (e && e.center) {
           const rim = entityAnchor(e);
           if (rim) {
-            glyphs.push({ ...base, type: 'leader', from: e.center, to: rim });
+            // Rim end only: the leader runs OUT of the center, which is
+            // not one of the two ends of a measured span.
+            glyphs.push({ ...base, type: 'leader', from: e.center, to: rim, arrows: 'end' });
+            const dir = normalize(sub(rim, e.center));
             glyphs.push({
               ...base,
               type: 'text',
               label: `R${formatDim(c.value ?? spec.value)}`,
-              at: rim,
-              // Radial dims push out along the radius first; sliding walks
-              // the label around the rim, so it is the fallback axis.
-              offsetDir: offsetDirAt(e, rim),
-              alongDir: alongDirAt(e, rim),
-              style: 'radial',
+              at: mid(e.center, rim),
+              // The value rides the radius like a diameter rides its chord:
+              // laid ALONG the line, centered between center and rim, one
+              // gap clear. Orbiting the rim instead needs a stub to say
+              // which line the number belongs to; sitting on the line says
+              // it outright.
+              offsetDir: perp(dir),
+              alongDir: dir,
+              style: 'aligned',
               slideRange: (e.radius ?? 0) / 2,
               leader: [e.center, rim],
             });
@@ -359,21 +378,23 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
           if (chord) {
             const [from, to] = chord;
             const dir = normalize(sub(to, from));
-            glyphs.push({ ...base, type: 'leader', from, to });
+            // Both rims: the chord IS the measured span, so it is capped
+            // like a distance (a radius' center end gets no arrow).
+            glyphs.push({ ...base, type: 'leader', from, to, arrows: 'both' });
             glyphs.push({
               ...base,
               type: 'text',
               label: `⌀${formatDim(c.value ?? spec.value)}`,
               at: mid(from, to),
               // The value rides the chord: laid ALONG it (the sprite layer
-              // rolls a `chord` label to its line), centered on it, one gap
+              // rolls an `aligned` label to its line), centered on it, one gap
               // clear — so it reads as this circle's size from inside the
               // circle instead of orbiting the rim like a radius readout.
               // The `leader` names the line it owns; a centered, aligned
               // value draws no link stub back to it.
               offsetDir: perp(dir),
               alongDir: dir,
-              style: 'chord',
+              style: 'aligned',
               slideRange: e.radius ?? 0,
               leader: [from, to],
             });

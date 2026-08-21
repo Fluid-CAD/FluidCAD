@@ -205,7 +205,7 @@ describe('constraint glyph layout', () => {
     expect(text.at).toEqual([50, 0]);
   });
 
-  it('lays a radius dimension as center leader plus R label on the rim', () => {
+  it('lays a radius dimension as a center→rim leader, R label riding the line', () => {
     const objects = [
       circle(0, [10, 10], 10),
       constraint('radius', 0, { kind: 'radius', a: { entity: 0 }, value: 5 }, 5),
@@ -214,10 +214,21 @@ describe('constraint glyph layout', () => {
     const leader = glyphs.find(g => g.type === 'leader') as any;
     const text = glyphs.find(g => g.type === 'text') as any;
     expect(leader.from).toEqual([10, 10]);
+    // Only the rim end measures anything, so only it carries an arrowhead.
+    expect(leader.arrows).toBe('end');
     expect(text.label).toBe('R5');
-    expect(text.style).toBe('radial');
-    const rimDist = Math.hypot(text.at[0] - 10, text.at[1] - 10);
-    expect(rimDist).toBeCloseTo(5, 9);
+    expect(text.style).toBe('aligned');
+    // The value rides the radius: anchored halfway along it and aligned to
+    // it, rather than orbiting the rim on the end of a stub.
+    expect(text.at[0]).toBeCloseTo((10 + leader.to[0]) / 2, 9);
+    expect(text.at[1]).toBeCloseTo((10 + leader.to[1]) / 2, 9);
+    expect(Math.hypot(text.at[0] - 10, text.at[1] - 10)).toBeCloseTo(2.5, 9);
+    expect(text.slideRange).toBeCloseTo(2.5, 9);
+    expect(text.leader).toEqual([leader.from, leader.to]);
+    const dir = [(leader.to[0] - 10) / 5, (leader.to[1] - 10) / 5];
+    expect(text.alongDir[0]).toBeCloseTo(dir[0], 9);
+    expect(text.alongDir[1]).toBeCloseTo(dir[1], 9);
+    expect(text.offsetDir[0] * dir[0] + text.offsetDir[1] * dir[1]).toBeCloseTo(0, 9);
   });
 
   it('lays a diameter dimension as a full chord, ⌀ label riding the line', () => {
@@ -236,7 +247,7 @@ describe('constraint glyph layout', () => {
     expect((leader.from[1] + leader.to[1]) / 2).toBeCloseTo(10, 9);
 
     expect(text.label).toBe('⌀10');
-    expect(text.style).toBe('chord');
+    expect(text.style).toBe('aligned');
     // The value rides the chord: anchored ON the line, sliding along it,
     // pushed only across it — never pushed out past the rim.
     expect(text.at[0]).toBeCloseTo(10, 9);

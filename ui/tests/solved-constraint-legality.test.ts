@@ -278,6 +278,7 @@ describe('dimensionPreviewLayout', () => {
     expect(dimensionPreviewLayout(model, [endA, end1], distance)).toEqual({
       line: [[10, 0], [10, 8]],
       at: [10, 4],
+      arrows: 'both',
     });
   });
 
@@ -285,6 +286,7 @@ describe('dimensionPreviewLayout', () => {
     expect(dimensionPreviewLayout(model, [lineA], distance)).toEqual({
       line: [[0, 0], [10, 0]],
       at: [5, 0],
+      arrows: 'both',
     });
   });
 
@@ -294,17 +296,20 @@ describe('dimensionPreviewLayout', () => {
     expect(dimensionPreviewLayout(model, [start0, end1], distance, 'x')).toEqual({
       line: [[0, 0], [10, 0]],
       at: [5, 0],
+      arrows: 'both',
       extensions: [[[10, 0], [10, 8]]],
     });
     expect(dimensionPreviewLayout(model, [start0, end1], distance, 'y')).toEqual({
       line: [[0, 0], [0, 8]],
       at: [0, 4],
+      arrows: 'both',
       extensions: [[[0, 8], [10, 8]]],
     });
     // A pair already on the axis needs no witness line.
     expect(dimensionPreviewLayout(model, [endA, { ...endA, role: 'start' }], distance, 'x')).toEqual({
       line: [[10, 0], [0, 0]],
       at: [5, 0],
+      arrows: 'both',
     });
   });
 
@@ -312,6 +317,7 @@ describe('dimensionPreviewLayout', () => {
     expect(dimensionPreviewLayout(model, [end1, lineA], { kind: 'distance', axisChoice: false, tangencyChoice: false })).toEqual({
       line: [[10, 8], [10, 0]],
       at: [10, 4],
+      arrows: 'both',
     });
   });
 
@@ -319,6 +325,7 @@ describe('dimensionPreviewLayout', () => {
     expect(dimensionPreviewLayout(model, [lineB, circleC], { kind: 'distance', axisChoice: false, tangencyChoice: false })).toEqual({
       line: [[25, 0], [10, 0]],
       at: [17.5, 0],
+      arrows: 'both',
     });
   });
 
@@ -327,15 +334,20 @@ describe('dimensionPreviewLayout', () => {
     expect(dimensionPreviewLayout(model, [lineB, circleC], form, undefined, null, 'max')).toEqual({
       line: [[35, 0], [10, 0]],
       at: [22.5, 0],
+      arrows: 'both',
     });
   });
 
-  it('radius: leader from the center to the rim label spot', () => {
+  it('radius: leader from the center to the rim, input riding the line', () => {
     const layout = dimensionPreviewLayout(model, [circleC], { kind: 'radius', axisChoice: false, tangencyChoice: false });
     expect(layout).not.toBeNull();
     expect(layout!.line![0]).toEqual([30, 0]);
     expect(layout!.line![1][0]).toBeCloseTo(30 + 5 * Math.SQRT1_2, 10);
-    expect(layout!.at).toEqual(layout!.line![1]);
+    // The input opens on the label spot: halfway along the radius.
+    expect(layout!.at[0]).toBeCloseTo((30 + layout!.line![1][0]) / 2, 10);
+    expect(layout!.at[1]).toBeCloseTo(layout!.line![1][1] / 2, 10);
+    // The center end measures nothing, so only the rim gets an arrowhead.
+    expect(layout!.arrows).toBe('end');
   });
 
   it('diameter: leader rim to rim through the center, input on the label spot', () => {

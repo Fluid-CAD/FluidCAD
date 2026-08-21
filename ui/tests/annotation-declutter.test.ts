@@ -286,7 +286,7 @@ describe('dimension labels', () => {
   });
 
   it('centers a chord label on its line, like a span', () => {
-    const items = [dimension({ x: 300, y: 300 }, 0, { style: 'chord', slideRangePx: 40 })];
+    const items = [dimension({ x: 300, y: 300 }, 0, { style: 'aligned', slideRangePx: 40 })];
     const result = run([], items);
     expect(result.dimensions[0].visible).toBe(true);
     expect(result.dimensions[0].dx).toBeCloseTo(0, 9);

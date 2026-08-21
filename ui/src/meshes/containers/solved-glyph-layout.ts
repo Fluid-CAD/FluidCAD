@@ -113,7 +113,7 @@ export type DimensionSprite = LayoutSprite & {
    */
   box: GlyphBox;
   /** In-plane rotation applied on top of the camera facing, radians CCW.
-   * Written every solve; 0 for every style but `chord`. */
+   * Written every solve; 0 for every style but `aligned`. */
   roll: number;
 };
 
@@ -334,7 +334,7 @@ export class SolvedGlyphLayout {
       const slide = unitDir(projection, sprite.slideLocal, { x: 1, y: 0 });
       // An aligned label lies ALONG its dimension line, so it rolls to the
       // line's screen angle — flipped to keep the value readable.
-      sprite.roll = sprite.style === 'chord' ? rollFor(slide) : 0;
+      sprite.roll = sprite.style === 'aligned' ? rollFor(slide) : 0;
       const rolled = rolledBounds(sprite, sprite.roll);
       Object.assign(sprite.box, rolled);
       return {

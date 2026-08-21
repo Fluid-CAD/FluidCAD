@@ -5,7 +5,7 @@
 
 import type { ConstraintSpec, SolverRef } from '../../../../lib/sketch-solver/types.js';
 import type { SolvedPick } from '../sketch-hover-select-handler';
-import type { SolvedSketchModel } from '../../sketch-solver-client';
+import type { ArrowEnds, SolvedSketchModel } from '../../sketch-solver-client';
 import { diameterChord, distanceSpecEndpoints, distanceSpecExtensions } from '../../sketch-solver-client';
 import {
   Vec2,
@@ -490,6 +490,9 @@ export type DimensionPreviewLayout = {
   /** Dashed witness leaders from a synthetic leader end to the real
    * anchor (axis forms — the committed glyph draws the same). */
   extensions?: [Vec2, Vec2][];
+  /** Arrowheads on the leader's ends — set the way the committed glyph
+   * sets them, so the preview is the same line. */
+  arrows?: ArrowEnds;
   /** Where the value input anchors — the committed glyph's label spot. */
   at: Vec2;
   /** Angle only: the sector arc around `at` (screen-constant radius, same
@@ -527,10 +530,15 @@ export function dimensionPreviewLayout(
       // Rim to rim through the center — the chord the committed glyph will
       // draw, with the value input opening on its label spot.
       const chord = diameterChord(model, e);
-      return chord ? { line: chord, at: mid(chord[0], chord[1]) } : null;
+      return chord ? { line: chord, at: mid(chord[0], chord[1]), arrows: 'both' } : null;
     }
     const rim = entityAnchor(e);
-    return rim ? { line: [e.center, rim], at: rim } : null;
+    // Rim end only — the center end of a radius leader measures nothing.
+    // The input opens where the committed label lands: halfway along the
+    // radius, riding the line.
+    return rim
+      ? { line: [e.center, rim], at: mid(e.center, rim), arrows: 'end' }
+      : null;
   }
   if (form.kind === 'angle') {
     if (!picks[1]) {
@@ -582,6 +590,7 @@ export function dimensionPreviewLayout(
   return {
     line: endpoints,
     at: mid(endpoints[0], endpoints[1]),
+    arrows: 'both',
     ...(extensions.length > 0 ? { extensions } : {}),
   };
 }

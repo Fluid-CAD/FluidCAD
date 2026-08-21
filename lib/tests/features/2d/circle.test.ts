@@ -57,7 +57,7 @@ describe("circle", () => {
     it("should place the center meta vertex on the sketch plane", () => {
       let c: Circle;
       sketch(plane("yz", { offset: 25 }), () => {
-        c = circle([10, 20], 30) as Circle;
+        c = circle([10, 20], 30) as unknown as Circle;
       });
       render();
 

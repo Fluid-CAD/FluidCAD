@@ -4,7 +4,7 @@ import { SolvedLine } from "../../features/2d/solved/line.js";
 import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
-import { IGeometry } from "../interfaces.js";
+import { IGeometry, ISolvedLine } from "../interfaces.js";
 
 interface LineFunction {
   /**
@@ -13,11 +13,13 @@ interface LineFunction {
    */
   (end: Point2DLike): IGeometry;
   /**
-   * Draws a line between two points.
+   * Draws a line between two points. In a constraint sketch this is the only
+   * accepted form, and the statement is a solver entity — `.mid()`
+   * references its midpoint in constraints.
    * @param start - The start point
    * @param end - The end point
    */
-  (start: Point2DLike, end: Point2DLike): IGeometry;
+  (start: Point2DLike, end: Point2DLike): ISolvedLine;
 }
 
 function build(context: SceneParserContext): LineFunction {

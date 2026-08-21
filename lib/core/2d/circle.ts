@@ -5,16 +5,18 @@ import { Move } from "../../features/2d/move.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
 import { LazyVertex } from "../../features/lazy-vertex.js";
-import { IExtrudableGeometry } from "../interfaces.js";
+import { IExtrudableGeometry, ISolvedCircle } from "../interfaces.js";
 import { type NumberParam, resolveParam } from "../param.js";
 
 interface CircleFunction {
   /**
-   * Draws a circle at a given center with an optional diameter.
+   * Draws a circle at a given center with an optional diameter. In a
+   * constraint sketch this is the only accepted form, and the statement is a
+   * solver entity — `.center()` references its center point in constraints.
    * @param center - The center point
    * @param diameter - The circle diameter (defaults to 40)
    */
-  (center: Point2DLike, diameter?: NumberParam): IExtrudableGeometry;
+  (center: Point2DLike, diameter?: NumberParam): ISolvedCircle;
   /**
    * Draws a circle at the origin with an optional diameter.
    * @param diameter - The circle diameter (defaults to 40)

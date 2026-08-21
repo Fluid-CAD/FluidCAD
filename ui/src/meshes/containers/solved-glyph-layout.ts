@@ -56,8 +56,11 @@ export type Vec2 = [number, number];
  * this to the target pixel height. */
 export const GLYPH_PLANE_SIZE = 5;
 export const BADGE_PX_SIZE = 16;
-export const LABEL_PX_SIZE = 16;
-export const ANGLE_LABEL_PX_SIZE = 20;
+/** Dimension value readouts (distance/radius/diameter). This is the sprite
+ * height, not the type size — the text texture fills ~0.7 of the canvas, so
+ * the glyphs read a few px shorter than the number here. */
+export const LABEL_PX_SIZE = 22;
+export const ANGLE_LABEL_PX_SIZE = 22;
 export const GLYPH_RENDER_ORDER = 3;
 /** A label pushed further than this from its dimension line grows a link
  * back to it — past one rung the pairing stops being obvious. */

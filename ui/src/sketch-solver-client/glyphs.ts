@@ -5,8 +5,10 @@
 
 import type { ConstraintSpec } from '../../../lib/sketch-solver/types.js';
 import type { SourceLocation } from '../types';
+import type { DimensionStyle } from './declutter';
 import type { SolvedConstraintView, SolvedEntityView, SolvedSketchModel } from './model';
 import { specEntityIds } from './model';
+import { diameterChord } from './diameter-chord';
 import {
   Vec2,
   alongDirAt,
@@ -65,15 +67,16 @@ export type ConstraintGlyph = GlyphBase & (
   | { type: 'dot'; at: Vec2 }
   /** Box-less dimension readout. `offsetDir` pushes it clear of the
    * dimension line, `alongDir` is the axis it may slide along, and
-   * `slideRange` how far (sketch units, one way). `leader` carries the
-   * dimension line so a pushed-out label can draw a link back to it. */
+   * `slideRange` how far (sketch units, one way). `style` picks which slide
+   * stops the declutterer offers it; `leader` carries the dimension line so
+   * a pushed-out label can draw a link back to it. */
   | {
       type: 'text';
       label: string;
       at: Vec2;
       offsetDir: Vec2;
       alongDir: Vec2;
-      style: 'span' | 'radial';
+      style: DimensionStyle;
       slideRange: number;
       leader?: [Vec2, Vec2];
     }
@@ -323,18 +326,16 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
         break;
       }
 
-      case 'radius':
-      case 'diameter': {
+      case 'radius': {
         const e = entityFor(model, spec.a);
         if (e && e.center) {
           const rim = entityAnchor(e);
           if (rim) {
-            const prefix = spec.kind === 'radius' ? 'R' : '⌀';
             glyphs.push({ ...base, type: 'leader', from: e.center, to: rim });
             glyphs.push({
               ...base,
               type: 'text',
-              label: `${prefix}${formatDim(c.value ?? spec.value)}`,
+              label: `R${formatDim(c.value ?? spec.value)}`,
               at: rim,
               // Radial dims push out along the radius first; sliding walks
               // the label around the rim, so it is the fallback axis.
@@ -343,6 +344,38 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
               style: 'radial',
               slideRange: (e.radius ?? 0) / 2,
               leader: [e.center, rim],
+            });
+          }
+        }
+        break;
+      }
+
+      case 'diameter': {
+        const e = entityFor(model, spec.a);
+        if (e) {
+          // Rim to rim through the center: a leader that stops at the
+          // center is a radius, whatever the label says.
+          const chord = diameterChord(model, e);
+          if (chord) {
+            const [from, to] = chord;
+            const dir = normalize(sub(to, from));
+            glyphs.push({ ...base, type: 'leader', from, to });
+            glyphs.push({
+              ...base,
+              type: 'text',
+              label: `⌀${formatDim(c.value ?? spec.value)}`,
+              at: mid(from, to),
+              // The value rides the chord: laid ALONG it (the sprite layer
+              // rolls a `chord` label to its line), centered on it, one gap
+              // clear — so it reads as this circle's size from inside the
+              // circle instead of orbiting the rim like a radius readout.
+              // The `leader` names the line it owns; a centered, aligned
+              // value draws no link stub back to it.
+              offsetDir: perp(dir),
+              alongDir: dir,
+              style: 'chord',
+              slideRange: e.radius ?? 0,
+              leader: [from, to],
             });
           }
         }

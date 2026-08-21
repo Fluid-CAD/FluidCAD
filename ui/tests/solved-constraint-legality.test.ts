@@ -338,6 +338,17 @@ describe('dimensionPreviewLayout', () => {
     expect(layout!.at).toEqual(layout!.line![1]);
   });
 
+  it('diameter: leader rim to rim through the center, input on the label spot', () => {
+    const form = { kind: 'diameter' as const, axisChoice: false, tangencyChoice: false };
+    const layout = dimensionPreviewLayout(model, [circleC], form);
+    expect(layout).not.toBeNull();
+    const [from, to] = layout!.line!;
+    expect(Math.hypot(to[0] - from[0], to[1] - from[1])).toBeCloseTo(10, 9);
+    expect(Math.hypot(from[0] - 30, from[1])).toBeCloseTo(5, 9);
+    expect(layout!.at[0]).toBeCloseTo(30, 9);
+    expect(layout!.at[1]).toBeCloseTo(0, 9);
+  });
+
   it('angle: no leader, sector arc at the line intersection', () => {
     // The default sector's a-boundary ray (+x) points AWAY from a's
     // segment (the intersection is a's far endpoint) — the arc's end

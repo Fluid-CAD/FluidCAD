@@ -22,7 +22,7 @@
 // history dependence, and the whole thing is testable from plain numbers.
 
 import { clusterAnchors } from './cluster';
-import { GeometryIndex } from './geometry-index';
+import { GeometryIndex, NO_OWNER } from './geometry-index';
 import { Occupancy } from './occupancy';
 import { rowLength, rowRects } from './rows';
 import { hiddenPlacement, orientReading, unit } from './types';
@@ -90,7 +90,7 @@ export type BadgeItem = BoxSize & {
   order: number;
 };
 
-export type DimensionStyle = 'span' | 'radial';
+export type DimensionStyle = 'span' | 'radial' | 'chord';
 
 /** One dimension label. `anchor + slide·a + push·b` spans its candidates. */
 export type DimensionItem = BoxSize & {
@@ -103,6 +103,9 @@ export type DimensionItem = BoxSize & {
   style: DimensionStyle;
   /** Half-length of the slide range in px (the leader's reach). */
   slideRangePx: number;
+  /** Geometry-index owner of this label's own dimension line, so its own
+   * leader does not score as clutter against it (see GeometryIndex). */
+  lineOwner?: number;
   order: number;
 };
 
@@ -158,17 +161,30 @@ function step(from: Pt, dir: Pt, distance: number): Pt {
 
 type Candidate = { at: Pt; cost: number };
 
+/** Middle of the line first, then along it, and only then further out. */
+const ALONG_LINE_STOPS = [0, 0.45, -0.45, 0.8, -0.8];
+
 /**
- * Candidate positions for one dimension label, cheapest first.
+ * How far along its own dimension line a label may park, as a fraction of
+ * the slide range, cheapest first.
  *
  * `span` (distance dims) mirrors drafting practice: sit at the middle of the
  * dimension line, one gap clear of it; when that is taken, slide along the
- * line before stepping further away from it. `radial` (radius/diameter)
- * pushes out along the radius first — sliding tangentially walks the label
- * around the circle, away from the leader it belongs to.
+ * line before stepping further away from it. `radial` (a radius) pushes out
+ * along the radius first — sliding tangentially walks the label around the
+ * circle, away from the leader it belongs to. `chord` (a diameter) parks
+ * like a span; it is a style of its own because the sprite layer also ROLLS
+ * it to lie along the chord.
  */
+const SLIDE_STOPS: Record<DimensionStyle, number[]> = {
+  span: ALONG_LINE_STOPS,
+  radial: [0, 0.5, -0.5],
+  chord: ALONG_LINE_STOPS,
+};
+
+/** Candidate positions for one dimension label, cheapest first. */
 function dimensionCandidates(item: DimensionItem, opts: DeclutterOptions): Candidate[] {
-  const slideStops = item.style === 'span' ? [0, 0.45, -0.45, 0.8, -0.8] : [0, 0.5, -0.5];
+  const slideStops = SLIDE_STOPS[item.style];
   const out: Candidate[] = [];
   for (let rung = 0; rung < opts.rungs; rung++) {
     for (let s = 0; s < slideStops.length; s++) {
@@ -211,7 +227,8 @@ function placeDimensions(
       if (!occ.isFree(rect, -2, opts.padPx)) {
         continue;
       }
-      const score = candidate.cost + (geometry.crosses(rect) ? CROSS_PENALTY : 0);
+      const crosses = geometry.crosses(rect, item.lineOwner ?? NO_OWNER);
+      const score = candidate.cost + (crosses ? CROSS_PENALTY : 0);
       if (score < bestScore) {
         bestScore = score;
         chosen = candidate;

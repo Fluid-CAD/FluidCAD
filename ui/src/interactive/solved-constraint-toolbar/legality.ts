@@ -6,7 +6,7 @@
 import type { ConstraintSpec, SolverRef } from '../../../../lib/sketch-solver/types.js';
 import type { SolvedPick } from '../sketch-hover-select-handler';
 import type { SolvedSketchModel } from '../../sketch-solver-client';
-import { distanceSpecEndpoints, distanceSpecExtensions } from '../../sketch-solver-client';
+import { diameterChord, distanceSpecEndpoints, distanceSpecExtensions } from '../../sketch-solver-client';
 import {
   Vec2,
   entityAnchor,
@@ -520,8 +520,17 @@ export function dimensionPreviewLayout(
   const picks = normalizeDistancePicks(expandDimensionPicks(rawPicks));
   if (form.kind === 'radius' || form.kind === 'diameter') {
     const e = entityFor(model, pickRef(picks[0]));
-    const rim = e?.center ? entityAnchor(e) : null;
-    return e?.center && rim ? { line: [e.center, rim], at: rim } : null;
+    if (!e || !e.center) {
+      return null;
+    }
+    if (form.kind === 'diameter') {
+      // Rim to rim through the center — the chord the committed glyph will
+      // draw, with the value input opening on its label spot.
+      const chord = diameterChord(model, e);
+      return chord ? { line: chord, at: mid(chord[0], chord[1]) } : null;
+    }
+    const rim = entityAnchor(e);
+    return rim ? { line: [e.center, rim], at: rim } : null;
   }
   if (form.kind === 'angle') {
     if (!picks[1]) {

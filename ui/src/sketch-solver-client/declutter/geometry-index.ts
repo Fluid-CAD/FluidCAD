@@ -8,6 +8,11 @@
 //
 // Soft cost, never a veto: on a dense sketch every candidate crosses
 // something, and a shown-but-crossing label still beats a hidden one.
+//
+// Segments carry an OWNER so a query can exclude one curve. A dimension
+// label's own leader is drawn clutter to everyone else and to nothing at
+// all for the label itself — without the exemption a value centered on a
+// diagonal dimension line is forever pushed off it by its own line.
 
 import type { Pt, Rect } from './types';
 
@@ -15,7 +20,10 @@ const CELL_PX = 48;
 const CELL_BIAS = 2048;
 const CELL_STRIDE = 4096;
 
-type Segment = { a: Pt; b: Pt };
+/** Owner of shared geometry — never excluded from a query. */
+export const NO_OWNER = -1;
+
+type Segment = { a: Pt; b: Pt; owner: number };
 
 function cellKey(ix: number, iy: number): number {
   return (ix + CELL_BIAS) * CELL_STRIDE + (iy + CELL_BIAS);
@@ -63,15 +71,15 @@ export class GeometryIndex {
   private segments: Segment[] = [];
   private cells = new Map<number, number[]>();
 
-  addPolyline(points: Pt[]): void {
+  addPolyline(points: Pt[], owner: number = NO_OWNER): void {
     for (let i = 1; i < points.length; i++) {
-      this.addSegment(points[i - 1], points[i]);
+      this.addSegment(points[i - 1], points[i], owner);
     }
   }
 
-  addSegment(a: Pt, b: Pt): void {
+  addSegment(a: Pt, b: Pt, owner: number = NO_OWNER): void {
     const index = this.segments.length;
-    this.segments.push({ a, b });
+    this.segments.push({ a, b, owner });
     const x0 = Math.floor(Math.min(a.x, b.x) / CELL_PX);
     const x1 = Math.floor(Math.max(a.x, b.x) / CELL_PX);
     const y0 = Math.floor(Math.min(a.y, b.y) / CELL_PX);
@@ -91,8 +99,9 @@ export class GeometryIndex {
     }
   }
 
-  /** Does any sketch curve pass through `rect`? */
-  crosses(rect: Rect): boolean {
+  /** Does any sketch curve pass through `rect`? `ignoreOwner` skips one
+   * curve — what a dimension label passes to discount its own leader. */
+  crosses(rect: Rect, ignoreOwner: number = NO_OWNER): boolean {
     const x0 = Math.floor((rect.cx - rect.hw) / CELL_PX);
     const x1 = Math.floor((rect.cx + rect.hw) / CELL_PX);
     const y0 = Math.floor((rect.cy - rect.hh) / CELL_PX);
@@ -100,7 +109,11 @@ export class GeometryIndex {
     for (let ix = x0; ix <= x1; ix++) {
       for (let iy = y0; iy <= y1; iy++) {
         for (const index of this.cells.get(cellKey(ix, iy)) ?? []) {
-          if (segmentHitsRect(this.segments[index], rect)) {
+          const segment = this.segments[index];
+          if (segment.owner !== NO_OWNER && segment.owner === ignoreOwner) {
+            continue;
+          }
+          if (segmentHitsRect(segment, rect)) {
             return true;
           }
         }

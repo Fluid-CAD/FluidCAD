@@ -12,8 +12,10 @@
 //     cache key quantizes both, and a steady camera costs one string compare
 //     per frame;
 //   * the sprites are camera-facing, so their drawn footprint IS the
-//     axis-aligned box the declutterer reasoned about. No foreshortening
-//     correction, and an oblique view stays as readable as a normal one.
+//     axis-aligned box the declutterer reasoned about (a label ALIGNED with
+//     its line — a diameter riding its chord — hands over the axis-aligned
+//     bounds of its rolled box instead). No foreshortening correction, and
+//     an oblique view stays as readable as a normal one.
 
 import {
   BufferGeometry,
@@ -100,7 +102,20 @@ export type DimensionSprite = LayoutSprite & {
   /** The dimension line this label belongs to, for the link stub. */
   leader: [Vec2, Vec2] | null;
   link: Line | null;
+  /**
+   * Drawn footprint in px, owned by this pass and SHARED BY REFERENCE with
+   * the glyph's hit target (like `placement`). An aligned label rolls with
+   * its line, so its screen bounds change with the camera and a pick box
+   * frozen at build time would drift off what is drawn.
+   */
+  box: GlyphBox;
+  /** In-plane rotation applied on top of the camera facing, radians CCW.
+   * Written every solve; 0 for every style but `chord`. */
+  roll: number;
 };
+
+/** Half extents of a drawn glyph, px. */
+export type GlyphBox = { halfWidthPx: number; halfHeightPx: number };
 
 /** Drawn elsewhere, but reserved so nothing lands on it (angle readouts). */
 export type FixedAnnotation = {
@@ -120,6 +135,34 @@ const _camRight = new Vector3();
 const _camUp = new Vector3();
 const _camFwd = new Vector3();
 const _camQuat = new Quaternion();
+const _roll = new Quaternion();
+const _viewAxis = new Vector3(0, 0, 1);
+
+/**
+ * In-plane rotation (radians CCW, sprite-local) that lays a label along the
+ * screen direction `d`. Screen y points down while the sprite's local y
+ * points up, hence the negated component. Directions pointing left — or
+ * straight down — are flipped first: a value must read left-to-right, and
+ * bottom-to-top when its line is vertical (drafting reads a vertical
+ * dimension from the right of the sheet).
+ */
+function rollFor(d: Pt): number {
+  const flip = d.x < -1e-6 || (Math.abs(d.x) <= 1e-6 && d.y > 0);
+  const x = flip ? -d.x : d.x;
+  const y = flip ? -d.y : d.y;
+  return Math.atan2(-y, x);
+}
+
+/** Axis-aligned bounds of a sprite's box once rolled — what the declutterer
+ * reserves and what the hit target picks. */
+function rolledBounds(sprite: LayoutSprite, roll: number): GlyphBox {
+  const c = Math.abs(Math.cos(roll));
+  const s = Math.abs(Math.sin(roll));
+  return {
+    halfWidthPx: c * sprite.halfWidthPx + s * sprite.halfHeightPx,
+    halfHeightPx: s * sprite.halfWidthPx + c * sprite.halfHeightPx,
+  };
+}
 
 /** Local→screen linear map (px per sketch unit), plus the projected origin. */
 type PlaneProjection = {
@@ -164,8 +207,6 @@ export class SolvedGlyphLayout {
     private dimensions: DimensionSprite[],
     private fixed: FixedAnnotation[],
     model: SolvedSketchModel,
-    /** Dimension lines, in sketch-local coords. */
-    leaders: [Vec2, Vec2][],
     pillColor: Color,
   ) {
     this.pillColor = pillColor;
@@ -177,9 +218,6 @@ export class SolvedGlyphLayout {
         this.geometryLocal.push(points as Vec2[]);
       }
     }
-    // Leaders count as drawn geometry: a badge parked on top of a dimension
-    // line reads as part of the dimension.
-    this.geometryLocal.push(...leaders);
   }
 
   update(renderer: WebGLRenderer, camera: Camera): void {
@@ -250,6 +288,14 @@ export class SolvedGlyphLayout {
     for (const polyline of this.geometryLocal) {
       geometry.addPolyline(polyline.map(p => project(localToWorld(p, this.plane))));
     }
+    // Dimension lines count as drawn geometry — a badge parked on one reads
+    // as part of the dimension — but each is OWNED by its own label, which
+    // discounts it: a value belongs on its line, not pushed off it.
+    this.dimensions.forEach((sprite, index) => {
+      if (sprite.leader) {
+        geometry.addPolyline(sprite.leader.map(p => project(localToWorld(p, this.plane))), index);
+      }
+    });
 
     const obstacles: Rect[] = [];
     for (const item of this.fixed) {
@@ -279,19 +325,26 @@ export class SolvedGlyphLayout {
       };
     });
 
-    const dimItems: DimensionItem[] = this.dimensions.map(sprite => {
+    const dimItems: DimensionItem[] = this.dimensions.map((sprite, index) => {
       const slideVec = mapDir(projection, sprite.slideLocal);
       const slidePx = Math.hypot(slideVec.x, slideVec.y);
+      const slide = unitDir(projection, sprite.slideLocal, { x: 1, y: 0 });
+      // An aligned label lies ALONG its dimension line, so it rolls to the
+      // line's screen angle — flipped to keep the value readable.
+      sprite.roll = sprite.style === 'chord' ? rollFor(slide) : 0;
+      const rolled = rolledBounds(sprite, sprite.roll);
+      Object.assign(sprite.box, rolled);
       return {
         anchor: project(sprite.anchorWorld),
         push: unitDir(projection, sprite.pushLocal, { x: 0, y: -1 }),
-        slide: unitDir(projection, sprite.slideLocal, { x: 1, y: 0 }),
+        slide,
         style: sprite.style,
         // Clamp the reach: a label 300 px down its own dimension line reads
         // as belonging to whatever it landed next to instead.
         slideRangePx: Math.min(sprite.slideRange * slidePx, MAX_SLIDE_PX),
-        hw: sprite.halfWidthPx,
-        hh: sprite.halfHeightPx,
+        lineOwner: index,
+        hw: rolled.halfWidthPx,
+        hh: rolled.halfHeightPx,
         order: sprite.order,
       };
     });
@@ -396,7 +449,7 @@ export class SolvedGlyphLayout {
    * offset from its anchor in screen pixels. */
   private applyTransforms(renderer: WebGLRenderer, camera: Camera): void {
     camera.matrixWorld.extractBasis(_camRight, _camUp, _camFwd);
-    const place = (sprite: LayoutSprite): void => {
+    const place = (sprite: LayoutSprite, roll = 0): void => {
       if (!sprite.placement.visible) {
         sprite.group.visible = false;
         return;
@@ -408,6 +461,11 @@ export class SolvedGlyphLayout {
         .addScaledVector(_camRight, sprite.placement.dx * worldPerPx)
         .addScaledVector(_camUp, -sprite.placement.dy * worldPerPx);
       sprite.group.quaternion.copy(_camQuat);
+      if (roll !== 0) {
+        // Spin in the view plane (the sprite's own +Z faces the camera), so
+        // an aligned label reads along its line at any camera angle.
+        sprite.group.quaternion.multiply(_roll.setFromAxisAngle(_viewAxis, roll));
+      }
       sprite.group.scale.setScalar(
         pixelScale(renderer, camera, anchor, sprite.pxSize, GLYPH_PLANE_SIZE),
       );
@@ -417,7 +475,7 @@ export class SolvedGlyphLayout {
       place(sprite);
     }
     for (const sprite of this.dimensions) {
-      place(sprite);
+      place(sprite, sprite.roll);
     }
     for (const pill of this.pills) {
       if (!pill.group.visible) {

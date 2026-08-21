@@ -215,8 +215,65 @@ describe('constraint glyph layout', () => {
     const text = glyphs.find(g => g.type === 'text') as any;
     expect(leader.from).toEqual([10, 10]);
     expect(text.label).toBe('R5');
+    expect(text.style).toBe('radial');
     const rimDist = Math.hypot(text.at[0] - 10, text.at[1] - 10);
     expect(rimDist).toBeCloseTo(5, 9);
+  });
+
+  it('lays a diameter dimension as a full chord, ⌀ label riding the line', () => {
+    const objects = [
+      circle(0, [10, 10], 10),
+      constraint('diameter', 0, { kind: 'diameter', a: { entity: 0 }, value: 10 }, 10),
+    ];
+    const { glyphs } = glyphsOf(objects);
+    const leader = glyphs.find(g => g.type === 'leader') as any;
+    const text = glyphs.find(g => g.type === 'text') as any;
+    // Rim to rim through the center — a leader that stops at the center
+    // reads as a radius however the label is spelled.
+    expect(Math.hypot(leader.from[0] - 10, leader.from[1] - 10)).toBeCloseTo(5, 9);
+    expect(Math.hypot(leader.to[0] - 10, leader.to[1] - 10)).toBeCloseTo(5, 9);
+    expect((leader.from[0] + leader.to[0]) / 2).toBeCloseTo(10, 9);
+    expect((leader.from[1] + leader.to[1]) / 2).toBeCloseTo(10, 9);
+
+    expect(text.label).toBe('⌀10');
+    expect(text.style).toBe('chord');
+    // The value rides the chord: anchored ON the line, sliding along it,
+    // pushed only across it — never pushed out past the rim.
+    expect(text.at[0]).toBeCloseTo(10, 9);
+    expect(text.at[1]).toBeCloseTo(10, 9);
+    expect(text.slideRange).toBeCloseTo(5, 9);
+    expect(text.leader).toEqual([leader.from, leader.to]);
+    const dir = [(leader.to[0] - leader.from[0]) / 10, (leader.to[1] - leader.from[1]) / 10];
+    expect(text.alongDir[0]).toBeCloseTo(dir[0], 9);
+    expect(text.alongDir[1]).toBeCloseTo(dir[1], 9);
+    expect(text.offsetDir[0] * dir[0] + text.offsetDir[1] * dir[1]).toBeCloseTo(0, 9);
+  });
+
+  it('aims the diameter chord away from what is inside the circle', () => {
+    const objects = [
+      circle(0, [0, 0], 20),
+      // Clips the right of the circle — straight across the default 45°
+      // chord, clear of the ones tilted further up.
+      line(1, [5, -10], [5, 10]),
+      constraint('diameter', 0, { kind: 'diameter', a: { entity: 0 }, value: 20 }, 20),
+    ];
+    const { glyphs } = glyphsOf(objects);
+    const leader = glyphs.find(g => g.type === 'leader') as any;
+    expect(Math.abs(leader.from[0])).toBeLessThan(5);
+    expect(Math.abs(leader.to[0])).toBeLessThan(5);
+  });
+
+  it('fans concentric diameters apart instead of drawing one line for both', () => {
+    const objects = [
+      circle(0, [0, 0], 10),
+      circle(1, [0, 0], 20),
+      constraint('diameter', 0, { kind: 'diameter', a: { entity: 0 }, value: 10 }, 10),
+      constraint('diameter', 1, { kind: 'diameter', a: { entity: 1 }, value: 20 }, 20),
+    ];
+    const { glyphs } = glyphsOf(objects);
+    const [inner, outer] = glyphs.filter(g => g.type === 'leader') as any[];
+    const angle = (g: any): number => Math.atan2(g.to[1] - g.from[1], g.to[0] - g.from[0]);
+    expect(Math.abs(angle(outer) - angle(inner))).toBeGreaterThan(0.4);
   });
 
   it('lays an angle dimension as an arc at the line intersection', () => {

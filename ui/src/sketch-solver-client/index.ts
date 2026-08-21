@@ -19,6 +19,7 @@ export {
   layoutConstraintGlyphs, distanceSpecEndpoints, distanceSpecExtensions, formatDim, BADGE_LABELS,
 } from './glyphs';
 export type { ConstraintGlyph, GlyphColorRole } from './glyphs';
+export { diameterChord } from './diameter-chord';
 export { computeSketchDofState } from './dof-state';
 export type { SketchDofState, FailedConstraint } from './dof-state';
 export { LiveSolvedSystem } from './live-system';

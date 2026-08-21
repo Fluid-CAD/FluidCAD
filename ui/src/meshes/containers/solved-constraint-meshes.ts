@@ -375,7 +375,6 @@ export function buildSolvedConstraintMeshes(
   const badgeSprites: BadgeSprite[] = [];
   const dimensionSprites: DimensionSprite[] = [];
   const fixedAnnotations: FixedAnnotation[] = [];
-  const leaderSegments: [[number, number], [number, number]][] = [];
   const white = '#ffffff';
 
   glyphs.forEach((glyph, order) => {
@@ -394,14 +393,27 @@ export function buildSolvedConstraintMeshes(
         const placement: Placement = { visible: false, dx: 0, dy: 0 };
         groups.push(group);
 
+        const hit: BadgeHitTarget = {
+          objId: glyph.objId,
+          sourceLocation: glyph.sourceLocation,
+          refEntityIds: glyph.refEntityIds,
+          anchorWorld: position,
+          placement,
+          halfWidthPx: (pxSize * texture.aspect) / 2,
+          halfHeightPx: pxSize / 2,
+          materials: [material],
+          baseColor: color,
+        };
+        hitTargets.push(hit);
+
         const common = {
           group,
           anchorLocal: glyph.at,
           anchorWorld: position,
           placement,
           pxSize,
-          halfWidthPx: (pxSize * texture.aspect) / 2,
-          halfHeightPx: pxSize / 2,
+          halfWidthPx: hit.halfWidthPx,
+          halfHeightPx: hit.halfHeightPx,
         };
         if (isBadge) {
           badgeSprites.push({
@@ -414,7 +426,9 @@ export function buildSolvedConstraintMeshes(
             order,
           });
         } else {
-          const link = glyph.leader ? createLinkLine(color) : null;
+          // An aligned label (a diameter's `chord`) lies centered ON its
+          // line already — a link stub back to it would only add a line.
+          const link = glyph.leader && glyph.style !== 'chord' ? createLinkLine(color) : null;
           if (link) {
             groups.push(wrapLink(link));
           }
@@ -427,20 +441,13 @@ export function buildSolvedConstraintMeshes(
             leader: glyph.leader ?? null,
             link,
             order,
+            // A rolled label's screen bounds move with the camera: the hit
+            // target hands its own box to the layout so the pick stays on
+            // what is drawn (the placement's by-reference rule).
+            box: hit,
+            roll: 0,
           });
         }
-
-        hitTargets.push({
-          objId: glyph.objId,
-          sourceLocation: glyph.sourceLocation,
-          refEntityIds: glyph.refEntityIds,
-          anchorWorld: position,
-          placement,
-          halfWidthPx: common.halfWidthPx,
-          halfHeightPx: common.halfHeightPx,
-          materials: [material],
-          baseColor: color,
-        });
         break;
       }
 
@@ -480,7 +487,6 @@ export function buildSolvedConstraintMeshes(
       }
 
       case 'leader': {
-        leaderSegments.push([glyph.from, glyph.to]);
         const from = localToWorld(glyph.from, plane);
         const to = localToWorld(glyph.to, plane);
         const geometry = new BufferGeometry();
@@ -555,7 +561,7 @@ export function buildSolvedConstraintMeshes(
   let layout: SolvedGlyphLayout | null = null;
   if (placeable > 0) {
     layout = new SolvedGlyphLayout(
-      plane, badgeSprites, dimensionSprites, fixedAnnotations, model, leaderSegments,
+      plane, badgeSprites, dimensionSprites, fixedAnnotations, model,
       themeColors.constraintColor,
     );
     groups.push(layout.pillGroup);

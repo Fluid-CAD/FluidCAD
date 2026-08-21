@@ -274,6 +274,25 @@ describe('dimension labels', () => {
     expect(result.dimensions[0].dy).toBeLessThan(0);
   });
 
+  it("discounts a label's OWN dimension line, but not a neighbour's", () => {
+    const geometry = new GeometryIndex();
+    // A line straight through the default (below-the-line) label slot.
+    geometry.addSegment({ x: 200, y: 314 }, { x: 400, y: 314 }, 7);
+    const own = [dimension({ x: 300, y: 300 }, 0, { lineOwner: 7 })];
+    expect(run([], own, geometry).dimensions[0].dy)
+      .toBeCloseTo(DEFAULT_DECLUTTER_OPTIONS.labelOffsetPx, 9);
+    const foreign = [dimension({ x: 300, y: 300 }, 0, { lineOwner: 8 })];
+    expect(run([], foreign, geometry).dimensions[0].dy).toBeLessThan(0);
+  });
+
+  it('centers a chord label on its line, like a span', () => {
+    const items = [dimension({ x: 300, y: 300 }, 0, { style: 'chord', slideRangePx: 40 })];
+    const result = run([], items);
+    expect(result.dimensions[0].visible).toBe(true);
+    expect(result.dimensions[0].dx).toBeCloseTo(0, 9);
+    expect(result.dimensions[0].dy).toBeCloseTo(DEFAULT_DECLUTTER_OPTIONS.labelOffsetPx, 9);
+  });
+
   it('gives dimension labels the space before badges take any', () => {
     const dims = [dimension({ x: 300, y: 300 }, 0)];
     const badges = [badge({ x: 300, y: 314 }, 1)];

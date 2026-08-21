@@ -13,7 +13,7 @@ export type {
   DimensionStyle,
   OverflowPill,
 } from './declutter';
-export { GeometryIndex } from './geometry-index';
+export { GeometryIndex, NO_OWNER } from './geometry-index';
 export { Occupancy } from './occupancy';
 export { clusterAnchors } from './cluster';
 export type { AnchorGroup, Cluster } from './cluster';

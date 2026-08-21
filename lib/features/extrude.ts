@@ -11,11 +11,8 @@ import { EdgeOps } from "../oc/edge-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ThinFaceMaker, ThinFaceResult } from "../oc/thin-face-maker.js";
 import { Plane } from "../math/plane.js";
-
-/** Finite stand-in for "infinity" in through-all cuts. Truly infinite prisms
- *  (via OC's `Inf=true` flag) silently fail inside `BRepAlgoAPI_Cut` — verified
- *  experimentally — so use a large finite extrusion instead. */
-const THROUGH_ALL_LENGTH = 100000;
+import { throughAllLength } from "../helpers/through-all.js";
+import { Shape } from "../common/shape.js";
 
 export class Extrude extends ExtrudeBase {
   constructor(public distance: number, source?: Extrudable | SceneObject) {
@@ -329,7 +326,7 @@ export class Extrude extends ExtrudeBase {
     return fusedInnerEdges;
   }
 
-  private buildRemove(faces: Face[], plane: any, context: BuildSceneObjectContext) {
+  private buildRemove(faces: Face[], plane: Plane, context: BuildSceneObjectContext) {
     const scope = this.resolveFusionScope(context.getSceneObjects());
 
     let toolShapes: any[];
@@ -340,10 +337,17 @@ export class Extrude extends ExtrudeBase {
       throw new Error("through-all is not supported with a face-sourced extrude");
     }
 
+    // Through-all is sized to the stock this cut will actually run against —
+    // the same solids `cutWithSceneObjects` picks up. A fixed stand-in for
+    // infinity blows up the boolean's tolerances; see `throughAllLength`.
+    const throughAll = isThroughAll
+      ? throughAllLength(this.cutStockShapes(scope), faces, plane)
+      : 0;
+
     if (this._symmetric) {
       // Symmetric cut: create tool centered on sketch plane, fusing two halves
-      // (one on each side). For through-all, each half uses THROUGH_ALL_LENGTH.
-      const halfDistance = isThroughAll ? THROUGH_ALL_LENGTH : this.distance / 2;
+      // (one on each side). For through-all, each half runs the full reach.
+      const halfDistance = isThroughAll ? throughAll : this.distance / 2;
       const extruder1 = new Extruder(faces, plane, -halfDistance, draft, this.getEndOffset());
       const extruder2 = new Extruder(faces, plane, halfDistance, draft, this.getEndOffset());
       const all = [...extruder1.extrude(), ...extruder2.extrude()];
@@ -351,7 +355,7 @@ export class Extrude extends ExtrudeBase {
       toolShapes = halvesFuse.result;
       halvesFuse.dispose();
     } else {
-      const distance = isThroughAll ? -THROUGH_ALL_LENGTH : -this.distance;
+      const distance = isThroughAll ? -throughAll : -this.distance;
       const extruder = new Extruder(faces, plane, distance, draft, this.getEndOffset());
       toolShapes = extruder.extrude();
     }
@@ -361,6 +365,11 @@ export class Extrude extends ExtrudeBase {
     cutWithSceneObjects(scope, toolShapes, plane, this.distance, this, {
       recordHistoryFor: this,
     });
+  }
+
+  /** The solids a cut over `scope` will consume — what `cutWithSceneObjects` reads. */
+  private cutStockShapes(scope: SceneObject[]): Shape[] {
+    return scope.flatMap(obj => obj.getShapes({}, 'solid'));
   }
 
   override getDependencies(): SceneObject[] {

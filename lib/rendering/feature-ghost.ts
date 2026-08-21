@@ -27,7 +27,8 @@ import {
 } from "../features/repeat-ghost.js";
 import { buildRevolveGhostSolids } from "../features/revolve-ghost.js";
 import { buildSweepGhostSolids } from "../features/sweep-ghost.js";
-import { Extrudable, BoundingBox } from "../helpers/types.js";
+import { Extrudable } from "../helpers/types.js";
+import { throughAllLength } from "../helpers/through-all.js";
 import { Axis, StandardAxis, toAxis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { Plane, toPlane } from "../math/plane.js";
@@ -535,12 +536,6 @@ export type FeatureGhostResult =
      */
     surface?: boolean;
   };
-
-/** How far past the model a through-all ghost runs, as a fraction of its reach. */
-const THROUGH_ALL_MARGIN = 1.1;
-
-/** Through-all ghost length when the scene offers nothing to size against. */
-const THROUGH_ALL_FALLBACK = 100;
 
 /**
  * How many instances a repeat or copy ghost will draw. Past it the answer is a
@@ -2434,23 +2429,13 @@ function normalizeSourcePath(filePath: string | undefined): string {
 }
 
 /**
- * How far a through-all ghost has to run to clear the model. The kernel's cut
- * uses a flat 100 m stand-in for infinity, which as a *ghost* would swallow
- * the viewport — so measure the scene's solids along the sketch normal
- * instead and add a margin. With nothing to cut through, the profile's own
- * size keeps the ghost in frame.
+ * How far a through-all ghost has to run to clear the model — the same reach
+ * the kernel's own cut is sized to, so the preview and the applied feature
+ * agree. With nothing to cut through, the profile's own size keeps the ghost
+ * in frame.
  */
 function throughAllGhostLength(scene: Scene, geometries: Edge[], plane: Plane): number {
-  let reach = 0;
-  for (const solid of sceneSolids(scene)) {
-    reach = Math.max(reach, normalReach(ShapeOps.getBoundingBox(solid), plane));
-  }
-  if (reach === 0) {
-    for (const edge of geometries) {
-      reach = Math.max(reach, boxDiagonal(ShapeOps.getBoundingBox(edge)));
-    }
-  }
-  return reach > 0 ? reach * THROUGH_ALL_MARGIN : THROUGH_ALL_FALLBACK;
+  return throughAllLength(sceneSolids(scene), geometries, plane);
 }
 
 /** The model's solids — containers are skipped, their children are listed too. */
@@ -2463,27 +2448,4 @@ function sceneSolids(scene: Scene): Shape[] {
     solids.push(...obj.getShapes(undefined, 'solid'));
   }
   return solids;
-}
-
-/** The farthest a box's corners sit from the plane, along its normal. */
-function normalReach(box: BoundingBox, plane: Plane): number {
-  const origin = plane.origin;
-  const n = plane.normal;
-  let reach = 0;
-  for (const x of [box.minX, box.maxX]) {
-    for (const y of [box.minY, box.maxY]) {
-      for (const z of [box.minZ, box.maxZ]) {
-        const d = (x - origin.x) * n.x + (y - origin.y) * n.y + (z - origin.z) * n.z;
-        reach = Math.max(reach, Math.abs(d));
-      }
-    }
-  }
-  return reach;
-}
-
-function boxDiagonal(box: BoundingBox): number {
-  const dx = box.maxX - box.minX;
-  const dy = box.maxY - box.minY;
-  const dz = box.maxZ - box.minZ;
-  return Math.sqrt(dx * dx + dy * dy + dz * dz);
 }

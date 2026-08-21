@@ -72,6 +72,20 @@ export class BooleanOps {
     cutMaker.SetFuzzyValue(BooleanOps.FEATURE_BOOLEAN_FUZZY);
     cutMaker.Build(progress);
 
+    // An unchecked failure here does not surface as a failure: the result is
+    // still a shape, just an invalid one, and the ShapeFix pass downstream then
+    // shreds it into a handful of unmeshable faces. Refuse it at the source.
+    if (!cutMaker.IsDone() || cutMaker.HasErrors()) {
+      cutMaker.delete();
+      progress.delete();
+      stockList.delete();
+      toolList.delete();
+      throw new Error("Cut failed: the boolean operation reported an error.");
+    }
+    if (cutMaker.HasWarnings()) {
+      console.warn("Cut completed with kernel warnings — the result may be imprecise.");
+    }
+
     const result = cutMaker.Shape();
     const resultSolids = Explorer.findShapes(result, Explorer.getOcShapeType("solid"));
     const wrappedResult = resultSolids.length > 0

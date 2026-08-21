@@ -1472,6 +1472,10 @@ const breakpointIndicator = new BreakpointIndicator(container, () => {
     textEditService.exit('continue');
   }
 });
+// Both live at the bottom-center spot: while the solved-sketch DOF chip is up
+// (double-clicking a consumed sketch pauses the build on a breakpoint), the
+// indicator stacks one pill-height above it instead of on top of it.
+sketchService.onDofPillVisibilityChange = (visible) => breakpointIndicator.setRaised(visible);
 const errorBanner = new ErrorBanner(container, (loc) => {
   gotoSource(loc);
 });

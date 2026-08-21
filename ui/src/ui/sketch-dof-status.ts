@@ -11,12 +11,16 @@ import type { SourceLocation } from '../types';
 const DOT_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>';
 
 export class SketchDofStatus {
+  /** Fires on edges when the pill claims or releases the bottom-center spot. */
+  onVisibilityChange?: (visible: boolean) => void;
+
   private pill: HTMLDivElement;
   private label: HTMLSpanElement;
   private icon: HTMLSpanElement;
   private expandedList: HTMLDivElement;
   private state: SketchDofState = { result: 'hidden' };
   private isExpanded = false;
+  private lastVisible = false;
   private onSelectFailing: (loc: SourceLocation) => void;
 
   constructor(
@@ -63,9 +67,11 @@ export class SketchDofStatus {
   private render(): void {
     if (this.state.result === 'hidden') {
       this.pill.classList.add('hidden');
+      this.reportVisibility(false);
       return;
     }
     this.pill.classList.remove('hidden');
+    this.reportVisibility(true);
     this.pill.classList.remove('cursor-pointer');
 
     switch (this.state.result) {
@@ -97,6 +103,14 @@ export class SketchDofStatus {
         );
         break;
     }
+  }
+
+  private reportVisibility(visible: boolean): void {
+    if (visible === this.lastVisible) {
+      return;
+    }
+    this.lastVisible = visible;
+    this.onVisibilityChange?.(visible);
   }
 
   private renderExpansion(): void {

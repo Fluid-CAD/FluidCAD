@@ -62,6 +62,12 @@ export class SketchToolbarService {
    */
   onConstraintPick?: (pick: { objId?: string; sourceLocation?: SourceLocation }) => void;
 
+  /**
+   * Whether the solved-sketch DOF pill occupies the bottom-center spot, so
+   * main.ts can lift the breakpoint indicator clear of it.
+   */
+  onDofPillVisibilityChange?: (visible: boolean) => void;
+
   private viewer: Viewer;
   private container: HTMLElement;
   private trimService: TrimPickService;
@@ -169,6 +175,7 @@ export class SketchToolbarService {
     this.bezierHandles = new BezierHandlesOverlay(viewer.sceneContext);
 
     this.dofStatus = new SketchDofStatus(container, (loc) => gotoSource(loc));
+    this.dofStatus.onVisibilityChange = (visible) => this.onDofPillVisibilityChange?.(visible);
 
     const opSelection: SketchOpSelection = {
       ids: () => [...(this.activeHoverSelectHandler?.selectedIds ?? [])],

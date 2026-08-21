@@ -73,6 +73,12 @@ export class SketchMesh extends Group {
   private solvedDotBindings: { group: Group; entityId: number; role: 'point' | 'start' | 'end' | 'center' }[] = [];
   /** The current glyph groups — replaced wholesale on live updates. */
   private solvedGlyphGroups: Group[] = [];
+  /** Constraint badges and dimensions belong to the sketch being edited.
+   * Sketch-edit mode keeps every other sketch on screen for reference, but
+   * their annotations would crowd — and be picked alongside — the active
+   * sketch's own, so only the active sketch draws them. Outside sketch mode
+   * (no active sketch) every visible sketch still annotates itself. */
+  private readonly showConstraints: boolean;
   /** Screen-space annotation placement (P5.5); null without annotations. */
   private glyphLayout: SolvedGlyphLayout | null = null;
   private layoutHookOff: (() => void) | null = null;
@@ -83,6 +89,7 @@ export class SketchMesh extends Group {
     super();
     this.userData.isSketchRoot = true;
     this.userData.sketchObjectId = sceneObject.id;
+    this.showConstraints = !activeSketchId || sceneObject.id === activeSketchId;
     this.solvedModel = buildSolvedSketchModel(sceneObject, allObjects);
     this.buildEdges(sceneObject, allObjects);
     this.buildVertices(sceneObject, allObjects);
@@ -229,7 +236,7 @@ export class SketchMesh extends Group {
 
   private rebuildSolvedGlyphs(): void {
     const model = this.solvedModel;
-    if (!model) {
+    if (!model || !this.showConstraints) {
       return;
     }
     this.glyphLayout?.dispose();
@@ -465,6 +472,9 @@ export class SketchMesh extends Group {
   }
 
   private addConstraintIcons(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[]): void {
+    if (!this.showConstraints) {
+      return;
+    }
     if (this.solvedModel) {
       // Same path as a live-drag refresh: build the glyphs, hand them to the
       // layout, and let the frame hook place them (screen-space hit test —

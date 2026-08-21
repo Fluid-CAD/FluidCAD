@@ -13,8 +13,9 @@ function sampleFacePoints(shape: TopoDS_Shape): MeasureVec[] {
   Mesh.ensureTriangulated(face);
 
   const location = new oc.TopLoc_Location();
+  // A null Handle arrives as JS `null` (see Mesh.extractFaceTriangulationRaw).
   const triangulation = oc.BRep_Tool.Triangulation(face, location, 0);
-  if (triangulation.isNull()) {
+  if (!triangulation) {
     location.delete();
     return [];
   }

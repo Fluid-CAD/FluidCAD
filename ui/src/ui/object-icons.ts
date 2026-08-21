@@ -1,11 +1,40 @@
+/**
+ * Artwork for the 16 solved-sketch constraint kinds, keyed by the kind itself
+ * (`SOLVED_CONSTRAINT_KINDS`) rather than by the `constraint-<kind>` unique
+ * type, so the constraint toolbar — whose button ids ARE the kinds — and the
+ * timeline read one set of names. Most map straight through; the exceptions:
+ * `collinear` borrows the artwork's own one-l spelling, and radius/diameter
+ * borrow the distance dimension until they have art of their own.
+ */
+export const CONSTRAINT_KIND_ICONS: Record<string, string> = {
+  'angle': 'constraint-angle',
+  'coincident': 'constraint-coincident',
+  'collinear': 'constraint-colinear',
+  'concentric': 'constraint-concentric',
+  'diameter': 'constraint-distance',
+  'distance': 'constraint-distance',
+  'equal': 'constraint-equal',
+  'fix': 'constraint-fix',
+  'horizontal': 'constraint-horizontal',
+  'midpoint': 'constraint-midpoint',
+  'parallel': 'constraint-parallel',
+  'perpendicular': 'constraint-perpendicular',
+  'radius': 'constraint-distance',
+  'symmetric': 'constraint-symmetric',
+  'tangent': 'constraint-tangent',
+  'vertical': 'constraint-vertical',
+};
+
+/** Undoing a constraint: the toolbar's delete button and nothing else. */
+export const CONSTRAINT_REMOVE_ICON = 'constraint-remove';
+
 export const UNIQUE_TYPE_ICONS: Record<string, string> = {
   'aline': 'aline',
   'axis-from-edge': 'axis',
   'connector': 'mate-connector',
-  'constraint-angle': 'constraint-angle',
-  'constraint-horizontal': 'constraint-horizontal',
-  'constraint-tangent': 'constraint-tangent-arc',
-  'constraint-vertical': 'constraint-vertical',
+  ...Object.fromEntries(
+    Object.entries(CONSTRAINT_KIND_ICONS).map(([kind, icon]) => [`constraint-${kind}`, icon]),
+  ),
   'axis-middle': 'axis',
   'copy-circular-2d': 'copy-circular2d',
   'copy-linear-2d': 'copy-linear2d',

@@ -1,5 +1,9 @@
 import { ConversionOption, ConversionTarget } from '../../api';
-import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
+import {
+  CONSTRAINT_KIND_ICONS,
+  CONSTRAINT_REMOVE_ICON,
+  ICON_IMG_FALLBACK,
+} from '../../ui/object-icons';
 
 /**
  * Button order; `free` renders after a divider (it undoes the others).
@@ -7,12 +11,15 @@ import { ICON_IMG_FALLBACK } from '../../ui/object-icons';
  * shows on the button itself and survives only in the tooltip.
  */
 const TARGETS: { target: ConversionTarget; label: string; iconPng: string }[] = [
-  { target: 'hLine', label: 'H-Line', iconPng: 'constraint-horizontal' },
-  { target: 'vLine', label: 'V-Line', iconPng: 'constraint-vertical' },
-  { target: 'tLine', label: 'T-Line', iconPng: 'constraint-tangent-line' },
-  { target: 'aLine', label: 'A-Line', iconPng: 'constraint-angle' },
-  { target: 'tArc', label: 'T-Arc', iconPng: 'constraint-tangent-arc' },
-  { target: 'free', label: 'Free', iconPng: 'constraint-remove' },
+  { target: 'hLine', label: 'H-Line', iconPng: CONSTRAINT_KIND_ICONS.horizontal },
+  { target: 'vLine', label: 'V-Line', iconPng: CONSTRAINT_KIND_ICONS.vertical },
+  // The constraint set draws tangency once, so the two tangent conversions
+  // share it and separate on their tooltips; the segment-shape artwork
+  // (tline/tarc) belongs to the drawing tools, not to this bar.
+  { target: 'tLine', label: 'T-Line', iconPng: CONSTRAINT_KIND_ICONS.tangent },
+  { target: 'aLine', label: 'A-Line', iconPng: CONSTRAINT_KIND_ICONS.angle },
+  { target: 'tArc', label: 'T-Arc', iconPng: CONSTRAINT_KIND_ICONS.tangent },
+  { target: 'free', label: 'Free', iconPng: CONSTRAINT_REMOVE_ICON },
 ];
 
 const NO_SELECTION_TIP = 'Select a chained segment to convert it';

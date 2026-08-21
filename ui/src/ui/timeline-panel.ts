@@ -3,7 +3,7 @@ import { setDistanceTangency } from '../api';
 import { findActiveObject, findEnclosingPartRow, rollbackScopeIds, isRollbackViewTruncated } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH } from './icons';
-import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
+import { resolveIconName, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
 
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
@@ -583,7 +583,7 @@ export class TimelinePanel {
           ${ICON_CHEVRON_RIGHT}
         </span>
         ${errorDot}
-        <img src="/icons/constraint-horizontal.png" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
+        <img src="/icons/${CONSTRAINT_KIND_ICONS.horizontal}.png" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
         <span class="truncate">${count} constraint${count === 1 ? '' : 's'}</span>
       </div>
     `;
@@ -597,7 +597,11 @@ export class TimelinePanel {
     // current whenever the rollback stop lands anywhere inside its range.
     const isCurrent = inRollbackScope && rollbackStop >= index && rollbackStop <= rollbackIndex;
     const isPast = inRollbackScope && index > rollbackStop;
-    const isInvisible = obj.visible === false;
+    // `visible` reports whether a row put shapes on screen, so a constraint
+    // statement — which never has any — reads as false. Dimming it there would
+    // say "hidden shape" about something that cannot be shown or hidden, and
+    // would grayscale the constraint artwork out of the row it labels.
+    const isInvisible = obj.visible === false && !isConstraintRow(obj);
     const isActivePart = !isChild && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
     const name = obj.name || 'Unknown';
     const iconSrc = obj.type === 'part' ? '/icons/box.png' : `/icons/${resolveIconName(obj.uniqueType, obj.type)}.png`;

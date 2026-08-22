@@ -195,7 +195,7 @@ export class FileTabs {
   private buildCloseButton(tab: FileTab, isActive: boolean): HTMLButtonElement {
     const close = document.createElement('button');
     close.className =
-      'shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100 ' +
+      'shrink-0 ml-1 rounded p-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100 ' +
       'hover:bg-base-content/15 [&>svg]:size-3 ' +
       (isActive ? 'opacity-70' : '');
     close.title = 'Close tab';
@@ -237,13 +237,13 @@ export class FileTabs {
   private static buildLabel(basename: string, model: ModelName | null): HTMLElement {
     if (!model) {
       const label = document.createElement('span');
-      label.className = 'truncate';
+      label.className = 'flex-1 truncate';
       label.textContent = basename;
       return label;
     }
 
     const label = document.createElement('span');
-    label.className = 'flex flex-col min-w-0 leading-tight';
+    label.className = 'flex-1 flex flex-col min-w-0 leading-tight';
 
     const name = document.createElement('span');
     name.className = 'truncate';

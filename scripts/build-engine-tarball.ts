@@ -52,7 +52,6 @@ function target(platform: EngineTarget['platform'], arch: EngineTarget['arch']):
 
 export const ENGINE_TARGETS: EngineTarget[] = [
   target('darwin', 'arm64'),
-  target('darwin', 'x64'),
   target('win32', 'x64'),
   target('linux', 'x64'),
 ];

@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Menu, MenuItemConstructorOptions, shell } from 'electron';
 import { listRecentProjects } from './state';
 import { windowFor } from './project-window';
+import { pendingUpdateVersion, restartToUpdate } from './updater';
 
 /**
  * The application menu.
@@ -27,6 +28,21 @@ function toPage(command: string, payload?: unknown): void {
   window?.sendMenuCommand(command, payload);
 }
 
+/**
+ * Present only while an update sits downloaded and waiting. The updater installs
+ * it on the next quit regardless; this is the shortcut for the impatient.
+ */
+function updateItems(): MenuItemConstructorOptions[] {
+  const version = pendingUpdateVersion();
+  if (!version) {
+    return [];
+  }
+  return [
+    { label: `Restart to Update to FluidCAD ${version}`, click: () => restartToUpdate() },
+    { type: 'separator' },
+  ];
+}
+
 function recentProjectsSubmenu(actions: MenuActions): MenuItemConstructorOptions[] {
   const recents = listRecentProjects();
   if (recents.length === 0) {
@@ -49,6 +65,7 @@ export function buildApplicationMenu(actions: MenuActions): void {
             submenu: [
               { role: 'about' },
               { type: 'separator' },
+              ...updateItems(),
               { role: 'services' },
               { type: 'separator' },
               { role: 'hide' },
@@ -136,6 +153,7 @@ export function buildApplicationMenu(actions: MenuActions): void {
     {
       role: 'help',
       submenu: [
+        ...(isMac ? [] : updateItems()),
         { label: 'Documentation', click: () => void shell.openExternal('https://fluidcad.io/docs') },
         {
           label: 'Report an Issue',
@@ -148,7 +166,7 @@ export function buildApplicationMenu(actions: MenuActions): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-/** The recents submenu is built once per menu; rebuild after opening a project. */
+/** Recents and the update item are snapshots; rebuild after opening a project or staging an update. */
 export function refreshApplicationMenu(actions: MenuActions): void {
   buildApplicationMenu(actions);
 }

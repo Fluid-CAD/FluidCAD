@@ -254,7 +254,8 @@ if (singleInstance) {
     registerIpcHandlers();
     installSmokeHooks();
     buildApplicationMenu(menuActions);
-    initAutoUpdate();
+    // A staged update shows up as a menu item; the menu is a snapshot, so rebuild.
+    initAutoUpdate(() => refreshApplicationMenu(menuActions));
 
     // Closing a project window closes it, full stop — no start screen pops
     // up in its place. An already-open start screen just refreshes so the

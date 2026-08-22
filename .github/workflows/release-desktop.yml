@@ -25,14 +25,13 @@ jobs:
           - os: ubuntu-latest
             target: linux-x64
             flags: --linux --x64
+          # Apple Silicon only. A second Intel runner would also race this one
+          # for `latest-mac.yml`: the GitHub publisher overwrites an existing
+          # asset, so the updater feed would list only the arch that finished
+          # last.
           - os: macos-latest
             target: darwin-arm64
             flags: --mac --arm64
-          # `macos-13`, the last Intel image under the plain `macos-N` label, was
-          # retired by GitHub; `macos-15-intel` is the Intel image that remains.
-          - os: macos-15-intel
-            target: darwin-x64
-            flags: --mac --x64
           - os: windows-latest
             target: win32-x64
             flags: --win --x64
@@ -104,9 +103,7 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
       - name: Build and publish the app
-        # The arch is pinned per runner: the config lists both macOS arches so a
-        # local `npm run dist` builds what the machine can, but in CI each
-        # runner builds its own and nothing is cross-compiled twice.
+        # The arch is pinned per runner so nothing is cross-compiled twice.
         # `mac.forceCodeSigning` turns "skipped macOS code signing" from a log
         # line into a failure here — a release must never publish an unsigned
         # macOS build (Gatekeeper would refuse it and electron-updater could

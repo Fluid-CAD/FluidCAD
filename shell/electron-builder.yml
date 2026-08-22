@@ -43,9 +43,9 @@ mac:
   category: public.app-category.graphics-design
   target:
     - target: dmg
-      arch: [arm64, x64]
+      arch: [arm64]
     - target: zip
-      arch: [arm64, x64]
+      arch: [arm64]
   # Signed with the "Developer ID Application" identity electron-builder
   # imports from CSC_LINK / CSC_KEY_PASSWORD (see release-desktop.yml), then
   # notarized through notarytool with the App Store Connect API key in

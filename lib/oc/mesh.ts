@@ -81,8 +81,12 @@ export class Mesh {
     const indices: number[] = [];
 
     const aLocation = new oc.TopLoc_Location();
+    // A null OCCT Handle arrives as JS `null` — embind maps null smart pointers
+    // to null rather than to a wrapper — so there is nothing to call IsNull()
+    // on. Test the value itself; `handle.isNull()` would throw here, turning
+    // "this face has no triangulation" into an opaque TypeError.
     const triangulation = oc.BRep_Tool.Triangulation(face, aLocation, 0);
-    if (triangulation.isNull()) {
+    if (!triangulation) {
       aLocation.delete();
       return null;
     }
@@ -164,16 +168,16 @@ export class Mesh {
     }
 
     const loc = new oc.TopLoc_Location();
+    // Null handles come back as JS `null`, not as a wrapper — see
+    // `extractFaceTriangulationRaw`. There is nothing to delete on that path.
     const tri = oc.BRep_Tool.Triangulation(face, loc, 0);
-    if (tri.isNull()) {
-      tri.delete();
+    if (!tri) {
       loc.delete();
       return null;
     }
 
     const poly = oc.BRep_Tool.PolygonOnTriangulation(edge, tri, loc);
-    if (poly.isNull()) {
-      poly.delete();
+    if (!poly) {
       tri.delete();
       loc.delete();
       return null;
@@ -227,8 +231,7 @@ export class Mesh {
 
     const loc = new oc.TopLoc_Location();
     const poly = oc.BRep_Tool.Polygon3D(ocEdge, loc);
-    if (poly.isNull()) {
-      poly.delete();
+    if (!poly) {
       loc.delete();
       ocEdge.delete();
       console.warn("Edge has no stored Polygon3D after meshing; returning empty polyline.");

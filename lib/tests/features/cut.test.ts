@@ -132,8 +132,9 @@ describe("cut", () => {
 
     it("should apply draft to a through-all cut on a small profile", () => {
       // Mirrors the user's repro: small radius (1.5) and steep draft (-8°).
-      // With THROUGH_ALL_LENGTH=100000, lateral draft = 100000 * tan(8°) ≈ 14054
-      // would invert a 1.5-radius profile if applied over the full prism length.
+      // Lateral draft grows with the prism's length, so a through-all tool not
+      // sized to the model would invert a 1.5-radius profile long before it
+      // cleared the stock (see `throughAllLength`).
       sketch("xy", () => {
         rect(7, 5).centered();
       });

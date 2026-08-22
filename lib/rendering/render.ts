@@ -6,6 +6,7 @@ import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
+import { Exposed } from "../features/exposed.js";
 import { transformMeshes } from "./mesh-transform.js";
 import { attachSketchSnapVertices } from "./sketch-snap.js";
 import { ShapeOps } from "../oc/shape-ops.js";
@@ -396,6 +397,23 @@ export class SceneRenderer {
     }
   }
 
+  /**
+   * An exposure's published shapes (its source selection, hidden from the
+   * display by the expose itself) — read scope-less, the way every consumer
+   * of the exposure reads them. Only for rows the render actually reached:
+   * a rolled-back or errored exposure has nothing to show.
+   */
+  private referencedShapes(obj: SceneObject, opts: RenderEmit): RenderedShape[] | undefined {
+    if (!(obj instanceof Exposed) || opts.hasError || (opts.scope && !opts.scope.has(obj))) {
+      return undefined;
+    }
+    try {
+      return obj.source.getShapes().map(s => this.toRenderedShape(s));
+    } catch {
+      return undefined;
+    }
+  }
+
   private emitRendered(obj: SceneObject, scene: Scene, opts: RenderEmit): void {
     const categories = opts.profiler?.getCategories();
     const profileCategories = categories && categories.length > 0 ? categories : undefined;
@@ -428,6 +446,7 @@ export class SceneRenderer {
       parentId: obj.parentId,
       object: serialized,
       sceneShapes: opts.sceneShapes,
+      referencedShapes: this.referencedShapes(obj, opts),
       type: obj.getType(),
       uniqueType: obj.getUniqueType(),
       interactivity: obj instanceof GeometrySceneObject && obj.getParent() instanceof Sketch

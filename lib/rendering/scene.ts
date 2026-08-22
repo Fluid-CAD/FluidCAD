@@ -39,6 +39,12 @@ export type SceneObjectRender = {
   hideChildren?: boolean;
   object: any;
   sceneShapes: RenderedShape[];
+  /**
+   * Shapes the object publishes but never puts on screen — an `expose(…)`
+   * row's source selection, which the exposure hides from the rendered scene.
+   * The UI shows them on demand (a timeline-row click) as a highlight.
+   */
+  referencedShapes?: RenderedShape[];
   visible: boolean;
   /** The object carries a `.reusable()` chain — kept visible when consumed. */
   reusable?: boolean;

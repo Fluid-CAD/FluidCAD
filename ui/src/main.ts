@@ -985,6 +985,15 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     refreshActivePartScope();
   };
   panel.isPartRowActive = (obj) => activePartTracker.isActive(obj);
+  // Connector / exposed rows are references, not modeling steps: a click
+  // shows what they publish in the viewer instead of a rollback preview.
+  panel.onFeatureShow = (obj) => {
+    if (obj.type === 'connector' && obj.id != null) {
+      viewer.highlightConnector(obj.id);
+    } else if (obj.type === 'exposed') {
+      viewer.highlightDetachedShapes(obj.referencedShapes ?? []);
+    }
+  };
   // Double-clicking an editable feature row (the enter-breakpoint gesture)
   // also opens that feature's dialog prefilled from its statement.
   panel.onFeatureEdit = (obj, index) => {

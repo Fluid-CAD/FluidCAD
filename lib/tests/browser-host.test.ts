@@ -5,6 +5,12 @@ import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import fillet from "../core/fillet.js";
 import { rect } from "../core/2d/index.js";
+import part from "../core/part.js";
+import insert from "../core/insert.js";
+import mate from "../core/mate.js";
+import connector from "../core/connector.js";
+import select from "../core/select.js";
+import { face } from "../filters/index.js";
 
 interface RenderedMesh { vertices: number[] }
 interface RenderedShape { meshes: RenderedMesh[] }
@@ -117,6 +123,43 @@ describe("BrowserEngineHost", () => {
     expect(outcome.compileError).toBeNull();
     const cached = (outcome.result as RenderedObject[]).filter((o) => o.fromCache);
     expect(cached.length).toBe(0);
+    host.dispose();
+  });
+
+  it("renders an .assembly.js entry as an assembly scene with its payload", async () => {
+    host.unloadModel();
+    host.setWorkspace({ "rig.assembly.js": "unused" }, "rig.assembly.js");
+    host.setModuleEvaluator(async () => {
+      const base = part("Base", () => {
+        sketch("xy", () => { rect(60, 40).centered(); });
+        extrude(10);
+        connector("top", select(face().planar().onPlane("xy", 10)));
+      });
+      const post = part("Post", () => {
+        sketch("xy", () => { rect(10, 10).centered(); });
+        extrude(30);
+        connector("bottom", select(face().planar().onPlane("xy", 0)));
+      });
+      const b = insert(base).grounded();
+      const p = insert(post);
+      mate("revolute", b.connectors.top, p.connectors.bottom);
+      return {};
+    });
+    const outcome = await host.render();
+    expect(outcome.compileError).toBeNull();
+    expect(outcome.sceneKind).toBe("assembly");
+    expect(outcome.assembly?.instances.map((i) => i.partName)).toEqual(["Base", "Post"]);
+    expect(outcome.assembly?.instances[0].grounded).toBe(true);
+    expect(outcome.assembly?.mates).toHaveLength(1);
+    expect(outcome.assembly?.mates[0].type).toBe("revolute");
+
+    // Switching back to a part entry drops the assembly payload.
+    host.unloadModel();
+    host.setWorkspace({ "model.fluid.js": "unused" }, "model.fluid.js");
+    host.setModuleEvaluator(modelEvaluator);
+    const partOutcome = await host.render();
+    expect(partOutcome.sceneKind).toBe("part");
+    expect(partOutcome.assembly).toBeUndefined();
     host.dispose();
   });
 

@@ -22,6 +22,15 @@ export { ExportDialog } from './ui/export-dialog';
 export { ErrorBanner } from './ui/error-banner';
 export { LoadingOverlay } from './ui/loading-overlay';
 export { TopBar } from './ui/top-bar';
+export type { TopBarHandlers } from './ui/top-bar';
+export type { FileTab, FileTabsHandlers } from './editor/tabs';
+export { PartsPanel } from './ui/parts-panel';
+export type { PartsPanelOptions } from './ui/parts-panel';
+export { JointsPanel } from './ui/joints-panel';
+export type { JointsPanelOptions } from './ui/joints-panel';
+export { DofStatus } from './ui/dof-status';
+export type { DofStatusUpdate } from './ui/dof-status';
+export { DragReadout } from './ui/drag-readout';
 export { SelectionInfoOverlay } from './ui/selection-info-overlay';
 export { MeasureController } from './ui/measure/measure-controller';
 export { captureScreenshot, captureScreenshotMulti } from './screenshot';
@@ -35,4 +44,14 @@ export type {
   SourceLocationParam,
   UserPreferences,
 } from './api';
-export type { SceneObjectRender, SceneObjectPart, UIParamDefinition, SubSelection } from './types';
+export type {
+  SceneObjectRender,
+  SceneObjectPart,
+  UIParamDefinition,
+  SubSelection,
+  SerializedAssembly,
+  SerializedAssemblyInstance,
+  SerializedAssemblyMate,
+  SerializedAssemblyOccurrence,
+  RenderedInstance,
+} from './types';

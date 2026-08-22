@@ -14,6 +14,8 @@ export interface TopBarHandlers {
    */
   onToggleEditor?: () => void;
   isEditorOpen?: () => boolean;
+  /** Menu label for the editor toggle — a read-only host says "Code" rather than "Code editor". */
+  editorMenuLabel?: string;
   /** Tab interactions. Absent on a viewport-only host — see {@link setFileName}. */
   tabs?: FileTabsHandlers;
 }
@@ -131,7 +133,7 @@ export class TopBar {
     if (this.handlers.onToggleEditor) {
       list.appendChild(this.buildItem(
         ICON_CODE,
-        'Code editor',
+        this.handlers.editorMenuLabel ?? 'Code editor',
         this.handlers.isEditorOpen?.() === true,
         () => this.handlers.onToggleEditor?.(),
       ));
@@ -184,6 +186,4 @@ export class TopBar {
 /** Stand-in for a host with no tabs; never reached, since none are rendered. */
 const NO_TABS: FileTabsHandlers = {
   onActivate: () => undefined,
-  onClose: () => undefined,
-  onAdd: () => undefined,
 };

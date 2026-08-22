@@ -48,6 +48,15 @@ export type OccurrenceHandlers = {
 
 type RenameTarget = { kind: 'instance' | 'occurrence'; id: string };
 
+export interface PartsPanelOptions {
+  /**
+   * A host that cannot edit source (the browser viewer): rows keep select /
+   * visibility, and lose the ⋮ menu, the context menu and inline rename —
+   * every action there rewrites an insert() statement.
+   */
+  readOnly?: boolean;
+}
+
 export class PartsPanel {
   private panel: HTMLDivElement;
   private partsBody: HTMLDivElement;
@@ -71,6 +80,7 @@ export class PartsPanel {
   private onDeleteInstance: (instanceId: string) => void;
   private occurrenceHandlers: OccurrenceHandlers | null;
   private onEditParams: ((kind: 'instance' | 'occurrence', id: string) => void) | null;
+  private readonly readOnly: boolean;
 
   constructor(
     container: HTMLElement,
@@ -83,7 +93,9 @@ export class PartsPanel {
     onDeleteInstance: (instanceId: string) => void,
     occurrenceHandlers?: OccurrenceHandlers,
     onEditParams?: (kind: 'instance' | 'occurrence', id: string) => void,
+    options: PartsPanelOptions = {},
   ) {
+    this.readOnly = options.readOnly === true;
     this.onSelectInstance = onSelectInstance;
     this.onToggleVisibility = onToggleVisibility;
     this.onShowInSource = onShowInSource;
@@ -272,7 +284,7 @@ export class PartsPanel {
         ${nameOrInput}
         <span class="text-xs text-base-content/40 tabular-nums shrink-0">${members.length}</span>
         <button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-group-eye="${occurrenceId}">${eyeIcon}</button>
-        <button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-group-dots="${occurrenceId}">${ICON_DOTS_VERTICAL}</button>
+        ${this.dotsButtonHtml('data-group-dots', occurrenceId)}
       </div>
     `;
     if (!collapsed) {
@@ -301,9 +313,17 @@ export class PartsPanel {
         ${groundSlot}
         ${nameOrInput}
         <button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-eye="${inst.instanceId}">${eyeIcon}</button>
-        <button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${inst.instanceId}">${ICON_DOTS_VERTICAL}</button>
+        ${this.dotsButtonHtml('data-dots', inst.instanceId)}
       </div>
     `;
+  }
+
+  /** The ⋮ menu button — omitted entirely on a read-only host (its every item edits source). */
+  private dotsButtonHtml(attr: 'data-dots' | 'data-group-dots', id: string): string {
+    if (this.readOnly) {
+      return '';
+    }
+    return `<button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" ${attr}="${id}">${ICON_DOTS_VERTICAL}</button>`;
   }
 
   private bindInstanceRows(): void {
@@ -466,6 +486,9 @@ export class PartsPanel {
     anchor?: HTMLElement,
   ): void {
     this.closeDropdown();
+    if (this.readOnly) {
+      return;
+    }
     const inst = this.instances.find(i => i.instanceId === instanceId);
     if (!inst) {
       return;
@@ -526,7 +549,7 @@ export class PartsPanel {
     this.closeDropdown();
     const occ = this.occurrences.find(o => o.occurrenceId === occurrenceId);
     const handlers = this.occurrenceHandlers;
-    if (!occ || !handlers) {
+    if (!occ || !handlers || this.readOnly) {
       return;
     }
 

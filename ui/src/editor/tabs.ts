@@ -1,6 +1,5 @@
 import { ICON_CUBE, ICON_FILE_CODE, ICON_CLOSE, ICON_ALERT_DOT, ICON_PLUS } from '../ui/icons';
 import { ToolbarScroller } from '../ui/navbar/toolbar-scroller';
-import { ICON_IMG_FALLBACK } from '../ui/object-icons';
 import type { FileKind } from './editor-api';
 
 /**
@@ -32,9 +31,10 @@ export type FileTab = {
 
 export interface FileTabsHandlers {
   onActivate(absPath: string): void;
-  onClose(absPath: string): void;
-  /** The `+` button — the caller opens the quick-open popover under it. */
-  onAdd(anchor: HTMLElement): void;
+  /** Absent on a host whose tab set is fixed (the viewer's package files): no close buttons. */
+  onClose?(absPath: string): void;
+  /** The `+` button — the caller opens the quick-open popover under it. Absent: no `+`. */
+  onAdd?(anchor: HTMLElement): void;
 }
 
 type ModelType = 'Part' | 'Assembly';
@@ -47,9 +47,19 @@ const MODEL_SUFFIXES: ReadonlyArray<readonly [string, ModelType]> = [
   ['.fluid.js', 'Part'],
 ];
 
+/** The assembly workbench's teal, worn by assembly tab icons. */
+const ASSEMBLY_ACCENT = '#12A8A8';
+
+/**
+ * Tabs keep a floor width so a short stem (`main`) doesn't collapse the tab
+ * to its icon, and a ceiling so a long one truncates instead of eating the bar.
+ */
+const TAB_MIN_WIDTH = 112;
+const TAB_MAX_WIDTH = 200;
+
 const TAB_BASE =
-  'group relative flex items-center gap-1.5 h-full pl-2 pr-1.5 text-sm ' +
-  'max-w-[200px] cursor-pointer select-none transition-colors shrink-0';
+  'group relative flex items-center gap-2 h-full pl-3 pr-2 text-sm ' +
+  'cursor-pointer select-none transition-colors shrink-0';
 
 export class FileTabs {
   private readonly bar: HTMLDivElement;
@@ -82,7 +92,9 @@ export class FileTabs {
       this.scroller = new ToolbarScroller(scrollHost);
       this.scroller.track.classList.add('h-full');
       this.addButton = this.buildAddButton();
-      this.bar.appendChild(this.addButton);
+      if (handlers.onAdd) {
+        this.bar.appendChild(this.addButton);
+      }
     } else {
       // Still constructed, never attached — keeps every branch below free of
       // null checks for a mode that simply has no tabs.
@@ -125,7 +137,7 @@ export class FileTabs {
       'btn btn-ghost btn-square btn-xs text-base-content/50 hover:text-base-content shrink-0';
     button.title = 'Open a file';
     button.innerHTML = `<span class="[&>svg]:size-4">${ICON_PLUS}</span>`;
-    button.addEventListener('click', () => this.handlers.onAdd(button));
+    button.addEventListener('click', () => this.handlers.onAdd?.(button));
     return button;
   }
 
@@ -147,6 +159,8 @@ export class FileTabs {
         ? 'bg-base-300 text-base-content'
         : 'text-base-content/60 hover:bg-base-content/5 hover:text-base-content/90'
     }`;
+    el.style.minWidth = `${TAB_MIN_WIDTH}px`;
+    el.style.maxWidth = `${TAB_MAX_WIDTH}px`;
     el.title = tab.relPath;
     el.addEventListener('click', () => this.handlers.onActivate(tab.absPath));
 
@@ -163,18 +177,9 @@ export class FileTabs {
       el.appendChild(dot);
     }
 
-    const close = document.createElement('button');
-    close.className =
-      'shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100 ' +
-      'hover:bg-base-content/15 [&>svg]:size-3 ' +
-      (isActive ? 'opacity-70' : '');
-    close.title = 'Close tab';
-    close.innerHTML = ICON_CLOSE;
-    close.addEventListener('click', (event) => {
-      event.stopPropagation();
-      this.handlers.onClose(tab.absPath);
-    });
-    el.appendChild(close);
+    if (this.handlers.onClose) {
+      el.appendChild(this.buildCloseButton(tab, isActive));
+    }
 
     // The scene belongs to the current model — an underline says so without
     // competing with the active-tab background.
@@ -187,19 +192,33 @@ export class FileTabs {
     return el;
   }
 
+  private buildCloseButton(tab: FileTab, isActive: boolean): HTMLButtonElement {
+    const close = document.createElement('button');
+    close.className =
+      'shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 focus:opacity-100 ' +
+      'hover:bg-base-content/15 [&>svg]:size-3 ' +
+      (isActive ? 'opacity-70' : '');
+    close.title = 'Close tab';
+    close.innerHTML = ICON_CLOSE;
+    close.addEventListener('click', (event) => {
+      event.stopPropagation();
+      this.handlers.onClose?.(tab.absPath);
+    });
+    return close;
+  }
+
   /**
    * The scene's own file wears its icon in full strength; another open model
-   * wears it dimmed, and a helper gets the quieter file icon. An assembly
-   * shows the toolbar's assembly picture, a part the cube — the same pair the
-   * rest of the UI uses to tell the two apart. The picture is a raster, so it
-   * dims by opacity where the SVG cube dims by colour.
+   * wears it dimmed, and a helper gets the quieter file icon. Parts and
+   * assemblies share the cube — an assembly's is tinted the assembly accent
+   * (the teal the assembly workbench uses) so the two read apart at a glance.
    */
   private static buildIcon(tab: FileTab, model: ModelName | null, isCurrentModel: boolean): HTMLElement {
     const icon = document.createElement('span');
     if (model?.type === 'Assembly') {
-      icon.className = `shrink-0 ${isCurrentModel ? '' : 'opacity-40'}`;
-      icon.innerHTML =
-        `<img src="/icons/assembly.png" ${ICON_IMG_FALLBACK} class="size-4 object-contain" alt="" />`;
+      icon.className = `shrink-0 [&>svg]:size-3.5 ${isCurrentModel ? '' : 'opacity-40'}`;
+      icon.style.color = ASSEMBLY_ACCENT;
+      icon.innerHTML = ICON_CUBE;
       return icon;
     }
     icon.className = `shrink-0 [&>svg]:size-3.5 ${

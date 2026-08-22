@@ -24,6 +24,11 @@ const STATUS_COLORS: Record<SerializedAssemblyMate['status'], string> = {
   inconsistent: 'bg-error',
 };
 
+export interface JointsPanelOptions {
+  /** A host that cannot edit source: rows select/highlight only, no ⋮ or context menu. */
+  readOnly?: boolean;
+}
+
 export class JointsPanel {
   private header: HTMLDivElement;
   private body: HTMLDivElement;
@@ -39,6 +44,7 @@ export class JointsPanel {
   private onEditMate: (mateId: string) => void;
   private onSuppress: (mateId: string) => void;
   private onDelete: (mateId: string) => void;
+  private readonly readOnly: boolean;
 
   constructor(
     host: HTMLElement,
@@ -47,7 +53,9 @@ export class JointsPanel {
     onEditMate: (mateId: string) => void,
     onSuppress: (mateId: string) => void,
     onDelete: (mateId: string) => void,
+    options: JointsPanelOptions = {},
   ) {
+    this.readOnly = options.readOnly === true;
     this.onSelectMate = onSelectMate;
     this.onShowInSource = onShowInSource;
     this.onEditMate = onEditMate;
@@ -144,7 +152,7 @@ export class JointsPanel {
             <span class="pl-11 text-[10px] text-base-content/50 truncate">${escapeHtml(bName)}</span>
             ${limitsLine}
           </div>
-          <button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${mate.mateId}">${DOTS_SVG}</button>
+          ${this.readOnly ? '' : `<button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${mate.mateId}">${DOTS_SVG}</button>`}
         </div>
       `;
     }
@@ -193,6 +201,9 @@ export class JointsPanel {
     anchor?: HTMLElement,
   ): void {
     this.closeDropdown();
+    if (this.readOnly) {
+      return;
+    }
 
     const dropdown = document.createElement('div');
     dropdown.className = 'absolute z-[200] panel-bg border border-base-content/10 rounded-md shadow-[0_4px_12px_rgba(0,0,0,0.4)]';

@@ -17,6 +17,7 @@ interface Helix extends SceneObject {
   height(height: number): this;
   radius(radius: number): this;
   endRadius(radius: number): this;
+  ccw(): this;
 }
 ```
 
@@ -99,6 +100,12 @@ Defaults to `radius()`. Ignored on face/circle inputs.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `radius` | `number` |  |
+
+### `ccw()`
+
+Winds the helix counter-clockwise (right-handed) about its axis — viewed
+from the axis tip looking back toward the origin — instead of the default
+clockwise (left-handed) winding.
 
 ## Inherited
 

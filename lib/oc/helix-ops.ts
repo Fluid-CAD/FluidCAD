@@ -39,6 +39,9 @@ export class HelixOps {
    * angle 0 (the `cs.xDirection` ray). `startRadius` is the radius at `zStart`;
    * when `endRadius` differs the radius tapers linearly to it at `zEnd`, yielding
    * a conical helix (`endRadius === startRadius` gives a constant-radius cylinder).
+   * `counterClockwise` flips the winding from the default clockwise
+   * (left-handed) to counter-clockwise (right-handed), as seen from the axis
+   * tip looking back toward the origin (the right-hand-rule convention).
    */
   static makeHelix(
     cs: CoordinateSystem,
@@ -47,6 +50,7 @@ export class HelixOps {
     zStart: number,
     zEnd: number,
     turns: number,
+    counterClockwise: boolean = false,
   ): Edge {
     const oc = getOC();
 
@@ -63,7 +67,11 @@ export class HelixOps {
     // origin, angle 0 on +X) and approximate it as one B-spline spanning every
     // turn. ApprCurve3D (not ApprHelix) so the segment budget scales with turns.
     const adaptor = new oc.HelixGeom_HelixCurve();
-    adaptor.Load(0, lastAngle, pitch, startRadius, taperAngle, false);
+    // NB: OCCT's last Load() argument is named `aIsCW`, but its sense is taken
+    // looking *along* the axis direction (from the base), which is the mirror
+    // of the tip-looking-back convention used here: aIsCW=false yields a helix
+    // that is clockwise by the right-hand rule, aIsCW=true a counter-clockwise one.
+    adaptor.Load(0, lastAngle, pitch, startRadius, taperAngle, counterClockwise);
 
     const appr = oc.HelixGeom_Tools.ApprCurve3D(
       adaptor,

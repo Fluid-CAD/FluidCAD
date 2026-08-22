@@ -132,6 +132,43 @@ describe("helix", () => {
     });
   });
 
+  describe("winding direction", () => {
+    // Sign of the z-component of (p × dp/dt) near the start: positive = CCW
+    // (right-handed) about +Z, negative = CW (left-handed). Convention: viewed
+    // from the axis tip looking back toward the origin.
+    function windingSign(h: Helix): number {
+      const oc = getOC();
+      const edge = h.getShapes()[0] as Edge;
+      const adaptor = new oc.BRepAdaptor_Curve(edge.getShape());
+      const first = adaptor.FirstParameter();
+      const last = adaptor.LastParameter();
+      const p0 = adaptor.Value(first);
+      const p1 = adaptor.Value(first + (last - first) * 0.01);
+      const cross = p0.X() * (p1.Y() - p0.Y()) - p0.Y() * (p1.X() - p0.X());
+      p0.delete();
+      p1.delete();
+      adaptor.delete();
+      return Math.sign(cross);
+    }
+
+    it("should wind clockwise (left-handed) by default", () => {
+      const h = helix("z").radius(10).pitch(5).turns(3) as Helix;
+      render();
+      expect(h.getError()).toBeFalsy();
+      expect(windingSign(h)).toBe(-1);
+    });
+
+    it("should wind counter-clockwise (right-handed) with .ccw()", () => {
+      const h = helix("z").radius(10).pitch(5).turns(3).ccw() as Helix;
+      render();
+      expect(h.getError()).toBeFalsy();
+      expect(windingSign(h)).toBe(1);
+      const bbox = ShapeOps.getBoundingBox(h.getShapes()[0]);
+      expect(bbox.maxZ - bbox.minZ).toBeGreaterThanOrEqual(15 - MESH_TOL);
+      expect(bbox.maxZ - bbox.minZ).toBeLessThanOrEqual(15 + MESH_TOL);
+    });
+  });
+
   describe("offsets", () => {
     it("should extend the helix axially by .endOffset()", () => {
       const base = helix("z").pitch(5).turns(4) as Helix;

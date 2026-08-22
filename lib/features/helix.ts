@@ -17,6 +17,7 @@ export class Helix extends SceneObject implements IHelix {
   private _height?: number;
   private _radius?: number;
   private _endRadius?: number;
+  private _ccw: boolean = false;
 
   constructor(public source: AxisObjectBase | SceneObject) {
     super();
@@ -57,6 +58,11 @@ export class Helix extends SceneObject implements IHelix {
     return this;
   }
 
+  ccw(): this {
+    this._ccw = true;
+    return this;
+  }
+
   override validate() {
     if (this.source instanceof AxisObjectBase) {
       return;
@@ -78,6 +84,7 @@ export class Helix extends SceneObject implements IHelix {
         height: this._height,
         radius: this._radius,
         endRadius: this._endRadius,
+        ccw: this._ccw,
       },
       message => console.warn(message),
     );
@@ -130,6 +137,7 @@ export class Helix extends SceneObject implements IHelix {
     copy._height = this._height;
     copy._radius = this._radius;
     copy._endRadius = this._endRadius;
+    copy._ccw = this._ccw;
     return copy;
   }
 
@@ -149,7 +157,8 @@ export class Helix extends SceneObject implements IHelix {
       && this._endOffset === other._endOffset
       && this._height === other._height
       && this._radius === other._radius
-      && this._endRadius === other._endRadius;
+      && this._endRadius === other._endRadius
+      && this._ccw === other._ccw;
   }
 
   serialize() {
@@ -162,6 +171,7 @@ export class Helix extends SceneObject implements IHelix {
       height: this._height,
       radius: this._radius,
       endRadius: this._endRadius,
+      ccw: this._ccw,
     };
   }
 }

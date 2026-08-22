@@ -52,12 +52,16 @@ export function openStartScreen(): void {
     title: 'FluidCAD',
     backgroundColor: '#1c1c1c',
     show: false,
+    // The launcher has nothing for File/Edit/View to act on; on Windows and
+    // Linux the in-window menu bar stays hidden here (macOS's is global).
+    autoHideMenuBar: true,
     webPreferences: {
       preload: PRELOAD,
       contextIsolation: true,
       nodeIntegration: false,
     },
   });
+  startWindow.setMenuBarVisibility(false);
   startWindow.once('ready-to-show', () => startWindow?.show());
   startWindow.on('closed', () => {
     startWindow = null;

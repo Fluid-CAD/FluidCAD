@@ -7,6 +7,7 @@ import { PartsPanel } from './ui/parts-panel';
 import { JointsPanel } from './ui/joints-panel';
 import { DofStatus } from './ui/dof-status';
 import { DragReadout } from './ui/drag-readout';
+import { AnimateBar } from './ui/animate-bar';
 import { ParamsPanel } from './ui/params-panel';
 import { ParamEditorDialog } from './ui/param-editor-dialog';
 import { ExportDialog } from './ui/export-dialog';
@@ -220,7 +221,7 @@ const exportDialog = new ExportDialog(container, engineClient, viewer.sceneConte
 
 type LeftRail =
   | { kind: 'part'; timeline: TimelinePanel }
-  | { kind: 'assembly'; parts: PartsPanel; joints: JointsPanel; dof: DofStatus; dragReadout: DragReadout; instanceVisibility: Map<string, boolean> };
+  | { kind: 'assembly'; parts: PartsPanel; joints: JointsPanel; dof: DofStatus; dragReadout: DragReadout; animateBar: AnimateBar; instanceVisibility: Map<string, boolean> };
 
 let currentRail: LeftRail | null = null;
 
@@ -255,6 +256,7 @@ function disposeRail(): void {
     currentRail.joints.dispose();
     currentRail.dof.hide();
     currentRail.dragReadout.dispose();
+    currentRail.animateBar.dispose();
   }
   currentRail = null;
 }
@@ -409,11 +411,48 @@ function buildAssemblyRail(): LeftRail {
       // Drops the whole `mate(...)` statement.
       removeFeature(mate.sourceLocation);
     },
+    {
+      onAnimate: (id) => {
+        const mate = findMate(id);
+        if (!mate || (mate.type !== 'revolute' && mate.type !== 'slider')) return;
+        const state = viewer.getAssemblyController()?.getMateDriveState(id);
+        if (!state) {
+          // A closure edge (the loop's redundant mate) has no follower of
+          // its own to drive — the tree edges own the configuration.
+          dragReadout.flashError('Mate closes a loop — animate one of its neighbours instead');
+          return;
+        }
+        joints.setSelected(id);
+        viewer.highlightMate(mate);
+        const instName = (instId: string | undefined) =>
+          lastAssemblyPayload?.instances.find(i => i.instanceId === instId)?.name ?? '?';
+        const aName = instName(mate.connectorA?.instanceId ?? mate.geometryA?.instanceId);
+        const bName = instName(mate.connectorB?.instanceId ?? mate.geometryB?.instanceId);
+        animateBar.open({
+          mateId: id,
+          label: `${mate.type} · ${aName} ↔ ${bName}`,
+          kind: state.kind,
+          limits: mate.options?.limits,
+        });
+      },
+    },
   );
   const dof = new DofStatus(container, (_mateId) => { /* phase 05+ */ });
   dof.show();
   const dragReadout = new DragReadout(container);
-  return { kind: 'assembly', parts, joints, dof, dragReadout, instanceVisibility: visibility };
+  const animateBar = new AnimateBar(
+    container,
+    {
+      getMateDriveState: (id) => viewer.getAssemblyController()?.getMateDriveState(id) ?? null,
+      driveMateValue: (id, value) => {
+        const out = viewer.getAssemblyController()?.driveMateValue(id, value);
+        return out !== null && out !== undefined;
+      },
+      settle: () => viewer.getAssemblyController()?.refreshSolve(),
+    },
+    () => {},
+  );
+  return { kind: 'assembly', parts, joints, dof, dragReadout, animateBar, instanceVisibility: visibility };
 }
 
 function ensureRailFor(kind: 'part' | 'assembly'): LeftRail {
@@ -496,6 +535,12 @@ function applyAssemblyToRail(rail: LeftRail & { kind: 'assembly' }, assembly: Se
   }));
   rail.parts.update(rendered, assembly.occurrences ?? []);
   rail.joints.update(matesWithStatus(assembly.mates, lastFailedMateIds), rendered);
+  // The animated mate vanished from the source (deleted / renamed) — the
+  // bar would keep driving a ghost.
+  const animated = rail.animateBar.mateId();
+  if (animated !== null && !assembly.mates.find(m => m.mateId === animated)) {
+    rail.animateBar.close();
+  }
 }
 
 function matesWithStatus(

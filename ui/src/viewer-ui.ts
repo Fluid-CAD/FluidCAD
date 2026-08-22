@@ -31,6 +31,8 @@ export type { JointsPanelOptions } from './ui/joints-panel';
 export { DofStatus } from './ui/dof-status';
 export type { DofStatusUpdate } from './ui/dof-status';
 export { DragReadout } from './ui/drag-readout';
+export { AnimateBar } from './ui/animate-bar';
+export type { AnimateBarHost, AnimateTarget } from './ui/animate-bar';
 export { SelectionInfoOverlay } from './ui/selection-info-overlay';
 export { MeasureController } from './ui/measure/measure-controller';
 export { captureScreenshot, captureScreenshotMulti } from './screenshot';

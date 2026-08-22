@@ -36,7 +36,7 @@
 // the non-free params from options is always consistent.
 
 import { Matrix4, Quaternion, Vector3 } from 'three';
-import type { BodyState, ConnectorState, MateRecord } from './types.js';
+import type { BodyState, ConnectorState, MateRecord, DrivenJoint } from './types.js';
 
 export type MateType = MateRecord['type'];
 export type MateOptions = NonNullable<MateRecord['options']>;
@@ -516,6 +516,8 @@ export function observedFlip(
 /** Drag inputs consumed by the mate-aware warm-start paths. */
 export type TreeDragInfo = {
   draggedInstanceId?: string;
+  /** See SolverInput.drivenJoint. */
+  drivenJoint?: DrivenJoint;
   /** Raw cursor world position on the drag plane. */
   draggedCursorWorld?: Vector3;
   /** Grab point in body-local frame. */

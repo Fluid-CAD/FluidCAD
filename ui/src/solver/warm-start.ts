@@ -217,6 +217,14 @@ function seedTreeEdge(
     params = reversed ? defaultParamsReversed(poseOptions) : defaultParams(poseOptions);
   }
 
+  // Kinematic driver: pin the free scalar at the commanded value. Same
+  // sign convention as mateReadoutValue — B-side traversal measures the
+  // authored value face-to-face and its negation under flip.
+  if (drag.drivenJoint?.mateId === mate.mateId && spec.limitParam) {
+    const sign = reversed && options.flip ? -1 : 1;
+    params[spec.limitParam] = sign * drag.drivenJoint.value;
+  }
+
   const delta = dragDelta(
     spec, driver, driverConn, follower, mates, drag, bodyById, clusters,
   );

@@ -159,7 +159,18 @@ export type SolverInput = {
    * use as the "from" of the rotation arc.
    */
   draggedGrabLocal?: Vector3;
+  /**
+   * A kinematic driver: hold this slider/revolute mate's free parameter
+   * at `value` (authored-space degrees / mm — the readout's number) for
+   * this solve. The warm-start poses the follower there and the loop
+   * relaxation drops the parameter from its variables, so closures and
+   * contacts are solved AROUND the driven joint instead of moving it.
+   * Ignored when the mate is a closure edge (nothing to hold).
+   */
+  drivenJoint?: DrivenJoint;
 };
+
+export type DrivenJoint = { mateId: string; value: number };
 
 export type SolverResult = 'okay' | 'inconsistent' | 'didnt-converge' | 'too-many-unknowns';
 

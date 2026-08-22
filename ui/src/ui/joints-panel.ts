@@ -27,6 +27,11 @@ const STATUS_COLORS: Record<SerializedAssemblyMate['status'], string> = {
 export interface JointsPanelOptions {
   /** A host that cannot edit source: rows select/highlight only, no ⋮ or context menu. */
   readOnly?: boolean;
+  /**
+   * Offer "Animate" on slider/revolute rows (opens the animate bar). A
+   * non-mutating action, so owned (sub-assembly) mates get it too.
+   */
+  onAnimate?: (mateId: string) => void;
 }
 
 export class JointsPanel {
@@ -45,6 +50,7 @@ export class JointsPanel {
   private onSuppress: (mateId: string) => void;
   private onDelete: (mateId: string) => void;
   private readonly readOnly: boolean;
+  private readonly onAnimate: ((mateId: string) => void) | undefined;
 
   constructor(
     host: HTMLElement,
@@ -56,6 +62,7 @@ export class JointsPanel {
     options: JointsPanelOptions = {},
   ) {
     this.readOnly = options.readOnly === true;
+    this.onAnimate = options.onAnimate;
     this.onSelectMate = onSelectMate;
     this.onShowInSource = onShowInSource;
     this.onEditMate = onEditMate;
@@ -212,10 +219,14 @@ export class JointsPanel {
 
     // Owned mates' statements live in the sub-assembly's file — offer only
     // the non-mutating action, same as the parts panel's owned rows.
-    const owned = (this.mates.find(m => m.mateId === mateId)?.owner ?? '') !== '';
+    const mate = this.mates.find(m => m.mateId === mateId);
+    const owned = (mate?.owner ?? '') !== '';
+    const animatable = this.onAnimate !== undefined
+      && (mate?.type === 'revolute' || mate?.type === 'slider');
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
         <li><button data-action="show-in-source">Show in source</button></li>
+        ${animatable ? '<li><button data-action="animate">Animate…</button></li>' : ''}
         ${owned ? '' : `
         <li><button data-action="edit-mate">Edit mate…</button></li>
         <li><button data-action="suppress">Suppress</button></li>
@@ -230,6 +241,12 @@ export class JointsPanel {
       this.closeDropdown();
       this.onShowInSource(mateId);
     });
+    if (animatable) {
+      dropdown.querySelector('[data-action="animate"]')!.addEventListener('click', () => {
+        this.closeDropdown();
+        this.onAnimate!(mateId);
+      });
+    }
     if (!owned) {
       dropdown.querySelector('[data-action="edit-mate"]')!.addEventListener('click', () => {
         this.closeDropdown();

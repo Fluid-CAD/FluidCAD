@@ -5,6 +5,7 @@ import type {
   Material,
   MeasureEntityRef,
   MeasureResult,
+  MoveToPartResult,
   ShapeProperties,
   SourceLocationParam,
   UserPreferences,
@@ -24,6 +25,17 @@ export interface EngineEditorClient {
   undo(filePath: string): Promise<EditorHistoryResult>;
   /** Step the editor's native redo history for the file at `filePath`. */
   redo(filePath: string): Promise<EditorHistoryResult>;
+  /**
+   * Move the feature statements at `lines` into the `part(...)` at `part`.
+   * With `dryRun` the server only analyzes: `needs` names the companion
+   * statements the move must also include, and nothing touches the buffer.
+   */
+  moveToPart(
+    filePath: string,
+    lines: number[],
+    part: { line: number; column: number },
+    opts?: { dryRun?: boolean },
+  ): Promise<MoveToPartResult>;
 }
 
 /**

@@ -112,7 +112,7 @@ function walk(node: TSNode, visit: (n: TSNode) => boolean | void): void {
  * etc.), but plain `identifier` nodes still cover a lot of ground and we
  * have to look at parent context to classify them.
  */
-function isReferenceUse(node: TSNode): boolean {
+export function isReferenceUse(node: TSNode): boolean {
   if (node.type !== 'identifier') {
     return false;
   }

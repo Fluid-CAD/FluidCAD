@@ -15,6 +15,7 @@ import {
 } from './code-editor.ts';
 import { applySegmentSwap, type SegmentSwapSpec } from './segment-swap.ts';
 import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
+import { MoveToPart, type MoveToPartSpec } from './move-to-part.ts';
 import { applyInsertPartEdit, type InsertPartEditSpec } from './part-catalog/insert-edit.ts';
 import { applyInstancePoseEdit, type InstancePoseEditSpec } from './insert-chain-edit.ts';
 import { applyInsertParamsEdit, type InsertParamsEditSpec } from './insert-params-edit.ts';
@@ -249,6 +250,13 @@ export type ApplyFeatureEditSpec = {
    * spec field is ignored.
    */
   newPart?: { name?: string };
+  /**
+   * Timeline drag-drop: move the selected top-level feature statements into
+   * a `part(...)` callback body, dependency-checked against the whole file.
+   * Rides the same round trip as `newPart`; every other spec field is
+   * ignored.
+   */
+  moveToPart?: MoveToPartSpec;
   /**
    * The `part(...)` call site whose callback body receives the created
    * statement — the timeline's active part. Only the producer-less appends
@@ -1435,6 +1443,9 @@ export async function applyFeatureEdit(
   }
   if (spec.newPart) {
     return applyNewPart(code, spec.newPart);
+  }
+  if (spec.moveToPart) {
+    return MoveToPart.apply(code, spec.moveToPart);
   }
   if (spec.instancePose) {
     return applyInstancePoseWithDecls(code, spec);
@@ -4235,7 +4246,7 @@ async function insertDeclsAfterImports(code: string, decls: string[]): Promise<s
  * which reads the sketch it is called from and so lands inside that
  * sketch's body rather than in the producers' scope.
  */
-type Insertion = { index: number; indent: string; wrap: (stmt: string) => string };
+export type Insertion = { index: number; indent: string; wrap: (stmt: string) => string };
 
 function resolveInsertion(
   spec: ApplyFeatureEditSpec,
@@ -4326,7 +4337,7 @@ const LOOP_NODE_TYPES = new Set([
  * part body itself. Bound producers must live inside the body: a variable
  * declared elsewhere isn't visible at the insertion point.
  */
-function resolvePartBodyInsertion(
+export function resolvePartBodyInsertion(
   partLoc: { line: number; column: number },
   bindings: ProducerBinding[],
   lines: string[],

@@ -550,6 +550,17 @@ const navbar = new Navbar(container);
 // an editor-less server. The file targeted is whatever the last render came
 // from — the same file every other toolbar action edits.
 let currentSceneAbsPath: string | null = null;
+// Set while the last render carried a compile error — drag-to-part refuses
+// then: the timeline's rows describe the previous scene, so their line
+// anchors can't be trusted against the broken buffer.
+let activeCompileError = false;
+/**
+ * Armed after a successful move-to-part ack: if the render that follows
+ * fails to compile, the move is undone automatically (it applied as exactly
+ * one editor undo step) instead of leaving the timeline serving stale rows
+ * against a broken buffer. A successful render — or the timeout — disarms.
+ */
+let moveRevertGuard: { filePath: string; expiresAt: number } | null = null;
 const runEditorHistory = (action: 'undo' | 'redo') => {
   const editor = engineClient.editor;
   if (!editor || !currentSceneAbsPath) {
@@ -994,6 +1005,13 @@ function wireTimelinePanel(panel: TimelinePanel): void {
       viewer.highlightDetachedShapes(obj.referencedShapes ?? []);
     }
   };
+  // Multi-selected rows dropped onto a part row → move their statements
+  // into its callback body: dry-run analysis, a confirm for any companion
+  // statements, then the acked dispatcher write with auto-revert if the
+  // compile still breaks.
+  panel.onMoveToPart = (filePath, lines, partLoc) => {
+    void handleMoveToPart(filePath, lines, partLoc);
+  };
   // Double-clicking an editable feature row (the enter-breakpoint gesture)
   // also opens that feature's dialog prefilled from its statement.
   panel.onFeatureEdit = (obj, index) => {
@@ -1322,6 +1340,110 @@ function showToast(message: string): void {
 
 function showEditRefusal(reason: string): void {
   showToast(`Can't edit this feature in a dialog: ${reason}`);
+}
+
+/**
+ * The timeline drop: dry-run the move so a dependency-closed selection
+ * applies silently, an incomplete one confirms its companion set first,
+ * and anything unmovable toasts the server's refusal.
+ */
+async function handleMoveToPart(
+  filePath: string,
+  lines: number[],
+  partLoc: { filePath: string; line: number; column: number },
+): Promise<void> {
+  const editor = engineClient.editor;
+  if (!editor) {
+    return;
+  }
+  if (activeCompileError) {
+    showToast("Can't move features while the file has a compile error — fix it first");
+    return;
+  }
+  const part = { line: partLoc.line, column: partLoc.column };
+  const probe = await editor.moveToPart(filePath, lines, part, { dryRun: true });
+  let moveLines = lines;
+  if (!probe.success) {
+    if (!probe.needs || probe.needs.length === 0) {
+      showToast(`Can't move: ${probe.reason ?? 'unknown error'}`);
+      return;
+    }
+    const listed = probe.needs.map((n) => `${n.name} (line ${n.line})`).join(', ');
+    const confirmed = await confirmMoveDialog(
+      `These features depend on others that must move with them. Also moves: ${listed}.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    moveLines = [...new Set([...lines, ...probe.needs.map((n) => n.line)])].sort((a, b) => a - b);
+  }
+  const result = await editor.moveToPart(filePath, moveLines, part);
+  if (!result.success) {
+    showToast(`Can't move: ${result.reason ?? 'unknown error'}`);
+    return;
+  }
+  // The move acked: the next render is its verdict. A compile error inside
+  // this window auto-reverts through the editor's history.
+  moveRevertGuard = { filePath, expiresAt: Date.now() + 10_000 };
+}
+
+/**
+ * Minimal confirm for the move-to-part drop: the dependency closure the
+ * server computed, one accept, one cancel. Escape / Enter / backdrop all
+ * settle it; the promise resolves exactly once.
+ */
+function confirmMoveDialog(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'absolute inset-0 z-[1004] bg-black/30 flex items-center justify-center';
+    const card = document.createElement('div');
+    card.className = 'bg-base-100 border border-base-300 rounded-lg shadow-lg px-4 py-3 max-w-[420px] flex flex-col gap-3';
+    const text = document.createElement('div');
+    text.className = 'text-sm text-base-content/80 leading-snug';
+    text.textContent = message;
+    const row = document.createElement('div');
+    row.className = 'flex justify-end gap-2';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-ghost btn-xs';
+    cancelBtn.textContent = 'Cancel';
+    const okBtn = document.createElement('button');
+    okBtn.className = 'btn btn-primary btn-xs';
+    okBtn.textContent = 'Move all';
+    row.appendChild(cancelBtn);
+    row.appendChild(okBtn);
+    card.appendChild(text);
+    card.appendChild(row);
+    backdrop.appendChild(card);
+    container.appendChild(backdrop);
+    let settled = false;
+    const finish = (value: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      document.removeEventListener('keydown', onKey, true);
+      backdrop.remove();
+      resolve(value);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        finish(false);
+      } else if (e.key === 'Enter') {
+        e.stopPropagation();
+        finish(true);
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) {
+        finish(false);
+      }
+    });
+    okBtn.addEventListener('click', () => finish(true));
+    cancelBtn.addEventListener('click', () => finish(false));
+    okBtn.focus();
+  });
 }
 const sketchService = new SketchToolbarService(container, viewer, trimService, projectionService, navbar);
 const modifyService = new ModifyPickService(container, viewer, navbar, {
@@ -2440,6 +2562,26 @@ function connectWebSocket() {
           viewer.setParamsButtonVisible(true);
         }
         errorBanner.update(msg.result, msg.compileError ?? null);
+        const compileError = msg.compileError ?? null;
+        activeCompileError = compileError !== null;
+        if (compileError === null) {
+          moveRevertGuard = null;
+        } else if (moveRevertGuard !== null) {
+          const guard = moveRevertGuard;
+          moveRevertGuard = null;
+          if (Date.now() <= guard.expiresAt && engineClient.editor) {
+            // The render right after a timeline move failed to compile:
+            // step the editor's history once (the move applied as one undo
+            // entry) so the buffer and the served scene reconverge.
+            void engineClient.editor.undo(guard.filePath).then((result) => {
+              if (result.success) {
+                showToast(`Move undone — the file failed to compile: ${compileError.message ?? 'compile error'}`);
+              } else {
+                showToast(`The move broke the compile — undo it in the editor (${result.reason ?? 'undo unavailable'})`);
+              }
+            });
+          }
+        }
         // Only update the breakpoint indicator when the server sends an
         // authoritative value. Rollback responses don't re-run the module but
         // carry the last full render's state (so a refresh whose replayed

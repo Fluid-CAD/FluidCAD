@@ -107,7 +107,10 @@ export function listSelectionGroups(scene: SelectionScene, ref: PickRef): Select
  * buckets of the same sub-shape kind as `sibling` groups — the "Select
  * other" section (a startEdges pick offers End Edges, Side Edges, …).
  * Siblings keep single-member buckets: unlike the seed's own bucket, they
- * select edges the pick doesn't already imply.
+ * select edges the pick doesn't already imply. Sibling labels carry the
+ * feature prefix like the own label does: a cut's start/end run sketch-side
+ * to exit, which can invert the solid's apparent orientation ("Cut End
+ * Edges" on a downward bore is the bottom circle).
  */
 function classifiedGroups(scene: SelectionScene, ref: PickRef): SelectionGroup[] {
   const index = new SelectionIndex(scene);
@@ -119,11 +122,12 @@ function classifiedGroups(scene: SelectionScene, ref: PickRef): SelectionGroup[]
 
     const groups: SelectionGroup[] = [];
     const producer = attr.producer.bucket;
+    const feature = featureLabel(producer.feature.getType());
     const members = bucketMembersOnSolid(index, producer, attr.solidShape!, ref);
     if (members.length > 1) {
       groups.push({
         kind: 'classified',
-        label: `${featureLabel(producer.feature.getType())} ${accessorLabel(producer.def.accessor)}`,
+        label: `${feature} ${accessorLabel(producer.def.accessor)}`,
         members,
       });
     }
@@ -134,7 +138,11 @@ function classifiedGroups(scene: SelectionScene, ref: PickRef): SelectionGroup[]
       }
       const siblingMembers = bucketMembersOnSolid(index, bucket, attr.solidShape!, ref);
       if (siblingMembers.length > 0) {
-        groups.push({ kind: 'sibling', label: accessorLabel(bucket.def.accessor), members: siblingMembers });
+        groups.push({
+          kind: 'sibling',
+          label: `${feature} ${accessorLabel(bucket.def.accessor)}`,
+          members: siblingMembers,
+        });
       }
     }
     return groups;

@@ -49,8 +49,8 @@ describe("selection groups (right-click multi-select menu)", () => {
     // "Select other": the extrude's other edge buckets.
     const siblings = groups.filter(g => g.kind === 'sibling');
     expect(siblings.map(g => [g.label, g.members.length])).toEqual([
-      ['Start Edges', 4],
-      ['Side Edges', 4],
+      ['Extrude Start Edges', 4],
+      ['Extrude Side Edges', 4],
     ]);
 
     const sameType = byKind(groups, 'same-type')!;
@@ -148,8 +148,8 @@ describe("selection groups (right-click multi-select menu)", () => {
     // "Select other": the extrude's other FACE buckets (single members kept).
     const siblings = groups.filter(g => g.kind === 'sibling');
     expect(siblings.map(g => [g.label, g.members.length])).toEqual([
-      ['End Faces', 1],
-      ['Start Faces', 1],
+      ['Extrude End Faces', 1],
+      ['Extrude Start Faces', 1],
     ]);
     expect(siblings.every(g => g.members.every(m => m.sub.type === 'face'))).toBe(true);
     // No geometric edge groups on a face pick; box sides aren't tangent.
@@ -170,5 +170,44 @@ describe("selection groups (right-click multi-select menu)", () => {
     if (result.ok === false) {
       expect(result.reason).toContain('does not resolve');
     }
+  });
+
+  it("prefixes sibling labels with the feature and drops a single-member own bucket (bore circles)", async () => {
+    // A cut sketched on the body's top face runs sketch-side to exit, so its
+    // start is the solid's top and its end the bottom. The sibling labels
+    // carry the feature prefix ("Cut End Edges") so they read as the cut's
+    // frame, not as a name for the picked circle; the pick's own
+    // single-member bucket selects nothing new and stays out of the menu.
+    sketch("xy", () => {
+      circle(72);
+    });
+    const body = extrude(34) as Extrude;
+    sketch(body.endFaces(), () => {
+      circle(30);
+    });
+    cut();
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const topCircle = edgeRefsWhere(solid, m =>
+      Math.abs(m.z - 34) < 1e-6 && Math.hypot(m.x, m.y) < 20);
+    expect(topCircle).toHaveLength(1);
+
+    const groups = groupsFor(listSelectionGroups(scene, topCircle[0]));
+
+    // No group for the pick's own single-member bucket, and no unprefixed
+    // accessor labels anywhere.
+    expect(groups.some(g => g.label === 'Cut Start Edges')).toBe(false);
+    expect(groups.some(g => g.label.startsWith('End Edges'))).toBe(false);
+
+    const siblings = groups.filter(g => g.kind === 'sibling');
+    expect(siblings.map(g => g.label)).toContain('Cut End Edges');
+    const endEdges = siblings.find(g => g.label === 'Cut End Edges')!;
+    expect(endEdges.members).toHaveLength(1);
+    // The sibling really is the other circle, at the cut's exit side (z=0).
+    const endEdge = Explorer.findEdgesWrapped(solid)[endEdges.members[0].sub.index];
+    expect(EdgeProps.getProperties(endEdge.getShape()).curveType).toBe('circle');
+    const { EdgeOps } = await import("../../oc/edge-ops.js");
+    expect(EdgeOps.getEdgeMidPoint(endEdge).z).toBeCloseTo(0, 6);
   });
 });

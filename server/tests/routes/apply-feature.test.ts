@@ -2183,7 +2183,7 @@ describe('apply-feature route validation', () => {
         expect(relayed[0].spec).toMatchObject({
           feature: 'offset',
           value: 5,
-          offset: { removeOriginal: false, close: true },
+          offset: { close: true },
           edit: { line: 5, column: 2 },
           parts: [],
           clearBreakpoints: true,
@@ -2204,29 +2204,29 @@ describe('apply-feature route validation', () => {
           alternatives: [`r.edge(3)`],
         };
         const { status, body } = await post({
-          feature: 'offset', edit: OFFSET_EDIT, value: 5, removeOriginal: true,
+          feature: 'offset', edit: OFFSET_EDIT, value: 5,
           sketchEntities: [{ shapeId: 'edge-7' }], preview: true,
         });
         expect(status).toBe(200);
-        expect(body.preview).toBe(`offset(5, true, r.edge('left'))`);
+        expect(body.preview).toBe(`offset(5, r.edge('left'))`);
         expect(body.args).toBe(`r.edge('left')`);
         expect(sketchSynthesizeCalls).toEqual([
           {
             picks: [{ shapeId: 'edge-7' }],
             feature: 'offset',
             value: 5,
-            offset: { removeOriginal: true, close: false },
+            offset: { close: false },
           },
         ]);
         expect(relayed).toHaveLength(0);
       });
 
-      it('rejects a closed offset that also removes the original', async () => {
+      it('rejects the removed removeOriginal flag honestly', async () => {
         const { status, body } = await post({
-          feature: 'offset', edit: OFFSET_EDIT, value: 5, removeOriginal: true, close: true,
+          feature: 'offset', edit: OFFSET_EDIT, value: 5, removeOriginal: true,
         });
         expect(status).toBe(400);
-        expect(body.error).toContain('closed offset');
+        expect(body.error).toContain('no longer takes a removeOriginal flag');
       });
 
       it('rejects a zero distance', async () => {
@@ -5004,76 +5004,14 @@ describe('apply-feature route validation', () => {
           picks: [{ shapeId: 'edge-1' }],
           feature: 'offset',
           value: 3,
-          // Both toggles off — the plain form the dialog opens on.
-          offset: { removeOriginal: false, close: false },
+          // Toggle off — the plain form the dialog opens on.
+          offset: { close: false },
         },
       ]);
     });
 
-    it('relays a subtract with slot-addressed picks and no value', async () => {
-      currentSynthesis = {
-        ok: true,
-        spec: {
-          feature: 'subtract',
-          filePath: '/ws/m.fluid.js',
-          producers: [
-            { line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true },
-            { line: 6, column: 0, featureType: 'circle', nameHint: 'c', bind: true },
-          ],
-          parts: [
-            { producer: 0, accessor: '', indices: null, filterArgs: null },
-            { producer: 1, accessor: '', indices: null, filterArgs: null },
-          ],
-          imports: [],
-        },
-        preview: 'subtract(r, c)',
-        args: 'r, c',
-        alternatives: [],
-      };
-      const { status, body } = await post({
-        feature: 'subtract',
-        sketchEntities: [{ shapeId: 'edge-1' }],
-        sketchToolEntities: [{ shapeId: 'edge-9' }],
-      });
-      expect(status).toBe(200);
-      expect(body.success).toBe(true);
-      expect(sketchSynthesizeCalls).toEqual([
-        { picks: [{ shapeId: 'edge-1' }], feature: 'subtract', value: undefined },
-      ]);
-      expect(relayed).toHaveLength(1);
-    });
 
-    it('requires the tool slot for subtract and rejects it elsewhere', async () => {
-      const missing = await post({
-        feature: 'subtract', sketchEntities: [{ shapeId: 'edge-1' }],
-      });
-      expect(missing.status).toBe(400);
-      expect(missing.body.error).toContain('sketchToolEntities');
 
-      const misplaced = await post({
-        feature: 'fuse',
-        sketchEntities: [{ shapeId: 'edge-1' }],
-        sketchToolEntities: [{ shapeId: 'edge-9' }],
-      });
-      expect(misplaced.status).toBe(400);
-      expect(misplaced.body.error).toContain('only applies to subtract');
-    });
-
-    it('previews a valueless trim through the same branch', async () => {
-      currentSynthesis = {
-        ...SKETCH_SYNTHESIS,
-        spec: { ...SKETCH_SYNTHESIS.spec, feature: 'trim', value: undefined },
-        preview: "trim(r.edge('top'))",
-      };
-      const { status, body } = await post({
-        feature: 'trim', sketchEntities: [{ shapeId: 'edge-1' }], preview: true,
-      });
-      expect(status).toBe(200);
-      expect(body).toMatchObject({ success: true, preview: "trim(r.edge('top'))" });
-      expect(sketchSynthesizeCalls).toEqual([
-        { picks: [{ shapeId: 'edge-1' }], feature: 'trim', value: undefined },
-      ]);
-    });
 
     it('accepts a negative offset distance but rejects zero', async () => {
       currentSynthesis = {
@@ -5099,16 +5037,15 @@ describe('apply-feature route validation', () => {
         preview: "offset(3, r.edge('top'))",
       };
 
-      it('writes removeOriginal as the second argument', async () => {
+      it('rejects the removed removeOriginal flag', async () => {
         currentSynthesis = OFFSET_SYNTHESIS;
         const { status, body } = await post({
           feature: 'offset', value: 3, removeOriginal: true,
           sketchEntities: [{ shapeId: 'edge-1' }],
         });
-        expect(status).toBe(200);
-        expect(body.preview).toBe("offset(3, true, r.edge('top'))");
-        expect(sketchSynthesizeCalls[0].offset).toEqual({ removeOriginal: true, close: false });
-        expect(relayed[0].spec.offset).toEqual({ removeOriginal: true, close: false });
+        expect(status).toBe(400);
+        expect(body.error).toContain('no longer takes a removeOriginal flag');
+        expect(relayed).toHaveLength(0);
       });
 
       it('chains .close() and previews it', async () => {
@@ -5130,18 +5067,7 @@ describe('apply-feature route validation', () => {
           feature: 'offset', value: 3, close: true, sketchEntities: [{ shapeId: 'edge-1' }],
         });
         expect(status).toBe(200);
-        expect(relayed[0].spec.offset).toEqual({ removeOriginal: false, close: true });
-      });
-
-      it('rejects a closed offset that also removes the original', async () => {
-        currentSynthesis = OFFSET_SYNTHESIS;
-        const { status, body } = await post({
-          feature: 'offset', value: 3, removeOriginal: true, close: true,
-          sketchEntities: [{ shapeId: 'edge-1' }],
-        });
-        expect(status).toBe(400);
-        expect(body.error).toContain('closed offset');
-        expect(relayed).toHaveLength(0);
+        expect(relayed[0].spec.offset).toEqual({ close: true });
       });
 
       it('rejects the toggles on another 2D op', async () => {

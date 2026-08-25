@@ -11,7 +11,7 @@ import { resolveExpressionValue, VariableInfo } from '../ui/expression-core';
 import { addDot, START_POINT_COLOR } from './tools/tool-preview-utils';
 import type { SolvedToolContext } from './tools/solved-emission';
 
-export type ToolId = 'line' | 'polyline' | 'circle' | 'polygon' | 'arc3' | 'arc2' | 'rect' | 'rounded-rect' | 'slot' | 'trim' | 'fillet' | 'offset' | 'copy' | 'fuse' | 'subtract' | 'common' | 'bezier' | 'text' | 'project';
+export type ToolId = 'line' | 'polyline' | 'circle' | 'polygon' | 'arc3' | 'arc2' | 'rect' | 'rounded-rect' | 'slot' | 'fillet' | 'offset' | 'rotate' | 'copy' | 'bezier' | 'text' | 'project';
 
 export type ToolConfig = {
   id: ToolId;

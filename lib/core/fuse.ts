@@ -1,40 +1,22 @@
 import { SceneObject } from "../common/scene-object.js";
-import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { Fuse } from "../features/fuse.js";
-import { Fuse2D } from "../features/fuse2d.js";
 import { ISceneObject } from "./interfaces.js";
-import { addTargetObjects, sketchLastSelection } from "./target-utils.js";
 
 interface FuseFunction {
-  /** Fuses all shapes or 2D geometries in the current context. */
-  (): Fuse | Fuse2D;
+  /** Fuses all shapes in the current context. */
+  (): Fuse;
   /**
-   * Fuses the given shapes or 2D geometries into one.
+   * Fuses the given shapes into one.
    * @param objects - The objects to fuse together
    */
-  (...objects: ISceneObject[]): Fuse | Fuse2D;
+  (...objects: ISceneObject[]): Fuse;
 }
 
 function build(context: SceneParserContext): FuseFunction {
   return function fuse(...args: (ISceneObject[])): ISceneObject {
-    const activeSketch = context.getActiveSketch();
-
-    if (activeSketch) {
-      let objects: GeometrySceneObject[];
-      if (args.length > 0) {
-        if (args.length === 1 && Array.isArray(args[0])) {
-          objects = args[0] as GeometrySceneObject[];
-        } else {
-          objects = args as GeometrySceneObject[];
-        }
-      } else {
-        objects = sketchLastSelection(context, activeSketch) as unknown as GeometrySceneObject[];
-      }
-      addTargetObjects(objects, context);
-      const fuse2d = new Fuse2D(...objects);
-      context.addSceneObject(fuse2d);
-      return fuse2d;
+    if (context.getActiveSketch()) {
+      throw new Error("fuse() is no longer available inside a sketch — 2D booleans were removed");
     }
 
     let solids: SceneObject[];

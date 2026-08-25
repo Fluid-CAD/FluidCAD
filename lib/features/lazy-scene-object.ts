@@ -18,7 +18,16 @@ export class LazySelectionSceneObject extends AnchorableSelection {
     super();
   }
 
+  // Resolvable ahead of the render loop's own build slot (the P6 reference
+  // pre-pass builds projection sources early) — the latch makes the second
+  // build a no-op instead of double-adding the shapes.
+  private _resolved = false;
+
   build() {
+    if (this._resolved) {
+      return;
+    }
+    this._resolved = true;
     const shapes = this.getShapesFn(this.sourceParent)
     this.addShapes(shapes);
   }

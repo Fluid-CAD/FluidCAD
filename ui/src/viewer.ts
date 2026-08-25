@@ -127,7 +127,6 @@ export class Viewer {
   private faceHighlightMeshes: Mesh[] = [];
   private hasRendered = false;
   private lastFitBox: Box3 | null = null;
-  isTrimming = false;
   isRegionPicking = false;
   isDrawing = false;
   /**
@@ -414,7 +413,7 @@ export class Viewer {
       if (e.button !== 0) {
         return;
       }
-      if (!this.selectionHandler || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
+      if (!this.selectionHandler || this.isRegionPicking || this.modeManager.isSketchMode) {
         return;
       }
       // A gizmo gesture (drag, handle click, typed commit) owns this click
@@ -474,7 +473,7 @@ export class Viewer {
     // fired by the time this arrives (DOM event order), so the handler sees
     // the selection as the clicks left it.
     canvas.addEventListener('dblclick', (e) => {
-      if (!this.doubleClickHandler || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
+      if (!this.doubleClickHandler || this.isRegionPicking || this.modeManager.isSketchMode) {
         return;
       }
       const dx = e.clientX - downX;
@@ -492,7 +491,7 @@ export class Viewer {
     // Non-drag right-click. OrbitControls suppresses the browser menu on the
     // canvas; this hook adds pick-aware context actions on top.
     canvas.addEventListener('contextmenu', (e) => {
-      if (!this.contextMenuHandler || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
+      if (!this.contextMenuHandler || this.isRegionPicking || this.modeManager.isSketchMode) {
         return;
       }
       const dx = e.clientX - downX;
@@ -923,9 +922,9 @@ export class Viewer {
       }
     }
 
-    // Auto-fit on first render or in sketch mode (skip if viewport barely changed or trimming).
+    // Auto-fit on first render or in sketch mode (skip if viewport barely changed).
     // Skip when in sketch mode on first render — positionCameraForSketch already centered on origin.
-    if ((!this.hasRendered && !this.modeManager.isSketchMode) || (this.modeManager.isSketchMode && !isRollback && !this.isTrimming && !this.isRegionPicking && !this.isDrawing)) {
+    if ((!this.hasRendered && !this.modeManager.isSketchMode) || (this.modeManager.isSketchMode && !isRollback && !this.isRegionPicking && !this.isDrawing)) {
       const box = new Box3();
       expandBoxExcludingMeta(box, mesh);
       if (!box.isEmpty() && !this.isBoxContained(box)) {
@@ -1381,7 +1380,7 @@ export class Viewer {
     });
 
     canvas.addEventListener('mousemove', (e) => {
-      if (this.isMouseDown || this.isTrimming || this.isRegionPicking || this.modeManager.isSketchMode) {
+      if (this.isMouseDown || this.isRegionPicking || this.modeManager.isSketchMode) {
         return;
       }
       // Authoritative drag-active gate. `isMouseDown` above is mouse-event

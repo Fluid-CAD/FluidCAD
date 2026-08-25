@@ -16,12 +16,12 @@ import {
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
   renderAlineStatement,
-  renderChamferValueArgs, renderConnectorChain, renderFaceTargetExpr, renderOffsetStatement, renderSlotStatement, renderTarcStatement,
+  renderChamferValueArgs, renderConnectorChain, renderFaceTargetExpr, renderOffsetStatement, renderRotate2DStatement, renderSlotStatement, renderTarcStatement,
   renderTextStatement, type TextStatementOptions, validConnectorAnchor, validConnectorRotate,
   resolvePartBindingIdent,
   type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions,
   type ConnectorAnchorSpec, type CopyEditOptions,
-  type OffsetEditOptions, type SlotEditOptions,
+  type OffsetEditOptions, type Rotate2DEditOptions, type SlotEditOptions,
   type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
   type HelixEditOptions,
   type HelixSourceSpec, type LoftEditOptions,
@@ -176,22 +176,19 @@ function validateShellJoinType(raw: unknown): { joinType: ShellJoinKind } | { er
 }
 
 /**
- * The 2D offset's two toggles, riding a create or edit request: absent fields
- * read as off, so a caller that knows nothing about them keeps the plain
- * `offset(d, …)` form. The pair is refused here rather than written into the
- * file — the kernel throws on it, since a removed original leaves the offset
- * nothing to cap to.
+ * The 2D offset's `.close()` toggle, riding a create or edit request: an
+ * absent field reads as off, so a caller that knows nothing about it keeps
+ * the plain `offset(d, …)` form.
  */
 function validateOffsetOptions(body: any): { options: OffsetEditOptions } | { error: string } {
-  const removeOriginal = body?.removeOriginal ?? false;
+  if (body?.removeOriginal !== undefined) {
+    return { error: 'offset() no longer takes a removeOriginal flag — mark the sources .guide() instead' };
+  }
   const close = body?.close ?? false;
-  if (typeof removeOriginal !== 'boolean' || typeof close !== 'boolean') {
-    return { error: 'removeOriginal and close must be booleans' };
+  if (typeof close !== 'boolean') {
+    return { error: 'close must be a boolean' };
   }
-  if (removeOriginal && close) {
-    return { error: 'a closed offset keeps its original profile — turn off "Remove original"' };
-  }
-  return { options: { removeOriginal, close } };
+  return { options: { close } };
 }
 
 /**
@@ -208,6 +205,25 @@ function validateSlotOptions(body: any): { options: SlotEditOptions } | { error:
     return { error: 'close only applies to offset' };
   }
   return { options: { removeOriginal } };
+}
+
+/**
+ * The in-sketch rotate's payload, riding a create request: the rotation
+ * center in sketch coordinates (numbers or expressions) and the copy flag.
+ */
+function validateRotate2DOptions(body: any): { options: Rotate2DEditOptions } | { error: string } {
+  const raw = body?.rotate2d;
+  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.center) || raw.center.length !== 2) {
+    return { error: 'rotate2d must carry { center: [x, y], copy? }' };
+  }
+  if (!raw.center.every((c: unknown) => validValueExpr(c as any))) {
+    return { error: 'rotate2d.center entries must be numbers or expressions' };
+  }
+  const copy = raw.copy ?? false;
+  if (typeof copy !== 'boolean') {
+    return { error: 'rotate2d.copy must be a boolean' };
+  }
+  return { options: { center: [raw.center[0], raw.center[1]], copy } };
 }
 
 /**
@@ -6170,10 +6186,9 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'sketchEntities must be a non-empty array of {shapeId} picks' });
         return;
       }
-      if (feature !== 'fillet' && feature !== 'offset' && feature !== 'slot' && feature !== 'trim'
-        && feature !== 'fuse' && feature !== 'subtract' && feature !== 'common' && feature !== 'tarc'
-        && feature !== 'aline' && feature !== 'text' && feature !== 'copy') {
-        res.status(400).json({ error: 'feature must be "fillet", "offset", "slot", "trim", "fuse", "subtract", "common", "tarc", "aline", "text" or "copy" for sketch-edge selections' });
+      if (feature !== 'fillet' && feature !== 'offset' && feature !== 'slot' && feature !== 'tarc'
+        && feature !== 'aline' && feature !== 'text' && feature !== 'copy' && feature !== 'rotate2d') {
+        res.status(400).json({ error: 'feature must be "fillet", "offset", "slot", "tarc", "aline", "text", "copy" or "rotate2d" for sketch-edge selections' });
         return;
       }
       // The 2D copy: whole-geometry targets rendered as bare variables plus
@@ -6292,14 +6307,11 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'copy2d and sketchAxisEntities only apply to copy' });
         return;
       }
-      // Trim, the booleans and text carry no numeric parameter (text rides
-      // its full option payload instead).
-      const sketchValueless = feature === 'trim'
-        || feature === 'fuse' || feature === 'subtract' || feature === 'common'
-        || feature === 'text';
+      // Text carries no numeric parameter (it rides its full option payload
+      // instead).
+      const sketchValueless = feature === 'text';
       // Fillet and slot need a positive radius; offset allows a negative
-      // distance (the inward idiom) but not zero; the booleans carry no value
-      // at all.
+      // distance (the inward idiom) but not zero.
       if ((feature === 'fillet' || feature === 'slot') && !validValueExpr(value, { positive: true })) {
         res.status(400).json({ error: 'value must be a positive number or expression' });
         return;
@@ -6321,8 +6333,8 @@ export function createApplyFeatureRouter(
         tarcRetarget = { line: rt.line, sign: rt.sign };
       }
       // tArc's signed radius allows negative (flips the sweep direction) but
-      // not zero, like offset's distance.
-      if ((feature === 'offset' || (feature === 'tarc' && !tarcRetarget))
+      // not zero, like offset's distance; a rotate angle is signed too.
+      if ((feature === 'offset' || feature === 'rotate2d' || (feature === 'tarc' && !tarcRetarget))
         && !validValueExpr(value, { nonzero: true })) {
         res.status(400).json({ error: 'value must be a nonzero number or expression' });
         return;
@@ -6359,8 +6371,8 @@ export function createApplyFeatureRouter(
         }
         textOptions = parsed.options;
       }
-      // Offset's dialog toggles: the `removeOriginal` argument and `.close()`.
-      // Slot's single toggle: the trailing `deleteSource` argument.
+      // Offset's dialog toggle: `.close()`. Slot's single toggle: the
+      // trailing `deleteSource` argument.
       let offsetOptions: OffsetEditOptions | undefined;
       let slotOptions: SlotEditOptions | undefined;
       if (feature === 'offset') {
@@ -6381,17 +6393,21 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'removeOriginal and close only apply to offset and slot' });
         return;
       }
-      // Subtract is slot-addressed: sketchEntities is the base pick set,
-      // sketchToolEntities the tool's.
-      let sketchToolPicks: { shapeId: string }[] | undefined;
-      if (feature === 'subtract') {
-        sketchToolPicks = validateSketchPicks(req.body?.sketchToolEntities) ?? undefined;
-        if (!sketchToolPicks) {
-          res.status(400).json({ error: 'sketchToolEntities must be a non-empty array of {shapeId} picks for subtract' });
+      // The in-sketch rotate's payload: the center point and the copy flag.
+      let rotate2dOptions: Rotate2DEditOptions | undefined;
+      if (feature === 'rotate2d') {
+        const parsed = validateRotate2DOptions(req.body);
+        if ('error' in parsed) {
+          res.status(400).json({ error: parsed.error });
           return;
         }
-      } else if (req.body?.sketchToolEntities !== undefined) {
-        res.status(400).json({ error: 'sketchToolEntities only applies to subtract' });
+        rotate2dOptions = parsed.options;
+      } else if (req.body?.rotate2d !== undefined) {
+        res.status(400).json({ error: 'rotate2d only applies to the rotate2d feature' });
+        return;
+      }
+      if (req.body?.sketchToolEntities !== undefined) {
+        res.status(400).json({ error: 'sketchToolEntities is no longer supported — 2D booleans were removed' });
         return;
       }
       if (selectorOverride !== undefined
@@ -6408,11 +6424,11 @@ export function createApplyFeatureRouter(
               await extractNumericParams(code),
               fluidCadServer.getParamDefinitions(),
             ),
-            toolRefs: sketchToolPicks,
             offset: offsetOptions,
             slot: slotOptions,
+            rotate2d: rotate2dOptions,
           }
-          : { toolRefs: sketchToolPicks, offset: offsetOptions, slot: slotOptions };
+          : { offset: offsetOptions, slot: slotOptions, rotate2d: rotate2dOptions };
         const synthesis = fluidCadServer.synthesizeSketchApplyFeature(
           sketchPicks, feature, sketchValueless || tarcRetarget ? undefined : value, options,
         );
@@ -6467,7 +6483,9 @@ export function createApplyFeatureRouter(
         // previews) the form the dialog asked for.
         const statement = offsetOptions
           ? renderOffsetStatement(value, synthesis.args, offsetOptions)
-          : feature === 'slot'
+          : rotate2dOptions
+            ? renderRotate2DStatement(value, synthesis.args, rotate2dOptions)
+            : feature === 'slot'
             ? renderSlotStatement(value, synthesis.args, slotOptions)
             : feature === 'text'
               ? renderTextStatement(textOptions!, synthesis.args)
@@ -6495,6 +6513,9 @@ export function createApplyFeatureRouter(
         }
         if (slotOptions) {
           spec = { ...spec, slot: slotOptions };
+        }
+        if (rotate2dOptions) {
+          spec = { ...spec, rotate2d: rotate2dOptions };
         }
         if (textOptions) {
           spec = { ...spec, text: textOptions };
@@ -7082,8 +7103,10 @@ export function createApplyFeatureRouter(
     }
     const validRoles = new Set(['start', 'end', 'center', 'mid']);
     const validTypes = new Set(['line', 'arc', 'circle', 'point']);
+    // Reference targets (P6) address a project()/intersect() statement.
+    const validReferenceTypes = new Set(['project', 'intersect']);
     const validDatums = new Set(['origin', 'x-axis', 'y-axis']);
-    const cleanTargets: { line?: number; role?: string; featureType?: string; datum?: string }[] = [];
+    const cleanTargets: { line?: number; role?: string; featureType?: string; datum?: string; refIndex?: number | null }[] = [];
     for (const t of targets) {
       if (typeof t !== 'object' || t === null) {
         res.status(400).json({ error: 'Invalid request body' });
@@ -7100,9 +7123,12 @@ export function createApplyFeatureRouter(
         cleanTargets.push({ datum: t.datum });
         continue;
       }
+      const isReference = t.refIndex !== undefined;
       if (typeof t.line !== 'number'
         || (t.role !== undefined && !validRoles.has(t.role))
-        || (t.featureType !== undefined && !validTypes.has(t.featureType))) {
+        || (isReference && t.refIndex !== null && !Number.isInteger(t.refIndex))
+        || (t.featureType !== undefined
+          && !(isReference ? validReferenceTypes : validTypes).has(t.featureType))) {
         res.status(400).json({ error: 'Invalid request body' });
         return;
       }
@@ -7110,6 +7136,7 @@ export function createApplyFeatureRouter(
         line: t.line,
         ...(t.role !== undefined ? { role: t.role } : {}),
         ...(t.featureType !== undefined ? { featureType: t.featureType } : {}),
+        ...(isReference ? { refIndex: t.refIndex } : {}),
       });
     }
     const targetFile = filePath ?? fluidCadServer.getCurrentFileName();

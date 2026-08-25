@@ -3,7 +3,6 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import shell from "../../core/shell.js";
-import fuse from "../../core/fuse.js";
 import { circle, move, polygon, rect } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
@@ -52,10 +51,9 @@ describe("filter ranking robustness", () => {
     sketch("xy", () => {
       circle([50, 70], 35.77);
       move(33.66, 7.54);
-      const r = rect(110.99, -51.9);
+      rect(110.99, -51.9);
       move(-44.65, 74.36);
-      const c = circle(72.84);
-      fuse(r, c);
+      circle(72.84);
       rect(83.74, -54.35);
       move(-233.74, 124.35);
       polygon(5, 107.7);

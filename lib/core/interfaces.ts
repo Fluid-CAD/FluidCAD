@@ -246,6 +246,29 @@ export interface IGeometry extends ISceneObject {
 
 export interface IExtrudableGeometry extends IGeometry {}
 
+/**
+ * One projected/sectioned edge as a constraint target (P6 fixed reference):
+ * `p.ref(0)` names the edge, its accessors name its points.
+ */
+export interface IReferenceEntity {
+  start(): LazyVertex;
+  end(): LazyVertex;
+  center(): LazyVertex;
+}
+
+/**
+ * A `project()`/`intersect()` result inside a solved sketch: fixed reference
+ * geometry the constraints can target. Passing the reference itself (or its
+ * `center()`) resolves when it produced exactly one constrainable edge;
+ * `.ref(i)` addresses one of several.
+ */
+export interface IReference extends IExtrudableGeometry {
+  /** Constraint target naming projected edge `i` (0-based emitted order). */
+  ref(index: number): IReferenceEntity;
+  /** The single projected circle/arc's center point. */
+  center(): LazyVertex;
+}
+
 /** A solved (constraint-sketch) line statement. */
 export interface ISolvedLine extends IGeometry {
   /**
@@ -387,7 +410,7 @@ export interface IOffset extends IExtrudableGeometry {
   /**
    * Closes an open offset by joining it back to the source wire with
    * straight cap edges at each endpoint. Has no effect when the offset
-   * is already closed. Cannot be combined with `removeOriginal=true`.
+   * is already closed.
    */
   close(): this;
 }

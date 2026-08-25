@@ -20,6 +20,7 @@ import {
   getJavaScriptParser,
   indentOf,
   isBreakpointStatement,
+  isDerivedOpStatement,
   isExpressionText,
   isSolvedConstraintStatement,
   joinLines,
@@ -58,9 +59,20 @@ export type SolvedEmissionTarget = {
   /** Point accessor rendered as `.role()`; absent = the entity itself. */
   role?: SolvedEmissionRole;
   /** For `line` targets: the entity command the statement must call — a
-   * mismatch means the source changed under the picks and refuses the edit. */
-  featureType?: SolvedEntityKind;
+   * mismatch means the source changed under the picks and refuses the edit.
+   * References (P6) name their producer callee: 'project' | 'intersect'. */
+  featureType?: SolvedEntityKind | 'project' | 'intersect';
+  /**
+   * Fixed reference targets (P6): the `.ref(i)` edge index of the
+   * project()/intersect() statement at `line`; null renders the terse
+   * single-entity form (`p1`, `p1.center()`). Presence marks the target as
+   * a reference.
+   */
+  refIndex?: number | null;
 };
+
+/** Reference-producer callees (P6) — hoistable like entity statements. */
+const REFERENCE_CALLEES = new Set(['project', 'intersect']);
 
 /** Datum name → the fluidcad/core accessor command it renders as. */
 const DATUM_COMMANDS: Record<string, string> = {
@@ -329,8 +341,14 @@ export async function applySolvedEmission(
           return refuse(code, `no statement at line ${target.line} — the source changed since the picks were made`);
         }
         const callee = calleeName(chainBase(call));
-        if (!callee || !SOLVED_ENTITY_CALLEES.has(callee)) {
-          return refuse(code, `line ${target.line} is not a sketch entity statement`);
+        const isReference = target.refIndex !== undefined;
+        const legalCallee = isReference
+          ? !!callee && REFERENCE_CALLEES.has(callee)
+          : !!callee && SOLVED_ENTITY_CALLEES.has(callee);
+        if (!legalCallee) {
+          return refuse(code, isReference
+            ? `line ${target.line} is not a project()/intersect() statement`
+            : `line ${target.line} is not a sketch entity statement`);
         }
         if (target.featureType && callee !== target.featureType) {
           return refuse(code, `line ${target.line} is a ${callee}() statement now — the source changed since the picks were made`);
@@ -338,11 +356,14 @@ export async function applySolvedEmission(
         const statement = enclosingStatement(call);
         let bound = boundVariableName(statement) ?? hoistedNames.get(statement.startIndex) ?? null;
         if (!bound) {
-          bound = allocateName(callee);
+          bound = allocateName(callee!);
           hoistedNames.set(statement.startIndex, bound);
           hoists.push({ start: statement.startIndex, text: `const ${bound} = ` });
         }
         name = bound;
+        if (typeof target.refIndex === 'number') {
+          name = `${name}.ref(${target.refIndex})`;
+        }
       }
       argNames.push(target.role ? `${name}.${target.role}()` : name);
     }
@@ -364,17 +385,25 @@ export async function applySolvedEmission(
     result = spliceCode(result, hoist.start, hoist.start, hoist.text);
   }
 
-  // Placement (locked §0.2): constraints append at the body end, geometry
-  // inserts before the body's first constraint statement — both before an
-  // active breakpoint (a paused build never runs statements after it).
+  // Placement (locked §0.2, amended P6): the body reads geometry →
+  // constraints → derived ops. Constraints append at the end of their region
+  // — before the first derived-op statement when one exists — and geometry
+  // inserts before the body's first constraint statement; everything lands
+  // before an active breakpoint (a paused build never runs statements after
+  // it).
   const resultLines = splitLines(result);
   const bodyChildren = body.namedChildren;
   const breakpointStmt = bodyChildren.find(isBreakpointStatement);
   const firstConstraintStmt = bodyChildren.find(isSolvedConstraintStatement);
+  const firstDerivedStmt = bodyChildren.find(isDerivedOpStatement);
 
   let constraintRow: number;
   let constraintIndent: string;
-  if (breakpointStmt) {
+  if (firstDerivedStmt
+    && (!breakpointStmt || firstDerivedStmt.startPosition.row < breakpointStmt.startPosition.row)) {
+    constraintRow = firstDerivedStmt.startPosition.row;
+    constraintIndent = indentOf(resultLines, firstDerivedStmt.startPosition.row);
+  } else if (breakpointStmt) {
     constraintRow = breakpointStmt.startPosition.row;
     constraintIndent = indentOf(resultLines, breakpointStmt.startPosition.row);
   } else if (bodyChildren.length > 0) {

@@ -6322,7 +6322,6 @@ describe('parseFeatureStatement — offset', () => {
       parsed: {
         feature: 'offset',
         value: 4,
-        removeOriginal: false,
         argsText: `r.edge('top')`,
         close: false,
       },
@@ -6330,11 +6329,11 @@ describe('parseFeatureStatement — offset', () => {
     });
   });
 
-  it('reads the removeOriginal argument', async () => {
+  it('refuses the removed removeOriginal argument', async () => {
     const result = await parseFeatureStatement(codeWith(`offset(-2, true, r.edge('top'))`), 5);
     expect(result).toMatchObject({
-      ok: true,
-      parsed: { feature: 'offset', value: -2, removeOriginal: true, argsText: `r.edge('top')`, close: false },
+      ok: false,
+      reason: expect.stringContaining('no longer takes a removeOriginal flag'),
     });
   });
 
@@ -6342,7 +6341,7 @@ describe('parseFeatureStatement — offset', () => {
     const result = await parseFeatureStatement(codeWith(`offset(3, r).close()`), 5);
     expect(result).toMatchObject({
       ok: true,
-      parsed: { feature: 'offset', value: 3, removeOriginal: false, argsText: 'r', close: true },
+      parsed: { feature: 'offset', value: 3, argsText: 'r', close: true },
       statement: 'offset(3, r).close()',
     });
   });
@@ -6365,7 +6364,7 @@ describe('parseFeatureStatement — offset', () => {
     const whole = await parseFeatureStatement(codeWith('offset()'), 5);
     expect(whole).toMatchObject({
       ok: true,
-      parsed: { feature: 'offset', value: 1, removeOriginal: false, argsText: '', close: false },
+      parsed: { feature: 'offset', value: 1, argsText: '', close: false },
     });
 
     // A non-numeric first argument is a target, not the distance.
@@ -6394,46 +6393,32 @@ describe('applyFeatureEdit (offset in-place statement edit)', () => {
   ].join('\n');
   const codeWith = (statement: string) => `${base}\n  ${statement}\n})\n`;
   const offsetSpec = (
-    offset: { removeOriginal: boolean; close: boolean },
+    offset: { close: boolean },
     overrides: Partial<ApplyFeatureEditSpec> = {},
   ) => editSpec('offset', { line: 5, column: 2 }, { value: 4, offset, ...overrides });
 
   it('replaces the distance and keeps the targets verbatim', async () => {
     const result = await applyFeatureEdit(
       codeWith(`offset(2, r.edge('top'))`),
-      offsetSpec({ removeOriginal: false, close: false }),
+      offsetSpec({ close: false }),
     );
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  offset(4, r.edge('top'))\n`);
   });
 
-  it('adds the removeOriginal argument and the .close() chain', async () => {
-    const removed = await applyFeatureEdit(
-      codeWith(`offset(2, r.edge('top'))`),
-      offsetSpec({ removeOriginal: true, close: false }),
-    );
-    expect(removed.error).toBeUndefined();
-    expect(removed.newCode).toContain(`  offset(4, true, r.edge('top'))\n`);
-
+  it('adds the .close() chain', async () => {
     const closed = await applyFeatureEdit(
       codeWith(`offset(2, r.edge('top'))`),
-      offsetSpec({ removeOriginal: false, close: true }),
+      offsetSpec({ close: true }),
     );
     expect(closed.error).toBeUndefined();
     expect(closed.newCode).toContain(`  offset(4, r.edge('top')).close()\n`);
   });
 
-  it('clears both options when the dialog turns them off', async () => {
-    const result = await applyFeatureEdit(
-      codeWith(`offset(2, true, r.edge('top'))`),
-      offsetSpec({ removeOriginal: false, close: false }),
-    );
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  offset(4, r.edge('top'))\n`);
-
+  it('clears the close option when the dialog turns it off', async () => {
     const unclosed = await applyFeatureEdit(
       codeWith(`offset(2, r).close()`),
-      offsetSpec({ removeOriginal: false, close: false }),
+      offsetSpec({ close: false }),
     );
     expect(unclosed.error).toBeUndefined();
     expect(unclosed.newCode).toContain(`  offset(4, r)\n`);
@@ -6442,24 +6427,24 @@ describe('applyFeatureEdit (offset in-place statement edit)', () => {
 
   it('keeps the statement options when the spec carries none', async () => {
     const result = await applyFeatureEdit(
-      codeWith(`offset(2, true, r.edge('top'))`),
+      codeWith(`offset(2, r.edge('top')).close()`),
       editSpec('offset', { line: 5, column: 2 }, { value: 6 }),
     );
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  offset(6, true, r.edge('top'))\n`);
+    expect(result.newCode).toContain(`  offset(6, r.edge('top')).close()\n`);
   });
 
-  it('refuses a closed offset that also removes the original', async () => {
-    const code = codeWith(`offset(2, r.edge('top'))`);
-    const result = await applyFeatureEdit(code, offsetSpec({ removeOriginal: true, close: true }));
-    expect(result.error).toContain('closed offset');
+  it('refuses to edit a statement still carrying the removed removeOriginal flag', async () => {
+    const code = codeWith(`offset(2, true, r.edge('top'))`);
+    const result = await applyFeatureEdit(code, offsetSpec({ close: false }));
+    expect(result.error).toContain('no longer takes a removeOriginal flag');
     expect(result.newCode).toBe(code);
   });
 
   it('renders re-picked targets over the statement’s own', async () => {
     const result = await applyFeatureEdit(
       codeWith(`offset(2, r.edge('top'))`),
-      offsetSpec({ removeOriginal: false, close: true }, {
+      offsetSpec({ close: true }, {
         producers: [{ line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true }],
         parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: `'left'` }],
       }),
@@ -6471,10 +6456,10 @@ describe('applyFeatureEdit (offset in-place statement edit)', () => {
   it('writes the whole-sketch form when the statement has no targets', async () => {
     const result = await applyFeatureEdit(
       codeWith('offset(2)'),
-      offsetSpec({ removeOriginal: true, close: false }),
+      offsetSpec({ close: false }),
     );
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  offset(4, true)\n`);
+    expect(result.newCode).toContain(`  offset(4)\n`);
   });
 });
 

@@ -5,7 +5,6 @@ import extrude from "../../core/extrude.js";
 import part from "../../core/part.js";
 import select from "../../core/select.js";
 import connector from "../../core/connector.js";
-import fuse from "../../core/fuse.js";
 import { circle, move, polygon, rect } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { Scene } from "../../rendering/scene.js";
@@ -328,10 +327,9 @@ describe("connector synthesis", () => {
       sketch("xy", () => {
         circle([50, 70], 35.77);
         move(33.66, 7.54);
-        const r = rect(110.99, -51.9);
+        rect(110.99, -51.9);
         move(-44.65, 74.36);
-        const c = circle(72.84);
-        fuse(r, c);
+        circle(72.84);
         rect(83.74, -54.35);
         move(-233.74, 124.35);
         polygon(5, 107.7);

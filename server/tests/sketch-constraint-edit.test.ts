@@ -132,6 +132,55 @@ describe('applySketchConstraint', () => {
     expect(result.newCode).toContain(`  vertical(l1);\n  breakpoint();`);
   });
 
+  it('renders fixed-reference targets (P6): hoisting, .ref(i) and the terse form', async () => {
+    const code = [
+      `import { sketch, line, project } from "fluidcad/core";`,
+      `import { tangent } from "fluidcad/constraints";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  project(sel);`,
+      `  const l = line([25, -30], [25, 30]);`,
+      `}, true);`,
+    ].join('\n');
+
+    // Terse single-entity form: refIndex null → bare variable.
+    const terse = await applySketchConstraint(code, {
+      sketchLine: 4,
+      kind: 'tangent',
+      targets: [
+        { line: 5, featureType: 'project', refIndex: null },
+        { line: 6, featureType: 'line' },
+      ],
+    });
+    expect(terse.error).toBeUndefined();
+    expect(terse.newCode).toContain(`const prj1 = project(sel);`);
+    expect(terse.newCode).toContain(`tangent(prj1, l);`);
+
+    // Indexed form with a point role.
+    const indexed = await applySketchConstraint(code, {
+      sketchLine: 4,
+      kind: 'coincident',
+      targets: [
+        { line: 6, featureType: 'line', role: 'start' },
+        { line: 5, featureType: 'project', refIndex: 2, role: 'start' },
+      ],
+    });
+    expect(indexed.error).toBeUndefined();
+    expect(indexed.newCode).toContain(`coincident(l.start(), prj1.ref(2).start());`);
+  });
+
+  it('refuses a reference target whose line is not a project/intersect statement', async () => {
+    const result = await applySketchConstraint(SKETCH, {
+      sketchLine: 4,
+      kind: 'tangent',
+      targets: [
+        { line: 5, featureType: 'project', refIndex: null },
+        { line: 6, featureType: 'line' },
+      ],
+    });
+    expect(result.error).toContain('not a project()/intersect() statement');
+  });
+
   it('refuses a featureType mismatch (source changed under the picks)', async () => {
     const result = await applySketchConstraint(SKETCH, {
       sketchLine: 4,

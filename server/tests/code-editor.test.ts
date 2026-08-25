@@ -13,7 +13,6 @@ import {
   removeStatement,
   setFeatureName,
   setPickPoints,
-  setTrimTargets,
   insertGeometryCall,
   insertGeometryCallWithVariable,
   insertLoadCall,
@@ -339,72 +338,49 @@ describe('setPickPoints', () => {
   });
 });
 
-describe('setTrimTargets', () => {
-  it('fills an empty trim() and adds the edge filter import', async () => {
-    const code = `sketch('xy', () => {\n  rect(80, 60);\n  trim().pick();\n});\n`;
-    const result = await setTrimTargets(code, 3, 'edge().line(80)');
-    expect(result.newCode).toContain(`trim(edge().line(80)).pick();`);
-    expect(result.newCode).toContain(`import { edge } from 'fluidcad/filters';`);
-  });
-
-  it('appends to existing trim targets', async () => {
-    const code = `import { edge } from 'fluidcad/filters';\ntrim(edge().circle()).pick();\n`;
-    const result = await setTrimTargets(code, 2, 'edge().line(30)');
-    expect(result.newCode).toBe(
-      `import { edge } from 'fluidcad/filters';\ntrim(edge().circle(), edge().line(30)).pick();\n`,
-    );
-  });
-
-  it('is a no-op when the call on the line is not trim', async () => {
-    const code = `extrude(sk).pick();\n`;
-    const result = await setTrimTargets(code, 1, 'edge().line(80)');
-    expect(result.newCode).toBe(code);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Multi-line call coverage — the AST-based editor must handle calls that
-// span several rows (e.g. `trim(\n  edge().circle()\n)`) identically to
+// span several rows (e.g. `offset(\n  edge().circle()\n)`) identically to
 // single-line calls.
 // ---------------------------------------------------------------------------
 
 describe('multi-line calls', () => {
   describe('addPick', () => {
     it('appends .pick() after the closing paren on a later line', async () => {
-      const code = `trim(\n  edge().circle()\n)\n`;
+      const code = `offset(\n  edge().circle()\n)\n`;
       const result = await addPick(code, 1);
-      expect(result.newCode).toBe(`trim(\n  edge().circle()\n).pick()\n`);
+      expect(result.newCode).toBe(`offset(\n  edge().circle()\n).pick()\n`);
     });
 
     it('is a no-op when .pick() already exists on a later line', async () => {
-      const code = `trim(\n  edge().circle()\n).pick()\n`;
+      const code = `offset(\n  edge().circle()\n).pick()\n`;
       const result = await addPick(code, 1);
       expect(result.newCode).toBe(code);
     });
 
-    it('finds the trim call when it is nested inside sk.add on a different row', async () => {
-      const code = `sk.add(\n  trim(\n    edge().circle()\n  )\n)\n`;
+    it('finds the inner call when it is nested inside sk.add on a different row', async () => {
+      const code = `sk.add(\n  offset(\n    edge().circle()\n  )\n)\n`;
       const result = await addPick(code, 2);
       expect(result.newCode).toBe(
-        `sk.add(\n  trim(\n    edge().circle()\n  ).pick()\n)\n`,
+        `sk.add(\n  offset(\n    edge().circle()\n  ).pick()\n)\n`,
       );
     });
   });
 
   describe('insertPoint', () => {
     it('inserts into an empty multi-line call', async () => {
-      const code = `trim(\n  edge().circle()\n).pick()\n`;
+      const code = `offset(\n  edge().circle()\n).pick()\n`;
       const result = await insertPoint(code, 1, [5, 6]);
       expect(result.newCode).toBe(
-        `trim(\n  edge().circle()\n).pick([5, 6])\n`,
+        `offset(\n  edge().circle()\n).pick([5, 6])\n`,
       );
     });
 
     it('appends to an existing point in a multi-line call', async () => {
-      const code = `trim(\n  edge().circle()\n).pick([1, 2])\n`;
+      const code = `offset(\n  edge().circle()\n).pick([1, 2])\n`;
       const result = await insertPoint(code, 1, [3, 4]);
       expect(result.newCode).toBe(
-        `trim(\n  edge().circle()\n).pick([1, 2], [3, 4])\n`,
+        `offset(\n  edge().circle()\n).pick([1, 2], [3, 4])\n`,
       );
     });
   });
@@ -417,7 +393,7 @@ describe('multi-line calls', () => {
     });
 
     it('leaves a multi-line .pick() with points untouched', async () => {
-      const code = `trim(\n  edge().circle()\n).pick([1, 2])\n`;
+      const code = `offset(\n  edge().circle()\n).pick([1, 2])\n`;
       const result = await removePick(code, 1);
       expect(result.newCode).toBe(code);
     });
@@ -425,20 +401,20 @@ describe('multi-line calls', () => {
 
   describe('removePoint', () => {
     it('removes the closest point when the call spans multiple lines', async () => {
-      const code = `trim(\n  edge().circle()\n).pick([0, 0], [10, 10])\n`;
+      const code = `offset(\n  edge().circle()\n).pick([0, 0], [10, 10])\n`;
       const result = await removePoint(code, 1, [10, 10]);
       expect(result.newCode).toBe(
-        `trim(\n  edge().circle()\n).pick([0, 0])\n`,
+        `offset(\n  edge().circle()\n).pick([0, 0])\n`,
       );
     });
   });
 
   describe('setPickPoints', () => {
     it('replaces the argument span of a multi-line call', async () => {
-      const code = `trim(\n  edge().circle()\n).pick([1, 1])\n`;
+      const code = `offset(\n  edge().circle()\n).pick([1, 1])\n`;
       const result = await setPickPoints(code, 1, [[2, 2], [3, 3]]);
       expect(result.newCode).toBe(
-        `trim(\n  edge().circle()\n).pick([2, 2], [3, 3])\n`,
+        `offset(\n  edge().circle()\n).pick([2, 2], [3, 3])\n`,
       );
     });
   });
@@ -513,11 +489,83 @@ describe('insertGeometryCall', () => {
       `}, true)`,
       ``,
     ].join('\n');
-    const result = await insertGeometryCall(code, 3, 'trim()');
+    const result = await insertGeometryCall(code, 3, 'circle([0, 0], 5)');
     expect(result.newCode).toContain([
       `  const a = line([0, 0], [10, 0]);`,
-      `  trim()`,
+      `  circle([0, 0], 5)`,
       `  horizontal(a);`,
+    ].join('\n'));
+  });
+
+  it('appends a derived op at the body end of a solved sketch (P6 tail region)', async () => {
+    const code = [
+      `import { sketch, line, offset } from 'fluidcad/core';`,
+      `import { horizontal } from 'fluidcad/constraints';`,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [10, 0]);`,
+      `  horizontal(a);`,
+      `}, true)`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 3, 'offset(2, a)');
+    expect(result.newCode).toContain([
+      `  const a = line([0, 0], [10, 0]);`,
+      `  horizontal(a);`,
+      `  offset(2, a)`,
+    ].join('\n'));
+  });
+
+  it('inserts solved geometry before an existing derived-op statement', async () => {
+    // Without constraints yet, the derived op still marks the tail — a new
+    // entity must build before the offset resolves its edges.
+    const code = [
+      `import { sketch, line, offset } from 'fluidcad/core';`,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [10, 0]);`,
+      `  const o = offset(2, a);`,
+      `}, true)`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'circle([0, 0], 5)');
+    expect(result.newCode).toContain([
+      `  const a = line([0, 0], [10, 0]);`,
+      `  circle([0, 0], 5)`,
+      `  const o = offset(2, a);`,
+    ].join('\n'));
+  });
+
+  it('appends a derived op before a trailing return in a solved sketch', async () => {
+    const code = [
+      `import { sketch, line, offset } from 'fluidcad/core';`,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [10, 0]);`,
+      `  return { a };`,
+      `}, true)`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'offset(2, a)');
+    expect(result.newCode).toContain([
+      `  const a = line([0, 0], [10, 0]);`,
+      `  offset(2, a)`,
+      `  return { a };`,
+    ].join('\n'));
+  });
+
+  it('keeps legacy sketches appending at the body end past derived ops', async () => {
+    // Pen statements are order-sensitive — the solved tail rule must not
+    // reorder legacy sketches.
+    const code = [
+      `import { sketch, line, offset } from 'fluidcad/core';`,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [10, 0]);`,
+      `  offset(2, a);`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await insertGeometryCall(code, 2, 'line([10, 0], [20, 0])');
+    expect(result.newCode).toContain([
+      `  offset(2, a);`,
+      `  line([10, 0], [20, 0])`,
     ].join('\n'));
   });
 

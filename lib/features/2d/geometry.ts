@@ -35,7 +35,6 @@ const DRAGGABLE_SKETCH_TYPES = new Set([
   'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
   'tarc-radius-to-point',
   'tline', 'aline',
-  'trim2d',
   'rect',
   'polygon',
   'slot',
@@ -57,7 +56,7 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
     return parent;
   }
 
-  private enclosingSketch(): Sketch | null {
+  protected enclosingSketch(): Sketch | null {
     let parent = this.getParent();
     while (parent && !(parent instanceof Sketch)) {
       parent = parent.getParent();

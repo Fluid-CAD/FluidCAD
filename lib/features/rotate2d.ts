@@ -1,4 +1,6 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
+import { BuildError } from "../common/build-error.js";
+import { LazyVertex } from "./lazy-vertex.js";
 import { Axis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { rad } from "../helpers/math-helpers.js";
@@ -12,6 +14,7 @@ export class Rotate2D extends GeometrySceneObject {
 
   constructor(
     public angle: number,
+    public center: LazyVertex | null = null,
     private copy: boolean = false,
     ...targets: SceneObject[]) {
     super();
@@ -46,8 +49,15 @@ export class Rotate2D extends GeometrySceneObject {
     }
 
     const plane = this.sketch.getPlane();
-    const currentPosition = plane.localToWorld(this.sketch.getPositionAt(this as any));
-    axis = new Axis(currentPosition, plane.zAxis.direction);
+    // The legacy default rotates about the sketch cursor — a pen concept
+    // with no meaning in a constraint sketch, where the center is explicit.
+    if (!this.center && this.sketch.isSolvedMode()) {
+      throw new BuildError("rotate() in a constraint sketch needs an explicit center — rotate(angle, [x, y], ...)");
+    }
+    const centerWorld = this.center
+      ? plane.localToWorld(this.center.asPoint2D())
+      : plane.localToWorld(this.sketch.getPositionAt(this as any));
+    axis = new Axis(centerWorld, plane.zAxis.direction);
 
     const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(this.angle));
 
@@ -62,10 +72,13 @@ export class Rotate2D extends GeometrySceneObject {
       }
     }
 
-    const lastTangent = this.sketch.getTangentAt(this);
-    if (lastTangent) {
-      const transformedTangent = lastTangent.transform(matrix);
-      this.setTangent(transformedTangent);
+    // Pen state stays a legacy concept — never written in a solved sketch.
+    if (!this.sketch.isSolvedMode()) {
+      const lastTangent = this.sketch.getTangentAt(this);
+      if (lastTangent) {
+        const transformedTangent = lastTangent.transform(matrix);
+        this.setTangent(transformedTangent);
+      }
     }
   }
 
@@ -79,6 +92,13 @@ export class Rotate2D extends GeometrySceneObject {
     }
 
     if (this.angle !== other.angle) {
+      return false;
+    }
+
+    if ((this.center === null) !== (other.center === null)) {
+      return false;
+    }
+    if (this.center && other.center && !this.center.compareTo(other.center)) {
       return false;
     }
 
@@ -121,8 +141,10 @@ export class Rotate2D extends GeometrySceneObject {
   }
 
   serialize() {
+    const center = this.center?.asPoint2D();
     return {
-      angle: this.angle
+      angle: this.angle,
+      center: center ? [center.x, center.y] : null,
     }
   }
 }

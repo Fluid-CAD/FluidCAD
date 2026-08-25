@@ -25,8 +25,11 @@ interface EllipseFunction {
 function build(context: SceneParserContext): EllipseFunction {
   return function ellipse() {
     const argCount = arguments.length;
+    const solved = context.getActiveSketch()?.isSolvedMode() === true;
 
     if (argCount === 2) {
+      // In a solved sketch the pen form constructs anyway — Ellipse.validate()
+      // raises the mode error per statement, like the rejection table.
       const rx = resolveParam(arguments[0] as NumberParam);
       const ry = resolveParam(arguments[1] as NumberParam);
       const e = new Ellipse(rx, ry, null);
@@ -40,6 +43,13 @@ function build(context: SceneParserContext): EllipseFunction {
       const ry = resolveParam(arguments[2] as NumberParam);
 
       const center = normalizePoint2D(centerArg);
+      if (solved) {
+        // No pen exists to move — the center rides the ellipse itself
+        // (a fixed-shape entity, constrainable in a later phase).
+        const e = new Ellipse(rx, ry, null, center.asPoint2D());
+        context.addSceneObject(e);
+        return e;
+      }
       const e = new Ellipse(rx, ry, null);
       context.addSceneObjects([new Move(center), e]);
       return e;

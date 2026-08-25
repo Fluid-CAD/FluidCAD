@@ -17,7 +17,6 @@ export class Offset extends ExtrudableGeometryBase {
 
   constructor(
     private distance: number,
-    private removeOriginal: boolean = false,
     private sourceGeometries: EdgeTargetArg[] = null,
     targetPlane: PlaneObjectBase = null,
   ) {
@@ -30,10 +29,6 @@ export class Offset extends ExtrudableGeometryBase {
   }
 
   build() {
-    if (this._close && this.removeOriginal) {
-      throw new Error("Offset.close() cannot be used with removeOriginal");
-    }
-
     let sourceObjects: Map<Edge, SceneObject>;
     if (this.sketch) {
       // Explicit targets (objects, accessors, selections, edge filters)
@@ -82,10 +77,7 @@ export class Offset extends ExtrudableGeometryBase {
     }
 
     const allEdges = Array.from(sourceObjects.keys());
-    const wires: {
-      wire: Wire,
-      edges: Map<Edge, SceneObject>,
-    }[] = [];
+    const wires: Wire[] = [];
 
     // Hand-drawn profiles routinely have endpoints that only nearly meet.
     // Exact-tolerance grouping split such profiles into fragments that each
@@ -94,25 +86,14 @@ export class Offset extends ExtrudableGeometryBase {
     const connectTolerance = WireOps.connectTolerance(allEdges);
     const groups = WireOps.groupConnectedEdges(allEdges, connectTolerance);
     for (const group of groups) {
-      const groupWires = WireOps.makeChainWires(group, connectTolerance);
-      groupWires.forEach((wire, index) => {
-        wires.push({
-          wire,
-          // The group's originals ride on the first wire only, so
-          // removeOriginal strips each edge exactly once.
-          edges: index === 0
-            ? new Map(group.map(edge => [edge, sourceObjects.get(edge)]))
-            : new Map(),
-        });
-      });
+      wires.push(...WireOps.makeChainWires(group, connectTolerance));
     }
 
     let lastOffsetWire: Wire = null;
     const plane = this.getPlane();
-    const strippedOwners = new Set<SceneObject>();
 
-    for (const wireInfo of wires) {
-      const offsetWire = WireOps.offsetWireOnPlane(wireInfo.wire, this.distance, wireInfo.wire.isClosed(), plane);
+    for (const wire of wires) {
+      const offsetWire = WireOps.offsetWireOnPlane(wire, this.distance, wire.isClosed(), plane);
       lastOffsetWire = offsetWire;
       const edges = offsetWire.getEdges();
 
@@ -122,8 +103,8 @@ export class Offset extends ExtrudableGeometryBase {
       }
 
       if (this._close && !offsetWire.isClosed()) {
-        const originalStart = wireInfo.wire.getFirstVertex().toPoint();
-        const originalEnd = wireInfo.wire.getLastVertex().toPoint();
+        const originalStart = wire.getFirstVertex().toPoint();
+        const originalEnd = wire.getLastVertex().toPoint();
         const offsetStart = offsetWire.getFirstVertex().toPoint();
         const offsetEnd = offsetWire.getLastVertex().toPoint();
 
@@ -134,25 +115,11 @@ export class Offset extends ExtrudableGeometryBase {
         this.addShape(closeEnd);
         this.addShape(closeStart);
       }
-
-      if (this.removeOriginal) {
-        for (const [edge, owner] of wireInfo.edges) {
-          if (this.sketch) {
-            // Remove through the sketch so every holder of the instance
-            // (real owner, lazy accessors, selections) records the removal.
-            this.sketch.removeShape(edge, this);
-          } else {
-            owner.removeShape(edge, this);
-          }
-          strippedOwners.add(owner);
-        }
-      }
     }
 
-    this.removeOrphanedMetaShapes(strippedOwners);
-
-    if (lastOffsetWire) {
-      const plane = this.getPlane();
+    // Pen state is a legacy concept — writing it in a solved sketch would
+    // hand getPositionAt a phantom cursor at the offset's end.
+    if (lastOffsetWire && !this.sketch?.isSolvedMode()) {
       const localStart = plane.worldToLocal(lastOffsetWire.getFirstVertex().toPoint());
       const localEnd = plane.worldToLocal(lastOffsetWire.getLastVertex().toPoint());
 
@@ -164,8 +131,7 @@ export class Offset extends ExtrudableGeometryBase {
   /**
    * Face-target mode only: explicit select() targets are single-use, like
    * every other consumer's (shell, projection). Lazy accessors stay, and
-   * edge-mode offsets (2D geometry) are never consumed — stripping edges
-   * is removeOriginal's job.
+   * edge-mode offsets (2D geometry) are never consumed.
    */
   private consumeSelectionTargets() {
     for (const obj of GeometrySceneObject.sceneObjectTargets(this.sourceGeometries)) {
@@ -183,9 +149,6 @@ export class Offset extends ExtrudableGeometryBase {
    * it can be extruded like any other profile.
    */
   private buildFromFaces(faces: Face[]) {
-    if (this.removeOriginal) {
-      throw new Error("Offset: removeOriginal is not supported for face targets");
-    }
     if (this._close) {
       throw new Error("Offset.close() is not supported for face targets — face outlines are already closed");
     }
@@ -242,7 +205,7 @@ export class Offset extends ExtrudableGeometryBase {
     const geometriesClone = this.sourceGeometries
       ? GeometrySceneObject.remapEdgeTargets(this.sourceGeometries, remap)
       : null;
-    const copy = new Offset(this.distance, this.removeOriginal, geometriesClone, targetPlane);
+    const copy = new Offset(this.distance, geometriesClone, targetPlane);
     if (this._close) {
       copy._close = true;
     }
@@ -277,7 +240,6 @@ export class Offset extends ExtrudableGeometryBase {
     }
 
     return this.distance === other.distance
-      && this.removeOriginal === other.removeOriginal
       && this._close === other._close;
   }
 
@@ -288,7 +250,6 @@ export class Offset extends ExtrudableGeometryBase {
   serialize() {
     return {
       distance: this.distance,
-      removeOriginal: this.removeOriginal,
       close: this._close
     };
   }

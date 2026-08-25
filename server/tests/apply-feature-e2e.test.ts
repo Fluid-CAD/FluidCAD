@@ -429,7 +429,7 @@ describe('select→apply-feature end to end', () => {
       producers: synthesis.spec.producers,
       parts: synthesis.spec.parts,
       imports: synthesis.spec.imports,
-      offset: { removeOriginal: false, close: false },
+      offset: { close: false },
       edit: { line: 5, column: 0, expectedStatement: 'offset(-5, e.endFaces())' },
     };
     const edited = await applyFeatureEdit(code, spec);
@@ -1033,7 +1033,7 @@ describe('select→apply-feature end to end', () => {
 
     // The dialog with "Close ends" checked.
     const synthesis = synthesizeSketchApplyFeature(
-      scene, picks, 'offset', 3, { offset: { removeOriginal: false, close: true } },
+      scene, picks, 'offset', 3, { offset: { close: true } },
     );
     expect(synthesis.ok).toBe(true);
     if (!synthesis.ok) {
@@ -1049,61 +1049,20 @@ describe('select→apply-feature end to end', () => {
     const closed = runFluid(edited.newCode);
     expect(sketchEdgeIds(closed).size).toBe(6);
 
-    // The same statement edited to remove its original instead: the sources
-    // are gone and only the offset remains.
-    const removed = await applyFeatureEdit(edited.newCode, {
+    // The same statement edited back to the plain form: the caps go away.
+    const reopened = await applyFeatureEdit(edited.newCode, {
       feature: 'offset',
       value: 3,
-      offset: { removeOriginal: true, close: false },
+      offset: { close: false },
       filePath: '/ws/model.fluid.js',
       producers: [],
       parts: [],
       imports: [],
       edit: { line: 6, column: 2 },
     });
-    expect(removed.error).toBeUndefined();
-    expect(removed.newCode).toContain(`offset(3, true,`);
-    expect(removed.newCode).not.toContain(`.close()`);
-    expect(sketchEdgeIds(runFluid(removed.newCode)).size).toBe(2);
+    expect(reopened.error).toBeUndefined();
+    expect(reopened.newCode).not.toContain(`.close()`);
+    expect(sketchEdgeIds(runFluid(reopened.newCode)).size).toBe(4);
   });
 
-  it('fuses two 2D copy instances through the instance accessor', async () => {
-    const code = [
-      `import { sketch, circle, copy } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      `  const c = circle(50)`,
-      `  copy('linear', 'x', { count: 3, offset: 40 }, c)`,
-      `})`,
-      ``,
-    ].join('\n');
-
-    let cp: SceneObject;
-    sketch('xy', () => {
-      const c = core.circle(50);
-      cp = core.copy('linear', 'x', { count: 3, offset: 40 }, c) as unknown as SceneObject;
-    });
-    cp!.setSourceLocation({ filePath: '/ws/model.fluid.js', line: 5, column: 2 });
-    const scene = render();
-
-    // The copy owns every instance's edge — slots 0..2 in grid order.
-    const edges = cp!.getShapes().filter((s): s is Edge => s instanceof Edge);
-    const synthesis = synthesizeSketchApplyFeature(
-      scene, [{ shapeId: edges[0].id }, { shapeId: edges[1].id }], 'fuse',
-    );
-    expect(synthesis.ok).toBe(true);
-    if (!synthesis.ok) {
-      return;
-    }
-    expect(synthesis.preview).toBe('fuse(cp.instance(0), cp.instance(1))');
-
-    const edited = await applyFeatureEdit(code, synthesis.spec);
-    expect(edited.error).toBeUndefined();
-    expect(edited.newCode).toContain(`const cp = copy('linear', 'x', { count: 3, offset: 40 }, c)`);
-    expect(edited.newCode).toContain('fuse(cp.instance(0), cp.instance(1))');
-
-    // Slots 0+1 (overlapping) fuse into one 2-arc outline; slot 2 survives.
-    const fused = runFluid(edited.newCode);
-    expect(sketchEdgeIds(fused).size).toBe(3);
-  });
 });

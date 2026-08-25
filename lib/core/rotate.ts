@@ -1,5 +1,6 @@
 import { registerBuilder, SceneParserContext } from "../index.js";
-import { normalizeAxis } from "../helpers/normalize.js";
+import { normalizeAxis, normalizePoint2D } from "../helpers/normalize.js";
+import { Point2DLike } from "../math/point.js";
 import { Rotate } from "../features/rotate.js";
 import { AxisLike } from "../math/axis.js";
 import { SceneObject } from "../common/scene-object.js";
@@ -12,18 +13,38 @@ import { type NumberParam, type BooleanParam, isBooleanParam, resolveParam } fro
 
 interface RotateFunction {
   /**
-   * [2D] Rotates geometry by an angle inside a sketch.
+   * [2D] Rotates geometry by an angle inside a sketch, about the sketch
+   * cursor (legacy sketches only — constraint sketches require an explicit
+   * center).
    * @param angle - The rotation angle in degrees
    * @param targets - The geometries to rotate (defaults to last object)
    */
   (angle: NumberParam, ...targets: ISceneObject[]): IRotate;
   /**
-   * [2D] Rotates geometry by an angle inside a sketch, optionally making a copy.
+   * [2D] Rotates geometry by an angle about an explicit center point.
+   * @param angle - The rotation angle in degrees
+   * @param center - The rotation center in sketch coordinates
+   * @param targets - The geometries to rotate (defaults to last object)
+   */
+  (angle: NumberParam, center: Point2DLike, ...targets: ISceneObject[]): IRotate;
+  /**
+   * [2D] Rotates geometry by an angle inside a sketch, optionally making a
+   * copy (legacy sketches only — constraint sketches require an explicit
+   * center).
    * @param angle - The rotation angle in degrees
    * @param copy - Whether to copy instead of move
    * @param targets - The geometries to rotate (defaults to last object)
    */
   (angle: NumberParam, copy: BooleanParam, ...targets: ISceneObject[]): IRotate;
+  /**
+   * [2D] Rotates geometry by an angle about an explicit center point,
+   * optionally making a copy.
+   * @param angle - The rotation angle in degrees
+   * @param center - The rotation center in sketch coordinates
+   * @param copy - Whether to copy instead of move
+   * @param targets - The geometries to rotate (defaults to last object)
+   */
+  (angle: NumberParam, center: Point2DLike, copy: BooleanParam, ...targets: ISceneObject[]): IRotate;
 
   /**
    * [3D] Rotates objects around an axis by an angle.
@@ -58,19 +79,22 @@ function build(context: SceneParserContext): RotateFunction {
     // Extract copy flag from the end (if boolean)
     const copy = isBooleanParam(args[args.length - 1]) ? resolveParam(args.pop() as BooleanParam) : false;
 
-    // 2D: rotate(angle, copy?, ...targets)
-    if (args.length === 1) {
-      if (!activeSketch) {
-        throw new Error("rotate(angle) is only valid inside a sketch. For 3D rotation, specify an axis: rotate(axis, angle).");
-      }
+    // 2D: rotate(angle, center?, copy?, ...targets) — inside a sketch the
+    // second argument is a rotation center, never an axis.
+    if (activeSketch && (args.length === 1 || args.length === 2)) {
       const angle = resolveParam(args[0] as NumberParam);
-      const rotate = new Rotate2D(angle, copy, ...targets);
+      const center = args.length === 2 ? normalizePoint2D(args[1] as Point2DLike) : null;
+      const rotate = new Rotate2D(angle, center, copy, ...targets);
       context.addSceneObject(rotate);
       return rotate;
     }
 
-    if (activeSketch && args.length !== 2) {
-      throw new Error("Cannot specify an axis for rotate inside a sketch. Use rotate(angle) instead.");
+    if (args.length === 1) {
+      throw new Error("rotate(angle) is only valid inside a sketch. For 3D rotation, specify an axis: rotate(axis, angle).");
+    }
+
+    if (activeSketch) {
+      throw new Error("Cannot specify an axis for rotate inside a sketch. Use rotate(angle, [x, y]) instead.");
     }
 
     // 3D: rotate(axis, angle, copy?, ...targets)

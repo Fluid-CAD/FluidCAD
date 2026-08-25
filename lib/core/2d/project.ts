@@ -1,14 +1,16 @@
 import { SceneObject } from "../../common/scene-object.js";
 import { Projection } from "../../features/2d/projection.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
-import { IExtrudableGeometry, ISceneObject } from "../interfaces.js";
+import { IReference, ISceneObject } from "../interfaces.js";
 
 interface ProjectFunction {
   /**
-   * Projects 3D objects onto the current sketch plane.
+   * Projects 3D objects onto the current sketch plane. In a constraint
+   * sketch the output registers as FIXED reference geometry — constraints
+   * may target it (`tangent(p, l)`, `p.ref(i)`, `p.center()`).
    * @param sourceObjects - The 3D objects to project
    */
-  (...sourceObjects: ISceneObject[]): IExtrudableGeometry;
+  (...sourceObjects: ISceneObject[]): IReference;
 }
 
 function build(context: SceneParserContext): ProjectFunction {

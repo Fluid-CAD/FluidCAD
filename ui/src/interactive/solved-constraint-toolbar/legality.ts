@@ -50,6 +50,12 @@ export function isDatumPick(p: SolvedPick): boolean {
   return p.datum !== undefined;
 }
 
+/** Fixed picks never move: datums and projected references (P6). A
+ * constraint needs at least one free entity to act on. */
+export function isFixedPick(p: SolvedPick): boolean {
+  return p.datum !== undefined || p.reference !== undefined;
+}
+
 function isAxisPick(p: SolvedPick): boolean {
   return p.datum === 'x-axis' || p.datum === 'y-axis';
 }
@@ -154,9 +160,9 @@ const NEED = {
 } as const;
 
 function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
-  // Datums are fixed reference geometry: a constraint whose every target is
-  // a datum has nothing to solve (the kernel refuses it too).
-  if (picks.length > 0 && picks.every(isDatumPick)) {
+  // Datums and projected references are fixed geometry: a constraint whose
+  // every target is fixed has nothing to solve (the kernel refuses it too).
+  if (picks.length > 0 && picks.every(isFixedPick)) {
     return false;
   }
   const [a, b] = picks;
@@ -227,8 +233,9 @@ export function constraintOptions(picks: SolvedPick[]): ConstraintOption[] {
  * pair). Angle has its own button. */
 export function dimensionFormFor(rawPicks: SolvedPick[]): DimensionForm | null {
   const picks = expandDimensionPicks(rawPicks);
-  // All-datum measurements are constants — nothing to dimension.
-  if (picks.length > 0 && picks.every(isDatumPick)) {
+  // All-fixed measurements (datums, projected references) are constants —
+  // nothing to dimension.
+  if (picks.length > 0 && picks.every(isFixedPick)) {
     return null;
   }
   if (picks.length === 1) {

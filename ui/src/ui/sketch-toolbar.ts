@@ -40,21 +40,16 @@ const TOOL_LAYOUT: ToolEntry[] = [
     { id: 'slot', label: 'Slot', iconPng: 'slot' },
   ]},
   { tools: [
-    { id: 'fuse', label: 'Fuse', iconPng: 'fuse2d' },
-    { id: 'subtract', label: 'Subtract', caption: 'Subtr.', iconPng: 'subtract2d' },
-    { id: 'common', label: 'Common', iconPng: 'common2d' },
-  ]},
-  { tools: [
     { id: 'text', label: 'Text', iconPng: 'text' },
   ]},
   { tools: [
-    { id: 'trim', label: 'Trim', iconPng: 'trim' },
     { id: 'fillet', label: 'Fillet', iconPng: 'fillet2d' },
     { id: 'offset', label: 'Offset', iconPng: 'offset' },
     { id: 'project', label: 'Project', iconPng: 'projection' },
   ]},
   { tools: [
     { id: 'copy', label: 'Copy', iconPng: 'copy-linear2d' },
+    { id: 'rotate', label: 'Rotate', iconPng: 'rotate2d' },
   ]},
 ];
 
@@ -67,13 +62,10 @@ const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   arc3: 'a',
   arc2: 'ca',
   bezier: 'b',
-  trim: 't',
   fillet: 'f',
   offset: 'o',
   copy: 'cp',
-  fuse: 'fu',
-  subtract: 's',
-  common: 'co',
+  rotate: 'ro',
   text: 'x',
   project: 'pj',
 };

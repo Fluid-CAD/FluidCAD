@@ -7,6 +7,7 @@ import fillet from "../../core/fillet.js";
 import { rect, intersect, offset } from "../../core/2d/index.js";
 import { edge } from "../../filters/index.js";
 import { Extrude } from "../../features/extrude.js";
+import { Offset } from "../../features/2d/offset.js";
 import { SelectSceneObject } from "../../features/select.js";
 
 describe("thin extrude offset auto-fix", () => {
@@ -25,12 +26,13 @@ describe("thin extrude offset auto-fix", () => {
     fillet(32, body.sideEdges());
 
     const s = select(edge().onPlane("top")) as SelectSceneObject;
+    let o: Offset;
     sketch("bottom", () => {
-      intersect(s);
-      offset(-6, true);
+      const i = intersect(s);
+      o = offset(-6, i) as unknown as Offset;
     });
 
-    const thin = extrude(5).thin(1.25, 1.25) as Extrude;
+    const thin = extrude(5, o!).thin(1.25, 1.25) as Extrude;
 
     render();
 

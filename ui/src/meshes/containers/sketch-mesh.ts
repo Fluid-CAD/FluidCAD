@@ -15,7 +15,7 @@ import type { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
 import type { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js';
 import { SceneObjectRender } from '../../types';
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
-import { createMetaEdgeMesh, createMetaFaceMesh } from './shape-group';
+import { createMetaEdgeMesh } from './shape-group';
 import { isDraggableSketchObject } from '../../interactive/sketch-edge-utils';
 import { buildConstraintIcons } from './constraint-icon';
 import { buildSolvedConstraintMeshes } from './solved-constraint-meshes';
@@ -321,13 +321,6 @@ export class SketchMesh extends Group {
               metaMesh.userData.isGuideShape = true;
             }
             this.add(metaMesh);
-          } else if (shape.shapeType === 'face' && shape.metaType === 'trim-region') {
-            // By-region trim: the region partition's hover/click cells.
-            const faceMesh = createMetaFaceMesh(shape);
-            if (shape.shapeId) {
-              faceMesh.userData.shapeId = shape.shapeId;
-            }
-            this.add(faceMesh);
           }
           continue;
         }

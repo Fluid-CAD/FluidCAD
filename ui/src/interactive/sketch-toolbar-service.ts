@@ -18,15 +18,13 @@ import { BezierHandlesOverlay } from './bezier-handles-overlay';
 import { SnapManager } from '../snapping/snap-manager';
 import { SnapController } from '../snapping/snap-controller';
 import {
-  insertGeometry, insertSolvedGeometry, addGuide, removeGuide, getScopeVariables, applySketchOp, gotoSource,
+  insertGeometry, insertSolvedGeometry, addGuide, removeGuide, getScopeVariables, gotoSource,
   FeatureEditTarget, ParsedFeatureStatement,
 } from '../api';
 import type { SolvedToolContext } from './tools/solved-emission';
 import { findActiveObject } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData, SourceLocation } from '../types';
 import { Viewer } from '../viewer';
-import { TrimPickService } from './trim-pick-service';
-import { TrimDialog } from './trim-dialog';
 import { ProjectionPickService } from './projection-pick-service';
 import { SketchOpDialog, SketchOpMode, SketchOpService, SketchOpSelection, SketchPickDescription } from './sketch-op-service';
 import { SketchCopyService } from './sketch-copy-service';
@@ -70,8 +68,6 @@ export class SketchToolbarService {
 
   private viewer: Viewer;
   private container: HTMLElement;
-  private trimService: TrimPickService;
-  private trimDialog: TrimDialog;
   /**
    * The Project tool's dialog. It lives outside this service (main.ts routes
    * its 3D picks) because arming it suspends sketch editing — the picks are
@@ -82,6 +78,7 @@ export class SketchToolbarService {
   /** Typed handles for the dialogs with members beyond the shared surface. */
   private filletOp!: SketchOpService;
   private offsetOp!: SketchOpService;
+  private rotateOp!: SketchOpService;
   private slotOp!: SketchOpService;
   private copyOp!: SketchCopyService;
   private toolbar: SketchToolbar;
@@ -136,13 +133,11 @@ export class SketchToolbarService {
   constructor(
     container: HTMLElement,
     viewer: Viewer,
-    trimService: TrimPickService,
     projectionService: ProjectionPickService,
     navbar: Navbar,
   ) {
     this.viewer = viewer;
     this.container = container;
-    this.trimService = trimService;
     this.projectionService = projectionService;
     // An applied projection resumes lazily (its re-render is on the way); a
     // cancel arrives without options and resumes immediately. The exit is
@@ -201,15 +196,25 @@ export class SketchToolbarService {
       value: { label: 'Distance', defaultValue: '2', sign: 'nonzero' },
       toggles: [
         {
-          key: 'removeOriginal',
-          label: 'Remove original',
-          title: 'Keep only the offset — the geometry it was made from is removed',
-        },
-        {
           key: 'close',
           label: 'Close ends',
           title: 'Cap an open offset back onto its original profile with two straight edges, '
             + 'making a closed loop (no-op on already-closed profiles)',
+        },
+      ],
+    });
+    this.rotateOp = opService({
+      feature: 'rotate2d', title: 'Rotate', pickHint: 'Pick edges of the geometries to rotate',
+      value: { label: 'Angle', defaultValue: '45', sign: 'nonzero' },
+      extraValues: [
+        { key: 'centerX', label: 'Center X', defaultValue: '0' },
+        { key: 'centerY', label: 'Center Y', defaultValue: '0' },
+      ],
+      toggles: [
+        {
+          key: 'copy',
+          label: 'Copy',
+          title: 'Keep the originals and add rotated copies',
         },
       ],
     });
@@ -242,10 +247,7 @@ export class SketchToolbarService {
       fillet: this.filletOp,
       copy: this.copyOp,
       offset: this.offsetOp,
-      subtract: opService({
-        feature: 'subtract', title: 'Subtract', pickHint: 'Pick the base geometry’s edges',
-        slotted: true,
-      }),
+      rotate: this.rotateOp,
       slot: this.slotOp,
     };
     for (const service of Object.values(this.opServices)) {
@@ -277,10 +279,6 @@ export class SketchToolbarService {
       () => this.activeSketchInfo?.sourceLocation.line ?? null,
     );
 
-    this.trimDialog = new TrimDialog(container, () => this.handleToolSelect(null));
-    this.trimDialog.onModeChange = (mode) => this.trimService.setMode(mode);
-    this.trimDialog.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
-    this.trimService.onRegionMessage = (message) => this.showOpMessage(message);
   }
 
   get hasActiveDrawingTool(): boolean {
@@ -324,10 +322,10 @@ export class SketchToolbarService {
       this.handleToolSelect(null);
     }
     this.toolbar.setActiveTool('offset');
-    // A face offset outside a sketch takes neither removeOriginal nor close
-    // (the kernel refuses both) — those rows hide for this opening.
+    // A face offset outside a sketch takes no close chain (the kernel
+    // refuses it) — that row hides for this opening.
     service.enterEdit(target, parsed, expectedStatement, {
-      hideToggles: opts.insideSketch === false ? ['removeOriginal', 'close'] : [],
+      hideToggles: opts.insideSketch === false ? ['close'] : [],
     });
     if (this.activeSketchInfo) {
       service.noteSketchActive();
@@ -574,13 +572,6 @@ export class SketchToolbarService {
           service.exit();
           this.toolbar.setActiveTool(null);
         }
-      }
-      if (this.trimDialog.isActive) {
-        // The sketch closed under the tool — no code edits, just fold the
-        // dialog; the trim service resets through its own scene update.
-        this.trimDialog.hide();
-        this.trimService.pendingActivation = false;
-        this.toolbar.setActiveTool(null);
       }
       if (this.projectionService.isPicking && !this.projectionService.isEditing) {
         // The sketch it was projecting into is gone — or another dialog took
@@ -932,30 +923,11 @@ export class SketchToolbarService {
       return;
     }
 
-    // Fuse and common are one-shot: they have nothing to configure (no value,
-    // dense pick list), so the button applies to the current selection
-    // directly instead of opening a dialog. The tool is never armed.
-    if (toolId === 'fuse' || toolId === 'common') {
-      void this.applyInstantOp(toolId);
-      return;
-    }
-
-    // Trim with edges already selected is the same one-shot: emit
-    // `trim(<selectors>)` for the picked edges. Without a selection it stays
-    // the classic point-based trim mode.
-    if (toolId === 'trim' && (this.activeHoverSelectHandler?.selectedIds.size ?? 0) > 0) {
-      void this.applyInstantOp('trim');
-      return;
-    }
-
     if (this.activeDrawingTool) {
       this.activeDrawingTool.deactivate();
       this.activeDrawingTool = null;
     }
 
-    if (this.toolbar.activeTool === 'trim' && toolId !== 'trim') {
-      this.exitTrimFromToolbar();
-    }
     if (this.toolbar.activeTool === 'project' && toolId !== 'project') {
       this.projectionService.exit();
     }
@@ -979,9 +951,14 @@ export class SketchToolbarService {
     const opService = this.opServices[toolId];
     if (opService) {
       if (toolId === 'slot') {
+        // Slot-from-edge is a legacy feature the solved kernel rejects — a
+        // solved sketch's slot dialog only offers the draw tab (P6).
+        const solvedSlot = isSolvedSketch(this.activeSketchInfo.sketchObj);
+        opService.setPickTabHidden(solvedSlot);
         // A live edge selection means the user wants THAT edge as the
         // source — open straight on the From edge tab with it picked.
-        const hasSelection = (this.activeHoverSelectHandler?.selectedIds.size ?? 0) > 0;
+        const hasSelection = !solvedSlot
+          && (this.activeHoverSelectHandler?.selectedIds.size ?? 0) > 0;
         opService.enter(hasSelection ? 'pick' : 'draw');
         this.applySlotMode(opService.mode);
       } else {
@@ -992,11 +969,6 @@ export class SketchToolbarService {
     }
 
     this.deactivateDragHandler();
-
-    if (toolId === 'trim') {
-      this.enterTrimFromToolbar();
-      return;
-    }
 
     // Project picks solid edges and faces, so it leaves sketch editing (the
     // camera unlocks from the sketch normal) while keeping this sketch as the
@@ -1063,29 +1035,6 @@ export class SketchToolbarService {
     this.activateDragHandler();
   }
 
-  /**
-   * Apply a one-shot op (fuse/common/trim-selection) to the currently
-   * selected edges. Refusals — nothing picked, or the kernel's honest
-   * synthesis reasons ("pick edges of at least two geometries…") — surface
-   * as a transient toast, since there is no dialog to carry them.
-   */
-  private async applyInstantOp(feature: 'fuse' | 'common' | 'trim'): Promise<void> {
-    const pickFirst = {
-      fuse: 'Pick edges of the geometries to fuse first',
-      common: 'Pick edges of the geometries to intersect first',
-      trim: 'Pick the edges to remove first',
-    } as const;
-    const ids = [...(this.activeHoverSelectHandler?.selectedIds ?? [])];
-    if (ids.length === 0) {
-      this.showOpMessage(pickFirst[feature]);
-      return;
-    }
-    const result = await applySketchOp(feature, undefined, ids.map(shapeId => ({ shapeId })));
-    if (!result.success) {
-      this.showOpMessage(result.reason ?? `Could not apply the ${feature}`);
-    }
-  }
-
   /** Transient toast under the navbar (mirrors main.ts's edit-refusal toast). */
   private showOpMessage(message: string): void {
     if (!this.opMessageToast) {
@@ -1104,32 +1053,6 @@ export class SketchToolbarService {
       this.opMessageTimer = null;
       this.opMessageToast?.classList.add('hidden');
     }, 4000);
-  }
-
-  private enterTrimFromToolbar(): void {
-    if (!this.activeSketchInfo) {
-      return;
-    }
-
-    this.trimDialog.show();
-    this.trimService.setMode(this.trimDialog.mode);
-
-    if (this.trimService.lastPickInfo) {
-      this.trimService.enter();
-      return;
-    }
-
-    this.trimService.pendingActivation = true;
-    insertGeometry('trim()', this.activeSketchInfo.sourceLocation);
-  }
-
-  private exitTrimFromToolbar(): void {
-    this.trimDialog.hide();
-    this.trimService.pendingActivation = false;
-    if (this.trimService.state === 'picking-active') {
-      this.trimService.exit();
-    }
-    this.trimService.reset();
   }
 
   private lookAlongSketchNormal(): void {

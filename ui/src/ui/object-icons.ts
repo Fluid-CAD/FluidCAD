@@ -64,7 +64,6 @@ export const UNIQUE_TYPE_ICONS: Record<string, string> = {
   'tarc-to-point-tangent': 'tarc',
   'tarc-with-tangent': 'tarc',
   'tline': 'tline',
-  'trim2d': 'trim',
   'two-objects-tarc': 'tarc',
   'two-objects-tcircle': 'arc',
   'two-objects-tline': 'tline',

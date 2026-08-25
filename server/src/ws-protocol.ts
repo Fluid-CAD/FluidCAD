@@ -209,13 +209,6 @@ export type RemovePickMessage = {
   sourceLocation: { line: number; column: number };
 };
 
-export type SetTrimTargetsMessage = {
-  type: 'set-trim-targets';
-  /** Rendered filter args to append to the trim(...) call, e.g. `edge().line(80)`. */
-  args: string;
-  sourceLocation: { line: number; column: number };
-};
-
 export type AddBreakpointMessage = {
   type: 'add-breakpoint';
   filePath: string;
@@ -390,7 +383,6 @@ export type ServerToExtensionMessage =
   | SetPickPointsMessage
   | AddPickMessage
   | RemovePickMessage
-  | SetTrimTargetsMessage
   | AddBreakpointMessage
   | RemoveFeatureMessage
   | ClearBreakpointsMessage

@@ -33,8 +33,6 @@ import { PickExposureResolution, resolvePickExposure } from "./selection/expose-
 import { ContactPickResolution, resolveContactPick } from "./selection/contact-pick.js";
 import { synthesizeSketchApplyFeature, resolveSketchStatementTargets, SketchTargetDescriptor } from "./selection/sketch-apply.js";
 import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
-import { synthesizeTrimRegionTargets } from "./selection/trim-region.js";
-import type { TrimRegionSynthesis } from "./selection/trim-region.js";
 import { expandBucket, expandTangentChain, ExpandBucketResult, ExpandTangentsResult } from "./selection/expand.js";
 import { listSelectionGroups, SelectionGroupsResult } from "./selection/selection-groups.js";
 import { listSegmentConversions, SegmentConversionsResult } from "./selection/segment-conversion.js";
@@ -306,15 +304,6 @@ class SceneManager {
     request: TextPathPreviewRequest,
   ): { polylines: number[][] } | { reason: string } {
     return buildTextPathPreview(scene, request);
-  }
-
-  /** By-region trim: synthesize filter args for a clicked region's boundary segments. */
-  synthesizeTrimRegionTargets(
-    scene: Scene,
-    sourceLocation: { line: number; column?: number },
-    edgeIds: string[],
-  ): TrimRegionSynthesis {
-    return synthesizeTrimRegionTargets(scene, sourceLocation, edgeIds);
   }
 
   expandTangentChain(scene: Scene, ref: PickRef, before?: SelectionBoundary): ExpandTangentsResult {

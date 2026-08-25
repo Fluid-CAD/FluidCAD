@@ -1,4 +1,5 @@
 import { Geometry } from "../../oc/geometry.js";
+import { BuildError } from "../../common/build-error.js";
 import { Vertex } from "../../common/vertex.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Point2D } from "../../math/point.js";
@@ -17,6 +18,18 @@ export class Ellipse extends ExtrudableGeometryBase {
 
   getType() {
     return 'ellipse';
+  }
+
+  override validate(): void {
+    super.validate();
+    // The pen form draws at the sketch cursor — a legacy concept with no
+    // meaning in a constraint sketch.
+    if (this.enclosingSketch()?.isSolvedMode() && !this.centerOverride && !this.targetPlane) {
+      throw new BuildError(
+        "ellipse(rx, ry) draws at the sketch cursor, which does not exist in a constraint sketch.",
+        "Pass an explicit center: ellipse([x, y], rx, ry).",
+      );
+    }
   }
 
   build() {
@@ -49,7 +62,8 @@ export class Ellipse extends ExtrudableGeometryBase {
     const centerVertex = Vertex.fromPoint(plane.localToWorld(center));
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
-    if (this.sketch) {
+    // Pen state stays a legacy concept — never written in a solved sketch.
+    if (this.sketch && !this.sketch.isSolvedMode()) {
       this.setCurrentPosition(center);
     }
 

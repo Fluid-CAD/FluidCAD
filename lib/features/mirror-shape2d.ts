@@ -36,7 +36,10 @@ export class MirrorShape2D extends GeometrySceneObject {
       targetObjects = objects.filter(obj => this.targetObjects.includes(obj));
     }
     else {
-      targetObjects = objects;
+      // The target-less walk takes every previous sibling — in a solved
+      // sketch that includes constraint statements, which own no shapes and
+      // only add noise to the transform loop.
+      targetObjects = objects.filter(obj => obj.getShapes({ excludeMeta: false, excludeGuide: false }).length > 0);
     }
 
     if (this._excludedObjects.length > 0) {
@@ -61,38 +64,41 @@ export class MirrorShape2D extends GeometrySceneObject {
       }
     }
 
-    const firstShape = transformedShapes.find(shape => !shape.isMetaShape() && !shape.isGuideShape()) as Edge | Wire;
-    const lastShape = transformedShapes.toReversed().find(shape => !shape.isMetaShape() && !shape.isGuideShape()) as Edge | Wire;
-    if (firstShape) {
-      const start = firstShape.getFirstVertex();
-      if (start) {
-        const localStart = plane.worldToLocal(start.toPoint());
-        this.setState('start', Vertex.fromPoint2D(localStart));
+    // Pen state stays a legacy concept — never written in a solved sketch.
+    if (!sketch.isSolvedMode()) {
+      const firstShape = transformedShapes.find(shape => !shape.isMetaShape() && !shape.isGuideShape()) as Edge | Wire;
+      const lastShape = transformedShapes.toReversed().find(shape => !shape.isMetaShape() && !shape.isGuideShape()) as Edge | Wire;
+      if (firstShape) {
+        const start = firstShape.getFirstVertex();
+        if (start) {
+          const localStart = plane.worldToLocal(start.toPoint());
+          this.setState('start', Vertex.fromPoint2D(localStart));
+        }
       }
-    }
 
-    if (lastShape) {
-      const end = lastShape.getLastVertex();
-      if (end) {
-        const localEnd = plane.worldToLocal(end.toPoint());
-        this.setState('end', Vertex.fromPoint2D(localEnd));
+      if (lastShape) {
+        const end = lastShape.getLastVertex();
+        if (end) {
+          const localEnd = plane.worldToLocal(end.toPoint());
+          this.setState('end', Vertex.fromPoint2D(localEnd));
+        }
       }
-    }
 
-    if (lastObj) {
-      const lastTangent = lastObj.getTangent();
-      if (lastTangent) {
-        const transformedTangent = lastTangent.transform(matrix)
-        this.setTangent(transformedTangent);
+      if (lastObj) {
+        const lastTangent = lastObj.getTangent();
+        if (lastTangent) {
+          const transformedTangent = lastTangent.transform(matrix)
+          this.setTangent(transformedTangent);
+        }
       }
-    }
 
-    const currentPos = this.getCurrentPosition();
-    if (currentPos) {
-      const worldPos = plane.localToWorld(currentPos);
-      const mirroredWorldPos = matrix.transformPoint(worldPos);
-      const mirroredLocalPos = plane.worldToLocal(mirroredWorldPos);
-      this.setCurrentPosition(mirroredLocalPos);
+      const currentPos = this.getCurrentPosition();
+      if (currentPos) {
+        const worldPos = plane.localToWorld(currentPos);
+        const mirroredWorldPos = matrix.transformPoint(worldPos);
+        const mirroredLocalPos = plane.worldToLocal(mirroredWorldPos);
+        this.setCurrentPosition(mirroredLocalPos);
+      }
     }
 
     // Copies keep the source role (via ShapeOps.transform) but are derived.

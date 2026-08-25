@@ -1,16 +1,13 @@
 import { SceneObject } from "../common/scene-object.js";
-import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { registerBuilder, SceneParserContext } from "../index.js";
 import { Common } from "../features/common.js";
-import { Common2D } from "../features/common2d.js";
 import { ICommon, ISceneObject } from "./interfaces.js";
-import { addTargetObjects, sketchLastSelection } from "./target-utils.js";
 
 interface CommonFunction {
-  /** Computes the common (intersection) of all shapes or 2D geometries in the current context. */
+  /** Computes the common (intersection) of all shapes in the current context. */
   (): ICommon;
   /**
-   * Computes the common (intersection) of the given shapes or 2D geometries.
+   * Computes the common (intersection) of the given shapes.
    * @param objects - The objects to intersect
    */
   (...objects: ISceneObject[]): ICommon;
@@ -18,23 +15,8 @@ interface CommonFunction {
 
 function build(context: SceneParserContext): CommonFunction {
   return function common(...args: (ISceneObject[])): ISceneObject {
-    const activeSketch = context.getActiveSketch();
-
-    if (activeSketch) {
-      let objects: GeometrySceneObject[];
-      if (args.length > 0) {
-        if (args.length === 1 && Array.isArray(args[0])) {
-          objects = args[0] as GeometrySceneObject[];
-        } else {
-          objects = args as GeometrySceneObject[];
-        }
-      } else {
-        objects = sketchLastSelection(context, activeSketch) as unknown as GeometrySceneObject[];
-      }
-      addTargetObjects(objects, context);
-      const common2d = new Common2D(...objects);
-      context.addSceneObject(common2d);
-      return common2d;
+    if (context.getActiveSketch()) {
+      throw new Error("common() is no longer available inside a sketch — 2D booleans were removed");
     }
 
     let solids: SceneObject[];

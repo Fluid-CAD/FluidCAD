@@ -141,31 +141,25 @@ type SceneManager = {
   synthesizeSketchApplyFeature?(
     scene: any,
     refs: { shapeId: string }[],
-    feature: 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'aline' | 'text' | 'copy',
+    feature: 'fillet' | 'offset' | 'slot' | 'tarc' | 'aline' | 'text' | 'copy' | 'rotate2d',
     value: number | string | undefined,
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       params?: { name: string; value: number }[];
-      /** Subtract only: the tool-slot picks (`refs` is the base slot). */
-      toolRefs?: { shapeId: string }[];
       /** Copy only: one pick per edge-picked direction, in direction order. */
       axisRefs?: { shapeId: string }[];
       /**
-       * Offset only: the dialog's `removeOriginal` argument and `.close()`
-       * chain. A workspace kernel predating them ignores the field — the
-       * route re-attaches the payload to the returned spec, so the statement
-       * the transform writes carries the toggles either way.
+       * Offset only: the dialog's `.close()` chain. A workspace kernel
+       * predating it ignores the field — the route re-attaches the payload
+       * to the returned spec, so the statement the transform writes carries
+       * the toggle either way.
        */
-      offset?: { removeOriginal: boolean; close: boolean };
+      offset?: { close: boolean };
       /** Slot only: the dialog's Remove-original toggle (`deleteSource`). */
       slot?: { removeOriginal: boolean };
+      /** In-sketch rotate only: the center point and the copy flag. */
+      rotate2d?: { center: [number | string, number | string]; copy: boolean };
     },
-  ): any;
-  // Optional: predates by-region trim synthesis.
-  synthesizeTrimRegionTargets?(
-    scene: any,
-    sourceLocation: { line: number; column?: number },
-    edgeIds: string[],
   ): any;
   // Optional: predates segment conversions (sketcher Phase 2a).
   listSegmentConversions?(scene: any, ref: { shapeId: string }): any;
@@ -1466,19 +1460,19 @@ export class FluidCadServer {
   /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */
   synthesizeSketchApplyFeature(
     refs: { shapeId: string }[],
-    feature: 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'aline' | 'text' | 'copy',
+    feature: 'fillet' | 'offset' | 'slot' | 'tarc' | 'aline' | 'text' | 'copy' | 'rotate2d',
     value: number | string | undefined,
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       params?: { name: string; value: number }[];
-      /** Subtract only: the tool-slot picks (`refs` is the base slot). */
-      toolRefs?: { shapeId: string }[];
       /** Copy only: one pick per edge-picked direction, in direction order. */
       axisRefs?: { shapeId: string }[];
-      /** Offset only: the dialog's `removeOriginal` argument and `.close()` chain. */
-      offset?: { removeOriginal: boolean; close: boolean };
+      /** Offset only: the dialog's `.close()` chain. */
+      offset?: { close: boolean };
       /** Slot only: the dialog's Remove-original toggle (`deleteSource`). */
       slot?: { removeOriginal: boolean };
+      /** In-sketch rotate only: the center point and the copy flag. */
+      rotate2d?: { center: [number | string, number | string]; copy: boolean };
     },
   ): any {
     if (!this.sceneManager?.synthesizeSketchApplyFeature) {
@@ -1533,21 +1527,6 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.buildTextPathPreview(scene, request);
-  }
-
-  /** By-region trim: synthesize filter args for a clicked region's boundary segments. */
-  synthesizeTrimRegionTargets(
-    sourceLocation: { line: number; column?: number },
-    edgeIds: string[],
-  ): any {
-    if (!this.sceneManager?.synthesizeTrimRegionTargets) {
-      return null;
-    }
-    const scene = this.previousScenes.get(this.currentFileName);
-    if (!scene) {
-      return null;
-    }
-    return this.sceneManager.synthesizeTrimRegionTargets(scene, sourceLocation, edgeIds);
   }
 
   expandTangentChain(

@@ -6,6 +6,7 @@ import {
   indentOf,
   isBreakpointStatement,
   isExpressionText,
+  isSolvedSketchCall,
   splitLines,
   spliceCode,
   walkTree,
@@ -80,7 +81,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'aline' | 'rib' | 'connector' | 'expose';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'tarc' | 'aline' | 'rotate2d' | 'rib' | 'connector' | 'expose';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -110,6 +111,8 @@ export type ApplyFeatureEditSpec = {
   chamfer?: ChamferEditOptions;
   /** Offset-only payload; the boolean argument and the `.close()` chain. */
   offset?: OffsetEditOptions;
+  /** In-sketch rotate payload: the center literal and the copy flag. */
+  rotate2d?: Rotate2DEditOptions;
   /** Slot-from-edge payload; the trailing `deleteSource` argument. */
   slot?: SlotEditOptions;
   /**
@@ -1215,13 +1218,10 @@ export type ChamferEditOptions = {
 };
 
 /**
- * A 2D offset statement's own options: `removeOriginal` rides as the second
- * argument (`offset(2, true, …)`) and `close` chains `.close()`, capping an
- * open offset back onto its source profile. The kernel throws on the pair —
- * a removed original has nothing to cap to — so the two never render together.
+ * A 2D offset statement's own option: `close` chains `.close()`, capping an
+ * open offset back onto its source profile.
  */
 export type OffsetEditOptions = {
-  removeOriginal: boolean;
   close: boolean;
 };
 
@@ -1233,6 +1233,16 @@ export type OffsetEditOptions = {
  */
 export type SlotEditOptions = {
   removeOriginal: boolean;
+};
+
+/**
+ * The in-sketch rotate's payload (P6): the rotation center (sketch
+ * coordinates, expressions welcome) and whether the statement copies
+ * instead of moving — `rotate(45, [x, y], true, r, c)`.
+ */
+export type Rotate2DEditOptions = {
+  center: [ValueExpr, ValueExpr];
+  copy: boolean;
 };
 
 /**
@@ -1401,10 +1411,6 @@ const SKETCH_PRODUCER_CALLEES: Record<string, string[]> = {
   intersect: ['intersect'],
   text: ['text'],
   fillet2d: ['fillet'],
-  trim2d: ['trim'],
-  fuse2d: ['fuse'],
-  subtract2d: ['subtract'],
-  common2d: ['common'],
   // The 2D copies take ownership of their operands' edges, so picks on them
   // attribute to the copy statement (the type collides with the 3D copies,
   // which never produce sketch edges, so the entry is unambiguous here).
@@ -1915,6 +1921,18 @@ export async function applyFeatureEdit(
     if (!valid) {
       return { newCode: code, error: 'malformed aLine edit spec' };
     }
+  } else if (spec.feature === 'rotate2d') {
+    // In-sketch rotate is owner-level: one or more bound producers rendered
+    // as bare variables, a nonzero angle, and the center/copy payload.
+    const rt = spec.rotate2d;
+    const valid = spec.producers.length >= 1 && spec.parts.length >= 1
+      && validValueExpr(spec.value, { nonzero: true })
+      && rt !== undefined && Array.isArray(rt.center) && rt.center.length === 2
+      && rt.center.every(c => validValueExpr(c))
+      && typeof rt.copy === 'boolean';
+    if (!valid) {
+      return { newCode: code, error: 'malformed rotate edit spec' };
+    }
   } else if (spec.feature === 'text') {
     // Text-on-path takes ONE whole path geometry: exactly one bound producer
     // rendered as a bare variable, plus the dialog's full option payload.
@@ -1970,6 +1988,19 @@ export async function applyFeatureEdit(
   }
   const bindings = resolved.bindings;
   const scope = bindings[0].scope;
+
+  // Slot-from-edge is a legacy feature the solved kernel rejects
+  // (mode-errors) — refuse here so the rail never writes a statement that is
+  // guaranteed to fail its build.
+  if (spec.feature === 'slot') {
+    let ancestor = scope.parent;
+    while (ancestor && ancestor.type !== 'call_expression') {
+      ancestor = ancestor.parent;
+    }
+    if (ancestor && isSolvedSketchCall(ancestor)) {
+      return { newCode: code, error: "slot-from-edge isn't available in constraint sketches — draw the slot instead" };
+    }
+  }
 
   allocateNames(tree.rootNode, bindings, spec);
 
@@ -3142,6 +3173,9 @@ function statementCallee(spec: ApplyFeatureEditSpec): string {
   if (spec.feature === 'aline') {
     return 'aLine';
   }
+  if (spec.feature === 'rotate2d') {
+    return 'rotate';
+  }
   return spec.feature;
 }
 
@@ -3954,16 +3988,16 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   if (spec.feature === 'chamfer') {
     return `chamfer(${renderChamferValueArgs(spec.value, spec.chamfer)}, ${args})`;
   }
-  // The 2D sketch booleans, whole-edge trim and project carry no numeric
-  // parameter — the args ARE the statement (`fuse(r, c)`, `trim(r.edge('top'))`,
-  // `project(e.face('top'))`). The boolean kinds are distinct from the 3D
-  // 'boolean' spec, whose targets are top-level feature statements.
-  if (spec.feature === 'fuse' || spec.feature === 'subtract' || spec.feature === 'common'
-    || spec.feature === 'trim' || spec.feature === 'project') {
+  // Project carries no numeric parameter — the args ARE the statement
+  // (`project(e.face('top'))`).
+  if (spec.feature === 'project') {
     return `${spec.feature}(${args})`;
   }
   if (spec.feature === 'offset') {
     return renderOffsetStatement(spec.value, args, spec.offset);
+  }
+  if (spec.feature === 'rotate2d') {
+    return renderRotate2DStatement(spec.value, args, spec.rotate2d!);
   }
   if (spec.feature === 'slot') {
     return renderSlotStatement(spec.value, args, spec.slot);
@@ -3982,8 +4016,7 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
 }
 
 /**
- * A 2D offset statement: `offset(2, r.edge('top'))`, with the
- * `removeOriginal` boolean between the distance and the targets and a
+ * A 2D offset statement: `offset(2, r.edge('top'))`, with an optional
  * trailing `.close()`. An empty `args` is the whole-sketch form — `offset(2)`
  * — which only the in-place edit of a target-less statement produces.
  */
@@ -3992,9 +4025,22 @@ export function renderOffsetStatement(
   args: string,
   offset: OffsetEditOptions | undefined,
 ): string {
-  const valueArgs = offset?.removeOriginal ? `${formatValue(value)}, true` : formatValue(value);
   const chain = offset?.close ? '.close()' : '';
-  return args ? `offset(${valueArgs}, ${args})${chain}` : `offset(${valueArgs})${chain}`;
+  return args ? `offset(${formatValue(value)}, ${args})${chain}` : `offset(${formatValue(value)})${chain}`;
+}
+
+/**
+ * An in-sketch rotate statement: `rotate(45, [x, y], targets…)`, with the
+ * copy flag between the center and the targets when set.
+ */
+export function renderRotate2DStatement(
+  value: ValueExpr | undefined,
+  args: string,
+  rotate2d: Rotate2DEditOptions,
+): string {
+  const center = `[${formatValue(rotate2d.center[0])}, ${formatValue(rotate2d.center[1])}]`;
+  const copyArg = rotate2d.copy ? ', true' : '';
+  return `rotate(${formatValue(value)}, ${center}${copyArg}, ${args})`;
 }
 
 /**
@@ -4693,9 +4739,7 @@ export type ParsedFeatureStatement =
     feature: 'offset';
     /** The offset distance; negative offsets inward. */
     value: ValueExpr;
-    /** The literal `true` second argument — the sources are removed. */
-    removeOriginal: boolean;
-    /** Target argument list after the value slots, verbatim (`''` when absent). */
+    /** Target argument list after the value slot, verbatim (`''` when absent). */
     argsText: string;
     /** `.close()` chains the offset back onto its source profile. */
     close: boolean;
@@ -5317,15 +5361,11 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
         selectorsFrom = 1;
       }
     }
-    // The removeOriginal flag only exists in the distance-first overload, and
-    // only as a literal — a computed flag has no checkbox to seed.
-    let removeOriginal = false;
-    if (selectorsFrom === 1 && args.length > 1) {
-      const flag = booleanArgValue(args[1]);
-      if (flag !== null) {
-        removeOriginal = flag;
-        selectorsFrom = 2;
-      }
+    // The removeOriginal boolean was removed from offset() — a statement
+    // still carrying it fails its build, so the dialog refuses honestly
+    // instead of seeding a toggle that no longer exists.
+    if (selectorsFrom === 1 && args.length > 1 && booleanArgValue(args[1]) !== null) {
+      return { error: 'offset() no longer takes a removeOriginal flag — delete the boolean in the source and mark the sources .guide() instead' };
     }
     const argsText = args.length > selectorsFrom
       ? code.slice(args[selectorsFrom].startIndex, args[args.length - 1].endIndex)
@@ -5335,7 +5375,7 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       return { error: 'the .close() chain takes no arguments — edit the statement in the source' };
     }
     return {
-      parsed: { feature, value, removeOriginal, argsText, close: closeSegment !== undefined },
+      parsed: { feature, value, argsText, close: closeSegment !== undefined },
       start,
       end,
     };
@@ -8377,13 +8417,10 @@ export function renderEditedStatement(
     return { error: `the ${parsed.feature} value must be a nonzero number or expression` };
   }
   if (parsed.feature === 'offset') {
-    // An edit spec without offset options keeps the statement's own toggles.
-    const offset = spec.offset ?? { removeOriginal: parsed.removeOriginal, close: parsed.close };
-    if (typeof offset.removeOriginal !== 'boolean' || typeof offset.close !== 'boolean') {
+    // An edit spec without offset options keeps the statement's own toggle.
+    const offset = spec.offset ?? { close: parsed.close };
+    if (typeof offset.close !== 'boolean') {
       return { error: 'malformed offset edit spec' };
-    }
-    if (offset.removeOriginal && offset.close) {
-      return { error: 'a closed offset keeps its original profile — the cap edges join the two' };
     }
     return {
       statement: renderOffsetStatement(spec.value, editedSelectorArgs(spec, parsed.argsText, varFor), offset),

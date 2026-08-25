@@ -40,6 +40,14 @@ export type SolvedEntityView = {
   radius?: number;
   cw?: boolean;
   guess?: SolvedEntityGuess;
+  /**
+   * Fixed reference geometry (P6): a project()/intersect() output. Pick-only
+   * — never a drag target, never written back. `refIndex` is the `.ref(i)`
+   * address emission renders; null when the producer yielded exactly one
+   * constrainable edge (the terse direct form). `producer` is the statement
+   * callee the emission's drift guard checks.
+   */
+  reference?: { refIndex: number | null; producer: 'project' | 'intersect' };
 };
 
 export type ConstraintStatus = 'ok' | 'redundant' | 'conflicting';
@@ -84,6 +92,44 @@ const ENTITY_KINDS: Record<string, SolvedEntityKind> = {
   'solved-circle': 'circle',
   'solved-arc': 'arc',
 };
+
+/** Reference producers (P6): their payload's `entities` array joins each
+ * emitted edge to the fixed solver entity it registered as. */
+const REFERENCE_TYPES = new Set(['projection', 'intersect']);
+
+/** A reference entity's geometry comes from the snapshot's locked params —
+ * the producer's payload only carries the join (entityId, kind, edgeIndex). */
+function referenceEntityView(
+  solver: SketchSolverSystem,
+  obj: SceneObjectRender,
+  entityId: number,
+  kind: SolvedEntityKind,
+  refIndex: number | null,
+): SolvedEntityView | null {
+  const record = solver.entities.find(e => e.id === entityId);
+  if (!record) {
+    return null;
+  }
+  const p = solver.params;
+  const o = record.paramOffset;
+  const producer = obj.uniqueType === 'intersect' ? 'intersect' as const : 'project' as const;
+  const view: SolvedEntityView = { entityId, obj, kind, reference: { refIndex, producer } };
+  if (kind === 'line') {
+    view.start = [p[o], p[o + 1]];
+    view.end = [p[o + 2], p[o + 3]];
+  } else if (kind === 'circle') {
+    view.center = [p[o], p[o + 1]];
+    view.radius = p[o + 2];
+  } else if (kind === 'arc') {
+    view.center = [p[o], p[o + 1]];
+    view.radius = p[o + 2];
+    view.start = [p[o + 3], p[o + 4]];
+    view.end = [p[o + 5], p[o + 6]];
+  } else {
+    view.point = [p[o], p[o + 1]];
+  }
+  return view;
+}
 
 export function isSolvedSketch(obj: SceneObjectRender | null | undefined): boolean {
   return obj?.type === 'sketch' && obj.object?.solvedMode === true;
@@ -184,6 +230,21 @@ export function buildSolvedSketchModel(
     const entityKind = ENTITY_KINDS[obj.uniqueType ?? ''];
     if (entityKind && typeof obj.object?.entityId === 'number' && obj.object.entityId >= 0) {
       entities.set(obj.object.entityId, entityView(obj, entityKind));
+      continue;
+    }
+
+    // Reference producers (P6): join each registered fixed entity via the
+    // snapshot's locked params. A single-entity producer addresses tersely
+    // (refIndex null → `tangent(p, l)`), multi-entity by `.ref(i)`.
+    if (REFERENCE_TYPES.has(obj.uniqueType ?? '') && Array.isArray(obj.object?.entities) && solver) {
+      const records = obj.object.entities as { entityId: number; kind: SolvedEntityKind; edgeIndex: number }[];
+      for (const record of records) {
+        const refIndex = records.length === 1 ? null : record.edgeIndex;
+        const view = referenceEntityView(solver, obj, record.entityId, record.kind, refIndex);
+        if (view) {
+          entities.set(record.entityId, view);
+        }
+      }
       continue;
     }
 

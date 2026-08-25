@@ -160,7 +160,7 @@ describe("sketch datum misuse diagnostics", () => {
     expect(fixes).toHaveLength(2);
     const bad = fixes[1];
     expect(bad.hasError).toBe(true);
-    expect(bad.errorMessage).toContain('only the sketch datums');
+    expect(bad.errorMessage).toContain('references only fixed geometry');
     // The valid statements are untouched.
     expect(fixes[0].hasError).toBe(false);
     expect(renderedByUniqueType(scene, 'solved-line')[0].hasError).toBe(false);

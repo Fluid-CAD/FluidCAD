@@ -8,6 +8,7 @@ import { SketchSystem, solve, diagnose } from "../../../sketch-solver/index.js";
 import type {
   ConstraintSpec,
   EntityKind,
+  EntityOptions,
   SketchDiagnostics,
   SketchSolverSystem,
   SolveResult,
@@ -36,30 +37,31 @@ export class SketchSolverContext {
   private entityStatements = new Map<number, SceneObject>();
   private constraintStatements = new Map<number, SceneObject>();
   private statementErrors = new Map<SceneObject, string>();
+  private deferredConstraints: { resolveNow(): void }[] = [];
   private summary: SolveSummary | null = null;
 
-  // -- registration (statement time) --------------------------------------
+  // -- registration (statement time; fixed references at pre-solve time) ---
 
-  addPoint(owner: SceneObject, x: number, y: number): number {
-    const id = this.system.point(x, y);
+  addPoint(owner: SceneObject, x: number, y: number, opts?: EntityOptions): number {
+    const id = this.system.point(x, y, opts);
     this.entityStatements.set(id, owner);
     return id;
   }
 
-  addLine(owner: SceneObject, sx: number, sy: number, ex: number, ey: number): number {
-    const id = this.system.line(sx, sy, ex, ey);
+  addLine(owner: SceneObject, sx: number, sy: number, ex: number, ey: number, opts?: EntityOptions): number {
+    const id = this.system.line(sx, sy, ex, ey, opts);
     this.entityStatements.set(id, owner);
     return id;
   }
 
-  addCircle(owner: SceneObject, cx: number, cy: number, r: number): number {
-    const id = this.system.circle(cx, cy, r);
+  addCircle(owner: SceneObject, cx: number, cy: number, r: number, opts?: EntityOptions): number {
+    const id = this.system.circle(cx, cy, r, opts);
     this.entityStatements.set(id, owner);
     return id;
   }
 
-  addArc(owner: SceneObject, cx: number, cy: number, sx: number, sy: number, ex: number, ey: number): number {
-    const id = this.system.arc(cx, cy, sx, sy, ex, ey);
+  addArc(owner: SceneObject, cx: number, cy: number, sx: number, sy: number, ex: number, ey: number, opts?: EntityOptions): number {
+    const id = this.system.arc(cx, cy, sx, sy, ex, ey, opts);
     this.entityStatements.set(id, owner);
     return id;
   }
@@ -70,6 +72,26 @@ export class SketchSolverContext {
     const id = this.system.constrain(spec);
     this.constraintStatements.set(id, owner);
     return id;
+  }
+
+  /**
+   * Queue a constraint whose targets include fixed references (P6): their
+   * entity ids only exist after the pre-solve pass builds the projections,
+   * so the spec resolves in {@link resolveDeferredConstraints} instead of at
+   * statement time. Errors stash on the statement there, exactly as eager
+   * registration stashes them.
+   */
+  queueDeferredConstraint(statement: { resolveNow(): void }): void {
+    this.deferredConstraints.push(statement);
+  }
+
+  /** Run by the sketch after the reference pre-pass, before the solve. */
+  resolveDeferredConstraints(): void {
+    const queued = this.deferredConstraints;
+    this.deferredConstraints = [];
+    for (const statement of queued) {
+      statement.resolveNow();
+    }
   }
 
   // -- solve (build time, once per render) --------------------------------

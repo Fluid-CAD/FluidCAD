@@ -23,7 +23,6 @@ import { HistoryToolbar } from './ui/history-toolbar';
 import { ICON_IMG_FALLBACK } from './ui/object-icons';
 import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
 import { SelectionContextMenu } from './interactive/selection-menu';
-import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
 import { ProjectionPickService } from './interactive/projection-pick-service';
 import { SketchToolbarService } from './interactive/sketch-toolbar-service';
@@ -482,9 +481,8 @@ viewer.setParamsToggleHandler(() => {
   viewer.setParamsButtonActive(paramsPanel.isVisible);
 });
 
-const trimService = new TrimPickService(viewer);
 const regionService = new RegionPickService(viewer, navbar);
-// The Project sketch tool. Like trim it is armed from the sketch toolbar, but
+// The Project sketch tool. It is armed from the sketch toolbar, but
 // its picks are solid edges and faces in the free 3D view, so the routing
 // below hands it viewport clicks while it is armed.
 const projectionService = new ProjectionPickService(container, viewer);
@@ -1153,7 +1151,7 @@ function showActionToast(message: string): void {
     editRefusalToast?.classList.add('hidden');
   }, 5000);
 }
-const sketchService = new SketchToolbarService(container, viewer, trimService, projectionService, navbar);
+const sketchService = new SketchToolbarService(container, viewer, projectionService, navbar);
 sketchService.onConstraintPick = (pick) => {
   if (currentRail?.kind === 'part' && pick.objId) {
     currentRail.timeline.setPickedFeature(pick.objId);
@@ -1456,9 +1454,6 @@ finishSketchMenu.onResume = () => modifyService.finishSketchEdit();
 const breakpointIndicator = new BreakpointIndicator(container, () => {
   if (regionService.state === 'picking-active') {
     regionService.exit();
-  }
-  if (trimService.state === 'picking-active') {
-    trimService.exit();
   }
   // Continue leaves the paused build: open edit sessions end WITHOUT their
   // cancel-restore rollback — the full render Continue triggers supersedes
@@ -2061,16 +2056,14 @@ viewer.sceneContext.cameraControls.addEventListener('update', scheduleCameraStat
 /**
  * The scope-sensitive service cascade every scene render runs (and a
  * timeline part-row click replays — see {@link refreshActivePartScope}):
- * the trim/region pick triggers, the sketch toolbar, and each dialog
+ * the region pick triggers, the sketch toolbar, and each dialog
  * service's own scene handling, in the order the services expect.
  */
 function runSceneServices(result: SceneObjectRender[], renderStop: number, isRollback: boolean): void {
   if (isRollback) {
-    trimService.reset();
     regionService.reset();
     sketchService.update([]);
   } else {
-    trimService.update(result);
     regionService.update(result);
     // While a pick mode has sketch editing suspended, the sketch
     // toolbar must not re-take the bar on incoming renders. An open
@@ -2143,7 +2136,6 @@ function refreshActivePartScope(): void {
     return;
   }
   const { result, rollbackStop } = lastPartRender;
-  viewer.isTrimming = trimService.state === 'picking-active';
   viewer.isDrawing = sketchService.hasActiveDrawingTool;
   viewer.updateView(result, false, rollbackStop);
   runSceneServices(result, rollbackStop ?? result.length - 1, false);
@@ -2189,7 +2181,6 @@ function connectWebSocket() {
         } else {
           activePartTracker.clear();
         }
-        viewer.isTrimming = !isRollback && trimService.state === 'picking-active';
         viewer.isDrawing = !isRollback && sketchService.hasActiveDrawingTool;
         if (sceneKind === 'assembly') {
           const assembly: SerializedAssembly = msg.assembly ?? { instances: [], mates: [] };

@@ -1,7 +1,6 @@
 import { SceneObject } from "../common/scene-object.js";
 import { Edge } from "../common/edge.js";
 import { Sketch } from "../features/2d/sketch.js";
-import { Copy2DBase } from "../features/copy2d-base.js";
 import { ShapeFilter } from "../filters/filter.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { EdgeQuery } from "../oc/edge-query.js";
@@ -13,6 +12,7 @@ import {
   ApplyFeatureEditSpec,
   ApplyFeatureSynthesis,
   OffsetEditOptions,
+  Rotate2DEditOptions,
   SelectionScene,
   SlotEditOptions,
   SynthesizeOptions,
@@ -22,18 +22,11 @@ import {
 /** A sketch edge pick: 1 shapeId = 1 edge (the Stage 0 emission invariant). */
 export type SketchPickRef = { shapeId: string };
 
-export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'aline' | 'text' | 'copy';
+export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'slot' | 'tarc' | 'aline' | 'text' | 'copy' | 'rotate2d';
 
 export type SketchSynthesizeOptions = SynthesizeOptions & {
   /**
-   * Subtract only: the tool-slot picks (`refs` is the base slot). The 2D
-   * booleans are owner-level operations — any picked edge selects its whole
-   * producing geometry as the operand.
-   */
-  toolRefs?: SketchPickRef[];
-  /**
-   * Offset only: the dialog's two toggles — `removeOriginal` (the call's
-   * second argument) and `.close()`.
+   * Offset only: the dialog's `.close()` toggle.
    */
   offset?: OffsetEditOptions;
   /**
@@ -41,6 +34,8 @@ export type SketchSynthesizeOptions = SynthesizeOptions & {
    * `deleteSource` argument, whose kernel default is true.
    */
   slot?: SlotEditOptions;
+  /** In-sketch rotate only: the dialog's center point and copy toggle. */
+  rotate2d?: Rotate2DEditOptions;
   /**
    * 2D copy only: one pick per edge-picked direction, in direction order.
    * Each resolves to its producing single-line geometry, referenced as
@@ -94,12 +89,12 @@ export function synthesizeSketchApplyFeature(
     return { ok: false, reason: 'nothing selected' };
   }
 
-  if (feature === 'fuse' || feature === 'subtract' || feature === 'common') {
-    return synthesizeSketchBoolean(scene, refs, feature, options);
-  }
-
   if (feature === 'copy') {
     return synthesizeSketchCopy(scene, refs, options);
+  }
+
+  if (feature === 'rotate2d') {
+    return synthesizeSketchRotate(scene, refs, options);
   }
 
   if (feature === 'slot') {
@@ -259,18 +254,16 @@ export function synthesizeSketchApplyFeature(
   };
 }
 
-/** The offset toggles, defaulted — an absent payload is the plain offset. */
+/** The offset toggle, defaulted — an absent payload is the plain offset. */
 function offsetOptions(options: SketchSynthesizeOptions): OffsetEditOptions {
   return {
-    removeOriginal: options.offset?.removeOriginal === true,
     close: options.offset?.close === true,
   };
 }
 
 /**
  * The statement the transform will write, for the dialog's preview line.
- * Trim carries no numeric parameter — the args ARE the statement; offset
- * rides its `removeOriginal` boolean before the args and caps with `.close()`.
+ * Offset caps with `.close()`.
  */
 function sketchStatementPreview(
   feature: SketchApplyFeatureKind,
@@ -281,8 +274,7 @@ function sketchStatementPreview(
   if (value === undefined) {
     return `${feature}(${args})`;
   }
-  const valueArgs = offset?.removeOriginal ? `${value}, true` : `${value}`;
-  return `${feature}(${valueArgs}, ${args})${offset?.close ? '.close()' : ''}`;
+  return `${feature}(${value}, ${args})${offset?.close ? '.close()' : ''}`;
 }
 
 /** The slot-from-edge statement text for previews and the create transform. */
@@ -570,77 +562,28 @@ function synthesizeSketchTextPath(
   };
 }
 
-/** One boolean operand: a whole geometry, or one grid slot of a 2D copy. */
-type SketchBooleanOperand = {
-  owner: SceneObject;
-  /** The copy grid slot, or null for a whole-owner operand. */
-  instance: number | null;
-};
-
 /**
- * The 2D booleans (fuse/subtract/common) are owner-level: their operands are
- * whole geometries (Fuse2D & co. build closed REGIONS from each operand's
- * edges — a lone edge forms none), so any picked edge stands for its producing
- * primitive and the emitted args are bare variables (`fuse(r, c)`,
- * `subtract(r, c)`). One exception: a 2D copy owns EVERY instance it stamps
- * (the original included), so a pick on one narrows to its grid slot and
- * emits the instance accessor (`fuse(cp.instance(0), cp.instance(3))`) — a
- * slot is a whole copied geometry, so it still promises a closed region.
- * Subtract is slot-addressed: `refs` is the base pick set, `options.toolRefs`
- * the tool's; Subtract2D takes exactly one geometry per slot. Owners that
- * cannot bind to a variable (clones, loops) are refused honestly — a filter
- * arg cannot promise a closed region.
+ * The in-sketch rotate is owner-level like the 2D copy: its targets are
+ * whole geometries, so any picked edge stands for its producing primitive
+ * and the emitted target args are bare variables — `rotate(45, [x, y],
+ * r, c)`. The angle and center come from the dialog (options.rotate2d),
+ * not the picks; owners that cannot bind to a variable (clones, loops) are
+ * refused honestly.
  */
-function synthesizeSketchBoolean(
+function synthesizeSketchRotate(
   scene: SelectionScene,
   refs: SketchPickRef[],
-  feature: 'fuse' | 'subtract' | 'common',
   options: SketchSynthesizeOptions,
 ): ApplyFeatureSynthesis {
-  const toolRefs = options.toolRefs ?? [];
-  if (feature === 'subtract' && toolRefs.length === 0) {
-    return { ok: false, reason: 'pick the tool geometry to subtract' };
-  }
-
-  // One resolution over both slots keeps the same-sketch rule airtight.
-  const resolution = resolvePicks(scene, [...refs, ...toolRefs]);
+  const resolution = resolvePicks(scene, refs);
   if ('reason' in resolution) {
     return { ok: false, reason: resolution.reason };
   }
 
-  const baseIds = new Set(refs.map(r => r.shapeId));
-  const baseOperands: SketchBooleanOperand[] = [];
-  const toolOperands: SketchBooleanOperand[] = [];
-  for (const pick of resolution.picks) {
-    const slot = baseIds.has(pick.ref.shapeId) ? baseOperands : toolOperands;
-    const instance = pick.owner instanceof Copy2DBase
-      ? pick.owner.getInstanceIndex(pick.edge)
-      : null;
-    if (!slot.some(op => op.owner === pick.owner && op.instance === instance)) {
-      slot.push({ owner: pick.owner, instance });
-    }
-  }
-
-  if (feature === 'subtract') {
-    if (baseOperands.some(b =>
-      toolOperands.some(t => t.owner === b.owner && t.instance === b.instance))) {
-      return { ok: false, reason: 'the base and the tool are the same geometry' };
-    }
-    if (baseOperands.length > 1 || toolOperands.length > 1) {
-      return {
-        ok: false,
-        reason: 'subtract takes one base and one tool geometry — fuse geometries first to combine them',
-      };
-    }
-  } else if (baseOperands.length < 2) {
-    return { ok: false, reason: `pick edges of at least two geometries to ${feature}` };
-  }
-
-  const operands = [...baseOperands, ...toolOperands];
   const owners: SceneObject[] = [];
-  for (const op of operands) {
-    if (!owners.includes(op.owner)) {
-      owners.push(op.owner);
+  for (const pick of resolution.picks) {
+    if (!owners.includes(pick.owner)) {
+      owners.push(pick.owner);
     }
   }
   for (const owner of owners) {
@@ -656,13 +599,11 @@ function synthesizeSketchBoolean(
   }
 
   const names = allocateNames(owners, options.namer);
-  const parts = operands.map(op => op.instance === null
-    ? part(op.owner, '', null, null, 0)
-    : part(op.owner, 'instance', [op.instance], null, 0));
+  const parts = owners.map(owner => part(owner, '', null, null, 0));
   const args = parts.map(p => renderPartArgs(p, names)).join(', ');
 
   const spec: ApplyFeatureEditSpec = {
-    feature,
+    feature: 'rotate2d',
     filePath: filePaths.values().next().value!,
     producers: owners.map(owner => {
       const loc = owner.getSourceLocation()!;
@@ -681,19 +622,22 @@ function synthesizeSketchBoolean(
       filterArgs: p.filterArgs,
     })),
     imports: [],
+    rotate2d: options.rotate2d,
   };
 
+  const center = options.rotate2d?.center;
+  const preview = `rotate(<angle>, [${center?.[0] ?? 0}, ${center?.[1] ?? 0}]${options.rotate2d?.copy ? ', true' : ''}, ${args})`;
   return {
     ok: true,
     spec,
-    preview: `${feature}(${args})`,
+    preview,
     args,
     alternatives: [],
   };
 }
 
 /**
- * The 2D copy is owner-level like the booleans: its targets are whole
+ * The 2D copy is owner-level: its targets are whole
  * geometries (CopyLinear2D/CopyCircular2D filter their previous siblings by
  * identity), so any picked edge stands for its producing primitive and the
  * emitted target args are bare variables — `copy('linear', local('x'),

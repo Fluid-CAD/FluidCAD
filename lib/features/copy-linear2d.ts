@@ -26,7 +26,8 @@ export class CopyLinear2D extends Copy2DBase {
     if (this.targetObjects && this.targetObjects.length > 0) {
       objects = allSiblings.filter(obj => this.targetObjects.includes(obj));
     } else {
-      objects = allSiblings;
+      // Skip shape-less siblings (constraint statements in a solved sketch).
+      objects = allSiblings.filter(obj => obj.getShapes().length > 0);
     }
 
     const originalShapes = objects.flatMap(obj => obj.getShapes());

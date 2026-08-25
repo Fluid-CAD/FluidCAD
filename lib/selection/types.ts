@@ -130,7 +130,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common' | 'tarc' | 'aline' | 'text' | 'copy' | 'connector' | 'expose';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'slot' | 'tarc' | 'aline' | 'text' | 'copy' | 'rotate2d' | 'connector' | 'expose';
 
 /**
  * A tangent chain from the "Select with tangents" gesture: the pick the user
@@ -146,13 +146,10 @@ export type PickChain = {
  * the transform stays a testable string function.
  */
 /**
- * The 2D offset's own options: the `removeOriginal` boolean that rides as the
- * call's second argument, and the `.close()` chain that caps an open offset
- * back onto its source profile. The kernel refuses the pair (there is no
- * original left to cap to), so the two are mutually exclusive here too.
+ * The 2D offset's own option: the `.close()` chain that caps an open offset
+ * back onto its source profile.
  */
 export type OffsetEditOptions = {
-  removeOriginal: boolean;
   close: boolean;
 };
 
@@ -166,6 +163,16 @@ export type SlotEditOptions = {
   removeOriginal: boolean;
 };
 
+/**
+ * The in-sketch rotate's payload (P6): the rotation center (sketch
+ * coordinates, expressions welcome), and whether the statement copies
+ * instead of moving.
+ */
+export type Rotate2DEditOptions = {
+  center: [number | string, number | string];
+  copy: boolean;
+};
+
 export type ApplyFeatureEditSpec = {
   feature: ApplyFeatureKind;
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
@@ -174,6 +181,8 @@ export type ApplyFeatureEditSpec = {
   offset?: OffsetEditOptions;
   /** Slot-from-edge payload; renders the trailing `deleteSource` argument. */
   slot?: SlotEditOptions;
+  /** In-sketch rotate payload: the center literal and the copy flag. */
+  rotate2d?: Rotate2DEditOptions;
   /**
    * Connector-only payload: the name the statement registers, plus the call
    * site of the `part(...)` block whose callback body receives the statement

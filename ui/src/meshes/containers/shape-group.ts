@@ -4,16 +4,13 @@ import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { FaceMesh } from '../shape-meshes/face-mesh';
 import { SolidMesh } from '../shape-meshes/solid-mesh';
 import { MetaEdgeMesh } from '../shape-meshes/meta-edge-mesh';
-import { TrimMetaEdgeMesh } from '../shape-meshes/trim-meta-edge-mesh';
 import { RegionMetaFaceMesh } from '../shape-meshes/region-meta-face-mesh';
-import { TrimRegionFaceMesh } from '../shape-meshes/trim-region-face-mesh';
 import { PickEdgeMesh } from '../shape-meshes/pick-edge-mesh';
 
 const STANDALONE_EDGE_STYLE: EdgeMeshOptions = { color: '#2297ff', lineWidth: 2 };
 
 /** Map of metaType → factory function. Falls back to MetaEdgeMesh. */
 const metaEdgeFactories: Record<string, (shape: SceneObjectPart) => Group> = {
-  trim: (shape) => new TrimMetaEdgeMesh(shape),
   'pick-edge': (shape) => new PickEdgeMesh(shape),
 };
 
@@ -26,7 +23,6 @@ export function createMetaEdgeMesh(shape: SceneObjectPart): Group {
 const metaFaceFactories: Record<string, (shape: SceneObjectPart) => Group> = {
   'pick-region': (shape) => new RegionMetaFaceMesh(shape, false),
   'pick-region-selected': (shape) => new RegionMetaFaceMesh(shape, true),
-  'trim-region': (shape) => new TrimRegionFaceMesh(shape),
 };
 
 export function createMetaFaceMesh(shape: SceneObjectPart): Group {

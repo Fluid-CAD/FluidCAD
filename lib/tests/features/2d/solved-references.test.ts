@@ -1,0 +1,235 @@
+// P6 fixed reference entities: project()/intersect() outputs inside a solved
+// sketch register as LOCKED solver geometry — constraints target a projected
+// bore or edge (the marquee capability), the references add zero DOF and
+// never move, and everything resolves deferred (the OCCT geometry only
+// exists at build time).
+import { describe, it, expect } from "vitest";
+import { setupOC, render } from "../../setup.js";
+import { getSceneManager } from "../../../scene-manager.js";
+import { SceneCompare } from "../../../rendering/scene-compare.js";
+import sketch from "../../../core/sketch.js";
+import extrude from "../../../core/extrude.js";
+import { line, circle, rect, project, intersect } from "../../../core/2d/index.js";
+import {
+  coincident, horizontal, tangent, distance, radius, fix,
+} from "../../../core/constraints/index.js";
+import { Sketch } from "../../../features/2d/sketch.js";
+import { Extrude } from "../../../features/extrude.js";
+import { Scene } from "../../../rendering/scene.js";
+import type { IReference } from "../../../core/interfaces.js";
+
+function renderedErrors(scene: Scene): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const r of scene.getRenderedObjects()) {
+    if (r.errorMessage) {
+      out.set(r.uniqueType, r.errorMessage);
+    }
+  }
+  return out;
+}
+
+function snapshotOf(sk: Sketch) {
+  return sk.getState('solver-system') as {
+    outcome?: string;
+    dof?: number;
+    entities: { id: number; kind: string; fixed: boolean }[];
+    params: number[];
+  };
+}
+
+function solvedPayload(scene: Scene, uniqueType: string) {
+  return scene.getRenderedObjects().filter(r => r.uniqueType === uniqueType).map(r => r.object);
+}
+
+/** An extruded circle standing on xy — its top face projects to a circle
+ * of the given radius. */
+function boreDonor(radiusValue = 20, height = 15) {
+  sketch('xy', () => {
+    circle(radiusValue * 2);
+  });
+  return extrude(height) as Extrude;
+}
+
+describe("fixed reference entities (P6)", () => {
+  setupOC();
+
+  it("marquee: a free line goes tangent to a projected bore", () => {
+    const donor = boreDonor(20);
+    let bore: IReference;
+    const sk = sketch('xy', () => {
+      bore = project(donor.endFaces());
+      const l = line([25, -30], [25, 30]);
+      fix(l.start(), [30, -30]);
+      tangent(bore, l);
+    }, true) as unknown as Sketch;
+    const scene = render();
+
+    expect(renderedErrors(scene).size).toBe(0);
+
+    // The projected circle registered fixed at the origin, r=20; the line's
+    // solved position must sit exactly r away from the center.
+    const snap = snapshotOf(sk);
+    const fixedCircle = snap.entities.find(e => e.kind === 'circle' && e.fixed);
+    expect(fixedCircle).toBeDefined();
+
+    const linePayload = solvedPayload(scene, 'solved-line')[0] as {
+      start: { x: number; y: number }; end: { x: number; y: number };
+    };
+    // Perpendicular distance from (0,0) to the solved line == radius.
+    const dx = linePayload.end.x - linePayload.start.x;
+    const dy = linePayload.end.y - linePayload.start.y;
+    const len = Math.hypot(dx, dy);
+    const dist = Math.abs(dx * (0 - linePayload.start.y) - dy * (0 - linePayload.start.x)) / len;
+    expect(dist).toBeCloseTo(20, 5);
+  });
+
+  it("dimensions against a reference center and refuses all-fixed constraints", () => {
+    const donor = boreDonor(15);
+    const sk = sketch('xy', () => {
+      const bore = project(donor.endFaces());
+      const c = circle([40, 5], 20);
+      distance(bore.center(), c.center(), 60);
+      fix(c.center(), [60, 0]);
+      // All-fixed: only the reference — must error on the statement, not
+      // silently register.
+      radius(bore, 5);
+    }, true) as unknown as Sketch;
+    const scene = render();
+
+    const errors = renderedErrors(scene);
+    expect(errors.get('constraint-radius')).toMatch(/fixed geometry/);
+    // The distance solved: the circle center is 60 from the origin.
+    const circlePayload = solvedPayload(scene, 'solved-circle')[0] as {
+      center: { x: number; y: number };
+    };
+    expect(Math.hypot(circlePayload.center.x, circlePayload.center.y)).toBeCloseTo(60, 5);
+    expect(snapshotOf(sk).outcome).toBe('solved');
+  });
+
+  it("references add zero DOF and their params never move", () => {
+    const donor = boreDonor(10);
+    let withRef: Sketch;
+    sketch('xy', () => {
+      project(donor.endFaces());
+      const l = line([30, 0], [50, 0]);
+      horizontal(l);
+    }, true);
+    const sketches = getSceneManager()!.currentScene.getSceneObjects()
+      .filter(o => o instanceof Sketch) as Sketch[];
+    withRef = sketches[sketches.length - 1];
+    render();
+
+    const snap = snapshotOf(withRef);
+    const fixedEntities = snap.entities.filter(e => e.fixed && e.id >= 0);
+    expect(fixedEntities.length).toBeGreaterThan(0);
+    // Free line: 4 params − 1 horizontal = 3 DOF. The reference adds none.
+    expect(snap.dof).toBe(3);
+  });
+
+  it("multi-edge references need .ref(i); bad indices error honestly", () => {
+    sketch('xy', () => {
+      rect(60, 40);
+    });
+    const e = extrude(20) as Extrude;
+
+    sketch('xy', () => {
+      const outline = project(e.endFaces());
+      const c = circle([100, 0], 20);
+      // Whole-producer sugar is ambiguous over 4 edges.
+      tangent(outline, c);
+      // Out of range.
+      coincident(c.center(), outline.ref(11).start());
+      // A valid indexed reference: the circle center holds 50 off line 0.
+      distance(outline.ref(0), c.center(), 50);
+    }, true);
+    const scene = render();
+
+    const errors = [...renderedErrors(scene).entries()];
+    expect(errors.find(([k]) => k === 'constraint-tangent')?.[1]).toMatch(/4 constrainable edges/);
+    expect(errors.find(([k]) => k === 'constraint-coincident')?.[1]).toMatch(/out of range/);
+    expect(errors.find(([k]) => k === 'constraint-distance')).toBeUndefined();
+  });
+
+  it("intersect outputs register as fixed lines", () => {
+    sketch('xy', () => {
+      rect(80, 50);
+    });
+    const e = extrude(30) as Extrude;
+
+    const sk = sketch('xz', () => {
+      const section = intersect(e);
+      const l = line([5, 40], [70, 45]);
+      horizontal(l);
+      coincident(l.start(), section.ref(0).start());
+    }, true) as unknown as Sketch;
+    const scene = render();
+
+    expect(renderedErrors(scene).size).toBe(0);
+    const snap = snapshotOf(sk);
+    expect(snap.entities.some(entity => entity.fixed && entity.kind === 'line' && entity.id >= 0)).toBe(true);
+    expect(snap.outcome).toBe('solved');
+  });
+
+  it("caches the whole subtree when nothing changed, deferred constraints included", () => {
+    const declare = () => {
+      const donor = boreDonor(20);
+      sketch('xy', () => {
+        const bore = project(donor.endFaces());
+        const l = line([25, -30], [25, 30]);
+        fix(l.start(), [30, -30]);
+        tangent(bore, l);
+      }, true);
+    };
+    declare();
+    render();
+    const previousScene = getSceneManager()!.currentScene;
+
+    const newScene = getSceneManager()!.startScene();
+    declare();
+    SceneCompare.compare(previousScene, newScene);
+
+    for (const obj of newScene.getSceneObjects()) {
+      expect(newScene.isCached(obj)).toBe(true);
+    }
+  });
+
+  it("demo chain (P6 exit criterion): project → constraints → extrude", () => {
+    const donor = boreDonor(20);
+    let profile: { getShapes(): { getType(): string }[] };
+    sketch('xy', () => {
+      const bore = project(donor.endFaces());
+      const c = circle([50, 5], 24);
+      distance(bore.center(), c.center(), 60);
+      fix(c.center(), [60, 0]);
+    }, true);
+    profile = extrude(8).new() as unknown as { getShapes(): { getType(): string }[] };
+    const scene = render();
+
+    expect(renderedErrors(scene).size).toBe(0);
+    const solids = profile!.getShapes().filter(s => s.getType() === 'solid');
+    expect(solids.length).toBeGreaterThan(0);
+  });
+
+  it("solves deterministically across recompute", () => {
+    const donor = boreDonor(20);
+    const sk = sketch('xy', () => {
+      const bore = project(donor.endFaces());
+      const l = line([25, -30], [25, 30]);
+      fix(l.start(), [30, -30]);
+      tangent(bore, l);
+    }, true) as unknown as Sketch;
+    render();
+    const first = JSON.stringify(snapshotOf(sk).params);
+
+    getSceneManager()!.startScene();
+    const donor2 = boreDonor(20);
+    const sk2 = sketch('xy', () => {
+      const bore = project(donor2.endFaces());
+      const l = line([25, -30], [25, 30]);
+      fix(l.start(), [30, -30]);
+      tangent(bore, l);
+    }, true) as unknown as Sketch;
+    render();
+    expect(JSON.stringify(snapshotOf(sk2).params)).toBe(first);
+  });
+});

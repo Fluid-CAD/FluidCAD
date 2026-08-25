@@ -22,7 +22,7 @@ Extends [[api/types/extrudable-geometry]].
 
 Closes an open offset by joining it back to the source wire with
 straight cap edges at each endpoint. Has no effect when the offset
-is already closed. Cannot be combined with `removeOriginal=true`.
+is already closed.
 
 ## Inherited
 

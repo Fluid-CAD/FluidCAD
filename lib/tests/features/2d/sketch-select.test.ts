@@ -4,16 +4,12 @@ import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import fillet from "../../../core/fillet.js";
 import select from "../../../core/select.js";
-import fuse from "../../../core/fuse.js";
-import trim from "../../../core/trim.js";
 import { rect, circle, slot, move, offset } from "../../../core/2d/index.js";
 import { edge, face } from "../../../filters/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { SelectSceneObject } from "../../../features/select.js";
 import { Rect } from "../../../features/2d/rect.js";
 import { Fillet2D } from "../../../features/fillet2d.js";
-import { Trim2D } from "../../../features/trim2d.js";
-import { Fuse2D } from "../../../features/fuse2d.js";
 import { Offset } from "../../../features/2d/offset.js";
 import { Edge } from "../../../common/edge.js";
 import { Extrude } from "../../../features/extrude.js";
@@ -110,25 +106,6 @@ describe("sketch-scoped selection", () => {
       expect(s.getEdgesWithOwner().size).toBe(6);
     });
 
-    it("fuse() consumes a sketch-scoped selection", () => {
-      let fu: Fuse2D;
-      const s = sketch("xy", () => {
-        circle(40);
-        move([30, 0]);
-        circle(40);
-        select(edge().circle());
-        fu = fuse() as Fuse2D;
-      }) as Sketch;
-      render();
-
-      // Two overlapping circles fuse into one outline owned by the fuse.
-      const fusedEdges = edgesOf(fu);
-      expect(fusedEdges.length).toBeGreaterThan(0);
-      const edgeMap = s.getEdgesWithOwner();
-      for (const owner of edgeMap.values()) {
-        expect(owner).toBe(fu);
-      }
-    });
   });
 
   describe("edge filters as direct op arguments", () => {
@@ -189,46 +166,6 @@ describe("sketch-scoped selection", () => {
       // Union = the whole rect outline → all four corners rounded.
       const arcs = edgesOf(f).filter(edge => edge.provenance === 'fillet-arc');
       expect(arcs).toHaveLength(4);
-    });
-  });
-
-  describe("trim with shared op targets (Stage 4)", () => {
-    it("removes whole edges via an accessor target", () => {
-      let s: Sketch;
-      let r: Rect;
-      s = sketch("xy", () => {
-        r = rect(80, 60) as Rect;
-        trim(r.edge('top'));
-      }) as Sketch;
-      render();
-
-      const remaining = [...s!.getEdgesWithOwner().keys()];
-      expect(remaining).toHaveLength(3);
-      expect(remaining.map(e => e.role).sort()).toEqual(['bottom', 'left', 'right']);
-    });
-
-    it("removes whole edges via a filter target, keeping picking intact", () => {
-      let s: Sketch;
-      s = sketch("xy", () => {
-        rect(80, 60);
-        move([120, 0]);
-        circle(20);
-        trim(edge().circle());
-      }) as Sketch;
-      render();
-
-      // The circle is gone; the rect's four edges survive.
-      const remaining = [...s!.getEdgesWithOwner().keys()];
-      expect(remaining).toHaveLength(4);
-      remaining.forEach(e => expect(EdgeQuery.getEdgeCurveType(e)).toBe('line'));
-    });
-
-    it("trim compares equal when rebuilt identically", () => {
-      const a = new Trim2D().setTargets(edge().line());
-      const b = new Trim2D().setTargets(edge().line());
-      const c = new Trim2D().setTargets(edge().arc());
-      expect(a.compareTo(b)).toBe(true);
-      expect(a.compareTo(c)).toBe(false);
     });
   });
 

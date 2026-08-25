@@ -170,10 +170,11 @@ describe("offset", () => {
     });
   });
 
-  describe("removeOriginal", () => {
-    it("should keep original edges by default", () => {
+  describe("originals", () => {
+    it("always keeps the original edges", () => {
       const s = sketch("xy", () => {
         const c = circle(40);
+        void c;
         offset(5);
       }) as Sketch;
 
@@ -184,64 +185,20 @@ describe("offset", () => {
       expect(shapes.length).toBeGreaterThan(1);
     });
 
-    it("should remove original edges when removeOriginal is true", () => {
-      const s = sketch("xy", () => {
+    it("refuses the removed removeOriginal flag honestly", () => {
+      let error: string | null = null;
+      sketch("xy", () => {
         circle(40);
-        offset(5, true);
-      }) as Sketch;
+        try {
+          (offset as any)(5, true);
+        } catch (e) {
+          error = e instanceof Error ? e.message : String(e);
+        }
+      });
 
       render();
 
-      // Only offset edges remain — original circle removed
-      const shapes = s.getShapes();
-      expect(shapes).toHaveLength(1);
-    });
-
-    it("removes a polygon's meta base circle along with its sides", () => {
-      const s = sketch("xy", () => {
-        const pg = polygon(6, 40);
-        offset(10, true, pg);
-      }) as Sketch;
-
-      render();
-
-      // Only offset geometry remains (6 lines + 6 corner arcs) — every
-      // original side is gone
-      const shapes = s.getShapes();
-      expect(shapes.length).toBeGreaterThan(0);
-      expect(shapes.every(shape => (shape as Edge).provenance === 'offset-of')).toBe(true);
-
-      // The meta base circle must not survive its polygon
-      const metaShapes = s.getShapes({ excludeMeta: false, excludeGuide: false })
-        .filter(shape => shape.isMetaShape());
-      expect(metaShapes).toHaveLength(0);
-    });
-
-    it("keeps the meta base circle when only some polygon sides are removed", () => {
-      const s = sketch("xy", () => {
-        const pg = polygon(6, 40);
-        offset(10, true, pg.edge(0));
-      }) as Sketch;
-
-      render();
-
-      // Polygon still renders 5 of its sides
-      const metaShapes = s.getShapes({ excludeMeta: false, excludeGuide: false })
-        .filter(shape => shape.isMetaShape());
-      expect(metaShapes).toHaveLength(1);
-    });
-
-    it("removes a circle's meta center vertex along with the circle", () => {
-      const s = sketch("xy", () => {
-        circle(40);
-        offset(5, true);
-      }) as Sketch;
-
-      render();
-
-      const metaShapes = s.getShapes({ excludeMeta: false, excludeGuide: false })
-        .filter(shape => shape.isMetaShape());
-      expect(metaShapes).toHaveLength(0);
+      expect(error).toMatch(/no longer takes a removeOriginal flag/);
     });
   });
 

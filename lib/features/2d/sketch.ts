@@ -9,6 +9,7 @@ import { ShapeFilter } from "../../common/shape.js";
 import { Extrudable } from "../../helpers/types.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { SketchSolverContext } from "./solved/solver-context.js";
+import { isReferenceProducer } from "./solved/reference.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 
@@ -33,16 +34,31 @@ export class Sketch extends SceneObject implements Extrudable {
   }
 
   /**
-   * The one solve of the render pass. Triggered by the first solved child's
-   * build() — the sketch callback has fully executed by then, so the solver
-   * system holds the complete statement graph. Stores the serializable
-   * snapshot in state so cached re-renders and rollbacks keep serving it.
+   * The one solve of the render pass. Triggered by the sketch's own build
+   * (or defensively by the first solved child's) — the sketch callback has
+   * fully executed by then, so the solver system holds the complete
+   * statement graph. Stores the serializable snapshot in state so cached
+   * re-renders and rollbacks keep serving it.
+   *
+   * P6 sequencing: reference producers (project/intersect) run their OCCT
+   * compute FIRST and register their outputs as fixed entities — their
+   * geometry only exists at build time, unlike statement-time entities.
+   * Constraints that target them resolve right after, then the solve runs
+   * over the complete system.
    */
   ensureSolvedForBuild(): void {
     if (!this._solvedMode || this._solveDone || !this._solver) {
       return;
     }
     this._solveDone = true;
+    for (const child of this.getChildren()) {
+      if (isReferenceProducer(child)) {
+        // prepare caches its own error for the child's build slot — a failed
+        // projection must not abort the sketch's solve.
+        child.prepareReferences();
+      }
+    }
+    this._solver.resolveDeferredConstraints();
     const summary = this._solver.ensureSolved();
     this.setState('solver-system', summary.snapshot);
     if (summary.sketchError) {

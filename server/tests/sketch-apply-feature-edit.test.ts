@@ -82,33 +82,6 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
     expect(result.newCode).toContain(`fillet(3, f.edge('top'), l)`);
   });
 
-  it('binds a trim2d producer for an op over its split segments', async () => {
-    const code = [
-      `import { sketch, rect, circle, trim, edge, fillet } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      `  const r = rect(80, 60)`,
-      `  circle(20)`,
-      `  trim(edge().circle(40))`,
-      `})`,
-      ``,
-    ].join('\n');
-
-    const result = await applyFeatureEdit(code, sketchSpec({
-      value: 2,
-      producers: [
-        { line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true },
-        { line: 6, column: 0, featureType: 'trim2d', nameHint: 'f', bind: true },
-      ],
-      parts: [
-        { producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" },
-        { producer: 1, accessor: 'edge', indices: null, filterArgs: '0' },
-      ],
-    }));
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`const f = trim(edge().circle(40))`);
-    expect(result.newCode).toContain(`fillet(2, r.edge('top'), f.edge(0))`);
-  });
 
   it('reuses an existing const binding in the sketch body', async () => {
     const code = [
@@ -226,7 +199,7 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
     expect(result.newCode).toContain(`import {offset, sketch, rect } from 'fluidcad/core'`);
   });
 
-  it("writes the offset toggles as the boolean argument and the .close() chain", async () => {
+  it("writes the offset close toggle as the .close() chain", async () => {
     const code = [
       `import { sketch, rect } from 'fluidcad/core'`,
       ``,
@@ -235,7 +208,7 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
       `})`,
       ``,
     ].join('\n');
-    const spec = (offset: { removeOriginal: boolean; close: boolean }) => sketchSpec({
+    const spec = (offset: { close: boolean }) => sketchSpec({
       feature: 'offset',
       value: 3,
       offset,
@@ -243,33 +216,36 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
       parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" }],
     });
 
-    const removed = await applyFeatureEdit(code, spec({ removeOriginal: true, close: false }));
-    expect(removed.error).toBeUndefined();
-    expect(removed.newCode).toContain(`  offset(3, true, r.edge('top'))`);
+    const plain = await applyFeatureEdit(code, spec({ close: false }));
+    expect(plain.error).toBeUndefined();
+    expect(plain.newCode).toContain(`  offset(3, r.edge('top'))`);
 
-    const closed = await applyFeatureEdit(code, spec({ removeOriginal: false, close: true }));
+    const closed = await applyFeatureEdit(code, spec({ close: true }));
     expect(closed.error).toBeUndefined();
     expect(closed.newCode).toContain(`  offset(3, r.edge('top')).close()`);
   });
 
-  it('writes a valueless boolean statement into the sketch body', async () => {
+
+
+  it('writes an in-sketch rotate with center, copy flag and bare targets (P6)', async () => {
     const code = [
-      `import { sketch, rect, circle, move } from 'fluidcad/core'`,
-      ``,
+      `import { sketch, line } from 'fluidcad/core'`,
+      `import { horizontal } from 'fluidcad/constraints'`,
       `sketch('xy', () => {`,
-      `  rect(80, 60)`,
-      `  move([60, 30])`,
-      `  circle(40)`,
-      `})`,
+      `  const a = line([0, 0], [40, 0])`,
+      `  line([40, 0], [40, 30])`,
+      `  horizontal(a)`,
+      `}, true)`,
       ``,
     ].join('\n');
 
     const result = await applyFeatureEdit(code, sketchSpec({
-      feature: 'subtract',
-      value: undefined,
+      feature: 'rotate2d',
+      value: 30,
+      rotate2d: { center: [10, 'h / 2'], copy: true },
       producers: [
-        { line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true },
-        { line: 6, column: 0, featureType: 'circle', nameHint: 'c', bind: true },
+        { line: 4, column: 2, featureType: 'line', nameHint: 'a', bind: true },
+        { line: 5, column: 2, featureType: 'line', nameHint: 'l', bind: true },
       ],
       parts: [
         { producer: 0, accessor: '', indices: null, filterArgs: null },
@@ -277,32 +253,31 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
       ],
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`const r = rect(80, 60)`);
-    expect(result.newCode).toContain(`const c = circle(40)`);
-    expect(result.newCode).toContain(`  subtract(r, c)`);
-    expect(result.newCode).toContain(`import {subtract, sketch, rect, circle, move } from 'fluidcad/core'`);
+    expect(result.newCode).toContain(`const l = line([40, 0], [40, 30])`);
+    // Tail region: the rotate lands after the constraints.
+    expect(result.newCode).toContain([
+      `  horizontal(a)`,
+      `  rotate(30, [10, h / 2], true, a, l)`,
+    ].join('\n'));
+    expect(result.newCode).toContain(`import {rotate, sketch, line } from 'fluidcad/core'`);
   });
 
-  it('writes a valueless trim statement into the sketch body', async () => {
+  it('refuses a malformed rotate payload', async () => {
     const code = [
-      `import { sketch, rect } from 'fluidcad/core'`,
-      ``,
+      `import { sketch, line } from 'fluidcad/core'`,
       `sketch('xy', () => {`,
-      `  rect(80, 60)`,
-      `})`,
+      `  const a = line([0, 0], [40, 0])`,
+      `}, true)`,
       ``,
     ].join('\n');
-
     const result = await applyFeatureEdit(code, sketchSpec({
-      feature: 'trim',
-      value: undefined,
-      producers: [{ line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true }],
-      parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" }],
+      feature: 'rotate2d',
+      value: 30,
+      rotate2d: undefined,
+      producers: [{ line: 3, column: 2, featureType: 'line', nameHint: 'a', bind: true }],
+      parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
     }));
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`const r = rect(80, 60)`);
-    expect(result.newCode).toContain(`  trim(r.edge('top'))`);
-    expect(result.newCode).toContain(`import {trim, sketch, rect } from 'fluidcad/core'`);
+    expect(result.error).toContain('malformed rotate edit spec');
   });
 
   it('refuses a stale line pointing at a different callee', async () => {

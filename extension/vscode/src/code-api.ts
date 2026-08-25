@@ -112,12 +112,6 @@ export function updateInsertChain(
   );
 }
 
-export function setTrimTargets(
-  serverUrl: string, code: string, sourceLine: number, args: string, logger: vscode.OutputChannel,
-) {
-  return postCodeEdit<CodeEditResult>(serverUrl, 'set-trim-targets', { code, sourceLine, args }, logger);
-}
-
 export function insertGeometry(
   serverUrl: string, code: string, sketchSourceLine: number, statement: string, logger: vscode.OutputChannel,
   newVariable: { name: string; initializer: string } | null = null,

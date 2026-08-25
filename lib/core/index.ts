@@ -1,6 +1,6 @@
 export type {
   ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect,
-  IGeometry, IExtrudableGeometry, ISolvedLine, ISolvedArc, ISolvedCircle, IText, IRect, ISlot, IPolygon,
+  IGeometry, IExtrudableGeometry, IReference, IReferenceEntity, ISolvedLine, ISolvedArc, ISolvedCircle, IText, IRect, ISlot, IPolygon,
   ITwoObjectsTangentLine, ITangentArcTwoObjects,
   IConnector, IPart,
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap
@@ -35,8 +35,6 @@ export { default as helix } from "./helix.js";
 export { default as color } from "./color.js";
 export { default as draft } from "./draft.js";
 export { default as remove } from "./remove.js";
-export { default as split } from "./split.js";
-export { default as trim } from "./trim.js";
 export { default as part } from "./part.js";
 export { default as assembly } from "./assembly.js";
 export { default as connector } from "./connector.js";

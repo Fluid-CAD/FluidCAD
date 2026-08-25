@@ -186,32 +186,6 @@ export function addPick(sourceLocation: SourceLocationParam): void {
   postFireAndForget('/api/add-pick', { sourceLocation });
 }
 
-/**
- * By-region trim: ask the server to synthesize edge-filter args for the
- * clicked region's boundary segments and write them into the trim() call at
- * the given location (`trim(edge().line(80)).pick()`). Resolves
- * `{ success: false, reason }` when no filter separates the boundary; the
- * region mode only ever writes filters, so a refusal surfaces to the user.
- */
-export async function applyTrimRegion(
-  edgeIds: string[],
-  sourceLocation: SourceLocationParam,
-): Promise<{ success: boolean; reason?: string }> {
-  try {
-    const res = await fetch('/api/apply-trim-region', {
-      method: 'POST',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ edgeIds, sourceLocation }),
-    });
-    const body = await res.json().catch(() => null);
-    if (!res.ok) {
-      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
-    }
-    return body ?? { success: false, reason: 'Empty server response' };
-  } catch {
-    return { success: false, reason: 'Could not reach the FluidCAD server' };
-  }
-}
 
 export function removePick(sourceLocation: SourceLocationParam): void {
   postFireAndForget('/api/remove-pick', { sourceLocation });
@@ -1269,17 +1243,24 @@ export async function applyProjectEdit(
 export type SketchApplyEntity = { shapeId: string };
 
 /** The 2D operations the sketch-branch apply supports. */
-export type SketchOpFeature = 'fillet' | 'offset' | 'slot' | 'trim' | 'fuse' | 'subtract' | 'common';
+export type SketchOpFeature = 'fillet' | 'offset' | 'slot' | 'rotate2d';
 
 /**
- * The offset dialog's two toggles: `removeOriginal` rides as the call's
- * second argument (`offset(2, true, …)`), `close` chains `.close()` to cap an
- * open offset onto its source profile. The kernel refuses the pair, so the
- * dialog keeps them mutually exclusive.
+ * The offset dialog's toggle: `close` chains `.close()` to cap an open
+ * offset onto its source profile.
  */
 export type OffsetOptionValues = {
-  removeOriginal: boolean;
   close: boolean;
+};
+
+/**
+ * The rotate dialog's payload: the rotation center in sketch coordinates
+ * (numbers or expressions) and whether the statement copies instead of
+ * moving — `rotate(45, [x, y], true, r, c)`.
+ */
+export type Rotate2DOptionValues = {
+  center: [ValueExpr, ValueExpr];
+  copy: boolean;
 };
 
 /**
@@ -1295,18 +1276,16 @@ export type SlotOptionValues = {
  * Ask the server to synthesize (and, unless `preview` is set, apply) a 2D
  * operation for the picked sketch edges. The synthesized statement lands
  * inside the sketch body (`fillet(4, r.edge('top'), l)`,
- * `offset(2, r.edge('top'))`, `subtract(r, c)`). The booleans carry no
- * `value`; subtract is slot-addressed — `entities` is the base pick set and
- * `options.toolEntities` the tool's; offset carries its own toggles.
+ * `offset(2, r.edge('top'))`); offset carries its own toggles.
  */
 export async function applySketchOp(
   feature: SketchOpFeature,
   value: ValueExpr | undefined,
   entities: SketchApplyEntity[],
   options: {
-    toolEntities?: SketchApplyEntity[];
     offset?: OffsetOptionValues;
     slot?: SlotOptionValues;
+    rotate2d?: Rotate2DOptionValues;
     selectorOverride?: string;
     newVariables?: NewVariable[];
     preview?: boolean;
@@ -1317,9 +1296,9 @@ export async function applySketchOp(
     feature,
     value,
     sketchEntities: entities,
-    sketchToolEntities: options.toolEntities,
-    removeOriginal: options.offset?.removeOriginal ?? options.slot?.removeOriginal,
+    removeOriginal: options.slot?.removeOriginal,
     close: options.offset?.close,
+    rotate2d: options.rotate2d,
     selectorOverride: options.selectorOverride,
     newVariables: options.newVariables,
     preview: options.preview,
@@ -1535,7 +1514,6 @@ export async function applyOffsetEdit(
     expectedStatement: options.expectedStatement,
     before: options.before,
     value: options.value,
-    removeOriginal: options.removeOriginal,
     close: options.close,
     selectorOverride: options.selectorOverride,
     sketchEntities: options.entities,
@@ -1645,8 +1623,14 @@ export async function fetchSegmentConversions(
 export type SketchConstraintTargetParam = {
   line?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
-  featureType?: 'line' | 'arc' | 'circle' | 'point';
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'project' | 'intersect';
   datum?: 'origin' | 'x-axis' | 'y-axis';
+  /**
+   * Fixed reference targets (P6): the `.ref(i)` edge index of a
+   * project()/intersect() statement — null for the terse single-entity form.
+   * Presence marks the target as a reference.
+   */
+  refIndex?: number | null;
 };
 
 /**
@@ -2669,9 +2653,7 @@ export type ParsedFeatureStatement =
       feature: 'offset';
       /** The offset distance; negative offsets inward. */
       value: ValueExpr;
-      /** The literal `true` second argument — the sources are removed. */
-      removeOriginal: boolean;
-      /** Target argument list after the value slots, verbatim (`''` when absent). */
+      /** Target argument list after the value slot, verbatim (`''` when absent). */
       argsText: string;
       /** `.close()` chains the offset back onto its source profile. */
       close: boolean;

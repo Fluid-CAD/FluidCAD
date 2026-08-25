@@ -136,6 +136,9 @@ export class SketchCopyService {
     return this.awaitingEditSketch;
   }
 
+  /** Tab-less dialog — nothing to hide (SketchOpDialog contract). */
+  setPickTabHidden(): void {}
+
   /** The edit dialog's sketch has rendered — normal teardown rules resume. */
   noteSketchActive(): void {
     this.awaitingEditSketch = false;

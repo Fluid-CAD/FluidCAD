@@ -7,7 +7,6 @@ const INTERACTIVE_SKETCH_TYPES = new Set([
   'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
   'tarc-radius-to-point',
   'tline',
-  'trim2d',
   'rect',
   'polygon',
   'slot',
@@ -64,11 +63,6 @@ export function buildEdgeIndex(
   const xx = plane.xDirection.x, xy = plane.xDirection.y, xz = plane.xDirection.z;
   const yx = plane.yDirection.x, yy = plane.yDirection.y, yz = plane.yDirection.z;
 
-  const hasTrimMeta = sceneObjects.some(obj =>
-    obj.parentId === sketchId &&
-    obj.sceneShapes.some(s => s.metaType === 'trim'),
-  );
-
   for (const obj of sceneObjects) {
     if (obj.parentId !== sketchId) {
       continue;
@@ -80,18 +74,8 @@ export function buildEdgeIndex(
       if (!shape.shapeId) {
         continue;
       }
-      if (hasTrimMeta) {
-        // A trim replaces the profile's display shapes with its 'trim' meta
-        // segments; guides are never consumed by trim, so they stay
-        // indexable alongside when requested.
-        const guidePass = options.includeGuides === true && shape.isGuide && !shape.isMetaShape;
-        if (shape.metaType !== 'trim' && !guidePass) {
-          continue;
-        }
-      } else {
-        if (shape.isMetaShape || (shape.isGuide && options.includeGuides !== true)) {
-          continue;
-        }
+      if (shape.isMetaShape || (shape.isGuide && options.includeGuides !== true)) {
+        continue;
       }
       const segments: EdgeEntry['segments'] = [];
       const endpoints: [number, number, number][] = [];

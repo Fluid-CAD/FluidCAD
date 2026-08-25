@@ -5,7 +5,10 @@ import { SceneCompare } from "../../../rendering/scene-compare.js";
 import { SceneObject } from "../../../common/scene-object.js";
 import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
-import { line } from "../../../core/2d/index.js";
+import { line, offset } from "../../../core/2d/index.js";
+import { Offset } from "../../../features/2d/offset.js";
+import { Edge } from "../../../common/edge.js";
+import { getBoundingBoxOfShapes } from "../../utils.js";
 import {
   coincident, horizontal, vertical, fix, distance,
 } from "../../../core/constraints/index.js";
@@ -84,6 +87,48 @@ describe("solved sketch cache atomicity (SceneCompare)", () => {
     const scene = render();
     const bottom = scene.getRenderedObjects().find(r => r.uniqueType === 'solved-line')!;
     expect(bottom.object.end.x).toBeCloseTo(120, 6);
+  });
+
+  it("rebuilds a derived op inside the atomic subtree against the fresh solve", () => {
+    // P6: an offset consuming solved edges is part of the container-atomic
+    // run — a dimension edit must re-solve the entities AND rebuild the
+    // offset from the re-solved geometry, never serve a stale outline.
+    let o: Offset | undefined;
+    const declare = (width: number) => {
+      sketch('xy', () => {
+        const b = line([0, 0], [width, 0]);
+        const r = line([width, 0], [width, 50]);
+        const t = line([width, 50], [0, 50]);
+        const l = line([0, 50], [0, 0]);
+        coincident(b.end(), r.start());
+        coincident(r.end(), t.start());
+        coincident(t.end(), l.start());
+        coincident(l.end(), b.start());
+        horizontal(b);
+        vertical(r);
+        fix(b.start());
+        distance(b.start(), b.end(), width);
+        o = offset(5, b, r, t, l) as unknown as Offset;
+      }, true);
+    };
+    declare(100);
+    render();
+    const previousScene = getSceneManager().currentScene;
+
+    const newScene = getSceneManager().startScene();
+    declare(120);
+    SceneCompare.compare(previousScene, newScene);
+
+    // The offset is a child of the atomic run — never cached across the edit.
+    expect(newScene.isCached(o!)).toBe(false);
+
+    const scene = render();
+    void scene;
+    const outline = o!.getAddedShapes().filter((s): s is Edge => s instanceof Edge);
+    const box = getBoundingBoxOfShapes(outline);
+    // width 120 + 5 out on both sides (loose: spline bboxes overshoot a
+    // touch on the arc corners — stale geometry would be off by 20).
+    expect(box.maxX - box.minX).toBeCloseTo(130, 0);
   });
 
   it("still prefix-caches legacy sketches child by child", () => {

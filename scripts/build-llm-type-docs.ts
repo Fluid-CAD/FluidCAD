@@ -126,7 +126,6 @@ const seeAlsoByDisplay: Record<string, string[]> = {
   Select: ['api/select'],
   TwoObjectsTangentLine: ['api/tline'],
   TangentArcTwoObjects: ['api/tarc'],
-  Trim: ['api/split-trim'],
 };
 
 // ── Helpers ──

@@ -1,5 +1,5 @@
 import { createRequire } from 'module';
-import { SOLVED_CONSTRAINT_KINDS } from './sketch-symbols.ts';
+import { DERIVED_OP_CALLEES, SOLVED_CONSTRAINT_KINDS } from './sketch-symbols.ts';
 
 export type TSNode = {
   type: string;
@@ -154,7 +154,7 @@ export function* walkTree(node: TSNode): Generator<TSNode> {
  * row, return the one with the largest endIndex. That picks the whole
  * `.pick()` chain for `extrude(sk).pick()` and the only call on the row for
  * the multi-line case
- *   trim(
+ *   fillet(4,
  *     edge().circle()
  *   )
  * — both match how the old line-based code (which found the last `)` on
@@ -398,6 +398,47 @@ export function isSolvedConstraintStatement(node: TSNode): boolean {
   }
   const fn = chainBaseCall(call).childForFieldName('function');
   return !!fn && fn.type === 'identifier' && SOLVED_CONSTRAINT_KINDS.has(fn.text);
+}
+
+/**
+ * Recognise a derived-op statement (`offset(…);`, `const f = fillet(4, …);`)
+ * — the TAIL region of a solved sketch body (geometry → constraints →
+ * derived ops). Derived ops may be const-bound (their result is a pickable
+ * producer), so both statement forms qualify.
+ */
+export function isDerivedOpStatement(node: TSNode): boolean {
+  let call: TSNode | null = null;
+  if (node.type === 'expression_statement') {
+    call = node.namedChild(0);
+  } else if (node.type === 'lexical_declaration') {
+    const declarator = node.namedChildren.find(c => c.type === 'variable_declarator');
+    call = declarator?.childForFieldName('value') ?? null;
+  }
+  if (!call || call.type !== 'call_expression') {
+    return false;
+  }
+  const fn = chainBaseCall(call).childForFieldName('function');
+  return !!fn && fn.type === 'identifier' && DERIVED_OP_CALLEES.has(fn.text);
+}
+
+/**
+ * True when the sketch call carries the solved-mode flag — a literal `true`
+ * after the callback argument (`sketch(plane, cb, true)`). Walks down chained
+ * modifiers (`.reusable()`) to the call owning the callback, like
+ * {@link findSketchBody}.
+ */
+export function isSolvedSketchCall(call: TSNode): boolean {
+  let current: TSNode | null = call;
+  while (current && current.type === 'call_expression') {
+    const args = getArgumentsNode(current);
+    if (args && args.namedChildren.some(c => c.type === 'arrow_function' || c.type === 'function')) {
+      const last = args.namedChildren[args.namedChildren.length - 1];
+      return last?.type === 'true';
+    }
+    const fn = current.childForFieldName('function');
+    current = fn && fn.type === 'member_expression' ? fn.childForFieldName('object') : null;
+  }
+  return false;
 }
 
 function findBreakpointStatementAt(tree: TSTree, row: number): TSNode | null {
@@ -893,59 +934,6 @@ export function setPickPoints(
   });
 }
 
-/** The innermost call of a member chain whose callee is a bare identifier. */
-function resolveBaseCallInChain(call: TSNode): TSNode | null {
-  let current: TSNode | null = call;
-  while (current && current.type === 'call_expression') {
-    const fn = current.childForFieldName('function');
-    if (fn && fn.type === 'identifier') {
-      return current;
-    }
-    if (fn && fn.type === 'member_expression') {
-      current = fn.childForFieldName('object');
-      continue;
-    }
-    break;
-  }
-  return null;
-}
-
-/**
- * Append removal-target args to the `trim(...)` call on the resolved row —
- * the by-region trim turning `trim().pick()` into
- * `trim(edge().line(80)).pick()` — adding the `edge` filter import when it
- * is missing.
- */
-export async function setTrimTargets(
-  code: string,
-  sourceLine: number,
-  args: string,
-): Promise<CodeEditResult> {
-  const result = await withParsedCode(code, (tree, lines) => {
-    const call = findEditableCallAt(tree, lines, sourceLine);
-    if (!call) {
-      return null;
-    }
-    const base = resolveBaseCallInChain(call);
-    const callee = base?.childForFieldName('function');
-    if (!base || callee?.text !== 'trim') {
-      return null;
-    }
-    const argsNode = getArgumentsNode(base);
-    if (!argsNode) {
-      return null;
-    }
-    if (argsNode.namedChildren.length === 0) {
-      return spliceCode(code, argsNode.startIndex + 1, argsNode.endIndex - 1, args);
-    }
-    return spliceCode(code, argsNode.endIndex - 1, argsNode.endIndex - 1, `, ${args}`);
-  });
-  if (result.newCode === code) {
-    return result;
-  }
-  return { newCode: await ensureSymbolImport(result.newCode, 'edge', 'fluidcad/filters') };
-}
-
 // ---------------------------------------------------------------------------
 // Statement removal — delete a feature statement at a timeline row's source line
 // ---------------------------------------------------------------------------
@@ -1154,21 +1142,32 @@ export async function insertGeometryCall(
   let insertRow: number;
   let indent: string;
 
-  // Geometry-then-constraints layout convention (sketch-rewrite, locked plan
-  // §0.2): geometry inserts before the body's first constraint statement.
-  // Legacy sketches have no constraint statements, so nothing changes there.
+  // Solved-sketch layout convention (plan §0.2, amended P6): the body reads
+  // geometry → constraints → derived ops. Geometry inserts before the first
+  // constraint OR derived-op statement; a derived op appends at the true body
+  // end (a pause-before edit of it then sees the fully solved sketch). Both
+  // land before an active breakpoint and before a trailing return —
+  // statements after either never run. Legacy sketches keep the old body-end
+  // behavior: pen statements are order-sensitive.
+  const solved = isSolvedSketchCall(call);
+  const stmtCallee = statement.trim().match(/^(\w+)\s*\(/)?.[1];
+  const insertingDerivedOp = solved && !!stmtCallee && DERIVED_OP_CALLEES.has(stmtCallee);
   const breakpointStmt = bodyChildren.find(isBreakpointStatement);
-  const firstConstraintStmt = bodyChildren.find(s => isSolvedConstraintStatement(s));
-  if (firstConstraintStmt
-    && (!breakpointStmt || firstConstraintStmt.startPosition.row < breakpointStmt.startPosition.row)) {
-    insertRow = firstConstraintStmt.startPosition.row;
-    indent = indentOf(lines, firstConstraintStmt.startPosition.row);
+  const firstRegionStmt = insertingDerivedOp
+    ? undefined
+    : bodyChildren.find(s => isSolvedConstraintStatement(s) || (solved && isDerivedOpStatement(s)));
+  if (firstRegionStmt
+    && (!breakpointStmt || firstRegionStmt.startPosition.row < breakpointStmt.startPosition.row)) {
+    insertRow = firstRegionStmt.startPosition.row;
+    indent = indentOf(lines, firstRegionStmt.startPosition.row);
   } else if (breakpointStmt) {
     insertRow = breakpointStmt.startPosition.row;
     indent = indentOf(lines, breakpointStmt.startPosition.row);
   } else if (bodyChildren.length > 0) {
     const lastStmt = bodyChildren[bodyChildren.length - 1];
-    insertRow = lastStmt.endPosition.row + 1;
+    insertRow = solved && lastStmt.type === 'return_statement'
+      ? lastStmt.startPosition.row
+      : lastStmt.endPosition.row + 1;
     indent = indentOf(lines, lastStmt.startPosition.row);
   } else {
     insertRow = body.startPosition.row + 1;

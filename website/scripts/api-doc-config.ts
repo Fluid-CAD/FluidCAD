@@ -116,8 +116,6 @@ export const features: FeatureEntry[] = [
   { name: 'axis', displayName: 'axis', category: 'utilities', sourceFile: 'core/axis.ts', interfaceName: 'AxisFunction', returnType: 'IAxis', sidebarPosition: 5 },
   { name: 'plane', displayName: 'plane', category: 'utilities', sourceFile: 'core/plane.ts', interfaceName: 'PlaneFunction', returnType: 'IPlane', sidebarPosition: 6 },
   { name: 'local', displayName: 'local', category: 'utilities', sourceFile: 'core/local.ts', interfaceName: 'LocalFunction', returnType: 'IAxis', relatedGuide: '/docs/guides/sketching/transforms', sidebarPosition: 7 },
-  { name: 'split', displayName: 'split', category: '2d', sourceFile: 'core/split.ts', interfaceName: 'SplitFunction', returnType: 'ISceneObject', sidebarPosition: 23 },
-  { name: 'trim', displayName: 'trim', category: '2d', sourceFile: 'core/trim.ts', interfaceName: 'TrimFunction', returnType: 'ITrim', relatedGuide: '/docs/guides/sketching/trim', sidebarPosition: 24 },
   { name: 'project', displayName: 'project', category: '2d', sourceFile: 'core/2d/project.ts', interfaceName: 'ProjectFunction', returnType: 'IExtrudableGeometry', relatedGuide: '/docs/guides/sketching/projection', sidebarPosition: 25 },
   { name: 'intersect', displayName: 'intersect', category: '2d', sourceFile: 'core/2d/intersect.ts', interfaceName: 'IntersectFunction', returnType: 'IExtrudableGeometry', sidebarPosition: 26 },
   { name: 'part', displayName: 'part', category: 'utilities', sourceFile: 'core/part.ts', interfaceName: null, returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/parts', sidebarPosition: 9 },
@@ -165,7 +163,6 @@ export const types: TypeEntry[] = [
   { name: 'LinearRepeatOptions', displayName: 'LinearRepeatOptions', sourceFile: 'features/repeat-linear.ts', sidebarPosition: 28 },
   { name: 'CircularRepeatOptions', displayName: 'CircularRepeatOptions', sourceFile: 'features/repeat-circular.ts', sidebarPosition: 29 },
   { name: 'PlaneTransformOptions', displayName: 'PlaneTransformOptions', sourceFile: 'math/plane.ts', sidebarPosition: 30 },
-  { name: 'ITrim', displayName: 'Trim', sourceFile: 'core/trim.ts', sidebarPosition: 31 },
 ];
 
 export const filters: FilterEntry[] = [

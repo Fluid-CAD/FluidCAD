@@ -223,17 +223,13 @@ describe("offset from faces", () => {
     expect(off.getError()).toContain("coplanar");
   });
 
-  it("should reject removeOriginal for face targets", () => {
+  it("should reject the removed removeOriginal flag", () => {
     sketch("xy", () => {
       rect(100, 100);
     });
     const box = extrude(50) as Extrude;
 
-    const off = offset(5, true, box.endFaces()) as unknown as Offset;
-
-    render();
-
-    expect(off.getError()).toBeTruthy();
-    expect(off.getError()).toContain("removeOriginal");
+    expect(() => (offset as any)(5, true, box.endFaces()))
+      .toThrow(/no longer takes a removeOriginal flag/);
   });
 });

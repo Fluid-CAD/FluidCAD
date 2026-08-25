@@ -498,3 +498,66 @@ describe('axis-locked distance leaders', () => {
     expect(leaders[1].to).toEqual([30, 25]);
   });
 });
+
+describe('fixed reference entities (P6)', () => {
+  it('joins projection children via the snapshot params, flagged reference', () => {
+    const solver = snapshot({
+      entities: [
+        // Datums occupy the reserved negative ids.
+        { id: -1, kind: 'point', fixed: true, paramOffset: 0 },
+        { id: -2, kind: 'line', fixed: true, paramOffset: 2 },
+        { id: -3, kind: 'line', fixed: true, paramOffset: 6 },
+        { id: 0, kind: 'circle', fixed: true, paramOffset: 10 },
+        { id: 1, kind: 'line', fixed: false, paramOffset: 13 },
+      ],
+      params: [0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 5, 7, 20, 30, -10, 30, 40],
+      dof: 4,
+    });
+    const projection = child('projection', {
+      objectIds: [],
+      entities: [{ entityId: 0, kind: 'circle', edgeIndex: 0 }],
+      edgeCount: 1,
+    });
+    const model = buildSolvedSketchModel(sketchObj(solver), [
+      sketchObj(solver),
+      projection,
+      child('solved-line', { entityId: 1, start: { x: 30, y: -10 }, end: { x: 30, y: 40 } }),
+    ])!;
+
+    const ref = model.entities.get(0)!;
+    expect(ref.kind).toBe('circle');
+    expect(ref.center).toEqual([5, 7]);
+    expect(ref.radius).toBe(20);
+    // Single-entity producer → the terse direct emission form.
+    expect(ref.reference).toEqual({ refIndex: null, producer: 'project' });
+
+    // The free line still joins normally.
+    expect(model.entities.get(1)!.reference).toBeUndefined();
+  });
+
+  it('multi-edge producers carry their .ref(i) index', () => {
+    const solver = snapshot({
+      entities: [
+        { id: 0, kind: 'line', fixed: true, paramOffset: 0 },
+        { id: 1, kind: 'line', fixed: true, paramOffset: 4 },
+      ],
+      params: [0, 0, 10, 0, 10, 0, 10, 10],
+    });
+    const model = buildSolvedSketchModel(sketchObj(solver), [
+      sketchObj(solver),
+      child('intersect', {
+        objectIds: [],
+        entities: [
+          { entityId: 0, kind: 'line', edgeIndex: 0 },
+          { entityId: 1, kind: 'line', edgeIndex: 1 },
+        ],
+        edgeCount: 2,
+      }),
+    ])!;
+
+    expect(model.entities.get(0)!.reference).toEqual({ refIndex: 0, producer: 'intersect' });
+    expect(model.entities.get(1)!.reference).toEqual({ refIndex: 1, producer: 'intersect' });
+    expect(model.entities.get(1)!.start).toEqual([10, 0]);
+    expect(model.entities.get(1)!.end).toEqual([10, 10]);
+  });
+});

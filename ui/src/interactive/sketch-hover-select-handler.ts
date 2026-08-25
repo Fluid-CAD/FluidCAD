@@ -49,6 +49,10 @@ export type SolvedPick = {
   /** Datum picks: the implicit origin/axes (reserved negative entityIds, no
    * source statement — emission addresses them by this name instead). */
   datum?: SketchDatumName;
+  /** Fixed reference picks (P6): a project()/intersect() output. Emission
+   * addresses the producer statement plus `.ref(i)` (refIndex null = the
+   * terse single-entity form). */
+  reference?: { refIndex: number | null; producer: 'project' | 'intersect' };
 };
 
 type SelectedVertexPick = {
@@ -197,14 +201,26 @@ export class SketchHoverSelectHandler {
     this.badgeTargets = this.collectBadgeTargets(sketchId);
     this.entityShapeIds = new Map();
     for (const obj of sceneObjects) {
-      if (obj.parentId !== sketchId || typeof obj.object?.entityId !== 'number') {
+      if (obj.parentId !== sketchId) {
         continue;
       }
-      const ids = (obj.sceneShapes ?? [])
-        .filter(shape => shape.shapeId && !shape.isMetaShape)
-        .map(shape => shape.shapeId as string);
-      if (ids.length) {
-        this.entityShapeIds.set(obj.object.entityId, ids);
+      const shapes = (obj.sceneShapes ?? []).filter(shape => shape.shapeId && !shape.isMetaShape);
+      if (typeof obj.object?.entityId === 'number') {
+        const ids = shapes.map(shape => shape.shapeId as string);
+        if (ids.length) {
+          this.entityShapeIds.set(obj.object.entityId, ids);
+        }
+        continue;
+      }
+      // Reference producers (P6): each emitted edge joins its own fixed
+      // entity by edgeIndex — the shapes come in emission order.
+      if (Array.isArray(obj.object?.entities)) {
+        for (const record of obj.object.entities as { entityId: number; edgeIndex: number }[]) {
+          const shape = shapes[record.edgeIndex];
+          if (shape?.shapeId) {
+            this.entityShapeIds.set(record.entityId, [shape.shapeId as string]);
+          }
+        }
       }
     }
     const validIds = new Set(this.edges.map(e => e.shapeId));
@@ -349,6 +365,7 @@ export class SketchHoverSelectHandler {
             kind: e.kind,
             role: pick.role,
             sourceLocation: e.obj.sourceLocation,
+            ...(e.reference ? { reference: e.reference } : {}),
           });
         }
       } else {
@@ -362,6 +379,7 @@ export class SketchHoverSelectHandler {
             kind: e.kind,
             sourceLocation: e.obj.sourceLocation,
             ...(at ? { at } : {}),
+            ...(e.reference ? { reference: e.reference } : {}),
           });
         }
       }

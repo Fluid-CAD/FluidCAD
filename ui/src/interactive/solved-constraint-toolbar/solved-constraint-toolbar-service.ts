@@ -949,15 +949,29 @@ export class SolvedConstraintToolbarService {
       return;
     }
     const statementKind = kind === 'dimension' ? 'distance' : kind;
-    const targets = picks.map(p => p.datum !== undefined
-      // Datum picks (origin/axes) have no source statement — the server
-      // renders the accessor call (origin()/xAxis()/yAxis()) instead.
-      ? { datum: p.datum }
-      : {
+    const targets = picks.map(p => {
+      if (p.datum !== undefined) {
+        // Datum picks (origin/axes) have no source statement — the server
+        // renders the accessor call (origin()/xAxis()/yAxis()) instead.
+        return { datum: p.datum };
+      }
+      if (p.reference !== undefined) {
+        // Reference picks (P6) address their producer statement; the server
+        // renders `p1.ref(i)` (or the terse single-entity form) and hoists
+        // an unbound project()/intersect() like any entity statement.
+        return {
+          line: p.sourceLocation?.line ?? -1,
+          ...(p.role !== undefined && p.role !== null ? { role: p.role } : {}),
+          featureType: p.reference.producer,
+          refIndex: p.reference.refIndex,
+        };
+      }
+      return {
         line: p.sourceLocation?.line ?? -1,
         ...(p.role !== undefined && p.role !== null ? { role: p.role } : {}),
         featureType: p.kind,
-      });
+      };
+    });
     if (targets.some(t => 'line' in t && t.line < 0)) {
       this.showMessage('The picked geometry has no source statement');
       return;

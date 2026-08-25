@@ -52,6 +52,34 @@ describe('applySolvedEmission', () => {
     expect(result.names).toEqual(['l1']);
   });
 
+  it('appends constraints BEFORE the first derived-op statement (P6 tail region)', async () => {
+    const code = [
+      `import { sketch, line, offset } from "fluidcad/core";`,
+      `import { horizontal } from "fluidcad/constraints";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [100, 0]);`,
+      `  horizontal(a);`,
+      `  const o = offset(2, a);`,
+      `}, true);`,
+    ].join('\n');
+    const result = await applySolvedEmission(code, {
+      sketchLine: 4,
+      geometry: [],
+      constraints: [{
+        kind: 'fix',
+        targets: [{ line: 5, role: 'start', featureType: 'line' }],
+      }],
+    });
+    expect(result.error).toBeUndefined();
+    const lines = result.newCode.split('\n');
+    const fixIdx = lines.findIndex(l => l.includes('fix(a.start());'));
+    const offsetIdx = lines.findIndex(l => l.includes('const o = offset(2, a);'));
+    const horizIdx = lines.findIndex(l => l.includes('horizontal(a);'));
+    expect(fixIdx).toBeGreaterThan(horizIdx);
+    expect(fixIdx).toBeLessThan(offsetIdx);
+  });
+
   it('emits a full rect (4 lines + 8 constraints) into an empty body, geometry above constraints', async () => {
     const result = await applySolvedEmission(EMPTY_SKETCH, {
       sketchLine: 3,

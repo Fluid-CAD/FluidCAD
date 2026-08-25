@@ -94,10 +94,6 @@ function M.update_insert_chain(code, source_line, edit)
   return post('update-insert-chain', { code = code, sourceLine = source_line, edit = edit })
 end
 
-function M.set_trim_targets(code, source_line, args)
-  return post('set-trim-targets', { code = code, sourceLine = source_line, args = args })
-end
-
 function M.insert_geometry(code, sketch_source_line, statement, new_variable)
   return post('insert-geometry', {
     code = code,

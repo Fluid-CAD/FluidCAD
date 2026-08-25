@@ -154,24 +154,6 @@ export async function handleRemovePick(client: Client, msg: { sourceLocation: { 
   }
 }
 
-export async function handleSetTrimTargets(client: Client, msg: { args: string; sourceLocation: { line: number } }) {
-  const editor = findEditorForCurrentFile(client);
-  if (!editor) {
-    client.logger.appendLine(`[set-trim-targets] No editor found for ${client.currentFileName}`);
-    return;
-  }
-  const doc = editor.document;
-  const result = await codeApi.setTrimTargets(
-    client.serverUrl, doc.getText(), msg.sourceLocation.line, msg.args, client.logger,
-  );
-  if (!result) {
-    return;
-  }
-  if (await codeApi.replaceDocument(doc, result.newCode)) {
-    client.updateLiveCode(doc.fileName, doc.getText());
-  }
-}
-
 export async function handleRemovePoint(client: Client, msg: { point: [number, number]; sourceLocation: { line: number } }) {
   const editor = findEditorForCurrentFile(client);
   if (!editor) {

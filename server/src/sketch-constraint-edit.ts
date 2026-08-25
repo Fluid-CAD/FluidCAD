@@ -21,8 +21,12 @@ export type SketchConstraintTarget = {
   /** Point accessor rendered as `.role()`; absent = the entity itself. */
   role?: SolvedEmissionRole;
   /** The entity command the statement must call — a mismatch means the
-   * source changed under the picks and refuses the edit. */
-  featureType?: SolvedEntityKind;
+   * source changed under the picks and refuses the edit. References (P6)
+   * name their producer callee. */
+  featureType?: SolvedEntityKind | 'project' | 'intersect';
+  /** Fixed reference targets (P6): the `.ref(i)` edge index; null renders
+   * the terse single-entity form. Presence marks the target as a reference. */
+  refIndex?: number | null;
 };
 
 export type SketchConstraintEditSpec = {

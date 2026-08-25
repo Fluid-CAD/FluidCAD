@@ -206,6 +206,19 @@ export class Text extends ExtrudableGeometryBase implements IText {
     super(targetPlane);
   }
 
+  override validate(): void {
+    super.validate();
+    // The anchored form draws at the sketch cursor — a pen concept with no
+    // meaning in a constraint sketch (it would silently land at the origin).
+    const sk = this.enclosingSketch();
+    if (sk?.isSolvedMode() && !this.path && !this.targetPlane) {
+      throw new BuildError(
+        "text() anchors at the sketch cursor, which does not exist in a constraint sketch.",
+        "Lay the text along a path instead: text(string, path).",
+      );
+    }
+  }
+
   build(): void {
     if (this.path) {
       this.buildAlongPath();

@@ -12,7 +12,8 @@
 //  1. Right-click a revolute/slider row → Animate… → bar appears with
 //     Start = current value, End = upper limit (or +90° / +10 mm).
 //  2. Play → the follower sweeps start→end over `Steps` frames; Single
-//     stops at the end, Loop reciprocates (start→end→start…) until Stop.
+//     stops at the end, Loop restarts from Start, Reciprocate bounces
+//     (start→end→start…) — both until Stop.
 //  3. Play toggles to Pause mid-sweep; Stop returns the part to where it
 //     was when the bar opened. × closes the bar (stopping first).
 //  4. Edit Start/End while paused → next Play restarts from Start.
@@ -40,7 +41,7 @@ export interface AnimateTarget {
   limits?: [number, number];
 }
 
-type Playback = 'single' | 'loop';
+type Playback = 'single' | 'loop' | 'reciprocate';
 
 export class AnimateBar {
   private bar: HTMLDivElement;
@@ -76,9 +77,10 @@ export class AnimateBar {
       <label class="flex items-center gap-1.5 whitespace-nowrap"><span class="text-base-content/50">End</span><input data-ref="end" type="number" step="any" class="input input-xs input-bordered w-20 tabular-nums" /></label>
       <label class="flex items-center gap-1.5 whitespace-nowrap"><span class="text-base-content/50">Steps</span><input data-ref="steps" type="number" min="1" step="1" class="input input-xs input-bordered w-16 tabular-nums" /></label>
       <label class="flex items-center gap-1.5 whitespace-nowrap"><span class="text-base-content/50">Playback</span>
-        <select data-ref="playback" class="select select-xs select-bordered w-24">
+        <select data-ref="playback" class="select select-xs select-bordered w-28">
           <option value="single">Single</option>
           <option value="loop">Loop</option>
+          <option value="reciprocate">Reciprocate</option>
         </select>
       </label>
       <span class="flex items-center gap-0.5">
@@ -209,12 +211,16 @@ export class AnimateBar {
 
   private tick(): void {
     const steps = this.steps();
-    if (this.playback() === 'single') {
+    const playback = this.playback();
+    if (playback === 'single') {
       if (this.step >= steps) {
         this.pause();
         return;
       }
       this.step += 1;
+    } else if (playback === 'loop') {
+      // Restart: snap back to Start after the End frame has shown.
+      this.step = this.step >= steps ? 0 : this.step + 1;
     } else {
       // Reciprocate: bounce at both ends so the mechanism never jumps.
       if (this.step >= steps) this.direction = -1;
@@ -244,7 +250,8 @@ export class AnimateBar {
   }
 
   private playback(): Playback {
-    return this.playbackSelect.value === 'loop' ? 'loop' : 'single';
+    const v = this.playbackSelect.value;
+    return v === 'loop' || v === 'reciprocate' ? v : 'single';
   }
 
   private renderPlayButton(): void {

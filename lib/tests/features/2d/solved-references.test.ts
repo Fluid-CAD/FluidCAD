@@ -9,7 +9,7 @@ import { getSceneManager } from "../../../scene-manager.js";
 import { SceneCompare } from "../../../rendering/scene-compare.js";
 import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
-import { line, circle, rect, project, intersect } from "../../../core/2d/index.js";
+import { line, circle, rect, slot, project, intersect } from "../../../core/2d/index.js";
 import {
   coincident, horizontal, tangent, distance, radius, fix,
 } from "../../../core/constraints/index.js";
@@ -32,6 +32,8 @@ function snapshotOf(sk: Sketch) {
   return sk.getState('solver-system') as {
     outcome?: string;
     dof?: number;
+    conflicting: number[];
+    redundant: number[];
     entities: { id: number; kind: string; fixed: boolean }[];
     params: number[];
   };
@@ -124,6 +126,31 @@ describe("fixed reference entities (P6)", () => {
     expect(fixedEntities.length).toBeGreaterThan(0);
     // Free line: 4 params − 1 horizontal = 3 DOF. The reference adds none.
     expect(snap.dof).toBe(3);
+  });
+
+  it("projected arcs diagnose clean — no phantom redundants on a pure projection", () => {
+    // Regression: fixed reference arcs used to register internal
+    // arc-consistency rows that diagnose reported as redundant, so a
+    // sketch holding nothing but a projected slot read "Fully
+    // constrained · 2 redundant".
+    sketch('xy', () => {
+      slot(80, 15);
+    });
+    const e = extrude(20) as Extrude;
+    sketch(e.endFaces(), () => {
+      project(e.endFaces());
+    }, true);
+    const sketches = getSceneManager()!.currentScene.getSceneObjects()
+      .filter(o => o instanceof Sketch) as Sketch[];
+    const projSketch = sketches[sketches.length - 1];
+    render();
+
+    const snap = snapshotOf(projSketch);
+    expect(snap.entities.filter(en => en.fixed && en.kind === 'arc').length).toBe(2);
+    expect(snap.outcome).toBe('solved');
+    expect(snap.dof).toBe(0);
+    expect(snap.redundant).toEqual([]);
+    expect(snap.conflicting).toEqual([]);
   });
 
   it("multi-edge references need .ref(i); bad indices error honestly", () => {

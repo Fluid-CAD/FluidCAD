@@ -4,13 +4,13 @@ import { GeometrySceneObject } from "./2d/geometry.js";
 import { LazySelectionSceneObject } from "./lazy-scene-object.js";
 
 /**
- * Shared grid-slot bookkeeping for the 2D copies. A copy owns every edge it
- * renders — build strips the source geometries and re-owns their shapes as
- * the original block, then stamps one transformed block per grid position —
- * so the owner alone cannot name ONE copied geometry. `instance(i)` can: it
- * selects the whole block at grid slot `i`, a closed region wherever the
- * source was one, usable as a boolean operand (`fuse(cp.instance(0),
- * cp.instance(3))`).
+ * Shared grid-slot bookkeeping for the 2D copies. A copy owns only the
+ * duplicates it stamps — the source geometries keep their own shapes (the
+ * copy never strips them), so a copied solved entity stays independently
+ * pickable, draggable and constrainable. The grid-slot map still spans
+ * EVERY slot, original included: `instance(i)` selects the whole block at
+ * grid slot `i` — resolving the original's slot through its source
+ * statement's live shapes — a closed region wherever the source was one.
  *
  * Slot numbering: linear copies linearize the grid in axis order (the first
  * axis varies slowest), the original occupying its own slot (0 when not
@@ -46,16 +46,29 @@ export abstract class Copy2DBase extends GeometrySceneObject {
   }
 
   /**
-   * The still-owned real edges of grid slot `index`, in build order. Resolved
-   * through getShapes() so edges consumed by downstream ops drop out.
+   * The still-live real edges of grid slot `index`, in build order. Duplicate
+   * slots resolve through the copy's own getShapes(); the original's slot
+   * through its source statements' (scope-less reads, so edges hard-consumed
+   * by downstream ops drop out of both).
    */
   getInstanceEdges(index: number): Edge[] {
     const instances = this.instanceByShape;
     if (!instances) {
       return [];
     }
-    return this.getShapes().filter((s): s is Edge =>
-      s instanceof Edge && instances.get(s) === index);
+    const live = new Set<Shape>(this.getShapes());
+    for (const sibling of this.sketch.getPreviousSiblings(this)) {
+      for (const shape of sibling.getShapes()) {
+        live.add(shape);
+      }
+    }
+    const edges: Edge[] = [];
+    for (const [shape, slot] of instances) {
+      if (slot === index && shape instanceof Edge && live.has(shape)) {
+        edges.push(shape);
+      }
+    }
+    return edges;
   }
 
   /**

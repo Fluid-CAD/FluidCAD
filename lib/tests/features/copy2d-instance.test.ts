@@ -21,8 +21,10 @@ describe("copy 2D instance() accessor", () => {
   it("resolves a single grid slot, leaving other geometry alone", () => {
     let o: Offset;
     let cpRef: Copy2DBase;
+    let src: { getShapes(): unknown[] };
     sketch("xy", () => {
       const c = circle(50);
+      src = c as unknown as { getShapes(): unknown[] };
       cpRef = copy("linear", "x", { count: 2, offset: 80 }, c) as unknown as Copy2DBase;
       circle([200, 0], 50);
       o = offset(5, cpRef.instance(1)) as unknown as Offset;
@@ -37,6 +39,10 @@ describe("copy 2D instance() accessor", () => {
     // The accessor never consumes: both slots keep their edges.
     expect(cpRef!.getInstanceEdges(0)).toHaveLength(1);
     expect(cpRef!.getInstanceEdges(1)).toHaveLength(1);
+    // Ownership: the original stays with its source statement — the copy
+    // owns only the stamped duplicate.
+    expect(src!.getShapes()).toHaveLength(1);
+    expect(cpRef!.getShapes()).toHaveLength(1);
   });
 
   it("numbers linear slots in grid order, original included", () => {
@@ -127,8 +133,10 @@ describe("copy 2D instance() accessor", () => {
   it("numbers circular slots by rotation step", () => {
     let o: Offset;
     let cpRef: Copy2DBase;
+    let src: { getShapes(): unknown[] };
     sketch("xy", () => {
       const c = circle([30, 0], 25);
+      src = c as unknown as { getShapes(): unknown[] };
       cpRef = copy("circular", [0, 0], { count: 3, offset: 30 }, c) as unknown as Copy2DBase;
       o = offset(2, cpRef.instance(1)) as unknown as Offset;
     });
@@ -141,5 +149,8 @@ describe("copy 2D instance() accessor", () => {
     expect(centerX(offsetEdges)).toBeCloseTo(30 * Math.cos(Math.PI / 6), 1);
     expect(cpRef!.getInstanceEdges(0)).toHaveLength(1);
     expect(cpRef!.getInstanceEdges(2)).toHaveLength(1);
+    // Ownership: the original (slot 0) stays with its source statement.
+    expect(src!.getShapes()).toHaveLength(1);
+    expect(cpRef!.getShapes()).toHaveLength(2);
   });
 });

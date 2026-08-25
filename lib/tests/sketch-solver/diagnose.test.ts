@@ -136,6 +136,23 @@ describe("diagnostics", () => {
     expect(diag.dof).toBe(0);
   });
 
+  it("fixed reference arcs carry no internal consistency rows — a pure projection diagnoses clean", () => {
+    // Regression: projected arcs (P6 fixed references) used to register
+    // arc-consistency records whose rows — all params locked — landed in
+    // inertRows and were reported as redundant ("Fully constrained ·
+    // N redundant" on a sketch holding nothing but a projection).
+    const sys = new SketchSystem();
+    sys.arc(0, 0, 5, 0, 0, 5, { fixed: true });
+    sys.arc(20, 0, 25, 0, 20, 5, { fixed: true });
+    sys.line(5, 0, 25, 0, { fixed: true });
+    expect(sys.constraints()).toEqual([]);
+    expect(solve(sys).outcome).toBe("solved");
+    const diag = diagnose(sys);
+    expect(diag.redundant).toEqual([]);
+    expect(diag.conflicting).toEqual([]);
+    expect(diag.dof).toBe(0);
+  });
+
   it("redundancy attribution names the user statement, not the internal arc rows", () => {
     const sys = new SketchSystem();
     const b = sys.arc(0, 0, 5, 0, 0, 5);

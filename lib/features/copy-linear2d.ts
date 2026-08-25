@@ -30,13 +30,9 @@ export class CopyLinear2D extends Copy2DBase {
       objects = allSiblings.filter(obj => obj.getShapes().length > 0);
     }
 
+    // The sources keep their shapes — the copy owns only the duplicates it
+    // stamps below, so the originals stay independent statements.
     const originalShapes = objects.flatMap(obj => obj.getShapes());
-    for (const obj of objects) {
-      obj.removeShapes(this);
-    }
-    for (const shape of originalShapes) {
-      this.addShape(shape);
-    }
 
     const resolvedAxes: Axis[] = this.axes.map(a =>
       a instanceof AxisObjectBase ? a.getAxis() : a

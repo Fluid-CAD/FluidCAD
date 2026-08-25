@@ -161,6 +161,28 @@ describe("derived ops on solved sketches (P6 audit)", () => {
       expect(cp!.getInstanceEdges(0)).toHaveLength(1);
       expect(cp!.getInstanceEdges(2)).toHaveLength(1);
     });
+
+    it("copy never owns the original — the solved source keeps its own edge", () => {
+      // Ownership contract (2026-08-25): a copy owns only the duplicates it
+      // stamps. The source statement keeps its shapes, so the solved circle
+      // stays an independent, pickable/draggable entity while instance(0)
+      // still resolves the original's slot through it.
+      let src: ISolvedCircle;
+      let cp: Copy2DBase;
+      sketch('xy', () => {
+        src = circle([0, 0], 20) as ISolvedCircle;
+        fix(src.center(), [0, 0]);
+        cp = copy('linear', 'x', { count: 3, offset: 40 }, src) as unknown as Copy2DBase;
+      }, true);
+      const scene = render();
+
+      expect(renderedErrors(scene).size).toBe(0);
+      expect(edgesOf(src! as unknown as { getShapes(): unknown[] })).toHaveLength(1);
+      expect(edgesOf(cp!)).toHaveLength(2);
+      expect(cp!.getInstanceEdges(0)).toHaveLength(1);
+      expect(cp!.getInstanceEdges(1)).toHaveLength(1);
+      expect(cp!.getInstanceEdges(2)).toHaveLength(1);
+    });
   });
 
   describe("rotate2d", () => {

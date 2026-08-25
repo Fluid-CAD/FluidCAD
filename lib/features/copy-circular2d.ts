@@ -28,14 +28,12 @@ export class CopyCircular2D extends Copy2DBase {
       objects = allSiblings.filter(obj => obj.getShapes().length > 0);
     }
 
-    const originalShapes = objects.flatMap(obj => obj.getShapes());
-    for (const obj of objects) {
-      obj.removeShapes(this);
-    }
+    // The sources keep their shapes — the copy owns only the duplicates it
+    // stamps below, so the originals stay independent statements.
     // Rotation-step slots: the original is 0, step i is i — the same
     // numbering the circular `skip` option uses.
+    const originalShapes = objects.flatMap(obj => obj.getShapes());
     for (const shape of originalShapes) {
-      this.addShape(shape);
       this.recordInstanceShape(shape, 0);
     }
 

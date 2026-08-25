@@ -90,7 +90,10 @@ export class SketchSystem {
   /**
    * Arc through start/end around a center. The radius guess is
    * derived from the endpoint distances (literals are guesses — the
-   * internal consistency rows reconcile any disagreement).
+   * internal consistency rows reconcile any disagreement). A fixed
+   * arc gets no consistency rows: its params are locked, so they
+   * could never solve — only surface as bogus redundant/conflicting
+   * inert rows in diagnose.
    */
   arc(
     cx: number,
@@ -103,11 +106,13 @@ export class SketchSystem {
   ): number {
     const r = (Math.hypot(sx - cx, sy - cy) + Math.hypot(ex - cx, ey - cy)) / 2;
     const id = this.addEntity('arc', [cx, cy, r, sx, sy, ex, ey], opts);
-    this.constraintList.push({
-      id: this.nextInternalId--,
-      internal: true,
-      spec: { kind: 'arc-consistency', entity: id },
-    });
+    if (opts.fixed !== true) {
+      this.constraintList.push({
+        id: this.nextInternalId--,
+        internal: true,
+        spec: { kind: 'arc-consistency', entity: id },
+      });
+    }
     return id;
   }
 

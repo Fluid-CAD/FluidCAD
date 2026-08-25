@@ -13,6 +13,16 @@ export type MatrixRankInfo = {
    * missing indices as the redundant constraint rows.
    */
   pivots: number[];
+  /**
+   * Present when requested (length m, original row order): the norm of
+   * each row axis eᵢ's component in the orthogonal complement of the
+   * accepted pivot columns' span, in [0, 1]. 0 means the axis lies
+   * inside the column space, 1 fully outside. The sketch solver runs
+   * this on Jᵀ, where rows are free params and the complement is the
+   * nullspace of J — a param with freedom ≈ 0 cannot move without
+   * violating a constraint.
+   */
+  rowFreedom?: Float64Array;
 };
 
 /**
@@ -26,12 +36,34 @@ export type MatrixRankInfo = {
  * loop-DOF report; constraint rows × sketch params for sketch
  * diagnostics), so the O(mn²) cost with fresh column norms per step is
  * irrelevant and avoids the cancellation drift of downdated norms.
+ *
+ * `opts.rowFreedom` additionally accumulates Qᵀ (the Householder
+ * reflectors against identity — column pivoting permutes columns only,
+ * so rows keep their identity) and reports each row's complement norm;
+ * see MatrixRankInfo.rowFreedom.
  */
-export function matrixRankWithPivots(A: Float64Array, m: number, n: number): MatrixRankInfo {
+export function matrixRankWithPivots(
+  A: Float64Array,
+  m: number,
+  n: number,
+  opts?: { rowFreedom?: boolean },
+): MatrixRankInfo {
+  const wantFreedom = opts?.rowFreedom === true;
   if (m === 0 || n === 0) {
-    return { rank: 0, pivots: [] };
+    // No accepted pivots: every row axis lies fully in the complement.
+    return wantFreedom
+      ? { rank: 0, pivots: [], rowFreedom: new Float64Array(m).fill(1) }
+      : { rank: 0, pivots: [] };
   }
   const a = new Float64Array(A);
+  // Qᵀ accumulated row-major (m×m), identity until reflectors apply.
+  let q: Float64Array | null = null;
+  if (wantFreedom) {
+    q = new Float64Array(m * m);
+    for (let i = 0; i < m; i++) {
+      q[i * m + i] = 1;
+    }
+  }
   // colIndex[j] = original index of the column currently in slot j.
   const colIndex = new Int32Array(n);
   for (let j = 0; j < n; j++) {
@@ -99,10 +131,36 @@ export function matrixRankWithPivots(A: Float64Array, m: number, n: number): Mat
           a[(k + i) * n + j] -= scale * v[i];
         }
       }
+      if (q) {
+        for (let j = 0; j < m; j++) {
+          let dot = 0;
+          for (let i = 0; i < v.length; i++) {
+            dot += v[i] * q[(k + i) * m + j];
+          }
+          const scale = (2 * dot) / vNorm2;
+          for (let i = 0; i < v.length; i++) {
+            q[(k + i) * m + j] -= scale * v[i];
+          }
+        }
+      }
     }
     rank++;
   }
-  return { rank, pivots };
+  if (!q) {
+    return { rank, pivots };
+  }
+  // Column i of the accumulated Qᵀ is Qᵀeᵢ; entries past the accepted
+  // pivots are eᵢ's coordinates in the complement basis.
+  const rowFreedom = new Float64Array(m);
+  for (let i = 0; i < m; i++) {
+    let s = 0;
+    for (let r = rank; r < m; r++) {
+      const v = q[r * m + i];
+      s += v * v;
+    }
+    rowFreedom[i] = Math.sqrt(s);
+  }
+  return { rank, pivots, rowFreedom };
 }
 
 /** Numerical rank of an m×n matrix (row-major). See matrixRankWithPivots. */

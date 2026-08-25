@@ -1,14 +1,11 @@
 import {
   Camera,
   CircleGeometry,
-  ConeGeometry,
-  CylinderGeometry,
   DoubleSide,
   Group,
   Mesh,
   MeshBasicMaterial,
   Object3D,
-  Quaternion,
   Vector3,
 } from 'three';
 import type { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js';
@@ -33,7 +30,6 @@ import { themeColors } from '../../scene/theme-colors';
 import { applyConstantPixelSize } from '../screen-scale';
 
 const SKETCH_EDGE_COLOR = '#2297ff';
-const NON_INTERACTIVE_EDGE_COLOR = '#6a5acd';
 const VERTEX_RADIUS = 2;
 const VERTEX_SEGMENTS = 16;
 const VERTEX_PX_RADIUS = 6;
@@ -44,25 +40,13 @@ const NON_INTERACTIVE_VERTEX_OPACITY = 0.6;
 const META_VERTEX_COLOR = '#8899aa';
 const META_VERTEX_RADIUS = 1.5;
 const META_VERTEX_PX_RADIUS = 4.5;
-const CURSOR_COLOR = 0xf3724f;
-const CURSOR_SEGMENTS = 64;
-const CURSOR_RADIUS = 3;
-const CURSOR_PX_RADIUS = 9;
-const TANGENT_ARROW_COLOR = 0xf3724f;
-const TANGENT_ARROW_OPACITY = 0.35;
-const TANGENT_SHAFT_RADIUS = 0.6;
-const TANGENT_SHAFT_LENGTH = 18;
-const TANGENT_HEAD_LENGTH = 5;
-const TANGENT_HEAD_WIDTH = 2.5;
-const TANGENT_TOTAL_LENGTH = TANGENT_SHAFT_LENGTH + TANGENT_HEAD_LENGTH;
-const TANGENT_PX_LENGTH = 54;
 /** Frames a glyph-layout hook waits for its mesh to reach the scene before
  * assuming it never will (a mesh built and then dropped). */
 const DETACHED_GRACE_FRAMES = 300;
 
 /**
- * Renders a sketch: all child edges in blue, plus an optional cursor circle
- * at the current drawing position.
+ * Renders a sketch: child edges in blue, with solved-sketch diagnostics
+ * tinting per entity — conflict red, constrained green.
  */
 export class SketchMesh extends Group {
   /** Read model of a solved-mode sketch; null for legacy sketches. */
@@ -95,10 +79,6 @@ export class SketchMesh extends Group {
     this.buildVertices(sceneObject, allObjects);
     this.bindSolvedDots();
     this.addConstraintIcons(sceneObject, allObjects);
-    if (activeSketchId && sceneObject.id === activeSketchId) {
-      this.buildCursor(sceneObject);
-      this.buildTangentArrow(sceneObject);
-    }
   }
 
   get solved(): SolvedSketchModel | null {
@@ -448,20 +428,46 @@ export class SketchMesh extends Group {
 
   /** Edge (and endpoint-dot) color: solved entities carry the diagnostic
    * tints — conflict red for members of unsatisfiable constraints, the
-   * constrained tint when the whole sketch is at 0 DOF. */
+   * constrained tint per entity once the solver vouches it cannot move.
+   * Reference producers (P6 projections/intersects) are locked geometry,
+   * so they read constrained too. Everything else is the sketch blue. */
   private edgeColorFor(obj: SceneObjectRender): string {
     const model = this.solvedModel;
-    if (model && this.isSolvedEntity(obj)) {
-      const entityId = obj.object.entityId as number;
-      if (model.conflictingEntityIds.has(entityId) || obj.hasError) {
-        return `#${themeColors.constraintConflictColor.getHexString()}`;
+    if (model) {
+      if (this.isSolvedEntity(obj)) {
+        const entityId = obj.object.entityId as number;
+        if (model.conflictingEntityIds.has(entityId) || obj.hasError) {
+          return `#${themeColors.constraintConflictColor.getHexString()}`;
+        }
+        if (model.constrainedEntityIds.has(entityId)) {
+          return `#${themeColors.sketchConstrainedColor.getHexString()}`;
+        }
+        return SKETCH_EDGE_COLOR;
       }
-      if (model.fullyConstrained) {
+      const refIds = obj.id ? model.referenceProducers.get(obj.id) : undefined;
+      if (refIds) {
+        // A fixed reference can still be a conflict member — an
+        // unsatisfiable constraint against a projected edge.
+        if (obj.hasError || refIds.some(id => model.conflictingEntityIds.has(id))) {
+          return `#${themeColors.constraintConflictColor.getHexString()}`;
+        }
         return `#${themeColors.sketchConstrainedColor.getHexString()}`;
       }
-      return SKETCH_EDGE_COLOR;
+      // Derived-op duplicates (copy/mirror/rotate) are rigid images of
+      // their sources: they wear the sources' verdict.
+      const srcIds = obj.id ? model.derivedProducers.get(obj.id) : undefined;
+      if (srcIds) {
+        if (obj.hasError || srcIds.some(id => model.conflictingEntityIds.has(id))) {
+          return `#${themeColors.constraintConflictColor.getHexString()}`;
+        }
+        const pinned = (id: number) =>
+          model.constrainedEntityIds.has(id) || model.entities.get(id)?.reference !== undefined;
+        if (srcIds.length > 0 && srcIds.every(pinned)) {
+          return `#${themeColors.sketchConstrainedColor.getHexString()}`;
+        }
+      }
     }
-    return isDraggableSketchObject(obj) ? SKETCH_EDGE_COLOR : NON_INTERACTIVE_EDGE_COLOR;
+    return SKETCH_EDGE_COLOR;
   }
 
   private addConstraintIcons(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[]): void {
@@ -540,92 +546,4 @@ export class SketchMesh extends Group {
     }
   }
 
-  private buildCursor(sceneObject: SceneObjectRender): void {
-    const currentPosition = sceneObject.object?.currentPosition;
-    if (!currentPosition) {
-      return;
-    }
-
-    const geometry = new CircleGeometry(CURSOR_RADIUS, CURSOR_SEGMENTS);
-    const material = new MeshBasicMaterial({ color: CURSOR_COLOR, side: DoubleSide, depthTest: false });
-    material.transparent = true;
-    material.opacity = 0.8;
-
-    const dot = new Mesh(
-      geometry,
-      material
-    );
-    dot.renderOrder = 1;
-
-    const cursorGroup = new Group();
-    cursorGroup.renderOrder = 1;
-    // Drawing chrome, not sketch content — must not participate in camera fits.
-    cursorGroup.userData.isMetaShape = true;
-    cursorGroup.add(dot);
-    cursorGroup.position.set(currentPosition.x, currentPosition.y, currentPosition.z);
-
-    const normal = sceneObject.object?.plane?.normal;
-    if (normal) {
-      const target = new Vector3(
-        currentPosition.x + normal.x,
-        currentPosition.y + normal.y,
-        currentPosition.z + normal.z,
-      );
-      cursorGroup.lookAt(target);
-    }
-
-    applyConstantPixelSize(dot, cursorGroup, cursorGroup.position, CURSOR_PX_RADIUS, CURSOR_RADIUS);
-
-    this.add(cursorGroup);
-  }
-
-  private buildTangentArrow(sceneObject: SceneObjectRender): void {
-    const currentPosition = sceneObject.object?.currentPosition;
-    const currentTangent = sceneObject.object?.currentTangent;
-    const planeOrigin = sceneObject.object?.plane?.origin;
-    if (!currentPosition || !currentTangent || !planeOrigin) {
-      return;
-    }
-
-    // currentTangent is localToWorld(tangent_dir), so the world direction is currentTangent - planeOrigin
-    const dir = new Vector3(
-      currentTangent.x - planeOrigin.x,
-      currentTangent.y - planeOrigin.y,
-      currentTangent.z - planeOrigin.z,
-    ).normalize();
-
-    const material = new MeshBasicMaterial({
-      color: TANGENT_ARROW_COLOR,
-      transparent: true,
-      opacity: TANGENT_ARROW_OPACITY,
-      side: DoubleSide,
-      depthTest: false,
-      depthWrite: false,
-    });
-
-    const shaftGeometry = new CylinderGeometry(TANGENT_SHAFT_RADIUS, TANGENT_SHAFT_RADIUS, TANGENT_SHAFT_LENGTH, 16);
-    shaftGeometry.translate(0, TANGENT_SHAFT_LENGTH / 2, 0);
-    const shaft = new Mesh(shaftGeometry, material);
-
-    const headGeometry = new ConeGeometry(TANGENT_HEAD_WIDTH, TANGENT_HEAD_LENGTH, 16);
-    headGeometry.translate(0, TANGENT_SHAFT_LENGTH + TANGENT_HEAD_LENGTH / 2, 0);
-    const head = new Mesh(headGeometry, material);
-
-    const arrowGroup = new Group();
-    arrowGroup.renderOrder = 1;
-    // Drawing chrome, not sketch content — must not participate in camera fits.
-    arrowGroup.userData.isMetaShape = true;
-    arrowGroup.add(shaft);
-    arrowGroup.add(head);
-
-    // Rotate from default Y-up to the tangent direction
-    const up = new Vector3(0, 1, 0);
-    const quaternion = new Quaternion().setFromUnitVectors(up, dir);
-    arrowGroup.quaternion.copy(quaternion);
-    arrowGroup.position.set(currentPosition.x, currentPosition.y, currentPosition.z);
-
-    applyConstantPixelSize(shaft, arrowGroup, arrowGroup.position, TANGENT_PX_LENGTH, TANGENT_TOTAL_LENGTH);
-
-    this.add(arrowGroup);
-  }
 }

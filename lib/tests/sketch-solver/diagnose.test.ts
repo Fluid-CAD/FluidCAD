@@ -178,3 +178,88 @@ describe("diagnostics", () => {
     expect(diag.dof).toBe(6);
   });
 });
+
+// Per-entity DOF read (post-P6 color cleanup): an entity is
+// under-constrained while ANY of its params can still move along some
+// nullspace direction of the constraint Jacobian — the UI tints
+// everything NOT listed as constrained green.
+describe("underconstrained entities", () => {
+  it("dof 0 lists nothing — the old whole-sketch green, now derived", () => {
+    const { sys } = rectangle();
+    expect(solve(sys).outcome).toBe("solved");
+    const diag = diagnose(sys);
+    expect(diag.dof).toBe(0);
+    expect(diag.underconstrainedEntities).toEqual([]);
+  });
+
+  it("frees shrink as constraints land: horizontal → fix → dim", () => {
+    const sys = new SketchSystem();
+    const a = sys.line(0, 0, 10, 0.3);
+    sys.constrain({ kind: "horizontal", a: entityRef(a) });
+    expect(solve(sys).outcome).toBe("solved");
+    expect(diagnose(sys).underconstrainedEntities).toEqual([a]);
+    sys.constrain({ kind: "fix", p: start(a) });
+    expect(solve(sys).outcome).toBe("solved");
+    // The end's x still slides along the horizontal.
+    expect(diagnose(sys).underconstrainedEntities).toEqual([a]);
+    sys.constrain({ kind: "distance", a: start(a), b: end(a), value: 10 });
+    expect(solve(sys).outcome).toBe("solved");
+    expect(diagnose(sys).underconstrainedEntities).toEqual([]);
+    expect(diagnose(sys).dof).toBe(0);
+  });
+
+  it("verdicts are per entity: a pinned line beside a free circle", () => {
+    const sys = new SketchSystem();
+    const l = sys.line(0, 0, 10, 0);
+    sys.constrain({ kind: "fix", p: start(l) });
+    sys.constrain({ kind: "fix", p: end(l) });
+    const c = sys.circle(50, 50, 4);
+    expect(solve(sys).outcome).toBe("solved");
+    expect(diagnose(sys).underconstrainedEntities).toEqual([c]);
+  });
+
+  it("all-or-nothing: a radius dim alone keeps the circle listed", () => {
+    const sys = new SketchSystem();
+    const c = sys.circle(10, 10, 5);
+    sys.constrain({ kind: "radius", a: entityRef(c), value: 5 });
+    expect(solve(sys).outcome).toBe("solved");
+    expect(diagnose(sys).underconstrainedEntities).toEqual([c]);
+  });
+
+  it("fixed reference entities are never listed", () => {
+    const sys = new SketchSystem();
+    sys.line(0, 0, 10, 0, { fixed: true });
+    const free = sys.line(0, 5, 10, 5);
+    expect(diagnose(sys).underconstrainedEntities).toEqual([free]);
+  });
+
+  it("an entity pinned onto fixed references reads constrained", () => {
+    const sys = new SketchSystem();
+    const p1 = sys.point(0, 0, { fixed: true });
+    const p2 = sys.point(10, 0, { fixed: true });
+    const l = sys.line(0.2, 0.1, 9.8, -0.1);
+    sys.constrain({ kind: "coincident", a: start(l), b: entityRef(p1) });
+    sys.constrain({ kind: "coincident", a: end(l), b: entityRef(p2) });
+    expect(solve(sys).outcome).toBe("solved");
+    expect(diagnose(sys).underconstrainedEntities).toEqual([]);
+  });
+
+  it("redundant constraints change nothing", () => {
+    const sys = new SketchSystem();
+    const a = sys.line(0, 0, 10, 0.3);
+    sys.constrain({ kind: "horizontal", a: entityRef(a) });
+    sys.constrain({ kind: "horizontal", a: entityRef(a) });
+    expect(solve(sys).outcome).toBe("solved");
+    expect(diagnose(sys).underconstrainedEntities).toEqual([a]);
+  });
+
+  it("is deterministic across repeated diagnoses", () => {
+    const sys = new SketchSystem();
+    const a = sys.line(0, 0, 10, 0.3);
+    sys.circle(40, 40, 6);
+    sys.constrain({ kind: "horizontal", a: entityRef(a) });
+    solve(sys);
+    const first = diagnose(sys).underconstrainedEntities;
+    expect(diagnose(sys).underconstrainedEntities).toEqual(first);
+  });
+});

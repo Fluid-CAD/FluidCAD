@@ -222,6 +222,15 @@ export type SketchDiagnostics = {
    * arbitrary). A constraint also conflicting is reported only as
    * conflicting. */
   redundant: number[];
+  /**
+   * ENTITY ids (unlike `conflicting`/`redundant`, which are constraint
+   * ids) of non-fixed entities with at least one movable param — some
+   * nullspace direction of the constraint Jacobian shifts them at the
+   * current configuration. Sorted ascending; empty exactly when dof is
+   * 0. Fixed entities (references, datums) are never listed — they
+   * cannot move by construction.
+   */
+  underconstrainedEntities: number[];
   components: ComponentDiagnostics[];
 };
 
@@ -237,4 +246,8 @@ export type SketchSolverSystem = {
   dof: number | null;
   conflicting: number[];
   redundant: number[];
+  /** Entity ids still free to move (diagnose's per-entity DOF read,
+   * the UI's per-edge constrained tint); null when diagnostics didn't
+   * run — unknown, never to be read as "all constrained". */
+  underconstrainedEntities: number[] | null;
 };

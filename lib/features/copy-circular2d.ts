@@ -33,6 +33,7 @@ export class CopyCircular2D extends Copy2DBase {
     // Rotation-step slots: the original is 0, step i is i — the same
     // numbering the circular `skip` option uses.
     const originalShapes = objects.flatMap(obj => obj.getShapes());
+    this.recordSourceEntities(objects, { center: this.center });
     for (const shape of originalShapes) {
       this.recordInstanceShape(shape, 0);
     }
@@ -120,6 +121,7 @@ export class CopyCircular2D extends Copy2DBase {
 
   serialize() {
     return {
+      ...this.sourceEntitiesPayload(),
     }
   }
 }

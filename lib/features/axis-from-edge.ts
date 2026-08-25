@@ -12,6 +12,11 @@ export class AxisFromEdge extends AxisObjectBase {
     super();
   }
 
+  /** The wrapped edge/axis source (read-only — derived-op source tracking). */
+  get source(): SceneObject {
+    return this.sourceObject;
+  }
+
   override validate() {
     // AxisObjectBase sources expose the axis directly — no shapes required.
     if (this.sourceObject instanceof AxisObjectBase) {

@@ -10,6 +10,7 @@ import { Edge } from "../common/edge.js";
 import { Wire } from "../common/wire.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { Vertex } from "../common/vertex.js";
+import { collectSourceEntities, sourceEntitiesPayload } from "./2d/solved/source-entities.js";
 
 export class MirrorShape2D extends GeometrySceneObject {
   private _excludedObjects: SceneObject[] = [];
@@ -44,6 +45,12 @@ export class MirrorShape2D extends GeometrySceneObject {
 
     if (this._excludedObjects.length > 0) {
       targetObjects = targetObjects.filter(obj => !this._excludedObjects.includes(obj));
+    }
+
+    // Duplicates follow their sources AND the mirror line — the viewport
+    // tints them constrained only when all of those are.
+    if (sketch.isSolvedMode()) {
+      this.setState('source-entities', collectSourceEntities(targetObjects, { axes: [this.axis] }));
     }
 
     this.axis.removeShapes(this)
@@ -182,6 +189,7 @@ export class MirrorShape2D extends GeometrySceneObject {
   serialize() {
     return {
       axis: this.axis.serialize(),
+      ...sourceEntitiesPayload(this.getState('source-entities')),
     }
   }
 }

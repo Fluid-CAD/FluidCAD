@@ -86,6 +86,60 @@ describe("matrixRankWithPivots", () => {
   });
 });
 
+describe("matrixRankWithPivots rowFreedom", () => {
+  it("is absent unless requested", () => {
+    const A = new Float64Array([1, 0, 0, 1]);
+    expect(matrixRankWithPivots(A, 2, 2).rowFreedom).toBeUndefined();
+    expect(matrixRankWithPivots(A, 2, 2, {}).rowFreedom).toBeUndefined();
+  });
+
+  it("full-rank columns pin every row axis", () => {
+    const A = new Float64Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    const { rowFreedom } = matrixRankWithPivots(A, 3, 3, { rowFreedom: true });
+    for (const f of rowFreedom!) {
+      expect(f).toBeCloseTo(0, 9);
+    }
+  });
+
+  it("no accepted pivots leaves every row axis fully free", () => {
+    const zero = matrixRankWithPivots(new Float64Array(12), 3, 4, { rowFreedom: true });
+    expect(Array.from(zero.rowFreedom!)).toEqual([1, 1, 1]);
+    // Zero columns (n = 0) hit the early return.
+    const empty = matrixRankWithPivots(new Float64Array(0), 3, 0, { rowFreedom: true });
+    expect(Array.from(empty.rowFreedom!)).toEqual([1, 1, 1]);
+  });
+
+  it("a diagonal column splits its freedom across both axes", () => {
+    // Single column (1,1)/√2: the complement is its perpendicular, and
+    // each axis projects onto it with norm 1/√2.
+    const s = Math.SQRT1_2;
+    const A = new Float64Array([s, s]);
+    const { rank, rowFreedom } = matrixRankWithPivots(A, 2, 1, { rowFreedom: true });
+    expect(rank).toBe(1);
+    expect(rowFreedom![0]).toBeCloseTo(s, 9);
+    expect(rowFreedom![1]).toBeCloseTo(s, 9);
+  });
+
+  it("duplicate columns leave the untouched axes free", () => {
+    // Both columns are e0: the pivot span is the x axis alone — rows 1
+    // and 2 keep full freedom, row 0 none. This is the sketch solver's
+    // per-param DOF read (rows = free params on Jᵀ).
+    const A = new Float64Array([1, 1, 0, 0, 0, 0]);
+    const { rank, rowFreedom } = matrixRankWithPivots(A, 3, 2, { rowFreedom: true });
+    expect(rank).toBe(1);
+    expect(rowFreedom![0]).toBeCloseTo(0, 9);
+    expect(rowFreedom![1]).toBeCloseTo(1, 9);
+    expect(rowFreedom![2]).toBeCloseTo(1, 9);
+  });
+
+  it("does not mutate its input when accumulating", () => {
+    const A = new Float64Array([3, 1, 1, 3]);
+    const copy = new Float64Array(A);
+    matrixRankWithPivots(A, 2, 2, { rowFreedom: true });
+    expect(Array.from(A)).toEqual(Array.from(copy));
+  });
+});
+
 describe("matrixRank", () => {
   it("agrees with matrixRankWithPivots", () => {
     const A = new Float64Array([1, 2, 3, 2, 4, 6, 1, 0, 1]);

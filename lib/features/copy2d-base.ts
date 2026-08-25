@@ -1,7 +1,13 @@
 import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
+import { SceneObject } from "../common/scene-object.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
 import { LazySelectionSceneObject } from "./lazy-scene-object.js";
+import {
+  collectSourceEntities,
+  sourceEntitiesPayload,
+  type TransformInputs,
+} from "./2d/solved/source-entities.js";
 
 /**
  * Shared grid-slot bookkeeping for the 2D copies. A copy owns only the
@@ -38,6 +44,22 @@ export abstract class Copy2DBase extends GeometrySceneObject {
   /** Stamp `shape` as part of grid slot `index` (build-time only). */
   protected recordInstanceShape(shape: Shape, index: number): void {
     this.instanceByShape!.set(shape, index);
+  }
+
+  /**
+   * Record the solver entities the duplicates derive from (build-time,
+   * solved sketches only) — the viewport tints them with their sources'
+   * constrained verdict. State for the same cached-reuse reason as
+   * `copy-instances` above.
+   */
+  protected recordSourceEntities(objects: SceneObject[], inputs?: TransformInputs): void {
+    if (this.sketch.isSolvedMode()) {
+      this.setState('source-entities', collectSourceEntities(objects, inputs));
+    }
+  }
+
+  protected sourceEntitiesPayload(): Record<string, unknown> {
+    return sourceEntitiesPayload(this.getState('source-entities'));
   }
 
   /** The grid slot a shape was stamped into, or null for foreign shapes. */

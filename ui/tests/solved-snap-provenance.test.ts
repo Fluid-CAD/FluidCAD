@@ -41,7 +41,7 @@ function scene(): { objects: SceneObjectRender[]; lines: Record<string, number> 
     object: {
       plane: PLANE,
       solvedMode: true,
-      solver: { entities: [], constraints: [], params: [], outcome: 'solved', dof: 0, conflicting: [], redundant: [] },
+      solver: { entities: [], constraints: [], params: [], outcome: 'solved', dof: 0, conflicting: [], redundant: [], underconstrainedEntities: [] },
     },
     sceneShapes: [],
     ownShapes: [],

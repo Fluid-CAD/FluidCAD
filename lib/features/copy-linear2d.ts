@@ -33,6 +33,7 @@ export class CopyLinear2D extends Copy2DBase {
     // The sources keep their shapes — the copy owns only the duplicates it
     // stamps below, so the originals stay independent statements.
     const originalShapes = objects.flatMap(obj => obj.getShapes());
+    this.recordSourceEntities(objects, { axes: this.axes });
 
     const resolvedAxes: Axis[] = this.axes.map(a =>
       a instanceof AxisObjectBase ? a.getAxis() : a
@@ -174,6 +175,7 @@ export class CopyLinear2D extends Copy2DBase {
 
   serialize() {
     return {
+      ...this.sourceEntitiesPayload(),
     }
   }
 }

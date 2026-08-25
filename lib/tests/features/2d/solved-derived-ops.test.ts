@@ -9,10 +9,11 @@ import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import mirror from "../../../core/mirror.js";
 import copy from "../../../core/copy.js";
+import local from "../../../core/local.js";
 import rotate from "../../../core/rotate.js";
 import fillet from "../../../core/fillet.js";
 import { line, circle, offset, text, ellipse } from "../../../core/2d/index.js";
-import { coincident, horizontal, vertical, fix, distance } from "../../../core/constraints/index.js";
+import { coincident, horizontal, vertical, fix, distance, radius } from "../../../core/constraints/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { ExtrudeBase } from "../../../features/extrude-base.js";
 import { Offset } from "../../../features/2d/offset.js";
@@ -182,6 +183,106 @@ describe("derived ops on solved sketches (P6 audit)", () => {
       expect(cp!.getInstanceEdges(0)).toHaveLength(1);
       expect(cp!.getInstanceEdges(1)).toHaveLength(1);
       expect(cp!.getInstanceEdges(2)).toHaveLength(1);
+    });
+  });
+
+  // Post-P6 color cleanup: derived-op duplicates are rigid images of their
+  // sources, so the payload ships the solver entities they derive from —
+  // sources plus transform inputs — and the viewport tints them with the
+  // sources' constrained verdict. `sourcesSolved: false` = no verdict.
+  describe("derived-op source verdicts", () => {
+    const payloadOf = (scene: Scene, uniqueType: string) =>
+      scene.getRenderedObjects().find(r => r.uniqueType === uniqueType)!.object as {
+        sourceEntities?: number[]; sourcesSolved?: boolean; entityId?: number;
+      };
+
+    it("copy ships its source entity ids", () => {
+      sketch('xy', () => {
+        const c = circle([0, 0], 20);
+        fix(c.center(), [0, 0]);
+        copy('linear', 'x', { count: 3, offset: 40 }, c);
+      }, true);
+      const scene = render();
+
+      const circleId = payloadOf(scene, 'solved-circle').entityId!;
+      const cp = payloadOf(scene, 'copy-linear-2d');
+      expect(cp.sourcesSolved).toBe(true);
+      expect(cp.sourceEntities).toEqual([circleId]);
+    });
+
+    it("a local('x') sketch-plane axis is a constant, not an unknown", () => {
+      // Regression (2026-08-25): local('x') resolves to AxisFromSketch and
+      // the unknown-axis fallback dropped the verdict — copies of a green
+      // circle stayed blue.
+      sketch('xy', () => {
+        const c = circle([0, 0], 20);
+        fix(c.center(), [0, 0]);
+        radius(c, 10);
+        copy('linear', local('x'), { count: 3, length: 100, centered: true }, c);
+      }, true);
+      const scene = render();
+
+      const circleId = payloadOf(scene, 'solved-circle').entityId!;
+      const cp = payloadOf(scene, 'copy-linear-2d');
+      expect(cp.sourcesSolved).toBe(true);
+      expect(cp.sourceEntities).toEqual([circleId]);
+    });
+
+    it("a source without solver identity yields no verdict", () => {
+      sketch('xy', () => {
+        const c = circle([0, 0], 20);
+        fix(c.center(), [0, 0]);
+        const o = offset(5, c) as unknown as Offset;
+        copy('linear', 'x', { count: 2, offset: 60 }, c, o as unknown as ISolvedCircle);
+      }, true);
+      const scene = render();
+
+      expect(payloadOf(scene, 'copy-linear-2d').sourcesSolved).toBe(false);
+    });
+
+    it("mirror counts the mirror line among its sources", () => {
+      sketch('xy', () => {
+        const axis = line([0, -10], [0, 60]).guide();
+        const c = circle([30, 20], 20);
+        fix(c.center(), [30, 20]);
+        mirror(axis, c);
+      }, true);
+      const scene = render();
+
+      const axisId = (payloadOf(scene, 'solved-line') as { entityId: number }).entityId;
+      const circleId = payloadOf(scene, 'solved-circle').entityId!;
+      const m = payloadOf(scene, 'mirror-shape-2d');
+      expect(m.sourcesSolved).toBe(true);
+      expect(m.sourceEntities).toEqual([axisId, circleId].sort((a, b) => a - b));
+    });
+
+    it("rotate counts an entity-backed center among its sources", () => {
+      let pivot: ISolvedCircle;
+      sketch('xy', () => {
+        pivot = circle([0, 0], 10);
+        fix(pivot.center(), [0, 0]);
+        const l = line([20, 0], [40, 0]);
+        fix(l.start(), [20, 0]);
+        fix(l.end(), [40, 0]);
+        rotate(90, pivot.center(), true, l);
+      }, true);
+      const scene = render();
+
+      const circleId = payloadOf(scene, 'solved-circle').entityId!;
+      const lineId = (payloadOf(scene, 'solved-line') as { entityId: number }).entityId;
+      const rot = payloadOf(scene, 'rotate-shape-2d');
+      expect(rot.sourcesSolved).toBe(true);
+      expect(rot.sourceEntities).toEqual([circleId, lineId].sort((a, b) => a - b));
+    });
+
+    it("legacy sketches ship no source join", () => {
+      sketch('xy', () => {
+        circle(20);
+        copy('linear', 'x', { count: 2, offset: 40 });
+      });
+      const scene = render();
+
+      expect(payloadOf(scene, 'copy-linear-2d').sourceEntities).toBeUndefined();
     });
   });
 

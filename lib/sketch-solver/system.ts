@@ -344,6 +344,9 @@ export class SketchSystem {
       dof: extras?.diagnostics ? extras.diagnostics.dof : null,
       conflicting: extras?.diagnostics ? [...extras.diagnostics.conflicting] : [],
       redundant: extras?.diagnostics ? [...extras.diagnostics.redundant] : [],
+      underconstrainedEntities: extras?.diagnostics
+        ? [...extras.diagnostics.underconstrainedEntities]
+        : null,
     };
   }
 

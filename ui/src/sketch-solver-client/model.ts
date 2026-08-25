@@ -79,6 +79,33 @@ export type SolvedSketchModel = {
   /** Entities to tint as conflict members: referenced by a conflicting
    * constraint, or owning conflicting internal (arc-consistency) rows. */
   conflictingEntityIds: Set<number>;
+  /**
+   * Entities verified immovable (the per-edge constrained tint): the
+   * solve converged, diagnose ran, the entity is not in the snapshot's
+   * `underconstrainedEntities`, and it is not a conflict member. Empty
+   * when there is no verdict — absence of a verdict never reads as
+   * "constrained". At dof 0 this covers every entity (the old
+   * whole-sketch green, now derived).
+   */
+  constrainedEntityIds: Set<number>;
+  /**
+   * Reference producers (P6 project()/intersect() statements) → the
+   * fixed entity ids their edges registered as. Their geometry is
+   * locked, so the mesh tints them constrained — unless one of their
+   * entities is a conflict member (an unsatisfiable constraint against
+   * a projected edge).
+   */
+  referenceProducers: Map<string, number[]>;
+  /**
+   * Derived-op statements (copy/mirror/rotate) → the solver entity ids
+   * their stamped duplicates derive from — sources plus transform
+   * inputs (mirror line, center ref). Duplicates are rigid images, so
+   * the mesh tints them with the sources' verdict: constrained when
+   * every id is, conflict when any id is a conflict member. Only
+   * present when the kernel could vouch for EVERY source
+   * (`sourcesSolved`); an op over unverdicted geometry stays out.
+   */
+  derivedProducers: Map<string, number[]>;
   dof: number | null;
   outcome: SolveOutcome | null;
   fullyConstrained: boolean;
@@ -221,6 +248,8 @@ export function buildSolvedSketchModel(
 
   const entities = new Map<number, SolvedEntityView>();
   const constraints: SolvedConstraintView[] = [];
+  const referenceProducers = new Map<string, number[]>();
+  const derivedProducers = new Map<string, number[]>();
 
   for (const obj of allObjects) {
     if (obj.parentId !== sketch.id) {
@@ -238,13 +267,28 @@ export function buildSolvedSketchModel(
     // (refIndex null → `tangent(p, l)`), multi-entity by `.ref(i)`.
     if (REFERENCE_TYPES.has(obj.uniqueType ?? '') && Array.isArray(obj.object?.entities) && solver) {
       const records = obj.object.entities as { entityId: number; kind: SolvedEntityKind; edgeIndex: number }[];
+      const joined: number[] = [];
       for (const record of records) {
         const refIndex = records.length === 1 ? null : record.edgeIndex;
         const view = referenceEntityView(solver, obj, record.entityId, record.kind, refIndex);
         if (view) {
           entities.set(record.entityId, view);
+          joined.push(record.entityId);
         }
       }
+      if (joined.length > 0 && obj.id) {
+        referenceProducers.set(obj.id, joined);
+      }
+      continue;
+    }
+
+    // Derived ops (copy/mirror/rotate) whose sources are all solver-backed:
+    // their duplicates inherit the sources' constrained verdict.
+    if (obj.id && obj.object?.sourcesSolved === true && Array.isArray(obj.object.sourceEntities)) {
+      derivedProducers.set(
+        obj.id,
+        (obj.object.sourceEntities as unknown[]).filter((n): n is number => typeof n === 'number'),
+      );
       continue;
     }
 
@@ -291,6 +335,19 @@ export function buildSolvedSketchModel(
   const dof = solver?.dof ?? null;
   const outcome = solver?.outcome ?? null;
   const conflictCount = conflictingIds.size;
+
+  // Per-entity constrained verdict: only a converged solve with a
+  // diagnose pass can vouch that an entity cannot move.
+  const constrainedEntityIds = new Set<number>();
+  if (outcome === 'solved' && solver?.underconstrainedEntities) {
+    const under = new Set(solver.underconstrainedEntities);
+    for (const id of entities.keys()) {
+      if (!under.has(id) && !conflictingEntityIds.has(id)) {
+        constrainedEntityIds.add(id);
+      }
+    }
+  }
+
   return {
     sketch,
     plane: sketch.object.plane as PlaneData,
@@ -299,6 +356,9 @@ export function buildSolvedSketchModel(
     constraints,
     hasDatums: solver?.entities.some(e => e.id < 0) ?? false,
     conflictingEntityIds,
+    constrainedEntityIds,
+    referenceProducers,
+    derivedProducers,
     dof,
     outcome,
     fullyConstrained: dof === 0 && outcome === 'solved' && conflictCount === 0,

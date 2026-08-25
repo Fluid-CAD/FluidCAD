@@ -29,6 +29,7 @@ type Snapshot = {
   dof: number | null;
   conflicting: number[];
   redundant: number[];
+  underconstrainedEntities: number[] | null;
 };
 
 function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
@@ -40,6 +41,7 @@ function snapshot(overrides: Partial<Snapshot> = {}): Snapshot {
     dof: 0,
     conflicting: [],
     redundant: [],
+    underconstrainedEntities: [],
     ...overrides,
   };
 }
@@ -144,6 +146,46 @@ describe('solved sketch read model', () => {
     expect(glyphsOf(objects, snapshot({ dof: 2 })).model.fullyConstrained).toBe(false);
     expect(glyphsOf(objects, snapshot({ dof: 0, outcome: 'singular' })).model.fullyConstrained).toBe(false);
     expect(glyphsOf(objects, snapshot({ dof: 0, conflicting: [7] })).model.fullyConstrained).toBe(false);
+  });
+
+  it('derives per-entity constrained ids from the underconstrained verdict', () => {
+    const objects = [line(0, [0, 0], [10, 0]), line(1, [10, 0], [10, 8])];
+    const { model } = glyphsOf(objects, snapshot({ dof: 4, underconstrainedEntities: [1] }));
+    expect(model.constrainedEntityIds.has(0)).toBe(true);
+    expect(model.constrainedEntityIds.has(1)).toBe(false);
+  });
+
+  it('never reads a missing or unsolved verdict as constrained', () => {
+    const objects = [line(0, [0, 0], [10, 0])];
+    const noVerdict = glyphsOf(objects, snapshot({ underconstrainedEntities: null }));
+    expect(noVerdict.model.constrainedEntityIds.size).toBe(0);
+    const unsolved = glyphsOf(objects, snapshot({ outcome: 'didnt-converge' }));
+    expect(unsolved.model.constrainedEntityIds.size).toBe(0);
+  });
+
+  it('joins derived-op duplicates to their source entities', () => {
+    const copy = child('copy-linear-2d', { sourceEntities: [0, 1], sourcesSolved: true });
+    const unvouched = child('mirror-shape-2d', { sourceEntities: [0], sourcesSolved: false });
+    const { model } = glyphsOf([
+      line(0, [0, 0], [10, 0]),
+      line(1, [0, 5], [10, 5]),
+      copy,
+      unvouched,
+    ], snapshot({ dof: 0 }));
+    expect(model.derivedProducers.get(copy.id!)).toEqual([0, 1]);
+    // An op the kernel could not fully vouch for stays out — no verdict.
+    expect(model.derivedProducers.has(unvouched.id!)).toBe(false);
+  });
+
+  it('excludes conflict members from the constrained set', () => {
+    const objects = [
+      line(0, [0, 0], [10, 0]),
+      line(1, [10, 0], [10, 8]),
+      constraint('distance', 0, { kind: 'distance', a: { entity: 0, point: 'start' }, b: { entity: 0, point: 'end' }, value: 100 }, 100),
+    ];
+    const { model } = glyphsOf(objects, snapshot({ dof: 0, conflicting: [0] }));
+    expect(model.constrainedEntityIds.has(0)).toBe(false);
+    expect(model.constrainedEntityIds.has(1)).toBe(true);
   });
 });
 
@@ -533,6 +575,10 @@ describe('fixed reference entities (P6)', () => {
 
     // The free line still joins normally.
     expect(model.entities.get(1)!.reference).toBeUndefined();
+
+    // The producer statement maps to its fixed entities — the mesh tints
+    // its edges constrained (locked geometry cannot move).
+    expect(model.referenceProducers.get(projection.id!)).toEqual([0]);
   });
 
   it('multi-edge producers carry their .ref(i) index', () => {

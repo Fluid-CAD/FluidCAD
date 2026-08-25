@@ -7,6 +7,7 @@ import { rad } from "../helpers/math-helpers.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
+import { collectSourceEntities, sourceEntitiesPayload } from "./2d/solved/source-entities.js";
 
 export class Rotate2D extends GeometrySceneObject {
   private _targetObjects: SceneObject[] | null = null;
@@ -46,6 +47,14 @@ export class Rotate2D extends GeometrySceneObject {
 
     if (this._excludedObjects.length > 0) {
       targetObjects = targetObjects.filter(obj => !this._excludedObjects.includes(obj));
+    }
+
+    // Record before the transform loop — move mode strips source shapes,
+    // and the collection guard skips shape-less objects. Rotated geometry
+    // follows its sources and the center ref, so the viewport tints it
+    // constrained only when all of those are.
+    if (this.sketch.isSolvedMode()) {
+      this.setState('source-entities', collectSourceEntities(targetObjects, { center: this.center }));
     }
 
     const plane = this.sketch.getPlane();
@@ -145,6 +154,7 @@ export class Rotate2D extends GeometrySceneObject {
     return {
       angle: this.angle,
       center: center ? [center.x, center.y] : null,
+      ...sourceEntitiesPayload(this.getState('source-entities')),
     }
   }
 }

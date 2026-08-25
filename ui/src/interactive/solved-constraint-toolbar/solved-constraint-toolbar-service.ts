@@ -43,6 +43,7 @@ import {
   constraintOptions,
   dimensionFormFor,
   dimensionPreviewLayout,
+  distancePlacementMoot,
   expandDimensionPicks,
   inferTangency,
   isPointPick,
@@ -555,10 +556,20 @@ export class SolvedConstraintToolbarService {
       this.openValueInput('dimension', dimPicks);
       return;
     }
+    // An axis-aligned point pair has no placement choice — the one axis the
+    // cursor could pick measures what the aligned form measures. Straight
+    // to the value input.
+    const rawPicks = expandDimensionPicks(dimPicks);
+    const a = refPoint(this.model, pickRef(axisPicks[0]));
+    const b = refPoint(this.model, pickRef(axisPicks[1]));
+    if (a && b && distancePlacementMoot(rawPicks, a, b)) {
+      this.openValueInput('dimension', dimPicks);
+      return;
+    }
     this.valueInput.hide();
     this.cancelDistancePlacement();
     this.distancePlacement = {
-      rawPicks: expandDimensionPicks(dimPicks),
+      rawPicks,
       axisPicks,
       form,
       axis: undefined,

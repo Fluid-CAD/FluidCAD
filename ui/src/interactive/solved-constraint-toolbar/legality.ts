@@ -122,6 +122,9 @@ export function axisDimensionPicks(rawPicks: SolvedPick[]): [SolvedPick, SolvedP
   return a && b ? [a, b] : null;
 }
 
+/** Below this a measure rounds to 0 at the 2dp write-back precision. */
+const ZERO_2DP = 0.005;
+
 /** Which distance form the cursor's position picks during placement — the
  * classic smart-dimension regions around the measured point pair: within
  * the pair's x-range above/below → horizontal (Δx), within the y-range
@@ -130,7 +133,7 @@ export function axisDimensionPicks(rawPicks: SolvedPick[]): [SolvedPick, SolvedP
  * precision) is never offered: a zero dimension is a conflict in waiting,
  * and the aligned form already IS that measurement. */
 export function axisFromCursor(a: Vec2, b: Vec2, cursor: Vec2): 'x' | 'y' | undefined {
-  const ZERO = 0.005;
+  const ZERO = ZERO_2DP;
   const inX = cursor[0] >= Math.min(a[0], b[0]) && cursor[0] <= Math.max(a[0], b[0]);
   const inY = cursor[1] >= Math.min(a[1], b[1]) && cursor[1] <= Math.max(a[1], b[1]);
   if (inX && !inY && Math.abs(b[0] - a[0]) >= ZERO) {
@@ -140,6 +143,18 @@ export function axisFromCursor(a: Vec2, b: Vec2, cursor: Vec2): 'x' | 'y' | unde
     return 'y';
   }
   return undefined;
+}
+
+/** True when the placement stage has no real choice to offer: a pure point
+ * pair that is already axis-aligned. The zero-measure axis is never
+ * offered, and the surviving one measures exactly what the aligned form
+ * measures — so the caller skips placement and opens the value input
+ * directly on the aligned form. Round picks always place: their aligned
+ * form measures to the CIRCUMFERENCE while the axis forms measure the
+ * centers, a real choice even when the centers line up. */
+export function distancePlacementMoot(rawPicks: SolvedPick[], a: Vec2, b: Vec2): boolean {
+  return rawPicks.every(isPointPick)
+    && (Math.abs(b[0] - a[0]) < ZERO_2DP || Math.abs(b[1] - a[1]) < ZERO_2DP);
 }
 
 const NEED = {

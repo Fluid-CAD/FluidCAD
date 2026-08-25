@@ -6,6 +6,7 @@ import {
   constraintOptions,
   dimensionFormFor,
   dimensionPreviewLayout,
+  distancePlacementMoot,
   expandDimensionPicks,
   inferTangency,
   measureDimension,
@@ -162,6 +163,21 @@ describe('axisFromCursor', () => {
   });
 });
 
+describe('distancePlacementMoot', () => {
+  it('an axis-aligned point pair skips placement — the only axis measures the aligned value', () => {
+    expect(distancePlacementMoot([endA, startB], [0, 0], [10, 0])).toBe(true);
+    expect(distancePlacementMoot([endA, startB], [3, -2], [3, 9])).toBe(true);
+  });
+
+  it('a diagonal pair still places', () => {
+    expect(distancePlacementMoot([endA, startB], [0, 0], [10, 8])).toBe(false);
+  });
+
+  it('round targets always place — their aligned form measures the circumference, not the centers', () => {
+    expect(distancePlacementMoot([pointP, circleC], [0, 0], [10, 0])).toBe(false);
+  });
+});
+
 // ---------------------------------------------------------------------------
 
 function entityView(entityId: number, fields: Partial<SolvedEntityView> & { kind: SolvedEntityView['kind'] }): SolvedEntityView {
@@ -184,6 +200,7 @@ const model: SolvedSketchModel = {
   fullyConstrained: false,
   conflictCount: 0,
   redundantCount: 0,
+  hasDatums: false,
 };
 
 describe('measureDimension', () => {

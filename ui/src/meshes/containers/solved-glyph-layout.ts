@@ -49,6 +49,9 @@ import type {
 import { localToWorld } from '../../interactive/sketch-plane-utils';
 import { pixelScale, pixelsToWorld } from '../screen-scale';
 import { getIconTexture } from './badge-textures';
+import type { BoxPx, GlyphBox } from './glyph-box';
+
+export type { BoxPx, GlyphBox } from './glyph-box';
 
 export type Vec2 = [number, number];
 
@@ -106,19 +109,14 @@ export type DimensionSprite = LayoutSprite & {
   leader: [Vec2, Vec2] | null;
   link: Line | null;
   /**
-   * Drawn footprint in px, owned by this pass and SHARED BY REFERENCE with
-   * the glyph's hit target (like `placement`). An aligned label rolls with
-   * its line, so its screen bounds change with the camera and a pick box
-   * frozen at build time would drift off what is drawn.
+   * The rectangle this label is DRAWN as, owned by this pass and SHARED BY
+   * REFERENCE with the glyph's hit target (like `placement`). An aligned
+   * label rolls with its line, so both its offset and its angle change with
+   * the camera and a pick frozen at build time would test a box the label
+   * never covers.
    */
   box: GlyphBox;
-  /** In-plane rotation applied on top of the camera facing, radians CCW.
-   * Written every solve; 0 for every style but `aligned`. */
-  roll: number;
 };
-
-/** Half extents of a drawn glyph, px. */
-export type GlyphBox = { halfWidthPx: number; halfHeightPx: number };
 
 /** Drawn elsewhere, but reserved so nothing lands on it (angle readouts). */
 export type FixedAnnotation = {
@@ -157,8 +155,9 @@ function rollFor(d: Pt): number {
 }
 
 /** Axis-aligned bounds of a sprite's box once rolled — what the declutterer
- * reserves and what the hit target picks. */
-function rolledBounds(sprite: LayoutSprite, roll: number): GlyphBox {
+ * reserves. (The hit target keeps the rolled box itself, so what picks stays
+ * what is drawn.) */
+function rolledBounds(sprite: LayoutSprite, roll: number): BoxPx {
   const c = Math.abs(Math.cos(roll));
   const s = Math.abs(Math.sin(roll));
   return {
@@ -333,10 +332,11 @@ export class SolvedGlyphLayout {
       const slidePx = Math.hypot(slideVec.x, slideVec.y);
       const slide = unitDir(projection, sprite.slideLocal, { x: 1, y: 0 });
       // An aligned label lies ALONG its dimension line, so it rolls to the
-      // line's screen angle — flipped to keep the value readable.
-      sprite.roll = sprite.style === 'aligned' ? rollFor(slide) : 0;
-      const rolled = rolledBounds(sprite, sprite.roll);
-      Object.assign(sprite.box, rolled);
+      // line's screen angle — flipped to keep the value readable. The hit
+      // target shares this box, so the pick rolls with the label; only the
+      // declutterer needs the axis-aligned bounds of the result.
+      sprite.box.roll = sprite.style === 'aligned' ? rollFor(slide) : 0;
+      const rolled = rolledBounds(sprite, sprite.box.roll);
       return {
         anchor: project(sprite.anchorWorld),
         push: unitDir(projection, sprite.pushLocal, { x: 0, y: -1 }),
@@ -478,7 +478,7 @@ export class SolvedGlyphLayout {
       place(sprite);
     }
     for (const sprite of this.dimensions) {
-      place(sprite, sprite.roll);
+      place(sprite, sprite.box.roll);
     }
     for (const pill of this.pills) {
       if (!pill.group.visible) {

@@ -74,6 +74,11 @@ export type BadgeHitTarget = {
   placement: Placement;
   halfWidthPx: number;
   halfHeightPx: number;
+  /** In-plane roll of that box on screen, radians CCW — an `aligned`
+   * dimension label lies ALONG its line, so its drawn rectangle is not
+   * screen-axis-aligned. Owned by the layout pass (by reference, like
+   * `placement`); 0 for every other glyph. */
+  roll: number;
   /** Materials to recolor while hovered. */
   materials: (MeshBasicMaterial | LineBasicMaterial)[];
   baseColor: Color;
@@ -402,6 +407,7 @@ export function buildSolvedConstraintMeshes(
           placement,
           halfWidthPx: (pxSize * texture.aspect) / 2,
           halfHeightPx: pxSize / 2,
+          roll: 0,
           materials: [material],
           baseColor: color,
         };
@@ -442,11 +448,10 @@ export function buildSolvedConstraintMeshes(
             leader: glyph.leader ?? null,
             link,
             order,
-            // A rolled label's screen bounds move with the camera: the hit
+            // A rolled label's screen angle moves with the camera: the hit
             // target hands its own box to the layout so the pick stays on
             // what is drawn (the placement's by-reference rule).
             box: hit,
-            roll: 0,
           });
         }
         break;
@@ -480,6 +485,7 @@ export function buildSolvedConstraintMeshes(
           placement: { visible: true, dx: 0, dy: 0 },
           halfWidthPx: DOT_PX_RADIUS + 2,
           halfHeightPx: DOT_PX_RADIUS + 2,
+          roll: 0,
           materials: [material],
           baseColor: color,
           onGeometry: true,
@@ -559,6 +565,7 @@ export function buildSolvedConstraintMeshes(
           placement,
           halfWidthPx: (ANGLE_TEXT_PX_SIZE * visual.textAspect) / 2,
           halfHeightPx: ANGLE_TEXT_PX_SIZE / 2,
+          roll: 0,
           materials: visual.materials,
           baseColor: color,
         });

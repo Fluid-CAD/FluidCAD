@@ -16,6 +16,7 @@ import { EdgeEntry, CenterEntry, buildEdgeIndex, buildCenterIndex, pointToSegmen
 import { themeColors } from '../scene/theme-colors';
 import { applyConstantPixelSize } from '../meshes/screen-scale';
 import { BadgeHitTarget } from '../meshes/containers/solved-constraint-meshes';
+import { insideGlyphBox } from '../meshes/containers/glyph-box';
 import {
   SolvedSketchModel,
   buildSolvedSketchModel,
@@ -990,7 +991,37 @@ export class SketchHoverSelectHandler {
     }
   }
 
+  /**
+   * A point target — a solved entity vertex, or the origin datum — under the
+   * cursor, at the hover pass's own threshold. Whatever vetoes a glyph here
+   * is exactly what the pick then lands on.
+   */
+  private hasPointTargetAt(clientX: number, clientY: number): boolean {
+    if (!this.solvedModel) {
+      return false;
+    }
+    const point2d = projectToSketch(this.ctx, this.plane, clientX, clientY);
+    if (!point2d) {
+      return false;
+    }
+    const threshold = pixelToSketchThreshold(this.ctx, VERTEX_PICK_PX);
+    if (solvedHitTest(this.solvedModel, point2d, threshold, 0)?.type === 'vertex') {
+      return true;
+    }
+    return datumHitTest(this.solvedModel, point2d, threshold, 0) !== null;
+  }
+
   private findBadgeAt(clientX: number, clientY: number): BadgeHitTarget | null {
+    // A point target under the cursor keeps its own pick. Dimension labels are
+    // big boxes that legitimately lie over the geometry they measure — a
+    // diameter's value rides the chord, one gap off the circle's CENTER —
+    // while a vertex is a 12 px disc with nowhere else to be grabbed. The
+    // label stays pickable everywhere else in its box, and hover, click,
+    // double-click and the drag handler's veto all agree because all four ask
+    // this one question.
+    if (this.hasPointTargetAt(clientX, clientY)) {
+      return null;
+    }
     let best: BadgeHitTarget | null = null;
     let bestDist = Infinity;
     for (const target of this.badgeTargets) {
@@ -1005,9 +1036,13 @@ export class SketchHoverSelectHandler {
       if (!centerPos) {
         continue;
       }
-      const dx = Math.abs(clientX - centerPos.x);
-      const dy = Math.abs(clientY - centerPos.y);
-      if (dx > target.halfWidthPx + BADGE_HIT_SLACK_PX || dy > target.halfHeightPx + BADGE_HIT_SLACK_PX) {
+      const dx = clientX - centerPos.x;
+      const dy = clientY - centerPos.y;
+      // Tested in the glyph's OWN frame: an aligned label lies along its
+      // dimension line, so a screen-axis box would claim corners the label
+      // never covers — twice its area at 45°, all of it over the circle it
+      // is dimensioning.
+      if (!insideGlyphBox(dx, dy, target, BADGE_HIT_SLACK_PX)) {
         continue;
       }
       const d = dx * dx + dy * dy;

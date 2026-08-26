@@ -291,6 +291,26 @@ describe("derived ops on solved sketches (P6 audit)", () => {
       expect(rot!.getAddedShapes().length).toBeGreaterThan(0);
     });
 
+    it("keeps an accessor center out of the target list without a copy flag", () => {
+      // rotate(45, l.start(), c): the LazyVertex center must not be eaten
+      // by the trailing-targets extraction — it is the center argument.
+      let rot: { getAddedShapes(): unknown[]; targetObjects: unknown[] | null };
+      let c: ISolvedCircle;
+      sketch('xy', () => {
+        c = circle([80, 80], 20);
+        const l = line([30, 40], [70, 20]);
+        rot = rotate(45, l.start(), c) as unknown as {
+          getAddedShapes(): unknown[]; targetObjects: unknown[] | null;
+        };
+      });
+      const scene = render();
+
+      expect(renderedErrors(scene).size).toBe(0);
+      expect(rot!.targetObjects).toHaveLength(1);
+      expect(rot!.targetObjects![0]).toBe(c!);
+      expect(rot!.getAddedShapes().length).toBeGreaterThan(0);
+    });
+
     it("refuses the pen-centered form per statement", () => {
       sketch('xy', () => {
         const c = circle([30, 0], 20);

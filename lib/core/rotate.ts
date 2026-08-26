@@ -8,6 +8,7 @@ import { materializePartArgs } from "../features/part-args.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisObject } from "../features/axis.js";
 import { Rotate2D } from "../features/rotate2d.js";
+import { LazyVertex } from "../features/lazy-vertex.js";
 import { IRotate, ISceneObject } from "./interfaces.js";
 import { type NumberParam, type BooleanParam, isBooleanParam, resolveParam } from "./param.js";
 
@@ -70,9 +71,12 @@ function build(context: SceneParserContext): RotateFunction {
     const args = materializePartArgs(Array.from(arguments));
     const activeSketch = context.getActiveSketch();
 
-    // Extract SceneObject targets from the end
+    // Extract SceneObject targets from the end. A LazyVertex is a point
+    // value — an accessor center like l.end() — never a rotate target, so
+    // it stays in place for the center argument below.
     const targets: SceneObject[] = [];
-    while (args.length > 0 && args[args.length - 1] instanceof SceneObject) {
+    while (args.length > 0 && args[args.length - 1] instanceof SceneObject
+      && !(args[args.length - 1] instanceof LazyVertex)) {
       targets.unshift(args.pop() as SceneObject);
     }
 

@@ -313,9 +313,7 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
   start(): LazyVertex {
     return new LazyVertex(this.generateUniqueName('start-vertex'), () => {
       const start = this.getState('start');
-      console.log('Getting start vertex:', start);
       if (start) {
-        console.log('Getting start vertex:', start);
         return [start];
       }
       return [];
@@ -326,7 +324,6 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
     return new LazyVertex(this.generateUniqueName('end-vertex'), () => {
       const end = this.getState('end');
       if (end) {
-        console.log('Getting end vertex:', end);
         return [end];
       }
       return [];

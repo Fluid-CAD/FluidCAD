@@ -359,3 +359,155 @@ describe('applySolvedEmission', () => {
     expect(result.newCode).toContain('horizontal(l2);');
   });
 });
+
+// Statement removals riding the emission (constraint-native fillet): the
+// corner coincident is deleted in the same edit that inserts the arc and its
+// coincident/tangent/radius rows.
+describe('applySolvedEmission removals', () => {
+  const CORNER = [
+    `import { sketch, line } from "fluidcad/core";`,
+    `import { coincident } from "fluidcad/constraints";`,
+    ``,
+    `sketch('xy', () => {`,
+    `  const a = line([0, 0], [100, 0]);`,
+    `  const b = line([100, 0], [100, 50]);`,
+    `  coincident(a.end(), b.start());`,
+    `});`,
+  ].join('\n');
+
+  it('removes the corner coincident while inserting the fillet arc and its rows', async () => {
+    const result = await applySolvedEmission(CORNER, {
+      sketchLine: 4,
+      geometry: [{ kind: 'arc', text: 'arc([96, 0], [100, 4], [96, 4])' }],
+      constraints: [
+        { kind: 'coincident', targets: [{ newIndex: 0, role: 'start' }, { line: 5, role: 'end', featureType: 'line' }] },
+        { kind: 'coincident', targets: [{ newIndex: 0, role: 'end' }, { line: 6, role: 'start', featureType: 'line' }] },
+        { kind: 'tangent', targets: [{ line: 5, featureType: 'line' }, { newIndex: 0 }] },
+        { kind: 'tangent', targets: [{ newIndex: 0 }, { line: 6, featureType: 'line' }] },
+        { kind: 'radius', targets: [{ newIndex: 0 }], valueExpr: '4' },
+      ],
+      removals: [{ line: 7 }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).not.toContain('coincident(a.end(), b.start());');
+    const lines = result.newCode.split('\n');
+    const arcIdx = lines.findIndex(l => l.includes('const a1 = arc([96, 0], [100, 4], [96, 4]);'));
+    expect(arcIdx).toBeGreaterThan(0);
+    expect(result.newCode).toContain('coincident(a1.start(), a.end());');
+    expect(result.newCode).toContain('coincident(a1.end(), b.start());');
+    expect(result.newCode).toContain('tangent(a, a1);');
+    expect(result.newCode).toContain('tangent(a1, b);');
+    expect(result.newCode).toContain('radius(a1, 4);');
+    // The reported geometry line still points at the arc statement.
+    expect(lines[result.geometryLines![0] - 1]).toContain('const a1 = arc(');
+    // tangent/radius imports were added.
+    expect(result.newCode).toContain('tangent');
+    expect(lines[0]).toContain('fluidcad/core');
+  });
+
+  it('reports geometry lines that survive a removal ABOVE the insertion region', async () => {
+    // The removed statement IS the body's first constraint statement — the
+    // row geometry inserts at. The removal must map past both insertions and
+    // the reported geometry line must still be exact.
+    const code = [
+      `import { sketch, line } from "fluidcad/core";`,
+      `import { coincident, horizontal } from "fluidcad/constraints";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [100, 0]);`,
+      `  const b = line([100, 0], [100, 50]);`,
+      `  coincident(a.end(), b.start());`,
+      `  horizontal(a);`,
+      `});`,
+    ].join('\n');
+    const result = await applySolvedEmission(code, {
+      sketchLine: 4,
+      geometry: [{ kind: 'arc', text: 'arc([96, 0], [100, 4], [96, 4])' }],
+      constraints: [
+        { kind: 'tangent', targets: [{ line: 5, featureType: 'line' }, { newIndex: 0 }] },
+      ],
+      removals: [{ line: 7 }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).not.toContain('coincident(a.end(), b.start());');
+    expect(result.newCode).toContain('horizontal(a);');
+    const lines = result.newCode.split('\n');
+    expect(lines[result.geometryLines![0] - 1]).toContain('arc([96, 0], [100, 4], [96, 4])');
+  });
+
+  it('refuses a removal that is not a constraint statement', async () => {
+    const result = await applySolvedEmission(CORNER, {
+      sketchLine: 4,
+      geometry: [],
+      constraints: [],
+      removals: [{ line: 5 }],
+    });
+    expect(result.error).toContain('not a constraint statement');
+  });
+
+  it('refuses a removal outside the sketch body', async () => {
+    const code = [
+      `import { sketch, line } from "fluidcad/core";`,
+      `import { horizontal } from "fluidcad/constraints";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [100, 0]);`,
+      `});`,
+      `sketch('xz', () => {`,
+      `  const c = line([0, 0], [50, 0]);`,
+      `  horizontal(c);`,
+      `});`,
+    ].join('\n');
+    const result = await applySolvedEmission(code, {
+      sketchLine: 4,
+      geometry: [],
+      constraints: [],
+      removals: [{ line: 9 }],
+    });
+    expect(result.error).toContain('outside the sketch body');
+  });
+
+  it('refuses a removal that is also a constraint target', async () => {
+    const result = await applySolvedEmission(CORNER, {
+      sketchLine: 4,
+      geometry: [],
+      constraints: [
+        { kind: 'tangent', targets: [{ line: 7 }, { line: 5, featureType: 'line' }] },
+      ],
+      removals: [{ line: 7 }],
+    });
+    expect(result.error).toContain('both a constraint target and a removal');
+  });
+
+  it('refuses a removal inside a loop', async () => {
+    const code = [
+      `import { sketch, line } from "fluidcad/core";`,
+      `import { horizontal } from "fluidcad/constraints";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  for (let i = 0; i < 3; i++) {`,
+      `    const a = line([0, i * 10], [100, i * 10]);`,
+      `    horizontal(a);`,
+      `  }`,
+      `});`,
+    ].join('\n');
+    const result = await applySolvedEmission(code, {
+      sketchLine: 4,
+      geometry: [],
+      constraints: [],
+      removals: [{ line: 7 }],
+    });
+    expect(result.error).toContain('inside a loop');
+  });
+
+  it('accepts a removals-only emission', async () => {
+    const result = await applySolvedEmission(CORNER, {
+      sketchLine: 4,
+      geometry: [],
+      constraints: [],
+      removals: [{ line: 7 }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).not.toContain('coincident(');
+  });
+});

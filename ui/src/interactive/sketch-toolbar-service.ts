@@ -25,7 +25,7 @@ import { findActiveObject } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData, SourceLocation } from '../types';
 import { Viewer } from '../viewer';
 import { ProjectionPickService } from './projection-pick-service';
-import { SketchOpDialog, SketchOpService, SketchOpSelection, SketchPickDescription } from './sketch-op-service';
+import { SketchOpDialog, SketchOpService, SketchOpSelection, SketchPickDescription, SolvedFilletRail } from './sketch-op-service';
 import { SketchCopyService } from './sketch-copy-service';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { VariableInfo } from '../ui/expression-input';
@@ -179,10 +179,41 @@ export class SketchToolbarService {
     const opGhost = new FeatureGhostOverlay(viewer);
     const opService = (config: ConstructorParameters<typeof SketchOpService>[1]) =>
       new SketchOpService(container, config, opSelection, opVars, opDone, opGhost);
-    this.filletOp = opService({
+    // Constraint-native fillet (P8): the create path reads the solved picks
+    // + model for the corner math and applies through the atomic
+    // insert-solved rail (arc + coincident/tangent/radius rows, corner
+    // coincidents removed). Bypasses the guide latch on purpose — a fillet
+    // arc is real profile geometry.
+    const filletRail: SolvedFilletRail = {
+      picks: () => this.activeHoverSelectHandler?.getSolvedPicks() ?? [],
+      model: () => this.activeSketchInfo
+        ? buildSolvedSketchModel(this.activeSketchInfo.sketchObj, this.viewer.currentSceneObjects)
+        : null,
+      emit: async (request) => {
+        const info = this.activeSketchInfo;
+        if (!info) {
+          return { success: false, reason: 'no active sketch' };
+        }
+        const result = await insertSolvedGeometry({
+          sketchLine: this.solvedEmitSketchLine ?? info.sourceLocation.line,
+          filePath: info.sourceLocation.filePath,
+          geometry: request.geometry,
+          constraints: request.constraints,
+          ...(request.newVariables && request.newVariables.length > 0
+            ? { newVariables: request.newVariables } : {}),
+          ...(request.removals && request.removals.length > 0
+            ? { removals: request.removals } : {}),
+        });
+        if (result.success && result.sketchLine !== undefined) {
+          this.solvedEmitSketchLine = result.sketchLine;
+        }
+        return result;
+      },
+    };
+    this.filletOp = new SketchOpService(container, {
       feature: 'fillet', title: 'Fillet', pickHint: 'Pick sketch edges to fillet',
       value: { label: 'Radius', defaultValue: '2', sign: 'positive' },
-    });
+    }, opSelection, opVars, opDone, opGhost, filletRail);
     this.copyOp = new SketchCopyService(container, opSelection, opVars, opDone, opGhost);
     this.offsetOp = opService({
       feature: 'offset', title: 'Offset', pickHint: 'Pick sketch edges to offset',
@@ -690,6 +721,8 @@ export class SketchToolbarService {
             constraints: request.constraints,
             ...(request.newVariables && request.newVariables.length > 0
               ? { newVariables: request.newVariables } : {}),
+            ...(request.removals && request.removals.length > 0
+              ? { removals: request.removals } : {}),
           });
           if (!result.success) {
             this.showOpMessage(result.reason ?? 'the sketch edit was refused');
@@ -797,13 +830,15 @@ export class SketchToolbarService {
       this.viewer.sceneContext,
       this.activeSketchInfo.plane,
       () => this.activeSolvedDragHandler?.isResizing ?? false,
-      // The copy dialog's picks accumulate like its 3D counterpart's: every
-      // click toggles a target in or out and an empty-space click keeps the
-      // list — a multi-slot dialog's pick set must not vanish under a stray
-      // click. The armed two-pick dimension tool accumulates the same way
-      // (its second plain click must not replace the first pick). The
-      // single-value ops keep the classic replace-and-clear rails.
-      () => (this.toolbar.activeTool === 'copy' || this.solvedToolbar.isDimensionArmed
+      // The copy and fillet dialogs' picks accumulate like the 3D dialogs':
+      // every click toggles a target in or out and an empty-space click
+      // keeps the list — a multi-pick dialog's set must not vanish under a
+      // stray click (a fillet routinely wants several edges). The armed
+      // two-pick dimension tool accumulates the same way (its second plain
+      // click must not replace the first pick). The remaining single-value
+      // ops keep the classic replace-and-clear rails.
+      () => (this.toolbar.activeTool === 'copy' || this.toolbar.activeTool === 'fillet'
+        || this.solvedToolbar.isDimensionArmed
         ? 'toggle' : 'replace'),
     );
     this.activeHoverSelectHandler.onSelectionChange = () => {

@@ -116,6 +116,39 @@ describe('/api/sketch/insert-solved', () => {
     expect(relayed[0].spec.sketchEmission.constraints[0].kind).toBe('coincident');
   });
 
+  it('carries removals through and preflights them (constraint-native fillet)', async () => {
+    const { status, body } = await post({
+      sketchLine: 4,
+      geometry: [{ kind: 'line', text: 'line([100, 0], [100, 50])' }],
+      constraints: [],
+      removals: [{ line: 6 }],
+    });
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(relayed[0].spec.sketchEmission.removals).toEqual([{ line: 6 }]);
+
+    // A removal the preflight refuses (an entity statement) is an honest 422.
+    const refused = await post({
+      sketchLine: 4,
+      geometry: [{ kind: 'line', text: 'line([100, 0], [100, 50])' }],
+      constraints: [],
+      removals: [{ line: 5 }],
+    });
+    expect(refused.status).toBe(422);
+    expect(refused.body.reason).toContain('not a constraint statement');
+
+    // Malformed removals reject without relaying.
+    relayed = [];
+    const malformed = await post({
+      sketchLine: 4,
+      geometry: [{ kind: 'line', text: 'line([100, 0], [100, 50])' }],
+      constraints: [],
+      removals: [{ line: 'six' }],
+    });
+    expect(malformed.status).toBe(400);
+    expect(relayed).toHaveLength(0);
+  });
+
   it('carries the guide flag and newVariables through', async () => {
     const { status, body } = await post({
       sketchLine: 4,

@@ -151,6 +151,14 @@ export type SolvedEmissionSpec = {
   /** `const name = init;` declarations riding the commit — locals land at the
    * top of the sketch body, `param(…)` initializers at top level. */
   newVariables?: NewVariableDecl[];
+  /**
+   * Constraint statements to DELETE in the same edit, by 1-indexed line —
+   * the constraint-native fillet removes each corner's point coincident as
+   * it emits the arc that replaces it (leaving it would over-constrain the
+   * corner). Only unbound single-line constraint statements inside the
+   * sketch body qualify; anything else refuses the whole emission.
+   */
+  removals?: { line: number }[];
 };
 
 export type SolvedEmissionResult = {
@@ -367,7 +375,8 @@ export async function applySolvedEmission(
   code: string,
   spec: SolvedEmissionSpec,
 ): Promise<SolvedEmissionResult> {
-  if (spec.geometry.length === 0 && spec.constraints.length === 0) {
+  if (spec.geometry.length === 0 && spec.constraints.length === 0
+    && (spec.removals ?? []).length === 0) {
     return refuse(code, 'nothing to emit');
   }
   for (const g of spec.geometry) {
@@ -497,6 +506,57 @@ export async function applySolvedEmission(
   const body = sketchCall ? findSketchBody(sketchCall) : null;
   if (!sketchCall || !body) {
     return refuse(code, `no sketch statement at line ${spec.sketchLine} — the source changed since the picks were made`);
+  }
+
+  // Removals resolve against the same (post-declaration) tree as the targets.
+  // Only an unbound, single-line constraint statement inside the sketch body
+  // — and outside any loop — qualifies: it is a leaf row nothing else can
+  // reference, so deleting its whole line is always safe.
+  const removalRows: number[] = [];
+  {
+    const targetLines = new Set(spec.constraints
+      .flatMap(c => c.targets)
+      .map(t => t.line)
+      .filter((l): l is number => typeof l === 'number'));
+    const seen = new Set<number>();
+    for (const r of spec.removals ?? []) {
+      if (!Number.isInteger(r.line) || r.line < 1) {
+        return refuse(code, `invalid removal line '${r.line}'`);
+      }
+      if (targetLines.has(r.line)) {
+        return refuse(code, `line ${r.line} is both a constraint target and a removal`);
+      }
+      if (seen.has(r.line)) {
+        continue;
+      }
+      seen.add(r.line);
+      const call = findEditableCallAt(tree, lines, r.line + lineShift);
+      if (!call) {
+        return refuse(code, `no statement at line ${r.line} — the source changed since the picks were made`);
+      }
+      const callee = calleeName(chainBase(call));
+      if (!callee || !SOLVED_CONSTRAINT_KINDS.has(callee)) {
+        return refuse(code, `line ${r.line} is not a constraint statement`);
+      }
+      const statement = enclosingStatement(call);
+      if (statement.type !== 'expression_statement') {
+        return refuse(code, `line ${r.line} is a bound statement — only plain constraint statements can be removed`);
+      }
+      if (statement.startIndex < body.startIndex || statement.endIndex > body.endIndex) {
+        return refuse(code, `line ${r.line} is outside the sketch body`);
+      }
+      if (enclosingLoop(call, body)) {
+        return refuse(code, `line ${r.line} is inside a loop — it constrains every iteration, edit the source instead`);
+      }
+      const row = statement.startPosition.row;
+      if (statement.endPosition.row !== row) {
+        return refuse(code, `line ${r.line} spans multiple lines`);
+      }
+      if (lines[row].trim() !== statement.text.trim()) {
+        return refuse(code, `line ${r.line} holds more than the constraint statement`);
+      }
+      removalRows.push(row);
+    }
   }
 
   const used = collectIdentifiers(tree);
@@ -781,6 +841,23 @@ export async function applySolvedEmission(
   }
   if (geometryTexts.length > 0) {
     resultLines.splice(geometryRow, 0, ...geometryTexts);
+  }
+  // Removals last, back-to-front, mapped past both insertions. A removal is
+  // always a constraint statement, so its row is at or below the body's
+  // first constraint statement — which is exactly where geometry inserts —
+  // meaning every removal lands BELOW the inserted geometry lines: the
+  // reported geometryLines (and the sketch's own line, above the body) never
+  // need re-adjusting for removals.
+  if (removalRows.length > 0) {
+    const finalRemovalRows = removalRows.map(row => {
+      const rr = shiftRow(row);
+      return rr
+        + (rr >= constraintRow ? constraintTexts.length : 0)
+        + (rr >= geometryRow ? geometryTexts.length : 0);
+    });
+    for (const row of finalRemovalRows.sort((a, b) => b - a)) {
+      resultLines.splice(row, 1);
+    }
   }
   result = joinLines(resultLines);
   const rowsBeforeImports = resultLines.length;

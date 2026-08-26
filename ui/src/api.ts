@@ -1550,6 +1550,10 @@ export async function insertSolvedGeometry(options: {
   geometry: SolvedGeometryParam[];
   constraints: SolvedConstraintParam[];
   newVariables?: { name: string; initializer: string }[];
+  /** Constraint statements to DELETE in the same edit, by 1-indexed line —
+   * the constraint-native fillet removes each corner's coincident as it
+   * emits the replacing arc. */
+  removals?: { line: number }[];
 }): Promise<{
   success: boolean;
   reason?: string;

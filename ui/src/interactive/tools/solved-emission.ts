@@ -30,6 +30,10 @@ export type SolvedEmissionRequest = {
   geometry: SolvedGeometryParam[];
   constraints: SolvedConstraintParam[];
   newVariables?: NewVariable[];
+  /** Constraint statements to DELETE in the same edit, by 1-indexed line —
+   * the constraint-native fillet removes each corner's coincident as it
+   * emits the replacing arc. */
+  removals?: { line: number }[];
 };
 
 /** Injected into drawing tools inside a solved sketch (null in legacy

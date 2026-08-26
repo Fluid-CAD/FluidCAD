@@ -7048,14 +7048,25 @@ export function createApplyFeatureRouter(
   // carry each geometry statement's final line — the polyline chain
   // references its previous segment by line without waiting for a render.
   router.post('/sketch/insert-solved', async (req, res) => {
-    const { sketchLine, filePath, geometry, constraints, newVariables } = req.body ?? {};
+    const { sketchLine, filePath, geometry, constraints, newVariables, removals } = req.body ?? {};
     if (typeof sketchLine !== 'number'
       || !Array.isArray(geometry) || !Array.isArray(constraints)
       || geometry.length + constraints.length === 0
       || (filePath !== undefined && typeof filePath !== 'string')
-      || (newVariables !== undefined && !Array.isArray(newVariables))) {
+      || (newVariables !== undefined && !Array.isArray(newVariables))
+      || (removals !== undefined && !Array.isArray(removals))) {
       res.status(400).json({ error: 'Invalid request body' });
       return;
+    }
+    // Statement removals riding the emission (the constraint-native fillet
+    // deletes each corner's coincident as it emits the replacing arc).
+    const cleanRemovals: { line: number }[] = [];
+    for (const r of removals ?? []) {
+      if (typeof r !== 'object' || r === null || !Number.isInteger(r.line) || r.line < 1) {
+        res.status(400).json({ error: 'Invalid request body' });
+        return;
+      }
+      cleanRemovals.push({ line: r.line });
     }
     const cleanGeometry: SolvedGeometryEmission[] = [];
     for (const g of geometry) {
@@ -7146,6 +7157,7 @@ export function createApplyFeatureRouter(
       geometry: cleanGeometry,
       constraints: cleanConstraints,
       ...(cleanVariables.length > 0 ? { newVariables: cleanVariables } : {}),
+      ...(cleanRemovals.length > 0 ? { removals: cleanRemovals } : {}),
     };
 
     // Preflight for the line info (and a fast honest 422); the dispatcher

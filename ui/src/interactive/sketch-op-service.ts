@@ -4,6 +4,12 @@ import {
   NewVariable, OffsetGhostRequest, OffsetOptionValues, ParsedFeatureStatement, Rotate2DOptionValues,
   SketchApplyEntity, SketchOpFeature, ValueExpr,
 } from '../api';
+import type { SolvedSketchModel } from '../sketch-solver-client/model';
+import type { SolvedPick } from './sketch-hover-select-handler';
+import {
+  buildFilletEmission, type FilletEmissionError, type FilletEmissionPlan,
+} from './tools/fillet-emission';
+import type { SolvedEmissionRequest, SolvedEmitResult } from './tools/solved-emission';
 import { ExpressionRow } from './modify-pick/expression-row';
 import { PickSlot, PickSlotChip } from './pick-slot';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
@@ -45,6 +51,19 @@ export type SketchOpDialog = {
   exit(): void;
   refresh(): void;
   noteSketchActive(): void;
+};
+
+/**
+ * The fillet dialog's window onto the solved-sketch world (P8): the resolved
+ * picks and read model the corner math consumes, and the atomic
+ * insert-solved emission rail its Apply writes through. Only the FILLET
+ * create path uses it — an edit dialog still rewrites its legacy `fillet()`
+ * statement through the synthesis rail.
+ */
+export type SolvedFilletRail = {
+  picks(): SolvedPick[];
+  model(): SolvedSketchModel | null;
+  emit(request: SolvedEmissionRequest): Promise<SolvedEmitResult>;
 };
 
 /** The dialog's window onto the sketch selection the hover handler owns. */
@@ -164,6 +183,10 @@ export class SketchOpService {
   /** A seed round-trip is in flight — don't start another. */
   private seedLoading = false;
 
+  /** Scope variables from the last load — the fillet plan resolves a
+   * variable-named radius to its numeric initializer for the guess. */
+  private scopeVariables: VariableInfo[] = [];
+
   constructor(
     container: HTMLElement,
     private readonly config: SketchOpConfig,
@@ -172,6 +195,8 @@ export class SketchOpService {
     private onDone: () => void,
     /** The live viewport geometry overlay; offset and fillet draw into it. */
     private readonly ghost?: FeatureGhostOverlay,
+    /** Constraint-native fillet rail (P8) — fillet dialog only. */
+    private readonly solvedFillet?: SolvedFilletRail,
   ) {
     this.panel = document.createElement('div');
     this.panel.id = `fluidcad-sketch-${config.feature}-panel`;
@@ -542,11 +567,60 @@ export class SketchOpService {
     }
     const variables = await this.fetchVariables();
     if (this.active) {
+      this.scopeVariables = variables;
       this.valueField.setVariables(variables);
       for (const field of this.extraFields.values()) {
         field.setVariables(variables);
       }
     }
+  }
+
+  /** Whether this dialog opening emits a constraint-native fillet (P8):
+   * the fillet CREATE path in a solved sketch. Edits keep rewriting their
+   * legacy `fillet()` statement through the synthesis rail. */
+  private isConstraintNativeFillet(): boolean {
+    return this.config.feature === 'fillet'
+      && this.solvedFillet !== undefined
+      && this.editTarget === null;
+  }
+
+  /** The numeric radius behind the committed value — the guess geometry
+   * needs a number even when the dimension rides an expression. */
+  private numericRadius(value: ValueExpr, newVariable?: NewVariable): number | null {
+    if (typeof value === 'number') {
+      return value > 0 ? value : null;
+    }
+    const initializer = newVariable?.name === value
+      ? newVariable.initializer
+      : this.scopeVariables.find(v => v.name === value)?.initializer;
+    const n = initializer !== undefined ? parseFloat(initializer) : NaN;
+    return isFinite(n) && n > 0 ? n : null;
+  }
+
+  /** The constraint-native fillet plan for the current picks + radius, or
+   * null while the value field is invalid (incompleteReason covers that). */
+  private buildFilletPlan(): FilletEmissionPlan | FilletEmissionError | null {
+    const read = this.readValue();
+    if (!read || 'error' in read) {
+      return null;
+    }
+    const model = this.solvedFillet!.model();
+    if (!model) {
+      return { ok: false, reason: 'the sketch has not rendered yet' };
+    }
+    const radius = this.numericRadius(read.value, read.newVariable);
+    if (radius === null) {
+      return {
+        ok: false,
+        reason: 'enter a numeric radius or a numeric variable — the radius dimension can be edited to any expression afterwards',
+      };
+    }
+    return buildFilletEmission({
+      picks: this.solvedFillet!.picks(),
+      model,
+      radius,
+      radiusExpr: typeof read.value === 'number' ? String(read.value) : read.value,
+    });
   }
 
   /**
@@ -705,6 +779,30 @@ export class SketchOpService {
 
     const abort = new AbortController();
     this.previewAbort = abort;
+
+    // Constraint-native fillet (P8): the plan is computed client-side from
+    // the solved model — no synthesis round trip. The corner-count hint
+    // stands in for the statement expression row, and the OCCT ghost still
+    // previews the resulting arcs.
+    if (this.isConstraintNativeFillet()) {
+      const plan = this.buildFilletPlan();
+      this.expression.hide();
+      if (plan?.ok) {
+        this.setHint(plan.corners === 1
+          ? '1 corner will be filleted'
+          : `${plan.corners} corners will be filleted`);
+        this.setError(null);
+        this.applyBtn.disabled = false;
+        await this.runGhost(value, abort.signal);
+      } else {
+        this.applyBtn.disabled = true;
+        this.setHint(null);
+        this.setError(plan && 'reason' in plan ? plan.reason : 'Enter a positive radius');
+        this.ghost?.clear();
+      }
+      return;
+    }
+
     try {
       const result = await this.send({ value, preview: true, signal: abort.signal });
       if (abort.signal.aborted || !this.active) {
@@ -852,6 +950,34 @@ export class SketchOpService {
     const newVariables = read && !('error' in read) && read.newVariable
       ? [read.newVariable]
       : undefined;
+
+    // Constraint-native fillet (P8): Apply emits the arc + constraint
+    // recipe (and the corner-coincident removals) through the atomic
+    // insert-solved rail instead of writing a `fillet()` statement.
+    if (this.isConstraintNativeFillet()) {
+      const plan = this.buildFilletPlan();
+      if (!plan || !plan.ok) {
+        this.setError(plan && 'reason' in plan ? plan.reason : 'Enter a positive radius');
+        return;
+      }
+      this.applying = true;
+      this.applyBtn.disabled = true;
+      try {
+        const result = await this.solvedFillet!.emit({
+          ...plan.request,
+          ...(newVariables ? { newVariables } : {}),
+        });
+        if (result.success) {
+          this.onDone();
+        } else {
+          this.setError(result.reason ?? 'Could not apply the fillet');
+          this.applyBtn.disabled = false;
+        }
+      } finally {
+        this.applying = false;
+      }
+      return;
+    }
 
     const edited = this.expression.value;
     const synthesized = this.expression.synthesizedArgs;

@@ -42,13 +42,13 @@ type Harness = {
   del: ReturnType<typeof vi.fn>;
 };
 
-function mount(mates: SerializedAssemblyMate[]): Harness {
+function mount(mates: SerializedAssemblyMate[], onAnimate?: (mateId: string) => void): Harness {
   const host = document.createElement('div');
   document.body.appendChild(host);
   const editMate = vi.fn();
   const showInSource = vi.fn();
   const del = vi.fn();
-  const panel = new JointsPanel(host, () => {}, showInSource, editMate, () => {}, del);
+  const panel = new JointsPanel(host, () => {}, showInSource, editMate, () => {}, del, { onAnimate });
   panel.update(mates, [instance('inst-0'), instance('inst-1')]);
   return { host, panel, editMate, showInSource, del };
 }
@@ -69,6 +69,27 @@ describe('joints panel row menu', () => {
       expect(host.querySelector(`[data-action="${action}"]`), action).not.toBeNull();
     }
     expect(host.querySelector('[data-action="edit-mate"]')!.textContent).toContain('Edit mate');
+  });
+
+  it('offers Animate… on slider/revolute rows only when a handler is wired', () => {
+    const plain = mount([mate('mate-0')]);
+    rightClickRow(plain.host, 'mate-0');
+    expect(plain.host.querySelector('[data-action="animate"]')).toBeNull();
+
+    const animate = vi.fn();
+    const fastened: SerializedAssemblyMate = { ...mate('mate-1'), type: 'fastened' };
+    const owned = mate('mate-2', 'sub');
+    const { host } = mount([mate('mate-0'), fastened, owned], animate);
+    rightClickRow(host, 'mate-1');
+    expect(host.querySelector('[data-action="animate"]')).toBeNull();
+    // Non-mutating, so owned (sub-assembly) mates get it too.
+    rightClickRow(host, 'mate-2');
+    expect(host.querySelector('[data-action="animate"]')).not.toBeNull();
+    expect(host.querySelector('[data-action="edit-mate"]')).toBeNull();
+    rightClickRow(host, 'mate-0');
+    host.querySelector<HTMLElement>('[data-action="animate"]')!.click();
+    expect(animate).toHaveBeenCalledWith('mate-0');
+    expect(host.querySelector('[data-action="animate"]')).toBeNull(); // menu closed
   });
 
   it('routes Edit mate to the row it was opened on', () => {

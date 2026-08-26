@@ -1,0 +1,172 @@
+import { app, BrowserWindow, Menu, MenuItemConstructorOptions, shell } from 'electron';
+import { listRecentProjects } from './state';
+import { windowFor } from './project-window';
+import { pendingUpdateVersion, restartToUpdate } from './updater';
+
+/**
+ * The application menu.
+ *
+ * Two kinds of item live here. Shell actions (open a project, quit) the main
+ * process performs itself. Everything that touches a model is
+ * sent to the page as a command and the page decides what it means — which is
+ * the same rule as everywhere else in this shell: the engine owns the product.
+ *
+ * It also fixes the keybindings a browser tab was stealing. In `npx fluidcad
+ * serve`, Ctrl/Cmd+W closes the tab, Ctrl+S offers to save the HTML, and
+ * Ctrl+N opens a window. Here they mean close the project, save the file, and
+ * new file.
+ */
+
+export type MenuActions = {
+  openProject: (target: string | null) => Promise<unknown>;
+  openStartScreen: () => void;
+};
+
+/** Send a command to the focused project window's page. */
+function toPage(command: string, payload?: unknown): void {
+  const window = windowFor(BrowserWindow.getFocusedWindow());
+  window?.sendMenuCommand(command, payload);
+}
+
+/**
+ * Present only while an update sits downloaded and waiting. The updater installs
+ * it on the next quit regardless; this is the shortcut for the impatient.
+ */
+function updateItems(): MenuItemConstructorOptions[] {
+  const version = pendingUpdateVersion();
+  if (!version) {
+    return [];
+  }
+  return [
+    { label: `Restart to Update to FluidCAD ${version}`, click: () => restartToUpdate() },
+    { type: 'separator' },
+  ];
+}
+
+function recentProjectsSubmenu(actions: MenuActions): MenuItemConstructorOptions[] {
+  const recents = listRecentProjects();
+  if (recents.length === 0) {
+    return [{ label: 'No recent projects', enabled: false }];
+  }
+  return recents.map((entry) => ({
+    label: entry.pin ? `${entry.path}  (engine ${entry.pin})` : entry.path,
+    click: () => void actions.openProject(entry.path),
+  }));
+}
+
+export function buildApplicationMenu(actions: MenuActions): void {
+  const isMac = process.platform === 'darwin';
+
+  const template: MenuItemConstructorOptions[] = [
+    ...(isMac
+      ? ([
+          {
+            label: app.name,
+            submenu: [
+              { role: 'about' },
+              { type: 'separator' },
+              ...updateItems(),
+              { role: 'services' },
+              { type: 'separator' },
+              { role: 'hide' },
+              { role: 'hideOthers' },
+              { role: 'unhide' },
+              { type: 'separator' },
+              { role: 'quit' },
+            ],
+          },
+        ] as MenuItemConstructorOptions[])
+      : []),
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'New File',
+          accelerator: 'CmdOrCtrl+N',
+          click: () => toPage('new-file'),
+        },
+        {
+          label: 'Open Project…',
+          accelerator: 'CmdOrCtrl+O',
+          click: () => void actions.openProject(null),
+        },
+        { label: 'Open Recent', submenu: recentProjectsSubmenu(actions) },
+        { label: 'Start Screen', accelerator: 'CmdOrCtrl+Shift+O', click: () => actions.openStartScreen() },
+        { type: 'separator' },
+        { label: 'Save', accelerator: 'CmdOrCtrl+S', click: () => toPage('save') },
+        { label: 'Save All', accelerator: 'CmdOrCtrl+Alt+S', click: () => toPage('save-all') },
+        { type: 'separator' },
+        { label: 'Import STEP…', click: () => toPage('import') },
+        { label: 'Export…', accelerator: 'CmdOrCtrl+E', click: () => toPage('export') },
+        { type: 'separator' },
+        // Close the *project*, not a browser tab — the collision this fixes.
+        // Closing the last project brings the start screen back on every
+        // platform, so this is a window close everywhere, never a quit.
+        { role: 'close', label: 'Close Project' },
+        ...(isMac ? [] : ([{ type: 'separator' }, { role: 'quit' }] as MenuItemConstructorOptions[])),
+      ],
+    },
+    {
+      label: 'Edit',
+      submenu: [
+        // Routed to the page so they land on Monaco's own undo stack — the same
+        // path the toolbar buttons use (`editor-hello { undoRedo: true }`).
+        { label: 'Undo', accelerator: 'CmdOrCtrl+Z', click: () => toPage('undo') },
+        { label: 'Redo', accelerator: 'CmdOrCtrl+Shift+Z', click: () => toPage('redo') },
+        { type: 'separator' },
+        { role: 'cut' },
+        { role: 'copy' },
+        { role: 'paste' },
+        { role: 'selectAll' },
+        { type: 'separator' },
+        { label: 'Find File…', accelerator: 'CmdOrCtrl+P', click: () => toPage('quick-open') },
+      ],
+    },
+    {
+      label: 'View',
+      submenu: [
+        { label: 'Toggle Editor', accelerator: 'CmdOrCtrl+B', click: () => toPage('toggle-editor') },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
+        { role: 'toggleDevTools' },
+      ],
+    },
+    {
+      label: 'Engine',
+      submenu: [
+        {
+          label: 'Restart Engine',
+          click: () => void windowFor(BrowserWindow.getFocusedWindow())?.restartEngine(),
+        },
+      ],
+    },
+    {
+      label: 'Window',
+      submenu: isMac
+        ? [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }]
+        : [{ role: 'minimize' }, { role: 'close' }],
+    },
+    {
+      role: 'help',
+      submenu: [
+        ...(isMac ? [] : updateItems()),
+        { label: 'Documentation', click: () => void shell.openExternal('https://fluidcad.io/docs') },
+        {
+          label: 'Report an Issue',
+          click: () => void shell.openExternal('https://github.com/Fluid-CAD/FluidCAD/issues'),
+        },
+      ],
+    },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+/** Recents and the update item are snapshots; rebuild after opening a project or staging an update. */
+export function refreshApplicationMenu(actions: MenuActions): void {
+  buildApplicationMenu(actions);
+}

@@ -1,4 +1,4 @@
-import { createRequire } from 'module';
+import path from 'path';
 import { DERIVED_OP_CALLEES, SOLVED_CONSTRAINT_KINDS } from './sketch-symbols.ts';
 
 export type TSNode = {
@@ -100,12 +100,16 @@ async function getParser(): Promise<TSParser> {
   const TreeSitter = await loadTreeSitter();
   await TreeSitter.init();
   const fresh = new TreeSitter();
-  // Use Node's resolver so the lookup walks up node_modules and finds the
-  // wasm regardless of whether npm hoisted `tree-sitter-wasms` next to or
-  // below `fluidcad`. The relative-path approach broke when fluidcad was
-  // installed from npm.
-  const requireFromHere = createRequire(import.meta.url);
-  const wasmPath = requireFromHere.resolve('tree-sitter-wasms/out/tree-sitter-javascript.wasm');
+  // The JavaScript grammar is vendored in this package (`server/vendor/`)
+  // rather than pulled from `tree-sitter-wasms`, which ships 50 MB of grammars
+  // for every language to deliver the one file we load. Resolving it against
+  // our own directory — the same trick `UI_DIST` uses in `index.ts` — works
+  // from `server/src` (the --experimental-transform-types dev path) and from
+  // `server/dist` (the packaged build) alike, since both sit one level under
+  // `server/`. This must not regress to a lookup that depends on where npm
+  // hoisted a dependency: that is what broke the earlier relative-path
+  // approach when fluidcad was installed from npm.
+  const wasmPath = path.resolve(import.meta.dirname, '../vendor/tree-sitter-javascript.wasm');
   const lang = await TreeSitter.Language.load(wasmPath);
   fresh.setLanguage(lang);
   // Cache only after the language is attached: a parser cached mid-init would

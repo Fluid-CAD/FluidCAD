@@ -202,6 +202,11 @@ export type SceneObjectRender = {
   hideChildren?: boolean;
   object?: any;
   sceneShapes: SceneObjectPart[];
+  /**
+   * Shapes the object publishes but never puts on screen (an `expose(…)`
+   * row's source selection) — shown on demand as a highlight.
+   */
+  referencedShapes?: SceneObjectPart[];
   ownShapes: SceneObjectPart[];
   visible?: boolean;
   /** The object carries a `.reusable()` chain — kept visible when consumed. */

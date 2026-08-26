@@ -5,7 +5,7 @@ title: "CLI Reference"
 
 # CLI Reference
 
-FluidCAD ships a command-line tool alongside the library. It scaffolds a project, runs the server that backs the 3D viewport, writes STEP/STL/PNG files without opening the UI, and exposes the MCP server that lets AI agents drive your workspace.
+FluidCAD ships a command-line tool alongside the library. It scaffolds a project, opens FluidCAD in your browser, writes STEP/STL/PNG files without opening the UI, and exposes the MCP server that lets AI agents drive your workspace.
 
 FluidCAD is installed per-project, so the CLI is run through `npx` from inside the project:
 
@@ -21,7 +21,7 @@ A global install (`npm install -g fluidcad`) is not supported — the engine and
 | Command | What it does |
 |---------|--------------|
 | [`fluidcad init`](#fluidcad-init) | Scaffold a new project in the current directory |
-| [`fluidcad serve`](#fluidcad-serve) | Start the server and watch `.fluid.js` files |
+| [`fluidcad serve`](#fluidcad-serve) | Open FluidCAD in the browser and watch the workspace |
 | [`fluidcad export step`](#fluidcad-export-step) | Write a STEP file |
 | [`fluidcad export stl`](#fluidcad-export-stl) | Write an STL mesh |
 | [`fluidcad export png`](#fluidcad-export-png) | Capture a PNG of the viewport |
@@ -60,24 +60,37 @@ This command takes no options.
 npx fluidcad serve
 ```
 
-Starts a local FluidCAD server, renders the first `.fluid.js` file it finds, and watches the workspace — the viewport refreshes every time you save. Open the printed URL (`http://localhost:3100` by default) in a browser to see the model. Press `Ctrl+C` to stop.
+Opens FluidCAD in your browser: the 3D viewport, every interactive modelling
+tool, and a code editor. It renders the model you had open last (or the first
+`.fluid.js` it finds in a new project) and watches the workspace, so an edit
+made anywhere — the in-page editor, your own editor, an AI agent through MCP —
+rebuilds the model. Press `Ctrl+C` to stop.
 
-This is the "any editor" path: use it when you're not running the [VS Code or Neovim extension](/docs/getting-started/editor-setup).
+This is the primary way to run FluidCAD. The [VS Code and Neovim
+extensions](/docs/getting-started/editor-setup) drive the same server if you'd
+rather stay in your own editor.
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-w, --workspace <path>` | Path to your project | Current directory |
 | `-p, --port <port>` | Server port — if it's taken, the first free port above it is used | `3100` |
-| `--open` | Open the viewport in your default browser once the server is ready | _off_ |
+| `--no-open` | Don't launch a browser — for CI and remote sessions | _opens by default_ |
 
 ```bash
-npx fluidcad serve --open              # start and launch a browser
+npx fluidcad serve                     # open FluidCAD in your browser
+npx fluidcad serve --no-open           # start the server only (CI, SSH)
 npx fluidcad serve -w ./my-app         # serve a project in another directory
 npx fluidcad serve -p 4000             # start at port 4000 (4001, 4002, … if busy)
 ```
 
+The startup banner names the engine version that is actually running, so a
+project whose `fluidcad.json` pin disagrees with it says so before anything is
+rebuilt.
+
 :::note
-Interactive features — region picking, constraint editing, interactive bezier drawing — need the VS Code or Neovim extension. `serve` gives you a view-only viewport that refreshes on save.
+The code editor is hidden until you open it, from the ☰ menu or with
+<kbd>Ctrl</kbd>+<kbd>B</kbd>. It docks to the left and takes width from the
+scene rather than covering it, so the model stays fully visible.
 :::
 
 ---

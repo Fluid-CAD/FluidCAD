@@ -1,4 +1,4 @@
-import { Box3, BufferAttribute, BufferGeometry, Color, Intersection, LineSegments, Mesh, MeshPhongMaterial, Object3D, Raycaster, Vector3 } from 'three';
+import { Box3, BufferAttribute, BufferGeometry, Color, Group, Intersection, LineSegments, Material, Mesh, MeshPhongMaterial, Object3D, Raycaster, Vector3 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { DialogViewOffset } from './scene/dialog-view-offset';
 import { SceneModeManager } from './scene/scene-mode';
@@ -6,6 +6,8 @@ import { buildSceneMesh } from './meshes/mesh-factory';
 import type { SketchMesh } from './meshes/containers/sketch-mesh';
 import { PlaneData, SceneObjectPart, SceneObjectRender, SerializedAssembly, SerializedAssemblyMate, SubSelection } from './types';
 import { AssemblyController, DragValueHandler, InstanceDragReleaseHandler, SolverUpdateHandler } from './scene/assembly-controller';
+import { FaceMesh } from './meshes/shape-meshes/face-mesh';
+import { EdgeMesh } from './meshes/shape-meshes/edge-mesh';
 import { SettingsPanel } from './ui/settings-panel';
 import type { EngineClient } from './engine-client';
 import { CentroidIndicator } from './scene/centroid-indicator';
@@ -69,6 +71,8 @@ function filterToReferencedParts(
 }
 
 const HIGHLIGHT_EDGE_LINE_WIDTH = 2;
+/** Gizmo enlargement for a timeline "show connector" — bigger than the assembly hover feedback (1.35) so it reads at a glance. */
+const CONNECTOR_SHOW_SCALE = 2;
 const HOVER_EDGE_LINE_WIDTH = 2;
 // Sketch wires already render at width 2 — a selected sketch needs the extra
 // width on top of the highlight color to stand out from its neighbors.
@@ -125,6 +129,10 @@ export class Viewer {
   private highlightedSolidShapeIds: string[] = [];
   private highlightedSketchWires: string[] = [];
   private highlightedPlaneQuads: string[] = [];
+  /** Part-view connector gizmo enlarged by highlightConnector (timeline "show"). */
+  private highlightedConnectorId: string | null = null;
+  /** Overlay groups built by highlightDetachedShapes — disposed on clearHighlight. */
+  private detachedHighlightGroups: Group[] = [];
   private faceHighlightMeshes: Mesh[] = [];
   private hasRendered = false;
   private lastFitBox: Box3 | null = null;
@@ -1143,12 +1151,86 @@ export class Viewer {
     });
   }
 
+  /**
+   * Enlarge one part-view connector's gizmo (a timeline row's "show me"),
+   * replacing any previous highlight. Mirrors the assembly controller's
+   * hover feedback: the multiplier rides the gizmo's userData because its
+   * scale is re-derived from the camera on every draw.
+   */
+  highlightConnector(connectorId: string): void {
+    this.clearHighlight();
+    this.highlightedConnectorId = connectorId;
+    this.applyConnectorScale(connectorId, CONNECTOR_SHOW_SCALE);
+    this.ctx.render();
+  }
+
+  private applyConnectorScale(connectorId: string, scale: number): void {
+    this.ctx.scene.traverse((child) => {
+      if (child.userData.isConnector !== true || child.userData.connectorId !== connectorId) {
+        return;
+      }
+      const gizmo = child.children[0];
+      if (gizmo) {
+        gizmo.userData.highlight = scale;
+      }
+    });
+  }
+
+  /**
+   * Show shapes that have no mesh in the scene — an `expose(…)` row's
+   * published selection, which the exposure hides from the display — as a
+   * highlight overlay built straight from their mesh data. Replaces any
+   * previous highlight; cleared with the rest by clearHighlight.
+   */
+  highlightDetachedShapes(parts: SceneObjectPart[]): void {
+    this.clearHighlight();
+    const color = '#' + themeColors.highlightColor.getHexString();
+    for (const part of parts) {
+      let group: Group | undefined;
+      switch (part.shapeType) {
+        case 'face':
+        case 'solid':
+          group = new FaceMesh(part, { color });
+          break;
+        case 'edge':
+        case 'wire':
+          group = new EdgeMesh(part, { color, lineWidth: HIGHLIGHT_EDGE_LINE_WIDTH });
+          break;
+      }
+      if (!group) {
+        continue;
+      }
+      group.traverse((child) => {
+        child.userData.isMetaShape = true;
+        child.renderOrder = 1.5;
+      });
+      this.ctx.scene.add(group);
+      this.detachedHighlightGroups.push(group);
+    }
+    this.ctx.render();
+  }
+
   clearHighlight(): void {
     if (!this.highlightedShapeId && this.highlightedEntities.length === 0
       && this.highlightedSketchWires.length === 0 && this.faceHighlightMeshes.length === 0
-      && this.highlightedSolidShapeIds.length === 0 && this.highlightedPlaneQuads.length === 0) {
+      && this.highlightedSolidShapeIds.length === 0 && this.highlightedPlaneQuads.length === 0
+      && this.highlightedConnectorId === null && this.detachedHighlightGroups.length === 0) {
       return;
     }
+
+    if (this.highlightedConnectorId !== null) {
+      this.applyConnectorScale(this.highlightedConnectorId, 1);
+      this.highlightedConnectorId = null;
+    }
+    for (const group of this.detachedHighlightGroups) {
+      group.parent?.remove(group);
+      group.traverse((child) => {
+        const drawable = child as Mesh;
+        drawable.geometry?.dispose();
+        (drawable.material as Material | undefined)?.dispose();
+      });
+    }
+    this.detachedHighlightGroups = [];
 
     this.ctx.scene.traverse((child) => {
       if (child.userData.originalColor !== undefined) {

@@ -70,7 +70,8 @@ export type EditorDirtyStateMessage = {
  */
 export type EditorHelloMessage = {
   type: 'editor-hello';
-  editor: 'vscode' | 'neovim';
+  /** `monaco` arrives over the UI WebSocket rather than IPC — same message. */
+  editor: 'vscode' | 'neovim' | 'monaco';
   capabilities: { undoRedo: boolean };
 };
 
@@ -455,6 +456,38 @@ export type UIEditorCapabilitiesMessage = {
 };
 
 
+/**
+ * A workspace file changed on disk outside the page. The in-page editor
+ * reloads the file's model when it has no unsaved changes, and flags a
+ * conflict when it does — without this, an agent writing through MCP or a
+ * `git checkout` would be silently overwritten by the next save.
+ *
+ * Never emitted for the page's own writes through `/api/files/write`.
+ */
+export type UIFileEventMessage = {
+  type: 'file-added' | 'file-changed' | 'file-removed';
+  /** Workspace-relative, forward slashes. */
+  path: string;
+  absPath: string;
+  kind: 'model' | 'source' | 'other';
+  /** Absent for `file-removed`. */
+  mtimeMs?: number;
+};
+
+
+/**
+ * An edit for the in-page editor host to apply — the WebSocket carriage of a
+ * message an IPC host would receive on `process.send`. Wrapped rather than
+ * sent bare so the host contract's 24 message types can grow without ever
+ * colliding with a viewport message.
+ */
+export type UIHostMessage = {
+  type: 'host-message';
+  /** Verbatim `ServerToExtensionMessage` (plus `undo`/`redo`/`apply-feature-edit`). */
+  message: { type: string; [key: string]: unknown };
+};
+
+
 export type ServerToUIMessage =
   | UIInitCompleteMessage
   | UIProcessingFileMessage
@@ -464,7 +497,9 @@ export type ServerToUIMessage =
   | UIShowShapePropertiesMessage
   | UITakeScreenshotMessage
   | UIRenderVersionMessage
-  | UIEditorCapabilitiesMessage;
+  | UIEditorCapabilitiesMessage
+  | UIFileEventMessage
+  | UIHostMessage;
 
 // ---------------------------------------------------------------------------
 // WebSocket: UI → Server messages
@@ -506,9 +541,41 @@ export type UIRecomputeMessage = {
   type: 'recompute';
 };
 
+/**
+ * The in-page editor host announcing itself. Identical in meaning to the IPC
+ * {@link EditorHelloMessage}; it just arrives on the socket the page already
+ * has. The most recent one wins — one page hosts at a time.
+ */
+export type UIEditorHelloMessage = {
+  type: 'editor-hello';
+  editor: 'monaco';
+  capabilities: { undoRedo: boolean };
+};
+
+/** WebSocket carriage of {@link EditorDirtyStateMessage}, for the in-page host. */
+export type UIEditorDirtyStateMessage = {
+  type: 'editor-dirty-state';
+  dirtyFiles: string[];
+};
+
+/**
+ * WebSocket carriage of {@link EditAckMessage}. The in-page host settles
+ * `apply-feature-edit` through `POST /api/code/apply-feature` like every other
+ * host, but `undo`/`redo` have no such round-trip, so they ack here (or through
+ * the equivalent `POST /api/editor/ack`).
+ */
+export type UIEditAckMessage = {
+  type: 'edit-ack';
+  editId: string;
+  error?: string;
+};
+
 export type UIToServerMessage =
   | CameraStateMessage
   | ScreenshotResultMessage
   | UISetParamMessage
   | UIResetParamsMessage
-  | UIRecomputeMessage;
+  | UIRecomputeMessage
+  | UIEditorHelloMessage
+  | UIEditorDirtyStateMessage
+  | UIEditAckMessage;

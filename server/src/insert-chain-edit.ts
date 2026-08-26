@@ -1,34 +1,15 @@
-import { createRequire } from 'module';
+import { getJavaScriptParser, type TSNode, type TSTree } from './code-editor.ts';
 
-export type TSNode = {
-  type: string;
-  text: string;
-  startPosition: { row: number; column: number };
-  endPosition: { row: number; column: number };
-  startIndex: number;
-  endIndex: number;
-  parent: TSNode | null;
-  namedChildren: TSNode[];
-  namedChild(i: number): TSNode | null;
-  childForFieldName(name: string): TSNode | null;
-};
+export type { TSNode, TSTree };
 
-export type TSTree = { rootNode: TSNode };
+type TSParser = Awaited<ReturnType<typeof getJavaScriptParser>>;
 
-type TSParser = {
-  setLanguage(lang: any): void;
-  parse(code: string): TSTree;
-};
-
-async function loadTreeSitter() {
-  const mod = await import('web-tree-sitter');
-  return mod.default as any as {
-    init(): Promise<void>;
-    new(): TSParser;
-    Language: { load(path: string): Promise<any> };
-  };
-}
-
+/**
+ * The one wasm-backed JavaScript parser this package loads (`code-editor.ts`
+ * owns the grammar — vendored under `server/vendor/`, not resolved from
+ * `tree-sitter-wasms`). Cached here as well because {@link reParseAndEdit}
+ * needs it synchronously once any async entry point has warmed it.
+ */
 let parser: TSParser | null = null;
 
 export async function getInsertChainParser(): Promise<TSParser> {
@@ -39,13 +20,7 @@ async function getParser(): Promise<TSParser> {
   if (parser) {
     return parser;
   }
-  const TreeSitter = await loadTreeSitter();
-  await TreeSitter.init();
-  parser = new TreeSitter();
-  const requireFromHere = createRequire(import.meta.url);
-  const wasmPath = requireFromHere.resolve('tree-sitter-wasms/out/tree-sitter-javascript.wasm');
-  const lang = await TreeSitter.Language.load(wasmPath);
-  parser.setLanguage(lang);
+  parser = await getJavaScriptParser();
   return parser;
 }
 

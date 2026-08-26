@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-engines/
 out/
 *.log
 .DS_Store
@@ -17,3 +18,5 @@ llm-docs/index.json
 llm-docs/api/index.json
 
 .gstack/
+shell/release/
+shell/engine/

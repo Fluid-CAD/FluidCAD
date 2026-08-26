@@ -1,5 +1,12 @@
 import type { ParamDefinition } from "../param-registry.js";
 import type { SourceLocation } from "../common/scene-object.js";
+import type { createManager } from "../scene-manager.js";
+
+/** What kind of model file an entry is — mirrors the server's FluidScriptKind. */
+export type BrowserSceneKind = "part" | "assembly";
+
+/** The assembly payload the desktop's scene-rendered message carries (instances, mates, occurrences). */
+export type BrowserSerializedAssembly = NonNullable<ReturnType<ReturnType<typeof createManager>["getAssemblyData"]>>;
 
 export const VIEWER_PROTOCOL_VERSION = 1;
 
@@ -25,7 +32,11 @@ export interface BrowserObjectBuildError {
  * contract the params panel relies on.
  */
 export interface BrowserRenderResult {
+  /** Derived from the entry's suffix (`.assembly.js` → assembly); absent on a compile error. */
+  sceneKind?: BrowserSceneKind;
   result: unknown[];
+  /** Assembly scenes only: the instances/mates/occurrences the rail and the viewer's assembly controller consume. */
+  assembly?: BrowserSerializedAssembly;
   rollbackStop: number;
   /** Part-scoped rollback: only this part is truncated at rollbackStop. */
   rollbackScopePartId?: string;

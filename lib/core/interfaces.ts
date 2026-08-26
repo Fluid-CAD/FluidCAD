@@ -1232,4 +1232,11 @@ export interface IHelix extends ISceneObject {
    * Defaults to `radius()`. Ignored on face/circle inputs.
    */
   endRadius(radius: number): this;
+
+  /**
+   * Winds the helix counter-clockwise (right-handed) about its axis — viewed
+   * from the axis tip looking back toward the origin — instead of the default
+   * clockwise (left-handed) winding.
+   */
+  ccw(): this;
 }

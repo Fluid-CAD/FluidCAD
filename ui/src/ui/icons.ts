@@ -17,6 +17,8 @@ import iconEye from '@tabler/icons/outline/eye.svg?raw';
 import iconEyeOff from '@tabler/icons/outline/eye-off.svg?raw';
 import iconCircleHalf2 from '@tabler/icons/outline/circle-half-2.svg?raw';
 import iconPlayerPause from '@tabler/icons/outline/player-pause.svg?raw';
+import iconPlayerPlay from '@tabler/icons/outline/player-play.svg?raw';
+import iconPlayerStop from '@tabler/icons/outline/player-stop.svg?raw';
 import iconAlertTriangle from '@tabler/icons/outline/alert-triangle.svg?raw';
 import iconAdjustments from '@tabler/icons/outline/adjustments.svg?raw';
 import iconSettings from '@tabler/icons/outline/settings.svg?raw';
@@ -35,6 +37,8 @@ import iconChevronRight from '@tabler/icons/outline/chevron-right.svg?raw';
 import iconCode from '@tabler/icons/outline/code.svg?raw';
 import iconArrowBackUp from '@tabler/icons/outline/arrow-back-up.svg?raw';
 import iconArrowForwardUp from '@tabler/icons/outline/arrow-forward-up.svg?raw';
+import iconFileCode from '@tabler/icons/outline/file-code.svg?raw';
+import iconPlus from '@tabler/icons/outline/plus.svg?raw';
 
 export const ICON_FIT = iconAutoFit;
 export const ICON_ORTHO = iconOrthographic;
@@ -55,6 +59,8 @@ export const ICON_EYE = iconEye;
 export const ICON_EYE_OFF = iconEyeOff;
 export const ICON_SECTION_VIEW = iconCircleHalf2;
 export const ICON_PAUSE = iconPlayerPause;
+export const ICON_PLAY = iconPlayerPlay;
+export const ICON_STOP = iconPlayerStop;
 export const ICON_ALERT_TRIANGLE = iconAlertTriangle;
 export const ICON_ADJUSTMENTS = iconAdjustments;
 export const ICON_SETTINGS = iconSettings;
@@ -70,6 +76,9 @@ export const ICON_TEXT = iconTypography;
 export const ICON_PENCIL = iconPencil;
 /** "Show in source" — jump from a panel row to the statement that made it. */
 export const ICON_CODE = iconCode;
+/** A tab for a plain `.js` helper — quieter than ICON_CUBE, which marks the model. */
+export const ICON_FILE_CODE = iconFileCode;
+export const ICON_PLUS = iconPlus;
 export const ICON_UNDO = iconArrowBackUp;
 export const ICON_REDO = iconArrowForwardUp;
 export const ICON_ROUNDED_RECT = '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="5"/></svg>';

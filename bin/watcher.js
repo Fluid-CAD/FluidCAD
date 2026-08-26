@@ -3,7 +3,22 @@ import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 
 /**
- * Creates a file watcher that monitors .fluid.js files in the workspace
+ * The suffixes the server recognises as FluidCAD scripts (mirror of
+ * `server/src/file-kind.ts`): part-design files, assembly drivers, and the
+ * legacy `.fluid.js` alias for a part.
+ */
+const FLUID_SCRIPT_SUFFIXES = ['.part.js', '.assembly.js', '.fluid.js'];
+
+/**
+ * @param {string} filePath
+ * @returns {boolean} whether the server would render this file as a model
+ */
+export function isFluidScriptFile(filePath) {
+  return FLUID_SCRIPT_SUFFIXES.some((suffix) => filePath.endsWith(suffix));
+}
+
+/**
+ * Creates a file watcher that monitors FluidCAD script files in the workspace
  * and sends live-update IPC messages to the server process on changes.
  *
  * @param {string} workspacePath - Absolute path to the workspace directory
@@ -33,7 +48,7 @@ export function createFileWatcher(workspacePath, server) {
   }
 
   function onFileChange(filePath) {
-    if (!filePath.endsWith('.fluid.js')) {
+    if (!isFluidScriptFile(filePath)) {
       return;
     }
 
@@ -50,22 +65,22 @@ export function createFileWatcher(workspacePath, server) {
   watcher.on('change', onFileChange);
   watcher.on('add', onFileChange);
 
-  console.log(`Watching for .fluid.js changes in ${workspacePath}`);
+  console.log(`Watching for FluidCAD script changes in ${workspacePath}`);
 
   return watcher;
 }
 
 /**
- * Finds `.fluid.js` files in the top level of the workspace directory,
- * ignoring node_modules and .git.
+ * Finds FluidCAD script files (`.part.js`, `.assembly.js`, `.fluid.js`) in
+ * the top level of the workspace directory, ignoring node_modules and .git.
  *
  * @param {string} workspacePath - Absolute path to the workspace directory
- * @returns {string[]} Absolute paths to discovered `.fluid.js` files
+ * @returns {string[]} Absolute paths to discovered script files
  */
 export function findFluidFiles(workspacePath) {
   try {
     return readdirSync(workspacePath)
-      .filter((f) => f.endsWith('.fluid.js'))
+      .filter((f) => isFluidScriptFile(f))
       .map((f) => join(workspacePath, f));
   } catch {
     return [];

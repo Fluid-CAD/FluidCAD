@@ -1,6 +1,7 @@
 import type { TDocStd_Document, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { ShapeHasher } from "./shape-hash.js";
+import { StepConform } from "./step-conform.js";
 import { Explorer } from "./explorer.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
@@ -309,6 +310,16 @@ export class OcIO {
     return { solids };
   }
 
+  /** Raw (colorless) STEP of `solids`, each made STEP-conformant first. */
+  static writeStep(solids: Solid[], fileName: string): string {
+    const shapes = solids.map(solid => {
+      const conformed = StepConform.conformSolid(solid.getShape());
+      conformed.delete();
+      return conformed.shape;
+    });
+    return OcIO.writeStepRaw(OcIO.makeCompoundRaw(shapes), fileName);
+  }
+
   static writeStepRaw(compound: TopoDS_Shape, fileName: string): string {
     const oc = getOC();
 
@@ -356,15 +367,17 @@ export class OcIO {
     // the set. (The multi-file output this once tried to dodge came from the
     // `multi` argument below, not from AddShape.)
     for (const solid of solids) {
+      const conformed = StepConform.conformSolid(solid.getShape());
       const label = shapeTool.NewShape();
-      shapeTool.SetShape(label, solid.getShape());
+      shapeTool.SetShape(label, conformed.shape);
 
       for (const entry of solid.colorMap) {
         const [r, g, b] = OcIO.hexToRgb(entry.color);
         const color = new oc.Quantity_Color(r, g, b, oc.Quantity_TypeOfColor.Quantity_TOC_RGB);
-        colorTool.SetColor(entry.shape, color, surfType);
+        colorTool.SetColor(conformed.replacement(entry.shape), color, surfType);
         color.delete();
       }
+      conformed.delete();
     }
 
     shapeTool.UpdateAssemblies();

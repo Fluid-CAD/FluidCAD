@@ -4,6 +4,7 @@ import { existsSync } from 'fs';
 import type { SceneHost } from './host/scene-host.ts';
 import { LocalSceneHost } from './host/local-scene-host.ts';
 import { normalizePath } from './normalize-path.ts';
+import { findLibIdentityMismatch } from './lib-identity.ts';
 import { detectKind } from './file-kind.ts';
 import type { FluidScriptKind } from './file-kind.ts';
 import { BreakpointHit } from '../../lib/dist/common/breakpoint-hit.js';
@@ -721,6 +722,7 @@ export type ShapeList = {
 export class FluidCadServer {
   private host: SceneHost;
   private sceneManager: SceneManager | undefined;
+  private initDiagnostic: string | null = null;
 
   // Per-session render output, scene cache, and param overrides. Desktop's
   // sessionId is the normalized filePath; hub mode's sessionId is the WS
@@ -787,10 +789,40 @@ export class FluidCadServer {
     await this.host.init(workspacePath);
 
     const initFilePath = normalizePath(join(workspacePath, 'init.js'));
-    if (existsSync(initFilePath)) {
-      const { default: _sceneManager } = await this.host.loadModule(initFilePath);
-      this.sceneManager = await _sceneManager;
+    if (!existsSync(initFilePath)) {
+      // No engine to build with. Recorded rather than thrown so the server
+      // still starts — the UI comes up, the file opens in the editor, and the
+      // one thing that can't work says why. Reported by every render path;
+      // see `describeMissingEngine`.
+      this.initDiagnostic =
+        'This workspace has no init.js, so there is no engine to build the model with. '
+        + `Run \`npx fluidcad init\` in ${workspacePath}, then reload.`;
+      return;
     }
+
+    const { default: _sceneManager } = await this.host.loadModule(initFilePath);
+    this.sceneManager = await _sceneManager;
+    this.initDiagnostic = null;
+
+    // Only meaningful once a workspace `init.js` has actually imported the
+    // kernel — the hub path installs its manager via `setSceneManager` and
+    // never comes through here. Deliberately fatal: the failure it catches
+    // is silent, and a half-working session is worse than a clear stop.
+    const mismatch = findLibIdentityMismatch(workspacePath);
+    if (mismatch) {
+      throw new Error(mismatch.message);
+    }
+  }
+
+  /**
+   * Why this workspace cannot render anything, or null when it can.
+   *
+   * Every render path returns null when there is no `SceneManager`, and a null
+   * that reaches the UI as *nothing at all* leaves it waiting on a spinner
+   * forever. Callers turn this into a visible error instead.
+   */
+  describeMissingEngine(): string | null {
+    return this.sceneManager ? null : this.initDiagnostic ?? 'This workspace has no FluidCAD engine loaded.';
   }
 
   /**

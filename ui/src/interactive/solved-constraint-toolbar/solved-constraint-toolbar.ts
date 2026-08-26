@@ -69,7 +69,7 @@ export class SolvedConstraintToolbar {
     this.root = document.createElement('div');
     // Same overlay slot as the legacy conversion bar (the two never show
     // together — this one owns solved sketches). z below the navbar's 120.
-    this.root.className = 'absolute top-[106px] left-1/2 -translate-x-1/2 z-[110] '
+    this.root.className = 'absolute top-[106px] left-[calc(50%+var(--fluidcad-editor-width,0px)/2)] -translate-x-1/2 z-[110] '
       + 'panel-bg border border-base-content/10 rounded-md shadow-sm '
       + 'px-1.5 py-1 flex items-center gap-0.5 hidden';
 

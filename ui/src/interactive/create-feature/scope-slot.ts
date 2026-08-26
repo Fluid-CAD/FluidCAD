@@ -36,12 +36,16 @@ export class ScopeSlotControl {
     this.setChips([]);
   }
 
-  /** Repaint the chips; the prompt tracks whether anything is chosen. */
+  /**
+   * Repaint the chips; the prompt tracks whether anything is chosen. The
+   * empty state reads as the default value — the boolean runs against All
+   * intersecting objects until picks narrow it.
+   */
   setChips(chips: PickSlotChip[]): void {
     this.slot.setChips(chips);
     this.slot.setPrompt(chips.length > 0
       ? 'Pick more solids, or leave as is'
-      : 'Pick solids in 3D or the timeline — empty scopes to all');
+      : 'All');
   }
 
   /** The primary border: solid picks land here while armed. */

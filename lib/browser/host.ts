@@ -9,9 +9,20 @@ import { Scene } from "../rendering/scene.js";
 import type { ExportOptions } from "../io/file-export.js";
 import type { MeasureEntityRef } from "../oc/measure/measure-types.js";
 import { installEngineNamespaces } from "./linking.js";
-import { VIEWER_PROTOCOL_VERSION, type BrowserObjectBuildError, type BrowserRenderResult, type EngineInfo } from "./types.js";
+import {
+  VIEWER_PROTOCOL_VERSION,
+  type BrowserObjectBuildError,
+  type BrowserRenderResult,
+  type BrowserSceneKind,
+  type EngineInfo,
+} from "./types.js";
 
 type SceneManagerInstance = ReturnType<typeof createManager>;
+
+/** Mirrors the server's detectKind (file-kind.ts): the suffix names the scene kind. */
+export function detectSceneKind(entryPath: string): BrowserSceneKind {
+  return entryPath.endsWith(".assembly.js") ? "assembly" : "part";
+}
 
 /**
  * Evaluates the current model "module" and returns its namespace. In the
@@ -91,7 +102,8 @@ export class BrowserEngineHost {
       throw new Error("No model loaded — call setModuleEvaluator() first");
     }
 
-    let scene = this.manager.startScene();
+    const sceneKind = detectSceneKind(this.entryPath);
+    let scene: Scene = sceneKind === "assembly" ? this.manager.startAssemblyScene() : this.manager.startScene();
     this.manager.setCurrentFile(this.entryPath);
 
     const registry = createParamRegistry();
@@ -111,8 +123,21 @@ export class BrowserEngineHost {
           result.materializeInto(scene);
         }
       }
-      // part() is lazy — definitions nothing exported still render standalone.
-      scene.materializeLeftoverDefinitions();
+      // part() is lazy — definitions nothing exported still render standalone
+      // in a part scene; assembly scenes build strictly via insert().
+      if (sceneKind !== "assembly") {
+        scene.materializeLeftoverDefinitions();
+      }
+      // A bare `assembly('name', () => {...})` statement is a lazy definition
+      // nothing runs — without this the render is a silently empty scene.
+      const dangling = (scene as { getDanglingDefinitionNames?: () => string[] }).getDanglingDefinitionNames?.() ?? [];
+      if (dangling.length > 0) {
+        throw new Error(
+          `assembly('${dangling[0]}') is defined but never rendered — export a function returning it `
+          + `(export const myAssembly = () => assembly('${dangling[0]}', () => {...});) so this file `
+          + `renders it standalone, or insert() it from another assembly.`,
+        );
+      }
     } catch (error) {
       if (error instanceof BreakpointHit) {
         breakpointHit = true;
@@ -142,15 +167,36 @@ export class BrowserEngineHost {
     this.manager.renderScene(scene);
     const result = scene.getRenderedObjects();
     this.lastRollbackStop = result.length - 1;
+    const assembly = this.manager.getAssemblyData(scene);
 
     return {
+      sceneKind,
       result,
       rollbackStop: this.lastRollbackStop,
       breakpointHit,
       params,
       objectErrors: BrowserEngineHost.collectObjectErrors(result),
       compileError: null,
+      ...(assembly ? { assembly } : {}),
     };
+  }
+
+  /**
+   * Forget the current model (scene, incremental-compare baseline, param
+   * overrides) ahead of loading a different entry from the same workspace —
+   * the viewer's file tabs. The kernel stays booted; setWorkspace() +
+   * setModuleEvaluator() then prime the next model.
+   */
+  unloadModel(): void {
+    if (this.previousScene) {
+      this.manager?.disposeScene(this.previousScene);
+      this.previousScene = null;
+    }
+    this.overrides.clear();
+    this.lastParamDefaults.clear();
+    this.lastBreakpointHit = false;
+    this.lastRollbackStop = -1;
+    this.evaluator = null;
   }
 
   /** Value-flow only: override a param and re-render. Source is never touched. */

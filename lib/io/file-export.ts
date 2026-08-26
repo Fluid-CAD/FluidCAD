@@ -36,8 +36,7 @@ export class FileExport {
       return { data, fileName };
     }
 
-    const compound = OcIO.makeCompoundRaw(solids.map(s => s.getShape()));
-    const data = OcIO.writeStepRaw(compound, fileName);
+    const data = OcIO.writeStep(solids, fileName);
     return { data, fileName };
   }
 

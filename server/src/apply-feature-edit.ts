@@ -6,7 +6,6 @@ import {
   indentOf,
   isBreakpointStatement,
   isExpressionText,
-  isSolvedSketchCall,
   splitLines,
   spliceCode,
   walkTree,

@@ -43,6 +43,8 @@ export type HelixDimensions = {
   height?: number;
   radius?: number;
   endRadius?: number;
+  /** Wind counter-clockwise (right-handed) instead of the default clockwise. */
+  ccw?: boolean;
 };
 
 /**
@@ -194,7 +196,7 @@ export function buildHelixEdge(
     );
   }
 
-  return HelixOps.makeHelix(cs, startRadius, endRadius, zStart, zEnd, turns);
+  return HelixOps.makeHelix(cs, startRadius, endRadius, zStart, zEnd, turns, dimensions.ccw ?? false);
 }
 
 /** A cylindrical or conical face, read as the frame a helix coils around. */

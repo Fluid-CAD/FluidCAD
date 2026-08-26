@@ -1,0 +1,59 @@
+name: Build Engine Tarballs
+
+# A FluidCAD *engine* is the npm package plus its production dependencies,
+# pre-resolved for one platform. The desktop shell downloads one per pinned
+# project version instead of running `npm install` at runtime.
+#
+# All four targets are built from one Linux job: npm's `--os`/`--cpu` flags
+# fetch the right prebuilt binaries, so no build matrix is needed.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  engines:
+    if: github.repository == 'Fluid-CAD/FluidCAD'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build the package
+        run: npm run build
+
+      - name: Build engine tarballs
+        run: npm run build:engine -- --all
+
+      - name: Report sizes
+        run: ls -lh dist-engines
+
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          TAG="v$VERSION"
+          # workflow_dispatch runs off a branch, where the tag may not exist yet.
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" --title "$TAG" --notes "FluidCAD $VERSION" --draft
+          fi
+          gh release upload "$TAG" dist-engines/*.tar.gz dist-engines/*.json --clobber
+
+      - name: Archive engine manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-manifests
+          path: dist-engines/*.json

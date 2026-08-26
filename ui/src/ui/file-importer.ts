@@ -15,7 +15,7 @@ export class FileImporter {
     this.hideLoading = deps.hideLoading;
 
     this.importToast = document.createElement('div');
-    this.importToast.className = 'absolute bottom-16 left-6 z-[100] panel-bg border border-base-content/10 rounded-lg px-4 py-3 text-sm text-base-content/80 hidden';
+    this.importToast.className = 'absolute bottom-16 left-[calc(var(--fluidcad-editor-width,0px)+1.5rem)] z-[100] panel-bg border border-base-content/10 rounded-lg px-4 py-3 text-sm text-base-content/80 hidden';
     container.appendChild(this.importToast);
 
     this.fileInput = document.createElement('input');

@@ -22,7 +22,8 @@ export class DragReadout {
 
   constructor(container: HTMLElement) {
     this.pill = document.createElement('div');
-    this.pill.className = 'absolute bottom-16 left-1/2 -translate-x-1/2 z-[110] panel-bg border border-base-content/10 rounded-full px-4 py-2 text-xs text-base-content/80 select-none flex items-center gap-2 cursor-default hidden';
+    // Centered on the scene rather than the window (see dof-status.ts).
+    this.pill.className = 'absolute bottom-16 left-[calc(50%+var(--fluidcad-editor-width,0px)/2)] -translate-x-1/2 z-[110] panel-bg border border-base-content/10 rounded-full px-4 py-2 text-xs text-base-content/80 select-none flex items-center gap-2 cursor-default hidden';
 
     this.label = document.createElement('span');
     this.label.className = 'text-base-content/50';

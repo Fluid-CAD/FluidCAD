@@ -7,6 +7,7 @@ import { PartsPanel } from './ui/parts-panel';
 import { JointsPanel } from './ui/joints-panel';
 import { DofStatus } from './ui/dof-status';
 import { DragReadout } from './ui/drag-readout';
+import { AnimateBar } from './ui/animate-bar';
 import { ParamsPanel } from './ui/params-panel';
 import { ParamEditorDialog } from './ui/param-editor-dialog';
 import { ExportDialog } from './ui/export-dialog';
@@ -50,7 +51,7 @@ import { MeasureController } from './ui/measure/measure-controller';
 import { captureScreenshot, captureScreenshotMulti } from './screenshot';
 import { RenderedInstance, SerializedAssembly } from './types';
 import { onThemeChange } from './scene/theme-colors';
-import { loadPreferences, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection } from './api';
+import { loadPreferences, savePreference, gotoSource, parseFeatureAt, addBreakpoint, removeFeature, applyInstancePose, getInstancePoseExpressions, getScopeVariables, setActivePartProvider, explainSelection } from './api';
 import { setActivePartLocationProvider, isRollbackViewTruncated } from './helpers/scene-utils';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
@@ -58,12 +59,113 @@ import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-prop
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { ConnectorData, SceneObjectRender } from './types';
 import { applyPreferences } from './scene/viewer-settings';
-import { installVSCodeKeyboardBridge } from './keyboard-bridge';
+import { installHostKeyboardBridge } from './keyboard-bridge';
+import { installDesktopMenu } from './desktop';
+import type { EditorSurface } from './editor';
 
-installVSCodeKeyboardBridge();
+installHostKeyboardBridge();
 
 const container = document.getElementById('fluidcad-viewer') || document.body;
 
+/**
+ * Whether this page hosts the code editor. `?editor=0` is the explicit switch
+ * the hub's embedded viewer and the VS Code webview use; an iframe is the
+ * implicit one, since a page embedded in a real editor must not fight it for
+ * the same buffer (`docs/desktop/05-editor-surface-design.md`).
+ */
+const editorSurfaceEnabled =
+  new URLSearchParams(window.location.search).get('editor') !== '0' &&
+  window.parent === window;
+
+let editorSurface: EditorSurface | null = null;
+/** The file the scene last rendered from, held for a late-arriving surface. */
+let editorSceneFile: string | null = null;
+let editorSurfaceStarted = false;
+/**
+ * Actions that arrived before the surface finished loading — a menu command
+ * fired in the first seconds, typically. They run in order once it is there,
+ * rather than being dropped on the floor.
+ */
+const pendingEditorActions: ((surface: EditorSurface) => void)[] = [];
+
+/** Run `action` against the editor, pulling it in first if it hasn't loaded. */
+function withEditorSurface(action: (surface: EditorSurface) => void): void {
+  if (editorSurface) {
+    action(editorSurface);
+    return;
+  }
+  pendingEditorActions.push(action);
+  startEditorSurface();
+}
+
+/**
+ * Fetch and attach the editor. Deferred until the scene is on screen: Monaco
+ * plus the TypeScript service is ~11 MB of lazily-chunked JS, and none of it is
+ * needed to look at a model. Nothing is lost by waiting — every edit the host
+ * applies is triggered by a user action, which comes later still.
+ */
+function startEditorSurface(): void {
+  if (editorSurfaceStarted || !editorSurfaceEnabled) {
+    return;
+  }
+  editorSurfaceStarted = true;
+  import('./editor').then(async ({ EditorSurface }) => {
+    editorSurface = await EditorSurface.install({
+      container,
+      send: sendToServer,
+      setTabs: (tabs, activePath, currentModelPath) => topBar.setTabs(tabs, activePath, currentModelPath),
+      setWorkspaceName: (name) => topBar.setWorkspaceName(name),
+      onEditRefused: (message) => showToast(message),
+      initialOpen: editorPaneOpenOnArrival || editorPreferences.open,
+      initialWidth: editorPreferences.width,
+      onOpenChange: (open) => savePreference('editorOpen', open),
+      onWidthChange: (width) => savePreference('editorWidth', width),
+    });
+    if (editorSceneFile) {
+      editorSurface.setSceneFile(editorSceneFile);
+    }
+    editorSurface.onSocketOpen();
+    const queued = pendingEditorActions.splice(0);
+    for (const action of queued) {
+      action(editorSurface);
+    }
+  }).catch((err) => {
+    console.warn('FluidCAD: the code editor could not be loaded:', err);
+  });
+}
+
+// A workspace with nothing to render never emits `scene-rendered`, so the
+// editor must not depend on one to exist.
+setTimeout(startEditorSurface, 3000);
+
+/**
+ * Toggle the editor pane from the keyboard. Deliberately *not* registered
+ * through `ShortcutManager`: that one matches bare-letter chords and is only
+ * enabled inside sketch mode, while this has to work everywhere — including
+ * from inside the editor, which is how you close the pane you are typing in.
+ */
+if (editorSurfaceEnabled) {
+  window.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'b') {
+      e.preventDefault();
+      toggleEditorPane();
+    }
+  });
+}
+
+/**
+ * The menu's Code editor item. The surface may not have arrived yet — a click
+ * that lands first pulls it in and opens it, rather than doing nothing.
+ */
+function toggleEditorPane(): void {
+  if (editorSurface) {
+    editorSurface.toggle();
+    return;
+  }
+  startEditorSurface();
+  editorPaneOpenOnArrival = true;
+}
+let editorPaneOpenOnArrival = false;
 let pendingShowBuildTimings = false;
 
 const loadingOverlay = new LoadingOverlay(container);
@@ -71,6 +173,10 @@ const engineClient = new HttpEngineClient();
 const viewer = new Viewer('fluidcad-viewer', engineClient);
 
 onThemeChange(() => viewer.rebuildSceneMesh());
+
+// The editor pane's remembered geometry, read before the surface is loaded so
+// a session that had it open comes back with it open.
+const editorPreferences = { open: false, width: 420 };
 
 loadPreferences().then((prefs) => {
   if (prefs) {
@@ -86,6 +192,8 @@ loadPreferences().then((prefs) => {
       currentRail.timeline.setShowBuildTimings(pendingShowBuildTimings);
     }
     measureController.applyPreferences(prefs);
+    editorPreferences.open = prefs.editorOpen === true;
+    editorPreferences.width = typeof prefs.editorWidth === 'number' ? prefs.editorWidth : 420;
   }
 });
 
@@ -112,7 +220,7 @@ const exportDialog = new ExportDialog(container, engineClient, viewer.sceneConte
 
 type LeftRail =
   | { kind: 'part'; timeline: TimelinePanel }
-  | { kind: 'assembly'; parts: PartsPanel; joints: JointsPanel; dof: DofStatus; dragReadout: DragReadout; instanceVisibility: Map<string, boolean> };
+  | { kind: 'assembly'; parts: PartsPanel; joints: JointsPanel; dof: DofStatus; dragReadout: DragReadout; animateBar: AnimateBar; instanceVisibility: Map<string, boolean> };
 
 let currentRail: LeftRail | null = null;
 
@@ -147,6 +255,7 @@ function disposeRail(): void {
     currentRail.joints.dispose();
     currentRail.dof.hide();
     currentRail.dragReadout.dispose();
+    currentRail.animateBar.dispose();
   }
   currentRail = null;
 }
@@ -301,11 +410,48 @@ function buildAssemblyRail(): LeftRail {
       // Drops the whole `mate(...)` statement.
       removeFeature(mate.sourceLocation);
     },
+    {
+      onAnimate: (id) => {
+        const mate = findMate(id);
+        if (!mate || (mate.type !== 'revolute' && mate.type !== 'slider')) return;
+        const state = viewer.getAssemblyController()?.getMateDriveState(id);
+        if (!state) {
+          // A closure edge (the loop's redundant mate) has no follower of
+          // its own to drive — the tree edges own the configuration.
+          dragReadout.flashError('Mate closes a loop — animate one of its neighbours instead');
+          return;
+        }
+        joints.setSelected(id);
+        viewer.highlightMate(mate);
+        const instName = (instId: string | undefined) =>
+          lastAssemblyPayload?.instances.find(i => i.instanceId === instId)?.name ?? '?';
+        const aName = instName(mate.connectorA?.instanceId ?? mate.geometryA?.instanceId);
+        const bName = instName(mate.connectorB?.instanceId ?? mate.geometryB?.instanceId);
+        animateBar.open({
+          mateId: id,
+          label: `${mate.type} · ${aName} ↔ ${bName}`,
+          kind: state.kind,
+          limits: mate.options?.limits,
+        });
+      },
+    },
   );
   const dof = new DofStatus(container, (_mateId) => { /* phase 05+ */ });
   dof.show();
   const dragReadout = new DragReadout(container);
-  return { kind: 'assembly', parts, joints, dof, dragReadout, instanceVisibility: visibility };
+  const animateBar = new AnimateBar(
+    container,
+    {
+      getMateDriveState: (id) => viewer.getAssemblyController()?.getMateDriveState(id) ?? null,
+      driveMateValue: (id, value) => {
+        const out = viewer.getAssemblyController()?.driveMateValue(id, value);
+        return out !== null && out !== undefined;
+      },
+      settle: () => viewer.getAssemblyController()?.refreshSolve(),
+    },
+    () => {},
+  );
+  return { kind: 'assembly', parts, joints, dof, dragReadout, animateBar, instanceVisibility: visibility };
 }
 
 function ensureRailFor(kind: 'part' | 'assembly'): LeftRail {
@@ -388,6 +534,12 @@ function applyAssemblyToRail(rail: LeftRail & { kind: 'assembly' }, assembly: Se
   }));
   rail.parts.update(rendered, assembly.occurrences ?? []);
   rail.joints.update(matesWithStatus(assembly.mates, lastFailedMateIds), rendered);
+  // The animated mate vanished from the source (deleted / renamed) — the
+  // bar would keep driving a ghost.
+  const animated = rail.animateBar.mateId();
+  if (animated !== null && !assembly.mates.find(m => m.mateId === animated)) {
+    rail.animateBar.close();
+  }
 }
 
 function matesWithStatus(
@@ -409,6 +561,8 @@ currentRail = initialRail;
 // Top application bar (logo, feature-tree toggle, file name) and the secondary
 // tool bar below it (host for conditionally-visible tool groups).
 const topBar = new TopBar(container, {
+  // One hamburger entry covers whichever rail the scene kind mounted: the
+  // part-design timeline or the assembly parts/joints column.
   onToggleTree: () => {
     if (currentRail?.kind === 'part') {
       timelinePanel.togglePanel();
@@ -416,6 +570,20 @@ const topBar = new TopBar(container, {
       currentRail.parts.togglePanel();
     }
   },
+  isTreeVisible: () => currentRail?.kind === 'assembly'
+    ? currentRail.parts.isPanelVisible
+    : timelinePanel.isPanelVisible,
+  // A viewport-only host gets neither the menu item nor the tab affordances:
+  // both handler sets are absent, which is what removes them.
+  onToggleEditor: editorSurfaceEnabled ? () => toggleEditorPane() : undefined,
+  isEditorOpen: editorSurfaceEnabled ? () => editorSurface?.isOpen() === true : undefined,
+  tabs: editorSurfaceEnabled ? {
+    // Switching tabs re-targets the scene; it never opens the pane. The editor
+    // shows only when toggled on explicitly (menu / Ctrl+B) — Invariant 7.
+    onActivate: (absPath) => void editorSurface?.activateTab(absPath),
+    onClose: (absPath) => editorSurface?.closeTab(absPath),
+    onAdd: (anchor) => editorSurface?.showQuickOpen(anchor),
+  } : undefined,
 });
 const navbar = new Navbar(container);
 
@@ -456,6 +624,40 @@ importBtnWrap.className = 'tooltip tooltip-bottom shrink-0';
 importBtnWrap.dataset.tip = 'Import file';
 importBtnWrap.appendChild(importBtn);
 importGroup.appendChild(importBtnWrap);
+
+/**
+ * The desktop shell's application menu. It sends intents, never actions — each
+ * one lands on exactly the code the equivalent in-page affordance uses, so
+ * there is one implementation and the browser build is unaffected (nothing
+ * below is installed when `window.fluidcadDesktop` is absent).
+ *
+ * These also settle the keybindings a browser tab was stealing: Ctrl/Cmd+S no
+ * longer offers to save the HTML, and Ctrl+N no longer opens a window.
+ */
+installDesktopMenu({
+  save: () => void editorSurface?.saveActive(),
+  'save-all': () => void editorSurface?.saveAll(),
+  'new-file': () => withEditorSurface((surface) => surface.showQuickOpen(topBar.tabAddAnchor)),
+  'quick-open': () => withEditorSurface((surface) => surface.showQuickOpen(topBar.tabAddAnchor)),
+  'toggle-editor': () => toggleEditorPane(),
+  undo: () => runEditorHistory('undo'),
+  redo: () => runEditorHistory('redo'),
+  import: () => fileImporter.openPicker(),
+  export: () => exportDialog.show(exportableShapeIds()),
+});
+
+/** Every solid in the current scene — what File ▸ Export offers by default. */
+function exportableShapeIds(): string[] {
+  const ids: string[] = [];
+  for (const object of viewer.currentSceneObjects) {
+    for (const shape of object.sceneShapes ?? []) {
+      if (shape.shapeType === 'solid' && !shape.isMetaShape && !shape.isGuide) {
+        ids.push(shape.shapeId);
+      }
+    }
+  }
+  return ids;
+}
 
 // Assembly workbench groups (Insert / Translate / mates), shown instead of
 // the part-design tools whenever the scene kind is assembly (navbar.setMode
@@ -826,6 +1028,15 @@ function wireTimelinePanel(panel: TimelinePanel): void {
     refreshActivePartScope();
   };
   panel.isPartRowActive = (obj) => activePartTracker.isActive(obj);
+  // Connector / exposed rows are references, not modeling steps: a click
+  // shows what they publish in the viewer instead of a rollback preview.
+  panel.onFeatureShow = (obj) => {
+    if (obj.type === 'connector' && obj.id != null) {
+      viewer.highlightConnector(obj.id);
+    } else if (obj.type === 'exposed') {
+      viewer.highlightDetachedShapes(obj.referencedShapes ?? []);
+    }
+  };
   // Double-clicking an editable feature row (the enter-breakpoint gesture)
   // also opens that feature's dialog prefilled from its statement.
   panel.onFeatureEdit = (obj, index) => {
@@ -1123,21 +1334,19 @@ function enterSketchEdit(loc: { filePath: string; line: number; column: number }
   modifyService.noteSketchEditRequest(loc, consumed);
 }
 
-// Transient toast for edit-dialog refusals — there is no dialog to carry the
-// message yet when the double-clicked statement can't be edited.
+// Transient toast for messages with no dialog to carry them — an edit the
+// server refused, a file that changed on disk under an unsaved buffer.
 let editRefusalToast: HTMLDivElement | null = null;
 let editRefusalTimer: number | null = null;
 
-function showEditRefusal(reason: string): void {
-  showActionToast(`Can't edit this feature in a dialog: ${reason}`);
-}
-
-/** The same transient toast for one-shot tool refusals (the Part button). */
-function showActionToast(message: string): void {
+function showToast(message: string): void {
   if (!editRefusalToast) {
     editRefusalToast = document.createElement('div');
-    // Below the constraint mini bar (top-[106px]) so refusals don't cover it.
-    editRefusalToast.className = 'absolute top-[152px] left-1/2 -translate-x-1/2 z-[1003] max-w-[440px] '
+    // Below the constraint mini bar (top-[106px]) so refusals don't cover it,
+    // and centered on the scene rather than the window — the editor pane takes
+    // real width from the left.
+    editRefusalToast.className = 'absolute top-[152px] left-[calc(50%+var(--fluidcad-editor-width,0px)/2)] '
+      + '-translate-x-1/2 z-[1003] max-w-[440px] '
       + 'bg-base-100 border border-base-300 text-base-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md';
     container.appendChild(editRefusalToast);
   }
@@ -1150,6 +1359,10 @@ function showActionToast(message: string): void {
     editRefusalTimer = null;
     editRefusalToast?.classList.add('hidden');
   }, 5000);
+}
+
+function showEditRefusal(reason: string): void {
+  showToast(`Can't edit this feature in a dialog: ${reason}`);
 }
 const sketchService = new SketchToolbarService(container, viewer, projectionService, navbar);
 sketchService.onConstraintPick = (pick) => {
@@ -1200,7 +1413,7 @@ sketchService.onOpDialogToggle = (open) => modifyService.setSketchPanelSuspended
 // sketch/plane lands inside its callback body.
 const partTool = new PartToolButton(navbar, {
   onCreated: () => activePartTracker.activateLastOnNextRender(),
-  onRefused: (reason) => showActionToast(reason),
+  onRefused: (reason) => showToast(reason),
 });
 // Constructed after the modify service so its solo navbar group registers
 // after every other tool group — the Repeat button renders last, behind the
@@ -2015,6 +2228,15 @@ let lastCameraStatePush = 0;
 let cameraStatePending = false;
 let activeWs: WebSocket | null = null;
 
+/** @returns true when a socket was open to take it. */
+function sendToServer(msg: unknown): boolean {
+  if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
+    return false;
+  }
+  activeWs.send(JSON.stringify(msg));
+  return true;
+}
+
 function pushCameraState(): void {
   if (!activeWs || activeWs.readyState !== WebSocket.OPEN) {
     return;
@@ -2149,6 +2371,9 @@ function connectWebSocket() {
   ws.addEventListener('open', () => {
     activeWs = ws;
     pushCameraState();
+    // The server drops its host registration when a socket closes, so the
+    // hello has to be re-sent on every reconnect, not just the first.
+    editorSurface?.onSocketOpen();
   });
 
   ws.addEventListener('message', (event) => {
@@ -2218,6 +2443,15 @@ function connectWebSocket() {
         if (msg.absPath) {
           topBar.setFileName(msg.absPath);
           currentSceneAbsPath = msg.absPath;
+          editorSceneFile = msg.absPath;
+          editorSurface?.setSceneFile(msg.absPath);
+          startEditorSurface();
+        }
+        // Build failures become editor markers, and the breakpoint dots are
+        // re-derived — the source may have been rewritten by the very
+        // transform that triggered this render.
+        if (editorSurface) {
+          editorSurface.onSceneRendered(msg.result as SceneObjectRender[], msg.compileError ?? null);
         }
         const renderStop = msg.rollbackStop ?? msg.result.length - 1;
         runSceneServices(msg.result, renderStop, isRollback);
@@ -2283,6 +2517,17 @@ function connectWebSocket() {
       case 'editor-capabilities':
         historyToolbar.setAvailable(msg.undoRedo === true);
         break;
+      case 'host-message':
+        // An edit the server addressed to whichever editor host is attached —
+        // here, the in-page one.
+        editorSurface?.handleServerMessage(msg.message);
+        break;
+      case 'file-added':
+      case 'file-changed':
+      case 'file-removed':
+        // An edit made outside the page: an agent through MCP, a git checkout.
+        void editorSurface?.onFileEvent(msg);
+        break;
     }
   });
 
@@ -2291,6 +2536,8 @@ function connectWebSocket() {
       activeWs = null;
     }
     errorBanner.update([], null);
+    // The server's verdicts are stale once it is gone, so its markers go too.
+    editorSurface?.onServerLost();
     setTimeout(connectWebSocket, 1000);
   });
 }

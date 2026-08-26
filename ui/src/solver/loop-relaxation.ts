@@ -67,10 +67,12 @@ import {
   resolveContact,
   type ResolvedContact,
 } from './contact-model.js';
-import type { BodyState, ConnectorState, MateRecord } from './types.js';
+import type { BodyState, ConnectorState, DrivenJoint, MateRecord } from './types.js';
 
 export type LoopDragInfo = {
   draggedInstanceId?: string;
+  /** See SolverInput.drivenJoint. */
+  drivenJoint?: DrivenJoint;
   draggedCursorWorld?: Vector3;
   draggedGrabLocal?: Vector3;
 };
@@ -247,8 +249,12 @@ function relaxComponent(
       }
       n += 1;
     };
-    if (spec.freeRotZ) addSlot('rotZ');
-    if (spec.freeSlideZ) addSlot('slideZ');
+    // A driven edge keeps its free scalar OUT of the variable set: the
+    // warm-start already posed it at the commanded value, and LM must
+    // solve the rest of the mechanism around it, never move it.
+    const driven = drag.drivenJoint?.mateId === edge.mate.mateId;
+    if (spec.freeRotZ && !(driven && spec.limitParam === 'rotZ')) addSlot('rotZ');
+    if (spec.freeSlideZ && !(driven && spec.limitParam === 'slideZ')) addSlot('slideZ');
     if (spec.freeSlideXY) {
       addSlot('x');
       addSlot('y');

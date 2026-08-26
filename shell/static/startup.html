@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
+    <title>FluidCAD</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #1c1c1c;
+        --fg: #e7e7e7;
+        --muted: #9a9a9a;
+        --accent: #4f9cf9;
+        --error: #ff8b8b;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font: 400 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        display: grid;
+        place-items: center;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+      main { width: min(460px, 78vw); text-align: center; }
+      .mark {
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        margin-bottom: 22px;
+      }
+      .status { color: var(--muted); min-height: 20px; }
+      .detail { color: var(--muted); opacity: 0.75; font-size: 12px; margin-top: 6px; word-break: break-word; }
+      .track {
+        height: 4px;
+        border-radius: 999px;
+        background: #ffffff14;
+        overflow: hidden;
+        margin: 18px 0 4px;
+      }
+      .bar {
+        height: 100%;
+        width: 0%;
+        border-radius: 999px;
+        background: var(--accent);
+        transition: width 120ms linear;
+      }
+      .track.indeterminate .bar {
+        width: 35%;
+        animation: slide 1.1s ease-in-out infinite;
+      }
+      @keyframes slide {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(300%); }
+      }
+      .error { color: var(--error); text-align: left; white-space: pre-wrap; margin-top: 10px; }
+      .actions { display: flex; gap: 10px; justify-content: center; margin-top: 18px; }
+      button {
+        font: inherit;
+        color: var(--fg);
+        background: #ffffff14;
+        border: 1px solid #ffffff26;
+        border-radius: 7px;
+        padding: 6px 14px;
+        cursor: pointer;
+      }
+      button:hover { background: #ffffff24; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="mark">FluidCAD</div>
+      <div id="status" class="status">Starting…</div>
+      <div id="track" class="track indeterminate"><div id="bar" class="bar"></div></div>
+      <div id="detail" class="detail"></div>
+      <div id="error" class="error" hidden></div>
+      <div id="actions" class="actions" hidden>
+        <button id="retry">Try again</button>
+        <button id="open">Open another project…</button>
+      </div>
+    </main>
+    <script>
+      const status = document.getElementById('status');
+      const detail = document.getElementById('detail');
+      const track = document.getElementById('track');
+      const bar = document.getElementById('bar');
+      const error = document.getElementById('error');
+      const actions = document.getElementById('actions');
+
+      document.getElementById('retry').onclick = () => window.fluidcadShell?.retry();
+      document.getElementById('open').onclick = () => window.fluidcadShell?.openProject();
+
+      const mb = (bytes) => `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+
+      window.fluidcadShell?.onStatus((state) => {
+        error.hidden = true;
+        actions.hidden = true;
+        track.hidden = false;
+
+        if (state.phase === 'resolving') {
+          status.textContent = 'Opening project…';
+          detail.textContent = state.workspacePath;
+          track.classList.add('indeterminate');
+          bar.style.width = '';
+        } else if (state.phase === 'downloading') {
+          status.textContent = `Downloading engine ${state.version}…`;
+          if (state.totalBytes) {
+            track.classList.remove('indeterminate');
+            bar.style.width = `${Math.round((state.receivedBytes / state.totalBytes) * 100)}%`;
+            detail.textContent = `${mb(state.receivedBytes)} of ${mb(state.totalBytes)}`;
+          } else {
+            track.classList.add('indeterminate');
+            detail.textContent = state.receivedBytes ? mb(state.receivedBytes) : 'This project pins a version that is not installed yet.';
+          }
+        } else if (state.phase === 'starting') {
+          status.textContent = `Starting engine ${state.version}…`;
+          detail.textContent = state.source === 'project'
+            ? "Using this project's own install."
+            : '';
+          track.classList.add('indeterminate');
+          bar.style.width = '';
+        } else if (state.phase === 'error') {
+          status.textContent = 'This project could not be opened.';
+          detail.textContent = '';
+          track.hidden = true;
+          error.hidden = false;
+          error.textContent = state.message;
+          actions.hidden = false;
+        }
+      });
+    </script>
+  </body>
+</html>

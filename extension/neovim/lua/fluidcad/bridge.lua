@@ -163,13 +163,17 @@ function M.handle_message(msg)
         capabilities = { undoRedo = true },
       })
       if config.open_browser and server_url then
+        -- Neovim *is* the editor here, so the page renders viewport-only: no
+        -- code pane, no tabs, no in-page host competing with this bridge for
+        -- the same buffer.
+        local viewer_url = M.viewer_url()
         local cmd
         if vim.fn.has('mac') == 1 then
-          cmd = { 'open', server_url }
+          cmd = { 'open', viewer_url }
         elseif vim.fn.has('wsl') == 1 then
-          cmd = { 'cmd.exe', '/c', 'start', server_url }
+          cmd = { 'cmd.exe', '/c', 'start', viewer_url }
         else
-          cmd = { 'xdg-open', server_url }
+          cmd = { 'xdg-open', viewer_url }
         end
         vim.fn.jobstart(cmd, { detach = true })
       end
@@ -472,6 +476,18 @@ end
 
 function M.get_url()
   return server_url
+end
+
+--- The URL to show a human: the same page with its code editor turned off.
+--- Neovim owns the buffer, so an in-page editor would be a second host over
+--- the same file. `?editor=0` also hides the tab strip and the menu's editor
+--- entry.
+function M.viewer_url()
+  if not server_url then
+    return nil
+  end
+  local separator = server_url:find('?', 1, true) and '&' or '?'
+  return server_url .. separator .. 'editor=0'
 end
 
 function M.is_running()

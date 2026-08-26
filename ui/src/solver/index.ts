@@ -2,6 +2,7 @@ export { Solver, isUsableSolution } from './solver.js';
 export { buildMateGraph, isInstanceFullyLocked } from './graph.js';
 export { mateReadoutValue } from './warm-start.js';
 export type { MateReadout } from './warm-start.js';
+export type { TreeEdge } from './graph.js';
 export type {
   SolverInput,
   SolverOutput,
@@ -14,4 +15,5 @@ export type {
   ContactForm,
   ContactState,
   MateRecord,
+  DrivenJoint,
 } from './types.js';

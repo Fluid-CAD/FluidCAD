@@ -3,9 +3,17 @@ import { setupOC, render } from "./setup.js";
 import { getCurrentScene } from "../scene-manager.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
+import revolve from "../core/revolve.js";
+import fillet from "../core/fillet.js";
+import select from "../core/select.js";
+import repeat from "../core/repeat.js";
 import color from "../core/color.js";
-import { circle } from "../core/2d/index.js";
+import { edge } from "../filters/index.js";
+import { circle, line } from "../core/2d/index.js";
+import { coincident } from "../core/constraints/index.js";
 import { FileExport } from "../io/file-export.js";
+import { OcIO } from "../oc/io.js";
+import { getOC } from "../oc/init.js";
 import { Solid } from "../common/solid.js";
 import { Shape } from "../common/shape.js";
 import { ISceneObject } from "../core/interfaces.js";
@@ -41,6 +49,75 @@ function twoBodies(): { plate: ISceneObject; boss: ISceneObject } {
   const boss = extrude(15);
 
   return { plate, boss };
+}
+
+/**
+ * The snap-on can lid from Fluid-CAD/FluidCAD#61: a revolved line profile
+ * whose inward-leaning segments become cones with a NEGATIVE semi-angle —
+ * legal in OCCT, illegal in STEP — plus fillets and a ring of revolved ribs.
+ */
+function canLid(): void {
+  const lipR = 29.1, seatR = 29.7, skirtR = 30.9, bulgeR = 31.3, roofInnerR = 27.6;
+  const lipH = 3.2, seatZ0 = 3.9, seatZ1 = 7.4, roofZ = 8.6, topZ = 10.2, bulgeZ1 = 7.5, bulgeZ0 = 3.6;
+  sketch("xz", () => {
+    const pts: [number, number][] = [
+      [lipR + 0.7, 0], [lipR, 0.9], [lipR, lipH], [seatR, seatZ0],
+      [seatR, seatZ1], [roofInnerR, roofZ], [0, roofZ], [0, topZ],
+      [bulgeR, topZ], [bulgeR, bulgeZ1], [skirtR, bulgeZ0], [skirtR, 0],
+    ];
+    const lines = pts.map((p, i) => line(p, pts[(i + 1) % pts.length]));
+    for (let i = 0; i < lines.length; i++) {
+      coincident(lines[i].end(), lines[(i + 1) % lines.length].start());
+    }
+  });
+  revolve("z");
+  select(edge().circle(bulgeR * 2));
+  fillet(1.2);
+  select(edge().circle(skirtR * 2));
+  fillet(1.0);
+
+  sketch("xz", () => {
+    const { b, r, t, l } = testRect(1.0, 2.4, { at: [skirtR - 0.4, 0.8] });
+    fillet(0.4, b, r, t, l);
+  });
+  const rib = revolve("z", 2.4);
+  repeat("circular", "z", { count: 24, angle: 360 }, rib);
+}
+
+/** Reads `step` back and reports what the file actually describes. */
+function readBack(step: string): { faces: number; solids: number; valid: boolean; volume: number } {
+  const oc = getOC();
+  const shape = OcIO.readStepRaw("readback.step", new TextEncoder().encode(step));
+  const count = (type: unknown) => {
+    const explorer = new oc.TopExp_Explorer(shape, type as never, oc.TopAbs_ShapeEnum.TopAbs_SHAPE);
+    let n = 0;
+    for (; explorer.More(); explorer.Next()) {
+      n++;
+    }
+    explorer.delete();
+    return n;
+  };
+  const checker = new oc.BRepCheck_Analyzer(shape, true, true);
+  const props = new oc.GProp_GProps();
+  oc.BRepGProp.VolumeProperties(shape, props, false, false, false);
+  const result = {
+    faces: count(oc.TopAbs_ShapeEnum.TopAbs_FACE),
+    solids: count(oc.TopAbs_ShapeEnum.TopAbs_SOLID),
+    valid: checker.IsValid(),
+    volume: props.Mass(),
+  };
+  checker.delete();
+  props.delete();
+  return result;
+}
+
+function volumeOf(solid: Solid): number {
+  const oc = getOC();
+  const props = new oc.GProp_GProps();
+  oc.BRepGProp.VolumeProperties(solid.getShape(), props, false, false, false);
+  const volume = props.Mass();
+  props.delete();
+  return volume;
 }
 
 describe("STEP export", () => {
@@ -85,5 +162,60 @@ describe("STEP export", () => {
     }).data as string;
 
     expect(countOccurrences(step, "MANIFOLD_SOLID_BREP")).toBe(2);
+  });
+
+  // Fluid-CAD/FluidCAD#61: OCCT's writer throws on cones with a negative
+  // semi-angle and drops the face, so a revolved profile came back with
+  // holes in its MANIFOLD_SOLID_BREP (both with and without colors).
+  for (const includeColors of [true, false]) {
+    it(`keeps every face of a revolve with inward-leaning cones (colors ${includeColors ? "on" : "off"})`, () => {
+      canLid();
+      render();
+
+      // The lid plus its 24 ribs: the repeat leaves each rib its own body.
+      const solids = sceneSolids();
+      expect(solids.length).toBeGreaterThan(1);
+      const faceCount = solids.reduce((n, solid) => n + solid.getFaces().length, 0);
+      const volume = solids.reduce((v, solid) => v + volumeOf(solid), 0);
+
+      const step = FileExport.exportShapes(solids, { format: "step", includeColors }).data as string;
+      expect(countOccurrences(step, "ADVANCED_FACE")).toBe(faceCount);
+      expect(step).not.toContain("SURFACE_OF_REVOLUTION");
+
+      const back = readBack(step);
+      expect(back.solids).toBe(solids.length);
+      expect(back.faces).toBe(faceCount);
+      expect(back.valid).toBe(true);
+      expect(back.volume).toBeCloseTo(volume, 3);
+    });
+  }
+
+  it("keeps a color painted on a rebuilt cone face", () => {
+    sketch("xz", () => {
+      const l1 = line([20, 0], [30, 0]);
+      const l2 = line([30, 0], [25, 10]); // leans toward the axis: a negative-semi-angle cone
+      const l3 = line([25, 10], [20, 10]);
+      const l4 = line([20, 10], [20, 0]);
+      coincident(l1.end(), l2.start());
+      coincident(l2.end(), l3.start());
+      coincident(l3.end(), l4.start());
+      coincident(l4.end(), l1.start());
+    });
+    const body = revolve("z");
+    color("#3366cc", body);
+    render();
+
+    // color() wraps the body in its own scene object; export the painted copy.
+    const painted = sceneSolids().filter(solid => solid.colorMap.length > 0);
+    expect(painted.length).toBe(1);
+    const faceCount = painted[0].getFaces().length;
+    expect(painted[0].colorMap.length).toBe(faceCount);
+
+    const step = FileExport.exportShapes(painted, { format: "step" }).data as string;
+    expect(countOccurrences(step, "ADVANCED_FACE")).toBe(faceCount);
+    expect(countOccurrences(step, "CONICAL_SURFACE(")).toBe(1);
+    expect(step).toContain("COLOUR_RGB");
+    // Whole-body color: one STYLED_ITEM per face, the rebuilt cone included.
+    expect(countOccurrences(step, "STYLED_ITEM(")).toBe(faceCount);
   });
 });

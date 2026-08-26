@@ -1,0 +1,100 @@
+appId: io.fluidcad.desktop
+productName: FluidCAD
+copyright: Copyright © Marwan Aouida
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - static/**/*
+  - package.json
+  - "!**/*.map"
+
+# The engine is staged by `scripts/stage-engine.js` and shipped **outside**
+# app.asar on purpose: it runs a live Vite server and loads native binaries and
+# wasm, all of which need real file paths. `main.ts` points the engine cache at
+# `process.resourcesPath/engine`, so the built-in engine is just a pre-seeded
+# cache entry (P2-2).
+# Written verbatim as a glob string: the `{from, to}` object form silently
+# copies nothing here, so the staging directory is named to land where it is
+# needed instead — `shell/engine/` → `resources/engine/` in the bundle.
+extraResources:
+  - engine/**/*
+
+asar: true
+
+# `.fluid.js`'s extension is, to every operating system, `.js`. Claiming it as
+# the default handler would make FluidCAD the default editor for every
+# JavaScript file on the machine, which is not a trade anyone would accept.
+# `rank: Alternate` (macOS) and NSIS's OpenWithProgids registration put FluidCAD
+# in "Open With" instead: the user chooses it once, the OS remembers, and no
+# other tool loses its association. Opening a file opens the workspace that
+# holds it — see `workspaceForPath` in `src/state.ts`.
+fileAssociations:
+  - ext: js
+    name: FluidCAD Model
+    description: FluidCAD parametric model
+    role: Editor
+    rank: Alternate
+
+mac:
+  category: public.app-category.graphics-design
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+  # Signed with the "Developer ID Application" identity electron-builder
+  # imports from CSC_LINK / CSC_KEY_PASSWORD (see release-desktop.yml), then
+  # notarized through notarytool with the App Store Connect API key in
+  # APPLE_API_KEY / APPLE_API_KEY_ID / APPLE_API_ISSUER. Nothing is pinned by
+  # name on purpose so a local `npm run dist` keeps working: on a machine
+  # without the identity electron-builder logs that it skipped signing and,
+  # because notarization only runs after a successful sign, skips that too;
+  # on a machine that has the identity but not the API key it signs and logs
+  # that it skipped notarization. Neither is an error.
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  notarize: true
+
+dmg:
+  # The .app inside is signed and notarized; signing the disk image as well
+  # only invites the double-signature/stapling mismatches that make Gatekeeper
+  # reject an otherwise valid download.
+  sign: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  # Unsigned: SmartScreen will warn on first run until a certificate is added.
+  signAndEditExecutable: true
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+
+linux:
+  category: Graphics
+  syncDesktopName: true
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  synopsis: Parametric CAD you write in JavaScript
+  desktop:
+    entry:
+      MimeType: text/javascript;application/javascript
+
+publish:
+  provider: github
+  owner: Fluid-CAD
+  repo: FluidCAD
+  releaseType: release

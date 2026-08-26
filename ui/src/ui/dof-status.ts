@@ -28,7 +28,9 @@ export class DofStatus {
     this.onSelectFailingMate = onSelectFailingMate;
 
     this.pill = document.createElement('div');
-    this.pill.className = 'absolute bottom-6 left-1/2 -translate-x-1/2 z-[100] panel-bg border border-base-content/10 rounded-full px-4 py-2 text-xs text-base-content/70 select-none flex items-center gap-2 cursor-default hidden';
+    // Centered on the scene rather than the window — the editor pane takes
+    // real width from the left.
+    this.pill.className = 'absolute bottom-6 left-[calc(50%+var(--fluidcad-editor-width,0px)/2)] -translate-x-1/2 z-[100] panel-bg border border-base-content/10 rounded-full px-4 py-2 text-xs text-base-content/70 select-none flex items-center gap-2 cursor-default hidden';
 
     this.icon = document.createElement('span');
     this.icon.className = 'shrink-0 [&>svg]:size-3.5';
@@ -40,7 +42,7 @@ export class DofStatus {
     container.appendChild(this.pill);
 
     this.expandedList = document.createElement('div');
-    this.expandedList.className = 'absolute bottom-16 left-1/2 -translate-x-1/2 z-[100] panel-bg border border-base-content/10 rounded-md p-2 text-xs text-base-content/80 hidden min-w-[200px]';
+    this.expandedList.className = 'absolute bottom-16 left-[calc(50%+var(--fluidcad-editor-width,0px)/2)] -translate-x-1/2 z-[100] panel-bg border border-base-content/10 rounded-md p-2 text-xs text-base-content/80 hidden min-w-[200px]';
     container.appendChild(this.expandedList);
 
     this.pill.addEventListener('click', () => {

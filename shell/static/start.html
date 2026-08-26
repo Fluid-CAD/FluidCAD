@@ -1,0 +1,736 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data: https:;" />
+    <title>FluidCAD</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #1c1c1c;
+        --panel: #242424;
+        --panel-hover: #2b2b2b;
+        --preview: #171717;
+        --line: #ffffff1a;
+        --fg: #e7e7e7;
+        --muted: #9a9a9a;
+        --faint: #6b6b6b;
+        --accent: #4f9cf9;
+        --ok: #7bd88f;
+        /* Straight from the fluidcad-dark daisyUI theme in ui/src/styles.css, so
+           the buttons below are the same object the project scene renders. */
+        --color-primary: #4a9eff;
+        --color-primary-content: #ffffff;
+        --color-base-200: #252525;
+        --color-base-content: #d4d4d4;
+        --radius-field: 0.25rem;
+        --size-field: 0.25rem;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--fg);
+        font: 400 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        display: flex;
+        flex-direction: column;
+        -webkit-user-select: none;
+        user-select: none;
+        overflow: hidden;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 22px 28px 14px;
+      }
+      header .logo { flex: none; width: 42px; height: 42px; }
+      header .mark { font-size: 20px; font-weight: 600; letter-spacing: 0.02em; }
+      header .sub { color: var(--muted); font-size: 12px; margin-top: 1px; }
+      header .spacer { flex: 1; }
+      button {
+        font: inherit;
+        color: var(--fg);
+        background: none;
+        border: 0;
+        padding: 0;
+        cursor: pointer;
+        white-space: nowrap;
+      }
+      /* daisyUI 5's .btn, transcribed for this page. The start screen is a plain
+         static file with no Tailwind build, so the classes cannot come from the
+         plugin — but the values are the plugin's, resolved against
+         fluidcad-dark. That theme sets --depth and --noise to 0, which is why
+         the noise layer, the inset highlight and the drop shadow drop out here:
+         they all multiply by zero. Keep this in step with the theme block in
+         ui/src/styles.css. */
+      .btn {
+        --size: calc(var(--size-field) * 10);
+        --btn-p: 1rem;
+        --btn-bg: var(--btn-color, var(--color-base-200));
+        --btn-fg: var(--color-base-content);
+        --btn-border: var(--btn-bg);
+        display: inline-flex;
+        flex-wrap: nowrap;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        gap: 0.375rem;
+        height: var(--size);
+        padding-inline: var(--btn-p);
+        font-size: var(--fontsize, 0.875rem);
+        font-weight: 600;
+        text-align: center;
+        vertical-align: middle;
+        color: var(--btn-fg);
+        background-color: var(--btn-bg);
+        border: 1px solid var(--btn-border);
+        border-radius: var(--radius-field);
+        outline-offset: 2px;
+        outline-color: var(--btn-color, var(--color-base-content));
+        touch-action: manipulation;
+        transition-property: color, background-color, border-color, box-shadow;
+        transition-duration: 0.2s;
+        transition-timing-function: cubic-bezier(0, 0, 0.2, 1);
+      }
+      .btn-sm { --fontsize: 0.75rem; --btn-p: 0.75rem; --size: calc(var(--size-field) * 8); }
+      .btn-primary { --btn-color: var(--color-primary); --btn-fg: var(--color-primary-content); }
+      @media (hover: hover) {
+        .btn:hover { --btn-bg: color-mix(in oklab, var(--btn-color, var(--color-base-200)), #000 7%); }
+      }
+      .btn:active {
+        --btn-bg: color-mix(in oklab, var(--btn-color, var(--color-base-200)), #000 5%);
+        translate: 0 0.5px;
+      }
+      .btn:focus-visible { isolation: isolate; outline-width: 2px; outline-style: solid; }
+      /* The outline button stays transparent in every state; the border carries
+         the shape. daisyUI would paint a base-200 hover fill, but against this
+         page's --bg that lands four levels above the background: a highlight you
+         cannot quite see, which reads as a box that does not line up with the
+         solid primary beside it. Hover brightens the border instead. Declared
+         after the state rules so it wins the equal-specificity ties with :hover
+         and :active. */
+      .btn-outline, .btn-outline:hover, .btn-outline:active { --btn-bg: #0000; }
+      .btn-outline:not(:disabled) {
+        --btn-fg: var(--btn-color, var(--color-base-content));
+        --btn-border: color-mix(in oklab, currentColor 45%, #0000);
+        outline-color: currentColor;
+      }
+      .btn-outline:not(:disabled):hover { --btn-border: color-mix(in oklab, currentColor 75%, #0000); }
+      .btn:disabled {
+        pointer-events: none;
+        --btn-border: #0000;
+        --btn-fg: color-mix(in oklch, var(--color-base-content) 20%, #0000);
+      }
+      .btn:disabled:not(.btn-outline) {
+        background-color: color-mix(in oklab, var(--color-base-content) 10%, transparent);
+        box-shadow: none;
+      }
+      main { flex: 1; overflow-y: auto; padding: 4px 28px 28px; }
+      h2 {
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+        margin: 10px 0 12px;
+        font-weight: 500;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 16px;
+      }
+      .card {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        overflow: hidden;
+        cursor: pointer;
+        outline: none;
+        transition: border-color 100ms ease, background 100ms ease;
+      }
+      .card:hover, .card:focus-visible { background: var(--panel-hover); border-color: #ffffff33; }
+      .card:focus-visible { box-shadow: 0 0 0 2px #4f9cf966; }
+      .card.busy { pointer-events: none; opacity: 0.6; }
+      .preview {
+        aspect-ratio: 16 / 10;
+        background: var(--preview);
+        display: grid;
+        place-items: center;
+        border-bottom: 1px solid var(--line);
+        overflow: hidden;
+      }
+      .preview img { width: 100%; height: 100%; object-fit: contain; display: block; padding: 14px; }
+      .preview .placeholder { color: var(--faint); font-size: 12px; text-align: center; display: grid; gap: 6px; justify-items: center; }
+      .preview .placeholder svg { width: 34px; height: 34px; stroke: currentColor; fill: none; stroke-width: 1.4; opacity: 0.7; }
+      .meta { padding: 10px 12px 11px; display: grid; gap: 2px; min-width: 0; }
+      .name-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+      .name { font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .tag {
+        flex: none;
+        padding: 0 7px;
+        border-radius: 999px;
+        font-size: 11px;
+        line-height: 18px;
+        border: 1px solid var(--line);
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+      .tag.open { color: var(--ok); border-color: #7bd88f55; }
+      .tag.own { color: var(--accent); border-color: #4f9cf955; }
+      .path {
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        direction: rtl;
+        text-align: left;
+      }
+      .path bdi { direction: ltr; unicode-bidi: isolate; }
+      .when-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; margin-top: 8px; }
+      /* Line-height matches the tag's 18px content box so both sit on the same centre line. */
+      .when { color: var(--faint); font-size: 11px; line-height: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .more {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        padding: 0;
+        width: 26px;
+        height: 26px;
+        border-radius: 6px;
+        background: #000000a6;
+        border: 1px solid #ffffff2e;
+        display: grid;
+        place-items: center;
+        opacity: 0;
+        transition: opacity 100ms ease;
+      }
+      .card:hover .more, .card:focus-within .more, .more.open { opacity: 1; }
+      .more:hover, .more.open { background: #000000d9; }
+      .more svg { width: 16px; height: 16px; fill: var(--fg); }
+      .menu {
+        position: fixed;
+        z-index: 10;
+        min-width: 180px;
+        padding: 4px;
+        background: var(--panel-hover);
+        border: 1px solid #ffffff2e;
+        border-radius: 8px;
+        box-shadow: 0 8px 24px #00000080;
+      }
+      .menu button {
+        display: block;
+        width: 100%;
+        text-align: left;
+        padding: 6px 10px;
+        border: none;
+        border-radius: 5px;
+        background: transparent;
+      }
+      .menu button:hover, .menu button:focus-visible { background: #ffffff1a; outline: none; }
+      .empty {
+        color: var(--muted);
+        text-align: center;
+        padding: 64px 20px;
+        border: 1px dashed var(--line);
+        border-radius: 12px;
+      }
+      .empty strong { display: block; color: var(--fg); font-size: 15px; margin-bottom: 4px; }
+      /* Feed notifications: a quiet accent-tinted strip above the projects. */
+      .notices { display: grid; gap: 10px; margin: 6px 0 20px; }
+      .notice {
+        position: relative;
+        background: #4f9cf912;
+        border: 1px solid #4f9cf93d;
+        border-radius: 8px;
+        padding: 10px 40px 10px 14px;
+        font-size: 13px;
+        -webkit-user-select: text;
+        user-select: text;
+      }
+      .notice p { margin: 0 0 4px; }
+      .notice p:last-child { margin-bottom: 0; }
+      .notice a { color: var(--accent); text-decoration: none; }
+      .notice a:hover { text-decoration: underline; }
+      .notice .dismiss {
+        position: absolute;
+        top: 7px;
+        right: 7px;
+        width: 24px;
+        height: 24px;
+        border-radius: 6px;
+        display: grid;
+        place-items: center;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .notice .dismiss:hover { background: #ffffff1a; color: var(--fg); }
+      /* The "Learn FluidCAD" panel: tutorial cards, slightly smaller than the
+         project cards, whose click leaves for the browser. */
+      #learn h2 { margin-top: 28px; }
+      .tutorials {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+        gap: 14px;
+      }
+      .tutorial .preview img { object-fit: cover; padding: 0; }
+      .tutorial .meta { padding: 9px 12px 10px; }
+      .tutorial .t-title { font-weight: 600; font-size: 13px; }
+      .tutorial .t-desc {
+        color: var(--muted);
+        font-size: 12px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <!-- The FluidCAD logo, inlined from website/static/img/logo.svg. -->
+      <svg class="logo" viewBox="0 0 500 500" aria-hidden="true">
+        <g transform="translate(250, 250)">
+          <text x="-142" y="45" font-family="'Times New Roman', serif" font-size="340" font-weight="400" text-anchor="middle" fill="#b0b0b0">{</text>
+          <text x="142" y="45" font-family="'Times New Roman', serif" font-size="340" font-weight="400" text-anchor="middle" fill="#b0b0b0">}</text>
+          <g transform="translate(0, -35)">
+            <polygon points="0,-110 -95,-55 -95,55 0,110 95,55 95,-55" fill="none" stroke="#5ba3d9" stroke-width="10" stroke-linejoin="round"/>
+            <polyline points="-95,-55 0,0 95,-55" fill="none" stroke="#5ba3d9" stroke-width="10" stroke-linejoin="round" stroke-linecap="round"/>
+            <line x1="0" y1="0" x2="0" y2="110" stroke="#5ba3d9" stroke-width="10" stroke-linecap="round"/>
+          </g>
+        </g>
+      </svg>
+      <div>
+        <div class="mark">FluidCAD</div>
+        <div class="sub" id="sub">Pick a project to open.</div>
+      </div>
+      <div class="spacer"></div>
+      <button id="open" class="btn btn-outline btn-sm">Open Project</button>
+      <button id="new" class="btn btn-primary btn-sm">New Project</button>
+    </header>
+
+    <main>
+      <div id="notices" class="notices" hidden></div>
+      <h2 id="heading">Recent projects</h2>
+      <div id="grid" class="grid"></div>
+      <div id="empty" class="empty" hidden>
+        <strong>No projects yet</strong>
+        Create a new project in an empty folder, or open a folder that already holds one.
+      </div>
+      <section id="learn" hidden>
+        <h2>Learn FluidCAD</h2>
+        <div id="tutorials" class="tutorials"></div>
+      </section>
+    </main>
+
+    <script>
+      const api = window.fluidcadShell;
+      const grid = document.getElementById('grid');
+      const empty = document.getElementById('empty');
+      const notices = document.getElementById('notices');
+      const learn = document.getElementById('learn');
+      const tutorials = document.getElementById('tutorials');
+      const openButton = document.getElementById('open');
+      const newButton = document.getElementById('new');
+
+      const CUBE =
+        '<svg viewBox="0 0 24 24"><path d="M12 3 20 7.5v9L12 21l-8-4.5v-9L12 3z"/>' +
+        '<path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg>';
+      const DOTS =
+        '<svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>';
+
+      let home = '';
+
+      function relative(iso) {
+        const then = new Date(iso).getTime();
+        if (!Number.isFinite(then)) { return ''; }
+        const seconds = Math.max(0, (Date.now() - then) / 1000);
+        if (seconds < 60) { return 'Opened just now'; }
+        const minutes = Math.round(seconds / 60);
+        if (minutes < 60) { return `Opened ${minutes} min ago`; }
+        const hours = Math.round(minutes / 60);
+        if (hours < 24) { return `Opened ${hours} h ago`; }
+        const days = Math.round(hours / 24);
+        if (days === 1) { return 'Opened yesterday'; }
+        if (days < 30) { return `Opened ${days} days ago`; }
+        return `Opened ${new Date(iso).toLocaleDateString()}`;
+      }
+
+      function shortenPath(full) {
+        if (home && (full === home || full.startsWith(home + '/') || full.startsWith(home + '\\'))) {
+          return '~' + full.slice(home.length);
+        }
+        return full;
+      }
+
+      // One dropdown at a time, at body level so a card's overflow can't clip it.
+      let openMenu = null;
+
+      function closeMenu() {
+        if (!openMenu) { return; }
+        openMenu.element.remove();
+        openMenu.anchor.classList.remove('open');
+        openMenu = null;
+      }
+
+      function showMenu(anchor, items) {
+        if (openMenu && openMenu.anchor === anchor) { closeMenu(); return; }
+        closeMenu();
+        const menu = document.createElement('div');
+        menu.className = 'menu';
+        menu.setAttribute('role', 'menu');
+        for (const item of items) {
+          const button = document.createElement('button');
+          button.setAttribute('role', 'menuitem');
+          button.textContent = item.label;
+          button.onclick = (event) => {
+            event.stopPropagation();
+            closeMenu();
+            void item.action();
+          };
+          menu.appendChild(button);
+        }
+        // Stop clicks inside from reaching the card underneath.
+        menu.onclick = (event) => event.stopPropagation();
+        document.body.appendChild(menu);
+        const rect = anchor.getBoundingClientRect();
+        const width = menu.offsetWidth;
+        menu.style.top = `${rect.bottom + 4}px`;
+        menu.style.left = `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`;
+        anchor.classList.add('open');
+        openMenu = { element: menu, anchor };
+        menu.querySelector('button')?.focus();
+      }
+
+      document.addEventListener('click', closeMenu);
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') { closeMenu(); }
+      });
+      const mainEl = document.querySelector('main');
+      mainEl.addEventListener('scroll', closeMenu);
+      window.addEventListener('resize', closeMenu);
+      window.addEventListener('blur', closeMenu);
+
+      function moreButton(items) {
+        const button = document.createElement('button');
+        button.className = 'more';
+        button.title = 'More';
+        button.setAttribute('aria-haspopup', 'menu');
+        button.innerHTML = DOTS;
+        button.onclick = (event) => {
+          event.stopPropagation();
+          showMenu(button, items);
+        };
+        button.onkeydown = (event) => event.stopPropagation();
+        return button;
+      }
+
+      function engineTag(project) {
+        const tag = document.createElement('span');
+        tag.className = 'tag';
+        if (project.open) {
+          tag.classList.add('open');
+          tag.textContent = 'open';
+          return tag;
+        }
+        if (!project.engine) {
+          tag.textContent = 'unpinned';
+          tag.title = 'This project has no engine pin yet; it opens with the engine that ships with the app.';
+          return tag;
+        }
+        tag.textContent = project.engine;
+        if (project.engineSource === 'own') {
+          tag.classList.add('own');
+          tag.title = "Runs the engine from the project's own node_modules.";
+        } else {
+          tag.title = 'Pinned in fluidcad.json.';
+        }
+        return tag;
+      }
+
+      function card(project) {
+        const el = document.createElement('div');
+        el.className = 'card';
+        el.tabIndex = 0;
+        el.setAttribute('role', 'button');
+        el.title = project.path;
+
+        const preview = document.createElement('div');
+        preview.className = 'preview';
+        if (project.thumbnail) {
+          const img = document.createElement('img');
+          img.src = project.thumbnail;
+          img.alt = '';
+          img.draggable = false;
+          preview.appendChild(img);
+        } else {
+          const placeholder = document.createElement('div');
+          placeholder.className = 'placeholder';
+          placeholder.innerHTML = `${CUBE}<span>No preview yet</span>`;
+          preview.appendChild(placeholder);
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const nameRow = document.createElement('div');
+        nameRow.className = 'name-row';
+        const name = document.createElement('div');
+        name.className = 'name';
+        name.textContent = project.name;
+        nameRow.append(name);
+        const path = document.createElement('div');
+        path.className = 'path';
+        const bdi = document.createElement('bdi');
+        bdi.textContent = shortenPath(project.path);
+        path.appendChild(bdi);
+        const whenRow = document.createElement('div');
+        whenRow.className = 'when-row';
+        const when = document.createElement('div');
+        when.className = 'when';
+        when.textContent = relative(project.lastOpenedAt);
+        whenRow.append(when, engineTag(project));
+        meta.append(nameRow, path, whenRow);
+
+        const more = moreButton([
+          {
+            label: 'Remove from recent',
+            action: async () => {
+              await api.start.forget(project.path);
+              await refresh();
+            },
+          },
+        ]);
+
+        const open = async () => {
+          if (el.classList.contains('busy')) { return; }
+          el.classList.add('busy');
+          try {
+            await api.start.open(project.path);
+          } finally {
+            el.classList.remove('busy');
+          }
+        };
+        el.onclick = open;
+        el.onkeydown = (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            void open();
+          }
+        };
+
+        el.append(preview, meta, more);
+        return el;
+      }
+
+      // A notification body is remote HTML. This page runs with a preload
+      // bridge, so it only ever renders a sanitized copy: formatting tags and
+      // http(s) links survive, everything else is dropped or unwrapped.
+      const KEEP_TAGS = new Set(['A', 'B', 'STRONG', 'I', 'EM', 'U', 'CODE', 'BR', 'P', 'SPAN', 'UL', 'OL', 'LI']);
+      const DROP_TAGS = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'LINK', 'META', 'TEMPLATE', 'SVG']);
+
+      function sanitizedBody(html) {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        for (const el of [...doc.body.querySelectorAll('*')]) {
+          if (DROP_TAGS.has(el.tagName)) {
+            el.remove();
+            continue;
+          }
+          if (!KEEP_TAGS.has(el.tagName)) {
+            el.replaceWith(...el.childNodes);
+            continue;
+          }
+          for (const attr of [...el.attributes]) {
+            const keep =
+              el.tagName === 'A' && attr.name === 'href' && /^https?:\/\//.test(el.getAttribute('href') || '');
+            if (!keep) { el.removeAttribute(attr.name); }
+          }
+        }
+        const body = document.createElement('div');
+        body.append(...doc.body.childNodes);
+        return body;
+      }
+
+      function notice(entry) {
+        const el = document.createElement('div');
+        el.className = 'notice';
+        el.appendChild(sanitizedBody(entry.body));
+        const dismiss = document.createElement('button');
+        dismiss.className = 'dismiss';
+        dismiss.title = 'Dismiss';
+        dismiss.setAttribute('aria-label', 'Dismiss notification');
+        dismiss.textContent = '✕';
+        dismiss.onclick = () => {
+          el.remove();
+          notices.hidden = notices.children.length === 0;
+          void api.start.dismissNotification(entry.id);
+          void fitWindowHeight();
+        };
+        el.appendChild(dismiss);
+        return el;
+      }
+
+      // Links leave for the browser; the will-navigate guard in the shell is
+      // the backstop, this is the path that normally runs.
+      notices.addEventListener('click', (event) => {
+        const link = event.target.closest('a');
+        if (link) {
+          event.preventDefault();
+          void api.start.openLink(link.getAttribute('href'));
+        }
+      });
+
+      function tutorialCard(entry) {
+        const el = document.createElement('div');
+        el.className = 'card tutorial';
+        el.tabIndex = 0;
+        el.setAttribute('role', 'link');
+        el.title = entry.url;
+
+        const preview = document.createElement('div');
+        preview.className = 'preview';
+        if (entry.thumbnail) {
+          const img = document.createElement('img');
+          img.src = entry.thumbnail;
+          img.alt = '';
+          img.draggable = false;
+          preview.appendChild(img);
+        } else {
+          const placeholder = document.createElement('div');
+          placeholder.className = 'placeholder';
+          placeholder.innerHTML = CUBE;
+          preview.appendChild(placeholder);
+        }
+
+        const meta = document.createElement('div');
+        meta.className = 'meta';
+        const title = document.createElement('div');
+        title.className = 't-title';
+        title.textContent = entry.title;
+        meta.appendChild(title);
+        if (entry.description) {
+          const desc = document.createElement('div');
+          desc.className = 't-desc';
+          desc.textContent = entry.description;
+          meta.appendChild(desc);
+        }
+
+        const open = () => void api.start.openLink(entry.url);
+        el.onclick = open;
+        el.onkeydown = (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            open();
+          }
+        };
+
+        el.append(preview, meta);
+        return el;
+      }
+
+      // Size the window to the content: with the recents capped at one row, a
+      // start screen whose feed is at most one row deep should fit exactly,
+      // with no scrollbar. Only a feed that wraps to a second row keeps the
+      // window at its current height and scrolls. The shell applies the delta,
+      // clamped to the screen, so the menu bar and frame stay out of the math.
+      //
+      // A delta is only right if `innerHeight` is current, so the whole thing
+      // is single-flight: one fit at a time, requests during a fit run once
+      // more at the end, and each attempt re-measures after the previous
+      // resize landed. Nothing runs until the feed settles once — fitting to
+      // the recents alone would shrink the window and then bounce it back.
+      let feedSettled = false;
+      let fitRunning = false;
+      let fitAgain = false;
+
+      const nextFrame = () => new Promise(requestAnimationFrame);
+
+      async function fitWindowHeight() {
+        if (!api?.start.fitHeight || !feedSettled) { return; }
+        if (fitRunning) { fitAgain = true; return; }
+        fitRunning = true;
+        try {
+          do {
+            fitAgain = false;
+            // A second attempt catches a clamped or in-flight resize; a third
+            // means the shell cannot give us the height we want (screen edge),
+            // so stop rather than loop.
+            for (let attempt = 0; attempt < 3; attempt++) {
+              await nextFrame();
+              await nextFrame();
+              const feedRows = new Set([...tutorials.children].map((el) => el.offsetTop)).size;
+              if (!learn.hidden && feedRows > 1) { return; }
+              mainEl.scrollTop = 0;
+              const visible = [...mainEl.children].filter((el) => !el.hidden);
+              const last = visible[visible.length - 1];
+              if (!last) { return; }
+              // 28px is main's bottom padding; rect.bottom already includes the header.
+              const desired = Math.ceil(last.getBoundingClientRect().bottom) + 28;
+              const delta = desired - window.innerHeight;
+              if (Math.abs(delta) <= 1) { break; }
+              await api.start.fitHeight(delta);
+            }
+          } while (fitAgain);
+        } finally {
+          fitRunning = false;
+        }
+      }
+
+      async function refreshFeed() {
+        if (!api?.start.feed) { return; }
+        try {
+          const feed = await api.start.feed();
+          notices.replaceChildren(...feed.notifications.map(notice));
+          notices.hidden = feed.notifications.length === 0;
+          tutorials.replaceChildren(...feed.tutorials.map(tutorialCard));
+          learn.hidden = feed.tutorials.length === 0;
+        } catch {
+          // The feed is a nicety; the start screen works without it.
+        }
+        feedSettled = true;
+        void fitWindowHeight();
+      }
+
+      async function refresh() {
+        if (!api) { return; }
+        const state = await api.start.list();
+        closeMenu();
+        home = state.home || '';
+        // One row of recents is enough for a home screen; the freshest four win.
+        const projects = state.projects.slice(0, 4);
+        grid.replaceChildren(...projects.map(card));
+        empty.hidden = projects.length > 0;
+        grid.hidden = projects.length === 0;
+        void fitWindowHeight();
+      }
+
+      async function busy(button, action) {
+        openButton.disabled = true;
+        newButton.disabled = true;
+        try {
+          await action();
+        } finally {
+          openButton.disabled = false;
+          newButton.disabled = false;
+          await refresh();
+        }
+      }
+
+      openButton.onclick = () => void busy(openButton, () => api.start.openDialog());
+      newButton.onclick = () => void busy(newButton, () => api.start.newProject());
+
+      api?.start.onChanged(() => void refresh());
+      window.addEventListener('focus', () => {
+        void refresh();
+        void refreshFeed();
+      });
+      void refresh();
+      void refreshFeed();
+    </script>
+  </body>
+</html>

@@ -107,6 +107,10 @@ export interface UserPreferences {
   showBuildTimings: boolean;
   measureLengthUnit?: 'mm' | 'cm' | 'm' | 'in';
   measureAngleUnit?: 'deg' | 'rad';
+  /** Code-editor pane open at startup. Default false. */
+  editorOpen?: boolean;
+  /** Code-editor pane width, in px. */
+  editorWidth?: number;
 }
 
 // ---------------------------------------------------------------------------

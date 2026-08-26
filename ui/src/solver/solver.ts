@@ -61,6 +61,7 @@ export class Solver {
       draggedInstanceId: input.draggedInstanceId,
       draggedCursorWorld: input.draggedCursorWorld,
       draggedGrabLocal: input.draggedGrabLocal,
+      drivenJoint: input.drivenJoint,
     };
 
     applyTreeWarmStarts(input.bodies, graph.components, input.mates, drag, fastenedClusters);

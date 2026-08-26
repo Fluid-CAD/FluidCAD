@@ -121,7 +121,7 @@ FluidCAD ships official extensions for **VS Code** and **Neovim**, but works wit
 
 ### LLM / AI Agent Integration (MCP)
 
-FluidCAD ships an [MCP](https://modelcontextprotocol.io) server so AI agents (Claude Code, Claude Desktop, Cursor, opencode, etc.) can drive a running workspace -- take screenshots, inspect geometry, edit `.fluid.js` files, and look up the API by symbol. See [Set Up the MCP Server](#3-optional-set-up-the-mcp-server) below.
+FluidCAD ships an [MCP](https://modelcontextprotocol.io) server so AI agents (Claude Code, Claude Desktop, Cursor, opencode, etc.) can drive a running workspace -- take screenshots, inspect geometry, edit `.fluid.js` files, and look up the API by symbol. See [Set Up the MCP Server](#4-optional-set-up-the-mcp-server) below.
 
 
 ---
@@ -201,7 +201,32 @@ FluidCAD recognizes two source-file extensions:
 `*.fluid.js` continues to work as a back-compat alias for `*.part.js`, so
 existing projects keep running unchanged.
 
-### 2. Set Up Your Editor
+### 2. Open It
+
+```bash
+npx fluidcad serve
+```
+
+That's the whole product in a browser tab: the 3D viewport, a code editor with
+completion driven by the engine's own type declarations, and a live rebuild on
+every change. Nothing else to install.
+
+**Options:**
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-w, --workspace <path>` | Path to your project | Current directory |
+| `-p, --port <port>` | Server port -- if it's taken, the next free one is used | `3100` |
+| `--no-open` | Don't launch a browser -- for CI and remote sessions | _opens by default_ |
+
+The code editor is hidden until you want it: open it from the ☰ menu or with
+<kbd>Ctrl</kbd>+<kbd>B</kbd>, and it takes width from the left rather than
+covering the model.
+
+### 3. Or Use Your Own Editor
+
+Prefer to model with your own editor open beside the viewport? Both extensions
+drive the same server.
 
 <details>
 <summary><strong>VS Code</strong></summary>
@@ -238,25 +263,13 @@ See the full list of commands in the [Neovim plugin README](extension/neovim/REA
 <details>
 <summary><strong>Any Other Editor</strong></summary>
 
-From your project directory, run the FluidCAD server directly:
-
-```bash
-npx fluidcad serve
-```
-
-This starts a local server and opens a 3D viewport in your browser. Edit your `.fluid.js` files in any editor -- the viewport updates on save.
-
-**Options:**
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `-w, --workspace <path>` | Path to your project | Current directory |
-| `-p, --port <port>` | Server port -- if it's taken, the next free one is used | `3100` |
-| `--open` | Open the viewport in your default browser when ready | _off_ |
+`npx fluidcad serve` (above) works alongside any editor: keep the browser tab
+open on the viewport and edit `.fluid.js` in your own editor -- the model
+rebuilds on save.
 
 </details>
 
-### 3. (Optional) Set Up the MCP Server
+### 4. (Optional) Set Up the MCP Server
 
 FluidCAD bundles an [MCP](https://modelcontextprotocol.io) server so LLM agents can drive your workspace -- screenshots, geometry inspection, source edits, API lookup. It's included in the `fluidcad` package; no separate install needed.
 
@@ -319,7 +332,7 @@ npx skills add Fluid-CAD/FluidCAD
 
 See the [MCP README](mcp/README.md) for the full tool surface, transport details, and local-testing guide.
 
-### 4. (Optional) Export from the Command Line
+### 5. (Optional) Export from the Command Line
 
 Turn a model into a STEP, STL, or PNG without leaving the terminal:
 

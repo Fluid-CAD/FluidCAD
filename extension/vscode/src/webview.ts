@@ -10,9 +10,16 @@ function getNonce(): string {
   return text;
 }
 
-function getHTML(serverUrl: string): string {
+function getHTML(rawServerUrl: string): string {
   const nonce = getNonce();
-  const expectedOrigin = new URL(serverUrl).origin;
+  const expectedOrigin = new URL(rawServerUrl).origin;
+  // VSCode *is* the editor here, so the page must render viewport-only: no
+  // code pane, no tabs, no in-page host competing with this extension for the
+  // same buffer. The page also infers this from being in an iframe, but say it
+  // out loud so the intent survives a change to that heuristic.
+  const url = new URL(rawServerUrl);
+  url.searchParams.set('editor', '0');
+  const serverUrl = url.toString();
   return `
 			<!DOCTYPE html>
 			<html lang="en">

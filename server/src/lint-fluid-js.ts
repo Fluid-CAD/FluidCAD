@@ -63,6 +63,17 @@ for (const s of CONSTRAINT_SYMBOLS) {
   MODULE_FOR_SYMBOL.set(s, 'fluidcad/constraints');
 }
 
+export type EngineSymbol = { name: string; module: string };
+
+/**
+ * The full symbol table as data, for surfaces that complete rather than lint —
+ * the in-page editor's auto-import suggestions are driven by this same map,
+ * so what Monaco offers and what the write guard accepts cannot drift.
+ */
+export function listEngineSymbols(): EngineSymbol[] {
+  return Array.from(MODULE_FOR_SYMBOL, ([name, module]) => ({ name, module }));
+}
+
 export type MissingImport = {
   symbol: string;
   module: string;

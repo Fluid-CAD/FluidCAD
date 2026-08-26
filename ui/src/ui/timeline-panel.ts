@@ -37,6 +37,31 @@ function isHiddenRow(obj: SceneObjectRender): boolean {
   return obj.uniqueType === 'lazy-select' || obj.uniqueType === 'lazy-vertex' || obj.internal === true;
 }
 
+/**
+ * Child rows a part folds into their own sub-container instead of listing
+ * inline with its features: mate connectors (`connector(…)`) and published
+ * selections (`expose(…)`). Both are references rather than geometry, so a
+ * part with a dozen of them would otherwise bury its modeling history. Each
+ * kind renders behind one "N connectors" / "N exposed" toggle row, collapsed
+ * by default — the same shape the solved-sketch constraint group uses.
+ */
+interface PartGroupKind {
+  /** Key into expandedGroupKeys (`<partId>:<key>`). */
+  key: string;
+  type: string;
+  label: (count: number) => string;
+  icon: string;
+}
+
+const PART_GROUP_KINDS: readonly PartGroupKind[] = [
+  { key: 'connectors', type: 'connector', label: (n) => `— ${n} connector${n === 1 ? '' : 's'}`, icon: 'mate-connector' },
+  { key: 'exposed', type: 'exposed', label: (n) => `— ${n} exposed`, icon: 'select' },
+];
+
+function partGroupOf(obj: SceneObjectRender): PartGroupKind | undefined {
+  return PART_GROUP_KINDS.find((kind) => obj.type === kind.type);
+}
+
 export class TimelinePanel {
   /**
    * Pre-empts a timeline row's default click (rollback preview + go to
@@ -54,6 +79,12 @@ export class TimelinePanel {
    */
   onPartActivate?: (obj: SceneObjectRender) => void;
 
+  /**
+   * A connector or exposed row was clicked. These rows are references, not
+   * modeling steps: instead of the rollback preview they point the viewer at
+   * what they publish (the connector's gizmo, the exposure's faces).
+   */
+  onFeatureShow?: (obj: SceneObjectRender) => void;
   /** Whether this part row is the active part (drives its highlight). */
   isPartRowActive?: (obj: SceneObjectRender) => boolean;
 
@@ -106,6 +137,8 @@ export class TimelinePanel {
   private collapsedIds = new Set<string>();
   /** Sketch ids whose grouped constraint rows are shown (hidden by default). */
   private expandedConstraintIds = new Set<string>();
+  /** `<partId>:<groupKey>` of part sub-containers whose rows are shown (hidden by default). */
+  private expandedGroupKeys = new Set<string>();
   /**
    * Row highlight for a 3D viewer pick: the id of the feature the picked
    * face/edge attributed to. Cleared on every update() — ids are re-minted
@@ -134,7 +167,7 @@ export class TimelinePanel {
   ) {
     this.panel = document.createElement('div');
     // Docked below the host chrome (--fluidcad-chrome-top) with breathing room.
-    this.panel.className = 'absolute left-6 top-[calc(var(--fluidcad-chrome-top,104px)+12px)] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
+    this.panel.className = 'absolute left-[calc(var(--fluidcad-editor-width,0px)+1.5rem)] top-[calc(var(--fluidcad-chrome-top,104px)+12px)] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
     this.applyPanelWidth();
 
@@ -224,6 +257,10 @@ export class TimelinePanel {
         this.collapsedIds.delete(row.parentId);
         if (isConstraintRow(row)) {
           this.expandedConstraintIds.add(row.parentId);
+        }
+        const group = partGroupOf(row);
+        if (group) {
+          this.expandedGroupKeys.add(`${row.parentId}:${group.key}`);
         }
       }
     }
@@ -360,6 +397,7 @@ export class TimelinePanel {
 
       if (hasChildren && !isCollapsed) {
         const constraintRows: number[] = [];
+        const grouped = new Map<string, number[]>();
         for (let j = 0; j < items.length; j++) {
           if (isHiddenRow(items[j])) {
             continue;
@@ -367,6 +405,13 @@ export class TimelinePanel {
           if (items[j].parentId === obj.id) {
             if (isConstraintRow(items[j])) {
               constraintRows.push(j);
+              continue;
+            }
+            const group = obj.type === 'part' ? partGroupOf(items[j]) : undefined;
+            if (group) {
+              const list = grouped.get(group.key) ?? [];
+              list.push(j);
+              grouped.set(group.key, list);
               continue;
             }
             const childRollbackIndex = items[j].hideChildren === true ? this.lastDescendantIndex(items, j) : j;
@@ -380,6 +425,23 @@ export class TimelinePanel {
           if (shown) {
             for (const j of constraintRows) {
               html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true, j, scopedIds, pickedRowId !== null && items[j].id === pickedRowId);
+            }
+          }
+        }
+        if (obj.id != null) {
+          for (const kind of PART_GROUP_KINDS) {
+            const rows = grouped.get(kind.key);
+            if (!rows || rows.length === 0) {
+              continue;
+            }
+            const groupKey = `${obj.id}:${kind.key}`;
+            const shown = this.expandedGroupKeys.has(groupKey);
+            const anyError = rows.some((j) => items[j].hasError === true);
+            html += this.renderGroupSummaryRow(groupKey, kind, rows.length, shown, anyError);
+            if (shown) {
+              for (const j of rows) {
+                html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true, j, scopedIds, pickedRowId !== null && items[j].id === pickedRowId);
+              }
             }
           }
         }
@@ -405,6 +467,13 @@ export class TimelinePanel {
           this.onPartActivate(obj);
           this.goToSource(obj);
           this.renderTimeline();
+          return;
+        }
+        if (obj && partGroupOf(obj) && this.onFeatureShow) {
+          // Connector / exposed rows show what they publish instead of
+          // rolling back — they are references, not modeling steps.
+          this.onFeatureShow(obj);
+          this.goToSource(obj);
           return;
         }
         if (this.sketchActive) {
@@ -466,6 +535,19 @@ export class TimelinePanel {
           this.expandedConstraintIds.delete(id);
         } else {
           this.expandedConstraintIds.add(id);
+        }
+        this.renderTimeline();
+      });
+    });
+
+    this.timelineBody.querySelectorAll<HTMLElement>('[data-group-toggle]').forEach((el) => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const key = el.dataset.groupToggle!;
+        if (this.expandedGroupKeys.has(key)) {
+          this.expandedGroupKeys.delete(key);
+        } else {
+          this.expandedGroupKeys.add(key);
         }
         this.renderTimeline();
       });
@@ -589,6 +671,30 @@ export class TimelinePanel {
     `;
   }
 
+  /**
+   * The "N connectors" / "N exposed" toggle row of a part sub-container.
+   * Carries no data-index on purpose: it is not a statement — no rollback,
+   * rename or context menu — only the show/hide toggle for the grouped rows
+   * below it.
+   */
+  private renderGroupSummaryRow(groupKey: string, kind: PartGroupKind, count: number, shown: boolean, anyError: boolean): string {
+    const rotation = shown ? 'rotate-90' : '';
+    const textClass = anyError ? 'text-error' : 'text-base-content/60';
+    const errorDot = anyError
+      ? `<span class="text-error shrink-0 [&>svg]:w-2.5 [&>svg]:h-2.5">${ICON_ALERT_DOT}</span>`
+      : '';
+    return `
+      <div class="flex items-center gap-1 px-3 py-1.5 pl-7 cursor-pointer hover:bg-base-content/[0.06] text-sm ${textClass}" data-group-toggle="${groupKey}">
+        <span class="flex items-center justify-center w-5 h-5 opacity-50 hover:opacity-100 transition-transform ${rotation}">
+          ${ICON_CHEVRON_RIGHT}
+        </span>
+        ${errorDot}
+        <img src="/icons/${kind.icon}.png" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
+        <span class="truncate">${kind.label(count)}</span>
+      </div>
+    `;
+  }
+
   private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean, rollbackIndex: number, scopedIds: Set<string> | null, isPicked: boolean): string {
     // Rows outside a part-scoped rollback's part are fully rendered — they
     // never read as past or current, whatever their flat index.
@@ -597,11 +703,13 @@ export class TimelinePanel {
     // current whenever the rollback stop lands anywhere inside its range.
     const isCurrent = inRollbackScope && rollbackStop >= index && rollbackStop <= rollbackIndex;
     const isPast = inRollbackScope && index > rollbackStop;
-    // `visible` reports whether a row put shapes on screen, so a constraint
-    // statement — which never has any — reads as false. Dimming it there would
-    // say "hidden shape" about something that cannot be shown or hidden, and
-    // would grayscale the constraint artwork out of the row it labels.
-    const isInvisible = obj.visible === false && !isConstraintRow(obj);
+    // `visible` reports whether a row put shapes on screen. A constraint
+    // statement never has any, so it reads as false — dimming it would say
+    // "hidden shape" about something that cannot be shown or hidden and
+    // grayscale the constraint artwork out of the row it labels. An exposure
+    // is likewise a reference, not geometry — dimming it would read as
+    // "consumed" about something nothing can consume.
+    const isInvisible = obj.visible === false && !isConstraintRow(obj) && obj.type !== 'exposed';
     const isActivePart = !isChild && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
     const name = obj.name || 'Unknown';
     const iconSrc = obj.type === 'part' ? '/icons/box.png' : `/icons/${resolveIconName(obj.uniqueType, obj.type)}.png`;

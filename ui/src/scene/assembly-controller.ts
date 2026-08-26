@@ -3,7 +3,7 @@ import { ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, Seri
 import { buildObjectMesh } from '../meshes/mesh-factory';
 import { onThemeChange } from './theme-colors';
 import { Solver, buildMateGraph, isInstanceFullyLocked, mateReadoutValue } from '../solver';
-import type { BodyState, ConnectorState, ContactState, MateReadout, MateRecord, SolverInput, SolverOutput } from '../solver';
+import type { BodyState, ConnectorState, ContactState, MateReadout, MateRecord, SolverInput, SolverOutput, TreeEdge } from '../solver';
 
 const DRAG_THRESHOLD_PX = 4;
 /** Screen radius a click may miss a connector-gizmo origin by and still pick it. */
@@ -624,6 +624,17 @@ export class AssemblyController {
     } catch (err) {
       console.error('Solver refresh failed:', err);
     }
+  }
+
+  /**
+   * Re-run a plain (no drag, no driver) solve at the current poses and
+   * publish it. The Animate bar calls this when playback pauses so the
+   * DOF readout — which reports the driven joint as held while a sweep
+   * runs — goes back to the assembly's real count.
+   */
+  refreshSolve(): void {
+    if (this.dragState || this.externalDrag) return;
+    this.runSolverRefresh();
   }
 
   setSolverUpdateHandler(handler: SolverUpdateHandler | null): void {
@@ -1275,6 +1286,62 @@ export class AssemblyController {
     if (out.result === 'okay') {
       this.applySolverOutput(out);
     }
+    this.solverUpdateHandler?.(out);
+    this.requestRender();
+    return out;
+  }
+
+  // -------------------------------------------------------------------------
+  // Mate animation: drive a 1-DOF mate (revolute angle / slider travel) to
+  // an explicit value. Used by the Animate bar; shares the gizmo-rotate
+  // path's solve-seeded-at-the-moved-body so chained followers re-derive
+  // and closed loops relax exactly as they do under a pointer drag.
+  // -------------------------------------------------------------------------
+
+  /**
+   * The spanning-forest tree edge carrying `mateId`, built the way a
+   * no-drag solve builds it (grounded roots). Null when the mate is
+   * unknown, a closure edge (a loop's redundant mate can't be driven —
+   * the tree edges own the loop's configuration), or not slider/revolute.
+   */
+  private findDriveEdge(mateId: string): TreeEdge | null {
+    const graph = buildMateGraph(this.collectBodies(), this.solverMates());
+    for (const comp of graph.components) {
+      for (const edge of comp.treeEdges) {
+        if (edge.mate.mateId !== mateId) continue;
+        if (edge.mate.type !== 'slider' && edge.mate.type !== 'revolute') return null;
+        return edge;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Whether the mate can be animated, plus its current authored-space
+   * value. Null when it can't (see {@link findDriveEdge}).
+   */
+  getMateDriveState(mateId: string): MateReadout | null {
+    const edge = this.findDriveEdge(mateId);
+    if (!edge) return null;
+    return mateReadoutValue(edge.mate, edge.parent, edge.parentConn, edge.child, edge.childConn);
+  }
+
+  /**
+   * Solve with the mate held at `value` (degrees / mm, the readout's
+   * space) as a kinematic driver: the follower is posed there and the
+   * loop relaxation solves closures/contacts AROUND it (see
+   * SolverInput.drivenJoint). `.limits()` still clamp — an out-of-range
+   * value pins at the bound. Returns the solver output, or null when the
+   * mate can't be driven or a pointer / gizmo drag owns the assembly.
+   */
+  driveMateValue(mateId: string, value: number): SolverOutput | null {
+    if (this.dragState || this.externalDrag) return null;
+    if (!this.findDriveEdge(mateId)) return null;
+    const out = this.solver.solve({
+      ...this.buildSolverInput(),
+      drivenJoint: { mateId, value },
+    });
+    this.applySolverOutput(out);
     this.solverUpdateHandler?.(out);
     this.requestRender();
     return out;

@@ -164,12 +164,41 @@ export type SlotEditOptions = {
 };
 
 /**
- * The in-sketch rotate's payload (P6): the rotation center (sketch
- * coordinates, expressions welcome), and whether the statement copies
+ * A picked rotation center as the wire carries it (P8): a solved-sketch
+ * point addressed by its statement's source line, the way constraint
+ * targets travel. `role` names a line/arc/circle point accessor;
+ * `featureType` sanity-checks the statement (and selects the anchor
+ * accessor for ellipse/text/bezier); `pointIndex` rides bezier only.
+ */
+export type Rotate2DCenterRef = {
+  line: number;
+  occurrence?: number;
+  role?: 'start' | 'end' | 'center' | null;
+  featureType?: string;
+  pointIndex?: number;
+};
+
+/**
+ * A resolved rotation-center reference in the edit spec: the producer's
+ * bound variable plus the point accessor rendered on it —
+ * `l.end()`, `c.center()`, `p.start()`, `el.center()`, `t.anchor()`,
+ * `bz.point(2)`.
+ */
+export type Rotate2DCenterProducerRef = {
+  producer: number;
+  accessor: 'start' | 'end' | 'center' | 'anchor' | 'point';
+  /** `point` accessor only: the bezier control-point index. */
+  pointIndex?: number;
+};
+
+/**
+ * The in-sketch rotate's payload (P6): the rotation center — a literal
+ * point (sketch coordinates, expressions welcome) or a resolved point
+ * reference on a bound producer (P8) — and whether the statement copies
  * instead of moving.
  */
 export type Rotate2DEditOptions = {
-  center: [number | string, number | string];
+  center: [number | string, number | string] | Rotate2DCenterProducerRef;
   copy: boolean;
 };
 
@@ -272,6 +301,13 @@ export type ApplyFeatureSynthesis =
      * absence on a 'copy' synthesis marks a kernel predating the kind.
      */
     copySlots?: { targets: number[]; axisParts: number[] };
+    /**
+     * In-sketch rotate only: the rendered center expression (`l.end()`,
+     * `[0, 0]`) using the same allocated names as `args`. Its absence on a
+     * 'rotate2d' synthesis with a center reference marks a kernel predating
+     * picked centers.
+     */
+    centerExpr?: string;
   }
   | { ok: false; reason: string; pick?: PickRef };
 

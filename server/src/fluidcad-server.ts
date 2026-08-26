@@ -158,7 +158,11 @@ type SceneManager = {
       /** Slot only: the dialog's Remove-original toggle (`deleteSource`). */
       slot?: { removeOriginal: boolean };
       /** In-sketch rotate only: the center point and the copy flag. */
-      rotate2d?: { center: [number | string, number | string]; copy: boolean };
+      rotate2d?: {
+        center: [number | string, number | string]
+          | { line: number; occurrence?: number; role?: 'start' | 'end' | 'center' | null; featureType?: string; pointIndex?: number };
+        copy: boolean;
+      };
     },
   ): any;
   expandTangentChain(
@@ -1470,7 +1474,11 @@ export class FluidCadServer {
       /** Slot only: the dialog's Remove-original toggle (`deleteSource`). */
       slot?: { removeOriginal: boolean };
       /** In-sketch rotate only: the center point and the copy flag. */
-      rotate2d?: { center: [number | string, number | string]; copy: boolean };
+      rotate2d?: {
+        center: [number | string, number | string]
+          | { line: number; occurrence?: number; role?: 'start' | 'end' | 'center' | null; featureType?: string; pointIndex?: number };
+        copy: boolean;
+      };
     },
   ): any {
     if (!this.sceneManager?.synthesizeSketchApplyFeature) {

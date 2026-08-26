@@ -928,6 +928,9 @@ export type ApplyFeatureResponse = {
   args?: string;
   /** Verified alternative renderings of the argument list (preview requests). */
   alternatives?: string[];
+  /** In-sketch rotate previews: the rendered center expression (`l.end()`,
+   * `[0, 0]`) using the same names as `args`. */
+  centerExpr?: string;
   reason?: string;
 };
 
@@ -1184,12 +1187,29 @@ export type OffsetOptionValues = {
 };
 
 /**
- * The rotate dialog's payload: the rotation center in sketch coordinates
- * (numbers or expressions) and whether the statement copies instead of
- * moving — `rotate(45, [x, y], true, r, c)`.
+ * A picked rotation center on the wire: the point's statement addressed by
+ * source line, the way constraint targets travel. The server renders the
+ * point accessor (`l.end()`, `c.center()`, `el.center()`, `bz.point(i)`)
+ * on the statement's bound variable.
+ */
+export type Rotate2DCenterRefParam = {
+  line: number;
+  occurrence?: number;
+  role?: 'start' | 'end' | 'center';
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'text' | 'bezier';
+  pointIndex?: number;
+};
+
+/**
+ * The rotate dialog's payload: the rotation center — a literal point
+ * (`center`, sketch coordinates; the origin pick bakes `[0, 0]`) or a
+ * picked sketch point (`centerRef`), exactly one of the two — and whether
+ * the statement copies instead of moving — `rotate(45, [x, y], true, r, c)`
+ * / `rotate(45, l.end(), r, c)`.
  */
 export type Rotate2DOptionValues = {
-  center: [ValueExpr, ValueExpr];
+  center?: [ValueExpr, ValueExpr];
+  centerRef?: Rotate2DCenterRefParam;
   copy: boolean;
 };
 

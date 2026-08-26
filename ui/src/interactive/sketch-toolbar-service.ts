@@ -227,13 +227,15 @@ export class SketchToolbarService {
         },
       ],
     });
-    this.rotateOp = opService({
+    // The rotate dialog's center comes from a picked sketch point — vertex
+    // clicks land in its Center slot while edge clicks collect targets.
+    this.rotateOp = new SketchOpService(container, {
       feature: 'rotate2d', title: 'Rotate', pickHint: 'Pick edges of the geometries to rotate',
       value: { label: 'Angle', defaultValue: '45', sign: 'nonzero' },
-      extraValues: [
-        { key: 'centerX', label: 'Center X', defaultValue: '0' },
-        { key: 'centerY', label: 'Center Y', defaultValue: '0' },
-      ],
+      centerSlot: {
+        label: 'Center',
+        prompt: 'Pick the center point — an endpoint, a center, or the origin',
+      },
       toggles: [
         {
           key: 'copy',
@@ -241,6 +243,9 @@ export class SketchToolbarService {
           title: 'Keep the originals and add rotated copies',
         },
       ],
+    }, opSelection, opVars, opDone, opGhost, undefined, {
+      picks: () => this.activeHoverSelectHandler?.getSolvedPicks() ?? [],
+      deselect: (pick) => this.activeHoverSelectHandler?.deselectSolvedPick(pick),
     });
     this.slotOp = opService({
       feature: 'slot', title: 'Slot', pickHint: '',
@@ -830,14 +835,16 @@ export class SketchToolbarService {
       this.viewer.sceneContext,
       this.activeSketchInfo.plane,
       () => this.activeSolvedDragHandler?.isResizing ?? false,
-      // The copy and fillet dialogs' picks accumulate like the 3D dialogs':
-      // every click toggles a target in or out and an empty-space click
-      // keeps the list — a multi-pick dialog's set must not vanish under a
-      // stray click (a fillet routinely wants several edges). The armed
+      // The copy, fillet and rotate dialogs' picks accumulate like the 3D
+      // dialogs': every click toggles a target in or out and an empty-space
+      // click keeps the list — a multi-pick dialog's set must not vanish
+      // under a stray click (a fillet routinely wants several edges, and
+      // rotate's center vertex click must not clear its targets). The armed
       // two-pick dimension tool accumulates the same way (its second plain
       // click must not replace the first pick). The remaining single-value
       // ops keep the classic replace-and-clear rails.
       () => (this.toolbar.activeTool === 'copy' || this.toolbar.activeTool === 'fillet'
+        || this.toolbar.activeTool === 'rotate'
         || this.solvedToolbar.isDimensionArmed
         ? 'toggle' : 'replace'),
     );

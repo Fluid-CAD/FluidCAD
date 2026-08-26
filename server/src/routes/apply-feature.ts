@@ -20,7 +20,7 @@ import {
   resolvePartBindingIdent,
   type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions,
   type ConnectorAnchorSpec, type CopyEditOptions,
-  type OffsetEditOptions, type Rotate2DEditOptions,
+  type OffsetEditOptions,
   type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
   type HelixEditOptions,
   type HelixSourceSpec, type LoftEditOptions,
@@ -189,21 +189,61 @@ function validateOffsetOptions(body: any): { options: OffsetEditOptions } | { er
 }
 
 
+/** The rotate payload as the dialog sends it: a literal center or a picked
+ * point reference (statement line + role/featureType, the constraint-target
+ * wire shape) the kernel synthesis resolves to a bound producer accessor. */
+type Rotate2DWireOptions = {
+  center: [number | string, number | string]
+    | { line: number; occurrence?: number; role?: 'start' | 'end' | 'center' | null; featureType?: string; pointIndex?: number };
+  copy: boolean;
+};
+
+const ROTATE2D_CENTER_ROLES = new Set(['start', 'end', 'center']);
+
 /**
  * The in-sketch rotate's payload, riding a create request: the rotation
- * center in sketch coordinates (numbers or expressions) and the copy flag.
+ * center — `center: [x, y]` in sketch coordinates (numbers or expressions)
+ * or `centerRef: { line, role?, … }`, a picked sketch point addressed like
+ * a constraint target — and the copy flag.
  */
-function validateRotate2DOptions(body: any): { options: Rotate2DEditOptions } | { error: string } {
+function validateRotate2DOptions(body: any): { options: Rotate2DWireOptions } | { error: string } {
   const raw = body?.rotate2d;
-  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.center) || raw.center.length !== 2) {
-    return { error: 'rotate2d must carry { center: [x, y], copy? }' };
-  }
-  if (!raw.center.every((c: unknown) => validValueExpr(c as any))) {
-    return { error: 'rotate2d.center entries must be numbers or expressions' };
+  if (!raw || typeof raw !== 'object' || (raw.center === undefined) === (raw.centerRef === undefined)) {
+    return { error: 'rotate2d must carry { center: [x, y], copy? } or { centerRef: { line, … }, copy? }' };
   }
   const copy = raw.copy ?? false;
   if (typeof copy !== 'boolean') {
     return { error: 'rotate2d.copy must be a boolean' };
+  }
+  if (raw.centerRef !== undefined) {
+    const ref = raw.centerRef;
+    const valid = ref && typeof ref === 'object'
+      && Number.isInteger(ref.line) && ref.line >= 1
+      && (ref.occurrence === undefined || (Number.isInteger(ref.occurrence) && ref.occurrence >= 0))
+      && (ref.role === undefined || ref.role === null || ROTATE2D_CENTER_ROLES.has(ref.role))
+      && (ref.featureType === undefined || typeof ref.featureType === 'string')
+      && (ref.pointIndex === undefined || (Number.isInteger(ref.pointIndex) && ref.pointIndex >= 0));
+    if (!valid) {
+      return { error: 'rotate2d.centerRef must carry { line, occurrence?, role?, featureType?, pointIndex? }' };
+    }
+    return {
+      options: {
+        center: {
+          line: ref.line,
+          ...(ref.occurrence !== undefined ? { occurrence: ref.occurrence } : {}),
+          ...(ref.role !== undefined ? { role: ref.role } : {}),
+          ...(ref.featureType !== undefined ? { featureType: ref.featureType } : {}),
+          ...(ref.pointIndex !== undefined ? { pointIndex: ref.pointIndex } : {}),
+        },
+        copy,
+      },
+    };
+  }
+  if (!Array.isArray(raw.center) || raw.center.length !== 2) {
+    return { error: 'rotate2d.center must be a [x, y] pair' };
+  }
+  if (!raw.center.every((c: unknown) => validValueExpr(c as any))) {
+    return { error: 'rotate2d.center entries must be numbers or expressions' };
   }
   return { options: { center: [raw.center[0], raw.center[1]], copy } };
 }
@@ -6329,7 +6369,7 @@ export function createApplyFeatureRouter(
         return;
       }
       // The in-sketch rotate's payload: the center point and the copy flag.
-      let rotate2dOptions: Rotate2DEditOptions | undefined;
+      let rotate2dOptions: Rotate2DWireOptions | undefined;
       if (feature === 'rotate2d') {
         const parsed = validateRotate2DOptions(req.body);
         if ('error' in parsed) {
@@ -6379,13 +6419,29 @@ export function createApplyFeatureRouter(
           });
           return;
         }
+        // A picked rotation center resolves inside the kernel synthesis —
+        // a workspace fluidcad predating it echoes the wire form back with
+        // no rendered center expression, so refuse before writing anything.
+        if (rotate2dOptions && !Array.isArray(rotate2dOptions.center)
+          && typeof synthesis.centerExpr !== 'string') {
+          res.status(422).json({
+            success: false,
+            reason: "the workspace's FluidCAD version does not support picking a rotation center — update its fluidcad dependency",
+          });
+          return;
+        }
         // The toggles are statement shape, not selection knowledge: re-attach
         // them here so a workspace kernel predating them still writes (and
         // previews) the form the dialog asked for.
         const statement = offsetOptions
           ? renderOffsetStatement(value, synthesis.args, offsetOptions)
           : rotate2dOptions
-            ? renderRotate2DStatement(value, synthesis.args, rotate2dOptions)
+            ? renderRotate2DStatement(
+              value, synthesis.args,
+              synthesis.centerExpr
+                ?? `[${(rotate2dOptions.center as [number | string, number | string])[0]}, ${(rotate2dOptions.center as [number | string, number | string])[1]}]`,
+              rotate2dOptions.copy,
+            )
             : feature === 'text'
               ? renderTextStatement(textOptions!, synthesis.args)
               : synthesis.preview;
@@ -6395,6 +6451,7 @@ export function createApplyFeatureRouter(
             preview: statement,
             args: synthesis.args,
             alternatives: synthesis.alternatives,
+            centerExpr: synthesis.centerExpr,
           });
           return;
         }
@@ -6404,8 +6461,11 @@ export function createApplyFeatureRouter(
         if (offsetOptions) {
           spec = { ...spec, offset: offsetOptions };
         }
-        if (rotate2dOptions) {
-          spec = { ...spec, rotate2d: rotate2dOptions };
+        if (rotate2dOptions && Array.isArray(rotate2dOptions.center)) {
+          // A literal center re-attaches so a kernel predating the payload
+          // still writes the dialog's form; a picked center already rides
+          // the synthesis spec as its resolved producer reference.
+          spec = { ...spec, rotate2d: { center: rotate2dOptions.center, copy: rotate2dOptions.copy } };
         }
         if (textOptions) {
           spec = { ...spec, text: textOptions };

@@ -1213,14 +1213,45 @@ export type OffsetEditOptions = {
 };
 
 /**
- * The in-sketch rotate's payload (P6): the rotation center (sketch
- * coordinates, expressions welcome) and whether the statement copies
- * instead of moving — `rotate(45, [x, y], true, r, c)`.
+ * A rotation center resolved to a bound producer's point accessor (P8):
+ * `l.end()`, `c.center()`, `p.start()`, `el.center()`, `t.anchor()`,
+ * `bz.point(2)` — the kernel synthesis produces it, and the transform
+ * renders it with the producer's final binding name.
+ */
+export type Rotate2DCenterProducerRef = {
+  producer: number;
+  accessor: 'start' | 'end' | 'center' | 'anchor' | 'point';
+  /** `point` accessor only: the bezier control-point index. */
+  pointIndex?: number;
+};
+
+/**
+ * The in-sketch rotate's payload (P6): the rotation center — a literal
+ * point (sketch coordinates, expressions welcome) or a picked point
+ * reference on a bound producer (P8) — and whether the statement copies
+ * instead of moving — `rotate(45, [x, y], true, r, c)` /
+ * `rotate(45, l.end(), r, c)`.
  */
 export type Rotate2DEditOptions = {
-  center: [ValueExpr, ValueExpr];
+  center: [ValueExpr, ValueExpr] | Rotate2DCenterProducerRef;
   copy: boolean;
 };
+
+/** The point accessors a rotation-center reference may render. */
+const ROTATE2D_CENTER_ACCESSORS = new Set(['start', 'end', 'center', 'anchor', 'point']);
+
+/** Structural check for {@link Rotate2DCenterProducerRef}. */
+export function validRotate2DCenterRef(center: unknown, producerCount: number): boolean {
+  if (typeof center !== 'object' || center === null || Array.isArray(center)) {
+    return false;
+  }
+  const ref = center as Rotate2DCenterProducerRef;
+  return Number.isInteger(ref.producer) && ref.producer >= 0 && ref.producer < producerCount
+    && typeof ref.accessor === 'string' && ROTATE2D_CENTER_ACCESSORS.has(ref.accessor)
+    && (ref.accessor === 'point'
+      ? Number.isInteger(ref.pointIndex) && ref.pointIndex! >= 0
+      : ref.pointIndex === undefined);
+}
 
 /**
  * How a loft statement is rendered and placed: `loft(<profile>, <profile>, …)`
@@ -1829,13 +1860,18 @@ export async function applyFeatureEdit(
     }
   } else if (spec.feature === 'rotate2d') {
     // In-sketch rotate is owner-level: one or more bound producers rendered
-    // as bare variables, a nonzero angle, and the center/copy payload.
+    // as bare variables, a nonzero angle, and the center/copy payload. The
+    // center is a literal point or a point reference on a bound producer.
     const rt = spec.rotate2d;
+    const validCenter = rt !== undefined && (
+      Array.isArray(rt.center)
+        ? rt.center.length === 2 && rt.center.every(c => validValueExpr(c))
+        : validRotate2DCenterRef(rt.center, spec.producers.length)
+          && spec.producers[(rt.center as Rotate2DCenterProducerRef).producer].bind === true
+    );
     const valid = spec.producers.length >= 1 && spec.parts.length >= 1
       && validValueExpr(spec.value, { nonzero: true })
-      && rt !== undefined && Array.isArray(rt.center) && rt.center.length === 2
-      && rt.center.every(c => validValueExpr(c))
-      && typeof rt.copy === 'boolean';
+      && validCenter && typeof rt!.copy === 'boolean';
     if (!valid) {
       return { newCode: code, error: 'malformed rotate edit spec' };
     }
@@ -3878,7 +3914,11 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     return renderOffsetStatement(spec.value, args, spec.offset);
   }
   if (spec.feature === 'rotate2d') {
-    return renderRotate2DStatement(spec.value, args, spec.rotate2d!);
+    const rt = spec.rotate2d!;
+    return renderRotate2DStatement(
+      spec.value, args,
+      renderRotate2DCenterExpr(rt.center, i => bindings[i].varName!), rt.copy,
+    );
   }
   if (spec.feature === 'text') {
     return renderTextStatement(spec.text!, args);
@@ -3902,17 +3942,34 @@ export function renderOffsetStatement(
 }
 
 /**
- * An in-sketch rotate statement: `rotate(45, [x, y], targets…)`, with the
- * copy flag between the center and the targets when set.
+ * The rotate center argument's rendered expression: a `[x, y]` literal, or
+ * a point accessor on the producer's bound variable (`l.end()`,
+ * `bz.point(2)`).
+ */
+export function renderRotate2DCenterExpr(
+  center: Rotate2DEditOptions['center'],
+  varFor: (producer: number) => string,
+): string {
+  if (Array.isArray(center)) {
+    return `[${formatValue(center[0])}, ${formatValue(center[1])}]`;
+  }
+  return `${varFor(center.producer)}.${center.accessor}(${center.accessor === 'point' ? center.pointIndex : ''})`;
+}
+
+/**
+ * An in-sketch rotate statement: `rotate(45, [x, y], targets…)` /
+ * `rotate(45, l.end(), targets…)`, with the copy flag between the center
+ * and the targets when set. The center expression arrives rendered — the
+ * caller owns the binding names a reference center needs.
  */
 export function renderRotate2DStatement(
   value: ValueExpr | undefined,
   args: string,
-  rotate2d: Rotate2DEditOptions,
+  centerExpr: string,
+  copy: boolean,
 ): string {
-  const center = `[${formatValue(rotate2d.center[0])}, ${formatValue(rotate2d.center[1])}]`;
-  const copyArg = rotate2d.copy ? ', true' : '';
-  return `rotate(${formatValue(value)}, ${center}${copyArg}, ${args})`;
+  const copyArg = copy ? ', true' : '';
+  return `rotate(${formatValue(value)}, ${centerExpr}${copyArg}, ${args})`;
 }
 
 /** The selector argument list: the user-edited override, or rendered parts. */

@@ -262,6 +262,53 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
     expect(result.newCode).toContain(`import {rotate, sketch, line } from 'fluidcad/core'`);
   });
 
+  it('writes an in-sketch rotate whose center is a picked point reference (P8)', async () => {
+    const code = [
+      `import { sketch, line, circle } from 'fluidcad/core'`,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [40, 0])`,
+      `  circle([20, 30], 5)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, sketchSpec({
+      feature: 'rotate2d',
+      value: 30,
+      rotate2d: { center: { producer: 1, accessor: 'center' }, copy: false },
+      producers: [
+        { line: 3, column: 2, featureType: 'line', nameHint: 'a', bind: true },
+        { line: 4, column: 2, featureType: 'circle', nameHint: 'c', bind: true },
+      ],
+      parts: [
+        { producer: 0, accessor: '', indices: null, filterArgs: null },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    // The center's statement binds like a target's, and the center renders
+    // as its point accessor.
+    expect(result.newCode).toContain(`const c = circle([20, 30], 5)`);
+    expect(result.newCode).toContain(`  rotate(30, c.center(), a)`);
+  });
+
+  it('refuses a center reference naming an unbound or out-of-range producer', async () => {
+    const code = [
+      `import { sketch, line } from 'fluidcad/core'`,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [40, 0])`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, sketchSpec({
+      feature: 'rotate2d',
+      value: 30,
+      rotate2d: { center: { producer: 3, accessor: 'end' }, copy: false },
+      producers: [{ line: 3, column: 2, featureType: 'line', nameHint: 'a', bind: true }],
+      parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toContain('malformed rotate edit spec');
+  });
+
   it('refuses a malformed rotate payload', async () => {
     const code = [
       `import { sketch, line } from 'fluidcad/core'`,

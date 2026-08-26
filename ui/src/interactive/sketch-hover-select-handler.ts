@@ -967,6 +967,41 @@ export class SketchHoverSelectHandler {
   }
 
   /**
+   * Drop a vertex or datum pick on behalf of a dialog (the rotate dialog
+   * keeps exactly one center pick, so a newer one evicts the last). Fires
+   * the change hook like a viewport click on the pick would. Edge picks go
+   * through {@link deselectShape}.
+   */
+  deselectSolvedPick(pick: {
+    entityId: number;
+    role?: 'start' | 'end' | 'center' | null;
+    datum?: SketchDatumName;
+  }): void {
+    if (pick.datum !== undefined) {
+      if (!this.selectedDatums.has(pick.datum)) {
+        return;
+      }
+      this.deselectDatum(pick.datum);
+      this.ctx.requestRender();
+      this.onSelectionChange?.();
+      return;
+    }
+    if (pick.role === undefined) {
+      return;
+    }
+    const key = `${pick.entityId}:${pick.role ?? 'point'}`;
+    const existing = this.selectedVertexPicks.get(key);
+    if (!existing) {
+      return;
+    }
+    this.disposeVertexOverlay(existing.overlay);
+    this.selectedVertexPicks.delete(key);
+    this.dropFromSequence(`v:${key}`);
+    this.ctx.requestRender();
+    this.onSelectionChange?.();
+  }
+
+  /**
    * Drop the current selection on behalf of a dialog (the subtract dialog
    * clears between its base and tool slots). Fires the change hook so the
    * dialog preview stays in sync.

@@ -53,6 +53,10 @@ export type SolvedPick = {
    * addresses the producer statement plus `.ref(i)` (refIndex null = the
    * terse single-entity form). */
   reference?: { refIndex: number | null; producer: 'project' | 'intersect' };
+  /** Copy-duplicate picks: a 2D copy()'s solver-backed duplicate. Emission
+   * addresses the copy statement plus the duplicate's instance() slot —
+   * `sourceLocation` is the copy() line. Not fixed, unlike references. */
+  copyInstance?: { slot: number };
 };
 
 type SelectedVertexPick = {
@@ -212,12 +216,17 @@ export class SketchHoverSelectHandler {
         }
         continue;
       }
-      // Reference producers (P6): each emitted edge joins its own fixed
-      // entity by edgeIndex — the shapes come in emission order.
+      // Reference producers (P6) join each emitted edge to its fixed entity
+      // by edgeIndex into the emission-ordered non-meta shapes. Copy
+      // duplicates join by shapeIndex into the RAW sceneShapes array —
+      // skips and the original make ordinal position unreliable, so the
+      // kernel records the rendered index explicitly.
       if (Array.isArray(obj.object?.entities)) {
-        for (const record of obj.object.entities as { entityId: number; edgeIndex: number }[]) {
-          const shape = shapes[record.edgeIndex];
-          if (shape?.shapeId) {
+        for (const record of obj.object.entities as { entityId: number; edgeIndex?: number; shapeIndex?: number }[]) {
+          const shape = record.shapeIndex !== undefined
+            ? obj.sceneShapes?.[record.shapeIndex]
+            : record.edgeIndex !== undefined ? shapes[record.edgeIndex] : undefined;
+          if (shape?.shapeId && !shape.isMetaShape) {
             this.entityShapeIds.set(record.entityId, [shape.shapeId as string]);
           }
         }
@@ -366,6 +375,7 @@ export class SketchHoverSelectHandler {
             role: pick.role,
             sourceLocation: e.obj.sourceLocation,
             ...(e.reference ? { reference: e.reference } : {}),
+            ...(e.copyInstance ? { copyInstance: e.copyInstance } : {}),
           });
         }
       } else {
@@ -380,6 +390,7 @@ export class SketchHoverSelectHandler {
             sourceLocation: e.obj.sourceLocation,
             ...(at ? { at } : {}),
             ...(e.reference ? { reference: e.reference } : {}),
+            ...(e.copyInstance ? { copyInstance: e.copyInstance } : {}),
           });
         }
       }

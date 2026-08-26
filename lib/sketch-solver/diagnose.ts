@@ -11,7 +11,12 @@ import { matrixRankWithPivots } from '../solver-core/index.js';
 import { connectedComponents } from './decompose.js';
 import { PARAM_COUNT } from './system.js';
 import type { SketchSystem } from './system.js';
-import type { ComponentDiagnostics, DiagnoseOptions, SketchDiagnostics } from './types.js';
+import type {
+  ComponentDiagnostics,
+  ConstraintRecord,
+  DiagnoseOptions,
+  SketchDiagnostics,
+} from './types.js';
 
 /**
  * Internal rows are scaled above user rows before rank attribution
@@ -36,6 +41,20 @@ const CONFLICT_REL_TOL = 1e-3;
  * unit-normalized gradient columns, so the read is scale-invariant).
  */
 const FREEDOM_TOL = 1e-6;
+
+/**
+ * Transform-tie rows are structural glue for derived entities (2D
+ * copy instances) — never user-addressable, so the verdict sets skip
+ * them entirely. In a conflicted component least-squares spreads
+ * residual onto tie rows too (Jᵀr = 0), and naming them would point
+ * the user at machinery no statement owns; the user rows in the same
+ * component carry residual of the same order and get named instead.
+ * They still count in worstResidual and rank — only the naming is
+ * suppressed.
+ */
+function isTransformTie(record: ConstraintRecord): boolean {
+  return record.internal && record.spec.kind === 'transform-tie';
+}
 
 export function diagnose(sys: SketchSystem, opts: DiagnoseOptions = {}): SketchDiagnostics {
   const conflictTol = opts.conflictTol ?? 1e-6;
@@ -120,11 +139,14 @@ export function diagnose(sys: SketchSystem, opts: DiagnoseOptions = {}): SketchD
     }
     const componentTol = Math.max(conflictTol, CONFLICT_REL_TOL * worstResidual);
     for (let k = 0; k < m; k++) {
-      const id = records[compiled.rowConstraint[component.rows[k]]].id;
+      const record = records[compiled.rowConstraint[component.rows[k]]];
+      if (isTransformTie(record)) {
+        continue;
+      }
       if (Math.abs(residuals[k]) > componentTol) {
-        conflicting.add(id);
+        conflicting.add(record.id);
       } else if (!pivotSet.has(k)) {
-        redundant.add(id);
+        redundant.add(record.id);
       }
     }
     dof += n - rank;
@@ -132,11 +154,14 @@ export function diagnose(sys: SketchSystem, opts: DiagnoseOptions = {}): SketchD
   }
 
   for (const k of inertRows) {
-    const id = records[compiled.rowConstraint[k]].id;
+    const record = records[compiled.rowConstraint[k]];
+    if (isTransformTie(record)) {
+      continue;
+    }
     if (Math.abs(compiled.rows[k].eval(values)) > conflictTol) {
-      conflicting.add(id);
+      conflicting.add(record.id);
     } else {
-      redundant.add(id);
+      redundant.add(record.id);
     }
   }
 

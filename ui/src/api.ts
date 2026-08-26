@@ -1416,8 +1416,12 @@ export async function applyFillet2DEdit(
  * as its accessor call (origin()/xAxis()/yAxis()). */
 export type SketchConstraintTargetParam = {
   line?: number;
+  /** Loop-instance targeting: the picked object's 0-based execution index
+   * when its statement produced multiple objects. Absent for single-instance
+   * statements and datum targets. */
+  occurrence?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
-  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'project' | 'intersect';
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'project' | 'intersect' | 'copy';
   datum?: 'origin' | 'x-axis' | 'y-axis';
   /**
    * Fixed reference targets (P6): the `.ref(i)` edge index of a
@@ -1425,6 +1429,12 @@ export type SketchConstraintTargetParam = {
    * Presence marks the target as a reference.
    */
   refIndex?: number | null;
+  /**
+   * Copy-duplicate targets: the `instance()` slot of a 2D copy()
+   * statement's duplicate. Rides `featureType: 'copy'` — never combined
+   * with `datum` or `refIndex` (v1).
+   */
+  instanceIndex?: number;
 };
 
 /**
@@ -1489,10 +1499,16 @@ export async function setDistanceTangency(options: {
  * implicit sketch datum (rendered as origin()/xAxis()/yAxis()). */
 export type SolvedEmissionTargetParam = {
   line?: number;
+  /** Loop-instance targeting: the referenced object's 0-based execution
+   * index when its statement produced multiple objects. */
+  occurrence?: number;
   newIndex?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
-  featureType?: 'line' | 'arc' | 'circle' | 'point';
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy';
   datum?: 'origin' | 'x-axis' | 'y-axis';
+  /** Copy-duplicate targets: the `instance()` slot of a 2D copy()
+   * statement's duplicate — rides `featureType: 'copy'`. */
+  instanceIndex?: number;
 };
 
 export type SolvedGeometryParam = {

@@ -13,7 +13,7 @@ export class AxisFromSketch extends AxisObjectBase {
     super();
   }
 
-  build() {
+  override resolveAxis() {
     const plane = this.sketch.getPlane();
     let axis = plane.normalizeAxis(this.direction);
     if (!axis) {
@@ -24,6 +24,11 @@ export class AxisFromSketch extends AxisObjectBase {
       axis = axis.transform(this.options);
     }
 
+    return axis;
+  }
+
+  build() {
+    const axis = this.resolveAxis();
     this.setState('axis', axis);
 
     const edge = EdgeOps.axisToEdge(axis);

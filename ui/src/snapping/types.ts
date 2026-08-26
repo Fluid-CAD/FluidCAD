@@ -11,6 +11,10 @@ export type SolvedVertexRef = {
   /** 1-indexed source line of the owning entity statement; absent for
    * datum refs (datums have no statement). */
   line?: number;
+  /** Loop-instance targeting: the owning object's 0-based execution index
+   * when its statement produced multiple objects (looped statements share a
+   * line — the occurrence tells the instances apart). */
+  occurrence?: number;
   /** Point accessor rendered as `.role()`; absent = the entity IS a point. */
   role?: 'start' | 'end' | 'center';
   featureType?: 'line' | 'arc' | 'circle' | 'point';

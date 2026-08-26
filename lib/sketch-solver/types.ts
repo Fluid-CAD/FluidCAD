@@ -127,13 +127,30 @@ export type ConstraintSpec =
    * Internal (auto-added per arc): |start−center| = r and
    * |end−center| = r (2). Never user-authored; carries a negative id.
    */
-  | { kind: 'arc-consistency'; entity: number };
+  | { kind: 'arc-consistency'; entity: number }
+  /**
+   * Internal affine tie for derived entities (2D copy instances):
+   * `target` is rigidly derived from `source` (same kind) through
+   * p' = [[a,b],[c,d]]·p + [tx,ty] with matrix = [a, b, c, d, tx, ty].
+   * One LINEAR row per target param (point 2, line 4, circle 3,
+   * arc 7), so a tied entity adds zero net DOF and constraining
+   * either side moves both. Added via SketchSystem.addTransformTie —
+   * never user-authored; carries a negative id, and diagnose never
+   * names it in conflicting/redundant (conflicts surface on the user
+   * constraints in the same component).
+   */
+  | {
+      kind: 'transform-tie';
+      source: number;
+      target: number;
+      matrix: [number, number, number, number, number, number];
+    };
 
 export type ConstraintKind = ConstraintSpec['kind'];
 
 /** A constraint as stored/serialized: spec plus identity. Internal
- * records (arc-consistency) carry negative auto-assigned ids; user
- * ids are ≥ 0. */
+ * records (arc-consistency, transform-tie) carry negative
+ * auto-assigned ids; user ids are ≥ 0. */
 export type ConstraintRecord = {
   id: number;
   internal: boolean;
@@ -218,7 +235,10 @@ export type SketchDiagnostics = {
   dof: number;
   /** Ids of constraints with a residual above conflictTol. Internal
    * (negative) ids can appear — the statement layer maps them to the
-   * owning entity. */
+   * owning entity — except transform-tie records, which are never
+   * named here (nor in `redundant`): a conflicted tie's residual is
+   * least-squares spread, and the user rows in the same component
+   * carry the verdict. */
   conflicting: number[];
   /** Ids of satisfied constraints owning at least one row that does
    * not raise rank (greedy column-pivoted-QR attribution: which

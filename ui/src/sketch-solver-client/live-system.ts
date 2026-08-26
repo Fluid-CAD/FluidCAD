@@ -39,7 +39,9 @@ export class LiveSolvedSystem {
    * in snapshot order with their snapshot ids, so param offsets match and
    * the solved params can be copied in wholesale as the warm start. Internal
    * (negative-id) constraint records are skipped — SketchSystem.arc()
-   * re-adds its own arc-consistency rows. Returns null for empty snapshots
+   * re-adds its own arc-consistency rows — EXCEPT transform-tie records
+   * (copy-instance rigid ties), which replay through addTransformTie so
+   * duplicates stay tied in previews. Returns null for empty snapshots
    * and for anything that fails validation (the caller falls back to
    * read-only behavior).
    */
@@ -87,6 +89,11 @@ export class LiveSolvedSystem {
       for (const c of snapshot.constraints) {
         if (!c.internal) {
           system.constrain(c.spec, c.id);
+        } else if (c.spec.kind === 'transform-tie') {
+          // Ties must REPLAY, not skip: without them a copy duplicate solves
+          // as free geometry in previews, and addTransformTie also drops the
+          // tied arc's re-added consistency rows to match the kernel system.
+          system.addTransformTie(c.spec.source, c.spec.target, c.spec.matrix);
         }
       }
       if (system.paramCount !== p.length) {

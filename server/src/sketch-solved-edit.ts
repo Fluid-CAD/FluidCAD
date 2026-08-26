@@ -10,6 +10,11 @@
 //
 // P4's applySketchConstraint is now a thin wrapper over this transform
 // (`geometry: []` preserves its exact behavior).
+//
+// Loop-instance targeting: a statement inside a user `for`/`while` loop
+// executes once per iteration, so its instances are collected into an array
+// hoisted before the outermost enclosing loop (`const lines = [];` +
+// `lines.push(line(…));`) and each target renders as `lines[occurrence]`.
 
 import {
   declareSketchVariable,
@@ -31,6 +36,7 @@ import {
   type TSNode,
 } from './code-editor.ts';
 import {
+  COPY_CALLEES,
   SOLVED_CONSTRAINT_KINDS,
   SOLVED_ENTITY_CALLEES,
   SOLVED_ENTITY_NAME_HINTS,
@@ -51,6 +57,13 @@ export type SolvedGeometryEmission = {
 export type SolvedEmissionTarget = {
   /** 1-indexed line of an existing entity statement… */
   line?: number;
+  /**
+   * Loop-instance targeting: present when the statement at `line` executed
+   * more than once in the last render (a user `for` loop) — the 0-based
+   * execution index of the picked instance. Composes only with `line`;
+   * absent defaults to instance 0 when the statement sits in a loop.
+   */
+  occurrence?: number;
   /** …or an index into this emission's `geometry` array… */
   newIndex?: number;
   /** …or an implicit sketch datum, rendered as its accessor call
@@ -60,8 +73,9 @@ export type SolvedEmissionTarget = {
   role?: SolvedEmissionRole;
   /** For `line` targets: the entity command the statement must call — a
    * mismatch means the source changed under the picks and refuses the edit.
-   * References (P6) name their producer callee: 'project' | 'intersect'. */
-  featureType?: SolvedEntityKind | 'project' | 'intersect';
+   * References (P6) name their producer callee: 'project' | 'intersect';
+   * copy-instance targets name theirs: 'copy'. */
+  featureType?: SolvedEntityKind | 'project' | 'intersect' | 'copy';
   /**
    * Fixed reference targets (P6): the `.ref(i)` edge index of the
    * project()/intersect() statement at `line`; null renders the terse
@@ -69,6 +83,15 @@ export type SolvedEmissionTarget = {
    * a reference.
    */
   refIndex?: number | null;
+  /**
+   * Copy-instance targets: the slot index of the picked duplicate on the 2D
+   * copy() statement at `line` — renders `cp.instance(k)` (the original
+   * occupies its own slot; duplicates fill the others; `skip` leaves holes).
+   * Composes with `line`, `role` and `occurrence` (a copy() inside a user
+   * loop rides the collector rail: `copies[1].instance(2)`); NEVER with
+   * `datum`/`newIndex`, and v1 never with `refIndex`.
+   */
+  instanceIndex?: number;
 };
 
 /** Reference-producer callees (P6) — hoistable like entity statements. */
@@ -80,6 +103,10 @@ const REFERENCE_CALLEES = new Set(['project', 'intersect']);
 const VARIADIC_CONSTRAINT_KINDS = new Map([
   ['equal', 2], ['parallel', 2], ['horizontal', 1], ['vertical', 1],
 ]);
+
+/** Collector-array irregular plurals — a loop of copy() statements collects
+ * into `copies`, never `copys`. Everything else takes a bare `s`. */
+const IRREGULAR_PLURALS: Record<string, string> = { copy: 'copies' };
 
 /** Datum name → the fluidcad/core accessor command it renders as. */
 const DATUM_COMMANDS: Record<string, string> = {
@@ -218,6 +245,93 @@ export function boundVariableName(statement: TSNode): string | null {
   return name && name.type === 'identifier' ? name.text : null;
 }
 
+/** Loop statement node types — a statement inside one executes per iteration,
+ * so its entities are addressed per-instance (`occurrence`) via a collector
+ * array hoisted before the outermost enclosing loop. */
+const LOOP_STATEMENT_TYPES = new Set<string>([
+  'for_statement', 'for_in_statement', 'while_statement', 'do_statement',
+]);
+
+/** Function-boundary node types: a statement behind one of these runs in its
+ * own scope — a collector hoisted next to it could never be in scope at the
+ * constraint row, so loop targeting stops at the boundary. */
+const FUNCTION_BOUNDARY_TYPES = new Set<string>([
+  'arrow_function', 'function', 'function_expression', 'function_declaration',
+  'generator_function', 'generator_function_declaration', 'method_definition',
+]);
+
+/**
+ * The OUTERMOST loop statement between `call` and the sketch callback's
+ * statement_block, or null when no loop encloses the call in the same scope
+ * chain (a function boundary on the way up hides any loop above it, and a
+ * call outside the sketch body has no usable loop either way).
+ */
+export function enclosingLoop(call: TSNode, body: TSNode): TSNode | null {
+  let outermost: TSNode | null = null;
+  let current = call.parent;
+  while (current) {
+    // Byte-span comparison — tree-sitter hands out fresh wrapper objects per
+    // access, so identity never matches across two walks of the same tree.
+    if (current.type === body.type
+      && current.startIndex === body.startIndex
+      && current.endIndex === body.endIndex) {
+      return outermost;
+    }
+    if (FUNCTION_BOUNDARY_TYPES.has(current.type)) {
+      return null;
+    }
+    if (LOOP_STATEMENT_TYPES.has(current.type)) {
+      outermost = current;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
+/** `X.push(arg)` — a single-argument `.push()` member call on a bare
+ * identifier. The loop-instance transform emits these, so recognising them
+ * lets a repeat emission reuse the collector instead of stacking a second. */
+function pushCall(call: TSNode): { arrayName: string; argument: TSNode } | null {
+  const fn = call.childForFieldName('function');
+  if (!fn || fn.type !== 'member_expression') {
+    return null;
+  }
+  const property = fn.childForFieldName('property');
+  const object = fn.childForFieldName('object');
+  if (!property || property.text !== 'push' || !object || object.type !== 'identifier') {
+    return null;
+  }
+  const args = call.childForFieldName('arguments');
+  if (!args || args.namedChildren.length !== 1) {
+    return null;
+  }
+  return { arrayName: object.text, argument: args.namedChildren[0] };
+}
+
+/** The collector a bound loop statement already feeds: `const l = line(…);`
+ * immediately followed by `X.push(l);` → `X`. Siblings are matched by byte
+ * position — tree-sitter hands out fresh wrapper objects per access. */
+function followingPushArray(statement: TSNode, bound: string): string | null {
+  const block = statement.parent;
+  if (!block) {
+    return null;
+  }
+  const siblings = block.namedChildren;
+  const at = siblings.findIndex(s => s.startIndex === statement.startIndex);
+  const next = at >= 0 ? siblings[at + 1] : undefined;
+  if (!next || next.type !== 'expression_statement') {
+    return null;
+  }
+  const call = next.namedChild(0);
+  if (!call || call.type !== 'call_expression') {
+    return null;
+  }
+  const push = pushCall(call);
+  return push && push.argument.type === 'identifier' && push.argument.text === bound
+    ? push.arrayName
+    : null;
+}
+
 export function collectIdentifiers(tree: { rootNode: TSNode }): Set<string> {
   const names = new Set<string>();
   for (const node of walkTree(tree.rootNode)) {
@@ -285,6 +399,35 @@ export async function applySolvedEmission(
       if (t.role !== undefined && !VALID_ROLES.has(t.role)) {
         return refuse(code, `invalid target role '${t.role}'`);
       }
+      if (t.occurrence !== undefined) {
+        if (!byLine) {
+          return refuse(code, 'a target occurrence composes only with a line target');
+        }
+        if (!Number.isInteger(t.occurrence) || t.occurrence < 0) {
+          return refuse(code, `invalid target occurrence '${t.occurrence}'`);
+        }
+      }
+      // Copy-instance targets: instanceIndex composes with line/role/
+      // occurrence only — never datum/newIndex, and v1 never a refIndex
+      // (constraining a projected edge OF a duplicate is deferred). A bare
+      // featureType 'copy' without an instance is unactionable: the copy()
+      // statement itself is no solver entity, only its duplicates are.
+      if (t.instanceIndex !== undefined) {
+        if (!byLine) {
+          return refuse(code, 'a target instanceIndex composes only with a line target');
+        }
+        if (!Number.isInteger(t.instanceIndex) || t.instanceIndex < 0) {
+          return refuse(code, `invalid target instanceIndex '${t.instanceIndex}'`);
+        }
+        if (t.refIndex !== undefined) {
+          return refuse(code, 'a copy-instance target takes no refIndex');
+        }
+        if (t.featureType !== undefined && t.featureType !== 'copy') {
+          return refuse(code, `a target instanceIndex requires featureType 'copy'`);
+        }
+      } else if (t.featureType === 'copy') {
+        return refuse(code, `a copy target needs an instanceIndex — pick a specific instance`);
+      }
     }
   }
 
@@ -317,10 +460,25 @@ export async function applySolvedEmission(
   }
 
   const used = collectIdentifiers(tree);
-  const hoists: { start: number; text: string }[] = [];
+  // Every source edit is a pure insertion resolved against the original tree
+  // and applied back-to-front by byte index. Const hoists are same-line
+  // prefix splices; the loop-collector edits add WHOLE rows, tracked in
+  // insertedRows so the placement row math below can compensate.
+  const edits: { start: number; text: string }[] = [];
+  const insertedRows: number[] = [];
   // Two targets can name the same statement (a line's length is
   // distance(l.start(), l.end(), …)) — hoist it once and reuse the name.
   const hoistedNames = new Map<number, string>();
+  // Loop-instance targets on the same statement share one collector array
+  // (distinct occurrences become distinct indices into it).
+  const loopArrays = new Map<number, string>();
+  // Line-addressed targets pin the constraint's placement: rows (pre-edit,
+  // shiftRow-corrected later) just past each referenced statement — or its
+  // enclosing loop — plus the row whose indent the constraint copies. The
+  // constraint must execute after every binding it references, and a
+  // referenced statement can legally sit BELOW the constraints region (a
+  // copy() in the derived-ops tail, or a hand-written entity down there).
+  const targetAnchors: { after: number; indentRow: number }[] = [];
   const newNames: (string | null)[] = spec.geometry.map((): string | null => null);
 
   const allocateName = (kind: string): string => {
@@ -330,6 +488,21 @@ export async function applySolvedEmission(
       n++;
     }
     const name = `${hint}${n}`;
+    used.add(name);
+    return name;
+  };
+
+  // Collector arrays read as the plural of what they collect — `lines`,
+  // `arcs`, `projects`, `copies` — falling back to a numbered suffix on
+  // collision.
+  const allocateArrayName = (callee: string): string => {
+    const base = IRREGULAR_PLURALS[callee] ?? `${callee}s`;
+    let name = base;
+    let n = 1;
+    while (used.has(name)) {
+      n++;
+      name = `${base}${n}`;
+    }
     used.add(name);
     return name;
   };
@@ -355,30 +528,100 @@ export async function applySolvedEmission(
         if (!call) {
           return refuse(code, `no statement at line ${target.line} — the source changed since the picks were made`);
         }
-        const callee = calleeName(chainBase(call));
+        const statement = enclosingStatement(call);
+        const loop = enclosingLoop(call, body);
+        // A previous loop-instance emission wrapped the entity call in
+        // `<collector>.push(…)` — findEditableCallAt returns the outermost
+        // call on the row, so unwrap it for the callee checks and reuse the
+        // collector below.
+        const wrapped = loop ? pushCall(call) : null;
+        const entityCall = wrapped && wrapped.argument.type === 'call_expression'
+          ? wrapped.argument
+          : call;
+        const callee = calleeName(chainBase(entityCall));
         const isReference = target.refIndex !== undefined;
+        const isCopyInstance = target.instanceIndex !== undefined;
         const legalCallee = isReference
           ? !!callee && REFERENCE_CALLEES.has(callee)
-          : !!callee && SOLVED_ENTITY_CALLEES.has(callee);
+          : isCopyInstance
+            ? !!callee && COPY_CALLEES.has(callee)
+            : !!callee && SOLVED_ENTITY_CALLEES.has(callee);
         if (!legalCallee) {
           return refuse(code, isReference
             ? `line ${target.line} is not a project()/intersect() statement`
-            : `line ${target.line} is not a sketch entity statement`);
+            : isCopyInstance
+              ? `line ${target.line} is not a 2D copy() statement`
+              : `line ${target.line} is not a sketch entity statement`);
         }
         if (target.featureType && callee !== target.featureType) {
           return refuse(code, `line ${target.line} is a ${callee}() statement now — the source changed since the picks were made`);
         }
-        const statement = enclosingStatement(call);
-        let bound = boundVariableName(statement) ?? hoistedNames.get(statement.startIndex) ?? null;
-        if (!bound) {
-          bound = allocateName(callee!);
-          hoistedNames.set(statement.startIndex, bound);
-          hoists.push({ start: statement.startIndex, text: `const ${bound} = ` });
+        if (loop) {
+          // Loop-instance rail: the statement executes once per iteration, so
+          // a `const` hoisted inside the loop body would be out of scope at
+          // the constraint row — collect the instances into an array hoisted
+          // before the OUTERMOST enclosing loop and index it per target.
+          let arrayName = loopArrays.get(statement.startIndex);
+          if (arrayName === undefined) {
+            const bound = boundVariableName(statement);
+            const existing = wrapped
+              ? wrapped.arrayName
+              : bound !== null ? followingPushArray(statement, bound) : null;
+            if (existing !== null) {
+              arrayName = existing;
+            } else {
+              arrayName = allocateArrayName(callee!);
+              const loopRow = loop.startPosition.row;
+              edits.push({
+                start: loop.startIndex - loop.startPosition.column,
+                text: `${indentOf(lines, loopRow)}const ${arrayName} = [];\n`,
+              });
+              insertedRows.push(loopRow);
+              if (bound !== null) {
+                // Keep the binding (intra-loop uses stay valid) and feed the
+                // collector on a new statement right after it.
+                const stmtIndent = indentOf(lines, statement.startPosition.row);
+                edits.push({
+                  start: statement.endIndex,
+                  text: `\n${stmtIndent}${arrayName}.push(${bound});`,
+                });
+                insertedRows.push(statement.endPosition.row + 1);
+              } else {
+                edits.push({ start: call.startIndex, text: `${arrayName}.push(` });
+                edits.push({ start: call.endIndex, text: ')' });
+              }
+            }
+            loopArrays.set(statement.startIndex, arrayName);
+          }
+          name = `${arrayName}[${target.occurrence ?? 0}]`;
+        } else if (target.occurrence !== undefined) {
+          return refuse(code, `line ${target.line} runs more than once (helper function) — collect its results into an array to constrain one instance`);
+        } else {
+          let bound = boundVariableName(statement) ?? hoistedNames.get(statement.startIndex) ?? null;
+          if (!bound) {
+            bound = allocateName(callee!);
+            hoistedNames.set(statement.startIndex, bound);
+            edits.push({ start: statement.startIndex, text: `const ${bound} = ` });
+          }
+          name = bound;
         }
-        name = bound;
         if (typeof target.refIndex === 'number') {
           name = `${name}.ref(${target.refIndex})`;
         }
+        if (isCopyInstance) {
+          // Slot-indexed duplicate accessor; a point role composes on top
+          // (`cp1.instance(2).start()`) via the shared role append below.
+          name = `${name}.instance(${target.instanceIndex})`;
+        }
+        // Record the placement anchor: the constraint must land after this
+        // statement's binding exists — the whole loop for loop-rail targets
+        // (the collector only fills as the loop runs), the statement itself
+        // otherwise.
+        const anchor = loop ?? statement;
+        targetAnchors.push({
+          after: anchor.endPosition.row + 1,
+          indentRow: anchor.startPosition.row,
+        });
       }
       argNames.push(target.role ? `${name}.${target.role}()` : name);
     }
@@ -393,12 +636,16 @@ export async function applySolvedEmission(
     constraintTexts.push(`${c.kind}(${args.join(', ')})${suffix};`);
   }
 
-  // Hoists are same-line insertions (no row shifts), applied back-to-front
-  // so earlier offsets stay valid — row math below still holds.
+  // Insertions apply back-to-front so earlier byte offsets stay valid. The
+  // loop-collector edits added whole rows (unlike const hoists, which stay on
+  // their line) — shiftRow maps a row computed from the pre-edit tree to its
+  // post-edit position, so the placement math below still holds.
   let result = working;
-  for (const hoist of [...hoists].sort((a, b) => b.start - a.start)) {
-    result = spliceCode(result, hoist.start, hoist.start, hoist.text);
+  for (const edit of [...edits].sort((a, b) => b.start - a.start)) {
+    result = spliceCode(result, edit.start, edit.start, edit.text);
   }
+  const shiftRow = (row: number): number =>
+    row + insertedRows.reduce((shift, at) => shift + (at <= row ? 1 : 0), 0);
 
   // Placement (locked §0.2, amended P6): the body reads geometry →
   // constraints → derived ops. Constraints append at the end of their region
@@ -406,6 +653,18 @@ export async function applySolvedEmission(
   // inserts before the body's first constraint statement; everything lands
   // before an active breakpoint (a paused build never runs statements after
   // it).
+  //
+  // Referenced-statement amendment: a constraint referencing a binding whose
+  // statement sits BELOW the normal constraints region — a 2D copy() in the
+  // derived-ops tail (`cp1.instance(k)`), or a hand-written entity statement
+  // down there — cannot sit in that region: the reference would be a TDZ
+  // ReferenceError (`Cannot access 'l1' before initialization`). So the
+  // constraint row becomes max(the normal row, the row just past EVERY
+  // referenced statement — a loop-rail target anchors on its whole enclosing
+  // loop, since the collector only fills as the loop runs). Geometry
+  // placement is untouched, and an emission whose targets all sit above the
+  // constraints region (the overwhelmingly common case) keeps the normal
+  // policy byte-identical — every anchor row is already ≤ the computed row.
   const resultLines = splitLines(result);
   const bodyChildren = body.namedChildren;
   const breakpointStmt = bodyChildren.find(isBreakpointStatement);
@@ -416,30 +675,43 @@ export async function applySolvedEmission(
   let constraintIndent: string;
   if (firstDerivedStmt
     && (!breakpointStmt || firstDerivedStmt.startPosition.row < breakpointStmt.startPosition.row)) {
-    constraintRow = firstDerivedStmt.startPosition.row;
-    constraintIndent = indentOf(resultLines, firstDerivedStmt.startPosition.row);
+    constraintRow = shiftRow(firstDerivedStmt.startPosition.row);
+    constraintIndent = indentOf(resultLines, constraintRow);
   } else if (breakpointStmt) {
-    constraintRow = breakpointStmt.startPosition.row;
-    constraintIndent = indentOf(resultLines, breakpointStmt.startPosition.row);
+    constraintRow = shiftRow(breakpointStmt.startPosition.row);
+    constraintIndent = indentOf(resultLines, constraintRow);
   } else if (bodyChildren.length > 0) {
     // "Body end" stops BEFORE a trailing return (hand-written sketches
     // return their entity bag) — a statement after it never runs.
     const lastStmt = bodyChildren[bodyChildren.length - 1];
     constraintRow = lastStmt.type === 'return_statement'
-      ? lastStmt.startPosition.row
-      : lastStmt.endPosition.row + 1;
-    constraintIndent = indentOf(resultLines, lastStmt.startPosition.row);
+      ? shiftRow(lastStmt.startPosition.row)
+      : shiftRow(lastStmt.endPosition.row + 1);
+    constraintIndent = indentOf(resultLines, shiftRow(lastStmt.startPosition.row));
   } else {
-    constraintRow = body.startPosition.row + 1;
-    constraintIndent = indentOf(resultLines, body.startPosition.row) + '  ';
+    constraintRow = shiftRow(body.startPosition.row + 1);
+    constraintIndent = indentOf(resultLines, shiftRow(body.startPosition.row)) + '  ';
   }
 
   let geometryRow = constraintRow;
   let geometryIndent = constraintIndent;
   if (firstConstraintStmt
     && (!breakpointStmt || firstConstraintStmt.startPosition.row < breakpointStmt.startPosition.row)) {
-    geometryRow = firstConstraintStmt.startPosition.row;
-    geometryIndent = indentOf(resultLines, firstConstraintStmt.startPosition.row);
+    geometryRow = shiftRow(firstConstraintStmt.startPosition.row);
+    geometryIndent = indentOf(resultLines, geometryRow);
+  }
+
+  // Referenced-statement amendment (see the placement comment above): push
+  // the constraint row down past the LAST referenced statement's anchor.
+  // Runs AFTER geometryRow is derived so geometry placement never moves; the
+  // splice-order invariant below survives because the row only grows.
+  if (targetAnchors.length > 0) {
+    const last = targetAnchors.reduce((a, b) => (shiftRow(b.after) > shiftRow(a.after) ? b : a));
+    const afterAnchorRow = shiftRow(last.after);
+    if (afterAnchorRow > constraintRow) {
+      constraintRow = afterAnchorRow;
+      constraintIndent = indentOf(resultLines, shiftRow(last.indentRow));
+    }
   }
 
   const geometryTexts = spec.geometry.map((g, i) => {
@@ -480,7 +752,7 @@ export async function applySolvedEmission(
   // however many appeared.
   const importShift = splitLines(result).length - rowsBeforeImports;
   const geometryLines = spec.geometry.map((_, i) => geometryRow + i + 1 + importShift);
-  const sketchLine = enclosingStatement(sketchCall).startPosition.row + 1 + importShift;
+  const sketchLine = shiftRow(enclosingStatement(sketchCall).startPosition.row) + 1 + importShift;
 
   return { newCode: result, geometryLines, names: newNames, sketchLine };
 }

@@ -1,10 +1,11 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Axis } from "../math/axis.js";
 import { Matrix4 } from "../math/matrix4.js";
-import { ShapeOps } from "../oc/shape-ops.js";
-import { Copy2DBase } from "./copy2d-base.js";
+import { Copy2DBase, SlotLayout, SlotTransform } from "./copy2d-base.js";
 import { LinearCopyOptions } from "./copy-linear.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
+import { AxisObject } from "./axis.js";
+import { AxisFromSketch } from "./axis-from-sketch.js";
 import { type NumberParam, resolveParam } from "../core/param.js";
 
 export type CopyLinear2DAxis = Axis | AxisObjectBase;
@@ -32,11 +33,31 @@ export class CopyLinear2D extends Copy2DBase {
 
     // The sources keep their shapes — the copy owns only the duplicates it
     // stamps below, so the originals stay independent statements.
-    const originalShapes = objects.flatMap(obj => obj.getShapes());
     this.recordSourceEntities(objects, { axes: this.axes });
 
+    const layout = this.slotTransforms();
+    for (const obj of objects) {
+      for (const shape of obj.getShapes()) {
+        this.recordInstanceShape(shape, layout.originalSlot);
+      }
+    }
+    this.stampDuplicates(objects, layout.duplicates);
+  }
+
+  /**
+   * Grid slots linearize the position tuple axis-major (axis 0 slowest),
+   * matching the generation order below. The original block sits at ITS
+   * grid position — slot 0 uncentered, the center slot when centered.
+   * Shared by build() (stamping) and the statement-time duplicate-entity
+   * registration, so the tie matrices and the stamped shapes agree.
+   */
+  protected slotTransforms(): SlotLayout {
+    // resolveAxis, not getAxis: at statement time (duplicate-entity
+    // registration) an AxisFromSketch has no build state yet — getAxis()
+    // returns undefined and local('x') copies would silently register
+    // nothing.
     const resolvedAxes: Axis[] = this.axes.map(a =>
-      a instanceof AxisObjectBase ? a.getAxis() : a
+      a instanceof AxisObjectBase ? a.resolveAxis() : a
     );
 
     const { centered, skip } = this.options;
@@ -66,15 +87,10 @@ export class CopyLinear2D extends Copy2DBase {
       centered ? Math.floor(counts[a] / 2) : 0
     );
 
-    // Grid slots linearize the position tuple axis-major (axis 0 slowest),
-    // matching the generation order below. The original block sits at ITS
-    // grid position — slot 0 uncentered, the center slot when centered.
     const slotIndex = (pos: number[]) =>
       pos.reduce((acc, v, a) => acc * counts[a] + v, 0);
     const originalSlot = slotIndex(centerIndices);
-    for (const shape of originalShapes) {
-      this.recordInstanceShape(shape, originalSlot);
-    }
+    const slotCount = counts.reduce((acc, c) => acc * c, 1);
 
     // Build grid positions as cartesian product of per-axis indices (0..counts[a]-1)
     let positions: number[][] = [[]];
@@ -88,6 +104,7 @@ export class CopyLinear2D extends Copy2DBase {
       positions = next;
     }
 
+    const duplicates: SlotTransform[] = [];
     for (const pos of positions) {
       if (pos.every((idx, a) => idx === centerIndices[a])) continue;
       if (skip?.some(coord => coord.every((v, a) => v === pos[a]))) {
@@ -101,12 +118,30 @@ export class CopyLinear2D extends Copy2DBase {
         matrix = matrix.multiply(Matrix4.fromTranslationVector(translation));
       }
 
-      for (const shape of originalShapes) {
-        const transformed = ShapeOps.transform(shape, matrix);
-        transformed.setMeshSource(shape, matrix);
-        this.addShape(transformed);
-        this.recordInstanceShape(transformed, slotIndex(pos));
+      duplicates.push({ slot: slotIndex(pos), matrix });
+    }
+
+    return { originalSlot, slotCount, duplicates };
+  }
+
+  protected statementSlotTransforms(): SlotLayout | null {
+    // Constant transforms only (the same classification as
+    // collectSourceEntities): a solver-driven axis (AxisFromEdge over a
+    // solved line) moves with the solve — a constant tie matrix would
+    // freeze the guess and disagree with the build-time stamping.
+    for (const axis of this.axes) {
+      const constant = axis instanceof Axis
+        || axis instanceof AxisObject
+        || axis instanceof AxisFromSketch;
+      if (!constant) {
+        return null;
       }
+    }
+    try {
+      return this.slotTransforms();
+    } catch {
+      // e.g. an axis or plane that only resolves at build time.
+      return null;
     }
   }
 
@@ -176,6 +211,7 @@ export class CopyLinear2D extends Copy2DBase {
   serialize() {
     return {
       ...this.sourceEntitiesPayload(),
+      ...this.instanceEntitiesPayload(),
     }
   }
 }

@@ -157,6 +157,29 @@ describe('LiveSolvedSystem drag', () => {
     expect(b.start![1]).toBeCloseTo(2, 1);
   });
 
+  it('transform-tie records replay: dragging a copy duplicate pulls the source', () => {
+    const sys = new SketchSystem();
+    const src = sys.line(0, 0, 10, 0);
+    const dup = sys.line(30, 0, 40, 0);
+    sys.addTransformTie(src, dup, [1, 0, 0, 1, 30, 0]);
+    sys.constrain({ kind: 'fix', p: { entity: src, point: 'start' } });
+    const live = LiveSolvedSystem.fromSnapshot(sys.snapshot({ outcome: 'solved' }))!;
+    expect(live).not.toBeNull();
+    const outcome = live.dragSolve([{ ref: { entity: dup, point: 'end' }, x: 45, y: 8 }]);
+    expect(outcome).toBe('solved');
+    const s = live.entityGeometry(src)!;
+    const d = live.entityGeometry(dup)!;
+    // The tie held: the duplicate sits exactly at source + (30, 0)...
+    expect(d.start![0]).toBeCloseTo(s.start![0] + 30, 6);
+    expect(d.start![1]).toBeCloseTo(s.start![1], 6);
+    expect(d.end![0]).toBeCloseTo(s.end![0] + 30, 6);
+    expect(d.end![1]).toBeCloseTo(s.end![1], 6);
+    // ...and the drag actually moved geometry through it.
+    expect(d.end![1]).toBeGreaterThan(1);
+    expect(s.start![0]).toBeCloseTo(0, 9);
+    expect(s.start![1]).toBeCloseTo(0, 9);
+  });
+
   it('reset() restores the snapshot params after a drag', () => {
     const { snapshot, ids } = rhombusSnapshot();
     const live = LiveSolvedSystem.fromSnapshot(snapshot)!;
@@ -194,6 +217,7 @@ function modelWith(entities: SolvedEntityView[]): SolvedSketchModel {
     fullyConstrained: false,
     conflictCount: 0,
     redundantCount: 0,
+    hasDatums: false,
   };
 }
 

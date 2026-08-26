@@ -163,6 +163,52 @@ describe('solved sketch read model', () => {
     expect(unsolved.model.constrainedEntityIds.size).toBe(0);
   });
 
+  it('joins copy-instance duplicates via the snapshot params, flagged copyInstance', () => {
+    const solver = snapshot({
+      entities: [
+        { id: 0, kind: 'line', fixed: false, paramOffset: 0 },
+        // Solver-backed duplicates: free entities, geometry in the params.
+        { id: 5, kind: 'line', fixed: false, paramOffset: 4 },
+        { id: 6, kind: 'circle', fixed: false, paramOffset: 8 },
+      ],
+      params: [0, 0, 10, 0, 0, 20, 10, 20, 30, 40, 7],
+      dof: 8,
+    });
+    const copy = child('copy-linear-2d', {
+      sourceEntities: [0],
+      sourcesSolved: true,
+      // slot is the instance() slot (the original owns its own slot and is
+      // NOT in this array); shapeIndex addresses the rendered sceneShapes.
+      entities: [
+        { entityId: 5, kind: 'line', slot: 1, shapeIndex: 0 },
+        { entityId: 6, kind: 'circle', slot: 2, shapeIndex: 1 },
+      ],
+    });
+    const model = buildSolvedSketchModel(sketchObj(solver), [
+      line(0, [0, 0], [10, 0]),
+      copy,
+    ])!;
+
+    const dup = model.entities.get(5)!;
+    expect(dup.kind).toBe('line');
+    expect(dup.start).toEqual([0, 20]);
+    expect(dup.end).toEqual([10, 20]);
+    expect(dup.copyInstance).toEqual({ slot: 1 });
+    // Never the reference shape — duplicates are free, not fixed.
+    expect(dup.reference).toBeUndefined();
+    // The view carries the copy STATEMENT — its sourceLocation (with any
+    // loop occurrence) rides every pick made on the duplicate.
+    expect(dup.obj).toBe(copy);
+
+    const dupCircle = model.entities.get(6)!;
+    expect(dupCircle.center).toEqual([30, 40]);
+    expect(dupCircle.radius).toBe(7);
+    expect(dupCircle.copyInstance).toEqual({ slot: 2 });
+
+    // The whole-object derived tint join keeps working alongside.
+    expect(model.derivedProducers.get(copy.id!)).toEqual([0]);
+  });
+
   it('joins derived-op duplicates to their source entities', () => {
     const copy = child('copy-linear-2d', { sourceEntities: [0, 1], sourcesSolved: true });
     const unvouched = child('mirror-shape-2d', { sourceEntities: [0], sourcesSolved: false });

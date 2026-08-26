@@ -1,6 +1,7 @@
 import { RenderedShape, Scene, SceneObjectMesh, SceneObjectRender } from "./scene.js";
 import { MeshBuilder } from "./mesh-builder.js";
 import { SceneObject } from "../common/scene-object.js";
+import { callSiteKey } from "../common/call-site.js";
 import { Shape } from "../common/shape.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
@@ -24,9 +25,40 @@ type RenderEmit = {
   scope?: Set<SceneObject>;
 };
 
+// 0-based execution index per object for call sites that ran more than once
+// in this render (a user loop/helper). Objects from single-execution call
+// sites are absent — their payload sourceLocation stays untouched. Derived
+// from scene order alone; nothing is stamped back onto the objects.
+function computeCallSiteOccurrences(sceneObjects: SceneObject[]): Map<SceneObject, number> {
+  const counts = new Map<string, number>();
+  for (const obj of sceneObjects) {
+    const key = callSiteKey(obj);
+    if (key) {
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+  }
+
+  const seen = new Map<string, number>();
+  const occurrences = new Map<SceneObject, number>();
+  for (const obj of sceneObjects) {
+    const key = callSiteKey(obj);
+    if (!key) {
+      continue;
+    }
+    const index = seen.get(key) ?? 0;
+    seen.set(key, index + 1);
+    if ((counts.get(key) ?? 0) > 1) {
+      occurrences.set(obj, index);
+    }
+  }
+  return occurrences;
+}
+
 export class SceneRenderer {
   private readonly meshConfig: MeshConfig;
   private readonly meshBuilder: MeshBuilder;
+  /** Recomputed at the top of every render pass — see computeCallSiteOccurrences. */
+  private occurrenceIndexes: Map<SceneObject, number> = new Map();
 
   constructor(meshConfig: MeshConfig) {
     this.meshConfig = meshConfig;
@@ -36,6 +68,7 @@ export class SceneRenderer {
   render(scene: Scene): Scene {
     const sceneObjects = scene.getAllSceneObjects();
     console.log("============ Rendering ==============", sceneObjects.length);
+    this.occurrenceIndexes = computeCallSiteOccurrences(sceneObjects);
 
     const skippedContainers = new Set<SceneObject>();
     const buildDurations = new Map<SceneObject, number>();
@@ -120,6 +153,7 @@ export class SceneRenderer {
     console.log("============ Rollback Rendering ==============", rollbackIndex);
 
     const allObjects = scene.getAllSceneObjects();
+    this.occurrenceIndexes = computeCallSiteOccurrences(allObjects);
     if (!scope) {
       scope = new Set<SceneObject>();
       for (let i = 0; i <= rollbackIndex && i < allObjects.length; i++) {
@@ -421,6 +455,14 @@ export class SceneRenderer {
       serialized = {};
     }
 
+    // A copy, never a mutation of the stamped location — occurrence is a
+    // render-derived index, not part of the object's identity.
+    const location = obj.getSourceLocation();
+    const occurrence = this.occurrenceIndexes.get(obj);
+    const sourceLocation = location && occurrence !== undefined
+      ? { ...location, occurrence }
+      : location || undefined;
+
     const rendered: SceneObjectRender = {
       id: obj.id,
       name: displayName,
@@ -441,7 +483,7 @@ export class SceneRenderer {
       hideChildren: obj.hidesChildren() || undefined,
       hasError,
       errorMessage,
-      sourceLocation: obj.getSourceLocation() || undefined,
+      sourceLocation,
       buildDurationMs: opts.buildDurationMs,
       profileCategories,
     };

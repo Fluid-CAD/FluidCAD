@@ -4,7 +4,15 @@
 
 import type { ContactEntity } from '../solver/types';
 
-export type SourceLocation = { filePath: string; line: number; column: number };
+export type SourceLocation = {
+  filePath: string;
+  line: number;
+  column: number;
+  /** 0-based execution index of this object among all objects produced by
+   * the same call site — present only when a looped statement produced more
+   * than one, so instances can be told apart despite sharing a line. */
+  occurrence?: number;
+};
 
 // ---------------------------------------------------------------------------
 // Vector / Plane data coming from the FluidCAD backend

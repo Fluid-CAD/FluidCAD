@@ -1,4 +1,5 @@
 import { SceneObject } from "../common/scene-object.js";
+import { callSiteKey } from "../common/call-site.js";
 import { Shape } from "../common/shape.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
@@ -87,7 +88,7 @@ export class SelectionIndex {
       this.indexObject(objects[i]);
     }
     for (const obj of objects) {
-      const key = this.callSiteKey(obj);
+      const key = callSiteKey(obj);
       if (key) {
         this.callSiteCounts.set(key, (this.callSiteCounts.get(key) ?? 0) + 1);
       }
@@ -127,7 +128,7 @@ export class SelectionIndex {
    * than once, so its result cannot be bound to a single variable.
    */
   isSharedCallSite(feature: SceneObject): boolean {
-    const key = this.callSiteKey(feature);
+    const key = callSiteKey(feature);
     if (!key) {
       return false;
     }
@@ -136,14 +137,6 @@ export class SelectionIndex {
 
   dispose(): void {
     this.hasher.delete();
-  }
-
-  private callSiteKey(obj: SceneObject): string | null {
-    const loc = obj.getSourceLocation();
-    if (!loc) {
-      return null;
-    }
-    return `${obj.getType()}@${loc.filePath}:${loc.line}:${loc.column}`;
   }
 
   private indexObject(feature: SceneObject): void {

@@ -12,6 +12,16 @@ export abstract class AxisObjectBase extends SceneObject implements IAxis {
     return this.getState('axis') as Axis;
   }
 
+  /**
+   * The axis without depending on build state — statement-time consumers
+   * (copy duplicate registration runs before any build) resolve through
+   * this. The base reads the state like getAxis(); subclasses whose build()
+   * computes the axis (AxisFromSketch) override with the computation.
+   */
+  resolveAxis(): Axis {
+    return this.getAxis();
+  }
+
   getType(): string {
     return 'axis';
   }

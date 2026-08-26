@@ -8,6 +8,7 @@ import {
   pointText,
   solvedPointText,
   rectEmission,
+  refTarget,
   roundedRectEmission,
   slotEmission,
   polygonEmission,
@@ -35,6 +36,27 @@ describe('statement text formatters', () => {
     expect(dimMagnitude('30')).toBe('30');
     expect(dimMagnitude('w')).toBe('w');
     expect(dimMagnitude('-(w)')).toBe('-(w)');
+  });
+});
+
+describe('refTarget', () => {
+  it('addresses a statement by line, role optional', () => {
+    expect(refTarget({ line: 7, role: 'end', featureType: 'line' }))
+      .toEqual({ line: 7, role: 'end', featureType: 'line' });
+    expect(refTarget({ line: 9, featureType: 'point' }))
+      .toEqual({ line: 9, featureType: 'point' });
+  });
+
+  it('carries a loop-instance ref\'s occurrence through to the target', () => {
+    expect(refTarget({ line: 7, occurrence: 2, role: 'start', featureType: 'line' }))
+      .toEqual({ line: 7, occurrence: 2, role: 'start', featureType: 'line' });
+    // Occurrence 0 is a real instance index, not a falsy nothing.
+    expect(refTarget({ line: 7, occurrence: 0, featureType: 'circle' }))
+      .toEqual({ line: 7, occurrence: 0, featureType: 'circle' });
+  });
+
+  it('renders datum refs by name only', () => {
+    expect(refTarget({ datum: 'origin' })).toEqual({ datum: 'origin' });
   });
 });
 

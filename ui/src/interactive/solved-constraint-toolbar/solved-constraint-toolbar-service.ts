@@ -59,6 +59,7 @@ import {
   angleSectorFor,
   angleSectorTargets,
 } from './angle-sector';
+import { constraintTargetFor, sameStatementInstance } from './constraint-targets';
 
 const GHOST_OPACITY = 0.45;
 /** Entities whose params moved more than this ghost-preview. */
@@ -208,10 +209,13 @@ export class SolvedConstraintToolbarService {
       : null;
     this.clearGhost();
     // The picked constraint survives re-renders when its statement still
-    // exists (objIds are re-minted; match by source line).
+    // exists (objIds are re-minted; match by source line + loop occurrence,
+    // or line-only matching re-anchors to a looped statement's first badge).
     if (this.pickedConstraint?.sourceLocation) {
-      const line = this.pickedConstraint.sourceLocation.line;
-      const match = this.model?.constraints.find(c => c.obj.sourceLocation?.line === line);
+      const loc = this.pickedConstraint.sourceLocation;
+      const match = this.model?.constraints.find(
+        c => sameStatementInstance(c.obj.sourceLocation, loc),
+      );
       this.pickedConstraint = match
         ? { objId: match.obj.id, sourceLocation: match.obj.sourceLocation }
         : null;
@@ -983,30 +987,8 @@ export class SolvedConstraintToolbarService {
       return;
     }
     const statementKind = kind === 'dimension' ? 'distance' : kind;
-    const targets = picks.map(p => {
-      if (p.datum !== undefined) {
-        // Datum picks (origin/axes) have no source statement — the server
-        // renders the accessor call (origin()/xAxis()/yAxis()) instead.
-        return { datum: p.datum };
-      }
-      if (p.reference !== undefined) {
-        // Reference picks (P6) address their producer statement; the server
-        // renders `p1.ref(i)` (or the terse single-entity form) and hoists
-        // an unbound project()/intersect() like any entity statement.
-        return {
-          line: p.sourceLocation?.line ?? -1,
-          ...(p.role !== undefined && p.role !== null ? { role: p.role } : {}),
-          featureType: p.reference.producer,
-          refIndex: p.reference.refIndex,
-        };
-      }
-      return {
-        line: p.sourceLocation?.line ?? -1,
-        ...(p.role !== undefined && p.role !== null ? { role: p.role } : {}),
-        featureType: p.kind,
-      };
-    });
-    if (targets.some(t => 'line' in t && t.line < 0)) {
+    const targets = picks.map(constraintTargetFor);
+    if (targets.some(t => t.line !== undefined && t.line < 0)) {
       this.showMessage('The picked geometry has no source statement');
       return;
     }

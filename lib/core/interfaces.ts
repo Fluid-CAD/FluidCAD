@@ -898,6 +898,27 @@ export interface ISweep extends IBooleanOperation {
   capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 }
 
+/**
+ * One grid slot of a 2D copy: a whole-geometry operand (offset, fillet)
+ * AND — when the slot holds exactly one solver-backed edge — a constraint
+ * target. Constraining an instance moves its source (and every sibling
+ * duplicate) through the copy's rigid transform; the original's slot
+ * resolves to the source statement itself.
+ */
+export interface ICopyInstance extends ISceneObject {
+  /**
+   * The instance's start point as a constraint target
+   * (e.g. `distance(cp.instance(2).start(), origin(), 40)`).
+   */
+  start(): LazyVertex;
+
+  /** The instance's end point as a constraint target. */
+  end(): LazyVertex;
+
+  /** The instance's center point (circles and arcs) as a constraint target. */
+  center(): LazyVertex;
+}
+
 export interface ICopy extends ISceneObject {
   /**
    * Selects one grid slot of a 2D (in-sketch) copy as a whole geometry —
@@ -909,9 +930,19 @@ export interface ICopy extends ISceneObject {
    * own slot — 0 when not centered, the center slot when centered. Circular
    * copies count rotation steps with the original at 0, the same numbering
    * the `skip` option uses. 3D copies do not support this accessor.
+   *
+   * When the slot holds exactly one solver-backed edge (a copied
+   * line/arc/circle/point statement) the instance is also a constraint
+   * target: `parallel(cp.instance(1), l)` constrains the slot's duplicate
+   * entity, which is rigidly tied to its source — the source (and every
+   * other duplicate) moves with it. The ORIGINAL's slot resolves to the
+   * source statement's own entity, so constraining it is constraining the
+   * source. Slots with several edges, skipped slots, and slots whose source
+   * carries no solver identity (offset results, nested copies) error as
+   * constraint targets while remaining valid whole-geometry operands.
    * @param index - The grid-slot index.
    */
-  instance(index: number): ISceneObject;
+  instance(index: number): ICopyInstance;
 }
 
 export interface IMirror extends IBooleanOperation {

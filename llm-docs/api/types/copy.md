@@ -10,7 +10,7 @@ seeAlso: [api/types/scene-object]
 
 ```ts
 interface Copy extends SceneObject {
-  instance(index: number): SceneObject;
+  instance(index: number): ICopyInstance;
 }
 ```
 
@@ -30,7 +30,17 @@ own slot — 0 when not centered, the center slot when centered. Circular
 copies count rotation steps with the original at 0, the same numbering
 the `skip` option uses. 3D copies do not support this accessor.
 
-**Returns**: [[api/types/scene-object]].
+When the slot holds exactly one solver-backed edge (a copied
+line/arc/circle/point statement) the instance is also a constraint
+target: `parallel(cp.instance(1), l)` constrains the slot's duplicate
+entity, which is rigidly tied to its source — the source (and every
+other duplicate) moves with it. The ORIGINAL's slot resolves to the
+source statement's own entity, so constraining it is constraining the
+source. Slots with several edges, skipped slots, and slots whose source
+carries no solver identity (offset results, nested copies) error as
+constraint targets while remaining valid whole-geometry operands.
+
+**Returns**: `ICopyInstance`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |

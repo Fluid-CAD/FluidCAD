@@ -54,7 +54,12 @@ export type SceneObjectRender = {
   fromCache: boolean;
   hasError: boolean;
   errorMessage?: string;
-  sourceLocation?: { filePath: string; line: number; column: number };
+  /**
+   * `occurrence` is render-derived, never stamped: the 0-based execution
+   * index of this object's call site, present only when a loop/helper ran
+   * the statement more than once in this render.
+   */
+  sourceLocation?: { filePath: string; line: number; column: number; occurrence?: number };
   buildDurationMs?: number;
   profileCategories?: { category: string; durationMs: number }[];
   /**

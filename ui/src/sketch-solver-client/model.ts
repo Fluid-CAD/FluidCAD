@@ -48,6 +48,12 @@ export type SolvedEntityView = {
    * callee the emission's drift guard checks.
    */
   reference?: { refIndex: number | null; producer: 'project' | 'intersect' };
+  /**
+   * A 2D copy() duplicate: solver-backed (free, NOT fixed), addressed by the
+   * copy statement plus its `instance()` slot. `obj` is the copy statement,
+   * so its sourceLocation (with loop occurrence) rides every pick.
+   */
+  copyInstance?: { slot: number };
 };
 
 export type ConstraintStatus = 'ok' | 'redundant' | 'conflicting';
@@ -124,14 +130,18 @@ const ENTITY_KINDS: Record<string, SolvedEntityKind> = {
  * emitted edge to the fixed solver entity it registered as. */
 const REFERENCE_TYPES = new Set(['projection', 'intersect']);
 
-/** A reference entity's geometry comes from the snapshot's locked params —
- * the producer's payload only carries the join (entityId, kind, edgeIndex). */
-function referenceEntityView(
+/** 2D copy producers: their payload's `entities` array joins each
+ * solver-backed duplicate shape to its solver entity and instance slot. */
+const COPY_TYPES = new Set(['copy-linear-2d', 'copy-circular-2d']);
+
+/** A producer-joined entity's geometry comes from the snapshot's param
+ * table — the producer's payload only carries the join, never coordinates.
+ * Shared by the reference (P6) and copy-duplicate joins. */
+function snapshotEntityView(
   solver: SketchSolverSystem,
   obj: SceneObjectRender,
   entityId: number,
   kind: SolvedEntityKind,
-  refIndex: number | null,
 ): SolvedEntityView | null {
   const record = solver.entities.find(e => e.id === entityId);
   if (!record) {
@@ -139,8 +149,7 @@ function referenceEntityView(
   }
   const p = solver.params;
   const o = record.paramOffset;
-  const producer = obj.uniqueType === 'intersect' ? 'intersect' as const : 'project' as const;
-  const view: SolvedEntityView = { entityId, obj, kind, reference: { refIndex, producer } };
+  const view: SolvedEntityView = { entityId, obj, kind };
   if (kind === 'line') {
     view.start = [p[o], p[o + 1]];
     view.end = [p[o + 2], p[o + 3]];
@@ -154,6 +163,22 @@ function referenceEntityView(
     view.end = [p[o + 5], p[o + 6]];
   } else {
     view.point = [p[o], p[o + 1]];
+  }
+  return view;
+}
+
+/** A reference entity: snapshot geometry plus the `.ref(i)` address. */
+function referenceEntityView(
+  solver: SketchSolverSystem,
+  obj: SceneObjectRender,
+  entityId: number,
+  kind: SolvedEntityKind,
+  refIndex: number | null,
+): SolvedEntityView | null {
+  const view = snapshotEntityView(solver, obj, entityId, kind);
+  if (view) {
+    const producer = obj.uniqueType === 'intersect' ? 'intersect' as const : 'project' as const;
+    view.reference = { refIndex, producer };
   }
   return view;
 }
@@ -283,6 +308,24 @@ export function buildSolvedSketchModel(
         referenceProducers.set(obj.id, joined);
       }
       continue;
+    }
+
+    // 2D copy duplicates: each solver-backed duplicate joins like a
+    // reference — geometry from the snapshot's params — but addressed by
+    // the copy statement plus its instance() slot, and NOT fixed (a
+    // duplicate is a free entity to legality). Falls through: the
+    // whole-object derived tint join below still applies to the copy.
+    if (COPY_TYPES.has(obj.uniqueType ?? '') && Array.isArray(obj.object?.entities) && solver) {
+      const records = obj.object.entities as {
+        entityId: number; kind: SolvedEntityKind; slot: number; shapeIndex: number;
+      }[];
+      for (const record of records) {
+        const view = snapshotEntityView(solver, obj, record.entityId, record.kind);
+        if (view) {
+          view.copyInstance = { slot: record.slot };
+          entities.set(record.entityId, view);
+        }
+      }
     }
 
     // Derived ops (copy/mirror/rotate) whose sources are all solver-backed:

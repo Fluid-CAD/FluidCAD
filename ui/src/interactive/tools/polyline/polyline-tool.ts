@@ -534,7 +534,8 @@ export class PolylineTool extends SketchTool {
       || dist2D(spec.endPoint, spec.endSnap.point2d) < 1e-6;
     const isJunctionRef = (ref: SolvedVertexRef) =>
       (prev && ref.line === prev.line && ref.role === prev.junctionRole)
-      || (startRef && ref.line === startRef.line && ref.role === startRef.role);
+      || (startRef && ref.line === startRef.line
+        && ref.occurrence === startRef.occurrence && ref.role === startRef.role);
     if (endRef && endMatchesSnap && !this.ctrlHeld && this.autoConstraintsEnabled()
       && !isJunctionRef(endRef)) {
       constraints.push(coincident(newTarget(0, 'end'), refTarget(endRef)));

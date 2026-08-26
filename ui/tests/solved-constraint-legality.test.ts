@@ -103,6 +103,26 @@ describe('constraintOptions', () => {
     });
   });
 
+  it('copy duplicates participate as their geometric kind — free, not fixed', () => {
+    const copyLine: SolvedPick = {
+      entityId: 7, kind: 'line', sourceLocation: loc(12), copyInstance: { slot: 1 },
+    };
+    // A duplicate line is a line: the full line-pair family with a plain line.
+    expect(enabledIds([copyLine, lineB])).toEqual(
+      ['angle', 'collinear', 'dimension', 'equal', 'parallel', 'perpendicular'].sort(),
+    );
+    // A duplicate against its own SOURCE is two entityIds — a legal pair.
+    expect(enabledIds([copyLine, lineA])).toContain('parallel');
+    // Two duplicate slots are two entityIds too — nothing all-fixed here.
+    const copyLine2: SolvedPick = {
+      entityId: 8, kind: 'line', sourceLocation: loc(12), copyInstance: { slot: 2 },
+    };
+    expect(enabledIds([copyLine, copyLine2])).toContain('parallel');
+    expect(candidateSpec('parallel', [copyLine, copyLine2])).toEqual({
+      kind: 'parallel', a: { entity: 7 }, b: { entity: 8 },
+    });
+  });
+
   it('one vertex: fix; a point entity counts as a point', () => {
     expect(enabledIds([endA])).toEqual(['fix']);
     expect(enabledIds([pointP])).toEqual(['dimension', 'fix'].sort().filter(id => id !== 'dimension'));

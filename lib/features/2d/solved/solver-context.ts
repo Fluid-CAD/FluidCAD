@@ -14,6 +14,7 @@ import type {
   SolveResult,
 } from "../../../sketch-solver/index.js";
 import { SceneObject } from "../../../common/scene-object.js";
+import { callSiteKey } from "../../../common/call-site.js";
 
 const PARAM_COUNT: Record<EntityKind, number> = { point: 2, line: 4, circle: 3, arc: 7 };
 
@@ -64,6 +65,19 @@ export class SketchSolverContext {
     const id = this.system.arc(cx, cy, sx, sy, ex, ey, opts);
     this.entityStatements.set(id, owner);
     return id;
+  }
+
+  /**
+   * INTERNAL affine tie for derived duplicates (2D copy instances): no
+   * statement mapping — the record is internal (negative id) and diagnose
+   * never names it, so conflicts always surface on user constraints.
+   */
+  addTransformTie(
+    source: number,
+    target: number,
+    matrix: [number, number, number, number, number, number],
+  ): number {
+    return this.system.addTransformTie(source, target, matrix);
   }
 
   /** Throws on resolution/validation errors — callers stash the message as
@@ -190,6 +204,42 @@ export class SketchSolverContext {
 
   private label(stmt: SceneObject): string {
     const loc = stmt.getSourceLocation();
-    return loc ? `${stmt.getType()} (line ${loc.line})` : stmt.getType();
+    if (!loc) {
+      return stmt.getType();
+    }
+    // N loop iterations share one line — "line 12" alone names N statements,
+    // so disambiguate with the 1-based execution ordinal.
+    const instance = this.callSiteInstance(stmt);
+    return instance === null
+      ? `${stmt.getType()} (line ${loc.line})`
+      : `${stmt.getType()} (line ${loc.line}, instance ${instance})`;
+  }
+
+  /**
+   * 1-based ordinal of `stmt` among this context's registered statements
+   * sharing its call site, or null when the call site registered only once.
+   * Registration order is statement execution order (Map insertion order).
+   */
+  private callSiteInstance(stmt: SceneObject): number | null {
+    const key = callSiteKey(stmt);
+    if (!key) {
+      return null;
+    }
+    const seen = new Set<SceneObject>();
+    const peers: SceneObject[] = [];
+    for (const owner of [...this.entityStatements.values(), ...this.constraintStatements.values()]) {
+      if (seen.has(owner)) {
+        continue;
+      }
+      seen.add(owner);
+      if (callSiteKey(owner) === key) {
+        peers.push(owner);
+      }
+    }
+    if (peers.length < 2) {
+      return null;
+    }
+    const index = peers.indexOf(stmt);
+    return index === -1 ? null : index + 1;
   }
 }

@@ -114,6 +114,9 @@ function build(context: SceneParserContext): CopyFunction {
         );
         const copy = new CopyLinear2D(sketchAxes, options as LinearCopyOptions, restObjects.length > 0 ? restObjects : null);
         context.addSceneObject(copy);
+        // Statement time, before any constraint can name an instance —
+        // solver-backed sources get tied duplicate entities per slot.
+        copy.registerSolverDuplicates(activeSketch);
         return copy;
       }
 
@@ -128,6 +131,9 @@ function build(context: SceneParserContext): CopyFunction {
         const center = normalizePoint2D(args[1] as Point2DLike);
         const copy = new CopyCircular2D(center, options as CircularCopyOptions, restObjects.length > 0 ? restObjects : null);
         context.addSceneObject(copy);
+        // Statement time, before any constraint can name an instance —
+        // solver-backed sources get tied duplicate entities per slot.
+        copy.registerSolverDuplicates(activeSketch);
         return copy;
       }
 

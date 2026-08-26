@@ -205,6 +205,47 @@ export class SketchSystem {
     return cid;
   }
 
+  /**
+   * INTERNAL affine tie: rigidly derive `target` from `source` (same
+   * kind) through p' = [[a,b],[c,d]]·p + [tx,ty] with matrix =
+   * [a, b, c, d, tx, ty] — the engine-side registration for derived
+   * entities (2D copy instances). The target contributes params and
+   * an equal number of linear tie rows, so net DOF is unchanged and
+   * constraining either side moves both. The record is internal
+   * (negative id, like arc-consistency) and diagnose never names it —
+   * conflicts/redundancy surface on user constraints. A tied arc's
+   * own arc-consistency record is dropped here: the source's
+   * consistency rows plus the (similarity-validated) tie imply it,
+   * and keeping it would only add inert redundant rows — the same
+   * reasoning as fixed arcs in arc(). Rebuilds from a snapshot must
+   * therefore replay tie records through this method (not skip them
+   * like other internal records), so both sides drop the same rows.
+   * Returns the tie's (negative) constraint id.
+   */
+  addTransformTie(
+    source: number,
+    target: number,
+    matrix: [number, number, number, number, number, number],
+  ): number {
+    const record: ConstraintRecord = {
+      id: this.nextInternalId--,
+      internal: true,
+      spec: { kind: 'transform-tie', source, target, matrix: [...matrix] },
+    };
+    compileConstraint(record, this.compileCtx()); // validate eagerly, discard rows
+    if (this.entity(target).kind === 'arc') {
+      const idx = this.constraintList.findIndex(
+        (c) => c.internal && c.spec.kind === 'arc-consistency' && c.spec.entity === target,
+      );
+      if (idx >= 0) {
+        this.constraintList.splice(idx, 1);
+      }
+    }
+    this.constraintList.push(record);
+    this.structuralVersion++;
+    return record.id;
+  }
+
   // -- access -------------------------------------------------------------
 
   /** Live param table (guesses until solved; solve writes back). */

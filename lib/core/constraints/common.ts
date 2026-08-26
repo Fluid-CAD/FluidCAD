@@ -13,6 +13,8 @@ import {
   ReferenceEntityRef, ReferencePointRef, isReferenceProducer,
   type ReferenceProducer,
 } from "../../features/2d/solved/reference.js";
+import { Copy2DBase } from "../../features/copy2d-base.js";
+import { Copy2DInstance, Copy2DInstancePointRef } from "../../features/copy2d-instance-ref.js";
 import { LazyVertex } from "../../features/lazy-vertex.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { IReferenceEntity, ISceneObject } from "../interfaces.js";
@@ -83,6 +85,15 @@ export function toRef(arg: ConstraintTarget, what: string): SolverRef {
   if (arg instanceof SolvedGeometryBase) {
     return arg.ref();
   }
+  // 2D copy instances: the slot's tied duplicate entity (or the SOURCE
+  // entity for the original's slot). Resolution errors are statement-speak
+  // and stash on the constraint like every other failure here.
+  if (arg instanceof Copy2DInstancePointRef) {
+    return arg.instance.solverRef(what, arg.role);
+  }
+  if (arg instanceof Copy2DInstance) {
+    return arg.solverRef(what);
+  }
   if (arg instanceof SceneObject && isReferenceProducer(arg)) {
     // Single-entity sugar: `tangent(bore, l)` — resolution errors with the
     // count when the projection yielded more than one constrainable edge.
@@ -99,6 +110,16 @@ function ownerOf(arg: ConstraintTarget | undefined): SolvedGeometryBase | null {
   }
   if (arg instanceof SolvedGeometryBase) {
     return arg;
+  }
+  return null;
+}
+
+function copyOwnerOf(arg: ConstraintTarget | undefined): Copy2DBase | null {
+  if (arg instanceof Copy2DInstancePointRef) {
+    return arg.instance.copyOwner;
+  }
+  if (arg instanceof Copy2DInstance) {
+    return arg.copyOwner;
   }
   return null;
 }
@@ -141,7 +162,7 @@ export function emitConstraint(
 
   const deps: SceneObject[] = [];
   for (const arg of args) {
-    const owner = ownerOf(arg) ?? referenceOwnerOf(arg);
+    const owner = ownerOf(arg) ?? referenceOwnerOf(arg) ?? copyOwnerOf(arg);
     if (owner && !deps.includes(owner)) {
       deps.push(owner);
     }
@@ -162,6 +183,9 @@ export function emitConstraint(
     for (const dep of deps) {
       if (dep instanceof SolvedGeometryBase && dep.sketch !== sketch) {
         throw new Error(`${kind}: references geometry from another sketch — cross-sketch constraints are not supported`);
+      }
+      if (dep instanceof Copy2DBase && dep.sketch !== sketch) {
+        throw new Error(`${kind}: references a copy from another sketch — cross-sketch constraints are not supported`);
       }
       if (isReferenceProducer(dep)
         && (dep as unknown as { sketch: Sketch | null }).sketch !== sketch) {

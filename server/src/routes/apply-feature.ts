@@ -6927,21 +6927,27 @@ export function createApplyFeatureRouter(
       return;
     }
     const validRoles = new Set(['start', 'end', 'center', 'mid']);
-    const validTypes = new Set(['line', 'arc', 'circle', 'point']);
+    // 'copy' rides the entity domain so a stray copy pick with no
+    // instanceIndex reaches the transform's honest refusal instead of a 400.
+    const validTypes = new Set(['line', 'arc', 'circle', 'point', 'copy']);
     // Reference targets (P6) address a project()/intersect() statement.
     const validReferenceTypes = new Set(['project', 'intersect']);
+    // Copy-instance targets address a 2D copy() statement's duplicate slot.
+    const validCopyTypes = new Set(['copy']);
     const validDatums = new Set(['origin', 'x-axis', 'y-axis']);
-    const cleanTargets: { line?: number; role?: string; featureType?: string; datum?: string; refIndex?: number | null }[] = [];
+    const cleanTargets: { line?: number; occurrence?: number; role?: string; featureType?: string; datum?: string; refIndex?: number | null; instanceIndex?: number }[] = [];
     for (const t of targets) {
       if (typeof t !== 'object' || t === null) {
         res.status(400).json({ error: 'Invalid request body' });
         return;
       }
       // A datum target (origin/axes) has no source statement — it is the
-      // accessor call, exclusive with line/role/featureType.
+      // accessor call, exclusive with line/occurrence/role/featureType/
+      // instanceIndex.
       if (t.datum !== undefined) {
         if (!validDatums.has(t.datum) || t.line !== undefined || t.role !== undefined
-          || t.featureType !== undefined) {
+          || t.featureType !== undefined || t.occurrence !== undefined
+          || t.instanceIndex !== undefined) {
           res.status(400).json({ error: 'Invalid request body' });
           return;
         }
@@ -6949,19 +6955,33 @@ export function createApplyFeatureRouter(
         continue;
       }
       const isReference = t.refIndex !== undefined;
+      // Copy-instance targeting: the slot index of the picked duplicate on
+      // the copy() statement at `line` — integer ≥ 0, never with refIndex
+      // (v1), and a sent featureType must be 'copy'.
+      const isCopyInstance = t.instanceIndex !== undefined;
       if (typeof t.line !== 'number'
+        // Loop-instance targeting: the 0-based execution index of the picked
+        // instance when the statement at `line` ran more than once.
+        || (t.occurrence !== undefined
+          && (!Number.isInteger(t.occurrence) || t.occurrence < 0))
         || (t.role !== undefined && !validRoles.has(t.role))
         || (isReference && t.refIndex !== null && !Number.isInteger(t.refIndex))
+        || (isCopyInstance
+          && (!Number.isInteger(t.instanceIndex) || t.instanceIndex < 0 || isReference))
         || (t.featureType !== undefined
-          && !(isReference ? validReferenceTypes : validTypes).has(t.featureType))) {
+          && !(isReference ? validReferenceTypes
+            : isCopyInstance ? validCopyTypes
+            : validTypes).has(t.featureType))) {
         res.status(400).json({ error: 'Invalid request body' });
         return;
       }
       cleanTargets.push({
         line: t.line,
+        ...(t.occurrence !== undefined ? { occurrence: t.occurrence } : {}),
         ...(t.role !== undefined ? { role: t.role } : {}),
         ...(t.featureType !== undefined ? { featureType: t.featureType } : {}),
         ...(isReference ? { refIndex: t.refIndex } : {}),
+        ...(isCopyInstance ? { instanceIndex: t.instanceIndex } : {}),
       });
     }
     const targetFile = filePath ?? fluidCadServer.getCurrentFileName();

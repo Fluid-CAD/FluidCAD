@@ -763,6 +763,10 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
     return this;
   }
 
+  isGuide(): boolean {
+    return this._guide;
+  }
+
   reusable(): this {
     this._reusable = true;
     return this;

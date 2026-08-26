@@ -131,10 +131,16 @@ export class SnapManager {
         pushUnique(0, 0, { datum: 'origin' });
       }
       for (const e of model?.entities.values() ?? []) {
-        const line = e.obj?.sourceLocation?.line;
-        if (!line) {
+        const loc = e.obj?.sourceLocation;
+        if (!loc?.line) {
           continue;
         }
+        // Looped statements share a line — the occurrence rides the ref so
+        // the emitted coincident() names the right instance.
+        const provenance = {
+          line: loc.line,
+          ...(loc.occurrence !== undefined ? { occurrence: loc.occurrence } : {}),
+        };
         const roles: ('start' | 'end' | 'center')[] =
           e.kind === 'line' ? ['start', 'end']
             : e.kind === 'arc' ? ['start', 'end', 'center']
@@ -142,11 +148,11 @@ export class SnapManager {
         for (const role of roles) {
           const p = e[role];
           if (p) {
-            pushUnique(p[0], p[1], { line, role, featureType: e.kind });
+            pushUnique(p[0], p[1], { ...provenance, role, featureType: e.kind });
           }
         }
         if (e.kind === 'point' && e.point) {
-          pushUnique(e.point[0], e.point[1], { line, featureType: 'point' });
+          pushUnique(e.point[0], e.point[1], { ...provenance, featureType: 'point' });
         }
       }
     }

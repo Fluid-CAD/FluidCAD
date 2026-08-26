@@ -1,10 +1,11 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { rad } from "../helpers/math-helpers.js";
-import { ShapeOps } from "../oc/shape-ops.js";
-import { Copy2DBase } from "./copy2d-base.js";
+import { Copy2DBase, SlotLayout, SlotTransform } from "./copy2d-base.js";
 import { LazyVertex } from "./lazy-vertex.js";
 import { CircularCopyOptions } from "./copy-circular.js";
+import { SolvedPointRef } from "./2d/solved/refs.js";
+import { ReferencePointRef } from "./2d/solved/reference.js";
 import { type NumberParam, resolveParam } from "../core/param.js";
 
 export class CopyCircular2D extends Copy2DBase {
@@ -32,12 +33,29 @@ export class CopyCircular2D extends Copy2DBase {
     // stamps below, so the originals stay independent statements.
     // Rotation-step slots: the original is 0, step i is i — the same
     // numbering the circular `skip` option uses.
-    const originalShapes = objects.flatMap(obj => obj.getShapes());
     this.recordSourceEntities(objects, { center: this.center });
-    for (const shape of originalShapes) {
-      this.recordInstanceShape(shape, 0);
-    }
 
+    const layout = this.slotTransforms();
+    for (const obj of objects) {
+      for (const shape of obj.getShapes()) {
+        this.recordInstanceShape(shape, layout.originalSlot);
+      }
+    }
+    this.stampDuplicates(objects, layout.duplicates);
+
+    // Pen state stays a legacy concept — never written in a solved sketch.
+    if (!this.sketch.isSolvedMode()) {
+      this.setCurrentPosition(this.center.asPoint2D())
+    }
+  }
+
+  /**
+   * Rotation steps about the center: the original is slot 0, step i is
+   * slot i. Shared by build() (stamping) and the statement-time
+   * duplicate-entity registration, so the tie matrices and the stamped
+   * shapes agree.
+   */
+  protected slotTransforms(): SlotLayout {
     const plane = this.sketch.getPlane();
     const origin = plane.localToWorld(this.center.asPoint2D());
     const direction = plane.normal;
@@ -54,23 +72,30 @@ export class CopyCircular2D extends Copy2DBase {
 
     const startOffset = centered ? -(count * offset) / 2 : 0;
 
+    const duplicates: SlotTransform[] = [];
     for (let i = 1; i < count; i++) {
       if (skip?.includes(i)) continue;
 
       const angle = startOffset + offset * i;
-      const matrix = Matrix4.fromRotationAroundAxis(origin, direction, rad(angle));
-
-      for (const shape of originalShapes) {
-        const transformed = ShapeOps.transform(shape, matrix);
-        transformed.setMeshSource(shape, matrix);
-        this.addShape(transformed);
-        this.recordInstanceShape(transformed, i);
-      }
+      duplicates.push({ slot: i, matrix: Matrix4.fromRotationAroundAxis(origin, direction, rad(angle)) });
     }
 
-    // Pen state stays a legacy concept — never written in a solved sketch.
-    if (!this.sketch.isSolvedMode()) {
-      this.setCurrentPosition(this.center.asPoint2D())
+    return { originalSlot: 0, slotCount: count, duplicates };
+  }
+
+  protected statementSlotTransforms(): SlotLayout | null {
+    // Constant centers only: a solver-backed center (c.center()) moves with
+    // the solve — a constant tie matrix would freeze the guess and disagree
+    // with the build-time stamping. Reading it here would also poison the
+    // build's post-solve read (LazyVertex caches its first resolution).
+    if (this.center instanceof SolvedPointRef || this.center instanceof ReferencePointRef) {
+      return null;
+    }
+    try {
+      return this.slotTransforms();
+    } catch {
+      // e.g. a center or plane that only resolves at build time.
+      return null;
     }
   }
 
@@ -122,6 +147,7 @@ export class CopyCircular2D extends Copy2DBase {
   serialize() {
     return {
       ...this.sourceEntitiesPayload(),
+      ...this.instanceEntitiesPayload(),
     }
   }
 }

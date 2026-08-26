@@ -82,13 +82,16 @@ export function pointText(p: [number, number] | PickedPoint): string {
   return `point(${solvedPointText(p)})`;
 }
 
-/** A snap ref as an emission constraint target. */
+/** A snap ref as an emission constraint target. Loop-instance refs carry
+ * their occurrence so the server addresses the right instance of a looped
+ * statement. */
 export function refTarget(ref: SolvedVertexRef): SolvedEmissionTargetParam {
   if (ref.datum !== undefined) {
     return { datum: ref.datum };
   }
   return {
     line: ref.line,
+    ...(ref.occurrence !== undefined ? { occurrence: ref.occurrence } : {}),
     ...(ref.role !== undefined ? { role: ref.role } : {}),
     featureType: ref.featureType,
   };

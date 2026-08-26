@@ -44,6 +44,7 @@ describe("sketch-solver purity", () => {
       "constraints/radius.ts",
       "constraints/symmetric.ts",
       "constraints/tangent.ts",
+      "constraints/transform-tie.ts",
       "constraints/types.ts",
       "constraints/util.ts",
       "constraints/vertical.ts",

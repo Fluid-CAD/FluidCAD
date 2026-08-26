@@ -89,6 +89,23 @@ describe('solved snap provenance', () => {
     expect(arcCenter.ref).toEqual({ line: lines.arc, role: 'center', featureType: 'arc' });
   });
 
+  it('a loop-instance vertex carries its occurrence in the ref', () => {
+    const { objects, lines } = scene();
+    // A second circle from the same looped statement line: only the
+    // occurrence tells the instances apart.
+    const looped = child('solved-circle', {
+      entityId: 3,
+      center: { x: 200, y: 50 }, radius: 10,
+    });
+    looped.sourceLocation!.line = lines.circle;
+    looped.sourceLocation!.occurrence = 1;
+    const mgr = SnapManager.fromSceneObjects([...objects, looped], 'sketch-1', PLANE as any);
+    const snap = mgr.snap([199.8, 50.2], PLANE as any);
+    expect(snap.ref).toEqual({
+      line: lines.circle, occurrence: 1, role: 'center', featureType: 'circle',
+    });
+  });
+
   it('grid/none snaps carry no ref', () => {
     const { objects } = scene();
     const mgr = SnapManager.fromSceneObjects(objects, 'sketch-1', PLANE as any);

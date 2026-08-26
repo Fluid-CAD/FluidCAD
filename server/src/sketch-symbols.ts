@@ -19,9 +19,11 @@ export type SolvedEntityKind = 'line' | 'arc' | 'circle' | 'point';
 export const SOLVED_ENTITY_CALLEES = new Set<string>(['line', 'arc', 'circle', 'point']);
 
 /** Binding-name hints per entity kind — `const l1 = line(…)`. Reference
- * producers (P6) hoist too: `const prj1 = project(…)`. */
+ * producers (P6) hoist too: `const prj1 = project(…)`, and so do 2D copy
+ * statements whose duplicates are constraint targets: `const cp1 = copy(…)`. */
 export const SOLVED_ENTITY_NAME_HINTS: Record<string, string> = {
   line: 'l', arc: 'a', circle: 'c', point: 'p', project: 'prj', intersect: 'sec',
+  copy: 'cp',
 };
 
 /**
@@ -36,3 +38,12 @@ export const SOLVED_ENTITY_NAME_HINTS: Record<string, string> = {
 export const DERIVED_OP_CALLEES = new Set<string>([
   'offset', 'fillet', 'mirror', 'copy', 'rotate', 'text',
 ]);
+
+/**
+ * The 2D-copy subset of the derived ops — the ONLY derived-op statements a
+ * constraint target may address. A copy() duplicate is a solver entity
+ * reachable through the slot-indexed accessor (`cp.instance(k)` — the
+ * original occupies its own slot, duplicates fill the others, `skip` leaves
+ * holes); offset/fillet/mirror/rotate/text stay untargetable.
+ */
+export const COPY_CALLEES = new Set<string>(['copy']);

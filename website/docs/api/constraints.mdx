@@ -84,15 +84,17 @@ Constrains a line to be vertical, or two points to share an x value.
 ### parallel()
 
 ```ts
-parallel(a: ConstraintTarget, b: ConstraintTarget): SceneObject
+parallel(a: ConstraintTarget, b: ConstraintTarget, ...rest: ConstraintTarget[]): SceneObject
 ```
 
-Constrains two lines to be parallel (1 dim).
+Constrains two or more lines to be parallel (1 dim per pair). Every line
+after the first is paralleled to the first.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `a` | [ConstraintTarget](#constraint-targets) | The first entity |
-| `b` | [ConstraintTarget](#constraint-targets) | The second entity |
+| `a` | [ConstraintTarget](#constraint-targets) | The reference line |
+| `b` | [ConstraintTarget](#constraint-targets) | The second line |
+| `...rest` | ConstraintTarget[] | Further lines to parallel to the first |
 
 ---
 

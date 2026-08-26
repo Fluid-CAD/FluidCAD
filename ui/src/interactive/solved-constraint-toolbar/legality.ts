@@ -161,7 +161,7 @@ const NEED = {
   coincident: 'pick two points, or a point and an entity',
   horizontal: 'pick a line, or two points',
   vertical: 'pick a line, or two points',
-  parallel: 'pick two lines',
+  parallel: 'pick two or more lines',
   perpendicular: 'pick two lines',
   tangent: 'pick a line and a circle/arc, or two circles/arcs',
   equal: 'pick two or more lines, or two or more circles/arcs',
@@ -201,6 +201,10 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
       return (picks.length === 1 && isLine(a) && !isAxisPick(a))
         || (picks.length === 2 && isPointPick(a) && isPointPick(b));
     case 'parallel':
+      // Any number of lines parallel to the first, all distinct.
+      return picks.length >= 2
+        && new Set(picks.map(p => p.entityId)).size === picks.length
+        && picks.every(isLine);
     case 'perpendicular':
     case 'collinear':
     case 'angle':
@@ -458,16 +462,16 @@ export function candidateSpec(
       return picks.length === 1
         ? { kind: id, a: pickRef(a) }
         : { kind: id, a: pickRef(a), b: pickRef(b) };
-    case 'parallel':
     case 'perpendicular':
     case 'tangent':
     case 'concentric':
     case 'collinear':
       return { kind: id, a: pickRef(a), b: pickRef(b) };
+    case 'parallel':
     case 'equal':
-      // Everything after the first pick equates to it.
+      // Everything after the first pick equates/parallels to it.
       return {
-        kind: 'equal', a: pickRef(a), b: pickRef(b),
+        kind: id, a: pickRef(a), b: pickRef(b),
         ...(picks.length > 2 ? { others: picks.slice(2).map(pickRef) } : {}),
       };
     case 'midpoint': {

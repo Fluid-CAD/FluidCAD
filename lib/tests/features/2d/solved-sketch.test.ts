@@ -5,7 +5,7 @@ import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import { line, circle, arc, point } from "../../../core/2d/index.js";
 import {
-  coincident, horizontal, vertical, fix, distance, tangent, radius, diameter, equal,
+  coincident, horizontal, vertical, fix, distance, tangent, radius, diameter, equal, parallel,
 } from "../../../core/constraints/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { ExtrudeBase } from "../../../features/extrude-base.js";
@@ -212,6 +212,29 @@ describe("solved sketch (constraint mode)", () => {
     for (const l of lines) {
       expect(Math.hypot(l.end.x - l.start.x, l.end.y - l.start.y)).toBeCloseTo(30, 6);
     }
+  });
+
+  it("parallels three lines with one variadic parallel()", () => {
+    sketch('xy', () => {
+      const a = line([0, 0], [30, 15]);
+      const b = line([0, 10], [30, 18]);
+      const c = line([0, 20], [30, 42]);
+      fix(a.start(), [0, 0]);
+      fix(a.end(), [30, 15]);
+      fix(b.start(), [0, 10]);
+      fix(c.start(), [0, 20]);
+      parallel(a, b, c);
+    });
+    const scene = render();
+
+    const lines = solvedLinePayloads(scene);
+    expect(lines).toHaveLength(3);
+    const [la, lb, lc] = lines.map(l => [l.end.x - l.start.x, l.end.y - l.start.y]);
+    // sin of the angle to a ≈ 0 for every follower — directions match a's.
+    const sinTo = (d: number[]): number =>
+      (la[0] * d[1] - la[1] * d[0]) / (Math.hypot(la[0], la[1]) * Math.hypot(d[0], d[1]));
+    expect(sinTo(lb)).toBeCloseTo(0, 6);
+    expect(sinTo(lc)).toBeCloseTo(0, 6);
   });
 
   it("equates circle/arc radii with one variadic equal()", () => {

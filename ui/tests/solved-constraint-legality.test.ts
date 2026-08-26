@@ -62,20 +62,26 @@ describe('constraintOptions', () => {
     );
   });
 
-  it('three or more homogeneous entities: variadic equal', () => {
+  it('three or more homogeneous entities: variadic equal/parallel', () => {
     const lineE: SolvedPick = { entityId: 5, kind: 'line', sourceLocation: loc(10) };
     const circleF: SolvedPick = { entityId: 6, kind: 'circle', sourceLocation: loc(11) };
-    expect(enabledIds([lineA, lineB, lineE])).toEqual(['equal']);
+    expect(enabledIds([lineA, lineB, lineE])).toEqual(['equal', 'parallel']);
     expect(enabledIds([circleC, arcD, circleF])).toEqual(['equal']);
-    // Mixed families and duplicate picks disable it.
+    // Mixed families and duplicate picks disable them.
     expect(enabledIds([lineA, lineB, circleC])).toEqual([]);
     expect(enabledIds([lineA, lineB, { ...lineA }])).toEqual([]);
-    // Everything after the first pick equates to it.
+    // Everything after the first pick is constrained against it.
     expect(candidateSpec('equal', [lineA, lineB, lineE])).toEqual({
       kind: 'equal', a: { entity: 0 }, b: { entity: 1 }, others: [{ entity: 5 }],
     });
     expect(candidateSpec('equal', [lineA, lineB])).toEqual({
       kind: 'equal', a: { entity: 0 }, b: { entity: 1 },
+    });
+    expect(candidateSpec('parallel', [lineA, lineB, lineE])).toEqual({
+      kind: 'parallel', a: { entity: 0 }, b: { entity: 1 }, others: [{ entity: 5 }],
+    });
+    expect(candidateSpec('parallel', [lineA, lineB])).toEqual({
+      kind: 'parallel', a: { entity: 0 }, b: { entity: 1 },
     });
   });
 

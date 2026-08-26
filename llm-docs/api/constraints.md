@@ -45,7 +45,8 @@ coincident(a, b)      // two points coincide; or point-on-line/arc/circle.
                       // coincident(p, l.mid()) lowers to midpoint(p, l).
 horizontal(l)         // line horizontal — or horizontal(p1, p2): equal y
 vertical(l)           // line vertical — or vertical(p1, p2): equal x
-parallel(a, b)        // two lines
+parallel(a, b, ...more)
+                      // two or more lines, all paralleled to the first
 perpendicular(a, b)   // two lines
 tangent(a, b)         // line/arc/circle tangent to another
 equal(a, b, ...more)  // equal length (lines) or equal radius (arcs/circles);

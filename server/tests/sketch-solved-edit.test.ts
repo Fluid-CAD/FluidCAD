@@ -80,7 +80,7 @@ describe('applySolvedEmission', () => {
     expect(fixIdx).toBeLessThan(offsetIdx);
   });
 
-  it('emits a variadic equal over more than three targets (other kinds stay capped at three)', async () => {
+  it('emits variadic equal/parallel over more than three targets (other kinds stay capped at three)', async () => {
     const code = [
       `import { sketch, line } from "fluidcad/core";`,
       ``,
@@ -107,6 +107,22 @@ describe('applySolvedEmission', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain('equal(a, b, c, d);');
 
+    const par = await applySolvedEmission(code, {
+      sketchLine: 3,
+      geometry: [],
+      constraints: [{
+        kind: 'parallel',
+        targets: [
+          { line: 4, featureType: 'line' },
+          { line: 5, featureType: 'line' },
+          { line: 6, featureType: 'line' },
+          { line: 7, featureType: 'line' },
+        ],
+      }],
+    });
+    expect(par.error).toBeUndefined();
+    expect(par.newCode).toContain('parallel(a, b, c, d);');
+
     const single = await applySolvedEmission(code, {
       sketchLine: 3,
       geometry: [],
@@ -118,7 +134,7 @@ describe('applySolvedEmission', () => {
       sketchLine: 3,
       geometry: [],
       constraints: [{
-        kind: 'parallel',
+        kind: 'perpendicular',
         targets: [
           { line: 4, featureType: 'line' },
           { line: 5, featureType: 'line' },

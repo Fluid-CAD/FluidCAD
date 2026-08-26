@@ -75,7 +75,7 @@ export type ConstraintSpec =
   | { kind: 'horizontal'; a: SolverRef; b?: SolverRef }
   | { kind: 'vertical'; a: SolverRef; b?: SolverRef }
   /** Line–line (1). */
-  | { kind: 'parallel'; a: SolverRef; b: SolverRef }
+  | { kind: 'parallel'; a: SolverRef; b: SolverRef; others?: SolverRef[] }
   /** Line–line (1). */
   | { kind: 'perpendicular'; a: SolverRef; b: SolverRef }
   /** Counterclockwise angle from line a's oriented direction to line

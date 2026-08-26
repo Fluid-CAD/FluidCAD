@@ -183,3 +183,9 @@ export function dotPartials(dp: DirPair, out: number[]): void {
 export function linePairParams(a: ResolvedLine, b: ResolvedLine): number[] {
   return [a.sx, a.sy, a.ex, a.ey, b.sx, b.sy, b.ex, b.ey];
 }
+
+/** Ordinal for variadic-constraint error messages ('first', 'second', …). */
+export function ordinal(i: number): string {
+  const names = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth'];
+  return names[i] ?? `${i + 1}th`;
+}

@@ -204,7 +204,8 @@ export const constraints: ConstraintEntry[] = [
   {
     name: 'parallel', sourceFile: 'core/constraints/parallel.ts', group: 'geometric',
     fallback: {
-      description: 'Constrains two lines to be parallel (1 dim).',
+      description: 'Constrains two or more lines to be parallel (1 dim per pair). '
+        + 'Every line after the first is paralleled to the first.',
       params: constraintTargetPair,
       returnType: 'ISceneObject',
     },

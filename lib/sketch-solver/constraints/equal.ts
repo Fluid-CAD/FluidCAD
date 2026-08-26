@@ -5,14 +5,9 @@
 
 import type { ConstraintSpec, SolverRef } from '../types.js';
 import type { CompiledRow, CompileCtx } from './types.js';
-import { makePointDistDeriv, pointDist } from './util.js';
+import { makePointDistDeriv, ordinal, pointDist } from './util.js';
 
 type Spec = Extract<ConstraintSpec, { kind: 'equal' }>;
-
-function ordinal(i: number): string {
-  const names = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth'];
-  return names[i] ?? `${i + 1}th`;
-}
 
 export function compileEqual(spec: Spec, ctx: CompileCtx): CompiledRow[] {
   const refs: SolverRef[] = [spec.a, spec.b, ...(spec.others ?? [])];

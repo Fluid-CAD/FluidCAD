@@ -201,7 +201,7 @@ export function requireValue(value: unknown, what: string): number {
 
 /** Builder for the plain two-target constraints (no value argument). */
 export function twoTargetCommand(
-  kind: 'parallel' | 'perpendicular' | 'tangent' | 'concentric' | 'collinear',
+  kind: 'perpendicular' | 'tangent' | 'concentric' | 'collinear',
 ): (a: ConstraintTarget, b: ConstraintTarget) => ISceneObject {
   return registerBuilder((context: SceneParserContext) =>
     function (a: ConstraintTarget, b: ConstraintTarget): ISceneObject {

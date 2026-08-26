@@ -74,9 +74,12 @@ export type SolvedEmissionTarget = {
 /** Reference-producer callees (P6) — hoistable like entity statements. */
 const REFERENCE_CALLEES = new Set(['project', 'intersect']);
 
-/** Kinds whose statement takes any number of targets ≥ 2 — everything
- * after the first is constrained against it. */
-const VARIADIC_CONSTRAINT_KINDS = new Set(['equal', 'parallel']);
+/** Kinds whose statement takes any number of targets (value = minimum) —
+ * everything after the first is constrained against it. horizontal and
+ * vertical also keep their single-line form. */
+const VARIADIC_CONSTRAINT_KINDS = new Map([
+  ['equal', 2], ['parallel', 2], ['horizontal', 1], ['vertical', 1],
+]);
 
 /** Datum name → the fluidcad/core accessor command it renders as. */
 const DATUM_COMMANDS: Record<string, string> = {
@@ -249,12 +252,13 @@ export async function applySolvedEmission(
     if (!SOLVED_CONSTRAINT_KINDS.has(c.kind)) {
       return refuse(code, `unknown constraint kind '${c.kind}'`);
     }
-    // equal/parallel are variadic (everything after the first target is
-    // constrained against it); the other forms are positional with at
-    // most three slots.
-    if (VARIADIC_CONSTRAINT_KINDS.has(c.kind)) {
-      if (c.targets.length < 2) {
-        return refuse(code, `${c.kind} takes two or more targets`);
+    // Variadic kinds take any number of targets above their minimum
+    // (everything after the first is constrained against it); the other
+    // forms are positional with at most three slots.
+    const variadicMin = VARIADIC_CONSTRAINT_KINDS.get(c.kind);
+    if (variadicMin !== undefined) {
+      if (c.targets.length < variadicMin) {
+        return refuse(code, `${c.kind} takes ${variadicMin === 1 ? 'one' : 'two'} or more targets`);
       }
     } else if (c.targets.length < 1 || c.targets.length > 3) {
       return refuse(code, 'a constraint takes one to three targets');

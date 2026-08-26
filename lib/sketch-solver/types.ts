@@ -71,9 +71,11 @@ export type ConstraintSpec =
    * chosen by what the refs resolve to. Point-on-line means the
    * infinite line; point-on-circle means the full circle. */
   | { kind: 'coincident'; a: SolverRef; b: SolverRef }
-  /** One line (1) or a point pair (1). */
-  | { kind: 'horizontal'; a: SolverRef; b?: SolverRef }
-  | { kind: 'vertical'; a: SolverRef; b?: SolverRef }
+  /** One line (1), or two or more points sharing the axis value
+   * (1 per pair — `others` extends the POINT form only; every point
+   * after the first is aligned to the first). */
+  | { kind: 'horizontal'; a: SolverRef; b?: SolverRef; others?: SolverRef[] }
+  | { kind: 'vertical'; a: SolverRef; b?: SolverRef; others?: SolverRef[] }
   /** Line–line (1). */
   | { kind: 'parallel'; a: SolverRef; b: SolverRef; others?: SolverRef[] }
   /** Line–line (1). */

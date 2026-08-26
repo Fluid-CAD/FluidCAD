@@ -54,30 +54,34 @@ lowers to the midpoint constraint.
 ### horizontal()
 
 ```ts
-horizontal(a: ConstraintTarget, b?: ConstraintTarget): SceneObject
+horizontal(a: ConstraintTarget, b?: ConstraintTarget, ...rest: ConstraintTarget[]): SceneObject
 ```
 
-Constrains a line to be horizontal, or two points to share a y value.
+Constrains a line to be horizontal, or two or more points to share a
+y value. Every point after the first is aligned to the first.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `a` | [ConstraintTarget](#constraint-targets) | A line, or the first point |
-| `b` | [ConstraintTarget](#constraint-targets) | The second point (point-pair form) *(optional)* |
+| `b` | [ConstraintTarget](#constraint-targets) | The second point (point form) *(optional)* |
+| `...rest` | ConstraintTarget[] | Further points to align to the first |
 
 ---
 
 ### vertical()
 
 ```ts
-vertical(a: ConstraintTarget, b?: ConstraintTarget): SceneObject
+vertical(a: ConstraintTarget, b?: ConstraintTarget, ...rest: ConstraintTarget[]): SceneObject
 ```
 
-Constrains a line to be vertical, or two points to share an x value.
+Constrains a line to be vertical, or two or more points to share an
+x value. Every point after the first is aligned to the first.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `a` | [ConstraintTarget](#constraint-targets) | A line, or the first point |
-| `b` | [ConstraintTarget](#constraint-targets) | The second point (point-pair form) *(optional)* |
+| `b` | [ConstraintTarget](#constraint-targets) | The second point (point form) *(optional)* |
+| `...rest` | ConstraintTarget[] | Further points to align to the first |
 
 ---
 

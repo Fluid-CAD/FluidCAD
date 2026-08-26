@@ -237,6 +237,26 @@ describe("solved sketch (constraint mode)", () => {
     expect(sinTo(lc)).toBeCloseTo(0, 6);
   });
 
+  it("aligns three points with variadic horizontal()/vertical()", () => {
+    sketch('xy', () => {
+      const p1 = point([0, 5]);
+      const p2 = point([10, 8]);
+      const p3 = point([20, 2]);
+      const q = point([31, 40]);
+      fix(p1, [0, 5]);
+      horizontal(p1, p2, p3);
+      vertical(p1, q);
+    });
+    const scene = render();
+
+    const points = renderedByUniqueType(scene, 'solved-point').map(r => r.object);
+    expect(points).toHaveLength(4);
+    for (const p of points.slice(0, 3)) {
+      expect(p.y).toBeCloseTo(5, 6);
+    }
+    expect(points[3].x).toBeCloseTo(0, 6);
+  });
+
   it("equates circle/arc radii with one variadic equal()", () => {
     sketch('xy', () => {
       const c1 = circle([0, 0], 20);

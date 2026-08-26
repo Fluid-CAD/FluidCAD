@@ -1,15 +1,23 @@
-// vertical — a line (end.x = start.x) or a point pair (a.x = b.x).
+// vertical — a line (end.x = start.x) or two or more points sharing an
+// x value. Every point after the first is aligned to the first — one row
+// per pair, so diagnose can flag an individual redundant/conflicting link.
 
-import type { ConstraintSpec } from '../types.js';
+import type { ConstraintSpec, SolverRef } from '../types.js';
 import type { CompiledRow, CompileCtx } from './types.js';
+import { ordinal } from './util.js';
 
 type Spec = Extract<ConstraintSpec, { kind: 'vertical' }>;
 
 export function compileVertical(spec: Spec, ctx: CompileCtx): CompiledRow[] {
   if (spec.b !== undefined) {
-    const a = ctx.point(spec.a, 'vertical first point');
-    const b = ctx.point(spec.b, 'vertical second point');
-    return [diffRow(a.ix, b.ix)];
+    const refs: SolverRef[] = [spec.a, spec.b, ...(spec.others ?? [])];
+    const first = ctx.point(refs[0], 'vertical first point');
+    const rows: CompiledRow[] = [];
+    for (let i = 1; i < refs.length; i++) {
+      const other = ctx.point(refs[i], `vertical ${ordinal(i)} point`);
+      rows.push(diffRow(first.ix, other.ix));
+    }
+    return rows;
   }
   const l = ctx.line(spec.a, 'vertical line');
   return [diffRow(l.ex, l.sx)];

@@ -85,6 +85,24 @@ describe('constraintOptions', () => {
     });
   });
 
+  it('three or more points: variadic horizontal/vertical (point form)', () => {
+    const centerC: SolvedPick = { entityId: 2, kind: 'circle', role: 'center', sourceLocation: loc(7) };
+    expect(enabledIds([endA, startB, centerC])).toEqual(['horizontal', 'vertical']);
+    // A line pick among the points breaks the point form.
+    expect(enabledIds([endA, startB, lineB])).toContain('symmetric');
+    expect(enabledIds([endA, startB, lineB])).not.toContain('horizontal');
+    // Everything after the first pick aligns to it.
+    expect(candidateSpec('horizontal', [endA, startB, centerC])).toEqual({
+      kind: 'horizontal',
+      a: { entity: 0, point: 'end' },
+      b: { entity: 1, point: 'start' },
+      others: [{ entity: 2, point: 'center' }],
+    });
+    expect(candidateSpec('vertical', [endA, startB])).toEqual({
+      kind: 'vertical', a: { entity: 0, point: 'end' }, b: { entity: 1, point: 'start' },
+    });
+  });
+
   it('one vertex: fix; a point entity counts as a point', () => {
     expect(enabledIds([endA])).toEqual(['fix']);
     expect(enabledIds([pointP])).toEqual(['dimension', 'fix'].sort().filter(id => id !== 'dimension'));

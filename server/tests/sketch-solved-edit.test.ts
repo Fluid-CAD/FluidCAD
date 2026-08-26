@@ -123,6 +123,21 @@ describe('applySolvedEmission', () => {
     expect(par.error).toBeUndefined();
     expect(par.newCode).toContain('parallel(a, b, c, d);');
 
+    const hpoints = await applySolvedEmission(code, {
+      sketchLine: 3,
+      geometry: [],
+      constraints: [{
+        kind: 'horizontal',
+        targets: [
+          { line: 4, role: 'start', featureType: 'line' },
+          { line: 5, role: 'start', featureType: 'line' },
+          { line: 6, role: 'start', featureType: 'line' },
+        ],
+      }],
+    });
+    expect(hpoints.error).toBeUndefined();
+    expect(hpoints.newCode).toContain('horizontal(a.start(), b.start(), c.start());');
+
     const single = await applySolvedEmission(code, {
       sketchLine: 3,
       geometry: [],

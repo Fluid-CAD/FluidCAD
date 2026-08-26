@@ -159,8 +159,8 @@ export function distancePlacementMoot(rawPicks: SolvedPick[], a: Vec2, b: Vec2):
 
 const NEED = {
   coincident: 'pick two points, or a point and an entity',
-  horizontal: 'pick a line, or two points',
-  vertical: 'pick a line, or two points',
+  horizontal: 'pick a line, or two or more points',
+  vertical: 'pick a line, or two or more points',
   parallel: 'pick two or more lines',
   perpendicular: 'pick two lines',
   tangent: 'pick a line and a circle/arc, or two circles/arcs',
@@ -197,9 +197,10 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
     case 'horizontal':
     case 'vertical':
       // An axis is already exactly horizontal or vertical — pointless
-      // either way (redundant or a guaranteed conflict).
+      // either way (redundant or a guaranteed conflict). The point form
+      // takes any number ≥ 2, all aligned to the first.
       return (picks.length === 1 && isLine(a) && !isAxisPick(a))
-        || (picks.length === 2 && isPointPick(a) && isPointPick(b));
+        || (picks.length >= 2 && picks.every(isPointPick));
     case 'parallel':
       // Any number of lines parallel to the first, all distinct.
       return picks.length >= 2
@@ -461,7 +462,10 @@ export function candidateSpec(
     case 'vertical':
       return picks.length === 1
         ? { kind: id, a: pickRef(a) }
-        : { kind: id, a: pickRef(a), b: pickRef(b) };
+        : {
+            kind: id, a: pickRef(a), b: pickRef(b),
+            ...(picks.length > 2 ? { others: picks.slice(2).map(pickRef) } : {}),
+          };
     case 'perpendicular':
     case 'tangent':
     case 'concentric':

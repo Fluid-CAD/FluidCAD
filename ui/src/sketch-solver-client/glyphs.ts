@@ -245,14 +245,18 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
       case 'vertical': {
         if (spec.b) {
           const pa = refPoint(model, spec.a);
-          const pb = refPoint(model, spec.b);
-          if (pa && pb) {
-            // A two-point H/V has no owning entity — the pair itself is the
-            // edge, so it supplies the row axis and budget directly.
-            const dir = normalize(sub(pb, pa));
-            badge(spec.kind, mid(pa, pb), undefined, {
-              out: perp(dir), along: dir, span: dist(pa, pb),
-            });
+          // Every point after the first pairs with it — one badge per
+          // pair, at the pair's midpoint.
+          for (const ref of [spec.b, ...(spec.others ?? [])]) {
+            const pb = refPoint(model, ref);
+            if (pa && pb) {
+              // A point-pair H/V has no owning entity — the pair itself is
+              // the edge, so it supplies the row axis and budget directly.
+              const dir = normalize(sub(pb, pa));
+              badge(spec.kind, mid(pa, pb), undefined, {
+                out: perp(dir), along: dir, span: dist(pa, pb),
+              });
+            }
           }
         } else {
           const e = entityFor(model, spec.a);

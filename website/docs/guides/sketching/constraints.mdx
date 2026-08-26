@@ -27,8 +27,8 @@ Dimensional constraints (`distance`, `angle`, `radius`, `diameter`) get their ow
 | Constraint | Meaning |
 |---|---|
 | `coincident(a, b)` | Two points coincide — or a point lies on a line/arc/circle |
-| `horizontal(l)` | The line is horizontal |
-| `vertical(l)` | The line is vertical |
+| `horizontal(l)` | The line is horizontal — or `horizontal(p1, p2, ...)`: points share a y value |
+| `vertical(l)` | The line is vertical — or `vertical(p1, p2, ...)`: points share an x value |
 | `parallel(a, b, ...)` | Two or more lines are parallel |
 | `perpendicular(a, b)` | Two lines are perpendicular |
 | `tangent(a, b)` | A line/arc/circle is tangent to another |

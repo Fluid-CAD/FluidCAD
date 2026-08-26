@@ -1,31 +1,37 @@
 ---
 sidebar_position: 8
 title: "bezier"
-description: "Draws a bezier curve through the given points. The first argument is the explicit start, the last is the endpoint, and any in between are control points. Sets the sketch cursor to the endpoint. With 0 args: interactive mode placeholder (no geometry). With 1 arg: places only the start point (no curve yet). With 2 args: degree 1 (straight line from start to end). With 3 args: degree 2 (quadratic bezier with 1 control point). With 4 args: degree 3 (cubic bezier with 2 control points)."
+description: "Draws a bezier curve through the given points. The first argument is the explicit start, the last is the endpoint, and any in between are control points. Inside a sketch every literal control point is a solver point entity — constraints target `.point(i)` (or `.start()`/`.end()`) and the solve reshapes the curve; a control point given as another entity's accessor (e.g. `l.end()`) rides that entity instead. With 0 args: interactive mode placeholder (no geometry). With 1 arg: places only the start point (no curve yet). With 2 args: degree 1 (straight line from start to end). With 3 args: degree 2 (quadratic bezier with 1 control point). With 4 args: degree 3 (cubic bezier with 2 control points)."
 ---
 
 # bezier()
 
 Draws a bezier curve through the given points. The first argument is the
 explicit start, the last is the endpoint, and any in between are control
-points. Sets the sketch cursor to the endpoint.
+points. Inside a sketch every literal control point is a solver point
+entity — constraints target `.point(i)` (or `.start()`/`.end()`) and the
+solve reshapes the curve; a control point given as another entity's
+accessor (e.g. `l.end()`) rides that entity instead.
 With 0 args: interactive mode placeholder (no geometry).
 With 1 arg: places only the start point (no curve yet).
 With 2 args: degree 1 (straight line from start to end).
 With 3 args: degree 2 (quadratic bezier with 1 control point).
 With 4 args: degree 3 (cubic bezier with 2 control points).
 
-**Returns**: [**`Geometry`**](/docs/api/types/geometry)
+**Returns**: [**`Bezier`**](/docs/api/types/bezier)
 
 ## Signatures
 
 ```ts
-bezier(...points: Point2DLike[]): Geometry
+bezier(...points: Point2DLike[]): Bezier
 ```
 
 Draws a bezier curve through the given points. The first argument is the
 explicit start, the last is the endpoint, and any in between are control
-points. Sets the sketch cursor to the endpoint.
+points. Inside a sketch every literal control point is a solver point
+entity — constraints target `.point(i)` (or `.start()`/`.end()`) and the
+solve reshapes the curve; a control point given as another entity's
+accessor (e.g. `l.end()`) rides that entity instead.
 With 0 args: interactive mode placeholder (no geometry).
 With 1 arg: places only the start point (no curve yet).
 With 2 args: degree 1 (straight line from start to end).

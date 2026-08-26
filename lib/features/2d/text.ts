@@ -14,6 +14,8 @@ import { GeometrySceneObject } from "./geometry.js";
 import { Plane } from "../../math/plane.js";
 import { Point, Point2D } from "../../math/point.js";
 import { Vector3d } from "../../math/vector3d.js";
+import { StatementAnchors, AnchorPointRef } from "./solved/anchors.js";
+import { collectSourceEntities, sourceEntitiesPayload } from "./solved/source-entities.js";
 
 const WEIGHT_NAMES: Record<string, number> = {
   thin: 100, extralight: 200, ultralight: 200, light: 300, regular: 400,
@@ -202,9 +204,45 @@ export class Text extends ExtrudableGeometryBase implements IText {
   private _startAt = 0;
   private _pathPlane: Plane | null = null;
   private _anchor: Point2D | null = null;
+  private anchors = new StatementAnchors();
 
   constructor(public text: string, targetPlane: PlaneObjectBase = null, private path: SceneObject = null) {
     super(targetPlane);
+  }
+
+  /**
+   * Called by the command factory right after addSceneObject (anchored
+   * form only — path text has no anchor): the anchor registers as a
+   * solver point entity, so constraints can target it and the solve
+   * positions the text. The guess starts at the plane origin; a chained
+   * `.at([x, y])` refines it before the solve.
+   */
+  register(sk: Sketch): void {
+    if (this.path) {
+      return;
+    }
+    this.anchors.register(sk, this, [this._anchor ?? new Point2D(0, 0)]);
+  }
+
+  /** The anchor point — this text's solver entity, targetable by
+   * constraints, and a lazy vertex anywhere a point is accepted. */
+  anchor(): AnchorPointRef {
+    if (this.path) {
+      throw new Error("text: .anchor() applies to anchored text — text following a path has no anchor point.");
+    }
+    return this.anchors.ref(this, 0, this.generateUniqueName('ref-anchor'));
+  }
+
+  /** Solver identity when this text is a derived-op source (P8): anchored
+   * text vouches through its anchor (glyphs are literals); path text
+   * vouches through whatever the path vouches through. */
+  anchorSourceEntities(): { ids: number[]; allSolved: boolean } | undefined {
+    if (this.path) {
+      return collectSourceEntities([this.path]);
+    }
+    return this.anchors.registered
+      ? { ids: [this.anchors.entityId(0)], allSolved: true }
+      : undefined;
   }
 
   build(): void {
@@ -230,10 +268,14 @@ export class Text extends ExtrudableGeometryBase implements IText {
       : (this.getParent() as Sketch).getPlane();
     // No pen exists since P7 — the anchored form draws at the plane origin
     // (what the legacy cursor defaulted to) unless `.at([x, y])` places it.
-    const origin = this._anchor
-      ?? (this.targetPlane
-        ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
-        : new Point2D(0, 0));
+    // Inside a sketch the anchor is a solver point entity: read the solved
+    // position (constraints may have moved it off the literal).
+    const origin = this.anchors.registered
+      ? this.anchors.solvedValues(this)[0]
+      : this._anchor
+        ?? (this.targetPlane
+          ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
+          : new Point2D(0, 0));
 
     const font = FontRegistry.resolve({ font: this._font, weight: this._weight, italic: this._italic });
 
@@ -293,6 +335,11 @@ export class Text extends ExtrudableGeometryBase implements IText {
     this._anchor = Array.isArray(position)
       ? new Point2D(position[0], position[1])
       : position;
+    // Statement-time chain: refine the registered anchor's guess (the
+    // factory registered at the plane-origin default before `.at()` ran).
+    if (this.anchors.registered) {
+      this.anchors.updateGuess(0, this._anchor);
+    }
     return this;
   }
 
@@ -380,6 +427,7 @@ export class Text extends ExtrudableGeometryBase implements IText {
     copy._flip = this._flip;
     copy._startAt = this._startAt;
     copy._anchor = this._anchor;
+    this.anchors.copyTo(copy.anchors);
     return copy;
   }
 
@@ -402,6 +450,9 @@ export class Text extends ExtrudableGeometryBase implements IText {
     if (this.path && other.path && !this.path.compareTo(other.path)) {
       return false;
     }
+    if (!this.anchors.sameAs(other.anchors)) {
+      return false;
+    }
     return this.text === other.text
       && this._size === other._size
       && this._font === other._font
@@ -418,6 +469,8 @@ export class Text extends ExtrudableGeometryBase implements IText {
   }
 
   serialize() {
+    const anchored = this.anchors.registered;
+    const guess = this._anchor ?? new Point2D(0, 0);
     return {
       text: this.text,
       size: this._size,
@@ -430,6 +483,18 @@ export class Text extends ExtrudableGeometryBase implements IText {
       offset: this._pathOffset,
       flip: this._flip,
       startAt: this._startAt,
+      // Solver join fields (the UI's statement→entity map + the drag
+      // write-back's drift guard), present only inside a sketch.
+      ...(anchored
+        ? {
+          entityId: this.anchors.entityId(0),
+          anchor: { x: this.anchors.value(0).x, y: this.anchors.value(0).y },
+          guess: { anchor: { x: guess.x, y: guess.y } },
+        }
+        : {}),
+      // Path text is a rigid layout over its path — the tint join makes
+      // the glyphs wear the path's constrained verdict.
+      ...(this.path ? sourceEntitiesPayload(collectSourceEntities([this.path])) : {}),
     };
   }
 }

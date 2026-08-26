@@ -702,13 +702,11 @@ export class SketchToolbarService {
       }
       : null;
 
-    if (solved && (toolId === 'bezier' || toolId === 'text')) {
-      // No solver bezier until P8; text is pen-anchored ("at the sketch
-      // cursor") and has no absolute position form yet.
-      this.showOpMessage(`the ${toolId} tool isn't available in constraint sketches yet`);
-      return null;
-    }
-
+    // bezier and text create through the LEGACY insert rail on purpose: their
+    // statements are anchor-point statements (P8), not solved emission
+    // entities — insertGeometryCall places text in the derived-ops tail and
+    // bezier in the geometry region, and both are solver-backed after the
+    // re-render (draggable anchors, constraint targets).
     const applySolvedContext = (tool: SketchTool | null): SketchTool | null => {
       tool?.setSolvedContext(solvedCtx);
       return tool;
@@ -737,7 +735,10 @@ export class SketchToolbarService {
         return tool;
       }
       case 'bezier': {
-        const tool = new BezierTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars);
+        // The statement grows through the legacy insert rail, but snapped
+        // poles auto-constrain through the solved rail (coincident on
+        // bz.point(i)) — the tool needs the emission context for that.
+        const tool = applySolvedContext(new BezierTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars))!;
         tool.onSceneUpdate(sceneObjects, sketchId);
         return tool;
       }

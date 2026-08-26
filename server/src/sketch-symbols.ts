@@ -20,10 +20,12 @@ export const SOLVED_ENTITY_CALLEES = new Set<string>(['line', 'arc', 'circle', '
 
 /** Binding-name hints per entity kind — `const l1 = line(…)`. Reference
  * producers (P6) hoist too: `const prj1 = project(…)`, and so do 2D copy
- * statements whose duplicates are constraint targets: `const cp1 = copy(…)`. */
+ * statements whose duplicates are constraint targets (`const cp1 = copy(…)`)
+ * and the anchor-point statements (P8): `const el1 = ellipse(…)`,
+ * `const t1 = text(…)`, `const bz1 = bezier(…)`. */
 export const SOLVED_ENTITY_NAME_HINTS: Record<string, string> = {
   line: 'l', arc: 'a', circle: 'c', point: 'p', project: 'prj', intersect: 'sec',
-  copy: 'cp',
+  copy: 'cp', ellipse: 'el', text: 't', bezier: 'bz',
 };
 
 /**
@@ -41,9 +43,19 @@ export const DERIVED_OP_CALLEES = new Set<string>([
 
 /**
  * The 2D-copy subset of the derived ops — the ONLY derived-op statements a
- * constraint target may address. A copy() duplicate is a solver entity
- * reachable through the slot-indexed accessor (`cp.instance(k)` — the
- * original occupies its own slot, duplicates fill the others, `skip` leaves
- * holes); offset/fillet/mirror/rotate/text stay untargetable.
+ * constraint target may address as a whole. A copy() duplicate is a solver
+ * entity reachable through the slot-indexed accessor (`cp.instance(k)` —
+ * the original occupies its own slot, duplicates fill the others, `skip`
+ * leaves holes); offset/fillet/mirror/rotate stay untargetable. `text` (and
+ * the geometry-region `ellipse`/`bezier`) are targetable through their
+ * anchor POINTS only (P8): `t.anchor()`, `el.center()`, `bz.point(i)`.
  */
 export const COPY_CALLEES = new Set<string>(['copy']);
+
+/**
+ * Anchor-point statements (P8): not solver entities themselves, but their
+ * position params — the ellipse center, the text anchor, a bezier's literal
+ * control points — are free solver points a constraint target may address
+ * via the featureType-derived accessor.
+ */
+export const ANCHOR_CALLEES = new Set<string>(['ellipse', 'text', 'bezier']);

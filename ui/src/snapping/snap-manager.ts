@@ -152,7 +152,17 @@ export class SnapManager {
           }
         }
         if (e.kind === 'point' && e.point) {
-          pushUnique(e.point[0], e.point[1], { ...provenance, featureType: 'point' });
+          // Anchor points (P8) name their owning statement's callee, so an
+          // emitted coincident renders the anchor accessor (`el.center()`,
+          // `t.anchor()`, `bz.point(i)`) instead of a bogus point() target.
+          const ref = e.anchor
+            ? {
+              ...provenance,
+              featureType: e.anchor.owner,
+              ...(e.anchor.owner === 'bezier' ? { pointIndex: e.anchor.pointIndex } : {}),
+            }
+            : { ...provenance, featureType: 'point' as const };
+          pushUnique(e.point[0], e.point[1], ref);
         }
       }
     }

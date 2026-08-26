@@ -27,6 +27,7 @@ function modelWith(entities: SolvedEntityView[]): SolvedSketchModel {
     solver: null,
     entities: new Map(entities.map(e => [e.entityId, e])),
     constraints: [],
+    hasDatums: false,
     conflictingEntityIds: new Set(),
     constrainedEntityIds: new Set(),
     referenceProducers: new Map(),
@@ -114,6 +115,29 @@ describe('buildPositionWriteBack', () => {
     const { edits } = buildPositionWriteBack(model, () => ({ kind: 'point', point: [-12, -14] }));
     expect(edits).toEqual([
       { sourceLine: 9, points: [{ pointIndex: 0, position: [-12, -14], expected: [-10, -10] }] },
+    ]);
+  });
+
+  it('anchor points write their statement chain-point index (P8)', () => {
+    // A bezier's 3rd literal control point is its 3rd point-like argument;
+    // ellipse/text anchors sit at index 0 of their own statements.
+    const model = modelWith([
+      view(0, 'point', {
+        point: [100, 0], guess: { point: [100, 0] },
+        anchor: { owner: 'bezier', pointIndex: 2 },
+      }, 4),
+      view(1, 'point', {
+        point: [3, 4], guess: { point: [3, 4] },
+        anchor: { owner: 'ellipse', pointIndex: 0 },
+      }, 5),
+    ]);
+    const live: Record<number, LiveEntityGeometry> = {
+      0: { kind: 'point', point: [104, 2] },
+      1: { kind: 'point', point: [3, 4] },
+    };
+    const { edits } = buildPositionWriteBack(model, id => live[id]);
+    expect(edits).toEqual([
+      { sourceLine: 4, points: [{ pointIndex: 2, position: [104, 2], expected: [100, 0] }] },
     ]);
   });
 });

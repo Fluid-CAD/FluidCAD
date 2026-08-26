@@ -1421,7 +1421,8 @@ export type SketchConstraintTargetParam = {
    * statements and datum targets. */
   occurrence?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
-  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'project' | 'intersect' | 'copy';
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'project' | 'intersect' | 'copy'
+    | 'ellipse' | 'text' | 'bezier';
   datum?: 'origin' | 'x-axis' | 'y-axis';
   /**
    * Fixed reference targets (P6): the `.ref(i)` edge index of a
@@ -1435,6 +1436,13 @@ export type SketchConstraintTargetParam = {
    * with `datum` or `refIndex` (v1).
    */
   instanceIndex?: number;
+  /**
+   * Anchor-point targets (P8): a bezier literal control point's 0-based
+   * index — the server renders `bz.point(i)`. Rides `featureType:
+   * 'bezier'`; `'ellipse'`/`'text'` targets render `.center()` /
+   * `.anchor()` with no index.
+   */
+  pointIndex?: number;
 };
 
 /**
@@ -1504,11 +1512,15 @@ export type SolvedEmissionTargetParam = {
   occurrence?: number;
   newIndex?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
-  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy';
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy' | 'ellipse' | 'text' | 'bezier';
   datum?: 'origin' | 'x-axis' | 'y-axis';
   /** Copy-duplicate targets: the `instance()` slot of a 2D copy()
    * statement's duplicate — rides `featureType: 'copy'`. */
   instanceIndex?: number;
+  /** Anchor-point targets (P8): a bezier literal control point's 0-based
+   * index — rides `featureType: 'bezier'`; ellipse/text anchors carry
+   * none (their accessor is fixed). */
+  pointIndex?: number;
 };
 
 export type SolvedGeometryParam = {

@@ -31,6 +31,19 @@ export function constraintTargetFor(p: SolvedPick): SketchConstraintTargetParam 
       instanceIndex: p.copyInstance.slot,
     };
   }
+  if (p.anchor !== undefined) {
+    // Anchor-point picks (P8) address their owning statement; the server
+    // renders the accessor from the featureType — `el.center()`,
+    // `t.anchor()`, or `bz.point(i)` — and hoists an unbound statement
+    // like any entity statement.
+    return {
+      line: p.sourceLocation?.line ?? -1,
+      ...(p.sourceLocation?.occurrence !== undefined
+        ? { occurrence: p.sourceLocation.occurrence } : {}),
+      featureType: p.anchor.owner,
+      ...(p.anchor.owner === 'bezier' ? { pointIndex: p.anchor.pointIndex } : {}),
+    };
+  }
   if (p.reference !== undefined) {
     // Reference picks (P6) address their producer statement; the server
     // renders `p1.ref(i)` (or the terse single-entity form) and hoists

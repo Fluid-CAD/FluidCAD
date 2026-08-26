@@ -299,6 +299,33 @@ export interface ISolvedCircle extends IExtrudableGeometry {
   center(): LazyVertex;
 }
 
+/**
+ * An ellipse statement. Inside a sketch its center is a solver point
+ * entity — constraints target `.center()` and the solve positions the
+ * ellipse; the radii stay fixed literals.
+ */
+export interface IEllipse extends IExtrudableGeometry {
+  /** Returns a lazy-evaluated vertex at the ellipse's center. */
+  center(): LazyVertex;
+}
+
+/**
+ * A bezier statement. Inside a sketch every control point given as a
+ * literal is a solver point entity — constraints target `.point(i)`
+ * (or `.start()`/`.end()`) and the solve reshapes the curve. A control
+ * point given as another entity's accessor (e.g. `l.end()`) is that
+ * entity's point; `.point(i)` returns the original reference.
+ */
+export interface IBezier extends IGeometry {
+  /** Returns the i-th control point (0-based; 0 is the start, the last
+   * index is the end) as a lazy vertex / constraint target. */
+  point(index: number): LazyVertex;
+  /** Returns the curve's start point — `point(0)`. */
+  start(): LazyVertex;
+  /** Returns the curve's end point — `point(n - 1)`. */
+  end(): LazyVertex;
+}
+
 /** A distance dimension statement in a constraint-mode sketch. */
 export interface IDistance extends ISceneObject {
   /**
@@ -331,6 +358,13 @@ export interface IText extends IExtrudableGeometry {
    * @param position - The anchor point in sketch coordinates.
    */
   at(position: [number, number]): this;
+
+  /**
+   * Returns the anchor point — a solver point entity constraints can
+   * target, so the solve positions the text. Not applicable to text
+   * following a path.
+   */
+  anchor(): LazyVertex;
 
   /**
    * Sets the font. A name without a font extension (e.g. `"Arial"`) is resolved

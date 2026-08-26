@@ -1,12 +1,13 @@
 import { Vector3 } from 'three';
 import { SketchTool, InsertGeometryFn, FetchVariablesFn, PickedPoint } from '../sketch-tool';
 import { SceneContext } from '../../scene/scene-context';
-import { PlaneData, SceneObjectRender } from '../../types';
+import { PlaneData, SceneObjectRender, SourceLocation } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
 import { SnapManager } from '../../snapping/snap-manager';
-import { SnapType } from '../../snapping/types';
+import { SnapType, SolvedVertexRef } from '../../snapping/types';
 import { projectToSketch, roundPoint } from '../sketch-plane-utils';
 import { ICON_BEZIER } from '../../ui/icons';
+import { refTarget } from './solved-emission';
 import {
   START_POINT_COLOR,
   GUIDE_COLOR,
@@ -16,8 +17,6 @@ import {
   addDashedBezier,
 } from './tool-preview-utils';
 import { insertPoint } from '../../api';
-
-type SourceLocation = { filePath: string; line: number; column: number };
 
 export class BezierTool extends SketchTool {
   readonly id = 'bezier' as const;
@@ -30,6 +29,12 @@ export class BezierTool extends SketchTool {
   private lastSnapType: SnapType = 'none';
   private pendingFirstClick = false;
   private pendingStart: [number, number] | null = null;
+  /** First-pole snap ref, queued until a render adopts the statement (the
+   * coincident needs its source line). */
+  private pendingStartRef: SolvedVertexRef | null = null;
+  /** Points inserted since the last scene sync — keeps the emitted
+   * pointIndex right when clicks outpace renders. */
+  private insertedSinceSync = 0;
 
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
@@ -68,6 +73,8 @@ export class BezierTool extends SketchTool {
     this.lastSnapType = 'none';
     this.pendingFirstClick = false;
     this.pendingStart = null;
+    this.pendingStartRef = null;
+    this.insertedSinceSync = 0;
     this.removePreviewFromScene();
   }
 
@@ -102,6 +109,14 @@ export class BezierTool extends SketchTool {
       this.existingPoles = startPt ? [startPt, ...(resolved ?? [])] : [];
       this.pendingFirstClick = false;
       this.pendingStart = null;
+      this.insertedSinceSync = 0;
+      // The first pole's snap coincident waited for the statement's source
+      // line — emit it now that a render adopted the statement.
+      if (this.pendingStartRef) {
+        const ref = this.pendingStartRef;
+        this.pendingStartRef = null;
+        this.emitSnapConstraint(0, ref);
+      }
     }
 
     this.rebuildPreview();
@@ -130,13 +145,47 @@ export class BezierTool extends SketchTool {
 
     const result = this.snapController.snap(raw);
     const point = roundPoint(result.point2d);
+    const snapRef = this.autoConstraintsEnabled() ? result.ref ?? null : null;
 
     if (!this.activeSourceLocation) {
-      this.startCurve(this.applyPointInput(result.point2d));
+      this.startCurve(this.applyPointInput(result.point2d), snapRef);
       return;
     }
 
+    // The pole being added is the statement's next point-like argument —
+    // count the poles the last render showed plus any inserts still in
+    // flight, so fast clicks keep their indices.
+    const pointIndex = this.existingPoles.length + this.insertedSinceSync;
     insertPoint(point, this.activeSourceLocation);
+    this.insertedSinceSync++;
+    if (snapRef) {
+      this.emitSnapConstraint(pointIndex, snapRef);
+    }
+  }
+
+  /** Auto-constraint for a snapped pole: `coincident(bz.point(i), <ref>)`
+   * through the solved emission rail (constraints-only — the statement
+   * itself grows through the legacy insert-point rail). */
+  private emitSnapConstraint(pointIndex: number, ref: SolvedVertexRef): void {
+    const loc = this.activeSourceLocation;
+    if (!this.solvedCtx || !loc) {
+      return;
+    }
+    void this.solvedCtx.emit({
+      geometry: [],
+      constraints: [{
+        kind: 'coincident',
+        targets: [
+          {
+            line: loc.line,
+            ...(loc.occurrence !== undefined ? { occurrence: loc.occurrence } : {}),
+            featureType: 'bezier',
+            pointIndex,
+          },
+          refTarget(ref),
+        ],
+      }],
+    });
   }
 
   /** Only the first pole: later poles go through `insertPoint`, which writes
@@ -146,18 +195,20 @@ export class BezierTool extends SketchTool {
   }
 
   protected override onTypedPoint(point: PickedPoint): void {
-    this.startCurve(point);
+    this.startCurve(point, null);
   }
 
   /** `bezier()` has no cursor-relative form, so a relative pick resolves to
-   * the absolute position its expressions already carry. */
-  private startCurve(picked: PickedPoint): void {
+   * the absolute position its expressions already carry. A snapped first
+   * pole queues its coincident until a render adopts the statement. */
+  private startCurve(picked: PickedPoint, snapRef: SolvedVertexRef | null): void {
     this.insertGeometry(
       `bezier(${this.formatPoint(picked)})`,
       picked.newVariables.length > 0 ? picked.newVariables : undefined,
     );
     this.pendingFirstClick = true;
     this.pendingStart = picked.value;
+    this.pendingStartRef = snapRef;
     this.syncPointInput();
     this.rebuildPreview();
   }

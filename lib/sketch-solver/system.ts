@@ -295,6 +295,26 @@ export class SketchSystem {
     this.values.set(this.guessList);
   }
 
+  /**
+   * Overwrite an entity's guess params — statement-time modifier chains
+   * (e.g. `text().at([x, y])`) refining a position captured at
+   * registration. Statement time only: it runs before the first solve,
+   * so no compiled rows or captured values exist yet to go stale.
+   */
+  setGuess(id: number, params: number[]): void {
+    const record = this.entity(id);
+    const count = PARAM_COUNT[record.kind];
+    if (params.length !== count) {
+      throw new Error(`sketch-solver: ${record.kind} takes ${count} params, got ${params.length}`);
+    }
+    for (let i = 0; i < count; i++) {
+      this.guessList[record.paramOffset + i] = params[i];
+      if (record.paramOffset + i < this.valuesArr.length) {
+        this.valuesArr[record.paramOffset + i] = params[i];
+      }
+    }
+  }
+
   /** Param indices of a point ref — drag callers and tests. */
   pointIndices(ref: SolverRef): ResolvedPoint {
     return this.resolvePoint(ref, 'point ref');

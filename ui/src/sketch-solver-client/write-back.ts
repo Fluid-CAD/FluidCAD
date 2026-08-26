@@ -60,7 +60,12 @@ export function buildPositionWriteBack(
       ['center', g.center],
     ];
     for (const [role, current] of roles) {
-      const index = ROLE_INDEX[view.kind][role];
+      // Anchor points (ellipse center / text anchor / bezier control
+      // point) address the owning statement's chain point arg directly —
+      // a bezier's i-th literal is its i-th point-like argument.
+      const index = view.anchor && role === 'point'
+        ? view.anchor.pointIndex
+        : ROLE_INDEX[view.kind][role];
       const expected = guess[role];
       if (index === undefined || !current || !expected) {
         continue;

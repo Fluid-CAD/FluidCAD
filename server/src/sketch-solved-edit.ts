@@ -74,8 +74,11 @@ export type SolvedEmissionTarget = {
   /** For `line` targets: the entity command the statement must call — a
    * mismatch means the source changed under the picks and refuses the edit.
    * References (P6) name their producer callee: 'project' | 'intersect';
-   * copy-instance targets name theirs: 'copy'. */
-  featureType?: SolvedEntityKind | 'project' | 'intersect' | 'copy';
+   * copy-instance targets name theirs: 'copy'; anchor-point targets (P8)
+   * name theirs: 'ellipse' | 'text' | 'bezier' — rendered as the anchor
+   * accessor (`el.center()`, `t.anchor()`, `bz.point(i)`). */
+  featureType?: SolvedEntityKind | 'project' | 'intersect' | 'copy'
+    | 'ellipse' | 'text' | 'bezier';
   /**
    * Fixed reference targets (P6): the `.ref(i)` edge index of the
    * project()/intersect() statement at `line`; null renders the terse
@@ -92,10 +95,24 @@ export type SolvedEmissionTarget = {
    * `datum`/`newIndex`, and v1 never with `refIndex`.
    */
   instanceIndex?: number;
+  /**
+   * Anchor-point targets (P8): a bezier literal control point's 0-based
+   * index on the bezier statement at `line` — renders `bz.point(i)`.
+   * Requires `featureType: 'bezier'`; the `ellipse`/`text` anchor targets
+   * carry no index (their accessor is fixed: `.center()` / `.anchor()`).
+   * Composes with `line` and `occurrence` only — never `datum`/`newIndex`/
+   * `role`/`refIndex`/`instanceIndex`.
+   */
+  pointIndex?: number;
 };
 
 /** Reference-producer callees (P6) — hoistable like entity statements. */
 const REFERENCE_CALLEES = new Set(['project', 'intersect']);
+
+/** Anchor-point statement callees (P8) and the accessor each renders. */
+const ANCHOR_ACCESSORS: Record<string, string> = {
+  ellipse: 'center', text: 'anchor', bezier: 'point',
+};
 
 /** Kinds whose statement takes any number of targets (value = minimum) —
  * everything after the first is constrained against it. horizontal and
@@ -428,6 +445,29 @@ export async function applySolvedEmission(
       } else if (t.featureType === 'copy') {
         return refuse(code, `a copy target needs an instanceIndex — pick a specific instance`);
       }
+      // Anchor-point targets (P8): the accessor is derived from the
+      // featureType, so a role never composes; bezier targets need the
+      // control-point index, ellipse/text refuse one.
+      if (t.featureType !== undefined && ANCHOR_ACCESSORS[t.featureType] !== undefined) {
+        if (!byLine) {
+          return refuse(code, `a ${t.featureType} anchor target names an existing statement line`);
+        }
+        if (t.role !== undefined) {
+          return refuse(code, `a ${t.featureType} anchor target takes no point role`);
+        }
+        if (t.refIndex !== undefined || t.instanceIndex !== undefined) {
+          return refuse(code, `a ${t.featureType} anchor target takes no refIndex/instanceIndex`);
+        }
+        if (t.featureType === 'bezier') {
+          if (!Number.isInteger(t.pointIndex) || t.pointIndex! < 0) {
+            return refuse(code, 'a bezier anchor target needs a non-negative pointIndex');
+          }
+        } else if (t.pointIndex !== undefined) {
+          return refuse(code, `a ${t.featureType} anchor target takes no pointIndex`);
+        }
+      } else if (t.pointIndex !== undefined) {
+        return refuse(code, `a target pointIndex requires featureType 'bezier'`);
+      }
     }
   }
 
@@ -541,17 +581,23 @@ export async function applySolvedEmission(
         const callee = calleeName(chainBase(entityCall));
         const isReference = target.refIndex !== undefined;
         const isCopyInstance = target.instanceIndex !== undefined;
+        const isAnchor = target.featureType !== undefined
+          && ANCHOR_ACCESSORS[target.featureType] !== undefined;
         const legalCallee = isReference
           ? !!callee && REFERENCE_CALLEES.has(callee)
           : isCopyInstance
             ? !!callee && COPY_CALLEES.has(callee)
-            : !!callee && SOLVED_ENTITY_CALLEES.has(callee);
+            : isAnchor
+              ? callee === target.featureType
+              : !!callee && SOLVED_ENTITY_CALLEES.has(callee);
         if (!legalCallee) {
           return refuse(code, isReference
             ? `line ${target.line} is not a project()/intersect() statement`
             : isCopyInstance
               ? `line ${target.line} is not a 2D copy() statement`
-              : `line ${target.line} is not a sketch entity statement`);
+              : isAnchor
+                ? `line ${target.line} is not a ${target.featureType}() statement`
+                : `line ${target.line} is not a sketch entity statement`);
         }
         if (target.featureType && callee !== target.featureType) {
           return refuse(code, `line ${target.line} is a ${callee}() statement now — the source changed since the picks were made`);
@@ -612,6 +658,14 @@ export async function applySolvedEmission(
           // Slot-indexed duplicate accessor; a point role composes on top
           // (`cp1.instance(2).start()`) via the shared role append below.
           name = `${name}.instance(${target.instanceIndex})`;
+        }
+        if (isAnchor) {
+          // The anchor-point accessor: `el1.center()`, `t1.anchor()`,
+          // `bz1.point(i)` — no role ever composes (validated above).
+          const accessor = ANCHOR_ACCESSORS[target.featureType!];
+          name = target.featureType === 'bezier'
+            ? `${name}.${accessor}(${target.pointIndex})`
+            : `${name}.${accessor}()`;
         }
         // Record the placement anchor: the constraint must land after this
         // statement's binding exists — the whole loop for loop-rail targets

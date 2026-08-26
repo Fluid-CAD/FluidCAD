@@ -17,7 +17,12 @@ export type SolvedVertexRef = {
   occurrence?: number;
   /** Point accessor rendered as `.role()`; absent = the entity IS a point. */
   role?: 'start' | 'end' | 'center';
-  featureType?: 'line' | 'arc' | 'circle' | 'point';
+  /** Anchor-point statements (P8) name their own callee — the server
+   * renders `.center()` / `.anchor()` / `.point(i)` instead of a role. */
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'text' | 'bezier';
+  /** Bezier anchor snaps: the snapped control point's 0-based index —
+   * rides `featureType: 'bezier'` only. */
+  pointIndex?: number;
   /** The implicit sketch datum the snap landed on — the origin point, or a
    * point-on-axis snap. Exclusive with line/role/featureType. */
   datum?: 'origin' | 'x-axis' | 'y-axis';

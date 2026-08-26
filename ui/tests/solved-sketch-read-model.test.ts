@@ -677,3 +677,99 @@ describe('fixed reference entities (P6)', () => {
     expect(model.entities.get(1)!.end).toEqual([10, 10]);
   });
 });
+
+describe('anchor-point entities (P8)', () => {
+  it('joins ellipse/text anchors via entityId and bezier control points via anchors[]', () => {
+    const solver = snapshot({
+      entities: [
+        { id: 0, kind: 'point', fixed: false, paramOffset: 0 },  // ellipse center
+        { id: 1, kind: 'point', fixed: false, paramOffset: 2 },  // text anchor
+        { id: 2, kind: 'point', fixed: false, paramOffset: 4 },  // bezier cp 0
+        { id: 3, kind: 'point', fixed: false, paramOffset: 6 },  // bezier cp 2
+      ],
+      params: [40, 25, 5, 7, 0, 0, 100, 0],
+      dof: 8,
+      underconstrainedEntities: [0, 1, 2, 3],
+    });
+    const ellipseObj = child('ellipse', {
+      rx: 20, ry: 10, center: { x: 40, y: 25 },
+      entityId: 0, guess: { center: { x: 3, y: 4 } },
+    });
+    const textObj = child('text', {
+      text: 'Hi', entityId: 1,
+      anchor: { x: 5, y: 7 }, guess: { anchor: { x: 5, y: 7 } },
+    });
+    const bezierObj = child('bezier-3', {
+      startPoint: [0, 0], resolvedPoints: [[50, 50], [100, 0]],
+      anchors: [
+        { pointIndex: 0, entityId: 2, guess: { x: 0, y: 0 } },
+        { pointIndex: 2, entityId: 3, guess: { x: 100, y: 0 } },
+      ],
+    });
+    const model = buildSolvedSketchModel(sketchObj(solver), [
+      sketchObj(solver), ellipseObj, textObj, bezierObj,
+    ])!;
+
+    const center = model.entities.get(0)!;
+    expect(center.kind).toBe('point');
+    expect(center.point).toEqual([40, 25]);
+    expect(center.anchor).toEqual({ owner: 'ellipse', pointIndex: 0 });
+    expect(center.guess).toEqual({ point: [3, 4] });
+    expect(center.obj).toBe(ellipseObj);
+
+    const anchor = model.entities.get(1)!;
+    expect(anchor.point).toEqual([5, 7]);
+    expect(anchor.anchor).toEqual({ owner: 'text', pointIndex: 0 });
+
+    const cp0 = model.entities.get(2)!;
+    const cp2 = model.entities.get(3)!;
+    expect(cp0.anchor).toEqual({ owner: 'bezier', pointIndex: 0 });
+    expect(cp0.point).toEqual([0, 0]);
+    expect(cp2.anchor).toEqual({ owner: 'bezier', pointIndex: 2 });
+    expect(cp2.point).toEqual([100, 0]);
+    expect(cp2.guess).toEqual({ point: [100, 0] });
+    // All statements share the bezier object so its sourceLocation rides picks.
+    expect(cp0.obj).toBe(bezierObj);
+  });
+
+  it('joins the bezier curve and path text into the derived tint (sourcesSolved)', () => {
+    const solver = snapshot({
+      entities: [
+        { id: 0, kind: 'point', fixed: false, paramOffset: 0 },
+        { id: 1, kind: 'point', fixed: false, paramOffset: 2 },
+      ],
+      params: [0, 0, 100, 0],
+    });
+    const bezierObj = child('bezier-2', {
+      startPoint: [0, 0], resolvedPoints: [[100, 0]],
+      anchors: [
+        { pointIndex: 0, entityId: 0, guess: { x: 0, y: 0 } },
+        { pointIndex: 1, entityId: 1, guess: { x: 100, y: 0 } },
+      ],
+      sourceEntities: [0, 1],
+      sourcesSolved: true,
+    });
+    const pathText = child('text', {
+      text: 'Hi', sourceEntities: [0, 1], sourcesSolved: true,
+    });
+    const model = buildSolvedSketchModel(sketchObj(solver), [
+      sketchObj(solver), bezierObj, pathText,
+    ])!;
+    // The curve and the glyphs wear their sources' verdict.
+    expect(model.derivedProducers.get(bezierObj.id!)).toEqual([0, 1]);
+    expect(model.derivedProducers.get(pathText.id!)).toEqual([0, 1]);
+    // Path text has no anchor entity of its own.
+    expect(model.entities.size).toBe(2);
+  });
+
+  it('ignores path text and legacy payloads without join fields', () => {
+    const solver = snapshot({ entities: [], params: [] });
+    const model = buildSolvedSketchModel(sketchObj(solver), [
+      sketchObj(solver),
+      child('text', { text: 'Hi' }),          // path form: no entityId
+      child('ellipse', { rx: 5, ry: 3 }),     // legacy: no entityId
+      child('bezier-2', { startPoint: [0, 0], resolvedPoints: [[1, 1]] }),
+    ])!;
+    expect(model.entities.size).toBe(0);
+  });
+});

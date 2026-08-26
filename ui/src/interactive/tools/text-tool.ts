@@ -40,6 +40,10 @@ export class TextTool extends SketchTool {
   private panel: TextPanel;
   private onRequestExit: () => void;
   private anchor: [number, number];
+  /** The user's anchor placement (click or typed input), with its source
+   * expressions — null until placed, so an untouched anchor emits no
+   * `.at()` and the text renders at the plane-origin default. */
+  private anchorPick: PickedPoint | null = null;
 
   /** The picked path geometry (`text("…", path)`), or null for anchored text.
    * The shape ids are re-resolved by owner line on every scene update —
@@ -341,13 +345,18 @@ export class TextTool extends SketchTool {
 
   private setAnchor(picked: PickedPoint): void {
     this.anchor = picked.value;
+    this.anchorPick = picked;
   }
 
-  /** The pen died with the sketch-solver rewrite (P7): text renders at the
-   * plane origin, so the statement carries no `move(…)` prefix. The anchor
-   * still positions the viewport preview. */
+  /** A placed anchor emits `.at([x, y])` — the anchor is a solver point
+   * entity (P8), so the committed text lands exactly where the preview
+   * stood, draggable and constrainable. Untouched, the statement carries
+   * no `.at()` and renders at the plane-origin default. */
   private fullStatement(values: TextOptionValues): string {
-    return this.buildStatement(values);
+    const statement = this.buildStatement(values);
+    return this.anchorPick
+      ? `${statement}.at(${this.formatPoint(this.anchorPick)})`
+      : statement;
   }
 
   private syncStatementPreview(): void {
@@ -385,7 +394,12 @@ export class TextTool extends SketchTool {
       this.onRequestExit();
       return;
     }
-    this.insertGeometry(this.fullStatement(values));
+    this.insertGeometry(
+      this.fullStatement(values),
+      this.anchorPick && this.anchorPick.newVariables.length > 0
+        ? this.anchorPick.newVariables
+        : undefined,
+    );
     // The editor round-trip re-renders the scene with the real feature;
     // the tool's job is done.
     this.onRequestExit();

@@ -26,8 +26,10 @@ export type SketchConstraintTarget = {
   role?: SolvedEmissionRole;
   /** The entity command the statement must call — a mismatch means the
    * source changed under the picks and refuses the edit. References (P6)
-   * name their producer callee; copy-instance targets name theirs. */
-  featureType?: SolvedEntityKind | 'project' | 'intersect' | 'copy';
+   * name their producer callee; copy-instance targets name theirs;
+   * anchor-point targets (P8) name 'ellipse' | 'text' | 'bezier'. */
+  featureType?: SolvedEntityKind | 'project' | 'intersect' | 'copy'
+    | 'ellipse' | 'text' | 'bezier';
   /** Fixed reference targets (P6): the `.ref(i)` edge index; null renders
    * the terse single-entity form. Presence marks the target as a reference. */
   refIndex?: number | null;
@@ -36,6 +38,9 @@ export type SketchConstraintTarget = {
    * `line`/`role`/`occurrence`; never with `datum`, and v1 never with
    * `refIndex`. */
   instanceIndex?: number;
+  /** Anchor-point targets (P8): a bezier literal control point's 0-based
+   * index — renders `bz.point(i)`. Requires `featureType: 'bezier'`. */
+  pointIndex?: number;
 };
 
 export type SketchConstraintEditSpec = {

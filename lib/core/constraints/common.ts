@@ -8,6 +8,8 @@ import { SceneObject } from "../../common/scene-object.js";
 import { SolvedConstraint } from "../../features/2d/constraints/solved/constraint.js";
 import { SolvedGeometryBase } from "../../features/2d/solved/solved-base.js";
 import { SolvedPointRef } from "../../features/2d/solved/refs.js";
+import { AnchorPointRef } from "../../features/2d/solved/anchors.js";
+import { GeometrySceneObject } from "../../features/2d/geometry.js";
 import { SketchDatum } from "../../features/2d/solved/datum.js";
 import {
   ReferenceEntityRef, ReferencePointRef, isReferenceProducer,
@@ -73,6 +75,15 @@ export function toRef(arg: ConstraintTarget, what: string): SolverRef {
     }
     return { entity: arg.owner.entityId, point: arg.role };
   }
+  // Anchor points of non-entity statements (ellipse center, bezier
+  // control points, text anchor): each is its own solver point entity.
+  if (arg instanceof AnchorPointRef) {
+    try {
+      return { entity: arg.entityId };
+    } catch (error) {
+      throw new Error(`${what}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   if (arg instanceof ReferencePointRef) {
     return pendingRef(arg.refOwner, arg.index, arg.role);
   }
@@ -100,12 +111,15 @@ export function toRef(arg: ConstraintTarget, what: string): SolverRef {
     return pendingRef(arg, null);
   }
   throw new Error(
-    `${what}: expected solved sketch geometry — a line/arc/circle/point statement, a .start()/.end()/.center() accessor, a datum (origin()/xAxis()/yAxis()), or a projected reference (p, p.ref(i))`,
+    `${what}: expected solved sketch geometry — a line/arc/circle/point statement, a .start()/.end()/.center() accessor, an anchor point (el.center(), t.anchor(), bz.point(i)), a datum (origin()/xAxis()/yAxis()), or a projected reference (p, p.ref(i))`,
   );
 }
 
-function ownerOf(arg: ConstraintTarget | undefined): SolvedGeometryBase | null {
+function ownerOf(arg: ConstraintTarget | undefined): GeometrySceneObject | null {
   if (arg instanceof SolvedPointRef) {
+    return arg.owner;
+  }
+  if (arg instanceof AnchorPointRef) {
     return arg.owner;
   }
   if (arg instanceof SolvedGeometryBase) {
@@ -181,7 +195,8 @@ export function emitConstraint(
       }
     }
     for (const dep of deps) {
-      if (dep instanceof SolvedGeometryBase && dep.sketch !== sketch) {
+      // Covers solved entities AND anchor-point owners (ellipse/bezier/text).
+      if (dep instanceof GeometrySceneObject && dep.sketch !== sketch) {
         throw new Error(`${kind}: references geometry from another sketch — cross-sketch constraints are not supported`);
       }
       if (dep instanceof Copy2DBase && dep.sketch !== sketch) {

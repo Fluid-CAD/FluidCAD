@@ -54,6 +54,14 @@ export type SolvedEntityView = {
    * so its sourceLocation (with loop occurrence) rides every pick.
    */
   copyInstance?: { slot: number };
+  /**
+   * An anchor point of a non-entity statement (P8): the ellipse center,
+   * the text anchor, or one of a bezier's literal control points. `obj` is
+   * the owning statement; emission renders `.center()` / `.anchor()` /
+   * `.point(i)` against it, and the write-back splices chain point arg
+   * `pointIndex`.
+   */
+  anchor?: { owner: 'ellipse' | 'text' | 'bezier'; pointIndex: number };
 };
 
 export type ConstraintStatus = 'ok' | 'redundant' | 'conflicting';
@@ -287,6 +295,52 @@ export function buildSolvedSketchModel(
     const entityKind = ENTITY_KINDS[obj.uniqueType ?? ''];
     if (entityKind && typeof obj.object?.entityId === 'number' && obj.object.entityId >= 0) {
       entities.set(obj.object.entityId, entityView(obj, entityKind));
+      continue;
+    }
+
+    // Anchor-point statements (P8): the ellipse center and text anchor
+    // join via the single `entityId` field, a bezier's literal control
+    // points via its `anchors` array. Each is a free solver point owned
+    // by the statement; geometry comes from the snapshot's params.
+    const anchorOwner = obj.uniqueType === 'ellipse' ? 'ellipse' as const
+      : obj.uniqueType === 'text' ? 'text' as const
+        : obj.uniqueType?.startsWith('bezier-') ? 'bezier' as const : null;
+    if (anchorOwner === 'bezier' && Array.isArray(obj.object?.anchors) && solver) {
+      const records = obj.object.anchors as {
+        pointIndex: number; entityId: number; guess?: { x: number; y: number };
+      }[];
+      for (const record of records) {
+        const view = snapshotEntityView(solver, obj, record.entityId, 'point');
+        if (view) {
+          view.anchor = { owner: 'bezier', pointIndex: record.pointIndex };
+          const pair = toPair(record.guess);
+          if (pair) {
+            view.guess = { point: pair };
+          }
+          entities.set(record.entityId, view);
+        }
+      }
+      // The curve itself wears its control points' constrained verdict —
+      // the same derived join copy/mirror duplicates use.
+      if (obj.id && obj.object.sourcesSolved === true && Array.isArray(obj.object.sourceEntities)) {
+        derivedProducers.set(
+          obj.id,
+          (obj.object.sourceEntities as unknown[]).filter((n): n is number => typeof n === 'number'),
+        );
+      }
+      continue;
+    }
+    if ((anchorOwner === 'ellipse' || anchorOwner === 'text') && solver
+      && typeof obj.object?.entityId === 'number' && obj.object.entityId >= 0) {
+      const view = snapshotEntityView(solver, obj, obj.object.entityId, 'point');
+      if (view) {
+        view.anchor = { owner: anchorOwner, pointIndex: 0 };
+        const pair = toPair(obj.object.guess?.center ?? obj.object.guess?.anchor);
+        if (pair) {
+          view.guess = { point: pair };
+        }
+        entities.set(obj.object.entityId, view);
+      }
       continue;
     }
 

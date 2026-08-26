@@ -6929,13 +6929,15 @@ export function createApplyFeatureRouter(
     const validRoles = new Set(['start', 'end', 'center', 'mid']);
     // 'copy' rides the entity domain so a stray copy pick with no
     // instanceIndex reaches the transform's honest refusal instead of a 400.
-    const validTypes = new Set(['line', 'arc', 'circle', 'point', 'copy']);
+    // The anchor-point statements (P8) ride it too — the transform derives
+    // their accessor (`.center()`/`.anchor()`/`.point(i)`) from the type.
+    const validTypes = new Set(['line', 'arc', 'circle', 'point', 'copy', 'ellipse', 'text', 'bezier']);
     // Reference targets (P6) address a project()/intersect() statement.
     const validReferenceTypes = new Set(['project', 'intersect']);
     // Copy-instance targets address a 2D copy() statement's duplicate slot.
     const validCopyTypes = new Set(['copy']);
     const validDatums = new Set(['origin', 'x-axis', 'y-axis']);
-    const cleanTargets: { line?: number; occurrence?: number; role?: string; featureType?: string; datum?: string; refIndex?: number | null; instanceIndex?: number }[] = [];
+    const cleanTargets: { line?: number; occurrence?: number; role?: string; featureType?: string; datum?: string; refIndex?: number | null; instanceIndex?: number; pointIndex?: number }[] = [];
     for (const t of targets) {
       if (typeof t !== 'object' || t === null) {
         res.status(400).json({ error: 'Invalid request body' });
@@ -6971,7 +6973,12 @@ export function createApplyFeatureRouter(
         || (t.featureType !== undefined
           && !(isReference ? validReferenceTypes
             : isCopyInstance ? validCopyTypes
-            : validTypes).has(t.featureType))) {
+            : validTypes).has(t.featureType))
+        // Anchor-point targeting (P8): the bezier control-point index —
+        // integer ≥ 0, only meaningful with featureType 'bezier' (the
+        // transform enforces the pairing).
+        || (t.pointIndex !== undefined
+          && (!Number.isInteger(t.pointIndex) || t.pointIndex < 0))) {
         res.status(400).json({ error: 'Invalid request body' });
         return;
       }
@@ -6982,6 +6989,7 @@ export function createApplyFeatureRouter(
         ...(t.featureType !== undefined ? { featureType: t.featureType } : {}),
         ...(isReference ? { refIndex: t.refIndex } : {}),
         ...(isCopyInstance ? { instanceIndex: t.instanceIndex } : {}),
+        ...(t.pointIndex !== undefined ? { pointIndex: t.pointIndex } : {}),
       });
     }
     const targetFile = filePath ?? fluidCadServer.getCurrentFileName();
@@ -7062,7 +7070,9 @@ export function createApplyFeatureRouter(
       });
     }
     const validRoles = new Set(['start', 'end', 'center', 'mid']);
-    const validTypes = new Set(['line', 'arc', 'circle', 'point']);
+    // Anchor-point statements (P8) ride the entity domain — the transform
+    // derives their accessor (`.center()`/`.anchor()`/`.point(i)`).
+    const validTypes = new Set(['line', 'arc', 'circle', 'point', 'ellipse', 'text', 'bezier']);
     const cleanConstraints: SolvedConstraintEmission[] = [];
     for (const c of constraints) {
       if (typeof c !== 'object' || c === null || !SOLVED_CONSTRAINT_KINDS.has(c.kind)
@@ -7093,14 +7103,22 @@ export function createApplyFeatureRouter(
         const byNew = typeof t.newIndex === 'number';
         if (byLine === byNew
           || (t.role !== undefined && !validRoles.has(t.role))
-          || (t.featureType !== undefined && !validTypes.has(t.featureType))) {
+          || (t.featureType !== undefined && !validTypes.has(t.featureType))
+          // Anchor-point targeting (P8): the bezier control-point index —
+          // integer ≥ 0 (the transform enforces the featureType pairing).
+          || (t.pointIndex !== undefined
+            && (!Number.isInteger(t.pointIndex) || t.pointIndex < 0))
+          || (t.occurrence !== undefined
+            && (!Number.isInteger(t.occurrence) || t.occurrence < 0))) {
           res.status(400).json({ error: 'Invalid request body' });
           return;
         }
         cleanTargets.push({
           ...(byLine ? { line: t.line } : { newIndex: t.newIndex }),
+          ...(byLine && t.occurrence !== undefined ? { occurrence: t.occurrence } : {}),
           ...(t.role !== undefined ? { role: t.role } : {}),
           ...(t.featureType !== undefined ? { featureType: t.featureType } : {}),
+          ...(t.pointIndex !== undefined ? { pointIndex: t.pointIndex } : {}),
         });
       }
       cleanConstraints.push({

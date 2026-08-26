@@ -57,6 +57,10 @@ export type SolvedPick = {
    * addresses the copy statement plus the duplicate's instance() slot —
    * `sourceLocation` is the copy() line. Not fixed, unlike references. */
   copyInstance?: { slot: number };
+  /** Anchor-point picks (P8): an ellipse center, text anchor, or bezier
+   * literal control point. Emission addresses the owning statement and
+   * renders `.center()` / `.anchor()` / `.point(i)`. */
+  anchor?: { owner: 'ellipse' | 'text' | 'bezier'; pointIndex: number };
 };
 
 type SelectedVertexPick = {
@@ -376,6 +380,7 @@ export class SketchHoverSelectHandler {
             sourceLocation: e.obj.sourceLocation,
             ...(e.reference ? { reference: e.reference } : {}),
             ...(e.copyInstance ? { copyInstance: e.copyInstance } : {}),
+            ...(e.anchor ? { anchor: e.anchor } : {}),
           });
         }
       } else {
@@ -391,6 +396,11 @@ export class SketchHoverSelectHandler {
             ...(at ? { at } : {}),
             ...(e.reference ? { reference: e.reference } : {}),
             ...(e.copyInstance ? { copyInstance: e.copyInstance } : {}),
+            // An anchor statement's edges (text glyphs, the ellipse
+            // perimeter) resolve to its anchor POINT — the only solver
+            // entity it has, so an edge click means "constrain its
+            // position" (P8).
+            ...(e.anchor ? { anchor: e.anchor } : {}),
           });
         }
       }

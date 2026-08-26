@@ -42,6 +42,12 @@ function build(context: SceneParserContext): TextFunction {
 
     const obj = new Text(String(first ?? ""));
     context.addSceneObject(obj);
+    // Anchored text in a sketch registers its anchor as a solver point
+    // entity (a chained `.at()` refines the guess before the solve).
+    const activeSketch = context.getActiveSketch();
+    if (activeSketch) {
+      obj.register(activeSketch);
+    }
     return obj;
   } as TextFunction;
 }

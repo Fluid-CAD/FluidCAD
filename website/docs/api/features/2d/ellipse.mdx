@@ -1,14 +1,16 @@
 ---
 sidebar_position: 4
 title: "ellipse"
-description: "Draws an ellipse at a given center."
+description: "Draws an ellipse at a given center. The center is a solver point — `.center()` references it in constraints, so the solve positions the ellipse; the radii stay fixed literals."
 ---
 
 # ellipse()
 
-Draws an ellipse at a given center.
+Draws an ellipse at a given center. The center is a solver point —
+`.center()` references it in constraints, so the solve positions the
+ellipse; the radii stay fixed literals.
 
-**Returns**: [**`ExtrudableGeometry`**](/docs/api/types/extrudable-geometry)
+**Returns**: [**`Ellipse`**](/docs/api/types/ellipse)
 
 :::tip
 See the [guide](/docs/guides/sketching/primitives) for detailed usage examples.
@@ -17,10 +19,12 @@ See the [guide](/docs/guides/sketching/primitives) for detailed usage examples.
 ## Signatures
 
 ```ts
-ellipse(center: Point2DLike, rx: NumberParam, ry: NumberParam): ExtrudableGeometry
+ellipse(center: Point2DLike, rx: NumberParam, ry: NumberParam): Ellipse
 ```
 
-Draws an ellipse at a given center.
+Draws an ellipse at a given center. The center is a solver point —
+`.center()` references it in constraints, so the solve positions the
+ellipse; the radii stay fixed literals.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

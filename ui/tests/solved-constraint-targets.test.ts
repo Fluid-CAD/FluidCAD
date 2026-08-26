@@ -58,6 +58,32 @@ describe('constraintTargetFor', () => {
       .toEqual({ line: 12, featureType: 'copy', instanceIndex: 2 });
   });
 
+  it('maps an ellipse-center anchor pick to a featureType-only target (P8)', () => {
+    const pick: SolvedPick = {
+      entityId: 4, kind: 'point', role: null, sourceLocation: LOC,
+      anchor: { owner: 'ellipse', pointIndex: 0 },
+    };
+    expect(constraintTargetFor(pick)).toEqual({ line: 12, featureType: 'ellipse' });
+  });
+
+  it('maps a text-anchor pick without a role or index', () => {
+    const pick: SolvedPick = {
+      entityId: 6, kind: 'point', role: null, sourceLocation: LOC,
+      anchor: { owner: 'text', pointIndex: 0 },
+    };
+    expect(constraintTargetFor(pick)).toEqual({ line: 12, featureType: 'text' });
+  });
+
+  it('carries the control-point index on bezier anchor picks, plus loop occurrence', () => {
+    const pick: SolvedPick = {
+      entityId: 7, kind: 'point', role: null,
+      sourceLocation: { ...LOC, occurrence: 1 },
+      anchor: { owner: 'bezier', pointIndex: 2 },
+    };
+    expect(constraintTargetFor(pick))
+      .toEqual({ line: 12, occurrence: 1, featureType: 'bezier', pointIndex: 2 });
+  });
+
   it('carries role on copy-duplicate targets', () => {
     const pick: SolvedPick = {
       entityId: 5, kind: 'line', role: 'end', sourceLocation: LOC, copyInstance: { slot: 1 },

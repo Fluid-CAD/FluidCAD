@@ -106,6 +106,45 @@ describe('solved snap provenance', () => {
     });
   });
 
+
+  it("snapping an anchor point carries the owning statement's featureType (P8)", () => {
+    nextId = 0;
+    const sketch = {
+      id: 'sketch-1',
+      type: 'sketch',
+      uniqueType: 'sketch',
+      object: {
+        plane: PLANE,
+        solvedMode: true,
+        solver: {
+          entities: [
+            { id: 0, kind: 'point', fixed: false, paramOffset: 0 },
+            { id: 1, kind: 'point', fixed: false, paramOffset: 2 },
+          ],
+          constraints: [], params: [5, 7, 80, 30], outcome: 'solved',
+          dof: 4, conflicting: [], redundant: [], underconstrainedEntities: [0, 1],
+        },
+      },
+      sceneShapes: [],
+      ownShapes: [],
+    } as SceneObjectRender;
+    const el = child('ellipse', {
+      rx: 3, ry: 2, center: { x: 5, y: 7 },
+      entityId: 0, guess: { center: { x: 5, y: 7 } },
+    });
+    const bz = child('bezier-3', {
+      startPoint: [0, 0], resolvedPoints: [[40, 40], [80, 30]],
+      anchors: [{ pointIndex: 2, entityId: 1, guess: { x: 80, y: 30 } }],
+    });
+    const mgr = SnapManager.fromSceneObjects([sketch, el, bz], 'sketch-1', PLANE as any);
+    const centerSnap = mgr.snap([5.2, 6.9], PLANE as any);
+    expect(centerSnap.ref).toEqual({ line: el.sourceLocation!.line, featureType: 'ellipse' });
+    const cpSnap = mgr.snap([79.8, 30.1], PLANE as any);
+    expect(cpSnap.ref).toEqual({
+      line: bz.sourceLocation!.line, featureType: 'bezier', pointIndex: 2,
+    });
+  });
+
   it('grid/none snaps carry no ref', () => {
     const { objects } = scene();
     const mgr = SnapManager.fromSceneObjects(objects, 'sketch-1', PLANE as any);

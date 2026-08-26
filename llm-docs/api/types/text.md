@@ -1,7 +1,7 @@
 ---
 id: api/types/text
 title: Text
-summary: "The Text type. Extends ExtrudableGeometry; adds 12 methods."
+summary: "The Text type. Extends ExtrudableGeometry; adds 13 methods."
 tags: [api, type, interface]
 symbols: [Text, IText]
 seeAlso: [api/types/extrudable-geometry]
@@ -12,6 +12,7 @@ seeAlso: [api/types/extrudable-geometry]
 interface Text extends ExtrudableGeometry {
   size(value: number): this;
   at(position: [number, number]): this;
+  anchor(): Vertex;
   font(name: string): this;
   weight(value: string | number): this;
   bold(): this;
@@ -45,6 +46,14 @@ sketch plane origin. Not applicable to text following a path.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `position` | `[number, number]` | The anchor point in sketch coordinates. |
+
+### `anchor()`
+
+Returns the anchor point — a solver point entity constraints can
+target, so the solve positions the text. Not applicable to text
+following a path.
+
+**Returns**: [[api/types/vertex]].
 
 ### `font()`
 

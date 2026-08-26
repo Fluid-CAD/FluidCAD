@@ -94,6 +94,8 @@ export function refTarget(ref: SolvedVertexRef): SolvedEmissionTargetParam {
     ...(ref.occurrence !== undefined ? { occurrence: ref.occurrence } : {}),
     ...(ref.role !== undefined ? { role: ref.role } : {}),
     featureType: ref.featureType,
+    // Bezier anchor snaps address the snapped control point (P8).
+    ...(ref.pointIndex !== undefined ? { pointIndex: ref.pointIndex } : {}),
   };
 }
 

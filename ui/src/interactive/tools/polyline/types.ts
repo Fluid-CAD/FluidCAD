@@ -1,5 +1,5 @@
 import { Camera, Group, Vector3 } from 'three';
-import { PlaneData, SceneObjectRender } from '../../../types';
+import { PlaneData } from '../../../types';
 import { CommitResult } from '../../../ui/expression-input';
 import { SnapResult } from '../../../snapping/types';
 import { NewVariable } from '../../sketch-tool';
@@ -51,8 +51,7 @@ export type SolvedSegmentSpec = {
   newVariable?: NewVariable | NewVariable[];
 };
 
-/** Solved-sketch face of the polyline chain (sketch-rewrite P5); null in
- * legacy sketches — modes then emit pen statements via insertGeometry. */
+/** Solved-sketch face of the polyline chain (sketch-rewrite P5). */
 export type SolvedModeContext = {
   /** The previous chain segment as a constraint target (no role), or null
    * when the chain opened free. */
@@ -75,10 +74,7 @@ export type ModeContext = {
   readonly camera: Camera;
   readonly planeNormal: Vector3;
   readonly tangent: TangentInfo | null;
-  readonly sceneObjects: SceneObjectRender[];
-  readonly sketchId: string;
   readonly startPoint: Point2D;
-  isAtCurrentPosition(point: Point2D): boolean;
   /**
    * A typed chain-start address not yet written to the source, formatted as a
    * point argument (`[w / 2, 10]`), or null. Non-null means the segment must
@@ -86,16 +82,6 @@ export type ModeContext = {
    * chained form, even when the address lands on the cursor.
    */
   pendingStartText(): string | null;
-  /** Declarations riding the pending chain start (a typed address's variables). */
-  pendingStartVariables(): NewVariable[];
-  /**
-   * Mark the pending chain start as spent by an out-of-band commit (the
-   * apply-feature path writes the statement server-side), so the next
-   * segment doesn't write it again.
-   */
-  clearPendingStart(): void;
-  /** Convert a pixel distance to sketch units at the current zoom. */
-  pixelThreshold(px: number): number;
   /** Show (or clear, with null) a hint line under the cursor's mode badge. */
   setSnapHint(hint: string | null): void;
   /**
@@ -106,7 +92,6 @@ export type ModeContext = {
    */
   resolveCommittedValue(result: CommitResult): number | null;
   formatPoint(p: Point2D): string;
-  insertGeometry(statement: string, newVariable?: NewVariable | NewVariable[]): void;
   solved: SolvedModeContext | null;
   requestRender(): void;
   isOrthoOverride(): boolean;

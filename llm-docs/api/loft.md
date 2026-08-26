@@ -26,10 +26,15 @@ Chain: `.thin()`, plus the boolean scope methods. Direct accessors:
 ## Example
 
 ```fluid.js
-import { circle, loft, plane, rect, sketch } from "fluidcad/core";
+import { circle, line, loft, plane, sketch } from "fluidcad/core";
 
-const bottom = sketch("xy", () => circle(40));
-const top = sketch(plane("xy", { offset: 100 }), () => rect(60, 60).centered());
+const bottom = sketch("xy", () => circle([0, 0], 40));
+const top = sketch(plane("xy", { offset: 100 }), () => {
+  line([-30, -30], [30, -30]);
+  line([30, -30], [30, 30]);
+  line([30, 30], [-30, 30]);
+  line([-30, 30], [-30, -30]);
+});
 loft(bottom, top);
 ```
 

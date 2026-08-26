@@ -29,9 +29,14 @@ shells outward (preserving the inner shape and adding wall material).
 ## Example
 
 ```fluid.js
-import { extrude, fillet, rect, shell, sketch } from "fluidcad/core";
+import { extrude, fillet, line, shell, sketch } from "fluidcad/core";
 
-sketch("xy", () => rect(80, 60).centered());
+sketch("xy", () => {
+  line([-40, -30], [40, -30]);
+  line([40, -30], [40, 30]);
+  line([40, 30], [-40, 30]);
+  line([-40, 30], [-40, -30]);
+});
 const e = extrude(40);
 const s = shell(-2, e.endFaces());     // open-top container, 2mm walls
 fillet(0.5, s.internalEdges());

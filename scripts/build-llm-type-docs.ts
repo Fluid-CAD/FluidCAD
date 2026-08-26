@@ -88,7 +88,7 @@ const seeAlsoByDisplay: Record<string, string[]> = {
   PlaneLike: ['api/sketch', 'api/plane', 'api/types/plane', 'api/types/scene-object'],
   AxisLike: ['api/revolve', 'api/axis', 'api/types/axis'],
   PointLike: ['api/translate'],
-  Point2DLike: ['api/line', 'api/rect', 'api/types/vertex'],
+  Point2DLike: ['api/line', 'api/circle', 'api/types/vertex'],
   Vertex: ['api/types/point2dlike'],
 
   // Options
@@ -112,20 +112,16 @@ const seeAlsoByDisplay: Record<string, string[]> = {
   Shell: ['api/shell'],
   Draft: ['api/draft'],
   Rib: ['api/rib'],
-  ArcPoints: ['api/arc'],
-  ArcAngles: ['api/arc'],
-  Rect: ['api/rect'],
-  Slot: ['api/slot'],
-  ALine: ['api/line'],
-  HLine: ['api/line'],
-  VLine: ['api/line'],
-  Polygon: ['api/polygon'],
+  SolvedLine: ['api/line'],
+  SolvedArc: ['api/arc'],
+  SolvedCircle: ['api/circle'],
+  Reference: ['api/project-intersect'],
+  ReferenceEntity: ['api/project-intersect'],
+  Distance: ['api/constraints'],
   Offset: ['api/offset'],
   Plane: ['api/plane', 'api/types/plane-like'],
   Axis: ['api/axis', 'api/types/axis-like'],
   Select: ['api/select'],
-  TwoObjectsTangentLine: ['api/tline'],
-  TangentArcTwoObjects: ['api/tarc'],
 };
 
 // ── Helpers ──

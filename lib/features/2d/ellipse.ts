@@ -38,10 +38,12 @@ export class Ellipse extends ExtrudableGeometryBase {
     }
 
     const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
+    // The factory always passes an explicit center since P7; the targetPlane
+    // fallback survives for plane-hosted ellipses built outside a sketch.
     const center = this.centerOverride
       ?? (this.targetPlane
         ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
-        : this.getCurrentPosition());
+        : new Point2D(0, 0));
 
     // OCC requires majorRadius >= minorRadius. Pick which plane axis carries the major.
     const rxIsMajor = this.rx >= this.ry;

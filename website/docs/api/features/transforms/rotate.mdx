@@ -1,12 +1,14 @@
 ---
 sidebar_position: 2
 title: "rotate"
-description: "[2D] Rotates geometry by an angle inside a sketch."
+description: "[2D] Rotates geometry by an angle inside a sketch, about the sketch cursor (legacy sketches only — constraint sketches require an explicit center)."
 ---
 
 # rotate()
 
-[2D] Rotates geometry by an angle inside a sketch.
+[2D] Rotates geometry by an angle inside a sketch, about the sketch
+cursor (legacy sketches only — constraint sketches require an explicit
+center).
 
 **Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
 
@@ -20,7 +22,9 @@ See the [guide](/docs/guides/transforms) for detailed usage examples.
 rotate(angle: NumberParam, ...targets: SceneObject[]): IRotate
 ```
 
-[2D] Rotates geometry by an angle inside a sketch.
+[2D] Rotates geometry by an angle inside a sketch, about the sketch
+cursor (legacy sketches only — constraint sketches require an explicit
+center).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -30,14 +34,46 @@ rotate(angle: NumberParam, ...targets: SceneObject[]): IRotate
 ---
 
 ```ts
-rotate(angle: NumberParam, copy: BooleanParam, ...targets: SceneObject[]): IRotate
+rotate(angle: NumberParam, center: Point2DLike, ...targets: SceneObject[]): IRotate
 ```
 
-[2D] Rotates geometry by an angle inside a sketch, optionally making a copy.
+[2D] Rotates geometry by an angle about an explicit center point.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `angle` | NumberParam | The rotation angle in degrees |
+| `center` | [Point2DLike](/docs/api/types/point2dlike) | The rotation center in sketch coordinates |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The geometries to rotate (defaults to last object) *(optional)* |
+
+---
+
+```ts
+rotate(angle: NumberParam, copy: BooleanParam, ...targets: SceneObject[]): IRotate
+```
+
+[2D] Rotates geometry by an angle inside a sketch, optionally making a
+copy (legacy sketches only — constraint sketches require an explicit
+center).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `angle` | NumberParam | The rotation angle in degrees |
+| `copy` | BooleanParam | Whether to copy instead of move |
+| `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The geometries to rotate (defaults to last object) *(optional)* |
+
+---
+
+```ts
+rotate(angle: NumberParam, center: Point2DLike, copy: BooleanParam, ...targets: SceneObject[]): IRotate
+```
+
+[2D] Rotates geometry by an angle about an explicit center point,
+optionally making a copy.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `angle` | NumberParam | The rotation angle in degrees |
+| `center` | [Point2DLike](/docs/api/types/point2dlike) | The rotation center in sketch coordinates |
 | `copy` | BooleanParam | Whether to copy instead of move |
 | `...targets` | [SceneObject](/docs/api/types/scene-object)[] | The geometries to rotate (defaults to last object) *(optional)* |
 

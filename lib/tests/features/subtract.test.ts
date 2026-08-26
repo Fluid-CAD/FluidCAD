@@ -7,7 +7,7 @@ import cylinder from "../../core/cylinder.js";
 import sphere from "../../core/sphere.js";
 import axis from "../../core/axis.js";
 import revolve from "../../core/revolve.js";
-import { circle, move, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Subtract } from "../../features/subtract.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
@@ -15,6 +15,7 @@ import { Revolve } from "../../features/revolve.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("subtract", () => {
   setupOC();
@@ -22,8 +23,8 @@ describe("subtract", () => {
   describe("basic subtraction", () => {
     it("should subtract one solid from another", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const box = extrude(50).new() as ExtrudeBase;
 
       const cyl = cylinder(20, 50) as unknown as SceneObject;
@@ -43,8 +44,8 @@ describe("subtract", () => {
 
     it("should remove original shapes from both operands", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const box = extrude(50).new() as ExtrudeBase;
 
       const cyl = cylinder(20, 50) as unknown as SceneObject;
@@ -59,8 +60,8 @@ describe("subtract", () => {
 
     it("should produce a single solid in the scene", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const box = extrude(50).new() as ExtrudeBase;
 
       const cyl = cylinder(20, 50) as unknown as SceneObject;
@@ -76,8 +77,8 @@ describe("subtract", () => {
   describe("subtraction geometry", () => {
     it("should preserve outer dimensions of the stock", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const box = extrude(50).new() as ExtrudeBase;
 
       const cyl = cylinder(20, 50) as unknown as SceneObject;
@@ -96,14 +97,13 @@ describe("subtract", () => {
 
     it("should subtract a smaller box from a larger box", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const bigBox = extrude(50).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       const smallBox = extrude(50).new() as ExtrudeBase;
 
       const s = subtract(bigBox, smallBox) as Subtract;
@@ -120,14 +120,13 @@ describe("subtract", () => {
 
     it("should handle non-intersecting solids", () => {
       sketch("xy", () => {
-        rect(50, 50);
-      });
+          testRect(50, 50);
+        });
       const box = extrude(30).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        move([200, 200]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [200, 200] });
+        });
       const farBox = extrude(30).new() as ExtrudeBase;
 
       const s = subtract(box, farBox) as Subtract;

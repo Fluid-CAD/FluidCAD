@@ -2,10 +2,12 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
-import { circle, rect, line, hLine, vLine } from "../../core/2d/index.js";
+import { circle, line } from "../../core/2d/index.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { Face } from "../../common/face.js";
+import { coincident, horizontal, vertical } from "../../core/constraints/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("thin extrude", () => {
   setupOC();
@@ -13,8 +15,8 @@ describe("thin extrude", () => {
   describe("closed profile", () => {
     it("should create a thin-walled solid with single offset", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
 
       const e = extrude(30).thin(5) as ExtrudeBase;
 
@@ -30,8 +32,8 @@ describe("thin extrude", () => {
 
     it("should still classify internal faces for closed profile", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
 
       const e = extrude(30).thin(5) as ExtrudeBase;
 
@@ -43,8 +45,8 @@ describe("thin extrude", () => {
 
     it("should create a thin-walled solid with dual offset", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
 
       const e = extrude(20).thin(5, -3).new() as ExtrudeBase;
 
@@ -60,8 +62,8 @@ describe("thin extrude", () => {
 
     it("should create a thin-walled solid from a circle", () => {
       sketch("xy", () => {
-        circle(50);
-      });
+          circle([0, 0], 50);
+        });
 
       const e = extrude(25).thin(10).new() as ExtrudeBase;
 
@@ -81,8 +83,8 @@ describe("thin extrude", () => {
   describe("offset direction", () => {
     it("should offset inward with a negative value", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
 
       const e = extrude(20).thin(-5).new() as ExtrudeBase;
 
@@ -141,9 +143,12 @@ describe("thin extrude", () => {
 
     it("should create a thin-walled solid from an L-shaped open profile", () => {
       sketch("xy", () => {
-        hLine([0, 0], 50);
-        vLine(50);
-      });
+          const sg3 = line([0, 0], [50, 0]);
+          const sg4 = line([50, 0], [50, 50]);
+          horizontal(sg3);
+          coincident(sg3.end(), sg4.start());
+          vertical(sg4);
+        });
 
       const e = extrude(15).thin(5).new() as ExtrudeBase;
 
@@ -230,8 +235,8 @@ describe("thin extrude", () => {
   describe("two-distance extrude", () => {
     it("should create a thin-walled solid with two distances", () => {
       sketch("xy", () => {
-        rect(80, 80);
-      });
+          testRect(80, 80);
+        });
 
       const e = extrude(20, 10).thin(5).new() as ExtrudeBase;
 
@@ -249,15 +254,15 @@ describe("thin extrude", () => {
   describe("remove mode", () => {
     it("should cut a thin-walled shape from existing geometry", () => {
       sketch("xy", () => {
-        rect(200, 200);
-      });
+          testRect(200, 200);
+        });
       extrude(50);
 
       render();
 
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50).thin(10).remove() as ExtrudeBase;
 
       render();

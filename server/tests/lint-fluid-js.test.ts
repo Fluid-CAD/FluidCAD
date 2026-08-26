@@ -4,23 +4,23 @@ import { lintFluidJs } from '../src/lint-fluid-js.ts';
 describe('lintFluidJs', () => {
   it('reports every FluidCAD symbol used without an import', async () => {
     const code = [
-      'sketch("xy", () => rect(100, 50).centered());',
+      'sketch("xy", () => circle(50));',
       'extrude(20);',
       '',
     ].join('\n');
     const result = await lintFluidJs(code);
-    expect(result.missing.map((m) => m.symbol).sort()).toEqual(['extrude', 'rect', 'sketch']);
+    expect(result.missing.map((m) => m.symbol).sort()).toEqual(['circle', 'extrude', 'sketch']);
     expect(result.missing.every((m) => m.module === 'fluidcad/core')).toBe(true);
     expect(result.suggestion).toBe(
-      'import { extrude, rect, sketch } from "fluidcad/core";',
+      'import { circle, extrude, sketch } from "fluidcad/core";',
     );
   });
 
   it('accepts the standard fluid.js with all imports present', async () => {
     const code = [
-      'import { sketch, rect, extrude } from "fluidcad/core";',
+      'import { sketch, circle, extrude } from "fluidcad/core";',
       '',
-      'sketch("xy", () => rect(100, 50).centered());',
+      'sketch("xy", () => circle(50));',
       'extrude(20);',
       '',
     ].join('\n');
@@ -34,10 +34,10 @@ describe('lintFluidJs', () => {
       'import {',
       '  sketch,',
       '  extrude as ex,',
-      '  rect,',
+      '  circle,',
       '} from "fluidcad/core";',
       '',
-      'sketch("xy", () => rect(100, 50).centered());',
+      'sketch("xy", () => circle(50));',
       'ex(20);',
       '',
     ].join('\n');
@@ -47,27 +47,27 @@ describe('lintFluidJs', () => {
 
   it('groups missing symbols by module in the suggestion', async () => {
     const code = [
-      'sketch("xy", () => rect(60, 60).centered());',
+      'sketch("xy", () => circle(60));',
       'const e = extrude(20);',
       'select(face().planar());',
       'fillet(2);',
-      'tCircle(outside(c), outside(d), 10);',
+      'coincident(c.end(), d.start());',
       '',
     ].join('\n');
     const result = await lintFluidJs(code);
     const lines = result.suggestion.split('\n');
     expect(lines).toEqual([
-      'import { outside } from "fluidcad/constraints";',
-      'import { extrude, fillet, rect, select, sketch, tCircle } from "fluidcad/core";',
+      'import { coincident } from "fluidcad/constraints";',
+      'import { circle, extrude, fillet, select, sketch } from "fluidcad/core";',
       'import { face } from "fluidcad/filters";',
     ]);
   });
 
   it('ignores method calls on existing objects (e.cut, etc.)', async () => {
     const code = [
-      'import { sketch, rect, extrude } from "fluidcad/core";',
+      'import { sketch, circle, extrude } from "fluidcad/core";',
       '',
-      'sketch("xy", () => rect(10, 10));',
+      'sketch("xy", () => circle(10));',
       'const e = extrude(5);',
       'e.endFaces();',     // `endFaces` is not in our table; safe anyway
       'e.cut(5);',         // `cut` IS in the table — but member access => skip
@@ -79,9 +79,9 @@ describe('lintFluidJs', () => {
 
   it('ignores object-key uses of symbol names', async () => {
     const code = [
-      'import { sketch, rect, extrude, repeat } from "fluidcad/core";',
+      'import { sketch, circle, extrude, repeat } from "fluidcad/core";',
       '',
-      'sketch("xy", () => rect(10, 10));',
+      'sketch("xy", () => circle(10));',
       'const e = extrude(5);',
       'repeat("linear", "x", { count: 4, offset: 20 }, e);',
       '',
@@ -92,11 +92,11 @@ describe('lintFluidJs', () => {
 
   it('skips strings and comments', async () => {
     const code = [
-      'import { sketch, rect, extrude } from "fluidcad/core";',
+      'import { sketch, circle, extrude } from "fluidcad/core";',
       '',
       '// use extrude(30) to make a box',
-      'const note = "circle, polygon, slot";',
-      'sketch("xy", () => rect(10, 10));',
+      'const note = "line, ellipse, arc";',
+      'sketch("xy", () => circle(10));',
       'extrude(5);',
       '',
     ].join('\n');

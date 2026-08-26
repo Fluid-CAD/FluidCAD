@@ -4,7 +4,7 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import draft from "../../core/draft.js";
 import select from "../../core/select.js";
-import { rect } from "../../core/2d/index.js";
+import { } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
 import { SelectSceneObject } from "../../features/select.js";
@@ -12,6 +12,7 @@ import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
 import { face } from "../../filters/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("draft", () => {
   setupOC();
@@ -19,8 +20,8 @@ describe("draft", () => {
   describe("draft with implicit selection", () => {
     it("should apply draft to the last selected face", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(80);
 
       select(face().onPlane("front"));
@@ -38,8 +39,8 @@ describe("draft", () => {
 
     it("should change the bounding box when drafting a side face", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(80);
 
       select(face().onPlane("front"));
@@ -58,8 +59,8 @@ describe("draft", () => {
 
     it("should change volume compared to original box", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(80);
 
       select(face().onPlane("front"));
@@ -80,8 +81,8 @@ describe("draft", () => {
   describe("draft with explicit selection", () => {
     it("should apply draft using e.sideFaces()", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(80) as Extrude;
 
       draft(5, e.sideFaces());
@@ -98,8 +99,8 @@ describe("draft", () => {
 
     it("should apply draft using explicit select()", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(80);
 
       const sel = select(face().onPlane("front"));
@@ -113,8 +114,8 @@ describe("draft", () => {
   describe("draft angle effect", () => {
     it("should produce larger extension with 10 degrees than 3 degrees", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(80);
 
       select(face().onPlane("front"));
@@ -133,8 +134,8 @@ describe("draft", () => {
 
     it("should produce smaller extension with 3 degrees", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(80);
 
       select(face().onPlane("front"));
@@ -156,8 +157,8 @@ describe("draft", () => {
   describe("draft removes selection shapes", () => {
     it("should remove the face selection after drafting", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(80);
 
       const sel = select(face().onPlane("front")) as SelectSceneObject;
@@ -172,8 +173,8 @@ describe("draft", () => {
   describe("draft on multiple faces", () => {
     it("should draft all four side faces via sideFaces()", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(80) as Extrude;
 
       draft(5, e.sideFaces());

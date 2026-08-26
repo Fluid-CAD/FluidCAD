@@ -44,10 +44,15 @@ Returns a chainable edge filter. Chained predicates AND together.
 ## Example
 
 ```fluid.js
-import { extrude, fillet, rect, select, sketch } from "fluidcad/core";
+import { extrude, fillet, line, select, sketch } from "fluidcad/core";
 import { edge } from "fluidcad/filters";
 
-sketch("xy", () => rect(60, 60).centered());
+sketch("xy", () => {
+  line([-30, -30], [30, -30]);
+  line([30, -30], [30, 30]);
+  line([30, 30], [-30, 30]);
+  line([-30, 30], [-30, -30]);
+});
 const e = extrude(20);
 select(edge().verticalTo("xy"));        // the 4 vertical corner edges
 fillet(2);

@@ -1,12 +1,12 @@
 ---
 sidebar_position: 30
 title: "fuse"
-description: "Fuses all shapes or 2D geometries in the current context."
+description: "Fuses all shapes in the current context."
 ---
 
 # fuse()
 
-Fuses all shapes or 2D geometries in the current context.
+Fuses all shapes in the current context.
 
 **Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
 
@@ -17,18 +17,18 @@ See the [guide](/docs/guides/booleans-and-fusion) for detailed usage examples.
 ## Signatures
 
 ```ts
-fuse(): Fuse | Fuse2D
+fuse(): Fuse
 ```
 
-Fuses all shapes or 2D geometries in the current context.
+Fuses all shapes in the current context.
 
 ---
 
 ```ts
-fuse(...objects: SceneObject[]): Fuse | Fuse2D
+fuse(...objects: SceneObject[]): Fuse
 ```
 
-Fuses the given shapes or 2D geometries into one.
+Fuses the given shapes into one.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

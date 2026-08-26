@@ -422,23 +422,12 @@ export function isDerivedOpStatement(node: TSNode): boolean {
 }
 
 /**
- * True when the sketch call carries the solved-mode flag — a literal `true`
- * after the callback argument (`sketch(plane, cb, true)`). Walks down chained
- * modifiers (`.reusable()`) to the call owning the callback, like
- * {@link findSketchBody}.
+ * Every sketch is a solved sketch since P7 removed the mode flag — the old
+ * literal-`, true` detection is gone and every sketch call gets the solved
+ * layout conventions (geometry → constraints → derived ops).
  */
-export function isSolvedSketchCall(call: TSNode): boolean {
-  let current: TSNode | null = call;
-  while (current && current.type === 'call_expression') {
-    const args = getArgumentsNode(current);
-    if (args && args.namedChildren.some(c => c.type === 'arrow_function' || c.type === 'function')) {
-      const last = args.namedChildren[args.namedChildren.length - 1];
-      return last?.type === 'true';
-    }
-    const fn = current.childForFieldName('function');
-    current = fn && fn.type === 'member_expression' ? fn.childForFieldName('object') : null;
-  }
-  return false;
+export function isSolvedSketchCall(_call: TSNode): boolean {
+  return true;
 }
 
 function findBreakpointStatementAt(tree: TSTree, row: number): TSNode | null {
@@ -1286,212 +1275,6 @@ function applySpliceEdits(code: string, edits: SpliceEdit[]): string {
   return result;
 }
 
-/**
- * The relative `move(dx, dy)` statement immediately preceding `call`'s own
- * statement, when both offsets are plain numeric literals. That is the prefix
- * the drawing tools emit for a relative pick — the only statement a reposition
- * may fold a delta into; expression offsets are the author's and stay verbatim.
- */
-function precedingNumericMove(call: TSNode): { dx: TSNode; dy: TSNode } | null {
-  let statement: TSNode | null = call;
-  while (statement && statement.type !== 'expression_statement') {
-    statement = statement.parent;
-  }
-  if (!statement) {
-    return null;
-  }
-  let prev = statement.previousNamedSibling;
-  while (prev && prev.type === 'comment') {
-    prev = prev.previousNamedSibling;
-  }
-  if (!prev || prev.type !== 'expression_statement') {
-    return null;
-  }
-  const moveCall = prev.namedChild(0);
-  if (!moveCall || moveCall.type !== 'call_expression') {
-    return null;
-  }
-  const fn = moveCall.childForFieldName('function');
-  if (!fn || fn.type !== 'identifier' || fn.text !== 'move') {
-    return null;
-  }
-  const args = getArgumentsNode(moveCall);
-  if (!args || args.namedChildren.length !== 2) {
-    return null;
-  }
-  const [dx, dy] = args.namedChildren;
-  if (numericLiteralValue(dx) === null || numericLiteralValue(dy) === null) {
-    return null;
-  }
-  return { dx, dy };
-}
-
-/**
- * Edits that shift the preceding relative `move(dx, dy)` by `delta`, so a
- * chained statement drawn at the pen keeps its relative form when it is
- * repositioned. Null when no such move precedes the statement.
- */
-function shiftPrecedingMoveEdits(call: TSNode, delta: [number, number]): SpliceEdit[] | null {
-  const move = precedingNumericMove(call);
-  if (!move) {
-    return null;
-  }
-  return [
-    {
-      start: move.dx.startIndex, end: move.dx.endIndex,
-      text: String(roundCoord(numericLiteralValue(move.dx)! + delta[0])),
-    },
-    {
-      start: move.dy.startIndex, end: move.dy.endIndex,
-      text: String(roundCoord(numericLiteralValue(move.dy)! + delta[1])),
-    },
-  ];
-}
-
-/**
- * Update a point argument of a geometry call.
- *
- * A call with no point argument is drawn at the pen. When the old position is
- * known and a numeric `move(dx, dy)` precedes the statement (the relative
- * form the drawing tools emit), the reposition folds the delta into that move
- * so the statement stays relative; otherwise the call is promoted to its
- * positioned overload, e.g. `circle(20)` → `circle([x, y], 20)`.
- *
- * @param code - Full source code
- * @param sourceLine - 1-indexed line of the geometry call
- * @param newPosition - New [x, y] position
- * @param pointIndex - Which point argument to update (0 = first, -1 = last)
- * @param oldPosition - The point's current [x, y], enabling the move-merge
- */
-export async function updateGeometryPosition(
-  code: string,
-  sourceLine: number,
-  newPosition: [number, number],
-  pointIndex: number = 0,
-  oldPosition: [number, number] | null = null,
-): Promise<CodeEditResult> {
-  return withParsedCode(code, (tree, lines) => {
-    const call = findEditableCallAt(tree, lines, sourceLine);
-    if (!call) {
-      return null;
-    }
-    const pointText = `[${newPosition[0]}, ${newPosition[1]}]`;
-
-    const pointArgs = collectChainPointArgs(call);
-
-    const targetIdx = pointIndex >= 0 ? pointIndex : pointArgs.length + pointIndex;
-
-    if (targetIdx >= 0 && targetIdx < pointArgs.length) {
-      return spliceCode(code, pointArgs[targetIdx].startIndex, pointArgs[targetIdx].endIndex, pointText);
-    }
-
-    if (pointIndex === 0 && pointArgs.length === 0) {
-      if (oldPosition) {
-        const delta: [number, number] = [
-          roundCoord(newPosition[0] - oldPosition[0]),
-          roundCoord(newPosition[1] - oldPosition[1]),
-        ];
-        if (delta[0] === 0 && delta[1] === 0) {
-          return null;
-        }
-        const moveEdits = shiftPrecedingMoveEdits(call, delta);
-        if (moveEdits) {
-          return applySpliceEdits(code, moveEdits);
-        }
-      }
-      const args = getArgumentsNode(chainBaseCall(call));
-      if (!args) {
-        return null;
-      }
-      const firstArg = args.namedChildren[0];
-      if (!firstArg) {
-        return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText);
-      }
-      return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText + ', ');
-    }
-
-    return null;
-  });
-}
-
-/**
- * Update both point arguments of a `line(start, end)` call atomically.
- * Used by body-drag of unconstrained two-point lines, where the whole line
- * is translated and both endpoints change in a single edit.
- */
-export async function setLinePosition(
-  code: string,
-  sourceLine: number,
-  newStart: [number, number],
-  newEnd: [number, number],
-): Promise<CodeEditResult> {
-  return withParsedCode(code, (tree, lines) => {
-    const call = findEditableCallAt(tree, lines, sourceLine);
-    if (!call) {
-      return null;
-    }
-    const args = getArgumentsNode(call);
-    if (!args) {
-      return null;
-    }
-    const pointArgs: TSNode[] = [];
-    for (const child of args.namedChildren) {
-      if (isPointArray(child)) {
-        pointArgs.push(child);
-      }
-    }
-    if (pointArgs.length < 2) {
-      return null;
-    }
-    const startNode = pointArgs[0];
-    const endNode = pointArgs[pointArgs.length - 1];
-    const startText = `[${newStart[0]}, ${newStart[1]}]`;
-    const endText = `[${newEnd[0]}, ${newEnd[1]}]`;
-    // Splice end first so startNode indices remain valid.
-    const afterEnd = spliceCode(code, endNode.startIndex, endNode.endIndex, endText);
-    return spliceCode(afterEnd, startNode.startIndex, startNode.endIndex, startText);
-  });
-}
-
-/**
- * Update multiple point arguments of a geometry call chain atomically.
- * Point indices refer to the collected chain points (innermost call first).
- */
-export async function setChainPositions(
-  code: string,
-  sourceLine: number,
-  updates: { pointIndex: number; position: [number, number] }[],
-): Promise<CodeEditResult> {
-  return withParsedCode(code, (tree, lines) => {
-    const call = findEditableCallAt(tree, lines, sourceLine);
-    if (!call) {
-      return null;
-    }
-    const pointArgs = collectChainPointArgs(call);
-    if (pointArgs.length === 0) {
-      return null;
-    }
-
-    const resolved = updates
-      .map(u => {
-        const idx = u.pointIndex >= 0 ? u.pointIndex : pointArgs.length + u.pointIndex;
-        if (idx < 0 || idx >= pointArgs.length) {
-          return null;
-        }
-        return { node: pointArgs[idx], position: u.position };
-      })
-      .filter((u): u is NonNullable<typeof u> => u !== null)
-      .sort((a, b) => b.node.startIndex - a.node.startIndex);
-
-    let result = code;
-    for (const { node, position } of resolved) {
-      const text = `[${position[0]}, ${position[1]}]`;
-      result = spliceCode(result, node.startIndex, node.endIndex, text);
-    }
-    return result;
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Solved-sketch batch position write-back (sketch-rewrite P4)
 // ---------------------------------------------------------------------------
@@ -1651,15 +1434,6 @@ function findNonArrayArgFromEnd(args: TSNode, offset = 0): TSNode | null {
   return null;
 }
 
-function findFirstArrayArg(args: TSNode): TSNode | null {
-  for (const child of args.namedChildren) {
-    if (child.type === 'array') {
-      return child;
-    }
-  }
-  return null;
-}
-
 // Name of the function a call expression invokes: `rect(...)` -> 'rect',
 // `foo.radius(...)` -> 'radius'.
 function callFunctionName(call: TSNode): string | null {
@@ -1708,50 +1482,15 @@ export function updateDimensionExpression(
   sourceLine: number,
   expression: string,
   dimensionOffset = 0,
-  dimensionCall: string | null = null,
-  dimensionInsert = false,
-  dimensionPoint: [number, number] | null = null,
 ): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
     let current: TSNode | null = findEditableCallAt(tree, lines, sourceLine);
     while (current && current.type === 'call_expression') {
       const args = getArgumentsNode(current);
-      if (args && (!dimensionCall || callFunctionName(current) === dimensionCall)) {
+      if (args) {
         const target = findNonArrayArgFromEnd(args, dimensionOffset);
-        if (target || dimensionInsert) {
-          // The scalar edit, plus (optionally) a rewrite of the call's first
-          // array argument — a tArc radius commit re-aims the endpoint at
-          // the position the new radius can actually reach, atomically.
-          const splices: { start: number; end: number; text: string }[] = [];
-          if (target) {
-            splices.push({ start: target.startIndex, end: target.endIndex, text: expression });
-          } else {
-            // The statement's form has no scalar for this dimension yet
-            // (e.g. `tArc([e])` gaining an explicit radius): insert it as
-            // the call's first argument, selecting the scalar overload.
-            const firstArg = args.namedChildren[0];
-            const at = firstArg ? firstArg.startIndex : args.startIndex + 1;
-            splices.push({ start: at, end: at, text: firstArg ? `${expression}, ` : expression });
-          }
-          if (dimensionPoint) {
-            const arrayArg = findFirstArrayArg(args);
-            if (arrayArg) {
-              splices.push({
-                start: arrayArg.startIndex,
-                end: arrayArg.endIndex,
-                text: `[${dimensionPoint[0]}, ${dimensionPoint[1]}]`,
-              });
-            }
-          }
-          // Apply back-to-front so earlier splices keep their indices; on a
-          // tied start (insertion before the array being replaced) the wider
-          // replacement goes first so the insertion lands ahead of it.
-          splices.sort((a, b) => (b.start - a.start) || (b.end - a.end));
-          let next = code;
-          for (const s of splices) {
-            next = spliceCode(next, s.start, s.end, s.text);
-          }
-          return next;
+        if (target) {
+          return spliceCode(code, target.startIndex, target.endIndex, expression);
         }
       }
       const fn = current.childForFieldName('function');
@@ -1902,93 +1641,6 @@ export async function getPointExpression(
   return { x: node.namedChildren[0].text, y: node.namedChildren[1].text };
 }
 
-/**
- * Rewrite a point argument from per-axis expressions, so a coordinate typed
- * as `w / 2` reaches the source verbatim rather than as a number. The numeric
- * sibling `updateGeometryPosition` stays the drag path.
- *
- * Refuses when the target is not an `[x, y]` literal: overwriting an
- * identifier or a lazy accessor would silently drop a parametric reference.
- *
- * A call with no point argument is drawn at the pen. When both committed
- * axes are plain numbers, the old position is known and a numeric
- * `move(dx, dy)` precedes the statement (the relative form the drawing tools
- * emit), the reposition folds the delta into that move so the statement stays
- * relative. Otherwise the argument is inserted, matching the numeric path's
- * promotion of `circle(20)` to `circle([x, y], 20)`.
- */
-export async function updatePointExpression(
-  code: string,
-  sourceLine: number,
-  xExpr: string,
-  yExpr: string,
-  pointIndex = 0,
-  oldPosition: [number, number] | null = null,
-): Promise<CodeEditResult> {
-  return withParsedCode(code, (tree, lines) => {
-    const call = findEditableCallAt(tree, lines, sourceLine);
-    if (!call) {
-      return null;
-    }
-    const pointText = `[${xExpr}, ${yExpr}]`;
-
-    const pointArgs = collectChainPointArgs(call);
-    const targetIdx = pointIndex >= 0 ? pointIndex : pointArgs.length + pointIndex;
-
-    if (targetIdx >= 0 && targetIdx < pointArgs.length) {
-      const target = pointArgs[targetIdx];
-      if (!isPointLiteral(target)) {
-        return null;
-      }
-      return spliceCode(code, target.startIndex, target.endIndex, pointText);
-    }
-
-    if (pointIndex === 0 && pointArgs.length === 0) {
-      const xNum = Number(xExpr);
-      const yNum = Number(yExpr);
-      if (oldPosition && !Number.isNaN(xNum) && !Number.isNaN(yNum)
-        && xExpr.trim() !== '' && yExpr.trim() !== '') {
-        const delta: [number, number] = [
-          roundCoord(xNum - oldPosition[0]),
-          roundCoord(yNum - oldPosition[1]),
-        ];
-        if (delta[0] === 0 && delta[1] === 0) {
-          return null;
-        }
-        const moveEdits = shiftPrecedingMoveEdits(call, delta);
-        if (moveEdits) {
-          return applySpliceEdits(code, moveEdits);
-        }
-      }
-      const args = getArgumentsNode(chainBaseCall(call));
-      if (!args) {
-        return null;
-      }
-      const firstArg = args.namedChildren[0];
-      if (!firstArg) {
-        return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText);
-      }
-      return spliceCode(code, args.startIndex + 1, args.startIndex + 1, pointText + ', ');
-    }
-
-    return null;
-  });
-}
-
-export function updatePointExpressionWithVariable(
-  code: string,
-  sourceLine: number,
-  xExpr: string,
-  yExpr: string,
-  sketchSourceLine: number,
-  newVariable: NewVariableDecl | NewVariableDecl[] | null,
-  pointIndex = 0,
-  oldPosition: [number, number] | null = null,
-): Promise<CodeEditResult> {
-  return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
-    (c, shift) => updatePointExpression(c, sourceLine + shift, xExpr, yExpr, pointIndex, oldPosition));
-}
-
 export function updateDimensionExpressionWithVariable(
   code: string,
   sourceLine: number,
@@ -1996,12 +1648,9 @@ export function updateDimensionExpressionWithVariable(
   sketchSourceLine: number,
   newVariable: NewVariableDecl | NewVariableDecl[] | null,
   dimensionOffset = 0,
-  dimensionCall: string | null = null,
-  dimensionInsert = false,
-  dimensionPoint: [number, number] | null = null,
 ): Promise<CodeEditResult> {
   return withOptionalVariableDeclaration(code, sketchSourceLine, newVariable,
-    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset, dimensionCall, dimensionInsert, dimensionPoint));
+    (c, shift) => updateDimensionExpression(c, sourceLine + shift, expression, dimensionOffset));
 }
 
 export type VariableInfo = { name: string; initializer?: string; numeric?: boolean };
@@ -2168,96 +1817,4 @@ export async function extractVariablesInScope(
   }
 
   return variables;
-}
-
-/**
- * Rewrite a rect's width/height arguments, and its start corner when one was
- * given. A rect with a point argument takes the new start in place. A chained
- * rect (`rect(w, h)` at the pen) has no start to rewrite: when the old start
- * is known, the delta folds into a preceding numeric `move(dx, dy)` (the
- * relative form the drawing tools emit), else the call is promoted to the
- * pen-equivalent positioned form `rect([x, y], w, h)`.
- */
-export function setRectDimensions(
-  code: string,
-  sourceLine: number,
-  startPoint: [number, number] | null,
-  width: number,
-  height: number,
-  oldStartPoint: [number, number] | null = null,
-): Promise<CodeEditResult> {
-  return withParsedCode(code, (tree, lines) => {
-    const outerCall = findEditableCallAt(tree, lines, sourceLine);
-    if (!outerCall) {
-      return null;
-    }
-
-    let rectCall: TSNode | null = null;
-    let current: TSNode | null = outerCall;
-    while (current && current.type === 'call_expression') {
-      const fn = current.childForFieldName('function');
-      if (fn) {
-        if (fn.type === 'identifier' && fn.text === 'rect') {
-          rectCall = current;
-          break;
-        }
-        if (fn.type === 'member_expression') {
-          current = fn.childForFieldName('object');
-          continue;
-        }
-      }
-      break;
-    }
-
-    if (!rectCall) {
-      return null;
-    }
-
-    const args = getArgumentsNode(rectCall);
-    if (!args || args.namedChildren.length < 2) {
-      return null;
-    }
-
-    const pointArgs: TSNode[] = [];
-    const numericArgs: TSNode[] = [];
-    for (const child of args.namedChildren) {
-      if (isPointArray(child)) {
-        pointArgs.push(child);
-      } else {
-        numericArgs.push(child);
-      }
-    }
-
-    if (numericArgs.length < 2) {
-      return null;
-    }
-
-    const edits: SpliceEdit[] = [];
-
-    edits.push({ start: numericArgs[1].startIndex, end: numericArgs[1].endIndex, text: String(height) });
-    edits.push({ start: numericArgs[0].startIndex, end: numericArgs[0].endIndex, text: String(width) });
-
-    if (startPoint && pointArgs.length > 0) {
-      const pointText = `[${startPoint[0]}, ${startPoint[1]}]`;
-      edits.push({ start: pointArgs[0].startIndex, end: pointArgs[0].endIndex, text: pointText });
-    } else if (startPoint && oldStartPoint) {
-      const delta: [number, number] = [
-        roundCoord(startPoint[0] - oldStartPoint[0]),
-        roundCoord(startPoint[1] - oldStartPoint[1]),
-      ];
-      if (delta[0] !== 0 || delta[1] !== 0) {
-        const moveEdits = shiftPrecedingMoveEdits(rectCall, delta);
-        if (moveEdits) {
-          edits.push(...moveEdits);
-        } else if (numericArgs.length === 2 && args.namedChildren.length === 2) {
-          edits.push({
-            start: args.startIndex + 1, end: args.startIndex + 1,
-            text: `[${startPoint[0]}, ${startPoint[1]}], `,
-          });
-        }
-      }
-    }
-
-    return applySpliceEdits(code, edits);
-  });
 }

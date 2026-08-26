@@ -6,7 +6,7 @@ import {
 import { DebouncedTask } from '../../helpers/debounced-task';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { Viewer } from '../../viewer';
-import { pixelToSketchThreshold, projectToSketch, worldToSketch2D } from '../sketch-plane-utils';
+import { pixelToSketchThreshold, projectToSketch } from '../sketch-plane-utils';
 import { buildPathTargetIndex, hitTestPathTargets, PathTargetEntry } from '../sketch-edge-utils';
 import { PathHighlight } from '../tools/path-highlight';
 import { EditSession, EditSessionInfo } from '../edit-session';
@@ -234,8 +234,9 @@ export class TextEditService {
       return;
     }
     this.plane = plane;
-    const cursor = parent!.object?.currentPosition;
-    this.anchor = cursor ? worldToSketch2D(cursor, plane) : [0, 0];
+    // The payload carries no pen cursor any more (sketch-rewrite P7) —
+    // absolutely-positioned text anchors at the plane origin.
+    this.anchor = [0, 0];
     // The dialog reads a paused in-sketch statement — hold the camera down
     // the sketch plane like sketch mode would (the suspension freed it).
     this.viewer.holdSketchCamera(plane);

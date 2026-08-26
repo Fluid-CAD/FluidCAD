@@ -4,7 +4,7 @@ title: Point2DLike
 summary: "A 2D point accepted by sketching functions."
 tags: [api, type, union]
 symbols: [Point2DLike]
-seeAlso: [api/line, api/rect, api/types/vertex]
+seeAlso: [api/line, api/circle, api/types/vertex]
 ---
 # Point2DLike
 

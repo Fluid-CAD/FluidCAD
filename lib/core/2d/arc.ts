@@ -1,90 +1,40 @@
 import { isPoint2DLike, Point2DLike } from "../../math/point.js";
-import { Arc } from "../../features/2d/arc.js";
 import { SolvedArc } from "../../features/2d/solved/arc.js";
 import { normalizePoint2D } from "../../helpers/normalize.js";
 import { registerBuilder, SceneParserContext } from "../../index.js";
-import { IArcPoints, IArcAngles, ISolvedArc } from "../interfaces.js";
-import { type NumberParam, resolveParam } from "../param.js";
+import { ISolvedArc } from "../interfaces.js";
 
 interface ArcFunction {
   /**
-   * Constraint sketches only: draws an arc fully specified by start, end and
-   * center guesses. Chain `.cw()` to flip the sweep side.
+   * Draws an arc fully specified by start, end and center guesses. Chain
+   * `.cw()` to flip the sweep side.
    * @param startPoint - The start point
    * @param endPoint - The end point
    * @param centerPoint - The center point
    */
   (startPoint: Point2DLike, endPoint: Point2DLike, centerPoint: Point2DLike): ISolvedArc;
-  /**
-   * Draws an arc to an end point from the current position.
-   * Chain `.radius(r)` to set bulge radius, or `.center(point)` to specify the circle center.
-   * @param endPoint - The end point of the arc
-   */
-  (endPoint: Point2DLike): IArcPoints;
-  /**
-   * Draws an arc from a start point to an end point.
-   * By default, uses the current position as the arc center.
-   * Chain `.radius(r)` to use bulge radius instead, or `.center(point)` to specify an explicit center.
-   * @param startPoint - The start point of the arc
-   * @param endPoint - The end point of the arc
-   */
-  (startPoint: Point2DLike, endPoint: Point2DLike): IArcPoints;
-  /**
-   * Draws an arc by radius and angle range at the current position.
-   * Angles are measured relative to the current tangent (the tangent of the previous
-   * geometry, or +X when there is none).
-   * Chain `.centered()` to center the arc symmetrically around the start angle.
-   * @param radius - The arc radius
-   * @param startAngle - The start angle in degrees, relative to the current tangent (defaults to 0)
-   * @param endAngle - The end angle in degrees, relative to the current tangent (defaults to 180)
-   */
-  (radius: NumberParam, startAngle?: NumberParam, endAngle?: NumberParam): IArcAngles;
 }
 
 function build(context: SceneParserContext): ArcFunction {
   return function arc() {
-    // Solved-mode sketch: arc(start, end, center) becomes a solver entity.
-    // Every other form falls through to the legacy class, whose validate()
-    // rejects it with a per-statement build error.
-    const activeSketch = context.getActiveSketch();
-    if (activeSketch && activeSketch.isSolvedMode()
-        && arguments.length >= 3
-        && isPoint2DLike(arguments[0]) && isPoint2DLike(arguments[1]) && isPoint2DLike(arguments[2])) {
-      const solved = new SolvedArc(
-        normalizePoint2D(arguments[0] as Point2DLike).asPoint2D(),
-        normalizePoint2D(arguments[1] as Point2DLike).asPoint2D(),
-        normalizePoint2D(arguments[2] as Point2DLike).asPoint2D(),
+    if (arguments.length < 3
+        || !isPoint2DLike(arguments[0]) || !isPoint2DLike(arguments[1]) || !isPoint2DLike(arguments[2])) {
+      throw new Error(
+        "arc() needs full specification — arc(start, end, center); " +
+        "the chained/radius/angle pen forms were removed (add tangent()/radius() constraints instead)",
       );
-      context.addSceneObject(solved);
+    }
+    const solved = new SolvedArc(
+      normalizePoint2D(arguments[0] as Point2DLike).asPoint2D(),
+      normalizePoint2D(arguments[1] as Point2DLike).asPoint2D(),
+      normalizePoint2D(arguments[2] as Point2DLike).asPoint2D(),
+    );
+    context.addSceneObject(solved);
+    const activeSketch = context.getActiveSketch();
+    if (activeSketch) {
       solved.register(activeSketch);
-      return solved;
     }
-
-    // (startPoint, endPoint) — two Point2DLike args, default center = current position
-    if (arguments.length >= 2 && isPoint2DLike(arguments[0]) && isPoint2DLike(arguments[1])) {
-      const start = normalizePoint2D(arguments[0] as Point2DLike);
-      const end = normalizePoint2D(arguments[1] as Point2DLike);
-      const arcObj = Arc.twoPoints(start, end);
-      context.addSceneObject(arcObj);
-      return arcObj;
-    }
-
-    // (endPoint) — single Point2DLike arg
-    if (isPoint2DLike(arguments[0])) {
-      const end = normalizePoint2D(arguments[0] as Point2DLike);
-      const arcObj = Arc.toPoint(end);
-      context.addSceneObject(arcObj);
-      return arcObj;
-    }
-
-    // (radius, startAngle?, endAngle?) — all numeric args
-    const radius = resolveParam(arguments[0] as NumberParam) || 100;
-    const startAngle = resolveParam(arguments[1] as NumberParam) || 0;
-    const endAngle = arguments.length >= 3 ? resolveParam(arguments[2] as NumberParam) : 180;
-
-    const arcObj = Arc.fromAngles(radius, startAngle, endAngle);
-    context.addSceneObject(arcObj);
-    return arcObj;
+    return solved;
   } as ArcFunction;
 }
 

@@ -12,22 +12,25 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={flangeWithNotchFinal} entry="flange-with-notch.fluid.js" />
 
-In this tutorial, you'll build a flange with a notch from scratch, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=4XeLNQvhoyw). It covers tangent lines and arcs, guide geometry, mirror symmetry, reusable sketch geometry, offset reference planes, and counter bores.
+In this tutorial, you'll build a flange with a notch from scratch, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=4XeLNQvhoyw). It covers tangent constraints, guide geometry, mirror symmetry, reusable sketch geometry, offset reference planes, and counter bores.
 
 Create a new file called `flange-with-notch.fluid.js` in your project.
 
 ## Setup
 
-Start with imports. This model uses tangent geometry and constraints.
+Start with imports. This model uses solved constraint sketches: geometry statements place rough shapes, and constraint statements pin them down.
 
 ```js
-import { circle, cut, extrude, hMove, mirror, plane, rect, remove,
-    sketch, split, tArc, tLine, trim } from "fluidcad/core";
-import { outside } from "fluidcad/constraints";
+import { arc, circle, cut, extrude, line, mirror, plane, remove,
+    sketch, xAxis } from "fluidcad/core";
+import { coincident, concentric, diameter, distance, equal, fix,
+    horizontal, symmetric, tangent, vertical } from "fluidcad/constraints";
 ```
 
-- **`fluidcad/core`** — all the modeling operations (sketch, extrude, cut, tangent geometry, etc.)
-- **`fluidcad/constraints`** — the `outside` constraint for tangent lines
+- **`fluidcad/core`** — all the modeling operations (sketch, primitives, extrude, cut, etc.) plus the `xAxis()` sketch datum
+- **`fluidcad/constraints`** — the constraint statements that drive the solver
+
+Every sketch in this model passes `true` as the third argument to `sketch()` — that turns on constraint mode, where the solver adjusts the drawn geometry to satisfy the constraints.
 
 ## Step 1: Base profile circles
 
@@ -37,52 +40,92 @@ The flange profile starts with two concentric circles and a smaller bolt hole ci
 
 ```js
 const baseSketch = sketch("xy", () => {
-    circle(42).reusable();
-    const c2 = circle(70).reusable();
-    hMove(50)
+    const c1 = circle([0, 0], 42).reusable();
+    const c2 = circle([0, 0], 70).reusable();
 ```
 
-`circle(42)` draws the inner bore circle. `circle(70)` draws the outer flange circle — we store it as `c2` because we'll reference it for tangent geometry later.
+`circle([0, 0], 42)` draws the inner bore circle at the origin, and `circle([0, 0], 70)` the outer flange circle. In a constraint sketch every primitive is fully specified — a center and a diameter — and those numbers act as *guesses* that the constraints later confirm or adjust.
 
 Both circles are marked `.reusable()`. Normally an `extrude()` consumes every shape in the sketch, but a reusable shape sticks around so a later feature can pick it up again. We'll use that in Step 4 to build the middle pipe without redrawing anything. We also keep a reference to the whole sketch as `baseSketch` so we can clean it up afterwards.
 
-`hMove(50)` moves the cursor 50 units to the right, positioning us at the bolt hole center.
+Further down in the sketch, constraints lock the circles in place:
+
+```js
+    fix(c1.center(), [0, 0]);
+    concentric(c1, c2);
+    diameter(c1, 42);
+    diameter(c2, 70);
+```
+
+`fix()` anchors the bore center at the origin, `concentric()` keeps the two circles sharing a center, and the `diameter()` dimensions pin their sizes.
 
 ![Base circles](/img/docs/tutorials/flange-with-notch-step1.png)
 
 ### Bolt hole and guide circle
 
 ```js
-    const c3 = circle(10)
-    const c4 = circle(32).guide()
+    const c3 = circle([50, 0], 10);
+    const c4 = circle([50, 0], 32).guide();
 ```
 
-`circle(10)` draws the bolt hole. `circle(32).guide()` places a larger construction circle — it's visible for reference but won't become part of the solid. This guide circle defines the tangent boundary for the connecting geometry between the flange and the bolt tabs.
+`circle([50, 0], 10)` draws the bolt hole 50 units to the right. `circle([50, 0], 32).guide()` places a larger construction circle around it — visible for reference, but never part of the solid. This guide circle defines the tangent boundary for the connecting geometry between the flange and the bolt tabs.
+
+Their constraints mirror the main pair:
+
+```js
+    fix(c3.center(), [50, 0]);
+    concentric(c3, c4);
+    diameter(c3, 10);
+    diameter(c4, 32);
+```
 
 ![Guide geometry](/img/docs/tutorials/flange-with-notch-step1-guides.png)
 
-## Step 2: Tangent lines and arc
+## Step 2: Tangent line and arc
 
-Now we connect the outer flange circle to the guide circle with tangent lines and a closing arc.
+Now we connect the outer flange circle to the guide circle with a tangent line and a closing arc.
 
-### Tangent lines
+### Tangent line
 
 ```js
-    const l1 = tLine(outside(c2), outside(c4))
-    const m = mirror("x", l1)
+    const l1 = line([13.3, 32.374527], [56.08, 14.799784]);
 ```
 
-`tLine(outside(c2), outside(c4))` draws a line tangent to both the outer flange circle and the guide circle, on the outside of each. The `outside` constraint ensures the line runs along the outer edges. `mirror("x", l1)` creates a matching tangent line on the other side, forming a symmetric pair.
+with its constraints:
+
+```js
+    tangent(l1, c2);
+    tangent(l1, c4);
+    coincident(l1.start(), c2);
+    coincident(l1.end(), c4);
+```
+
+The two `tangent()` constraints make the line touch both circles; the two `coincident()` constraints put its endpoints *on* the circles, so the segment runs exactly between the tangency points.
+
+A line can be tangent to two circles in four different ways — outside both, crossing between them, and so on. The solver picks the solution nearest the guess, so the start and end coordinates you draw choose the branch: here both points sit on the upper-outside of their circles, which lands the outer tangent. (The numbers are the exact tangency points, but nearby guesses solve to the same spot.)
+
+```js
+    const m = mirror("x", l1);
+```
+
+`mirror("x", l1)` creates the matching tangent line below the axis, forming a symmetric pair. Mirror is a *derived* operation — it stamps a copy of already-solved geometry, so it sits after the constraints in the sketch.
 
 ![Tangent lines](/img/docs/tutorials/flange-with-notch-step2-tangent.png)
 
 ### Closing arc
 
 ```js
-    const a = tArc(l1.end())
+    const a = arc([56.08, -14.799784], [56.08, 14.799784], [50, 0]);
 ```
 
-`tArc(l1.end())` draws an arc that smoothly connects the endpoints of the two tangent lines. The arc is tangent to the line at its end, creating a smooth transition around the bolt tab.
+```js
+    concentric(a, c4);
+    equal(a, c4);
+    coincident(a.end(), l1.end());
+    symmetric(a.start(), l1.end(), xAxis());
+```
+
+The cap around the bolt tab is an arc of the guide circle itself: `concentric()` and `equal()` make the arc share `c4`'s center and radius, so it rides the guide circle. `coincident(a.end(), l1.end())` joins it to the tangent line, and `symmetric(..., xAxis())` places its start point as the mirror image of that junction — exactly where the mirrored line ends. Because the arc is tangent-continuous with both lines, the tab outline is smooth.
 
 ![Tangent arc](/img/docs/tutorials/flange-with-notch-step2-arc.png)
 
@@ -91,7 +134,7 @@ Now we connect the outer flange circle to the guide circle with tangent lines an
 ### Mirror the profile
 
 ```js
-    mirror("y", l1, m, a, c3)
+    mirror("y", l1, m, a, c3);
 })
 ```
 
@@ -129,10 +172,27 @@ Once the pipe is built, `remove(baseSketch)` disposes of the sketch so its lefto
 ### Sketch the notch rectangle
 
 ```js
-sketch(plane("xy", 46), () => rect(30, 70).centered())
+sketch(plane("xy", 46), () => {
+    const nb = line([-15, -35], [15, -35]);
+    const nr = line([15, -35], [15, 35]);
+    const nt = line([15, 35], [-15, 35]);
+    const nl = line([-15, 35], [-15, -35]);
+
+    coincident(nb.end(), nr.start());
+    coincident(nr.end(), nt.start());
+    coincident(nt.end(), nl.start());
+    coincident(nl.end(), nb.start());
+    horizontal(nb);
+    vertical(nr);
+    horizontal(nt);
+    vertical(nl);
+    fix(nb.start(), [-15, -35]);
+    distance(nb.start(), nb.end(), 30);
+    distance(nr.start(), nr.end(), 70);
+})
 ```
 
-`plane("xy", 46)` creates a reference plane at the top of the pipe (46 units up). `rect(30, 70)` draws a 30 x 70 rectangle on that plane. `.centered()` centers it on the origin so it straddles the pipe wall.
+`plane("xy", 46)` creates a reference plane at the top of the pipe (46 units up). The rectangle is four lines closed by `coincident()` corner constraints, squared up by `horizontal()`/`vertical()`, anchored with `fix()`, and dimensioned 30 x 70 by the two `distance()` constraints. Its corners straddle the origin, so it sits centered over the pipe wall.
 
 ![Notch sketch](/img/docs/tutorials/flange-with-notch-step5-sketch.png)
 
@@ -152,13 +212,12 @@ cut(8)
 
 ```js
 sketch(base.endFaces(), () => {
-    hMove(50)
-    circle(20)
+    circle([50, 0], 20);
     mirror("y")
-});
+  });
 ```
 
-`base.endFaces()` gives us the top face of the flange base. `hMove(50)` moves to the bolt hole center. `circle(20)` draws a larger circle for the counter bore. `mirror("y")` mirrors it to the other bolt tab.
+`base.endFaces()` gives us the top face of the flange base. `circle([50, 0], 20)` draws a larger circle over the bolt hole center for the counter bore, and `mirror("y")` mirrors it to the other bolt tab.
 
 ![Counter bore sketch](/img/docs/tutorials/flange-with-notch-step6-sketch.png)
 
@@ -180,12 +239,12 @@ cut(4)
 
 ## What you practiced
 
-- **`circle().guide()`** — placing construction geometry that guides tangent lines but isn't part of the solid
-- **`tLine()` with `outside`** — drawing tangent lines between circles with geometric constraints
-- **`tArc()`** — connecting tangent lines with a smooth closing arc
-- **`mirror()` in sketches** — mirroring sketch geometry to create symmetric profiles
+- **`circle().guide()`** — placing construction geometry that guides tangency but isn't part of the solid
+- **`tangent()` + `coincident()`** — pinning a line between the tangency points of two circles, with guess placement choosing among the tangent solutions
+- **`concentric()` + `equal()`** — making an arc ride an existing circle to cap a tab
+- **`symmetric()` with `xAxis()`** — locating a point as a mirror image across a sketch datum
+- **`mirror()` in sketches** — mirroring solved geometry to create symmetric profiles
 - **`.reusable()`** — keeping sketch geometry alive across multiple features
 - **`remove()`** — disposing of a reusable sketch once you're done with it
 - **`plane()`** — creating offset reference planes for sketching
-- **`rect().centered()`** — centering a rectangle on the sketch origin
 - **`.endFaces()`** — referencing the top face of an extrusion for follow-up sketches

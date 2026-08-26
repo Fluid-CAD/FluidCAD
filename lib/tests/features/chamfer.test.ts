@@ -5,7 +5,7 @@ import extrude from "../../core/extrude.js";
 import chamfer from "../../core/chamfer.js";
 import select from "../../core/select.js";
 import cylinder from "../../core/cylinder.js";
-import { circle, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
 import { Chamfer } from "../../features/chamfer.js";
@@ -15,6 +15,7 @@ import { FilletOps } from "../../oc/fillet-ops.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
 import { edge } from "../../filters/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("chamfer", () => {
   setupOC();
@@ -22,8 +23,8 @@ describe("chamfer", () => {
   describe("basic chamfer", () => {
     it("should chamfer edges and produce a valid solid", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -36,8 +37,8 @@ describe("chamfer", () => {
 
     it("should add planar faces for each chamfered edge", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -56,8 +57,8 @@ describe("chamfer", () => {
 
     it("should not introduce any arc edges", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -76,8 +77,8 @@ describe("chamfer", () => {
 
     it("should increase face count compared to original box", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -94,8 +95,8 @@ describe("chamfer", () => {
 
     it("should reduce volume compared to original box", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -113,8 +114,8 @@ describe("chamfer", () => {
 
     it("should preserve bounding box dimensions", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -136,8 +137,8 @@ describe("chamfer", () => {
   describe("chamfer with explicit selection", () => {
     it("should chamfer only the selected edges", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       const sel = select(edge().onPlane("xy", { offset: 30 }));
@@ -176,8 +177,8 @@ describe("chamfer", () => {
   describe("chamfer vs fillet", () => {
     it("chamfer should produce no cylindrical faces while fillet does", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -197,8 +198,8 @@ describe("chamfer", () => {
   describe("chamfer distance", () => {
     it("should use default distance of 1", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -219,8 +220,8 @@ describe("chamfer", () => {
 
     it("flags an error when a lazy selection resolves to no edges", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as Extrude;
 
       // Accessor selections are lazy, so validate() can't see their
@@ -244,8 +245,8 @@ describe("chamfer", () => {
 
       try {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         select(edge().verticalTo("xy"));

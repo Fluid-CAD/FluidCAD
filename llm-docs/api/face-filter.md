@@ -48,10 +48,15 @@ Returns a chainable filter builder. Chain calls narrow the candidate set
 ## Example
 
 ```fluid.js
-import { extrude, fillet, rect, select, sketch } from "fluidcad/core";
+import { extrude, fillet, line, select, sketch } from "fluidcad/core";
 import { face } from "fluidcad/filters";
 
-sketch("xy", () => rect(100, 80).centered());
+sketch("xy", () => {
+  line([-50, -40], [50, -40]);
+  line([50, -40], [50, 40]);
+  line([50, 40], [-50, 40]);
+  line([-50, 40], [-50, -40]);
+});
 const e = extrude(30);
 select(face().planar().onPlane("xy", 30));   // top face only
 fillet(4);

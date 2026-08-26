@@ -9,7 +9,7 @@ import assembly from "../core/assembly.js";
 import connector from "../core/connector.js";
 import insert from "../core/insert.js";
 import mate from "../core/mate.js";
-import { rect } from "../core/2d/index.js";
+import { testRect } from "./helpers/profiles.js";
 import { face } from "../filters/index.js";
 import { Part } from "../features/part.js";
 import { Occurrence } from "../features/occurrence.js";
@@ -17,7 +17,7 @@ import { Instance } from "../features/instance.js";
 
 function buildBlock(name = "block"): Part {
   return part(name, () => {
-    sketch("xy", () => rect(20, 20));
+    sketch("xy", () => { testRect(20, 20); });
     extrude(10);
     connector("top", select(face().planar().onPlane("xy", 10)));
   }) as unknown as Part;

@@ -16,8 +16,7 @@ bezier(...points: Point2D[])
 ```
 
 The first argument is the explicit start, the last is the endpoint; any
-arguments in between are control points. Sets the sketch cursor to the
-endpoint.
+arguments in between are control points.
 
 | Args | Degree   | Shape                                |
 |------|----------|--------------------------------------|
@@ -33,7 +32,8 @@ import { bezier, extrude, line, sketch } from "fluidcad/core";
 sketch("xy", () => {
   line([0, 0], [0, 40]);
   bezier([0, 40], [20, 80], [80, 80], [100, 40]);   // cubic bezier
-  line([0, 0]);
+  line([100, 40], [100, 0]);
+  line([100, 0], [0, 0]);
 });
 extrude(4);
 ```

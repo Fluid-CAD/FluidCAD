@@ -32,10 +32,10 @@ import { arc, circle, line, sketch, sweep } from "fluidcad/core";
 
 const path = sketch("xy", () => {
   line([0, 0], [100, 0]);
-  arc([200, 100]).radius(150);
+  arc([100, 0], [200, 100], [100, 100]);  // tangent continuation of the line
 }).reusable();
 
-sketch("yz", () => circle(8));
+sketch("yz", () => circle([0, 0], 8));
 sweep(path);
 ```
 

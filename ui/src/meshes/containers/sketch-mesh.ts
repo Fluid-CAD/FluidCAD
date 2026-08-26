@@ -14,7 +14,6 @@ import { SceneObjectRender } from '../../types';
 import { EdgeMesh } from '../shape-meshes/edge-mesh';
 import { createMetaEdgeMesh } from './shape-group';
 import { isDraggableSketchObject } from '../../interactive/sketch-edge-utils';
-import { buildConstraintIcons } from './constraint-icon';
 import { buildSolvedConstraintMeshes } from './solved-constraint-meshes';
 import type { SolvedGlyphLayout } from './solved-glyph-layout';
 import { addFrameHook } from '../frame-hooks';
@@ -479,10 +478,6 @@ export class SketchMesh extends Group {
       // layout, and let the frame hook place them (screen-space hit test —
       // badges float a pixel offset away from their anchors).
       this.rebuildSolvedGlyphs();
-      return;
-    }
-    for (const icon of buildConstraintIcons(sceneObject, allObjects)) {
-      this.add(icon);
     }
   }
 

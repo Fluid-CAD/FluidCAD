@@ -1,10 +1,10 @@
 ---
 id: api/arc
-title: arc(end) / arc(radius, startAngle, endAngle)
-summary: Circular arc. Point form runs from the cursor (or explicit start) to `end`; angle form sweeps an angular range. Angles are relative to the current tangent and in degrees.
+title: arc(start, end, center)
+summary: Circular arc specified by start, end, and center guesses. Sweeps counterclockwise by default — chain .cw() for the other side. Constrain with tangent/radius/coincident for exact geometry.
 tags: [api, 2d, primitive, curve]
 symbols: [arc]
-seeAlso: [api/circle, api/bezier, api/line]
+seeAlso: [api/circle, api/bezier, api/line, api/constraints]
 ---
 
 # arc
@@ -12,37 +12,47 @@ seeAlso: [api/circle, api/bezier, api/line]
 Imported from `fluidcad/core`.
 
 ```ts
-arc(endPoint: Point2D)                        // from cursor through implicit center
-arc(startPoint, endPoint)
-arc(radius, startAngle?, endAngle?)           // angle form (defaults 0..180)
-arc(targetPlane, endPoint)
-arc(targetPlane, startPoint, endPoint)
-arc(targetPlane, radius, startAngle, endAngle)
+arc(start: Point2D, end: Point2D, center: Point2D)
 ```
 
-## Point form — `ArcPoints`
+Returns a solved arc entity. All three points are **guesses** — internal
+consistency rows reconcile them onto one circle, and constraints refine
+the result. The sweep runs **counterclockwise** from start to end;
+chain `.cw()` to sweep clockwise instead.
 
-- `.radius(value)` — bulge radius. Positive bulges CCW; negative bulges CW.
-- `.center(point)` — fix the center explicitly (mutually exclusive with `.radius()`).
+Accessors for constraint targets: `.start()`, `.end()`, `.center()`.
+Chain `.guide()` for a construction arc. Size it with `radius(a, v)` or
+`diameter(a, v)`; join it smoothly with `coincident` + `tangent`.
 
-## Angle form — `ArcAngles`
-
-- `.centered()` — center the sweep around the start angle.
-- Angles are degrees, relative to the **current tangent**.
-
-## Example
+## Example — tangent line–arc junction
 
 ```fluid.js
 import { arc, extrude, line, sketch } from "fluidcad/core";
+import { coincident, tangent, horizontal, vertical, fix, radius, distance } from "fluidcad/constraints";
 
 sketch("xy", () => {
-  line([0, 0], [60, 0]);
-  arc([100, 40]).radius(50);   // bulge from cursor to (100,40)
-  line([100, 60]);
-  line([0, 60]);
-  line([0, 0]);
+  const l = line([0, 0], [48, 2]);
+  const a = arc([48, 2], [70, 25], [50, 22]);
+  const back = line([70, 25], [0, 25]);
+  const left = line([0, 25], [0, 0]);
+  coincident(l.end(), a.start());
+  coincident(a.end(), back.start());
+  coincident(back.end(), left.start());
+  coincident(left.end(), l.start());
+  tangent(l, a);
+  horizontal(l);
+  vertical(left);
+  fix(l.start());
+  radius(a, 20);
+  distance(l.start(), l.end(), 50);
 });
 extrude(5);
 ```
 
-See [[api/circle]] for full circles and [[api/bezier]] for free curves.
+The `coincident` at the junction joins the profile; `tangent(l, a)`
+removes the kink; the `radius` dimension sizes the arc. Because the
+radius to a tangent junction is perpendicular to the line, the solved
+center sits straight above the join.
+
+See [[api/circle]] for full circles, [[api/bezier]] for free curves, and
+[[api/constraints]] for the constraint catalog.

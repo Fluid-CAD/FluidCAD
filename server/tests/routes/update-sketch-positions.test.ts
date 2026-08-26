@@ -13,7 +13,7 @@ const CODE = [
   ``,
   `sketch('xy', () => {`,
   `  const a = line([0, 0], [10, 0]);`,
-  `}, true);`,
+  `});`,
 ].join('\n');
 
 let server: http.Server;

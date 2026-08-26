@@ -35,7 +35,6 @@ import { synthesizeSketchApplyFeature, resolveSketchStatementTargets, SketchTarg
 import type { SketchApplyFeatureKind, SketchPickRef, SketchSynthesizeOptions } from "./selection/sketch-apply.js";
 import { expandBucket, expandTangentChain, ExpandBucketResult, ExpandTangentsResult } from "./selection/expand.js";
 import { listSelectionGroups, SelectionGroupsResult } from "./selection/selection-groups.js";
-import { listSegmentConversions, SegmentConversionsResult } from "./selection/segment-conversion.js";
 import { resolveFeatureSources, FeatureSourcesResult } from "./selection/feature-sources.js";
 import { resolveScopedScene } from "./selection/types.js";
 import type {
@@ -316,11 +315,6 @@ class SceneManager {
 
   listSelectionGroups(scene: Scene, ref: PickRef, before?: SelectionBoundary): SelectionGroupsResult {
     return withBoundary(scene, before, scoped => listSelectionGroups(scoped, ref));
-  }
-
-  /** Legal constrained/free conversions for a picked chained sketch segment. */
-  listSegmentConversions(scene: Scene, ref: { shapeId: string }): SegmentConversionsResult {
-    return listSegmentConversions(scene, ref);
   }
 
   resolveFeatureSources(scene: Scene, boundary: SelectionBoundary): FeatureSourcesResult {

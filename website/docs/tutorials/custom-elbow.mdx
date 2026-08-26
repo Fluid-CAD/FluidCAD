@@ -12,7 +12,7 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={customElbowFinal} entry="custom-elbow.fluid.js" />
 
-In this tutorial, you'll build a 45° pipe elbow with a square base flange and a round slotted flange, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=LiixZYdDycc). It covers reusable spine sketches, sweeping individual sketch regions, boring with a removal sweep, sketching on swept end faces, circular sketch copies, stepped slot cuts, and circular feature repeats around an axis built from a sketch segment.
+In this tutorial, you'll build a 45° pipe elbow with a square base flange and a round slotted flange, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=LiixZYdDycc). It covers reusable spine sketches, tangent-arc paths built from constraints, sweeping individual sketch regions, boring with a removal sweep, sketching on swept end faces, circular sketch copies, stepped slot cuts, and circular feature repeats around an axis built from a sketch segment.
 
 Create a new file called `custom-elbow.fluid.js` in your project.
 
@@ -21,11 +21,13 @@ Create a new file called `custom-elbow.fluid.js` in your project.
 Start with the imports.
 
 ```js
-import { axis, circle, copy, cut, extrude, hMove, move, rect, remove, repeat,
-    sketch, slot, sweep, tArc, tLine, vLine } from "fluidcad/core";
+import { arc, axis, circle, copy, cut, extrude, fillet, line, project, remove,
+    repeat, sketch, sweep } from "fluidcad/core";
+import { coincident, concentric, diameter, distance, equal, fix, horizontal,
+    radius, tangent, vertical } from "fluidcad/constraints";
 ```
 
-Everything comes from **`fluidcad/core`** — the sketching primitives, the 3D operations, and the pattern utilities.
+The geometry primitives and 3D operations come from **`fluidcad/core`**; the constraint statements that pin the geometry down come from **`fluidcad/constraints`**.
 
 ## Step 1: The elbow spine
 
@@ -33,9 +35,19 @@ The whole part hangs off a single path: a vertical run, a 45° bend, and a strai
 
 ```js
 const spine = sketch("front", () => {
-    vLine(1.5)
-    tArc(-4, 45);
-    const topSegment = tLine(1.5);
+    const riser = line([0, 0], [0, 1.5]);
+    const bend = arc([0, 1.5], [1.171573, 4.328427], [4, 1.5]).cw();
+    const topSegment = line([1.171573, 4.328427], [2.232233, 5.389087]);
+
+    coincident(riser.end(), bend.start());
+    coincident(bend.end(), topSegment.start());
+    vertical(riser);
+    tangent(riser, bend);
+    tangent(bend, topSegment);
+    fix(riser.start(), [0, 0]);
+    distance(riser.start(), riser.end(), 1.5);
+    radius(bend, 4);
+    distance(topSegment.start(), topSegment.end(), 1.5);
 
     return {
         topSegment
@@ -43,7 +55,9 @@ const spine = sketch("front", () => {
 }).reusable();
 ```
 
-`vLine(1.5)` draws a vertical line 1.5 units straight up from the origin. `tArc(-4, 45)` continues from its end with a tangent arc of radius 4 that stops once the path direction has turned to 45° — the negative radius flips the sweep direction so the arc bends away from the vertical run instead of curling back over it. `tLine(1.5)` then extends the path 1.5 units in a straight line, tangent to the arc, so the exit leg leaves at exactly 45°.
+The `true` after the callback makes this a **constraint sketch**: the geometry statements are guesses, and the constraint statements below them decide where everything actually lands. `line` and `arc` take fully-specified coordinates — an arc is given by its start, end, and center — and the solver adjusts them to satisfy the constraints.
+
+The path itself is three connected segments. The two `coincident` constraints chain them end-to-start, `vertical(riser)` keeps the first leg straight up, and the two `tangent` constraints make the bend flow smoothly out of the riser and into the exit leg — that tangency is what makes the exit leave at exactly 45° once the arc spans a 45° turn. `fix` anchors the path's start at the origin, and the dimensions pin the sizes: a 1.5 riser, a radius-4 bend, and a 1.5 exit. The `.cw()` on the arc picks the clockwise sweep from start to end, so the bend curls away from the vertical run instead of back over it.
 
 We return `topSegment` from the sketch callback — whatever the callback returns is attached as `.regions` on the sketch, so `spine.regions.topSegment` gives us a named handle on that last straight segment. We'll turn it into the pattern axis in the final step.
 
@@ -59,17 +73,16 @@ The pipe cross-section is two concentric circles on the top plane, centered wher
 
 ```js
 const profile = sketch("top", () => {
-    const innerPipe = circle(1.5)
-    const outerPipe = circle(2);
-
+    const innerPipe = circle([0, 0], 1.5);
+    const outerPipe = circle([0, 0], 2);
     return {
         innerPipe,
         outerPipe
     }
-});
+  });
 ```
 
-`circle(1.5)` is the bore — 1.5 units in diameter — and `circle(2)` is the pipe's outside diameter, giving a 0.25 wall. Returning both attaches them as named regions, so we can hand each circle to a different sweep.
+`circle([0, 0], 1.5)` is the bore — 1.5 units in diameter at the origin — and `circle([0, 0], 2)` is the pipe's outside diameter, giving a 0.25 wall. Returning both attaches them as named regions, so we can hand each circle to a different sweep.
 
 ![Pipe profile](/img/docs/tutorials/custom-elbow-step2-sketch.png)
 
@@ -91,17 +104,37 @@ The base flange is a rounded square plate with four bolt holes, drawn on the top
 
 ```js
 sketch("top", () => {
-    rect(3.5).centered().radius(0.5)
-    move([-2.5 / 2, -2.5 / 2])
-    const c = circle(0.5)
+    const bottom = line([-1.75, -1.75], [1.75, -1.75]);
+    const right = line([1.75, -1.75], [1.75, 1.75]);
+    const top = line([1.75, 1.75], [-1.75, 1.75]);
+    const left = line([-1.75, 1.75], [-1.75, -1.75]);
+    const bolt = circle([-1.25, -1.25], 0.5);
+
+    coincident(bottom.end(), right.start());
+    coincident(right.end(), top.start());
+    coincident(top.end(), left.start());
+    coincident(left.end(), bottom.start());
+    horizontal(bottom);
+    vertical(right);
+    horizontal(top);
+    vertical(left);
+    fix(bottom.start(), [-1.75, -1.75]);
+    distance(bottom.start(), bottom.end(), 3.5);
+    distance(right.start(), right.end(), 3.5);
+    fix(bolt.center(), [-1.25, -1.25]);
+    diameter(bolt, 0.5);
+
+    fillet(0.5, bottom, right, top, left);
     copy("circular", [0, 0], {
         count: 4,
         angle: 360
-    }, c)
+    }, bolt);
 });
 ```
 
-`rect(3.5).centered().radius(0.5)` draws a 3.5-unit square centered on the origin with 0.5-radius rounded corners. `move([-2.5 / 2, -2.5 / 2])` jumps the cursor to one corner of the 2.5 × 2.5 bolt pattern, and `circle(0.5)` places a 0.5-diameter bolt hole there. `copy("circular", [0, 0], { count: 4, angle: 360 }, c)` copies that hole 4 times evenly around the sketch origin, landing one hole near each corner of the plate. Because the holes are closed shapes inside the plate outline, they extrude as cutouts automatically.
+The four lines close into a 3.5-unit square centered on the origin: coincident corners, horizontal/vertical sides, one fixed corner, and two `distance` dimensions make it fully constrained. `fillet(0.5, ...)` then rounds every corner shared by the four lines with a 0.5-radius arc.
+
+The bolt hole is a 0.5-diameter circle fixed at `[-1.25, -1.25]` — one corner of the 2.5 × 2.5 bolt pattern. `copy("circular", [0, 0], { count: 4, angle: 360 }, bolt)` copies that hole 4 times evenly around the sketch origin, landing one hole near each corner of the plate. Because the holes are closed shapes inside the plate outline, they extrude as cutouts automatically.
 
 ![Base flange sketch](/img/docs/tutorials/custom-elbow-step3-sketch.png)
 
@@ -123,11 +156,15 @@ The round flange sits on the angled end of the pipe, so we sketch directly on th
 
 ```js
 sketch(pipe.endFaces(), () => {
-    circle(4)
-});
+    const rim = project(pipe.endFaces()).guide();
+    const flange = circle([0, 0], 4);
+
+    concentric(flange, rim);
+    diameter(flange, 4);
+  });
 ```
 
-`pipe.endFaces()` returns the face at the end of the sweep path — the 45° face. Sketching on it orients the sketch to that plane, with the origin at the face center, so `circle(4)` drops a 4-diameter flange disc concentric with the pipe.
+`pipe.endFaces()` returns the face at the end of the sweep path — the 45° face. Sketching on it orients the sketch to that plane, but the sketch's local origin is not necessarily the center of the pipe, so we don't hardcode the flange position. Instead, `project(pipe.endFaces())` brings the face's circular rim into the sketch as a fixed reference — `.guide()` keeps it out of the profile — and `concentric(flange, rim)` locks the drawn circle onto the pipe's centerline. With `diameter(flange, 4)` the flange disc is fully constrained: a 4-diameter circle exactly concentric with the pipe, wherever the face sits.
 
 ![Upper flange sketch](/img/docs/tutorials/custom-elbow-step4-sketch.png)
 
@@ -157,33 +194,78 @@ This sweeps the 1.5-diameter `innerPipe` region along the same reusable spine, a
 
 ### Sketch two stacked slots
 
-The upper flange carries four radial bolt slots, each with a wider shallow relief around a narrower through-slot. We sketch one pair and pattern it later.
+The upper flange carries four radial bolt slots, each with a wider shallow relief around a narrower through-slot. The two slot outlines get cut to different depths, so we draw each one in its own sketch — one region per sketch — and pattern the cuts later.
 
 ```js
-const slots = sketch(upperFlange.endFaces(), () => {
-    hMove(3.25 / 2)
-    const outerSlot = slot(1, .75 / 2)
-    const innerSlot = slot(1, .45 / 2)
+const outerSlot = sketch(upperFlange.endFaces(), () => {
+    const outline = project(upperFlange.endFaces()).guide();
+    const spoke = line([0, 0], [1.625, 0]).guide();
+    const bottom = line([1.625, -0.375], [2.625, -0.375]);
+    const capRight = arc([2.625, -0.375], [2.625, 0.375], [2.625, 0]);
+    const top = line([2.625, 0.375], [1.625, 0.375]);
+    const capLeft = arc([1.625, 0.375], [1.625, -0.375], [1.625, 0]);
 
-    return {
-        outerSlot,
-        innerSlot
-    }
+    coincident(bottom.end(), capRight.start());
+    coincident(capRight.end(), top.start());
+    coincident(top.end(), capLeft.start());
+    coincident(capLeft.end(), bottom.start());
+    horizontal(bottom);
+    horizontal(top);
+    tangent(bottom, capRight);
+    tangent(top, capLeft);
+    equal(capRight, capLeft);
+    radius(capRight, 0.375);
+    horizontal(spoke);
+    coincident(spoke.start(), outline.ref(0).center());
+    coincident(spoke.end(), capLeft.center());
+    distance(spoke.start(), spoke.end(), 1.625);
+    distance(capLeft.center(), capRight.center(), 1);
 });
 ```
 
-`upperFlange.endFaces()` is the face the flange extrusion finished on, so the sketch origin sits on the pipe centerline. `hMove(3.25 / 2)` slides the cursor out to the 3.25-diameter bolt circle. `slot(1, .75 / 2)` draws a slot 1 unit long with 0.375-radius end caps — 0.75 wide — extending radially outward from the cursor, and `slot(1, .45 / 2)` draws a narrower 0.45-wide slot on the same footprint. Returning both gives us a named region for each, because the two slots get cut to different depths.
+`upperFlange.endFaces()` is the face the flange extrusion finished on. The slot itself is two horizontal lines capped by two semicircular arcs: the coincidents close the outline, the `tangent` constraints blend the lines into the caps, `equal` keeps both caps the same radius, and the dimensions make it 1 unit long with 0.375-radius caps — 0.75 wide.
+
+What places the slot is the *spoke*: as in step 4, we don't assume the flange's center is the sketch origin. `project(upperFlange.endFaces()).guide()` brings the face outline in as a fixed reference — both of its edges (the flange rim and the bore) are circles centered on the pipe axis, so `outline.ref(0).center()` is the flange center. The `spoke` guide line starts there, runs horizontally, and ends on the left cap center, and `distance(..., 1.625)` puts that cap on the 3.25-diameter bolt circle. Because both the spoke and the slot are horizontal, the slot extends radially outward from the flange center.
+
+```js
+const innerSlot = sketch(upperFlange.endFaces(), () => {
+    const outline = project(upperFlange.endFaces()).guide();
+    const spoke = line([0, 0], [1.625, 0]).guide();
+    const bottom = line([1.625, -0.225], [2.625, -0.225]);
+    const capRight = arc([2.625, -0.225], [2.625, 0.225], [2.625, 0]);
+    const top = line([2.625, 0.225], [1.625, 0.225]);
+    const capLeft = arc([1.625, 0.225], [1.625, -0.225], [1.625, 0]);
+
+    coincident(bottom.end(), capRight.start());
+    coincident(capRight.end(), top.start());
+    coincident(top.end(), capLeft.start());
+    coincident(capLeft.end(), bottom.start());
+    horizontal(bottom);
+    horizontal(top);
+    tangent(bottom, capRight);
+    tangent(top, capLeft);
+    equal(capRight, capLeft);
+    radius(capRight, 0.225);
+    horizontal(spoke);
+    coincident(spoke.start(), outline.ref(0).center());
+    coincident(spoke.end(), capLeft.center());
+    distance(spoke.start(), spoke.end(), 1.625);
+    distance(capLeft.center(), capRight.center(), 1);
+});
+```
+
+The inner slot is the same construction with 0.225-radius caps — a narrower 0.45-wide slot. Anchored by an identical spoke to the same flange center, it lands exactly on the outer slot's footprint.
 
 ![Slot sketch](/img/docs/tutorials/custom-elbow-step6-sketch.png)
 
 ### Cut each slot to its own depth
 
 ```js
-const s1 = cut(slots.regions.innerSlot)
-const s2 = cut(.25, slots.regions.outerSlot)
+const s1 = cut(innerSlot)
+const s2 = cut(.25, outerSlot)
 ```
 
-`cut(slots.regions.innerSlot)` with no depth cuts the narrow slot all the way through the flange. `cut(.25, slots.regions.outerSlot)` cuts the wide slot only 0.25 deep, leaving a stepped recess around the through-slot. We capture both cuts as `s1` and `s2` — they're the features we're about to pattern.
+`cut(innerSlot)` with no depth cuts the narrow slot all the way through the flange. `cut(.25, outerSlot)` cuts the wide slot only 0.25 deep, leaving a stepped recess around the through-slot. We capture both cuts as `s1` and `s2` — they're the features we're about to pattern.
 
 ![Stepped slot cut](/img/docs/tutorials/custom-elbow-step6.png)
 
@@ -214,18 +296,20 @@ Finally, `remove(spine)` deletes the reusable spine sketch from the scene — ev
 
 ## What you practiced
 
+- **`sketch(plane, callback)`** — constraint sketches: fully-specified geometry guesses pinned down by constraint statements
 - **`sketch().reusable()`** — keeping one path sketch alive for multiple consumers (two sweeps and an axis)
 - **returning shapes from a sketch** — attaching named `.regions` handles to geometry for later reference
-- **`tArc(radius, endAngle)`** — tangent arcs that stop at a target direction, with a negative radius to flip the bend
-- **`tLine(length)`** — straight segments that continue tangent to the previous arc
+- **`tangent(a, b)`** — blending lines and arcs into a smooth path, so the exit leg leaves the bend at exactly 45°
+- **`arc(start, end, center).cw()`** — choosing the sweep side of an arc so the bend curls the right way
 - **`sweep(path, region)`** — sweeping one named region of a multi-region profile, leaving the rest available
 - **`sweep().remove()`** — using a sweep as a subtraction to bore through several features at once
 - **`sketch(op.endFaces(), ...)`** — sketching directly on the face an operation finished on
 - **`extrude(-depth)`** — extruding backwards so a face-based feature stays flush with its face
-- **`rect().centered().radius()`** — centered rounded-corner plates
+- **`fillet(radius, ...lines)`** — rounding the shared corners of a constrained outline
 - **`copy("circular", center, options, shape)`** — circular copies of sketch geometry
-- **`slot(length, radius)`** — slots drawn from the cursor with round end caps
-- **`cut(depth, region)`** — cutting different regions of one sketch to different depths
+- **`project(face).guide()`** — projecting a face outline as a fixed reference to anchor sketch geometry to the model instead of hardcoded coordinates
+- **guide lines** — a construction spoke that places a slot radially without joining the profile
+- **`cut(depth, sketch)`** — cutting two stacked slot sketches to different depths
 - **`axis(segment)`** — turning a named sketch segment into a pattern axis
 - **`repeat("circular", axis, options, ...features)`** — patterning multiple cut features around an axis
 - **`remove()`** — clearing a reusable sketch once every consumer is done with it

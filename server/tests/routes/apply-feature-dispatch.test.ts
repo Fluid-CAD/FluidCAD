@@ -16,12 +16,12 @@ let relayed: any[];
 let delivered: boolean;
 
 const CODE = [
-  `import { sketch, rect, aLine, move } from 'fluidcad/core'`,
+  `import { sketch, circle, line, point } from 'fluidcad/core'`,
   ``,
   `sketch('xy', () => {`,
-  `  rect(80, 60)`,
-  `  move([0, 60])`,
-  `  aLine(135, 30)`,
+  `  circle([0, 0], 80)`,
+  `  point([0, 60])`,
+  `  line([0, 0], [135, 30])`,
   `})`,
   ``,
 ].join('\n');
@@ -32,7 +32,7 @@ const GOOD_SPEC = {
   value: 4,
   filePath: '/ws/m.fluid.js',
   producers: [
-    { line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true },
+    { line: 4, column: 2, featureType: 'circle', nameHint: 'r', bind: true },
     { line: 6, column: 2, featureType: 'line', nameHint: 'l', bind: true },
   ],
   parts: [
@@ -160,14 +160,14 @@ describe('apply-feature dispatch preflight and ack', () => {
     const msg = await untilRelayed();
 
     // The host's buffer no longer holds the statements the spec addresses.
-    const drifted = CODE.replace('rect(80, 60)', 'circle(30)');
+    const drifted = CODE.replace('circle([0, 0], 80)', 'line([0, 0], [30, 0])');
     const roundTrip = await postRoundTrip(drifted, msg.spec);
-    expect(roundTrip.body.error).toContain('expected a rect()-producing call');
+    expect(roundTrip.body.error).toContain('expected a circle()-producing call');
 
     const { status, body } = await applied;
     expect(status).toBe(422);
     expect(body.success).toBe(false);
-    expect(body.reason).toContain('expected a rect()-producing call');
+    expect(body.reason).toContain('expected a circle()-producing call');
   });
 
   it('reports a timeout when the editor never round-trips', async () => {

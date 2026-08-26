@@ -3,13 +3,14 @@ import { setupOC, render } from "../../setup.js";
 import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import cylinder from "../../../core/cylinder.js";
-import { project, rect, circle } from "../../../core/2d/index.js";
+import { project, circle } from "../../../core/2d/index.js";
 import { Extrude } from "../../../features/extrude.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { Cylinder } from "../../../features/cylinder.js";
 import { Shape } from "../../../common/shape.js";
 import { Edge } from "../../../common/edge.js";
 import { EdgeOps } from "../../../oc/edge-ops.js";
+import { testRect } from "../../helpers/profiles.js";
 
 // Asserts no two projected edges share a midpoint within tolerance — a strong
 // signal that overlap-dedup ran and removed coincident projections.
@@ -30,8 +31,8 @@ describe("project — regression: all projected edges land on sketch plane", () 
 
   it("projects endFaces of a plain extrude onto z=0 (the sketch plane)", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30) as Extrude;
 
     const s = sketch("xy", () => {
@@ -63,8 +64,8 @@ describe("project — regression: all projected edges land on sketch plane", () 
     cylinder(15, 40) as Cylinder;
 
     sketch("xy", () => {
-      rect(80, 40);
-    });
+        testRect(80, 40);
+      });
     const e = extrude(20) as Extrude;
 
     const s = sketch("xy", () => {
@@ -111,8 +112,8 @@ describe("project — regression: all projected edges land on sketch plane", () 
 
   it("dedupes when the same source is projected twice", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30) as Extrude;
     const ef = e.endFaces();
 

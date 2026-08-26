@@ -4,7 +4,7 @@ import http from 'http';
 import { setupOC, render } from '../../../lib/tests/setup.ts';
 import sketch from '../../../lib/core/sketch.ts';
 import extrude from '../../../lib/core/extrude.ts';
-import { rect } from '../../../lib/core/2d/index.ts';
+import { circle } from '../../../lib/core/2d/index.ts';
 import { FluidCadServer } from '../../src/fluidcad-server.ts';
 import { createSceneRouter } from '../../src/routes/scene.ts';
 
@@ -40,7 +40,7 @@ describe('scene routes', () => {
 
   function buildFixtureScene() {
     sketch('xy', () => {
-      rect(100, 50);
+      circle([0, 0], 100);
     });
     extrude(30);
     const rendered = render();

@@ -7,7 +7,8 @@ import revolve from "../../core/revolve.js";
 import cylinder from "../../core/cylinder.js";
 import select from "../../core/select.js";
 import plane from "../../core/plane.js";
-import { circle, line, move, rect, slot, text, vMove } from "../../core/2d/index.js";
+import { arc, circle, line, text } from "../../core/2d/index.js";
+import { coincident } from "../../core/constraints/index.js";
 import { face } from "../../filters/index.js";
 import { Wrap } from "../../features/wrap.js";
 import { Extrude } from "../../features/extrude.js";
@@ -18,6 +19,7 @@ import { Plane } from "../../math/plane.js";
 import { Point } from "../../math/point.js";
 import { Vector3d } from "../../math/vector3d.js";
 import { countShapes } from "../utils.js";
+import { testRect } from "../helpers/profiles.js";
 
 const CYLINDER_VOLUME = Math.PI * 50 * 50 * 100;
 // A wrapped pad between radii R and R+t with arc width s and height h has
@@ -48,8 +50,8 @@ describe("wrap", () => {
     it("fuses a wrapped rectangle pad with the cylinder", () => {
       const { faceSelection } = setupCylinderScene();
       const decal = sketch(plane("front", 50), () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
 
       const w = wrap(2, decal, faceSelection) as Wrap;
       const scene = render();
@@ -62,8 +64,8 @@ describe("wrap", () => {
     it("classifies start, end and side faces", () => {
       const { faceSelection } = setupCylinderScene();
       const decal = sketch(plane("front", 50), () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
 
       const w = wrap(2, decal, faceSelection) as Wrap;
       render();
@@ -80,12 +82,10 @@ describe("wrap", () => {
       // instead of at the same point as the development-normal probe.
       const { faceSelection } = setupCylinderScene();
       const decal = sketch(plane("front", 50), () => {
-        rect(10, 10);
-        move([60, 0]);
-        rect(10, 10);
-        move([-60, 0]);
-        rect(10, 10);
-      });
+          testRect(10, 10);
+          testRect(10, 10, { at: [60, 0] });
+          testRect(10, 10, { at: [-60, 0] });
+        });
 
       const w = wrap(2, decal, faceSelection) as Wrap;
       render();
@@ -100,10 +100,9 @@ describe("wrap", () => {
     it("classifies hole walls as internal faces", () => {
       const { faceSelection } = setupCylinderScene();
       const decal = sketch(plane("front", 50), () => {
-        rect(20, 10);
-        move([6, 3]);
-        rect(8, 4);
-      });
+          testRect(20, 10);
+          testRect(8, 4, { at: [6, 3] });
+        });
 
       const w = wrap(2, decal, faceSelection) as Wrap;
       const scene = render();
@@ -123,11 +122,11 @@ describe("wrap", () => {
     it("wraps an explicitly passed sketch", () => {
       const { faceSelection } = setupCylinderScene();
       const decal = sketch(plane("front", 50), () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       sketch(plane("front", 60), () => {
-        rect(6, 6);
-      });
+          testRect(6, 6);
+        });
 
       const w = wrap(2, decal, faceSelection) as Wrap;
       render();
@@ -141,8 +140,8 @@ describe("wrap", () => {
     it("cuts a wrapped pocket into the cylinder", () => {
       const { faceSelection } = setupCylinderScene();
       const decal = sketch(plane("front", 50), () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
 
       const w = wrap(2, decal, faceSelection).remove() as Wrap;
       const scene = render();
@@ -158,8 +157,8 @@ describe("wrap", () => {
       // icons it as one. Only getUniqueType() distinguishes the op.
       const { faceSelection } = setupCylinderScene();
       const decal = sketch(plane("front", 50), () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
 
       const w = wrap(2, decal, faceSelection).remove() as Wrap;
 
@@ -172,8 +171,8 @@ describe("wrap", () => {
     it("keeps the wrapped pad separate from the cylinder", () => {
       const { faceSelection } = setupCylinderScene();
       const decal = sketch(plane("front", 50), () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
 
       const w = wrap(2, decal, faceSelection).new() as Wrap;
       const scene = render();
@@ -191,13 +190,13 @@ describe("wrap", () => {
       // A box hovering just off the cylinder surface, overlapping the region
       // the pad will occupy (pad spans y ∈ [-52, -50]).
       sketch(plane("front", 50.5), () => {
-        rect(40, 30);
-      });
+          testRect(40, 30);
+        });
       extrude(10) as Extrude;
 
       const decal = sketch(plane("front", 50), () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       return { target, faceSelection, decal };
     }
 
@@ -226,8 +225,8 @@ describe("wrap", () => {
     it("rejects a non-positive thickness", () => {
       const { faceSelection } = setupCylinderScene();
       const decal = sketch(plane("front", 50), () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
 
       expect(() => wrap(0, decal, faceSelection)).toThrow(/positive/);
       expect(() => wrap(-2, decal, faceSelection)).toThrow(/positive/);
@@ -236,8 +235,8 @@ describe("wrap", () => {
     it("requires both a sketch and a target face", () => {
       const { faceSelection } = setupCylinderScene();
       const decal = sketch(plane("front", 50), () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
 
       // The implicit "last sketch" forms are no longer accepted — both the
       // sketch and the target face must be passed explicitly.
@@ -251,12 +250,12 @@ describe("wrap", () => {
 
     it("reports an error for planar target faces", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const base = extrude(10) as Extrude;
       const decal = sketch(plane("xy", 20), () => {
-        rect(10, 10);
-      });
+          testRect(10, 10);
+        });
 
       const w = wrap(2, decal, base.endFaces()) as Wrap;
       render();
@@ -269,8 +268,8 @@ describe("wrap", () => {
     it("wraps a circle onto the cylinder", () => {
       const { faceSelection } = setupCylinderScene();
       const decal = sketch(plane("front", 50), () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
 
       const w = wrap(2, decal, faceSelection) as Wrap;
       const scene = render();
@@ -300,8 +299,8 @@ describe("wrap", () => {
         new Vector3d(0, -1, 0),
       ));
       const decal = sketch(tangent, () => {
-        rect(8, 6);
-      });
+          testRect(8, 6);
+        });
 
       const w = wrap(2, decal, faceSelection) as Wrap;
       const scene = render();
@@ -321,9 +320,18 @@ describe("wrap", () => {
     it("wraps a slot with an exact pad volume", () => {
       cylinder(25, 80).translate(0, 0, 0);
       const faceSelection = select(face().cylinder());
+      // legacy slot([0, 10], [0, 50], 5): cap centers [0,10]/[0,50], r=5 —
+      // two side lines + two outward semicircular caps (legacy Slot layout).
       const decal = sketch(plane("front", 40), () => {
-        slot([0, 10], [0, 50], 5);
-      });
+          const side1 = line([-5, 10], [-5, 50]);
+          const capTop = arc([-5, 50], [5, 50], [0, 50]).cw();
+          const side2 = line([5, 50], [5, 10]);
+          const capBottom = arc([5, 10], [-5, 10], [0, 10]).cw();
+          coincident(side1.end(), capTop.start());
+          coincident(capTop.end(), side2.start());
+          coincident(side2.end(), capBottom.start());
+          coincident(capBottom.end(), side1.start());
+        });
 
       const w = wrap(1, decal, faceSelection) as Wrap;
       const scene = render();
@@ -344,8 +352,7 @@ describe("wrap", () => {
     function setupTextScene() {
       cylinder(25, 80);
       const decal = sketch(plane("front", 40), () => {
-        vMove(20);
-        text("hello world");
+        text("hello world").at([0, 20]);
       });
       const faceSelection = select(face().cylinder());
       return { decal, faceSelection };
@@ -368,12 +375,11 @@ describe("wrap", () => {
       // glyphs ("h", "d") wrap more than 45° away from the sketch anchor and
       // used to lose their end-face classification.
       sketch("top", () => {
-        circle(50);
-      });
+          circle([0, 0], 50);
+        });
       extrude(80);
       const decal = sketch(plane("front", 30), () => {
-        vMove(20);
-        text("hello world").align('center');
+        text("hello world").align('center').at([0, 20]);
       });
       const faceSelection = select(face().cylinder());
 
@@ -406,8 +412,8 @@ describe("wrap", () => {
     it("matches identical wraps and rejects different thicknesses", () => {
       const { faceSelection } = setupCylinderScene();
       const decal = sketch(plane("front", 50), () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
 
       const a = new Wrap(2, faceSelection as unknown as SceneObject, decal as any);
       const b = new Wrap(2, faceSelection as unknown as SceneObject, decal as any);

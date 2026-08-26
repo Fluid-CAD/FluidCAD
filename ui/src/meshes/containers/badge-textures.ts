@@ -1,5 +1,4 @@
-// Canvas-rendered badge textures shared by the legacy constraint icons
-// (constraint-icon.ts) and the solved-sketch constraint glyphs
+// Canvas-rendered badge textures for the solved-sketch constraint glyphs
 // (solved-constraint-meshes.ts). Cached per label+color; solved glyphs
 // render in white and tint via material.color so hover/diagnostic states
 // don't multiply the cache.
@@ -25,7 +24,7 @@ export function getIconTexture(label: string, colorHex: string): IconTexture {
   const canvas = document.createElement('canvas');
   const measure = canvas.getContext('2d')!;
   measure.font = ICON_FONT;
-  // Multi-character labels (the aline angle) widen the badge to fit.
+  // Multi-character labels widen the badge to fit.
   const textWidth = measure.measureText(label).width;
   const width = Math.max(CANVAS_SIZE, Math.ceil(textWidth + CANVAS_SIZE * 0.4));
 

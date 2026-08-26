@@ -21,9 +21,9 @@ const PREVIEW_DEBOUNCE_MS = 200;
  * italic, align, spacing) and shows the laid-out glyph outlines in the
  * viewport — re-fetched from the server on every option edit, so the
  * preview is the exact geometry `text()` will build. A viewport click
- * moves the anchor (snapped); Apply inserts the `text(…)` statement —
- * prefixed with `move(…)` when the anchor left the sketch cursor — and
- * the scene re-render replaces the preview with the real feature.
+ * moves the preview anchor (snapped); Apply inserts the `text(…)`
+ * statement and the scene re-render replaces the preview with the real
+ * feature.
  *
  * The dialog's Path slot picks the `text("…", path)` overload instead:
  * arming it turns viewport clicks into whole-geometry picks (text lays its
@@ -40,11 +40,6 @@ export class TextTool extends SketchTool {
   private panel: TextPanel;
   private onRequestExit: () => void;
   private anchor: [number, number];
-  /** The anchor as picked, carrying any typed axis expressions. Null until
-   * the user places it — the tool opens at the sketch cursor. */
-  private anchorPick: PickedPoint | null = null;
-  /** True once the user clicked an anchor; stops cursor-following. */
-  private placed = false;
 
   /** The picked path geometry (`text("…", path)`), or null for anchored text.
    * The shape ids are re-resolved by owner line on every scene update —
@@ -92,7 +87,7 @@ export class TextTool extends SketchTool {
   ) {
     super(ctx, plane, snapController, insertGeometry, container);
     this.onRequestExit = onRequestExit;
-    this.anchor = this.currentPosition ?? [0, 0];
+    this.anchor = [0, 0];
     this.panel = new TextPanel(container);
     this.panel.onChange = () => {
       this.panel.setMessage(null);
@@ -118,7 +113,6 @@ export class TextTool extends SketchTool {
     this.canvas.addEventListener('mousedown', this.boundMouseDown);
     this.canvas.addEventListener('mouseup', this.boundMouseUp);
     this.canvas.addEventListener('mousemove', this.boundMouseMove);
-    this.anchor = this.currentPosition ?? [0, 0];
     this.panel.show();
     void TextPanel.loadFontFamilies().then((families) => this.panel.setFonts(families));
     this.syncStatementPreview();
@@ -160,17 +154,6 @@ export class TextTool extends SketchTool {
   override updatePlane(plane: PlaneData): void {
     super.updatePlane(plane);
     this.schedulePreview();
-  }
-
-  override updateCurrentPosition(worldPos: Parameters<SketchTool['updateCurrentPosition']>[0]): void {
-    const hadCursor = this.currentPosition !== null;
-    super.updateCurrentPosition(worldPos);
-    // The anchor starts on the sketch cursor; follow it until the user
-    // explicitly places the text with a click.
-    if (!hadCursor && this.currentPosition && !this.placed) {
-      this.anchor = this.currentPosition;
-      this.schedulePreview();
-    }
   }
 
   private handleMouseDown(e: MouseEvent): void {
@@ -255,7 +238,6 @@ export class TextTool extends SketchTool {
     }
     const result = this.snapController.snap(raw);
     this.setAnchor(this.applyPointInput(result.point2d));
-    this.placed = true;
     this.syncStatementPreview();
     this.schedulePreview();
   }
@@ -353,36 +335,19 @@ export class TextTool extends SketchTool {
       return;
     }
     this.setAnchor(point);
-    this.placed = true;
     this.syncStatementPreview();
     this.schedulePreview();
   }
 
-  /** Single writer for both halves of the anchor. */
   private setAnchor(picked: PickedPoint): void {
-    this.anchorPick = picked;
     this.anchor = picked.value;
   }
 
-  /** `move(…)` first when the anchor is away from the sketch cursor. */
-  private needsMove(): boolean {
-    if (this.currentPosition) {
-      return !this.isAtCurrentPosition(this.anchor);
-    }
-    return this.anchor[0] !== 0 || this.anchor[1] !== 0;
-  }
-
+  /** The pen died with the sketch-solver rewrite (P7): text renders at the
+   * plane origin, so the statement carries no `move(…)` prefix. The anchor
+   * still positions the viewport preview. */
   private fullStatement(values: TextOptionValues): string {
-    const statement = this.buildStatement(values);
-    if (!this.needsMove()) {
-      return statement;
-    }
-    // A relative pick already expresses the position as an offset.
-    const anchor = this.anchorPick;
-    if (anchor?.relative) {
-      return `move(${anchor.relative.dx}, ${anchor.relative.dy});\n${statement}`;
-    }
-    return `move(${anchor ? this.formatPoint(anchor) : this.formatPoint(this.anchor)});\n${statement}`;
+    return this.buildStatement(values);
   }
 
   private syncStatementPreview(): void {

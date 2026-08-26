@@ -5,7 +5,7 @@ import extrude from "../../core/extrude.js";
 import fillet from "../../core/fillet.js";
 import select from "../../core/select.js";
 import cylinder from "../../core/cylinder.js";
-import { circle, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
 import { Fillet } from "../../features/fillet.js";
@@ -15,6 +15,7 @@ import { FilletOps } from "../../oc/fillet-ops.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
 import { edge } from "../../filters/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("fillet", () => {
   setupOC();
@@ -22,8 +23,8 @@ describe("fillet", () => {
   describe("basic fillet", () => {
     it("should fillet edges and produce a valid solid", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -36,8 +37,8 @@ describe("fillet", () => {
 
     it("should add cylindrical faces for each filleted edge", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Fillet the 4 vertical edges
@@ -56,8 +57,8 @@ describe("fillet", () => {
 
     it("should add arc edges where fillets are applied", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -76,8 +77,8 @@ describe("fillet", () => {
 
     it("should increase face count compared to original box", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -95,8 +96,8 @@ describe("fillet", () => {
 
     it("should reduce volume compared to original box", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -114,8 +115,8 @@ describe("fillet", () => {
 
     it("should preserve bounding box dimensions", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -137,8 +138,8 @@ describe("fillet", () => {
   describe("fillet with explicit selection", () => {
     it("should fillet only the selected edges", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Fillet only the top horizontal edges (4 edges)
@@ -177,8 +178,8 @@ describe("fillet", () => {
   describe("fillet radius", () => {
     it("should use default radius of 1", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -192,8 +193,8 @@ describe("fillet", () => {
     it("smaller radius should retain more volume", () => {
       // Small fillet
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(edge().verticalTo("xy"));
@@ -224,8 +225,8 @@ describe("fillet", () => {
 
     it("flags an error when a lazy selection resolves to no edges", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as Extrude;
 
       // Accessor selections are lazy, so validate() can't see their
@@ -249,8 +250,8 @@ describe("fillet", () => {
 
       try {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         select(edge().verticalTo("xy"));

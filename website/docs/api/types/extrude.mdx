@@ -108,12 +108,12 @@ Enables symmetric mode — extrudes equally in both directions from the sketch p
 ### startFaces()
 
 ```ts
-startFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+startFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects faces at the start (base) of the extrusion.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -124,12 +124,12 @@ Selects faces at the start (base) of the extrusion.
 ### endFaces()
 
 ```ts
-endFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+endFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects faces at the end (cap) of the extrusion.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -140,12 +140,12 @@ Selects faces at the end (cap) of the extrusion.
 ### startEdges()
 
 ```ts
-startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges on the start (base) faces of the extrusion.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -156,12 +156,12 @@ Selects edges on the start (base) faces of the extrusion.
 ### endEdges()
 
 ```ts
-endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges on the end (cap) faces of the extrusion.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -172,12 +172,12 @@ Selects edges on the end (cap) faces of the extrusion.
 ### sideFaces()
 
 ```ts
-sideFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+sideFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects the lateral faces created by the extrusion.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -188,12 +188,12 @@ Selects the lateral faces created by the extrusion.
 ### sideEdges()
 
 ```ts
-sideEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+sideEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges on the side faces, excluding edges shared with start/end faces.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -204,12 +204,12 @@ Selects edges on the side faces, excluding edges shared with start/end faces.
 ### internalFaces()
 
 ```ts
-internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects faces created inside the solid during extrusion (e.g., from holes or intersections).
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -220,12 +220,12 @@ Selects faces created inside the solid during extrusion (e.g., from holes or int
 ### internalEdges()
 
 ```ts
-internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges bounding the internal geometry created during extrusion.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -236,13 +236,13 @@ Selects edges bounding the internal geometry created during extrusion.
 ### capFaces()
 
 ```ts
-capFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+capFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects the cap faces at the open ends of a thin-walled extrusion from an open profile.
 These are the small faces connecting the inner and outer walls at the profile endpoints.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -253,12 +253,12 @@ These are the small faces connecting the inner and outer walls at the profile en
 ### capEdges()
 
 ```ts
-capEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges on the cap faces of a thin-walled extrusion from an open profile.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

@@ -11,7 +11,6 @@ import { PolylineTool } from './tools/polyline';
 import { BezierTool } from './tools/bezier-tool';
 import { PolygonTool } from './tools/polygon-tool';
 import { TextTool } from './tools/text-tool';
-import { DragMoveHandler } from './drag-move-handler';
 import { SolvedDragHandler } from './drag-move-handler/solved-drag-handler';
 import { SketchHoverSelectHandler } from './sketch-hover-select-handler';
 import { BezierHandlesOverlay } from './bezier-handles-overlay';
@@ -26,10 +25,9 @@ import { findActiveObject } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData, SourceLocation } from '../types';
 import { Viewer } from '../viewer';
 import { ProjectionPickService } from './projection-pick-service';
-import { SketchOpDialog, SketchOpMode, SketchOpService, SketchOpSelection, SketchPickDescription } from './sketch-op-service';
+import { SketchOpDialog, SketchOpService, SketchOpSelection, SketchPickDescription } from './sketch-op-service';
 import { SketchCopyService } from './sketch-copy-service';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
-import { ConstraintToolbarService } from './constraint-toolbar';
 import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
 import { Navbar } from '../ui/navbar';
@@ -82,10 +80,7 @@ export class SketchToolbarService {
   private slotOp!: SketchOpService;
   private copyOp!: SketchCopyService;
   private toolbar: SketchToolbar;
-  /** The floating segment-conversion mini bar below the main toolbar. */
-  private constraintToolbar: ConstraintToolbarService;
-  /** The solved-sketch constraint bar (P4) — shown instead of the legacy
-   * conversion bar inside solved sketches. */
+  /** The solved-sketch constraint bar (P4). */
   private solvedToolbar: SolvedConstraintToolbarService;
   /** Bottom-center DOF pill for solved sketches (hidden for legacy). */
   private dofStatus: SketchDofStatus;
@@ -101,9 +96,7 @@ export class SketchToolbarService {
    * rapid drawing chain can't target a line that an added import shifted. */
   private solvedEmitSketchLine: number | null = null;
   private activeDrawingTool: SketchTool | null = null;
-  private activeDragHandler: DragMoveHandler | null = null;
-  /** Solver-driven drag for solved sketches (P4) — activated INSTEAD of the
-   * legacy DragMoveHandler; the two never coexist. */
+  /** Solver-driven drag (P4). */
   private activeSolvedDragHandler: SolvedDragHandler | null = null;
   private activeHoverSelectHandler: SketchHoverSelectHandler | null = null;
   private bezierHandles: BezierHandlesOverlay;
@@ -219,28 +212,14 @@ export class SketchToolbarService {
       ],
     });
     this.slotOp = opService({
-      feature: 'slot', title: 'Slot', pickHint: 'Pick an edge of the source geometry',
-      value: { label: 'Radius', defaultValue: '2', sign: 'positive' },
-      toggles: [
-        {
-          key: 'removeOriginal',
-          label: 'Remove original',
-          title: 'Keep only the slot — the edge it was built around is removed (the kernel default)',
-          defaultChecked: true,
+      feature: 'slot', title: 'Slot', pickHint: '',
+      draw: {
+        hint: 'Draw the slot in the sketch: click the start point, then set the length and the cap radius. '
+          + 'Near-horizontal and near-vertical slots snap to the axis — hold Ctrl for a free angle.',
+        toggle: {
+          label: 'Centered',
+          title: 'Anchor the slot at its center instead of its first cap',
         },
-      ],
-      tabs: {
-        draw: {
-          label: 'Draw',
-          title: 'Draw the slot in the sketch',
-          hint: 'Draw the slot in the sketch: click the start point, then set the length and the cap radius. '
-            + 'Near-horizontal and near-vertical slots snap to the axis — hold Ctrl for a free angle.',
-          toggle: {
-            label: 'Centered',
-            title: 'Anchor the slot at its center instead of its first cap',
-          },
-        },
-        pick: { label: 'From edge', title: 'Build the slot around an existing sketch edge' },
       },
     });
     this.opServices = {
@@ -253,20 +232,16 @@ export class SketchToolbarService {
     for (const service of Object.values(this.opServices)) {
       service.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
     }
-    // The slot dialog's tabs swap the viewport owner: From dimensions arms
-    // the classic drawing tool, From edge the edge-pick handlers.
-    this.slotOp.onModeChange = (mode) => this.applySlotMode(mode);
     // Centered flips re-arm the drawing tool so the new anchor mode takes
     // effect immediately (the rectangle's toggle reselects the same way).
     this.slotOp.onDrawToggleChange = () => {
-      if (this.slotOp.mode === 'draw' && this.activeDrawingTool) {
+      if (this.activeDrawingTool) {
         this.activeDrawingTool.deactivate();
         this.activeDrawingTool = null;
-        this.applySlotMode('draw');
+        this.armSlotDrawTool();
       }
     };
 
-    this.constraintToolbar = new ConstraintToolbarService(container, (message) => this.showOpMessage(message));
     this.solvedToolbar = new SolvedConstraintToolbarService(
       container,
       viewer.sceneContext,
@@ -415,9 +390,6 @@ export class SketchToolbarService {
     if (this.activeDrawingTool) {
       this.activeDrawingTool['snapController'].snapToVertices = checked;
     }
-    if (this.activeDragHandler) {
-      this.activeDragHandler['snapController'].snapToVertices = checked;
-    }
     if (this.activeSolvedDragHandler) {
       this.activeSolvedDragHandler['snapController'].snapToVertices = checked;
     }
@@ -428,9 +400,6 @@ export class SketchToolbarService {
     this.snapToGrid = checked;
     if (this.activeDrawingTool) {
       this.activeDrawingTool['snapController'].snapToGrid = checked;
-    }
-    if (this.activeDragHandler) {
-      this.activeDragHandler['snapController'].snapToGrid = checked;
     }
     if (this.activeSolvedDragHandler) {
       this.activeSolvedDragHandler['snapController'].snapToGrid = checked;
@@ -480,15 +449,7 @@ export class SketchToolbarService {
         this.toolbar.show();
         this.shortcuts.enable();
       }
-      // Solved sketches get the constraint bar (P4); legacy sketches keep
-      // the segment-conversion bar until P7 deletes it.
-      if (isSolvedSketch(lastRoot)) {
-        this.constraintToolbar.hide();
-        this.solvedToolbar.show();
-      } else {
-        this.solvedToolbar.hide();
-        this.constraintToolbar.show();
-      }
+      this.solvedToolbar.show();
 
       this.bezierHandles.activate();
       this.bezierHandles.update(sceneObjects, lastRoot.id, plane);
@@ -507,16 +468,10 @@ export class SketchToolbarService {
           this.handleToolSelect(this.toolbar.activeTool);
         } else {
           this.activeDrawingTool.updatePlane(plane);
-          // Cursor state first: onSceneUpdate re-anchors the drawing chain
-          // to the kernel's current position/tangent, so they must be fresh.
-          if (lastRoot.object?.currentPosition) {
-            this.activeDrawingTool.updateCurrentPosition(lastRoot.object.currentPosition);
-            this.activeDrawingTool.updateCurrentTangent(lastRoot.object.currentTangent ?? null);
-          }
           this.activeDrawingTool.onSceneUpdate(sceneObjects, lastRoot.id);
         }
-      } else if (this.activeDragHandler || this.activeSolvedDragHandler) {
-        const dragHandler = (this.activeDragHandler ?? this.activeSolvedDragHandler)!;
+      } else if (this.activeSolvedDragHandler) {
+        const dragHandler = this.activeSolvedDragHandler;
         dragHandler.updatePlane(plane);
         const snapManager = SnapManager.fromSceneObjects(sceneObjects, lastRoot.id, plane, this.viewer.sceneContext);
         const snapCtrl = new SnapController(snapManager, plane);
@@ -530,10 +485,10 @@ export class SketchToolbarService {
         }
         // A re-render may have pruned selected edges — keep the preview honest.
         this.activeOpService()?.refresh();
-      } else if (this.activeOpService()?.mode === 'draw') {
-        // The slot dialog's From-dimensions tab owns the viewport through
-        // the classic drawing tool — restore it, not the pick handlers.
-        this.applySlotMode('draw');
+      } else if (this.activeOpService()?.isDrawDialog) {
+        // The slot dialog owns the viewport through the classic drawing
+        // tool — restore it, not the pick handlers.
+        this.armSlotDrawTool();
       } else if (!this.toolbar.activeTool || this.activeOpService()) {
         // The op dialogs pick with the drag/hover handlers — an armed one
         // (or one that just regained its sketch) gets them back.
@@ -541,21 +496,13 @@ export class SketchToolbarService {
       }
 
       // After the handlers have digested the new scene (ids change every
-      // render): replay a pending post-convert re-selection and refresh the
-      // mini bar's options. No selection exists while a drawing tool is armed.
-      if (isSolvedSketch(lastRoot)) {
-        this.solvedToolbar.sketchUpdated(
-          sceneObjects,
-          lastRoot,
-          this.activeDrawingTool ? null : this.activeHoverSelectHandler,
-        );
-      } else {
-        this.constraintToolbar.sketchUpdated(
-          sceneObjects,
-          lastRoot.id,
-          this.activeDrawingTool ? null : this.activeHoverSelectHandler,
-        );
-      }
+      // render): refresh the constraint bar. No selection exists while a
+      // drawing tool is armed.
+      this.solvedToolbar.sketchUpdated(
+        sceneObjects,
+        lastRoot,
+        this.activeDrawingTool ? null : this.activeHoverSelectHandler,
+      );
 
       this.dofStatus.update(computeSketchDofState(buildSolvedSketchModel(lastRoot, sceneObjects)));
     } else {
@@ -584,7 +531,6 @@ export class SketchToolbarService {
       }
       this.deactivateDragHandler();
       this.bezierHandles.deactivate();
-      this.constraintToolbar.hide();
       this.solvedToolbar.hide();
       this.solvedDimensionEditor.hide();
       this.dofStatus.update({ result: 'hidden' });
@@ -829,42 +775,27 @@ export class SketchToolbarService {
   }
 
   private activateDragHandler(): void {
-    if (this.activeDragHandler || this.activeSolvedDragHandler || !this.activeSketchInfo) {
+    if (this.activeSolvedDragHandler || !this.activeSketchInfo) {
       return;
     }
     const snapManager = SnapManager.fromSceneObjects(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!, this.activeSketchInfo.plane, this.viewer.sceneContext);
     const snapCtrl = new SnapController(snapManager, this.activeSketchInfo.plane);
     snapCtrl.snapToVertices = this.snapToVertices;
     snapCtrl.snapToGrid = this.snapToGrid;
-    if (isSolvedSketch(this.activeSketchInfo.sketchObj)) {
-      // Solved sketches drag through the solver client, never the per-type
-      // constraint ladders.
-      this.activeSolvedDragHandler = new SolvedDragHandler(
-        this.viewer.sceneContext,
-        this.activeSketchInfo.plane,
-        snapCtrl,
-        (x, y) => this.activeHoverSelectHandler?.hasBadgeAt(x, y) ?? false,
-        (message) => this.showOpMessage(message),
-      );
-      this.activeSolvedDragHandler.updateSceneData(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!);
-      this.activeSolvedDragHandler.activate();
-    } else {
-      this.activeDragHandler = new DragMoveHandler(
-        this.viewer.sceneContext,
-        this.activeSketchInfo.plane,
-        snapCtrl,
-        this.container,
-        () => this.fetchScopeVariables(),
-        () => this.activeSketchInfo?.sourceLocation.line ?? null,
-      );
-      this.activeDragHandler.updateSceneData(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!);
-      this.activeDragHandler.activate();
-    }
+    this.activeSolvedDragHandler = new SolvedDragHandler(
+      this.viewer.sceneContext,
+      this.activeSketchInfo.plane,
+      snapCtrl,
+      (x, y) => this.activeHoverSelectHandler?.hasBadgeAt(x, y) ?? false,
+      (message) => this.showOpMessage(message),
+    );
+    this.activeSolvedDragHandler.updateSceneData(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!);
+    this.activeSolvedDragHandler.activate();
 
     this.activeHoverSelectHandler = new SketchHoverSelectHandler(
       this.viewer.sceneContext,
       this.activeSketchInfo.plane,
-      () => (this.activeDragHandler?.isResizing || this.activeSolvedDragHandler?.isResizing) ?? false,
+      () => this.activeSolvedDragHandler?.isResizing ?? false,
       // The copy dialog's picks accumulate like its 3D counterpart's: every
       // click toggles a target in or out and an empty-space click keeps the
       // list — a multi-slot dialog's pick set must not vanish under a stray
@@ -876,7 +807,6 @@ export class SketchToolbarService {
     );
     this.activeHoverSelectHandler.onSelectionChange = () => {
       this.activeOpService()?.refresh();
-      this.constraintToolbar.selectionChanged(this.activeHoverSelectHandler);
       this.solvedToolbar.selectionChanged(this.activeHoverSelectHandler);
     };
     this.activeHoverSelectHandler.onConstraintPick = (pick) => {
@@ -897,10 +827,6 @@ export class SketchToolbarService {
     if (this.activeHoverSelectHandler) {
       this.activeHoverSelectHandler.deactivate();
       this.activeHoverSelectHandler = null;
-    }
-    if (this.activeDragHandler) {
-      this.activeDragHandler.deactivate();
-      this.activeDragHandler = null;
     }
     if (this.activeSolvedDragHandler) {
       this.activeSolvedDragHandler.deactivate();
@@ -945,22 +871,14 @@ export class SketchToolbarService {
       return;
     }
 
-    // The op dialogs (fillet, offset, slot) keep the drag/hover handlers
-    // active — picking IS the input. The tabbed slot dialog opens on its
-    // draw tab instead, which arms the classic drawing tool.
+    // The op dialogs (fillet, offset) keep the drag/hover handlers active —
+    // picking IS the input. The slot dialog is a draw-options dialog: the
+    // classic drawing tool owns the viewport instead.
     const opService = this.opServices[toolId];
     if (opService) {
-      if (toolId === 'slot') {
-        // Slot-from-edge is a legacy feature the solved kernel rejects — a
-        // solved sketch's slot dialog only offers the draw tab (P6).
-        const solvedSlot = isSolvedSketch(this.activeSketchInfo.sketchObj);
-        opService.setPickTabHidden(solvedSlot);
-        // A live edge selection means the user wants THAT edge as the
-        // source — open straight on the From edge tab with it picked.
-        const hasSelection = !solvedSlot
-          && (this.activeHoverSelectHandler?.selectedIds.size ?? 0) > 0;
-        opService.enter(hasSelection ? 'pick' : 'draw');
-        this.applySlotMode(opService.mode);
+      if (opService.isDrawDialog) {
+        opService.enter();
+        this.armSlotDrawTool();
       } else {
         this.activateDragHandler();
         opService.enter();
@@ -987,11 +905,6 @@ export class SketchToolbarService {
       return;
     }
 
-    if (this.activeSketchInfo.sketchObj.object?.currentPosition) {
-      tool.updateCurrentPosition(this.activeSketchInfo.sketchObj.object.currentPosition);
-      tool.updateCurrentTangent(this.activeSketchInfo.sketchObj.object.currentTangent ?? null);
-    }
-
     tool.setRelativeMode(this.relativeCoords);
     tool.onRelativeModeChange = (relative) => { this.relativeCoords = relative; };
     tool.activate();
@@ -999,40 +912,27 @@ export class SketchToolbarService {
   }
 
   /**
-   * Hand the viewport to the slot dialog's current tab: From dimensions arms
-   * the classic slot drawing tool (the dialog keeps showing its hint), From
-   * edge tears it down and brings back the drag/hover pick handlers.
+   * Hand the viewport to the slot dialog's drawing tool (the dialog keeps
+   * showing its hint and options).
    */
-  private applySlotMode(mode: SketchOpMode): void {
+  private armSlotDrawTool(): void {
     if (!this.activeSketchInfo) {
       return;
     }
-    if (mode === 'draw') {
-      this.deactivateDragHandler();
-      if (this.activeDrawingTool) {
-        return;
-      }
-      const tool = this.createTool(
-        'slot', this.activeSketchInfo.plane, this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!,
-      );
-      if (!tool) {
-        return;
-      }
-      if (this.activeSketchInfo.sketchObj.object?.currentPosition) {
-        tool.updateCurrentPosition(this.activeSketchInfo.sketchObj.object.currentPosition);
-        tool.updateCurrentTangent(this.activeSketchInfo.sketchObj.object.currentTangent ?? null);
-      }
-      tool.setRelativeMode(this.relativeCoords);
-    tool.onRelativeModeChange = (relative) => { this.relativeCoords = relative; };
-      tool.activate();
-      this.activeDrawingTool = tool;
+    this.deactivateDragHandler();
+    if (this.activeDrawingTool) {
       return;
     }
-    if (this.activeDrawingTool) {
-      this.activeDrawingTool.deactivate();
-      this.activeDrawingTool = null;
+    const tool = this.createTool(
+      'slot', this.activeSketchInfo.plane, this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!,
+    );
+    if (!tool) {
+      return;
     }
-    this.activateDragHandler();
+    tool.setRelativeMode(this.relativeCoords);
+    tool.onRelativeModeChange = (relative) => { this.relativeCoords = relative; };
+    tool.activate();
+    this.activeDrawingTool = tool;
   }
 
   /** Transient toast under the navbar (mirrors main.ts's edit-refusal toast). */

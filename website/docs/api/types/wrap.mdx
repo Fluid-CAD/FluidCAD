@@ -98,12 +98,12 @@ shapes from a reusable object.
 ### startFaces()
 
 ```ts
-startFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+startFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects the faces lying on the target surface (the base of the wrap).
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -114,12 +114,12 @@ Selects the faces lying on the target surface (the base of the wrap).
 ### endFaces()
 
 ```ts
-endFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+endFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects the raised (or recessed) faces offset from the target surface by the wrap thickness.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -130,12 +130,12 @@ Selects the raised (or recessed) faces offset from the target surface by the wra
 ### startEdges()
 
 ```ts
-startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges on the base faces of the wrap.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -146,12 +146,12 @@ Selects edges on the base faces of the wrap.
 ### endEdges()
 
 ```ts
-endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges on the offset faces of the wrap.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -162,12 +162,12 @@ Selects edges on the offset faces of the wrap.
 ### sideFaces()
 
 ```ts
-sideFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+sideFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects the wall faces created from the outer boundary of each wrapped region.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -178,12 +178,12 @@ Selects the wall faces created from the outer boundary of each wrapped region.
 ### sideEdges()
 
 ```ts
-sideEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+sideEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges on the wall faces, excluding edges shared with base/offset faces.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -194,12 +194,12 @@ Selects edges on the wall faces, excluding edges shared with base/offset faces.
 ### internalFaces()
 
 ```ts
-internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects the wall faces created from holes inside a wrapped region.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -210,12 +210,12 @@ Selects the wall faces created from holes inside a wrapped region.
 ### internalEdges()
 
 ```ts
-internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges bounding the hole walls of the wrap.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

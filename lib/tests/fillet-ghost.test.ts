@@ -4,7 +4,7 @@ import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import fillet from "../core/fillet.js";
 import select from "../core/select.js";
-import { rect } from "../core/2d/index.js";
+import { } from "../core/2d/index.js";
 import { edge } from "../filters/index.js";
 import { Edge } from "../common/edge.js";
 import { Shape } from "../common/shape.js";
@@ -16,6 +16,7 @@ import {
   buildFeatureGhost, FeatureGhostResult, FilletGhostRequest, GhostEntityRef,
 } from "../rendering/feature-ghost.js";
 import { Scene } from "../rendering/scene.js";
+import { testRect } from "./helpers/profiles.js";
 
 const BASE: Omit<FilletGhostRequest, 'edges'> = {
   feature: 'fillet',
@@ -90,7 +91,9 @@ function bounds(result: FeatureGhostResult, band: number) {
 
 /** A plain 40 x 40 x 20 block — four convex vertical edges. */
 function block(): Solid {
-  sketch('xy', () => { rect(40, 40); });
+  sketch('xy', () => {
+      testRect(40, 40);
+    });
   extrude(20);
   return sceneSolids(render()).pop() as Solid;
 }
@@ -100,9 +103,13 @@ function block(): Solid {
  * face (z = 20) is concave — a fillet there ADDS material.
  */
 function steppedBlock(): Solid {
-  sketch('xy', () => { rect(40, 40); });
+  sketch('xy', () => {
+      testRect(40, 40);
+    });
   extrude(20);
-  sketch('xy', () => { rect(20, 20); });
+  sketch('xy', () => {
+      testRect(20, 20);
+    });
   extrude(40);
   return sceneSolids(render()).pop() as Solid;
 }
@@ -329,7 +336,9 @@ describe("fillet ghost", () => {
    * still address it, because `getAddedShapes` ignores removal scope.
    */
   it("bands a solid the edited statement already consumed", () => {
-    sketch('xy', () => { rect(40, 40); });
+    sketch('xy', () => {
+        testRect(40, 40);
+      });
     extrude(20);
     const beforeFillet = sceneSolids(render()).pop() as Solid;
     const refs = picks(beforeFillet, isTall);

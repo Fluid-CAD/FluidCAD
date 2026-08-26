@@ -1,5 +1,5 @@
 import {
-  FeatureEntry, TypeEntry, FilterEntry,
+  FeatureEntry, TypeEntry, FilterEntry, ConstraintGroup,
   resolveTypeName, typeSlug, hasTypePage, getInheritanceChain,
   optionsTypeProperties, OptionsProperty,
 } from './api-doc-config.ts';
@@ -544,9 +544,39 @@ export function renderFilterPage(
 
 export interface ConstraintInfo {
   name: string;
+  group: ConstraintGroup;
   description: string;
   params: ParamInfo[];
   returnType: string;
+}
+
+const constraintGroupHeadings: Record<ConstraintGroup, string> = {
+  geometric: 'Geometric constraints',
+  dimension: 'Dimensions',
+};
+
+// In constraint params tables, ConstraintTarget links to the on-page section.
+function formatConstraintParamType(raw: string): string {
+  if (raw === 'ConstraintTarget') {
+    return '[ConstraintTarget](#constraint-targets)';
+  }
+  return formatParamType(raw);
+}
+
+function renderConstraintParamsTable(params: ParamInfo[]): string {
+  if (params.length === 0) {
+    return '';
+  }
+  const rows = params.map(p => {
+    const opt = p.optional ? ' *(optional)*' : '';
+    const desc = escapeForTable(p.description) + opt;
+    return `| \`${p.name}\` | ${formatConstraintParamType(p.type)} | ${desc} |`;
+  });
+  return [
+    '| Parameter | Type | Description |',
+    '|-----------|------|-------------|',
+    ...rows,
+  ].join('\n');
 }
 
 export function renderConstraintsPage(
@@ -557,53 +587,92 @@ export function renderConstraintsPage(
   lines.push('---');
   lines.push('sidebar_position: 4');
   lines.push('title: "Constraints"');
-  lines.push('description: "Constraint qualifiers for constraining geometry relationships in 2D sketches."');
+  lines.push('description: "Solver constraint statements for 2D sketches — geometric constraints and dimensions."');
   lines.push('---');
   lines.push('');
 
   lines.push('# Constraints');
   lines.push('');
-  lines.push('Constraint qualifiers control the spatial relationship between geometries in 2D sketches.');
-  lines.push('They are used with tangent geometry functions like `tLine()`, `tCircle()`, and `tArc()`.');
+  lines.push('Constraint statements declare relationships between the entities of a 2D sketch.');
+  lines.push('The coordinates written in `line()`, `arc()`, `circle()`, and `point()` statements');
+  lines.push('are guesses; the sketch solver moves the entities so every constraint holds.');
+  lines.push('Each statement appears in the timeline like any other feature.');
   lines.push('');
 
+  const importNames = constraintInfos.map(c => c.name).join(', ');
   lines.push('```ts');
-  lines.push(`import { outside, enclosed, enclosing, unqualified } from 'fluidcad/constraints';`);
+  lines.push(`import { ${importNames} } from 'fluidcad/constraints';`);
   lines.push('```');
   lines.push('');
 
-  lines.push('## Functions');
+  // ── Constraint targets ──
+  lines.push('## Constraint targets');
+  lines.push('');
+  lines.push('Every entity argument accepts a `ConstraintTarget` — one of the following forms:');
+  lines.push('');
+  lines.push('| Form | Example | Description |');
+  lines.push('|------|---------|-------------|');
+  lines.push('| Entity statement | `const l = line([0, 0], [40, 0]); horizontal(l)` | A [`SolvedLine`](/docs/api/types/solved-line), [`SolvedArc`](/docs/api/types/solved-arc), [`SolvedCircle`](/docs/api/types/solved-circle), or `point()` statement — the entity itself. |');
+  lines.push('| Point accessor | `l.start()`, `l.end()`, `c.center()` | A [`Vertex`](/docs/api/types/vertex) naming one of an entity\'s solver points. `l.mid()` is accepted by `coincident()` only (it lowers to the midpoint constraint). |');
+  lines.push('| Datum | `origin()`, `xAxis()`, `yAxis()` | The sketch plane\'s fixed origin point and infinite axis lines — see [origin](/docs/api/features/2d/origin), [xAxis](/docs/api/features/2d/xAxis), [yAxis](/docs/api/features/2d/yAxis). |');
+  lines.push('| Fixed reference | `project(bore)`, `p.ref(i)`, `p.ref(i).start()` | A [`Reference`](/docs/api/types/reference) from `project()`/`intersect()` — the statement itself when it produced exactly one edge, a [`ReferenceEntity`](/docs/api/types/reference-entity) via `.ref(i)`, or one of their point accessors. |');
+  lines.push('');
+  lines.push(':::note');
+  lines.push('Datums and fixed references never move. A constraint must reference at least one');
+  lines.push('drawn (free) entity — a constraint over only fixed targets is an error.');
+  lines.push('Cross-sketch targets are not supported.');
+  lines.push(':::');
   lines.push('');
 
-  for (const c of constraintInfos) {
-    lines.push(`### ${c.name}()`);
+  // ── Function sections, grouped ──
+  const groups: ConstraintGroup[] = ['geometric', 'dimension'];
+  for (const group of groups) {
+    const infos = constraintInfos.filter(c => c.group === group);
+    if (infos.length === 0) {
+      continue;
+    }
+
+    lines.push(`## ${constraintGroupHeadings[group]}`);
     lines.push('');
 
-    const retDisplay = resolveTypeName(c.returnType);
-    const paramStr = c.params.map(p => `${p.name}: ${resolveTypeName(p.type)}`).join(', ');
-    lines.push('```ts');
-    lines.push(`${c.name}(${paramStr}): ${retDisplay}`);
-    lines.push('```');
-    lines.push('');
+    for (const c of infos) {
+      lines.push(`### ${c.name}()`);
+      lines.push('');
 
-    if (c.description) {
-      lines.push(c.description);
+      const retDisplay = resolveTypeName(c.returnType);
+      const paramStr = c.params.map(p => {
+        const opt = p.optional ? '?' : '';
+        return `${p.name}${opt}: ${resolveTypeName(p.type)}`;
+      }).join(', ');
+      lines.push('```ts');
+      lines.push(`${c.name}(${paramStr}): ${retDisplay}`);
+      lines.push('```');
+      lines.push('');
+
+      if (c.description) {
+        lines.push(c.description);
+        lines.push('');
+      }
+
+      if (c.returnType !== 'ISceneObject' && hasTypePage(c.returnType)) {
+        lines.push(`**Returns**: [\`${retDisplay}\`](/docs/api/types/${typeSlug(retDisplay)})`);
+        lines.push('');
+      }
+
+      const table = renderConstraintParamsTable(c.params);
+      if (table) {
+        lines.push(table);
+        lines.push('');
+      }
+
+      lines.push('---');
       lines.push('');
     }
 
-    const table = renderParamsTable(c.params);
-    if (table) {
-      lines.push(table);
-      lines.push('');
+    // Remove the group's trailing ---
+    if (lines[lines.length - 2] === '---') {
+      lines.splice(lines.length - 2, 1);
     }
-
-    lines.push('---');
-    lines.push('');
-  }
-
-  // Remove trailing ---
-  if (lines[lines.length - 2] === '---') {
-    lines.splice(lines.length - 2, 1);
   }
 
   return lines.join('\n');
@@ -653,9 +722,9 @@ export function renderIndexPage(): string {
   lines.push('');
   lines.push('## Constraints');
   lines.push('');
-  lines.push('Constraint qualifiers for tangent geometry.');
+  lines.push('Solver constraint statements for 2D sketches.');
   lines.push('');
-  lines.push('- [**Constraints**](/docs/api/constraints) - `outside()`, `enclosed()`, `enclosing()`, `unqualified()`');
+  lines.push('- [**Constraints**](/docs/api/constraints) - Geometric constraints (`coincident()`, `tangent()`, `symmetric()`, ...) and dimensions (`distance()`, `angle()`, `radius()`, `diameter()`)');
   lines.push('');
 
   return lines.join('\n');

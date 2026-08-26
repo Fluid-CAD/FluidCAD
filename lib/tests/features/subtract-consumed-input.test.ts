@@ -15,14 +15,14 @@ describe("subtract: consumed-input diagnostic (issue #50)", () => {
     const torusAxis = axis('y', { offsetZ: 20 });
 
     sketch('yz', () => {
-      circle(8);
-    });
+        circle([0, 0], 8);
+      });
     const torus1 = revolve(torusAxis).name(' torus1');
     translate([0, 5, 0], torus1);
 
     sketch('yz', () => {
-      circle(8);
-    });
+        circle([0, 0], 8);
+      });
     const torus2 = revolve(torusAxis).new().name(' torus2');
 
     const sub = subtract(torus1, torus2) as Subtract;

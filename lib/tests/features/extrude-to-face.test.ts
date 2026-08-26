@@ -4,7 +4,8 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import select from "../../core/select.js";
 import rotate from "../../core/rotate.js";
-import { circle, move, rect, slot } from "../../core/2d/index.js";
+import { arc, circle, line } from "../../core/2d/index.js";
+import { coincident } from "../../core/constraints/index.js";
 import plane from "../../core/plane.js";
 import { ShapeProps } from "../../oc/props.js";
 import { getSceneManager } from "../../scene-manager.js";
@@ -16,6 +17,7 @@ import cylinder from "../../core/cylinder.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { face } from "../../filters/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("extrude to face", () => {
   setupOC();
@@ -23,14 +25,13 @@ describe("extrude to face", () => {
   describe("parallel planar face", () => {
     it("should extrude up to a parallel planar end face", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e1 = extrude(50) as Extrude;
 
       sketch("xy", () => {
-        move([200, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [200, 0] });
+        });
       const e2 = extrude(e1.endFaces()) as ExtrudeToFace;
 
       render();
@@ -45,14 +46,13 @@ describe("extrude to face", () => {
 
     it("should match the height of the target face", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e1 = extrude(20) as Extrude;
 
       sketch("xy", () => {
-        move([200, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [200, 0] });
+        });
       const e2 = extrude(e1.endFaces()) as ExtrudeToFace;
 
       render();
@@ -69,22 +69,20 @@ describe("extrude to face", () => {
     it("should extrude up to the first face in the normal direction", () => {
       // Thin slab at z=20..21 — its top face center is at z=21
       sketch("xy", () => {
-        move([200, 0]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [200, 0] });
+        });
       extrude(21).endOffset(1).new();
 
       // Thin slab at z=50..51
       sketch("xy", () => {
-        move([200, 100]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [200, 100] });
+        });
       extrude(51).endOffset(1).new();
 
       // first-face should reach the closest face center (z=20 bottom of first slab)
       sketch("xy", () => {
-        rect(30, 30);
-      });
+          testRect(30, 30);
+        });
       const e = extrude("first-face") as ExtrudeToFace;
 
       render();
@@ -100,22 +98,20 @@ describe("extrude to face", () => {
     it("should extrude up to the last face in the normal direction", () => {
       // Short box
       sketch("xy", () => {
-        move([200, 0]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [200, 0] });
+        });
       extrude(30).new();
 
       // Tall box
       sketch("xy", () => {
-        move([200, 100]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [200, 100] });
+        });
       extrude(60).new();
 
       // last-face should reach the farthest face
       sketch("xy", () => {
-        rect(30, 30);
-      });
+          testRect(30, 30);
+        });
       const e = extrude("last-face") as ExtrudeToFace;
 
       render();
@@ -129,26 +125,23 @@ describe("extrude to face", () => {
 
     it("first-face and last-face should produce different heights", () => {
       sketch("xy", () => {
-        move([200, 0]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [200, 0] });
+        });
       extrude(30).new();
 
       sketch("xy", () => {
-        move([200, 100]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [200, 100] });
+        });
       extrude(80).new();
 
       sketch("xy", () => {
-        rect(20, 20);
-      });
+          testRect(20, 20);
+        });
       const eFirst = extrude("first-face") as ExtrudeToFace;
 
       sketch("xy", () => {
-        move([0, 30]);
-        rect(20, 20);
-      });
+          testRect(20, 20, { at: [0, 30] });
+        });
       const eLast = extrude("last-face") as ExtrudeToFace;
 
       render();
@@ -168,15 +161,13 @@ describe("extrude to face", () => {
       cylinder(50, 80);
 
       sketch("xy", () => {
-        move([200, 0]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [200, 0] });
+        });
       extrude(20).new();
 
       sketch("xy", () => {
-        move([200, 100]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [200, 100] });
+        });
       const e = extrude("first-face", face().cylinder()) as ExtrudeToFace;
 
       render();
@@ -189,14 +180,13 @@ describe("extrude to face", () => {
     it("should record an error when the filter eliminates all candidate faces", () => {
       // Scene contains only planar geometry — cylinder filter matches nothing
       sketch("xy", () => {
-        move([200, 0]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [200, 0] });
+        });
       extrude(30).new();
 
       sketch("xy", () => {
-        rect(20, 20);
-      });
+          testRect(20, 20);
+        });
       const e = extrude("first-face", face().cylinder()) as ExtrudeToFace;
 
       render();
@@ -208,14 +198,13 @@ describe("extrude to face", () => {
       cylinder(50, 80);
 
       const target = sketch("xy", () => {
-        move([200, 100]);
-        rect(20, 20);
-      }) as Sketch;
+          testRect(20, 20, { at: [200, 100] });
+        }) as Sketch;
 
       // Some other sketch in scope so the sketch context is non-trivial.
       sketch("xy", () => {
-        rect(10, 10);
-      });
+          testRect(10, 10);
+        });
 
       const e = extrude("first-face", face().cylinder(), target) as ExtrudeToFace;
 
@@ -231,14 +220,13 @@ describe("extrude to face", () => {
     it("should extrude up to a drafted side face", () => {
       // Create a box with drafted sides — side faces are inclined planes
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e1 = extrude(50).draft(10) as Extrude;
 
       sketch("xy", () => {
-        move([200, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [200, 0] });
+        });
       const e2 = extrude(e1.sideFaces(0)) as ExtrudeToFace;
 
       render();
@@ -254,15 +242,14 @@ describe("extrude to face", () => {
       getSceneManager().startScene();
 
       sketch("xy", () => {
-        move([200, 0]);
-        rect(100, 50);
-      });
+          testRect(100, 50, { at: [200, 0] });
+        });
       const e1 = extrude(50) as Extrude;
 
       sketch("xy", () => {
-        circle(30);
-        circle(10);
-      });
+          circle([0, 0], 30);
+          circle([0, 0], 10);
+        });
       const e2 = extrude(e1.endFaces()).drill(drill).new() as ExtrudeToFace;
 
       render();
@@ -288,9 +275,8 @@ describe("extrude to face", () => {
       const cylFace = select(face().cylinder());
 
       sketch("xy", () => {
-        move([200, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [200, 0] });
+        });
       const e = extrude(cylFace) as ExtrudeToFace;
 
       render();
@@ -306,13 +292,21 @@ describe("extrude to face", () => {
       getSceneManager().startScene();
 
       sketch("top", () => {
-        circle(50);
-      });
+          circle([0, 0], 50);
+        });
       const base = extrude(50).draft(-8) as Extrude;
 
+      // legacy slot([0, 10], [0, 30], 5): cap centers [0,10]/[0,30], r=5.
       sketch(plane("front", 50), () => {
-        slot([0, 10], [0, 30], 5);
-      });
+          const side1 = line([-5, 10], [-5, 30]);
+          const capTop = arc([-5, 30], [5, 30], [0, 30]).cw();
+          const side2 = line([5, 30], [5, 10]);
+          const capBottom = arc([5, 10], [-5, 10], [0, 10]).cw();
+          coincident(side1.end(), capTop.start());
+          coincident(capTop.end(), side2.start());
+          coincident(side2.end(), capBottom.start());
+          coincident(capBottom.end(), side1.start());
+        });
 
       let e = extrude(base.sideFaces()) as ExtrudeToFace;
       if (endOffset !== undefined) {
@@ -351,9 +345,8 @@ describe("extrude to face", () => {
       const cylFace = select(face().cylinder());
 
       sketch("xy", () => {
-        move([200, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [200, 0] });
+        });
       const e = extrude(cylFace) as ExtrudeToFace;
 
       render();
@@ -367,14 +360,13 @@ describe("extrude to face", () => {
   describe("fuse", () => {
     it("should not fuse with non-intersecting objects", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e1 = extrude(50) as Extrude;
 
       sketch("xy", () => {
-        move([200, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [200, 0] });
+        });
       const e2 = extrude(e1.endFaces()) as ExtrudeToFace;
 
       render();
@@ -386,14 +378,13 @@ describe("extrude to face", () => {
 
     it("should fuse with intersecting objects by default", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e1 = extrude(50) as Extrude;
 
       sketch("xy", () => {
-        move([25, 10]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [25, 10] });
+        });
       extrude(e1.endFaces());
 
       const scene = render();
@@ -405,14 +396,13 @@ describe("extrude to face", () => {
 
     it("should not fuse with intersecting objects when fuse is none", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e1 = extrude(50) as Extrude;
 
       sketch("xy", () => {
-        move([25, 10]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [25, 10] });
+        });
       const e2 = extrude(e1.endFaces()).new() as ExtrudeToFace;
 
       render();
@@ -426,15 +416,14 @@ describe("extrude to face", () => {
   describe("drill", () => {
     it("should drill hole when inner shape is nested (default)", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e1 = extrude(50) as Extrude;
 
       sketch("xy", () => {
-        move([200, 0]);
-        circle(100);
-        circle([200, 0], 40);
-      });
+          circle([200, 0], 100);
+          circle([200, 0], 40);
+        });
       const e2 = extrude(e1.endFaces()) as ExtrudeToFace;
 
       render();
@@ -450,15 +439,14 @@ describe("extrude to face", () => {
   describe("pick", () => {
     it("should only extrude the picked region", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e1 = extrude(50) as Extrude;
 
       sketch("xy", () => {
-        move([200, 0]);
-        circle(60);
-        circle([200, 100], 60);
-      });
+          circle([200, 0], 60);
+          circle([200, 100], 60);
+        });
       const e2 = extrude(e1.endFaces()).pick([200, 0]) as ExtrudeToFace;
 
       render();

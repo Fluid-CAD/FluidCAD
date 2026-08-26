@@ -14,7 +14,6 @@ import {
   type TSNode,
   type TSTree,
 } from './code-editor.ts';
-import { applySegmentSwap, type SegmentSwapSpec } from './segment-swap.ts';
 import { applySketchConstraint, type SketchConstraintEditSpec } from './sketch-constraint-edit.ts';
 import {
   applyDistanceTangency,
@@ -81,7 +80,7 @@ export function validValueExpr(
  * here so the transform stays a dependency-free string function.
  */
 export type ApplyFeatureEditSpec = {
-  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'slot' | 'tarc' | 'aline' | 'rotate2d' | 'rib' | 'connector' | 'expose';
+  feature: 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'text' | 'wrap' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'project' | 'offset' | 'rotate2d' | 'rib' | 'connector' | 'expose';
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
   value?: ValueExpr;
   /**
@@ -113,8 +112,6 @@ export type ApplyFeatureEditSpec = {
   offset?: OffsetEditOptions;
   /** In-sketch rotate payload: the center literal and the copy flag. */
   rotate2d?: Rotate2DEditOptions;
-  /** Slot-from-edge payload; the trailing `deleteSource` argument. */
-  slot?: SlotEditOptions;
   /**
    * Connector-only payload: the name the statement registers, plus the call
    * site of the `part(...)` block whose callback body receives the statement
@@ -129,10 +126,6 @@ export type ApplyFeatureEditSpec = {
   expose?: ExposeEditOptions;
   /** Cross-part sketch payload: `sketch(<ident>.features.<name>, …)` into the active part. */
   sketchForeign?: SketchForeignOptions;
-  /** tArc-only payload; present for an in-place retarget instead of a create. */
-  tarc?: TarcEditOptions;
-  /** aLine-only payload; the explicit chain-start point, when the statement must carry one. */
-  aline?: AlineEditOptions;
   /**
    * Text-on-path create payload: the dialog's option values, rendered around
    * the single `parts` entry (the path's bare variable). In-place edits ride
@@ -205,15 +198,9 @@ export type ApplyFeatureEditSpec = {
    */
   edit?: FeatureStatementEditTarget;
   /**
-   * Segment conversion (sketcher Phase 2a): swap exactly one chained sketch
-   * segment's call chain for its constrained/free form. Rides the generic
-   * apply-feature-edit round trip; every other spec field is ignored.
-   */
-  segmentSwap?: SegmentSwapSpec;
-  /**
    * Solved-sketch constraint emission (sketch-rewrite P4): hoist unbound
    * entity statements and append a constraint statement at the sketch body's
-   * end, in one edit. Rides the same round trip as `segmentSwap`; every
+   * end, in one edit. Rides the generic apply-feature-edit round trip; every
    * other spec field is ignored.
    */
   sketchConstraint?: SketchConstraintEditSpec;
@@ -1226,16 +1213,6 @@ export type OffsetEditOptions = {
 };
 
 /**
- * A slot-from-edge statement's own option: `removeOriginal` mirrors the
- * call's `deleteSource` argument — `slot(l, 4)` consumes the source line (the
- * kernel default), `slot(l, 4, false)` keeps it. The rendered statement only
- * carries the explicit `false`.
- */
-export type SlotEditOptions = {
-  removeOriginal: boolean;
-};
-
-/**
  * The in-sketch rotate's payload (P6): the rotation center (sketch
  * coordinates, expressions welcome) and whether the statement copies
  * instead of moving — `rotate(45, [x, y], true, r, c)`.
@@ -1243,29 +1220,6 @@ export type SlotEditOptions = {
 export type Rotate2DEditOptions = {
   center: [ValueExpr, ValueExpr];
   copy: boolean;
-};
-
-/**
- * The tArc retarget payload (an end-drag snapped onto an edge): rewrite the
- * `tArc(radius, [x, y])` statement at `retarget.line` to the to-target
- * overload — `tArc(radius, <target var>)` — instead of inserting a new
- * statement. The two overloads encode the radius sign differently (endpoint
- * form: leave side; target form: sweep direction), so `sign` carries the
- * solved sweep (+1 CCW) and a clockwise arc negates the preserved radius
- * argument text.
- */
-export type TarcEditOptions = {
-  retarget: { line: number; sign: 1 | -1 };
-};
-
-/**
- * An aLine-to-target create's own option: the explicit start point rendered
- * as the statement's first argument (`aLine([10, 5], 30, l)`). Present when
- * the polyline chain opened away from the sketch cursor — the chained form
- * would start the line at the wrong place.
- */
-export type AlineEditOptions = {
-  start?: string;
 };
 
 /**
@@ -1395,17 +1349,11 @@ const REPEAT_TARGET_CALLEES = new Set([
  * their edges attributes to their statement.
  */
 const SKETCH_PRODUCER_CALLEES: Record<string, string[]> = {
-  rect: ['rect'],
-  line: ['line', 'hLine', 'vLine', 'aLine', 'tLine'],
-  circle: ['circle', 'tCircle'],
+  line: ['line'],
+  circle: ['circle'],
   ellipse: ['ellipse'],
-  polygon: ['polygon'],
-  slot: ['slot'],
   arc: ['arc'],
-  'arc-from-center': ['arc'],
-  tarc: ['tArc'],
   bezier: ['bezier'],
-  connect: ['connect'],
   offset: ['offset'],
   projection: ['project'],
   intersect: ['intersect'],
@@ -1452,9 +1400,6 @@ export async function applyFeatureEdit(
   code: string,
   spec: ApplyFeatureEditSpec,
 ): Promise<ApplyFeatureEditResult> {
-  if (spec.segmentSwap) {
-    return applySegmentSwap(code, spec.segmentSwap);
-  }
   if (spec.sketchConstraint) {
     return applySketchConstraint(code, spec.sketchConstraint);
   }
@@ -1487,11 +1432,6 @@ export async function applyFeatureEdit(
     return applyConnectorPropsEdit(code, spec.connectorProps);
   }
   if (spec.edit) {
-    if (spec.feature === 'slot') {
-      // The slot edit dialog was removed — slot statements are create-only
-      // (timeline slot rows are no longer editable); refuse honestly.
-      return { newCode: code, error: 'slot statements no longer support dialog editing' };
-    }
     return applyStatementEdit(code, spec);
   }
   if (spec.feature === 'sketch' && spec.sketchForeign) {
@@ -1887,40 +1827,6 @@ export async function applyFeatureEdit(
     if (!valid) {
       return { newCode: code, error: 'malformed project edit spec' };
     }
-  } else if (spec.feature === 'slot') {
-    // Slot from edge takes ONE whole source geometry: exactly one bound
-    // producer rendered as a bare variable, plus a positive radius. Create
-    // only — edit-addressed slot specs were refused at the dispatch above
-    // (the slot edit dialog was removed).
-    const valid = spec.producers.length === 1 && spec.parts.length === 1
-      && validValueExpr(spec.value, { positive: true });
-    if (!valid) {
-      return { newCode: code, error: 'malformed slot edit spec' };
-    }
-  } else if (spec.feature === 'tarc') {
-    // tArc-to-intersection takes ONE whole target geometry: exactly one bound
-    // producer rendered as a bare variable. Create mode carries a nonzero
-    // signed radius (a negative radius flips the sweep direction); retarget
-    // mode instead names the statement to rewrite and the sweep sign.
-    const rt = spec.tarc?.retarget;
-    const valid = spec.producers.length === 1 && spec.parts.length === 1
-      && (rt !== undefined
-        ? Number.isInteger(rt.line) && (rt.sign === 1 || rt.sign === -1)
-        : validValueExpr(spec.value, { nonzero: true }));
-    if (!valid) {
-      return { newCode: code, error: 'malformed tArc edit spec' };
-    }
-  } else if (spec.feature === 'aline') {
-    // aLine-to-intersection takes ONE whole target geometry: exactly one
-    // bound producer rendered as a bare variable, plus the angle (any finite
-    // value — zero aims straight along the reference direction) and an
-    // optional explicit start point rendered as the first argument.
-    const valid = spec.producers.length === 1 && spec.parts.length === 1
-      && validValueExpr(spec.value)
-      && (spec.aline?.start === undefined || isExpressionText(spec.aline.start));
-    if (!valid) {
-      return { newCode: code, error: 'malformed aLine edit spec' };
-    }
   } else if (spec.feature === 'rotate2d') {
     // In-sketch rotate is owner-level: one or more bound producers rendered
     // as bare variables, a nonzero angle, and the center/copy payload.
@@ -1989,26 +1895,7 @@ export async function applyFeatureEdit(
   const bindings = resolved.bindings;
   const scope = bindings[0].scope;
 
-  // Slot-from-edge is a legacy feature the solved kernel rejects
-  // (mode-errors) — refuse here so the rail never writes a statement that is
-  // guaranteed to fail its build.
-  if (spec.feature === 'slot') {
-    let ancestor = scope.parent;
-    while (ancestor && ancestor.type !== 'call_expression') {
-      ancestor = ancestor.parent;
-    }
-    if (ancestor && isSolvedSketchCall(ancestor)) {
-      return { newCode: code, error: "slot-from-edge isn't available in constraint sketches — draw the slot instead" };
-    }
-  }
-
   allocateNames(tree.rootNode, bindings, spec);
-
-  // A tArc retarget rewrites an existing statement in place — no insertion
-  // point, no new statement text, no import changes.
-  if (spec.feature === 'tarc' && spec.tarc?.retarget) {
-    return applyTarcRetarget(code, tree, lines, bindings, spec.tarc.retarget);
-  }
 
   const insertion = resolveInsertion(spec, bindings, scope, lines, tree);
   if ('error' in insertion) {
@@ -2183,7 +2070,7 @@ async function applyPlaneSketch(
 ): Promise<ApplyFeatureEditResult> {
   const args = plane ? `'${plane}', ` : '';
   return appendTopLevelStatement(
-    code, indent => `sketch(${args}() => {\n\n${indent}}, true)`, 'sketch', undefined, activePart,
+    code, indent => `sketch(${args}() => {\n\n${indent}})`, 'sketch', undefined, activePart,
   );
 }
 
@@ -2256,7 +2143,7 @@ async function applySketchForeign(
 
   const result = await appendTopLevelStatement(
     working,
-    indent => `sketch(${ident}.features.${sf.exposeName}, () => {\n\n${indent}}, true)`,
+    indent => `sketch(${ident}.features.${sf.exposeName}, () => {\n\n${indent}})`,
     'sketch',
     spec.newVariables,
     { line: activeLine, column: spec.activePart!.column },
@@ -3167,12 +3054,6 @@ function statementCallee(spec: ApplyFeatureEditSpec): string {
   if (spec.feature === 'boolean') {
     return spec.boolean!.kind;
   }
-  if (spec.feature === 'tarc') {
-    return 'tArc';
-  }
-  if (spec.feature === 'aline') {
-    return 'aLine';
-  }
   if (spec.feature === 'rotate2d') {
     return 'rotate';
   }
@@ -3967,11 +3848,11 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
     );
   }
   if (spec.feature === 'sketch' && spec.sketchOnPlane) {
-    return `sketch(${bindings[0].varName}, () => {\n\n${indent}}, true)`;
+    return `sketch(${bindings[0].varName}, () => {\n\n${indent}})`;
   }
   const args = renderSelectorArgs(spec, bindings);
   if (spec.feature === 'sketch') {
-    return `sketch(${args}, () => {\n\n${indent}}, true)`;
+    return `sketch(${args}, () => {\n\n${indent}})`;
   }
   if (spec.feature === 'connector') {
     // The name is a validated identifier, so the quoting is safe. A raw
@@ -3998,15 +3879,6 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   }
   if (spec.feature === 'rotate2d') {
     return renderRotate2DStatement(spec.value, args, spec.rotate2d!);
-  }
-  if (spec.feature === 'slot') {
-    return renderSlotStatement(spec.value, args, spec.slot);
-  }
-  if (spec.feature === 'tarc') {
-    return renderTarcStatement(spec.value, args);
-  }
-  if (spec.feature === 'aline') {
-    return renderAlineStatement(spec.value, args, spec.aline);
   }
   if (spec.feature === 'text') {
     return renderTextStatement(spec.text!, args);
@@ -4041,136 +3913,6 @@ export function renderRotate2DStatement(
   const center = `[${formatValue(rotate2d.center[0])}, ${formatValue(rotate2d.center[1])}]`;
   const copyArg = rotate2d.copy ? ', true' : '';
   return `rotate(${formatValue(value)}, ${center}${copyArg}, ${args})`;
-}
-
-/**
- * A slot-from-edge statement: `slot(l, 4)` — the source geometry first, then
- * the cap radius. The kernel deletes the source by default, so only the
- * keep-original form carries the trailing boolean: `slot(l, 4, false)`.
- */
-export function renderSlotStatement(
-  value: ValueExpr | undefined,
-  args: string,
-  slot: SlotEditOptions | undefined,
-): string {
-  const keepSource = slot?.removeOriginal === false ? ', false' : '';
-  return `slot(${args}, ${formatValue(value)}${keepSource})`;
-}
-
-/**
- * A tangent-arc-to-intersection statement: `tArc(12, l)` — the signed radius
- * first, then the target geometry the arc runs to. Shared with the route's
- * preview so the previewed text is exactly what the transform writes.
- */
-export function renderTarcStatement(value: ValueExpr | undefined, args: string): string {
-  return `tArc(${formatValue(value)}, ${args})`;
-}
-
-/**
- * An angled-line-to-intersection statement: `aLine(30, l)` — the angle first,
- * then the target geometry the line runs to; an explicit chain-start address
- * rides as the first argument (`aLine([10, 5], 30, l)`). Shared with the
- * route's preview so the previewed text is exactly what the transform writes.
- */
-export function renderAlineStatement(
-  value: ValueExpr | undefined,
-  args: string,
-  aline?: AlineEditOptions,
-): string {
-  const start = aline?.start !== undefined ? `${aline.start}, ` : '';
-  return `aLine(${start}${formatValue(value)}, ${args})`;
-}
-
-/** Negate an argument's source text: `12` → `-12`, `r` → `-r`, else `-(…)`. */
-function negateExpressionText(expr: string): string {
-  const trimmed = expr.trim();
-  if (/^-?\d+(\.\d+)?$/.test(trimmed)) {
-    return String(-Number(trimmed));
-  }
-  if (/^[a-zA-Z_$][\w$]*$/.test(trimmed)) {
-    return `-${trimmed}`;
-  }
-  return `-(${trimmed})`;
-}
-
-/** Innermost identifier-callee call of a chain: `tArc(…).name('x')` → the `tArc(…)` node. */
-function chainBaseCall(call: TSNode): TSNode | null {
-  let current: TSNode | null = call;
-  while (current && current.type === 'call_expression') {
-    const fn = current.childForFieldName('function');
-    if (!fn) {
-      return null;
-    }
-    if (fn.type === 'identifier') {
-      return current;
-    }
-    if (fn.type === 'member_expression') {
-      const obj = fn.childForFieldName('object');
-      current = obj && obj.type === 'call_expression' ? obj : null;
-      continue;
-    }
-    return null;
-  }
-  return null;
-}
-
-/**
- * Rewrite the `tArc(radius, [x, y])` statement at `retarget.line` to the
- * to-target overload — `tArc(radius, <target var>)` — binding the target's
- * statement to a variable when needed (the end-drag's edge snap). The radius
- * argument text is preserved verbatim (expression transparency), negated for
- * a clockwise solve per the to-target sign convention. The target must be
- * declared before the arc's own statement — a later statement's variable
- * would be read in its temporal dead zone — and live in the same sketch.
- */
-function applyTarcRetarget(
-  code: string,
-  tree: TSTree,
-  lines: string[],
-  bindings: ProducerBinding[],
-  retarget: { line: number; sign: 1 | -1 },
-): ApplyFeatureEditResult {
-  const call = findEditableCallAt(tree, lines, retarget.line);
-  const base = call ? chainBaseCall(call) : null;
-  if (!base || base.childForFieldName('function')?.text !== 'tArc') {
-    return {
-      newCode: code,
-      error: `no tArc() call found at line ${retarget.line} — is the file in sync with the last render?`,
-    };
-  }
-  const args = base.childForFieldName('arguments');
-  const named = args?.namedChildren ?? [];
-  if (!args || named.length !== 2 || named[0].type === 'array' || named[1].type !== 'array') {
-    return { newCode: code, error: 'the tArc statement is not the radius + endpoint form — re-render and retry' };
-  }
-
-  const binding = bindings[0];
-  const arcStatement = enclosingStatement(base) ?? base;
-  if (binding.statement.startIndex >= arcStatement.startIndex) {
-    return {
-      newCode: code,
-      error: 'the target is declared after this arc — only earlier geometry can be referenced',
-    };
-  }
-  const arcSketch = enclosingSketchStatement(base);
-  const targetSketch = enclosingSketchStatement(binding.call);
-  if (!arcSketch || !targetSketch || arcSketch.startIndex !== targetSketch.startIndex) {
-    return { newCode: code, error: 'the target lives in a different sketch than this arc' };
-  }
-
-  const radiusText = named[0].text;
-  const radiusOut = retarget.sign < 0 ? negateExpressionText(radiusText) : radiusText.trim();
-
-  const edits = [{ index: args.startIndex, end: args.endIndex, text: `(${radiusOut}, ${binding.varName})` }];
-  if (binding.needsBinding) {
-    edits.push({ index: binding.call.startIndex, end: binding.call.startIndex, text: `const ${binding.varName} = ` });
-  }
-  edits.sort((a, b) => b.index - a.index);
-  let result = code;
-  for (const edit of edits) {
-    result = spliceCode(result, edit.index, edit.end, edit.text);
-  }
-  return { newCode: result };
 }
 
 /** The selector argument list: the user-edited override, or rendered parts. */
@@ -4583,7 +4325,7 @@ function enclosingSketchStatement(node: TSNode): TSNode | null {
 // ---------------------------------------------------------------------------
 
 /** Feature kinds whose statements the edit dialogs can rewrite in place. */
-export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'slot' | 'project' | 'rib' | 'connector';
+export type EditableFeatureKind = 'extrude' | 'sweep' | 'loft' | 'shell' | 'fillet' | 'chamfer' | 'revolve' | 'text' | 'wrap' | 'sketch' | 'repeat' | 'copy' | 'mirror' | 'rotate' | 'boolean' | 'helix' | 'plane' | 'offset' | 'project' | 'rib' | 'connector';
 
 /**
  * One base argument of a parsed plane statement. `kind` is what the base
@@ -4743,15 +4485,6 @@ export type ParsedFeatureStatement =
     argsText: string;
     /** `.close()` chains the offset back onto its source profile. */
     close: boolean;
-  }
-  | {
-    feature: 'slot';
-    /** The end-cap radius. */
-    value: ValueExpr;
-    /** The `deleteSource` argument (kernel default true) — the source is removed. */
-    removeOriginal: boolean;
-    /** The source-geometry argument, verbatim (a bound variable). */
-    argsText: string;
   }
   | {
     feature: 'project';
@@ -4981,7 +4714,6 @@ const EDITABLE_CALLEES: Record<string, EditableFeatureKind> = {
   helix: 'helix',
   plane: 'plane',
   offset: 'offset',
-  slot: 'slot',
   project: 'project',
   connector: 'connector',
 };
@@ -5032,10 +4764,6 @@ const OPTION_MEMBERS: Record<EditableFeatureKind, Set<string>> = {
   // The distance, the removeOriginal flag and the targets are root-call
   // arguments; `.close()` is the one chained option the dialog edits.
   offset: new Set(['close']),
-  // The source, the radius and the deleteSource flag are root-call arguments;
-  // the dimension forms chain .centered()/.rotate(), but those forms refuse
-  // to parse anyway (they are drawn, not dialog-edited).
-  slot: new Set(),
   // The sources are the root call's arguments; `.name()` and friends are
   // unrecognized members and survive verbatim.
   project: new Set(),
@@ -5379,33 +5107,6 @@ function parseFeatureChain(call: TSNode, code: string, numericVars: Set<string> 
       start,
       end,
     };
-  }
-
-  if (feature === 'slot') {
-    // Only the from-edge overload has a dialog: `slot(<source>, <radius>[,
-    // <deleteSource>])`, the source being a bound geometry variable. The
-    // dimension overloads (a numeric or point first argument) are drawn and
-    // drag-edited in the sketch, so they refuse honestly.
-    if (args.length < 2) {
-      return { error: 'the slot() call is missing its radius — edit it in the source' };
-    }
-    if (numericValueArg(args[0], numericVars) !== null || args[0].type === 'array') {
-      return { error: 'this slot is drawn from dimensions — drag it in the sketch to edit it' };
-    }
-    const value = numericValueArg(args[1], numericVars);
-    if (value === null) {
-      return { error: 'the slot() radius is not a plain number or expression — edit it in the source' };
-    }
-    let removeOriginal = true;
-    if (args.length > 2) {
-      const flag = booleanArgValue(args[2]);
-      if (flag === null || args.length > 3) {
-        return { error: 'the slot() call has arguments the dialog cannot edit — edit it in the source' };
-      }
-      removeOriginal = flag;
-    }
-    const argsText = code.slice(args[0].startIndex, args[0].endIndex);
-    return { parsed: { feature, value, removeOriginal, argsText }, start, end };
   }
 
   if (feature === 'project') {
@@ -7094,9 +6795,9 @@ export async function parseOffsetTargetDescriptors(
     return { ok: false, reason: `no call found at line ${line} — is the file in sync with the last render?` };
   }
   const chain = decomposeChain(call);
-  if (!chain || (chain.root.name !== 'offset' && chain.root.name !== 'slot' && chain.root.name !== 'fillet'
+  if (!chain || (chain.root.name !== 'offset' && chain.root.name !== 'fillet'
     && chain.root.name !== 'text' && chain.root.name !== 'copy')) {
-    return { ok: false, reason: 'the statement at that line is not an offset, slot, fillet, text or copy' };
+    return { ok: false, reason: 'the statement at that line is not an offset, fillet, text or copy' };
   }
   const args = chain.root.args;
   const numericVars = numericVarNames(tree);
@@ -7111,13 +6812,6 @@ export async function parseOffsetTargetDescriptors(
     // text has nothing nameable (descriptors: [], like a whole-sketch offset).
     selectorsFrom = 1;
     selectorsTo = Math.min(args.length, 2);
-  } else if (chain.root.name === 'slot') {
-    // `slot(<source>, <radius>[, <deleteSource>])` — the source alone is the
-    // target; the trailing value/flag slots never seed.
-    if (args.length === 0 || numericValueArg(args[0], numericVars) !== null || args[0].type === 'array') {
-      return { ok: false, reason: 'this slot is drawn from dimensions — it has no source geometry to seed' };
-    }
-    selectorsTo = 1;
   } else if (args.length > 0 && numericValueArg(args[0], numericVars) !== null) {
     // The offset's value and removeOriginal slots, exactly as
     // parseFeatureChain reads them.
@@ -7237,7 +6931,7 @@ function validValueExprOrNull(
 }
 
 /** The spec fields `renderEditedStatement` reads. */
-type EditRenderSpec = Pick<ApplyFeatureEditSpec, 'feature' | 'value' | 'offset' | 'slot' | 'rawArgs' | 'edit' | 'producers' | 'parts'>;
+type EditRenderSpec = Pick<ApplyFeatureEditSpec, 'feature' | 'value' | 'offset' | 'rawArgs' | 'edit' | 'producers' | 'parts'>;
 
 /**
  * The selector argument list an edited statement renders: the user's

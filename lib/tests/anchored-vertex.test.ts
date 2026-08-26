@@ -6,7 +6,8 @@ import extrude from "../core/extrude.js";
 import select from "../core/select.js";
 import part from "../core/part.js";
 import connector from "../core/connector.js";
-import { circle, rect } from "../core/2d/index.js";
+import { circle } from "../core/2d/index.js";
+import { testRect } from "./helpers/profiles.js";
 import { face } from "../filters/index.js";
 import { Connector } from "../features/connector.js";
 import { IExtrude, ISelection } from "../core/interfaces.js";
@@ -22,7 +23,7 @@ import type { TopoDS_Edge } from "ocjs-fluidcad";
 // rect(40, 60) on 'xy' extruded 20 → box (0..40, 0..60, 0..20).
 function boxPart(name: string, body: (e: IExtrude) => void) {
   part(name, () => {
-    sketch("xy", () => rect(40, 60));
+    sketch("xy", () => { testRect(40, 60); });
     const e = extrude(20);
     body(e as unknown as IExtrude);
   });
@@ -32,7 +33,7 @@ function boxPart(name: string, body: (e: IExtrude) => void) {
 // circle(10) on 'xy' extruded 15 → cylinder r=10, z 0..15.
 function cylinderPart(name: string, body: (e: IExtrude) => void) {
   part(name, () => {
-    sketch("xy", () => circle(10));
+    sketch("xy", () => { circle([0, 0], 10); });
     const e = extrude(15);
     body(e as unknown as IExtrude);
   });
@@ -153,7 +154,7 @@ describe("anchored vertex references", () => {
   it("offset() validates mode and value at call time", () => {
     expect(() => {
       part("bad-mode", () => {
-        sketch("xy", () => rect(40, 60));
+        sketch("xy", () => { testRect(40, 60); });
         const e = extrude(20) as unknown as IExtrude;
         (e.startEdges(0) as unknown as any).offset("sideways", 5);
       }).materialize();
@@ -161,7 +162,7 @@ describe("anchored vertex references", () => {
 
     expect(() => {
       part("bad-value", () => {
-        sketch("xy", () => rect(40, 60));
+        sketch("xy", () => { testRect(40, 60); });
         const e = extrude(20) as unknown as IExtrude;
         (e.startEdges(0) as unknown as ISelection).offset("relative", Number.NaN);
       }).materialize();
@@ -202,7 +203,7 @@ describe("anchored vertex references", () => {
     // depending on which selection path resolved it — the frame must not
     // care which copy it got.
     part("orientation-free", () => {
-      sketch("xy", () => rect(40, 60));
+      sketch("xy", () => { testRect(40, 60); });
       extrude(20);
     });
     const scene = render();
@@ -234,7 +235,7 @@ describe("anchored vertex references", () => {
 
   it("straight-edge Z leans positive along the leading world axis", () => {
     part("canonical-z", () => {
-      sketch("xy", () => rect(40, 60));
+      sketch("xy", () => { testRect(40, 60); });
       extrude(20);
     });
     const scene = render();

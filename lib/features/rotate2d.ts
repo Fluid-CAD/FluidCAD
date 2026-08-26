@@ -53,19 +53,13 @@ export class Rotate2D extends GeometrySceneObject {
     // and the collection guard skips shape-less objects. Rotated geometry
     // follows its sources and the center ref, so the viewport tints it
     // constrained only when all of those are.
-    if (this.sketch.isSolvedMode()) {
-      this.setState('source-entities', collectSourceEntities(targetObjects, { center: this.center }));
-    }
+    this.setState('source-entities', collectSourceEntities(targetObjects, { center: this.center }));
 
     const plane = this.sketch.getPlane();
-    // The legacy default rotates about the sketch cursor — a pen concept
-    // with no meaning in a constraint sketch, where the center is explicit.
-    if (!this.center && this.sketch.isSolvedMode()) {
-      throw new BuildError("rotate() in a constraint sketch needs an explicit center — rotate(angle, [x, y], ...)");
+    if (!this.center) {
+      throw new BuildError("rotate() needs an explicit center — rotate(angle, [x, y], ...)");
     }
-    const centerWorld = this.center
-      ? plane.localToWorld(this.center.asPoint2D())
-      : plane.localToWorld(this.sketch.getPositionAt(this as any));
+    const centerWorld = plane.localToWorld(this.center.asPoint2D());
     axis = new Axis(centerWorld, plane.zAxis.direction);
 
     const matrix = Matrix4.fromRotationAroundAxis(axis.origin, axis.direction, rad(this.angle));
@@ -81,14 +75,6 @@ export class Rotate2D extends GeometrySceneObject {
       }
     }
 
-    // Pen state stays a legacy concept — never written in a solved sketch.
-    if (!this.sketch.isSolvedMode()) {
-      const lastTangent = this.sketch.getTangentAt(this);
-      if (lastTangent) {
-        const transformedTangent = lastTangent.transform(matrix);
-        this.setTangent(transformedTangent);
-      }
-    }
   }
 
   compareTo(other: Rotate2D): boolean {

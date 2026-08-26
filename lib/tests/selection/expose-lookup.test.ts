@@ -6,10 +6,10 @@ import extrude from "../../core/extrude.js";
 import part from "../../core/part.js";
 import select from "../../core/select.js";
 import expose from "../../core/expose.js";
-import { rect } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { resolvePickExposure } from "../../selection/expose-lookup.js";
 import { faceRefsWhere, findSolid, setLocation } from "./pick-helpers.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("resolvePickExposure", () => {
   setupOC();
@@ -18,8 +18,8 @@ describe("resolvePickExposure", () => {
   function makeTwoPartScene(donorBody?: () => void) {
     const donor = part("Donor", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30);
       setLocation(e, 5);
       donorBody?.();
@@ -27,8 +27,8 @@ describe("resolvePickExposure", () => {
     setLocation(donor, 2);
     const consumer = part("Consumer", () => {
       sketch("xy", () => {
-        rect(10, 10);
-      });
+          testRect(10, 10);
+        });
       extrude(5);
     });
     setLocation(consumer, 10);
@@ -84,7 +84,9 @@ describe("resolvePickExposure", () => {
 
   it("a sketch-sourced exposure never matches a face pick", () => {
     const { scene, topFace } = makeTwoPartScene(() => {
-      const s = sketch("xy", () => rect(4, 4)).reusable();
+      const s = sketch("xy", () => {
+        testRect(4, 4);
+      }).reusable();
       expose("profile", s);
     });
 
@@ -97,8 +99,8 @@ describe("resolvePickExposure", () => {
 
   it("resolves to a null donor outside any part()", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 3);
     const scene = render();

@@ -3,20 +3,21 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import copy from "../../core/copy.js";
-import { rect } from "../../core/2d/index.js";
+import { } from "../../core/2d/index.js";
 import axis from "../../core/axis.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("copy linear", () => {
   setupOC();
 
   it("should create copies along an axis", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     copy("linear", "x", { count: 3, offset: 40 }, e);
@@ -29,8 +30,8 @@ describe("copy linear", () => {
 
   it("should space copies by the given offset", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     const c = copy("linear", "x", { count: 3, offset: 50 }, e) as unknown as SceneObject;
@@ -49,8 +50,8 @@ describe("copy linear", () => {
 
   it("should copy along Y axis", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     const c = copy("linear", "y", { count: 2, offset: 60 }, e) as unknown as SceneObject;
@@ -66,8 +67,8 @@ describe("copy linear", () => {
 
   it("should copy along Z axis", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     const c = copy("linear", "z", { count: 2, offset: 30 }, e) as unknown as SceneObject;
@@ -83,8 +84,8 @@ describe("copy linear", () => {
 
   it("should distribute copies by total length", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     // 4 copies over length 120 → offset = 120/(4-1) = 40
@@ -101,8 +102,8 @@ describe("copy linear", () => {
 
   it("should create a 2D grid with multiple axes", () => {
     sketch("xy", () => {
-      rect(10, 10);
-    });
+        testRect(10, 10);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     // 3 along X, 2 along Y → 3×2 = 6 positions, minus original = 5 copies
@@ -116,8 +117,8 @@ describe("copy linear", () => {
 
   it("should copy along an axis object", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new() as ExtrudeBase;
     const a = axis("x");
 
@@ -134,8 +135,8 @@ describe("copy linear", () => {
 
   it("should skip specified positions", () => {
     sketch("xy", () => {
-      rect(10, 10);
-    });
+        testRect(10, 10);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     // 3 copies, skip index 1

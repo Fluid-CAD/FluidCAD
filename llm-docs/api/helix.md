@@ -45,14 +45,11 @@ Constraints: turns > 0, pitch ≠ 0, radii > 0 over the whole height.
 ## Example
 
 ```fluid.js
-import { sketch, circle, hMove, helix, sweep } from "fluidcad/core";
+import { sketch, circle, helix, sweep } from "fluidcad/core";
 
 const path = helix("z").radius(15).pitch(10).turns(5);
 
-const profile = sketch("left", () => {
-    hMove(15);
-    circle(2);
-});
+const profile = sketch("left", () => circle([15, 0], 2));
 
 sweep(path, profile);
 ```

@@ -30,17 +30,20 @@ Inside a `sketch(...)` body, `select(edge()...)` evaluates against the
 **active sketch's edges** (statements before the select) instead of the
 3D scene. Sketch selections are edge-only — `select(face()...)` throws.
 The result participates in the same last-selection contract: the next 2D
-op (`fillet`, `offset`, `fuse`, `common`) consumes it, and it can also be
-passed as an explicit target. For single-op selections the filter-argument
-form (`fillet(4, edge().line())`) usually reads better.
+op (`fillet`, `offset`) consumes it, and it can also be passed as an
+explicit target. For single-op selections the filter-argument form
+(`fillet(4, edge().line())`) usually reads better.
 
 ```fluid.js
-import { extrude, fillet, rect, select, sketch } from "fluidcad/core";
+import { extrude, fillet, line, select, sketch } from "fluidcad/core";
 import { edge } from "fluidcad/filters";
 
 sketch("xy", () => {
-  rect(80, 60);
-  select(edge().line());   // the four rect sides
+  line([0, 0], [80, 0]);
+  line([80, 0], [80, 60]);
+  line([80, 60], [0, 60]);
+  line([0, 60], [0, 0]);
+  select(edge().line());   // the four sides
   fillet(4);               // consumes the sketch selection
 });
 extrude(10);
@@ -49,10 +52,15 @@ extrude(10);
 ## Example
 
 ```fluid.js
-import { extrude, fillet, rect, select, sketch } from "fluidcad/core";
+import { extrude, fillet, line, select, sketch } from "fluidcad/core";
 import { edge } from "fluidcad/filters";
 
-sketch("xy", () => rect(80, 60).centered());
+sketch("xy", () => {
+  line([-40, -30], [40, -30]);
+  line([40, -30], [40, 30]);
+  line([40, 30], [-40, 30]);
+  line([-40, 30], [-40, -30]);
+});
 const e = extrude(20);
 select(edge().verticalTo("xy"));
 fillet(2);                              // consumes the selection above

@@ -5,17 +5,18 @@ import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import shell from "../core/shell.js";
 import part from "../core/part.js";
-import { rect } from "../core/2d/index.js";
+import { } from "../core/2d/index.js";
 import { face } from "../filters/index.js";
 import { Extrude } from "../features/extrude.js";
 import { Part } from "../features/part.js";
 import { Sketch } from "../features/2d/sketch.js";
+import { testRect } from "./helpers/profiles.js";
 
 /** A scene whose last feature fails to build: `sketch → extrude → shell`. */
 function sceneWithFailingShell() {
   sketch("xy", () => {
-    rect(100, 100);
-  });
+      testRect(100, 100);
+    });
   const e = extrude(50) as Extrude;
   // Lazy accessor selection resolving to no faces — fails inside build().
   shell(-2, e.endFaces(face().circle(999)));
@@ -55,14 +56,14 @@ describe("rollback rendering", () => {
 function twoPartScene() {
   part("p1", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     extrude(50);
   });
   part("p2", () => {
     sketch("xy", () => {
-      rect(30, 30);
-    });
+        testRect(30, 30);
+      });
     extrude(20);
   });
   render();
@@ -98,13 +99,13 @@ describe("part-scoped rollback rendering", () => {
 
   it("falls back to the global prefix when the target has no enclosing part", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     extrude(50);
     part("p2", () => {
       sketch("xy", () => {
-        rect(30, 30);
-      });
+          testRect(30, 30);
+        });
       extrude(20);
     });
     render();

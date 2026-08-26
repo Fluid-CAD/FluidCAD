@@ -1,6 +1,6 @@
-import { arc, offset, sketch } from "fluidcad/core";
+import { sketch, arc, offset } from "fluidcad/core";
 
 sketch("xy", () => {
-    arc([50, 100]);
+    arc([0, 0], [50, 100], [15, 55]);
     offset(10).close()
 })

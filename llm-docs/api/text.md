@@ -1,6 +1,6 @@
 ---
 id: api/text
-title: text(string) / text(plane, string) / text(string, path)
+title: text(string) / text(string, path)
 summary: Renders a text string as sketch geometry — glyph outlines that extrude, wrap, or follow a path like any other profile.
 tags: [api, 2d, sketch]
 symbols: [text]
@@ -12,17 +12,21 @@ seeAlso: [api/sketch, api/wrap, api/extrude, api/types/text]
 Imported from `fluidcad/core`.
 
 ```ts
-text(text: string)                           // inside a sketch, at the cursor
-text(plane: PlaneLike | SceneObject, text: string)   // standalone, on a plane or face
+text(text: string)                           // anchored at the sketch plane origin
 text(text: string, path: SceneObject)        // glyphs laid out along a sketch path
 ```
 
 Returns `Text` (an extrudable geometry). Glyph outlines become regular
 sketch profiles: `extrude()` them for 3D text, `wrap()` them onto a
-cylinder, or use them as cut profiles. The string starts at the sketch
-cursor (or the plane origin) with the baseline along the local x axis.
+cylinder, or use them as cut profiles. The string anchors at the sketch
+plane origin with the baseline along the local x axis — chain
+`.at([x, y])` to place it elsewhere. When following a path, the path is
+left in place; mark it `.guide()` to keep it out of extruded profiles.
 
 Chain methods:
+
+- `.at([x, y])` — anchor position in sketch coordinates (default the
+  plane origin).
 
 - `.size(height)` — cap height in mm (default 10).
 - `.font(name)` / `.weight(400 | "bold")` / `.bold()` / `.italic()` —

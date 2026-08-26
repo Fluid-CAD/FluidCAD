@@ -24,11 +24,15 @@ patterns stay terse:
 
 ```fluid.js
 // Last-sketch consumption
-sketch("xy", () => rect(100, 60).centered());
-extrude(30);                              // ← consumes the rect
+sketch("xy", () => {
+  line([-50, -30], [50, -30]);
+  line([50, -30], [50, 30]);
+  line([50, 30], [-50, 30]);
+  line([-50, 30], [-50, -30]);
+});
+const e = extrude(30);                    // ← consumes the sketch
 
 // Last-selection consumption via direct accessor
-const e = extrude(30);
 fillet(5, e.endEdges());                  // explicit form (preferred)
 
 // Last-selection consumption via select()

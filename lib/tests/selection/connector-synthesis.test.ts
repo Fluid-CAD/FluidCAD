@@ -5,7 +5,8 @@ import extrude from "../../core/extrude.js";
 import part from "../../core/part.js";
 import select from "../../core/select.js";
 import connector from "../../core/connector.js";
-import { circle, move, polygon, rect } from "../../core/2d/index.js";
+import { circle, line } from "../../core/2d/index.js";
+import { coincident } from "../../core/constraints/index.js";
 import { face } from "../../filters/index.js";
 import { Scene } from "../../rendering/scene.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
@@ -16,6 +17,21 @@ import { Edge } from "../../common/edge.js";
 import { Explorer } from "../../oc/explorer.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { IExtrude, ISelection } from "../../core/interfaces.js";
+import { testRect } from "../helpers/profiles.js";
+
+/** Solved stand-in for legacy `polygon(n, dia)` (inscribed) centered at `at`. */
+function testPolygon(n: number, dia: number, at: [number, number]) {
+  const r = dia / 2;
+  const pts: [number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (2 * Math.PI * i) / n;
+    pts.push([at[0] + r * Math.cos(a), at[1] + r * Math.sin(a)]);
+  }
+  const lines = pts.map((p, i) => line(p, pts[(i + 1) % n]));
+  for (let i = 0; i < n; i++) {
+    coincident(lines[i].end(), lines[(i + 1) % n].start());
+  }
+}
 
 describe("connector synthesis", () => {
   setupOC();
@@ -24,8 +40,8 @@ describe("connector synthesis", () => {
   function makePartScene(): { scene: Scene; topFace: ReturnType<typeof faceRefsWhere>[number] } {
     const p = part("housing", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30);
       setLocation(e, 5);
     });
@@ -56,8 +72,8 @@ describe("connector synthesis", () => {
 
   it("refuses a pick outside any part() block", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 3);
     const scene = render();
@@ -74,8 +90,8 @@ describe("connector synthesis", () => {
   it("refuses a name the part already registered", () => {
     const p = part("housing", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30);
       setLocation(e, 5);
       connector("mountTop", select(face().planar().onPlane("xy", 30)));
@@ -244,8 +260,8 @@ describe("connector synthesis", () => {
   it("default names skip connectors the part already registered", () => {
     const p = part("housing", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30);
       setLocation(e, 5);
       connector("c1", select(face().planar().onPlane("xy", 30)));
@@ -272,8 +288,8 @@ describe("connector synthesis", () => {
     const conns: Connector[] = [];
     const p = part("housing", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as unknown as IExtrude;
       setLocation(e, 5);
       for (let i = 0; i < 4; i++) {
@@ -326,13 +342,13 @@ describe("connector synthesis", () => {
     const p = part("mypart", () => {
       sketch("xy", () => {
         circle([50, 70], 35.77);
-        move(33.66, 7.54);
-        rect(110.99, -51.9);
-        move(-44.65, 74.36);
-        circle(72.84);
-        rect(83.74, -54.35);
-        move(-233.74, 124.35);
-        polygon(5, 107.7);
+        // Legacy pen walk: move(33.66, 7.54) from [50, 70] put the rect corner
+        // at [83.66, 77.54]; the second rect started at the pen's [150, 100];
+        // the pentagon's center landed at [0, 170].
+        testRect(110.99, -51.9, { at: [83.66, 77.54] });
+        circle([150, 100], 72.84);
+        testRect(83.74, -54.35, { at: [150, 100] });
+        testPolygon(5, 107.7, [0, 170]);
       });
       const e = extrude();
       setLocation(e, 15);
@@ -366,8 +382,8 @@ describe("connector synthesis", () => {
 
   it("suggestion refuses geometry outside a part()", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 3);
     const scene = render();

@@ -43,7 +43,7 @@ export class SolvedConstraint extends SceneObject {
 
     if (!sk || !sk.isSolvedMode()) {
       this._registrationError =
-        `${this.kind}() requires a constraint-mode sketch — sketch(plane, callback, true)`;
+        `${this.kind}() must be written inside a sketch(plane, callback) body`;
       return;
     }
 
@@ -74,7 +74,7 @@ export class SolvedConstraint extends SceneObject {
 
     if (!sk || !sk.isSolvedMode()) {
       this._registrationError =
-        `${this.kind}() requires a constraint-mode sketch — sketch(plane, callback, true)`;
+        `${this.kind}() must be written inside a sketch(plane, callback) body`;
       return;
     }
 

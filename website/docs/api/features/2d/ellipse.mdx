@@ -1,33 +1,20 @@
 ---
 sidebar_position: 4
 title: "ellipse"
-description: "Draws an ellipse at the current position."
+description: "Draws an ellipse at a given center."
 ---
 
 # ellipse()
 
-Draws an ellipse at the current position.
+Draws an ellipse at a given center.
 
 **Returns**: [**`ExtrudableGeometry`**](/docs/api/types/extrudable-geometry)
 
 :::tip
-See the [guide](/docs/guides/sketching/primitive-shapes) for detailed usage examples.
+See the [guide](/docs/guides/sketching/primitives) for detailed usage examples.
 :::
 
 ## Signatures
-
-```ts
-ellipse(rx: NumberParam, ry: NumberParam): ExtrudableGeometry
-```
-
-Draws an ellipse at the current position.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `rx` | NumberParam | Semi-radius along the plane's X axis |
-| `ry` | NumberParam | Semi-radius along the plane's Y axis |
-
----
 
 ```ts
 ellipse(center: Point2DLike, rx: NumberParam, ry: NumberParam): ExtrudableGeometry

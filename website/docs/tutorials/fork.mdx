@@ -12,42 +12,91 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={forkFinal} entry="fork.fluid.js" />
 
-In this tutorial, you'll build a forked yoke from scratch, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=XuXgomMWouw). It covers offset arc profiles, sketch-local mirror axes, side-mounted bosses with through-holes, and using `.thin()` annular cuts to leave central features standing.
+In this tutorial, you'll build a forked yoke from scratch, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=XuXgomMWouw). It covers concentric arc profiles, sketch-local mirror axes, side-mounted bosses with through-holes, and using `.thin()` annular cuts to leave central features standing.
 
 Create a new file called `fork.fluid.js` in your project.
 
 ## Setup
 
-Start with imports — everything comes from `fluidcad/core`.
+Geometry primitives come from `fluidcad/core`; the constraints that pin them down come from `fluidcad/constraints`.
 
 ```js
-import { arc, circle, cut, extrude, local, mirror, move, offset,
-    plane, polygon, rect, sketch, vMove } from "fluidcad/core";
+import { arc, circle, cut, extrude, line, local, mirror, plane, sketch } from "fluidcad/core";
+import { coincident, concentric, distance, equal, fix, horizontal, perpendicular, radius, vertical } from "fluidcad/constraints";
 ```
 
 ## Step 1: The fork silhouette
 
-The whole side profile is built up in a single sketch on the front plane: a U-shaped arch wall at the bottom, two rectangular legs flanking it, and a tall column on top.
+The whole side profile is built up in a single constraint sketch on the front plane: a U-shaped arch wall at the bottom, two rectangular legs flanking it, and a tall column on top. In a constraint sketch (the `true` third argument to `sketch()`), every primitive is drawn at explicit coordinates, and constraint statements then express the design intent — junctions, alignments, and dimensions.
 
 ### Sketch the profile
 
+Geometry first. The arch wall is two concentric semicircles — inner radius 18, outer radius 36 — closed at both ends by short horizontal caps. The right leg is an 18 × 40 rectangle hanging below the arch's right end, and the column is a 36-wide rectangle running from y = 18 up to the overall height of 129.
+
 ```js
 sketch("front", () => {
-    arc(18)
-    offset(18).close();
-    move([18, 0])
-    const r = rect(18, -40)
-    mirror(local("y"), r)
-    move([0, 18])
-    rect(36, 129 - 18).centered('horizontal')
+    // Arch: two concentric semicircles closed at both ends (wall thickness 18)
+    const inner = arc([18, 0], [-18, 0], [0, 0]);
+    const outer = arc([36, 0], [-36, 0], [0, 0]);
+    const capR = line([18, 0], [36, 0]);
+    const capL = line([-36, 0], [-18, 0]);
+
+    // Right leg, 18 x 40, hanging below the arch's right end
+    const legB = line([18, -40], [36, -40]);
+    const legR = line([36, -40], [36, 0]);
+    const legT = line([36, 0], [18, 0]);
+    const legL = line([18, 0], [18, -40]);
+
+    // Column, 36 wide, from y = 18 up to the 129 overall height
+    const colB = line([-18, 18], [18, 18]);
+    const colR = line([18, 18], [18, 129]);
+    const colT = line([18, 129], [-18, 129]);
+    const colL = line([-18, 129], [-18, 18]);
+
+    coincident(inner.start(), capR.start());
+    coincident(capR.end(), outer.start());
+    coincident(outer.end(), capL.start());
+    coincident(capL.end(), inner.end());
+    concentric(inner, outer);
+    horizontal(capR);
+    horizontal(capL);
+    fix(inner.center(), [0, 0]);
+    radius(inner, 18);
+    radius(outer, 36);
+
+    coincident(legB.end(), legR.start());
+    coincident(legR.end(), legT.start());
+    coincident(legT.end(), legL.start());
+    coincident(legL.end(), legB.start());
+    horizontal(legB);
+    vertical(legR);
+    horizontal(legT);
+    vertical(legL);
+    fix(legT.end(), [18, 0]);
+    distance(legB.start(), legB.end(), 18);
+    distance(legR.start(), legR.end(), 40);
+
+    coincident(colB.end(), colR.start());
+    coincident(colR.end(), colT.start());
+    coincident(colT.end(), colL.start());
+    coincident(colL.end(), colB.start());
+    horizontal(colB);
+    vertical(colR);
+    horizontal(colT);
+    vertical(colL);
+    fix(colB.start(), [-18, 18]);
+    distance(colB.start(), colB.end(), 36);
+    distance(colR.start(), colR.end(), 129 - 18);
+
+    mirror(local("y"), legB, legR, legT, legL);
 });
 ```
 
-`arc(18)` draws a semicircular arc of radius 18 from the origin — this is the inner edge of the arch. `offset(18).close()` adds a parallel arc 18 units away and closes both ends, giving the arch a wall thickness of 18.
+`arc(start, end, center)` draws counter-clockwise from start to end — `arc([18, 0], [-18, 0], [0, 0])` is the upper semicircle of radius 18 centered on the origin. The `coincident` chain stitches each cap line to the arc endpoints beside it, `concentric` locks both arcs onto the same center, and `fix(inner.center(), [0, 0])` anchors that center at the origin. `radius(inner, 18)` and `radius(outer, 36)` dimension the two arcs, giving the arch its 18-unit wall thickness.
 
-`move([18, 0])` jumps the cursor to the right side of the arch, and `rect(18, -40)` drops an 18 x 40 leg straight down. `mirror(local("y"), r)` reflects that leg across the sketch's local Y-axis to produce the matching left leg.
+Each rectangle follows the same pattern: four lines, four `coincident` corner junctions, `horizontal`/`vertical` on the sides, a `fix` to anchor one corner, and two `distance` dimensions for width and height.
 
-Finally `move([0, 18])` recenters the cursor on top of the arch and `rect(36, 129 - 18).centered('horizontal')` draws the 36-wide column going up to a total height of 129.
+Finally `mirror(local("y"), ...)` reflects the four leg lines across the sketch's local Y-axis to produce the matching left leg — mirror is a derived operation, so it comes after the geometry and constraints.
 
 ![Fork silhouette sketch](/img/docs/tutorials/fork-step1-sketch.png)
 
@@ -69,25 +118,24 @@ Each leg has a cylindrical boss sticking out the side. We'll model one and mirro
 
 ```js
 sketch(plane("right", 18), () => {
-    vMove(-(167 - 129))
-    circle(60);
+    circle([0, -38], 60);
 });
 ```
 
-`plane("right", 18)` creates a sketch plane on the right side of the column (x = 18). `vMove(-(167 - 129))` moves the cursor down 38 units on that plane, placing the boss center inside the leg region. `circle(60)` draws a 60-diameter circle at that point.
+`plane("right", 18)` creates a sketch plane on the right side of the column (x = 18). `circle([0, -38], 60)` draws a 60-diameter circle centered 38 units down on that plane — `167 - 129`, placing the boss center inside the leg region. In a constraint sketch the center is stated outright rather than reached by moving a cursor.
 
 ![Boss sketch](/img/docs/tutorials/fork-step2-sketch.png)
 
 ### Extrude and mirror
 
 ```js
-const distance = (80 - 36) / 2
-const e = extrude(distance);
+const bossDepth = (80 - 36) / 2
+const e = extrude(bossDepth);
 
 mirror("right")
 ```
 
-`extrude(distance)` pushes the circle outward by 22 units — the gap between the body's 36-wide footprint and the model's 80-wide overall span, divided by two. We capture the result in `e` so we can sketch on its end face later. `mirror("right")` reflects the new boss across the right plane to produce the matching one on the left side.
+`extrude(bossDepth)` pushes the circle outward by 22 units — the gap between the body's 36-wide footprint and the model's 80-wide overall span, divided by two. We capture the result in `e` so we can sketch on its end face later. `mirror("right")` reflects the new boss across the right plane to produce the matching one on the left side.
 
 ![Both side bosses](/img/docs/tutorials/fork-step2.png)
 
@@ -95,13 +143,14 @@ mirror("right")
 
 ```js
 sketch(e.endFaces(), () => {
-    circle(30)
+    // Concentric with the boss: its center sits at [0, -38] on this face
+    circle([0, -38], 30);
 });
 
 cut();
 ```
 
-`e.endFaces()` returns the outer circular face of the right boss, and `circle(30)` draws a 30-diameter circle on it. `cut()` with no argument removes material straight through everything in line with the sketch — including both bosses thanks to the earlier mirror — leaving a clean through-hole on each side.
+`e.endFaces()` returns the outer circular face of the right boss. Coordinates on a face sketch are the face plane's own frame — here it lines up with the `plane("right", 18)` frame the boss was drawn on, so the boss center sits at `[0, -38]` and `circle([0, -38], 30)` draws the 30-diameter bore concentric with it. `cut()` with no argument removes material straight through everything in line with the sketch — including both bosses thanks to the earlier mirror — leaving a clean through-hole on each side.
 
 ![Bored bosses](/img/docs/tutorials/fork-step3.png)
 
@@ -113,11 +162,11 @@ The top of the column tapers down through two stages. The first cut leaves a sma
 
 ```js
 sketch(plane("top", 129), () => {
-    circle(30)
+    circle([0, 0], 30);
 });
 ```
 
-`plane("top", 129)` is the top plane raised to z = 129, sitting flush with the top face of the column. `circle(30)` draws a 30-diameter circle there — this defines the *inside* edge of the cut, the part we want to keep.
+`plane("top", 129)` is the top plane raised to z = 129, sitting flush with the top face of the column. `circle([0, 0], 30)` draws a 30-diameter circle there — this defines the *inside* edge of the cut, the part we want to keep.
 
 ![Post circle](/img/docs/tutorials/fork-step4-sketch.png)
 
@@ -133,17 +182,32 @@ extrude(20).thin(20).remove()
 
 ## Step 5: The square boss
 
-The same trick works with a polygon. We use a 4-sided polygon to leave a rotated square section between the post and the main body.
+The same trick works with any profile. Here a rotated square leaves a square section between the post and the main body.
 
-### Sketch the polygon
+### Sketch the square
 
 ```js
 sketch(plane("top", 129 - 20), () => {
-    polygon(4, 36, 'circumscribed')
+    // Rotated square circumscribed around a 36-diameter circle:
+    // its corners sit on the axes, 18·√2 from the center
+    const c = 18 * Math.SQRT2;
+    const s1 = line([c, 0], [0, c]);
+    const s2 = line([0, c], [-c, 0]);
+    const s3 = line([-c, 0], [0, -c]);
+    const s4 = line([0, -c], [c, 0]);
+    coincident(s1.end(), s2.start());
+    coincident(s2.end(), s3.start());
+    coincident(s3.end(), s4.start());
+    coincident(s4.end(), s1.start());
+    equal(s1, s2);
+    equal(s2, s3);
+    equal(s3, s4);
+    perpendicular(s1, s2);
+    fix(s1.start(), [c, 0]);
 });
 ```
 
-`plane("top", 129 - 20)` is the top plane offset to z = 109, exactly where the previous cut ended. `polygon(4, 36, 'circumscribed')` draws a 4-sided polygon circumscribed around a 36-diameter inscribed circle — a 36 x 36 square, oriented with its corners on the X and Y axes (rotated 45° relative to the main body).
+`plane("top", 129 - 20)` is the top plane offset to z = 109, exactly where the previous cut ended. The four lines trace a 36 × 36 square rotated 45° — circumscribed around a 36-diameter circle, so each corner sits on an axis at 18·√2 from the center. `equal` makes all four sides the same length and `perpendicular` squares the first corner; combined with the `coincident` loop, the exact corner coordinates are just guesses the solver confirms.
 
 ![Square sketch](/img/docs/tutorials/fork-step5-sketch.png)
 
@@ -165,11 +229,11 @@ Same pattern as the post: a 20-thick annular ring around the square, extruded do
 
 ## What you practiced
 
-- **`arc()` + `offset().close()`** — building a U-shaped wall from a single semicircle
+- **`arc(start, end, center)` + `concentric` + `radius`** — building a U-shaped wall from two concentric semicircles closed with cap lines
+- **Rectangles from primitives** — four `line`s pinned with `coincident`, `horizontal`/`vertical`, `fix`, and `distance` dimensions
 - **`local("y")`** — mirroring sketch geometry across the sketch's local axes
 - **`plane("right", n)` / `plane("top", n)`** — creating offset reference planes for side and top features
-- **`vMove()`** — moving the cursor vertically inside a sketch
 - **`extrude(d)` then `mirror("right")`** — modeling a single side feature and reflecting it
 - **`.endFaces()`** — selecting the outer face of an extrusion to sketch on
 - **`extrude().thin().remove()`** — cutting an annular ring around a profile to leave the central shape standing
-- **`polygon(sides, diameter, 'circumscribed')`** — drawing a regular polygon around a target inscribed circle
+- **`equal` + `perpendicular`** — constraining a rotated square from four plain lines

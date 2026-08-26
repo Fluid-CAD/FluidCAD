@@ -237,15 +237,7 @@ export class CircleTool extends SketchTool {
         ...(variables.length > 0 ? { newVariables: variables } : {}),
       });
       this.centerSnapRef = null;
-      return;
     }
-
-    this.insertAtPoint(
-      center,
-      (point) => `circle(${point}, ${expression})`,
-      () => `circle(${expression})`,
-      newVariable ? [newVariable] : [],
-    );
   }
 
   private rebuildPreview(): void {

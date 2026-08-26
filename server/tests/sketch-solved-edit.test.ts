@@ -13,14 +13,14 @@ const SKETCH = [
   `  const a = line([0, 0], [100, 0]);`,
   `  line([100, 0], [100, 50]);`,
   `  horizontal(a);`,
-  `}, true);`,
+  `});`,
 ].join('\n');
 
 const EMPTY_SKETCH = [
   `import { sketch } from "fluidcad/core";`,
   ``,
   `sketch('xy', () => {`,
-  `}, true);`,
+  `});`,
 ].join('\n');
 
 describe('applySolvedEmission', () => {
@@ -61,7 +61,7 @@ describe('applySolvedEmission', () => {
       `  const a = line([0, 0], [100, 0]);`,
       `  horizontal(a);`,
       `  const o = offset(2, a);`,
-      `}, true);`,
+      `});`,
     ].join('\n');
     const result = await applySolvedEmission(code, {
       sketchLine: 4,
@@ -115,7 +115,7 @@ describe('applySolvedEmission', () => {
       `  horizontal(l3);`,
       `  vertical(l2);`,
       `  vertical(l4);`,
-      `}, true);`,
+      `});`,
     ].join('\n'));
     // Imports split per module, and geometryLines survive the added import line.
     expect(result.newCode).toContain(`import {line, sketch } from "fluidcad/core";`);

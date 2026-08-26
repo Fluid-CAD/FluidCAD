@@ -6,11 +6,12 @@ import cylinder from "../../core/cylinder.js";
 import select from "../../core/select.js";
 import plane from "../../core/plane.js";
 import repeat from "../../core/repeat.js";
-import { rect } from "../../core/2d/index.js";
+import { } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Scene } from "../../rendering/scene.js";
 import { ShapeProps } from "../../oc/props.js";
+import { testRect } from "../helpers/profiles.js";
 
 const CYLINDER_VOLUME = Math.PI * 25 * 25 * 80;
 // Developed pad between radii 25 and 26, arc width 20, height 40:
@@ -36,8 +37,8 @@ function solidVolumes(scene: Scene): number[] {
 function setupWrapScene() {
   cylinder(25, 80);
   const s = sketch(plane("front", 40), () => {
-    rect([-10, 50], 20, -40);
-  });
+      testRect(20, -40, { at: [-10, 50] });
+    });
   const f = select(face().cylinder());
   return { s, f };
 }
@@ -108,8 +109,8 @@ describe("wrap under repeat", () => {
   it("repeats wrap together with an explicitly included cylinder", () => {
     const c = cylinder(25, 80);
     const s = sketch(plane("front", 40), () => {
-      rect([-10, 50], 20, -40);
-    });
+        testRect(20, -40, { at: [-10, 50] });
+      });
     const f = select(face().cylinder());
     const w = wrap(1, s, f).new();
     repeat("circular", "z", { count: 2, angle: 180 },

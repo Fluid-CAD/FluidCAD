@@ -98,12 +98,12 @@ shapes from a reusable object.
 ### startFaces()
 
 ```ts
-startFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+startFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects faces at the start (base) of the rib — the profile face at the sketch plane.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -114,12 +114,12 @@ Selects faces at the start (base) of the rib — the profile face at the sketch 
 ### endFaces()
 
 ```ts
-endFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+endFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects faces at the end (top) of the rib — where the rib meets the boundary.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -130,12 +130,12 @@ Selects faces at the end (top) of the rib — where the rib meets the boundary.
 ### sideFaces()
 
 ```ts
-sideFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+sideFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects the lateral wall faces of the rib.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -146,12 +146,12 @@ Selects the lateral wall faces of the rib.
 ### capFaces()
 
 ```ts
-capFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+capFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects the small cap faces at the spine endpoints.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -162,12 +162,12 @@ Selects the small cap faces at the spine endpoints.
 ### startEdges()
 
 ```ts
-startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges on the start faces.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -178,12 +178,12 @@ Selects edges on the start faces.
 ### endEdges()
 
 ```ts
-endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges on the end faces.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -194,12 +194,12 @@ Selects edges on the end faces.
 ### sideEdges()
 
 ```ts
-sideEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+sideEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges on the side faces, excluding edges shared with start/end faces.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -210,12 +210,12 @@ Selects edges on the side faces, excluding edges shared with start/end faces.
 ### capEdges()
 
 ```ts
-capEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges on the cap faces.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

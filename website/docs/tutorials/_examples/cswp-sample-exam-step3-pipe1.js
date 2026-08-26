@@ -1,5 +1,6 @@
 // @screenshot waitForInput
-import { arc, chamfer, circle, cut, extrude, fillet, hLine, hMove, line, move, offset, plane, project, rect, select, sketch, subtract, tArc, vLine, vMove } from 'fluidcad/core';
+import { arc, chamfer, circle, cut, extrude, fillet, line, offset, plane, project, select, sketch } from 'fluidcad/core';
+import { coincident, concentric, diameter, distance, fix, horizontal, radius, tangent, vertical } from 'fluidcad/constraints';
 import { edge, face } from 'fluidcad/filters';
 
 // CSWP Exam Parameters — Stage 1
@@ -15,24 +16,39 @@ const leftOffset = B - C;
 
 // Base plate
 sketch("xy", () => {
-    rect(B, A).radius(10);
+    const b = line([0, 0], [B, 0]);
+    const r = line([B, 0], [B, A]);
+    const t = line([B, A], [0, A]);
+    const l = line([0, A], [0, 0]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    fix(b.start(), [0, 0]);
+    distance(b.start(), b.end(), B);
+    distance(r.start(), r.end(), A);
+    fillet(10, b, r, t, l);
 })
 
 const base = extrude(25);
 
 // L-shaped support
 sketch("xy", () => {
-    move([leftOffset, 0]);
-    const l1 = vLine(80)
-
-    move([B, C]);
-    const l2 = hLine(-80)
-
-    arc(l1.end(), l2.end()).center([leftOffset, C])
-
-    const o = offset(15)
-    line(l1.start(), o.start())
-    line(l2.start(), o.end())
+    const l1 = line([leftOffset, 0], [leftOffset, 80]);
+    const a = arc([leftOffset, 80], [B - 80, C], [leftOffset, C]);
+    const l2 = line([B, C], [B - 80, C]);
+    coincident(l1.end(), a.start());
+    coincident(l2.end(), a.end());
+    vertical(l1);
+    horizontal(l2);
+    fix(l1.start(), [leftOffset, 0]);
+    fix(l2.start(), [B, C]);
+    radius(a, C - 80);
+    offset(15, l1, a, l2).close();
 });
 
 const support = extrude(95)
@@ -41,13 +57,18 @@ const support = extrude(95)
 const p1 = plane("front", 10);
 
 sketch(p1, () => {
-    move([leftOffset, 95]);
-    hMove(7.5)
-    circle(X)
+    const c = circle([leftOffset + 7.5, 95], X);
+    fix(c.center(), [leftOffset + 7.5, 95]);
+    diameter(c, X);
 });
 
 const cylBody1 = extrude(-D)
-sketch(cylBody1.startFaces(), () => circle(E))
+sketch(cylBody1.startFaces(), () => {
+    const rim = project(cylBody1.startFaces()).guide();
+    const bore = circle([0, 0], E);
+    concentric(bore, rim);
+    diameter(bore, E);
+})
 const cylCut1 = cut()
 
 chamfer(2, cylCut1.startEdges(), cylCut1.endEdges())

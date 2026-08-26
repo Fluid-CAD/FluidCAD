@@ -1,7 +1,7 @@
 // Constraint-statement emission for solved sketches (sketch-rewrite P4).
 //
 // The toolbar's "add constraint" rides the generic apply-feature-edit round
-// trip as a self-contained sub-spec (the segmentSwap/paramEdit pattern —
+// trip as a self-contained sub-spec (the paramEdit pattern —
 // both editor hosts already speak the transport). Since P5 the actual
 // transform lives in sketch-solved-edit.ts (which also emits geometry);
 // a constraint-only edit is an emission with no geometry.

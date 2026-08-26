@@ -253,50 +253,6 @@ export type InsertGeometryMessage = {
     | null;
 };
 
-export type UpdatePositionMessage = {
-  type: 'update-position';
-  newPosition: [number, number];
-  sourceLocation: { line: number; column: number };
-  pointIndex?: number;
-  /** The point's current position, so a chained statement's reposition can
-   * fold the delta into its preceding relative `move(dx, dy)`. */
-  oldPosition?: [number, number] | null;
-};
-
-/**
- * A point rewritten from per-axis expressions rather than numbers — the
- * coordinate pill's commit. `update-position` stays the numeric drag path.
- */
-export type UpdatePointExpressionMessage = {
-  type: 'update-point-expression';
-  xExpr: string;
-  yExpr: string;
-  sourceLocation: { line: number; column: number };
-  /** Anchor for any declarations this commit introduces (up to one per axis). */
-  sketchSourceLine?: number | null;
-  newVariable?:
-    | { name: string; initializer: string }
-    | { name: string; initializer: string }[]
-    | null;
-  pointIndex?: number;
-  /** The point's current position, so a chained statement's reposition can
-   * fold the delta into its preceding relative `move(dx, dy)`. */
-  oldPosition?: [number, number] | null;
-};
-
-export type SetLinePositionMessage = {
-  type: 'set-line-position';
-  newStart: [number, number];
-  newEnd: [number, number];
-  sourceLocation: { line: number; column: number };
-};
-
-export type SetChainPositionsMessage = {
-  type: 'set-chain-positions';
-  updates: { pointIndex: number; position: [number, number] }[];
-  sourceLocation: { line: number; column: number };
-};
-
 /**
  * Solved-sketch batch position write-back (sketch-rewrite P4): splice every
  * drifted literal of a drag across multiple statements in one buffer edit
@@ -332,25 +288,6 @@ export type UpdateDimensionExpressionMessage = {
   expression: string;
   sourceLocation: { line: number; column: number };
   dimensionOffset?: number;
-  /** Named chain call the dimension lives in (e.g. 'tArc'); null = any. */
-  dimensionCall?: string | null;
-  /** Insert the expression as the call's first argument when the targeted
-   * scalar does not exist yet (radius-less `tArc([e])` gaining a radius). */
-  dimensionInsert?: boolean;
-  /** Also rewrite the call's first array argument to this point — a tArc
-   * radius commit re-aims the endpoint at the reachable position. */
-  dimensionPoint?: [number, number] | null;
-};
-
-export type SetRectDimensionsMessage = {
-  type: 'set-rect-dimensions';
-  startPoint: [number, number] | null;
-  width: number;
-  height: number;
-  sourceLocation: { line: number; column: number };
-  /** The rect's current start corner, so a chained rect's start move can
-   * fold into its preceding relative `move(dx, dy)`. */
-  oldStartPoint?: [number, number] | null;
 };
 
 /**
@@ -390,14 +327,9 @@ export type ServerToExtensionMessage =
   | UpdateInsertChainMessage
   | ExportCompleteMessage
   | InsertGeometryMessage
-  | UpdatePositionMessage
-  | UpdatePointExpressionMessage
-  | SetLinePositionMessage
-  | SetChainPositionsMessage
   | UpdateSketchPositionsMessage
   | UpdateDimensionMessage
   | UpdateDimensionExpressionMessage
-  | SetRectDimensionsMessage
   | UndoMessage
   | RedoMessage;
 

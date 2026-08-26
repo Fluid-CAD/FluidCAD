@@ -130,7 +130,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'slot' | 'tarc' | 'aline' | 'text' | 'copy' | 'rotate2d' | 'connector' | 'expose';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'text' | 'copy' | 'rotate2d' | 'connector' | 'expose';
 
 /**
  * A tangent chain from the "Select with tangents" gesture: the pick the user
@@ -383,15 +383,10 @@ export function nameHintFor(featureType: string): string {
     case 'plane': return 'p';
     case 'axis': return 'a';
     // 2D sketch geometry (getType values of sketch primitives).
-    case 'rect': return 'r';
     case 'line': return 'l';
     case 'arc': return 'a';
-    case 'arc-from-center': return 'a';
-    case 'tarc': return 'a';
     case 'circle': return 'c';
     case 'ellipse': return 'el';
-    case 'polygon': return 'pg';
-    case 'slot': return 'sl';
     case 'bezier': return 'bz';
     case 'connect': return 'cn';
     case 'offset': return 'o';

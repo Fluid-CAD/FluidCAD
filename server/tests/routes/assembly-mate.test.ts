@@ -328,7 +328,7 @@ describe('assembly-mate route', () => {
       expect(exposeMsg.spec.feature).toBe('expose');
       expect(exposeMsg.spec.filePath).toBe('/ws/arm.part.js');
       const donorCode = [
-        `import { part, sketch, rect, extrude } from 'fluidcad/core';`,
+        `import { part, sketch, extrude } from 'fluidcad/core';`,
         ``,
         `export const arm = () => part('Arm', () => {`,
         `  const e = extrude(10)`,

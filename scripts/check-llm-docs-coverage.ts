@@ -28,7 +28,7 @@ const ALLOWLIST_FILE = path.join(DOCS_ROOT, '.coverage-allowlist.txt');
 type ApiDocConfig = {
   features: Array<{ name: string }>;
   filters: Array<{ factoryName: string }>;
-  constraints: Array<{ functionName: string }>;
+  constraints: Array<{ name: string }>;
   types: Array<{ name: string; displayName: string }>;
   typeDisplayNameMap: Record<string, string>;
 };
@@ -68,7 +68,7 @@ function expectedSymbols(config: ApiDocConfig): Set<string> {
     out.add(f.factoryName);
   }
   for (const c of config.constraints) {
-    out.add(c.functionName);
+    out.add(c.name);
   }
   return out;
 }

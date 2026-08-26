@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
-import { circle, move, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extruder } from "../../features/simple-extruder.js";
 import { Extrude } from "../../features/extrude.js";
@@ -15,6 +15,7 @@ import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import select from "../../core/select.js";
 import { edge } from "../../filters/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("extrude", () => {
   setupOC();
@@ -22,8 +23,8 @@ describe("extrude", () => {
   describe("extrudable", () => {
     it("should extrude last extrudable by default", () => {
       const s = sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;;
 
@@ -32,12 +33,12 @@ describe("extrude", () => {
 
     it("should extrude given extrudable", () => {
       const s1 = sketch("xy", () => {
-        circle();
-      });
+          circle([0, 0], 40);
+        });
 
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(50, s1) as Extrude;;
 
@@ -48,8 +49,8 @@ describe("extrude", () => {
 
     it("should remove the extrudable", () => {
       const s = sketch("xy", () => {
-        rect(100, 50);
-      }) as Sketch;
+          testRect(100, 50);
+        }) as Sketch;
 
       extrude();
 
@@ -80,9 +81,8 @@ describe("extrude", () => {
       cylinder(50, 50) as Cylinder;
 
       sketch("xy", () => {
-        move([25, 0]);
-        circle(100);
-      }) as Sketch;
+          circle([25, 0], 100);
+        }) as Sketch;
 
       extrude() as Extrude;
 
@@ -95,9 +95,8 @@ describe("extrude", () => {
       cylinder(50, 50) as Cylinder;
 
       sketch("xy", () => {
-        move([250, 0]);
-        circle(100);
-      }) as Sketch;
+          circle([250, 0], 100);
+        }) as Sketch;
 
       extrude() as Extrude;
 
@@ -110,9 +109,8 @@ describe("extrude", () => {
       cylinder(50, 50) as Cylinder;
 
       sketch("xy", () => {
-        move([0, 0]);
-        circle(100);
-      }) as Sketch;
+          circle([0, 0], 100);
+        }) as Sketch;
 
       extrude().new() as Extrude;
 
@@ -124,13 +122,13 @@ describe("extrude", () => {
     it("should only fuse with scene objects the new extrusion actually touches", () => {
       // C1: cylinder at origin, z = 0..50
       sketch("top", () => {
-        circle(50);
-      });
+          circle([0, 0], 50);
+        });
       const e = extrude(50) as Extrude;
 
       // C2: cylinder stacked on C1, z = 50..100, kept as a separate scene object
       sketch(e.endFaces(), () => {
-        circle(50);
+        circle([0, 0], 50);
       });
       extrude(50).new();
 
@@ -151,8 +149,8 @@ describe("extrude", () => {
   describe("startFaces / endFaces", () => {
     it("should expose start face", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const sf = e.startFaces();
@@ -167,8 +165,8 @@ describe("extrude", () => {
 
     it("should expose end face", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const ef = e.endFaces();
@@ -183,8 +181,8 @@ describe("extrude", () => {
 
     it("start and end faces should be different", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const sf = e.startFaces();
@@ -201,8 +199,8 @@ describe("extrude", () => {
 
     it("start face should be at z=0 and end face at z=distance", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const sf = e.startFaces();
@@ -223,9 +221,9 @@ describe("extrude", () => {
 
     it("should expose multiple start and end faces for separate regions", () => {
       sketch("xy", () => {
-        circle(40);
-        circle([100, 0], 40);
-      });
+          circle([0, 0], 40);
+          circle([100, 0], 40);
+        });
 
       const e = extrude(30) as Extrude;
       const sf = e.startFaces(0, 1);
@@ -241,9 +239,9 @@ describe("extrude", () => {
 
     it("should expose specific start face by index", () => {
       sketch("xy", () => {
-        circle(40);
-        circle([100, 0], 40);
-      });
+          circle([0, 0], 40);
+          circle([100, 0], 40);
+        });
 
       const e = extrude(30) as Extrude;
       const face0 = e.startFaces(0);
@@ -260,9 +258,9 @@ describe("extrude", () => {
 
     it("should expose specific end face by index", () => {
       sketch("xy", () => {
-        circle(40);
-        circle([100, 0], 40);
-      });
+          circle([0, 0], 40);
+          circle([100, 0], 40);
+        });
 
       const e = extrude(30) as Extrude;
       const face0 = e.endFaces(0);
@@ -279,8 +277,8 @@ describe("extrude", () => {
 
     it("start face should be at z=0 and end face at z=-distance for negative extrude", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(-20) as Extrude;
       const sf = e.startFaces();
@@ -303,8 +301,8 @@ describe("extrude", () => {
   describe("sideFaces", () => {
     it("should expose side faces", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const sf = e.sideFaces(0, 1, 2, 3);
@@ -321,8 +319,8 @@ describe("extrude", () => {
 
     it("should return all side faces by default", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const allSf = e.sideFaces();
@@ -341,8 +339,8 @@ describe("extrude", () => {
 
     it("should expose specific side face by index", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const face0 = e.sideFaces(0);
@@ -359,8 +357,8 @@ describe("extrude", () => {
 
     it("side faces should span from z=0 to z=distance", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const sf = e.sideFaces(0);
@@ -375,8 +373,8 @@ describe("extrude", () => {
 
     it("reverse-direction extrude classifies side/internal faces correctly", () => {
       sketch("xy", () => {
-        rect(7, 5).centered();
-      });
+          testRect(7, 5, { at: [-3.5, -2.5] });
+        });
 
       const e = extrude(-1.5) as Extrude;
       const sf = e.sideFaces();
@@ -400,8 +398,8 @@ describe("extrude", () => {
   describe("startEdges / endEdges", () => {
     it("should expose start edges", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const se = e.startEdges();
@@ -418,8 +416,8 @@ describe("extrude", () => {
 
     it("should expose end edges", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const ee = e.endEdges();
@@ -436,8 +434,8 @@ describe("extrude", () => {
 
     it("start edges should be at z=0 and end edges at z=distance", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const se = e.startEdges();
@@ -458,8 +456,8 @@ describe("extrude", () => {
 
     it("should expose specific start edge by index", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const edge0 = e.startEdges(0);
@@ -476,8 +474,8 @@ describe("extrude", () => {
 
     it("should expose specific end edge by index", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const edge0 = e.endEdges(0);
@@ -496,8 +494,8 @@ describe("extrude", () => {
   describe("endOffset", () => {
     it("should shorten the extrusion by the offset", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30).endOffset(5) as Extrude;
       const ef = e.endFaces();
@@ -512,8 +510,8 @@ describe("extrude", () => {
 
     it("should shorten negative extrusion by the offset", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(-30).endOffset(5) as Extrude;
       const ef = e.endFaces();
@@ -530,8 +528,8 @@ describe("extrude", () => {
   describe("draft", () => {
     it("should taper outward with positive draft angle", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30).draft(10) as Extrude;
       const sf = e.startFaces();
@@ -551,8 +549,8 @@ describe("extrude", () => {
 
     it("should taper inward with negative draft angle", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30).draft(-5) as Extrude;
       const sf = e.startFaces();
@@ -577,8 +575,8 @@ describe("extrude", () => {
       const angleDeg = 10;
 
       sketch("xy", () => {
-        rect(width, height);
-      });
+          testRect(width, height);
+        });
 
       const e = extrude(distance).draft(angleDeg) as Extrude;
       const ef = e.endFaces();
@@ -598,8 +596,8 @@ describe("extrude", () => {
 
     it("zero draft should not change end face dimensions", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30).draft(0) as Extrude;
       const sf = e.startFaces();
@@ -621,8 +619,8 @@ describe("extrude", () => {
   describe("shape filtering", () => {
     it("should not include meta shapes in getShapes()", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
 
@@ -636,9 +634,9 @@ describe("extrude", () => {
 
     it("should not include guide shapes in getShapes()", () => {
       sketch("xy", () => {
-        rect(100, 50);
-        circle([50, 25], 20).guide();
-      });
+          testRect(100, 50);
+          circle([50, 25], 20).guide();
+        });
 
       const e = extrude(30) as Extrude;
 
@@ -653,8 +651,8 @@ describe("extrude", () => {
 
     it("should include meta shapes when filter is disabled", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30).pick([50, 25]) as Extrude;
 
@@ -669,9 +667,9 @@ describe("extrude", () => {
   describe("pick", () => {
     it("should only extrude the picked region", () => {
       sketch("xy", () => {
-        circle(60);
-        circle([100, 0], 60);
-      });
+          circle([0, 0], 60);
+          circle([100, 0], 60);
+        });
 
       // Pick point inside the first circle only
       const e = extrude(20).pick([0, 0]) as Extrude;
@@ -685,9 +683,9 @@ describe("extrude", () => {
 
     it("should extrude multiple picked regions", () => {
       sketch("xy", () => {
-        circle(60);
-        circle([100, 0], 60);
-      });
+          circle([0, 0], 60);
+          circle([100, 0], 60);
+        });
 
       // Pick points inside both circles
       const e = extrude(20).pick([0, 0], [100, 0]) as Extrude;
@@ -720,8 +718,8 @@ describe("extrude", () => {
 
     it("should produce no solid when pick point is outside all regions", () => {
       sketch("xy", () => {
-        circle(60);
-      });
+          circle([0, 0], 60);
+        });
 
       const e = extrude(20).pick([500, 500]) as Extrude;
 
@@ -733,9 +731,9 @@ describe("extrude", () => {
 
     it("should add meta shapes for all cells", () => {
       sketch("xy", () => {
-        circle(60);
-        circle([100, 0], 60);
-      });
+          circle([0, 0], 60);
+          circle([100, 0], 60);
+        });
 
       const e = extrude(20).pick([0, 0]) as Extrude;
 
@@ -755,9 +753,9 @@ describe("extrude", () => {
   describe("drill", () => {
     it("should drill hole when inner shape is nested (default)", () => {
       sketch("xy", () => {
-        circle(100);
-        circle(40);
-      });
+          circle([0, 0], 100);
+          circle([0, 0], 40);
+        });
 
       const e = extrude(30) as Extrude;
 
@@ -773,9 +771,9 @@ describe("extrude", () => {
 
     it("should not drill hole when drill is false", () => {
       sketch("xy", () => {
-        circle(100);
-        circle(40);
-      });
+          circle([0, 0], 100);
+          circle([0, 0], 40);
+        });
 
       const e = extrude(30).drill(false) as Extrude;
 
@@ -793,9 +791,9 @@ describe("extrude", () => {
   describe("internalFaces / internalEdges", () => {
     it("should expose internal faces for concentric circles (tube)", () => {
       sketch("xy", () => {
-        circle(80);
-        circle(40);
-      });
+          circle([0, 0], 80);
+          circle([0, 0], 40);
+        });
 
       const e = extrude(30) as Extrude;
       const inf = e.internalFaces();
@@ -813,9 +811,9 @@ describe("extrude", () => {
 
     it("should expose internal edges for concentric circles", () => {
       sketch("xy", () => {
-        circle(80);
-        circle(40);
-      });
+          circle([0, 0], 80);
+          circle([0, 0], 40);
+        });
 
       const e = extrude(30) as Extrude;
       const ine = e.internalEdges();
@@ -832,8 +830,8 @@ describe("extrude", () => {
 
     it("should return empty internal faces for simple extrusion", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const inf = e.internalFaces();
@@ -847,9 +845,9 @@ describe("extrude", () => {
 
     it("should filter internal faces by index", () => {
       sketch("xy", () => {
-        circle(80);
-        circle(40);
-      });
+          circle([0, 0], 80);
+          circle([0, 0], 40);
+        });
 
       const e = extrude(30) as Extrude;
       const allInternal = e.internalFaces();
@@ -869,8 +867,8 @@ describe("extrude", () => {
   describe("filter support", () => {
     it("should filter side faces with face filter builder", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
       const allSf = e.sideFaces();
@@ -892,8 +890,8 @@ describe("extrude", () => {
   describe("face-source extrudable", () => {
     it("should extrude from a face selection built on an existing solid", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const base = extrude(20) as Extrude;
 
       const selection = select(face().onPlane("xy"));
@@ -912,8 +910,8 @@ describe("extrude", () => {
 
     it("should extrude from endFaces() of a previous extrude", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e1 = extrude(10) as Extrude;
 
       const e2 = extrude(50, e1.endFaces()) as Extrude;
@@ -930,14 +928,13 @@ describe("extrude", () => {
     it("should use all faces when the source has multiple", () => {
       // two separate rectangles on xy plane -> two faces on xy
       sketch("xy", () => {
-        rect(40, 40);
-      });
+          testRect(40, 40);
+        });
       extrude(5).new();
 
       sketch("xy", () => {
-        move([100, 0]);
-        rect(40, 40);
-      });
+          testRect(40, 40, { at: [100, 0] });
+        });
       extrude(5).new();
 
       // This selects both z=0 base faces.
@@ -953,8 +950,8 @@ describe("extrude", () => {
 
     it("should set an error on the extrude when combined with .thin()", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e1 = extrude(10) as Extrude;
 
       const e2 = extrude(20, e1.endFaces()).thin(2) as Extrude;
@@ -966,8 +963,8 @@ describe("extrude", () => {
 
     it("should throw when the selection produces no faces", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(10);
 
       const edgeSelection = select(edge());

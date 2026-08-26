@@ -4,10 +4,11 @@ import sketch from "../../core/sketch.js";
 import plane from "../../core/plane.js";
 import loft from "../../core/loft.js";
 import extrude from "../../core/extrude.js";
-import { rect, circle } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Loft } from "../../features/loft.js";
 import { countShapes } from "../utils.js";
 import { ShapeProps } from "../../oc/props.js";
+import { testRect } from "../helpers/profiles.js";
 
 /** Volume of the loft's single solid. */
 function volumeOf(l: Loft): number {
@@ -18,11 +19,11 @@ function volumeOf(l: Loft): number {
 
 function circlePair(diameter1: number, diameter2: number, height: number) {
   const s1 = sketch("xy", () => {
-    circle(diameter1);
-  });
+      circle([0, 0], diameter1);
+    });
   const s2 = sketch(plane("xy", { offset: height }), () => {
-    circle(diameter2);
-  });
+      circle([0, 0], diameter2);
+    });
   return [s1, s2] as const;
 }
 
@@ -43,11 +44,11 @@ describe("loft start/end conditions", () => {
 
     it("reproduces an exact box for identical stacked rectangles", () => {
       const s1 = sketch("xy", () => {
-        rect(100, 50).centered();
-      });
+          testRect(100, 50, { at: [-50, -25] });
+        });
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        rect(100, 50).centered();
-      });
+          testRect(100, 50, { at: [-50, -25] });
+        });
       const l = loft(s1, s2).startCondition("normal").endCondition("normal") as Loft;
       const sides = l.sideFaces();
       addToScene(sides);
@@ -150,11 +151,11 @@ describe("loft start/end conditions", () => {
   describe("mixed profile kinds", () => {
     it("lofts a rectangle to a circle with conditions (polynomial fallback)", () => {
       const s1 = sketch("xy", () => {
-        rect(60, 60).centered();
-      });
+          testRect(60, 60, { at: [-30, -30] });
+        });
       const s2 = sketch(plane("xy", { offset: 50 }), () => {
-        circle(60);
-      });
+          circle([0, 0], 60);
+        });
       const l = loft(s1, s2).startCondition("normal").endCondition("normal") as Loft;
 
       render();
@@ -167,14 +168,14 @@ describe("loft start/end conditions", () => {
 
     it("lofts through three profiles with end conditions", () => {
       const s1 = sketch("xy", () => {
-        circle(60);
-      });
+          circle([0, 0], 60);
+        });
       const s2 = sketch(plane("xy", { offset: 25 }), () => {
-        circle(100);
-      });
+          circle([0, 0], 100);
+        });
       const s3 = sketch(plane("xy", { offset: 50 }), () => {
-        circle(60);
-      });
+          circle([0, 0], 60);
+        });
       const l = loft(s1, s2, s3).startCondition("normal").endCondition("normal") as Loft;
 
       render();
@@ -203,8 +204,8 @@ describe("loft start/end conditions", () => {
 
     it("fuses with existing scene geometry", () => {
       const base = sketch("xy", () => {
-        rect(200, 200).centered();
-      });
+          testRect(200, 200, { at: [-100, -100] });
+        });
       extrude(-20, base);
 
       const [s1, s2] = circlePair(80, 40, 50);
@@ -217,8 +218,8 @@ describe("loft start/end conditions", () => {
 
     it("cuts with remove mode", () => {
       const base = sketch("xy", () => {
-        rect(200, 200).centered();
-      });
+          testRect(200, 200, { at: [-100, -100] });
+        });
       extrude(50, base);
 
       const [s1, s2] = circlePair(80, 80, 50);
@@ -239,11 +240,11 @@ describe("loft start/end conditions", () => {
   describe("thin loft with conditions", () => {
     it("builds a thin square-to-circle transition without booleans", () => {
       const p1 = sketch("xy", () => {
-        rect(70, 70).centered();
-      });
+          testRect(70, 70, { at: [-35, -35] });
+        });
       const p2 = sketch(plane("xy", { offset: 80 }), () => {
-        circle(30);
-      });
+          circle([0, 0], 30);
+        });
 
       const l = loft(p1, p2).startCondition("normal", 1).thin(2) as Loft;
       const sides = l.sideFaces();

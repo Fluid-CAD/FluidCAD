@@ -4,16 +4,17 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import fillet from "../../core/fillet.js";
 import select from "../../core/select.js";
-import { rect } from "../../core/2d/index.js";
+import { } from "../../core/2d/index.js";
 import { Face } from "../../common/face.js";
 import { Edge } from "../../common/edge.js";
 import { face, edge } from "../../filters/index.js";
 import { SelectSceneObject } from "../../features/select.js";
+import { testRect } from "../helpers/profiles.js";
 
 function box() {
   sketch("xy", () => {
-    rect(100, 50);
-  });
+      testRect(100, 50);
+    });
   extrude(30);
 }
 
@@ -113,8 +114,8 @@ describe("positional filter selectors (.first / .last / .at)", () => {
 
   it("withTangents() composes after selection", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     select(edge().verticalTo("xy"));

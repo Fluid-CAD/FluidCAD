@@ -10,7 +10,8 @@ import select from "../core/select.js";
 import expose from "../core/expose.js";
 import cylinder from "../core/cylinder.js";
 import sphere from "../core/sphere.js";
-import { rect, circle } from "../core/2d/index.js";
+import { circle } from "../core/2d/index.js";
+import { testRect } from "./helpers/profiles.js";
 import { face, edge } from "../filters/index.js";
 import { Exposed, SerializedExposure } from "../features/exposed.js";
 import { classifyContactShape } from "../oc/contact-classify.js";
@@ -38,7 +39,7 @@ describe("contact classification (exposure serialize)", () => {
 
   it("classifies a box top face: plane, outward +Z, bbox bounds, no chain", () => {
     part("box", () => {
-      sketch("xy", () => rect(40, 20));
+      sketch("xy", () => { testRect(40, 20); });
       extrude(10);
       expose("top", select(face().planar().onPlane("xy", 10)));
     });
@@ -80,9 +81,9 @@ describe("contact classification (exposure serialize)", () => {
 
   it("classifies a bore wall as concave (shaft-in-bore internal branch input)", () => {
     part("plate", () => {
-      sketch("xy", () => rect(40, 40));
+      sketch("xy", () => { testRect(40, 40); });
       const e = extrude(10);
-      sketch(e.endFaces(), () => circle([0, 0], 20)); // Ø20 hole
+      sketch(e.endFaces(), () => { circle([0, 0], 20); }); // Ø20 hole
       cut();
       // face().cylinder() requires a closed circular boundary edge, which a
       // cut bore (two arcs + seam) doesn't have — notPlanar() picks the wall.
@@ -119,7 +120,7 @@ describe("contact classification (exposure serialize)", () => {
 
   it("walks the G1 chain of a rounded slab: top plane + 4 fillets + 4 sides", () => {
     part("slab", () => {
-      sketch("xy", () => rect(40, 20));
+      sketch("xy", () => { testRect(40, 20); });
       const e = extrude(10);
       fillet(3, e.endEdges());
       expose("top", select(face().planar().onPlane("xy", 10)));
@@ -156,7 +157,7 @@ describe("contact classification (exposure serialize)", () => {
 
   it("classifies a straight edge with its param interval", () => {
     part("box", () => {
-      sketch("xy", () => rect(40, 20));
+      sketch("xy", () => { testRect(40, 20); });
       extrude(10);
       expose("lip", select(edge().onPlane("xy", 10)));
     });
@@ -171,7 +172,7 @@ describe("contact classification (exposure serialize)", () => {
 
   it("serializes seed: null for an unsupported surface form (torus)", () => {
     part("ring", () => {
-      sketch("xz", () => circle([30, 0], 10));
+      sketch("xz", () => { circle([30, 0], 10); });
       revolve("z");
       expose("skin", select(face()));
     });
@@ -182,7 +183,7 @@ describe("contact classification (exposure serialize)", () => {
   });
 
   it("classifyContactShape returns null for non-face/edge shapes", () => {
-    sketch("xy", () => rect(10, 10));
+    sketch("xy", () => { testRect(10, 10); });
     extrude(5);
     const scene = render();
     const solid = findSolid(scene);

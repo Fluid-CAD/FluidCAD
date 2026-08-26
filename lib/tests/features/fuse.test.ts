@@ -4,12 +4,13 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import fuse from "../../core/fuse.js";
 import cylinder from "../../core/cylinder.js";
-import { circle, move, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { Fuse } from "../../features/fuse.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("fuse", () => {
   setupOC();
@@ -17,14 +18,13 @@ describe("fuse", () => {
   describe("fuse specific objects", () => {
     it("should fuse two intersecting solids into one", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e1 = extrude(30).new();
 
       sketch("xy", () => {
-        move([50, 0]);
-        rect(100, 50);
-      });
+          testRect(100, 50, { at: [50, 0] });
+        });
       const e2 = extrude(30).new();
 
       fuse(e1, e2);
@@ -36,14 +36,13 @@ describe("fuse", () => {
 
     it("should not fuse non-intersecting solids", () => {
       sketch("xy", () => {
-        rect(50, 50);
-      });
+          testRect(50, 50);
+        });
       const e1 = extrude(30).new();
 
       sketch("xy", () => {
-        move([200, 0]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [200, 0] });
+        });
       const e2 = extrude(30).new();
 
       fuse(e1, e2);
@@ -55,14 +54,13 @@ describe("fuse", () => {
 
     it("should remove original shapes from fused objects", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e1 = extrude(30).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        move([50, 0]);
-        rect(100, 50);
-      });
+          testRect(100, 50, { at: [50, 0] });
+        });
       const e2 = extrude(30).new() as ExtrudeBase;
 
       fuse(e1, e2);
@@ -75,8 +73,8 @@ describe("fuse", () => {
 
     it("should fuse a box and a cylinder", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e1 = extrude(30).new();
 
       const c = cylinder(30, 30);
@@ -92,14 +90,13 @@ describe("fuse", () => {
   describe("fuse all", () => {
     it("should fuse all solids in the scene", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30).new();
 
       sketch("xy", () => {
-        move([50, 0]);
-        rect(100, 50);
-      });
+          testRect(100, 50, { at: [50, 0] });
+        });
       extrude(30).new();
 
       fuse();
@@ -111,20 +108,18 @@ describe("fuse", () => {
 
     it("should fuse multiple overlapping solids into one", () => {
       sketch("xy", () => {
-        rect(50, 50);
-      });
+          testRect(50, 50);
+        });
       extrude(30).new();
 
       sketch("xy", () => {
-        move([25, 0]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 0] });
+        });
       extrude(30).new();
 
       sketch("xy", () => {
-        move([50, 0]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [50, 0] });
+        });
       extrude(30).new();
 
       fuse();
@@ -138,14 +133,13 @@ describe("fuse", () => {
   describe("fused solid geometry", () => {
     it("should produce a solid wider than either input", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e1 = extrude(30).new();
 
       sketch("xy", () => {
-        move([50, 0]);
-        rect(100, 50);
-      });
+          testRect(100, 50, { at: [50, 0] });
+        });
       const e2 = extrude(30).new();
 
       const f = fuse(e1, e2) as Fuse;

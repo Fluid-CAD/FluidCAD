@@ -7,21 +7,22 @@ import loft from "../../core/loft.js";
 import extrude from "../../core/extrude.js";
 import cylinder from "../../core/cylinder.js";
 import plane from "../../core/plane.js";
-import { move, rect, circle, vLine } from "../../core/2d/index.js";
+import { circle, line } from "../../core/2d/index.js";
 import { Revolve } from "../../features/revolve.js";
 import { Sweep } from "../../features/sweep.js";
 import { Loft } from "../../features/loft.js";
 import { ExtrudeTwoDistances } from "../../features/extrude-two-distances.js";
 import { Cylinder } from "../../features/cylinder.js";
+import { vertical } from "../../core/constraints/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("Revolve — history tracking", () => {
   setupOC();
 
   it("records added faces/edges and finalShapes on a plain revolve into empty scene", () => {
     sketch("xz", () => {
-      move([20, 0]);
-      rect(10, 30);
-    });
+        testRect(10, 30, { at: [20, 0] });
+      });
     const r = revolve("z") as Revolve;
     render();
 
@@ -34,9 +35,8 @@ describe("Revolve — history tracking", () => {
 
   it("pre-computes edge categories in state after revolve build", () => {
     sketch("xz", () => {
-      move([20, 0]);
-      rect(10, 30);
-    });
+        testRect(10, 30, { at: [20, 0] });
+      });
     const r = revolve("z", 90) as Revolve;
     render();
 
@@ -49,9 +49,8 @@ describe("Revolve — history tracking", () => {
     const c = cylinder(30, 40) as Cylinder;
 
     sketch("xz", () => {
-      move([20, 0]);
-      rect(8, 20);
-    });
+        testRect(8, 20, { at: [20, 0] });
+      });
     const r = revolve("z") as Revolve;
     render();
 
@@ -69,12 +68,13 @@ describe("Sweep — history tracking", () => {
 
   it("records added faces/edges and finalShapes on a plain sweep into empty scene", () => {
     const profile = sketch("xy", () => {
-      circle(10);
-    });
+        circle([0, 0], 10);
+      });
 
     const path = sketch("xz", () => {
-      vLine(50);
-    });
+        const sg1 = line([0, 0], [0, 50]);
+        vertical(sg1);
+      });
 
     const s = sweep(path, profile) as Sweep;
     render();
@@ -91,11 +91,11 @@ describe("Loft — history tracking", () => {
 
   it("records added faces/edges and finalShapes on a plain loft into empty scene", () => {
     const s1 = sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const p = plane("xy", { offset: 50 });
     const s2 = sketch(p, () => {
-      circle(10);
+      circle([0, 0], 10);
     });
 
     const l = loft(s1, s2) as Loft;
@@ -113,13 +113,13 @@ describe("ExtrudeToFace — history tracking", () => {
 
   it("records added faces/edges and finalShapes into empty scene via 'last-face'", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude("last-face") as unknown as {
       getAddedFaces(): any[];
       getAddedEdges(): any[];
@@ -140,8 +140,8 @@ describe("ExtrudeTwoDistances — history tracking", () => {
 
   it("records added faces/edges and finalShapes into empty scene", () => {
     sketch("xy", () => {
-      rect(40, 30);
-    });
+        testRect(40, 30);
+      });
     const e2 = extrude(20, 10) as ExtrudeTwoDistances;
     render();
 

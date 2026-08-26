@@ -6,7 +6,7 @@ import fillet from "../../core/fillet.js";
 import shell from "../../core/shell.js";
 import select from "../../core/select.js";
 import plane from "../../core/plane.js";
-import { rect } from "../../core/2d/index.js";
+import { } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Shell } from "../../features/shell.js";
@@ -16,6 +16,7 @@ import { Scene } from "../../rendering/scene.js";
 import { ShapeProps } from "../../oc/props.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
 import { faceRefsWhere, findSolid, setLocation } from "./pick-helpers.js";
+import { testRect } from "../helpers/profiles.js";
 
 function sceneSolid(scene: Scene): Solid {
   return scene.getAllSceneObjects()
@@ -36,8 +37,8 @@ describe("plane-reference selectors", () => {
 
   it("names a reshaped end face through the producer's plane, not a baked offset", () => {
     sketch("xy", () => {
-      rect(123.28, 56.07).centered();
-    });
+        testRect(123.28, 56.07, { at: [-61.64, -28.035] });
+      });
     const e = extrude(25) as Extrude;
     setLocation(e, 6);
     fillet(10, e.sideEdges());
@@ -67,8 +68,8 @@ describe("plane-reference selectors", () => {
 
   it("still prefers the bare datum plane when the pick lies on one", () => {
     sketch("xy", () => {
-      rect(123.28, 56.07).centered();
-    });
+        testRect(123.28, 56.07, { at: [-61.64, -28.035] });
+      });
     const e = extrude(25) as Extrude;
     setLocation(e, 6);
     const l = fillet(10, e.sideEdges());
@@ -90,8 +91,8 @@ describe("plane-reference selectors", () => {
 
   it("the emitted plane-reference selector builds without adding a plane to the scene", () => {
     sketch("xy", () => {
-      rect(123.28, 56.07).centered();
-    });
+        testRect(123.28, 56.07, { at: [-61.64, -28.035] });
+      });
     const e = extrude(25) as Extrude;
     fillet(10, e.sideEdges());
     const s = shell(-2, select(face().onPlane(e.endFaces())));
@@ -113,8 +114,8 @@ describe("plane-reference selectors", () => {
 
   it("the plane()-wrapped form still resolves (back-compat)", () => {
     sketch("xy", () => {
-      rect(123.28, 56.07).centered();
-    });
+        testRect(123.28, 56.07, { at: [-61.64, -28.035] });
+      });
     const e = extrude(25) as Extrude;
     fillet(10, e.sideEdges());
     const s = shell(-2, select(face().onPlane(plane(e.endFaces()))));

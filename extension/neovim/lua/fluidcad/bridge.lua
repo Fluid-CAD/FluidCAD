@@ -250,32 +250,8 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.filePath, function(code_api, code)
         return code_api.insert_load(code, msg.fileName)
       end)
-    elseif msg.type == 'update-position' then
-      local old_position = msg.oldPosition
-      if old_position == vim.NIL then
-        old_position = nil
-      end
-      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
-        return code_api.update_position(code, msg.sourceLocation.line, msg.newPosition, msg.pointIndex or 0, old_position)
-      end)
-    elseif msg.type == 'set-line-position' then
-      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
-        return code_api.set_line_position(code, msg.sourceLocation.line, msg.newStart, msg.newEnd)
-      end)
-    elseif msg.type == 'set-chain-positions' then
-      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
-        return code_api.set_chain_positions(code, msg.sourceLocation.line, msg.updates)
-      end)
     elseif msg.type == 'update-sketch-positions' then
       M.handle_update_sketch_positions(msg)
-    elseif msg.type == 'set-rect-dimensions' then
-      local old_start = msg.oldStartPoint
-      if old_start == vim.NIL then
-        old_start = nil
-      end
-      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
-        return code_api.set_rect_dimensions(code, msg.sourceLocation.line, msg.startPoint, msg.width, msg.height, old_start)
-      end)
     elseif msg.type == 'apply-feature-edit' then
       M.apply_code_edit(msg.spec and msg.spec.filePath, function(code_api, code)
         local result = code_api.apply_feature(code, msg.spec)
@@ -299,38 +275,10 @@ function M.handle_message(msg)
         sketch_line = nil
       end
       local dim_offset = msg.dimensionOffset or 0
-      local dim_call = msg.dimensionCall
-      if dim_call == vim.NIL then
-        dim_call = nil
-      end
-      local dim_insert = msg.dimensionInsert == true
-      local dim_point = msg.dimensionPoint
-      if dim_point == vim.NIL then
-        dim_point = nil
-      end
       M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
         return code_api.update_dimension_expression(
           code, msg.sourceLocation.line, msg.expression,
-          sketch_line, new_var, dim_offset, dim_call, dim_insert, dim_point
-        )
-      end)
-    elseif msg.type == 'update-point-expression' then
-      local new_var = msg.newVariable
-      if new_var == vim.NIL then
-        new_var = nil
-      end
-      local sketch_line = msg.sketchSourceLine
-      if sketch_line == vim.NIL then
-        sketch_line = nil
-      end
-      local old_position = msg.oldPosition
-      if old_position == vim.NIL then
-        old_position = nil
-      end
-      M.apply_code_edit(msg.sourceLocation.filePath, function(code_api, code)
-        return code_api.update_point_expression(
-          code, msg.sourceLocation.line, msg.xExpr, msg.yExpr,
-          sketch_line, new_var, msg.pointIndex or 0, old_position
+          sketch_line, new_var, dim_offset
         )
       end)
     elseif msg.type == 'remove-feature' then

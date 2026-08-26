@@ -3,17 +3,18 @@ import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cylinder from "../../core/cylinder.js";
-import { circle, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Cylinder } from "../../features/cylinder.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("extrude — history tracking (Phase 2b: finalShapes)", () => {
   setupOC();
 
   it("populates finalShapes with the extruded solid on a plain extrude", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
 
     const e = extrude(30) as Extrude;
     render();
@@ -29,8 +30,8 @@ describe("extrude — history tracking (Phase 2b: finalShapes)", () => {
 
   it("populates finalShapes on a symmetric extrude", () => {
     sketch("xy", () => {
-      rect(40, 40);
-    });
+        testRect(40, 40);
+      });
 
     const e = extrude(20).symmetric() as Extrude;
     render();
@@ -43,13 +44,13 @@ describe("extrude — history tracking (Phase 2b: finalShapes)", () => {
 
   it("populates finalShapes on a cut (remove) extrude", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     extrude(40);
 
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const cut = extrude(10).remove() as Extrude;
 
     render();
@@ -69,8 +70,8 @@ describe("extrude — history tracking (Phase 2c: added/modified lineage)", () =
 
   it("records every face of a plain extrude as addedFaces on the extrude op", () => {
     sketch("xy", () => {
-      rect(40, 30);
-    });
+        testRect(40, 30);
+      });
     const e = extrude(10) as Extrude;
     render();
 
@@ -84,8 +85,8 @@ describe("extrude — history tracking (Phase 2c: added/modified lineage)", () =
 
   it("records added edges on a plain extrude", () => {
     sketch("xy", () => {
-      rect(40, 30);
-    });
+        testRect(40, 30);
+      });
     const e = extrude(10) as Extrude;
     render();
 
@@ -130,8 +131,8 @@ describe("extrude — history tracking (Phase 2c: added/modified lineage)", () =
 
   it("records added faces/edges on a symmetric extrude in an empty scene", () => {
     sketch("xy", () => {
-      rect(40, 30);
-    });
+        testRect(40, 30);
+      });
     const e = extrude(10).symmetric() as Extrude;
     render();
 
@@ -207,13 +208,13 @@ describe("extrude — history tracking (Phase 2c: added/modified lineage)", () =
 
   it("records cut history: modified stock faces on the scene object and added section faces on the cut", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     const stock = extrude(40) as Extrude;
 
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const cut = extrude(15).remove() as Extrude;
     render();
 
@@ -231,8 +232,8 @@ describe("extrude — history tracking (Phase 2c: added/modified lineage)", () =
 
   it("edge classification is pre-computed in state after build (not derived lazily)", () => {
     sketch("xy", () => {
-      rect(40, 30);
-    });
+        testRect(40, 30);
+      });
     const e = extrude(10) as Extrude;
     render();
 
@@ -252,8 +253,8 @@ describe("extrude — history tracking (Phase 2c: added/modified lineage)", () =
 
   it("sideEdges selection agrees with pre-computed side-edges state", () => {
     sketch("xy", () => {
-      rect(40, 30);
-    });
+        testRect(40, 30);
+      });
     const e = extrude(10) as Extrude;
 
     const sel = e.sideEdges();
@@ -273,13 +274,13 @@ describe("extrude — history tracking (Phase 2c: added/modified lineage)", () =
     // Through-all cut usually triggers UnifySameDomain merges where the cut
     // passes through the stock and the surrounding face topology simplifies.
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     const stock = extrude(40) as Extrude;
 
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const cut = extrude(0).remove() as Extrude;
     render();
 

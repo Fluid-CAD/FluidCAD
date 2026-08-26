@@ -5,7 +5,7 @@ import extrude from "../../core/extrude.js";
 import shell from "../../core/shell.js";
 import select from "../../core/select.js";
 import cylinder from "../../core/cylinder.js";
-import { circle, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
 import { Shell } from "../../features/shell.js";
@@ -15,6 +15,7 @@ import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShellOps } from "../../oc/shell-ops.js";
 import { ShapeProps } from "../../oc/props.js";
 import { face } from "../../filters/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("shell", () => {
   setupOC();
@@ -22,8 +23,8 @@ describe("shell", () => {
   describe("basic shell", () => {
     it("should hollow out a box by removing the top face", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       select(face().onPlane("xy", 50));
@@ -43,8 +44,8 @@ describe("shell", () => {
 
     it("should reduce volume compared to the original solid", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50);
 
       select(face().onPlane("xy", 50));
@@ -66,8 +67,8 @@ describe("shell", () => {
   describe("shell with explicit selection", () => {
     it("should shell using an explicit face selection", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50);
 
       const sel = select(face().onPlane("xy", 50)) as SelectSceneObject;
@@ -88,8 +89,8 @@ describe("shell", () => {
   describe("shell thickness", () => {
     it("should use default thickness of 2.5", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50);
 
       select(face().onPlane("xy", 50));
@@ -108,8 +109,8 @@ describe("shell", () => {
 
     it("should produce thinner walls with smaller thickness", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50);
 
       select(face().onPlane("xy", 50));
@@ -151,8 +152,8 @@ describe("shell", () => {
   describe("shell removes selection shapes", () => {
     it("should remove the face selection after shelling", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50);
 
       const sel = select(face().onPlane("xy", 50)) as SelectSceneObject;
@@ -167,8 +168,8 @@ describe("shell", () => {
   describe("internalFaces", () => {
     it("should expose internal faces of a shelled box", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50);
 
       select(face().onPlane("xy", 50));
@@ -201,8 +202,8 @@ describe("shell", () => {
 
     it("should filter internal faces by index", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50);
 
       select(face().onPlane("xy", 50));
@@ -224,8 +225,8 @@ describe("shell", () => {
   describe("internalEdges", () => {
     it("should expose internal edges of a shelled box", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50);
 
       select(face().onPlane("xy", 50));
@@ -244,8 +245,8 @@ describe("shell", () => {
 
     it("should filter internal edges by index", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50);
 
       select(face().onPlane("xy", 50));
@@ -267,8 +268,8 @@ describe("shell", () => {
   describe("join type", () => {
     const buildShelledBox = (apply: (s: Shell) => void) => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50);
       select(face().onPlane("xy", 50));
       const s = shell(5) as Shell;
@@ -307,8 +308,8 @@ describe("shell", () => {
   describe("shell with multiple selections", () => {
     it("should shell a box by removing two faces", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50);
 
       const sel1 = select(face().onPlane("xy", 50)) as SelectSceneObject;
@@ -327,8 +328,8 @@ describe("shell", () => {
 
     it("should remove all selection shapes after shelling with multiple selections", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50);
 
       const sel1 = select(face().onPlane("xy", 50)) as SelectSceneObject;
@@ -345,8 +346,8 @@ describe("shell", () => {
   describe("failure surfacing", () => {
     it("flags an error when a lazy selection resolves to no faces", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       // Accessor selections are lazy, so validate() can't see their
@@ -373,8 +374,8 @@ describe("shell", () => {
 
       try {
         sketch("xy", () => {
-          rect(100, 100);
-        });
+            testRect(100, 100);
+          });
         extrude(50);
 
         select(face().onPlane("xy", 50));
@@ -400,8 +401,8 @@ describe("shell", () => {
 
       try {
         sketch("xy", () => {
-          rect(100, 100);
-        });
+            testRect(100, 100);
+          });
         extrude(50);
 
         select(face().onPlane("xy", 50));

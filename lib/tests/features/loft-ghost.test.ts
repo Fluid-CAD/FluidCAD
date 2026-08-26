@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import plane from "../../core/plane.js";
-import { bezier, circle, move, rect, vLine } from "../../core/2d/index.js";
+import { bezier, circle, line } from "../../core/2d/index.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import {
   buildLoftGhostSolids, LoftGhostOptions, LoftGhostProfile, LoftGhostSolids,
@@ -14,6 +14,8 @@ import { LoftOps } from "../../oc/loft-ops.js";
 import { WireOps } from "../../oc/wire-ops.js";
 import { ShapeProps } from "../../oc/props.js";
 import { getBoundingBoxOfShapes } from "../utils.js";
+import { vertical } from "../../core/constraints/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 const BASE: LoftGhostOptions = {
   op: 'add',
@@ -41,16 +43,24 @@ function sectionsOf(sketches: Sketch[]): LoftGhostProfile[] {
 /** Two identical 100 × 50 rects, 40 apart — a loft that is exactly a prism. */
 function rectStack(): Sketch[] {
   return [
-    sketch("xy", () => { rect(100, 50); }) as Sketch,
-    sketch(plane("xy", { offset: 40 }), () => { rect(100, 50); }) as Sketch,
+    sketch("xy", () => {
+        testRect(100, 50);
+      }) as Sketch,
+    sketch(plane("xy", { offset: 40 }), () => {
+        testRect(100, 50);
+      }) as Sketch,
   ];
 }
 
 /** Two identical circles (diameter 80) at z = 0 and z = 60. */
 function circleStack(): Sketch[] {
   return [
-    sketch("xy", () => { circle(80); }) as Sketch,
-    sketch(plane("xy", { offset: 60 }), () => { circle(80); }) as Sketch,
+    sketch("xy", () => {
+        circle([0, 0], 80);
+      }) as Sketch,
+    sketch(plane("xy", { offset: 60 }), () => {
+        circle([0, 0], 80);
+      }) as Sketch,
   ];
 }
 
@@ -138,7 +148,9 @@ describe("loft ghost", () => {
     it("shows nothing while a section is still empty", () => {
       const profiles = sectionsOf([
         sketch("xy", () => { }) as Sketch,
-        sketch(plane("xy", { offset: 40 }), () => { rect(100, 50); }) as Sketch,
+        sketch(plane("xy", { offset: 40 }), () => {
+            testRect(100, 50);
+          }) as Sketch,
       ]);
 
       withGhost(profiles, {}, (solids) => expect(solids).toHaveLength(0));
@@ -148,7 +160,10 @@ describe("loft ghost", () => {
   describe("guides", () => {
     /** A straight rail from (40, 0, 0) to (40, 0, 60) — the cylinder's side. */
     function straightRail(): Sketch {
-      return sketch("xz", () => { move([40, 0]); vLine(60); }) as Sketch;
+      return sketch("xz", () => {
+          const sg1 = line([40, 0], [40, 60]);
+          vertical(sg1);
+        }) as Sketch;
     }
 
     function railWires(guide: Sketch): Wire[] {
@@ -215,8 +230,13 @@ describe("loft ghost", () => {
     it("shows nothing for a multi-region section under a rail", () => {
       const rail = straightRail();
       const profiles = sectionsOf([
-        sketch("xy", () => { circle(80); move([200, 0]); circle(80); }) as Sketch,
-        sketch(plane("xy", { offset: 60 }), () => { circle(80); }) as Sketch,
+        sketch("xy", () => {
+            circle([0, 0], 80);
+            circle([200, 0], 80);
+          }) as Sketch,
+        sketch(plane("xy", { offset: 60 }), () => {
+            circle([0, 0], 80);
+          }) as Sketch,
       ]);
       const guides = railWires(rail);
 

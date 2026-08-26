@@ -1,8 +1,9 @@
 import {
-    axis, circle, color, cut, extrude, loft, move, offset,
-    plane, polygon, project, repeat, revolve, select, shell,
+    axis, circle, cut, extrude, line, loft, offset,
+    plane, project, repeat, revolve, select, shell,
     sketch, sphere, translate
 } from 'fluidcad/core';
+import { coincident, equal } from 'fluidcad/constraints';
 import { face } from 'fluidcad/filters';
 
 const sides = 6;
@@ -11,9 +12,29 @@ const windowOffset = 6;
 const wallThickness = 7;
 const middleHeight = 150;
 
+// A regular polygon of `sides` sides as solved lines: exact vertex guesses
+// on the circumscribing circle (first vertex due east), coincident corners,
+// and equal side lengths.
+function ngon(diameter) {
+    const r = diameter / 2;
+    const points = [];
+    for (let i = 0; i < sides; i++) {
+        const a = (2 * Math.PI * i) / sides;
+        points.push([r * Math.cos(a), r * Math.sin(a)]);
+    }
+    const edges = points.map((p, i) => line(p, points[(i + 1) % sides]));
+    for (let i = 0; i < sides; i++) {
+        coincident(edges[i].end(), edges[(i + 1) % sides].start());
+    }
+    for (let i = 1; i < sides; i++) {
+        equal(edges[0], edges[i]);
+    }
+    return edges;
+}
+
 // Middle Body
 sketch(plane("xy", { offset: 24 }), () => {
-    polygon(sides, 100);
+    ngon(100);
 })
 
 const middle = extrude(middleHeight).draft(draft).new()
@@ -27,8 +48,8 @@ shell(-wallThickness)
 
 // Cut Windows
 sketch(middle.sideFaces(0), () => {
-    project(middle.sideFaces(0))
-    offset(-windowOffset, true)
+    const outline = project(middle.sideFaces(0)).guide()
+    offset(-windowOffset, outline)
 })
 
 const c = cut(7)
@@ -39,10 +60,14 @@ repeat("circular", "z", {
 })
 
 // Base
-sketch("xy", () => polygon(sides, 150));
+sketch("xy", () => {
+    ngon(150);
+});
 
 const pl1 = extrude(12)
 
-sketch(pl1.endFaces(), () => polygon(sides, 115));
+sketch(pl1.endFaces(), () => {
+    ngon(115);
+});
 
 extrude(12)

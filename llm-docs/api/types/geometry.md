@@ -30,19 +30,18 @@ explicitly included.
 
 ### `edge()`
 
-Uniform edge accessor. `edge('top')` selects this feature's edges by role
-(optionally disambiguated by role index, e.g. `edge('corner-arc', 2)`);
-`edge(1)` selects by build-order index over the feature's real edges.
-Rect roles: `top`/`bottom`/`left`/`right` and `corner-arc` 0–3 (radius-arg
-order bl/br/tr/tl); polygon: `side` i; slot: `side` 0–1, `cap-arc`
-0=left/1=right; circle/ellipse: `perimeter`.
+Uniform edge accessor. `edge('body')` selects this feature's edges by
+role (optionally disambiguated by role index); `edge(1)` selects by
+build-order index over the feature's real edges. Roles: solver lines and
+arcs stamp `body`; circles and ellipses `perimeter`; derived-op outputs
+carry provenance-specific roles (e.g. fillet arcs).
 
 **Returns**: `ISelection`.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `roleOrIndex` | `string` \| `number` | A role name, or a build-order edge index. |
-| `roleIndex` | `number` | Disambiguates roles that repeat (e.g. polygon sides). *(optional)* |
+| `roleIndex` | `number` | Disambiguates roles that repeat. *(optional)* |
 
 ### `start()`
 

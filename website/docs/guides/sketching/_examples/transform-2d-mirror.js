@@ -1,10 +1,11 @@
-import { bezier, extrude, line, mirror, move, sketch } from 'fluidcad/core';
+import { bezier, extrude, line, mirror, sketch } from 'fluidcad/core';
+import { coincident } from "fluidcad/constraints";
 
 sketch("xy", () => {
-    move([0, 0])
     const profile = bezier([0, 0], [60, 0], [40, 80], [120, 100])
-    line([120, 0])
-    line([0, 0])
+    const side = line([120, 100], [120, 0]);
+    const bottom = line([120, 0], [0, 0]);
+    coincident(side.end(), bottom.start());
 
     mirror("y", profile)
 })

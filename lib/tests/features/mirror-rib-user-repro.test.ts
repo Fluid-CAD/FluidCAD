@@ -9,11 +9,13 @@ import repeat from "../../core/repeat.js";
 import rib from "../../core/rib.js";
 import select from "../../core/select.js";
 import { face } from "../../filters/index.js";
-import { rect, circle, vLine } from "../../core/2d/index.js";
+import { circle, line } from "../../core/2d/index.js";
 import { Rib } from "../../features/rib.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Face } from "../../common/face.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import { vertical } from "../../core/constraints/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 // User repro (Lego brick): mirroring a normal-mode extended rib whose sketch
 // sits on an OFFSET derived plane — p = plane(sh.internalFaces(1), 6.3).
@@ -31,8 +33,8 @@ describe("repeat mirror of a rib sketched on an offset derived plane", () => {
     const height = 15.8;
 
     sketch("xy", () => {
-      rect(width, height);
-    });
+        testRect(width, height);
+      });
     const e = extrude(thickness);
 
     sketch(e.endFaces(), () => {
@@ -43,8 +45,10 @@ describe("repeat mirror of a rib sketched on an offset derived plane", () => {
 
     const sh = shell(-1.2, e.startFaces()).join("intersection");
     sketch(sh.internalFaces(1), () => {
-      circle(6.51);
-      circle(4.8);
+      // Legacy circles drew at the pen origin = the face's local center,
+      // probed at [15.9, -7.9] for this cavity ceiling.
+      circle([15.9, -7.9], 6.51);
+      circle([15.9, -7.9], 4.8);
     });
     const f = extrude(select(face().onPlane("xy")));
     repeat("linear", "x", { count: 3, offset: 8, centered: true }, f);
@@ -52,8 +56,9 @@ describe("repeat mirror of a rib sketched on an offset derived plane", () => {
     // Cavity ceiling is at z = 8.4 with normal −z; the offset lands at z = 2.1.
     const p = plane(sh.internalFaces(1), 6.3);
     sketch(p, () => {
-      vLine([15.9, -2], -1.67);
-    });
+        const sg1 = line([15.9, -2], [15.9, -3.67]);
+        vertical(sg1);
+      });
     const f2 = rib(0.8).extend() as unknown as Rib;
     // Midplane of the two long side walls: y = 7.9.
     const p2 = plane(plane(e.sideFaces(1)), plane(e.sideFaces(3)));

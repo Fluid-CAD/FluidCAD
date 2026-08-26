@@ -12,19 +12,20 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={deskOrganizerFinal} entry="desk-organizer.fluid.js" />
 
-In this tutorial, you'll build a four-compartment octagonal desk organizer with a square inner pocket, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=6pThupmIU0c). It covers polygon sketches with circumscribed sizing, sketch-level rotate and fillet, chamfering and shelling by extrude faces, multi-loop sketches via `offset`, ribs on a rotated reference plane, circular patterning, and a thin revolve cut for trimming.
+In this tutorial, you'll build a four-compartment octagonal desk organizer with a square inner pocket, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=6pThupmIU0c). It covers constraint sketches (regular polygons from lines with `equal`, angled lines dimensioned from a datum axis), sketch-level rotate and fillet, chamfering and shelling by extrude faces, multi-loop sketches via `offset`, ribs on a rotated reference plane, circular patterning, and a thin revolve cut for trimming.
 
 Create a new file called `desk-organizer.fluid.js` in your project.
 
 ## Setup
 
-A single import line covers every operation used in this model.
+Two import lines cover every operation used in this model: the geometry and 3D operations from `fluidcad/core`, and the constraint statements from `fluidcad/constraints`.
 
 ```js
-import { plane, sketch, extrude, fillet, rect, chamfer, move, repeat, rotate, arc, shell, polygon, offset, aLine, rib, revolve } from 'fluidcad/core';
+import { plane, sketch, extrude, fillet, chamfer, repeat, rotate, arc, shell, offset, rib, revolve, line, xAxis } from 'fluidcad/core';
+import { angle, coincident, distance, equal, fix, horizontal, radius, vertical } from "fluidcad/constraints";
 ```
 
-Everything comes from `fluidcad/core` — no filters needed. Selections in this model use the extrude handle (`outer.startEdges()`, `outer.endFaces()`) instead of plane-based filters.
+No filters are needed. Selections in this model use the extrude handle (`outer.startEdges()`, `outer.endFaces()`) instead of plane-based filters.
 
 ## Step 1: Octagonal base
 
@@ -32,17 +33,41 @@ Everything comes from `fluidcad/core` — no filters needed. Selections in this 
 
 ```js
 sketch("top", () => {
-    polygon(8, 140, 'circumscribed')
-    rotate(45 / 2)
-    fillet(20)
+    const s1 = line([75.767454, 0], [53.575681, 53.575681]);
+    const s2 = line([53.575681, 53.575681], [0, 75.767454]);
+    const s3 = line([0, 75.767454], [-53.575681, 53.575681]);
+    const s4 = line([-53.575681, 53.575681], [-75.767454, 0]);
+    const s5 = line([-75.767454, 0], [-53.575681, -53.575681]);
+    const s6 = line([-53.575681, -53.575681], [0, -75.767454]);
+    const s7 = line([0, -75.767454], [53.575681, -53.575681]);
+    const s8 = line([53.575681, -53.575681], [75.767454, 0]);
+    coincident(s1.end(), s2.start());
+    coincident(s2.end(), s3.start());
+    coincident(s3.end(), s4.start());
+    coincident(s4.end(), s5.start());
+    coincident(s5.end(), s6.start());
+    coincident(s6.end(), s7.start());
+    coincident(s7.end(), s8.start());
+    coincident(s8.end(), s1.start());
+    equal(s1, s2);
+    equal(s1, s3);
+    equal(s1, s4);
+    equal(s1, s5);
+    equal(s1, s6);
+    equal(s1, s7);
+    equal(s1, s8);
+    rotate(45 / 2, [0, 0]);
+    fillet(20, s1, s2, s3, s4, s5, s6, s7, s8);
 });
 ```
 
-`polygon(8, 140, 'circumscribed')` draws an 8-sided polygon **circumscribed** around a circle of radius 140 — meaning 140 is the apothem (the perpendicular distance from center to a face), not the circumradius. This makes the flats of the octagon land on the 140 mark.
+The octagon is built from eight `line` statements — a constraint sketch (note the `true` argument to `sketch`), so each line is a fully-specified guess and the constraint statements carry the design intent. The vertices sit on a circle of radius 70 / cos(22.5°) ≈ 75.77, which makes the octagon **circumscribed** around a circle of diameter 140: the flats — not the corners — land on the 140 mark, so the body measures 140 across the flats.
 
-`rotate(45 / 2)` spins the polygon by 22.5° within the sketch so a flat face — not a vertex — sits on the X axis. That orientation matters in step 4: it lines up the inner square's diagonals with four of the octagon's flats.
+The `coincident` chain welds each line's end to the next line's start (and the last back to the first), closing the loop, and the `equal` run keeps all eight sides the same length — together they say "regular octagon" while the guess coordinates say which one.
 
-`fillet(20)` rounds each of the eight polygon corners with a 20-unit radius, softening what would otherwise be sharp vertical edges on the body.
+`rotate(45 / 2, [0, 0])` spins the profile by 22.5° about the sketch origin — in a constraint sketch the rotation center is always explicit — so a flat face, not a vertex, sits on the X axis. That orientation matters in step 4: it lines up the inner square's diagonals with four of the octagon's flats.
+
+`fillet(20, s1, ..., s8)` rounds each corner shared by the listed lines with a 20-unit radius, softening what would otherwise be sharp vertical edges on the body.
 
 ![Octagon sketch with fillets](/img/docs/tutorials/desk-organizer-step1-sketch.png)
 
@@ -76,12 +101,26 @@ shell(-5, outer.endFaces())
 
 ```js
 sketch("top", () => {
-    rect(50).centered();
+    const sg1 = line([-25, -25], [25, -25]);
+    const sg2 = line([25, -25], [25, 25]);
+    const sg3 = line([25, 25], [-25, 25]);
+    const sg4 = line([-25, 25], [-25, -25]);
+    coincident(sg1.end(), sg2.start());
+    coincident(sg2.end(), sg3.start());
+    coincident(sg3.end(), sg4.start());
+    coincident(sg4.end(), sg1.start());
+    horizontal(sg1);
+    vertical(sg2);
+    horizontal(sg3);
+    vertical(sg4);
+    fix(sg1.start(), [-25, -25]);
+    distance(sg1.start(), sg1.end(), 50);
+    distance(sg2.start(), sg2.end(), 50);
     offset(-5);
 });
 ```
 
-`rect(50).centered()` draws a 50×50 square centered on the origin. `offset(-5)` adds an inset profile 5 units inside the square, leaving both loops in the sketch — outer 50×50 and inner 40×40. A sketch with a closed inner loop inside a closed outer loop extrudes as an annular profile (a frame), not a solid block.
+The four lines form a 50×50 square centered on the origin: `coincident` closes the loop, `horizontal`/`vertical` square it up, `fix` anchors the bottom-left corner at (−25, −25), and the two `distance` dimensions set the side lengths — a fully constrained square. `offset(-5)` then adds an inset profile 5 units inside the square, leaving both loops in the sketch — outer 50×50 and inner 40×40. A sketch with a closed inner loop inside a closed outer loop extrudes as an annular profile (a frame), not a solid block.
 
 ![Square ring sketch](/img/docs/tutorials/desk-organizer-step3-sketch.png)
 
@@ -109,12 +148,14 @@ const p = plane("front", { rotateY: 45 })
 
 ```js
 sketch(p, () => {
-    move([(-140 / 2) + 5, 110]);
-    aLine(45, 20)
+    const l = line([(-140 / 2) + 5, 110], [-50.857864, 124.142136]);
+    fix(l.start(), [(-140 / 2) + 5, 110]);
+    angle(xAxis(), l, 45);
+    distance(l.start(), l.end(), 20);
 });
 ```
 
-`move([(-140 / 2) + 5, 110])` parks the cursor at x=−65 (just inside the polygon's left flat) and y=110 (the height of the outer body's open top). `aLine(45, 20)` draws an angled line at 45° with length 20 — a short seed for the rib. The line itself doesn't need to span the full gap; `.extend()` will stretch it to the surrounding solids.
+The line starts at x=−65 (just inside the octagon's left flat) and y=110 (the height of the outer body's open top) — `fix` pins that start point in place. `angle(xAxis(), l, 45)` dimensions the line to 45° counterclockwise from the sketch's X axis datum, and `distance(..., 20)` sets its length — a short seed for the rib. The end-point guess (−50.86, 124.14) already satisfies both dimensions, so the solve leaves the line exactly where it was drawn. The line itself doesn't need to span the full gap; `.extend()` will stretch it to the surrounding solids.
 
 ![Rib spine on rotated plane](/img/docs/tutorials/desk-organizer-step4-sketch.png)
 
@@ -144,11 +185,13 @@ repeat("circular", "z", {
 
 ```js
 sketch("front", () => {
-    arc(140, 0, 90)
+    const a = arc([140, 0], [0, 140], [0, 0]);
+    fix(a.center(), [0, 0]);
+    radius(a, 140);
 });
 ```
 
-`arc(140, 0, 90)` draws a quarter arc on the front plane: radius 140, sweeping from 0° to 90° — from (140, 0) up to (0, 140). Because the arc is centered on the Z axis, revolving it around Z sweeps every point on the arc through a full circle, generating a **hemispherical surface** of radius 140 sitting on top of the model. That's the surface that will dome off the inner column and trim everything above it.
+`arc(start, end, center)` draws a quarter arc on the front plane, sweeping counterclockwise from (140, 0) up to (0, 140) around the origin. `fix(a.center(), [0, 0])` pins the center on the revolve axis and `radius(a, 140)` dimensions it. Because the arc is centered on the Z axis, revolving it around Z sweeps every point on the arc through a full circle, generating a **hemispherical surface** of radius 140 sitting on top of the model. That's the surface that will dome off the inner column and trim everything above it.
 
 ![Trim arc sketch](/img/docs/tutorials/desk-organizer-step5-sketch.png)
 
@@ -172,12 +215,13 @@ The result is a hemispherical trim surface that domes the top of the inner squar
 
 ## What you practiced
 
-- **`polygon(sides, size, 'circumscribed')`** — sizing a polygon by its apothem rather than its circumradius
-- **`rotate()` and `fillet()` inside a sketch** — orienting and rounding a sketch profile before extruding
+- **Regular polygons from constraints** — a closed `coincident` loop plus an `equal` run over exact-guess lines
+- **`rotate(angle, center)` and `fillet(radius, ...lines)` inside a sketch** — orienting and rounding a sketch profile before extruding (the rotation center is explicit in a constraint sketch)
+- **`angle(xAxis(), l, deg)`** — dimensioning a line's direction against a sketch datum axis
 - **Extrude handles (`startEdges`, `endFaces`)** — selecting bottom edges and top face of an extrude without plane filters
 - **`chamfer()`** — beveling edges by an absolute distance
 - **`shell()` with a face selection** — hollowing a body and removing one face to open it
-- **`rect()` + `offset()` for an annular sketch** — keeping both loops in the sketch to extrude a frame instead of a block
+- **A constrained square + `offset()` for an annular sketch** — keeping both loops in the sketch to extrude a frame instead of a block
 - **`plane("front", { rotateY: ... })`** — rotating a reference plane to angle a rib path diagonally
 - **`rib().parallel().extend()`** — building a stiffening wall from a short seed line that extends to surrounding solids
 - **`repeat("circular", "z", ...)`** — circular-patterning the previous operation around an axis

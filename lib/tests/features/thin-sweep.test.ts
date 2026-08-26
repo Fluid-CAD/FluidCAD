@@ -3,13 +3,15 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import sweep from "../../core/sweep.js";
 import extrude from "../../core/extrude.js";
-import { circle, rect, vLine, line } from "../../core/2d/index.js";
+import { circle, line } from "../../core/2d/index.js";
 import { Sweep } from "../../features/sweep.js";
 import { Face } from "../../common/face.js";
 import { Edge } from "../../common/edge.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
 import { EdgeQuery } from "../../oc/edge-query.js";
+import { vertical } from "../../core/constraints/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("thin sweep", () => {
   setupOC();
@@ -17,12 +19,13 @@ describe("thin sweep", () => {
   describe("closed profile", () => {
     it("should create a thin-walled swept solid with single offset", () => {
       const profile = sketch("xy", () => {
-        rect(20, 20);
-      });
+          testRect(20, 20);
+        });
 
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg1 = line([0, 0], [0, 50]);
+          vertical(sg1);
+        });
 
       const s = sweep(path, profile).thin(3) as Sweep;
       render();
@@ -37,12 +40,13 @@ describe("thin sweep", () => {
 
     it("should have less volume than a solid sweep", () => {
       const profile = sketch("xy", () => {
-        circle(20);
-      });
+          circle([0, 0], 20);
+        });
 
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg2 = line([0, 0], [0, 50]);
+          vertical(sg2);
+        });
 
       const s = sweep(path, profile).thin(5) as Sweep;
       render();
@@ -56,12 +60,13 @@ describe("thin sweep", () => {
 
     it("should classify internal faces for closed profile", () => {
       const profile = sketch("xy", () => {
-        rect(30, 30);
-      });
+          testRect(30, 30);
+        });
 
       const path = sketch("xz", () => {
-        vLine(40);
-      });
+          const sg3 = line([0, 0], [0, 40]);
+          vertical(sg3);
+        });
 
       const s = sweep(path, profile).thin(5) as Sweep;
       render();
@@ -72,12 +77,13 @@ describe("thin sweep", () => {
 
     it("should create a thin-walled solid with dual offset", () => {
       const profile = sketch("xy", () => {
-        circle(20);
-      });
+          circle([0, 0], 20);
+        });
 
       const path = sketch("xz", () => {
-        vLine(40);
-      });
+          const sg4 = line([0, 0], [0, 40]);
+          vertical(sg4);
+        });
 
       const s = sweep(path, profile).thin(5, -3).new() as Sweep;
       render();
@@ -99,8 +105,9 @@ describe("thin sweep", () => {
       });
 
       const path = sketch("xz", () => {
-        vLine(40);
-      });
+          const sg6 = line([0, 0], [0, 40]);
+          vertical(sg6);
+        });
 
       const s = sweep(path, profile).thin(5).new() as Sweep;
       render();
@@ -116,8 +123,9 @@ describe("thin sweep", () => {
       });
 
       const path = sketch("xz", () => {
-        vLine(40);
-      });
+          const sg8 = line([0, 0], [0, 40]);
+          vertical(sg8);
+        });
 
       const s = sweep(path, profile).thin(5).new() as Sweep;
       render();
@@ -135,17 +143,18 @@ describe("thin sweep", () => {
   describe("remove mode", () => {
     it("should cut a thin-walled sweep from existing geometry", () => {
       sketch("xy", () => {
-        rect(200, 200);
-      });
+          testRect(200, 200);
+        });
       extrude(80);
 
       const profile = sketch("xy", () => {
-        rect(30, 30);
-      });
+          testRect(30, 30);
+        });
 
       const path = sketch("xz", () => {
-        vLine(80);
-      });
+          const sg9 = line([0, 0], [0, 80]);
+          vertical(sg9);
+        });
 
       const s = sweep(path, profile).thin(5).remove() as Sweep;
       render();

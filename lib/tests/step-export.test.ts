@@ -4,11 +4,12 @@ import { getCurrentScene } from "../scene-manager.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import color from "../core/color.js";
-import { rect, circle } from "../core/2d/index.js";
+import { circle } from "../core/2d/index.js";
 import { FileExport } from "../io/file-export.js";
 import { Solid } from "../common/solid.js";
 import { Shape } from "../common/shape.js";
 import { ISceneObject } from "../core/interfaces.js";
+import { testRect } from "./helpers/profiles.js";
 
 /** Every solid the scene would hand to an export, same walk as SceneManager. */
 function sceneSolids(): Solid[] {
@@ -30,8 +31,8 @@ function countOccurrences(text: string, entity: string): number {
 /** A plate and a separate cylindrical boss — two disjoint bodies. */
 function twoBodies(): { plate: ISceneObject; boss: ISceneObject } {
   sketch("xy", () => {
-    rect(50, 30).centered();
-  });
+      testRect(50, 30, { at: [-25, -15] });
+    });
   const plate = extrude(6);
 
   sketch("xy", () => {

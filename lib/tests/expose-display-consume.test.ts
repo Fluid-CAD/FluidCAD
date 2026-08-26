@@ -5,7 +5,7 @@ import extrude from "../core/extrude.js";
 import part from "../core/part.js";
 import select from "../core/select.js";
 import expose from "../core/expose.js";
-import { rect } from "../core/2d/index.js";
+import { testRect } from "./helpers/profiles.js";
 import { face } from "../filters/index.js";
 import { Exposed } from "../features/exposed.js";
 import { SceneObject } from "../common/scene-object.js";
@@ -31,7 +31,7 @@ describe("expose() display consumption", () => {
 
   it("hides a published select's highlight from the rendered scene, keeps it for readers", () => {
     part("donor", () => {
-      sketch("xy", () => rect(40, 20));
+      sketch("xy", () => { testRect(40, 20); });
       extrude(10);
       expose("top", select(face().planar().onPlane("xy", 10)));
     });
@@ -67,7 +67,7 @@ describe("expose() display consumption", () => {
 
   it("keeps reusable sketch sources fully visible (they are shared geometry)", () => {
     part("donor", () => {
-      const s = sketch("xy", () => rect(20, 20)).reusable();
+      const s = sketch("xy", () => { testRect(20, 20); }).reusable();
       extrude(10, s);
       expose("profile", s);
     });

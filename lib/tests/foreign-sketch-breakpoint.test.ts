@@ -10,8 +10,9 @@ import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import expose from "../core/expose.js";
 import { breakpoint } from "../core/breakpoint.js";
-import { rect, circle } from "../core/2d/index.js";
+import { circle } from "../core/2d/index.js";
 import type { IExtrude } from "../core/interfaces.js";
+import { testRect } from "./helpers/profiles.js";
 
 /**
  * The server materializes entry-file definitions TWICE per render: the
@@ -46,14 +47,16 @@ function buildScene(withBreakpoint: boolean): Scene {
   const scene = getSceneManager().startScene();
   const donor = part("Donor", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     expose("g1", (e as unknown as IExtrude).endFaces(0) as any);
   });
   const consumer = part("Part 1", () => {
     sketch(donor.features.g1 as any, () => {
-      circle(20);
+      // Legacy circle(20) drew at the pen origin = the exposed face's center
+      // ([50, 25] local for the 100x50 donor face).
+      circle([50, 25], 20);
     });
     if (withBreakpoint) {
       breakpoint();
@@ -77,8 +80,8 @@ describe("breakpoint inside a part body (double materialization)", () => {
     const scene = getSceneManager().startScene();
     const def = part("Solo", () => {
       sketch("xy", () => {
-        rect(10, 10);
-      });
+          testRect(10, 10);
+        });
       // Cast off `never` — real user files have statements after breakpoint().
       (breakpoint as unknown as () => void)();
       extrude(5);

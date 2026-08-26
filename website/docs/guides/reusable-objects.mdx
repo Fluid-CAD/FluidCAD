@@ -35,8 +35,8 @@ A reusable object stays in the scene until you explicitly dispose of it. If you 
 
 ```js
 const profile = sketch("xy", () => {
-    circle(60)
-}).reusable();
+    circle([0, 0], 60)
+  }).reusable();
 
 extrude(20);
 extrude(50);

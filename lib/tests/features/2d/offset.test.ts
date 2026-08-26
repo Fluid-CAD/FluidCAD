@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../../setup.js";
 import sketch from "../../../core/sketch.js";
-import { circle, rect, hLine, vLine, aLine, line, offset, polygon } from "../../../core/2d/index.js";
+import { circle, line, offset } from "../../../core/2d/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
+import { Offset } from "../../../features/2d/offset.js";
 import { ShapeOps } from "../../../oc/shape-ops.js";
 import { Edge } from "../../../common/edge.js";
+import { coincident, horizontal, vertical } from "../../../core/constraints/index.js";
 
 describe("offset", () => {
   setupOC();
@@ -12,9 +14,9 @@ describe("offset", () => {
   describe("offset closed shape", () => {
     it("should offset a circle outward with positive distance", () => {
       const s = sketch("xy", () => {
-        circle(40);
-        offset(5);
-      }) as Sketch;
+          circle([0, 0], 40);
+          offset(5);
+        }) as Sketch;
 
       render();
 
@@ -29,9 +31,9 @@ describe("offset", () => {
 
     it("should offset a circle inward with negative distance", () => {
       const s = sketch("xy", () => {
-        circle(60);
-        offset(-5);
-      }) as Sketch;
+          circle([0, 0], 60);
+          offset(-5);
+        }) as Sketch;
 
       render();
 
@@ -43,10 +45,13 @@ describe("offset", () => {
   describe("offset open wire", () => {
     it("should offset an open wire path", () => {
       const s = sketch("xy", () => {
-        hLine(80);
-        vLine(40);
-        offset(5);
-      }) as Sketch;
+          const sg1 = line([0, 0], [80, 0]);
+          const sg2 = line([80, 0], [80, 40]);
+          offset(5);
+          horizontal(sg1);
+          coincident(sg1.end(), sg2.start());
+          vertical(sg2);
+        }) as Sketch;
 
       render();
 
@@ -65,9 +70,10 @@ describe("offset", () => {
 
     it("offsets a single hLine to a parallel line at the right distance", () => {
       const s = sketch("xy", () => {
-        hLine(100);
-        offset(10);
-      }) as Sketch;
+          const sg3 = line([0, 0], [100, 0]);
+          offset(10);
+          horizontal(sg3);
+        }) as Sketch;
       render();
 
       const shapes = s.getShapes();
@@ -80,9 +86,10 @@ describe("offset", () => {
 
     it("offsets a single vLine to a parallel line at the right distance", () => {
       const s = sketch("xy", () => {
-        vLine(100);
-        offset(10);
-      }) as Sketch;
+          const sg4 = line([0, 0], [0, 100]);
+          offset(10);
+          vertical(sg4);
+        }) as Sketch;
       render();
 
       const shapes = s.getShapes();
@@ -93,9 +100,10 @@ describe("offset", () => {
       expect(Math.hypot(b.x - a.x, b.y - a.y)).toBeCloseTo(100, 6);
     });
 
-    it("offsets a single aLine, preserving its length", () => {
+    it("offsets a single angled line, preserving its length", () => {
+      // Legacy fixture was aLine(30, 100): 100 long at 30° from the origin.
       const s = sketch("xy", () => {
-        aLine(30, 100);
+        line([0, 0], [100 * Math.cos(Math.PI / 6), 100 * Math.sin(Math.PI / 6)]);
         offset(10);
       }) as Sketch;
       render();
@@ -108,9 +116,9 @@ describe("offset", () => {
 
     it("offsets a single line, preserving its length", () => {
       const s = sketch("xy", () => {
-        line([100, 50]);
-        offset(10);
-      }) as Sketch;
+          const sg5 = line([0, 0], [100, 50]);
+          offset(10);
+        }) as Sketch;
       render();
 
       const shapes = s.getShapes();
@@ -121,16 +129,18 @@ describe("offset", () => {
 
     it("offsets a single line to the opposite side with a negative distance", () => {
       const sPos = sketch("xy", () => {
-        hLine(100);
-        offset(10);
-      }) as Sketch;
+          const sg6 = line([0, 0], [100, 0]);
+          offset(10);
+          horizontal(sg6);
+        }) as Sketch;
       render();
       const posY = endpoints(sPos.getShapes()[1] as Edge)[0].y;
 
       const sNeg = sketch("xy", () => {
-        hLine(100);
-        offset(-10);
-      }) as Sketch;
+          const sg7 = line([0, 0], [100, 0]);
+          offset(-10);
+          horizontal(sg7);
+        }) as Sketch;
       render();
       const negShapes = sNeg.getShapes();
       expect(negShapes.length).toBe(2);
@@ -144,9 +154,9 @@ describe("offset", () => {
   describe("offset direction", () => {
     it("positive and negative offsets should produce different results", () => {
       const s1 = sketch("xy", () => {
-        circle(40);
-        offset(10);
-      }) as Sketch;
+          circle([0, 0], 40);
+          offset(10);
+        }) as Sketch;
 
       render();
 
@@ -155,9 +165,9 @@ describe("offset", () => {
       const width1 = bbox1.maxX - bbox1.minX;
 
       const s2 = sketch("xy", () => {
-        circle(40);
-        offset(-5);
-      }) as Sketch;
+          circle([0, 0], 40);
+          offset(-5);
+        }) as Sketch;
 
       render();
 
@@ -171,9 +181,29 @@ describe("offset", () => {
   });
 
   describe("originals", () => {
+    it("offsets an explicitly targeted .guide() source (the removeOriginal replacement)", () => {
+      // P7 regression: the kernel's removeOriginal removal prescribes
+      // "mark the sources .guide() instead" — so an explicit guide target
+      // must resolve. The default guide-excluding edge index silently
+      // dissolved it to zero edges (offset rendered nothing).
+      let o: Offset;
+      const s = sketch("xy", () => {
+        const c = circle([0, 0], 40).guide();
+        o = offset(5, c) as unknown as Offset;
+      }) as Sketch;
+
+      render();
+
+      const offsetEdges = o!.getGeometries();
+      expect(offsetEdges).toHaveLength(1);
+      // Only the offset ring is profile geometry; the guide stays out.
+      expect(s.getEdges()).toHaveLength(1);
+    });
+
+
     it("always keeps the original edges", () => {
       const s = sketch("xy", () => {
-        const c = circle(40);
+        const c = circle([0, 0], 40);
         void c;
         offset(5);
       }) as Sketch;
@@ -188,7 +218,7 @@ describe("offset", () => {
     it("refuses the removed removeOriginal flag honestly", () => {
       let error: string | null = null;
       sketch("xy", () => {
-        circle(40);
+        circle([0, 0], 40);
         try {
           (offset as any)(5, true);
         } catch (e) {
@@ -205,9 +235,9 @@ describe("offset", () => {
   describe("default distance", () => {
     it("should use default distance of 1", () => {
       const s = sketch("xy", () => {
-        circle(40);
-        offset();
-      }) as Sketch;
+          circle([0, 0], 40);
+          offset();
+        }) as Sketch;
 
       render();
 

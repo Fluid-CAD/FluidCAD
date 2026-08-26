@@ -25,11 +25,13 @@ sketch on `"xz"` or `"yz"`.
 ## Example
 
 ```fluid.js
-import { move, rect, revolve, sketch } from "fluidcad/core";
+import { line, revolve, sketch } from "fluidcad/core";
 
 sketch("xz", () => {
-  move([20, 0]);
-  rect(10, 30);
+  line([20, 0], [30, 0]);
+  line([30, 0], [30, 30]);
+  line([30, 30], [20, 30]);
+  line([20, 30], [20, 0]);
 });
 revolve("z");                                          // ring
 ```

@@ -1,0 +1,145 @@
+---
+sidebar_position: 5.4
+title: "Reference"
+description: "The Reference type. Extends ExtrudableGeometry."
+---
+
+# Reference
+
+Extends [`ExtrudableGeometry`](/docs/api/types/extrudable-geometry)
+
+
+<details>
+<summary>Inherited from [`Geometry`](/docs/api/types/geometry)</summary>
+
+### guide()
+
+```ts
+guide(): this
+```
+
+Marks this sketch geometry as construction geometry. Guide geometries are
+excluded from the final sketch output (e.g., extrude, revolve) unless
+explicitly included.
+
+---
+
+### edge()
+
+```ts
+edge(roleOrIndex: string | number, roleIndex?: number): ISelection
+```
+
+Uniform edge accessor. `edge('body')` selects this feature's edges by
+role (optionally disambiguated by role index); `edge(1)` selects by
+build-order index over the feature's real edges. Roles: solver lines and
+arcs stamp `body`; circles and ellipses `perimeter`; derived-op outputs
+carry provenance-specific roles (e.g. fillet arcs).
+
+**Returns**: `ISelection`
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `roleOrIndex` | string \| number | A role name, or a build-order edge index. |
+| `roleIndex` | number | Disambiguates roles that repeat. *(optional)* |
+
+---
+
+### start()
+
+```ts
+start(): Vertex
+```
+
+Returns a lazy-evaluated vertex at the start point of this geometry element.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### end()
+
+```ts
+end(): Vertex
+```
+
+Returns a lazy-evaluated vertex at the end point of this geometry element.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+---
+
+### tangent()
+
+```ts
+tangent(): Vertex
+```
+
+Returns a lazy-evaluated vertex representing the tangent direction at the end
+of this geometry. Used to determine the direction of subsequent geometry elements.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+
+
+</details>
+
+
+<details>
+<summary>Inherited from [`SceneObject`](/docs/api/types/scene-object)</summary>
+
+### name()
+
+```ts
+name(value: string): this
+```
+
+Sets a custom display name for this object, overriding the default type-based name.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `value` | string | The display name to assign. |
+
+---
+
+### reusable()
+
+```ts
+reusable(): this
+```
+
+Marks this object as reusable. Reusable objects retain their shapes when
+consumed by features (e.g., extrude, revolve), allowing multiple features
+to reference the same source geometry. Use `remove(obj)` to force-remove
+shapes from a reusable object.
+
+
+</details>
+
+## Methods
+
+### ref()
+
+```ts
+ref(index: number): ReferenceEntity
+```
+
+Constraint target naming projected edge `i` (0-based emitted order).
+
+**Returns**: [`ReferenceEntity`](/docs/api/types/reference-entity)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `index` | number |  |
+
+---
+
+### center()
+
+```ts
+center(): Vertex
+```
+
+The single projected circle/arc's center point.
+
+**Returns**: [`Vertex`](/docs/api/types/vertex)
+

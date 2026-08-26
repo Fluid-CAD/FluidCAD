@@ -15,7 +15,7 @@ const SKETCH = [
   `  line([100, 0], [100, 50]);`,
   `  circle([50, 25], 20).guide();`,
   `  horizontal(a);`,
-  `}, true);`,
+  `});`,
 ].join('\n');
 
 describe('applySketchConstraint', () => {
@@ -27,7 +27,7 @@ describe('applySketchConstraint', () => {
       targets: [{ line: 5, featureType: 'line' }, { line: 6, featureType: 'line' }],
     });
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  perpendicular(a, b);\n}, true);`);
+    expect(result.newCode).toContain(`  perpendicular(a, b);\n});`);
     expect(result.newCode).toContain(`import {perpendicular, horizontal } from "fluidcad/constraints"`);
   });
 
@@ -140,7 +140,7 @@ describe('applySketchConstraint', () => {
       `sketch('xy', () => {`,
       `  project(sel);`,
       `  const l = line([25, -30], [25, 30]);`,
-      `}, true);`,
+      `});`,
     ].join('\n');
 
     // Terse single-entity form: refIndex null → bare variable.
@@ -228,7 +228,7 @@ describe('applyDistanceTangency', () => {
     `  const a1 = arc([140, 30], [140, 70], [140, 50]);`,
     `  radius(a1, 20);`,
     `  distance(l1, a1, 130);`,
-    `}, true);`,
+    `});`,
   ].join('\n');
 
   it('appends .max() to a bare distance statement', async () => {

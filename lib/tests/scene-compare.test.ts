@@ -6,8 +6,9 @@ import { SceneObject } from "../common/scene-object.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import color from "../core/color.js";
-import { rect } from "../core/2d/index.js";
+import { } from "../core/2d/index.js";
 import { face } from "../filters/index.js";
+import { testRect } from "./helpers/profiles.js";
 
 function findByType(objects: SceneObject[], uniqueType: string): SceneObject {
   const found = objects.find(o => o.getUniqueType() === uniqueType);
@@ -22,8 +23,8 @@ describe("SceneCompare id preservation", () => {
 
   it("inherits ids on matched objects across re-renders", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
     render();
 
@@ -32,8 +33,8 @@ describe("SceneCompare id preservation", () => {
 
     const newScene = getSceneManager().startScene();
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     SceneCompare.compare(previousScene, newScene);
@@ -44,8 +45,8 @@ describe("SceneCompare id preservation", () => {
 
   it("inherits ids only up to the divergence point", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
     render();
 
@@ -55,8 +56,8 @@ describe("SceneCompare id preservation", () => {
 
     const newScene = getSceneManager().startScene();
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(50);
 
     const staleExtrudeId = findByType(newScene.getSceneObjects(), "extrude-by-distance").id;
@@ -73,8 +74,8 @@ describe("SceneCompare id preservation", () => {
 
   it("keeps idMap consistent after id inheritance", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
     render();
 
@@ -83,8 +84,8 @@ describe("SceneCompare id preservation", () => {
 
     const newScene = getSceneManager().startScene();
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     const newSketch = findByType(newScene.getSceneObjects(), "sketch");
@@ -100,8 +101,8 @@ describe("SceneCompare id preservation", () => {
 
   it("does not match a classified-face selection whose filter changed", () => {
     sketch("xy", () => {
-      rect(200, 100);
-    });
+        testRect(200, 100);
+      });
     const e1 = extrude(20).draft(15);
     color("red", e1.sideFaces(face().below("yz")));
     render();
@@ -110,8 +111,8 @@ describe("SceneCompare id preservation", () => {
 
     const newScene = getSceneManager().startScene();
     sketch("xy", () => {
-      rect(200, 100);
-    });
+        testRect(200, 100);
+      });
     const e2 = extrude(20).draft(15);
     color("red", e2.sideFaces(face().above("yz")));
 
@@ -123,8 +124,8 @@ describe("SceneCompare id preservation", () => {
 
   it("matches a classified-face selection whose filter is unchanged", () => {
     sketch("xy", () => {
-      rect(200, 100);
-    });
+        testRect(200, 100);
+      });
     const e1 = extrude(20).draft(15);
     color("red", e1.sideFaces(face().below("yz")));
     render();
@@ -133,8 +134,8 @@ describe("SceneCompare id preservation", () => {
 
     const newScene = getSceneManager().startScene();
     sketch("xy", () => {
-      rect(200, 100);
-    });
+        testRect(200, 100);
+      });
     const e2 = extrude(20).draft(15);
     color("red", e2.sideFaces(face().below("yz")));
 

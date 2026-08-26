@@ -21,9 +21,10 @@ Create a new file called `ice-cube-tray.fluid.js` in your project.
 Start with imports and some variables that define the tray's dimensions. Using variables makes the model parametric — change a number and the whole tray updates.
 
 ```js
-import { axis, circle, color, cut, extrude, fillet, fuse, hMove, loft, move,
-    offset, plane, polygon, project, rect, repeat, revolve, select, shell,
+import { axis, circle, color, cut, extrude, fillet, fuse, line, loft,
+    offset, plane, project, repeat, revolve, select, shell,
     sketch, sphere, sweep, translate } from 'fluidcad/core';
+import { coincident, horizontal, vertical, fix, distance } from 'fluidcad/constraints';
 import { edge, face } from 'fluidcad/filters';
 
 const width = 300;
@@ -43,19 +44,35 @@ const thickness = 2;
 - **`draft`** — draft angle so the cavity walls taper inward (makes ice easier to release)
 - **`thickness`** — wall thickness after shelling
 
+The sketches in this tutorial are **constraint sketches** (the `true` third argument to `sketch(...)`): lines are drawn as guesses, and constraint statements — `coincident` to join endpoints, `horizontal`/`vertical` to square lines up, `fix` to anchor a corner, `distance` to dimension a length — pin them exactly. Because the guesses use the parametric variables, the constraints stay in sync when you change a dimension.
+
 ## Step 1: The tray body
 
 The tray starts as a simple rectangular block.
 
 ```js
 sketch("xy", () => {
-    rect(width, length).centered();
+    const b = line([-width/2, -length/2], [width/2, -length/2]);
+    const r = line([width/2, -length/2], [width/2, length/2]);
+    const t = line([width/2, length/2], [-width/2, length/2]);
+    const l = line([-width/2, length/2], [-width/2, -length/2]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    fix(b.start(), [-width/2, -length/2]);
+    distance(b.start(), b.end(), width);
+    distance(r.start(), r.end(), length);
 })
 
 let e = extrude(height)
 ```
 
-`rect(width, length).centered()` draws a 300 x 104 rectangle centered on the origin. `extrude(height)` pushes it up 50 units to create a solid block. We store the result in `e` so we can reference its faces later.
+Four lines form a 300 x 104 rectangle centered on the origin. The `coincident` constraints close the loop, `horizontal`/`vertical` square it up, `fix` anchors the bottom-left corner at `[-width/2, -length/2]`, and the two `distance` dimensions set the width and length — a fully constrained rectangle. `extrude(height)` pushes it up 50 units to create a solid block. We store the result in `e` so we can reference its faces later.
 
 ![Extruded tray body](/img/docs/tutorials/ice-cube-tray-step1.png)
 
@@ -67,12 +84,27 @@ Now we cut a single cavity into the top of the tray, with a draft angle and roun
 
 ```js
 sketch(e.endFaces(), () => {
-    move([-width/2 + leftOffset, -length/2 + topOffset])
-    rect(30, 40)
+    const px = -width/2 + leftOffset;
+    const py = -length/2 + topOffset;
+    const b = line([px, py], [px + 30, py]);
+    const r = line([px + 30, py], [px + 30, py + 40]);
+    const t = line([px + 30, py + 40], [px, py + 40]);
+    const l = line([px, py + 40], [px, py]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    fix(b.start(), [px, py]);
+    distance(b.start(), b.end(), 30);
+    distance(r.start(), r.end(), 40);
 });
 ```
 
-`e.endFaces()` gives us the top face of the extruded block — we sketch directly on it. `move()` positions the rectangle's starting corner inset from the tray edge by `leftOffset` and `topOffset`. The rectangle is 30 x 40 units.
+`e.endFaces()` gives us the top face of the extruded block — we sketch directly on it. `px`/`py` place the cavity's bottom-left corner inset from the tray edge by `leftOffset` and `topOffset`; `fix` anchors it there and the `distance` dimensions make the rectangle 30 x 40 units.
 
 ### Cut with draft
 
@@ -150,10 +182,38 @@ This selects the sweep spine along the top rim of the tray. `.onPlane("top", hei
 ```js
 const p = plane(e.sideFaces(0), -10)
 const profile = sketch(p, () => {
-    move([-length/2, height])
-    rect(-2, -3)
-    hMove(2)
-    rect(-5, -2)
+    // Upper lip: 2 x 3 notch whose top-right corner sits at [-length/2, height].
+    const b1 = line([-length/2, height], [-length/2 - 2, height]);
+    const r1 = line([-length/2 - 2, height], [-length/2 - 2, height - 3]);
+    const t1 = line([-length/2 - 2, height - 3], [-length/2, height - 3]);
+    const l1 = line([-length/2, height - 3], [-length/2, height]);
+    // Lower lip: 5 x 2 notch stacked under it, flush with the wall.
+    const b2 = line([-length/2, height - 3], [-length/2 - 5, height - 3]);
+    const r2 = line([-length/2 - 5, height - 3], [-length/2 - 5, height - 5]);
+    const t2 = line([-length/2 - 5, height - 5], [-length/2, height - 5]);
+    const l2 = line([-length/2, height - 5], [-length/2, height - 3]);
+    coincident(b1.end(), r1.start());
+    coincident(r1.end(), t1.start());
+    coincident(t1.end(), l1.start());
+    coincident(l1.end(), b1.start());
+    coincident(b2.end(), r2.start());
+    coincident(r2.end(), t2.start());
+    coincident(t2.end(), l2.start());
+    coincident(l2.end(), b2.start());
+    horizontal(b1);
+    vertical(r1);
+    horizontal(t1);
+    vertical(l1);
+    horizontal(b2);
+    vertical(r2);
+    horizontal(t2);
+    vertical(l2);
+    fix(b1.start(), [-length/2, height]);
+    fix(b2.start(), [-length/2, height - 3]);
+    distance(b1.start(), b1.end(), 2);
+    distance(r1.start(), r1.end(), 3);
+    distance(b2.start(), b2.end(), 5);
+    distance(r2.start(), r2.end(), 2);
 });
 
 const s = sweep(spine, profile)
@@ -161,7 +221,7 @@ const s = sweep(spine, profile)
 fillet(0.5, s.sideEdges())
 ```
 
-`plane(e.sideFaces(0), -10)` creates a plane offset 10 units inward from the first side face — this is where the profile cross-section will be drawn. The profile is an L-shaped step made of two rectangles: a 2 x 3 lip and a 5 x 2 ledge.
+`plane(e.sideFaces(0), -10)` creates a plane offset 10 units inward from the first side face — this is where the profile cross-section will be drawn. The profile is an L-shaped step made of two rectangular loops: a 2 x 3 lip anchored at the top of the wall (`[-length/2, height]`) and a 5 x 2 ledge fixed directly beneath it. Each loop gets the same treatment as the earlier rectangles — coincident corners, horizontal/vertical lines, a fixed anchor corner, and two distance dimensions.
 
 ![Sweep profile sketch](/img/docs/tutorials/ice-cube-tray-step5-profile.png)
 
@@ -178,7 +238,7 @@ fillet(0.5, s.sideEdges())
 ## What you practiced
 
 - **Parametric variables** — defining dimensions at the top so the whole model adapts when you change a value
-- **`rect().centered()`** — centering a rectangle on the sketch origin
+- **Constraint sketching** — drawing lines as guesses and pinning them with `coincident`, `horizontal`/`vertical`, `fix`, and `distance` until the sketch is fully constrained
 - **`.endFaces()` / `.startFaces()` / `.sideFaces()`** — referencing specific faces of an extrusion
 - **`cut().draft()`** — removing material with tapered walls
 - **`fillet()` with `internalFaces()`** — rounding all edges inside a cut

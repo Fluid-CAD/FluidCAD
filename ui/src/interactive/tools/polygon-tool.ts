@@ -344,15 +344,7 @@ export class PolygonTool extends SketchTool {
         ...(variables.length > 0 ? { newVariables: variables } : {}),
       });
       this.diameterTyped = false;
-      return;
     }
-
-    this.insertAtPoint(
-      center,
-      (point) => `polygon(${point}, ${sidesResult.expression}, ${diameterResult.expression})`,
-      () => `polygon(${sidesResult.expression}, ${diameterResult.expression})`,
-      newVariables,
-    );
   }
 
   private rebuildPreview(): void {

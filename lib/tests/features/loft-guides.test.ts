@@ -5,12 +5,14 @@ import plane from "../../core/plane.js";
 import loft from "../../core/loft.js";
 import local from "../../core/local.js";
 import mirror from "../../core/mirror.js";
-import { rect, circle, move, vLine, bezier, polygon } from "../../core/2d/index.js";
+import { circle, bezier, line } from "../../core/2d/index.js";
 import { Loft } from "../../features/loft.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
 import { getOC } from "../../oc/init.js";
+import { vertical, coincident } from "../../core/constraints/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 function volumeOf(l: Loft): number {
   const shapes = l.getShapes();
@@ -21,11 +23,11 @@ function volumeOf(l: Loft): number {
 /** Two identical circles (diameter 80) at z = 0 and z = 60. */
 function circleProfiles() {
   const s1 = sketch("xy", () => {
-    circle(80);
-  });
+      circle([0, 0], 80);
+    });
   const s2 = sketch(plane("xy", { offset: 60 }), () => {
-    circle(80);
-  });
+      circle([0, 0], 80);
+    });
   return [s1, s2] as const;
 }
 
@@ -37,9 +39,9 @@ describe("loft guides", () => {
       const [s1, s2] = circleProfiles();
       // Straight rail touching both circles at (40, 0, z).
       const guide = sketch("xz", () => {
-        move([40, 0]);
-        vLine(60);
-      });
+          const sg1 = line([40, 0], [40, 60]);
+          vertical(sg1);
+        });
 
       const l = loft(s1, s2).guides(guide) as Loft;
 
@@ -82,9 +84,9 @@ describe("loft guides", () => {
     it("consumes the guide sketch", () => {
       const [s1, s2] = circleProfiles();
       const guide = sketch("xz", () => {
-        move([40, 0]);
-        vLine(60);
-      }) as Sketch;
+          const sg2 = line([40, 0], [40, 60]);
+          vertical(sg2);
+        }) as Sketch;
 
       loft(s1, s2).guides(guide);
 
@@ -96,9 +98,9 @@ describe("loft guides", () => {
     it("classifies start and end faces", () => {
       const [s1, s2] = circleProfiles();
       const guide = sketch("xz", () => {
-        move([40, 0]);
-        vLine(60);
-      });
+          const sg3 = line([40, 0], [40, 60]);
+          vertical(sg3);
+        });
 
       const l = loft(s1, s2).guides(guide) as Loft;
       const sf = l.startFaces();
@@ -117,12 +119,22 @@ describe("loft guides", () => {
     it("accepts one sketch carrying two separate guide curves (mirror)", () => {
       // Square (corners at ±25√2 on the sketch axes) lofted to a circle,
       // steered by a bezier rail and its mirror sketched together.
+      // legacy polygon(4, 50, "circumscribed") at the origin — a diamond
+      // with corners at ±25√2 on the sketch axes.
       const p1 = sketch("top", () => {
-        polygon(4, 50, "circumscribed");
-      });
+          const d = 25 * Math.SQRT2;
+          const e0 = line([d, 0], [0, d]);
+          const e1 = line([0, d], [-d, 0]);
+          const e2 = line([-d, 0], [0, -d]);
+          const e3 = line([0, -d], [d, 0]);
+          coincident(e0.end(), e1.start());
+          coincident(e1.end(), e2.start());
+          coincident(e2.end(), e3.start());
+          coincident(e3.end(), e0.start());
+        });
       const p2 = sketch(plane("top", 80), () => {
-        circle(30);
-      });
+          circle([0, 0], 30);
+        });
       const g1 = sketch("right", () => {
         bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80]);
         mirror(local("y"));
@@ -150,12 +162,22 @@ describe("loft guides", () => {
     });
 
     it("keeps the railed corner edges exactly on both rails (vertex matching)", () => {
+      // legacy polygon(4, 50, "circumscribed") at the origin — a diamond
+      // with corners at ±25√2 on the sketch axes.
       const p1 = sketch("top", () => {
-        polygon(4, 50, "circumscribed");
-      });
+          const d = 25 * Math.SQRT2;
+          const e0 = line([d, 0], [0, d]);
+          const e1 = line([0, d], [-d, 0]);
+          const e2 = line([-d, 0], [0, -d]);
+          const e3 = line([0, -d], [d, 0]);
+          coincident(e0.end(), e1.start());
+          coincident(e1.end(), e2.start());
+          coincident(e2.end(), e3.start());
+          coincident(e3.end(), e0.start());
+        });
       const p2 = sketch(plane("top", 80), () => {
-        circle(30);
-      });
+          circle([0, 0], 30);
+        });
       const g1 = sketch("right", () => {
         bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80]);
         mirror(local("y"));
@@ -205,11 +227,11 @@ describe("loft guides", () => {
 
     it("rides both rails, bulging both sides of a rectangular loft", () => {
       const s1 = sketch("xy", () => {
-        rect(80, 40).centered();
-      });
+          testRect(80, 40, { at: [-40, -20] });
+        });
       const s2 = sketch(plane("xy", { offset: 60 }), () => {
-        rect(80, 40).centered();
-      });
+          testRect(80, 40, { at: [-40, -20] });
+        });
       const right = sketch("xz", () => {
         bezier([40, 0], [55, 30], [40, 60]);
       });
@@ -242,12 +264,22 @@ describe("loft guides", () => {
 
   describe("guides with conditions", () => {
     function guidedSquareToCircle(withCondition: boolean) {
+      // legacy polygon(4, 50, "circumscribed") at the origin — a diamond
+      // with corners at ±25√2 on the sketch axes.
       const p1 = sketch("top", () => {
-        polygon(4, 50, "circumscribed");
-      });
+          const d = 25 * Math.SQRT2;
+          const e0 = line([d, 0], [0, d]);
+          const e1 = line([0, d], [-d, 0]);
+          const e2 = line([-d, 0], [0, -d]);
+          const e3 = line([0, -d], [d, 0]);
+          coincident(e0.end(), e1.start());
+          coincident(e1.end(), e2.start());
+          coincident(e2.end(), e3.start());
+          coincident(e3.end(), e0.start());
+        });
       const p2 = sketch(plane("top", 80), () => {
-        circle(30);
-      });
+          circle([0, 0], 30);
+        });
       const g1 = sketch("right", () => {
         bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80]);
         mirror(local("y"));
@@ -285,9 +317,9 @@ describe("loft guides", () => {
     it("supports conditions on both ends alongside a guide", () => {
       const [s1, s2] = circleProfiles();
       const guide = sketch("xz", () => {
-        move([40, 0]);
-        vLine(60);
-      });
+          const sg4 = line([40, 0], [40, 60]);
+          vertical(sg4);
+        });
 
       const l = loft(s1, s2)
         .guides(guide)
@@ -316,9 +348,18 @@ describe("loft guides", () => {
 
     it("rejects more than two guides", () => {
       const [s1, s2] = circleProfiles();
-      const g1 = sketch("xz", () => { move([40, 0]); vLine(60); });
-      const g2 = sketch("xz", () => { move([-40, 0]); vLine(60); });
-      const g3 = sketch("yz", () => { move([40, 0]); vLine(60); });
+      const g1 = sketch("xz", () => {
+          const sg5 = line([40, 0], [40, 60]);
+          vertical(sg5);
+        });
+      const g2 = sketch("xz", () => {
+          const sg6 = line([-40, 0], [-40, 60]);
+          vertical(sg6);
+        });
+      const g3 = sketch("yz", () => {
+          const sg7 = line([40, 0], [40, 60]);
+          vertical(sg7);
+        });
 
       const l = loft(s1, s2).guides(g1, g2, g3) as Loft;
 
@@ -329,7 +370,10 @@ describe("loft guides", () => {
 
     it("rejects combining guides with thin mode", () => {
       const [s1, s2] = circleProfiles();
-      const guide = sketch("xz", () => { move([40, 0]); vLine(60); });
+      const guide = sketch("xz", () => {
+          const sg8 = line([40, 0], [40, 60]);
+          vertical(sg8);
+        });
 
       const l = loft(s1, s2).guides(guide).thin(-3) as Loft;
 

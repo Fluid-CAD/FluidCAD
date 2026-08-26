@@ -23,7 +23,7 @@ Removes objects from the scene. The common pattern is cleaning up a
 ```fluid.js
 import { circle, extrude, remove, sketch } from "fluidcad/core";
 
-const profile = sketch("xy", () => circle(40)).reusable();
+const profile = sketch("xy", () => circle([0, 0], 40)).reusable();
 extrude(20);
 extrude(40);
 remove(profile);                                 // clean up the profile

@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
-import { circle, move, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { ExtrudeTwoDistances } from "../../features/extrude-two-distances.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -10,6 +10,7 @@ import cylinder from "../../core/cylinder.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { Face } from "../../common/face.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("extrude two distances", () => {
   setupOC();
@@ -17,8 +18,8 @@ describe("extrude two distances", () => {
   describe("extrudable", () => {
     it("should extrude last extrudable by default", () => {
       const s = sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(20, 10) as ExtrudeTwoDistances;
 
@@ -27,8 +28,8 @@ describe("extrude two distances", () => {
 
     it("should remove the extrudable", () => {
       const s = sketch("xy", () => {
-        rect(100, 50);
-      }) as Sketch;
+          testRect(100, 50);
+        }) as Sketch;
 
       extrude(20, 10);
 
@@ -41,8 +42,8 @@ describe("extrude two distances", () => {
   describe("two distances behavior", () => {
     it("should extrude up by distance1 and down by distance2", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(20, 10) as ExtrudeTwoDistances;
 
@@ -59,8 +60,8 @@ describe("extrude two distances", () => {
 
     it("should produce a solid with correct total height", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30, 15) as ExtrudeTwoDistances;
 
@@ -73,8 +74,8 @@ describe("extrude two distances", () => {
 
     it("should handle asymmetric distances", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(50, 5) as ExtrudeTwoDistances;
 
@@ -106,9 +107,8 @@ describe("extrude two distances", () => {
       cylinder(50, 50);
 
       sketch("xy", () => {
-        move([25, 0]);
-        circle(100);
-      });
+          circle([25, 0], 100);
+        });
 
       extrude(20, 10);
 
@@ -121,9 +121,8 @@ describe("extrude two distances", () => {
       cylinder(50, 50);
 
       sketch("xy", () => {
-        move([0, 0]);
-        circle(100);
-      });
+          circle([0, 0], 100);
+        });
 
       extrude(20, 10).new();
 
@@ -136,8 +135,8 @@ describe("extrude two distances", () => {
   describe("startFaces / endFaces", () => {
     it("should expose start and end faces", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(20, 10) as ExtrudeTwoDistances;
       const sf = e.startFaces();
@@ -155,8 +154,8 @@ describe("extrude two distances", () => {
 
     it("start and end faces should be different", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(20, 10) as ExtrudeTwoDistances;
       const sf = e.startFaces();
@@ -171,8 +170,8 @@ describe("extrude two distances", () => {
 
     it("start face should be at z=distance1 and end face at z=-distance2", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(20, 10) as ExtrudeTwoDistances;
       const sf = e.startFaces();
@@ -193,9 +192,9 @@ describe("extrude two distances", () => {
 
     it("should expose specific face by index for separate regions", () => {
       sketch("xy", () => {
-        circle(40);
-        circle([100, 0], 40);
-      });
+          circle([0, 0], 40);
+          circle([100, 0], 40);
+        });
 
       const e = extrude(20, 10) as ExtrudeTwoDistances;
       const face0 = e.startFaces(0);
@@ -214,8 +213,8 @@ describe("extrude two distances", () => {
   describe("sideFaces", () => {
     it("should expose side faces spanning full height", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(20, 10) as ExtrudeTwoDistances;
       const sf = e.sideFaces(0, 1, 2, 3);
@@ -236,8 +235,8 @@ describe("extrude two distances", () => {
   describe("startEdges / endEdges", () => {
     it("should expose start and end edges", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(20, 10) as ExtrudeTwoDistances;
       const se = e.startEdges();
@@ -253,8 +252,8 @@ describe("extrude two distances", () => {
 
     it("should expose specific edge by index", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(20, 10) as ExtrudeTwoDistances;
       const edge0 = e.endEdges(0);
@@ -273,8 +272,8 @@ describe("extrude two distances", () => {
   describe("draft", () => {
     it("should taper both directions with draft", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(20, 10).draft(10) as ExtrudeTwoDistances;
 
@@ -289,8 +288,8 @@ describe("extrude two distances", () => {
 
     it("should apply different draft angles per direction", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(20, 20).draft([8, 2]) as ExtrudeTwoDistances;
 
@@ -314,9 +313,9 @@ describe("extrude two distances", () => {
   describe("drill", () => {
     it("should drill hole when inner shape is nested (default)", () => {
       sketch("xy", () => {
-        circle(100);
-        circle(40);
-      });
+          circle([0, 0], 100);
+          circle([0, 0], 40);
+        });
 
       const e = extrude(20, 10) as ExtrudeTwoDistances;
 
@@ -331,9 +330,9 @@ describe("extrude two distances", () => {
 
     it("should not drill hole when drill is false", () => {
       sketch("xy", () => {
-        circle(100);
-        circle(40);
-      });
+          circle([0, 0], 100);
+          circle([0, 0], 40);
+        });
 
       const e = extrude(20, 10).drill(false) as ExtrudeTwoDistances;
 
@@ -350,9 +349,9 @@ describe("extrude two distances", () => {
   describe("pick", () => {
     it("should only extrude the picked region", () => {
       sketch("xy", () => {
-        circle(60);
-        circle([100, 0], 60);
-      });
+          circle([0, 0], 60);
+          circle([100, 0], 60);
+        });
 
       const e = extrude(20, 10).pick([0, 0]) as ExtrudeTwoDistances;
 
@@ -365,8 +364,8 @@ describe("extrude two distances", () => {
 
     it("should produce no solid when pick point is outside all regions", () => {
       sketch("xy", () => {
-        circle(60);
-      });
+          circle([0, 0], 60);
+        });
 
       const e = extrude(20, 10).pick([500, 500]) as ExtrudeTwoDistances;
 

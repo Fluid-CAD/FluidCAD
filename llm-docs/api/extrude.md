@@ -55,19 +55,26 @@ e.endEdges(0, 2);                   // by index
 ## Examples
 
 ```fluid.js
-import { circle, extrude, rect, select, sketch } from "fluidcad/core";
+import { circle, extrude, line, select, sketch } from "fluidcad/core";
 import { face } from "fluidcad/filters";
 
-sketch("xy", () => rect(100, 60).centered());
+sketch("xy", () => {
+  line([-50, -30], [50, -30]);
+  line([50, -30], [50, 30]);
+  line([50, 30], [-50, 30]);
+  line([-50, 30], [-50, -30]);
+});
 extrude(30);  // simple box
 
-sketch("xy", () => circle(50));
+sketch("xy", () => circle([0, 0], 50));
 extrude(30).symmetric().draft(5);   // bidirectional tapered cylinder
 
-extrude(30).thin(-2);               // thin-walled (2mm inward)
+sketch("xy", () => circle([80, 0], 30));
+extrude(30).thin(-2);               // thin-walled tube (2mm inward)
 
-const target = select(face().onPlane("xy", 100));
-extrude(target);                    // extrude up to that face
+sketch("xy", () => circle([0, 0], 20));
+const target = select(face().onPlane("xy", 30));
+extrude(target);                    // extrude up to the box's top face
 ```
 
 See [[api/fillet]] for follow-up edge filleting, [[api/sketch]] for sketch

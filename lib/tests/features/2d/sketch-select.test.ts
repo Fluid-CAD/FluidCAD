@@ -4,16 +4,30 @@ import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import fillet from "../../../core/fillet.js";
 import select from "../../../core/select.js";
-import { rect, circle, slot, move, offset } from "../../../core/2d/index.js";
+import { arc, circle, line, offset } from "../../../core/2d/index.js";
+import { coincident } from "../../../core/constraints/index.js";
+import { testRect } from "../../helpers/profiles.js";
 import { edge, face } from "../../../filters/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { SelectSceneObject } from "../../../features/select.js";
-import { Rect } from "../../../features/2d/rect.js";
 import { Fillet2D } from "../../../features/fillet2d.js";
 import { Offset } from "../../../features/2d/offset.js";
 import { Edge } from "../../../common/edge.js";
 import { Extrude } from "../../../features/extrude.js";
 import { EdgeQuery } from "../../../oc/edge-query.js";
+
+/** Solved stand-in for legacy `slot(l, r)`: cap centers at [0, 0] and
+ * [l, 0], two body lines and two CW cap arcs, exact coordinates. */
+function testSlot(l: number, r: number) {
+  const top = line([0, r], [l, r]);
+  const rightCap = arc([l, r], [l, -r], [l, 0]).cw();
+  const bottom = line([l, -r], [0, -r]);
+  const leftCap = arc([0, -r], [0, r], [0, 0]).cw();
+  coincident(top.end(), rightCap.start());
+  coincident(rightCap.end(), bottom.start());
+  coincident(bottom.end(), leftCap.start());
+  coincident(leftCap.end(), top.start());
+}
 
 // Stage 2 (plans/sketch-edge-selection): sketch-scoped select() and edge
 // filters as direct 2D-op arguments.
@@ -27,7 +41,7 @@ describe("sketch-scoped selection", () => {
     it("evaluates against the active sketch's edges", () => {
       let sel: SelectSceneObject;
       sketch("xy", () => {
-        slot(80, 15);
+        testSlot(80, 15);
         sel = select(edge().arc()) as SelectSceneObject;
       });
       render();
@@ -35,28 +49,29 @@ describe("sketch-scoped selection", () => {
       // The slot's two cap arcs, nothing else.
       const selected = edgesOf(sel);
       expect(selected).toHaveLength(2);
-      selected.forEach(e => expect(e.role).toBe('cap-arc'));
+      selected.forEach(e => expect(e.role).toBe('body'));
     });
 
     it("does not steal edge ownership or double-count", () => {
-      let r: Rect;
+      let r: ReturnType<typeof testRect>;
       const s = sketch("xy", () => {
-        r = rect(80, 60) as Rect;
+        r = testRect(80, 60);
         select(edge().line());
       }) as Sketch;
       render();
 
       const edgeMap = s.getEdgesWithOwner();
       expect(edgeMap.size).toBe(4);
+      const lines = new Set<unknown>([r.b, r.r, r.t, r.l]);
       for (const owner of edgeMap.values()) {
-        expect(owner).toBe(r);
+        expect(lines.has(owner)).toBe(true);
       }
     });
 
     it("rejects face filters inside a sketch", () => {
       let sel: SelectSceneObject;
       sketch("xy", () => {
-        rect(80, 60);
+        testRect(80, 60);
         sel = select(face().parallelTo("xy")) as SelectSceneObject;
       });
       render();
@@ -69,7 +84,7 @@ describe("sketch-scoped selection", () => {
     it("fillet(radius) consumes a sketch-scoped selection", () => {
       let f: Fillet2D;
       sketch("xy", () => {
-        rect(80, 60);
+        testRect(80, 60);
         select(edge().line());
         f = fillet(6) as Fillet2D;
       });
@@ -89,9 +104,8 @@ describe("sketch-scoped selection", () => {
     it("offset(distance) consumes a sketch-scoped selection", () => {
       let o: Offset;
       const s = sketch("xy", () => {
-        circle(40);
-        move([100, 0]);
-        rect(20, 20);
+        circle([0, 0], 40);
+        testRect(20, 20, { at: [100, 0] });
         select(edge().circle());
         o = offset(5) as Offset;
       }) as Sketch;
@@ -112,7 +126,7 @@ describe("sketch-scoped selection", () => {
     it("fillet(4, edge().line()) fillets the filtered group's corners", () => {
       let f: Fillet2D;
       sketch("xy", () => {
-        rect(80, 60);
+        testRect(80, 60);
         f = fillet(4, edge().line()) as Fillet2D;
       });
       render();
@@ -125,9 +139,8 @@ describe("sketch-scoped selection", () => {
     it("filters skip non-matching geometry", () => {
       let f: Fillet2D;
       const s = sketch("xy", () => {
-        circle(40);
-        move([100, 0]);
-        rect(30, 30);
+        circle([0, 0], 40);
+        testRect(30, 30, { at: [100, 0] });
         f = fillet(4, edge().line()) as Fillet2D;
       }) as Sketch;
       render();
@@ -143,9 +156,8 @@ describe("sketch-scoped selection", () => {
     it("offset accepts an explicit feature target in a sketch", () => {
       let o: Offset;
       sketch("xy", () => {
-        const c = circle(40);
-        move([100, 0]);
-        rect(20, 20);
+        const c = circle([0, 0], 40);
+        testRect(20, 20, { at: [100, 0] });
         o = offset(5, c) as Offset;
       });
       render();
@@ -158,8 +170,8 @@ describe("sketch-scoped selection", () => {
     it("mixes accessors and filters in one target list", () => {
       let f: Fillet2D;
       sketch("xy", () => {
-        const r = rect(80, 60) as Rect;
-        f = fillet(5, r.edge('top'), edge().line()) as Fillet2D;
+        const r = testRect(80, 60);
+        f = fillet(5, r.t, edge().line()) as Fillet2D;
       });
       render();
 

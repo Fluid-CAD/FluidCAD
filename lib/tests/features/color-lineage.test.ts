@@ -8,13 +8,14 @@ import fillet from "../../core/fillet.js";
 import chamfer from "../../core/chamfer.js";
 import fuse from "../../core/fuse.js";
 import shell from "../../core/shell.js";
-import { circle, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { Color } from "../../features/color.js";
 import { Extrude } from "../../features/extrude.js";
 import { Fuse } from "../../features/fuse.js";
 import { Shell } from "../../features/shell.js";
 import { Solid } from "../../common/solid.js";
+import { testRect } from "../helpers/profiles.js";
 
 function hasRed(solid: Solid): boolean {
   return solid.colorMap.length > 0 && solid.colorMap.some(e => e.color === '#ff0000');
@@ -25,8 +26,8 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
 
   it("Solid.copy() preserves colorMap", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     select(face().onPlane("xy", 30));
@@ -43,8 +44,8 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
 
   it("setColor replaces an existing color for the same face", () => {
     sketch("xy", () => {
-      rect(40, 40);
-    });
+        testRect(40, 40);
+      });
     const e = extrude(10) as Extrude;
     render();
 
@@ -62,16 +63,16 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
   it("color survives a fuse with an overlapping extrude", () => {
     // Create a base block and color its top face.
     sketch("xy", () => {
-      rect(60, 40);
-    });
+        testRect(60, 40);
+      });
     extrude(10);
     select(face().onPlane("xy", 10));
     color("red");
 
     // Now fuse a second, smaller extrude on top of it.
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const top = extrude(15) as Extrude;
     render();
 
@@ -85,16 +86,16 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
 
   it("color survives a cut (UnifySameDomain chained lineage)", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     extrude(20);
 
     select(face().onPlane("xy", 20));
     color("red");
 
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const cut = extrude(10).remove() as Extrude;
     render();
 
@@ -109,16 +110,16 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     // Color a bottom face, then cut the whole block in half so the bottom
     // face is split but both halves still have a portion of it.
     sketch("xy", () => {
-      rect(60, 40);
-    });
+        testRect(60, 40);
+      });
     extrude(10);
 
     select(face().onPlane("xy", 0));
     color("red");
 
     sketch("xy", () => {
-      rect(10, 40);
-    });
+        testRect(10, 40);
+      });
     const cut = extrude(10).remove() as Extrude;
     render();
 
@@ -131,8 +132,8 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
 
   it("color on a cylinder end face survives a fillet on the top edge", () => {
     sketch("xy", () => {
-      circle(40);
-    });
+        circle([0, 0], 40);
+      });
     const e = extrude(50) as Extrude;
 
     select(face().onPlane("xy", 50));
@@ -181,8 +182,8 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
 
   it("color bleeds: a filleted edge's new arc face inherits color from its neighbor", () => {
     sketch("xy", () => {
-      circle(40);
-    });
+        circle([0, 0], 40);
+      });
     const e = extrude(50) as Extrude;
 
     select(face().onPlane("xy", 50));
@@ -204,8 +205,8 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
     // side faces — so they must not inherit the top's color, even though
     // their top arc is adjacent to the (still-orange) top face.
     sketch("top", () => {
-      rect(100, 50).centered();
-    });
+        testRect(100, 50, { at: [-50, -25] });
+      });
     const e = extrude(20) as Extrude;
 
     color("orange", e.endFaces());
@@ -222,8 +223,8 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
 
   it("color survives a chamfer", () => {
     sketch("xy", () => {
-      circle(40);
-    });
+        circle([0, 0], 40);
+      });
     const e = extrude(50) as Extrude;
 
     select(face().onPlane("xy", 50));
@@ -288,8 +289,10 @@ describe("color preservation through operations (Phase 3 lineage)", () => {
 
   it("shell preserves colored side faces and does not paint the new internal walls", () => {
     sketch("xy", () => {
-      rect(100, 50).centered().radius(8);
-    });
+        // legacy rect(100, 50).centered().radius(8)
+        testRect(100, 50, { at: [-50, -25] });
+        fillet(8);
+      });
     const e = extrude(20) as Extrude;
 
     color("orange", e.sideFaces());

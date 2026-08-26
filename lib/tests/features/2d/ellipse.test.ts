@@ -14,7 +14,7 @@ describe("ellipse", () => {
   describe("in sketch", () => {
     it("creates an ellipse with rx along X and ry along Y", () => {
       sketch("xy", () => {
-        ellipse(50, 30);
+        ellipse([0, 0], 50, 30);
       });
       const e = extrude(10) as ExtrudeBase;
       render();
@@ -27,7 +27,7 @@ describe("ellipse", () => {
 
     it("handles ry > rx (axis-swap path)", () => {
       sketch("xy", () => {
-        ellipse(30, 50);
+        ellipse([0, 0], 30, 50);
       });
       const e = extrude(10) as ExtrudeBase;
       render();
@@ -54,7 +54,7 @@ describe("ellipse", () => {
 
     it("falls through to a circle when rx == ry", () => {
       sketch("xy", () => {
-        ellipse(25, 25);
+        ellipse([0, 0], 25, 25);
       });
       const e = extrude(10) as ExtrudeBase;
       render();
@@ -68,14 +68,14 @@ describe("ellipse", () => {
     it("rejects zero or negative radii", () => {
       let zeroEllipse: Ellipse | undefined;
       sketch("xy", () => {
-        zeroEllipse = ellipse(0, 30) as Ellipse;
+        zeroEllipse = ellipse([0, 0], 0, 30) as Ellipse;
       });
       render();
       expect(zeroEllipse?.getError()).toMatch(/positive/i);
 
       let negEllipse: Ellipse | undefined;
       sketch("xy", () => {
-        negEllipse = ellipse(-10, 5) as Ellipse;
+        negEllipse = ellipse([0, 0], -10, 5) as Ellipse;
       });
       render();
       expect(negEllipse?.getError()).toMatch(/positive/i);

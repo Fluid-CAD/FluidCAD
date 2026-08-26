@@ -27,22 +27,21 @@ explicitly included.
 ### edge()
 
 ```ts
-edge(roleOrIndex: string | number, roleIndex?: number): SceneObject
+edge(roleOrIndex: string | number, roleIndex?: number): ISelection
 ```
 
-Uniform edge accessor. `edge('top')` selects this feature's edges by role
-(optionally disambiguated by role index, e.g. `edge('corner-arc', 2)`);
-`edge(1)` selects by build-order index over the feature's real edges.
-Rect roles: `top`/`bottom`/`left`/`right` and `corner-arc` 0–3 (radius-arg
-order bl/br/tr/tl); polygon: `side` i; slot: `side` 0–1, `cap-arc`
-0=left/1=right; circle/ellipse: `perimeter`.
+Uniform edge accessor. `edge('body')` selects this feature's edges by
+role (optionally disambiguated by role index); `edge(1)` selects by
+build-order index over the feature's real edges. Roles: solver lines and
+arcs stamp `body`; circles and ellipses `perimeter`; derived-op outputs
+carry provenance-specific roles (e.g. fillet arcs).
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `roleOrIndex` | string \| number | A role name, or a build-order edge index. |
-| `roleIndex` | number | Disambiguates roles that repeat (e.g. polygon sides). *(optional)* |
+| `roleIndex` | number | Disambiguates roles that repeat. *(optional)* |
 
 ---
 
@@ -129,6 +128,21 @@ Sets the text height (em size) in model units. Default 10.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `value` | number | The em size. |
+
+---
+
+### at()
+
+```ts
+at(position: [number, number]): this
+```
+
+Places the text anchor at an explicit local position. Default: the
+sketch plane origin. Not applicable to text following a path.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `position` | [number, number] | The anchor point in sketch coordinates. |
 
 ---
 

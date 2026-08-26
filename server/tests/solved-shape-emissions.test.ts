@@ -26,7 +26,7 @@ const BASE = [
   `import { sketch } from "fluidcad/core";`,
   ``,
   `sketch('xy', () => {`,
-  `}, true);`,
+  `});`,
 ].join('\n');
 
 const IMPORT_LINE_RE = /^\s*import\s[\s\S]*?from\s+['"][^'"]+['"]\s*;?\s*$/gm;

@@ -1,9 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
-import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import part from "../../core/part.js";
-import { rect } from "../../core/2d/index.js";
+import { testRectSketch } from "../helpers/profiles.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
 import { allEdgeRefs, findSolids, setLocation } from "./pick-helpers.js";
 
@@ -17,13 +16,13 @@ describe("cross-part pick refusal", () => {
 
   it("refuses producer-bound picks spanning two part() scopes", () => {
     const left = part("left", () => {
-      sketch("xy", () => rect(20, 20));
+      testRectSketch("xy", 20, 20);
       const e = extrude(10);
       setLocation(e, 3);
     });
     setLocation(left, 2);
     const right = part("right", () => {
-      sketch("xy", () => rect(30, 30));
+      testRectSketch("xy", 30, 30);
       const e = extrude(6);
       setLocation(e, 8);
     });
@@ -42,11 +41,11 @@ describe("cross-part pick refusal", () => {
   });
 
   it("refuses picks mixing a part() scope with unparted geometry", () => {
-    sketch("xy", () => rect(40, 40));
+    testRectSketch("xy", 40, 40);
     const loose = extrude(4);
     setLocation(loose, 2);
     const boxed = part("boxed", () => {
-      sketch("xy", () => rect(20, 20));
+      testRectSketch("xy", 20, 20);
       const e = extrude(10);
       setLocation(e, 6);
     });
@@ -66,10 +65,10 @@ describe("cross-part pick refusal", () => {
 
   it("keeps synthesizing for picks on two producers inside one part", () => {
     const p = part("solo", () => {
-      sketch("xy", () => rect(20, 20));
+      testRectSketch("xy", 20, 20);
       const a = extrude(10).new();
       setLocation(a, 3);
-      sketch("xy", () => rect(8, 8));
+      testRectSketch("xy", 8, 8);
       const b = extrude(30).new();
       setLocation(b, 5);
     });

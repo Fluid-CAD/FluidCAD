@@ -59,7 +59,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         distance(b.start(), b.end(), 100);
         distance(r.start(), r.end(), 50);
         o = offset(5, b, r, t, l) as unknown as Offset;
-      }, true);
+      });
       render();
 
       // A closed solved loop offsets to a closed outline of SOLVED geometry:
@@ -80,7 +80,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         const c = circle([50, 40], 40);
         fix(c.center(), [50, 40]);
         o = offset(5, c) as unknown as Offset;
-      }, true);
+      });
       const e = extrude(10, o!) as ExtrudeBase;
       render();
 
@@ -104,7 +104,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         vertical(b);
         fix(a.start(), [0, 0]);
         f = fillet(6, a, b) as Fillet2D;
-      }, true);
+      });
       const scene = render();
 
       const arcs = edgesOf(f!).filter(e => e.provenance === 'fillet-arc');
@@ -127,7 +127,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         const c = circle([30, 20], 20);
         fix(c.center(), [30, 20]);
         mirrored = mirror(axis, c) as unknown as { getShapes(): unknown[] };
-      }, true);
+      });
       render();
 
       const copies = edgesOf(mirrored!).filter(e => !e.isMetaShape());
@@ -142,7 +142,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         const c = circle([30, 20], 20);
         fix(c.center(), [30, 20]);
         mirrored = mirror(axis) as unknown as { getShapes(): unknown[]; getError(): string | null };
-      }, true);
+      });
       const scene = render();
 
       expect(renderedErrors(scene).size).toBe(0);
@@ -155,7 +155,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         const c = circle([0, 0], 20);
         fix(c.center(), [0, 0]);
         cp = copy('linear', 'x', { count: 3, offset: 40 }, c) as unknown as Copy2DBase;
-      }, true);
+      });
       const scene = render();
 
       expect(renderedErrors(scene).size).toBe(0);
@@ -174,7 +174,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         src = circle([0, 0], 20) as ISolvedCircle;
         fix(src.center(), [0, 0]);
         cp = copy('linear', 'x', { count: 3, offset: 40 }, src) as unknown as Copy2DBase;
-      }, true);
+      });
       const scene = render();
 
       expect(renderedErrors(scene).size).toBe(0);
@@ -201,7 +201,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         const c = circle([0, 0], 20);
         fix(c.center(), [0, 0]);
         copy('linear', 'x', { count: 3, offset: 40 }, c);
-      }, true);
+      });
       const scene = render();
 
       const circleId = payloadOf(scene, 'solved-circle').entityId!;
@@ -219,7 +219,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         fix(c.center(), [0, 0]);
         radius(c, 10);
         copy('linear', local('x'), { count: 3, length: 100, centered: true }, c);
-      }, true);
+      });
       const scene = render();
 
       const circleId = payloadOf(scene, 'solved-circle').entityId!;
@@ -234,7 +234,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         fix(c.center(), [0, 0]);
         const o = offset(5, c) as unknown as Offset;
         copy('linear', 'x', { count: 2, offset: 60 }, c, o as unknown as ISolvedCircle);
-      }, true);
+      });
       const scene = render();
 
       expect(payloadOf(scene, 'copy-linear-2d').sourcesSolved).toBe(false);
@@ -246,7 +246,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         const c = circle([30, 20], 20);
         fix(c.center(), [30, 20]);
         mirror(axis, c);
-      }, true);
+      });
       const scene = render();
 
       const axisId = (payloadOf(scene, 'solved-line') as { entityId: number }).entityId;
@@ -265,7 +265,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         fix(l.start(), [20, 0]);
         fix(l.end(), [40, 0]);
         rotate(90, pivot.center(), true, l);
-      }, true);
+      });
       const scene = render();
 
       const circleId = payloadOf(scene, 'solved-circle').entityId!;
@@ -275,15 +275,6 @@ describe("derived ops on solved sketches (P6 audit)", () => {
       expect(rot.sourceEntities).toEqual([circleId, lineId].sort((a, b) => a - b));
     });
 
-    it("legacy sketches ship no source join", () => {
-      sketch('xy', () => {
-        circle(20);
-        copy('linear', 'x', { count: 2, offset: 40 });
-      });
-      const scene = render();
-
-      expect(payloadOf(scene, 'copy-linear-2d').sourceEntities).toBeUndefined();
-    });
   });
 
   describe("rotate2d", () => {
@@ -293,7 +284,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         const c = circle([30, 0], 20);
         fix(c.center(), [30, 0]);
         rot = rotate(90, [0, 0], true, c) as unknown as { getAddedShapes(): unknown[] };
-      }, true);
+      });
       const scene = render();
 
       expect(renderedErrors(scene).size).toBe(0);
@@ -305,7 +296,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         const c = circle([30, 0], 20);
         fix(c.center(), [30, 0]);
         rotate(90, true, c);
-      }, true);
+      });
       const scene = render();
 
       const errors = renderedErrors(scene);
@@ -314,7 +305,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
   });
 
   describe("text / ellipse", () => {
-    it("lays text along a solved path but refuses the pen-anchored form", () => {
+    it("lays text along a solved path; the anchored form draws at the origin", () => {
       let pathText: { getShapes(): unknown[] };
       sketch('xy', () => {
         const l = line([0, 0], [120, 0]).guide();
@@ -322,33 +313,35 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         fix(l.start(), [0, 0]);
         distance(l.start(), l.end(), 120);
         pathText = text('Hi', l) as unknown as { getShapes(): unknown[] };
-      }, true);
+      });
       const scene = render();
 
       expect(renderedErrors(scene).size).toBe(0);
       expect(pathText!.getShapes().length).toBeGreaterThan(0);
 
+      // Since P7 the anchored form is legal everywhere: no pen exists, so it
+      // draws at the plane origin (or the explicit `.at([x, y])` anchor).
+      let anchored: { getShapes(): unknown[] };
       sketch('xy', () => {
-        text('cursorless');
-      }, true);
+        anchored = text('cursorless') as unknown as { getShapes(): unknown[] };
+      });
       const errors = renderedErrors(render());
-      expect(errors.get('text')).toMatch(/sketch cursor/);
+      expect(errors.get('text')).toBeUndefined();
+      expect(anchored!.getShapes().length).toBeGreaterThan(0);
     });
 
     it("draws an ellipse with an explicit center, refusing the pen form", () => {
       let el: { getShapes(): unknown[] };
       sketch('xy', () => {
         el = ellipse([20, 10], 30, 15) as unknown as { getShapes(): unknown[] };
-      }, true);
+      });
       const scene = render();
       expect(renderedErrors(scene).size).toBe(0);
       expect(edgesOf(el!)).toHaveLength(1);
 
-      sketch('xy', () => {
-        ellipse(30, 15);
-      }, true);
-      const errors = renderedErrors(render());
-      expect(errors.get('ellipse')).toMatch(/sketch cursor/);
+      // The pen form is gone entirely — the factory refuses at statement time.
+      expect(() => sketch('xy', () => { (ellipse as any)(30, 15); }))
+        .toThrow(/explicit center/);
     });
   });
 
@@ -362,7 +355,7 @@ describe("derived ops on solved sketches (P6 audit)", () => {
         fix(g.start(), [0, 0]);
         c = circle([40, 30], 30);
         coincident(c.center(), g.mid());
-      }, true) as unknown as Sketch;
+      }) as unknown as Sketch;
       render();
 
       // The guide participated in the solve (its horizontal held) …

@@ -9,7 +9,7 @@ import { getSceneManager } from "../../../scene-manager.js";
 import { SceneCompare } from "../../../rendering/scene-compare.js";
 import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
-import { line, circle, rect, slot, project, intersect } from "../../../core/2d/index.js";
+import { line, circle, arc, project, intersect } from "../../../core/2d/index.js";
 import {
   coincident, horizontal, tangent, distance, radius, fix,
 } from "../../../core/constraints/index.js";
@@ -17,6 +17,7 @@ import { Sketch } from "../../../features/2d/sketch.js";
 import { Extrude } from "../../../features/extrude.js";
 import { Scene } from "../../../rendering/scene.js";
 import type { IReference } from "../../../core/interfaces.js";
+import { testRect } from "../../helpers/profiles.js";
 
 function renderedErrors(scene: Scene): Map<string, string> {
   const out = new Map<string, string>();
@@ -47,7 +48,7 @@ function solvedPayload(scene: Scene, uniqueType: string) {
  * of the given radius. */
 function boreDonor(radiusValue = 20, height = 15) {
   sketch('xy', () => {
-    circle(radiusValue * 2);
+    circle([0, 0], radiusValue * 2);
   });
   return extrude(height) as Extrude;
 }
@@ -63,7 +64,7 @@ describe("fixed reference entities (P6)", () => {
       const l = line([25, -30], [25, 30]);
       fix(l.start(), [30, -30]);
       tangent(bore, l);
-    }, true) as unknown as Sketch;
+    }) as unknown as Sketch;
     const scene = render();
 
     expect(renderedErrors(scene).size).toBe(0);
@@ -95,13 +96,14 @@ describe("fixed reference entities (P6)", () => {
       // All-fixed: only the reference — must error on the statement, not
       // silently register.
       radius(bore, 5);
-    }, true) as unknown as Sketch;
+    }) as unknown as Sketch;
     const scene = render();
 
     const errors = renderedErrors(scene);
     expect(errors.get('constraint-radius')).toMatch(/fixed geometry/);
-    // The distance solved: the circle center is 60 from the origin.
-    const circlePayload = solvedPayload(scene, 'solved-circle')[0] as {
+    // The distance solved: the circle center is 60 from the origin. The
+    // donor's circle is a solved-circle too now — take the consumer's (last).
+    const circlePayload = solvedPayload(scene, 'solved-circle').at(-1) as {
       center: { x: number; y: number };
     };
     expect(Math.hypot(circlePayload.center.x, circlePayload.center.y)).toBeCloseTo(60, 5);
@@ -115,7 +117,7 @@ describe("fixed reference entities (P6)", () => {
       project(donor.endFaces());
       const l = line([30, 0], [50, 0]);
       horizontal(l);
-    }, true);
+    });
     const sketches = getSceneManager()!.currentScene.getSceneObjects()
       .filter(o => o instanceof Sketch) as Sketch[];
     withRef = sketches[sketches.length - 1];
@@ -134,12 +136,20 @@ describe("fixed reference entities (P6)", () => {
     // sketch holding nothing but a projected slot read "Fully
     // constrained · 2 redundant".
     sketch('xy', () => {
-      slot(80, 15);
+      // The legacy slot(80, 15) donor, lowered: two rails + two cap arcs.
+      const top = line([0, 7.5], [80, 7.5]);
+      const rightCap = arc([80, 7.5], [80, -7.5], [80, 0]).cw();
+      const bottom = line([80, -7.5], [0, -7.5]);
+      const leftCap = arc([0, -7.5], [0, 7.5], [0, 0]).cw();
+      coincident(top.end(), rightCap.start());
+      coincident(rightCap.end(), bottom.start());
+      coincident(bottom.end(), leftCap.start());
+      coincident(leftCap.end(), top.start());
     });
     const e = extrude(20) as Extrude;
     sketch(e.endFaces(), () => {
       project(e.endFaces());
-    }, true);
+    });
     const sketches = getSceneManager()!.currentScene.getSceneObjects()
       .filter(o => o instanceof Sketch) as Sketch[];
     const projSketch = sketches[sketches.length - 1];
@@ -155,8 +165,8 @@ describe("fixed reference entities (P6)", () => {
 
   it("multi-edge references need .ref(i); bad indices error honestly", () => {
     sketch('xy', () => {
-      rect(60, 40);
-    });
+        testRect(60, 40);
+      });
     const e = extrude(20) as Extrude;
 
     sketch('xy', () => {
@@ -168,7 +178,7 @@ describe("fixed reference entities (P6)", () => {
       coincident(c.center(), outline.ref(11).start());
       // A valid indexed reference: the circle center holds 50 off line 0.
       distance(outline.ref(0), c.center(), 50);
-    }, true);
+    });
     const scene = render();
 
     const errors = [...renderedErrors(scene).entries()];
@@ -179,8 +189,8 @@ describe("fixed reference entities (P6)", () => {
 
   it("intersect outputs register as fixed lines", () => {
     sketch('xy', () => {
-      rect(80, 50);
-    });
+        testRect(80, 50);
+      });
     const e = extrude(30) as Extrude;
 
     const sk = sketch('xz', () => {
@@ -188,7 +198,7 @@ describe("fixed reference entities (P6)", () => {
       const l = line([5, 40], [70, 45]);
       horizontal(l);
       coincident(l.start(), section.ref(0).start());
-    }, true) as unknown as Sketch;
+    }) as unknown as Sketch;
     const scene = render();
 
     expect(renderedErrors(scene).size).toBe(0);
@@ -205,7 +215,7 @@ describe("fixed reference entities (P6)", () => {
         const l = line([25, -30], [25, 30]);
         fix(l.start(), [30, -30]);
         tangent(bore, l);
-      }, true);
+      });
     };
     declare();
     render();
@@ -228,7 +238,7 @@ describe("fixed reference entities (P6)", () => {
       const c = circle([50, 5], 24);
       distance(bore.center(), c.center(), 60);
       fix(c.center(), [60, 0]);
-    }, true);
+    });
     profile = extrude(8).new() as unknown as { getShapes(): { getType(): string }[] };
     const scene = render();
 
@@ -244,7 +254,7 @@ describe("fixed reference entities (P6)", () => {
       const l = line([25, -30], [25, 30]);
       fix(l.start(), [30, -30]);
       tangent(bore, l);
-    }, true) as unknown as Sketch;
+    }) as unknown as Sketch;
     render();
     const first = JSON.stringify(snapshotOf(sk).params);
 
@@ -255,7 +265,7 @@ describe("fixed reference entities (P6)", () => {
       const l = line([25, -30], [25, 30]);
       fix(l.start(), [30, -30]);
       tangent(bore, l);
-    }, true) as unknown as Sketch;
+    }) as unknown as Sketch;
     render();
     expect(JSON.stringify(snapshotOf(sk2).params)).toBe(first);
   });

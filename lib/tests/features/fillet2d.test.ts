@@ -3,11 +3,13 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import fillet from "../../core/fillet.js";
-import { arc, hMove, rect, vLine, hLine, vMove, back, polygon, line } from "../../core/2d/index.js";
+import { arc, line } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { getEdgesByType } from "../utils.js";
+import { coincident, horizontal, vertical } from "../../core/constraints/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("fillet2d", () => {
   setupOC();
@@ -15,9 +17,9 @@ describe("fillet2d", () => {
   describe("fillet all corners", () => {
     it("should fillet all corners of a rectangle", () => {
       sketch("xy", () => {
-        rect(100, 50);
-        fillet(5);
-      });
+          testRect(100, 50);
+          fillet(5);
+        });
 
       const e = extrude(20) as ExtrudeBase;
 
@@ -35,9 +37,9 @@ describe("fillet2d", () => {
 
     it("should replace sharp corners with arcs", () => {
       const s = sketch("xy", () => {
-        rect(100, 50);
-        fillet(5);
-      }) as Sketch;
+          testRect(100, 50);
+          fillet(5);
+        }) as Sketch;
 
       render();
 
@@ -50,9 +52,9 @@ describe("fillet2d", () => {
   describe("fillet specific targets", () => {
     it("should fillet only the specified geometry", () => {
       sketch("xy", () => {
-        const r = rect(100, 50);
-        fillet([r], 5);
-      });
+          const r = testRect(100, 50);
+          fillet([r.b, r.r, r.t, r.l], 5);
+        });
 
       const e = extrude(20) as ExtrudeBase;
 
@@ -70,10 +72,13 @@ describe("fillet2d", () => {
 
     it("should fillet a corner passed as radius-first spread args", () => {
       const s = sketch("xy", () => {
-        const l1 = hLine(40);
-        const l2 = vLine(-40);
-        fillet(8, l1, l2);
-      }) as Sketch;
+          const l1 = line([0, 0], [40, 0]);
+          const l2 = line([40, 0], [40, -40]);
+          fillet(8, l1, l2);
+          horizontal(l1);
+          coincident(l1.end(), l2.start());
+          vertical(l2);
+        }) as Sketch;
 
       render();
 
@@ -106,18 +111,24 @@ describe("fillet2d", () => {
       // and a line (l2) requested as fillet(radius, l2, l1). Before the radius-first
       // spread form was dispatched, this was a silent no-op while fillet(8) (all
       // corners) rounded the same arc/line corner.
+      // Legacy profile, lowered by hand: pen origin [0,0]; vMove(10);
+      // hLine(140).guide().centered() spanned [-70,10]→[70,10]; back();
+      // vMove(49); hLine(8); vLine(-16); hLine(7); then
+      // arc([70,10]).radius(55) — CCW bulge arc whose center sits at
+      // mid + d·perp of the chord [15,43]→[70,10] (legacy buildToPoint math).
+      const chord = Math.hypot(55, 33);
+      const bulge = Math.sqrt(55 * 55 - (chord / 2) ** 2);
+      const acx = 42.5 + bulge * (33 / chord);
+      const acy = 26.5 + bulge * (55 / chord);
       const s = sketch("front", () => {
-        vMove(10);
-        const gl = hLine(140).guide().centered();
-        back();
-        vMove(33 + 16);
-        hLine(8);
-        vLine(-16);
-        hLine(15 - 8);
-        const l1 = arc(gl.end()).radius(55);
-        const l2 = vLine(-10);
-        fillet(8, l2, l1);
-      }) as Sketch;
+          line([-70, 10], [70, 10]).guide();
+          line([0, 59], [8, 59]);
+          line([8, 59], [8, 43]);
+          line([8, 43], [15, 43]);
+          const l1 = arc([15, 43], [70, 10], [acx, acy]);
+          const l2 = line([70, 10], [70, 0]);
+          fillet(8, l2, l1);
+        }) as Sketch;
 
       render();
 
@@ -128,41 +139,12 @@ describe("fillet2d", () => {
     });
   });
 
-  describe("orphaned meta shapes", () => {
-    it("removes a polygon's meta base circle when all its sides are filleted", () => {
-      const s = sketch("xy", () => {
-        polygon(6, 40);
-        fillet(3);
-      }) as Sketch;
-
-      render();
-
-      const metaShapes = s.getShapes({ excludeMeta: false, excludeGuide: false })
-        .filter(shape => shape.isMetaShape());
-      expect(metaShapes).toHaveLength(0);
-    });
-
-    it("keeps the meta base circle when only one polygon corner is filleted", () => {
-      const s = sketch("xy", () => {
-        const pg = polygon(6, 40);
-        fillet(3, pg.edge(0), pg.edge(1));
-      }) as Sketch;
-
-      render();
-
-      // Four sides still belong to the polygon
-      const metaShapes = s.getShapes({ excludeMeta: false, excludeGuide: false })
-        .filter(shape => shape.isMetaShape());
-      expect(metaShapes).toHaveLength(1);
-    });
-  });
-
   describe("fillet radius", () => {
     it("should use default radius of 1", () => {
       sketch("xy", () => {
-        rect(100, 50);
-        fillet();
-      });
+          testRect(100, 50);
+          fillet();
+        });
 
       const e = extrude(20) as ExtrudeBase;
 
@@ -180,11 +162,9 @@ describe("fillet2d", () => {
   describe("wire orientation", () => {
     it("fillets a CW rectangle (negative height)", () => {
       const s = sketch("xz", () => {
-        hMove(-2);
-        rect(4, -2);
-
-        fillet(1);
-      }) as Sketch;
+          testRect(4, -2, { at: [-2, 0] });
+          fillet(1);
+        }) as Sketch;
 
       render();
 

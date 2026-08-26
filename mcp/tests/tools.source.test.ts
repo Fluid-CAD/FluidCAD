@@ -305,7 +305,7 @@ describe('write_file', () => {
       },
     };
     const target = path.join(workspace, 'no-imports.fluid.js');
-    const result = await writeFile({ path: 'no-imports.fluid.js', content: 'sketch("xy", () => circle(10));' });
+    const result = await writeFile({ path: 'no-imports.fluid.js', content: 'sketch("xy", () => circle([0, 0], 10));' });
 
     expect(result.ok).toBe(false);
     if (result.ok) { return; }
@@ -329,7 +329,7 @@ describe('write_file', () => {
     };
     const result = await writeFile({
       path: 'forced.fluid.js',
-      content: 'sketch("xy", () => circle(10));',
+      content: 'sketch("xy", () => circle([0, 0], 10));',
       force: true,
     });
     expect(result.ok).toBe(true);
@@ -447,9 +447,9 @@ describe('edit_range', () => {
   it('lints the post-edit contents and refuses a write that drops the import', async () => {
     const target = path.join(workspace, 'lint-edit.fluid.js');
     const original = [
-      'import { sketch, rect, extrude } from "fluidcad/core";',
+      'import { sketch, line, extrude } from "fluidcad/core";',
       '',
-      'sketch("xy", () => rect(40, 40));',
+      'sketch("xy", () => line([0, 0], [40, 40]));',
       'extrude(10);',
       '',
     ].join('\n');

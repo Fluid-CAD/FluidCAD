@@ -4,7 +4,7 @@ import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import axis from "../core/axis.js";
 import helix from "../core/helix.js";
-import { circle, rect } from "../core/2d/index.js";
+import { circle } from "../core/2d/index.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Shape } from "../common/shape.js";
 import { EdgeOps } from "../oc/edge-ops.js";
@@ -16,6 +16,7 @@ import {
   buildFeatureGhost, FeatureGhostResult, GhostHelixSourceRef, HelixGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { Scene, SceneObjectMesh } from "../rendering/scene.js";
+import { testRect } from "./helpers/profiles.js";
 
 const FILE = '/tmp/helix-ghost-test.fluid.js';
 
@@ -100,13 +101,17 @@ function pick(
 
 /** A 20 mm box standing at x,y 0…20 — its vertical edges are pickable axes. */
 function box(): void {
-  sketch('xy', () => { rect([0, 0], 20, 20); });
+  sketch('xy', () => {
+      testRect(20, 20);
+    });
   extrude(20);
 }
 
 /** A cylinder r20 (circle() takes a diameter), z 0…50 — the face and edge sources. */
 function cylinder(): void {
-  sketch('xy', () => { circle(40); });
+  sketch('xy', () => {
+      circle([0, 0], 40);
+    });
   extrude(50);
 }
 

@@ -1,0 +1,122 @@
+---
+sidebar_position: 3
+title: "Constraints"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import constraintRectangle from '!!raw-loader!./_examples/constraint-rectangle.js';
+import constraintTangentJunction from '!!raw-loader!./_examples/constraint-tangent-junction.js';
+import constraintBranch from '!!raw-loader!./_examples/constraint-branch.js';
+import constraintDatums from '!!raw-loader!./_examples/constraint-datums.js';
+import constraintBelt from '!!raw-loader!./_examples/constraint-belt.js';
+
+# Constraints
+
+Constraints describe the relationships your geometry must satisfy — "these two endpoints touch", "this line is horizontal", "this arc is tangent to that line". You draw [primitives](./primitives) at rough guess positions, state the relationships, and the solver moves the geometry until every relationship holds.
+
+```js
+import { coincident, horizontal, vertical, parallel, perpendicular,
+         tangent, equal, concentric, collinear, midpoint, symmetric,
+         fix } from 'fluidcad/constraints';
+```
+
+Dimensional constraints (`distance`, `angle`, `radius`, `diameter`) get their own page: [Dimensions](./dimensions).
+
+## The constraint catalog
+
+| Constraint | Meaning |
+|---|---|
+| `coincident(a, b)` | Two points coincide — or a point lies on a line/arc/circle |
+| `horizontal(l)` | The line is horizontal |
+| `vertical(l)` | The line is vertical |
+| `parallel(a, b)` | Two lines are parallel |
+| `perpendicular(a, b)` | Two lines are perpendicular |
+| `tangent(a, b)` | A line/arc/circle is tangent to another |
+| `equal(a, b)` | Equal length (lines) or equal radius (arcs/circles) |
+| `concentric(a, b)` | Two arcs/circles share a center |
+| `collinear(a, b)` | A line lies along another line (or axis) |
+| `midpoint(p, l)` | The point sits at the line's midpoint |
+| `symmetric(a, b, l)` | Two points mirror across a line or axis |
+| `fix(p [, [x, y]])` | Pins a point (optionally at explicit coordinates) |
+
+Constraints reference geometry through the statement itself (`horizontal(l)`) or through point accessors (`coincident(l.end(), a.start())`).
+
+## The canonical rectangle
+
+The clearest illustration of guesses vs. constraints — four sloppy lines, snapped into an exact 100 × 50 rectangle:
+
+<CodeBlock language="js">{constraintRectangle}</CodeBlock>
+
+![Rectangle solved from rough guesses](/img/docs/sketching/constraint-rectangle.png)
+
+Each corner is pinned by `coincident`, the sides by `horizontal`/`vertical`, the position by `fix`, and the size by two `distance` dimensions. The result is **fully constrained** — zero degrees of freedom — and renders green in the viewport.
+
+## Anchoring: fix
+
+Without an anchor, a perfectly-shaped profile can still slide around the plane as a rigid body. `fix()` pins a point:
+
+```js
+fix(b.start())              // pin at its current guess position
+fix(b.start(), [0, 0])      // pin at explicit coordinates
+```
+
+You can also constrain against the sketch datums instead — see below.
+
+## Tangency
+
+`tangent(a, b)` makes two curved-or-straight entities touch smoothly. Combined with `coincident` at the junction, it produces kink-free profiles:
+
+<CodeBlock language="js">{constraintTangentJunction}</CodeBlock>
+
+![Line–arc junction tangency](/img/docs/sketching/constraint-tangent-junction.png)
+
+The `coincident(l.end(), a.start())` joins the profile; the `tangent(l, a)` forces the arc to leave the line without a corner. The radius dimension then sizes the arc.
+
+For a tangent line touching a circle *somewhere* (not at a shared junction), pair `tangent(l, c)` with `coincident(l.end(), c)` — the point-on-circle form of coincident — to pin the line's endpoint to the tangency point.
+
+## Multiple solutions: guesses pick the branch
+
+Many constraint systems have more than one valid answer — a circle tangent to a line can rest on either side of it. **The guess coordinates choose the branch**: the solver converges to the solution nearest your guesses.
+
+<CodeBlock language="js">{constraintBranch}</CodeBlock>
+
+![Same constraints, two branches](/img/docs/sketching/constraint-branch.png)
+
+Both circles carry identical constraints; only the guessed centers differ, so one solves above the line and one below. Place your guesses on the side you mean — roughly is fine, the correct side is what matters.
+
+A classic use: the two outer tangent lines of a belt run around two pulleys —
+
+<CodeBlock language="js">{constraintBelt}</CodeBlock>
+
+![Belt tangents around two pulleys](/img/docs/sketching/constraint-belt.png)
+
+## Sketch datums
+
+Every sketch carries three implicit fixed entities — `origin()`, `xAxis()`, and `yAxis()` — importable from `fluidcad/core`. They cost nothing and never move; constrain against them instead of fixing arbitrary points:
+
+<CodeBlock language="js">{constraintDatums}</CodeBlock>
+
+![Datum-anchored circles](/img/docs/sketching/constraint-datums.png)
+
+Common patterns:
+
+```js
+coincident(c.center(), origin())      // center on the sketch origin
+coincident(p, xAxis())                // point on the X axis
+collinear(xAxis(), l)                 // line along the X axis
+symmetric(a, b, yAxis())              // mirror pair across the Y axis
+distance(origin(), c.center(), 40)    // dimension from the origin
+```
+
+## Fixed references
+
+`project()` and `intersect()` bring existing 3D geometry into the sketch as **fixed reference entities** — the solver treats them as immovable, and your sketch geometry can be constrained against them (`tangent(bore, l)`, `coincident(p, outline.ref(2))`, …). See [Projection](./projection).
+
+## Reading the solver's verdict
+
+- **Green** geometry is fully constrained — locked by the constraint system.
+- **Default-colored** geometry still has freedom; drag it in the viewport and the solver re-solves live, respecting every constraint.
+- **Red** geometry is in conflict: the constraints cannot all hold. Remove or adjust one — the diagnostics point at the conflicting statements by file and line.
+- **Redundant** constraints (satisfied but adding nothing) are reported too — tidy sketches keep zero.
+
+The DOF count and its consequences are covered in [Dimensions](./dimensions#degrees-of-freedom).

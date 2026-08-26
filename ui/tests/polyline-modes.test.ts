@@ -1,6 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { applyTarcToEdge, applyAlineToEdge } from '../src/api';
+import { describe, it, expect } from 'vitest';
 import { resolveExpressionValue, type VariableInfo } from '../src/ui/expression-core';
 import { LineMode } from '../src/interactive/tools/polyline/mode-line';
 import { ALineMode } from '../src/interactive/tools/polyline/mode-aline';
@@ -8,19 +7,12 @@ import { ArcMode } from '../src/interactive/tools/polyline/mode-arc';
 import { TArcMode } from '../src/interactive/tools/polyline/mode-tarc';
 import { PolylineTool } from '../src/interactive/tools/polyline/polyline-tool';
 import { PolylinePhase } from '../src/interactive/tools/polyline/types';
-import type { ModeContext, Point2D, SegmentCommitResult } from '../src/interactive/tools/polyline/types';
+import type { ModeContext, Point2D, SegmentCommitResult, SolvedSegmentSpec } from '../src/interactive/tools/polyline/types';
+import type { SolvedEmissionTargetParam } from '../src/interactive/tools/solved-emission';
 import { ExpressionInput } from '../src/ui/expression-input';
 import type { SnapResult } from '../src/snapping/types';
 
 Element.prototype.scrollIntoView = () => {};
-
-vi.mock('../src/api', async (importOriginal) => ({
-  ...(await importOriginal<object>()),
-  applyTarcToEdge: vi.fn(async () => ({ success: true })),
-  applyAlineToEdge: vi.fn(async () => ({ success: true })),
-}));
-
-type Inserted = { statement: string; newVariable?: unknown };
 
 function type(input: HTMLInputElement, text: string): void {
   input.value = text;
@@ -36,15 +28,17 @@ const SNAP: SnapResult = { snapType: 'none' } as unknown as SnapResult;
 type CtxOptions = {
   startPoint?: Point2D;
   tangent?: { direction: Point2D; point: Point2D } | null;
-  atCurrent?: boolean;
   orthoOverride?: boolean;
-  sceneObjects?: unknown[];
   pendingStartText?: string | null;
-  pendingStartVariables?: { name: string; initializer: string }[];
   variables?: VariableInfo[];
+  /** The previous solved chain segment, for junction constraints. */
+  prev?: SolvedEmissionTargetParam | null;
+  prevKind?: 'line' | 'arc' | null;
+  prevDir?: Point2D | null;
+  autoConstraints?: boolean;
 };
 
-// The XY plane in scene-payload shape, enough for the 2D edge index.
+// The XY plane in scene-payload shape.
 const PLANE = {
   origin: { x: 0, y: 0, z: 0 },
   xDirection: { x: 1, y: 0, z: 0 },
@@ -53,20 +47,19 @@ const PLANE = {
 };
 
 // Drives a segment mode against a plain-object ModeContext backed by a real
-// ExpressionInput, bypassing the tool/canvas/scene entirely.
+// ExpressionInput, bypassing the tool/canvas/scene entirely. The solved
+// context stub records what the mode emits.
 function makeCtx(opts: CtxOptions = {}) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const expr = new ExpressionInput(container);
-  const inserted: Inserted[] = [];
+  const emitted: SolvedSegmentSpec[] = [];
   const committed: SegmentCommitResult[] = [];
   const hints: (string | null)[] = [];
 
   const state = {
-    atCurrent: opts.atCurrent ?? true,
     orthoOverride: opts.orthoOverride ?? false,
     pendingStartText: opts.pendingStartText ?? null,
-    pendingStartCleared: 0,
   };
   const variables = opts.variables ?? [];
 
@@ -76,24 +69,12 @@ function makeCtx(opts: CtxOptions = {}) {
     camera: {},
     planeNormal: {},
     tangent: opts.tangent ?? null,
-    sceneObjects: opts.sceneObjects ?? [],
-    sketchId: 'sketch',
     startPoint: opts.startPoint ?? [0, 0],
-    isAtCurrentPosition: () => state.atCurrent,
     pendingStartText: () => state.pendingStartText,
-    pendingStartVariables: () => opts.pendingStartVariables ?? [],
-    clearPendingStart: () => {
-      state.pendingStartText = null;
-      state.pendingStartCleared++;
-    },
-    pixelThreshold: (px: number) => px,
     setSnapHint: (hint: string | null) => hints.push(hint),
     resolveCommittedValue: (result: { expression: string; newVariable?: { name: string; initializer: string } }) =>
       resolveExpressionValue(result.expression, variables, result.newVariable ?? null),
     formatPoint: (p: Point2D) => `[${p[0]}, ${p[1]}]`,
-    insertGeometry: (statement: string, newVariable?: unknown) => {
-      inserted.push({ statement, newVariable });
-    },
     requestRender: () => {},
     isOrthoOverride: () => state.orthoOverride,
     showExpressionInput: (o: any) => {
@@ -108,23 +89,30 @@ function makeCtx(opts: CtxOptions = {}) {
     isExpressionTyping: () => expr.isTyping,
     commitExpressionValue: () => expr.commitCurrentValue(),
     onSegmentCommitted: (r: SegmentCommitResult) => committed.push(r),
-    // These suites exercise the LEGACY (pen-statement) emissions.
-    solved: null,
+    solved: {
+      prevEntity: () => opts.prev ?? null,
+      prevKind: () => opts.prevKind ?? null,
+      prevOrientedDir: () => opts.prevDir ?? null,
+      emitSegment: (spec: SolvedSegmentSpec) => emitted.push(spec),
+      autoConstraints: () => opts.autoConstraints ?? true,
+    },
   } as unknown as ModeContext;
 
   const input = container.querySelector('.expression-input') as HTMLInputElement;
-  return { ctx, expr, input, inserted, committed, hints, state };
+  return { ctx, expr, input, emitted, committed, hints, state };
 }
 
 describe('LineMode H/V auto-snap', () => {
   it('emits a free line for a clearly diagonal click', () => {
-    const { ctx, inserted } = makeCtx();
+    const { ctx, emitted } = makeCtx();
     const mode = new LineMode();
     mode.enter(ctx);
 
     const result = mode.handleClick([30, 40], SNAP, ctx);
 
-    expect(inserted).toEqual([{ statement: 'line([30, 40])', newVariable: undefined }]);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].text).toBe('line([0, 0], [30, 40])');
+    expect(emitted[0].constraints ?? []).toEqual([]);
     expect(result.kind).toBe('committed');
     if (result.kind === 'committed') {
       expect(result.result.endpoint).toEqual([30, 40]);
@@ -133,14 +121,16 @@ describe('LineMode H/V auto-snap', () => {
     }
   });
 
-  it('snaps a 4.9-degree click to hLine', () => {
-    const { ctx, inserted } = makeCtx();
+  it('snaps a 4.9-degree click to a horizontal line', () => {
+    const { ctx, emitted } = makeCtx();
     const mode = new LineMode();
     mode.enter(ctx);
 
     const result = mode.handleClick([100, 8.57], SNAP, ctx);
 
-    expect(inserted).toEqual([{ statement: 'hLine(100)', newVariable: undefined }]);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].text).toBe('line([0, 0], [100, 0])');
+    expect(emitted[0].constraints).toEqual([{ kind: 'horizontal', targets: [{ newIndex: 0 }] }]);
     expect(result.kind).toBe('committed');
     if (result.kind === 'committed') {
       expect(result.result.endpoint).toEqual([100, 0]);
@@ -149,23 +139,26 @@ describe('LineMode H/V auto-snap', () => {
   });
 
   it('keeps a 5.1-degree click as a free line', () => {
-    const { ctx, inserted } = makeCtx();
+    const { ctx, emitted } = makeCtx();
     const mode = new LineMode();
     mode.enter(ctx);
 
     mode.handleClick([100, 8.93], SNAP, ctx);
 
-    expect(inserted).toEqual([{ statement: 'line([100, 8.93])', newVariable: undefined }]);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].text).toBe('line([0, 0], [100, 8.93])');
+    expect(emitted[0].constraints ?? []).toEqual([]);
   });
 
-  it('snaps a near-vertical click to vLine with the signed distance', () => {
-    const { ctx, inserted } = makeCtx();
+  it('snaps a near-vertical click to a vertical line with the signed distance', () => {
+    const { ctx, emitted } = makeCtx();
     const mode = new LineMode();
     mode.enter(ctx);
 
     const result = mode.handleClick([1, -50], SNAP, ctx);
 
-    expect(inserted).toEqual([{ statement: 'vLine(-50)', newVariable: undefined }]);
+    expect(emitted[0].text).toBe('line([0, 0], [0, -50])');
+    expect(emitted[0].constraints).toEqual([{ kind: 'vertical', targets: [{ newIndex: 0 }] }]);
     if (result.kind === 'committed') {
       expect(result.result.endpoint).toEqual([0, -50]);
       expect(result.result.exitTangent?.direction).toEqual([0, -1]);
@@ -173,72 +166,39 @@ describe('LineMode H/V auto-snap', () => {
   });
 
   it('Ctrl override forces a free line on an axial click', () => {
-    const { ctx, inserted } = makeCtx({ orthoOverride: true });
+    const { ctx, emitted } = makeCtx({ orthoOverride: true });
     const mode = new LineMode();
     mode.enter(ctx);
 
     mode.handleClick([100, 0], SNAP, ctx);
 
-    expect(inserted).toEqual([{ statement: 'line([100, 0])', newVariable: undefined }]);
+    expect(emitted[0].text).toBe('line([0, 0], [100, 0])');
+    expect(emitted[0].constraints ?? []).toEqual([]);
   });
 
-  it('uses the explicit-start form when away from the current position', () => {
-    const { ctx, inserted } = makeCtx({ startPoint: [10, 20], atCurrent: false });
+  it('Auto-constraints off keeps the ortho quantization but writes no H/V', () => {
+    const { ctx, emitted } = makeCtx({ autoConstraints: false });
     const mode = new LineMode();
     mode.enter(ctx);
 
-    mode.handleClick([60, 20], SNAP, ctx);
+    mode.handleClick([100, 8.57], SNAP, ctx);
 
-    expect(inserted).toEqual([{ statement: 'hLine([10, 20], 50)', newVariable: undefined }]);
+    expect(emitted[0].text).toBe('line([0, 0], [100, 0])');
+    expect(emitted[0].constraints).toEqual([]);
   });
 
-  it('spends a pending typed start as hLine(start, distance), even at the cursor', () => {
-    const { ctx, inserted } = makeCtx({ atCurrent: true, pendingStartText: '[w / 2, 10]' });
+  it('spends a pending typed start as the line start', () => {
+    const { ctx, emitted } = makeCtx({ pendingStartText: '[w / 2, 10]' });
     const mode = new LineMode();
     mode.enter(ctx);
 
     mode.handleClick([50, 0], SNAP, ctx);
 
-    expect(inserted).toEqual([{ statement: 'hLine([w / 2, 10], 50)', newVariable: undefined }]);
+    expect(emitted[0].text).toBe('line([w / 2, 10], [50, 0])');
   });
 
-  it('spends a pending typed start on the free-line form', () => {
-    const { ctx, inserted } = makeCtx({ pendingStartText: '[a, b]' });
-    const mode = new LineMode();
-    mode.enter(ctx);
-
-    mode.handleClick([30, 40], SNAP, ctx);
-
-    expect(inserted).toEqual([{ statement: 'line([a, b], [30, 40])', newVariable: undefined }]);
-  });
-
-  it('a typed H: commit with a pending start emits the positioned form', () => {
-    const { ctx, input, inserted } = makeCtx({ pendingStartText: '[w, 0]' });
-    const mode = new LineMode();
-    mode.enter(ctx);
-
-    mode.handleMouseMove([50, 1], SNAP, 0, 0, ctx);
-    type(input, '60');
-    pressEnter(input);
-
-    expect(inserted).toEqual([{ statement: 'hLine([w, 0], 60)', newVariable: undefined }]);
-  });
-
-  it('keeps the legacy free emission for a zero-delta click', () => {
-    const { ctx, inserted } = makeCtx();
-    const mode = new LineMode();
-    mode.enter(ctx);
-
-    const result = mode.handleClick([0, 0], SNAP, ctx);
-
-    expect(inserted).toEqual([{ statement: 'line([0, 0])', newVariable: undefined }]);
-    if (result.kind === 'committed') {
-      expect(result.result.exitTangent).toBeNull();
-    }
-  });
-
-  it('shows the H: input while snapped and a typed commit carries the variable', () => {
-    const { ctx, expr, input, inserted, committed } = makeCtx();
+  it('shows the H: input while snapped and a typed commit becomes a dimension', () => {
+    const { ctx, expr, input, emitted, committed } = makeCtx();
     const mode = new LineMode();
     mode.enter(ctx);
 
@@ -249,7 +209,17 @@ describe('LineMode H/V auto-snap', () => {
     type(input, 'w = 50');
     pressEnter(input);
 
-    expect(inserted).toEqual([{ statement: 'hLine(w)', newVariable: { name: 'w', initializer: '50' } }]);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].text).toBe('line([0, 0], [50, 0])');
+    expect(emitted[0].constraints).toEqual([
+      { kind: 'horizontal', targets: [{ newIndex: 0 }] },
+      {
+        kind: 'distance',
+        targets: [{ newIndex: 0, role: 'start' }, { newIndex: 0, role: 'end' }],
+        valueExpr: 'w',
+      },
+    ]);
+    expect(emitted[0].newVariable).toEqual({ name: 'w', initializer: '50' });
     expect(committed).toHaveLength(1);
     expect(committed[0].endpoint).toEqual([50, 0]);
     expect(committed[0].exitTangent?.direction).toEqual([1, 0]);
@@ -269,43 +239,6 @@ describe('LineMode H/V auto-snap', () => {
 });
 
 describe('ALineMode', () => {
-  it('emits the explicit-start form away from the current position', () => {
-    const { ctx, inserted } = makeCtx({ startPoint: [10, 20], atCurrent: false });
-    const mode = new ALineMode();
-    mode.enter(ctx);
-
-    // No mouse move, so no expression input: the clicks lock directly.
-    expect(mode.handleClick([20, 20], SNAP, ctx).kind).toBe('consumed'); // 0° from +X
-    mode.handleClick([20, 20], SNAP, ctx);                              // length 10
-
-    expect(inserted).toEqual([{ statement: 'aLine([10, 20], 0, 10)', newVariable: undefined }]);
-  });
-
-  it('spends a pending typed start as the explicit-start form', () => {
-    const { ctx, inserted } = makeCtx({ atCurrent: true, pendingStartText: '[w / 2, 10]' });
-    const mode = new ALineMode();
-    mode.enter(ctx);
-
-    expect(mode.handleClick([10, 0], SNAP, ctx).kind).toBe('consumed');
-    mode.handleClick([10, 0], SNAP, ctx);
-
-    expect(inserted).toEqual([{ statement: 'aLine([w / 2, 10], 0, 10)', newVariable: undefined }]);
-  });
-
-  it('keeps the chained form when a tangent exists, even away from the cursor', () => {
-    // Mid-chain render lag: the tool is ahead of the rendered cursor but the
-    // angle was measured from the chain tangent — the absolute-angle
-    // explicit-start overload would change the drawn direction.
-    const { ctx, inserted } = makeCtx({ atCurrent: false, tangent: { direction: [1, 0], point: [0, 0] } });
-    const mode = new ALineMode();
-    mode.enter(ctx);
-
-    expect(mode.handleClick([10, 0], SNAP, ctx).kind).toBe('consumed');
-    mode.handleClick([10, 0], SNAP, ctx);
-
-    expect(inserted).toEqual([{ statement: 'aLine(0, 10)', newVariable: undefined }]);
-  });
-
   it('snaps the angle to 15-degree multiples within tolerance', () => {
     const { ctx, input } = makeCtx();
     const mode = new ALineMode();
@@ -328,25 +261,53 @@ describe('ALineMode', () => {
     expect(input.value).toBe('-90');
   });
 
-  it('commits a two-stage click gesture as aLine(angle, length)', () => {
-    const { ctx, inserted } = makeCtx();
+  it('commits a two-stage click gesture as a line along the locked direction', () => {
+    const { ctx, emitted } = makeCtx();
     const mode = new ALineMode();
     mode.enter(ctx);
 
     mode.handleMouseMove([100, 24.93], SNAP, 0, 0, ctx); // snapped to 15
     const first = mode.handleClick([100, 24.93], SNAP, ctx);
     expect(first.kind).toBe('consumed');
-    expect(inserted).toHaveLength(0);
+    expect(emitted).toHaveLength(0);
 
     mode.handleMouseMove([9.66, 2.59], SNAP, 0, 0, ctx); // ~10 along the locked direction
-    const second = mode.handleClick([9.66, 2.59], SNAP, ctx);
+    mode.handleClick([9.66, 2.59], SNAP, ctx);
 
-    expect(inserted).toEqual([{ statement: 'aLine(15, 10)', newVariable: undefined }]);
-    expect(second.kind).toBe('ignored'); // click routed through the expression commit
+    expect(emitted).toHaveLength(1);
+    const end = emitted[0].text.match(/^line\(\[0, 0\], \[([\d.-]+), ([\d.-]+)\]\)$/);
+    expect(end).not.toBeNull();
+    expect(parseFloat(end![1])).toBeCloseTo(10 * Math.cos((15 * Math.PI) / 180), 1);
+    expect(parseFloat(end![2])).toBeCloseTo(10 * Math.sin((15 * Math.PI) / 180), 1);
+    // A click-committed length stays a guess — no dimension.
+    expect((emitted[0].constraints ?? []).some(c => c.kind === 'distance')).toBe(false);
   });
 
-  it('forwards typed expressions from both stages with the variables as an array', () => {
-    const { ctx, input, inserted, committed } = makeCtx();
+  it('writes the angle intent as an angle constraint against a previous line', () => {
+    const { ctx, emitted } = makeCtx({
+      startPoint: [50, 0],
+      tangent: { direction: [1, 0], point: [50, 0] },
+      prev: { line: 7, featureType: 'line' } as SolvedEmissionTargetParam,
+      prevKind: 'line',
+      prevDir: [1, 0],
+    });
+    const mode = new ALineMode();
+    mode.enter(ctx);
+
+    // Lock 45° off the incoming +X tangent, then a length of ~10.
+    expect(mode.handleClick([60, 10], SNAP, ctx).kind).toBe('consumed');
+    mode.handleClick([57.07, 7.07], SNAP, ctx);
+
+    expect(emitted).toHaveLength(1);
+    const angle = (emitted[0].constraints ?? []).find(c => c.kind === 'angle');
+    expect(angle).toBeDefined();
+    // 45° CCW from the previous line's direction; ≤180° so target order is prev, next.
+    expect(angle!.valueExpr).toBe('45');
+    expect(angle!.targets).toEqual([{ line: 7, featureType: 'line' }, { newIndex: 0 }]);
+  });
+
+  it('forwards a typed length as a distance dimension with its declaration', () => {
+    const { ctx, input, emitted, committed } = makeCtx();
     const mode = new ALineMode();
     mode.enter(ctx);
 
@@ -358,17 +319,15 @@ describe('ALineMode', () => {
     type(input, 'len = 20');
     pressEnter(input);
 
-    expect(inserted).toEqual([{
-      statement: 'aLine(ang, len)',
-      newVariable: [
-        { name: 'ang', initializer: '30' },
-        { name: 'len', initializer: '20' },
-      ],
-    }]);
+    expect(emitted).toHaveLength(1);
+    const dim = (emitted[0].constraints ?? []).find(c => c.kind === 'distance');
+    expect(dim).toBeDefined();
+    expect(dim!.valueExpr).toBe('len');
+    expect(emitted[0].newVariable).toEqual({ name: 'len', initializer: '20' });
     expect(committed).toHaveLength(1);
     // The declared variable's value drives the drawn direction — falling
-    // back to the mouse-derived angle here once made the preview (and the
-    // edge-snap intersection) disagree with what the kernel builds.
+    // back to the mouse-derived angle here once made the preview disagree
+    // with what the kernel builds.
     expect(committed[0].exitTangent?.direction[0]).toBeCloseTo(Math.cos((30 * Math.PI) / 180), 3);
     expect(committed[0].exitTangent?.direction[1]).toBeCloseTo(Math.sin((30 * Math.PI) / 180), 3);
   });
@@ -377,7 +336,7 @@ describe('ALineMode', () => {
     // Regression: parseFloat('(-45)') is NaN, and the old fallback silently
     // locked the mouse-derived angle instead — the preview and endpoint math
     // then drew along a direction the kernel never builds.
-    const { ctx, input, inserted, committed } = makeCtx();
+    const { ctx, input, emitted, committed } = makeCtx();
     const mode = new ALineMode();
     mode.enter(ctx);
 
@@ -389,13 +348,13 @@ describe('ALineMode', () => {
     type(input, '10');
     pressEnter(input);
 
-    expect(inserted).toEqual([{ statement: 'aLine((-45), 10)', newVariable: undefined }]);
+    expect(emitted).toHaveLength(1);
     expect(committed[0].exitTangent?.direction[0]).toBeCloseTo(Math.cos(-Math.PI / 4), 3);
     expect(committed[0].exitTangent?.direction[1]).toBeCloseTo(Math.sin(-Math.PI / 4), 3);
   });
 
   it('ignores a zero-length second click', () => {
-    const { ctx, inserted } = makeCtx();
+    const { ctx, emitted } = makeCtx();
     const mode = new ALineMode();
     mode.enter(ctx);
 
@@ -404,7 +363,7 @@ describe('ALineMode', () => {
     expect(mode.handleClick([0, 0], SNAP, ctx).kind).toBe('ignored');
     // Points behind the start project to a clamped zero length.
     expect(mode.handleClick([-5, 0], SNAP, ctx).kind).toBe('ignored');
-    expect(inserted).toHaveLength(0);
+    expect(emitted).toHaveLength(0);
   });
 
   it('Escape backs out from length to angle, then reports unhandled', () => {
@@ -419,18 +378,26 @@ describe('ALineMode', () => {
 });
 
 describe('TArcMode', () => {
-  it('emits the radius + endpoint overload with the solved radius', () => {
-    // Chain at (50, 0) heading +X; endpoint (80, 30) solves to radius 30.
-    const { ctx, inserted } = makeCtx({
+  it('emits a fully-specified arc for the solved tangent gesture', () => {
+    // Chain at (50, 0) heading +X; endpoint (80, 30) solves to radius 30
+    // around center (50, 30), CCW.
+    const { ctx, emitted } = makeCtx({
       startPoint: [50, 0],
       tangent: { direction: [1, 0], point: [50, 0] },
+      prev: { line: 4, featureType: 'line' } as SolvedEmissionTargetParam,
+      prevKind: 'line',
+      prevDir: [1, 0],
     });
     const mode = new TArcMode();
     mode.enter(ctx);
 
     const result = mode.handleClick([80, 30], SNAP, ctx);
 
-    expect(inserted).toEqual([{ statement: 'tArc(30, [80, 30])', newVariable: undefined }]);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].text).toBe('arc([50, 0], [80, 30], [50, 30])');
+    expect(emitted[0].constraints).toEqual([
+      { kind: 'tangent', targets: [{ line: 4, featureType: 'line' }, { newIndex: 0 }] },
+    ]);
     expect(result.kind).toBe('committed');
     if (result.kind === 'committed') {
       expect(result.result.endpoint[0]).toBeCloseTo(80, 9);
@@ -445,7 +412,7 @@ describe('TArcMode', () => {
     // An awkward click whose solved radius rounds: the committed endpoint
     // must land on the written-radius circle, and the returned chain
     // position must be that endpoint's exact re-projection — not the click.
-    const { ctx, inserted } = makeCtx({
+    const { ctx, emitted } = makeCtx({
       startPoint: [50, 0],
       tangent: { direction: [1, 0], point: [50, 0] },
     });
@@ -455,22 +422,22 @@ describe('TArcMode', () => {
     const result = mode.handleClick([81.234, 27.891], SNAP, ctx);
 
     expect(result.kind).toBe('committed');
-    const match = inserted[0].statement.match(/^tArc\(([\d.]+), \[([\d.-]+), ([\d.-]+)\]\)$/);
+    const match = emitted[0].text.match(/^arc\(\[50, 0\], \[([\d.-]+), ([\d.-]+)\], \[([\d.-]+), ([\d.-]+)\]\)/);
     expect(match).not.toBeNull();
-    const radius = parseFloat(match![1]);
+    const center: Point2D = [parseFloat(match![3]), parseFloat(match![4])];
+    const radius = Math.hypot(50 - center[0], 0 - center[1]);
     if (result.kind === 'committed') {
-      // The chain continues on the circle of the written radius, tangent to
-      // the incoming direction (center on the perpendicular at the start).
+      // The chain continues on the written circle, tangent to the incoming
+      // direction (center on the perpendicular at the start).
       const [ex, ey] = result.result.endpoint;
-      const centerDist = Math.hypot(ex - 50, ey - radius);
-      expect(centerDist).toBeCloseTo(radius, 9);
+      expect(Math.hypot(ex - center[0], ey - center[1])).toBeCloseTo(radius, 9);
       // And within statement-rounding distance of the written endpoint.
-      expect(Math.hypot(ex - parseFloat(match![2]), ey - parseFloat(match![3]))).toBeLessThan(0.02);
+      expect(Math.hypot(ex - parseFloat(match![1]), ey - parseFloat(match![2]))).toBeLessThan(0.02);
     }
   });
 
   it('ignores a click collinear with the tangent', () => {
-    const { ctx, inserted } = makeCtx({
+    const { ctx, emitted } = makeCtx({
       startPoint: [50, 0],
       tangent: { direction: [1, 0], point: [50, 0] },
     });
@@ -479,335 +446,38 @@ describe('TArcMode', () => {
 
     const result = mode.handleClick([90, 0], SNAP, ctx);
 
-    expect(inserted).toEqual([]);
+    expect(emitted).toEqual([]);
     expect(result.kind).toBe('ignored');
   });
 });
 
-describe('TArcMode edge snap', () => {
-  beforeEach(() => {
-    vi.mocked(applyTarcToEdge).mockClear();
-  });
-
-  /** A single-edge sketch object (one real edge shape) for the edge index. */
-  function edgeObj(shapeId: string, a: Point2D, b: Point2D, uniqueType = 'line-two-points') {
-    return {
-      parentId: 'sketch',
-      uniqueType,
-      sourceLocation: { filePath: 'f.fluid.js', line: 3, column: 0 },
-      sceneShapes: [{
-        shapeId,
-        meshes: [{ vertices: [a[0], a[1], 0, b[0], b[1], 0], indices: [0, 1] }],
-      }],
-    };
-  }
-
-  function makeSnapCtx(sceneObjects: unknown[]) {
-    return makeCtx({
-      startPoint: [50, 0],
-      tangent: { direction: [1, 0], point: [50, 0] },
-      sceneObjects,
-    });
-  }
-
-  it('snaps to a hovered edge and commits the radius + target overload', async () => {
-    // Chain at (50, 0) heading +X; a vertical line at x=80. Hovering near
-    // (80, 30) projects onto the line and solves radius 30, CCW.
-    const { ctx, committed, hints } = makeSnapCtx([edgeObj('t1', [80, -50], [80, 50])]);
-    const mode = new TArcMode();
-    mode.enter(ctx);
-
-    mode.handleMouseMove([79.5, 30], SNAP, 0, 0, ctx);
-    expect(hints[hints.length - 1]).toBe('Tangent arc up to intersection');
-
-    const result = mode.handleClick([79.5, 30], SNAP, ctx);
-    expect(result.kind).toBe('consumed');
-    expect(applyTarcToEdge).toHaveBeenCalledWith(30, 't1');
-
-    await vi.waitFor(() => expect(committed).toHaveLength(1));
-    expect(committed[0].endpoint[0]).toBeCloseTo(80);
-    expect(committed[0].endpoint[1]).toBeCloseTo(30);
-    // Exit tangent at (80, 30) around center (50, 30), CCW: straight up.
-    expect(committed[0].exitTangent?.direction[0]).toBeCloseTo(0);
-    expect(committed[0].exitTangent?.direction[1]).toBeCloseTo(1);
-  });
-
-  it('writes a negative radius for a clockwise sweep', () => {
-    const { ctx } = makeSnapCtx([edgeObj('t1', [80, -50], [80, 50])]);
-    const mode = new TArcMode();
-    mode.enter(ctx);
-
-    mode.handleMouseMove([79.5, -30], SNAP, 0, 0, ctx);
-    mode.handleClick([79.5, -30], SNAP, ctx);
-
-    expect(applyTarcToEdge).toHaveBeenCalledWith(-30, 't1');
-  });
-
-  it('snaps to guide edges too', () => {
-    const guide = {
-      parentId: 'sketch',
-      uniqueType: 'line-two-points',
-      sourceLocation: { filePath: 'f.fluid.js', line: 3, column: 0 },
-      sceneShapes: [{
-        shapeId: 'g1',
-        isGuide: true,
-        meshes: [{ vertices: [80, -50, 0, 80, 50, 0], indices: [0, 1] }],
-      }],
-    };
-    const { ctx, hints } = makeSnapCtx([guide]);
-    const mode = new TArcMode();
-    mode.enter(ctx);
-
-    mode.handleMouseMove([79.5, 30], SNAP, 0, 0, ctx);
-    expect(hints[hints.length - 1]).toBe('Tangent arc up to intersection');
-    mode.handleClick([79.5, 30], SNAP, ctx);
-
-    expect(applyTarcToEdge).toHaveBeenCalledWith(30, 'g1');
-  });
-
-  it('never snaps to the edge the chain leaves from', () => {
-    // The previous segment ends at the chain start — hovering over it must
-    // not offer the intersection snap.
-    const { ctx, hints } = makeSnapCtx([edgeObj('prev', [0, 0], [50, 0])]);
-    const mode = new TArcMode();
-    mode.enter(ctx);
-
-    mode.handleMouseMove([40, 0.4], SNAP, 0, 0, ctx);
-    mode.handleClick([40, 0.4], SNAP, ctx);
-
-    expect(hints.filter((h) => h !== null)).toHaveLength(0);
-    expect(applyTarcToEdge).not.toHaveBeenCalled();
-  });
-
-  it('ignores multi-edge owners (the kernel targets the first shape only)', () => {
-    const rectish = {
-      parentId: 'sketch',
-      uniqueType: 'rect',
-      sourceLocation: { filePath: 'f.fluid.js', line: 3, column: 0 },
-      sceneShapes: [
-        { shapeId: 'r1', meshes: [{ vertices: [80, -50, 0, 80, 50, 0], indices: [0, 1] }] },
-        { shapeId: 'r2', meshes: [{ vertices: [80, 50, 0, 120, 50, 0], indices: [0, 1] }] },
-      ],
-    };
-    const { ctx, hints } = makeSnapCtx([rectish]);
-    const mode = new TArcMode();
-    mode.enter(ctx);
-
-    mode.handleMouseMove([79.5, 30], SNAP, 0, 0, ctx);
-    mode.handleClick([79.5, 30], SNAP, ctx);
-
-    expect(hints.filter((h) => h !== null)).toHaveLength(0);
-    expect(applyTarcToEdge).not.toHaveBeenCalled();
-  });
-
-  it('falls back to the endpoint overload when the server refuses', async () => {
-    vi.mocked(applyTarcToEdge).mockResolvedValueOnce({ success: false, reason: 'clone' });
-    const { ctx, inserted, committed } = makeSnapCtx([edgeObj('t1', [80, -50], [80, 50])]);
-    const mode = new TArcMode();
-    mode.enter(ctx);
-
-    mode.handleMouseMove([79.5, 30], SNAP, 0, 0, ctx);
-    mode.handleClick([79.5, 30], SNAP, ctx);
-
-    await vi.waitFor(() => expect(committed).toHaveLength(1));
-    expect(inserted).toEqual([{ statement: 'tArc(30, [80, 30])', newVariable: undefined }]);
-    expect(committed[0].endpoint[0]).toBeCloseTo(80);
-    expect(committed[0].endpoint[1]).toBeCloseTo(30);
-  });
-});
-
-describe('ALineMode edge snap', () => {
-  beforeEach(() => {
-    vi.mocked(applyAlineToEdge).mockClear();
-  });
-
-  /** A single-edge sketch object (one real edge shape) for the edge index. */
-  function edgeObj(shapeId: string, a: Point2D, b: Point2D, uniqueType = 'line-two-points') {
-    return {
-      parentId: 'sketch',
-      uniqueType,
-      sourceLocation: { filePath: 'f.fluid.js', line: 3, column: 0 },
-      sceneShapes: [{
-        shapeId,
-        meshes: [{ vertices: [a[0], a[1], 0, b[0], b[1], 0], indices: [0, 1] }],
-      }],
-    };
-  }
-
-  function makeSnapCtx(sceneObjects: unknown[], extra: CtxOptions = {}) {
-    return makeCtx({
-      startPoint: [50, 0],
-      tangent: { direction: [1, 0], point: [50, 0] },
-      sceneObjects,
-      ...extra,
-    });
-  }
-
-  it('snaps to a hovered line and commits the angle + target overload', async () => {
-    // Chain at (50, 0) heading +X, angle locked at 0; a vertical line at
-    // x=80. Hovering near it lands the segment at the intersection (80, 0).
-    const { ctx, committed, hints } = makeSnapCtx([edgeObj('t1', [80, -50], [80, 50])]);
-    const mode = new ALineMode();
-    mode.enter(ctx);
-
-    expect(mode.handleClick([60, 0], SNAP, ctx).kind).toBe('consumed'); // locks 0°
-    mode.handleMouseMove([79.5, 10], SNAP, 0, 0, ctx);
-    expect(hints[hints.length - 1]).toBe('Line up to intersection');
-
-    const result = mode.handleClick([79.5, 10], SNAP, ctx);
-    expect(result.kind).toBe('consumed');
-    expect(applyAlineToEdge).toHaveBeenCalledWith('0', 't1', { start: undefined, newVariables: undefined });
-
-    await vi.waitFor(() => expect(committed).toHaveLength(1));
-    expect(committed[0].endpoint[0]).toBeCloseTo(80);
-    expect(committed[0].endpoint[1]).toBeCloseTo(0);
-    expect(committed[0].exitTangent?.direction[0]).toBeCloseTo(1);
-    expect(committed[0].exitTangent?.direction[1]).toBeCloseTo(0);
-  });
-
-  it('intersects along the locked direction, not toward the cursor', async () => {
-    // Regression: with the angle locked at -45°, hovering anywhere on the
-    // line must land at the -45° intersection (80, -30) — an endpoint on the
-    // wrong ray desyncs the chain from the kernel's rendered segment.
-    const { ctx, committed } = makeSnapCtx([edgeObj('t1', [80, -50], [80, 50])]);
-    const mode = new ALineMode();
-    mode.enter(ctx);
-
-    expect(mode.handleClick([60, -10], SNAP, ctx).kind).toBe('consumed'); // locks -45°
-    mode.handleMouseMove([79.5, 10], SNAP, 0, 0, ctx);
-    mode.handleClick([79.5, 10], SNAP, ctx);
-    expect(applyAlineToEdge).toHaveBeenCalledWith('-45', 't1', { start: undefined, newVariables: undefined });
-
-    await vi.waitFor(() => expect(committed).toHaveLength(1));
-    expect(committed[0].endpoint[0]).toBeCloseTo(80);
-    expect(committed[0].endpoint[1]).toBeCloseTo(-30);
-  });
-
-  it('accepts multi-edge owners — the kernel intersects every edge', () => {
-    const rectish = {
-      parentId: 'sketch',
-      uniqueType: 'rect',
-      sourceLocation: { filePath: 'f.fluid.js', line: 3, column: 0 },
-      sceneShapes: [
-        { shapeId: 'r1', meshes: [{ vertices: [80, -50, 0, 80, 50, 0], indices: [0, 1] }] },
-        { shapeId: 'r2', meshes: [{ vertices: [80, 50, 0, 120, 50, 0], indices: [0, 1] }] },
-      ],
-    };
-    const { ctx, hints } = makeSnapCtx([rectish]);
-    const mode = new ALineMode();
-    mode.enter(ctx);
-
-    mode.handleClick([60, 0], SNAP, ctx);
-    mode.handleMouseMove([79.5, 10], SNAP, 0, 0, ctx);
-    expect(hints[hints.length - 1]).toBe('Line up to intersection');
-    mode.handleClick([79.5, 10], SNAP, ctx);
-
-    expect(applyAlineToEdge).toHaveBeenCalledWith('0', 'r1', { start: undefined, newVariables: undefined });
-  });
-
-  it('withholds the snap when the typed angle cannot be resolved', () => {
-    // `w` has no initializer here, so the locked direction is a mouse-derived
-    // guess — an intersection along it would be fiction, and committing it
-    // would desync the chain from the kernel.
-    const { ctx, input, hints } = makeSnapCtx(
-      [edgeObj('t1', [80, -50], [80, 50])],
-      { variables: [{ name: 'w' }] },
-    );
-    const mode = new ALineMode();
-    mode.enter(ctx);
-
-    mode.handleMouseMove([100, 0], SNAP, 0, 0, ctx);
-    type(input, 'w');
-    pressEnter(input);
-
-    mode.handleMouseMove([79.5, 10], SNAP, 0, 0, ctx);
-    mode.handleClick([79.5, 10], SNAP, ctx);
-
-    expect(hints.filter((h) => h !== null)).toHaveLength(0);
-    expect(applyAlineToEdge).not.toHaveBeenCalled();
-  });
-
-  it('sends the chain-start address when the chain opened away from the cursor', async () => {
-    const { ctx, committed } = makeCtx({
-      startPoint: [10, 20],
-      atCurrent: false,
-      sceneObjects: [edgeObj('t1', [80, -50], [80, 50])],
-    });
-    const mode = new ALineMode();
-    mode.enter(ctx);
-
-    mode.handleClick([20, 20], SNAP, ctx); // locks 0° from +X
-    mode.handleMouseMove([79.5, 30], SNAP, 0, 0, ctx);
-    mode.handleClick([79.5, 30], SNAP, ctx);
-
-    expect(applyAlineToEdge).toHaveBeenCalledWith('0', 't1', { start: '[10, 20]', newVariables: undefined });
-    await vi.waitFor(() => expect(committed).toHaveLength(1));
-    expect(committed[0].endpoint[0]).toBeCloseTo(80);
-    expect(committed[0].endpoint[1]).toBeCloseTo(20);
-  });
-
-  it('spends a pending typed start and its declarations on the snap commit', async () => {
-    const { ctx, state } = makeCtx({
-      startPoint: [50, 0],
-      atCurrent: true,
-      pendingStartText: '[w / 2, 0]',
-      pendingStartVariables: [{ name: 'w', initializer: '100' }],
-      sceneObjects: [edgeObj('t1', [80, -50], [80, 50])],
-    });
-    const mode = new ALineMode();
-    mode.enter(ctx);
-
-    mode.handleClick([60, 0], SNAP, ctx);
-    mode.handleMouseMove([79.5, 10], SNAP, 0, 0, ctx);
-    mode.handleClick([79.5, 10], SNAP, ctx);
-
-    expect(applyAlineToEdge).toHaveBeenCalledWith('0', 't1', {
-      start: '[w / 2, 0]',
-      newVariables: [{ name: 'w', initializer: '100' }],
-    });
-    await vi.waitFor(() => expect(state.pendingStartCleared).toBe(1));
-  });
-
-  it('falls back to the plain angle + length overload when the server refuses', async () => {
-    vi.mocked(applyAlineToEdge).mockResolvedValueOnce({ success: false, reason: 'clone' });
-    const { ctx, inserted, committed } = makeSnapCtx([edgeObj('t1', [80, -50], [80, 50])]);
-    const mode = new ALineMode();
-    mode.enter(ctx);
-
-    mode.handleClick([60, 0], SNAP, ctx);
-    mode.handleMouseMove([79.5, 10], SNAP, 0, 0, ctx);
-    mode.handleClick([79.5, 10], SNAP, ctx);
-
-    await vi.waitFor(() => expect(committed).toHaveLength(1));
-    expect(inserted).toEqual([{ statement: 'aLine(0, 30)', newVariable: undefined }]);
-    expect(committed[0].endpoint[0]).toBeCloseTo(80);
-    expect(committed[0].endpoint[1]).toBeCloseTo(0);
-  });
-});
-
 describe('ArcMode explicit start', () => {
-  it('spends a pending typed start on the explicit-start arc form', () => {
-    const { ctx, inserted } = makeCtx({ atCurrent: true, pendingStartText: '[p, q]' });
+  it('spends a pending typed start as the arc start', () => {
+    const { ctx, emitted } = makeCtx({ pendingStartText: '[p, q]' });
     const mode = new ArcMode();
     mode.enter(ctx);
 
     expect(mode.handleClick([10, 0], SNAP, ctx).kind).toBe('consumed'); // end point
     mode.handleClick([5, -5], SNAP, ctx);                               // through point
 
-    expect(inserted).toEqual([{ statement: 'arc([p, q], [10, 0]).center([5, 0])', newVariable: undefined }]);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].text).toBe('arc([p, q], [10, 0], [5, 0])');
   });
 });
 
 describe('PolylineTool typed chain start', () => {
   function makeBareTool() {
-    const inserted: Inserted[] = [];
     const tool: any = Object.create(PolylineTool.prototype);
     tool.phase = PolylinePhase.IDLE;
     tool.startPoint = null;
     tool.tangent = null;
     tool.pendingStart = null;
-    tool.currentPosition = null;
-    tool.currentTangent = null;
+    tool.solvedPrev = null;
+    tool.solvedStartRef = null;
+    tool.solvedCtx = {
+      emit: async () => ({ success: true }),
+      autoConstraints: () => true,
+    };
     tool.modes = [new LineMode()];
     tool.currentModeIndex = 0;
     tool.modeIndicator = { update: () => {}, setHint: () => {} };
@@ -818,16 +488,13 @@ describe('PolylineTool typed chain start', () => {
     tool.previewGroup = {};
     tool.expressionInput = { hide: () => {}, get isVisible() { return false; } };
     tool.pointInput = { handleEscape: () => false };
-    tool.insertGeometry = (statement: string, newVariable?: unknown) => {
-      inserted.push({ statement, newVariable });
-    };
     tool.syncPointInput = () => {};
     tool.rebuildPreview = () => {};
-    return { tool, inserted };
+    return { tool };
   }
 
-  it('defers an absolute typed start into the first segment insert', () => {
-    const { tool, inserted } = makeBareTool();
+  it('defers an absolute typed start onto the first segment', () => {
+    const { tool } = makeBareTool();
 
     tool.beginChainAt({
       value: [5, 10],
@@ -837,45 +504,17 @@ describe('PolylineTool typed chain start', () => {
       typed: true,
     });
 
-    // Nothing written yet: no move(...) statement, and tangent modes are off.
-    expect(inserted).toHaveLength(0);
+    // Nothing written yet, and tangent modes are off.
     expect(tool.phase).toBe(PolylinePhase.DRAWING);
     expect(tool.tangent).toBeNull();
 
-    // Modes see the typed address and route inserts through the tool.
+    // Modes see the typed address through the context.
     const ctx = tool.buildModeContext();
     expect(ctx.pendingStartText()).toBe('[w / 2, 10]');
-
-    ctx.insertGeometry('hLine([w / 2, 10], 30)');
-    expect(inserted).toEqual([{
-      statement: 'hLine([w / 2, 10], 30)',
-      newVariable: [{ name: 'w', initializer: '10' }],
-    }]);
-
-    // The start is spent: later segments chain plainly.
-    expect(ctx.pendingStartText()).toBeNull();
-    ctx.insertGeometry('hLine(5)');
-    expect(inserted[1]).toEqual({ statement: 'hLine(5)', newVariable: undefined });
-  });
-
-  it('keeps the immediate move(dx, dy) for a relative typed start', () => {
-    const { tool, inserted } = makeBareTool();
-
-    tool.beginChainAt({
-      value: [5, 10],
-      xExpr: '5',
-      yExpr: '10',
-      newVariables: [],
-      typed: true,
-      relative: { dx: '5', dy: '10' },
-    });
-
-    expect(inserted).toEqual([{ statement: 'move(5, 10)', newVariable: undefined }]);
-    expect(tool.pendingStart).toBeNull();
   });
 
   it('drops an unspent typed start when Escape ends the chain', () => {
-    const { tool, inserted } = makeBareTool();
+    const { tool } = makeBareTool();
 
     tool.beginChainAt({
       value: [5, 10],
@@ -889,7 +528,6 @@ describe('PolylineTool typed chain start', () => {
     expect(tool.handleEscape()).toBe(true);
     expect(tool.phase).toBe(PolylinePhase.IDLE);
     expect(tool.pendingStart).toBeNull();
-    expect(inserted).toHaveLength(0);
   });
 });
 
@@ -902,6 +540,9 @@ describe('PolylineTool Escape delegation', () => {
     tool.phase = PolylinePhase.DRAWING;
     tool.startPoint = [0, 0];
     tool.tangent = null;
+    tool.pendingStart = null;
+    tool.solvedPrev = null;
+    tool.solvedStartRef = null;
     tool.expressionInput = { hide: () => {} };
     // The coordinate pill declines a clean Escape, so the chain-ending path
     // below is reached exactly as it is with a real one.

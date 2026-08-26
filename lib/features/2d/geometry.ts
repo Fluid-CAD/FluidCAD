@@ -14,8 +14,6 @@ import { FilterBuilderBase } from "../../filters/filter-builder-base.js";
 import { ShapeFilter } from "../../filters/filter.js";
 import type { SketchInteractivity } from "../../rendering/scene.js";
 import { IGeometry } from "../../core/interfaces.js";
-import { BuildError } from "../../common/build-error.js";
-import { solvedModeRejection } from "./solved/mode-errors.js";
 
 export type GeometryOrientation = "cw" | "ccw";
 
@@ -24,21 +22,6 @@ export type GeometryOrientation = "cw" | "ccw";
  * object, or an edge filter applied against the active sketch's edges.
  */
 export type EdgeTargetArg = SceneObject | FilterBuilderBase<Shape>;
-
-// Sketch geometry the viewport can drag (statement args are editable by
-// direct manipulation). Everything else is selectable as an operation target
-// only. Mirrors the retired UI-side INTERACTIVE_SKETCH_TYPES allow-list.
-const DRAGGABLE_SKETCH_TYPES = new Set([
-  'line-two-points', 'hline', 'vline',
-  'circle',
-  'arc', 'arc-from-center',
-  'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
-  'tarc-radius-to-point',
-  'tline', 'aline',
-  'rect',
-  'polygon',
-  'slot',
-]);
 
 export abstract class GeometrySceneObject extends SceneObject implements IGeometry {
 
@@ -62,22 +45,6 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
       parent = parent.getParent();
     }
     return parent instanceof Sketch ? parent : null;
-  }
-
-  /** A solved-mode sketch rejects pen/imperative statements per statement —
-   * the rest of the sketch still builds. */
-  override validate(): void {
-    const sk = this.enclosingSketch();
-    if (sk && sk.isSolvedMode()) {
-      const rejection = solvedModeRejection(this.getUniqueType());
-      if (rejection) {
-        throw new BuildError(rejection);
-      }
-    }
-  }
-
-  protected getCurrentPosition(): Point2D {
-    return this.sketch.getPositionAt(this);
   }
 
   protected setCurrentPosition(point: Point2D) {
@@ -136,10 +103,13 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
    * statements, or edge filter builders) to their edges, mapped to the *real*
    * owning feature — reaching through indirection via the sketch's edge index
    * so removals hit the feature that renders the edge. Filter builders are
-   * evaluated against the active sketch's edges.
+   * evaluated against the active sketch's non-guide edges; DIRECT object
+   * targets include guide edges — explicitly naming a `.guide()` source is
+   * intentional (the P7 offset pattern: guide the source, offset it).
    */
   protected resolveEdgeTargets(targets: EdgeTargetArg[]): Map<Edge, SceneObject> {
     const ownerByEdge = this.sketch.getEdgesWithOwner();
+    const ownerByEdgeWithGuides = this.sketch.getEdgesWithOwner({ excludeGuide: false });
     const result = new Map<Edge, SceneObject>();
 
     for (const target of targets) {
@@ -152,12 +122,12 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
         continue;
       }
 
-      for (const shape of target.getShapes()) {
+      for (const shape of target.getShapes({ excludeMeta: true, excludeGuide: false })) {
         if (shape instanceof Edge) {
-          result.set(shape, ownerByEdge.get(shape) ?? target);
+          result.set(shape, ownerByEdgeWithGuides.get(shape) ?? target);
         } else if (shape instanceof Wire) {
           for (const edge of shape.getEdges()) {
-            result.set(edge, ownerByEdge.get(edge) ?? target);
+            result.set(edge, ownerByEdgeWithGuides.get(edge) ?? target);
           }
         }
       }
@@ -310,12 +280,9 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
     return false;
   }
 
-  /** Server-driven viewport classification; see DRAGGABLE_SKETCH_TYPES. */
+  /** Server-driven viewport classification. Solver entities override this
+   * with 'draggable'; everything else is an operation target only. */
   getSketchInteractivity(): SketchInteractivity {
-    const uniqueType = this.getUniqueType();
-    if (uniqueType.startsWith('bezier-') || DRAGGABLE_SKETCH_TYPES.has(uniqueType)) {
-      return 'draggable';
-    }
     return 'selectable';
   }
 

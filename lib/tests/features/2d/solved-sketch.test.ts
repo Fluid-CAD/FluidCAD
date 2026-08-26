@@ -43,7 +43,7 @@ function declareRectangle() {
     distance(b.start(), b.end(), 100);
     distance(r.start(), r.end(), 50);
     return { b, r, t, l };
-  }, true) as unknown as Sketch;
+  }) as unknown as Sketch;
 }
 
 describe("solved sketch (constraint mode)", () => {
@@ -96,7 +96,7 @@ describe("solved sketch (constraint mode)", () => {
   it("keeps under-constrained geometry at its guesses and counts DOF", () => {
     const s = sketch('xy', () => {
       line([0, 0], [40, 5]);
-    }, true) as unknown as Sketch;
+    }) as unknown as Sketch;
     const scene = render();
 
     const payload = scene.getRenderedObject(s as unknown as SceneObject).object;
@@ -117,7 +117,7 @@ describe("solved sketch (constraint mode)", () => {
       horizontal(l);
       radius(a, 20);
       distance(l.start(), l.end(), 50);
-    }, true);
+    });
     const scene = render();
 
     const arcPayload = renderedByUniqueType(scene, 'solved-arc')[0].object;
@@ -141,7 +141,7 @@ describe("solved sketch (constraint mode)", () => {
       distance(l1.start(), l1.end(), 100);
       radius(a1, 20);
       distance(l1, a1, 130);
-    }, true);
+    });
     const scene = render();
 
     const arcPayload = renderedByUniqueType(scene, 'solved-arc')[0].object;
@@ -161,7 +161,7 @@ describe("solved sketch (constraint mode)", () => {
       distance(l1.start(), l1.end(), 100);
       radius(a1, 20);
       distance(l1, a1, 170).max();
-    }, true);
+    });
     const scene = render();
 
     const arcPayload = renderedByUniqueType(scene, 'solved-arc')[0].object;
@@ -178,7 +178,7 @@ describe("solved sketch (constraint mode)", () => {
       const c = (circle([12, 9], 30) as unknown as ISolvedCircle);
       coincident(p, c.center());
       diameter(c, 44);
-    }, true);
+    });
     const scene = render();
 
     const circlePayload = renderedByUniqueType(scene, 'solved-circle')[0].object;
@@ -198,7 +198,7 @@ describe("solved sketch (constraint mode)", () => {
       fix(l.end());
       const p = point([3, 8]);
       coincident(p, (l as unknown as ISolvedLine).mid());
-    }, true);
+    });
     const scene = render();
 
     const pointPayload = renderedByUniqueType(scene, 'solved-point')[0].object;
@@ -228,7 +228,7 @@ describe("solved sketch (constraint mode)", () => {
       coincident(t.end(), l.start());
       coincident(l.end(), b.start());
       vertical(l);
-    }, true);
+    });
     const interleaved = render();
     const interleavedLines = solvedLinePayloads(interleaved).map(l => [l.start, l.end]);
 

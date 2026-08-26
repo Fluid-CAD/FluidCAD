@@ -11,7 +11,7 @@ function sketchSpec(overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeature
     value: 4,
     filePath: '/ws/model.fluid.js',
     producers: [
-      { line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true },
+      { line: 4, column: 0, featureType: 'circle', nameHint: 'r', bind: true },
       { line: 6, column: 0, featureType: 'line', nameHint: 'l', bind: true },
     ],
     parts: [
@@ -26,12 +26,12 @@ function sketchSpec(overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeature
 describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
   it('binds sketch statements and appends the fillet inside the body', async () => {
     const code = [
-      `import { sketch, rect, aLine, move, extrude } from 'fluidcad/core'`,
+      `import { sketch, circle, line, point, extrude } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
-      `  rect(80, 60)`,
-      `  move([0, 60])`,
-      `  aLine(135, 30)`,
+      `  circle([0, 0], 80)`,
+      `  point([0, 60])`,
+      `  line([0, 0], [135, 30])`,
       `})`,
       `extrude(10)`,
       ``,
@@ -40,12 +40,12 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
     const result = await applyFeatureEdit(code, sketchSpec());
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {fillet, sketch, rect, aLine, move, extrude } from 'fluidcad/core'`,
+      `import {fillet, sketch, circle, line, point, extrude } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
-      `  const r = rect(80, 60)`,
-      `  move([0, 60])`,
-      `  const l = aLine(135, 30)`,
+      `  const r = circle([0, 0], 80)`,
+      `  point([0, 60])`,
+      `  const l = line([0, 0], [135, 30])`,
       `  fillet(4, r.edge('top'), l)`,
       `})`,
       `extrude(10)`,
@@ -55,13 +55,13 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
 
   it('binds a fillet2d producer for a second fillet over its edges', async () => {
     const code = [
-      `import { sketch, rect, fillet, aLine, move } from 'fluidcad/core'`,
+      `import { sketch, circle, fillet, line, point } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
-      `  const r = rect(80, 60)`,
+      `  const r = circle([0, 0], 80)`,
       `  fillet(4, r.edge('top'), r.edge('right'))`,
-      `  move([0, 60])`,
-      `  aLine(135, 30)`,
+      `  point([0, 60])`,
+      `  line([0, 0], [135, 30])`,
       `})`,
       ``,
     ].join('\n');
@@ -85,31 +85,31 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
 
   it('reuses an existing const binding in the sketch body', async () => {
     const code = [
-      `import { sketch, rect, fillet } from 'fluidcad/core'`,
+      `import { sketch, circle, fillet } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
-      `  const base = rect(80, 60)`,
+      `  const base = circle([0, 0], 80)`,
       `})`,
       ``,
     ].join('\n');
 
     const result = await applyFeatureEdit(code, sketchSpec({
-      producers: [{ line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true }],
+      producers: [{ line: 4, column: 0, featureType: 'circle', nameHint: 'r', bind: true }],
       parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" }],
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`const base = rect(80, 60)`);
+    expect(result.newCode).toContain(`const base = circle([0, 0], 80)`);
     expect(result.newCode).toContain(`fillet(4, base.edge('top'))`);
   });
 
   it('renders bare filter parts and imports edge', async () => {
     const code = [
-      `import { sketch, hLine, move } from 'fluidcad/core'`,
+      `import { sketch, line, point } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
-      `  hLine(30)`,
-      `  move([0, 20])`,
-      `  hLine(40)`,
+      `  line([0, 0], [30, 0])`,
+      `  point([0, 20])`,
+      `  line([0, 0], [40, 0])`,
       `})`,
       ``,
     ].join('\n');
@@ -124,33 +124,33 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
     expect(result.newCode).toContain(`  fillet(3, edge().line(30))`);
     expect(result.newCode).toContain(`import { edge } from 'fluidcad/filters';`);
     // No variable was bound: the statements stay bare.
-    expect(result.newCode).toContain(`  hLine(30)`);
+    expect(result.newCode).toContain(`  line([0, 0], [30, 0])`);
     expect(result.newCode).not.toContain(`const`);
   });
 
   it('inserts before a trailing return in the sketch body', async () => {
     const code = [
-      `import { sketch, rect, slot, extrude } from 'fluidcad/core'`,
+      `import { sketch, circle, slot, extrude } from 'fluidcad/core'`,
       ``,
       `const s = sketch('xy', () => {`,
-      `  rect(80, 60)`,
-      `  const inner = slot(20, 5)`,
+      `  circle([0, 0], 80)`,
+      `  const inner = circle([10, 10], 5)`,
       `  return { inner }`,
       `})`,
       ``,
     ].join('\n');
 
     const result = await applyFeatureEdit(code, sketchSpec({
-      producers: [{ line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true }],
+      producers: [{ line: 4, column: 0, featureType: 'circle', nameHint: 'r', bind: true }],
       parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" }],
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {fillet, sketch, rect, slot, extrude } from 'fluidcad/core'`,
+      `import {fillet, sketch, circle, slot, extrude } from 'fluidcad/core'`,
       ``,
       `const s = sketch('xy', () => {`,
-      `  const r = rect(80, 60)`,
-      `  const inner = slot(20, 5)`,
+      `  const r = circle([0, 0], 80)`,
+      `  const inner = circle([10, 10], 5)`,
       `  fillet(4, r.edge('top'))`,
       `  return { inner }`,
       `})`,
@@ -160,16 +160,16 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
 
   it('honors a user-edited raw argument list', async () => {
     const code = [
-      `import { sketch, rect } from 'fluidcad/core'`,
+      `import { sketch, circle } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
-      `  rect(80, 60)`,
+      `  circle([0, 0], 80)`,
       `})`,
       ``,
     ].join('\n');
 
     const result = await applyFeatureEdit(code, sketchSpec({
-      producers: [{ line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true }],
+      producers: [{ line: 4, column: 0, featureType: 'circle', nameHint: 'r', bind: true }],
       parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" }],
       rawArgs: "r.edge('top'), r.edge('left')",
     }));
@@ -179,10 +179,10 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
 
   it('writes an offset statement into the sketch body', async () => {
     const code = [
-      `import { sketch, rect } from 'fluidcad/core'`,
+      `import { sketch, circle } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
-      `  rect(80, 60)`,
+      `  circle([0, 0], 80)`,
       `})`,
       ``,
     ].join('\n');
@@ -190,21 +190,21 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
     const result = await applyFeatureEdit(code, sketchSpec({
       feature: 'offset',
       value: 3,
-      producers: [{ line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true }],
+      producers: [{ line: 4, column: 0, featureType: 'circle', nameHint: 'r', bind: true }],
       parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" }],
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`const r = rect(80, 60)`);
+    expect(result.newCode).toContain(`const r = circle([0, 0], 80)`);
     expect(result.newCode).toContain(`  offset(3, r.edge('top'))`);
-    expect(result.newCode).toContain(`import {offset, sketch, rect } from 'fluidcad/core'`);
+    expect(result.newCode).toContain(`import {offset, sketch, circle } from 'fluidcad/core'`);
   });
 
   it("writes the offset close toggle as the .close() chain", async () => {
     const code = [
-      `import { sketch, rect } from 'fluidcad/core'`,
+      `import { sketch, circle } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
-      `  rect(80, 60)`,
+      `  circle([0, 0], 80)`,
       `})`,
       ``,
     ].join('\n');
@@ -212,7 +212,7 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
       feature: 'offset',
       value: 3,
       offset,
-      producers: [{ line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true }],
+      producers: [{ line: 4, column: 0, featureType: 'circle', nameHint: 'r', bind: true }],
       parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" }],
     });
 
@@ -235,7 +235,7 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
       `  const a = line([0, 0], [40, 0])`,
       `  line([40, 0], [40, 30])`,
       `  horizontal(a)`,
-      `}, true)`,
+      `})`,
       ``,
     ].join('\n');
 
@@ -267,7 +267,7 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
       `import { sketch, line } from 'fluidcad/core'`,
       `sketch('xy', () => {`,
       `  const a = line([0, 0], [40, 0])`,
-      `}, true)`,
+      `})`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, sketchSpec({
@@ -282,164 +282,20 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
 
   it('refuses a stale line pointing at a different callee', async () => {
     const code = [
-      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      `import { sketch, line } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
-      `  circle(40)`,
+      `  line([0, 0], [40, 0])`,
       `})`,
       ``,
     ].join('\n');
 
     const result = await applyFeatureEdit(code, sketchSpec({
-      producers: [{ line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true }],
+      producers: [{ line: 4, column: 0, featureType: 'circle', nameHint: 'r', bind: true }],
       parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" }],
     }));
-    expect(result.error).toContain('expected a rect()-producing call');
+    expect(result.error).toContain('expected a circle()-producing call');
     expect(result.newCode).toBe(code);
-  });
-});
-
-describe('applyFeatureEdit — sketch-body tArc to target (2D)', () => {
-  const tarcSpec = (overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec => sketchSpec({
-    feature: 'tarc',
-    value: 12,
-    producers: [{ line: 5, column: 0, featureType: 'line', nameHint: 'l', bind: true }],
-    parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
-    ...overrides,
-  });
-
-  it('binds the target statement and appends the tArc at the chain end', async () => {
-    const code = [
-      `import { sketch, hLine, move, line } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      `  move([0, 40])`,
-      `  hLine(60)`,
-      `  move([50, 0])`,
-      `  line([120, 0])`,
-      `})`,
-      ``,
-    ].join('\n');
-
-    const result = await applyFeatureEdit(code, tarcSpec());
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toBe([
-      `import {tArc, sketch, hLine, move, line } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      `  move([0, 40])`,
-      `  const l = hLine(60)`,
-      `  move([50, 0])`,
-      `  line([120, 0])`,
-      `  tArc(12, l)`,
-      `})`,
-      ``,
-    ].join('\n'));
-  });
-
-  it('keeps a negative signed radius', async () => {
-    const code = [
-      `import { sketch, hLine, line } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      ``,
-      `  hLine(60)`,
-      `  line([120, 0])`,
-      `})`,
-      ``,
-    ].join('\n');
-
-    const result = await applyFeatureEdit(code, tarcSpec({ value: -12 }));
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`const l = hLine(60)`);
-    expect(result.newCode).toContain(`  tArc(-12, l)`);
-  });
-
-  it('refuses a zero radius as malformed', async () => {
-    const result = await applyFeatureEdit(`sketch('xy', () => {})\n`, tarcSpec({ value: 0 }));
-    expect(result.error).toBe('malformed tArc edit spec');
-  });
-});
-
-describe('applyFeatureEdit — sketch-body aLine to target (2D)', () => {
-  const alineSpec = (overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec => sketchSpec({
-    feature: 'aline',
-    value: 30,
-    producers: [{ line: 5, column: 0, featureType: 'line', nameHint: 'l', bind: true }],
-    parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
-    ...overrides,
-  });
-
-  it('binds the target statement and appends the aLine at the chain end', async () => {
-    const code = [
-      `import { sketch, hLine, move, line } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      `  move([0, 40])`,
-      `  hLine(60)`,
-      `  move([50, 0])`,
-      `  line([120, 0])`,
-      `})`,
-      ``,
-    ].join('\n');
-
-    const result = await applyFeatureEdit(code, alineSpec());
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toBe([
-      `import {aLine, sketch, hLine, move, line } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      `  move([0, 40])`,
-      `  const l = hLine(60)`,
-      `  move([50, 0])`,
-      `  line([120, 0])`,
-      `  aLine(30, l)`,
-      `})`,
-      ``,
-    ].join('\n'));
-  });
-
-  it('renders the explicit start point as the first argument', async () => {
-    const code = [
-      `import { sketch, hLine, line } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      ``,
-      `  hLine(60)`,
-      `  line([120, 0])`,
-      `})`,
-      ``,
-    ].join('\n');
-
-    const result = await applyFeatureEdit(code, alineSpec({ aline: { start: '[10, 5]' } }));
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`const l = hLine(60)`);
-    expect(result.newCode).toContain(`  aLine([10, 5], 30, l)`);
-  });
-
-  it('accepts a zero angle — straight along the reference direction', async () => {
-    const code = [
-      `import { sketch, hLine, line } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      ``,
-      `  hLine(60)`,
-      `  line([120, 0])`,
-      `})`,
-      ``,
-    ].join('\n');
-
-    const result = await applyFeatureEdit(code, alineSpec({ value: 0 }));
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  aLine(0, l)`);
-  });
-
-  it('refuses an unsafe start point as malformed', async () => {
-    const result = await applyFeatureEdit(
-      `sketch('xy', () => {})\n`,
-      alineSpec({ aline: { start: '[0, 0]; die()' } }),
-    );
-    expect(result.error).toBe('malformed aLine edit spec');
   });
 });
 
@@ -458,11 +314,11 @@ describe('applyFeatureEdit — sketch-body text on path (2D)', () => {
 
   it('binds the path statement and appends the text at end of the sketch body', async () => {
     const code = [
-      `import { sketch, arc, rect } from 'fluidcad/core'`,
+      `import { sketch, arc, circle } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
       `  arc([0, 0], [60, 0], 40)`,
-      `  rect(80, 60)`,
+      `  circle([0, 0], 80)`,
       `})`,
       ``,
     ].join('\n');
@@ -470,11 +326,11 @@ describe('applyFeatureEdit — sketch-body text on path (2D)', () => {
     const result = await applyFeatureEdit(code, textSpec());
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {text, sketch, arc, rect } from 'fluidcad/core'`,
+      `import {text, sketch, arc, circle } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
       `  const a = arc([0, 0], [60, 0], 40)`,
-      `  rect(80, 60)`,
+      `  circle([0, 0], 80)`,
       `  text("Hello", a)`,
       `})`,
       ``,
@@ -523,7 +379,7 @@ describe('applyFeatureEdit — sketch-body copy (2D)', () => {
   const copySpec = (overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec => sketchSpec({
     feature: 'copy',
     value: undefined,
-    producers: [{ line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true }],
+    producers: [{ line: 4, column: 0, featureType: 'circle', nameHint: 'r', bind: true }],
     parts: [],
     imports: ['local'],
     copy: {
@@ -537,10 +393,10 @@ describe('applyFeatureEdit — sketch-body copy (2D)', () => {
 
   it('binds the target and appends the copy at end of the sketch body', async () => {
     const code = [
-      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      `import { sketch, circle } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
-      `  rect(20, 20)`,
+      `  circle([0, 0], 20)`,
       `  circle([40, 0], 5)`,
       `})`,
       ``,
@@ -548,7 +404,7 @@ describe('applyFeatureEdit — sketch-body copy (2D)', () => {
 
     const result = await applyFeatureEdit(code, copySpec());
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  const r = rect(20, 20)`);
+    expect(result.newCode).toContain(`  const r = circle([0, 0], 20)`);
     expect(result.newCode).toContain(`  copy('linear', local('x'), { count: 3, offset: 20 }, r)\n})`);
     expect(result.newCode).toMatch(/import \{[^}]*copy[^}]*\} from 'fluidcad\/core'/);
     expect(result.newCode).toMatch(/import \{[^}]*local[^}]*\} from 'fluidcad\/core'/);
@@ -556,19 +412,19 @@ describe('applyFeatureEdit — sketch-body copy (2D)', () => {
 
   it('renders an edge-picked direction as axis(<var>)', async () => {
     const code = [
-      `import { sketch, rect, aLine, move } from 'fluidcad/core'`,
+      `import { sketch, circle, line, point } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
-      `  rect(20, 20)`,
-      `  move([0, 40])`,
-      `  aLine(30, 50)`,
+      `  circle([0, 0], 20)`,
+      `  point([0, 40])`,
+      `  line([0, 0], [30, 50])`,
       `})`,
       ``,
     ].join('\n');
 
     const result = await applyFeatureEdit(code, copySpec({
       producers: [
-        { line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true },
+        { line: 4, column: 0, featureType: 'circle', nameHint: 'r', bind: true },
         { line: 6, column: 0, featureType: 'line', nameHint: 'l', bind: true },
       ],
       parts: [{ producer: 1, accessor: '', indices: null, filterArgs: null }],
@@ -581,7 +437,7 @@ describe('applyFeatureEdit — sketch-body copy (2D)', () => {
       },
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  const l = aLine(30, 50)`);
+    expect(result.newCode).toContain(`  const l = line([0, 0], [30, 50])`);
     expect(result.newCode).toContain(`  copy('linear', axis(l), { count: 3, offset: 20 }, r)\n})`);
     expect(result.newCode).toMatch(/import \{[^}]*axis[^}]*\} from 'fluidcad\/core'/);
   });
@@ -610,106 +466,5 @@ describe('applyFeatureEdit — sketch-body copy (2D)', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  const c = circle([30, 0], 5)`);
     expect(result.newCode).toContain(`  copy('circular', [0, 0], { count: 6, angle: 360 }, c)\n})`);
-  });
-});
-
-describe('applyFeatureEdit — tArc retarget (end-drag edge snap)', () => {
-  const retargetSpec = (
-    line: number,
-    sign: 1 | -1,
-    overrides: Partial<ApplyFeatureEditSpec> = {},
-  ): ApplyFeatureEditSpec => sketchSpec({
-    feature: 'tarc',
-    value: undefined,
-    producers: [{ line: 4, column: 0, featureType: 'line', nameHint: 'l', bind: true }],
-    parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
-    tarc: { retarget: { line, sign } },
-    ...overrides,
-  });
-
-  it('rewrites the endpoint arg to the bound target variable in place', async () => {
-    const code = [
-      `import { sketch, hLine, move, line, tArc } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      `  hLine(60)`,
-      `  move([50, 0])`,
-      `  line([120, 0])`,
-      `  tArc(12, [80, 30])`,
-      `})`,
-      ``,
-    ].join('\n');
-
-    const result = await applyFeatureEdit(code, retargetSpec(7, 1));
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toBe([
-      `import { sketch, hLine, move, line, tArc } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      `  const l = hLine(60)`,
-      `  move([50, 0])`,
-      `  line([120, 0])`,
-      `  tArc(12, l)`,
-      `})`,
-      ``,
-    ].join('\n'));
-  });
-
-  it('negates an expression radius for a clockwise solve, reusing an existing binding', async () => {
-    const code = [
-      `import { sketch, line, move, tArc } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      `  const g = line([100, 50]).guide()`,
-      `  move([50, 0])`,
-      `  line([120, 0])`,
-      `  tArc(r, [80, -30])`,
-      `})`,
-      ``,
-    ].join('\n');
-
-    const result = await applyFeatureEdit(code, retargetSpec(7, -1));
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`const g = line([100, 50]).guide()`);
-    expect(result.newCode).toContain(`  tArc(-r, g)`);
-  });
-
-  it('refuses a target declared after the arc (temporal dead zone)', async () => {
-    const code = [
-      `import { sketch, hLine, move, line, tArc } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      `  move([50, 0])`,
-      `  line([120, 0])`,
-      `  tArc(12, [80, 30])`,
-      `  hLine(60)`,
-      `})`,
-      ``,
-    ].join('\n');
-
-    const result = await applyFeatureEdit(code, retargetSpec(6, 1, {
-      producers: [{ line: 7, column: 0, featureType: 'line', nameHint: 'l', bind: true }],
-    }));
-    expect(result.error).toContain('declared after this arc');
-    expect(result.newCode).toBe(code);
-  });
-
-  it('refuses a target from a different sketch', async () => {
-    const code = [
-      `import { sketch, hLine, move, tArc } from 'fluidcad/core'`,
-      ``,
-      `sketch('xy', () => {`,
-      `  hLine(60)`,
-      `})`,
-      `sketch('xz', () => {`,
-      `  move([50, 0])`,
-      `  tArc(12, [80, 30])`,
-      `})`,
-      ``,
-    ].join('\n');
-
-    const result = await applyFeatureEdit(code, retargetSpec(8, 1));
-    expect(result.error).toContain('different sketch');
-    expect(result.newCode).toBe(code);
   });
 });

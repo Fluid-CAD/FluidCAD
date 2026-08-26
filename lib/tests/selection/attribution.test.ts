@@ -8,7 +8,8 @@ import fillet from "../../core/fillet.js";
 import part from "../../core/part.js";
 import select from "../../core/select.js";
 import repeat from "../../core/repeat.js";
-import { circle, move, polygon, rect } from "../../core/2d/index.js";
+import { circle, line } from "../../core/2d/index.js";
+import { coincident } from "../../core/constraints/index.js";
 import { edge } from "../../filters/index.js";
 import { Scene } from "../../rendering/scene.js";
 import { SceneObject } from "../../common/scene-object.js";
@@ -24,14 +25,29 @@ import type { PickRef } from "../../selection/types.js";
 import {
   allEdgeRefs, allFaceRefs, edgeRefsWhere, faceRefsWhere, findSolid, findSolids, setLocation,
 } from "./pick-helpers.js";
+import { testRect } from "../helpers/profiles.js";
+
+/** Solved stand-in for legacy `polygon(6, dia)` (inscribed) at the origin. */
+function testHexagon(dia: number) {
+  const r = dia / 2;
+  const pts: [number, number][] = [];
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI * i) / 3;
+    pts.push([r * Math.cos(a), r * Math.sin(a)]);
+  }
+  const lines = pts.map((p, i) => line(p, pts[(i + 1) % 6]));
+  for (let i = 0; i < 6; i++) {
+    coincident(lines[i].end(), lines[(i + 1) % 6].start());
+  }
+}
 
 describe("selection attribution", () => {
   setupOC();
 
   it("attributes every edge of a plain extruded box to the right bucket", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     const scene = render();
@@ -53,8 +69,8 @@ describe("selection attribution", () => {
 
   it("reports bucket indices that resolve back to the picked edge", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30) as Extrude;
 
     const scene = render();
@@ -78,13 +94,12 @@ describe("selection attribution", () => {
 
   it("attributes pocket edges to the cut and box edges to the extrude", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     const e = extrude(50) as Extrude;
     sketch(e.endFaces(), () => {
-      move([50, 50]);
-      circle(40);
-    });
+        circle([50, 50], 40);
+      });
     cut(30);
 
     const scene = render();
@@ -114,13 +129,12 @@ describe("selection attribution", () => {
 
   it("attributes a fused boss's end edges to the boss extrude", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     const base = extrude(20) as Extrude;
     sketch(base.endFaces(), () => {
-      move([50, 50]);
-      rect(30, 30);
-    });
+        testRect(30, 30, { at: [50, 50] });
+      });
     extrude(15);
 
     const scene = render();
@@ -139,8 +153,8 @@ describe("selection attribution", () => {
 
   it("leaves fillet-born arc edges unattributed with a lineage-aware explanation", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
     select(edge().verticalTo("xy"));
     const f = fillet(5);
@@ -169,8 +183,8 @@ describe("selection attribution", () => {
 
   it("resolves fillet faces to the fillet and reshaped faces to the extrude", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30) as Extrude;
     select(edge().verticalTo("xy"));
     const f = fillet(5);
@@ -197,8 +211,8 @@ describe("selection attribution", () => {
 
   it("resolves chamfer faces to the chamfer through the cleanup remap", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30) as Extrude;
     select(edge().verticalTo("xy"));
     const c = chamfer(5);
@@ -226,8 +240,8 @@ describe("apply-feature synthesis", () => {
 
   it("emits a whole-bucket selector when the picks cover the bucket exactly", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -249,8 +263,8 @@ describe("apply-feature synthesis", () => {
 
   it("emits bucket indices when the picks are a strict subset", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -270,8 +284,8 @@ describe("apply-feature synthesis", () => {
 
   it("splits picks across buckets into multiple selector args", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -295,8 +309,8 @@ describe("apply-feature synthesis", () => {
 
   it("emits a whole-bucket face selector for a picked end face", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -318,8 +332,8 @@ describe("apply-feature synthesis", () => {
 
   it("emits an induced face filter for a picked side face", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -351,8 +365,8 @@ describe("apply-feature synthesis", () => {
 
   it("emits a qualitative edge filter when it separates the pick (tier 1)", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -378,8 +392,8 @@ describe("apply-feature synthesis", () => {
 
   it("prefers a qualitative direction filter for a symmetric pair (tier 1)", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -406,8 +420,8 @@ describe("apply-feature synthesis", () => {
 
   it("mixes face and edge picks into separate selector args", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -431,8 +445,8 @@ describe("apply-feature synthesis", () => {
 
   it("synthesizes a scene-wide select() for a repeat-instance pick (tier 3)", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new();
     setLocation(e, 4);
     const r = repeat("linear", "x", { count: 3, offset: 40 }, e);
@@ -471,8 +485,8 @@ describe("apply-feature synthesis", () => {
 
   it("splits a select() across args when one conjunction can't cover the picks", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new();
     setLocation(e, 4);
     const r = repeat("linear", "x", { count: 3, offset: 40 }, e);
@@ -507,8 +521,7 @@ describe("apply-feature synthesis", () => {
     for (let i = 0; i < 3; i++) {
       for (let j = 0; j < 3; j++) {
         sketch("xy", () => {
-          move([i * 40, j * 40]);
-          rect(20, 20);
+          testRect(20, 20, { at: [i * 40, j * 40] });
         });
         const e = extrude(10).new();
         setLocation(e, 4);
@@ -537,8 +550,8 @@ describe("apply-feature synthesis", () => {
 
   it("returns verified alternative renderings alongside the winner", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -559,9 +572,9 @@ describe("apply-feature synthesis", () => {
 
   it("expands a tangent chain across a rounded rim", () => {
     sketch("xy", () => {
-      rect(100, 50);
-      fillet(5);
-    });
+        testRect(100, 50);
+        fillet(5);
+      });
     const e = extrude(20);
     setLocation(e, 5);
 
@@ -584,9 +597,9 @@ describe("apply-feature synthesis", () => {
 
   it("synthesizes a whole-bucket selector for a chain covering the bucket, with a withTangents alternative", () => {
     sketch("xy", () => {
-      rect(100, 50);
-      fillet(5);
-    });
+        testRect(100, 50);
+        fillet(5);
+      });
     const e = extrude(20);
     setLocation(e, 5);
 
@@ -614,9 +627,9 @@ describe("apply-feature synthesis", () => {
 
   it("synthesizes a select() withTangents chain on a repeat instance", () => {
     sketch("xy", () => {
-      rect(20, 20);
-      fillet(5);
-    });
+        testRect(20, 20);
+        fillet(5);
+      });
     const e = extrude(10).new();
     setLocation(e, 5);
     const r = repeat("linear", "x", { count: 3, offset: 40 }, e);
@@ -655,8 +668,8 @@ describe("apply-feature synthesis", () => {
 
   it("refuses when the producer has no source location", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     const scene = render();
@@ -672,8 +685,8 @@ describe("apply-feature synthesis", () => {
 
   it("still synthesizes selectors for buckets untouched by a prior fillet", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
     // Fillet only the top rim: the bottom face is not adjacent to any
@@ -698,8 +711,8 @@ describe("apply-feature synthesis", () => {
 
   it("synthesizes a select() for fillet-born edges (tier 3)", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
     select(edge().verticalTo("xy"));
@@ -747,8 +760,8 @@ describe("shell and sketch synthesis", () => {
 
   it("previews shell with the thickness and a face selector", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -770,8 +783,8 @@ describe("shell and sketch synthesis", () => {
 
   it("previews sketch with the callback template and no numeric value", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -785,21 +798,20 @@ describe("shell and sketch synthesis", () => {
     if (result.ok) {
       expect(result.spec.value).toBeUndefined();
       expect(result.spec.parts).toHaveLength(1);
-      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... }, true)");
+      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... })");
       expect(result.args).toBe("e.endFaces()");
     }
   });
 
   it("re-homes a reshaped end-face pick to its classified ancestor for sketch", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     const e = extrude(50) as Extrude;
     setLocation(e, 4);
     sketch(e.endFaces(), () => {
-      move([50, 50]);
-      circle(20);
-    });
+        circle([50, 50], 20);
+      });
     cut(30);
 
     const scene = render();
@@ -816,7 +828,7 @@ describe("shell and sketch synthesis", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.args).toBe("e.endFaces()");
-      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... }, true)");
+      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... })");
       expect(result.spec.parts).toHaveLength(1);
       expect(result.spec.parts[0].accessor).toBe("endFaces");
     }
@@ -835,8 +847,8 @@ describe("shell and sketch synthesis", () => {
 
   it("synthesizes a plane base from a face pick", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -857,8 +869,8 @@ describe("shell and sketch synthesis", () => {
 
   it("synthesizes a plane base from an edge pick", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -877,8 +889,8 @@ describe("shell and sketch synthesis", () => {
 
   it("refuses a multi-pick plane base", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     const scene = render();
@@ -894,14 +906,13 @@ describe("shell and sketch synthesis", () => {
 
   it("re-homes a reshaped end-face pick for a plane base", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     const e = extrude(50) as Extrude;
     setLocation(e, 4);
     sketch(e.endFaces(), () => {
-      move([50, 50]);
-      circle(20);
-    });
+        circle([50, 50], 20);
+      });
     cut(30);
 
     const scene = render();
@@ -920,8 +931,8 @@ describe("shell and sketch synthesis", () => {
 
   it("re-homes a chamfer-consumed end face via the coplanar bucket scan", () => {
     sketch("xy", () => {
-      circle(73.71);
-      polygon(6, 165.66);
+      circle([0, 0], 73.71);
+      testHexagon(165.66);
     });
     const e = extrude(25) as Extrude;
     setLocation(e, 4);
@@ -947,14 +958,14 @@ describe("shell and sketch synthesis", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.args).toBe("e.endFaces()");
-      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... }, true)");
+      expect(result.preview).toBe("sketch(e.endFaces(), () => { ... })");
     }
   });
 
   it("prefers the indexed sideFaces form for chamfer-consumed side faces", () => {
     sketch("xy", () => {
-      circle(73.71);
-      polygon(6, 165.66);
+      circle([0, 0], 73.71);
+      testHexagon(165.66);
     });
     const e = extrude(25) as Extrude;
     setLocation(e, 4);
@@ -997,8 +1008,8 @@ describe("shell and sketch synthesis", () => {
 
   it("refuses a sketch over two faces", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -1018,8 +1029,8 @@ describe("shell and sketch synthesis", () => {
 
   it("refuses a sketch on an edge pick", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -1041,8 +1052,8 @@ describe("producer naming", () => {
 
   function makeBoxScene(): { scene: Scene; refs: PickRef[] } {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
     const scene = render();
@@ -1063,8 +1074,8 @@ describe("producer naming", () => {
 
   it("labels clone picks honestly in the teach-mode expression", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new();
     setLocation(e, 4);
     const r = repeat("linear", "x", { count: 3, offset: 40 }, e);
@@ -1121,8 +1132,8 @@ describe("part()-scoped select() synthesis", () => {
   function makeTwinPartScene(): { scene: Scene; solids: Shape[] } {
     part("a", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30);
       setLocation(e, 4);
       select(edge().verticalTo("xy"));
@@ -1131,8 +1142,8 @@ describe("part()-scoped select() synthesis", () => {
     });
     part("b", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30);
       setLocation(e, 10);
       select(edge().verticalTo("xy"));
@@ -1189,8 +1200,8 @@ describe("parameter linking", () => {
    */
   function makeOffsetEdgeScene(): { scene: Scene; refs: PickRef[] } {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
     const scene = render();
@@ -1247,8 +1258,8 @@ describe("bucket expansion (double-click gesture)", () => {
 
   it("expands an end edge to the whole end bucket", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     const scene = render();
@@ -1268,16 +1279,15 @@ describe("bucket expansion (double-click gesture)", () => {
 
   it("expands to the same bucket the seed attributes to, even after a cut", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     // Notch the top: the cut splits two top-rim edges and consumes material,
     // so as-built buckets and the final solid disagree about some members.
     sketch("xz", () => {
-      move([0, 25]);
-      rect(20, 10);
-    });
+        testRect(20, 10, { at: [0, 25] });
+      });
     cut(100);
 
     const scene = render();
@@ -1309,8 +1319,8 @@ describe("bucket expansion (double-click gesture)", () => {
 
   it("refuses a pick with no classified bucket", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
     select(edge().verticalTo("xy"));
     fillet(5);
@@ -1335,8 +1345,8 @@ describe("project synthesis", () => {
 
   it("names a face pick and previews the bare project statement", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 
@@ -1357,8 +1367,8 @@ describe("project synthesis", () => {
 
   it("takes a mix of edges and faces as separate arguments", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 4);
 

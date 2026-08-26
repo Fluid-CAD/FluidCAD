@@ -13,7 +13,7 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={part1Final} entry="cswp-sample-exam.fluid.js" />
 
-In this tutorial, you'll build the parametric part from the [SolidWorks CSWP Sample Exam](https://www.solidworks.com/sites/default/files/cswpsampleexam.pdf). The CSWP (Certified SolidWorks Professional) exam tests your ability to build parts from engineering drawings, then modify parameters and recalculate. It covers parametric variables, arc/offset sketch geometry, reference planes, hollow cylinders with chamfers, counterbore holes, face projection, and edge selection filters.
+In this tutorial, you'll build the parametric part from the [SolidWorks CSWP Sample Exam](https://www.solidworks.com/sites/default/files/cswpsampleexam.pdf). The CSWP (Certified SolidWorks Professional) exam tests your ability to build parts from engineering drawings, then modify parameters and recalculate. It covers parametric variables, constraint-driven sketches with arcs and offsets, reference planes, hollow cylinders with chamfers, counterbore holes, face projection, and edge selection filters.
 
 The tutorial is split into two parts matching the exam stages:
 - **Part 1** — Build the initial part from the exam drawings
@@ -31,10 +31,13 @@ Start with imports and the exam parameters. Using variables makes the model full
 
 ```js
 import {
-    arc, chamfer, circle, cut, extrude, fillet, hLine, hMove,
-    line, move, offset, plane, project, rect, select, sketch,
-    subtract, tArc, vLine, vMove
+    arc, chamfer, circle, cut, extrude, fillet,
+    line, offset, plane, project, select, sketch
 } from 'fluidcad/core';
+import {
+    coincident, concentric, diameter, distance,
+    fix, horizontal, radius, tangent, vertical
+} from 'fluidcad/constraints';
 import { edge, face } from 'fluidcad/filters';
 
 // CSWP Exam Parameters — Stage 1
@@ -60,48 +63,60 @@ const leftOffset = B - C;
 
 ### Step 1: Base Plate
 
-Sketch a rounded rectangle on the XY plane and extrude it to create the base plate.
+Sketch a rounded rectangle on the XY plane and extrude it to create the base plate. In a constraint sketch (the `true` argument to `sketch()`), each line is drawn with explicit start/end coordinates, and constraints pin the shape: `coincident` joins the corners, `horizontal`/`vertical` square up the sides, `fix` anchors one corner, and two `distance` dimensions carry the exam parameters `B` and `A`.
 
 ```js
 sketch("xy", () => {
-    rect(B, A).radius(10);
+    const b = line([0, 0], [B, 0]);
+    const r = line([B, 0], [B, A]);
+    const t = line([B, A], [0, A]);
+    const l = line([0, A], [0, 0]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    fix(b.start(), [0, 0]);
+    distance(b.start(), b.end(), B);
+    distance(r.start(), r.end(), A);
+    fillet(10, b, r, t, l);
 })
 
 const base = extrude(25);
 ```
 
-`rect(B, A)` creates a rectangle of width `B` (200) and height `A` (213). The `.radius(10)` rounds all four corners with a 10mm radius. The base is extruded 25mm thick.
+The four lines form a `B` x `A` (200 x 213) rectangle. Because the dimensions are the `distance` constraints, changing `A` or `B` re-solves the sketch and the whole part updates — exactly what the exam requires. `fillet(10, b, r, t, l)` rounds all four shared corners with a 10mm radius, and the base is extruded 25mm thick.
 
 ![Base plate](/img/docs/tutorials/cswp-sample-exam-step1.png)
 
 ### Step 2: L-Shaped Support
 
-The L-shaped support sits on top of the base. Its profile is made of two perpendicular lines connected by an arc, then offset inward and closed with straight lines.
+The L-shaped support sits on top of the base. Its profile is made of two perpendicular lines connected by an arc, then offset and closed into a wall of constant thickness.
 
 #### Sketch the profile
 
 ```js
 sketch("xy", () => {
-    move([leftOffset, 0]);
-    const l1 = vLine(80)
-
-    move([B, C]);
-    const l2 = hLine(-80)
-
-    arc(l1.end(), l2.end()).center([leftOffset, C])
-
-    const o = offset(15)
-    line(l1.start(), o.start())
-    line(l2.start(), o.end())
+    const l1 = line([leftOffset, 0], [leftOffset, 80]);
+    const a = arc([leftOffset, 80], [B - 80, C], [leftOffset, C]);
+    const l2 = line([B, C], [B - 80, C]);
+    coincident(l1.end(), a.start());
+    coincident(l2.end(), a.end());
+    vertical(l1);
+    horizontal(l2);
+    fix(l1.start(), [leftOffset, 0]);
+    fix(l2.start(), [B, C]);
+    radius(a, C - 80);
+    offset(15, l1, a, l2).close();
 });
 ```
 
-- `move([leftOffset, 0])` positions the cursor at the left edge of the support
-- `vLine(80)` draws an 80mm vertical line upward
-- `move([B, C])` jumps to the top-right corner, then `hLine(-80)` draws 80mm to the left
-- `arc(l1.end(), l2.end()).center([leftOffset, C])` connects the two line endpoints with an arc, using `[leftOffset, C]` as the center point — this creates the curved corner of the L
-- `offset(15)` offsets the arc inward by 15mm to give the support wall thickness
-- The two `line()` calls close the profile by connecting the vertical and horizontal lines to the offset arc
+- `l1` is the 80mm vertical leg starting at the support's left edge; `l2` is the 80mm horizontal leg ending at `[B - 80, C]`
+- `arc(start, end, center)` takes the arc's start, end, and center — here it spans between the two leg endpoints around `[leftOffset, C]`, forming the curved corner of the L. The coordinates are exact, and the `coincident`, `radius`, and `fix` constraints record the intent: the arc's ends meet the legs, and its radius is `C - 80`
+- `offset(15, l1, a, l2)` offsets the whole chain by 15mm to give the support wall thickness, and `.close()` caps the two open ends with straight lines, closing the profile
 
 ![L-shaped support sketch](/img/docs/tutorials/cswp-sample-exam-step2-sketch.png)
 
@@ -127,16 +142,15 @@ First, create a reference plane offset 10mm from the front of the support. Then 
 const p1 = plane("front", 10);
 
 sketch(p1, () => {
-    move([leftOffset, 95]);
-    hMove(7.5)
-    circle(X)
+    const c = circle([leftOffset + 7.5, 95], X);
+    fix(c.center(), [leftOffset + 7.5, 95]);
+    diameter(c, X);
 });
 ```
 
 - `plane("front", 10)` creates a reference plane 10mm in front of the support face
-- `move([leftOffset, 95])` positions the cursor at the support's left edge, at the top of the support (95mm high)
-- `hMove(7.5)` shifts 7.5mm to the right to center the pipe on the support wall
-- `circle(X)` draws the outer circle with diameter `X` (= A/3)
+- `circle(center, d)` places the outer circle at `[leftOffset + 7.5, 95]` — the support's left edge shifted 7.5mm to sit centered on the support wall, 95mm up
+- `fix` locks the center at that position and `diameter(c, X)` dimensions it with the exam parameter `X` (= A/3), leaving the circle fully constrained
 
 ![Pipe 1 circle sketched on front plane](/img/docs/tutorials/cswp-sample-exam-step3-sketch.png)
 
@@ -144,15 +158,20 @@ sketch(p1, () => {
 
 ```js
 const cylBody1 = extrude(-D)
-sketch(cylBody1.startFaces(), () => circle(E))
+sketch(cylBody1.startFaces(), () => {
+    const rim = project(cylBody1.startFaces()).guide();
+    const bore = circle([0, 0], E);
+    concentric(bore, rim);
+    diameter(bore, E);
+})
 const cylCut1 = cut()
 
 chamfer(2, cylCut1.startEdges(), cylCut1.endEdges())
 ```
 
 - `extrude(-D)` extends the pipe backward (away from the viewer) by `D` (130mm) — the negative direction pushes it into and through the support
-- `sketch(cylBody1.startFaces(), () => circle(E))` sketches a smaller circle of diameter `E` (41mm) on the pipe's far end face
-- `cut()` bores through the entire pipe, making it hollow
+- The bore sketch sits on the pipe's far end face. `project(...)` brings the face's circular rim into the sketch as a fixed reference (`.guide()` keeps it out of the profile), and `concentric(bore, rim)` locks the bore onto the pipe's axis — no coordinates needed, so the bore follows the pipe wherever the parameters put it
+- `diameter(bore, E)` dimensions the bore to `E` (41mm); `cut()` then bores through the entire pipe, making it hollow
 - `chamfer(2, ...)` adds a 2mm chamfer to both the start and end edges of the bore
 
 ![Pipe 1 complete with bore and chamfer](/img/docs/tutorials/cswp-sample-exam-step3-pipe1.png)
@@ -165,20 +184,26 @@ The right pipe follows the same pattern on the right side of the support:
 const p2 = plane("right", B + 10)
 
 sketch(p2, () => {
-    move([C - 7.5, 95]);
-    circle(Y)
+    const c = circle([C - 7.5, 95], Y);
+    fix(c.center(), [C - 7.5, 95]);
+    diameter(c, Y);
 });
 
 const cylBody2 = extrude(-D)
-sketch(cylBody2.startFaces(), () => circle(E))
+sketch(cylBody2.startFaces(), () => {
+    const rim = project(cylBody2.startFaces()).guide();
+    const bore = circle([0, 0], E);
+    concentric(bore, rim);
+    diameter(bore, E);
+})
 const cylCut2 = cut()
 
 chamfer(2, cylCut2.startEdges(), cylCut2.endEdges())
 ```
 
 - `plane("right", B + 10)` creates a reference plane 10mm beyond the right edge of the base
-- `move([C - 7.5, 95])` centers the pipe on the support wall on the right side
-- The extrude, bore, cut, and chamfer steps are identical to Pipe 1, but with diameter `Y` (= B/3 + 10) for the outer circle
+- The circle at `[C - 7.5, 95]` centers the pipe on the support wall on the right side
+- The extrude, projected-rim bore, cut, and chamfer steps are identical to Pipe 1, but with diameter `Y` (= B/3 + 10) for the outer circle
 
 ![Both pipes with chamfered bores](/img/docs/tutorials/cswp-sample-exam-step3.png)
 
@@ -190,12 +215,27 @@ A rectangular block is added at the front-right corner of the base, with a throu
 
 ```js
 sketch("xy", () => {
-    move([B, 0])
-    rect(-60, 60).radius(10, 0, 15, 0);
+    const cb = line([B, 0], [B - 60, 0]);
+    const cr = line([B - 60, 0], [B - 60, 60]);
+    const ct = line([B - 60, 60], [B, 60]);
+    const cl = line([B, 60], [B, 0]);
+    coincident(cb.end(), cr.start());
+    coincident(cr.end(), ct.start());
+    coincident(ct.end(), cl.start());
+    coincident(cl.end(), cb.start());
+    horizontal(cb);
+    vertical(cr);
+    horizontal(ct);
+    vertical(cl);
+    fix(cb.start(), [B, 0]);
+    distance(cb.start(), cb.end(), 60);
+    distance(cr.start(), cr.end(), 60);
+    fillet(10, cl, cb);
+    fillet(15, cr, ct);
 });
 ```
 
-`move([B, 0])` positions at the right edge, then `rect(-60, 60)` draws a 60x60 rectangle extending to the left and upward. The `.radius(10, 0, 15, 0)` rounds two of the four corners — 10mm on the top-left and 15mm on the bottom-left.
+The four lines trace a 60x60 square whose anchored corner sits at `[B, 0]` — the right edge of the base — extending left and upward. Only two corners are rounded: `fillet(10, cl, cb)` rounds the corner the two named lines share (at `[B, 0]`) with a 10mm radius, and `fillet(15, cr, ct)` rounds the opposite corner (at `[B - 60, 60]`) with 15mm. The other two corners stay sharp.
 
 ![Corner block sketch](/img/docs/tutorials/cswp-sample-exam-step4-sketch.png)
 
@@ -212,15 +252,24 @@ The block is extruded 35mm, taller than the 25mm base plate.
 #### Through-all hole and counterbore
 
 ```js
-sketch(corner.endFaces(), () => circle(15))
+sketch(plane("xy", 35), () => {
+    const c = circle([B - 30, 30], 15);
+    fix(c.center(), [B - 30, 30]);
+    diameter(c, 15);
+})
 cut()
 
-sketch(corner.endFaces(), () => circle(30))
+sketch(plane("xy", 35), () => {
+    const c = circle([B - 30, 30], 30);
+    fix(c.center(), [B - 30, 30]);
+    diameter(c, 30);
+})
 cut(10)
 ```
 
-- `sketch(corner.endFaces(), () => circle(15))` sketches a 15mm radius circle on the top face of the corner block, and `cut()` with no depth argument cuts through the entire block
-- `sketch(corner.endFaces(), () => circle(30))` adds a larger 30mm radius circle on the same face, and `cut(10)` cuts only 10mm deep — creating the counterbore recess
+- Both circles sit on a plane at the block's top (`plane("xy", 35)` — the block is 35mm tall), centered on the block at `[B - 30, 30]`
+- The first sketch is a 15mm diameter circle, and `cut()` with no depth argument cuts through the entire block
+- The second is a larger 30mm diameter circle on the same plane, and `cut(10)` cuts only 10mm deep — creating the counterbore recess
 
 ![Corner block with counterbore](/img/docs/tutorials/cswp-sample-exam-step4.png)
 
@@ -234,15 +283,15 @@ The final feature of Part 1 is a pocket cut into the top of the base plate. It's
 const topFace = select(face().onPlane("xy", 25).hasEdge(edge().line(45)));
 
 sketch(base.endFaces(), () => {
-    project(topFace);
-    offset(-9, true)
+    const p = project(topFace).guide();
+    offset(-9, p);
 });
 ```
 
 - `face().onPlane("xy", 25)` finds faces at the top of the base plate (25mm height)
 - `.hasEdge(edge().line(45))` narrows it to the face that has a 45mm long line edge — this is the L-shaped support's footprint
-- `project(topFace)` projects the outline of that face onto the sketch
-- `offset(-9, true)` shrinks the projected outline inward by 9mm, and the `true` flag discards the original projection, keeping only the offset
+- `project(topFace)` projects the outline of that face into the sketch as fixed reference geometry; `.guide()` marks it as construction geometry so it doesn't become part of the profile
+- `offset(-9, p)` shrinks the projected outline inward by 9mm — the offset outline is the only profile geometry, so it alone defines the pocket
 
 ![Face pocket sketch](/img/docs/tutorials/cswp-sample-exam-step5-sketch.png)
 
@@ -307,11 +356,25 @@ const leftOffset = B - C;
 
 #### Base plate and chamfer changes
 
-The base plate no longer has rounded corners:
+The base plate no longer has rounded corners — the sketch is the same four constrained lines, minus the `fillet(10, ...)` statement:
 
 ```js
 sketch("xy", () => {
-    rect(B, A);  // no .radius(10)
+    const b = line([0, 0], [B, 0]);
+    const r = line([B, 0], [B, A]);
+    const t = line([B, A], [0, A]);
+    const l = line([0, A], [0, 0]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    fix(b.start(), [0, 0]);
+    distance(b.start(), b.end(), B);
+    distance(r.start(), r.end(), A);
 })
 ```
 
@@ -331,8 +394,8 @@ Since the corner block is removed, the face selector changes. Instead of matchin
 const topFace1 = select(face().onPlane("xy", 25).edgeCount(5));
 
 sketch(base.endFaces(), () => {
-    project(topFace1);
-    offset(-9, true)
+    const p = project(topFace1).guide();
+    offset(-9, p);
 });
 
 let c1 = cut(20)
@@ -351,20 +414,28 @@ A second pocket is cut on the opposite side of the base, using a manually constr
 ```js
 sketch(base.endFaces(), () => {
     const outerOffset = 9;
-    move([0, 0])
-    vMove(A - outerOffset)
-    hMove(outerOffset)
-    const l1 = hLine(B - 80 - outerOffset * 2)
-    const l2 = vLine(l1.start(), -A + 80 + outerOffset * 2)
-    const l3 = hLine(l2.end(), B - C - outerOffset)
-    const l4 = vLine(l1.end(), -A + C + outerOffset)
-    tArc(l4.end(), l3.end(), l4.tangent())
+    const l1 = line([outerOffset, A - outerOffset], [B - 80 - outerOffset, A - outerOffset]);
+    const l2 = line([outerOffset, A - outerOffset], [outerOffset, 80 + outerOffset]);
+    const l3 = line([outerOffset, 80 + outerOffset], [leftOffset, 80 + outerOffset]);
+    const l4 = line([B - 80 - outerOffset, A - outerOffset], [B - 80 - outerOffset, C]);
+    const a = arc([B - 80 - outerOffset, C], [leftOffset, 80 + outerOffset], [leftOffset, C]).cw();
+    coincident(l1.start(), l2.start());
+    coincident(l2.end(), l3.start());
+    coincident(l1.end(), l4.start());
+    coincident(l4.end(), a.start());
+    coincident(l3.end(), a.end());
+    horizontal(l1);
+    vertical(l2);
+    horizontal(l3);
+    vertical(l4);
+    tangent(l4, a);
+    fix(l1.start(), [outerOffset, A - outerOffset]);
 });
 ```
 
-- The sketch starts near the top-left corner of the base, offset 9mm inward from the edges
-- Four lines trace the pocket boundary, following the L-shape in reverse
-- `tArc(l4.end(), l3.end(), l4.tangent())` creates a tangent arc connecting the two open endpoints — the arc is tangent to `l4`, creating a smooth curved corner that mirrors the support's arc
+- The profile starts near the top-left corner of the base, offset 9mm inward from the edges
+- Four lines trace the pocket boundary, following the L-shape in reverse; `coincident` joins each junction and `horizontal`/`vertical` keep the sides square
+- The arc closes the two open endpoints around center `[leftOffset, C]` — the same center as the support's arc. `.cw()` picks the clockwise sweep from `l4` down to `l3`, and `tangent(l4, a)` records that the arc leaves `l4` smoothly (it meets `l3` smoothly too, for the same reason), mirroring the support's curved corner
 
 ![Second pocket sketch](/img/docs/tutorials/cswp-sample-exam-step6-sketch.png)
 
@@ -384,27 +455,43 @@ The pocket is cut 20mm deep and its internal edges are filleted with a 10mm radi
 
 #### Key slot on front pipe
 
-A key slot is cut into the front pipe by projecting the pipe face, offsetting it, then subtracting a rectangular notch:
+A key slot is cut into the front pipe. The profile is a ring with a rectangular keyway notch, drawn directly as one boundary: an outer arc that stops either side of the notch, three lines forming the notch, and a full inner circle. Everything is positioned relative to the pipe itself, via a projected reference:
 
 ```js
 sketch(plane(cylBody1.startFaces(), -30), () => {
-    let p = project(cylBody1.startFaces());
-    let o = offset(-10)
-    move(p.end())
-    let r = rect(15).centered('horizontal')
-    const s = subtract(p, r)
-    subtract(s, o)
+    const rOut = X / 2;
+    const key = 15;
+    const xNotch = Math.sqrt(rOut * rOut - (key / 2) * (key / 2));
+    const rim = project(cylBody1.startFaces()).guide();
+    const a = arc([xNotch, key / 2], [xNotch, -key / 2], [0, 0]);
+    const kTop = line([xNotch, key / 2], [rOut - key / 2, key / 2]);
+    const kBack = line([rOut - key / 2, key / 2], [rOut - key / 2, -key / 2]);
+    const kBottom = line([rOut - key / 2, -key / 2], [xNotch, -key / 2]);
+    const inner = circle([0, 0], X - 20);
+    coincident(a.start(), kTop.start());
+    coincident(kTop.end(), kBack.start());
+    coincident(kBack.end(), kBottom.start());
+    coincident(kBottom.end(), a.end());
+    horizontal(kTop);
+    vertical(kBack);
+    horizontal(kBottom);
+    concentric(a, rim);
+    radius(a, rOut);
+    concentric(inner, rim);
+    diameter(inner, X - 20);
+    distance(rim.center(), kTop, key / 2);
+    distance(rim.center(), kBottom, key / 2);
+    distance(rim.center(), kBack, rOut - key / 2);
 });
 
 cut(30);
 ```
 
 - `plane(cylBody1.startFaces(), -30)` creates a sketch plane 30mm behind the pipe's far end
-- `project(cylBody1.startFaces())` projects the pipe's circular face onto the sketch
-- `offset(-10)` creates a smaller concentric circle (the bore)
-- `rect(15).centered('horizontal')` draws a 15mm square centered horizontally at the top of the circle
-- Two `subtract()` calls remove the inner circle and the rectangle from the outer circle, leaving a ring with a rectangular notch — the key slot profile
-- `cut(30)` cuts this profile 30mm deep into the pipe
+- `project(cylBody1.startFaces())` brings the pipe's circular rim in as a fixed reference; both the outer arc and the inner circle are made `concentric` with it, so the slot stays centered on the pipe no matter what the parameters are
+- The outer arc has the pipe's radius (`radius(a, rOut)`); the inner circle is the bore ring, 10mm smaller in radius (`diameter(inner, X - 20)`)
+- The three `distance` constraints place the notch: 15mm wide (`key / 2` each side of the pipe axis) and reaching 7.5mm inside the outer rim. The guess coordinates put the notch on the pipe's +X side, which picks that solution
+- `cut(30)` cuts this profile 30mm deep into the pipe, leaving the keyed ring groove
 
 #### Base side fillets
 
@@ -428,15 +515,13 @@ With the Stage 2 test 4 parameters above (A=221, B=211, C=165, D=121, E=37), the
 
 ## What you practiced
 
-- **`rect().radius()`** — creating rectangles with selectively rounded corners
-- **`arc()`** — connecting two endpoints with an arc through a center point
-- **`offset()`** — offsetting sketch geometry inward or outward to create wall thickness
+- **Constrained rectangles** — four `line()` statements squared up with `coincident`, `horizontal`/`vertical`, `fix`, and `distance` dimensions carrying the exam parameters
+- **`arc(start, end, center)`** — arcs drawn with explicit geometry, pinned with `coincident`, `radius`, and `tangent` constraints
+- **`offset()` and `.close()`** — offsetting sketch geometry to create wall thickness, with automatic end caps
 - **`plane()`** — creating offset reference planes for sketching on non-standard surfaces
 - **`chamfer()`** — adding equal-distance and angled chamfers to edges
-- **`circle()` on faces** — sketching circles on existing faces for holes and bores
+- **`fillet()` in 2D and 3D** — rounding sketch corners, internal pocket edges, and base side edges
 - **`cut()` with and without depth** — through-all cuts vs. depth-limited counterbores
 - **`select()` with `face()` filters** — selecting specific faces using `onPlane()`, `hasEdge()`, and `edgeCount()`
-- **`project()` + `offset()`** — projecting face outlines and offsetting them to create pocket profiles
-- **`fillet()`** — rounding internal pocket edges and base side edges
-- **`subtract()`** — boolean subtraction of sketch geometry to create complex profiles like key slots
-- **`tArc()`** — creating tangent arcs for smooth profile transitions
+- **`project()` references** — projecting face outlines as fixed reference geometry, then constraining against them with `concentric` and `distance`, or offsetting them into pocket profiles
+- **Solution branches** — letting exact guess coordinates pick which of several constraint solutions (like the keyway's side) the solver lands on

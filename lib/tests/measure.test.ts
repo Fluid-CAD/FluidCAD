@@ -2,12 +2,13 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "./setup.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
-import { bezier, circle, line, rect } from "../core/2d/index.js";
+import { bezier, circle, line } from "../core/2d/index.js";
 import { getSceneManager, getCurrentScene } from "../scene-manager.js";
 import { Explorer } from "../oc/explorer.js";
 import { classifyEdge, classifyFace } from "../oc/measure/classify.js";
 import type { ClassifiedEntity } from "../oc/measure/classify.js";
 import type { MeasureEntityRef, MeasureResult, MeasureVec } from "../oc/measure/measure-types.js";
+import { testRect } from "./helpers/profiles.js";
 
 type FoundEntity = { ref: MeasureEntityRef; info: ClassifiedEntity };
 
@@ -49,8 +50,8 @@ function delta(d: { from: MeasureVec; to: MeasureVec }): MeasureVec {
 
 function makeBox(width = 100, depth = 50, height = 30): void {
   sketch("xy", () => {
-    rect(width, depth);
-  });
+      testRect(width, depth);
+    });
   extrude(height);
   render();
 }

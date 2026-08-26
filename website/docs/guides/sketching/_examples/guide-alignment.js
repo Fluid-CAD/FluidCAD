@@ -1,15 +1,8 @@
-import { sketch, move } from 'fluidcad/core';
-import { circle } from 'fluidcad/core';
+import { sketch, circle } from 'fluidcad/core';
 
 sketch("xy", () => {
-    circle(80).guide()
-
-    move([40, 0])
-    circle(15)
-
-    move([-40, 40])
-    circle(15)
-
-    move([-40, -40])
-    circle(15)
+    circle([0, 0], 80).guide();
+    circle([40, 0], 15);
+    circle([-40, 40], 15);
+    circle([-40, -40], 15);
 })

@@ -3,17 +3,18 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import repeat from "../../core/repeat.js";
-import { rect } from "../../core/2d/index.js";
+import { } from "../../core/2d/index.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { countShapes } from "../utils.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("repeat linear", () => {
   setupOC();
 
   it("should repeat along x axis with offset", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     repeat("linear", "x", { count: 3, offset: 40 }, e);
@@ -25,8 +26,8 @@ describe("repeat linear", () => {
 
   it("should repeat along y axis", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     repeat("linear", "y", { count: 3, offset: 40 }, e);
@@ -37,8 +38,8 @@ describe("repeat linear", () => {
 
   it("should repeat along z axis", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     repeat("linear", "z", { count: 3, offset: 40 }, e);
@@ -49,8 +50,8 @@ describe("repeat linear", () => {
 
   it("should distribute instances by total length", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     // 4 instances over length 120 → offset = 120 / 3 = 40
@@ -63,8 +64,8 @@ describe("repeat linear", () => {
 
   it("should create a 2D grid with multiple axes", () => {
     sketch("xy", () => {
-      rect(10, 10);
-    });
+        testRect(10, 10);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     // 3 along X × 2 along Y = 6 positions, minus origin = 5 clones
@@ -77,8 +78,8 @@ describe("repeat linear", () => {
 
   it("should use single count for all axes when count is a single-element array", () => {
     sketch("xy", () => {
-      rect(10, 10);
-    });
+        testRect(10, 10);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     // count: [2] shared for both axes → 2×2 = 4 positions, minus origin = 3 clones
@@ -91,8 +92,8 @@ describe("repeat linear", () => {
 
   it("should support per-axis length arrays", () => {
     sketch("xy", () => {
-      rect(10, 10);
-    });
+        testRect(10, 10);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     // x: count=3, length=60 → offset=30; y: count=2, length=40 → offset=40
@@ -105,8 +106,8 @@ describe("repeat linear", () => {
 
   it("should center the pattern around the origin", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     repeat("linear", "x", { count: 5, offset: 20, centered: true }, e);
@@ -118,8 +119,8 @@ describe("repeat linear", () => {
 
   it("should center correctly with count 3", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     // count: 3, centered → one clone on each side of the original
@@ -132,8 +133,8 @@ describe("repeat linear", () => {
 
   it("should center correctly in a multi-axis grid", () => {
     sketch("xy", () => {
-      rect(10, 10);
-    });
+        testRect(10, 10);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     // 3×3 centered grid → 9 positions, 1 is the center (original) = 8 clones
@@ -146,8 +147,8 @@ describe("repeat linear", () => {
 
   it("should skip specified index", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     // 3 instances, skip index [1]
@@ -160,8 +161,8 @@ describe("repeat linear", () => {
 
   it("should skip positions in a multi-axis grid", () => {
     sketch("xy", () => {
-      rect(10, 10);
-    });
+        testRect(10, 10);
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     // 3×2 grid, skip position [1,1]
@@ -174,13 +175,13 @@ describe("repeat linear", () => {
 
   it("should repeat multiple objects together", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     const e1 = extrude(10).new() as ExtrudeBase;
 
     sketch("xy", () => {
-      rect(10, 10);
-    });
+        testRect(10, 10);
+      });
     const e2 = extrude(5).new() as ExtrudeBase;
 
     repeat("linear", "x", { count: 3, offset: 40 }, e1, e2);
@@ -192,8 +193,8 @@ describe("repeat linear", () => {
 
   it("should use last object when no objects specified", () => {
     sketch("xy", () => {
-      rect(20, 20);
-    });
+        testRect(20, 20);
+      });
     extrude(10).new();
 
     repeat("linear", "x", { count: 3, offset: 40 });

@@ -357,14 +357,6 @@ export class CenterArcTool extends SketchTool {
           ? { newVariables: [...start.newVariables, ...center.newVariables, ...(newVariable ? [newVariable] : [])] }
           : {}),
       });
-    } else {
-      const suffix = `.center(${this.formatPoint(center)})${cwSuffix}`;
-      this.insertAtPoint(
-        start,
-        (point) => `arc(${point}, ${this.formatPoint(re)})${suffix}`,
-        () => `arc(${this.formatPoint(re)})${suffix}`,
-        [...center.newVariables, ...(newVariable ? [newVariable] : [])],
-      );
     }
     this.expressionInput.hide();
     this.resetState();

@@ -3,7 +3,7 @@ import { setupOC, render } from "../../setup.js";
 import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import select from "../../../core/select.js";
-import { circle, move, offset, rect } from "../../../core/2d/index.js";
+import { circle, offset } from "../../../core/2d/index.js";
 import { Extrude } from "../../../features/extrude.js";
 import { Offset } from "../../../features/2d/offset.js";
 import { Edge } from "../../../common/edge.js";
@@ -11,6 +11,7 @@ import { Solid } from "../../../common/solid.js";
 import { ShapeOps } from "../../../oc/shape-ops.js";
 import { face } from "../../../filters/index.js";
 import { SelectSceneObject } from "../../../features/select.js";
+import { testRect } from "../../helpers/profiles.js";
 
 function overallBBox(edges: Edge[]) {
   const bbox = { minX: Infinity, minY: Infinity, minZ: Infinity, maxX: -Infinity, maxY: -Infinity, maxZ: -Infinity };
@@ -31,8 +32,8 @@ describe("offset from faces", () => {
 
   it("should offset a face outline outward on the face plane", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     const box = extrude(50) as Extrude;
 
     const off = offset(5, box.endFaces()) as unknown as Offset;
@@ -58,8 +59,8 @@ describe("offset from faces", () => {
 
   it("should offset inward with a negative distance", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     const box = extrude(50) as Extrude;
 
     const off = offset(-10, box.endFaces()) as unknown as Offset;
@@ -75,10 +76,9 @@ describe("offset from faces", () => {
 
   it("should shrink holes while growing the outer outline", () => {
     sketch("xy", () => {
-      rect(100, 100);
-      move([50, 50]);
-      circle(40);
-    });
+        testRect(100, 100);
+        circle([50, 50], 40);
+      });
     const box = extrude(50) as Extrude;
 
     const off = offset(5, box.endFaces()) as unknown as Offset;
@@ -99,8 +99,8 @@ describe("offset from faces", () => {
 
   it("should be extrudable like a sketch", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     const box = extrude(50) as Extrude;
 
     const off = offset(5, box.endFaces()) as unknown as Offset;
@@ -121,8 +121,8 @@ describe("offset from faces", () => {
 
   it("should use a preceding select as implicit target", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     extrude(50);
 
     select(face().onPlane("xy", 50));
@@ -138,14 +138,13 @@ describe("offset from faces", () => {
 
   it("should offset multiple coplanar faces", () => {
     sketch("xy", () => {
-      rect(50, 50);
-    });
+        testRect(50, 50);
+      });
     extrude(30);
 
     sketch("xy", () => {
-      move([100, 0]);
-      rect(50, 50);
-    });
+        testRect(50, 50, { at: [100, 0] });
+      });
     extrude(30);
 
     const sel = select(face().onPlane("xy", 30));
@@ -163,8 +162,8 @@ describe("offset from faces", () => {
 
   it("should consume an explicit select target", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     extrude(50);
 
     const sel = select(face().onPlane("xy", 50)) as SelectSceneObject;
@@ -179,8 +178,8 @@ describe("offset from faces", () => {
 
   it("should consume the implicit preceding select", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     extrude(50);
 
     const sel = select(face().onPlane("xy", 50)) as SelectSceneObject;
@@ -194,8 +193,8 @@ describe("offset from faces", () => {
 
   it("should not consume lazy face accessor targets", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     const box = extrude(50) as Extrude;
 
     const accessor = box.endFaces();
@@ -209,8 +208,8 @@ describe("offset from faces", () => {
 
   it("should reject non-coplanar face targets", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     extrude(50);
 
     const top = select(face().onPlane("xy", 50));
@@ -225,8 +224,8 @@ describe("offset from faces", () => {
 
   it("should reject the removed removeOriginal flag", () => {
     sketch("xy", () => {
-      rect(100, 100);
-    });
+        testRect(100, 100);
+      });
     const box = extrude(50) as Extrude;
 
     expect(() => (offset as any)(5, true, box.endFaces()))

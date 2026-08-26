@@ -4,7 +4,8 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import mirror from "../../core/mirror.js";
 import local from "../../core/local.js";
-import { move, rect, circle } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
+import { testRect } from "../helpers/profiles.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { MirrorShape2D } from "../../features/mirror-shape2d.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
@@ -15,10 +16,9 @@ describe("mirror (2D)", () => {
   describe("mirror sketch geometry across axis", () => {
     it("should mirror a circle across the Y axis", () => {
       sketch("xy", () => {
-        move([30, 0]);
-        const c = circle(20);
-        mirror("y", c);
-      });
+          const c = circle([30, 0], 20);
+          mirror("y", c);
+        });
 
       const e = extrude(10) as ExtrudeBase;
 
@@ -38,10 +38,9 @@ describe("mirror (2D)", () => {
 
     it("should mirror a rect across the X axis", () => {
       sketch("xy", () => {
-        move([0, 20]);
-        const r = rect(30, 20);
-        mirror("x", r);
-      });
+          const r = testRect(30, 20, { at: [0, 20] });
+          mirror("x", r.b, r.r, r.t, r.l);
+        });
 
       const e = extrude(10) as ExtrudeBase;
 
@@ -63,10 +62,9 @@ describe("mirror (2D)", () => {
       const m = { ref: null as MirrorShape2D };
 
       sketch("xy", () => {
-        move([30, 0]);
-        const c = circle(20);
-        m.ref = mirror("y", c) as MirrorShape2D;
-      });
+          const c = circle([30, 0], 20);
+          m.ref = mirror("y", c) as MirrorShape2D;
+        });
 
       render();
 
@@ -78,12 +76,10 @@ describe("mirror (2D)", () => {
   describe("mirror specific geometry", () => {
     it("should mirror only the specified geometry", () => {
       sketch("xy", () => {
-        move([30, 0]);
-        const c1 = circle(20);
-        move([0, 50]);
-        circle(20);
-        mirror("y", c1);
-      });
+          const c1 = circle([30, 0], 20);
+          circle([0, 50], 20);
+          mirror("y", c1);
+        });
 
       const e = extrude(10) as ExtrudeBase;
 
@@ -100,10 +96,9 @@ describe("mirror (2D)", () => {
       let mirrorRef: MirrorShape2D;
 
       sketch("front", () => {
-        move([30, 0]);
-        const c = circle(20);
-        mirrorRef = mirror("y", c) as MirrorShape2D;
-      });
+          const c = circle([30, 0], 20);
+          mirrorRef = mirror("y", c) as MirrorShape2D;
+        });
 
       render();
 
@@ -112,10 +107,9 @@ describe("mirror (2D)", () => {
 
     it("should mirror across sketch-local Y on a non-XY plane via local()", () => {
       sketch("front", () => {
-        move([30, 0]);
-        const c = circle(20);
-        mirror(local("y"), c);
-      });
+          const c = circle([30, 0], 20);
+          mirror(local("y"), c);
+        });
 
       const e = extrude(10) as ExtrudeBase;
 
@@ -141,16 +135,14 @@ describe("mirror (2D)", () => {
   describe("mirror with .exclude()", () => {
     it("should skip an excluded geometry when mirroring all sketch siblings", () => {
       sketch("xy", () => {
-        move([30, 0]);
-        const c1 = circle(10);
-        move([30, 50]);
-        const c2 = circle(10);
-        // mirror everything in the sketch but skip c2
-        mirror("y").exclude(c2);
+          const c1 = circle([30, 0], 10);
+          const c2 = circle([30, 50], 10);
+          // mirror everything in the sketch but skip c2
+          mirror("y").exclude(c2);
 
-        // sanity: keep references referenced
-        void c1;
-      });
+          // sanity: keep references referenced
+          void c1;
+        });
 
       const e = extrude(5) as ExtrudeBase;
 
@@ -167,13 +159,10 @@ describe("mirror (2D)", () => {
 
     it("should narrow an explicit target list with exclude", () => {
       sketch("xy", () => {
-        move([30, 0]);
-        const c1 = circle(10);
-        move([30, 50]);
-        const c2 = circle(10);
-        // explicit targets [c1, c2], then exclude c2 → only c1 is mirrored
-        mirror("y", c1, c2).exclude(c2);
-      });
+          const c1 = circle([30, 0], 10);
+          const c2 = circle([30, 50], 10);
+          mirror("y", c1, c2).exclude(c2);
+        });
 
       const e = extrude(5) as ExtrudeBase;
 
@@ -191,16 +180,13 @@ describe("mirror (2D)", () => {
 
     it("should accumulate exclusions across chained calls", () => {
       sketch("xy", () => {
-        move([30, 0]);
-        const c1 = circle(10);
-        move([30, 50]);
-        const c2 = circle(10);
-        move([30, 100]);
-        const c3 = circle(10);
-        // exclude c1 and c2 in two calls; only c3 should be mirrored
-        mirror("y").exclude(c1).exclude(c2);
-        void c3;
-      });
+          const c1 = circle([30, 0], 10);
+          const c2 = circle([30, 50], 10);
+          const c3 = circle([30, 100], 10);
+          // exclude c1 and c2 in two calls; only c3 should be mirrored
+          mirror("y").exclude(c1).exclude(c2);
+          void c3;
+        });
 
       const e = extrude(5) as ExtrudeBase;
 

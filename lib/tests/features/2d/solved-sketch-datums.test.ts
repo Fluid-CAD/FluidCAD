@@ -24,7 +24,7 @@ describe("sketch datums (origin + axes) through statements", () => {
   it("every solved sketch carries the three fixed datum entities in its payload", () => {
     const s = sketch('xy', () => {
       line([3, 4], [40, 9]);
-    }, true) as unknown as Sketch;
+    }) as unknown as Sketch;
     const scene = render();
 
     const payload = sketchPayload(scene, s);
@@ -38,7 +38,7 @@ describe("sketch datums (origin + axes) through statements", () => {
   });
 
   it("an empty solved sketch still stores the datum snapshot, with no DOF verdict", () => {
-    const s = sketch('xy', () => {}, true) as unknown as Sketch;
+    const s = sketch('xy', () => {}) as unknown as Sketch;
     const scene = render();
 
     const payload = sketchPayload(scene, s);
@@ -55,7 +55,7 @@ describe("sketch datums (origin + axes) through statements", () => {
       coincident(l.start(), origin());
       horizontal(l);
       distance(l.start(), l.end(), 60);
-    }, true);
+    });
     const scene = render();
 
     const [l] = renderedByUniqueType(scene, 'solved-line');
@@ -78,7 +78,7 @@ describe("sketch datum golden solves", () => {
       fix(a.center());
       equal(a, b);
       symmetric(a.center(), b.center(), yAxis());
-    }, true);
+    });
     const scene = render();
 
     const circles = renderedByUniqueType(scene, 'solved-circle');
@@ -95,7 +95,7 @@ describe("sketch datum golden solves", () => {
       collinear(xAxis(), l);
       coincident(p, xAxis());
       distance(yAxis(), p, 45);
-    }, true);
+    });
     const scene = render();
 
     const [l] = renderedByUniqueType(scene, 'solved-line');
@@ -118,7 +118,7 @@ describe("sketch datum golden solves", () => {
       // Axis passed second: the line–line form measures b's midpoint to a's
       // infinite line, so the statement layer must put the axis at a.
       distance(l, xAxis(), 20);
-    }, true);
+    });
     const scene = render();
 
     const [l] = renderedByUniqueType(scene, 'solved-line');
@@ -135,7 +135,7 @@ describe("sketch datum golden solves", () => {
       coincident(l.start(), origin());
       distance(l.start(), l.end(), 40);
       angle(xAxis(), l, 30);
-    }, true);
+    });
     const scene = render();
 
     const [l] = renderedByUniqueType(scene, 'solved-line');
@@ -153,7 +153,7 @@ describe("sketch datum misuse diagnostics", () => {
       const l = line([0, 0], [30, 0]);
       fix(l.start());
       fix(origin());
-    }, true);
+    });
     const scene = render();
 
     const fixes = renderedByUniqueType(scene, 'constraint-fix');
@@ -173,7 +173,7 @@ describe("sketch datum misuse diagnostics", () => {
       fix(l.start());
       equal(l, xAxis());
       midpoint(p, yAxis());
-    }, true);
+    });
     const scene = render();
 
     const eq = renderedByUniqueType(scene, 'constraint-equal')[0];
@@ -185,16 +185,19 @@ describe("sketch datum misuse diagnostics", () => {
     expect(mid.errorMessage).toContain('midpoint is undefined');
   });
 
-  it("datum accessors in a legacy sketch fail on the constraint, not the sketch", () => {
+  it("a self-referential datum coincident errors on the constraint, not the sketch", () => {
     sketch('xy', () => {
       line([0, 0], [30, 0]);
       coincident(origin(), origin());
     });
     const scene = render();
 
+    // Every sketch is solved now — the degenerate datum-to-itself pairing
+    // still lands on the constraint row, never the sketch.
     const c = renderedByUniqueType(scene, 'constraint-coincident')[0];
     expect(c.hasError).toBe(true);
-    expect(c.errorMessage).toContain('constraint-mode sketch');
+    const sketchRow = scene.getRenderedObjects().find(r => r.uniqueType === 'sketch')!;
+    expect(sketchRow.hasError).toBe(false);
   });
 
   it("another sketch's datum is refused as cross-sketch", () => {
@@ -202,11 +205,11 @@ describe("sketch datum misuse diagnostics", () => {
     sketch('xy', () => {
       line([0, 0], [10, 0]);
       stolen = origin();
-    }, true);
+    });
     sketch('xz', () => {
       const l = line([0, 0], [30, 0]);
       coincident(l.start(), stolen!);
-    }, true);
+    });
     const scene = render();
 
     const constraints = renderedByUniqueType(scene, 'constraint-coincident');
@@ -220,7 +223,7 @@ describe("sketch datum misuse diagnostics", () => {
       const c = circle([10, 10], 16) as unknown as ISolvedCircle;
       fix(c.center());
       distance(c, xAxis(), 2); // line–circle form with the axis passed second
-    }, true);
+    });
     const scene = render();
 
     const dims = renderedByUniqueType(scene, 'constraint-distance');
@@ -235,7 +238,7 @@ describe("sketch datum misuse diagnostics", () => {
       const c = circle([3, 4], 8) as unknown as ISolvedCircle;
       fix(c.center());
       coincident(c, origin());
-    }, true);
+    });
     const scene = render();
 
     const co = renderedByUniqueType(scene, 'constraint-coincident');

@@ -63,8 +63,6 @@ export class TLineMode implements SegmentMode {
 
     if (ctx.solved) {
       this.emitSolved(endPoint, undefined, undefined, ctx);
-    } else {
-      ctx.insertGeometry(`tLine(${rounded})`);
     }
     ctx.hideExpressionInput();
 
@@ -171,8 +169,6 @@ export class TLineMode implements SegmentMode {
         newVariable,
         ctx,
       );
-    } else {
-      ctx.insertGeometry(`tLine(${dimExpr})`, newVariable);
     }
     ctx.hideExpressionInput();
     ctx.onSegmentCommitted({

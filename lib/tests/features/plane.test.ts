@@ -4,12 +4,13 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import plane from "../../core/plane.js";
 import select from "../../core/select.js";
-import { bezier, rect } from "../../core/2d/index.js";
+import { bezier } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { PlaneObjectBase } from "../../features/plane-renderable-base.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { face } from "../../filters/index.js";
 import { Point } from "../../math/point.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("plane", () => {
   setupOC();
@@ -97,8 +98,8 @@ describe("plane", () => {
   describe("plane from face", () => {
     it("should create a plane from an extrude end face", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(40) as Extrude;
 
       const p = plane(e.endFaces()) as PlaneObjectBase;
@@ -112,8 +113,8 @@ describe("plane", () => {
 
     it("should create a plane from an extrude start face", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(40) as Extrude;
 
       const p = plane(e.startFaces()) as PlaneObjectBase;
@@ -126,8 +127,8 @@ describe("plane", () => {
 
     it("should create a plane from a face selection", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(40);
 
       const sel = select(face().onPlane("xy", 40));
@@ -141,8 +142,8 @@ describe("plane", () => {
 
     it("should apply transform options to plane from face", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(40) as Extrude;
 
       const p = plane(e.endFaces(), { offset: 10 }) as PlaneObjectBase;
@@ -164,8 +165,8 @@ describe("plane", () => {
 
     it("should create a plane normal to an edge at its midpoint", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as Extrude;
 
       const p = plane(e.startEdges(0), "middle") as PlaneObjectBase;
@@ -183,8 +184,8 @@ describe("plane", () => {
 
     it("should default to the start when no position is given", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as Extrude;
 
       const pStart = plane(e.startEdges(0), "start") as PlaneObjectBase;
@@ -197,8 +198,8 @@ describe("plane", () => {
 
     it("should place start/end at the endpoints with the midpoint between them", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as Extrude;
 
       const pStart = plane(e.startEdges(0), "start") as PlaneObjectBase;
@@ -219,8 +220,8 @@ describe("plane", () => {
 
     it("should treat the numeric position as a normalized 0–1 parameter", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as Extrude;
 
       const p0 = plane(e.startEdges(0), 0) as PlaneObjectBase;
@@ -239,8 +240,8 @@ describe("plane", () => {
 
     it("should face outward at the start (cap convention)", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as Extrude;
 
       const pStart = plane(e.startEdges(0), "start") as PlaneObjectBase;
@@ -261,8 +262,8 @@ describe("plane", () => {
 
     it("should apply transform options to a plane from an edge", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as Extrude;
 
       const pStart = plane(e.startEdges(0)) as PlaneObjectBase;
@@ -280,8 +281,8 @@ describe("plane", () => {
 
     it("should apply rotation options to a plane from an edge", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as Extrude;
 
       const pStart = plane(e.startEdges(0)) as PlaneObjectBase;
@@ -299,8 +300,8 @@ describe("plane", () => {
 
     it("should still treat a numeric argument on a face as a normal offset", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(40) as Extrude;
 
       const p = plane(e.endFaces(), 10) as PlaneObjectBase;
@@ -445,8 +446,8 @@ describe("plane", () => {
 
     it("should create a plane midway between two face planes", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(60) as Extrude;
 
       const pStart = plane(e.startFaces()) as PlaneObjectBase;
@@ -470,8 +471,8 @@ describe("plane", () => {
 
     it("marks the plane a sketch builds for itself", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const planes = planesOf(render());
       expect(planes).toHaveLength(1);
@@ -480,12 +481,14 @@ describe("plane", () => {
 
     it("marks the plane a sketch derives from a face", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(60) as Extrude;
+      // Legacy rect(10, 10) drew at the pen origin = the end-face centroid,
+      // which for the 100×50 extrusion's cap sits at local [50, 25].
       sketch(e.endFaces(), () => {
-        rect(10, 10);
-      });
+          testRect(10, 10, { at: [50, 25] });
+        });
 
       const planes = planesOf(render());
       expect(planes.every(p => p.internal === true)).toBe(true);
@@ -494,8 +497,8 @@ describe("plane", () => {
     it("leaves a plane() statement alone, and the sketch that consumes it", () => {
       const p = plane("xy", 20) as PlaneObjectBase;
       sketch(p, () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       // Only the statement's own plane object exists — the sketch reuses it
       // rather than building one — and it stays a feature row.

@@ -11,7 +11,7 @@ import connector from "../core/connector.js";
 import expose from "../core/expose.js";
 import insert from "../core/insert.js";
 import translate from "../core/translate.js";
-import { rect } from "../core/2d/index.js";
+import { testRect } from "./helpers/profiles.js";
 import { face } from "../filters/index.js";
 import { Part } from "../features/part.js";
 import { PartDefinition } from "../features/part-definition.js";
@@ -21,7 +21,7 @@ import { setupOC, render } from "./setup.js";
 function blockDef(name = "block") {
   return part(name, () => {
     const size = param("Size", 20, "number", { min: 5 });
-    sketch("xy", () => rect(size, size));
+    sketch("xy", () => { testRect(size, size); });
     extrude(10);
     connector("top", select(face().planar().onPlane("xy", 10)));
   });
@@ -71,7 +71,7 @@ describe("part() definitions", () => {
 
   it("serves expose() sources as features (auto-materializing)", () => {
     const def = part("feat", () => {
-      const s = sketch("xy", () => rect(10, 10)).reusable();
+      const s = sketch("xy", () => { testRect(10, 10); }).reusable();
       expose("profile", s);
     });
     expect(def.features.profile.getType()).toBe("sketch");
@@ -100,7 +100,7 @@ describe("part() definitions", () => {
 
   it("coerces definitions passed as transform targets", () => {
     const def = part("moved", () => {
-      sketch("xy", () => rect(10, 10));
+      sketch("xy", () => { testRect(10, 10); });
       extrude(5);
     });
     translate(50, 0, 0, def as any);
@@ -245,7 +245,7 @@ describe("definition reads in assembly scenes", () => {
     getSceneManager().startAssemblyScene();
     const def = part("p", () => {
       param("Length", 100);
-      const s = sketch("xy", () => rect(10, 10)).reusable();
+      const s = sketch("xy", () => { testRect(10, 10); }).reusable();
       expose("profile", s);
     });
     expect(Object.keys(def.features)).toEqual(["profile"]);
@@ -268,7 +268,7 @@ describe("definition reads in assembly scenes", () => {
   it("insert() then a features read serves the inserted template's sources", () => {
     getSceneManager().startAssemblyScene();
     const def = part("p", () => {
-      const s = sketch("xy", () => rect(10, 10)).reusable();
+      const s = sketch("xy", () => { testRect(10, 10); }).reusable();
       expose("profile", s);
     });
     const inst = insert(def);

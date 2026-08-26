@@ -16,15 +16,11 @@ import {
   insertGeometryCall,
   insertGeometryCallWithVariable,
   insertLoadCall,
-  updateGeometryPosition,
   updateDimension,
   updateDimensionExpression,
   getDimensionExpression,
   getPointExpression,
-  updatePointExpression,
-  updatePointExpressionWithVariable,
   extractVariablesInScope,
-  setRectDimensions,
 } from '../src/code-editor.ts';
 
 describe('addBreakpoint', () => {
@@ -242,15 +238,15 @@ describe('addPick', () => {
 
 describe('addGuide', () => {
   it('appends .guide() after the last close paren on the line', async () => {
-    const code = `rect([0, 0], 10, 5)\n`;
+    const code = `ellipse([0, 0], 10, 5)\n`;
     const result = await addGuide(code, 1);
-    expect(result.newCode).toBe(`rect([0, 0], 10, 5).guide()\n`);
+    expect(result.newCode).toBe(`ellipse([0, 0], 10, 5).guide()\n`);
   });
 
   it('appends after an existing chained call', async () => {
-    const code = `rect([0, 0], 10, 5).centered()\n`;
+    const code = `ellipse([0, 0], 10, 5).centered()\n`;
     const result = await addGuide(code, 1);
-    expect(result.newCode).toBe(`rect([0, 0], 10, 5).centered().guide()\n`);
+    expect(result.newCode).toBe(`ellipse([0, 0], 10, 5).centered().guide()\n`);
   });
 
   it('is a no-op when .guide( already exists on the line', async () => {
@@ -262,19 +258,19 @@ describe('addGuide', () => {
 
 describe('removeGuide', () => {
   it('removes .guide() from the line', async () => {
-    const code = `rect([0, 0], 10, 5).guide();\n`;
+    const code = `ellipse([0, 0], 10, 5).guide();\n`;
     const result = await removeGuide(code, 1);
-    expect(result.newCode).toBe(`rect([0, 0], 10, 5);\n`);
+    expect(result.newCode).toBe(`ellipse([0, 0], 10, 5);\n`);
   });
 
   it('removes a mid-chain .guide(), keeping later calls', async () => {
-    const code = `rect([0, 0], 10, 5).guide().centered()\n`;
+    const code = `ellipse([0, 0], 10, 5).guide().centered()\n`;
     const result = await removeGuide(code, 1);
-    expect(result.newCode).toBe(`rect([0, 0], 10, 5).centered()\n`);
+    expect(result.newCode).toBe(`ellipse([0, 0], 10, 5).centered()\n`);
   });
 
   it('is a no-op when there is no .guide() on the line', async () => {
-    const code = `rect([0, 0], 10, 5)\n`;
+    const code = `ellipse([0, 0], 10, 5)\n`;
     const result = await removeGuide(code, 1);
     expect(result.newCode).toBe(code);
   });
@@ -486,7 +482,7 @@ describe('insertGeometryCall', () => {
       `  const a = line([0, 0], [10, 0]);`,
       `  horizontal(a);`,
       `  coincident(a.end(), a.start());`,
-      `}, true)`,
+      `})`,
       ``,
     ].join('\n');
     const result = await insertGeometryCall(code, 3, 'circle([0, 0], 5)');
@@ -504,7 +500,7 @@ describe('insertGeometryCall', () => {
       `sketch('xy', () => {`,
       `  const a = line([0, 0], [10, 0]);`,
       `  horizontal(a);`,
-      `}, true)`,
+      `})`,
       ``,
     ].join('\n');
     const result = await insertGeometryCall(code, 3, 'offset(2, a)');
@@ -523,7 +519,7 @@ describe('insertGeometryCall', () => {
       `sketch('xy', () => {`,
       `  const a = line([0, 0], [10, 0]);`,
       `  const o = offset(2, a);`,
-      `}, true)`,
+      `})`,
       ``,
     ].join('\n');
     const result = await insertGeometryCall(code, 2, 'circle([0, 0], 5)');
@@ -540,7 +536,7 @@ describe('insertGeometryCall', () => {
       `sketch('xy', () => {`,
       `  const a = line([0, 0], [10, 0]);`,
       `  return { a };`,
-      `}, true)`,
+      `})`,
       ``,
     ].join('\n');
     const result = await insertGeometryCall(code, 2, 'offset(2, a)');
@@ -551,9 +547,9 @@ describe('insertGeometryCall', () => {
     ].join('\n'));
   });
 
-  it('keeps legacy sketches appending at the body end past derived ops', async () => {
-    // Pen statements are order-sensitive — the solved tail rule must not
-    // reorder legacy sketches.
+  it('applies the solved layout to every sketch — geometry inserts before derived ops', async () => {
+    // The P6 mode flag is gone: every sketch call gets the solved region
+    // convention (geometry → constraints → derived ops), flag or no flag.
     const code = [
       `import { sketch, line, offset } from 'fluidcad/core';`,
       `sketch('xy', () => {`,
@@ -564,8 +560,8 @@ describe('insertGeometryCall', () => {
     ].join('\n');
     const result = await insertGeometryCall(code, 2, 'line([10, 0], [20, 0])');
     expect(result.newCode).toContain([
-      `  offset(2, a);`,
       `  line([10, 0], [20, 0])`,
+      `  offset(2, a);`,
     ].join('\n'));
   });
 
@@ -636,9 +632,9 @@ describe('insertGeometryCall', () => {
       `})`,
       ``,
     ].join('\n');
-    const result = await insertGeometryCall(code, 2, 'hLine(15)');
-    expect(result.newCode).toContain('hLine,');
-    expect(result.newCode).toContain('hLine(15)');
+    const result = await insertGeometryCall(code, 2, 'point([5, 5])');
+    expect(result.newCode).toContain('point,');
+    expect(result.newCode).toContain('point([5, 5])');
   });
 
   it('creates a new import when no fluidcad import exists', async () => {
@@ -675,388 +671,20 @@ describe('insertGeometryCall', () => {
     const code = [
       `import { sketch } from 'fluidcad/core';`,
       `sketch(XY, () => {`,
-      `  rect(10, 10)`,
+      `  line([0, 0], [10, 0])`,
       `})`,
       ``,
     ].join('\n');
-    const result = await insertGeometryCall(code, 2, 'move([5, 5]);\ntext("Hi").size(14).bold()');
+    const result = await insertGeometryCall(code, 2, 'point([5, 5]);\ntext("Hi").size(14).bold()');
     expect(result.newCode).toBe([
-      `import { text,move, sketch } from 'fluidcad/core';`,
+      `import { text,point, sketch } from 'fluidcad/core';`,
       `sketch(XY, () => {`,
-      `  rect(10, 10)`,
-      `  move([5, 5]);`,
+      `  line([0, 0], [10, 0])`,
+      `  point([5, 5]);`,
       `  text("Hi").size(14).bold()`,
       `})`,
       ``,
     ].join('\n'));
-  });
-});
-
-describe('updateGeometryPosition', () => {
-  it('replaces an existing point argument', async () => {
-    const code = `line([5, 10], [20, 30])\n`;
-    const result = await updateGeometryPosition(code, 1, [15, 25]);
-    expect(result.newCode).toBe(`line([15, 25], [20, 30])\n`);
-  });
-
-  it('replaces the first point even in single-arg overload', async () => {
-    const code = `line([20, 30])\n`;
-    const result = await updateGeometryPosition(code, 1, [5, 10]);
-    expect(result.newCode).toBe(`line([5, 10])\n`);
-  });
-
-  it('inserts position before a non-point argument', async () => {
-    const code = `circle(40)\n`;
-    const result = await updateGeometryPosition(code, 1, [10, 20]);
-    expect(result.newCode).toBe(`circle([10, 20], 40)\n`);
-  });
-
-  it('replaces a point containing a variable reference', async () => {
-    const code = `line([600, height])\n`;
-    const result = await updateGeometryPosition(code, 1, [700, 850]);
-    expect(result.newCode).toBe(`line([700, 850])\n`);
-  });
-
-  it('replaces a point where both elements are variables', async () => {
-    const code = `line([x, y])\n`;
-    const result = await updateGeometryPosition(code, 1, [100, 200]);
-    expect(result.newCode).toBe(`line([100, 200])\n`);
-  });
-
-  it('replaces a point containing a binary expression', async () => {
-    const code = `line([width / 2, height * 3])\n`;
-    const result = await updateGeometryPosition(code, 1, [50, 90]);
-    expect(result.newCode).toBe(`line([50, 90])\n`);
-  });
-
-  it('replaces the last point with variable in two-arg line', async () => {
-    const code = `line([0, 0], [w, h])\n`;
-    const result = await updateGeometryPosition(code, 1, [10, 20], -1);
-    expect(result.newCode).toBe(`line([0, 0], [10, 20])\n`);
-  });
-
-  it('replaces a bare variable point argument', async () => {
-    const code = `tArc(end)\n`;
-    const result = await updateGeometryPosition(code, 1, [350, 290]);
-    expect(result.newCode).toBe(`tArc([350, 290])\n`);
-  });
-
-  it('replaces a bare variable with a literal point arg following', async () => {
-    const code = `line(start, [200, 200])\n`;
-    const result = await updateGeometryPosition(code, 1, [100, 100]);
-    expect(result.newCode).toBe(`line([100, 100], [200, 200])\n`);
-  });
-
-  it('replaces a bare variable without affecting a number arg', async () => {
-    const code = `hLine(start, 240)\n`;
-    const result = await updateGeometryPosition(code, 1, [50, 60]);
-    expect(result.newCode).toBe(`hLine([50, 60], 240)\n`);
-  });
-
-  it('replaces a method call point argument', async () => {
-    const code = `tArc(l1.start())\n`;
-    const result = await updateGeometryPosition(code, 1, [100, 100]);
-    expect(result.newCode).toBe(`tArc([100, 100])\n`);
-  });
-
-  it('folds a chained reposition into the preceding relative move', async () => {
-    const code = [
-      'sketch("xy", () => {',
-      '  move(5, 3)',
-      '  circle(40)',
-      '})',
-      '',
-    ].join('\n');
-    const result = await updateGeometryPosition(code, 3, [12, 1], 0, [10, 6]);
-    expect(result.newCode).toBe([
-      'sketch("xy", () => {',
-      '  move(7, -2)',
-      '  circle(40)',
-      '})',
-      '',
-    ].join('\n'));
-  });
-
-  it('promotes when no relative move precedes the chained call', async () => {
-    const code = [
-      'sketch("xy", () => {',
-      '  line([0, 0], [10, 6])',
-      '  circle(40)',
-      '})',
-      '',
-    ].join('\n');
-    const result = await updateGeometryPosition(code, 3, [12, 1], 0, [10, 6]);
-    expect(result.newCode).toBe([
-      'sketch("xy", () => {',
-      '  line([0, 0], [10, 6])',
-      '  circle([12, 1], 40)',
-      '})',
-      '',
-    ].join('\n'));
-  });
-
-  it('promotes the chain base call, not a chained modifier', async () => {
-    const code = `rect(16, 166).centered('horizontal')\n`;
-    const result = await updateGeometryPosition(code, 1, [-8, 12]);
-    expect(result.newCode).toBe(`rect([-8, 12], 16, 166).centered('horizontal')\n`);
-  });
-});
-
-describe('updatePointExpression', () => {
-  it('writes per-axis expressions verbatim', async () => {
-    const code = `circle([5, 10], 20)\n`;
-    const result = await updatePointExpression(code, 1, 'w / 2', 'holeY');
-    expect(result.newCode).toBe(`circle([w / 2, holeY], 20)\n`);
-  });
-
-  it('promotes to the positioned overload when the call has no point yet', async () => {
-    const code = `circle(20)\n`;
-    const result = await updatePointExpression(code, 1, '100', '103');
-    expect(result.newCode).toBe(`circle([100, 103], 20)\n`);
-  });
-
-  it('promotes the chain base call, not a chained modifier', async () => {
-    const code = `rect(16, 166).centered('horizontal')\n`;
-    const result = await updatePointExpression(code, 1, '-8', '12');
-    expect(result.newCode).toBe(`rect([-8, 12], 16, 166).centered('horizontal')\n`);
-  });
-
-  it('targets the Nth point of a two-point call', async () => {
-    const code = `line([0, 0], [20, 30])\n`;
-    const result = await updatePointExpression(code, 1, 'a', 'b', 1);
-    expect(result.newCode).toBe(`line([0, 0], [a, b])\n`);
-  });
-
-  it('reaches a point inside a longer chain', async () => {
-    const code = `arc([0, 0], [10, 10]).center([5, 5])\n`;
-    const result = await updatePointExpression(code, 1, 'cx', 'cy', 2);
-    expect(result.newCode).toBe(`arc([0, 0], [10, 10]).center([cx, cy])\n`);
-  });
-
-  // A Point2DLike may be a lazy accessor; overwriting it would silently drop
-  // a parametric reference, so the expression editor declines instead.
-  it('refuses a lazy-vertex point rather than clobbering it', async () => {
-    const code = `circle(hole.center(), 5)\n`;
-    const result = await updatePointExpression(code, 1, '1', '2');
-    expect(result.newCode).toBe(code);
-  });
-
-  it('refuses a point held in a variable', async () => {
-    const code = `line(origin, [10, 10])\n`;
-    const result = await updatePointExpression(code, 1, '1', '2');
-    expect(result.newCode).toBe(code);
-  });
-
-  // The relative form the drawing tools emit: repositioning must fold the
-  // delta into the preceding move() rather than converting to absolute.
-  it('folds a numeric reposition into the preceding relative move', async () => {
-    const code = [
-      'sketch("xy", () => {',
-      '  move(5, 3)',
-      '  polygon(6, 8.2)',
-      '})',
-      '',
-    ].join('\n');
-    const result = await updatePointExpression(code, 3, '10', '7', 0, [8, 3]);
-    expect(result.newCode).toBe([
-      'sketch("xy", () => {',
-      '  move(7, 7)',
-      '  polygon(6, 8.2)',
-      '})',
-      '',
-    ].join('\n'));
-  });
-
-  it('folds a reposition into a move with negative offsets', async () => {
-    const code = [
-      'sketch("xy", () => {',
-      '  move(-11.82, -6.73)',
-      '  polygon(6, 8.2)',
-      '})',
-      '',
-    ].join('\n');
-    const result = await updatePointExpression(code, 3, '7.18', '2.27', 0, [8.18, 3.27]);
-    expect(result.newCode).toBe([
-      'sketch("xy", () => {',
-      '  move(-12.82, -7.73)',
-      '  polygon(6, 8.2)',
-      '})',
-      '',
-    ].join('\n'));
-  });
-
-  it('keeps the source untouched when the reposition lands on the old point', async () => {
-    const code = [
-      'sketch("xy", () => {',
-      '  move(5, 3)',
-      '  polygon(6, 8.2)',
-      '})',
-      '',
-    ].join('\n');
-    const result = await updatePointExpression(code, 3, '8', '3', 0, [8, 3]);
-    expect(result.newCode).toBe(code);
-  });
-
-  it('promotes instead of folding when the move offsets are expressions', async () => {
-    const code = [
-      'sketch("xy", () => {',
-      '  move(dx, 3)',
-      '  polygon(6, 8.2)',
-      '})',
-      '',
-    ].join('\n');
-    const result = await updatePointExpression(code, 3, '10', '7', 0, [8, 3]);
-    expect(result.newCode).toBe([
-      'sketch("xy", () => {',
-      '  move(dx, 3)',
-      '  polygon([10, 7], 6, 8.2)',
-      '})',
-      '',
-    ].join('\n'));
-  });
-
-  it('promotes an expression commit even when a numeric move precedes', async () => {
-    const code = [
-      'sketch("xy", () => {',
-      '  move(5, 3)',
-      '  polygon(6, 8.2)',
-      '})',
-      '',
-    ].join('\n');
-    const result = await updatePointExpression(code, 3, 'w / 2', '7', 0, [8, 3]);
-    expect(result.newCode).toBe([
-      'sketch("xy", () => {',
-      '  move(5, 3)',
-      '  polygon([w / 2, 7], 6, 8.2)',
-      '})',
-      '',
-    ].join('\n'));
-  });
-});
-
-describe('setRectDimensions', () => {
-  it('rewrites signed dimensions and the start of a positioned rect', async () => {
-    const code = `rect([2, 5], 10, -8)\n`;
-    const result = await setRectDimensions(code, 1, [3, 6], 12, -9);
-    expect(result.newCode).toBe(`rect([3, 6], 12, -9)\n`);
-  });
-
-  it('folds a chained rect start move into the preceding relative move', async () => {
-    const code = [
-      'sketch("xy", () => {',
-      '  move(5, 3)',
-      '  rect(10, -8)',
-      '})',
-      '',
-    ].join('\n');
-    const result = await setRectDimensions(code, 3, [9, 4], 12, -9, [8, 3]);
-    expect(result.newCode).toBe([
-      'sketch("xy", () => {',
-      '  move(6, 4)',
-      '  rect(12, -9)',
-      '})',
-      '',
-    ].join('\n'));
-  });
-
-  it('keeps a chained rect in place when only the dimensions change', async () => {
-    const code = [
-      'sketch("xy", () => {',
-      '  move(5, 3)',
-      '  rect(10, -8)',
-      '})',
-      '',
-    ].join('\n');
-    const result = await setRectDimensions(code, 3, [8, 3], 12, -9, [8, 3]);
-    expect(result.newCode).toBe([
-      'sketch("xy", () => {',
-      '  move(5, 3)',
-      '  rect(12, -9)',
-      '})',
-      '',
-    ].join('\n'));
-  });
-
-  it('promotes a chained rect to the positioned form when no move precedes', async () => {
-    const code = [
-      'sketch("xy", () => {',
-      '  line([0, 0], [8, 3])',
-      '  rect(10, -8)',
-      '})',
-      '',
-    ].join('\n');
-    const result = await setRectDimensions(code, 3, [9, 4], 12, -9, [8, 3]);
-    expect(result.newCode).toBe([
-      'sketch("xy", () => {',
-      '  line([0, 0], [8, 3])',
-      '  rect([9, 4], 12, -9)',
-      '})',
-      '',
-    ].join('\n'));
-  });
-
-  it('leaves the start alone for a chained rect when the old start is unknown', async () => {
-    const code = [
-      'sketch("xy", () => {',
-      '  move(5, 3)',
-      '  rect(10, -8)',
-      '})',
-      '',
-    ].join('\n');
-    const result = await setRectDimensions(code, 3, [9, 4], 12, -9);
-    expect(result.newCode).toBe([
-      'sketch("xy", () => {',
-      '  move(5, 3)',
-      '  rect(12, -9)',
-      '})',
-      '',
-    ].join('\n'));
-  });
-
-  it('rewrites dimensions through a chained .centered()', async () => {
-    const code = `rect(10, 8).centered()\n`;
-    const result = await setRectDimensions(code, 1, null, 12, 9);
-    expect(result.newCode).toBe(`rect(12, 9).centered()\n`);
-  });
-});
-
-describe('updatePointExpressionWithVariable', () => {
-  it('declares one variable per axis above the edited statement', async () => {
-    const code = [
-      'sketch("xy", () => {',
-      '  circle([5, 10], 20)',
-      '})',
-      '',
-    ].join('\n');
-    const result = await updatePointExpressionWithVariable(
-      code, 2, 'cx', 'cy', 1,
-      [{ name: 'cx', initializer: '100' }, { name: 'cy', initializer: '103' }],
-    );
-    expect(result.newCode).toBe([
-      'sketch("xy", () => {',
-      '  const cx = 100;',
-      '  const cy = 103;',
-      '  circle([cx, cy], 20)',
-      '})',
-      '',
-    ].join('\n'));
-  });
-
-  it('lands a param() at top level and keeps the edit anchored', async () => {
-    const code = [
-      'import { circle, sketch } from "fluidcad/core";',
-      'sketch("xy", () => {',
-      '  circle([5, 10], 20)',
-      '})',
-      '',
-    ].join('\n');
-    const result = await updatePointExpressionWithVariable(
-      code, 3, 'cx', '10', 2,
-      [{ name: 'cx', initializer: 'param("Centre X", 100)' }],
-    );
-    expect(result.newCode).toContain('const cx = param("Centre X", 100);');
-    expect(result.newCode).toContain('circle([cx, 10], 20)');
-    expect(result.newCode).toContain('param');
   });
 });
 
@@ -1081,16 +709,16 @@ describe('getPointExpression', () => {
 });
 
 describe('updateDimension', () => {
-  it('updates the distance of hLine', async () => {
-    const code = `hLine(15)\n`;
+  it('updates the trailing scalar of a two-scalar call', async () => {
+    const code = `ellipse(30, 15)\n`;
     const result = await updateDimension(code, 1, 25);
-    expect(result.newCode).toBe(`hLine(25)\n`);
+    expect(result.newCode).toBe(`ellipse(30, 25)\n`);
   });
 
-  it('updates the distance of vLine with start point', async () => {
-    const code = `vLine([5, 10], 20)\n`;
+  it('updates the trailing scalar past a start point', async () => {
+    const code = `ellipse([5, 10], 30, 20)\n`;
     const result = await updateDimension(code, 1, 35);
-    expect(result.newCode).toBe(`vLine([5, 10], 35)\n`);
+    expect(result.newCode).toBe(`ellipse([5, 10], 30, 35)\n`);
   });
 
   it('updates the diameter of circle', async () => {
@@ -1106,155 +734,77 @@ describe('updateDimension', () => {
   });
 
   it('updates negative distance', async () => {
-    const code = `hLine(-15)\n`;
+    const code = `ellipse(30, -15)\n`;
     const result = await updateDimension(code, 1, -25);
-    expect(result.newCode).toBe(`hLine(-25)\n`);
+    expect(result.newCode).toBe(`ellipse(30, -25)\n`);
   });
 
   it('replaces a variable dimension with a literal', async () => {
-    const code = `hLine(distance)\n`;
+    const code = `circle(diameter)\n`;
     const result = await updateDimension(code, 1, 42);
-    expect(result.newCode).toBe(`hLine(42)\n`);
+    expect(result.newCode).toBe(`circle(42)\n`);
   });
 
   it('replaces an expression dimension with a literal', async () => {
-    const code = `vLine([5, 10], height / 2)\n`;
+    const code = `circle([5, 10], height / 2)\n`;
     const result = await updateDimension(code, 1, 100);
-    expect(result.newCode).toBe(`vLine([5, 10], 100)\n`);
+    expect(result.newCode).toBe(`circle([5, 10], 100)\n`);
   });
 });
 
 describe('updateDimensionExpression with dimensionOffset', () => {
-  it('offset 0 targets rect height', async () => {
-    const code = `rect(30, 20)\n`;
+  it('offset 0 targets the last scalar', async () => {
+    const code = `ellipse(30, 20)\n`;
     const result = await updateDimensionExpression(code, 1, 'h', 0);
-    expect(result.newCode).toBe(`rect(30, h)\n`);
+    expect(result.newCode).toBe(`ellipse(30, h)\n`);
   });
 
-  it('offset 1 targets rect width', async () => {
-    const code = `rect(30, 20)\n`;
+  it('offset 1 targets the first scalar', async () => {
+    const code = `ellipse(30, 20)\n`;
     const result = await updateDimensionExpression(code, 1, 'w', 1);
-    expect(result.newCode).toBe(`rect(w, 20)\n`);
+    expect(result.newCode).toBe(`ellipse(w, 20)\n`);
   });
 
-  it('offset 1 skips the start point array of rect', async () => {
-    const code = `rect([5, 10], 30, 20)\n`;
+  it('offset 1 skips the start point array', async () => {
+    const code = `ellipse([5, 10], 30, 20)\n`;
     const result = await updateDimensionExpression(code, 1, 'w', 1);
-    expect(result.newCode).toBe(`rect([5, 10], w, 20)\n`);
+    expect(result.newCode).toBe(`ellipse([5, 10], w, 20)\n`);
   });
 
-  it('walks through .centered() to the rect args', async () => {
-    const code = `rect(30, 20).centered()\n`;
+  it('walks through an argument-less chained call to the base args', async () => {
+    const code = `ellipse(30, 20).guide()\n`;
     const result = await updateDimensionExpression(code, 1, 'w', 1);
-    expect(result.newCode).toBe(`rect(w, 20).centered()\n`);
-  });
-});
-
-describe('updateDimensionExpression with dimensionCall', () => {
-  it('targets rect height past a .radius() call', async () => {
-    const code = `rect(30, 20).radius(5)\n`;
-    const result = await updateDimensionExpression(code, 1, 'h', 0, 'rect');
-    expect(result.newCode).toBe(`rect(30, h).radius(5)\n`);
-  });
-
-  it('targets rect width past .radius() and .centered()', async () => {
-    const code = `rect([5, 10], 30, 20).centered().radius(5)\n`;
-    const result = await updateDimensionExpression(code, 1, 'w', 1, 'rect');
-    expect(result.newCode).toBe(`rect([5, 10], w, 20).centered().radius(5)\n`);
-  });
-
-  it('targets a single fillet radius', async () => {
-    const code = `rect(30, 20).radius(5)\n`;
-    const result = await updateDimensionExpression(code, 1, 'r', 0, 'radius');
-    expect(result.newCode).toBe(`rect(30, 20).radius(r)\n`);
-  });
-
-  it('targets one radius of a per-corner list by offset from the end', async () => {
-    const code = `rect(30, 20).radius(1, 2, 3, 4)\n`;
-    const result = await updateDimensionExpression(code, 1, 'r', 1, 'radius');
-    expect(result.newCode).toBe(`rect(30, 20).radius(1, 2, r, 4)\n`);
-  });
-
-  it('without dimensionCall keeps the outermost-call behavior', async () => {
-    const code = `rect(30, 20).radius(5)\n`;
-    const result = await updateDimensionExpression(code, 1, '7', 0);
-    expect(result.newCode).toBe(`rect(30, 20).radius(7)\n`);
-  });
-});
-
-describe('updateDimensionExpression with dimensionInsert', () => {
-  it('replaces an existing tArc radius in place', async () => {
-    const code = `tArc(30, [80, 30])\n`;
-    const result = await updateDimensionExpression(code, 1, 'r', 0, 'tArc', true);
-    expect(result.newCode).toBe(`tArc(r, [80, 30])\n`);
-  });
-
-  it('inserts the radius as first argument of a radius-less tArc', async () => {
-    const code = `tArc([80, 30])\n`;
-    const result = await updateDimensionExpression(code, 1, '45', 0, 'tArc', true);
-    expect(result.newCode).toBe(`tArc(45, [80, 30])\n`);
-  });
-
-  it('inserts past a chained call into the named tArc call', async () => {
-    const code = `tArc([80, 30]).guide()\n`;
-    const result = await updateDimensionExpression(code, 1, '45', 0, 'tArc', true);
-    expect(result.newCode).toBe(`tArc(45, [80, 30]).guide()\n`);
-  });
-
-  it('without dimensionInsert a radius-less tArc stays untouched', async () => {
-    const code = `tArc([80, 30])\n`;
-    const result = await updateDimensionExpression(code, 1, '45', 0, 'tArc');
-    expect(result.newCode).toBe(code);
-  });
-});
-
-describe('updateDimensionExpression with dimensionPoint', () => {
-  it('replaces the radius and re-aims the endpoint atomically', async () => {
-    const code = `tArc(30, [80, 30])\n`;
-    const result = await updateDimensionExpression(code, 1, '45', 0, 'tArc', true, [92.43, 17.57]);
-    expect(result.newCode).toBe(`tArc(45, [92.43, 17.57])\n`);
-  });
-
-  it('inserts the radius and re-aims the endpoint of a radius-less tArc', async () => {
-    const code = `tArc([80, 30])\n`;
-    const result = await updateDimensionExpression(code, 1, '45', 0, 'tArc', true, [92.43, 17.57]);
-    expect(result.newCode).toBe(`tArc(45, [92.43, 17.57])\n`);
-  });
-
-  it('re-aims past a chained call and keeps the chain intact', async () => {
-    const code = `tArc(30, [80, 30]).guide()\n`;
-    const result = await updateDimensionExpression(code, 1, 'r', 0, 'tArc', true, [92.43, 17.57]);
-    expect(result.newCode).toBe(`tArc(r, [92.43, 17.57]).guide()\n`);
+    expect(result.newCode).toBe(`ellipse(w, 20).guide()\n`);
   });
 });
 
 describe('getDimensionExpression with dimensionOffset', () => {
-  it('dimensionCall reads rect height past a .radius() call', async () => {
-    const code = `rect(30, 20).radius(fillet)\n`;
-    const result = await getDimensionExpression(code, 1, 0, 'rect');
+  it('dimensionCall reads the base scalar past a chained scalar call', async () => {
+    const code = `ellipse(30, 20).rotated(tilt)\n`;
+    const result = await getDimensionExpression(code, 1, 0, 'ellipse');
     expect(result?.expression).toBe('20');
   });
 
-  it('dimensionCall reads the fillet radius', async () => {
-    const code = `rect(30, 20).radius(fillet)\n`;
-    const result = await getDimensionExpression(code, 1, 0, 'radius');
-    expect(result?.expression).toBe('fillet');
+  it('dimensionCall reads the chained call scalar', async () => {
+    const code = `ellipse(30, 20).rotated(tilt)\n`;
+    const result = await getDimensionExpression(code, 1, 0, 'rotated');
+    expect(result?.expression).toBe('tilt');
   });
 
-  it('offset 0 returns rect height', async () => {
-    const code = `rect([5, 10], 30, height / 2)\n`;
+  it('offset 0 returns the last scalar', async () => {
+    const code = `ellipse([5, 10], 30, height / 2)\n`;
     const result = await getDimensionExpression(code, 1);
     expect(result?.expression).toBe('height / 2');
   });
 
-  it('offset 1 returns rect width', async () => {
-    const code = `rect([5, 10], -(w), 20)\n`;
+  it('offset 1 returns the first scalar', async () => {
+    const code = `ellipse([5, 10], -(w), 20)\n`;
     const result = await getDimensionExpression(code, 1, 1);
     expect(result?.expression).toBe('-(w)');
   });
 
-  it('offset 1 walks through .centered()', async () => {
-    const code = `rect(30, 20).centered()\n`;
+  it('offset 1 walks through an argument-less chained call', async () => {
+    const code = `ellipse(30, 20).guide()\n`;
     const result = await getDimensionExpression(code, 1, 1);
     expect(result?.expression).toBe('30');
   });
@@ -1318,7 +868,7 @@ describe('removeStatement', () => {
   });
 
   it('removes every line of a multi-line statement', async () => {
-    const code = `const s = sketch('xy', () => {\n  rect(30, 20);\n  circle(5);\n});\nextrude(10);\n`;
+    const code = `const s = sketch('xy', () => {\n  ellipse(30, 20);\n  circle(5);\n});\nextrude(10);\n`;
     const result = await removeStatement(code, 1);
     expect(result.newCode).toBe(`extrude(10);\n`);
   });
@@ -1376,9 +926,9 @@ describe('setFeatureName', () => {
   });
 
   it('appends .name() after a multi-line sketch body', async () => {
-    const code = `const s = sketch('xy', () => {\n  rect(30, 20);\n});\n`;
+    const code = `const s = sketch('xy', () => {\n  ellipse(30, 20);\n});\n`;
     const result = await setFeatureName(code, 1, 'Base profile');
-    expect(result.newCode).toBe(`const s = sketch('xy', () => {\n  rect(30, 20);\n}).name('Base profile');\n`);
+    expect(result.newCode).toBe(`const s = sketch('xy', () => {\n  ellipse(30, 20);\n}).name('Base profile');\n`);
   });
 
   it('rewrites an existing .name() argument in place', async () => {
@@ -1438,31 +988,31 @@ describe('insertGeometryCallWithVariable', () => {
 
   it('declares every variable of a multi-dimension commit, in order', async () => {
     const code = [
-      `import { sketch, rect } from 'fluidcad/core';`,
+      `import { sketch, ellipse } from 'fluidcad/core';`,
       `sketch(XY, () => {`,
-      `  rect(5, 5);`,
+      `  ellipse(5, 5);`,
       `});`,
     ].join('\n');
     const result = await insertGeometryCallWithVariable(
-      code, 2, 'rect(w, h)',
+      code, 2, 'ellipse(w, h)',
       [
         { name: 'w', initializer: '30' },
         { name: 'h', initializer: 'w / 2' },
       ],
     );
     expect(result.newCode).toContain(`  const w = 30;\n  const h = w / 2;`);
-    expect(result.newCode).toContain(`rect(w, h)`);
+    expect(result.newCode).toContain(`ellipse(w, h)`);
   });
 
   it('splits a multi-variable commit between param() and sketch-local declarations', async () => {
     const code = [
-      `import { sketch, rect } from 'fluidcad/core';`,
+      `import { sketch, ellipse } from 'fluidcad/core';`,
       `sketch(XY, () => {`,
-      `  rect(5, 5);`,
+      `  ellipse(5, 5);`,
       `});`,
     ].join('\n');
     const result = await insertGeometryCallWithVariable(
-      code, 2, 'rect(w, h)',
+      code, 2, 'ellipse(w, h)',
       [
         { name: 'w', initializer: 'param("w", 30)' },
         { name: 'h', initializer: '20' },
@@ -1470,7 +1020,7 @@ describe('insertGeometryCallWithVariable', () => {
     );
     expect(result.newCode).toContain(`const w = param("w", 30);`);
     expect(result.newCode).toContain(`  const h = 20;`);
-    expect(result.newCode).toContain(`rect(w, h)`);
+    expect(result.newCode).toContain(`ellipse(w, h)`);
   });
 
   it('leaves imports alone for a plain declaration', async () => {

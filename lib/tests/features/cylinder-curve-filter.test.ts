@@ -4,7 +4,7 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import fillet from "../../core/fillet.js";
 import select from "../../core/select.js";
-import { rect } from "../../core/2d/index.js";
+import { } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Face } from "../../common/face.js";
 import { face, edge } from "../../filters/index.js";
@@ -14,6 +14,7 @@ import { FaceQuery } from "../../oc/face-query.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { Explorer } from "../../oc/explorer.js";
 import { getOC } from "../../oc/init.js";
+import { testRect } from "../helpers/profiles.js";
 
 function getSolid(): Solid {
   return render().getAllSceneObjects()
@@ -26,8 +27,8 @@ describe("cylinderCurve filter on fillet faces", () => {
 
   it("recognizes fillet faces produced from straight vertical edges (no draft)", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     select(edge().verticalTo("xy"));
@@ -43,8 +44,8 @@ describe("cylinderCurve filter on fillet faces", () => {
 
   it("recognizes fillet faces produced from drafted vertical edges (matches user repro)", () => {
     sketch("xy", () => {
-      rect(205, 133).centered();
-    });
+        testRect(205, 133, { at: [-102.5, -66.5] });
+      });
     const body = extrude(100).draft(10);
 
     fillet(32, body.sideEdges());
@@ -84,8 +85,8 @@ describe("cylinderCurve filter on fillet faces", () => {
 
   it("face().cylinderCurve() returns fillet faces (drafted body)", () => {
     sketch("xy", () => {
-      rect(205, 133).centered();
-    });
+        testRect(205, 133, { at: [-102.5, -66.5] });
+      });
     const body = extrude(100).draft(10);
 
     fillet(32, body.sideEdges());
@@ -100,8 +101,8 @@ describe("cylinderCurve filter on fillet faces", () => {
 
   it("cylinderCurve(diameter) matches the cylinder surface radius, not bounding-edge radius", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     select(edge().verticalTo("xy"));

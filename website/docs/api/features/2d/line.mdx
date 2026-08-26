@@ -1,14 +1,16 @@
 ---
 sidebar_position: 1
 title: "line"
-description: "Draws a line from the current position to the given point."
+description: "Draws a line between two points. The statement is a solver entity whose literals are guesses — `.start()`, `.end()` and `.mid()` reference its points in constraints."
 ---
 
 # line()
 
-Draws a line from the current position to the given point.
+Draws a line between two points. The statement is a solver entity whose
+literals are guesses — `.start()`, `.end()` and `.mid()` reference its
+points in constraints.
 
-**Returns**: [**`Geometry`**](/docs/api/types/geometry)
+**Returns**: [**`SolvedLine`**](/docs/api/types/solved-line)
 
 :::tip
 See the [guide](/docs/guides/sketching/introduction) for detailed usage examples.
@@ -17,22 +19,12 @@ See the [guide](/docs/guides/sketching/introduction) for detailed usage examples
 ## Signatures
 
 ```ts
-line(end: Point2DLike): Geometry
+line(start: Point2DLike, end: Point2DLike): SolvedLine
 ```
 
-Draws a line from the current position to the given point.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `end` | [Point2DLike](/docs/api/types/point2dlike) | The end point |
-
----
-
-```ts
-line(start: Point2DLike, end: Point2DLike): Geometry
-```
-
-Draws a line between two points.
+Draws a line between two points. The statement is a solver entity whose
+literals are guesses — `.start()`, `.end()` and `.mid()` reference its
+points in constraints.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

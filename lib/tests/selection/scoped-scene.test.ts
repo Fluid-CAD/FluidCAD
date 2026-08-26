@@ -6,7 +6,8 @@ import cut from "../../core/cut.js";
 import fillet from "../../core/fillet.js";
 import shell from "../../core/shell.js";
 import { edge } from "../../filters/index.js";
-import { circle, move, rect } from "../../core/2d/index.js";
+import { arc, circle, line } from "../../core/2d/index.js";
+import { coincident } from "../../core/constraints/index.js";
 import { Scene } from "../../rendering/scene.js";
 import { Shape } from "../../common/shape.js";
 import { getSceneManager } from "../../scene-manager.js";
@@ -14,6 +15,27 @@ import { explainSelection, synthesizeApplyFeature } from "../../selection/explai
 import { expandBucket } from "../../selection/expand.js";
 import { resolveScopedScene, scopedSceneBefore } from "../../selection/types.js";
 import { edgeRefsWhere, faceRefsWhere, setLocation } from "./pick-helpers.js";
+import { testRect } from "../helpers/profiles.js";
+
+/** Solved stand-in for legacy `rect(w, h).centered().radius(r)`: four lines
+ * and four CCW corner arcs around the origin, exact coordinates. */
+function testRoundedRectCentered(w: number, h: number, r: number) {
+  const x = w / 2;
+  const y = h / 2;
+  const segs = [
+    line([-(x - r), -y], [x - r, -y]),
+    arc([x - r, -y], [x, -(y - r)], [x - r, -(y - r)]),
+    line([x, -(y - r)], [x, y - r]),
+    arc([x, y - r], [x - r, y], [x - r, y - r]),
+    line([x - r, y], [-(x - r), y]),
+    arc([-(x - r), y], [-x, y - r], [-(x - r), y - r]),
+    line([-x, y - r], [-x, -(y - r)]),
+    arc([-x, -(y - r)], [-(x - r), -y], [-(x - r), -(y - r)]),
+  ];
+  for (let i = 0; i < segs.length; i++) {
+    coincident(segs[i].end(), segs[(i + 1) % segs.length].start());
+  }
+}
 
 /** The solid added by the scene's only object of `type`. */
 function solidOf(scene: Scene, type: string): Shape {
@@ -31,14 +53,13 @@ function solidOf(scene: Scene, type: string): Shape {
  */
 function pocketScene(): { scene: Scene; cutIndex: number; box: Shape; pocketed: Shape } {
   sketch("xy", () => {
-    rect(100, 100);
-  });
+      testRect(100, 100);
+    });
   const e = extrude(50);
   setLocation(e, 4);
   sketch(e.endFaces(), () => {
-    move([50, 50]);
-    circle(40);
-  });
+      circle([50, 50], 40);
+    });
   const c = cut(30);
   setLocation(c, 9);
 
@@ -130,7 +151,7 @@ describe("scoped selection scene", () => {
     // scene-wide select() tier — whose universe has to treat the fillet solid
     // as present (its consumer is not part of the scoped world).
     sketch("xy", () => {
-      rect(100, 60).centered().radius(8);
+      testRoundedRectCentered(100, 60, 8);
     });
     const e = extrude(30);
     setLocation(e, 4);

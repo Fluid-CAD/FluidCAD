@@ -50,8 +50,8 @@ fillet(5, e.endEdges())        // ✅ works — edges exist at this point
 // After fillet, the original end edges are gone (replaced by fillet surfaces).
 // But sketching on the end face still works:
 sketch(e.endFaces(), () => {   // ✅ works — face reference is valid as a plane
-    circle(20)
-})
+    circle([0, 0], 20)
+  })
 ```
 
 As a rule of thumb: reference geometry as close to its creation as possible, before later features reshape it.
@@ -69,10 +69,10 @@ Operations that create or remove material — extrude, cut, revolve, loft, sweep
 ```js
 const box = extrude(30)
 
-sketch("xy", () => { circle(20) })
+sketch("xy", () => { circle([0, 0], 20) })
 extrude(50).new()              // separate solid — no fusion with the box
 
-sketch("xy", () => { circle(10) })
+sketch("xy", () => { circle([0, 0], 10) })
 cut().remove().scope(box)      // cut only from the box, not from other solids
 ```
 

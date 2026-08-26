@@ -19,11 +19,11 @@ function exposeSpec(overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeature
 describe('applyFeatureEdit — expose', () => {
   it('inserts before the trailing return of the part callback body', async () => {
     const code = [
-      `import { sketch, rect, extrude, part } from 'fluidcad/core'`,
+      `import { sketch, circle, extrude, part } from 'fluidcad/core'`,
       ``,
       `export function xPlate() {`,
       `  return part('X Plate', () => {`,
-      `    sketch('xy', () => { rect(100, 50) })`,
+      `    sketch('xy', () => { circle([0, 0], 100) })`,
       `    const e = extrude(30)`,
       `    return { thickness: 30 }`,
       `  })`,
@@ -39,16 +39,16 @@ describe('applyFeatureEdit — expose', () => {
     expect(exposeRow).toBeGreaterThan(-1);
     expect(exposeRow).toBeLessThan(returnRow);
     expect(lines[exposeRow].startsWith('    ')).toBe(true);
-    expect(result.newCode).toContain(`import {expose, sketch, rect, extrude, part } from 'fluidcad/core'`);
+    expect(result.newCode).toContain(`import {expose, sketch, circle, extrude, part } from 'fluidcad/core'`);
   });
 
   it('appends at the end of a part body with no return', async () => {
     const code = [
-      `import { sketch, rect, extrude, part } from 'fluidcad/core'`,
+      `import { sketch, circle, extrude, part } from 'fluidcad/core'`,
       ``,
       `export function xPlate() {`,
       `  return part('X Plate', () => {`,
-      `    sketch('xy', () => { rect(100, 50) })`,
+      `    sketch('xy', () => { circle([0, 0], 100) })`,
       `    const e = extrude(30)`,
       `  })`,
       `}`,
@@ -65,11 +65,11 @@ describe('applyFeatureEdit — expose', () => {
 
   it('renders a global select() part with its imports', async () => {
     const code = [
-      `import { sketch, rect, extrude, part } from 'fluidcad/core'`,
+      `import { sketch, circle, extrude, part } from 'fluidcad/core'`,
       ``,
       `export function xPlate() {`,
       `  return part('X Plate', () => {`,
-      `    sketch('xy', () => { rect(100, 50) })`,
+      `    sketch('xy', () => { circle([0, 0], 100) })`,
       `    extrude(30)`,
       `    return {}`,
       `  })`,
@@ -98,16 +98,16 @@ describe('applyFeatureEdit — expose', () => {
 
   it('lands inside the executed if/else branch, before that branch\'s return', async () => {
     const code = [
-      `import { sketch, rect, extrude, part } from 'fluidcad/core'`,
+      `import { sketch, circle, extrude, part } from 'fluidcad/core'`,
       ``,
       `export function getExtrusion(size = '80x160') {`,
       `  return part('extrusion', () => {`,
       `    if (size === '80x80') {`,
-      `      sketch('xy', () => { rect(10, 10) })`,
+      `      sketch('xy', () => { circle([0, 0], 10) })`,
       `      extrude(10)`,
       `      return {}`,
       `    } else {`,
-      `      sketch('xy', () => { rect(20, 20) })`,
+      `      sketch('xy', () => { circle([0, 0], 20) })`,
       `      const e = extrude(30)`,
       `      return {}`,
       `    }`,
@@ -132,9 +132,9 @@ describe('applyFeatureEdit — expose', () => {
 
   it('refuses when the spec line does not hold a part() call', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, circle, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { circle([0, 0], 100) })`,
       `const e = extrude(30)`,
       ``,
     ].join('\n');
@@ -149,12 +149,12 @@ describe('applyFeatureEdit — expose', () => {
 
   it('refuses a bound producer declared outside the part body', async () => {
     const code = [
-      `import { sketch, rect, extrude, part } from 'fluidcad/core'`,
+      `import { sketch, circle, extrude, part } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { circle([0, 0], 100) })`,
       `const e = extrude(30)`,
       `part('housing', () => {`,
-      `  sketch('xy', () => { rect(10, 10) })`,
+      `  sketch('xy', () => { circle([0, 0], 10) })`,
       `  extrude(5)`,
       `})`,
       ``,
@@ -191,11 +191,11 @@ describe('applyFeatureEdit — expose', () => {
 
   it('emits a raw selector override verbatim', async () => {
     const code = [
-      `import { sketch, rect, extrude, part } from 'fluidcad/core'`,
+      `import { sketch, circle, extrude, part } from 'fluidcad/core'`,
       ``,
       `export function xPlate() {`,
       `  return part('X Plate', () => {`,
-      `    sketch('xy', () => { rect(100, 50) })`,
+      `    sketch('xy', () => { circle([0, 0], 100) })`,
       `    const e = extrude(30)`,
       `    return { thickness: 30 }`,
       `  })`,

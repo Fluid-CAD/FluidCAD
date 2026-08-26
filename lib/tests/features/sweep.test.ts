@@ -6,13 +6,15 @@ import extrude from "../../core/extrude.js";
 import helix from "../../core/helix.js";
 import cylinder from "../../core/cylinder.js";
 import plane from "../../core/plane.js";
-import { circle, rect, vLine, hLine, arc, line, move, hMove } from "../../core/2d/index.js";
+import { circle, arc, line } from "../../core/2d/index.js";
 import { Sweep } from "../../features/sweep.js";
 import { Extrude } from "../../features/extrude.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
+import { coincident, horizontal, vertical } from "../../core/constraints/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("sweep", () => {
   setupOC();
@@ -20,12 +22,13 @@ describe("sweep", () => {
   describe("basic sweep", () => {
     it("should sweep a circle along a straight line path", () => {
       const profile = sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
 
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg1 = line([0, 0], [0, 50]);
+          vertical(sg1);
+        });
 
       const s = sweep(path, profile) as Sweep;
 
@@ -38,12 +41,13 @@ describe("sweep", () => {
 
     it("should sweep a rect along a straight line path", () => {
       const profile = sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
 
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg2 = line([0, 0], [0, 50]);
+          vertical(sg2);
+        });
 
       const s = sweep(path, profile) as Sweep;
 
@@ -56,12 +60,13 @@ describe("sweep", () => {
 
     it("should produce a solid with positive volume", () => {
       const profile = sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
 
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg3 = line([0, 0], [0, 50]);
+          vertical(sg3);
+        });
 
       const s = sweep(path, profile) as Sweep;
 
@@ -75,11 +80,13 @@ describe("sweep", () => {
   describe("sweep with curved path", () => {
     it("should sweep a circle along an arc path", () => {
       const profile = sketch("xy", () => {
-        circle(5);
-      });
+          circle([0, 0], 5);
+        });
 
       const path = sketch("xz", () => {
-        arc(50, 90);
+        // Legacy arc(50, 90): radius 50 from 90° to 180°, starting at the
+        // origin — center (0, -50), end (-50, -50).
+        arc([0, 0], [-50, -50], [0, -50]);
       });
 
       const s = sweep(path, profile) as Sweep;
@@ -93,13 +100,16 @@ describe("sweep", () => {
 
     it("should sweep along a multi-segment path", () => {
       const profile = sketch("xy", () => {
-        circle(4);
-      });
+          circle([0, 0], 4);
+        });
 
       const path = sketch("xz", () => {
-        vLine(30);
-        hLine(30);
-      });
+          const sg4 = line([0, 0], [0, 30]);
+          const sg5 = line([0, 30], [30, 30]);
+          vertical(sg4);
+          coincident(sg4.end(), sg5.start());
+          horizontal(sg5);
+        });
 
       const s = sweep(path, profile) as Sweep;
 
@@ -117,13 +127,14 @@ describe("sweep", () => {
   describe("sweep with hollow profile", () => {
     it("should sweep two nested circles preserving the hole", () => {
       const profile = sketch("xy", () => {
-        circle(20);
-        circle(10);
-      });
+          circle([0, 0], 20);
+          circle([0, 0], 10);
+        });
 
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg6 = line([0, 0], [0, 50]);
+          vertical(sg6);
+        });
 
       const s = sweep(path, profile) as Sweep;
 
@@ -146,12 +157,13 @@ describe("sweep", () => {
   describe("target selection", () => {
     it("should use the last extrudable when no target is given", () => {
       const profile = sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
 
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg7 = line([0, 0], [0, 50]);
+          vertical(sg7);
+        });
 
       const s = sweep(path, profile) as Sweep;
 
@@ -166,16 +178,17 @@ describe("sweep", () => {
 
     it("should use the given target over the last extrudable", () => {
       const profile = sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
 
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg8 = line([0, 0], [0, 50]);
+          vertical(sg8);
+        });
 
       const s = sweep(path, profile) as Sweep;
 
@@ -188,12 +201,13 @@ describe("sweep", () => {
   describe("input consumption", () => {
     it("should remove extrudable shapes", () => {
       const profile = sketch("xy", () => {
-        circle(10);
-      }) as Sketch;
+          circle([0, 0], 10);
+        }) as Sketch;
 
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg9 = line([0, 0], [0, 50]);
+          vertical(sg9);
+        });
 
       sweep(path, profile);
 
@@ -204,12 +218,13 @@ describe("sweep", () => {
 
     it("should remove path shapes", () => {
       const profile = sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
 
       const path = sketch("xz", () => {
-        vLine(50);
-      }) as Sketch;
+          const sg10 = line([0, 0], [0, 50]);
+          vertical(sg10);
+        }) as Sketch;
 
       sweep(path, profile);
 
@@ -222,12 +237,13 @@ describe("sweep", () => {
   describe("scene shape count", () => {
     it("should produce a single shape in the scene", () => {
       const profile = sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
 
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg11 = line([0, 0], [0, 50]);
+          vertical(sg11);
+        });
 
       sweep(path, profile);
 
@@ -240,12 +256,13 @@ describe("sweep", () => {
   describe("bounding box", () => {
     it("should have correct dimensions for a straight sweep", () => {
       const profile = sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
 
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg12 = line([0, 0], [0, 50]);
+          vertical(sg12);
+        });
 
       const s = sweep(path, profile) as Sweep;
 
@@ -268,13 +285,13 @@ describe("sweep", () => {
   describe("spine along the profile plane's own axes", () => {
     it("sweeps a real solid along the plane's up direction", () => {
       const profile = sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
 
       const path = sketch("xy", () => {
-        move([-40, -40]);
-        vLine(20);
-      });
+          const sg13 = line([-40, -40], [-40, -20]);
+          vertical(sg13);
+        });
 
       const s = sweep(path, profile) as Sweep;
 
@@ -286,13 +303,13 @@ describe("sweep", () => {
 
     it("keeps the drawn profile's footprint when the plane's up is spent on the spine", () => {
       const profile = sketch("xy", () => {
-        rect(20, 10).centered();
-      });
+          testRect(20, 10, { at: [-10, -5] });
+        });
 
       const path = sketch("xy", () => {
-        move([-40, -40]);
-        vLine(30);
-      });
+          const sg14 = line([-40, -40], [-40, -10]);
+          vertical(sg14);
+        });
 
       const s = sweep(path, profile) as Sweep;
 
@@ -308,13 +325,13 @@ describe("sweep", () => {
 
     it("leaves a spine across the plane on the profile's own up", () => {
       const profile = sketch("xy", () => {
-        rect(20, 10).centered();
-      });
+          testRect(20, 10, { at: [-10, -5] });
+        });
 
       const path = sketch("xy", () => {
-        move([-40, -40]);
-        hLine(30);
-      });
+          const sg15 = line([-40, -40], [-10, -40]);
+          horizontal(sg15);
+        });
 
       const s = sweep(path, profile) as Sweep;
 
@@ -331,12 +348,13 @@ describe("sweep", () => {
   describe("startFaces / endFaces / sideFaces", () => {
     it("should expose start and end faces", () => {
       const profile = sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
 
       const path = sketch("xz", () => {
-        vLine(40);
-      });
+          const sg16 = line([0, 0], [0, 40]);
+          vertical(sg16);
+        });
 
       const s = sweep(path, profile) as Sweep;
       const sf = s.startFaces();
@@ -357,12 +375,13 @@ describe("sweep", () => {
 
     it("should expose side faces", () => {
       const profile = sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
 
       const path = sketch("xz", () => {
-        vLine(40);
-      });
+          const sg17 = line([0, 0], [0, 40]);
+          vertical(sg17);
+        });
 
       const s = sweep(path, profile) as Sweep;
       const sidf = s.sideFaces();
@@ -379,12 +398,13 @@ describe("sweep", () => {
 
     it("should filter side faces by index", () => {
       const profile = sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
 
       const path = sketch("xz", () => {
-        vLine(40);
-      });
+          const sg18 = line([0, 0], [0, 40]);
+          vertical(sg18);
+        });
 
       const s = sweep(path, profile) as Sweep;
       const allSide = s.sideFaces();
@@ -402,12 +422,13 @@ describe("sweep", () => {
   describe("startEdges / endEdges / sideEdges", () => {
     it("should expose start and end edges", () => {
       const profile = sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
 
       const path = sketch("xz", () => {
-        vLine(40);
-      });
+          const sg19 = line([0, 0], [0, 40]);
+          vertical(sg19);
+        });
 
       const s = sweep(path, profile) as Sweep;
       const se = s.startEdges();
@@ -429,12 +450,13 @@ describe("sweep", () => {
 
     it("should expose side edges excluding start/end edges", () => {
       const profile = sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
 
       const path = sketch("xz", () => {
-        vLine(40);
-      });
+          const sg20 = line([0, 0], [0, 40]);
+          vertical(sg20);
+        });
 
       const s = sweep(path, profile) as Sweep;
       const side = s.sideEdges();
@@ -463,18 +485,19 @@ describe("sweep", () => {
   describe("fusion", () => {
     it("should fuse with existing geometry by default", () => {
       sketch("xy", () => {
-        rect(30, 30);
-      });
+          testRect(30, 30);
+        });
 
       extrude(20);
 
       const profile = sketch("xy", () => {
-        circle(5);
-      });
+          circle([0, 0], 5);
+        });
 
       const path = sketch("xz", () => {
-        vLine(40);
-      });
+          const sg21 = line([0, 0], [0, 40]);
+          vertical(sg21);
+        });
 
       sweep(path, profile);
 
@@ -487,13 +510,14 @@ describe("sweep", () => {
 
   describe("helix sweep with cone fuse/cut", () => {
     it(".add() with helix on cone face fuses to a single solid", () => {
-      sketch("xy", () => { circle(30); });
+      sketch("xy", () => {
+          circle([0, 0], 30);
+        });
       const c = extrude(50).draft(10) as Extrude;
       const path = helix(c.sideFaces()).turns(10);
       const profile = sketch("xz", () => {
-        move([15, 0]);
-        circle(2);
-      });
+          circle([15, 0], 2);
+        });
       const s = sweep(path, profile).add() as Sweep;
       render();
 
@@ -509,13 +533,14 @@ describe("sweep", () => {
     });
 
     it(".remove() with helix on cone face cuts a groove", () => {
-      sketch("xy", () => { circle(30); });
+      sketch("xy", () => {
+          circle([0, 0], 30);
+        });
       const c = extrude(50).draft(10) as Extrude;
       const path = helix(c.sideFaces()).turns(10);
       const profile = sketch("xz", () => {
-        move([15, 0]);
-        circle(2);
-      });
+          circle([15, 0], 2);
+        });
       const s = sweep(path, profile).remove() as Sweep;
       render();
 
@@ -539,9 +564,8 @@ describe("sweep", () => {
     it("sweeps a circle along an outward-tapering helix", () => {
       const path = helix("z").height(100).pitch(10).radius(15).endRadius(25);
       const profile = sketch("left", () => {
-        hMove(15);
-        circle(2);
-      });
+          circle([15, 0], 2);
+        });
       const s = sweep(path, profile) as Sweep;
       render();
 
@@ -562,9 +586,8 @@ describe("sweep", () => {
     it("sweeps a circle along an inward-tapering helix", () => {
       const path = helix("z").height(80).pitch(8).radius(25).endRadius(12);
       const profile = sketch("left", () => {
-        hMove(25);
-        circle(1.5);
-      });
+          circle([25, 0], 1.5);
+        });
       const s = sweep(path, profile) as Sweep;
       render();
 
@@ -587,7 +610,9 @@ describe("sweep", () => {
     it("removes a helical groove from the cylinder surface", () => {
       cylinder(15, 50);
       const path = helix("z").height(50).radius(15).pitch(5).startOffset(-5).endOffset(5);
-      const profile = sketch("left", () => { move([15, 0]); circle(3); });
+      const profile = sketch("left", () => {
+          circle([15, 0], 3);
+        });
       const s = sweep(path, profile).remove() as Sweep;
       render();
 
@@ -603,7 +628,9 @@ describe("sweep", () => {
     it("fuses a helical thread onto the cylinder surface", () => {
       cylinder(15, 50);
       const path = helix("z").height(50).radius(15).pitch(5).startOffset(-5).endOffset(5);
-      const profile = sketch("left", () => { move([15, 0]); circle(3); });
+      const profile = sketch("left", () => {
+          circle([15, 0], 3);
+        });
       const s = sweep(path, profile).add() as Sweep;
       render();
 
@@ -617,7 +644,9 @@ describe("sweep", () => {
     it("removes a groove when the helix has no start/end offset", () => {
       cylinder(15, 50);
       const path = helix("z").height(50).radius(15).pitch(5);
-      const profile = sketch("left", () => { move([15, 0]); circle(3); });
+      const profile = sketch("left", () => {
+          circle([15, 0], 3);
+        });
       const s = sweep(path, profile).remove() as Sweep;
       render();
 
@@ -646,11 +675,15 @@ describe("sweep", () => {
       const h = helix("z").height(80).radius(25).pitch(10); // 8 full turns
       const p = plane(h);
       const profile = sketch(p, () => {
-        line([3, 0], [-3, 0]);
-        line([-2, -6]);
-        line([2, -6]);
-        line([3, 0]);
-      });
+          const sg22 = line([3, 0], [-3, 0]);
+          const sg23 = line([-3, 0], [-2, -6]);
+          const sg24 = line([-2, -6], [2, -6]);
+          const sg25 = line([2, -6], [3, 0]);
+          coincident(sg22.end(), sg23.start());
+          coincident(sg23.end(), sg24.start());
+          coincident(sg24.end(), sg25.start());
+          coincident(sg25.end(), sg22.start());
+        });
       const s = sweep(h, profile) as Sweep;
       render();
 
@@ -683,11 +716,12 @@ describe("sweep", () => {
   describe("extend", () => {
     it("extends the run-out past the path end along the tangent", () => {
       const profile = sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg26 = line([0, 0], [0, 50]);
+          vertical(sg26);
+        });
 
       const s = sweep(path, profile).extend("end", 20) as Sweep;
       render();
@@ -704,11 +738,12 @@ describe("sweep", () => {
 
     it("extends the lead-in before the path start along the tangent", () => {
       const profile = sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg27 = line([0, 0], [0, 50]);
+          vertical(sg27);
+        });
 
       const s = sweep(path, profile).extend("start", 20) as Sweep;
       render();
@@ -720,11 +755,12 @@ describe("sweep", () => {
 
     it("extends both ends when chained", () => {
       const profile = sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg28 = line([0, 0], [0, 50]);
+          vertical(sg28);
+        });
 
       const s = sweep(path, profile).extend("start", 10).extend("end", 20) as Sweep;
       render();
@@ -736,11 +772,12 @@ describe("sweep", () => {
 
     it("adds volume proportional to the extension length", () => {
       const profile = sketch("xy", () => {
-        circle(10); // diameter 10 ⇒ radius 5 ⇒ area 25π
-      });
+          circle([0, 0], 10);
+        });
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg29 = line([0, 0], [0, 50]);
+          vertical(sg29);
+        });
 
       const s = sweep(path, profile).extend("end", 30) as Sweep;
       render();
@@ -754,11 +791,12 @@ describe("sweep", () => {
 
     it("is a no-op for a non-positive amount", () => {
       const profile = sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg30 = line([0, 0], [0, 50]);
+          vertical(sg30);
+        });
 
       const s = sweep(path, profile).extend("end", 0) as Sweep;
       render();
@@ -769,11 +807,12 @@ describe("sweep", () => {
 
     it("throws on an invalid side", () => {
       const profile = sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
       const path = sketch("xz", () => {
-        vLine(50);
-      });
+          const sg31 = line([0, 0], [0, 50]);
+          vertical(sg31);
+        });
 
       expect(() => sweep(path, profile).extend("middle" as any, 10)).toThrow();
     });

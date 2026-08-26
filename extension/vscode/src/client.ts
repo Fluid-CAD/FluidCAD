@@ -29,14 +29,9 @@ import {
   handleUpdateInsertChain,
   handleInsertGeometry,
   handleInsertLoad,
-  handleUpdatePosition,
-  handleSetLinePosition,
-  handleSetChainPositions,
   handleUpdateSketchPositions,
   handleUpdateDimension,
   handleUpdateDimensionExpression,
-  handleUpdatePointExpression,
-  handleSetRectDimensions,
   handleApplyFeatureEdit,
   handleRemoveFeature,
   handleRenameFeature,
@@ -199,18 +194,6 @@ export class Client {
         });
         break;
       }
-      case 'update-position': {
-        handleUpdatePosition(this, msg);
-        break;
-      }
-      case 'set-line-position': {
-        handleSetLinePosition(this, msg);
-        break;
-      }
-      case 'set-chain-positions': {
-        handleSetChainPositions(this, msg);
-        break;
-      }
       case 'update-sketch-positions': {
         handleUpdateSketchPositions(this, msg).catch((err) => {
           this.logger.appendLine(`[update-sketch-positions] error: ${err?.stack || err}`);
@@ -223,14 +206,6 @@ export class Client {
       }
       case 'update-dimension-expression': {
         handleUpdateDimensionExpression(this, msg);
-        break;
-      }
-      case 'update-point-expression': {
-        handleUpdatePointExpression(this, msg);
-        break;
-      }
-      case 'set-rect-dimensions': {
-        handleSetRectDimensions(this, msg);
         break;
       }
       case 'apply-feature-edit': {

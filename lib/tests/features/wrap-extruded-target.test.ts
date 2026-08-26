@@ -7,12 +7,13 @@ import extrude from "../../core/extrude.js";
 import subtract from "../../core/subtract.js";
 import select from "../../core/select.js";
 import plane from "../../core/plane.js";
-import { circle, rect, text, vMove } from "../../core/2d/index.js";
+import { circle, text } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { Wrap } from "../../features/wrap.js";
 import { Face } from "../../common/face.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { ShapeProps } from "../../oc/props.js";
+import { testRect } from "../helpers/profiles.js";
 
 // Extruded circle(50) (diameter) → cylinder R=25, z ∈ [0, 80]. Its lateral
 // face carries a reverse-parameterized surface (axis -z, flag REVERSED) —
@@ -25,16 +26,15 @@ const PAD_IN = ((20 / 25) / 2) * (25 * 25 - 24 * 24) * 10;
 
 function extrudedCylinder() {
   sketch("top", () => {
-    circle(50);
-  });
+      circle([0, 0], 50);
+    });
   extrude(80);
 }
 
 function rectSketch() {
   return sketch(plane("front", 30), () => {
-    vMove(20);
-    rect(20, 10);
-  });
+      testRect(20, 10, { at: [0, 20] });
+    });
 }
 
 function volumeOf(obj: SceneObject): number {
@@ -92,8 +92,7 @@ describe("wrap on an extruded (reverse-parameterized) cylinder", () => {
   it("embosses text decals outward (user repro)", () => {
     extrudedCylinder();
     const s = sketch(plane("front", 30), () => {
-      vMove(20);
-      text("hello world").align("center");
+      text("hello world").align("center").at([0, 20]);
     });
     const f = select(face().cylinder());
     const w = wrap(1, s, f).new() as Wrap;

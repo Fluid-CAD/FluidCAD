@@ -19,20 +19,42 @@ Create a new file called `box.fluid.js` in your project folder.
 
 ```js
 import { sketch, extrude, shell, fillet } from 'fluidcad/core';
-import { rect } from 'fluidcad/core';
+import { line } from 'fluidcad/core';
+import { coincident, distance, fix, horizontal, vertical } from "fluidcad/constraints";
 ```
 
-Everything you need comes from `fluidcad/core`. Later guides will introduce `fluidcad/filters` for advanced selections.
+Geometry and 3D operations come from `fluidcad/core`; constraint statements come from `fluidcad/constraints`. Later guides will introduce `fluidcad/filters` for advanced selections.
 
 ## Step 2: Sketch a rectangle
 
 ```js
 sketch("xy", () => {
-    rect(100, 60)
-})
+    const sg1 = line([0, 0], [100, 0]);
+    const sg2 = line([100, 0], [100, 60]);
+    const sg3 = line([100, 60], [0, 60]);
+    const sg4 = line([0, 60], [0, 0]);
+    coincident(sg1.end(), sg2.start());
+    coincident(sg2.end(), sg3.start());
+    coincident(sg3.end(), sg4.start());
+    coincident(sg4.end(), sg1.start());
+    horizontal(sg1);
+    vertical(sg2);
+    horizontal(sg3);
+    vertical(sg4);
+    fix(sg1.start(), [0, 0]);
+    distance(sg1.start(), sg1.end(), 100);
+    distance(sg2.start(), sg2.end(), 60);
+  })
 ```
 
-`sketch("xy", ...)` opens a 2D drawing on the XY plane (the ground plane, looking down from above). Inside the callback, `rect(100, 60)` draws a rectangle that is 100 wide and 60 tall.
+`sketch("xy", ...)` opens a 2D drawing on the XY plane (the ground plane, looking down from above). The `true` at the end makes it a **constraint sketch** — the kind of sketch every FluidCAD model uses.
+
+A constraint sketch has two halves:
+
+- **Geometry** — the four `line(start, end)` calls draw the rectangle's sides. The coordinates you type are *guesses*: a rough drawing of where each line goes.
+- **Constraints** — the statements after the geometry pin the guesses down. `coincident` glues line endpoints together into corners, `horizontal`/`vertical` square the sides up, `fix` anchors one corner at the origin, and the two `distance` dimensions set the exact width (100) and height (60).
+
+The solver reads all of it and computes the exact final positions. Here our guesses were already exact, so nothing visibly moves — but because the *constraints* carry the design intent, you can later change a single `distance` value and the whole rectangle follows. When every entity is pinned down like this, the sketch is **fully constrained** and renders green in the viewport.
 
 You should see a flat rectangle in your viewport.
 
@@ -48,14 +70,14 @@ Notice that we didn't pass the sketch to `extrude()` — FluidCAD automatically 
 
 We save the result in `box` so we can reference its faces and edges later.
 
-## Step 4: Round the corners
+## Step 4: Center it and round the corners
 
-Let's make it nicer by rounding the rectangle's corners. Update the sketch:
+Let's make it nicer: move the rectangle so its center sits on the origin, and round its corners. Update the sketch:
 
 <CodeBlock language="js">{firstModelStep4}</CodeBlock>
 
-- `.centered()` moves the rectangle so its center sits at the origin.
-- `.radius(8)` rounds all four corners with a radius of 8.
+- The corner coordinates now run from `[-50, -30]` to `[50, 30]`, so the 100 × 60 rectangle is centered on the origin (and `fix` anchors the new bottom-left corner).
+- `fillet(8, sg1, sg2, sg3, sg4)` rounds every corner shared by the four lines with a radius of 8. Inside a sketch, `fillet` is a 2D operation: it trims the lines and inserts tangent arcs.
 
 ![Rounded box](/img/docs/getting-started/first-model-step4.png)
 
@@ -67,7 +89,7 @@ Let's round the bottom edges of the box:
 fillet(3, box.startEdges())
 ```
 
-`box.startEdges()` selects the edges at the bottom (start) of the extrusion. `fillet(3)` rounds them with a radius of 3.
+`box.startEdges()` selects the edges at the bottom (start) of the extrusion. `fillet(3)` rounds them with a radius of 3. (Outside a sketch, `fillet` works on the edges of solids — same name, 3D counterpart.)
 
 ![Box with filleted edges](/img/docs/getting-started/first-model-step5.png)
 
@@ -93,9 +115,11 @@ Here's the complete model:
 
 ## What you learned
 
-- **`sketch(plane, callback)`** draws 2D shapes on a plane
+- **`sketch(plane, callback)`** opens a constraint sketch on a plane
+- Sketch geometry like **`line(start, end)`** is drawn with fully-specified guess coordinates
+- **Constraints** (`coincident`, `horizontal`, `vertical`, `fix`) and **dimensions** (`distance`) pin the guesses down — the solver computes the exact result, and a fully constrained sketch renders green
 - **`extrude(distance)`** turns a sketch into a 3D solid
-- **`fillet(radius, edges)`** rounds edges
+- **`fillet(radius, ...)`** rounds corners in a sketch and edges on a solid
 - **`shell(thickness, faces)`** hollows out a solid into a thin-walled container
 - Operations like `extrude` return objects with methods like `.endFaces()` and `.startEdges()` that let you reference specific geometry
 - Most operations have smart defaults — `extrude()` picks up the last sketch, and touching shapes auto-fuse into one solid

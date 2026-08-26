@@ -2,13 +2,14 @@ import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import revolve from "../../core/revolve.js";
-import { move, rect, circle } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Revolve } from "../../features/revolve.js";
 import { Solid } from "../../common/solid.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
 import { Sketch } from "../../features/2d/sketch.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("revolve", () => {
   setupOC();
@@ -16,9 +17,8 @@ describe("revolve", () => {
   describe("full revolution of a rect", () => {
     it("should revolve a rect 360° into a solid", () => {
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 30);
-      });
+          testRect(10, 30, { at: [20, 0] });
+        });
 
       const r = revolve("z") as Revolve;
 
@@ -31,9 +31,8 @@ describe("revolve", () => {
 
     it("should produce a ring with correct volume", () => {
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 30);
-      });
+          testRect(10, 30, { at: [20, 0] });
+        });
 
       const r = revolve("z") as Revolve;
 
@@ -50,9 +49,8 @@ describe("revolve", () => {
   describe("full revolution of a circle", () => {
     it("should produce a single solid torus", () => {
       sketch("xz", () => {
-        move([30, 15]);
-        circle(20);
-      });
+          circle([30, 15], 20);
+        });
 
       const r = revolve("z") as Revolve;
 
@@ -68,9 +66,8 @@ describe("revolve", () => {
       const tubR = 10; // tube radius
 
       sketch("xz", () => {
-        move([R, 15]);
-        circle(tubR * 2);
-      });
+          circle([R, 15], tubR * 2);
+        });
 
       const r = revolve("z") as Revolve;
 
@@ -87,9 +84,8 @@ describe("revolve", () => {
   describe("partial revolution of a rect", () => {
     it("should produce a solid with inner and outer cylindrical faces", () => {
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 30);
-      });
+          testRect(10, 30, { at: [20, 0] });
+        });
 
       const r = revolve("z", 180) as Revolve;
 
@@ -103,9 +99,8 @@ describe("revolve", () => {
 
     it("should produce planar sweep-end faces and profile faces", () => {
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 30);
-      });
+          testRect(10, 30, { at: [20, 0] });
+        });
 
       const r = revolve("z", 90) as Revolve;
 
@@ -122,9 +117,8 @@ describe("revolve", () => {
 
     it("should produce half the volume of a full revolution at 180°", () => {
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 30);
-      });
+          testRect(10, 30, { at: [20, 0] });
+        });
 
       const r = revolve("z", 180) as Revolve;
 
@@ -140,9 +134,8 @@ describe("revolve", () => {
   describe("partial revolution of a circle", () => {
     it("should produce circular end faces and a swept surface", () => {
       sketch("xz", () => {
-        move([30, 15]);
-        circle(20);
-      });
+          circle([30, 15], 20);
+        });
 
       const r = revolve("z", 180) as Revolve;
 
@@ -158,9 +151,8 @@ describe("revolve", () => {
 
     it("should have circular edges at the sweep ends", () => {
       sketch("xz", () => {
-        move([30, 15]);
-        circle(20);
-      });
+          circle([30, 15], 20);
+        });
 
       const r = revolve("z", 180) as Revolve;
 
@@ -176,9 +168,8 @@ describe("revolve", () => {
   describe("symmetric revolution", () => {
     it("should revolve symmetrically around the sketch plane", () => {
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 30);
-      });
+          testRect(10, 30, { at: [20, 0] });
+        });
 
       const r = revolve("z", 180).symmetric() as Revolve;
 
@@ -196,15 +187,13 @@ describe("revolve", () => {
   describe("merge scope", () => {
     it("should not merge when mergeScope is none", () => {
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 30);
-      });
+          testRect(10, 30, { at: [20, 0] });
+        });
       revolve("z").new();
 
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 30);
-      });
+          testRect(10, 30, { at: [20, 0] });
+        });
       revolve("z").new();
 
       const scene = render();
@@ -216,9 +205,8 @@ describe("revolve", () => {
   describe("extrudable", () => {
     it("should remove the extrudable sketch shapes", () => {
       const s = sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 30);
-      }) as Sketch;
+          testRect(10, 30, { at: [20, 0] });
+        }) as Sketch;
 
       revolve("z");
 
@@ -229,14 +217,12 @@ describe("revolve", () => {
 
     it("should revolve a specific extrudable", () => {
       const s1 = sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 30);
-      });
+          testRect(10, 30, { at: [20, 0] });
+        });
 
       sketch("xz", () => {
-        move([40, 0]);
-        rect(5, 10);
-      });
+          testRect(5, 10, { at: [40, 0] });
+        });
 
       const r = revolve("z", 360, s1) as Revolve;
 
@@ -250,11 +236,9 @@ describe("revolve", () => {
   describe("pick", () => {
     it("should only revolve the picked region", () => {
       sketch("xz", () => {
-        move([20, 0]);
-        circle(16);
-        move([20, 30]);
-        circle(16);
-      });
+          circle([20, 0], 16);
+          circle([20, 30], 16);
+        });
 
       const r = revolve("z", 360).pick([20, 0]) as Revolve;
 

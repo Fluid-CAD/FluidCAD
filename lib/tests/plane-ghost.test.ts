@@ -4,7 +4,7 @@ import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import helix from "../core/helix.js";
 import plane from "../core/plane.js";
-import { circle, rect } from "../core/2d/index.js";
+import { circle } from "../core/2d/index.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { Sketch } from "../features/2d/sketch.js";
@@ -16,6 +16,7 @@ import {
   buildFeatureGhost, FeatureGhostResult, GhostPlaneBaseRef, PlaneGhostRequest,
 } from "../rendering/feature-ghost.js";
 import { Scene } from "../rendering/scene.js";
+import { testRect } from "./helpers/profiles.js";
 
 const FILE = '/tmp/plane-ghost-test.fluid.js';
 
@@ -47,7 +48,9 @@ function sceneSolids(scene: Scene): Shape[] {
 
 /** A plain 40 x 40 x 20 block. */
 function block(): Solid {
-  sketch('xy', () => { rect(40, 40); });
+  sketch('xy', () => {
+      testRect(40, 40);
+    });
   extrude(20);
   return sceneSolids(render()).pop() as Solid;
 }
@@ -193,7 +196,9 @@ describe("plane ghost", () => {
   });
 
   it("takes a single-curve sketch as an edge base", () => {
-    located(sketch('xy', () => { circle(10); }) as Sketch, 9);
+    located(sketch('xy', () => {
+        circle([0, 0], 10);
+      }) as Sketch, 9);
     const scene = render();
 
     const result = planeGhost(

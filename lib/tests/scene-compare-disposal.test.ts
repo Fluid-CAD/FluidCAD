@@ -8,8 +8,9 @@ import { Scene } from "../rendering/scene.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import color from "../core/color.js";
-import { rect } from "../core/2d/index.js";
+import { } from "../core/2d/index.js";
 import { face } from "../filters/index.js";
+import { testRect } from "./helpers/profiles.js";
 
 const ACTOR_RECORD_KEYS: { key: string; actorField: string }[] = [
   { key: 'removedShapes', actorField: 'removedBy' },
@@ -48,8 +49,8 @@ describe("SceneCompare resource disposal", () => {
 
   function buildBox(height: number): void {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(height);
   }
 
@@ -113,8 +114,8 @@ describe("SceneCompare resource disposal", () => {
   it("keeps shapes consumed by an invalidated feature alive for the rebuild", () => {
     buildBox(30);
     sketch("xy", () => {
-      rect(40, 40);
-    });
+        testRect(40, 40);
+      });
     extrude(60);
     render();
 
@@ -128,8 +129,8 @@ describe("SceneCompare resource disposal", () => {
     const newScene = getSceneManager().startScene();
     buildBox(30);
     sketch("xy", () => {
-      rect(40, 40);
-    });
+        testRect(40, 40);
+      });
     extrude(80);
 
     SceneCompare.compare(previousScene, newScene);
@@ -157,8 +158,8 @@ describe("SceneCompare resource disposal", () => {
 
   it("keeps raw handles shared through Solid.copy when only the copier dies", () => {
     sketch("xy", () => {
-      rect(200, 100);
-    });
+        testRect(200, 100);
+      });
     const e1 = extrude(20).draft(15);
     color("red", e1.sideFaces(face().above("yz")));
     render();
@@ -175,8 +176,8 @@ describe("SceneCompare resource disposal", () => {
 
     const newScene = getSceneManager().startScene();
     sketch("xy", () => {
-      rect(200, 100);
-    });
+        testRect(200, 100);
+      });
     const e2 = extrude(20).draft(15);
     color("blue", e2.sideFaces(face().above("xz")));
 
@@ -205,8 +206,8 @@ describe("SceneCompare resource disposal", () => {
   it("remaps surviving actor records onto the new instances", () => {
     buildBox(30);
     sketch("xy", () => {
-      rect(40, 40);
-    });
+        testRect(40, 40);
+      });
     extrude(60);
     render();
 
@@ -215,8 +216,8 @@ describe("SceneCompare resource disposal", () => {
     const newScene = getSceneManager().startScene();
     buildBox(30);
     sketch("xy", () => {
-      rect(40, 40);
-    });
+        testRect(40, 40);
+      });
     extrude(60);
 
     SceneCompare.compare(previousScene, newScene);

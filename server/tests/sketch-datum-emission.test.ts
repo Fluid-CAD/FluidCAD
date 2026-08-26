@@ -12,7 +12,7 @@ const SKETCH = [
   `sketch('xy', () => {`,
   `  const a = line([0, 0], [100, 0]);`,
   `  line([100, 0], [100, 50]);`,
-  `}, true);`,
+  `});`,
 ].join('\n');
 
 describe('datum constraint targets', () => {

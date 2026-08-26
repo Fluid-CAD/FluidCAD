@@ -1,10 +1,10 @@
 import { Group, Vector3 } from 'three';
 import { SceneContext } from '../scene/scene-context';
-import { PlaneData, SceneObjectRender, Vec3Data } from '../types';
+import { PlaneData, SceneObjectRender } from '../types';
 import { SnapController } from '../snapping/snap-controller';
 import { SnapManager } from '../snapping/snap-manager';
 import {
-  worldToSketch2D, pixelToSketchThreshold, dist2D, projectToSketch, roundPoint,
+  projectToSketch, roundPoint,
 } from './sketch-plane-utils';
 import { PointInput, PointCommit } from '../ui/point-input';
 import { resolveExpressionValue, VariableInfo } from '../ui/expression-core';
@@ -46,8 +46,6 @@ export abstract class SketchTool {
   protected insertGeometry: InsertGeometryFn;
   protected canvas: HTMLCanvasElement;
   protected container: HTMLElement;
-  protected currentPosition: [number, number] | null = null;
-  protected currentTangent: [number, number] | null = null;
 
   /** Non-null inside a solved sketch (sketch-rewrite P5): emissions go
    * through the atomic insert-solved rail as fully-specified primitives +
@@ -251,7 +249,7 @@ export abstract class SketchTool {
       this.pointInput.show({
         value: point,
         variables: this.cachedVariables,
-        origin: this.currentPosition,
+        origin: null,
         numericOnly: this.pointInputNumericOnly(),
         relative: this.relativeMode,
         onCommit: (result) => {
@@ -261,7 +259,6 @@ export abstract class SketchTool {
         },
       });
     } else {
-      this.pointInput.setOrigin(this.currentPosition);
       this.pointInput.updateValue(point);
     }
     this.renderLockMarker(point);
@@ -337,38 +334,6 @@ export abstract class SketchTool {
     this.snapController.updateSnapManager(snapManager);
   }
 
-  updateCurrentPosition(worldPos: Vec3Data | null): void {
-    if (worldPos) {
-      this.currentPosition = worldToSketch2D(worldPos, this.plane);
-    } else {
-      this.currentPosition = null;
-    }
-  }
-
-  /**
-   * The kernel's exact chain tangent at the current position. The payload
-   * encodes it as `localToWorld(tangentDir)`, so projecting it back through
-   * the plane recovers the 2D direction exactly — unlike deriving it from
-   * mesh tessellation, which is chord-approximate.
-   */
-  updateCurrentTangent(worldTangent: Vec3Data | null): void {
-    if (worldTangent) {
-      const t = worldToSketch2D(worldTangent, this.plane);
-      const len = Math.hypot(t[0], t[1]);
-      this.currentTangent = len > 1e-9 ? [t[0] / len, t[1] / len] : null;
-    } else {
-      this.currentTangent = null;
-    }
-  }
-
-  protected isAtCurrentPosition(point2d: [number, number]): boolean {
-    if (!this.currentPosition) {
-      return false;
-    }
-    const threshold = pixelToSketchThreshold(this.ctx, 15);
-    return dist2D(point2d, this.currentPosition) <= threshold;
-  }
-
   protected disposePreview(): void {
     while (this.previewGroup.children.length > 0) {
       const child = this.previewGroup.children[0];
@@ -407,48 +372,6 @@ export abstract class SketchTool {
       return `[${p[0]}, ${p[1]}]`;
     }
     return `[${p.xExpr}, ${p.yExpr}]`;
-  }
-
-  /**
-   * A leading `move(dx, dy)` for a relative pick, or null when the point is
-   * absolute or already at the cursor.
-   */
-  protected relativeMovePrefix(p: PickedPoint): string | null {
-    if (!p.relative) {
-      return null;
-    }
-    if (Number(p.relative.dx) === 0 && Number(p.relative.dy) === 0) {
-      return null;
-    }
-    return `move(${p.relative.dx}, ${p.relative.dy})`;
-  }
-
-  /**
-   * Emit geometry placed at a picked point. `positioned` builds the call with
-   * an explicit point argument, `chained` the form that starts at the cursor.
-   *
-   * A relative pick becomes a leading `move(dx, dy)` plus the chained form. An
-   * absolute pick takes the positioned form unless it merely landed on the
-   * cursor — a *typed* point is an address the author asked for, so it stays
-   * explicit even when it coincides with where the pen already is.
-   */
-  protected insertAtPoint(
-    point: PickedPoint,
-    positioned: (pointText: string) => string,
-    chained: () => string,
-    extraVariables: NewVariable[] = [],
-  ): void {
-    const variables = [...point.newVariables, ...extraVariables];
-    const declared = variables.length > 0 ? variables : undefined;
-
-    if (point.relative) {
-      const prefix = this.relativeMovePrefix(point);
-      this.insertGeometry(prefix ? `${prefix}\n${chained()}` : chained(), declared);
-      return;
-    }
-
-    const atCurrent = !point.typed && this.isAtCurrentPosition(point.value);
-    this.insertGeometry(atCurrent ? chained() : positioned(this.formatPoint(point)), declared);
   }
 
   static negateExpression(expression: string): string {

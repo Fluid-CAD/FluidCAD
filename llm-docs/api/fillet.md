@@ -29,16 +29,18 @@ is consumed by a bare `fillet(radius)`.
 ## 2D corner filleting
 
 In a sketch, targets select the *edge group* whose shared corners get
-rounded: pass adjacent edges via accessors (`r.edge('top')`), edge filters
-(`edge().line()`), or feature objects. A selection with no shared corner
-is a no-op.
+rounded: pass the statements themselves or edge filters
+(`edge().line()`). A selection with no shared corner is a no-op.
 
 ```fluid.js
-import { extrude, fillet, rect, sketch } from "fluidcad/core";
+import { extrude, fillet, line, sketch } from "fluidcad/core";
 
 sketch("xy", () => {
-  const r = rect(80, 60);
-  fillet(4, r.edge('top'), r.edge('left'));   // round just that corner
+  const b = line([-40, -30], [40, -30]);
+  const r = line([40, -30], [40, 30]);
+  const t = line([40, 30], [-40, 30]);
+  const l = line([-40, 30], [-40, -30]);
+  fillet(4, t, l);            // round just the top-left corner
 });
 extrude(10);
 ```
@@ -46,9 +48,14 @@ extrude(10);
 ## Common patterns
 
 ```fluid.js
-import { extrude, fillet, rect, sketch } from "fluidcad/core";
+import { extrude, fillet, line, sketch } from "fluidcad/core";
 
-sketch("xy", () => rect(40, 40).centered());
+sketch("xy", () => {
+  line([-20, -20], [20, -20]);
+  line([20, -20], [20, 20]);
+  line([20, 20], [-20, 20]);
+  line([-20, 20], [-20, -20]);
+});
 const e = extrude(30);
 fillet(5, e.endEdges());                  // round top edges only
 ```

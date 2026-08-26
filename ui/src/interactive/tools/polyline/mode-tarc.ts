@@ -6,32 +6,10 @@ import {
   SNAP_GRID_COLOR,
   addDot,
   addDashedArc,
-  addSegmentHighlight,
   angleFromCenter,
 } from '../tool-preview-utils';
-import { buildTarcTargetIndex, closestPointOnSegment, EdgeEntry, TarcTargetEntry } from '../../sketch-edge-utils';
-import { applyTarcToEdge } from '../../../api';
-import { themeColors } from '../../../scene/theme-colors';
-import type { SceneObjectRender } from '../../../types';
 import type { SegmentMode, ModeContext, ClickResult, Point2D, SegmentCommitResult, TangentInfo } from './types';
 import type { SnapResult } from '../../../snapping/types';
-
-/** Pixel distance at which the arc snaps onto an existing edge target. */
-const EDGE_SNAP_PX = 12;
-const SNAP_HINT = 'Tangent arc up to intersection';
-/**
- * An edge this close to the chain start is the segment the arc leaves from —
- * never a snap target. Wide enough to absorb the Float32 mesh vertices the
- * edge index is built from, far tighter than any deliberate geometry.
- */
-const TOUCH_EPSILON = 1e-3;
-
-/** A snapped target edge: the shape to reference and where the arc lands. */
-type HoverTarget = {
-  shapeId: string;
-  point: Point2D;
-  segments: EdgeEntry['segments'];
-};
 
 export class TArcMode implements SegmentMode {
   readonly id = 'tArc' as const;
@@ -41,39 +19,20 @@ export class TArcMode implements SegmentMode {
   private mousePoint: Point2D | null = null;
   private lastSnapType: SnapResult['snapType'] = 'none';
 
-  /** Snap candidates, cached per scene payload (see {@link targets}). */
-  private targetEntries: TarcTargetEntry[] | null = null;
-  private targetSource: SceneObjectRender[] | null = null;
-  private hoverTarget: HoverTarget | null = null;
-  /** A tArc-to-edge apply is in flight — ignore further clicks until it lands. */
-  private applying = false;
-  /** Bumped on enter/exit so an in-flight apply can't advance a stale chain. */
-  private generation = 0;
-
   enter(ctx: ModeContext): void {
-    this.generation++;
     this.mousePoint = null;
     this.lastSnapType = 'none';
-    this.hoverTarget = null;
     ctx.setSnapHint(null);
   }
 
   exit(ctx: ModeContext): void {
-    this.generation++;
     this.mousePoint = null;
-    this.hoverTarget = null;
-    this.targetEntries = null;
-    this.targetSource = null;
     ctx.setSnapHint(null);
   }
 
   handleClick(point: Point2D, snapResult: SnapResult, ctx: ModeContext): ClickResult {
     if (!ctx.tangent) {
       return { kind: 'ignored' };
-    }
-
-    if (this.hoverTarget) {
-      return this.commitToTarget(this.hoverTarget, ctx);
     }
 
     const result = this.commitRadiusToPoint(point, ctx, snapResult);
@@ -84,16 +43,15 @@ export class TArcMode implements SegmentMode {
   }
 
   /**
-   * The radius + endpoint overload commit at `point`, or null when the point
-   * solves no tangent arc. The solved radius is written out explicitly — it
-   * keeps the drawn shape while making the radius editable as a plain
-   * dimension. The written endpoint must lie on the rounded-radius circle,
-   * and the chain must continue from the exact end the kernel will build
-   * (the written endpoint re-projected onto that circle) — otherwise the
-   * tool's position drifts off the rendered geometry a little per arc.
+   * The tangent-arc commit at `point`, or null when the point solves no
+   * tangent arc. The solved radius is baked into the emitted arc's center —
+   * the drawn shape is kept exactly, and the chain continues from the end
+   * the kernel will build (the written endpoint re-projected onto the
+   * rounded-radius circle) so the tool's position can't drift off the
+   * rendered geometry a little per arc.
    */
   private commitRadiusToPoint(point: Point2D, ctx: ModeContext, snapResult?: SnapResult): SegmentCommitResult | null {
-    if (!ctx.tangent) {
+    if (!ctx.tangent || !ctx.solved) {
       return null;
     }
     const tangent = ctx.tangent.direction;
@@ -116,23 +74,19 @@ export class TArcMode implements SegmentMode {
       return null;
     }
 
-    if (ctx.solved) {
-      const prev = ctx.solved.prevEntity();
-      const roundedStart = roundPoint(ctx.startPoint);
-      ctx.solved.emitSegment({
-        kind: 'arc',
-        text: `arc(${ctx.pendingStartText() ?? ctx.formatPoint(roundedStart)}, ${ctx.formatPoint(written)}, ${ctx.formatPoint(roundPoint(built.center))})${built.ccw ? '' : '.cw()'}`,
-        constraints: prev
-          ? [{ kind: 'tangent', targets: [prev, { newIndex: 0 }] }]
-          : [],
-        // The snapped vertex is ~half a rounding step off the written end —
-        // the coincident is exactly how the solver closes that gap.
-        endSnap: snapResult ?? null,
-        newVariable: undefined,
-      });
-    } else {
-      ctx.insertGeometry(`tArc(${radius}, ${ctx.formatPoint(written)})`);
-    }
+    const prev = ctx.solved.prevEntity();
+    const roundedStart = roundPoint(ctx.startPoint);
+    ctx.solved.emitSegment({
+      kind: 'arc',
+      text: `arc(${ctx.pendingStartText() ?? ctx.formatPoint(roundedStart)}, ${ctx.formatPoint(written)}, ${ctx.formatPoint(roundPoint(built.center))})${built.ccw ? '' : '.cw()'}`,
+      constraints: prev
+        ? [{ kind: 'tangent', targets: [prev, { newIndex: 0 }] }]
+        : [],
+      // The snapped vertex is ~half a rounding step off the written end —
+      // the coincident is exactly how the solver closes that gap.
+      endSnap: snapResult ?? null,
+      newVariable: undefined,
+    });
 
     return {
       endpoint: built.end,
@@ -140,123 +94,13 @@ export class TArcMode implements SegmentMode {
     };
   }
 
-  /**
-   * Commit `tArc(radius, target)` for a snapped edge: the signed radius is
-   * the one the preview solved at the projected point (positive sweeps CCW
-   * of the chain tangent, matching the kernel's convention), and the server
-   * binds the target's statement to a variable and appends the call to the
-   * chain. The chain continues optimistically from the projected point — the
-   * per-render resync adopts the kernel's exact intersection. A refusal (a
-   * repeat clone, a loop body, an out-of-date workspace kernel) degrades to
-   * the plain radius + endpoint overload at the same point, so the drawn
-   * shape survives either way.
-   */
-  private commitToTarget(target: HoverTarget, ctx: ModeContext): ClickResult {
-    if (this.applying) {
-      return { kind: 'consumed' };
-    }
-    const tangent = ctx.tangent!.direction;
-    const solved = this.computeArcPreview(ctx.startPoint, target.point, tangent);
-    if (!solved) {
-      return { kind: 'ignored' };
-    }
-    const signed = Math.round((solved.ccw ? solved.radius : -solved.radius) * 100) / 100;
-    if (signed === 0) {
-      return { kind: 'ignored' };
-    }
-
-    const generation = this.generation;
-    this.applying = true;
-    void applyTarcToEdge(signed, target.shapeId).then((result) => {
-      this.applying = false;
-      if (this.generation !== generation) {
-        return;         // the mode was exited mid-flight; don't advance the chain
-      }
-      this.hoverTarget = null;
-      ctx.setSnapHint(null);
-      if (result.success) {
-        ctx.onSegmentCommitted({
-          endpoint: target.point,
-          exitTangent: this.exitTangentAt(solved.center, solved.ccw, target.point),
-        });
-      } else {
-        const fallback = this.commitRadiusToPoint(target.point, ctx);
-        if (fallback) {
-          ctx.onSegmentCommitted(fallback);
-        }
-      }
-    });
-    return { kind: 'consumed' };
-  }
-
-  handleMouseMove(point: Point2D, snapResult: SnapResult, _clientX: number, _clientY: number, ctx: ModeContext): void {
+  handleMouseMove(point: Point2D, snapResult: SnapResult, _clientX: number, _clientY: number, _ctx: ModeContext): void {
     this.mousePoint = point;
     this.lastSnapType = snapResult.snapType;
-    this.updateHover(point, ctx);
   }
 
   handleEscape(_ctx: ModeContext): boolean {
     return false;
-  }
-
-  /** Snap candidates ({@link buildTarcTargetIndex}), cached per scene payload. */
-  private targets(ctx: ModeContext): TarcTargetEntry[] {
-    if (this.targetSource === ctx.sceneObjects && this.targetEntries) {
-      return this.targetEntries;
-    }
-    this.targetEntries = buildTarcTargetIndex(ctx.sceneObjects, ctx.sketchId, ctx.plane);
-    this.targetSource = ctx.sceneObjects;
-    return this.targetEntries;
-  }
-
-  /** Re-evaluate the snap target under the cursor and the hint that goes with it. */
-  private updateHover(point: Point2D, ctx: ModeContext): void {
-    this.hoverTarget = null;
-    // The edge-target apply-feature rail emits a pen `tArc(…)` — a build
-    // error in a solved sketch; the point form + tangent constraint covers
-    // the gesture there.
-    if (!ctx.tangent || ctx.solved) {
-      ctx.setSnapHint(null);
-      return;
-    }
-
-    const threshold = ctx.pixelThreshold(EDGE_SNAP_PX);
-    let best: { entry: TarcTargetEntry; point: Point2D; dist: number } | null = null;
-
-    for (const entry of this.targets(ctx)) {
-      let nearest: { x: number; y: number; dist: number } | null = null;
-      let startDist = Infinity;
-      for (const seg of entry.segments) {
-        const c = closestPointOnSegment(point[0], point[1], seg.ax, seg.ay, seg.bx, seg.by);
-        if (!nearest || c.dist < nearest.dist) {
-          nearest = c;
-        }
-        const s = closestPointOnSegment(ctx.startPoint[0], ctx.startPoint[1], seg.ax, seg.ay, seg.bx, seg.by);
-        if (s.dist < startDist) {
-          startDist = s.dist;
-        }
-      }
-      // The edge the chain leaves from touches the start — never a target.
-      if (!nearest || startDist <= TOUCH_EPSILON) {
-        continue;
-      }
-      if (nearest.dist <= threshold && (!best || nearest.dist < best.dist)) {
-        best = { entry, point: [nearest.x, nearest.y], dist: nearest.dist };
-      }
-    }
-
-    if (best) {
-      // A projected point collinear with the tangent solves no arc — no snap.
-      const solved = this.computeArcPreview(ctx.startPoint, best.point, ctx.tangent.direction);
-      if (solved && Math.round(solved.radius * 100) / 100 !== 0) {
-        this.hoverTarget = {
-          shapeId: best.entry.shapeId,
-          point: best.point,
-          segments: best.entry.segments,
-        };
-      }
-    }
-    ctx.setSnapHint(this.hoverTarget ? SNAP_HINT : null);
   }
 
   /** The chain's exit tangent at `endpoint` on the arc's circle, or null when degenerate. */
@@ -304,18 +148,6 @@ export class TArcMode implements SegmentMode {
     }
 
     addDot(ctx.previewGroup, ctx.startPoint, START_POINT_COLOR, ctx.camera, ctx.planeNormal, ctx.plane);
-
-    const target = this.hoverTarget;
-    if (target) {
-      const highlight = themeColors.highlightColor.getHex();
-      addSegmentHighlight(ctx.previewGroup, target.segments, ctx.plane, highlight);
-      const arc = this.computeArcPreview(ctx.startPoint, target.point, ctx.tangent.direction);
-      if (arc) {
-        addDashedArc(ctx.previewGroup, arc.center, arc.radius, arc.startAngle, arc.endAngle, arc.ccw, ctx.plane);
-      }
-      addDot(ctx.previewGroup, target.point, highlight, ctx.camera, ctx.planeNormal, ctx.plane, 0.9);
-      return;
-    }
 
     if (this.mousePoint) {
       const arc = this.computeArcPreview(ctx.startPoint, this.mousePoint, ctx.tangent.direction);

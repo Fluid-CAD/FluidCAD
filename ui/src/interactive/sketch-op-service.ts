@@ -2,13 +2,13 @@ import {
   applyFillet2DEdit, applyOffsetEdit, applySketchOp, clearBreakpoints,
   fetchFeatureGhost, fetchSketchFeatureSources, FeatureEditTarget, Fillet2DGhostRequest, GhostSolid,
   NewVariable, OffsetGhostRequest, OffsetOptionValues, ParsedFeatureStatement, Rotate2DOptionValues,
-  SketchApplyEntity, SketchOpFeature, SlotOptionValues, ValueExpr,
+  SketchApplyEntity, SketchOpFeature, ValueExpr,
 } from '../api';
 import { ExpressionRow } from './modify-pick/expression-row';
 import { PickSlot, PickSlotChip } from './pick-slot';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { keepChip } from './create-feature/sketch-profiles';
-import { ChoiceTabs, DIALOG_DOCK_CLASS, DIALOG_COLUMN_CLASS, DIALOG_BODY_CLASS } from './create-feature/panel-controls';
+import { DIALOG_DOCK_CLASS, DIALOG_COLUMN_CLASS, DIALOG_BODY_CLASS } from './create-feature/panel-controls';
 import { ExpressionField } from '../ui/expression-field';
 import { VariableInfo } from '../ui/expression-core';
 import { viewportChrome } from '../ui/viewport-chrome';
@@ -16,14 +16,7 @@ import { viewportChrome } from '../ui/viewport-chrome';
 const PREVIEW_DEBOUNCE_MS = 250;
 
 /** The statement options a 2D op carries beyond its picks. */
-export type SketchOpToggleKey = 'removeOriginal' | 'close' | 'copy'; // removeOriginal: slot's deleteSource; copy: rotate
-
-/**
- * A tabbed op dialog's mode: `draw` hands the viewport to the classic
- * drawing tool (the dialog shows only a hint), `pick` runs the regular
- * pick/value/apply body. Ops without tabs are always in `pick`.
- */
-export type SketchOpMode = 'draw' | 'pick';
+export type SketchOpToggleKey = 'close' | 'copy'; // copy: rotate
 
 /** What a picked sketch shape shows as a chip: its entity's name and line. */
 export type SketchPickDescription = {
@@ -45,12 +38,13 @@ export type SketchOpDialog = {
   readonly isActive: boolean;
   readonly isEditing: boolean;
   readonly isAwaitingSketch: boolean;
-  readonly mode: SketchOpMode;
-  enter(initialMode?: SketchOpMode): void;
+  /** True for a draw-options dialog: the classic drawing tool owns the
+   * viewport while the dialog shows only its hint and options (slot). */
+  readonly isDrawDialog: boolean;
+  enter(): void;
   exit(): void;
   refresh(): void;
   noteSketchActive(): void;
-  setPickTabHidden(hidden: boolean): void;
 };
 
 /** The dialog's window onto the sketch selection the hover handler owns. */
@@ -69,7 +63,8 @@ export type SketchOpSelection = {
 
 /** The per-operation dressing of the shared 2D op dialog. */
 export type SketchOpConfig = {
-  feature: SketchOpFeature;
+  /** 'slot' is draw-only: its dialog never sends an apply-feature request. */
+  feature: SketchOpFeature | 'slot';
   title: string;
   pickHint: string;
   /**
@@ -87,18 +82,14 @@ export type SketchOpConfig = {
    */
   toggles?: { key: SketchOpToggleKey; label: string; title: string; defaultChecked?: boolean }[];
   /**
-   * Two-mode dialog (slot): a first tab that keeps the classic drawing tool
-   * armed — the dialog shows only that tab's hint — and a second tab running
-   * the pick body. A fresh dialog opens on the draw tab. Tabbed dialogs are
-   * create-only ({@link enterEdit} serves the tab-less offset/fillet).
+   * Draw-options dialog (slot): the classic drawing tool owns the viewport
+   * while the dialog shows only a hint and (optionally) one option toggle.
+   * No pick body, no value row, no Apply — draw dialogs are create-only.
    */
-  tabs?: {
-    draw: {
-      label: string; title: string; hint: string;
-      /** An option toggle shown in the draw pane (slot's Centered). */
-      toggle?: { label: string; title: string };
-    };
-    pick: { label: string; title: string };
+  draw?: {
+    hint: string;
+    /** An option toggle shown in the draw pane (slot's Centered). */
+    toggle?: { label: string; title: string };
   };
 };
 
@@ -130,13 +121,6 @@ export class SketchOpService {
   onVisibilityChange?: (visible: boolean) => void;
 
   /**
-   * Fired when the user switches tabs on a tabbed dialog. The toolbar
-   * service swaps the viewport ownership: draw arms the classic drawing
-   * tool, pick brings back the drag/hover pick handlers.
-   */
-  onModeChange?: (mode: SketchOpMode) => void;
-
-  /**
    * Fired when the draw pane's option toggle flips. The toolbar service
    * re-arms the drawing tool so the new option takes effect immediately.
    */
@@ -155,18 +139,9 @@ export class SketchOpService {
   /** The picked-edge chips. */
   private readonly pickSlot: PickSlot;
   private readonly toggles = new Map<SketchOpToggleKey, HTMLInputElement>();
-  /** The tab row and its content panes; null for ops without tabs. */
-  private readonly tabsControl: ChoiceTabs<SketchOpMode> | null;
-  private readonly tabsRow: HTMLDivElement | null;
-  private readonly drawHint: HTMLDivElement | null;
-  private readonly pickBody: HTMLDivElement | null;
   /** The draw pane's option toggle (slot's Centered); null without one. */
   private readonly drawToggle: HTMLInputElement | null;
-  private readonly drawToggleRow: HTMLLabelElement | null;
 
-  private currentMode: SketchOpMode;
-  /** Pick tab suppressed for this arming (slot in a solved sketch). */
-  private pickTabHidden = false;
   private active = false;
   private previewTimer: number | null = null;
   private previewAbort: AbortController | null = null;
@@ -227,24 +202,22 @@ export class SketchOpService {
           <div data-role="pick-slot"></div>`;
     const hintRow = `
           <div data-role="hint" class="hidden text-base-content/50"></div>`;
-    // A tabbed dialog wraps the pick UI in one pane and adds a draw-hint
-    // pane; the tab row switches between them. The draw pane can carry one
-    // option toggle of its own (slot's Centered) — it configures the armed
-    // drawing tool, so it lives outside the pick-pane toggles map.
-    const drawToggleRow = config.tabs?.draw.toggle ? `
-          <label data-role="draw-toggle-row" class="flex items-center justify-between cursor-pointer" title="${config.tabs.draw.toggle.title}">
-            <span class="text-base-content/70">${config.tabs.draw.toggle.label}</span>
+    // A draw dialog shows only its hint pane; it can carry one option
+    // toggle of its own (slot's Centered) — it configures the armed drawing
+    // tool, so it lives outside the pick-pane toggles map.
+    const drawToggleRow = config.draw?.toggle ? `
+          <label data-role="draw-toggle-row" class="flex items-center justify-between cursor-pointer" title="${config.draw.toggle.title}">
+            <span class="text-base-content/70">${config.draw.toggle.label}</span>
             <input data-role="draw-toggle" type="checkbox" class="toggle toggle-sm toggle-primary" />
           </label>` : '';
-    const tabsRow = config.tabs ? `
-          <div data-role="tabs" class="join w-full"></div>
-          <div data-role="draw-hint" class="text-base-content/50">${config.tabs.draw.hint}</div>${drawToggleRow}` : '';
+    const drawRow = config.draw ? `
+          <div data-role="draw-hint" class="text-base-content/50">${config.draw.hint}</div>${drawToggleRow}` : '';
     this.panel.innerHTML = `
       <div data-role="column" class="${DIALOG_COLUMN_CLASS}">
         <div class="${DIALOG_BODY_CLASS}">
           <div class="flex items-center gap-2.5">
             <span data-role="title" class="font-medium text-sm">${config.title}</span>
-          </div>${tabsRow}
+          </div>${drawRow}
           <div data-role="pick-body" class="flex flex-col items-stretch gap-3.5">${pickSlotHost}${hintRow}${valueRow}${extraRows}${toggleRows}</div>
           <div class="flex items-center gap-2 pt-1">
             <button data-role="apply" class="btn btn-primary btn-sm flex-1" disabled>Apply</button>
@@ -259,24 +232,15 @@ export class SketchOpService {
     this.title = this.panel.querySelector('[data-role="title"]')!;
     this.hint = this.panel.querySelector('[data-role="hint"]')!;
     this.applyBtn = this.panel.querySelector('[data-role="apply"]')!;
-    this.tabsRow = this.panel.querySelector('[data-role="tabs"]');
-    this.drawHint = this.panel.querySelector('[data-role="draw-hint"]');
-    this.pickBody = this.panel.querySelector('[data-role="pick-body"]');
-    this.currentMode = config.tabs ? 'draw' : 'pick';
-    if (config.tabs && this.tabsRow) {
-      this.tabsControl = new ChoiceTabs<SketchOpMode>(this.tabsRow, [
-        { key: 'draw', label: config.tabs.draw.label, title: config.tabs.draw.title },
-        { key: 'pick', label: config.tabs.pick.label, title: config.tabs.pick.title },
-      ], this.currentMode);
-      this.tabsControl.onChange = () => this.setMode(this.tabsControl!.value);
-    } else {
-      this.tabsControl = null;
+    // A draw dialog has no pick body and no Apply — the drawing tool commits.
+    if (config.draw) {
+      this.panel.querySelector('[data-role="pick-body"]')?.classList.add('hidden');
+      this.applyBtn.classList.add('hidden');
     }
     for (const toggle of config.toggles ?? []) {
       this.toggles.set(toggle.key, this.panel.querySelector(`[data-role="toggle-${toggle.key}"]`)!);
     }
     this.drawToggle = this.panel.querySelector('[data-role="draw-toggle"]');
-    this.drawToggleRow = this.panel.querySelector('[data-role="draw-toggle-row"]');
     this.drawToggle?.addEventListener('change', () => this.onDrawToggleChange?.(this.drawToggle!.checked));
     this.pickSlot = new PickSlot(this.panel.querySelector('[data-role="pick-slot"]')!, { label: 'Selection', multiple: true });
     // Picking is live the whole time the dialog is up — the slot always
@@ -343,54 +307,14 @@ export class SketchOpService {
     return this.active;
   }
 
-  /** The tab the dialog is on; always `pick` for ops without tabs. */
-  get mode(): SketchOpMode {
-    return this.currentMode;
-  }
-
-  /**
-   * Hide the pick tab for this arming (slot in a solved sketch — the
-   * from-edge overload is a legacy feature the solved kernel rejects). The
-   * dialog then only ever shows the draw pane; `enter('pick')` is coerced.
-   */
-  setPickTabHidden(hidden: boolean): void {
-    this.pickTabHidden = hidden;
-    this.tabsRow?.classList.toggle('hidden', hidden && this.config.tabs !== undefined);
+  /** Whether this is a draw-options dialog (see {@link SketchOpConfig}). */
+  get isDrawDialog(): boolean {
+    return this.config.draw !== undefined;
   }
 
   /** The draw pane's option toggle state; false for dialogs without one. */
   get drawToggleChecked(): boolean {
     return this.drawToggle?.checked ?? false;
-  }
-
-  /** Tab switch: swap the panes, then hand the viewport over via onModeChange. */
-  private setMode(mode: SketchOpMode): void {
-    if (this.currentMode === mode) {
-      return;
-    }
-    this.currentMode = mode;
-    this.syncModeUI();
-    if (mode === 'draw') {
-      this.cancelPreview();
-      this.ghost?.clear();
-      this.expression.hide();
-      this.setError(null);
-    } else {
-      this.schedulePreview();
-    }
-    this.onModeChange?.(mode);
-  }
-
-  /** Show the pane of the current mode (a no-op for ops without tabs). */
-  private syncModeUI(): void {
-    if (!this.config.tabs) {
-      return;
-    }
-    const draw = this.currentMode === 'draw';
-    this.drawHint?.classList.toggle('hidden', !draw);
-    this.drawToggleRow?.classList.toggle('hidden', !draw);
-    this.pickBody?.classList.toggle('hidden', draw);
-    this.applyBtn.classList.toggle('hidden', draw);
   }
 
   /** True while the dialog rewrites an existing statement instead of writing one. */
@@ -473,7 +397,7 @@ export class SketchOpService {
     return this.selectionSignature() !== this.seedSignature;
   }
 
-  enter(initialMode?: SketchOpMode): void {
+  enter(): void {
     if (this.active && !this.editTarget) {
       return;
     }
@@ -486,18 +410,6 @@ export class SketchOpService {
     this.setToggles(this.defaultToggleValues());
     // A fresh sketch-toolbar arming is always inside a sketch — every toggle applies.
     this.setHiddenToggles([]);
-    // A fresh tabbed dialog opens on the draw tab — unless the caller asks
-    // for pick (an edge was already selected when the tool was armed). The
-    // caller reads `mode` after entering and arms the viewport itself (no
-    // onModeChange here). A hidden pick tab pins the draw pane.
-    this.currentMode = this.config.tabs
-      ? (this.pickTabHidden ? 'draw' : (initialMode ?? 'draw'))
-      : 'pick';
-    this.tabsControl?.setValue(this.currentMode);
-    if (this.drawHint && this.config.tabs) {
-      this.drawHint.textContent = this.config.tabs.draw.hint;
-    }
-    this.syncModeUI();
     this.panel.classList.remove('hidden');
     viewportChrome.setDialogOpen(this.panel.id, true);
     this.onVisibilityChange?.(true);
@@ -536,11 +448,6 @@ export class SketchOpService {
     // outside a sketch takes no close chain) hide their rows; a hidden
     // toggle also unchecks, so an apply writes the valid form.
     this.setHiddenToggles(opts.hideToggles ?? []);
-    // An edit always opens (and stays) on the pick tab — only the tab-less
-    // offset/fillet dialogs edit today.
-    this.currentMode = 'pick';
-    this.tabsControl?.setValue('pick');
-    this.syncModeUI();
     this.panel.classList.remove('hidden');
     viewportChrome.setDialogOpen(this.panel.id, true);
     this.onVisibilityChange?.(true);
@@ -593,14 +500,6 @@ export class SketchOpService {
     };
   }
 
-  /** Slot's toggle as the statement carries it, or undefined for the rest. */
-  private slotOptions(): SlotOptionValues | undefined {
-    if (this.config.feature !== 'slot') {
-      return undefined;
-    }
-    return { removeOriginal: this.toggles.get('removeOriginal')?.checked === true };
-  }
-
   /** Rotate's center + copy flag, or undefined while the fields are invalid. */
   private rotateOptions(): Rotate2DOptionValues | undefined {
     if (this.config.feature !== 'rotate2d') {
@@ -619,9 +518,7 @@ export class SketchOpService {
 
   /**
    * The static text around the editable args — `offset(2, ` … `).close()`
-   * for the toggled form, `fillet(4, ` … `)` for the rest. Slot inverts the
-   * order: the source args come first, the radius and flag trail —
-   * `slot(` … `, 4)` / `slot(` … `, 4, false)`.
+   * for the toggled form, `fillet(4, ` … `)` for the rest.
    */
   private syncExpressionPrefix(value: ValueExpr | undefined): void {
     if (this.config.feature === 'rotate2d') {
@@ -629,12 +526,6 @@ export class SketchOpService {
       const center = rt ? `[${rt.center[0]}, ${rt.center[1]}]` : '[0, 0]';
       this.expression.setPrefix(`rotate(${value}, ${center}${rt?.copy ? ', true' : ''}, `);
       this.expression.setSuffix(')');
-      return;
-    }
-    if (this.config.feature === 'slot') {
-      const keepSource = this.slotOptions()?.removeOriginal === false ? ', false' : '';
-      this.expression.setPrefix('slot(');
-      this.expression.setSuffix(`, ${value}${keepSource})`);
       return;
     }
     const offset = this.offsetOptions();
@@ -773,7 +664,7 @@ export class SketchOpService {
   }
 
   private schedulePreview(): void {
-    if (!this.active || this.currentMode === 'draw') {
+    if (!this.active || this.isDrawDialog) {
       return;
     }
     if (this.previewTimer !== null) {
@@ -940,9 +831,10 @@ export class SketchOpService {
       }
       return applyOffsetEdit(this.editTarget, { ...this.offsetOptions()!, ...editOptions });
     }
-    return applySketchOp(this.config.feature, options.value, entities, {
+    // Draw dialogs (slot) never reach send() — their Apply is hidden and
+    // previews are suppressed — so the cast never lies at runtime.
+    return applySketchOp(this.config.feature as SketchOpFeature, options.value, entities, {
       offset: this.offsetOptions(),
-      slot: this.slotOptions(),
       rotate2d: this.rotateOptions(),
       selectorOverride: options.selectorOverride,
       newVariables: options.newVariables,
@@ -952,7 +844,7 @@ export class SketchOpService {
   }
 
   private async apply(): Promise<void> {
-    if (this.applying || !this.active || this.currentMode === 'draw' || this.incompleteReason() !== null) {
+    if (this.applying || !this.active || this.isDrawDialog || this.incompleteReason() !== null) {
       return;
     }
     const read = this.readValue();

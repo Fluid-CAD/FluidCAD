@@ -7,8 +7,8 @@ import part from "../../core/part.js";
 import select from "../../core/select.js";
 import expose from "../../core/expose.js";
 import insert from "../../core/insert.js";
-import { rect } from "../../core/2d/index.js";
 import { face, edge } from "../../filters/index.js";
+import { testRect } from "../helpers/profiles.js";
 import { resolvePickExposure } from "../../selection/expose-lookup.js";
 import { faceRefsWhere, edgeRefsWhere, findSolid, setLocation } from "./pick-helpers.js";
 
@@ -25,7 +25,9 @@ describe("resolvePickExposure over an AssemblyScene", () => {
   function makeAssembly(donorBody?: () => void) {
     getSceneManager().startScene();
     const donor = part("Donor", () => {
-      sketch("xy", () => rect(100, 50));
+      sketch("xy", () => {
+        testRect(100, 50);
+      });
       extrude(30);
       donorBody?.();
     });

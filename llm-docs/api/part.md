@@ -24,10 +24,15 @@ Wrapping `part(...)` in a function gives parametric, reusable parts.
 ## Example
 
 ```fluid.js
-import { cylinder, extrude, part, rect, sketch } from "fluidcad/core";
+import { cylinder, extrude, line, part, sketch } from "fluidcad/core";
 
 part("base", () => {
-  sketch("xy", () => rect(120, 80).centered());
+  sketch("xy", () => {
+    line([-60, -40], [60, -40]);
+    line([60, -40], [60, 40]);
+    line([60, 40], [-60, 40]);
+    line([-60, 40], [-60, -40]);
+  });
   extrude(20);
 });
 

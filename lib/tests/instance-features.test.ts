@@ -7,14 +7,14 @@ import part from "../core/part.js";
 import param from "../core/param.js";
 import expose from "../core/expose.js";
 import insert from "../core/insert.js";
-import { rect } from "../core/2d/index.js";
+import { testRect } from "./helpers/profiles.js";
 import { face } from "../filters/index.js";
 import { BoundExposure, Exposed } from "../features/exposed.js";
 
 function makeDonorDef() {
   return part("Donor", () => {
     const h = param("Height", 10);
-    sketch("xy", () => rect(40, 20));
+    sketch("xy", () => { testRect(40, 20); });
     extrude(h);
     expose("top", select(face().planar().onPlane("xy", h)));
   });
@@ -78,7 +78,7 @@ describe("instance.features", () => {
   it("is empty for parts with no exposures", () => {
     getSceneManager().startScene();
     const def = part("bare", () => {
-      sketch("xy", () => rect(10, 10));
+      sketch("xy", () => { testRect(10, 10); });
       extrude(5);
     });
     getSceneManager().startAssemblyScene();

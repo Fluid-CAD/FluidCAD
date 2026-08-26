@@ -7,11 +7,36 @@ title: "Introduction"
 
 Every 3D model starts with a 2D sketch. A sketch draws flat shapes on a plane, which you can then extrude, cut, revolve, or sweep into 3D geometry.
 
+FluidCAD sketches are **constraint sketches**: geometry statements draw fully-specified shapes, and constraint statements describe the relationships that must hold between them. A solver then adjusts the geometry until every constraint is satisfied.
+
 ```js
+import { sketch, line } from 'fluidcad/core';
+import { coincident, horizontal, vertical, fix, distance } from 'fluidcad/constraints';
+
 sketch("xy", () => {
-    rect(100, 60).centered()
+    const b = line([0, 0], [100, 0]);
+    const r = line([100, 0], [100, 60]);
+    const t = line([100, 60], [0, 60]);
+    const l = line([0, 60], [0, 0]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    fix(b.start(), [0, 0]);
+    distance(b.start(), b.end(), 100);
+    distance(r.start(), r.end(), 60);
 })
 ```
+
+The third argument `true` marks the sketch as a constraint sketch. Three ideas carry the whole model:
+
+- **Geometry statements are guesses.** `line([0, 0], [100, 0])` places a line at those coordinates, but the coordinates are only a starting point — the solver may move the geometry to satisfy the constraints. Where no constraint applies, geometry simply stays where you drew it.
+- **Constraints drive the solve.** `coincident`, `horizontal`, `tangent`, `distance` and friends describe design intent. The solver finds the geometry that satisfies all of them at once. See [Constraints](./constraints) and [Dimensions](./dimensions).
+- **Layout convention:** write geometry statements first, then constraints, then derived operations (`offset`, `fillet`, `mirror`, …).
 
 ## Sketch planes
 
@@ -53,11 +78,11 @@ You can sketch directly on a face from a previous operation:
 const e = extrude(30)
 
 sketch(e.endFaces(), () => {
-    circle(30)
+    circle([0, 0], 30)
 })
 ```
 
-When you sketch on a face, the current position is automatically placed at the **center of that face**. This is convenient in most cases — a `circle(30)` will be centered on the face without any extra positioning. If you need to draw from the origin instead, use `move([0, 0])` to reset the position.
+Coordinates in a face sketch are the plane's own 2D coordinates. To place geometry relative to the existing shape, [project](./projection) faces or edges into the sketch and constrain against them — a projected outline is fixed reference geometry the solver never moves.
 
 This is how you build on top of existing geometry — sketch on the top face, then extrude or cut from there.
 
@@ -75,46 +100,29 @@ plane(e.sideEdges(0), 1)         // at the end
 
 The position is a name — `'start'`, `'middle'`, `'end'` — or a normalized value from `0` (start) to `1` (end). At the start the normal faces **outward** (away from the edge), like a start cap; `'middle'` and `'end'` follow the edge's forward direction.
 
-## Movement
-
-Inside a sketch, there is a **current position** — think of it as a pen on paper. Drawing commands start from the current position, and movement commands reposition it without drawing.
-
-```js
-sketch("xy", () => {
-    move([30, 20])             // move to absolute position [30, 20]
-    rect(50, 30)               // draw here
-
-    hMove(80)                  // move 80 units to the right (relative)
-    circle(40)                 // draw here
-})
-```
-
-- **`move([x, y])`** — move to an absolute position
-- **`hMove(distance)`** — move horizontally (relative)
-- **`vMove(distance)`** — move vertically (relative)
-
 ## The sketch viewport
 
-When you're working inside a sketch, the viewport shows visual helpers to guide you:
+While a sketch is active, the viewport shows the solver's verdict live:
 
-- **Orange dot** — the current drawing position. This is where the next shape or line will start from.
-- **Orange arrow** — the current tangent direction. This shows which way the pen is pointing, which matters for tangent-continuous operations like `tArc()` and `tLine()`.
-- **Blue dots** — endpoints of sketch edges. These mark where geometry segments begin and end.
+- **Green edges** — constrained geometry: the solver has locked this entity's position completely.
+- **Default-colored edges** — under-constrained geometry that still has degrees of freedom; it rests at your guess coordinates and can be dragged.
+- **Red edges** — conflicting constraints that cannot all be satisfied.
+- **Badges and dimension labels** — each constraint shows as a small glyph on its geometry; dimensions render as measurements you can double-click to edit.
 
-These indicators update live as you add shapes and lines, so you always know where you are in the sketch.
+The status readout reports the remaining **degrees of freedom** (DOF). "Fully constrained" means zero — every entity is locked. See [Dimensions](./dimensions#degrees-of-freedom) for how to read and act on it.
 
 ## How sketch faces are created
 
 When a sketch is used by an operation like `extrude()` or `cut()`, FluidCAD turns the 2D geometry into faces using these rules:
 
-- **Overlapping shapes are fused automatically.** If two closed shapes intersect, their outlines merge into a single combined face. You don't need to trim or manually join them.
+- **Overlapping shapes are fused automatically.** If two closed shapes intersect, their outlines merge into a single combined face. You don't need to manually join them.
 - **Internal closed shapes are holes.** A closed shape inside another closed shape is treated as a cutout — the inner area is removed. This is how you create rings, mounting holes, and pockets.
 - **Open or loose geometry is ignored.** Lines, arcs, or curves that don't form a closed shape are skipped when building faces. They can still be useful as [guides](./guides).
 
 ```js
 sketch("xy", () => {
-    circle(60)                 // outer circle
-    circle(30)                 // inner circle → becomes a hole
+    circle([0, 0], 60)         // outer circle
+    circle([0, 0], 30)         // inner circle → becomes a hole
 })
 
 extrude(20)                    // extrudes the ring between the two circles

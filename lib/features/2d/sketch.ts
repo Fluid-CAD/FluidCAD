@@ -13,20 +13,17 @@ import { isReferenceProducer } from "./solved/reference.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 
-  private _solvedMode: boolean;
   private _solver: SketchSolverContext | null;
   private _solveDone = false;
 
-  constructor(public planeObj: PlaneObjectBase, solvedMode: boolean = false) {
+  constructor(public planeObj: PlaneObjectBase) {
     super();
-    this._solvedMode = solvedMode;
-    this._solver = solvedMode ? new SketchSolverContext() : null;
+    this._solver = new SketchSolverContext();
   }
 
-  /** Solved (constraint) mode vs legacy pen mode — set by the third
-   * argument of sketch(plane, callback, mode). */
+  /** Always true since P7 — kept for callers that still branch on it. */
   isSolvedMode(): boolean {
-    return this._solvedMode;
+    return true;
   }
 
   solver(): SketchSolverContext | null {
@@ -47,7 +44,7 @@ export class Sketch extends SceneObject implements Extrudable {
    * over the complete system.
    */
   ensureSolvedForBuild(): void {
-    if (!this._solvedMode || this._solveDone || !this._solver) {
+    if (this._solveDone || !this._solver) {
       return;
     }
     this._solveDone = true;
@@ -76,125 +73,6 @@ export class Sketch extends SceneObject implements Extrudable {
 
   getPlane(): Plane {
     return this.planeObj.getPlane();
-  }
-
-  getStartPoint(): Point2D {
-    const center = this.planeObj.getPlaneCenter();
-    if (center) {
-      const plane = this.getPlane();
-      return plane.worldToLocal(center);
-    }
-
-    return new Point2D(0, 0);
-  }
-
-  getTangentAt(currentObj: GeometrySceneObject): Point2D {
-    const children = this.getChildren();
-    const previous = children.slice(0, children.indexOf(currentObj));
-    let last = previous[previous.length - 1];
-    while (last) {
-      if (!(last instanceof GeometrySceneObject)) {
-        previous.pop();
-        last = previous[previous.length - 1];
-        continue;
-      }
-
-      const tangent = last.getTangent();
-      if (tangent) {
-        return tangent;
-      }
-
-      previous.pop();
-      last = previous[previous.length - 1];
-    }
-
-    return new Point2D(1, 0);
-  }
-
-  getPositionAt(currentObj: GeometrySceneObject): Point2D {
-    const children = this.getChildren() as GeometrySceneObject[];
-    if (children.length === 1) {
-      return this.getStartPoint();
-    }
-
-    const previous = children.slice(0, children.indexOf(currentObj));
-    let last = previous[previous.length - 1];
-    while (last) {
-      const pos = last.getState('current-position') as Point2D;
-      if (pos) {
-        return pos;
-      }
-
-      previous.pop();
-      last = previous[previous.length - 1];
-    }
-
-    return this.getStartPoint();
-  }
-
-  getPreviousPosition(currentObj: GeometrySceneObject, count: number = 1): Point2D {
-    const children = this.getChildren() as GeometrySceneObject[];
-    const previous = children.slice(0, children.indexOf(currentObj));
-    let remaining = count;
-    for (let i = previous.length - 1; i >= 0; i--) {
-      const pos = previous[i].getState('current-position') as Point2D;
-      if (pos) {
-        if (remaining === 0) {
-          return pos;
-        }
-        remaining--;
-      }
-    }
-    return this.getStartPoint();
-  }
-
-  getPreviousState(currentObj: GeometrySceneObject, count: number = 1): { position: Point2D, tangent: Point2D } {
-    const children = this.getChildren() as GeometrySceneObject[];
-    const previous = children.slice(0, children.indexOf(currentObj));
-    let remaining = count;
-    for (let i = previous.length - 1; i >= 0; i--) {
-      const pos = previous[i].getState('current-position') as Point2D;
-      if (pos) {
-        if (remaining === 0) {
-          for (let j = i; j >= 0; j--) {
-            const prev = previous[j];
-            if (!(prev instanceof GeometrySceneObject)) {
-              continue;
-            }
-            const t = prev.getTangent();
-            if (t) {
-              return { position: pos, tangent: t };
-            }
-          }
-          return { position: pos, tangent: new Point2D(1, 0) };
-        }
-        remaining--;
-      }
-    }
-    return { position: this.getStartPoint(), tangent: new Point2D(1, 0) };
-  }
-
-  getLastPosition(scope?: Set<SceneObject>): Point2D {
-    let children = this.getChildren().slice() as GeometrySceneObject[];
-    if (scope) {
-      children = children.filter(c => scope.has(c));
-    }
-    if (children.length === 0) {
-      return this.getStartPoint();
-    }
-
-    while (true) {
-      const last = children[children.length - 1];
-      if (!last) {
-        return this.getStartPoint();
-      }
-
-      const pos = last.getState('current-position') as Point2D;
-      if (pos) {
-        return pos;
-      }
-      children.pop();
-    }
   }
 
   build(context?: BuildSceneObjectContext) {
@@ -292,7 +170,7 @@ export class Sketch extends SceneObject implements Extrudable {
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const planeObj = (remap.get(this.planeObj) as PlaneObjectBase) || this.planeObj;
-    return new Sketch(planeObj, this._solvedMode);
+    return new Sketch(planeObj);
   }
 
   compareTo(other: Sketch): boolean {
@@ -301,10 +179,6 @@ export class Sketch extends SceneObject implements Extrudable {
     }
 
     if (!super.compareTo(other)) {
-      return false;
-    }
-
-    if (this._solvedMode !== other._solvedMode) {
       return false;
     }
 
@@ -332,35 +206,6 @@ export class Sketch extends SceneObject implements Extrudable {
     return this.getOrder() - base;
   }
 
-  getTangent(scope?: Set<SceneObject>): Point2D {
-    let children = this.getChildren()?.slice() as GeometrySceneObject[];
-    if (scope) {
-      children = children.filter(c => scope.has(c));
-    }
-    if (children.length === 0) {
-      return new Point2D(1, 0);
-    }
-
-    let last = children[children.length - 1];
-    while (last) {
-      if (!(last instanceof GeometrySceneObject)) {
-        children.pop();
-        last = children[children.length - 1];
-        continue;
-      }
-
-      const tangent = last.getTangent();
-      if (tangent) {
-        return tangent;
-      }
-
-      children.pop();
-      last = children[children.length - 1];
-    }
-
-    return new Point2D(1, 0);
-  }
-
   getType(): string {
     return "sketch";
   }
@@ -371,22 +216,15 @@ export class Sketch extends SceneObject implements Extrudable {
       // The plane could not be built (e.g. a sketch on a non-planar face); the
       // plane object already carries the real error. Emit a benign payload so
       // this sketch doesn't crash serialization with a null dereference.
-      return this._solvedMode
-        ? { plane: this.planeObj.serialize(), solvedMode: true, solver: this.getState('solver-system') ?? null }
-        : { plane: this.planeObj.serialize() };
+      return { plane: this.planeObj.serialize(), solvedMode: true, solver: this.getState('solver-system') ?? null };
     }
-    const tangent = this.getTangent(scope);
-    const payload = {
-      currentPosition: plane.localToWorld(this.getLastPosition(scope)),
-      currentTangent: plane.localToWorld(tangent),
+    // The SketchSolverSystem snapshot (entities/constraints/params/
+    // diagnostics) — the UI's read model (P3) and drag client seed (P4).
+    return {
       plane: this.planeObj.serialize(),
+      solvedMode: true,
+      solver: this.getState('solver-system') ?? null,
     };
-    if (this._solvedMode) {
-      // The SketchSolverSystem snapshot (entities/constraints/params/
-      // diagnostics) — the UI's read model (P3) and drag client seed (P4).
-      return { ...payload, solvedMode: true, solver: this.getState('solver-system') ?? null };
-    }
-    return payload;
   }
 
   override toString(): string {

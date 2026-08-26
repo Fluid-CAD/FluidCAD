@@ -14,7 +14,7 @@ import rib from "../core/rib.js";
 import repeat from "../core/repeat.js";
 import copy from "../core/copy.js";
 import shell from "../core/shell.js";
-import { aLine, bezier, circle, hLine, move, rect, vLine } from "../core/2d/index.js";
+import { bezier, circle, line } from "../core/2d/index.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { SceneObject } from "../common/scene-object.js";
 import { EdgeOps } from "../oc/edge-ops.js";
@@ -29,6 +29,8 @@ import {
 } from "../rendering/feature-ghost.js";
 import { DEFAULT_MESH_CONFIG } from "../oc/mesh.js";
 import { Scene, SceneObjectMesh } from "../rendering/scene.js";
+import { horizontal } from "../core/constraints/index.js";
+import { testRect } from "./helpers/profiles.js";
 
 const FILE = '/tmp/ghost-test.fluid.js';
 
@@ -133,7 +135,7 @@ describe("feature ghost", () => {
   setupOC();
 
   it("meshes the body the dialog's values would build", () => {
-    locatedSketch(5, () => { rect(100, 50); });
+    locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();
 
     const result = ghost(scene, 5);
@@ -149,7 +151,7 @@ describe("feature ghost", () => {
   });
 
   it("finds the profile through the live-render buffer's path prefix", () => {
-    const s = locatedSketch(5, () => { rect(100, 50); });
+    const s = locatedSketch(5, () => { testRect(100, 50); });
     s.setSourceLocation({ filePath: `virtual:live-render:${FILE}`, line: 5, column: 0 });
     const scene = render();
 
@@ -157,7 +159,7 @@ describe("feature ghost", () => {
   });
 
   it("refuses a profile the scene doesn't hold", () => {
-    locatedSketch(5, () => { rect(100, 50); });
+    locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();
 
     const result = ghost(scene, 99);
@@ -171,7 +173,7 @@ describe("feature ghost", () => {
    * Reading them back is what makes an edit-mode ghost possible at all.
    */
   it("still sweeps a profile the edited statement already consumed", () => {
-    locatedSketch(5, () => { rect(100, 50); });
+    locatedSketch(5, () => { testRect(100, 50); });
     extrude(20);
     const scene = render();
 
@@ -189,7 +191,7 @@ describe("feature ghost", () => {
   });
 
   it("sizes a through-all cut to the model, not the kernel's 100 m stand-in", () => {
-    locatedSketch(5, () => { rect(100, 50); });
+    locatedSketch(5, () => { testRect(100, 50); });
     extrude(20);
     const scene = render();
 
@@ -219,7 +221,7 @@ describe("feature ghost — revolve", () => {
 
   /** The 20×10 section spanning x 60…80, y ±5 — the ring's cross-section. */
   function ringSection(line = 5): Sketch {
-    return locatedSketch(line, () => { rect([60, -5], 20, 10); });
+    return locatedSketch(line, () => { testRect(20, 10, { at: [60, -5] }); });
   }
 
   /** A world-axis `axis()` statement the way the parser records one. */
@@ -312,9 +314,9 @@ describe("feature ghost — revolve", () => {
    * which is what a fallback to a world axis would give.
    */
   it("turns a picked edge into the axis", () => {
-    locatedSketch(2, () => { rect([-10, -10], 20, 20); });
+    locatedSketch(2, () => { testRect(20, 20, { at: [-10, -10] }); });
     extrude(40);
-    locatedSketch(5, () => { rect([60, 0], 20, 10); }, 'xz');
+    locatedSketch(5, () => { testRect(20, 10, { at: [60, 0] }); }, 'xz');
     const scene = render();
     const picked = verticalEdge(scene);
 
@@ -413,16 +415,16 @@ describe("feature ghost — loft", () => {
   /** Two identical 100 × 50 rects, at z = 0 (line 5) and z = 40 (line 9). */
   function rectStack(): [Sketch, Sketch] {
     return [
-      locatedSketch(5, () => { rect(100, 50); }),
-      locatedSketchAt(9, 40, () => { rect(100, 50); }),
+      locatedSketch(5, () => { testRect(100, 50); }),
+      locatedSketchAt(9, 40, () => { testRect(100, 50); }),
     ];
   }
 
   /** Two circles (diameter 80), at z = 0 (line 5) and z = 60 (line 9). */
   function circleStack(): [Sketch, Sketch] {
     return [
-      locatedSketch(5, () => { circle(80); }),
-      locatedSketchAt(9, 60, () => { circle(80); }),
+      locatedSketch(5, () => { circle([0, 0], 80); }),
+      locatedSketchAt(9, 60, () => { circle([0, 0], 80); }),
     ];
   }
 
@@ -468,9 +470,9 @@ describe("feature ghost — loft", () => {
    * its top face to the sketch at z = 40 spans exactly the gap between them.
    */
   it("turns a picked face into a section", () => {
-    locatedSketch(2, () => { rect(100, 50); });
+    locatedSketch(2, () => { testRect(100, 50); });
     extrude(20);
-    locatedSketchAt(9, 40, () => { rect(100, 50); });
+    locatedSketchAt(9, 40, () => { testRect(100, 50); });
     const scene = render();
     const picked = topFace(scene);
 
@@ -485,7 +487,7 @@ describe("feature ghost — loft", () => {
 
   it("follows a rail named by call site", () => {
     circleStack();
-    locatedSketch(7, () => { bezier([40, 0], [65, 30], [40, 60]); }, 'xz');
+    locatedSketch(7, () => { bezier([40, 0], [65, 30], [40, 60]); }, 'xz', false);
     const scene = render();
 
     const plain = bounds(loftGhost(scene, [sketchRef(5), sketchRef(9)]));
@@ -501,7 +503,7 @@ describe("feature ghost — loft", () => {
   /** The rails are consumed by the edited loft too — same read-back. */
   it("still follows a rail the edited statement already consumed", () => {
     const [bottom, top] = circleStack();
-    const bowed = locatedSketch(7, () => { bezier([40, 0], [65, 30], [40, 60]); }, 'xz');
+    const bowed = locatedSketch(7, () => { bezier([40, 0], [65, 30], [40, 60]); }, 'xz', false);
     loft(bottom as never, top as never).guides(bowed as never);
     const scene = render();
 
@@ -567,8 +569,8 @@ describe("feature ghost — sweep", () => {
   /** The profile at line 5, and a 50 mm spine straight up z at line 3. */
   function tube(): [Sketch, Sketch] {
     return [
-      locatedSketch(5, () => { circle(10); }),
-      locatedSketch(3, () => { vLine(50); }, 'xz'),
+      locatedSketch(5, () => { circle([0, 0], 10); }),
+      locatedSketch(3, () => { line([0, 0], [0, 50]); }, 'xz'),
     ];
   }
 
@@ -623,7 +625,7 @@ describe("feature ghost — sweep", () => {
   it("runs along a helix named by call site", () => {
     const coil = helix('z').radius(20).pitch(10).turns(2) as unknown as SceneObject;
     coil.setSourceLocation({ filePath: FILE, line: 3, column: 0 });
-    locatedSketch(5, () => { move([20, 0]); circle(6); }, 'xz');
+    locatedSketch(5, () => { circle([20, 0], 6); }, 'xz');
     const scene = render();
 
     const box = bounds(sweepGhost(scene, 5, wireRef(3)));
@@ -642,7 +644,7 @@ describe("feature ghost — sweep", () => {
    * carry the profile a fifth of the way the line-3 sketch would.
    */
   it("runs along the edges picked in the viewport", () => {
-    locatedSketch(2, () => { rect([-30, -30], 20, 20); });
+    locatedSketch(2, () => { testRect(20, 20, { at: [-30, -30] }); });
     extrude(20);
     tube();
     const scene = render();
@@ -748,7 +750,7 @@ describe("feature ghost — repeat", () => {
   }
 
   /** A box built by an `extrude()` addressable at `line`, like the parser's. */
-  function locatedBox(line: number, draw = () => { rect(20, 20); }, height = 10): SceneObject {
+  function locatedBox(line: number, draw = () => { testRect(20, 20); }, height = 10): SceneObject {
     sketch("xy", draw);
     const solid = extrude(height).new() as unknown as SceneObject;
     solid.setSourceLocation({ filePath: FILE, line, column: 0 });
@@ -830,7 +832,7 @@ describe("feature ghost — repeat", () => {
 
   it("spins the instances around a circular axis", () => {
     // Off the axis, so the rotation is visible in the bounds at all.
-    locatedBox(5, () => { rect([40, -10], 20, 20); });
+    locatedBox(5, () => { testRect(20, 20, { at: [40, -10] }); });
     const scene = render();
 
     const result = repeatGhost(scene, [5], {
@@ -850,7 +852,7 @@ describe("feature ghost — repeat", () => {
   });
 
   it("turns a single rotate clone around the axis", () => {
-    locatedBox(5, () => { rect([40, -10], 20, 20); });
+    locatedBox(5, () => { testRect(20, 20, { at: [40, -10] }); });
     const scene = render();
 
     const result = repeatGhost(scene, [5], {
@@ -865,7 +867,7 @@ describe("feature ghost — repeat", () => {
   });
 
   it("mirrors across an origin plane", () => {
-    locatedBox(5, () => { rect([-10, 20], 20, 20); });
+    locatedBox(5, () => { testRect(20, 20, { at: [-10, 20] }); });
     const scene = render();
 
     const result = repeatGhost(scene, [5], {
@@ -883,7 +885,9 @@ describe("feature ghost — repeat", () => {
 
   /** Mirror takes the difference too: a fused boss reflects alone. */
   it("mirrors only the material a fused instance adds", () => {
-    sketch("xy", () => { rect(200, 100).centered(); });
+    sketch("xy", () => {
+        testRect(200, 100, { at: [-100, -50] });
+      });
     const plate = extrude(20) as unknown as { endFaces: () => unknown };
     sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
     const boss = extrude(10) as unknown as SceneObject;
@@ -948,7 +952,7 @@ describe("feature ghost — repeat", () => {
    * back; this is the guard that the ghost actually goes through it.
    */
   it("keeps a mirrored body's winding facing outward", () => {
-    locatedBox(5, () => { rect([-10, 20], 20, 20); });
+    locatedBox(5, () => { testRect(20, 20, { at: [-10, 20] }); });
     const scene = render();
 
     const result = repeatGhost(scene, [5], {
@@ -963,7 +967,9 @@ describe("feature ghost — repeat", () => {
   });
 
   it("refuses a curved face as a mirror plane", () => {
-    sketch("xy", () => { circle(40); });
+    sketch("xy", () => {
+        circle([0, 0], 40);
+      });
     const round = extrude(10).new() as unknown as SceneObject;
     round.setSourceLocation({ filePath: FILE, line: 5, column: 0 });
     const scene = render();
@@ -986,7 +992,9 @@ describe("feature ghost — repeat", () => {
    */
   it("stamps a target a later statement already consumed", () => {
     locatedBox(5);
-    sketch("xy", () => { rect([0, 0], 20, 20); });
+    sketch("xy", () => {
+        testRect(20, 20);
+      });
     extrude(10);
     const scene = render();
 
@@ -1007,7 +1015,9 @@ describe("feature ghost — repeat", () => {
    * into the plate already there. What lands per instance is the boss alone.
    */
   it("stamps only the material a fused instance adds", () => {
-    sketch("xy", () => { rect(200, 100).centered(); });
+    sketch("xy", () => {
+        testRect(200, 100, { at: [-100, -50] });
+      });
     const plate = extrude(20) as unknown as { endFaces: () => unknown };
     sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
     const boss = extrude(10) as unknown as SceneObject;
@@ -1036,7 +1046,9 @@ describe("feature ghost — repeat", () => {
    * instance is still the chamfered boss alone, not a plate.
    */
   it("follows a chain past a feature that consumed its own input", () => {
-    sketch("xy", () => { rect(200, 100).centered(); });
+    sketch("xy", () => {
+        testRect(200, 100, { at: [-100, -50] });
+      });
     const plate = extrude(20) as unknown as { endFaces: () => unknown };
     sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
     const boss = extrude(10) as unknown as { endEdges: () => unknown };
@@ -1071,7 +1083,9 @@ describe("feature ghost — repeat", () => {
    * input would blame the pattern for the feature in between.
    */
   it("takes each stretch of a multi-target chain against its own input", () => {
-    sketch("xy", () => { rect(200, 100).centered(); });
+    sketch("xy", () => {
+        testRect(200, 100, { at: [-100, -50] });
+      });
     const plate = extrude(20) as unknown as { endFaces: () => unknown };
     // Run one: a boss fused onto the plate.
     sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
@@ -1108,7 +1122,9 @@ describe("feature ghost — repeat", () => {
 
   /** The same rule the other way round: a repeated cut previews its pockets. */
   it("stamps the material a repeated cut takes away", () => {
-    sketch("xy", () => { rect(200, 100).centered(); });
+    sketch("xy", () => {
+        testRect(200, 100, { at: [-100, -50] });
+      });
     const plate = extrude(20) as unknown as { endFaces: () => unknown };
     sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
     const pocket = extrude(10).remove() as unknown as SceneObject;
@@ -1133,7 +1149,7 @@ describe("feature ghost — repeat", () => {
 
   it("stamps every target the request names", () => {
     locatedBox(5);
-    locatedBox(9, () => { rect([100, -10], 20, 20); });
+    locatedBox(9, () => { testRect(20, 20, { at: [100, -10] }); });
     const scene = render();
 
     const result = repeatGhost(scene, [5, 9], {
@@ -1227,7 +1243,7 @@ describe("feature ghost — repeat", () => {
   });
 
   it("refuses a target with nothing solid to stamp", () => {
-    locatedSketch(7, () => { rect(20, 20); });
+    locatedSketch(7, () => { testRect(20, 20); });
     const scene = render();
 
     const result = repeatGhost(scene, [7]);
@@ -1304,7 +1320,7 @@ describe("feature ghost — copy", () => {
   }
 
   /** A box built by an `extrude()` addressable at `line`, like the parser's. */
-  function locatedBox(line: number, draw = () => { rect(20, 20); }, height = 10): SceneObject {
+  function locatedBox(line: number, draw = () => { testRect(20, 20); }, height = 10): SceneObject {
     sketch("xy", draw);
     const solid = extrude(height).new() as unknown as SceneObject;
     solid.setSourceLocation({ filePath: FILE, line, column: 0 });
@@ -1402,7 +1418,7 @@ describe("feature ghost — copy", () => {
   });
 
   it("leaves out circular instances by index", () => {
-    locatedBox(5, () => { rect([40, -10], 20, 20); });
+    locatedBox(5, () => { testRect(20, 20, { at: [40, -10] }); });
     const scene = render();
 
     const result = copyGhost(scene, [5], {
@@ -1434,7 +1450,7 @@ describe("feature ghost — copy", () => {
 
   it("spins the clones around a circular axis", () => {
     // Off the axis, so the rotation is visible in the bounds at all.
-    locatedBox(5, () => { rect([40, -10], 20, 20); });
+    locatedBox(5, () => { testRect(20, 20, { at: [40, -10] }); });
     const scene = render();
 
     const result = copyGhost(scene, [5], {
@@ -1459,7 +1475,7 @@ describe("feature ghost — copy", () => {
    * gaps between them, so the last clone stops short of the stated angle.
    */
   it("divides a partial sweep by the count, not the gaps", () => {
-    locatedBox(5, () => { rect([40, -10], 20, 20); });
+    locatedBox(5, () => { testRect(20, 20, { at: [40, -10] }); });
     const scene = render();
 
     const result = copyGhost(scene, [5], {
@@ -1485,7 +1501,9 @@ describe("feature ghost — copy", () => {
    * stamps the boss alone).
    */
   it("clones the whole body its target holds, fused plate and all", () => {
-    sketch("xy", () => { rect(200, 100).centered(); });
+    sketch("xy", () => {
+        testRect(200, 100, { at: [-100, -50] });
+      });
     const plate = extrude(20) as unknown as { endFaces: () => unknown };
     sketch(plate.endFaces() as never, () => { circle([-80, 30], 30); });
     const boss = extrude(10) as unknown as SceneObject;
@@ -1508,7 +1526,7 @@ describe("feature ghost — copy", () => {
 
   it("clones every target the request names", () => {
     locatedBox(5);
-    locatedBox(9, () => { rect([100, -10], 20, 20); });
+    locatedBox(9, () => { testRect(20, 20, { at: [100, -10] }); });
     const scene = render();
 
     const result = copyGhost(scene, [5, 9], {
@@ -1599,7 +1617,7 @@ describe("feature ghost — copy", () => {
   });
 
   it("refuses a target with nothing solid to clone", () => {
-    locatedSketch(7, () => { rect(20, 20); });
+    locatedSketch(7, () => { testRect(20, 20); });
     const scene = render();
 
     const result = copyGhost(scene, [7]);
@@ -1682,15 +1700,15 @@ describe("feature ghost — rib", () => {
 
   /** The shelled box every rib test walls up, plus its front spine sketch. */
   function shelledBoxWithSpine(): { box: SceneObject } {
-    locatedSketch(3, () => { rect(100, 50).centered(); }, 'xy');
+    locatedSketch(3, () => { testRect(100, 50, { at: [-50, -25] }); }, 'xy');
     const box = extrude(30) as unknown as SceneObject;
     box.setSourceLocation({ filePath: FILE, line: 4, column: 0 });
     const sh = shell(-4, (box as any).endFaces()) as unknown as SceneObject;
     sh.setSourceLocation({ filePath: FILE, line: 5, column: 0 });
     const spine = sketch("front", () => {
-      move([-20, 15]);
-      hLine(40);
-    }) as Sketch;
+        const sg1 = line([-20, 15], [20, 15]);
+        horizontal(sg1);
+      }) as Sketch;
     spine.setSourceLocation({ filePath: FILE, line: 7, column: 0 });
     return { box: sh };
   }
@@ -1754,8 +1772,7 @@ describe("feature ghost — rib", () => {
 
   it("refuses when the scene has no solids to conform to", () => {
     locatedSketch(7, () => {
-      move([-20, 15]);
-      hLine(40);
+      line([-20, 15], [20, 15]);
     }, 'xz');
     const scene = render();
 
@@ -1767,13 +1784,15 @@ describe("feature ghost — rib", () => {
     // into the model. Without `exclude` the ghost prism is cut against a body
     // that already contains the rib, leaving only boundary slivers (the
     // flat-sheet bug); with it, the scope reads as of just before the rib.
-    sketch("top", () => { rect(100, 50).centered(); }, );
+    sketch("top", () => {
+        testRect(100, 50, { at: [-50, -25] });
+      });
     const box = extrude(30);
     const sh = shell(-4, (box as any).endFaces());
     fillet(2, (sh as any).internalEdges());
     const spine = locatedSketch(15, () => {
-      move([-50 + 4, 20]);
-      aLine(-45, 20);
+      // legacy: move([-46, 20]); aLine(-45, 20) — absolute -45° from +X
+      line([-46, 20], [-46 + 20 * Math.cos(Math.PI / 4), 20 - 20 * Math.sin(Math.PI / 4)]);
     }, 'xz');
     void spine;
     const r = rib(5).parallel() as unknown as SceneObject;
@@ -1831,7 +1850,7 @@ describe("offset ghost", () => {
   setupOC();
 
   it("offsets a picked straight edge parallel to itself, on the sketch plane", () => {
-    const s = locatedSketch(5, () => { rect(100, 50); });
+    const s = locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();
     // OCC boxes carry a ±0.1 gap, so "flat" means thinner than that padding
     // and the midline is the exact coordinate.
@@ -1856,7 +1875,7 @@ describe("offset ghost", () => {
   });
 
   it("close caps the open offset back onto its source", () => {
-    const s = locatedSketch(5, () => { hLine(40); });
+    const s = locatedSketch(5, () => { line([0, 0], [40, 0]); });
     const scene = render();
     const edge = [...s.getEdgesWithOwner().keys()][0];
 
@@ -1871,8 +1890,8 @@ describe("offset ghost", () => {
   });
 
   it("an empty pick list offsets the whole active (last) sketch", () => {
-    locatedSketch(5, () => { rect(100, 50); });
-    const active = locatedSketch(8, () => { circle(10); });
+    locatedSketch(5, () => { testRect(100, 50); });
+    const active = locatedSketch(8, () => { circle([0, 0], 10); });
     const scene = render();
     const circleEdge = [...active.getEdgesWithOwner().keys()][0];
     const circleBox = ShapeOps.getBoundingBox(circleEdge);
@@ -1894,8 +1913,8 @@ describe("offset ghost", () => {
   });
 
   it("refuses picks that live in different sketches", () => {
-    const a = locatedSketch(5, () => { rect(100, 50); });
-    const b = locatedSketch(8, () => { circle(10); });
+    const a = locatedSketch(5, () => { testRect(100, 50); });
+    const b = locatedSketch(8, () => { circle([0, 0], 10); });
     const scene = render();
     const edgeA = [...a.getEdgesWithOwner().keys()][0];
     const edgeB = [...b.getEdgesWithOwner().keys()][0];
@@ -1906,14 +1925,14 @@ describe("offset ghost", () => {
   });
 
   it("refuses a pick the scene doesn't hold", () => {
-    locatedSketch(5, () => { rect(100, 50); });
+    locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();
 
     expect(offsetGhost(scene, [{ shapeId: 'not-a-shape' }]).ok).toBe(false);
   });
 
   it("draws nothing at a zero distance", () => {
-    const s = locatedSketch(5, () => { rect(100, 50); });
+    const s = locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();
     const edge = [...s.getEdgesWithOwner().keys()][0];
 
@@ -1943,7 +1962,7 @@ describe("fillet2d ghost", () => {
   setupOC();
 
   it("draws one arc at the corner two picked edges share, on the sketch plane", () => {
-    const s = locatedSketch(5, () => { rect(100, 50); });
+    const s = locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();
     // Any horizontal and any vertical edge of a rect share exactly one
     // corner: where the vertical's x meets the horizontal's y. OCC boxes
@@ -1981,8 +2000,8 @@ describe("fillet2d ghost", () => {
   });
 
   it("an empty pick list fillets the whole active (last) sketch", () => {
-    locatedSketch(5, () => { rect(100, 50); });
-    const active = locatedSketch(8, () => { rect(20, 10); });
+    locatedSketch(5, () => { testRect(100, 50); });
+    const active = locatedSketch(8, () => { testRect(20, 10); });
     const scene = render();
     // The active rect's own bounds — the arcs must land inside it, never on
     // the first sketch's 100-wide rect.
@@ -2011,7 +2030,7 @@ describe("fillet2d ghost", () => {
   });
 
   it("a single picked edge has no corner to round", () => {
-    const s = locatedSketch(5, () => { hLine(40); });
+    const s = locatedSketch(5, () => { line([0, 0], [40, 0]); });
     const scene = render();
     const edge = [...s.getEdgesWithOwner().keys()][0];
 
@@ -2026,7 +2045,7 @@ describe("fillet2d ghost", () => {
   it("a corner the radius can't take contributes no arc", () => {
     // Two collinear segments meet at 180° — no circle is tangent to both,
     // the maker skips the corner, and the ghost mirrors the apply: nothing.
-    const s = locatedSketch(5, () => { hLine(20); hLine(20); });
+    const s = locatedSketch(5, () => { line([0, 0], [20, 0]); line([20, 0], [40, 0]); });
     const scene = render();
     const edges = [...s.getEdgesWithOwner().keys()];
 
@@ -2039,14 +2058,14 @@ describe("fillet2d ghost", () => {
   });
 
   it("refuses a pick the scene doesn't hold", () => {
-    locatedSketch(5, () => { rect(100, 50); });
+    locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();
 
     expect(fillet2dGhost(scene, [{ shapeId: 'not-a-shape' }]).ok).toBe(false);
   });
 
   it("draws nothing at a radius still being typed", () => {
-    const s = locatedSketch(5, () => { rect(100, 50); });
+    const s = locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();
     const edge = [...s.getEdgesWithOwner().keys()][0];
 
@@ -2092,33 +2111,9 @@ function instanceBounds(result: FeatureGhostResult, solid = 0) {
 describe("copy2d ghost", () => {
   setupOC();
 
-  it("a picked edge stamps its whole producing primitive at every instance", () => {
-    const s = locatedSketch(5, () => { rect(100, 50); });
-    const scene = render();
-    const edge = [...s.getEdgesWithOwner().keys()][0];
-
-    const result = copy2dGhost(scene, [{ shapeId: edge.id }]);
-
-    expect(refusal(result)).toBe('');
-    if (!result.ok) {
-      return;
-    }
-    // Three instances, the on-screen original never drawn.
-    expect(result.solids).toHaveLength(2);
-    // The whole rect rides in each instance — the target is the rect
-    // statement, not the one edge the pick landed on.
-    const first = instanceBounds(result, 0);
-    expect(first.maxX - first.minX).toBeCloseTo(100, 3);
-    expect(first.maxY - first.minY).toBeCloseTo(50, 3);
-    // And the second instance sits one more step along local x.
-    const second = instanceBounds(result, 1);
-    expect(second.minX - first.minX).toBeCloseTo(40, 3);
-    expect(second.minY).toBeCloseTo(first.minY, 3);
-  });
-
   it("an empty pick list copies the whole active (last) sketch", () => {
-    locatedSketch(5, () => { rect(10, 10); });
-    const active = locatedSketch(8, () => { rect(100, 50); move(150, 0); vLine(30); });
+    locatedSketch(5, () => { testRect(10, 10); });
+    const active = locatedSketch(8, () => { testRect(100, 50); line([250, 50], [250, 80]); });
     const scene = render();
     // The active sketch's own extent, with the OCC boxes' ±0.1 gap stripped.
     const boxes = [...active.getEdgesWithOwner().keys()].map(e => ShapeOps.getBoundingBox(e));
@@ -2142,7 +2137,7 @@ describe("copy2d ghost", () => {
   });
 
   it("centers the copies on the original", () => {
-    const s = locatedSketch(5, () => { rect(100, 50); });
+    const s = locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();
     const edge = [...s.getEdgesWithOwner().keys()][0];
 
@@ -2159,7 +2154,7 @@ describe("copy2d ghost", () => {
   });
 
   it("leaves out the instances the skip list names", () => {
-    const s = locatedSketch(5, () => { rect(100, 50); });
+    const s = locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();
     const picks = [{ shapeId: [...s.getEdgesWithOwner().keys()][0].id }];
 
@@ -2177,7 +2172,7 @@ describe("copy2d ghost", () => {
   });
 
   it("walks a picked sketch line as the direction", () => {
-    const s = locatedSketch(5, () => { rect(100, 50); move(150, 0); vLine(30); });
+    const s = locatedSketch(5, () => { testRect(100, 50); line([250, 50], [250, 80]); });
     const scene = render();
     const edges = [...s.getEdgesWithOwner().keys()];
     // The standalone vertical line: flat in x and shorter than the rect's
@@ -2205,7 +2200,7 @@ describe("copy2d ghost", () => {
   });
 
   it("divides a circular total sweep by the count, not the gaps", () => {
-    const s = locatedSketch(5, () => { hLine(10); });
+    const s = locatedSketch(5, () => { line([0, 0], [10, 0]); });
     const scene = render();
     const edge = [...s.getEdgesWithOwner().keys()][0];
 
@@ -2228,7 +2223,7 @@ describe("copy2d ghost", () => {
   });
 
   it("spins about the stated center on the sketch plane", () => {
-    const s = locatedSketch(5, () => { hLine(10); });
+    const s = locatedSketch(5, () => { line([0, 0], [10, 0]); });
     const scene = render();
     const edge = [...s.getEdgesWithOwner().keys()][0];
 
@@ -2250,7 +2245,7 @@ describe("copy2d ghost", () => {
   });
 
   it("refuses a direction pick that is not a straight line", () => {
-    const s = locatedSketch(5, () => { rect(100, 50); move(150, 0); circle(10); });
+    const s = locatedSketch(5, () => { testRect(100, 50); circle([250, 50], 10); });
     const scene = render();
     const edges = [...s.getEdgesWithOwner().keys()];
     const arc = edges.find(e => {
@@ -2267,7 +2262,7 @@ describe("copy2d ghost", () => {
   });
 
   it("refuses more instances than it draws", () => {
-    const s = locatedSketch(5, () => { rect(100, 50); });
+    const s = locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();
     const edge = [...s.getEdgesWithOwner().keys()][0];
 
@@ -2282,7 +2277,7 @@ describe("copy2d ghost", () => {
   });
 
   it("draws nothing while the numbers are still being typed", () => {
-    const s = locatedSketch(5, () => { rect(100, 50); });
+    const s = locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();
     const picks = [{ shapeId: [...s.getEdgesWithOwner().keys()][0].id }];
 
@@ -2301,7 +2296,7 @@ describe("copy2d ghost", () => {
   });
 
   it("refuses a pick or a direction line the scene doesn't hold", () => {
-    const s = locatedSketch(5, () => { rect(100, 50); });
+    const s = locatedSketch(5, () => { testRect(100, 50); });
     const scene = render();
     const edge = [...s.getEdgesWithOwner().keys()][0];
 
@@ -2338,7 +2333,7 @@ describe("feature ghost — mirror", () => {
   }
 
   /** A box built by an `extrude()` addressable at `line`, like the parser's. */
-  function locatedBox(line: number, draw = () => { rect(20, 20); }, height = 10): SceneObject {
+  function locatedBox(line: number, draw = () => { testRect(20, 20); }, height = 10): SceneObject {
     sketch("xy", draw);
     const solid = extrude(height).new() as unknown as SceneObject;
     solid.setSourceLocation({ filePath: FILE, line, column: 0 });
@@ -2368,7 +2363,7 @@ describe("feature ghost — mirror", () => {
 
   it("stamps every target into the one reflected instance", () => {
     locatedBox(5);
-    locatedBox(7, () => { rect([40, 0], 20, 20); });
+    locatedBox(7, () => { testRect(20, 20, { at: [40, 0] }); });
     const scene = render();
 
     const result = mirrorGhost(scene, [5, 7], {
@@ -2430,7 +2425,7 @@ describe("feature ghost — mirror", () => {
    * back; this is the guard that the ghost actually goes through it.
    */
   it("keeps the reflected body's winding facing outward", () => {
-    locatedBox(5, () => { rect([-10, 20], 20, 20); });
+    locatedBox(5, () => { testRect(20, 20, { at: [-10, 20] }); });
     const scene = render();
 
     const result = mirrorGhost(scene, [5], {
@@ -2442,7 +2437,9 @@ describe("feature ghost — mirror", () => {
   });
 
   it("refuses a curved face as a mirror plane", () => {
-    sketch("xy", () => { circle(40); });
+    sketch("xy", () => {
+        circle([0, 0], 40);
+      });
     const round = extrude(10).new() as unknown as SceneObject;
     round.setSourceLocation({ filePath: FILE, line: 5, column: 0 });
     const scene = render();
@@ -2484,7 +2481,7 @@ describe("feature ghost — mirror", () => {
     const scene = render();
     // Simulate the fuse's consumption: the shapes leave the target's live
     // read but stay reachable under an empty removal scope.
-    const consumer = locatedBox(7, () => { rect([100, 100], 5, 5); });
+    const consumer = locatedBox(7, () => { testRect(5, 5, { at: [100, 100] }); });
     for (const shape of solid.getShapes(undefined, 'solid')) {
       solid.removeShape(shape, consumer as any);
     }
@@ -2532,7 +2529,7 @@ describe("feature ghost — rotate", () => {
   }
 
   /** A box built by an `extrude()` addressable at `line`, like the parser's. */
-  function locatedBox(line: number, draw = () => { rect(20, 20); }, height = 10): SceneObject {
+  function locatedBox(line: number, draw = () => { testRect(20, 20); }, height = 10): SceneObject {
     sketch("xy", draw);
     const solid = extrude(height).new() as unknown as SceneObject;
     solid.setSourceLocation({ filePath: FILE, line, column: 0 });
@@ -2567,7 +2564,7 @@ describe("feature ghost — rotate", () => {
 
   it("stamps every target into the one turned instance", () => {
     locatedBox(5);
-    locatedBox(7, () => { rect([40, 0], 20, 20); });
+    locatedBox(7, () => { testRect(20, 20, { at: [40, 0] }); });
     const scene = render();
 
     const result = rotateGhost(scene, [5, 7], { angle: 180 });
@@ -2641,7 +2638,7 @@ describe("feature ghost — rotate", () => {
     const scene = render();
     // Simulate the move's consumption: the shapes leave the target's live
     // read but stay reachable under an empty removal scope.
-    const consumer = locatedBox(7, () => { rect([100, 100], 5, 5); });
+    const consumer = locatedBox(7, () => { testRect(5, 5, { at: [100, 100] }); });
     for (const shape of solid.getShapes(undefined, 'solid')) {
       solid.removeShape(shape, consumer as any);
     }

@@ -5,12 +5,13 @@ import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
 import plane from "../../core/plane.js";
 import cylinder from "../../core/cylinder.js";
-import { circle, move, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Extrude } from "../../features/extrude.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
 import { SceneObject } from "../../common/scene-object.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("cut", () => {
   setupOC();
@@ -18,14 +19,13 @@ describe("cut", () => {
   describe("cut by distance", () => {
     it("should cut into an existing solid", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       sketch(e.endFaces(), () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       cut(20);
 
       const scene = render();
@@ -44,14 +44,13 @@ describe("cut", () => {
 
     it("should cut a circular pocket into a box", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       sketch(e.endFaces(), () => {
-        move([50, 50]);
-        circle(40);
-      });
+          circle([50, 50], 40);
+        });
       cut(30);
 
       const scene = render();
@@ -61,14 +60,13 @@ describe("cut", () => {
 
     it("should remove the extrudable sketch shapes", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       const s = sketch(e.endFaces(), () => {
-        move([25, 25]);
-        rect(50, 50);
-      }) as SceneObject;
+          testRect(50, 50, { at: [25, 25] });
+        }) as SceneObject;
 
       cut(20);
 
@@ -81,14 +79,13 @@ describe("cut", () => {
   describe("cut through all", () => {
     it("should cut all the way through the solid", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       sketch(e.endFaces(), () => {
-        move([25, 25]);
-        circle(40);
-      });
+          circle([25, 25], 40);
+        });
       cut();
 
       const scene = render();
@@ -107,14 +104,13 @@ describe("cut", () => {
 
     it("should apply draft to a through-all cut", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       sketch(e.endFaces(), () => {
-        move([50, 50]);
-        circle(40);
-      });
+          circle([50, 50], 40);
+        });
       cut().draft(-5);
 
       const scene = render();
@@ -136,12 +132,13 @@ describe("cut", () => {
       // sized to the model would invert a 1.5-radius profile long before it
       // cleared the stock (see `throughAllLength`).
       sketch("xy", () => {
-        rect(7, 5).centered();
-      });
+          testRect(7, 5, { at: [-3.5, -2.5] });
+        });
       const e = extrude(1.5) as Extrude;
 
       sketch(e.endFaces(), () => {
-        circle(1.5);
+        // Origin-centered base profile: the face center is local [0, 0].
+        circle([0, 0], 1.5);
       });
       cut().draft(-8);
 
@@ -162,14 +159,13 @@ describe("cut", () => {
   describe("section edges", () => {
     it("should expose section edges", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       sketch(e.endFaces(), () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       const c = cut(20) as ExtrudeBase;
       const edgesObj = c.edges();
       addToScene(edgesObj);
@@ -185,14 +181,13 @@ describe("cut", () => {
 
     it("should expose specific edge by index", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       sketch(e.endFaces(), () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       const c = cut(20) as ExtrudeBase;
       const edge0 = c.edges(0);
       const edge1 = c.edges(1);
@@ -208,14 +203,13 @@ describe("cut", () => {
 
     it("should expose start and end edges for a distance cut", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       sketch(e.endFaces(), () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       const c = cut(20) as ExtrudeBase;
       const se = c.startEdges();
       const ee = c.endEdges();
@@ -234,20 +228,18 @@ describe("cut", () => {
   describe("fuse scope", () => {
     it("should only cut the targeted object", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e1 = extrude(50) as Extrude;
 
       sketch("xy", () => {
-        move([200, 0]);
-        rect(100, 100);
-      });
+          testRect(100, 100, { at: [200, 0] });
+        });
       extrude(50);
 
       sketch(e1.endFaces(), () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       cut(20).scope(e1);
 
       const scene = render();
@@ -261,16 +253,14 @@ describe("cut", () => {
   describe("pick", () => {
     it("should only cut the picked region", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       sketch(e.endFaces(), () => {
-        move([25, 25]);
-        circle(30);
-        move([75, 25]);
-        circle(30);
-      });
+          circle([25, 25], 30);
+          circle([75, 25], 30);
+        });
       const c = cut(20).pick([25, 25]) as ExtrudeBase;
 
       render();
@@ -285,14 +275,13 @@ describe("cut", () => {
   describe("internalFaces", () => {
     it("should expose internal faces for a rectangular pocket", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       sketch(e.endFaces(), () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       const c = cut(20) as ExtrudeBase;
       const inf = c.internalFaces();
       addToScene(inf);
@@ -309,14 +298,13 @@ describe("cut", () => {
 
     it("should expose internal faces for a circular pocket", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       sketch(e.endFaces(), () => {
-        move([50, 50]);
-        circle(40);
-      });
+          circle([50, 50], 40);
+        });
       const c = cut(30) as ExtrudeBase;
       const inf = c.internalFaces();
       addToScene(inf);
@@ -330,14 +318,13 @@ describe("cut", () => {
 
     it("should filter internal faces by index", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       sketch(e.endFaces(), () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       const c = cut(20) as ExtrudeBase;
       const allFaces = c.internalFaces();
       const first = c.internalFaces(0);
@@ -356,14 +343,13 @@ describe("cut", () => {
   describe("internalEdges", () => {
     it("should expose internal edges for a rectangular pocket", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e = extrude(50) as Extrude;
 
       sketch(e.endFaces(), () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       const c = cut(20) as ExtrudeBase;
       const ine = c.internalEdges();
       addToScene(ine);

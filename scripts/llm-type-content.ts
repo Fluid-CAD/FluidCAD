@@ -64,12 +64,12 @@ export const unionAliases: Record<string, UnionAliasContent> = {
         link: 'api/types/scene-object',
       },
     ],
-    example: `import { sketch, rect, circle, extrude, plane } from "fluidcad/core";
+    example: `import { sketch, circle, extrude, plane } from "fluidcad/core";
 
-sketch("xy", () => rect(100, 50).centered());            // string form
+sketch("xy", () => circle([0, 0], 50));            // string form
 const e = extrude(20);
-sketch(plane("xy", 30), () => rect(40, 40).centered());  // Plane form
-sketch(e.endFaces(), () => circle(10));                  // face form
+sketch(plane("xy", 30), () => circle([0, 0], 30)); // Plane form
+sketch(e.endFaces(), () => circle([0, 0], 10));    // face form
 extrude(5);
 `,
   },
@@ -92,18 +92,12 @@ extrude(5);
         link: 'api/types/axis',
       },
     ],
-    example: `import { sketch, rect, move, revolve, axis } from "fluidcad/core";
+    example: `import { sketch, circle, revolve, axis } from "fluidcad/core";
 
-sketch("xz", () => {
-  move([20, 0]);
-  rect(10, 30);
-});
+sketch("xz", () => circle([25, 0], 10));
 revolve("z", 360);             // string form
 
-sketch("xz", () => {
-  move([30, 0]);
-  rect(5, 5);
-});
+sketch("xz", () => circle([45, 0], 6));
 revolve(axis("z"), 180);       // Axis form
 `,
   },

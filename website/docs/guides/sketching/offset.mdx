@@ -10,7 +10,7 @@ import offsetClose from '!!raw-loader!./_examples/offset-close.js';
 
 # Offset
 
-`offset()` creates a copy of sketch geometry shifted inward or outward by a given distance.
+`offset()` creates a copy of sketch geometry shifted inward or outward by a given distance. It is a **derived operation** — it consumes the solved geometry, so write it after your geometry and constraint statements.
 
 ## Basic usage
 
@@ -20,15 +20,17 @@ Inside a sketch, `offset()` offsets all existing shapes:
 
 ![Offset outward](/img/docs/sketching/offset-basic.png)
 
-Positive values offset outward, negative values offset inward.
+Positive values offset outward, negative values offset inward. To offset specific geometry only, pass targets: `offset(5, c1, c2)`. Target-less `offset()` skips [guide](./guides) geometry — to offset a guide, pass it explicitly.
 
-## Removing the original
+## Keeping only the offset
 
-Pass `true` as the second argument to remove the original geometry and keep only the offset:
+To use only the offset curve in the profile, mark the source geometry as [guides](./guides) with `.guide()` — guides are excluded from the face-building step, so the offset alone survives. Pass the guides to `offset()` explicitly (target-less offset skips them):
 
 <CodeBlock language="js">{offsetRemove}</CodeBlock>
 
-![Offset inward with removal](/img/docs/sketching/offset-remove.png)
+![Offset inward from guide sources](/img/docs/sketching/offset-remove.png)
+
+This replaces the old `offset(d, true)` remove-original form, which no longer exists.
 
 ## Closing an open offset
 
@@ -40,8 +42,7 @@ straight cap edges, producing a closed loop you can extrude or fill:
 ![Offset closed against original](/img/docs/sketching/offset-close.png)
 
 For profiles that are already closed (e.g. a circle or a closed rectangle),
-`.close()` is a no-op. Combining `.close()` with `removeOriginal=true` throws,
-since there is no original profile left to cap to.
+`.close()` is a no-op.
 
 ## Combining with other shapes
 
@@ -49,9 +50,8 @@ Offset is useful for creating walls, margins, and clearances:
 
 ```js
 sketch("xy", () => {
-    rect(50)
-    circle(30)
-    offset(5)                  // both the rect and circle are offset
-    circle(14)                 // add another shape after offsetting
+    const outer = circle([0, 0], 60)
+    offset(5, outer)           // clearance ring around the circle
+    circle([0, 0], 14)         // a separate bore in the same profile
 })
 ```

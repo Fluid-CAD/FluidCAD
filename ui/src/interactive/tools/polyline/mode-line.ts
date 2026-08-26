@@ -46,7 +46,6 @@ export class LineMode implements SegmentMode {
     const dy = roundedEnd[1] - roundedStart[1];
     const dir = classifyDelta(dx, dy, ctx.isOrthoOverride());
     const pendingStart = ctx.pendingStartText();
-    const atCurrent = pendingStart === null && ctx.isAtCurrentPosition(roundedStart);
     const startText = pendingStart ?? ctx.formatPoint(roundedStart);
 
     if (dir === 'horizontal' || dir === 'vertical') {
@@ -63,7 +62,7 @@ export class LineMode implements SegmentMode {
 
       if (ctx.solved) {
         // Auto-constraints off: the ortho quantization still applies (a
-        // drafting aid, as in legacy sketches) but the H/V stays unwritten.
+        // drafting aid) but the H/V stays unwritten.
         ctx.solved.emitSegment({
           kind: 'line',
           text: `line(${startText}, ${ctx.formatPoint(snappedEnd)})`,
@@ -73,12 +72,6 @@ export class LineMode implements SegmentMode {
           endSnap: snapResult,
           endPoint: snappedEnd,
         });
-      } else {
-        const fn = isHorizontal ? 'hLine' : 'vLine';
-        const statement = atCurrent
-          ? `${fn}(${rounded})`
-          : `${fn}(${startText}, ${rounded})`;
-        ctx.insertGeometry(statement);
       }
       ctx.hideExpressionInput();
 
@@ -95,19 +88,12 @@ export class LineMode implements SegmentMode {
       };
     }
 
-    if (ctx.solved) {
-      ctx.solved.emitSegment({
-        kind: 'line',
-        text: `line(${startText}, ${ctx.formatPoint(roundedEnd)})`,
-        endSnap: snapResult,
-        endPoint: roundedEnd,
-      });
-    } else {
-      const statement = atCurrent
-        ? `line(${ctx.formatPoint(roundedEnd)})`
-        : `line(${startText}, ${ctx.formatPoint(roundedEnd)})`;
-      ctx.insertGeometry(statement);
-    }
+    ctx.solved?.emitSegment({
+      kind: 'line',
+      text: `line(${startText}, ${ctx.formatPoint(roundedEnd)})`,
+      endSnap: snapResult,
+      endPoint: roundedEnd,
+    });
 
     const len = Math.sqrt(dx * dx + dy * dy);
     const exitTangent = len > 1e-10
@@ -170,7 +156,6 @@ export class LineMode implements SegmentMode {
     const dimExpr = SketchTool.applySignedDimension(expression, sign);
 
     const pendingStart = ctx.pendingStartText();
-    const atCurrent = pendingStart === null && ctx.isAtCurrentPosition(roundedStart);
     const committedDist = parseFloat(dimExpr);
     const resolvedDist = isNaN(committedDist) ? Math.round(sign * Math.abs(rawDistance) * 100) / 100 : committedDist;
     const endPoint: Point2D = isHorizontal
@@ -200,12 +185,6 @@ export class LineMode implements SegmentMode {
         endPoint: roundedEnd,
         newVariable,
       });
-    } else {
-      const fn = isHorizontal ? 'hLine' : 'vLine';
-      const statement = atCurrent
-        ? `${fn}(${dimExpr})`
-        : `${fn}(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${dimExpr})`;
-      ctx.insertGeometry(statement, newVariable);
     }
     ctx.hideExpressionInput();
     const exitDir: Point2D = isHorizontal

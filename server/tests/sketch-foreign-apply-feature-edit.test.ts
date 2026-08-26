@@ -7,16 +7,16 @@ import {
 
 /** Donor bound at line 3, consumer at line 9; the exposure already exists. */
 const TWO_PART_CODE = [
-  `import { sketch, rect, extrude, part, expose } from 'fluidcad/core'`,
+  `import { sketch, circle, extrude, part, expose } from 'fluidcad/core'`,
   ``,
   `export const p1 = part('Donor', () => {`,
-  `  sketch('xy', () => { rect(100, 50) })`,
+  `  sketch('xy', () => { circle([0, 0], 100) })`,
   `  const e = extrude(30)`,
   `  expose('endFace', e.endFaces(0))`,
   `})`,
   ``,
   `export const p2 = part('Consumer', () => {`,
-  `  sketch('xy', () => { rect(10, 10) })`,
+  `  sketch('xy', () => { circle([0, 0], 10) })`,
   `  extrude(5)`,
   `})`,
   ``,
@@ -50,15 +50,15 @@ describe('applyFeatureEdit — foreign sketch (same file)', () => {
 
   it('creates the exposure first and relocates the shifted consumer part', async () => {
     const code = [
-      `import { sketch, rect, extrude, part } from 'fluidcad/core'`,
+      `import { sketch, circle, extrude, part } from 'fluidcad/core'`,
       ``,
       `export const p1 = part('Donor', () => {`,
-      `  sketch('xy', () => { rect(100, 50) })`,
+      `  sketch('xy', () => { circle([0, 0], 100) })`,
       `  const e = extrude(30)`,
       `})`,
       ``,
       `export const p2 = part('Consumer', () => {`,
-      `  sketch('xy', () => { rect(10, 10) })`,
+      `  sketch('xy', () => { circle([0, 0], 10) })`,
       `  extrude(5)`,
       `})`,
       ``,
@@ -94,11 +94,11 @@ describe('applyFeatureEdit — foreign sketch (same file)', () => {
 
   it('refuses a donor part that is not bound to a const', async () => {
     const code = [
-      `import { sketch, rect, extrude, part } from 'fluidcad/core'`,
+      `import { sketch, circle, extrude, part } from 'fluidcad/core'`,
       ``,
       `export function makeDonor() {`,
       `  return part('Donor', () => {`,
-      `    sketch('xy', () => { rect(100, 50) })`,
+      `    sketch('xy', () => { circle([0, 0], 100) })`,
       `    const e = extrude(30)`,
       `  })`,
       `}`,
@@ -119,7 +119,7 @@ describe('applyFeatureEdit — foreign sketch (same file)', () => {
 
   it('refuses a donor bound inside a nested scope', async () => {
     const code = [
-      `import { part, extrude, sketch, rect } from 'fluidcad/core'`,
+      `import { part, extrude, sketch, circle } from 'fluidcad/core'`,
       ``,
       `function setup() {`,
       `  const p1 = part('Donor', () => {})`,
@@ -165,10 +165,10 @@ describe('applyFeatureEdit — foreign sketch (same file)', () => {
 describe('applyFeatureEdit — foreign sketch (cross file)', () => {
   it('renders the export identifier and adds its relative import', async () => {
     const code = [
-      `import { sketch, rect, extrude, part } from 'fluidcad/core'`,
+      `import { sketch, circle, extrude, part } from 'fluidcad/core'`,
       ``,
       `export const p2 = part('Consumer', () => {`,
-      `  sketch('xy', () => { rect(10, 10) })`,
+      `  sketch('xy', () => { circle([0, 0], 10) })`,
       `  extrude(5)`,
       `})`,
       ``,

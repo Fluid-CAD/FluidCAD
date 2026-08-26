@@ -568,16 +568,7 @@ export class RoundedRectTool extends SketchTool {
       });
       this.widthTyped = false;
       this.heightTyped = false;
-      return;
     }
-
-    const suffix = `.radius(${radiusResult.expression})${this.centered ? '.centered()' : ''}`;
-    this.insertAtPoint(
-      start,
-      (point) => `rect(${point}, ${widthResult.expression}, ${heightResult.expression})${suffix}`,
-      () => `rect(${widthResult.expression}, ${heightResult.expression})${suffix}`,
-      newVariables,
-    );
   }
 
   /** A committed dim's signed numeric value for corner math (literal or a

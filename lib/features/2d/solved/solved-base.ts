@@ -47,8 +47,8 @@ export abstract class SolvedGeometryBase extends GeometrySceneObject {
   protected requireContext(): SketchSolverContext {
     if (!this._ctx || this._entityId < 0) {
       throw new BuildError(
-        `${this.getType()}() requires a constraint-mode sketch`,
-        'open the sketch in solved mode: sketch(plane, callback, true)',
+        `${this.getType()}() must be written inside a sketch`,
+        'wrap the statement in sketch(plane, callback)',
       );
     }
     return this._ctx;

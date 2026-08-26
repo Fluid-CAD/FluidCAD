@@ -3,7 +3,8 @@ import { setupOC, render } from "../../setup.js";
 import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import plane from "../../../core/plane.js";
-import { project, arc, connect, move } from "../../../core/2d/index.js";
+import { project, arc, line } from "../../../core/2d/index.js";
+import { coincident } from "../../../core/constraints/index.js";
 import { edge } from "../../../filters/index.js";
 import { Extrude } from "../../../features/extrude.js";
 import { Sketch } from "../../../features/2d/sketch.js";
@@ -16,9 +17,12 @@ describe("project — user regression (symmetric arc extrude onto offset front p
 
   it("projects arc end-edges of a symmetric extrude onto an offset front plane", () => {
     sketch("front", () => {
-      arc(31);
-      connect();
-      move([0, 0]);
+      // Legacy fixture was arc(31) + connect(): an upper semicircle of
+      // radius 31 about the origin, closed along its diameter.
+      const a = arc([31, 0], [-31, 0], [0, 0]);
+      const l = line([-31, 0], [31, 0]);
+      coincident(a.end(), l.start());
+      coincident(l.end(), a.start());
     });
     const circleExtrude = extrude(66).symmetric() as Extrude;
 

@@ -11,7 +11,7 @@ import extrude from "../core/extrude.js";
 import expose from "../core/expose.js";
 import remove from "../core/remove.js";
 import param from "../core/param.js";
-import { rect } from "../core/2d/index.js";
+import { testRect } from "./helpers/profiles.js";
 
 // Mirrors the server's per-render module reload: every render creates fresh
 // part definitions and a fresh assembly scene, then inserts both parts. The
@@ -21,9 +21,10 @@ function buildAssembly(withExtraRect: boolean): AssemblyScene {
   const scene = getSceneManager().startAssemblyScene();
   const donor = part("Donor", () => {
     const s = sketch("xy", () => {
-      rect(20, 20);
+      testRect(20, 20);
       if (withExtraRect) {
-        rect(5, 5);
+        // Legacy pen landed at (20, 20) after the first rect.
+        testRect(5, 5, { at: [20, 20] });
       }
     }).reusable();
     expose("profile", s);
@@ -88,11 +89,11 @@ describe("AssemblyCompare part pairing", () => {
   function buildTwoParts(swapped: boolean): AssemblyScene {
     const scene = getSceneManager().startAssemblyScene();
     const alpha = part("Alpha", () => {
-      sketch("xy", () => rect(20, 20));
+      sketch("xy", () => { testRect(20, 20); });
       extrude(15);
     });
     const beta = part("Beta", () => {
-      sketch("xy", () => rect(30, 10));
+      sketch("xy", () => { testRect(30, 10); });
       extrude(5);
     });
     if (swapped) {
@@ -119,7 +120,7 @@ describe("AssemblyCompare part pairing", () => {
     const scene = getSceneManager().startAssemblyScene();
     const beam = part("Beam", () => {
       const len = param("Length", 100) as number;
-      sketch("xy", () => rect(len, 10));
+      sketch("xy", () => { testRect(len, 10); });
       extrude(5);
     });
     if (swapped) {

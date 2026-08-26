@@ -18,11 +18,6 @@ import {
   addDot,
   addDashedLine,
 } from './tool-preview-utils';
-import {
-  CONNECTABLE_TYPES,
-  meshToSketch2D,
-  tangentFromVertices,
-} from './tangent-utils';
 import { classifyDelta, orthoEffectiveEnd, LineDirection } from './ortho-snap';
 import { coincident, dimMagnitude, newTarget, refTarget, type SolvedConstraintParam } from './solved-emission';
 import type { SnapResult, SolvedVertexRef } from '../../snapping/types';
@@ -41,7 +36,6 @@ export class LineTool extends SketchTool {
   private lastSnapRef: SolvedVertexRef | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
-  private shiftHeld = false;
   private ctrlHeld = false;
   private expressionInput: ExpressionInput;
   private lastClientX = 0;
@@ -92,7 +86,6 @@ export class LineTool extends SketchTool {
     this.startPoint = null;
     this.startPick = null;
     this.mousePoint = null;
-    this.shiftHeld = false;
     this.ctrlHeld = false;
     this.expressionInput.hide();
     this.removePreviewFromScene();
@@ -133,11 +126,7 @@ export class LineTool extends SketchTool {
       return;
     }
 
-    if (this.isTLineMode() && this.expressionInput.isVisible) {
-      this.expressionInput.commitCurrentValue();
-    } else if (this.isTLineMode()) {
-      this.commitTLineDirect();
-    } else if (this.expressionInput.isVisible) {
+    if (this.expressionInput.isVisible) {
       this.expressionInput.commitCurrentValue();
     } else {
       this.commitLine(this.startPick!, point);
@@ -191,12 +180,7 @@ export class LineTool extends SketchTool {
   }
 
   private syncModifiers(e: MouseEvent | KeyboardEvent): void {
-    const prevTLine = this.isTLineMode();
-    this.shiftHeld = e.shiftKey;
     this.ctrlHeld = e.ctrlKey || e.metaKey;
-    if (this.isTLineMode() !== prevTLine) {
-      this.expressionInput.hide();
-    }
   }
 
   private handleKeyDown(e: KeyboardEvent): void {
@@ -228,10 +212,6 @@ export class LineTool extends SketchTool {
     }
   }
 
-  private isTLineMode(): boolean {
-    return this.shiftHeld && this.ctrlHeld;
-  }
-
   /**
    * Classify a start->end delta as near-horizontal, near-vertical, or free.
    * Holding Ctrl forces 'free' so the user can draw at the exact cursor angle.
@@ -250,57 +230,9 @@ export class LineTool extends SketchTool {
     );
   }
 
-  private findTangentAtStart(): [number, number] | null {
-    if (!this.startPoint || !this.isAtCurrentPosition(roundPoint(this.startPoint))) {
-      return null;
-    }
-
-    let lastGeom: SceneObjectRender | null = null;
-    for (const child of this.sceneObjects) {
-      if (child.parentId !== this.sketchId || !child.sourceLocation) {
-        continue;
-      }
-      if (!CONNECTABLE_TYPES.has(child.uniqueType ?? '')) {
-        continue;
-      }
-      lastGeom = child;
-    }
-    if (!lastGeom) {
-      return null;
-    }
-
-    for (const part of lastGeom.sceneShapes) {
-      if (part.isMetaShape) {
-        continue;
-      }
-      for (const mesh of part.meshes) {
-        const verts = meshToSketch2D(mesh.vertices, this.plane);
-        if (verts.length < 2) {
-          continue;
-        }
-        return tangentFromVertices(verts, 'end');
-      }
-    }
-    return null;
-  }
-
   private getEffectiveEndPoint(): [number, number] | null {
     if (!this.startPoint || !this.mousePoint) {
       return null;
-    }
-
-    if (this.isTLineMode()) {
-      const tangent = this.findTangentAtStart();
-      if (tangent) {
-        const dx = this.mousePoint[0] - this.startPoint[0];
-        const dy = this.mousePoint[1] - this.startPoint[1];
-        const projection = dx * tangent[0] + dy * tangent[1];
-        return [
-          this.startPoint[0] + tangent[0] * projection,
-          this.startPoint[1] + tangent[1] * projection,
-        ];
-      }
-      return this.mousePoint;
     }
 
     return orthoEffectiveEnd(this.startPoint, this.mousePoint, this.lineDirection());
@@ -309,11 +241,6 @@ export class LineTool extends SketchTool {
   private updateDimensionInput(): void {
     if (!this.startPoint || !this.mousePoint) {
       this.expressionInput.hide();
-      return;
-    }
-
-    if (this.isTLineMode()) {
-      this.updateTLineDimensionInput();
       return;
     }
 
@@ -339,32 +266,6 @@ export class LineTool extends SketchTool {
       });
     } else {
       this.expressionInput.updateValue(distance);
-      this.expressionInput.updatePosition(this.lastClientX, this.lastClientY);
-    }
-  }
-
-  private updateTLineDimensionInput(): void {
-    const tangent = this.findTangentAtStart();
-    if (!tangent) {
-      this.expressionInput.hide();
-      return;
-    }
-
-    const dx = this.mousePoint![0] - this.startPoint![0];
-    const dy = this.mousePoint![1] - this.startPoint![1];
-    const distance = dx * tangent[0] + dy * tangent[1];
-
-    if (!this.expressionInput.isVisible) {
-      this.expressionInput.show({
-        label: 'T:',
-        value: String(Math.round(Math.abs(distance) * 100) / 100),
-        clientX: this.lastClientX,
-        clientY: this.lastClientY,
-        variables: this.cachedVariables,
-        onCommit: (result) => this.commitTLine(result, distance),
-      });
-    } else {
-      this.expressionInput.updateValue(Math.abs(distance));
       this.expressionInput.updatePosition(this.lastClientX, this.lastClientY);
     }
   }
@@ -403,49 +304,8 @@ export class LineTool extends SketchTool {
       }
       this.emitSolvedLine(this.startPick!, roundPoint(end), null, constraints,
         newVariable ? [newVariable] : []);
-    } else {
-      const fn = isHorizontal ? 'hLine' : 'vLine';
-      this.insertAtPoint(
-        this.startPick!,
-        (point) => `${fn}(${point}, ${dimExpr})`,
-        () => `${fn}(${dimExpr})`,
-        newVariable ? [newVariable] : [],
-      );
     }
 
-    this.expressionInput.hide();
-    this.startPoint = null;
-    this.startPick = null;
-    this.rebuildPreview();
-  }
-
-  private commitTLine(result: CommitResult, rawDistance: number): void {
-    if (!this.startPoint) {
-      return;
-    }
-    const { expression, newVariable } = result;
-    const sign = Math.sign(rawDistance);
-    const dimExpr = SketchTool.applySignedDimension(expression, sign);
-
-    this.insertGeometry(`tLine(${dimExpr})`, newVariable);
-    this.expressionInput.hide();
-    this.startPoint = null;
-    this.startPick = null;
-    this.rebuildPreview();
-  }
-
-  private commitTLineDirect(): void {
-    if (!this.startPoint || !this.mousePoint) {
-      return;
-    }
-    const tangent = this.findTangentAtStart();
-    if (!tangent) {
-      return;
-    }
-    const dx = this.mousePoint[0] - this.startPoint[0];
-    const dy = this.mousePoint[1] - this.startPoint[1];
-    const distance = Math.round((dx * tangent[0] + dy * tangent[1]) * 100) / 100;
-    this.insertGeometry(`tLine(${distance})`);
     this.expressionInput.hide();
     this.startPoint = null;
     this.startPick = null;
@@ -475,34 +335,7 @@ export class LineTool extends SketchTool {
             ? [{ kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] }]
             : []);
       }
-      return;
     }
-
-    if (dir === 'horizontal') {
-      const distance = roundPoint([dx, 0])[0];
-      this.insertAtPoint(
-        start,
-        (point) => `hLine(${point}, ${distance})`,
-        () => `hLine(${distance})`,
-      );
-      return;
-    }
-
-    if (dir === 'vertical') {
-      const distance = roundPoint([0, dy])[1];
-      this.insertAtPoint(
-        start,
-        (point) => `vLine(${point}, ${distance})`,
-        () => `vLine(${distance})`,
-      );
-      return;
-    }
-
-    this.insertAtPoint(
-      start,
-      (point) => `line(${point}, ${this.formatPoint(roundedEnd)})`,
-      () => `line(${this.formatPoint(roundedEnd)})`,
-    );
   }
 
   /** Solved emission for one line: geometry + the given constraints, plus

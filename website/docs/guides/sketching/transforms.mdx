@@ -63,16 +63,17 @@ Options: `count`, `angle`, `skip`.
 
 ## rotate
 
-Rotate sketch geometry around the sketch origin:
+Rotate sketch geometry by an angle about an **explicit center point**:
 
 ```js
 sketch("xy", () => {
-    const r = rect(60, 20)
-    rotate(30, true, r)        // rotate a copy by 30°, keep the original
+    const c = circle([40, 0], 20)
+    rotate(30, [0, 0], c)         // rotate 30° about the origin
+    // rotate(30, [0, 0], true, c)  — rotate a COPY instead, keep the original
 })
 ```
 
-The 2D form takes an angle only — it always rotates around the sketch's local Z axis (the plane normal). To rotate a copy instead of moving the original, pass `true` as the second argument.
+The 2D form is `rotate(angle, center, [copy,] ...targets)` — the center is required in a constraint sketch. Rotation happens in the sketch plane (about the plane normal at the given point). With no targets, the whole sketch's geometry rotates.
 
 ## When sketch axes don't match world axes
 
@@ -114,6 +115,6 @@ sketch("front", () => {
 
 ### When you don't need it
 
-- `rotate(angle)` inside a sketch already rotates around the sketch's local Z — no axis argument, no `local()` needed.
+- `rotate(angle, center)` inside a sketch already rotates around the sketch's local Z at `center` — no axis argument, no `local()` needed.
 - On `sketch("xy")`, the world and local axes match, so bare strings work.
 - When you pass a **sketched line** (e.g. a construction line) to `mirror()`, the geometry already lives on the sketch plane.

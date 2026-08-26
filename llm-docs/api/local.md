@@ -24,12 +24,13 @@ sketch axis.
 ## Example
 
 ```fluid.js
-import { extrude, local, mirror, plane, rect, sketch } from "fluidcad/core";
+import { bezier, extrude, line, local, mirror, plane, sketch } from "fluidcad/core";
 
 const tilted = plane("xy", { rotateX: 30 });
 sketch(tilted, () => {
-  rect(40, 20).centered();
-  mirror(local("x"));        // mirror the rect across the sketch's local X
+  const b = bezier([40, 0], [10, 15], [40, 30], [0, 45]);
+  mirror(local("y"), b);     // mirror the curve across the sketch's local Y
+  line([-40, 0], [40, 0]);   // close the profile along the bottom
 });
 extrude(4);
 ```

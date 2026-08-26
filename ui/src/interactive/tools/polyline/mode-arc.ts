@@ -70,21 +70,13 @@ export class ArcMode implements SegmentMode {
     const roundedCenter = roundPoint(center);
     const cwSuffix = ccw ? '' : '.cw()';
     const pendingStart = ctx.pendingStartText();
-    const atCurrent = pendingStart === null && ctx.isAtCurrentPosition(roundedStart);
 
-    if (ctx.solved) {
-      ctx.solved.emitSegment({
-        kind: 'arc',
-        text: `arc(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${ctx.formatPoint(roundedEnd)}, ${ctx.formatPoint(roundedCenter)})${cwSuffix}`,
-        endSnap: this.endSnap,
-        endPoint: roundedEnd,
-      });
-    } else {
-      const statement = atCurrent
-        ? `arc(${ctx.formatPoint(roundedEnd)}).center(${ctx.formatPoint(roundedCenter)})${cwSuffix}`
-        : `arc(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${ctx.formatPoint(roundedEnd)}).center(${ctx.formatPoint(roundedCenter)})${cwSuffix}`;
-      ctx.insertGeometry(statement);
-    }
+    ctx.solved?.emitSegment({
+      kind: 'arc',
+      text: `arc(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${ctx.formatPoint(roundedEnd)}, ${ctx.formatPoint(roundedCenter)})${cwSuffix}`,
+      endSnap: this.endSnap,
+      endPoint: roundedEnd,
+    });
 
     const exitTangent = this.computeExitTangent(roundedEnd, roundedCenter, ccw);
 

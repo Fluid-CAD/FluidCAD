@@ -7,7 +7,7 @@ import select from "../core/select.js";
 import part from "../core/part.js";
 import connector from "../core/connector.js";
 import insert from "../core/insert.js";
-import { rect } from "../core/2d/index.js";
+import { testRect } from "./helpers/profiles.js";
 import { face } from "../filters/index.js";
 import { Connector } from "../features/connector.js";
 import { Part } from "../features/part.js";
@@ -17,7 +17,7 @@ describe("connector scope", () => {
 
   it("throws when called outside a part() block", () => {
     expect(() => {
-      sketch("xy", () => rect(20, 20));
+      sketch("xy", () => { testRect(20, 20); });
       extrude(10);
       connector("top", select(face().planar().onPlane("xy")));
     }).toThrow(/inside a part/i);
@@ -29,7 +29,7 @@ describe("connector scope", () => {
     // at the part() declaration instead of the generic part-design-only error.
     getSceneManager().startAssemblyScene();
     const p = part("block", () => {
-      sketch("xy", () => rect(20, 20));
+      sketch("xy", () => { testRect(20, 20); });
       extrude(10);
       connector("top", select(face().planar().onPlane("xy", 10)));
     }) as unknown as Part;
@@ -46,7 +46,7 @@ describe("connector scope", () => {
     expect(() => {
       part("nested", () => {
         sketch("xy", () => {
-          rect(20, 20);
+          testRect(20, 20);
           connector("mid", select(face().planar().onPlane("xy")));
         });
         extrude(10);
@@ -57,7 +57,7 @@ describe("connector scope", () => {
   it("rejects unsupported source kinds", () => {
     expect(() => {
       part("bad-source", () => {
-        sketch("xy", () => rect(20, 20));
+        sketch("xy", () => { testRect(20, 20); });
         extrude(10);
         // @ts-expect-error — passing a raw object on purpose
         connector("top", { x: 0, y: 0, z: 0 });
@@ -69,7 +69,7 @@ describe("connector scope", () => {
     for (const bad of ["", "top left", "1st", "a-b"]) {
       expect(() => {
         part(`bad-name-${bad}`, () => {
-          sketch("xy", () => rect(20, 20));
+          sketch("xy", () => { testRect(20, 20); });
           extrude(10);
           connector(bad, select(face().planar().onPlane("xy")));
         }).materialize();
@@ -80,7 +80,7 @@ describe("connector scope", () => {
   it("rejects a source passed where the name belongs (old positional form)", () => {
     expect(() => {
       part("old-form", () => {
-        sketch("xy", () => rect(20, 20));
+        sketch("xy", () => { testRect(20, 20); });
         extrude(10);
         // @ts-expect-error — old pre-name signature on purpose
         connector(select(face().planar().onPlane("xy")));
@@ -91,7 +91,7 @@ describe("connector scope", () => {
   it("throws on a duplicate name within the same part", () => {
     expect(() => {
       part("dup-names", () => {
-        sketch("xy", () => rect(20, 20));
+        sketch("xy", () => { testRect(20, 20); });
         extrude(10);
         connector("mount", select(face().planar().onPlane("xy", 10)));
         connector("mount", select(face().planar().onPlane("xy")));
@@ -101,12 +101,12 @@ describe("connector scope", () => {
 
   it("allows the same name in two different parts", () => {
     const a = part("same-name-a", () => {
-      sketch("xy", () => rect(20, 20));
+      sketch("xy", () => { testRect(20, 20); });
       extrude(10);
       connector("mount", select(face().planar().onPlane("xy", 10)));
     }) as unknown as Part;
     const b = part("same-name-b", () => {
-      sketch("xy", () => rect(20, 20));
+      sketch("xy", () => { testRect(20, 20); });
       extrude(10);
       connector("mount", select(face().planar().onPlane("xy", 10)));
     }) as unknown as Part;
@@ -118,7 +118,7 @@ describe("connector scope", () => {
 
   it("returns connectors in source order via Part.getConnectors()", () => {
     const p = part("ordered", () => {
-      sketch("xy", () => rect(40, 60));
+      sketch("xy", () => { testRect(40, 60); });
       extrude(20);
       connector("top", select(face().planar().onPlane("xy", 20)));
       connector("bottom", select(face().planar().onPlane("xy")));
@@ -134,7 +134,7 @@ describe("connector scope", () => {
 
   it("registers every connector by name — no return statement needed", () => {
     const p = part("named", () => {
-      sketch("xy", () => rect(40, 60));
+      sketch("xy", () => { testRect(40, 60); });
       extrude(20);
       connector("mountTop", select(face().planar().onPlane("xy", 20)));
       connector("axleBore", select(face().planar().onPlane("xy")));
@@ -149,7 +149,7 @@ describe("connector scope", () => {
 
   it("uses the connector name as the scene object's display name", () => {
     const p = part("display-name", () => {
-      sketch("xy", () => rect(20, 20));
+      sketch("xy", () => { testRect(20, 20); });
       extrude(10);
       connector("mountTop", select(face().planar().onPlane("xy", 10)));
     }) as unknown as Part;
@@ -161,7 +161,7 @@ describe("connector scope", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const p = part("flat-features", () => {
-        sketch("xy", () => rect(40, 60));
+        sketch("xy", () => { testRect(40, 60); });
         extrude(20);
         const top = connector("top", select(face().planar().onPlane("xy", 20)));
         return { top, meta: { count: 1 } };
@@ -178,7 +178,7 @@ describe("connector scope", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     try {
       const p = part("features-ignored", () => {
-        sketch("xy", () => rect(40, 60));
+        sketch("xy", () => { testRect(40, 60); });
         extrude(20);
         const top = connector("top", select(face().planar().onPlane("xy", 20)));
         // A stale-style return renaming the connector must NOT change the map.

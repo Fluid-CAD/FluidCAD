@@ -3,11 +3,12 @@ import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
-import { circle, move, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("cut symmetric", () => {
   setupOC();
@@ -15,14 +16,13 @@ describe("cut symmetric", () => {
   describe("symmetric cut by distance", () => {
     it("should cut symmetrically from both sides of the sketch plane", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50).symmetric();
 
       sketch("xy", () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       extrude(20).symmetric().remove();
 
       const scene = render();
@@ -39,14 +39,13 @@ describe("cut symmetric", () => {
 
     it("should preserve the outer dimensions of the solid", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50).symmetric();
 
       sketch("xy", () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       extrude(30).symmetric().remove();
 
       const scene = render();
@@ -66,14 +65,13 @@ describe("cut symmetric", () => {
   describe("symmetric cut through all", () => {
     it("should cut all the way through the solid symmetrically", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50).symmetric();
 
       sketch("xy", () => {
-        move([25, 25]);
-        circle(40);
-      });
+          circle([25, 25], 40);
+        });
       extrude(0).symmetric().remove();
 
       const scene = render();
@@ -105,14 +103,13 @@ describe("cut symmetric", () => {
   describe("section edges", () => {
     it("should expose section edges", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50).symmetric();
 
       sketch("xy", () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       const c = extrude(20).symmetric().remove() as ExtrudeBase;
       const edgesObj = c.edges();
       addToScene(edgesObj);
@@ -130,16 +127,14 @@ describe("cut symmetric", () => {
   describe("pick", () => {
     it("should only cut the picked region", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50).symmetric();
 
       sketch("xy", () => {
-        move([25, 25]);
-        circle(30);
-        move([75, 25]);
-        circle(30);
-      });
+          circle([25, 25], 30);
+          circle([75, 25], 30);
+        });
       const c = extrude(20).symmetric().remove().pick([25, 25]) as ExtrudeBase;
 
       render();

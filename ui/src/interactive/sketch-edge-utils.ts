@@ -1,37 +1,11 @@
 import { PlaneData, SceneObjectRender } from '../types';
 
-const INTERACTIVE_SKETCH_TYPES = new Set([
-  'line-two-points', 'hline', 'vline',
-  'circle',
-  'arc', 'arc-from-center',
-  'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
-  'tarc-radius-to-point',
-  'tline',
-  'rect',
-  'polygon',
-  'slot',
-]);
-
-export function isInteractiveSketchType(uniqueType: string | undefined): boolean {
-  if (!uniqueType) {
-    return false;
-  }
-  if (uniqueType.startsWith('bezier-')) {
-    return true;
-  }
-  return INTERACTIVE_SKETCH_TYPES.has(uniqueType);
-}
-
 /**
  * Whether the geometry's statement can be edited by dragging in the viewport.
- * Server-driven via `interactivity`; the type allow-list is a fallback for
- * older payloads.
+ * Server-driven via the `interactivity` field, which is authoritative.
  */
 export function isDraggableSketchObject(obj: SceneObjectRender): boolean {
-  if (obj.interactivity) {
-    return obj.interactivity === 'draggable';
-  }
-  return isInteractiveSketchType(obj.uniqueType);
+  return obj.interactivity === 'draggable';
 }
 
 /**
@@ -40,10 +14,7 @@ export function isDraggableSketchObject(obj: SceneObjectRender): boolean {
  * though it is not draggable.
  */
 export function isSelectableSketchObject(obj: SceneObjectRender): boolean {
-  if (obj.interactivity) {
-    return obj.interactivity === 'draggable' || obj.interactivity === 'selectable';
-  }
-  return isInteractiveSketchType(obj.uniqueType);
+  return obj.interactivity === 'draggable' || obj.interactivity === 'selectable';
 }
 
 export type EdgeEntry = {
@@ -119,60 +90,6 @@ export function buildEdgeIndex(
     }
   }
 
-  return result;
-}
-
-/** A tArc snap candidate: one edge of a single-edge geometry statement. */
-export type TarcTargetEntry = {
-  shapeId: string;
-  segments: EdgeEntry['segments'];
-  /** Source line of the producing statement (self/later-statement exclusion). */
-  ownerLine: number;
-};
-
-/**
- * Snap candidates for a tangent-arc-to-target reference: edges of
- * single-edge geometries in this sketch, guide edges included —
- * construction geometry is the classic thing to arc up to. The kernel's
- * `tArc(radius, target)` resolves the target through the owner's FIRST
- * shape, so multi-edge owners (rect, polygon) are excluded — on those the
- * arc would silently aim at an arbitrary edge. Owners without a source
- * location can't be bound to a variable and are excluded too.
- */
-export function buildTarcTargetIndex(
-  sceneObjects: SceneObjectRender[],
-  sketchId: string,
-  plane: PlaneData,
-): TarcTargetEntry[] {
-  const ownerByShapeId = new Map<string, SceneObjectRender>();
-  for (const obj of sceneObjects) {
-    if (obj.parentId !== sketchId) {
-      continue;
-    }
-    for (const shape of obj.sceneShapes) {
-      if (shape.shapeId) {
-        ownerByShapeId.set(shape.shapeId, obj);
-      }
-    }
-  }
-
-  const entries = buildEdgeIndex(sceneObjects, sketchId, plane, { includeGuides: true });
-  const entriesPerOwner = new Map<SceneObjectRender, number>();
-  for (const entry of entries) {
-    const owner = ownerByShapeId.get(entry.shapeId);
-    if (owner) {
-      entriesPerOwner.set(owner, (entriesPerOwner.get(owner) ?? 0) + 1);
-    }
-  }
-
-  const result: TarcTargetEntry[] = [];
-  for (const entry of entries) {
-    const owner = ownerByShapeId.get(entry.shapeId);
-    if (!owner || !owner.sourceLocation || entriesPerOwner.get(owner) !== 1) {
-      continue;
-    }
-    result.push({ shapeId: entry.shapeId, segments: entry.segments, ownerLine: owner.sourceLocation.line });
-  }
   return result;
 }
 
@@ -262,8 +179,7 @@ export type CenterEntry = {
 };
 
 const ARC_UNIQUE_TYPES = new Set([
-  'arc', 'tarc-to-point', 'tarc-to-point-tangent', 'tarc-with-tangent',
-  'tarc-radius-to-point',
+  'arc',
   'slot',
 ]);
 

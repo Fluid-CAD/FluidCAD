@@ -28,8 +28,8 @@ describe("cut().symmetric() regression", () => {
     cut();
 
     sketch("right", () => {
-      circle(20);
-    });
+        circle([0, 0], 20);
+      });
 
     const c = cut().symmetric() as Extrude;
     render();

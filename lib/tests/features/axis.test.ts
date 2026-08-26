@@ -3,11 +3,12 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import axis from "../../core/axis.js";
-import { rect, vLine } from "../../core/2d/index.js";
+import { line } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { AxisObjectBase } from "../../features/axis-renderable-base.js";
 import { Point } from "../../math/point.js";
 import { Vector3d } from "../../math/vector3d.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("axis", () => {
   setupOC();
@@ -80,8 +81,8 @@ describe("axis", () => {
   describe("axis from edge", () => {
     it("should extract axis from a single edge of an extrusion", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as Extrude;
 
       const a = axis(e.startEdges(0)) as AxisObjectBase;
@@ -99,8 +100,8 @@ describe("axis", () => {
 
     it("should extract axis from an end edge", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as Extrude;
 
       const a = axis(e.endEdges(0)) as AxisObjectBase;
@@ -115,9 +116,9 @@ describe("axis", () => {
     it("should extract axis from a 2D guide line", () => {
       let guideLine: any;
       sketch("xy", () => {
-        rect(100, 50);
-        guideLine = vLine([10, 0], 40).guide();
-      });
+          testRect(100, 50);
+          guideLine = line([10, 0], [10, 40]).guide();
+        });
 
       const a = axis(guideLine) as AxisObjectBase;
 
@@ -131,8 +132,8 @@ describe("axis", () => {
 
     it("should apply transform options to extracted axis", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as Extrude;
 
       const a = axis(e.startEdges(0), { offsetZ: 15 }) as AxisObjectBase;

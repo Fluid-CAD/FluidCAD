@@ -1,7 +1,7 @@
 ---
 id: api/types/text
 title: Text
-summary: "The Text type. Extends ExtrudableGeometry; adds 11 methods."
+summary: "The Text type. Extends ExtrudableGeometry; adds 12 methods."
 tags: [api, type, interface]
 symbols: [Text, IText]
 seeAlso: [api/types/extrudable-geometry]
@@ -11,6 +11,7 @@ seeAlso: [api/types/extrudable-geometry]
 ```ts
 interface Text extends ExtrudableGeometry {
   size(value: number): this;
+  at(position: [number, number]): this;
   font(name: string): this;
   weight(value: string | number): this;
   bold(): this;
@@ -35,6 +36,15 @@ Sets the text height (em size) in model units. Default 10.
 | Parameter | Type | Description |
 | --- | --- | --- |
 | `value` | `number` | The em size. |
+
+### `at()`
+
+Places the text anchor at an explicit local position. Default: the
+sketch plane origin. Not applicable to text following a path.
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `position` | `[number, number]` | The anchor point in sketch coordinates. |
 
 ### `font()`
 

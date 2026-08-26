@@ -432,16 +432,7 @@ export class RectTool extends SketchTool {
       });
       this.widthTyped = false;
       this.heightTyped = false;
-      return;
     }
-
-    const suffix = this.centered ? '.centered()' : '';
-    this.insertAtPoint(
-      start,
-      (point) => `rect(${point}, ${widthResult.expression}, ${heightResult.expression})${suffix}`,
-      () => `rect(${widthResult.expression}, ${heightResult.expression})${suffix}`,
-      newVariables,
-    );
   }
 
   /** A committed dim's signed numeric value for corner math: the literal, a

@@ -5,7 +5,7 @@ import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import part from "../core/part.js";
 import insert from "../core/insert.js";
-import { rect } from "../core/2d/index.js";
+import { testRect } from "./helpers/profiles.js";
 import { Part } from "../features/part.js";
 import { Quaternion } from "../math/quaternion.js";
 import { rad } from "../helpers/math-helpers.js";
@@ -19,7 +19,7 @@ import { rad } from "../helpers/math-helpers.js";
 
 function buildBox(): Part {
   return part("box", () => {
-    sketch("xy", () => rect(20, 20));
+    sketch("xy", () => { testRect(20, 20); });
     extrude(10);
   }) as unknown as Part;
 }

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
 import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
-import { circle, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
+import { testRect } from "../helpers/profiles.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { buildExtrudeGhostSolids, ExtrudeGhostOptions, ExtrudeGhostSolids } from "../../features/extrude-ghost.js";
 import { Extruder } from "../../features/simple-extruder.js";
@@ -65,7 +66,7 @@ describe("extrude ghost", () => {
 
   describe("add", () => {
     it("sweeps the profile along the normal", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { distance: 10 }, (solids) => {
         expect(solids).toHaveLength(1);
@@ -77,7 +78,7 @@ describe("extrude ghost", () => {
     });
 
     it("builds the same body for 'new' as for 'add' — only the fusion scope differs", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       const added = withGhost(s, { op: 'add' }, volumeOf);
       const created = withGhost(s, { op: 'new' }, volumeOf);
@@ -86,7 +87,7 @@ describe("extrude ghost", () => {
     });
 
     it("shows nothing for a through-all that is not a cut", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { op: 'add', distance: null }, (solids) => {
         expect(solids).toHaveLength(0);
@@ -104,7 +105,7 @@ describe("extrude ghost", () => {
 
   describe("symmetric", () => {
     it("centers the body on the sketch plane, keeping the total distance", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { distance: 30, symmetric: true }, (solids) => {
         expect(volumeOf(solids)).toBeCloseTo(100 * 50 * 30, 0);
@@ -115,7 +116,7 @@ describe("extrude ghost", () => {
     });
 
     it("stays one body — the halves are fused, never left coincident", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { distance: 30, symmetric: true, draft: 5 }, (solids) => {
         expect(solids).toHaveLength(1);
@@ -128,7 +129,7 @@ describe("extrude ghost", () => {
 
   describe("two distances", () => {
     it("runs the first distance along the normal and the second against it", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { distance: 10, distance2: 4 }, (solids) => {
         expect(volumeOf(solids)).toBeCloseTo(100 * 50 * 14, 0);
@@ -141,7 +142,7 @@ describe("extrude ghost", () => {
 
   describe("end offset", () => {
     it("pulls the swept end back toward the sketch plane", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { distance: 10, endOffset: 3 }, (solids) => {
         expect(volumeOf(solids)).toBeCloseTo(100 * 50 * 7, 0);
@@ -152,7 +153,7 @@ describe("extrude ghost", () => {
     });
 
     it("pushes it past the distance when negative", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { distance: 10, endOffset: -2 }, (solids) => {
         const bbox = getBoundingBoxOfShapes(solids);
@@ -162,7 +163,7 @@ describe("extrude ghost", () => {
     });
 
     it("pulls both ends of a symmetric extrude in — one offset per sweep", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { distance: 30, symmetric: true, endOffset: 5 }, (solids) => {
         const bbox = getBoundingBoxOfShapes(solids);
@@ -172,7 +173,7 @@ describe("extrude ghost", () => {
     });
 
     it("pulls a cut's end back — the tool sweeps anti-normal", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { op: 'remove', distance: 10, endOffset: 4 }, (solids) => {
         const bbox = getBoundingBoxOfShapes(solids);
@@ -182,7 +183,7 @@ describe("extrude ghost", () => {
     });
 
     it("shows nothing once the offset eats the whole distance", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { distance: 10, endOffset: 10 }, (solids) => {
         expect(solids).toHaveLength(0);
@@ -192,7 +193,7 @@ describe("extrude ghost", () => {
 
   describe("drill", () => {
     it("leaves the inner region hollow by default and solid when off", () => {
-      const s = profile(() => { circle(100); circle(40); });
+      const s = profile(() => { circle([0, 0], 100); circle([0, 0], 40); });
 
       const drilled = withGhost(s, { drill: true }, volumeOf);
       const solid = withGhost(s, { drill: false }, volumeOf);
@@ -204,7 +205,7 @@ describe("extrude ghost", () => {
 
   describe("thin", () => {
     it("sweeps the offset shell rather than the filled profile", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       const filled = withGhost(s, {}, volumeOf);
       const thin = withGhost(s, { thin: [2] }, volumeOf);
@@ -219,7 +220,7 @@ describe("extrude ghost", () => {
 
   describe("remove", () => {
     it("sweeps the tool into the material, against the normal", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { op: 'remove', distance: 10 }, (solids) => {
         expect(volumeOf(solids)).toBeCloseTo(100 * 50 * 10, 0);
@@ -230,7 +231,7 @@ describe("extrude ghost", () => {
     });
 
     it("runs a through-all cut to the caller's ghost length, not the kernel's 100 m", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { op: 'remove', distance: null, throughAllLength: 60 }, (solids) => {
         const bbox = getBoundingBoxOfShapes(solids);
@@ -240,7 +241,7 @@ describe("extrude ghost", () => {
     });
 
     it("runs a symmetric through-all cut both ways", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { op: 'remove', distance: null, symmetric: true, throughAllLength: 60 }, (solids) => {
         const bbox = getBoundingBoxOfShapes(solids);
@@ -250,7 +251,7 @@ describe("extrude ghost", () => {
     });
 
     it("centers a symmetric cut of a given depth on the sketch plane", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { op: 'remove', distance: 30, symmetric: true }, (solids) => {
         const bbox = getBoundingBoxOfShapes(solids);
@@ -262,7 +263,7 @@ describe("extrude ghost", () => {
 
   describe("draft", () => {
     it("tapers the walls — the body no longer matches the straight prism", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       const straight = withGhost(s, { distance: 20 }, volumeOf);
       const drafted = withGhost(s, { distance: 20, draft: 10 }, volumeOf);
@@ -279,7 +280,7 @@ describe("extrude ghost", () => {
 
   describe("lifetime", () => {
     it("survives repeated build + dispose cycles", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       for (let i = 0; i < 50; i++) {
         const result = ghost(s, { distance: 5 + i });
@@ -292,7 +293,7 @@ describe("extrude ghost", () => {
     });
 
     it("frees its scratch when the build throws", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       // Hand the builder a face set we keep a handle on, then make the sweep
       // fail: the scratch has to come back released, not stranded out of the
@@ -314,7 +315,7 @@ describe("extrude ghost", () => {
     });
 
     it("shows nothing for a distance that resolved to zero", () => {
-      const s = profile(() => { rect(100, 50); });
+      const s = profile(() => { testRect(100, 50); });
 
       withGhost(s, { distance: 0 }, (solids) => {
         expect(solids).toHaveLength(0);

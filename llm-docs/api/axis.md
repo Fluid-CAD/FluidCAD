@@ -28,11 +28,13 @@ axis(a1: Axis, a2: Axis, options?)
 ## Example
 
 ```fluid.js
-import { axis, move, rect, revolve, sketch } from "fluidcad/core";
+import { axis, line, revolve, sketch } from "fluidcad/core";
 
 sketch("xz", () => {
-  move([20, 0]);
-  rect(10, 30);
+  line([20, 0], [30, 0]);
+  line([30, 0], [30, 30]);
+  line([30, 30], [20, 30]);
+  line([20, 30], [20, 0]);
 });
 const raised = axis("z", { offsetX: 50 });           // Z axis shifted +50 along X
 revolve(raised);

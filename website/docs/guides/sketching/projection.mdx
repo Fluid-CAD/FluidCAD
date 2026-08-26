@@ -10,13 +10,15 @@ import projectionBasic from '!!raw-loader!./_examples/projection-basic.js';
 
 `project()` takes 3D geometry (faces, edges) and projects it onto your current sketch plane. This is useful for creating features that follow the shape of existing geometry.
 
+In a constraint sketch, projected curves register as **fixed reference entities**: the solver never moves them, they render as locked (green) geometry, and your sketch geometry can be constrained against them.
+
 ## Projecting a face
 
 <CodeBlock language="js">{projectionBasic}</CodeBlock>
 
 ![Projected and offset face](/img/docs/sketching/projection-basic.png)
 
-This projects the outline of the top face onto the sketch. Combined with `offset()`, it's a common way to create shell-like features or inset pockets that match an existing profile.
+This projects the outline of the top face onto the sketch as a guide, then offsets it inward. Combined with `offset()`, it's a common way to create shell-like features or inset pockets that match an existing profile.
 
 ## Projecting edges
 
@@ -37,3 +39,26 @@ sketch("xy", () => {
     project(face1, face2, edge1)
 })
 ```
+
+## Constraining against a projection
+
+A projection is a first-class constraint target:
+
+```js
+sketch(e.endFaces(), () => {
+    const rim = project(e.endEdges()).guide()   // single edge: use directly
+    const c = circle([10, 0], 12)
+    concentric(c, rim)                          // bolt bore concentric with the rim
+})
+```
+
+When a projection produces **multiple edges**, address one with `.ref(i)` and its points with the usual accessors:
+
+```js
+const outline = project(e.endFaces()).guide()   // 4 edges, say
+coincident(p, outline.ref(0).start())
+distance(outline.ref(2), c.center(), 25)
+tangent(outline.ref(1), l)
+```
+
+Because references are fixed, a sketch consisting only of projections reports **Fully constrained** on its own — your added geometry is what brings degrees of freedom.

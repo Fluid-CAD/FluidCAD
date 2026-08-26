@@ -292,22 +292,43 @@ function extractMethodsFromClass(
   return methods;
 }
 
+// The constraint commands follow the registerBuilder pattern: a top-level
+// `build(context)` function (carrying the JSDoc) returns the named command
+// function whose parameters are the documented signature. The kinds produced
+// by the shared `twoTargetCommand` factory have no `build` in their file and
+// fall back to the config-provided description/params.
 function extractConstraintInfo(
   sourceFile: SourceFile,
-  funcName: string,
+  entry: (typeof constraints)[number],
 ): ConstraintInfo | null {
-  const func = sourceFile.getFunction(funcName);
-  if (!func) {
+  const buildFn = sourceFile.getFunction('build');
+  if (!buildFn) {
+    if (!entry.fallback) {
+      return null;
+    }
+    return {
+      name: entry.name,
+      group: entry.group,
+      description: entry.fallback.description,
+      params: entry.fallback.params.map(p => ({ ...p })),
+      returnType: entry.fallback.returnType,
+    };
+  }
+
+  const inner = buildFn.getDescendantsOfKind(SyntaxKind.FunctionExpression)[0];
+  if (!inner) {
     return null;
   }
 
-  const description = getJsDocDescription(func);
-  const jsDocParams = getJsDocParams(func);
+  const description = getJsDocDescription(buildFn);
+  const jsDocParams = getJsDocParams(buildFn);
 
   const params: ParamInfo[] = [];
-  for (const param of func.getParameters()) {
+  for (const param of inner.getParameters()) {
     const paramName = param.getName();
-    const paramType = simplifyType(param.getType().getText(param));
+    // Prefer the declared annotation text (e.g. `ConstraintTarget`,
+    // `NumberParam`) over the resolved structural type.
+    const paramType = simplifyType(param.getTypeNode()?.getText() ?? param.getType().getText(param));
     const isOptional = param.isOptional();
     const desc = jsDocParams.get(paramName) || '';
 
@@ -319,14 +340,28 @@ function extractConstraintInfo(
     });
   }
 
-  const returnType = simplifyType(func.getReturnType().getText(func));
+  const returnType = simplifyType(inner.getReturnTypeNode()?.getText() ?? inner.getReturnType().getText(inner));
 
   return {
-    name: funcName,
+    name: entry.name,
+    group: entry.group,
     description,
     params,
     returnType,
   };
+}
+
+// The sketch datums are documented exported consts, not call-signature
+// interfaces — read the JSDoc off the variable statement.
+function extractDatumSignatures(sf: SourceFile, constName: string, returnType: string): SignatureInfo[] {
+  const stmt = sf.getVariableStatement(constName);
+  const description = stmt ? getJsDocDescription(stmt) : '';
+  return [{
+    description,
+    params: [],
+    returnType,
+    isPlaneVariant: false,
+  }];
 }
 
 function extractPartSignatures(): SignatureInfo[] {
@@ -453,6 +488,8 @@ function generate() {
       } else {
         console.warn(`  Warning: Interface ${feature.interfaceName} not found in ${feature.sourceFile}`);
       }
+    } else if (feature.constName) {
+      sigs = extractDatumSignatures(sf, feature.constName, feature.returnType);
     } else if (feature.name === 'part') {
       sigs = extractPartSignatures();
     }
@@ -560,15 +597,17 @@ function generate() {
   console.log('Generating constraints page...');
 
   const constraintInfos: ConstraintInfo[] = [];
-  const constraintSourcePath = path.join(LIB_DIR, constraints[0].sourceFile);
-  const constraintSf = project.getSourceFile(constraintSourcePath);
-
-  if (constraintSf) {
-    for (const c of constraints) {
-      const info = extractConstraintInfo(constraintSf, c.functionName);
-      if (info) {
-        constraintInfos.push(info);
-      }
+  for (const c of constraints) {
+    const constraintSf = project.getSourceFile(path.join(LIB_DIR, c.sourceFile));
+    if (!constraintSf) {
+      console.warn(`  Warning: Source file not found: ${c.sourceFile}`);
+      continue;
+    }
+    const info = extractConstraintInfo(constraintSf, c);
+    if (info) {
+      constraintInfos.push(info);
+    } else {
+      console.warn(`  Warning: Could not extract constraint docs for ${c.name} (${c.sourceFile})`);
     }
   }
 

@@ -7,14 +7,14 @@ import select from "../core/select.js";
 import part from "../core/part.js";
 import connector from "../core/connector.js";
 import insert from "../core/insert.js";
-import { rect } from "../core/2d/index.js";
+import { testRect } from "./helpers/profiles.js";
 import { face } from "../filters/index.js";
 import { Part } from "../features/part.js";
 import { BoundConnector } from "../features/connector.js";
 
 function buildHousing(name = "housing"): Part {
   return part(name, () => {
-    sketch("xy", () => rect(20, 20));
+    sketch("xy", () => { testRect(20, 20); });
     extrude(10);
     connector("top", select(face().planar().onPlane("xy", 10)));
     connector("bottom", select(face().planar().onPlane("xy", 0)));
@@ -197,7 +197,7 @@ describe("assembly scene", () => {
   it("every registered connector appears on the instance — even without a return", () => {
     getSceneManager().startScene();
     const p = part("no-return", () => {
-      sketch("xy", () => rect(20, 20));
+      sketch("xy", () => { testRect(20, 20); });
       extrude(10);
       // No return statement at all: the name argument is the registration.
       connector("mount", select(face().planar().onPlane("xy", 10)));
@@ -212,7 +212,7 @@ describe("assembly scene", () => {
   it("the connector statement's name argument is the instance key", () => {
     getSceneManager().startScene();
     const p = part("housing", () => {
-      sketch("xy", () => rect(20, 20));
+      sketch("xy", () => { testRect(20, 20); });
       extrude(10);
       connector("mountTop", select(face().planar().onPlane("xy", 10)));
     }) as unknown as Part;

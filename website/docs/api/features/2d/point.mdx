@@ -1,0 +1,27 @@
+---
+sidebar_position: 5
+title: "point"
+description: "Places a solver point at the given position. Constraint sketches only — the position is a guess like every other literal; constrain it with coincident/fix/distance statements."
+---
+
+# point()
+
+Places a solver point at the given position. Constraint sketches only —
+the position is a guess like every other literal; constrain it with
+coincident/fix/distance statements.
+
+**Returns**: [**`Geometry`**](/docs/api/types/geometry)
+
+## Signatures
+
+```ts
+point(position: Point2DLike): Geometry
+```
+
+Places a solver point at the given position. Constraint sketches only —
+the position is a guess like every other literal; constrain it with
+coincident/fix/distance statements.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `position` | [Point2DLike](/docs/api/types/point2dlike) | The point position |

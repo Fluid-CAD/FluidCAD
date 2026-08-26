@@ -33,11 +33,16 @@ subtraction). Reach for these when:
 ## Example
 
 ```fluid.js
-import { circle, extrude, rect, sketch, subtract } from "fluidcad/core";
+import { circle, extrude, line, sketch, subtract } from "fluidcad/core";
 
-sketch("xy", () => rect(60, 60).centered());
+sketch("xy", () => {
+  line([-30, -30], [30, -30]);
+  line([30, -30], [30, 30]);
+  line([30, 30], [-30, 30]);
+  line([-30, 30], [-30, -30]);
+});
 const a = extrude(20).new();
-sketch("xy", () => circle(35));
+sketch("xy", () => circle([0, 0], 35));
 const b = extrude(20).new();
 subtract(a, b);
 ```

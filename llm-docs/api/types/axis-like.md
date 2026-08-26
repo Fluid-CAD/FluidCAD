@@ -22,17 +22,11 @@ An axis reference used by `revolve()` and other axis-based operations. Any of th
 ## Example
 
 ```fluid.js
-import { sketch, rect, move, revolve, axis } from "fluidcad/core";
+import { sketch, circle, revolve, axis } from "fluidcad/core";
 
-sketch("xz", () => {
-  move([20, 0]);
-  rect(10, 30);
-});
+sketch("xz", () => circle([25, 0], 10));
 revolve("z", 360);             // string form
 
-sketch("xz", () => {
-  move([30, 0]);
-  rect(5, 5);
-});
+sketch("xz", () => circle([45, 0], 6));
 revolve(axis("z"), 180);       // Axis form
 ```

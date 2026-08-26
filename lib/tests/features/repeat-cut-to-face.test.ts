@@ -30,8 +30,8 @@ describe("repeat circular of a cut bounded by the base body's face", () => {
 
   it("stamps the cut per instance instead of rebuilding the base body", () => {
     sketch("xy", () => {
-      circle(100);
-    });
+        circle([0, 0], 100);
+      });
     const e = extrude(50).new() as ExtrudeBase;
 
     sketch(e.endFaces(), () => {

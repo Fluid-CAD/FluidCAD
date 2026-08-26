@@ -3,11 +3,12 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import rotate from "../../core/rotate.js";
-import { rect, circle } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("rotate", () => {
   setupOC();
@@ -15,8 +16,8 @@ describe("rotate", () => {
   describe("rotate around standard axes", () => {
     it("should rotate around the Z axis", () => {
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e = extrude(5).new() as ExtrudeBase;
 
       // Box at (0..20, 0..10). Rotate 90° around Z → should move to (-10..0, 0..20)
@@ -36,8 +37,8 @@ describe("rotate", () => {
 
     it("should rotate around the X axis", () => {
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e = extrude(5).new() as ExtrudeBase;
 
       // Rotate 90° around X → Y becomes Z, Z becomes -Y
@@ -53,8 +54,8 @@ describe("rotate", () => {
 
     it("should rotate around the Y axis", () => {
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e = extrude(5).new() as ExtrudeBase;
 
       // Rotate 90° around Y → X becomes -Z, Z becomes X
@@ -72,8 +73,8 @@ describe("rotate", () => {
   describe("move vs copy", () => {
     it("should move the original by default", () => {
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e = extrude(5).new() as ExtrudeBase;
 
       rotate("z", 90, e);
@@ -85,8 +86,8 @@ describe("rotate", () => {
 
     it("should keep the original when copy is true", () => {
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e = extrude(5).new() as ExtrudeBase;
 
       rotate("z", 90, true, e);
@@ -98,8 +99,8 @@ describe("rotate", () => {
 
     it("should produce two shapes in the scene when copy is true", () => {
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e = extrude(5).new() as ExtrudeBase;
 
       rotate("z", 90, true, e);
@@ -113,13 +114,13 @@ describe("rotate", () => {
   describe("rotate specific target", () => {
     it("should only rotate the specified object", () => {
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e1 = extrude(5).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e2 = extrude(5).new() as ExtrudeBase;
 
       rotate("z", 90, e1);
@@ -139,8 +140,8 @@ describe("rotate", () => {
   describe("rotate by arbitrary angle", () => {
     it("should rotate by 45 degrees", () => {
       sketch("xy", () => {
-        rect(20, 20);
-      });
+          testRect(20, 20);
+        });
       const e = extrude(5).new() as ExtrudeBase;
 
       const r = rotate("z", 45, e) as unknown as SceneObject;
@@ -156,8 +157,8 @@ describe("rotate", () => {
 
     it("should rotate by 180 degrees", () => {
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e = extrude(5).new() as ExtrudeBase;
 
       // Box at (0..20, 0..10). Rotate 180° around Z → (-20..0, -10..0)
@@ -176,13 +177,13 @@ describe("rotate", () => {
   describe("rotate with .exclude()", () => {
     it("should skip excluded objects when rotating everything", () => {
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e1 = extrude(5).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e2 = extrude(5).new() as ExtrudeBase;
 
       // No explicit target → rotate all, exclude e1 → only e2 rotates
@@ -202,13 +203,13 @@ describe("rotate", () => {
 
     it("should narrow an explicit target list with exclude", () => {
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e1 = extrude(5).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e2 = extrude(5).new() as ExtrudeBase;
 
       // Explicit targets [e1, e2], exclude e2 → only e1 rotated
@@ -226,18 +227,18 @@ describe("rotate", () => {
 
     it("should accumulate exclusions across chained calls", () => {
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e1 = extrude(5).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e2 = extrude(5).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        rect(20, 10);
-      });
+          testRect(20, 10);
+        });
       const e3 = extrude(5).new() as ExtrudeBase;
 
       // Rotate all (copy), exclude e1 and e2 across two calls → only e3 rotated copy

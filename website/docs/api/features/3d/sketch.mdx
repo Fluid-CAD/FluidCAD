@@ -1,12 +1,13 @@
 ---
 sidebar_position: 1
 title: "sketch"
-description: "Draws 2D geometry on a standard plane."
+description: "Draws 2D geometry on a standard plane. Geometry statements are fully-specified guesses; constraint statements drive the solve."
 ---
 
 # sketch()
 
-Draws 2D geometry on a standard plane.
+Draws 2D geometry on a standard plane. Geometry statements are
+fully-specified guesses; constraint statements drive the solve.
 
 **Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
 
@@ -20,12 +21,13 @@ See the [guide](/docs/guides/sketching/introduction) for detailed usage examples
 sketch(plane: PlaneLike, sketcher: () => T): ISceneObject & Extend<T>
 ```
 
-Draws 2D geometry on a standard plane.
+Draws 2D geometry on a standard plane. Geometry statements are
+fully-specified guesses; constraint statements drive the solve.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `plane` | [PlaneLike](/docs/api/types/plane-like) | The plane to sketch on |
-| `sketcher` | () =&gt; T | Callback containing sketch operations |
+| `sketcher` | () =&gt; T | Callback containing sketch statements |
 
 ---
 
@@ -38,7 +40,7 @@ Draws 2D geometry on a face selection.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `face` | [SceneObject](/docs/api/types/scene-object) | The face to sketch on |
-| `sketcher` | () =&gt; T | Callback containing sketch operations |
+| `sketcher` | () =&gt; T | Callback containing sketch statements |
 
 ---
 
@@ -51,4 +53,4 @@ Draws 2D geometry on an existing Plane object.
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `plane` | [Plane](/docs/api/types/plane) | The Plane object to sketch on |
-| `sketcher` | () =&gt; T | Callback containing sketch operations |
+| `sketcher` | () =&gt; T | Callback containing sketch statements |

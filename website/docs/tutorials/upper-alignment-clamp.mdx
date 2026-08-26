@@ -12,7 +12,7 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={upperAlignmentClampFinal} entry="upper-alignment-clamp.fluid.js" />
 
-In this tutorial, you'll build an upper alignment clamp from scratch, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=PP4bR1Kz5FQ). It covers tangent lines and arcs, geometric constraints, projecting and guiding geometry, symmetric extrusions, drilling, and mirror repeats.
+In this tutorial, you'll build an upper alignment clamp from scratch, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=PP4bR1Kz5FQ). It covers constraint sketches, tangent-arc profiles, sketch datums, projecting reference geometry onto face and offset planes, symmetric extrusions, drilling, 2D mirrors, and mirror repeats.
 
 Create a new file called `upper-alignment-clamp.fluid.js` in your project.
 
@@ -21,46 +21,84 @@ Create a new file called `upper-alignment-clamp.fluid.js` in your project.
 Start with imports. This model uses three import sources — core operations, geometric constraints, and selection filters.
 
 ```js
-import { aLine, arc, circle, color, connect, copy, cut, extrude,
-    fillet, fuse, hLine, hMove, mirror, move, plane, project, rect,
-    remove, repeat, rotate, select, shell, sketch, slot, tArc, tLine,
-    vMove } from "fluidcad/core";
-import { enclosed, enclosing, outside } from "fluidcad/constraints";
-import { edge, face } from "fluidcad/filters";
+import { arc, circle, cut, extrude, fillet, line, mirror, plane, project,
+    repeat, sketch, xAxis } from "fluidcad/core";
+import { coincident, collinear, concentric, diameter, distance, equal, fix,
+    horizontal, radius, tangent, vertical } from "fluidcad/constraints";
+import { edge } from "fluidcad/filters";
 ```
 
-- **`fluidcad/core`** — all the modeling operations (sketch, extrude, cut, etc.)
-- **`fluidcad/constraints`** — geometric constraints for tangent lines (`outside`, `enclosing`)
+- **`fluidcad/core`** — the modeling operations (sketch, extrude, cut, etc.), the geometry primitives, and the `xAxis` sketch datum
+- **`fluidcad/constraints`** — the constraint statements that pin sketch geometry down
 - **`fluidcad/filters`** — selection filters for edges and faces
+
+Every sketch in this model is a **constraint sketch** — `sketch(plane, callback)`. In a constraint sketch the coordinates you type are *guesses*: you draw the geometry roughly where it belongs, then state the relationships that define it — this corner touches that one, this line is tangent to that arc, this radius is 13 — and the solver moves the geometry to satisfy them. Most constraints follow the same two-pick thinking as an interactive sketcher: pick two things, state how they relate.
 
 ## Step 1: The base body
 
-The clamp starts as a rounded rectangular block.
+The clamp starts as a rounded rectangular block: four lines closed into a 120 × 66 rectangle, with every corner rounded.
 
 ```js
-sketch("top", () => rect(120, 66).centered().radius(13))
+sketch("top", () => {
+    const bottom = line([-60, -33], [60, -33]);
+    const right = line([60, -33], [60, 33]);
+    const top = line([60, 33], [-60, 33]);
+    const left = line([-60, 33], [-60, -33]);
+
+    coincident(bottom.end(), right.start());
+    coincident(right.end(), top.start());
+    coincident(top.end(), left.start());
+    coincident(left.end(), bottom.start());
+    horizontal(bottom);
+    vertical(right);
+    horizontal(top);
+    vertical(left);
+    fix(bottom.start(), [-60, -33]);
+    distance(bottom.start(), bottom.end(), 120);
+    distance(right.start(), right.end(), 66);
+
+    fillet(13, bottom, right, top, left);
+})
 let e = extrude(13)
 ```
 
-`sketch("top", () => rect(120, 66))` draws a 120 x 66 rectangle on the top plane. `.centered()` centers it on the origin. `.radius(13)` rounds all four corners with a 13-unit fillet. `extrude(13)` pushes it up 13 units. We store the result in `e` to reference its faces later.
+The four `coincident` constraints chain the lines end-to-start into a closed loop, and `horizontal`/`vertical` square it up. That fixes the *shape* but not the *size or place*, so three more statements finish the job: `fix` anchors one corner at `[-60, -33]`, and the two `distance` dimensions set the side lengths to 120 and 66 — centering the rectangle on the origin.
+
+`fillet(13, bottom, right, top, left)` rounds every corner shared by the four lines with a 13-unit arc. Finally `extrude(13)` pushes the plate up 13 units. We store the result in `e` to reference its faces later.
 
 ![Base body](/img/docs/tutorials/upper-alignment-clamp-step1.png)
 
 ## Step 2: Cut the side notches
 
-Each side of the clamp has a notch cut into it. We'll create one notch and mirror it.
+Each side of the clamp has a slot-shaped notch cut into it. We'll draw one — two straight flanks blending into a rounded end — and mirror the cut.
 
 ### Sketch the notch profile
 
 ```js
 sketch(e.endFaces(), () => {
-    hMove(120 / 2 - 10)
-    rect(10, 14).centered('vertical')
-    circle(14)
+    const lower = line([60, -7], [50, -7]);
+    const cap = arc([50, -7], [50, 7], [50, 0]).cw();
+    const upper = line([50, 7], [60, 7]);
+    const mouth = line([60, 7], [60, -7]);
+
+    coincident(lower.end(), cap.start());
+    coincident(cap.end(), upper.start());
+    coincident(upper.end(), mouth.start());
+    coincident(mouth.end(), lower.start());
+    horizontal(lower);
+    horizontal(upper);
+    vertical(mouth);
+    tangent(lower, cap);
+    tangent(cap, upper);
+    fix(cap.center(), [50, 0]);
+    radius(cap, 7);
+    distance(lower.start(), lower.end(), 10);
 });
 ```
 
-`e.endFaces()` gives us the top face of the base. `hMove(120 / 2 - 10)` moves the cursor to 10 units from the right edge. `rect(10, 14).centered('vertical')` draws a 10 x 14 rectangle centered vertically. `circle(14)` adds a semicircular end to the notch.
+`e.endFaces()` gives us the top face of the base, and the sketch opens directly on it. The profile is two horizontal flank lines, a semicircular `cap` arc, and a vertical `mouth` line sitting on the base's right edge. `arc(start, end, center)` takes fully-specified guesses; `.cw()` picks the clockwise sweep from start to end, so the cap bulges *into* the plate instead of out of it.
+
+This is the first tangent-arc joint in the model: `tangent(lower, cap)` and `tangent(cap, upper)` make each flank flow smoothly into the cap at their shared (coincident) endpoint — the two-pick equivalent of drawing with a tangent-arc tool. The dimensions pin it down: the cap's center is fixed 10 units in from the right edge, `radius(cap, 7)` makes the notch 14 wide, and the `distance` gives the flanks their 10-unit run out to the edge.
 
 ![Notch profile sketch](/img/docs/tutorials/upper-alignment-clamp-step2-sketch.png)
 
@@ -78,19 +116,26 @@ repeat("mirror", "yz", notch);
 
 ## Step 3: The cylindrical bore
 
-A large cylindrical bore runs through the center of the clamp body.
+A large cylindrical dome runs through the center of the clamp body, and gets bored out.
 
 ### Sketch the semicircle
 
 ```js
 sketch("front", () => {
-    arc(31)
-    connect()
-    move([0, 0])
+    const dome = arc([31, 0], [-31, 0], [0, 0]);
+    const flat = line([-31, 0], [31, 0]);
+
+    coincident(dome.end(), flat.start());
+    coincident(flat.end(), dome.start());
+    collinear(xAxis(), flat);
+    fix(dome.center(), [0, 0]);
+    radius(dome, 31);
 });
 ```
 
-`arc(31)` draws a semicircular arc with radius 31 on the front plane. `connect()` closes the profile by drawing a straight line between the arc endpoints. `move([0, 0])` positions the sketch at the origin.
+The profile is a half-disc: an upper semicircular arc closed by a flat line along its diameter. The two `coincident` constraints close the loop, `fix` plants the arc's center at the origin, and `radius(dome, 31)` sizes it.
+
+`collinear(xAxis(), flat)` is new: `xAxis()` is the sketch's built-in horizontal datum axis, and the constraint lays the closing line exactly along it. With both endpoints on the axis and both on the radius-31 circle, the flat is forced to be the full diameter — no extra dimension needed. The arc's guess (start at `[31, 0]`, end at `[-31, 0]`, counterclockwise) puts the dome on the upper side.
 
 ![Semicircle sketch](/img/docs/tutorials/upper-alignment-clamp-step3-sketch.png)
 
@@ -98,16 +143,20 @@ sketch("front", () => {
 
 ```js
 const circleExtrude = extrude(66).symmetric();
-cut(66, sketch("front", () => circle(36))).symmetric();
+cut(66, sketch("front", () => {
+    const bore = circle([0, 0], 36);
+    fix(bore.center(), [0, 0]);
+    diameter(bore, 36);
+})).symmetric();
 ```
 
-`extrude(66).symmetric()` extrudes the semicircle 33 units in both directions (66 total, centered). We store it as `circleExtrude` because we'll reference its edges later. `cut(66, sketch("front", () => circle(36))).symmetric()` then bores a 36-diameter hole through the center, also symmetric. This creates the clamp's main bore.
+`extrude(66).symmetric()` extrudes the half-disc 33 units in both directions (66 total, centered). We store it as `circleExtrude` because we'll project its end edge in the next step. The `cut(66, ...)` then bores a 36-diameter hole through the center, also symmetric: `circle([center], d)` takes a center and a *diameter*, and `fix` plus `diameter` make the little bore sketch fully constrained.
 
 ![Cylindrical bore](/img/docs/tutorials/upper-alignment-clamp-step3.png)
 
 ## Step 4: The pipe mount
 
-The pipe mount is the most complex step — it uses projected geometry, tangent lines with constraints, and tangent arcs to create a smooth profile connecting the bore to a pipe.
+The pipe mount is the most complex step — a smooth tangent web connecting the bore dome to a pipe boss. This is where the two-pick constraint style really pays off: every joint of the outline is a `tangent` pick, and the two arcs inherit their size from reference geometry instead of repeating numbers.
 
 ### Create the sketch plane
 
@@ -121,24 +170,40 @@ const p = plane("front", { offset: 20 })
 
 ```js
 sketch(p, () => {
-    const arc = project(circleExtrude.endEdges(edge().arc())).guide()
-    vMove(45)
-    const c = circle(16).guide()
-    const l1 = tLine(outside(arc), outside(c))
-    const l2 = tLine(enclosing(arc), enclosing(c))
-    tArc(l1.end())
-    tArc(l1.start(), l2.start(), l1.tangent())
+    const bore = project(circleExtrude.endEdges(edge().arc())).guide()
+    const pipe = circle([0, 45], 16).guide()
+    const l1 = line([26.644954, 15.844444], [6.876117, 49.088889]);
+    const cap = arc([6.876117, 49.088889], [-6.876117, 49.088889], [0, 45]);
+    const l2 = line([-6.876117, 49.088889], [-26.644954, 15.844444]);
+    const bridge = arc([-26.644954, 15.844444], [26.644954, 15.844444], [0, 0]).cw();
+
+    fix(pipe.center(), [0, 45]);
+    diameter(pipe, 16);
+    coincident(l1.end(), cap.start());
+    coincident(cap.end(), l2.start());
+    coincident(l2.end(), bridge.start());
+    coincident(bridge.end(), l1.start());
+    tangent(l1, cap);
+    tangent(cap, l2);
+    tangent(l2, bridge);
+    tangent(bridge, l1);
+    concentric(cap, pipe);
+    equal(cap, pipe);
+    concentric(bridge, bore);
+    equal(bridge, bore);
 });
 ```
 
-This sketch builds the pipe mount profile in several steps:
+Two pieces of reference geometry set the stage:
 
-- `project(circleExtrude.endEdges(edge().arc())).guide()` projects the bore's end edge onto the sketch plane as a construction (guide) arc — it's visible for reference but won't become part of the solid
-- `vMove(45)` moves the cursor up 45 units, then `circle(16).guide()` places a guide circle there — this defines the pipe position
-- `tLine(outside(arc), outside(c))` draws a tangent line on the outer sides of both circles using the `outside` constraint
-- `tLine(enclosing(arc), enclosing(c))` draws a tangent line on the inner (enclosing) sides using the `enclosing` constraint
-- `tArc(l1.end())` closes the top with a tangent arc
-- `tArc(l1.start(), l2.start(), l1.tangent())` connects the two tangent lines at the bottom with a smooth arc, using the tangent direction from `l1` to ensure continuity
+- `project(circleExtrude.endEdges(edge().arc())).guide()` projects the dome's end edge — the radius-31 arc — onto the sketch plane. Projected geometry comes in **fixed**: it adds no freedom to the sketch, and constraints can lean on it. `.guide()` keeps it out of the profile.
+- `circle([0, 45], 16).guide()` is a guide circle marking the pipe: 16 in diameter, fixed 45 above the bore center. It won't be part of the profile either — it exists so the outline can borrow its position and size.
+
+The outline itself is four pieces: two flank lines (`l1`, `l2`) and two arcs — a small `cap` over the pipe and a `bridge` dipping across the dome. The `coincident` chain closes the loop, and the four `tangent` constraints make every joint smooth, so the profile flows line → cap → line → bridge with no kinks.
+
+Then the arcs take their geometry from the references: `concentric(cap, pipe)` + `equal(cap, pipe)` snap the cap onto the pipe guide circle, and `concentric(bridge, bore)` + `equal(bridge, bore)` lay the bridge exactly on the projected bore arc. With both arcs locked to their carriers, the tangency alone decides where the flank lines touch down.
+
+One thing to notice: nothing in the constraints says *which* tangent lines these are — a line tangent to two circles could sit on either side. The **guesses** decide. `l1` is drawn on the right, `l2` on the left, and the solver keeps each line on the side of its guess — placing the guess on the side you mean *is* the choice. Likewise `.cw()` on the bridge picks the short sweep across the top of the dome rather than the long way around the bottom.
 
 ![Pipe mount profile sketch](/img/docs/tutorials/upper-alignment-clamp-step4-sketch.png)
 
@@ -160,13 +225,17 @@ Now we add the pipe itself with a through-hole, then mirror the entire mount to 
 
 ```js
 sketch(plane("front", { offset: 35 }), () => {
-    move([0, 45])
-    circle(16)
-    circle(10);
+    const outer = circle([0, 45], 16);
+    const inner = circle([0, 45], 10);
+
+    fix(outer.center(), [0, 45]);
+    concentric(inner, outer);
+    diameter(outer, 16);
+    diameter(inner, 10);
 });
 ```
 
-On a plane 35 units from the front, two concentric circles are drawn at the pipe center (0, 45): an outer circle of radius 16 and an inner circle of radius 10.
+On a plane 35 units from the front, two circles are drawn at the pipe center: a 16-diameter outer wall and a 10-diameter bore. `fix` places the outer circle, and `concentric(inner, outer)` ties the bore to it — one anchor, one relationship, instead of two hardcoded centers.
 
 ![Pipe profile sketch](/img/docs/tutorials/upper-alignment-clamp-step5-sketch.png)
 
@@ -176,18 +245,22 @@ On a plane 35 units from the front, two concentric circles are drawn at the pipe
 const pipeLength = -35 + 20;
 const e2 = extrude(pipeLength).drill(false);
 
-cut(-pipeLength, sketch(e2.startFaces(), () => circle(10)));
-```
+cut(-pipeLength, sketch(e2.startFaces(), () => {
+    const rim = project(e2.startFaces()).guide();
+    const bore = circle([0, 45], 10);
 
-`extrude(pipeLength)` extends the pipe backward (negative direction). `.drill(false)` creates a hollow extrusion — the inner circle becomes a hole, but `false` means it doesn't drill into existing geometry below. Then `cut(-pipeLength, sketch(e2.startFaces(), () => circle(10)))` bores the inner hole through, using a circle sketched on the start face.
+    concentric(bore, rim.ref(0));
+    diameter(bore, 10);
+}));
 
-### Mirror everything
-
-```js
 mirror("front")
 ```
 
-`mirror("front")` mirrors the pipe mount and through-hole across the front plane, creating a symmetric clamp with pipe mounts on both sides.
+`extrude(pipeLength)` extends the pipe backward (negative direction) toward the mount. `.drill(false)` makes it a hollow extrusion — the inner circle becomes a hole — with `false` meaning it doesn't drill into the geometry behind it.
+
+The follow-up `cut` finishes the through-hole, and shows the projection-anchoring pattern on a face: the sketch opens on `e2.startFaces()`, whose local origin isn't guaranteed to be the pipe center — so we don't hardcode it. `project(e2.startFaces()).guide()` brings the face's outline in as a fixed reference; both of its edges are circles on the pipe's centerline, so `concentric(bore, rim.ref(0))` locks the cutting circle onto it exactly, wherever the face sits. (`ref(i)` picks one edge of a multi-edge reference.) The cut runs 15 deep, boring through the mount web.
+
+`mirror("front")` then mirrors the pipe mount and through-hole across the front plane, creating a symmetric clamp with pipe mounts on both sides.
 
 ![Pipe through-hole and mirror](/img/docs/tutorials/upper-alignment-clamp-step5.png)
 
@@ -199,17 +272,19 @@ The final step adds four mounting holes with counterbores in the corners of the 
 
 ```js
 sketch(e.endFaces(), () => {
-    const center = [120 / 2 - 13, -66 / 2 + 13];
-    move(center)
-    circle(7);
-    mirror("x")
-    mirror("y")
+    const bolt = circle([47, -20], 7);
+
+    fix(bolt.center(), [47, -20]);
+    diameter(bolt, 7);
+
+    const m = mirror("x", bolt);
+    mirror("y", bolt, m);
 }).name('Hole Sketch');
 
 cut().name('Hole')
 ```
 
-A circle of radius 7 is placed 13 units inset from one corner of the base. `mirror("x")` mirrors it horizontally, then `mirror("y")` mirrors both vertically — creating four holes from one. `cut()` removes material all the way through. `.name()` labels the operations in the model tree.
+One 7-diameter circle is constrained 13 units inset from a corner of the base (`[60 - 13, -33 + 13]`). Then the sketch-level mirrors multiply it: `mirror("x", bolt)` reflects it across the horizontal axis, and `mirror("y", bolt, m)` reflects both the original and that copy across the vertical axis — four fully-placed holes from one constrained circle. `cut()` removes material all the way through. `.name()` labels the operations in the model tree.
 
 ![Mounting holes sketch](/img/docs/tutorials/upper-alignment-clamp-step6-sketch.png)
 
@@ -217,16 +292,19 @@ A circle of radius 7 is placed 13 units inset from one corner of the base. `mirr
 
 ```js
 sketch(e.endFaces(), () => {
-    move([120/2-13, -66/2+13])
-    circle(15)
-    mirror("x")
-    mirror("y")
+    const bore = circle([47, -20], 15);
+
+    fix(bore.center(), [47, -20]);
+    diameter(bore, 15);
+
+    const m = mirror("x", bore);
+    mirror("y", bore, m);
 }).name('Counterbore Sketch');
 
 cut(4).name('Counterbore')
 ```
 
-Larger circles (radius 15) at the same positions create the counterbore — a wider, shallow recess for bolt heads. `cut(4)` removes only 4 units of depth.
+Larger 15-diameter circles at the same positions create the counterbores — wider, shallow recesses for bolt heads. `cut(4)` removes only 4 units of depth.
 
 ![Finished upper alignment clamp](/img/docs/tutorials/upper-alignment-clamp-final.png)
 
@@ -238,15 +316,19 @@ Larger circles (radius 15) at the same positions create the counterbore — a wi
 
 ## What you practiced
 
-- **`rect().centered().radius()`** — creating a centered rectangle with rounded corners
-- **`.endFaces()`** — referencing the top face of an extrusion for follow-up sketches
-- **`cut()` + `repeat("mirror")`** — cutting and mirroring geometry across a plane
-- **`arc()` + `connect()`** — drawing a semicircular profile and closing it
+- **`sketch(plane, callback)`** — constraint sketches: geometry statements are guesses, constraint statements decide where everything lands
+- **`coincident` chains + `horizontal`/`vertical` + `fix` + `distance`** — closing an outline and pinning its shape, size, and place
+- **`fillet(radius, ...lines)`** — rounding the shared corners of a constrained outline
+- **`tangent(a, b)`** — smooth joints between coincident lines and arcs, and guesses choosing *which* tangent solution you get where the old qualifiers used to
+- **`arc(start, end, center).cw()`** — choosing an arc's sweep side explicitly
+- **`collinear(xAxis(), line)`** — constraining against the sketch's built-in datum axes
+- **`project(...).guide()`** — projecting model edges and faces in as fixed references, on both offset planes and faces
+- **`concentric` + `equal` against references** — sizing and placing profile arcs from reference geometry instead of repeated numbers
+- **`.ref(i)`** — picking one edge out of a multi-edge reference
+- **`.endFaces()` / `.startFaces()`** — sketching directly on the faces an operation produced
 - **`.symmetric()`** — extruding or cutting in both directions from the sketch plane
-- **`project().guide()`** — projecting existing edges as construction geometry
-- **`tLine()` with `outside` / `enclosing`** — drawing tangent lines with geometric constraints
-- **`tArc()`** — connecting tangent lines with smooth arcs
 - **`extrude().drill()`** — creating hollow extrusions
-- **`mirror()`** — mirroring geometry across a standard plane
-- **`mirror("x")` / `mirror("y")` in sketches** — mirroring sketch geometry to create symmetric patterns
+- **`cut()` + `repeat("mirror")`** — cutting and mirroring geometry across a plane
+- **`mirror("front")`** — mirroring 3D geometry across a standard plane
+- **`mirror("x", ...)` / `mirror("y", ...)` in sketches** — mirroring constrained sketch geometry into symmetric patterns
 - **`.name()`** — labeling operations in the model tree

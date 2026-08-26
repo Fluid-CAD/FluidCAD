@@ -5,13 +5,14 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import color from "../../core/color.js";
 import select from "../../core/select.js";
-import { rect } from "../../core/2d/index.js";
+import { } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Color } from "../../features/color.js";
 import { Extrude } from "../../features/extrude.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { countShapes } from "../utils.js";
 import { face } from "../../filters/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("color", () => {
   setupOC();
@@ -19,8 +20,8 @@ describe("color", () => {
   describe("apply color to face", () => {
     it("should apply a color to a selected face", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(face().onPlane("xy", 30));
@@ -37,8 +38,8 @@ describe("color", () => {
 
     it("should store the correct color value", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       const sel = select(face().onPlane("xy", 30)) as SelectSceneObject;
@@ -58,8 +59,8 @@ describe("color", () => {
   describe("color with explicit selection", () => {
     it("should color the explicitly passed selection", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       const sel = select(face().onPlane("xy")) as SelectSceneObject;
@@ -76,8 +77,8 @@ describe("color", () => {
   describe("color multiple faces", () => {
     it("should color multiple selected faces", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Select both top and bottom faces
@@ -97,8 +98,8 @@ describe("color", () => {
   describe("color without a selection", () => {
     it("should color every face in the current context", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       const c = color("red") as Color;
@@ -115,8 +116,8 @@ describe("color", () => {
 
     it("should match select(face()) followed by color()", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(face());
@@ -131,8 +132,8 @@ describe("color", () => {
       getSceneManager().startScene();
 
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       const implicit = color("red") as Color;
@@ -149,8 +150,8 @@ describe("color", () => {
   describe("color a whole scene object", () => {
     it("should color every face of the passed object", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30);
 
       const c = color("red", e) as Color;
@@ -166,8 +167,8 @@ describe("color", () => {
 
     it("should let a later face color override the object's base color", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as Extrude;
 
       color("steelblue", e);
@@ -185,8 +186,8 @@ describe("color", () => {
 
     it("should consume the object's solid rather than duplicate it", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30) as Extrude;
 
       color("red", e);
@@ -201,8 +202,8 @@ describe("color", () => {
   describe("color replaces original solid", () => {
     it("should produce a single solid in the scene", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       select(face().onPlane("xy", 30));
@@ -217,8 +218,8 @@ describe("color", () => {
   describe("color removes selection shapes", () => {
     it("should remove the face selection after coloring", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       const sel = select(face().onPlane("xy", 30)) as SelectSceneObject;

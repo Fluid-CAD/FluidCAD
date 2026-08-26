@@ -6,7 +6,7 @@ import shell from "../../core/shell.js";
 import fillet from "../../core/fillet.js";
 import rib from "../../core/rib.js";
 import plane from "../../core/plane.js";
-import { rect, circle, move, aLine, hLine, line } from "../../core/2d/index.js";
+import { circle, line } from "../../core/2d/index.js";
 import { Rib } from "../../features/rib.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
@@ -15,6 +15,8 @@ import { ISceneObject } from "../../core/interfaces.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Face } from "../../common/face.js";
 import { getOC } from "../../oc/init.js";
+import { horizontal } from "../../core/constraints/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 // Y span of the rib's start face (the spine-plane cap). Exact thickness
 // preservation lives on the start face by construction; the solid bbox
@@ -42,8 +44,8 @@ describe("rib", () => {
 
   function makeBox() {
     sketch("top", () => {
-      rect(100, 50).centered();
-    });
+        testRect(100, 50, { at: [-50, -25] });
+      });
     const box = extrude(30);
     const s = shell(-4, box.endFaces());
     return s as unknown as SceneObject;
@@ -54,9 +56,9 @@ describe("rib", () => {
       const s = makeBox();
 
       sketch("front", () => {
-        move([-20, 15]);
-        hLine(40);
-      });
+          const sg1 = line([-20, 15], [20, 15]);
+          horizontal(sg1);
+        });
 
       const r = rib(5).scope(s) as Rib;
       render();
@@ -69,9 +71,9 @@ describe("rib", () => {
       const s = makeBox();
 
       sketch("front", () => {
-        move([-20, 15]);
-        hLine(40);
-      });
+          const sg2 = line([-20, 15], [20, 15]);
+          horizontal(sg2);
+        });
 
       const r = rib(5).new().scope(s) as Rib;
       render();
@@ -87,9 +89,9 @@ describe("rib", () => {
       const s = makeBox();
 
       sketch("front", () => {
-        move([-20, 15]);
-        hLine(40);
-      });
+          const sg3 = line([-20, 15], [20, 15]);
+          horizontal(sg3);
+        });
 
       const r = rib(5).new().scope(s) as Rib;
       render();
@@ -112,9 +114,9 @@ describe("rib", () => {
       const s = makeBox();
 
       sketch("front", () => {
-        move([-20, 15]);
-        hLine(40);
-      });
+          const sg4 = line([-20, 15], [20, 15]);
+          horizontal(sg4);
+        });
 
       const r = rib(5).parallel().new().scope(s) as Rib;
       render();
@@ -127,9 +129,9 @@ describe("rib", () => {
       const s = makeBox();
 
       sketch("front", () => {
-        move([-20, 15]);
-        hLine(40);
-      });
+          const sg5 = line([-20, 15], [20, 15]);
+          horizontal(sg5);
+        });
 
       const r = rib(5).parallel().add().scope(s) as Rib;
       render();
@@ -142,9 +144,9 @@ describe("rib", () => {
       const s = makeBox();
 
       sketch("front", () => {
-        move([-40, 20]);
-        aLine(45, 20);
-      });
+          // legacy: move([-40, 20]); aLine(45, 20) — absolute 45° from +X
+          line([-40, 20], [-40 + 20 * Math.cos(Math.PI / 4), 20 + 20 * Math.sin(Math.PI / 4)]);
+        });
 
       const r = rib(5).parallel().new().scope(s) as Rib;
       render();
@@ -166,9 +168,9 @@ describe("rib", () => {
       const s = makeBox();
 
       sketch("front", () => {
-        move([-40, 20]);
-        aLine(45, 20);
-      });
+          // legacy: move([-40, 20]); aLine(45, 20) — absolute 45° from +X
+          line([-40, 20], [-40 + 20 * Math.cos(Math.PI / 4), 20 + 20 * Math.sin(Math.PI / 4)]);
+        });
 
       const r = rib(5).parallel().new().scope(s).extend() as Rib;
       render();
@@ -192,9 +194,9 @@ describe("rib", () => {
       const s = makeBox();
 
       sketch("front", () => {
-        move([-40, 20]);
-        aLine(45, 20);
-      });
+          // legacy: move([-40, 20]); aLine(45, 20) — absolute 45° from +X
+          line([-40, 20], [-40 + 20 * Math.cos(Math.PI / 4), 20 + 20 * Math.sin(Math.PI / 4)]);
+        });
 
       const r = rib(5).parallel().add().scope(s).extend() as Rib;
       render();
@@ -205,16 +207,16 @@ describe("rib", () => {
 
     it("extended rib with fillet on scope should blend through fillet", () => {
       sketch("top", () => {
-        rect(100, 50).centered();
-      });
+          testRect(100, 50, { at: [-50, -25] });
+        });
       const box = extrude(30);
       const shelled = shell(-4, box.endFaces());
       const s = fillet(2, shelled.internalEdges()) as SceneObject;
 
       sketch("front", () => {
-        move([-40, 20]);
-        aLine(-45, 20);
-      });
+          // legacy: move([-40, 20]); aLine(-45, 20) — absolute -45° from +X
+          line([-40, 20], [-40 + 20 * Math.cos(Math.PI / 4), 20 - 20 * Math.sin(Math.PI / 4)]);
+        });
 
       const r = rib(5).parallel().new().scope(s).extend() as Rib;
       render();
@@ -237,23 +239,23 @@ describe("rib", () => {
       // AND with the bottom fillets — the case the original ray-cast extend
       // could not handle.
       sketch("top", () => {
-        rect(100, 50).centered();
-      });
+          testRect(100, 50, { at: [-50, -25] });
+        });
       const box = extrude(30);
       const shelled = shell(-4, box.endFaces());
       let s = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
 
       sketch("top", () => {
-        circle(30);
-      });
+          circle([0, 0], 30);
+        });
       // Drafted cone — the geometry that defeats single-ray-cast extension.
       s = (extrude(50) as unknown as { draft: (v: number) => SceneObject })
         .draft(-5) as unknown as SceneObject;
 
       sketch("front", () => {
-        move([-40, 20]);
-        aLine(45, 20);
-      });
+          // legacy: move([-40, 20]); aLine(45, 20) — absolute 45° from +X
+          line([-40, 20], [-40 + 20 * Math.cos(Math.PI / 4), 20 + 20 * Math.sin(Math.PI / 4)]);
+        });
 
       const r = rib(5).parallel().extend() as Rib;
       render();
@@ -290,22 +292,22 @@ describe("rib", () => {
       // and the volume-equality check below would measure scope asymmetry rather
       // than flag propagation. A square box keeps the comparison about the flags.
       sketch("top", () => {
-        rect(100, 100).centered();
-      });
+          testRect(100, 100, { at: [-50, -50] });
+        });
       const box = extrude(30);
       const shelled = shell(-4, box.endFaces());
       let s = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
 
       sketch("top", () => {
-        circle(30);
-      });
+          circle([0, 0], 30);
+        });
       s = (extrude(50) as unknown as { draft: (v: number) => SceneObject })
         .draft(-5) as unknown as SceneObject;
 
       sketch("front", () => {
-        move([-40, 20]);
-        aLine(45, 20);
-      });
+          // legacy: move([-40, 20]); aLine(45, 20) — absolute 45° from +X
+          line([-40, 20], [-40 + 20 * Math.cos(Math.PI / 4), 20 + 20 * Math.sin(Math.PI / 4)]);
+        });
 
       const r = rib(5).parallel().new().scope(s).extend() as Rib;
 
@@ -354,8 +356,8 @@ describe("rib", () => {
       // correctly-mirrored rib is then congruent to the original reflected in
       // Y only — its X and Z position are unchanged.
       sketch("top", () => {
-        rect(100, 100).centered();
-      });
+          testRect(100, 100, { at: [-50, -50] });
+        });
       const box = extrude(60);
       const s = shell(-4, box.endFaces()) as unknown as SceneObject;
 
@@ -363,9 +365,9 @@ describe("rib", () => {
       // the XZ plane so that a flipped in-plane extrude direction would throw
       // the rib to a clearly different X/Z position.
       sketch(plane("front", 20), () => {
-        move([-30, 10]);
-        aLine(45, 25);
-      });
+          // legacy: move([-30, 10]); aLine(45, 25) — absolute 45° from +X
+          line([-30, 10], [-30 + 25 * Math.cos(Math.PI / 4), 10 + 25 * Math.sin(Math.PI / 4)]);
+        });
 
       const r = rib(5).parallel().new().scope(s).extend() as Rib;
 
@@ -414,9 +416,9 @@ describe("rib", () => {
       const s = makeBox();
 
       sketch("front", () => {
-        move([-40, 20]);
-        aLine(45, 20);
-      });
+          // legacy: move([-40, 20]); aLine(45, 20) — absolute 45° from +X
+          line([-40, 20], [-40 + 20 * Math.cos(Math.PI / 4), 20 + 20 * Math.sin(Math.PI / 4)]);
+        });
 
       const r = rib(5).parallel().new().scope(s).extend() as Rib;
       render();
@@ -444,16 +446,16 @@ describe("rib", () => {
       // Reported case: parallel rib with extend and a -5° draft on a shelled
       // box with filleted internals throws an OCC exception during build.
       sketch("top", () => {
-        rect(100, 50).centered();
-      });
+          testRect(100, 50, { at: [-50, -25] });
+        });
       const box = extrude(30);
       const shelled = shell(-4, box.endFaces());
       const s = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
 
       sketch("front", () => {
-        move([-40, 20]);
-        aLine(-45, 20);
-      });
+          // legacy: move([-40, 20]); aLine(-45, 20) — absolute -45° from +X
+          line([-40, 20], [-40 + 20 * Math.cos(Math.PI / 4), 20 - 20 * Math.sin(Math.PI / 4)]);
+        });
 
       const r = rib(5).parallel().new().scope(s).extend().draft(2) as Rib;
       render();
@@ -477,16 +479,16 @@ describe("rib", () => {
       // appear as visible "artifact seams" on the box's outer side and
       // bottom faces. UnifySameDomain on the fuse output unifies them.
       sketch("top", () => {
-        rect(100, 50).centered();
-      });
+          testRect(100, 50, { at: [-50, -25] });
+        });
       const box = extrude(30);
       const shelled = shell(-4, box.endFaces());
       const s = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
 
       sketch("front", () => {
-        move([-40, 20]);
-        aLine(-45, 20);
-      });
+          // legacy: move([-40, 20]); aLine(-45, 20) — absolute -45° from +X
+          line([-40, 20], [-40 + 20 * Math.cos(Math.PI / 4), 20 - 20 * Math.sin(Math.PI / 4)]);
+        });
 
       rib(5).parallel().scope(s).extend().draft(-5);
       render();
@@ -509,16 +511,17 @@ describe("rib", () => {
 
     it("parallel rib draft preserves the spine-plane thickness exactly (5mm @ 5°)", () => {
       sketch("top", () => {
-        rect(100, 50).centered();
-      });
+          testRect(100, 50, { at: [-50, -25] });
+        });
       const box = extrude(30);
       const shelled = shell(-4, box.endFaces());
       const filleted = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
 
       sketch("front", () => {
-        move([-40, 20]);
-        aLine(0, 30);
-      });
+          // legacy: move([-40, 20]); aLine(0, 30)
+          const spine = line([-40, 20], [-10, 20]);
+          horizontal(spine);
+        });
 
       const r = rib(5).parallel().draft(5).new().scope(filleted) as Rib;
       render();
@@ -538,16 +541,16 @@ describe("rib", () => {
       // solid that traced part of the cavity outer + bottom alongside
       // the actual rib.
       sketch("top", () => {
-        circle(80);
-      });
+          circle([0, 0], 80);
+        });
       const box = extrude(30);
       const shelled = shell(-4, box.endFaces());
       const filleted = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
 
       sketch("front", () => {
-        move([-40, 20]);
-        aLine(-45, 20);
-      });
+          // legacy: move([-40, 20]); aLine(-45, 20) — absolute -45° from +X
+          line([-40, 20], [-40 + 20 * Math.cos(Math.PI / 4), 20 - 20 * Math.sin(Math.PI / 4)]);
+        });
 
       const r = rib(5).parallel().extend().draft(3).new().scope(filleted) as Rib;
       render();
@@ -561,22 +564,22 @@ describe("rib", () => {
       const repeat = (repeatModule as { default: (...args: unknown[]) => SceneObject }).default;
 
       sketch("top", () => {
-        rect(100).centered();
-      });
+          testRect(100, 100, { at: [-50, -50] });
+        });
       const box = extrude(30);
       const shelled = shell(-4, box.endFaces());
       let s = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
 
       sketch("top", () => {
-        circle(30);
-      });
+          circle([0, 0], 30);
+        });
       s = (extrude(50) as unknown as { draft: (v: number) => SceneObject })
         .draft(-5) as unknown as SceneObject;
 
       sketch("front", () => {
-        move([-40, 20]);
-        aLine(45, 20);
-      });
+          // legacy: move([-40, 20]); aLine(45, 20) — absolute 45° from +X
+          line([-40, 20], [-40 + 20 * Math.cos(Math.PI / 4), 20 + 20 * Math.sin(Math.PI / 4)]);
+        });
 
       const r = rib(5).parallel().extend().new().scope(s).draft(-4) as Rib;
       repeat("circular", "z", { count: 4, angle: 360 }, r);
@@ -611,15 +614,16 @@ describe("rib", () => {
       // long side walls should taper. Currently OCC tilts every
       // non-first/last face that isn't excluded, so the cap drifts.
       sketch("top", () => {
-        rect(100, 50).centered();
-      });
+          testRect(100, 50, { at: [-50, -25] });
+        });
       const box = extrude(30);
       const shelled = shell(-4, box.endFaces());
       const filleted = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
 
       sketch(box.endFaces(), () => {
-        hLine([-50 + 4, 0], 30);
-      });
+          const sg6 = line([-46, 0], [-16, 0]);
+          horizontal(sg6);
+        });
 
       const r = rib(5).draft(2).new().scope(filleted) as Rib;
       render();
@@ -644,8 +648,8 @@ describe("rib", () => {
       // sets the start face on the spine plane by construction — drift
       // is zero.
       sketch("top", () => {
-        rect(7, 5).centered();
-      });
+          testRect(7, 5, { at: [-3.5, -2.5] });
+        });
       const box = extrude(-1.5);
       const shelled = shell(-0.25, box.endFaces());
       const filleted = fillet(0.5, shelled.internalEdges()) as unknown as SceneObject;
@@ -654,9 +658,9 @@ describe("rib", () => {
       // base profile face survives conformance and the bbox can be
       // measured against nominal thickness.
       sketch("front", () => {
-        move([-2, -1.0]);
-        hLine(0.5);
-      });
+          const sg7 = line([-2, -1], [-1.5, -1]);
+          horizontal(sg7);
+        });
 
       const r = rib(0.25).parallel().extend().draft(8).new().scope(filleted) as Rib;
       render();
@@ -678,15 +682,16 @@ describe("rib", () => {
       // positive draft, OCC's BRepOffsetAPI_DraftAngle fails because it
       // tries to tilt the rib's cap face that sits flush with the wall.
       sketch("top", () => {
-        rect(100, 50).centered();
-      });
+          testRect(100, 50, { at: [-50, -25] });
+        });
       const box = extrude(30);
       const shelled = shell(-4, box.endFaces());
       const filleted = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
 
       sketch(box.endFaces(), () => {
-        hLine([-50 + 4, 0], 30);
-      });
+          const sg8 = line([-46, 0], [-16, 0]);
+          horizontal(sg8);
+        });
 
       const r = rib(5).draft(1).new().scope(filleted) as Rib;
       render();
@@ -700,15 +705,16 @@ describe("rib", () => {
       // position (= -46) before AND after draft. Drafting it would push
       // it inward, leaving a gap between the rib and the wall.
       sketch("top", () => {
-        rect(100, 50).centered();
-      });
+          testRect(100, 50, { at: [-50, -25] });
+        });
       const box = extrude(30);
       const shelled = shell(-4, box.endFaces());
       const filleted = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
 
       sketch(box.endFaces(), () => {
-        hLine([-50 + 4, 0], 30);
-      });
+          const sg9 = line([-46, 0], [-16, 0]);
+          horizontal(sg9);
+        });
 
       const r = rib(5).draft(-1).new().scope(filleted) as Rib;
       render();
@@ -731,15 +737,16 @@ describe("rib", () => {
       // thin L-shaped sliver next to it. The sliver is a separate solid
       // that survives the spine-proximity filter.
       sketch("top", () => {
-        rect(100, 50).centered();
-      });
+          testRect(100, 50, { at: [-50, -25] });
+        });
       const box = extrude(30);
       const shelled = shell(-4, box.endFaces());
       const filleted = fillet(2, shelled.internalEdges()) as unknown as SceneObject;
 
       sketch(box.endFaces(), () => {
-        hLine([-50, 0], 30);
-      });
+          const sg10 = line([-50, 0], [-20, 0]);
+          horizontal(sg10);
+        });
 
       const r = rib(5).draft(4).new().scope(filleted) as Rib;
       render();
@@ -756,9 +763,9 @@ describe("rib", () => {
       const s = makeBox();
 
       sketch("front", () => {
-        move([-10, 15]);
-        hLine(20);
-      });
+          const sg11 = line([-10, 15], [10, 15]);
+          horizontal(sg11);
+        });
 
       const r = rib(5).parallel().new().scope(s) as Rib;
       render();
@@ -784,14 +791,14 @@ describe("rib", () => {
       const s = makeBox();
 
       sketch("top", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
       const cyl = extrude(50).new();
 
       sketch("front", () => {
-        move([-20, 15]);
-        hLine(40);
-      });
+          const sg12 = line([-20, 15], [20, 15]);
+          horizontal(sg12);
+        });
 
       const r = rib(5).new().scope(s) as Rib;
       render();

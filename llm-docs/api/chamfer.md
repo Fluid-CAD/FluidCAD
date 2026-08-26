@@ -30,9 +30,14 @@ styled rounds or stress-relief features.
 ## Example
 
 ```fluid.js
-import { chamfer, extrude, rect, sketch } from "fluidcad/core";
+import { chamfer, extrude, line, sketch } from "fluidcad/core";
 
-sketch("xy", () => rect(60, 40).centered());
+sketch("xy", () => {
+  line([-30, -20], [30, -20]);
+  line([30, -20], [30, 20]);
+  line([30, 20], [-30, 20]);
+  line([-30, 20], [-30, -20]);
+});
 const e = extrude(20);
 chamfer(2, e.endEdges());
 ```

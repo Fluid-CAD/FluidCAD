@@ -12,7 +12,7 @@ import { WireOps } from "../../oc/wire-ops.js";
 import { BuildError } from "../../common/build-error.js";
 import { GeometrySceneObject } from "./geometry.js";
 import { Plane } from "../../math/plane.js";
-import { Point } from "../../math/point.js";
+import { Point, Point2D } from "../../math/point.js";
 import { Vector3d } from "../../math/vector3d.js";
 
 const WEIGHT_NAMES: Record<string, number> = {
@@ -201,22 +201,10 @@ export class Text extends ExtrudableGeometryBase implements IText {
   private _flip = false;
   private _startAt = 0;
   private _pathPlane: Plane | null = null;
+  private _anchor: Point2D | null = null;
 
   constructor(public text: string, targetPlane: PlaneObjectBase = null, private path: SceneObject = null) {
     super(targetPlane);
-  }
-
-  override validate(): void {
-    super.validate();
-    // The anchored form draws at the sketch cursor — a pen concept with no
-    // meaning in a constraint sketch (it would silently land at the origin).
-    const sk = this.enclosingSketch();
-    if (sk?.isSolvedMode() && !this.path && !this.targetPlane) {
-      throw new BuildError(
-        "text() anchors at the sketch cursor, which does not exist in a constraint sketch.",
-        "Lay the text along a path instead: text(string, path).",
-      );
-    }
   }
 
   build(): void {
@@ -240,9 +228,12 @@ export class Text extends ExtrudableGeometryBase implements IText {
     const plane = this.targetPlane
       ? this.targetPlane.getPlane()
       : (this.getParent() as Sketch).getPlane();
-    const origin = this.targetPlane
-      ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
-      : this.getCurrentPosition();
+    // No pen exists since P7 — the anchored form draws at the plane origin
+    // (what the legacy cursor defaulted to) unless `.at([x, y])` places it.
+    const origin = this._anchor
+      ?? (this.targetPlane
+        ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
+        : new Point2D(0, 0));
 
     const font = FontRegistry.resolve({ font: this._font, weight: this._weight, italic: this._italic });
 
@@ -293,6 +284,15 @@ export class Text extends ExtrudableGeometryBase implements IText {
 
   size(value: number): this {
     this._size = value;
+    return this;
+  }
+
+  /** Places the text anchor at an explicit local position (default: the
+   * plane origin). Not applicable to text following a path. */
+  at(position: Point2D | [number, number]): this {
+    this._anchor = Array.isArray(position)
+      ? new Point2D(position[0], position[1])
+      : position;
     return this;
   }
 
@@ -379,6 +379,7 @@ export class Text extends ExtrudableGeometryBase implements IText {
     copy._pathOffset = this._pathOffset;
     copy._flip = this._flip;
     copy._startAt = this._startAt;
+    copy._anchor = this._anchor;
     return copy;
   }
 
@@ -411,7 +412,9 @@ export class Text extends ExtrudableGeometryBase implements IText {
       && this._letterSpacing === other._letterSpacing
       && this._pathOffset === other._pathOffset
       && this._flip === other._flip
-      && this._startAt === other._startAt;
+      && this._startAt === other._startAt
+      && (this._anchor?.x ?? null) === (other._anchor?.x ?? null)
+      && (this._anchor?.y ?? null) === (other._anchor?.y ?? null);
   }
 
   serialize() {

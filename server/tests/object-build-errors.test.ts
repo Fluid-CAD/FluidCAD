@@ -9,7 +9,7 @@ import { setupOC, render } from '../../lib/tests/setup.js';
 import sketch from '../../lib/core/sketch.js';
 import extrude from '../../lib/core/extrude.js';
 import shell from '../../lib/core/shell.js';
-import { rect } from '../../lib/core/2d/index.js';
+import { circle } from '../../lib/core/2d/index.js';
 import { face } from '../../lib/filters/index.js';
 import { Extrude } from '../../lib/features/extrude.js';
 import { FluidCadServer } from '../src/fluidcad-server.ts';
@@ -31,7 +31,7 @@ describe('FluidCadServer.collectObjectErrors', () => {
 
   it('reports a feature that failed to build during an otherwise fine render', () => {
     sketch('xy', () => {
-      rect(100, 100);
+      circle([0, 0], 100);
     });
     const e = extrude(50) as Extrude;
     // Lazy accessor selection that resolves to nothing — validate() can't see
@@ -53,7 +53,7 @@ describe('FluidCadServer.collectObjectErrors', () => {
 
   it('returns nothing for a scene that built cleanly', () => {
     sketch('xy', () => {
-      rect(100, 100);
+      circle([0, 0], 100);
     });
     extrude(50);
 

@@ -5,10 +5,11 @@ import extrude from "../../core/extrude.js";
 import select from "../../core/select.js";
 import cylinder from "../../core/cylinder.js";
 import fillet from "../../core/fillet.js";
-import { circle, move, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { face, edge } from "../../filters/index.js";
 import part from "../../core/part.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("select", () => {
   setupOC();
@@ -17,8 +18,8 @@ describe("select", () => {
     describe("onPlane / notOnPlane", () => {
       it("should select faces on a specific plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
 
         extrude(30);
 
@@ -34,8 +35,8 @@ describe("select", () => {
 
       it("should select faces on an offset plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         const sel = select(face().onPlane("xy", 30)) as SelectSceneObject;
@@ -48,8 +49,8 @@ describe("select", () => {
 
       it("should select faces NOT on a plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         const onXY = select(face().onPlane("xy")) as SelectSceneObject;
@@ -72,8 +73,8 @@ describe("select", () => {
     describe("parallelTo / notParallelTo", () => {
       it("should select faces parallel to a plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // Top and bottom faces are parallel to XY
@@ -87,8 +88,8 @@ describe("select", () => {
 
       it("should select faces not parallel to a plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // 4 side faces are not parallel to XY
@@ -104,9 +105,8 @@ describe("select", () => {
     describe("intersectsWith / notIntersectsWith", () => {
       it("should select faces that intersect with a plane", () => {
         sketch("xy", () => {
-          move([-50, -25]);
-          rect(100, 50);
-        });
+            testRect(100, 50, { at: [-50, -25] });
+          });
         extrude(30);
 
         // XZ plane (y=0) cuts through the centered box.
@@ -124,9 +124,8 @@ describe("select", () => {
 
       it("should select faces not intersecting with a plane", () => {
         sketch("xy", () => {
-          move([-50, -25]);
-          rect(100, 50);
-        });
+            testRect(100, 50, { at: [-50, -25] });
+          });
         extrude(30);
 
         const xzPlane = "xz" as const;
@@ -141,9 +140,8 @@ describe("select", () => {
 
       it("should have complementary results between intersectsWith and notIntersectsWith", () => {
         sketch("xy", () => {
-          move([-50, -25]);
-          rect(100, 50);
-        });
+            testRect(100, 50, { at: [-50, -25] });
+          });
         extrude(30);
 
         const xzPlane = "xz" as const;
@@ -320,8 +318,8 @@ describe("select", () => {
     describe("planar / notPlanar", () => {
       it("should select planar faces from a drafted extrusion", () => {
         sketch("xy", () => {
-          circle(60);
-        });
+            circle([0, 0], 60);
+          });
         extrude(50).draft(10);
 
         const sel = select(face().planar()) as SelectSceneObject;
@@ -335,8 +333,8 @@ describe("select", () => {
 
       it("should exclude planar faces", () => {
         sketch("xy", () => {
-          circle(60);
-        });
+            circle([0, 0], 60);
+          });
         extrude(50).draft(10);
 
         const sel = select(face().notPlanar()) as SelectSceneObject;
@@ -352,8 +350,8 @@ describe("select", () => {
     describe("cone / notCone", () => {
       it("should select conical faces from a drafted extrusion", () => {
         sketch("xy", () => {
-          circle(60);
-        });
+            circle([0, 0], 60);
+          });
         extrude(50).draft(10);
 
         const sel = select(face().cone()) as SelectSceneObject;
@@ -367,8 +365,8 @@ describe("select", () => {
 
       it("should select non-conical faces", () => {
         sketch("xy", () => {
-          circle(60);
-        });
+            circle([0, 0], 60);
+          });
         extrude(50).draft(10);
 
         const sel = select(face().notCone()) as SelectSceneObject;
@@ -384,8 +382,8 @@ describe("select", () => {
     describe("above / below", () => {
       it("should select faces entirely above a plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // Faces above z=15: only the top face (all verts at z=30) qualifies.
@@ -399,8 +397,8 @@ describe("select", () => {
 
       it("should select faces entirely below a plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // Faces below z=15: only the bottom face (all verts at z=0) qualifies.
@@ -413,8 +411,8 @@ describe("select", () => {
 
       it("should not match faces on the plane itself", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // Faces above z=0: bottom face is ON the plane (dist=0), not above.
@@ -428,8 +426,8 @@ describe("select", () => {
 
       it("should select partially above faces", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // partial: true — match faces with at least one vertex above z=0.
@@ -443,8 +441,8 @@ describe("select", () => {
 
       it("should select partially below faces", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // partial: true — match faces with at least one vertex below z=30.
@@ -458,8 +456,8 @@ describe("select", () => {
 
       it("should return empty when no faces match", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // Nothing is below z=0 on a box sitting on XY.
@@ -476,8 +474,8 @@ describe("select", () => {
     describe("onPlane / notOnPlane", () => {
       it("should select edges on a specific plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         const sel = select(edge().onPlane("xy")) as SelectSceneObject;
@@ -493,8 +491,8 @@ describe("select", () => {
 
       it("should select edges on an offset plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         const sel = select(edge().onPlane("xy", { offset: 30 })) as SelectSceneObject;
@@ -506,8 +504,8 @@ describe("select", () => {
 
       it("should select edges NOT on a plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // Box has 12 edges total, 4 on xy, 4 on xy+30, 4 vertical
@@ -520,8 +518,8 @@ describe("select", () => {
 
       it("should select edges on offset plane with bothDirections", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // Edges on z=15 or z=-15 — none exist on an extruded box
@@ -534,8 +532,8 @@ describe("select", () => {
 
       it("should select edges with partial match", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // partial: true matches edges with at least one vertex on the plane
@@ -549,8 +547,8 @@ describe("select", () => {
 
       it("should exclude edges with partial notOnPlane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // notOnPlane partial: true excludes edges where any vertex touches XY
@@ -566,8 +564,8 @@ describe("select", () => {
     describe("above / below", () => {
       it("should select edges entirely above a plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // Edges above z=10: the 4 top edges (z=30) have both vertices above
@@ -581,8 +579,8 @@ describe("select", () => {
 
       it("should select edges entirely below a plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // Edges below z=10: the 4 bottom edges (z=0) have both vertices below
@@ -595,8 +593,8 @@ describe("select", () => {
 
       it("should not match edges on the plane itself", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // Edges above z=0: bottom edges are ON the plane (dist=0), not above
@@ -610,8 +608,8 @@ describe("select", () => {
 
       it("should select partially above edges", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // partial: true — match edges where at least one vertex is above z=0
@@ -625,8 +623,8 @@ describe("select", () => {
 
       it("should select partially below edges", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // partial: true — match edges where at least one vertex is below z=30
@@ -640,8 +638,8 @@ describe("select", () => {
 
       it("should return empty when no edges match", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // Nothing is below z=0 on a box sitting on XY
@@ -656,8 +654,8 @@ describe("select", () => {
     describe("parallelTo / notParallelTo", () => {
       it("should select edges parallel to a plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // Edges parallel to XY = all horizontal edges (top + bottom = 8)
@@ -670,8 +668,8 @@ describe("select", () => {
 
       it("should select edges not parallel to a plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // 4 vertical edges are not parallel to XY
@@ -686,8 +684,8 @@ describe("select", () => {
     describe("verticalTo / notVerticalTo", () => {
       it("should select edges vertical to a plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // Vertical edges aligned with XY normal (Z direction) = 4
@@ -700,8 +698,8 @@ describe("select", () => {
 
       it("should select edges not vertical to a plane", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         // 8 horizontal edges
@@ -716,8 +714,8 @@ describe("select", () => {
     describe("line / notLine", () => {
       it("should select straight edges", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
         extrude(30);
 
         const sel = select(edge().line()) as SelectSceneObject;
@@ -766,8 +764,8 @@ describe("select", () => {
   describe("AND logic (chained filters)", () => {
     it("should match faces satisfying all chained filters", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Parallel to XY AND on plane at z=30 → just the top face
@@ -791,8 +789,8 @@ describe("select", () => {
 
     it("should chain edge filters with AND logic", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Lines on the bottom face (z=0)
@@ -818,8 +816,8 @@ describe("select", () => {
 
     it("should select faces that have line edges", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // All 6 faces of a box have line edges
@@ -832,8 +830,8 @@ describe("select", () => {
 
     it("should select faces with multiple edge criteria (AND)", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Faces that have both a line edge on XY AND a line edge on XY offset 30
@@ -847,8 +845,8 @@ describe("select", () => {
 
     it("should select faces with vertical and horizontal edges", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Side faces have both vertical and horizontal edges
@@ -873,8 +871,8 @@ describe("select", () => {
 
     it("should exclude faces with notHasEdge", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Exclude faces that have vertical edges → only top and bottom faces remain
@@ -887,8 +885,8 @@ describe("select", () => {
 
     it("should have complementary results between hasEdge and notHasEdge", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Side faces have vertical edges, top/bottom do not
@@ -919,8 +917,8 @@ describe("select", () => {
 
     it("should exclude faces with notHasEdge using a scene object", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       const bottomEdges = select(edge().belongsToFace(face().onPlane("xy")));
@@ -959,8 +957,8 @@ describe("select", () => {
 
     it("should combine edge filters with OR logic", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Edges on bottom OR edges on top
@@ -973,8 +971,8 @@ describe("select", () => {
 
     it("should combine AND within OR", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // (parallel to XY AND on z=0) OR (vertical edges)
@@ -1005,8 +1003,8 @@ describe("select", () => {
 
     it("should select edges belonging to faces on a specific plane", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Bottom face (on XY) has 4 edges
@@ -1019,8 +1017,8 @@ describe("select", () => {
 
     it("should select edges belonging to faces on offset plane", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Top face (on XY offset 30) has 4 edges
@@ -1033,8 +1031,8 @@ describe("select", () => {
 
     it("should select edges with multiple face criteria (AND)", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Edges belonging to a face that is both parallel to XY AND on the bottom plane
@@ -1048,8 +1046,8 @@ describe("select", () => {
 
     it("should select edges with multiple face filter builders (AND across builders)", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Edges that belong to a face on XY AND also belong to a face NOT parallel to XY
@@ -1064,8 +1062,8 @@ describe("select", () => {
 
     it("should combine belongsToFace with other edge filters", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Line edges that belong to faces parallel to XY (top and bottom)
@@ -1116,8 +1114,8 @@ describe("select", () => {
 
     it("should have complementary results between belongsToFace and notBelongsToFace", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Edges belonging to the bottom face vs edges NOT belonging to the bottom face
@@ -1153,8 +1151,8 @@ describe("select", () => {
 
     it("should select all edges when face filter matches all faces", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Every edge belongs to at least one face that has line edges (all 6 faces of a box)
@@ -1168,8 +1166,8 @@ describe("select", () => {
 
     it("should use OR logic with multiple builders", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       extrude(30);
 
       // Edges on bottom face OR edges on top face
@@ -1213,8 +1211,10 @@ describe("select", () => {
     describe("face withTangents", () => {
       it("should expand to tangent side faces but not perpendicular top/bottom", () => {
         sketch("xy", () => {
-          rect(200, 100).radius(10);
-        });
+            // legacy rect(200, 100).radius(10) — rounded rect via fillet2d
+            testRect(200, 100);
+            fillet(10);
+          });
 
         extrude(50);
 
@@ -1241,8 +1241,8 @@ describe("select", () => {
 
       it("should not expand when no tangent neighbors exist (sharp box)", () => {
         sketch("xy", () => {
-          rect(100, 50);
-        });
+            testRect(100, 50);
+          });
 
         extrude(30);
 
@@ -1259,8 +1259,10 @@ describe("select", () => {
     describe("edge withTangents", () => {
       it("should expand to tangent edges along a filleted box bottom", () => {
         sketch("xy", () => {
-          rect(200, 100).radius(10);
-        });
+            // legacy rect(200, 100).radius(10) — rounded rect via fillet2d
+            testRect(200, 100);
+            fillet(10);
+          });
 
         extrude(50);
 

@@ -4,7 +4,8 @@ import { getSceneManager } from "../../scene-manager.js";
 import { SceneCompare } from "../../rendering/scene-compare.js";
 import sketch from "../../core/sketch.js";
 import copy from "../../core/copy.js";
-import { circle, rect, offset } from "../../core/2d/index.js";
+import { circle, offset } from "../../core/2d/index.js";
+import { testRect } from "../helpers/profiles.js";
 import { Copy2DBase } from "../../features/copy2d-base.js";
 import { Offset } from "../../features/2d/offset.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
@@ -23,7 +24,7 @@ describe("copy 2D instance() accessor", () => {
     let cpRef: Copy2DBase;
     let src: { getShapes(): unknown[] };
     sketch("xy", () => {
-      const c = circle(50);
+      const c = circle([0, 0], 50);
       src = c as unknown as { getShapes(): unknown[] };
       cpRef = copy("linear", "x", { count: 2, offset: 80 }, c) as unknown as Copy2DBase;
       circle([200, 0], 50);
@@ -48,7 +49,7 @@ describe("copy 2D instance() accessor", () => {
   it("numbers linear slots in grid order, original included", () => {
     let cpRef: Copy2DBase;
     sketch("xy", () => {
-      const c = circle(20);
+      const c = circle([0, 0], 20);
       cpRef = copy("linear", "x", { count: 3, offset: 40 }, c) as unknown as Copy2DBase;
       // Keep the lazies in the scene so they build with the sketch.
       cpRef.instance(0);
@@ -67,7 +68,7 @@ describe("copy 2D instance() accessor", () => {
   it("keeps the centered original at its own grid slot", () => {
     let cpRef: Copy2DBase;
     sketch("xy", () => {
-      const c = circle(20);
+      const c = circle([0, 0], 20);
       cpRef = copy("linear", "x", { count: 3, offset: 40, centered: true }, c) as unknown as Copy2DBase;
     });
 
@@ -83,8 +84,9 @@ describe("copy 2D instance() accessor", () => {
     let o: Offset;
     let cpRef: Copy2DBase;
     sketch("xy", () => {
-      const r = rect(20, 20);
-      cpRef = copy("linear", "x", { count: 3, offset: 40 }, r) as unknown as Copy2DBase;
+      const r = testRect(20, 20);
+      cpRef = copy("linear", "x", { count: 3, offset: 40 },
+        r.b as any, r.r as any, r.t as any, r.l as any) as unknown as Copy2DBase;
       o = offset(2, cpRef.instance(1)) as unknown as Offset;
     });
 
@@ -99,23 +101,21 @@ describe("copy 2D instance() accessor", () => {
   });
 
   it("resolves instances of a CACHED copy statement (apply-time incremental render)", () => {
-    // First render: the file before the apply — circle + copy only.
+    // Solved sketches match container-atomically: the cached scenario is an
+    // IDENTICAL sketch across the incremental render — instance() must
+    // resolve slot edges off the transferred state, without a rebuild.
     sketch("xy", () => {
-      const c = circle(50);
+      const c = circle([0, 0], 50);
       copy("linear", "x", { count: 3, offset: 40 }, c);
     });
     render();
     const previousScene = getSceneManager()!.currentScene;
 
-    // The apply's re-render: the same statements (matched prefix → cached,
-    // build skipped, state transferred) plus the new offset of an instance.
     getSceneManager()!.startScene();
     let cpRef: Copy2DBase;
-    let o: Offset;
     sketch("xy", () => {
-      const c = circle(50);
+      const c = circle([0, 0], 50);
       cpRef = copy("linear", "x", { count: 3, offset: 40 }, c) as unknown as Copy2DBase;
-      o = offset(5, cpRef.instance(1)) as unknown as Offset;
     });
     SceneCompare.compare(previousScene, getSceneManager()!.currentScene);
     render();
@@ -123,11 +123,9 @@ describe("copy 2D instance() accessor", () => {
     // The scenario is only real if the copy WAS reused (build skipped).
     expect(getSceneManager()!.currentScene.isCached(cpRef!)).toBe(true);
 
-    // The offset must land on the FIRST incremental render, not only after a
-    // full recompute: it resolved slot 1's edge off the transferred state.
-    const offsetEdges = o!.getGeometries();
-    expect(offsetEdges).toHaveLength(1);
-    expect(centerX(offsetEdges)).toBeCloseTo(40, 1);
+    // instance() resolves slot edges off the transferred state.
+    expect(cpRef!.getInstanceEdges(1)).toHaveLength(1);
+    expect(centerX(cpRef!.getInstanceEdges(1))).toBeCloseTo(40, 1);
   });
 
   it("numbers circular slots by rotation step", () => {

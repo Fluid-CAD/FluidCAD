@@ -17,18 +17,13 @@ import {
   setPickPoints,
   insertGeometryCallWithVariable,
   insertLoadCall,
-  updateGeometryPosition,
-  setLinePosition,
-  setChainPositions,
   updateSketchPositions,
   type SketchPositionEdit,
   updateDimension,
   updateDimensionExpressionWithVariable,
   getDimensionExpression,
   getPointExpression,
-  updatePointExpressionWithVariable,
   extractVariablesInScope,
-  setRectDimensions,
 } from '../code-editor.ts';
 import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
@@ -290,61 +285,6 @@ export function createSketchEditsRouter(
     res.json({ success: true });
   });
 
-  router.post('/update-position', (req, res) => {
-    const { newPosition, sourceLocation, pointIndex, oldPosition } = req.body;
-    if (
-      !Array.isArray(newPosition) || newPosition.length !== 2 ||
-      !sourceLocation || typeof sourceLocation.line !== 'number'
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    sendToExtension({
-      type: 'update-position',
-      newPosition: newPosition as [number, number],
-      sourceLocation,
-      pointIndex: typeof pointIndex === 'number' ? pointIndex : undefined,
-      oldPosition: validPoint(oldPosition),
-    });
-    res.json({ success: true });
-  });
-
-  router.post('/set-line-position', (req, res) => {
-    const { newStart, newEnd, sourceLocation } = req.body;
-    if (
-      !Array.isArray(newStart) || newStart.length !== 2 ||
-      !Array.isArray(newEnd) || newEnd.length !== 2 ||
-      !sourceLocation || typeof sourceLocation.line !== 'number'
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    sendToExtension({
-      type: 'set-line-position',
-      newStart: newStart as [number, number],
-      newEnd: newEnd as [number, number],
-      sourceLocation,
-    });
-    res.json({ success: true });
-  });
-
-  router.post('/set-chain-positions', (req, res) => {
-    const { updates, sourceLocation } = req.body;
-    if (
-      !Array.isArray(updates) || updates.length === 0 ||
-      !sourceLocation || typeof sourceLocation.line !== 'number'
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    sendToExtension({
-      type: 'set-chain-positions',
-      updates,
-      sourceLocation,
-    });
-    res.json({ success: true });
-  });
-
   // Solved-sketch batch write-back (sketch-rewrite P4): every drifted literal
   // across multiple statements in one edit (one undo step). Unlike the legacy
   // fire-and-forget position routes this one answers with the edit's true
@@ -414,7 +354,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/update-dimension-expression', (req, res) => {
-    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset, dimensionCall, dimensionInsert, dimensionPoint } = req.body;
+    const { expression, sourceLocation, sketchSourceLine, newVariable, dimensionOffset } = req.body;
     if (
       typeof expression !== 'string' ||
       !sourceLocation || typeof sourceLocation.line !== 'number'
@@ -438,61 +378,6 @@ export function createSketchEditsRouter(
       sketchSourceLine: typeof sketchSourceLine === 'number' ? sketchSourceLine : null,
       newVariable: nv,
       dimensionOffset: typeof dimensionOffset === 'number' ? dimensionOffset : 0,
-      dimensionCall: typeof dimensionCall === 'string' ? dimensionCall : null,
-      dimensionInsert: dimensionInsert === true,
-      dimensionPoint: validPoint(dimensionPoint),
-    });
-    res.json({ success: true });
-  });
-
-  router.post('/update-point-expression', (req, res) => {
-    const { xExpr, yExpr, sourceLocation, sketchSourceLine, newVariable, pointIndex, oldPosition } = req.body;
-    if (
-      typeof xExpr !== 'string' || typeof yExpr !== 'string' ||
-      !sourceLocation || typeof sourceLocation.line !== 'number'
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    const nv = validateNewVariable(newVariable);
-    if (nv === false) {
-      res.status(400).json({ error: 'Invalid newVariable' });
-      return;
-    }
-    if (nv && typeof sketchSourceLine !== 'number') {
-      res.status(400).json({ error: 'sketchSourceLine required when newVariable is provided' });
-      return;
-    }
-    sendToExtension({
-      type: 'update-point-expression',
-      xExpr,
-      yExpr,
-      sourceLocation,
-      sketchSourceLine: typeof sketchSourceLine === 'number' ? sketchSourceLine : null,
-      newVariable: nv,
-      pointIndex: typeof pointIndex === 'number' ? pointIndex : 0,
-      oldPosition: validPoint(oldPosition),
-    });
-    res.json({ success: true });
-  });
-
-  router.post('/set-rect-dimensions', (req, res) => {
-    const { startPoint, width, height, sourceLocation, oldStartPoint } = req.body;
-    if (
-      typeof width !== 'number' || typeof height !== 'number' ||
-      !sourceLocation || typeof sourceLocation.line !== 'number'
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    const sp = Array.isArray(startPoint) && startPoint.length === 2 ? startPoint as [number, number] : null;
-    sendToExtension({
-      type: 'set-rect-dimensions',
-      startPoint: sp,
-      width,
-      height,
-      sourceLocation,
-      oldStartPoint: validPoint(oldStartPoint),
     });
     res.json({ success: true });
   });
@@ -853,66 +738,6 @@ export function createSketchEditsRouter(
     }
   });
 
-  router.post('/code/update-position', async (req, res) => {
-    const { code, sourceLine, newPosition, pointIndex, oldPosition } = req.body;
-    if (
-      typeof code !== 'string' || typeof sourceLine !== 'number' ||
-      !Array.isArray(newPosition) || newPosition.length !== 2
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    try {
-      const result = await updateGeometryPosition(
-        code, sourceLine, newPosition as [number, number],
-        typeof pointIndex === 'number' ? pointIndex : 0,
-        validPoint(oldPosition),
-      );
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
-    }
-  });
-
-  router.post('/code/set-line-position', async (req, res) => {
-    const { code, sourceLine, newStart, newEnd } = req.body;
-    if (
-      typeof code !== 'string' || typeof sourceLine !== 'number' ||
-      !Array.isArray(newStart) || newStart.length !== 2 ||
-      !Array.isArray(newEnd) || newEnd.length !== 2
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    try {
-      const result = await setLinePosition(
-        code, sourceLine,
-        newStart as [number, number],
-        newEnd as [number, number],
-      );
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
-    }
-  });
-
-  router.post('/code/set-chain-positions', async (req, res) => {
-    const { code, sourceLine, updates } = req.body;
-    if (
-      typeof code !== 'string' || typeof sourceLine !== 'number' ||
-      !Array.isArray(updates) || updates.length === 0
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    try {
-      const result = await setChainPositions(code, sourceLine, updates);
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
-    }
-  });
-
   router.post('/code/update-sketch-positions', async (req, res) => {
     const { code, edits } = req.body ?? {};
     if (typeof code !== 'string' || !Array.isArray(edits) || edits.length === 0) {
@@ -954,7 +779,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/code/update-dimension-expression', async (req, res) => {
-    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset, dimensionCall, dimensionInsert, dimensionPoint } = req.body;
+    const { code, sourceLine, expression, sketchSourceLine, newVariable, dimensionOffset } = req.body;
     if (
       typeof code !== 'string' || typeof sourceLine !== 'number' ||
       typeof expression !== 'string'
@@ -978,61 +803,6 @@ export function createSketchEditsRouter(
         typeof sketchSourceLine === 'number' ? sketchSourceLine : sourceLine,
         nv,
         offset,
-        typeof dimensionCall === 'string' ? dimensionCall : null,
-        dimensionInsert === true,
-        validPoint(dimensionPoint),
-      );
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
-    }
-  });
-
-  router.post('/code/update-point-expression', async (req, res) => {
-    const { code, sourceLine, xExpr, yExpr, sketchSourceLine, newVariable, pointIndex, oldPosition } = req.body;
-    if (
-      typeof code !== 'string' || typeof sourceLine !== 'number' ||
-      typeof xExpr !== 'string' || typeof yExpr !== 'string'
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    const nv = validateNewVariable(newVariable);
-    if (nv === false) {
-      res.status(400).json({ error: 'Invalid newVariable' });
-      return;
-    }
-    if (nv && typeof sketchSourceLine !== 'number') {
-      res.status(400).json({ error: 'sketchSourceLine required when newVariable is provided' });
-      return;
-    }
-    try {
-      const result = await updatePointExpressionWithVariable(
-        code, sourceLine, xExpr, yExpr,
-        typeof sketchSourceLine === 'number' ? sketchSourceLine : sourceLine,
-        nv,
-        typeof pointIndex === 'number' ? pointIndex : 0,
-        validPoint(oldPosition),
-      );
-      res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message || String(err) });
-    }
-  });
-
-  router.post('/code/set-rect-dimensions', async (req, res) => {
-    const { code, sourceLine, startPoint, width, height, oldStartPoint } = req.body;
-    if (
-      typeof code !== 'string' || typeof sourceLine !== 'number' ||
-      typeof width !== 'number' || typeof height !== 'number'
-    ) {
-      res.status(400).json({ error: 'Invalid request body' });
-      return;
-    }
-    const sp = Array.isArray(startPoint) && startPoint.length === 2 ? startPoint as [number, number] : null;
-    try {
-      const result = await setRectDimensions(
-        code, sourceLine, sp, width, height, validPoint(oldStartPoint),
       );
       res.json(result);
     } catch (err: any) {

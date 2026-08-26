@@ -26,9 +26,14 @@ For draft applied during the pull itself, reach for
 ## Example
 
 ```fluid.js
-import { draft, extrude, rect, sketch } from "fluidcad/core";
+import { draft, extrude, line, sketch } from "fluidcad/core";
 
-sketch("xy", () => rect(80, 50).centered());
+sketch("xy", () => {
+  line([-40, -25], [40, -25]);
+  line([40, -25], [40, 25]);
+  line([40, 25], [-40, 25]);
+  line([-40, 25], [-40, -25]);
+});
 const e = extrude(30);
 draft(5, e.sideFaces());
 ```

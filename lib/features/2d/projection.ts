@@ -151,10 +151,6 @@ export class Projection extends ExtrudableGeometryBase {
     if (this.targetPlane) {
       this.targetPlane.removeShapes(this);
     }
-
-    if (this.sketch && !this.sketch.isSolvedMode()) {
-      this.setCurrentPosition(this.getCurrentPosition());
-    }
   }
 
   /** The projected source selections, for edit-dialog seeding. */

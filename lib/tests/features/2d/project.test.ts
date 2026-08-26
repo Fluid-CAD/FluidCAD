@@ -4,9 +4,10 @@ import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import select from "../../../core/select.js";
 import { face } from "../../../filters/index.js";
-import { project, rect } from "../../../core/2d/index.js";
+import { project } from "../../../core/2d/index.js";
 import { Extrude } from "../../../features/extrude.js";
 import { Sketch } from "../../../features/2d/sketch.js";
+import { testRect } from "../../helpers/profiles.js";
 
 describe("project", () => {
   setupOC();
@@ -14,8 +15,8 @@ describe("project", () => {
   describe("project 3D shape onto sketch plane", () => {
     it("should project a box onto the current sketch plane", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
 
@@ -33,8 +34,8 @@ describe("project", () => {
       // The exact argument shape the Project sketch tool synthesizes: one
       // accessor per picked bucket, faces and edges side by side.
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const e = extrude(30) as Extrude;
 
@@ -53,8 +54,8 @@ describe("project", () => {
       // transform lifts it to a const BEFORE the sketch. This is the shape it
       // emits: a working projection needs the select outside the callback.
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       extrude(30);
 

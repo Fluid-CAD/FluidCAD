@@ -15,13 +15,12 @@ import {
   renderRevolveStatement, renderRibStatement,
   renderSelectorPartExpr, renderShellJoinChain, renderSweepStatement, renderWrapStatement, resolveParamValues,
   resolveSketchNames, validCountValue, validValueExpr,
-  renderAlineStatement,
-  renderChamferValueArgs, renderConnectorChain, renderFaceTargetExpr, renderOffsetStatement, renderRotate2DStatement, renderSlotStatement, renderTarcStatement,
+  renderChamferValueArgs, renderConnectorChain, renderFaceTargetExpr, renderOffsetStatement, renderRotate2DStatement,
   renderTextStatement, type TextStatementOptions, validConnectorAnchor, validConnectorRotate,
   resolvePartBindingIdent,
   type ApplyFeatureEditSpec, type BooleanEditOptions, type BooleanKind, type ChamferEditOptions,
   type ConnectorAnchorSpec, type CopyEditOptions,
-  type OffsetEditOptions, type Rotate2DEditOptions, type SlotEditOptions,
+  type OffsetEditOptions, type Rotate2DEditOptions,
   type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
   type HelixEditOptions,
   type HelixSourceSpec, type LoftEditOptions,
@@ -35,8 +34,6 @@ import { readFile } from 'fs/promises';
 import { relativeSpecifier } from './part-catalog.ts';
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
-import { CHAIN_CALLEES } from '../segment-swap.ts';
-import { findEditableCallAt, getJavaScriptParser, isExpressionText, splitLines } from '../code-editor.ts';
 import {
   applySolvedEmission,
   type SolvedConstraintEmission,
@@ -191,21 +188,6 @@ function validateOffsetOptions(body: any): { options: OffsetEditOptions } | { er
   return { options: { close } };
 }
 
-/**
- * The slot-from-edge toggle, riding a create or edit request: absent reads as
- * on (the kernel's `deleteSource` default), so a caller that knows nothing
- * about it keeps the plain `slot(g, r)` form. `close` belongs to offset only.
- */
-function validateSlotOptions(body: any): { options: SlotEditOptions } | { error: string } {
-  const removeOriginal = body?.removeOriginal ?? true;
-  if (typeof removeOriginal !== 'boolean') {
-    return { error: 'removeOriginal must be a boolean' };
-  }
-  if (body?.close !== undefined) {
-    return { error: 'close only applies to offset' };
-  }
-  return { options: { removeOriginal } };
-}
 
 /**
  * The in-sketch rotate's payload, riding a create request: the rotation
@@ -2009,8 +1991,7 @@ async function allocateProducerVars(
   });
 }
 
-/** Features whose statements the dialogs can rewrite in place. (Slot is
- * create-only: its edit dialog was removed, so slot edit requests refuse.) */
+/** Features whose statements the dialogs can rewrite in place. */
 const EDITABLE_FEATURES = new Set(['extrude', 'sweep', 'loft', 'shell', 'fillet', 'chamfer', 'revolve', 'text', 'wrap', 'sketch', 'repeat', 'copy', 'mirror', 'rotate', 'boolean', 'helix', 'plane', 'offset', 'project', 'rib', 'connector']);
 
 /** One edited loft profile as the request carries it. */
@@ -5889,7 +5870,7 @@ export function createApplyFeatureRouter(
             featureType: 'plane', nameHint: 'p', bind: true,
           }];
           const producerVars = await allocateProducerVars(producers, fluidCadServer.getCurrentCode());
-          const statement = `sketch(${producerVars[0] ?? 'p'}, () => {\n\n}, true)`;
+          const statement = `sketch(${producerVars[0] ?? 'p'}, () => {\n\n})`;
           if (preview === true) {
             res.json({ success: true, preview: statement, args: '' });
             return;
@@ -5908,7 +5889,7 @@ export function createApplyFeatureRouter(
         res.status(404).json({ success: false, reason: 'No rendered scene' });
         return;
       }
-      const statement = `sketch(${plane ? `'${plane}', ` : ''}() => {\n\n}, true)`;
+      const statement = `sketch(${plane ? `'${plane}', ` : ''}() => {\n\n})`;
       if (preview === true) {
         res.json({ success: true, preview: statement, args: '' });
         return;
@@ -6186,9 +6167,9 @@ export function createApplyFeatureRouter(
         res.status(400).json({ error: 'sketchEntities must be a non-empty array of {shapeId} picks' });
         return;
       }
-      if (feature !== 'fillet' && feature !== 'offset' && feature !== 'slot' && feature !== 'tarc'
-        && feature !== 'aline' && feature !== 'text' && feature !== 'copy' && feature !== 'rotate2d') {
-        res.status(400).json({ error: 'feature must be "fillet", "offset", "slot", "tarc", "aline", "text", "copy" or "rotate2d" for sketch-edge selections' });
+      if (feature !== 'fillet' && feature !== 'offset'
+        && feature !== 'text' && feature !== 'copy' && feature !== 'rotate2d') {
+        res.status(400).json({ error: 'feature must be "fillet", "offset", "text", "copy" or "rotate2d" for sketch-edge selections' });
         return;
       }
       // The 2D copy: whole-geometry targets rendered as bare variables plus
@@ -6310,55 +6291,18 @@ export function createApplyFeatureRouter(
       // Text carries no numeric parameter (it rides its full option payload
       // instead).
       const sketchValueless = feature === 'text';
-      // Fillet and slot need a positive radius; offset allows a negative
+      // Fillet needs a positive radius; offset allows a negative
       // distance (the inward idiom) but not zero.
-      if ((feature === 'fillet' || feature === 'slot') && !validValueExpr(value, { positive: true })) {
+      if (feature === 'fillet' && !validValueExpr(value, { positive: true })) {
         res.status(400).json({ error: 'value must be a positive number or expression' });
         return;
       }
-      // tArc retarget (an end-drag snapped onto an edge): rewrite the tArc
-      // statement at `line` in place instead of inserting a new one. The
-      // radius argument is preserved from the statement, so no value rides.
-      let tarcRetarget: { line: number; sign: 1 | -1 } | undefined;
-      if (req.body?.tarcRetarget !== undefined) {
-        if (feature !== 'tarc') {
-          res.status(400).json({ error: 'tarcRetarget only applies to tarc' });
-          return;
-        }
-        const rt = req.body.tarcRetarget;
-        if (!rt || !Number.isInteger(rt.line) || (rt.sign !== 1 && rt.sign !== -1)) {
-          res.status(400).json({ error: 'tarcRetarget must be {line, sign: 1 | -1}' });
-          return;
-        }
-        tarcRetarget = { line: rt.line, sign: rt.sign };
-      }
-      // tArc's signed radius allows negative (flips the sweep direction) but
-      // not zero, like offset's distance; a rotate angle is signed too.
-      if ((feature === 'offset' || feature === 'rotate2d' || (feature === 'tarc' && !tarcRetarget))
+      // Offset's distance allows negative (the inward idiom) but not zero; a
+      // rotate angle is signed too.
+      if ((feature === 'offset' || feature === 'rotate2d')
         && !validValueExpr(value, { nonzero: true })) {
         res.status(400).json({ error: 'value must be a nonzero number or expression' });
         return;
-      }
-      // aLine's angle allows any finite value — zero aims straight along the
-      // chain tangent (or +X for an explicit start).
-      if (feature === 'aline' && !validValueExpr(value)) {
-        res.status(400).json({ error: 'value must be a number or expression' });
-        return;
-      }
-      // aLine's optional explicit start point: the polyline tool opens a
-      // chain away from the sketch cursor, so the appended statement must
-      // carry the address itself — `aLine([10, 5], 30, l)`.
-      let alineStart: string | undefined;
-      if (req.body?.alineStart !== undefined) {
-        if (feature !== 'aline') {
-          res.status(400).json({ error: 'alineStart only applies to aline' });
-          return;
-        }
-        if (!isExpressionText(req.body.alineStart)) {
-          res.status(400).json({ error: 'alineStart must be a point argument (e.g. "[10, 5]")' });
-          return;
-        }
-        alineStart = req.body.alineStart.trim();
       }
       // Text-on-path: the dialog's full option payload rides the body; the
       // synthesized bare variable becomes the statement's path argument.
@@ -6371,10 +6315,8 @@ export function createApplyFeatureRouter(
         }
         textOptions = parsed.options;
       }
-      // Offset's dialog toggle: `.close()`. Slot's single toggle: the
-      // trailing `deleteSource` argument.
+      // Offset's dialog toggle: `.close()`.
       let offsetOptions: OffsetEditOptions | undefined;
-      let slotOptions: SlotEditOptions | undefined;
       if (feature === 'offset') {
         const parsed = validateOffsetOptions(req.body);
         if ('error' in parsed) {
@@ -6382,15 +6324,8 @@ export function createApplyFeatureRouter(
           return;
         }
         offsetOptions = parsed.options;
-      } else if (feature === 'slot') {
-        const parsed = validateSlotOptions(req.body);
-        if ('error' in parsed) {
-          res.status(400).json({ error: parsed.error });
-          return;
-        }
-        slotOptions = parsed.options;
       } else if (req.body?.removeOriginal !== undefined || req.body?.close !== undefined) {
-        res.status(400).json({ error: 'removeOriginal and close only apply to offset and slot' });
+        res.status(400).json({ error: 'close only applies to offset' });
         return;
       }
       // The in-sketch rotate's payload: the center point and the copy flag.
@@ -6404,10 +6339,6 @@ export function createApplyFeatureRouter(
         rotate2dOptions = parsed.options;
       } else if (req.body?.rotate2d !== undefined) {
         res.status(400).json({ error: 'rotate2d only applies to the rotate2d feature' });
-        return;
-      }
-      if (req.body?.sketchToolEntities !== undefined) {
-        res.status(400).json({ error: 'sketchToolEntities is no longer supported — 2D booleans were removed' });
         return;
       }
       if (selectorOverride !== undefined
@@ -6425,12 +6356,11 @@ export function createApplyFeatureRouter(
               fluidCadServer.getParamDefinitions(),
             ),
             offset: offsetOptions,
-            slot: slotOptions,
             rotate2d: rotate2dOptions,
           }
-          : { offset: offsetOptions, slot: slotOptions, rotate2d: rotate2dOptions };
+          : { offset: offsetOptions, rotate2d: rotate2dOptions };
         const synthesis = fluidCadServer.synthesizeSketchApplyFeature(
-          sketchPicks, feature, sketchValueless || tarcRetarget ? undefined : value, options,
+          sketchPicks, feature, sketchValueless ? undefined : value, options,
         );
         if (!synthesis) {
           res.status(404).json({ success: false, reason: 'No rendered scene' });
@@ -6440,36 +6370,7 @@ export function createApplyFeatureRouter(
           res.status(422).json({ success: false, reason: synthesis.reason });
           return;
         }
-        // Slot's source must be a bare geometry variable — a workspace kernel
-        // predating the 'slot' kind falls through its accessor synthesis and
-        // returns forms SlotFromEdge cannot consume; refuse those honestly.
-        if (feature === 'slot' && !/^[A-Za-z_$][\w$]*$/.test(synthesis.args)) {
-          res.status(422).json({
-            success: false,
-            reason: "the workspace's FluidCAD version does not support slot from edge — update its fluidcad dependency",
-          });
-          return;
-        }
-        // Same rule for tArc's target: the kernel reads the object's first
-        // shape, so only a bare variable works; older workspace kernels fall
-        // through to accessor/filter forms tArc cannot consume.
-        if (feature === 'tarc' && !/^[A-Za-z_$][\w$]*$/.test(synthesis.args)) {
-          res.status(422).json({
-            success: false,
-            reason: "the workspace's FluidCAD version does not support tArc to an edge — update its fluidcad dependency",
-          });
-          return;
-        }
-        // Same rule for aLine's target: the kernel intersects a whole
-        // geometry object, so only a bare variable works.
-        if (feature === 'aline' && !/^[A-Za-z_$][\w$]*$/.test(synthesis.args)) {
-          res.status(422).json({
-            success: false,
-            reason: "the workspace's FluidCAD version does not support aLine to an edge — update its fluidcad dependency",
-          });
-          return;
-        }
-        // And for a text path: the argument is ONE whole geometry, so only a
+        // A text path's argument is ONE whole geometry, so only a
         // bare variable works.
         if (feature === 'text' && !/^[A-Za-z_$][\w$]*$/.test(synthesis.args)) {
           res.status(422).json({
@@ -6485,17 +6386,9 @@ export function createApplyFeatureRouter(
           ? renderOffsetStatement(value, synthesis.args, offsetOptions)
           : rotate2dOptions
             ? renderRotate2DStatement(value, synthesis.args, rotate2dOptions)
-            : feature === 'slot'
-            ? renderSlotStatement(value, synthesis.args, slotOptions)
             : feature === 'text'
               ? renderTextStatement(textOptions!, synthesis.args)
-              : feature === 'tarc'
-                // The retarget keeps the statement's own radius argument, so
-                // its preview can only name the target.
-                ? (tarcRetarget ? `tArc(<radius>, ${synthesis.args})` : renderTarcStatement(value, synthesis.args))
-                : feature === 'aline'
-                  ? renderAlineStatement(value, synthesis.args, alineStart !== undefined ? { start: alineStart } : undefined)
-                  : synthesis.preview;
+              : synthesis.preview;
         if (preview === true) {
           res.json({
             success: true,
@@ -6511,20 +6404,11 @@ export function createApplyFeatureRouter(
         if (offsetOptions) {
           spec = { ...spec, offset: offsetOptions };
         }
-        if (slotOptions) {
-          spec = { ...spec, slot: slotOptions };
-        }
         if (rotate2dOptions) {
           spec = { ...spec, rotate2d: rotate2dOptions };
         }
         if (textOptions) {
           spec = { ...spec, text: textOptions };
-        }
-        if (tarcRetarget) {
-          spec = { ...spec, tarc: { retarget: tarcRetarget } };
-        }
-        if (feature === 'aline' && alineStart !== undefined) {
-          spec = { ...spec, aline: { start: alineStart } };
         }
         if (newVariables) {
           spec = { ...spec, newVariables };
@@ -6639,7 +6523,7 @@ export function createApplyFeatureRouter(
             importFrom = relativeSpecifier(activePartLoc.filePath, donor.filePath);
           }
 
-          const statementPreview = `sketch(${ident}.features.${name}, () => { ... }, true)`;
+          const statementPreview = `sketch(${ident}.features.${name}, () => { ... })`;
           if (preview === true) {
             res.json({ success: true, preview: statementPreview, args: '' });
             return;
@@ -7026,65 +6910,6 @@ export function createApplyFeatureRouter(
     }
   });
 
-  // The current chain text at a segment's source line, read from the live
-  // buffer — the drift guard the convert apply verifies against. Refuses when
-  // code and scene are out of sync instead of guessing.
-  const readSegmentStatement = async (
-    loc: { filePath: string; line: number },
-  ): Promise<{ ok: true; text: string } | { ok: false; reason: string }> => {
-    const code = fluidCadServer.getCurrentCode();
-    if (!code) {
-      return { ok: false, reason: 'No live code buffer' };
-    }
-    const currentFile = fluidCadServer.getCurrentFileName();
-    if (currentFile && normalizePath(loc.filePath) !== normalizePath(currentFile)) {
-      return { ok: false, reason: 'that segment lives in a different file than the one being edited' };
-    }
-    const parser = await getJavaScriptParser();
-    const tree = parser.parse(code);
-    const call = findEditableCallAt(tree, splitLines(code), loc.line);
-    const rootCallee = call ? code.slice(call.startIndex, call.endIndex).match(/^(\w+)\s*\(/)?.[1] : undefined;
-    if (!call || !rootCallee || !CHAIN_CALLEES.has(rootCallee)) {
-      return { ok: false, reason: 'the code buffer is out of sync with the last render — re-render first' };
-    }
-    return { ok: true, text: code.slice(call.startIndex, call.endIndex) };
-  };
-
-  // Legal constrained/free conversions for a picked chained sketch segment,
-  // plus the current statement text the apply will drift-guard against.
-  router.post('/sketch/segment-conversions', async (req, res) => {
-    const shapeId = req.body?.shapeId;
-    if (typeof shapeId !== 'string' || shapeId.length === 0) {
-      res.status(400).json({ error: 'shapeId must be a non-empty string' });
-      return;
-    }
-    try {
-      const result = fluidCadServer.listSegmentConversions({ shapeId });
-      if (!result) {
-        res.status(404).json({ error: 'No rendered scene' });
-        return;
-      }
-      if (result.ok === false) {
-        res.status(422).json({ error: result.reason });
-        return;
-      }
-      const statement = await readSegmentStatement(result.sourceLocation);
-      if (statement.ok === false) {
-        res.status(422).json({ error: statement.reason });
-        return;
-      }
-      res.json({
-        ok: true,
-        currentKind: result.currentKind,
-        sourceLocation: result.sourceLocation,
-        options: result.options,
-        expectedStatement: statement.text,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message ?? String(err) });
-    }
-  });
-
   // Solved-sketch constraint emission (sketch-rewrite P4): the toolbar's
   // picks arrive as entity statement lines + point roles; the transform
   // hoists unbound producers and appends the constraint statement at the
@@ -7322,62 +7147,6 @@ export function createApplyFeatureRouter(
       ...(names !== undefined ? { names } : {}),
       ...(newSketchLine !== undefined ? { sketchLine: newSketchLine } : {}),
     });
-  });
-
-  // Apply one conversion: re-run the analysis fresh (never trust a stale
-  // option), verify the target is enabled and the buffer unchanged, then ride
-  // the generic apply-feature-edit round trip through the extension.
-  router.post('/sketch/convert-segment', async (req, res) => {
-    const { shapeId, target, expectedStatement } = req.body ?? {};
-    if (typeof shapeId !== 'string' || shapeId.length === 0
-      || typeof target !== 'string' || typeof expectedStatement !== 'string') {
-      res.status(400).json({ error: 'shapeId, target and expectedStatement are required' });
-      return;
-    }
-    try {
-      const result = fluidCadServer.listSegmentConversions({ shapeId });
-      if (!result) {
-        res.status(404).json({ error: 'No rendered scene' });
-        return;
-      }
-      if (result.ok === false) {
-        res.status(422).json({ error: result.reason });
-        return;
-      }
-      const option = (result.options ?? []).find((o: any) => o.target === target);
-      if (!option) {
-        res.status(422).json({ error: `this segment has no ${target} conversion` });
-        return;
-      }
-      if (!option.enabled || !option.newStatement) {
-        res.status(422).json({ error: option.reason ?? 'that conversion is not available for this segment' });
-        return;
-      }
-      const statement = await readSegmentStatement(result.sourceLocation);
-      if (statement.ok === false) {
-        res.status(422).json({ error: statement.reason });
-        return;
-      }
-      if (statement.text !== expectedStatement) {
-        res.status(422).json({ error: 'the statement changed since the menu opened — re-open it to convert the current code' });
-        return;
-      }
-      const spec: ApplyFeatureEditSpec = {
-        feature: 'sketch',
-        filePath: result.sourceLocation.filePath,
-        producers: [],
-        parts: [],
-        imports: [],
-        segmentSwap: {
-          edit: { filePath: result.sourceLocation.filePath, line: result.sourceLocation.line },
-          expectedStatement,
-          newStatement: option.newStatement,
-        },
-      };
-      await dispatcher.dispatch(res, spec, { success: true, newStatement: option.newStatement });
-    } catch (err: any) {
-      res.status(500).json({ error: err?.message ?? String(err) });
-    }
   });
 
   // The Part tool: append an empty `part('Part N', () => {})` statement to

@@ -3,11 +3,12 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import mirror from "../../core/mirror.js";
-import { move, rect } from "../../core/2d/index.js";
+import { } from "../../core/2d/index.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("mirror (3D)", () => {
   setupOC();
@@ -15,9 +16,8 @@ describe("mirror (3D)", () => {
   describe("mirror across standard plane", () => {
     it("should mirror a solid across the YZ plane", () => {
       sketch("xy", () => {
-        move([20, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [20, 0] });
+        });
       const e = extrude(10).new() as ExtrudeBase;
 
       mirror("yz", e);
@@ -30,9 +30,8 @@ describe("mirror (3D)", () => {
 
     it("should place the mirrored solid on the opposite side", () => {
       sketch("xy", () => {
-        move([20, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [20, 0] });
+        });
       const e = extrude(10).new() as ExtrudeBase;
 
       const m = mirror("yz", e) as unknown as SceneObject;
@@ -50,9 +49,8 @@ describe("mirror (3D)", () => {
 
     it("should mirror across the XZ plane", () => {
       sketch("xy", () => {
-        move([0, 20]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [0, 20] });
+        });
       const e = extrude(10).new() as ExtrudeBase;
 
       const m = mirror("xz", e) as unknown as SceneObject;
@@ -70,8 +68,8 @@ describe("mirror (3D)", () => {
 
     it("should mirror across the XY plane and fuse", () => {
       sketch("xy", () => {
-        rect(30, 30);
-      });
+          testRect(30, 30);
+        });
       extrude(20).new();
 
       mirror("xy");
@@ -94,9 +92,8 @@ describe("mirror (3D)", () => {
   describe("the plane written inline", () => {
     it("is internal — the mirror's own row is the only one it adds", () => {
       sketch("xy", () => {
-        move([20, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [20, 0] });
+        });
       const e = extrude(10).new() as ExtrudeBase;
 
       mirror("yz", e);
@@ -114,9 +111,8 @@ describe("mirror (3D)", () => {
   describe("mirror all scene objects", () => {
     it("should mirror the last object when no target specified", () => {
       sketch("xy", () => {
-        move([20, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [20, 0] });
+        });
       extrude(10).new();
 
       mirror("yz");
@@ -130,15 +126,13 @@ describe("mirror (3D)", () => {
   describe("mirror specific target", () => {
     it("should only mirror the specified object", () => {
       sketch("xy", () => {
-        move([20, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [20, 0] });
+        });
       const e1 = extrude(10).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        move([0, 50]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [0, 50] });
+        });
       extrude(10).new();
 
       mirror("yz", e1);
@@ -154,8 +148,8 @@ describe("mirror (3D)", () => {
     it("should fuse mirrored solid with adjacent objects", () => {
       // Box centered on YZ plane — mirror across YZ should fuse with original
       sketch("xy", () => {
-        rect(30, 30);
-      });
+          testRect(30, 30);
+        });
       extrude(10).new();
 
       mirror("yz");
@@ -171,8 +165,8 @@ describe("mirror (3D)", () => {
       // Centered cube — mirror across YZ produces a copy that overlaps the original.
       // Default .add() would fuse to a single solid; .new() must keep them separate.
       sketch("xy", () => {
-        rect(30, 30);
-      });
+          testRect(30, 30);
+        });
       extrude(20).new();
 
       mirror("yz").new();
@@ -187,9 +181,8 @@ describe("mirror (3D)", () => {
       // Solid spans y=-5..25 — mirroring across XZ overlaps in the y=-5..5 strip.
       // .remove() uses the mirrored copy as a cut tool, leaving y=5..25.
       sketch("xy", () => {
-        move([0, -5]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [0, -5] });
+        });
       extrude(20).new();
 
       mirror("xz").remove();
@@ -210,14 +203,13 @@ describe("mirror (3D)", () => {
     it("should narrow .add() fusion to scoped objects only", () => {
       // e1 is centered (mirror would overlap it); e2 is far away.
       sketch("xy", () => {
-        rect(30, 30);
-      });
+          testRect(30, 30);
+        });
       const e1 = extrude(20).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        move([60, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [60, 0] });
+        });
       const e2 = extrude(20).new() as ExtrudeBase;
 
       // Mirror only e1 across YZ, but scope fusion to e2 (which doesn't intersect).
@@ -232,15 +224,13 @@ describe("mirror (3D)", () => {
     it("should narrow .remove() cut to scoped objects only", () => {
       // Both solids cross the XZ plane — mirror across XZ would cut both by default.
       sketch("xy", () => {
-        move([0, -5]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [0, -5] });
+        });
       const e1 = extrude(20).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        move([60, -5]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [60, -5] });
+        });
       const e2 = extrude(20).new() as ExtrudeBase;
 
       // Cut only e1, leave e2 untouched.
@@ -259,15 +249,13 @@ describe("mirror (3D)", () => {
   describe("mirror with .exclude()", () => {
     it("should skip excluded objects when mirroring everything", () => {
       sketch("xy", () => {
-        move([20, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [20, 0] });
+        });
       const e1 = extrude(10).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        move([50, 50]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [50, 50] });
+        });
       extrude(10).new();
 
       // mirror all, but exclude e1 → only e2 gets mirrored
@@ -281,15 +269,13 @@ describe("mirror (3D)", () => {
 
     it("should narrow an explicit target list with exclude", () => {
       sketch("xy", () => {
-        move([20, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [20, 0] });
+        });
       const e1 = extrude(10).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        move([50, 50]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [50, 50] });
+        });
       const e2 = extrude(10).new() as ExtrudeBase;
 
       // explicit target [e1, e2], exclude e2 → only e1 mirrored
@@ -303,21 +289,18 @@ describe("mirror (3D)", () => {
 
     it("should accumulate exclusions across chained calls", () => {
       sketch("xy", () => {
-        move([20, 0]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [20, 0] });
+        });
       const e1 = extrude(10).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        move([50, 50]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [50, 50] });
+        });
       const e2 = extrude(10).new() as ExtrudeBase;
 
       sketch("xy", () => {
-        move([100, 100]);
-        rect(30, 30);
-      });
+          testRect(30, 30, { at: [100, 100] });
+        });
       extrude(10).new();
 
       // mirror everything but exclude e1 and e2 across two chained .exclude() calls

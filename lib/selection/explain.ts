@@ -489,7 +489,7 @@ function renderPreview(
   options: SynthesizeOptions = {},
 ): string {
   if (feature === 'sketch') {
-    return `sketch(${args}, () => { ... }, true)`;
+    return `sketch(${args}, () => { ... })`;
   }
   if (feature === 'extrude') {
     // The args are the target-face selector; the route composes the statement.

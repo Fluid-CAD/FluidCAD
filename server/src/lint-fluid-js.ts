@@ -37,10 +37,8 @@ const CORE_SYMBOLS = new Set<string>([
   'chamfer', 'fillet', 'translate', 'rotate', 'mirror', 'copy', 'repeat',
   'load', 'loft', 'sweep', 'rib', 'color', 'draft', 'remove',
   'part', 'assembly', 'breakpoint', 'connector', 'expose', 'insert', 'mate',
-  'line', 'circle', 'ellipse', 'rect', 'hMove', 'vMove', 'rMove',
-  'hLine', 'vLine', 'tLine', 'tCircle', 'tArc', 'arc', 'move', 'pMove',
-  'aLine', 'slot', 'connect', 'polygon', 'offset', 'project', 'intersect',
-  'bezier', 'center', 'back', 'point',
+  'line', 'circle', 'ellipse', 'arc', 'offset', 'project', 'intersect',
+  'bezier', 'point',
   // Sketch datum accessors (origin + axes, constraint sketches).
   'origin', 'xAxis', 'yAxis',
 ]);
@@ -48,7 +46,6 @@ const CORE_SYMBOLS = new Set<string>([
 const FILTER_SYMBOLS = new Set<string>(['face', 'edge']);
 
 const CONSTRAINT_SYMBOLS = new Set<string>([
-  'outside', 'enclosed', 'enclosing', 'unqualified',
   // Solved-sketch constraint statements (sketch-rewrite P2).
   'coincident', 'horizontal', 'vertical', 'parallel', 'perpendicular',
   'tangent', 'angle', 'distance', 'radius', 'diameter', 'equal',

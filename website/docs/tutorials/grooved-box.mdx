@@ -12,7 +12,7 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={groovedBoxFinal} entry="grooved-box.fluid.js" />
 
-In this tutorial, you'll build a grooved storage box based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=0JJH-FsHuq8). It covers rounded rectangles, shelling, filleting internal edges, face intersection sketches, thin extrusions, and linear repeat patterns.
+In this tutorial, you'll build a grooved storage box based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=0JJH-FsHuq8). It covers constraint-sketched rounded rectangles, shelling, filleting internal edges, face intersection sketches, thin extrusions, and linear repeat patterns.
 
 Create a new file called `grooved-box.fluid.js` in your project.
 
@@ -21,10 +21,13 @@ Create a new file called `grooved-box.fluid.js` in your project.
 Start with the imports for every operation we'll use.
 
 ```js
-import { sketch, extrude, select, fillet, rect, shell, intersect, repeat } from 'fluidcad/core';
+import { sketch, extrude, select, fillet, line, shell, intersect, repeat } from 'fluidcad/core';
+import { coincident, horizontal, vertical, fix, distance } from 'fluidcad/constraints';
 import { face } from 'fluidcad/filters';
 ```
 
+- **`line`** — draws a sketch line between two guess points
+- **`fluidcad/constraints`** — the constraint statements that pin sketch geometry: `coincident` joins endpoints, `horizontal`/`vertical` align lines with the axes, `fix` anchors a point, `distance` dimensions a length
 - **`shell`** — hollows out a solid body
 - **`intersect`** — creates a sketch profile from the intersection of faces with a plane
 - **`repeat`** — duplicates geometry in a linear pattern
@@ -36,13 +39,28 @@ The box starts as a rounded rectangle extruded into a solid block.
 
 ```js
 sketch("xy", () => {
-    rect(170, 100).radius(18).centered();
+    const b = line([-85, -50], [85, -50]);
+    const r = line([85, -50], [85, 50]);
+    const t = line([85, 50], [-85, 50]);
+    const l = line([-85, 50], [-85, -50]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    fix(b.start(), [-85, -50]);
+    distance(b.start(), b.end(), 170);
+    distance(r.start(), r.end(), 100);
+    fillet(18, b, r, t, l);
 });
 
 const e = extrude(23.6);
 ```
 
-`rect(170, 100)` draws a 170 x 100 rectangle. `.radius(18)` rounds all four corners with an 18-unit fillet radius, and `.centered()` centers it on the origin. `extrude(23.6)` pushes the shape up into a solid block. We store the result in `e` so we can reference its faces later.
+The third argument `true` on `sketch(...)` makes this a **constraint sketch**: the four `line(...)` statements are guesses, and the constraint statements pin them down exactly. The `coincident` calls join the endpoints into a closed loop, `horizontal`/`vertical` square it up, `fix` anchors the bottom-left corner at `[-85, -50]` so the 170 x 100 rectangle is centered on the origin, and the two `distance` dimensions set its size. With those in place the sketch is fully constrained — every line is pinned to exactly one position. `fillet(18, b, r, t, l)` then rounds all four corners of the loop with an 18-unit radius. `extrude(23.6)` pushes the shape up into a solid block. We store the result in `e` so we can reference its faces later.
 
 ![Extruded rounded box](/img/docs/tutorials/grooved-box-step1.png)
 
@@ -140,7 +158,8 @@ Same pattern as before: `extrude(3, s2)` uses the side profile, `.thin(-1).remov
 
 ## What you practiced
 
-- **`rect().radius().centered()`** — drawing a rounded rectangle centered on the origin
+- **Constraint sketching** — declaring lines as guesses and pinning them with `coincident`, `horizontal`/`vertical`, `fix`, and `distance` until the sketch is fully constrained
+- **`fillet()` inside a sketch** — rounding the corners of a closed 2D loop
 - **`shell()`** — hollowing a solid by removing a face
 - **`fillet()` with `internalEdges()`** — smoothing all edges inside a shell
 - **`face().intersectsWith().notOnPlane()`** — selecting faces that cross a reference plane while excluding flat faces

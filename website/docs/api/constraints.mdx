@@ -1,71 +1,294 @@
 ---
 sidebar_position: 4
 title: "Constraints"
-description: "Constraint qualifiers for constraining geometry relationships in 2D sketches."
+description: "Solver constraint statements for 2D sketches — geometric constraints and dimensions."
 ---
 
 # Constraints
 
-Constraint qualifiers control the spatial relationship between geometries in 2D sketches.
-They are used with tangent geometry functions like `tLine()`, `tCircle()`, and `tArc()`.
+Constraint statements declare relationships between the entities of a 2D sketch.
+The coordinates written in `line()`, `arc()`, `circle()`, and `point()` statements
+are guesses; the sketch solver moves the entities so every constraint holds.
+Each statement appears in the timeline like any other feature.
 
 ```ts
-import { outside, enclosed, enclosing, unqualified } from 'fluidcad/constraints';
+import { coincident, horizontal, vertical, parallel, perpendicular, tangent, equal, concentric, collinear, midpoint, symmetric, fix, distance, angle, radius, diameter } from 'fluidcad/constraints';
 ```
 
-## Functions
+## Constraint targets
 
-### outside()
+Every entity argument accepts a `ConstraintTarget` — one of the following forms:
+
+| Form | Example | Description |
+|------|---------|-------------|
+| Entity statement | `const l = line([0, 0], [40, 0]); horizontal(l)` | A [`SolvedLine`](/docs/api/types/solved-line), [`SolvedArc`](/docs/api/types/solved-arc), [`SolvedCircle`](/docs/api/types/solved-circle), or `point()` statement — the entity itself. |
+| Point accessor | `l.start()`, `l.end()`, `c.center()` | A [`Vertex`](/docs/api/types/vertex) naming one of an entity's solver points. `l.mid()` is accepted by `coincident()` only (it lowers to the midpoint constraint). |
+| Datum | `origin()`, `xAxis()`, `yAxis()` | The sketch plane's fixed origin point and infinite axis lines — see [origin](/docs/api/features/2d/origin), [xAxis](/docs/api/features/2d/xAxis), [yAxis](/docs/api/features/2d/yAxis). |
+| Fixed reference | `project(bore)`, `p.ref(i)`, `p.ref(i).start()` | A [`Reference`](/docs/api/types/reference) from `project()`/`intersect()` — the statement itself when it produced exactly one edge, a [`ReferenceEntity`](/docs/api/types/reference-entity) via `.ref(i)`, or one of their point accessors. |
+
+:::note
+Datums and fixed references never move. A constraint must reference at least one
+drawn (free) entity — a constraint over only fixed targets is an error.
+Cross-sketch targets are not supported.
+:::
+
+## Geometric constraints
+
+### coincident()
 
 ```ts
-outside(sceneObject: SceneObject): QualifiedGeometry
+coincident(a: ConstraintTarget, b: ConstraintTarget): SceneObject
 ```
 
-Qualifies a geometry as being on the outside of the constraining object.
+Makes two points coincide (2 dims), or puts a point on an entity (1 dim:
+point-on-infinite-line, point-on-circle/arc). `coincident(p, l.mid())`
+lowers to the midpoint constraint.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `sceneObject` | [SceneObject](/docs/api/types/scene-object) | The geometry to qualify. |
+| `a` | [ConstraintTarget](#constraint-targets) | A point accessor, point statement, or entity |
+| `b` | [ConstraintTarget](#constraint-targets) | A point accessor, point statement, or entity |
 
 ---
 
-### enclosed()
+### horizontal()
 
 ```ts
-enclosed(sceneObject: SceneObject): QualifiedGeometry
+horizontal(a: ConstraintTarget, b?: ConstraintTarget): SceneObject
 ```
 
-Qualifies a geometry as being enclosed by the constraining object.
+Constrains a line to be horizontal, or two points to share a y value.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `sceneObject` | [SceneObject](/docs/api/types/scene-object) | The geometry to qualify. |
+| `a` | [ConstraintTarget](#constraint-targets) | A line, or the first point |
+| `b` | [ConstraintTarget](#constraint-targets) | The second point (point-pair form) *(optional)* |
 
 ---
 
-### enclosing()
+### vertical()
 
 ```ts
-enclosing(sceneObject: SceneObject): QualifiedGeometry
+vertical(a: ConstraintTarget, b?: ConstraintTarget): SceneObject
 ```
 
-Qualifies a geometry as enclosing the constraining object.
+Constrains a line to be vertical, or two points to share an x value.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `sceneObject` | [SceneObject](/docs/api/types/scene-object) | The geometry to qualify. |
+| `a` | [ConstraintTarget](#constraint-targets) | A line, or the first point |
+| `b` | [ConstraintTarget](#constraint-targets) | The second point (point-pair form) *(optional)* |
 
 ---
 
-### unqualified()
+### parallel()
 
 ```ts
-unqualified(sceneObject: SceneObject): QualifiedGeometry
+parallel(a: ConstraintTarget, b: ConstraintTarget): SceneObject
 ```
 
-Removes any existing constraint qualification from a geometry.
+Constrains two lines to be parallel (1 dim).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `sceneObject` | [SceneObject](/docs/api/types/scene-object) | The geometry to unqualify. |
+| `a` | [ConstraintTarget](#constraint-targets) | The first entity |
+| `b` | [ConstraintTarget](#constraint-targets) | The second entity |
+
+---
+
+### perpendicular()
+
+```ts
+perpendicular(a: ConstraintTarget, b: ConstraintTarget): SceneObject
+```
+
+Constrains two lines to be perpendicular (1 dim).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `a` | [ConstraintTarget](#constraint-targets) | The first entity |
+| `b` | [ConstraintTarget](#constraint-targets) | The second entity |
+
+---
+
+### tangent()
+
+```ts
+tangent(a: ConstraintTarget, b: ConstraintTarget): SceneObject
+```
+
+Constrains a line–circle/arc or circle–circle pair to be tangent (1 dim). The tangency side (internal vs external) is locked from the guess positions. Also accepts a fixed reference: `tangent(bore, l)` with a single-edge `project()` result.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `a` | [ConstraintTarget](#constraint-targets) | The first entity |
+| `b` | [ConstraintTarget](#constraint-targets) | The second entity |
+
+---
+
+### equal()
+
+```ts
+equal(a: ConstraintTarget, b: ConstraintTarget): SceneObject
+```
+
+Constrains two entities to be equal (1 dim): equal line lengths or equal circle/arc radii.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `a` | [ConstraintTarget](#constraint-targets) | The first entity |
+| `b` | [ConstraintTarget](#constraint-targets) | The second entity |
+
+---
+
+### concentric()
+
+```ts
+concentric(a: ConstraintTarget, b: ConstraintTarget): SceneObject
+```
+
+Constrains two circles/arcs to share a center (2 dims).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `a` | [ConstraintTarget](#constraint-targets) | The first entity |
+| `b` | [ConstraintTarget](#constraint-targets) | The second entity |
+
+---
+
+### collinear()
+
+```ts
+collinear(a: ConstraintTarget, b: ConstraintTarget): SceneObject
+```
+
+Constrains line b to lie on the infinite line of a (2 dims). The first slot also takes an axis datum: `collinear(xAxis(), l)`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `a` | [ConstraintTarget](#constraint-targets) | The first entity |
+| `b` | [ConstraintTarget](#constraint-targets) | The second entity |
+
+---
+
+### midpoint()
+
+```ts
+midpoint(p: ConstraintTarget, l: ConstraintTarget): SceneObject
+```
+
+Constrains point p to be the midpoint of line l (2 dims).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `p` | [ConstraintTarget](#constraint-targets) | The point |
+| `l` | [ConstraintTarget](#constraint-targets) | The line |
+
+---
+
+### symmetric()
+
+```ts
+symmetric(a: ConstraintTarget, b: ConstraintTarget, l: ConstraintTarget): SceneObject
+```
+
+Constrains points a and b to mirror across line l (2 dims).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `a` | [ConstraintTarget](#constraint-targets) | The first point |
+| `b` | [ConstraintTarget](#constraint-targets) | The second point |
+| `l` | [ConstraintTarget](#constraint-targets) | The mirror line |
+
+---
+
+### fix()
+
+```ts
+fix(p: ConstraintTarget, position?: Point2DLike): SceneObject
+```
+
+Anchors a point in place (2 dims). Without an explicit position the
+point's current (guess) coordinates are captured at statement time.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `p` | [ConstraintTarget](#constraint-targets) | The point to anchor |
+| `position` | [Point2DLike](/docs/api/types/point2dlike) | Optional explicit [x, y] anchor position *(optional)* |
+
+
+## Dimensions
+
+### distance()
+
+```ts
+distance(a: ConstraintTarget, b: ConstraintTarget, value: NumberParam, axis?: 'x' | 'y'): Distance
+```
+
+Distance dimension. Forms by what the targets resolve to: point–point
+(optionally measured along one axis), point–line (perpendicular),
+point–circle/arc (to the circumference), line–line (pair with parallel),
+line–circle/arc (perpendicular to the circumference), circle–circle
+(gap between circumferences). Circle/arc measurements take the NEAR
+side of the circumference by default; chain `.max()` for the far side.
+
+**Returns**: [`Distance`](/docs/api/types/distance)
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `a` | [ConstraintTarget](#constraint-targets) | First point/entity |
+| `b` | [ConstraintTarget](#constraint-targets) | Second point/entity |
+| `value` | NumberParam | The distance value |
+| `axis` | 'x' \| 'y' | Optional 'x' or 'y' to measure along one axis (point–point) *(optional)* |
+
+---
+
+### angle()
+
+```ts
+angle(a: ConstraintTarget, b: ConstraintTarget, degrees: NumberParam): SceneObject
+```
+
+Dimensions the counterclockwise angle from line a to line b, in degrees
+(0–360). Each argument is a line or one of its endpoint accessors, which
+orients the line toward that endpoint — `angle(l1, l2.start(), 45)`
+measures to l2 pointing at its start. A bare line points at its end.
+There are no negative angles: a clockwise angle is the counterclockwise
+angle of the swapped pair.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `a` | [ConstraintTarget](#constraint-targets) | The first line, optionally oriented via .start()/.end() |
+| `b` | [ConstraintTarget](#constraint-targets) | The second line, optionally oriented via .start()/.end() |
+| `degrees` | NumberParam | The angle in degrees, 0 (inclusive) to 360 (exclusive) |
+
+---
+
+### radius()
+
+```ts
+radius(c: ConstraintTarget, value: NumberParam): SceneObject
+```
+
+Dimensions the radius of a circle or arc.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `c` | [ConstraintTarget](#constraint-targets) | The circle or arc |
+| `value` | NumberParam | The radius value |
+
+---
+
+### diameter()
+
+```ts
+diameter(c: ConstraintTarget, value: NumberParam): SceneObject
+```
+
+Dimensions the diameter of a circle or arc.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `c` | [ConstraintTarget](#constraint-targets) | The circle or arc |
+| `value` | NumberParam | The diameter value |
 

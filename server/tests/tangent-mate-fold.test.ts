@@ -11,11 +11,11 @@ import {
 // one atomic document replacement.
 
 const CODE = [
-  `import { sketch, rect, extrude, part, insert, mate } from 'fluidcad/core'`,
+  `import { sketch, circle, extrude, part, insert, mate } from 'fluidcad/core'`,
   ``,
   `export function cam() {`,
   `  return part('Cam', () => {`,
-  `    sketch('xy', () => { rect(100, 50) })`,
+  `    sketch('xy', () => { circle([0, 0], 100) })`,
   `    const e = extrude(30)`,
   `  })`,
   `}`,

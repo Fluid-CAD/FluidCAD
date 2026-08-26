@@ -6,11 +6,12 @@ import sweep from "../../core/sweep.js";
 import cylinder from "../../core/cylinder.js";
 import select from "../../core/select.js";
 import { face } from "../../filters/index.js";
-import { circle, hLine } from "../../core/2d/index.js";
+import { circle, line } from "../../core/2d/index.js";
 import { Helix } from "../../features/helix.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { Edge } from "../../common/edge.js";
 import { getOC } from "../../oc/init.js";
+import { horizontal } from "../../core/constraints/index.js";
 
 // Bounding boxes are computed from the triangulated mesh of the helix edge,
 // so they're slightly larger than the analytic extents (~0.2 mm typical).
@@ -215,8 +216,8 @@ describe("helix", () => {
     it("should follow a cone surface with the face's natural taper", async () => {
       const { default: extrude } = await import("../../core/extrude.js");
       sketch("xy", () => {
-        circle(60); // radius 30
-      });
+          circle([0, 0], 60);
+        });
       extrude(50).draft(10); // 10° draft → top radius widens
       const sel = select(face().cone());
       const h = helix(sel).turns(6) as Helix;
@@ -236,8 +237,8 @@ describe("helix", () => {
     it("should extend the helix following the cone's natural taper with offsets", async () => {
       const { default: extrude } = await import("../../core/extrude.js");
       sketch("xy", () => {
-        circle(60); // radius 30 at z=0
-      });
+          circle([0, 0], 60);
+        });
       extrude(50).draft(10); // cone widens toward top (tanθ = tan(10°) ≈ 0.176)
       const sel = select(face().cone());
       const h = helix(sel).turns(6).startOffset(-10).endOffset(10) as Helix;
@@ -257,8 +258,9 @@ describe("helix", () => {
   describe("line edge input", () => {
     it("should treat a line edge as the helix axis and derive height from length", () => {
       const s = sketch("xz", () => {
-        hLine(40);
-      });
+          const sg1 = line([0, 0], [40, 0]);
+          horizontal(sg1);
+        });
       const h = helix(s).turns(4) as Helix;
       render();
 
@@ -274,8 +276,8 @@ describe("helix", () => {
   describe("circular edge input", () => {
     it("should derive axis from circle normal and use circle radius", () => {
       const s = sketch("xy", () => {
-        circle(30);
-      });
+          circle([0, 0], 30);
+        });
       const h = helix(s).turns(4) as Helix;
       render();
 
@@ -290,8 +292,8 @@ describe("helix", () => {
 
     it("should respect .height() override on circular edge", () => {
       const s = sketch("xy", () => {
-        circle(30);
-      });
+          circle([0, 0], 30);
+        });
       const h = helix(s).turns(4).height(80) as Helix;
       render();
 
@@ -327,8 +329,8 @@ describe("helix", () => {
   describe("sweep integration", () => {
     it("should be sweepable by a small profile to build a spring", () => {
       const profile = sketch("xz", () => {
-        circle(2);
-      });
+          circle([0, 0], 2);
+        });
       const path = helix("z").radius(15).pitch(5).turns(4) as Helix;
       const spring = sweep(path, profile);
       render();

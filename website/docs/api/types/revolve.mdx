@@ -155,13 +155,13 @@ the second offset is automatically flipped.
 ### internalFaces()
 
 ```ts
-internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects faces created inside the solid during revolution (e.g., the inner
 wall of a thin-walled revolve from a closed profile).
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -172,12 +172,12 @@ wall of a thin-walled revolve from a closed profile).
 ### internalEdges()
 
 ```ts
-internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges bounding the internal geometry created during revolution.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -188,13 +188,13 @@ Selects edges bounding the internal geometry created during revolution.
 ### capFaces()
 
 ```ts
-capFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+capFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects the cap faces at the open ends of a thin-walled revolve from an open profile.
 These are the small faces connecting the inner and outer walls at the profile endpoints.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -205,12 +205,12 @@ These are the small faces connecting the inner and outer walls at the profile en
 ### capEdges()
 
 ```ts
-capEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+capEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges on the cap faces of a thin-walled revolve from an open profile.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

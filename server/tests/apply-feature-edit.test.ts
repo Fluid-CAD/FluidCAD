@@ -23,9 +23,9 @@ function spec(overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSp
 describe('applyFeatureEdit', () => {
   it('binds a bare producer statement and appends the fillet', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -33,9 +33,9 @@ describe('applyFeatureEdit', () => {
     const result = await applyFeatureEdit(code, spec());
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {fillet, sketch, rect, extrude } from 'fluidcad/core'`,
+      `import {fillet, sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       `fillet(3, e.endEdges(2))`,
       ``,
@@ -44,9 +44,9 @@ describe('applyFeatureEdit', () => {
 
   it('reuses an existing const binding', async () => {
     const code = [
-      `import { sketch, rect, extrude, fillet } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, fillet } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const base = extrude(30)`,
       ``,
     ].join('\n');
@@ -63,10 +63,10 @@ describe('applyFeatureEdit', () => {
 
   it('reuses the variable of a whole assignment statement', async () => {
     const code = [
-      `import { sketch, rect, extrude, fillet } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, fillet } from 'fluidcad/core'`,
       ``,
       `let base`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `base = extrude(30)`,
       ``,
     ].join('\n');
@@ -82,9 +82,9 @@ describe('applyFeatureEdit', () => {
 
   it('refuses to reuse a variable reassigned after the producing call', async () => {
     const code = [
-      `import { sketch, rect, extrude, shell, fillet } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, shell, fillet } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `let s = extrude(30)`,
       `s = shell(-4, s.endFaces())`,
       ``,
@@ -99,9 +99,9 @@ describe('applyFeatureEdit', () => {
 
   it('matches the file semicolon style', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core';`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core';`,
       ``,
-      `sketch('xy', () => { rect(100, 50) });`,
+      `sketch('xy', () => { ellipse(100, 50) });`,
       `extrude(30);`,
       ``,
     ].join('\n');
@@ -113,9 +113,9 @@ describe('applyFeatureEdit', () => {
 
   it('inserts after later statements so the selection resolves on the final model', async () => {
     const code = [
-      `import { sketch, rect, extrude, color } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, color } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       `color('red')`,
       ``,
@@ -128,10 +128,10 @@ describe('applyFeatureEdit', () => {
 
   it('inserts before a trailing return inside a function body', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
       `export function bracket() {`,
-      `  sketch('xy', () => { rect(100, 50) })`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
       `  const e = extrude(30)`,
       `  return e`,
       `}`,
@@ -152,10 +152,10 @@ describe('applyFeatureEdit', () => {
 
   it('allocates a fresh name when the hint collides', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
       `const e = 5`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -169,11 +169,11 @@ describe('applyFeatureEdit', () => {
 
   it('binds multiple producers and emits one arg per selector part', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
-      `sketch('xy', () => { rect(20, 20) })`,
+      `sketch('xy', () => { ellipse(20, 20) })`,
       `extrude(50)`,
       ``,
     ].join('\n');
@@ -197,9 +197,9 @@ describe('applyFeatureEdit', () => {
 
   it('refuses when the line does not hold a producer call', async () => {
     const code = [
-      `import { sketch, rect, extrude, repeat } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, repeat } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30).new()`,
       `repeat('linear', 'x', { count: 3, offset: 40 }, e)`,
       ``,
@@ -214,9 +214,9 @@ describe('applyFeatureEdit', () => {
 
   it('refuses a producer call nested inside another expression', async () => {
     const code = [
-      `import { sketch, rect, extrude, translate } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, translate } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `translate([0, 0, 5], extrude(30))`,
       ``,
     ].join('\n');
@@ -229,9 +229,9 @@ describe('applyFeatureEdit', () => {
 
   it('handles a chained producer statement', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30).drill(false)`,
       ``,
     ].join('\n');
@@ -244,9 +244,9 @@ describe('applyFeatureEdit', () => {
 
   it('emits filter arguments on a bound accessor and imports the filter symbol', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -262,9 +262,9 @@ describe('applyFeatureEdit', () => {
 
   it('writes a global select() anchored on an unbound statement', async () => {
     const code = [
-      `import { sketch, rect, extrude, repeat } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, repeat } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(20, 20) })`,
+      `sketch('xy', () => { ellipse(20, 20) })`,
       `const e = extrude(10).new()`,
       `repeat('linear', 'x', { count: 3, offset: 40 }, e)`,
       ``,
@@ -294,10 +294,10 @@ describe('applyFeatureEdit', () => {
 
   it('hoists an anchor inside a loop body to the enclosing function scope', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
       `for (let i = 0; i < 3; i++) {`,
-      `  sketch('xy', () => { rect(20, 20) })`,
+      `  sketch('xy', () => { ellipse(20, 20) })`,
       `  extrude(10)`,
       `}`,
       ``,
@@ -319,9 +319,9 @@ describe('applyFeatureEdit', () => {
 
   it('refuses a part that references an unbound producer', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -335,9 +335,9 @@ describe('applyFeatureEdit', () => {
 
   it('emits a user-edited argument list verbatim and derives its imports', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -357,7 +357,7 @@ describe('applyFeatureEdit', () => {
 
   it('adds the import when none exists', async () => {
     const code = [
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -375,7 +375,7 @@ describe('applyFeatureEdit', () => {
 
 describe('chamfer second-value overloads', () => {
   const code = [
-    `sketch('xy', () => { rect(100, 50) })`,
+    `sketch('xy', () => { ellipse(100, 50) })`,
     `extrude(30)`,
     ``,
   ].join('\n');
@@ -421,9 +421,9 @@ describe('chamfer second-value overloads', () => {
 describe('shell and sketch statement templates', () => {
   it('emits shell with a negative thickness and imports it', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -434,16 +434,16 @@ describe('shell and sketch statement templates', () => {
       parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`import {shell, sketch, rect, extrude } from 'fluidcad/core'`);
+    expect(result.newCode).toContain(`import {shell, sketch, ellipse, extrude } from 'fluidcad/core'`);
     expect(result.newCode).toContain(`const e = extrude(30)`);
     expect(result.newCode).toContain(`shell(-2, e.endFaces())`);
   });
 
   it('emits a shell join chain for a non-default join type', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -460,9 +460,9 @@ describe('shell and sketch statement templates', () => {
 
   it('emits no join chain for the default arc join type', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -480,9 +480,9 @@ describe('shell and sketch statement templates', () => {
 
   it('emits sketch with an empty multi-line callback and no numeric parameter', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -494,23 +494,23 @@ describe('shell and sketch statement templates', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       `sketch(e.endFaces(), () => {`,
       ``,
-      `}, true)`,
+      `})`,
       ``,
     ].join('\n'));
   });
 
   it('indents the sketch callback body inside a function scope and keeps semicolon style', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core';`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core';`,
       ``,
       `export function bracket() {`,
-      `  sketch('xy', () => { rect(100, 50) });`,
+      `  sketch('xy', () => { ellipse(100, 50) });`,
       `  const e = extrude(30);`,
       `  return e;`,
       `}`,
@@ -527,14 +527,14 @@ describe('shell and sketch statement templates', () => {
     expect(result.newCode).toContain([
       `  sketch(e.endFaces(), () => {`,
       ``,
-      `  }, true);`,
+      `  });`,
       `  return e;`,
     ].join('\n'));
   });
 
   it('refuses a sketch spec with more than one selector part', async () => {
     const code = [
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -554,9 +554,9 @@ describe('shell and sketch statement templates', () => {
 
   it('wraps a user-edited argument list in the sketch callback template', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -579,9 +579,9 @@ describe('plane sketch (no picks)', () => {
 
   it('appends the statement after the last statement without binding anything', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -589,13 +589,13 @@ describe('plane sketch (no picks)', () => {
     const result = await applyFeatureEdit(code, planeSpec());
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       `sketch(() => {`,
       ``,
-      `}, true)`,
+      `})`,
       ``,
     ].join('\n'));
   });
@@ -607,7 +607,7 @@ describe('plane sketch (no picks)', () => {
       `import { sketch } from 'fluidcad/core';`,
       `sketch(() => {`,
       ``,
-      `}, true);`,
+      `});`,
       ``,
     ].join('\n'));
   });
@@ -620,19 +620,19 @@ describe('plane sketch (no picks)', () => {
 
   it('matches the file semicolon style', async () => {
     const code = [
-      `import { sketch, rect } from 'fluidcad/core';`,
+      `import { sketch, ellipse } from 'fluidcad/core';`,
       ``,
-      `sketch('xy', () => { rect(100, 50) });`,
+      `sketch('xy', () => { ellipse(100, 50) });`,
       ``,
     ].join('\n');
 
     const result = await applyFeatureEdit(code, planeSpec());
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain([
-      `sketch('xy', () => { rect(100, 50) });`,
+      `sketch('xy', () => { ellipse(100, 50) });`,
       `sketch(() => {`,
       ``,
-      `}, true);`,
+      `});`,
     ].join('\n'));
   });
 });
@@ -648,10 +648,10 @@ describe('sketch on a plane feature', () => {
 
   it('binds the plane statement and appends the sketch at end of scope', async () => {
     const code = [
-      `import { sketch, rect, extrude, plane } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, plane } from 'fluidcad/core'`,
       ``,
       `plane('xy', 20)`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -659,21 +659,21 @@ describe('sketch on a plane feature', () => {
     const result = await applyFeatureEdit(code, onPlaneSpec(3));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import { sketch, rect, extrude, plane } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, plane } from 'fluidcad/core'`,
       ``,
       `const p = plane('xy', 20)`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       `sketch(p, () => {`,
       ``,
-      `}, true)`,
+      `})`,
       ``,
     ].join('\n'));
   });
 
   it('reuses an existing const binding of the plane', async () => {
     const code = [
-      `import { sketch, rect, plane } from 'fluidcad/core'`,
+      `import { sketch, ellipse, plane } from 'fluidcad/core'`,
       ``,
       `const top = plane('xy', 20)`,
       ``,
@@ -687,7 +687,7 @@ describe('sketch on a plane feature', () => {
 
   it('refuses when the producer line does not hold a plane() call', async () => {
     const code = [
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -712,15 +712,15 @@ describe('sketch on a plane feature', () => {
 describe('part()-scoped insertion', () => {
   it('inserts a select()-based edit at the end of the enclosing part() body', async () => {
     const code = [
-      `import { part, sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { part, sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
       `part('a', () => {`,
-      `    sketch('xy', () => { rect(20, 20) })`,
+      `    sketch('xy', () => { ellipse(20, 20) })`,
       `    extrude(10)`,
       `})`,
       ``,
       `part('b', () => {`,
-      `    sketch('xy', () => { rect(30, 30) })`,
+      `    sketch('xy', () => { ellipse(30, 30) })`,
       `    extrude(5)`,
       `})`,
       ``,
@@ -746,9 +746,9 @@ describe('part()-scoped insertion', () => {
 describe('breakpoint-aware insertion', () => {
   it('inserts the feature before an active breakpoint, not at end of scope', async () => {
     const code = [
-      `import { sketch, rect, extrude, color, breakpoint } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, color, breakpoint } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       `breakpoint()`,
       `color('red')`,
@@ -765,10 +765,10 @@ describe('breakpoint-aware insertion', () => {
 
   it('inserts before the breakpoint inside a function body, keeping the indent', async () => {
     const code = [
-      `import { sketch, rect, extrude, breakpoint } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, breakpoint } from 'fluidcad/core'`,
       ``,
       `export function bracket() {`,
-      `  sketch('xy', () => { rect(100, 50) })`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
       `  const e = extrude(30)`,
       `  breakpoint()`,
       `  return e`,
@@ -788,10 +788,10 @@ describe('breakpoint-aware insertion', () => {
 
   it('ignores a breakpoint that precedes the producer', async () => {
     const code = [
-      `import { sketch, rect, extrude, breakpoint } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, breakpoint } from 'fluidcad/core'`,
       ``,
       `breakpoint()`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -806,9 +806,9 @@ describe('breakpoint-aware insertion', () => {
 
   it('inserts a plane sketch before an active breakpoint', async () => {
     const code = [
-      `import { sketch, rect, extrude, breakpoint } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, breakpoint } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       `breakpoint()`,
       ``,
@@ -820,13 +820,13 @@ describe('breakpoint-aware insertion', () => {
     );
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import { sketch, rect, extrude, breakpoint } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, breakpoint } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       `sketch(() => {`,
       ``,
-      `}, true)`,
+      `})`,
       `breakpoint()`,
       ``,
     ].join('\n'));
@@ -836,9 +836,9 @@ describe('breakpoint-aware insertion', () => {
 describe('makeProducerNamer', () => {
   it('returns the existing const name for a bound producer', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const base = extrude(30)`,
       ``,
     ].join('\n');
@@ -849,10 +849,10 @@ describe('makeProducerNamer', () => {
 
   it('suffixes past colliding file identifiers for a bare statement', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
       `const e = 42`,
-      `sketch('xy', () => { rect(100, e) })`,
+      `sketch('xy', () => { ellipse(100, e) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -963,9 +963,9 @@ describe('extrude statement templates', () => {
   }
 
   const activeSketchCode = [
-    `import { sketch, rect } from 'fluidcad/core'`,
+    `import { sketch, ellipse } from 'fluidcad/core'`,
     ``,
-    `sketch('xy', () => { rect(100, 50) })`,
+    `sketch('xy', () => { ellipse(100, 50) })`,
     ``,
   ].join('\n');
 
@@ -1029,9 +1029,9 @@ describe('extrude statement templates', () => {
 
   it('binds a bound-profile sketch and appends the extrude at end of scope', async () => {
     const code = [
-      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `sketch('xz', () => { circle(10) })`,
       ``,
     ].join('\n');
@@ -1042,7 +1042,7 @@ describe('extrude statement templates', () => {
     ));
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
-    const boundRow = lines.findIndex(l => l === `const s = sketch('xy', () => { rect(100, 50) })`);
+    const boundRow = lines.findIndex(l => l === `const s = sketch('xy', () => { ellipse(100, 50) })`);
     expect(boundRow).toBeGreaterThan(-1);
     // End of scope: after the later sketch, not directly after the profile.
     expect(lines[boundRow + 1]).toBe(`sketch('xz', () => { circle(10) })`);
@@ -1051,9 +1051,9 @@ describe('extrude statement templates', () => {
 
   it('reuses an existing const binding for the bound profile', async () => {
     const code = [
-      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle } from 'fluidcad/core'`,
       ``,
-      `const profile = sketch('xy', () => { rect(100, 50) })`,
+      `const profile = sketch('xy', () => { ellipse(100, 50) })`,
       `sketch('xz', () => { circle(10) })`,
       ``,
     ].join('\n');
@@ -1064,16 +1064,16 @@ describe('extrude statement templates', () => {
     ));
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
-    const profileRow = lines.findIndex(l => l === `const profile = sketch('xy', () => { rect(100, 50) })`);
+    const profileRow = lines.findIndex(l => l === `const profile = sketch('xy', () => { ellipse(100, 50) })`);
     expect(lines[profileRow + 1]).toBe(`sketch('xz', () => { circle(10) })`);
     expect(lines[profileRow + 2]).toBe(`extrude(25, profile)`);
   });
 
   it('matches the file semicolon style', async () => {
     const code = [
-      `import { sketch, rect } from 'fluidcad/core';`,
+      `import { sketch, ellipse } from 'fluidcad/core';`,
       ``,
-      `sketch('xy', () => { rect(100, 50) });`,
+      `sketch('xy', () => { ellipse(100, 50) });`,
       ``,
     ].join('\n');
 
@@ -1083,9 +1083,9 @@ describe('extrude statement templates', () => {
 
   it('refuses when the profile line is not a sketch call', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -1107,9 +1107,9 @@ describe('extrude statement templates', () => {
   });
 
   const toFaceCode = [
-    `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+    `import { sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
     ``,
-    `sketch('xy', () => { rect(100, 50) })`,
+    `sketch('xy', () => { ellipse(100, 50) })`,
     `extrude(30)`,
     `sketch('xz', () => { circle(10) })`,
     ``,
@@ -1180,9 +1180,9 @@ describe('extrude statement templates', () => {
 describe('makeProducerNamer — sketch producers', () => {
   it('resolves a bound sketch by its const name', async () => {
     const code = [
-      `import { sketch, rect } from 'fluidcad/core'`,
+      `import { sketch, ellipse } from 'fluidcad/core'`,
       ``,
-      `const profile = sketch('xy', () => { rect(100, 50) })`,
+      `const profile = sketch('xy', () => { ellipse(100, 50) })`,
       ``,
     ].join('\n');
 
@@ -1192,9 +1192,9 @@ describe('makeProducerNamer — sketch producers', () => {
 
   it('allocates the hint for a bare sketch statement and refuses non-sketch lines', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -1231,10 +1231,10 @@ describe('sweep statement templates', () => {
   }
 
   const twoSketchCode = [
-    `import { sketch, rect, circle } from 'fluidcad/core'`,
+    `import { sketch, ellipse, circle } from 'fluidcad/core'`,
     ``,
     `sketch('xz', () => { circle(5) })`,
-    `sketch('xy', () => { rect(10, 10) })`,
+    `sketch('xy', () => { ellipse(10, 10) })`,
     ``,
   ].join('\n');
 
@@ -1245,18 +1245,18 @@ describe('sweep statement templates', () => {
     const pathRow = lines.findIndex(l => l === `const p = sketch('xz', () => { circle(5) })`);
     expect(pathRow).toBeGreaterThan(-1);
     // End-of-scope insertion: after the (implicit-profile) active sketch.
-    expect(lines[pathRow + 1]).toBe(`sketch('xy', () => { rect(10, 10) })`);
+    expect(lines[pathRow + 1]).toBe(`sketch('xy', () => { ellipse(10, 10) })`);
     expect(lines[pathRow + 2]).toBe(`sweep(p)`);
     expect(result.newCode).toMatch(/import \{ ?sweep,/);
   });
 
   it('appends a fully-bound sweep at end of scope', async () => {
     const code = [
-      `import { sketch, rect, circle, polygon } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle, arc } from 'fluidcad/core'`,
       ``,
       `sketch('xz', () => { circle(5) })`,
-      `sketch('xy', () => { rect(10, 10) })`,
-      `sketch('yz', () => { polygon(6, 20) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
+      `sketch('yz', () => { arc([6, 6], [20, 20]) })`,
       ``,
     ].join('\n');
 
@@ -1271,18 +1271,18 @@ describe('sweep statement templates', () => {
     ));
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
-    const profileRow = lines.findIndex(l => l === `const s = sketch('xy', () => { rect(10, 10) })`);
+    const profileRow = lines.findIndex(l => l === `const s = sketch('xy', () => { ellipse(10, 10) })`);
     expect(profileRow).toBeGreaterThan(-1);
     // End of scope: after the uninvolved trailing sketch.
-    expect(lines[profileRow + 1]).toBe(`sketch('yz', () => { polygon(6, 20) })`);
+    expect(lines[profileRow + 1]).toBe(`sketch('yz', () => { arc([6, 6], [20, 20]) })`);
     expect(lines[profileRow + 2]).toBe(`sweep(p, s)`);
   });
 
   it('renders a selector path at end of scope with the implicit profile', async () => {
     const code = [
-      `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       `sketch('xz', () => { circle(5) })`,
       ``,
@@ -1317,10 +1317,10 @@ describe('sweep statement templates', () => {
 
   it('reuses an existing const binding for the path sketch', async () => {
     const code = [
-      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle } from 'fluidcad/core'`,
       ``,
       `const spine = sketch('xz', () => { circle(5) })`,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
       ``,
     ].join('\n');
 
@@ -1332,9 +1332,9 @@ describe('sweep statement templates', () => {
 
   it('refuses when a sketch producer line is not a sketch call', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -1359,10 +1359,10 @@ describe('sweep statement templates', () => {
 
   it('binds a helix path through a wire producer', async () => {
     const code = [
-      `import { sketch, rect, helix } from 'fluidcad/core'`,
+      `import { sketch, ellipse, helix } from 'fluidcad/core'`,
       ``,
       `const spring = helix('z').radius(10).pitch(4).turns(6)`,
-      `sketch('xy', () => { rect(2, 2) })`,
+      `sketch('xy', () => { ellipse(2, 2) })`,
       ``,
     ].join('\n');
 
@@ -1382,9 +1382,9 @@ describe('sweep statement templates', () => {
 
   it('refuses a wire producer line holding neither a sketch nor a helix call', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -1445,11 +1445,11 @@ describe('wrap statement templates', () => {
   }
 
   const wrapCode = [
-    `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+    `import { sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
     ``,
     `sketch('xy', () => { circle(30) })`,
     `extrude(60)`,
-    `sketch('xz', () => { rect(10, 10) })`,
+    `sketch('xz', () => { ellipse(10, 10) })`,
     ``,
   ].join('\n');
 
@@ -1458,7 +1458,7 @@ describe('wrap statement templates', () => {
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
     expect(result.newCode).toContain(`const e = extrude(60)`);
-    const sketchRow = lines.findIndex(l => l === `const s = sketch('xz', () => { rect(10, 10) })`);
+    const sketchRow = lines.findIndex(l => l === `const s = sketch('xz', () => { ellipse(10, 10) })`);
     expect(sketchRow).toBeGreaterThan(-1);
     // The face selector must resolve on the final model — end of scope.
     expect(lines[sketchRow + 1]).toBe(`wrap(2, s, e.sideFaces(0))`);
@@ -1523,9 +1523,9 @@ describe('loft statement templates', () => {
   }
 
   const twoSketchCode = [
-    `import { sketch, rect, circle } from 'fluidcad/core'`,
+    `import { sketch, ellipse, circle } from 'fluidcad/core'`,
     ``,
-    `sketch('xy', () => { rect(10, 10) })`,
+    `sketch('xy', () => { ellipse(10, 10) })`,
     `sketch('xz', () => { circle(5) })`,
     ``,
   ].join('\n');
@@ -1534,7 +1534,7 @@ describe('loft statement templates', () => {
     const result = await applyFeatureEdit(twoSketchCode, loftSpec());
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
-    const firstRow = lines.findIndex(l => l === `const s = sketch('xy', () => { rect(10, 10) })`);
+    const firstRow = lines.findIndex(l => l === `const s = sketch('xy', () => { ellipse(10, 10) })`);
     expect(firstRow).toBeGreaterThan(-1);
     expect(lines[firstRow + 1]).toBe(`const s2 = sketch('xz', () => { circle(5) })`);
     expect(lines[firstRow + 2]).toBe(`loft(s, s2)`);
@@ -1543,11 +1543,11 @@ describe('loft statement templates', () => {
 
   it('appends at end of scope when every input is earlier', async () => {
     const code = [
-      `import { sketch, rect, circle, polygon } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle, arc } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
       `sketch('xz', () => { circle(5) })`,
-      `sketch('yz', () => { polygon(6, 20) })`,
+      `sketch('yz', () => { arc([6, 6], [20, 20]) })`,
       ``,
     ].join('\n');
 
@@ -1557,16 +1557,16 @@ describe('loft statement templates', () => {
     const loftRow = lines.findIndex(l => l === `loft(s, s2)`);
     expect(loftRow).toBeGreaterThan(-1);
     // End of scope: after the uninvolved trailing sketch.
-    expect(lines[loftRow - 1]).toBe(`sketch('yz', () => { polygon(6, 20) })`);
+    expect(lines[loftRow - 1]).toBe(`sketch('yz', () => { arc([6, 6], [20, 20]) })`);
   });
 
   it('preserves the profile argument order independent of producer order', async () => {
     const code = [
-      `import { sketch, rect, circle, polygon } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle, arc } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
       `sketch('xz', () => { circle(5) })`,
-      `sketch('yz', () => { polygon(6, 20) })`,
+      `sketch('yz', () => { arc([6, 6], [20, 20]) })`,
       ``,
     ].join('\n');
 
@@ -1592,9 +1592,9 @@ describe('loft statement templates', () => {
 
   it('renders a selector profile at end of scope', async () => {
     const code = [
-      `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       `sketch('xz', () => { circle(5) })`,
       ``,
@@ -1629,9 +1629,9 @@ describe('loft statement templates', () => {
 
   it('reuses existing const bindings for the profile sketches', async () => {
     const code = [
-      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle } from 'fluidcad/core'`,
       ``,
-      `const base = sketch('xy', () => { rect(10, 10) })`,
+      `const base = sketch('xy', () => { ellipse(10, 10) })`,
       `const tip = sketch('xz', () => { circle(5) })`,
       ``,
     ].join('\n');
@@ -1643,9 +1643,9 @@ describe('loft statement templates', () => {
 
   it('refuses when a sketch producer line is not a sketch call', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -1686,9 +1686,9 @@ describe('loft statement templates', () => {
   });
 
   const threeSketchCode = [
-    `import { sketch, rect, circle, bezier } from 'fluidcad/core'`,
+    `import { sketch, ellipse, circle, bezier } from 'fluidcad/core'`,
     ``,
-    `sketch('xy', () => { rect(10, 10) })`,
+    `sketch('xy', () => { ellipse(10, 10) })`,
     `sketch('xz', () => { circle(5) })`,
     `sketch('yz', () => { bezier([0, 0], [5, 10], [0, 20]) })`,
     ``,
@@ -1734,9 +1734,9 @@ describe('loft statement templates', () => {
 
   it('binds a helix guide through a wire producer', async () => {
     const code = [
-      `import { sketch, rect, circle, helix } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle, helix } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
       `sketch('xz', () => { circle(5) })`,
       `helix('z').radius(10).pitch(4).turns(2)`,
       ``,
@@ -1804,9 +1804,9 @@ describe('loft statement templates', () => {
 import { parseFeatureStatement, type FeatureStatementEditTarget } from '../src/apply-feature-edit.ts';
 
 const editBase = [
-  `import { sketch, rect, extrude } from 'fluidcad/core'`,
+  `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
   ``,
-  `const s = sketch('xy', () => { rect(100, 50) })`,
+  `const s = sketch('xy', () => { ellipse(100, 50) })`,
 ].join('\n');
 
 function editSpec(
@@ -1974,7 +1974,7 @@ describe('parseFeatureStatement', () => {
   });
 
   it('reads a sweep with a remove chain', async () => {
-    const code = `${editBase}\nconst p = sketch('xz', () => { rect(1, 60) })\nsweep(p, s).remove()\n`;
+    const code = `${editBase}\nconst p = sketch('xz', () => { ellipse(1, 60) })\nsweep(p, s).remove()\n`;
     const result = await parseFeatureStatement(code, 5);
     expect(result).toEqual({
       ok: true,
@@ -2354,7 +2354,7 @@ describe('applyFeatureEdit (in-place statement edit)', () => {
   });
 
   it('adds thin and remove chains to a sweep', async () => {
-    const code = `${editBase}\nconst p = sketch('xz', () => { rect(1, 60) })\nsweep(p, s)\n`;
+    const code = `${editBase}\nconst p = sketch('xz', () => { ellipse(1, 60) })\nsweep(p, s)\n`;
     const result = await applyFeatureEdit(code, editSpec('sweep', {
       line: 5, column: 0,
       sweep: { op: 'remove', thin: [1.5] },
@@ -2529,9 +2529,9 @@ describe('plane statement templates', () => {
   });
 
   const base = [
-    `import { sketch, rect, extrude } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
     ``,
-    `sketch('xy', () => { rect(100, 50) })`,
+    `sketch('xy', () => { ellipse(100, 50) })`,
     `extrude(30)`,
     ``,
   ].join('\n');
@@ -2539,7 +2539,7 @@ describe('plane statement templates', () => {
   it('appends a standard-base offset plane at top level and imports plane', async () => {
     const result = await applyFeatureEdit(base, planeSpec(planeOptions({ offset: 10 })));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`import {plane, sketch, rect, extrude } from 'fluidcad/core'`);
+    expect(result.newCode).toContain(`import {plane, sketch, ellipse, extrude } from 'fluidcad/core'`);
     expect(result.newCode).toContain(`extrude(30)\nplane('xy', 10)`);
   });
 
@@ -2557,7 +2557,7 @@ describe('plane statement templates', () => {
 
   it('appends a standard-base plane before an active breakpoint', async () => {
     const code = [
-      `import { sketch, rect, extrude, breakpoint } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, breakpoint } from 'fluidcad/core'`,
       ``,
       `extrude(30)`,
       `breakpoint()`,
@@ -2570,11 +2570,11 @@ describe('plane statement templates', () => {
 
   it('renders an offset plane from a picked face selector at end of scope', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
-      `sketch('xz', () => { rect(10, 10) })`,
+      `sketch('xz', () => { ellipse(10, 10) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, planeSpec(
@@ -2588,7 +2588,7 @@ describe('plane statement templates', () => {
     expect(result.newCode).toContain(`const e = extrude(30)`);
     // End-of-scope: after the later sketch, so the selection resolves on the
     // final model.
-    expect(result.newCode).toContain(`sketch('xz', () => { rect(10, 10) })\nplane(e.endFaces(), 5)`);
+    expect(result.newCode).toContain(`sketch('xz', () => { ellipse(10, 10) })\nplane(e.endFaces(), 5)`);
   });
 
   it('wraps selector bases for a mid plane', async () => {
@@ -2620,11 +2620,11 @@ describe('plane statement templates', () => {
 
   it('binds plane producers and appends a mid plane at end of scope', async () => {
     const code = [
-      `import { sketch, rect, extrude, plane } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, plane } from 'fluidcad/core'`,
       ``,
       `plane('xy')`,
       `plane('xy', 40)`,
-      `sketch('xz', () => { rect(10, 10) })`,
+      `sketch('xz', () => { ellipse(10, 10) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, planeSpec(
@@ -2642,7 +2642,7 @@ describe('plane statement templates', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`const p = plane('xy')`);
     // End of scope: after the trailing sketch.
-    expect(result.newCode).toContain(`const p2 = plane('xy', 40)\nsketch('xz', () => { rect(10, 10) })\nplane(p, p2)`);
+    expect(result.newCode).toContain(`const p2 = plane('xy', 40)\nsketch('xz', () => { ellipse(10, 10) })\nplane(p, p2)`);
   });
 
   it('renders an edge plane with its normalized position', async () => {
@@ -2659,10 +2659,10 @@ describe('plane statement templates', () => {
 
   it('binds a helix edge plane through a wire base and appends at end of scope', async () => {
     const code = [
-      `import { sketch, rect, helix } from 'fluidcad/core'`,
+      `import { sketch, ellipse, helix } from 'fluidcad/core'`,
       ``,
       `const spring = helix('z').radius(10).pitch(4).turns(6)`,
-      `sketch('xz', () => { rect(10, 10) })`,
+      `sketch('xz', () => { ellipse(10, 10) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, planeSpec(
@@ -2671,7 +2671,7 @@ describe('plane statement templates', () => {
     ));
     expect(result.error).toBeUndefined();
     // End of scope: after the trailing sketch.
-    expect(result.newCode).toContain(`const spring = helix('z').radius(10).pitch(4).turns(6)\nsketch('xz', () => { rect(10, 10) })\nplane(spring, 0.5)`);
+    expect(result.newCode).toContain(`const spring = helix('z').radius(10).pitch(4).turns(6)\nsketch('xz', () => { ellipse(10, 10) })\nplane(spring, 0.5)`);
   });
 
   it('refuses a wire base outside the edge form', async () => {
@@ -2740,7 +2740,7 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
   it('re-sources an extrude profile to a bare sketch, prepending its binding', async () => {
     const code = [
       editBase,
-      `sketch('xz', () => { rect(20, 20) })`,
+      `sketch('xz', () => { ellipse(20, 20) })`,
       `extrude(30, s)`,
       '',
     ].join('\n');
@@ -2750,7 +2750,7 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
     }, { producers: [sketchProducer(4)] }));
     expect(result.error).toBeUndefined();
     // The existing `s` keeps its name; the new binding suffixes past it.
-    expect(result.newCode).toContain(`const s2 = sketch('xz', () => { rect(20, 20) })`);
+    expect(result.newCode).toContain(`const s2 = sketch('xz', () => { ellipse(20, 20) })`);
     expect(result.newCode).toContain(`extrude(30, s2)`);
   });
 
@@ -2766,9 +2766,9 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
 
   it('re-sources a sweep path to picked edges rendered from parts', async () => {
     const code = [
-      `import { sketch, rect, circle, extrude, sweep } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle, extrude, sweep } from 'fluidcad/core'`,
       ``,
-      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const s = sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(40)`,
       `const p = sketch('xz', () => { circle(30) })`,
       `sweep(p, s)`,
@@ -2787,9 +2787,9 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
 
   it('re-sources a sweep path and profile to other sketches', async () => {
     const code = [
-      `import { sketch, rect, circle, sweep } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle, sweep } from 'fluidcad/core'`,
       ``,
-      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const s = sketch('xy', () => { ellipse(100, 50) })`,
       `const p = sketch('xz', () => { circle(30) })`,
       `const p2 = sketch('yz', () => { circle(10) })`,
       `sweep(p, s)`,
@@ -2809,9 +2809,9 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
 
   it('re-picks a wrap target face rendered from parts', async () => {
     const code = [
-      `import { sketch, rect, circle, extrude, wrap } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle, extrude, wrap } from 'fluidcad/core'`,
       ``,
-      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const s = sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(40)`,
       `const p = sketch('xz', () => { circle(30) })`,
       `wrap(2, p, e.sideFaces(0))`,
@@ -2830,9 +2830,9 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
 
   it('re-sources a wrap sketch to another sketch, keeping the face verbatim', async () => {
     const code = [
-      `import { sketch, rect, circle, extrude, wrap } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle, extrude, wrap } from 'fluidcad/core'`,
       ``,
-      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const s = sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(40)`,
       `const p = sketch('xz', () => { circle(30) })`,
       `wrap(2, p, e.sideFaces(0))`,
@@ -2967,7 +2967,7 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
     const code = [
       editBase,
       `extrude(30, s)`,
-      `sketch('xz', () => { rect(20, 20) })`,
+      `sketch('xz', () => { ellipse(20, 20) })`,
       '',
     ].join('\n');
     const result = await applyFeatureEdit(code, editSpec('extrude', {
@@ -2982,7 +2982,7 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
     const code = [
       editBase,
       `function make() {`,
-      `  sketch('xz', () => { rect(20, 20) })`,
+      `  sketch('xz', () => { ellipse(20, 20) })`,
       `}`,
       `extrude(30, s)`,
       '',
@@ -3091,9 +3091,9 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
 
   it('strips the breakpoint atomically with the rewrite when clearBreakpoints is set', async () => {
     const code = [
-      `import { breakpoint, sketch, rect, extrude, shell } from 'fluidcad/core'`,
+      `import { breakpoint, sketch, ellipse, extrude, shell } from 'fluidcad/core'`,
       ``,
-      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const s = sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30, s)`,
       `shell(-2, e.endFaces())`,
       `breakpoint();`,
@@ -3109,9 +3109,9 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
 
   it('keeps the breakpoint when clearBreakpoints is absent', async () => {
     const code = [
-      `import { breakpoint, sketch, rect, extrude, shell } from 'fluidcad/core'`,
+      `import { breakpoint, sketch, ellipse, extrude, shell } from 'fluidcad/core'`,
       ``,
-      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const s = sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30, s)`,
       `shell(-2, e.endFaces())`,
       `breakpoint();`,
@@ -3126,9 +3126,9 @@ describe('applyFeatureEdit (re-sourced statement edit)', () => {
 
   it('refuses a selector sweep path with more than one part', async () => {
     const code = [
-      `import { sketch, rect, extrude, sweep } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, sweep } from 'fluidcad/core'`,
       ``,
-      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const s = sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(40)`,
       `sweep(s, s)`,
       '',
@@ -3193,10 +3193,10 @@ describe('revolve statement templates', () => {
 
   it('binds a bound profile and appends the revolve at end of scope', async () => {
     const code = [
-      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle } from 'fluidcad/core'`,
       ``,
       `sketch('xz', () => { circle([80, 0], 40) })`,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, revolveSpec(
@@ -3208,7 +3208,7 @@ describe('revolve statement templates', () => {
     const profileRow = lines.findIndex(l => l === `const s = sketch('xz', () => { circle([80, 0], 40) })`);
     expect(profileRow).toBeGreaterThan(-1);
     // End of scope: after the later sketch, not directly after the profile.
-    expect(lines[profileRow + 1]).toBe(`sketch('xy', () => { rect(10, 10) })`);
+    expect(lines[profileRow + 1]).toBe(`sketch('xy', () => { ellipse(10, 10) })`);
     expect(lines[profileRow + 2]).toBe(`revolve('z', 90, s)`);
   });
 
@@ -3238,9 +3238,9 @@ describe('revolve statement templates', () => {
 
   it('renders a picked-edge axis wrapped in axis() at end of scope', async () => {
     const code = [
-      `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       `sketch('xz', () => { circle([80, 0], 40) })`,
       ``,
@@ -3287,10 +3287,10 @@ describe('revolve statement templates', () => {
 
   it('refuses when the axis producer line is not an axis call', async () => {
     const code = [
-      `import { sketch, rect, circle } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle } from 'fluidcad/core'`,
       ``,
       `sketch('xz', () => { circle([80, 0], 40) })`,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, revolveSpec(
@@ -3371,9 +3371,9 @@ describe('helix statement templates', () => {
 
   it('wraps a picked-edge source in axis() and imports axis', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -3392,9 +3392,9 @@ describe('helix statement templates', () => {
 
   it('renders a picked-face source on its own', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -3574,9 +3574,9 @@ describe('applyFeatureEdit (revolve in-place statement edit)', () => {
   // Like editBase, with revolve already imported so exact-equality
   // assertions don't trip on the import ensure.
   const revolveEditBase = [
-    `import { sketch, rect, extrude, revolve } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude, revolve } from 'fluidcad/core'`,
     ``,
-    `const s = sketch('xy', () => { rect(100, 50) })`,
+    `const s = sketch('xy', () => { ellipse(100, 50) })`,
   ].join('\n');
 
   function revolveEditOptions(
@@ -3664,9 +3664,9 @@ describe('applyFeatureEdit (revolve in-place statement edit)', () => {
 
   it('re-sources the axis to a picked edge rendered from parts', async () => {
     const code = [
-      `import { sketch, rect, circle, extrude, revolve } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle, extrude, revolve } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       `const s = sketch('xz', () => { circle([80, 0], 40) })`,
       `revolve('z', 45, s)`,
@@ -3949,17 +3949,17 @@ describe('parseFeatureStatement — sketch', () => {
     const result = await parseFeatureStatement(code, 3);
     expect(result).toEqual({
       ok: true,
-      parsed: { feature: 'sketch', targetText: `'xy'`, bodyText: '() => { rect(100, 50) }', solvedText: null },
-      statement: `sketch('xy', () => { rect(100, 50) })`,
+      parsed: { feature: 'sketch', targetText: `'xy'`, bodyText: '() => { ellipse(100, 50) }', solvedText: null },
+      statement: `sketch('xy', () => { ellipse(100, 50) })`,
     });
   });
 
   it('reads a bare one-argument sketch', async () => {
-    const code = [`import { sketch, rect } from 'fluidcad/core'`, ``, `sketch(() => { rect(4, 4) })`, ``].join('\n');
+    const code = [`import { sketch, ellipse } from 'fluidcad/core'`, ``, `sketch(() => { ellipse(4, 4) })`, ``].join('\n');
     const result = await parseFeatureStatement(code, 3);
     expect(result).toMatchObject({
       ok: true,
-      parsed: { feature: 'sketch', targetText: null, bodyText: '() => { rect(4, 4) }' },
+      parsed: { feature: 'sketch', targetText: null, bodyText: '() => { ellipse(4, 4) }' },
     });
   });
 
@@ -3973,10 +3973,10 @@ describe('parseFeatureStatement — sketch', () => {
 describe('applyFeatureEdit (sketch retarget)', () => {
   it('rewrites the target onto an origin plane, keeping the body and chains', async () => {
     const code = [
-      `import { sketch, rect } from 'fluidcad/core'`,
+      `import { sketch, ellipse } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
-      `  rect(100, 50)`,
+      `  ellipse(100, 50)`,
       `}).name('base')`,
       ``,
     ].join('\n');
@@ -3986,10 +3986,10 @@ describe('applyFeatureEdit (sketch retarget)', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import { sketch, rect } from 'fluidcad/core'`,
+      `import { sketch, ellipse } from 'fluidcad/core'`,
       ``,
       `sketch('xz', () => {`,
-      `  rect(100, 50)`,
+      `  ellipse(100, 50)`,
       `}).name('base')`,
       ``,
     ].join('\n'));
@@ -4001,7 +4001,7 @@ describe('applyFeatureEdit (sketch retarget)', () => {
       ``,
       `sketch('xy', () => {`,
       `  line([0, 0], [10, 0]);`,
-      `}, true)`,
+      `})`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, editSpec('sketch', {
@@ -4010,7 +4010,7 @@ describe('applyFeatureEdit (sketch retarget)', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`sketch('xz', () => {`);
-    expect(result.newCode).toContain(`}, true)`);
+    expect(result.newCode).toContain(`})`);
   });
 
   it('retargets a bare solved sketch (callback + flag only) onto a plane, keeping the flag', async () => {
@@ -4018,7 +4018,7 @@ describe('applyFeatureEdit (sketch retarget)', () => {
       `import { sketch } from 'fluidcad/core'`,
       ``,
       `sketch(() => {`,
-      `}, true)`,
+      `})`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, editSpec('sketch', {
@@ -4027,14 +4027,14 @@ describe('applyFeatureEdit (sketch retarget)', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`sketch('xz', () => {`);
-    expect(result.newCode).toContain(`}, true)`);
+    expect(result.newCode).toContain(`})`);
   });
 
   it('gives a bare one-argument sketch its first target argument', async () => {
     const code = [
-      `import { sketch, rect } from 'fluidcad/core'`,
+      `import { sketch, ellipse } from 'fluidcad/core'`,
       ``,
-      `sketch(() => { rect(4, 4) })`,
+      `sketch(() => { ellipse(4, 4) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, editSpec('sketch', {
@@ -4042,16 +4042,16 @@ describe('applyFeatureEdit (sketch retarget)', () => {
       sketch: { target: { kind: 'standard', plane: 'yz' } },
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`sketch('yz', () => { rect(4, 4) })`);
+    expect(result.newCode).toContain(`sketch('yz', () => { ellipse(4, 4) })`);
   });
 
   it('rewrites the target onto a picked face selector, binding its producer', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
-      `sketch('xz', () => { rect(5, 5) })`,
+      `sketch('xz', () => { ellipse(5, 5) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, editSpec('sketch', {
@@ -4063,15 +4063,15 @@ describe('applyFeatureEdit (sketch retarget)', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`const e = extrude(30)`);
-    expect(result.newCode).toContain(`sketch(e.endFaces(0), () => { rect(5, 5) })`);
+    expect(result.newCode).toContain(`sketch(e.endFaces(0), () => { ellipse(5, 5) })`);
   });
 
   it('rewrites the target onto a plane feature, reusing its binding', async () => {
     const code = [
-      `import { sketch, rect, plane } from 'fluidcad/core'`,
+      `import { sketch, ellipse, plane } from 'fluidcad/core'`,
       ``,
       `const top = plane('xy', 20)`,
-      `sketch('xy', () => { rect(5, 5) })`,
+      `sketch('xy', () => { ellipse(5, 5) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, editSpec('sketch', {
@@ -4081,14 +4081,14 @@ describe('applyFeatureEdit (sketch retarget)', () => {
       producers: [{ line: 3, column: 12, featureType: 'plane', nameHint: 'p', bind: true }],
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`sketch(top, () => { rect(5, 5) })`);
+    expect(result.newCode).toContain(`sketch(top, () => { ellipse(5, 5) })`);
   });
 
   it('refuses a plane feature that follows the sketch statement', async () => {
     const code = [
-      `import { sketch, rect, plane } from 'fluidcad/core'`,
+      `import { sketch, ellipse, plane } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(5, 5) })`,
+      `sketch('xy', () => { ellipse(5, 5) })`,
       `const top = plane('xy', 20)`,
       ``,
     ].join('\n');
@@ -4116,11 +4116,11 @@ describe('applyFeatureEdit (sketch retarget)', () => {
 
 describe('repeat statement templates', () => {
   const base = [
-    `import { sketch, rect, extrude, cut } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
     ``,
-    `sketch('xy', () => { rect(100, 50) })`,
+    `sketch('xy', () => { ellipse(100, 50) })`,
     `extrude(30)`,
-    `sketch('xy', () => { rect(10, 10) })`,
+    `sketch('xy', () => { ellipse(10, 10) })`,
     `cut(5)`,
   ].join('\n');
 
@@ -4153,11 +4153,11 @@ describe('repeat statement templates', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {repeat, sketch, rect, extrude, cut } from 'fluidcad/core'`,
+      `import {repeat, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const f = extrude(30)`,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
       `const f2 = cut(5)`,
       `repeat('linear', 'x', { count: 3, offset: 40 }, f, f2)`,
       ``,
@@ -4213,10 +4213,10 @@ describe('repeat statement templates', () => {
 
   it('renders a circular repeat around an existing axis statement, reusing bindings', async () => {
     const code = [
-      `import { sketch, rect, extrude, axis } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, axis } from 'fluidcad/core'`,
       ``,
       `const a = axis('z')`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       ``,
     ].join('\n');
@@ -4252,9 +4252,9 @@ describe('repeat statement templates', () => {
 
   it('accepts a fillet statement as a repeat target', async () => {
     const code = [
-      `import { sketch, rect, extrude, fillet } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, fillet } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       `fillet(2, e.endEdges())`,
       ``,
@@ -4273,10 +4273,10 @@ describe('repeat statement templates', () => {
 
   it('accepts a select statement as a repeat target', async () => {
     const code = [
-      `import { sketch, rect, extrude, select } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, select } from 'fluidcad/core'`,
       `import { face } from 'fluidcad/filters'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       `const s = select(face().top())`,
       ``,
@@ -4340,11 +4340,11 @@ describe('repeat statement templates', () => {
 });
 
 const repeatEditBase = [
-  `import { sketch, rect, extrude, cut, repeat } from 'fluidcad/core'`,
+  `import { sketch, ellipse, extrude, cut, repeat } from 'fluidcad/core'`,
   ``,
-  `sketch('xy', () => { rect(100, 50) })`,
+  `sketch('xy', () => { ellipse(100, 50) })`,
   `const e = extrude(30)`,
-  `sketch('xy', () => { rect(10, 10) })`,
+  `sketch('xy', () => { ellipse(10, 10) })`,
   `const c = cut(5)`,
 ].join('\n');
 
@@ -4630,11 +4630,11 @@ describe('applyFeatureEdit (repeat in-place statement edit)', () => {
 
 describe('copy statement templates', () => {
   const base = [
-    `import { sketch, rect, extrude, cut } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
     ``,
-    `sketch('xy', () => { rect(100, 50) })`,
+    `sketch('xy', () => { ellipse(100, 50) })`,
     `extrude(30)`,
-    `sketch('xy', () => { rect(10, 10) })`,
+    `sketch('xy', () => { ellipse(10, 10) })`,
     `cut(5)`,
   ].join('\n');
 
@@ -4667,11 +4667,11 @@ describe('copy statement templates', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {copy, sketch, rect, extrude, cut } from 'fluidcad/core'`,
+      `import {copy, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const f = extrude(30)`,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
       `const f2 = cut(5)`,
       `copy('linear', 'x', { count: 3, offset: 40 }, f, f2)`,
       ``,
@@ -4680,9 +4680,9 @@ describe('copy statement templates', () => {
 
   it('reuses an existing const target binding', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       ``,
     ].join('\n');
@@ -4800,10 +4800,10 @@ describe('copy statement templates', () => {
 
   it('renders a circular copy around an existing axis statement, reusing bindings', async () => {
     const code = [
-      `import { sketch, rect, extrude, axis } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, axis } from 'fluidcad/core'`,
       ``,
       `const a = axis('z')`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       ``,
     ].join('\n');
@@ -4850,11 +4850,11 @@ describe('copy statement templates', () => {
 });
 
 const copyEditBase = [
-  `import { sketch, rect, extrude, cut, copy } from 'fluidcad/core'`,
+  `import { sketch, ellipse, extrude, cut, copy } from 'fluidcad/core'`,
   ``,
-  `sketch('xy', () => { rect(100, 50) })`,
+  `sketch('xy', () => { ellipse(100, 50) })`,
   `const e = extrude(30)`,
-  `sketch('xy', () => { rect(10, 10) })`,
+  `sketch('xy', () => { ellipse(10, 10) })`,
   `const c = cut(5)`,
 ].join('\n');
 
@@ -5204,11 +5204,11 @@ describe('applyFeatureEdit (copy in-place statement edit)', () => {
 
 describe('boolean statement templates', () => {
   const base = [
-    `import { sketch, rect, extrude, cut } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
     ``,
-    `sketch('xy', () => { rect(100, 50) })`,
+    `sketch('xy', () => { ellipse(100, 50) })`,
     `extrude(30)`,
-    `sketch('xy', () => { rect(10, 10) })`,
+    `sketch('xy', () => { ellipse(10, 10) })`,
     `cut(5)`,
   ].join('\n');
 
@@ -5237,11 +5237,11 @@ describe('boolean statement templates', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {fuse, sketch, rect, extrude, cut } from 'fluidcad/core'`,
+      `import {fuse, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const f = extrude(30)`,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
       `const f2 = cut(5)`,
       `fuse(f, f2)`,
       ``,
@@ -5260,11 +5260,11 @@ describe('boolean statement templates', () => {
 
   it('renders a common reusing existing const target bindings', async () => {
     const code = [
-      `import { sketch, rect, extrude, cut } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
       `const c = cut(5)`,
       ``,
     ].join('\n');
@@ -5316,11 +5316,11 @@ describe('boolean statement templates', () => {
 });
 
 const booleanEditBase = [
-  `import { sketch, rect, extrude, cut, fuse } from 'fluidcad/core'`,
+  `import { sketch, ellipse, extrude, cut, fuse } from 'fluidcad/core'`,
   ``,
-  `sketch('xy', () => { rect(100, 50) })`,
+  `sketch('xy', () => { ellipse(100, 50) })`,
   `const e = extrude(30)`,
-  `sketch('xy', () => { rect(10, 10) })`,
+  `sketch('xy', () => { ellipse(10, 10) })`,
   `const c = cut(5)`,
 ].join('\n');
 
@@ -5456,9 +5456,9 @@ describe('applyFeatureEdit (boolean in-place statement edit)', () => {
 });
 
 const planeEditBase = [
-  `import { sketch, rect, extrude, plane, helix } from 'fluidcad/core'`,
+  `import { sketch, ellipse, extrude, plane, helix } from 'fluidcad/core'`,
   ``,
-  `sketch('xy', () => { rect(100, 50) })`,
+  `sketch('xy', () => { ellipse(100, 50) })`,
   `const e = extrude(30)`,
   `const top = plane('xy', 20)`,
   `const spring = helix('z').radius(10).turns(3)`,
@@ -5797,10 +5797,10 @@ describe('isExpressionText', () => {
 
 describe('expression values in dialog slots', () => {
   const exprBase = [
-    `import { sketch, rect, extrude } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
     ``,
     `const height = 30`,
-    `const s = sketch('xy', () => { rect(100, 50) })`,
+    `const s = sketch('xy', () => { ellipse(100, 50) })`,
   ].join('\n');
 
   it('parses a numeric-variable distance with a bound profile', async () => {
@@ -5823,11 +5823,11 @@ describe('expression values in dialog slots', () => {
 
   it('parses a chained numeric variable (const w = height * 2) as a distance', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
       `const height = 30`,
       `const w = height * 2`,
-      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const s = sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(w, s)`,
       ``,
     ].join('\n');
@@ -5846,10 +5846,10 @@ describe('expression values in dialog slots', () => {
 
   it('parses a variable revolve angle before a bound profile', async () => {
     const code = [
-      `import { sketch, rect, revolve } from 'fluidcad/core'`,
+      `import { sketch, ellipse, revolve } from 'fluidcad/core'`,
       ``,
       `const ang = 180`,
-      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const s = sketch('xy', () => { ellipse(100, 50) })`,
       `revolve('z', ang, s)`,
       ``,
     ].join('\n');
@@ -5911,9 +5911,9 @@ describe('expression values in dialog slots', () => {
 
   it('declares newVariables before a created statement', async () => {
     const code = [
-      `import { sketch, rect } from 'fluidcad/core'`,
+      `import { sketch, ellipse } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, {
@@ -5934,9 +5934,9 @@ describe('expression values in dialog slots', () => {
 
   it('splits param() newVariables to the top on a created statement', async () => {
     const code = [
-      `import { sketch, rect } from 'fluidcad/core'`,
+      `import { sketch, ellipse } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, {
@@ -6046,10 +6046,10 @@ describe('expression values in repeat, plane and value-feature slots', () => {
 
   it('parses a numeric-variable fillet radius with selector args verbatim', async () => {
     const code = [
-      `import { sketch, rect, extrude, fillet } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, fillet } from 'fluidcad/core'`,
       ``,
       `const r = 3`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       `fillet(r, e.endEdges())`,
       ``,
@@ -6063,9 +6063,9 @@ describe('expression values in repeat, plane and value-feature slots', () => {
 
   it('still refuses a fillet whose first argument is a selector (no value)', async () => {
     const code = [
-      `import { sketch, rect, extrude, fillet } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, fillet } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       `fillet(e.endEdges())`,
       ``,
@@ -6076,10 +6076,10 @@ describe('expression values in repeat, plane and value-feature slots', () => {
 
   it('rewrites a fillet value to an expression in place', async () => {
     const code = [
-      `import { sketch, rect, extrude, fillet } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, fillet } from 'fluidcad/core'`,
       ``,
       `const r = 3`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       `fillet(2, e.endEdges())`,
       ``,
@@ -6091,10 +6091,10 @@ describe('expression values in repeat, plane and value-feature slots', () => {
 
   it('renders a plane statement with expression offset and rotation', async () => {
     const code = [
-      `import { sketch, rect } from 'fluidcad/core'`,
+      `import { sketch, ellipse } from 'fluidcad/core'`,
       ``,
       `const gap = 12`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, {
@@ -6116,9 +6116,9 @@ describe('expression values in repeat, plane and value-feature slots', () => {
 
 describe('project into a sketch body', () => {
   const base = [
-    `import { sketch, rect, extrude, circle, project } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude, circle, project } from 'fluidcad/core'`,
     ``,
-    `sketch('xy', () => { rect(100, 50) })`,
+    `sketch('xy', () => { ellipse(100, 50) })`,
     `extrude(30)`,
     `sketch('xz', () => {`,
     `  circle(4)`,
@@ -6145,9 +6145,9 @@ describe('project into a sketch body', () => {
     const result = await applyFeatureEdit(`${base}\n`, projectSpec());
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import { sketch, rect, extrude, circle, project } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, circle, project } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       `sketch('xz', () => {`,
       `  circle(4)`,
@@ -6159,9 +6159,9 @@ describe('project into a sketch body', () => {
 
   it('opens an empty sketch body at one indent level in', async () => {
     const code = [
-      `import { sketch, rect, extrude, project } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, project } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       `sketch('xz', () => {`,
       ``,
@@ -6249,10 +6249,10 @@ describe('project into a sketch body', () => {
 
   it('picks a collision-free name when sel is already taken', async () => {
     const code = [
-      `import { sketch, rect, extrude, circle, project } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, circle, project } from 'fluidcad/core'`,
       ``,
       `const sel = 5`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       `sketch('xz', () => {`,
       `  circle(4)`,
@@ -6274,12 +6274,12 @@ describe('project into a sketch body', () => {
 
   it('refuses a source built after the sketch it would project into', async () => {
     const code = [
-      `import { sketch, rect, extrude, circle, project } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, circle, project } from 'fluidcad/core'`,
       ``,
       `sketch('xz', () => {`,
       `  circle(4)`,
       `})`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -6307,10 +6307,10 @@ describe('project into a sketch body', () => {
 
 describe('parseFeatureStatement — offset', () => {
   const base = [
-    `import { sketch, rect, offset } from 'fluidcad/core'`,
+    `import { sketch, ellipse, offset } from 'fluidcad/core'`,
     ``,
     `sketch('xy', () => {`,
-    `  const r = rect(100, 50)`,
+    `  const r = ellipse(100, 50)`,
   ].join('\n');
   /** `statement` lands on line 5, inside the sketch body. */
   const codeWith = (statement: string) => `${base}\n  ${statement}\n})\n`;
@@ -6348,10 +6348,10 @@ describe('parseFeatureStatement — offset', () => {
 
   it('reads a variable distance', async () => {
     const code = [
-      `import { sketch, rect, offset } from 'fluidcad/core'`,
+      `import { sketch, ellipse, offset } from 'fluidcad/core'`,
       `const gap = 3`,
       `sketch('xy', () => {`,
-      `  const r = rect(100, 50)`,
+      `  const r = ellipse(100, 50)`,
       `  offset(gap, r)`,
       `})`,
       ``,
@@ -6386,10 +6386,10 @@ describe('parseFeatureStatement — offset', () => {
 
 describe('applyFeatureEdit (offset in-place statement edit)', () => {
   const base = [
-    `import { sketch, rect, offset } from 'fluidcad/core'`,
+    `import { sketch, ellipse, offset } from 'fluidcad/core'`,
     ``,
     `sketch('xy', () => {`,
-    `  const r = rect(100, 50)`,
+    `  const r = ellipse(100, 50)`,
   ].join('\n');
   const codeWith = (statement: string) => `${base}\n  ${statement}\n})\n`;
   const offsetSpec = (
@@ -6445,7 +6445,7 @@ describe('applyFeatureEdit (offset in-place statement edit)', () => {
     const result = await applyFeatureEdit(
       codeWith(`offset(2, r.edge('top'))`),
       offsetSpec({ close: true }, {
-        producers: [{ line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true }],
+        producers: [{ line: 4, column: 2, featureType: 'ellipse', nameHint: 'r', bind: true }],
         parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: `'left'` }],
       }),
     );
@@ -6468,10 +6468,10 @@ describe('applyFeatureEdit (2D fillet in-place statement edit)', () => {
   // transform; the 2D-specific part is the producers living inside the
   // sketch body — the same-scope rule the offset edit exercises.
   const base = [
-    `import { sketch, rect, fillet } from 'fluidcad/core'`,
+    `import { sketch, ellipse, fillet } from 'fluidcad/core'`,
     ``,
     `sketch('xy', () => {`,
-    `  const r = rect(100, 50)`,
+    `  const r = ellipse(100, 50)`,
   ].join('\n');
   const codeWith = (statement: string) => `${base}\n  ${statement}\n})\n`;
 
@@ -6489,7 +6489,7 @@ describe('applyFeatureEdit (2D fillet in-place statement edit)', () => {
       codeWith(`fillet(2, r.edge('top'))`),
       editSpec('fillet', { line: 5, column: 2 }, {
         value: 4,
-        producers: [{ line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true }],
+        producers: [{ line: 4, column: 2, featureType: 'ellipse', nameHint: 'r', bind: true }],
         parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: `'left'` }],
       }),
     );
@@ -6538,9 +6538,9 @@ describe('parseFeatureStatement — project', () => {
 
 describe('applyFeatureEdit (project in-place statement edit)', () => {
   const codeWith = (statement: string) => [
-    `import { sketch, rect, extrude, project } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude, project } from 'fluidcad/core'`,
     ``,
-    `sketch('xy', () => { rect(100, 50) })`,
+    `sketch('xy', () => { ellipse(100, 50) })`,
     `const e = extrude(30)`,
     `sketch('xz', () => {`,
     `  ${statement}`,
@@ -6573,9 +6573,9 @@ describe('applyFeatureEdit (project in-place statement edit)', () => {
 
   it('binds an unbound source statement in the enclosing scope', async () => {
     const code = [
-      `import { sketch, rect, extrude, project } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, project } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       `sketch('xz', () => {`,
       `  project('placeholder')`,
@@ -6627,10 +6627,10 @@ describe('applyFeatureEdit (project in-place statement edit)', () => {
 
 describe('parseOffsetTargetDescriptors (offset edit seeding)', () => {
   const codeWith = (statement: string) => [
-    `import { sketch, rect, circle, offset, edge } from 'fluidcad/core'`,
+    `import { sketch, ellipse, circle, offset, edge } from 'fluidcad/core'`,
     ``,
     `sketch('xy', () => {`,
-    `  const r = rect(100, 50)`,
+    `  const r = ellipse(100, 50)`,
     `  const c = circle(10)`,
     `  ${statement}`,
     `})`,
@@ -6678,22 +6678,6 @@ describe('parseOffsetTargetDescriptors (offset edit seeding)', () => {
     expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('pickTargets') });
   });
 
-  it('parses a slot statement’s source alone, ignoring the value and flag slots', async () => {
-    const result = await parseOffsetTargetDescriptors(
-      codeWith(`slot(c, 10, false)`), 6,
-    );
-    expect(result).toEqual({
-      ok: true,
-      descriptors: [{ kind: 'owner', line: 5 }],
-      feature: 'slot',
-    });
-  });
-
-  it('refuses a from-dimensions slot — it has no source to seed', async () => {
-    const result = await parseOffsetTargetDescriptors(codeWith(`slot(40, 8)`), 6);
-    expect(result).toMatchObject({ ok: false, reason: expect.stringContaining('dimensions') });
-  });
-
   it('parses a 2D fillet statement’s targets, skipping the radius slot', async () => {
     const result = await parseOffsetTargetDescriptors(
       codeWith(`fillet(2, r.edge('top'), c, edge().arc(4))`), 6,
@@ -6729,138 +6713,6 @@ describe('parseOffsetTargetDescriptors (offset edit seeding)', () => {
   });
 });
 
-describe('slot statement templates (from edge)', () => {
-  const code = [
-    `import { sketch, hLine } from 'fluidcad/core'`,
-    ``,
-    `sketch('xy', () => {`,
-    `  hLine(60)`,
-    `})`,
-    ``,
-  ].join('\n');
-  const createSpec = (slot: { removeOriginal: boolean }): ApplyFeatureEditSpec => ({
-    feature: 'slot',
-    value: 10,
-    slot,
-    filePath: '/ws/model.fluid.js',
-    producers: [{ line: 4, column: 2, featureType: 'line', nameHint: 'l', bind: true }],
-    parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
-    imports: [],
-  });
-
-  it('binds the source, appends slot(l, 10) in the sketch body and imports slot', async () => {
-    const result = await applyFeatureEdit(code, createSpec({ removeOriginal: true }));
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`const l = hLine(60)`);
-    expect(result.newCode).toContain(`  slot(l, 10)\n`);
-    expect(result.newCode).toContain(`import {slot, sketch, hLine } from 'fluidcad/core'`);
-  });
-
-  it('renders the keep-original form with the trailing false', async () => {
-    const result = await applyFeatureEdit(code, createSpec({ removeOriginal: false }));
-    expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`  slot(l, 10, false)\n`);
-  });
-
-  it('refuses a slot spec without a positive radius or a single part', async () => {
-    const noValue = await applyFeatureEdit(code, { ...createSpec({ removeOriginal: true }), value: 0 });
-    expect(noValue.error).toBe('malformed slot edit spec');
-
-    const twoParts = await applyFeatureEdit(code, {
-      ...createSpec({ removeOriginal: true }),
-      parts: [
-        { producer: 0, accessor: '', indices: null, filterArgs: null },
-        { producer: 0, accessor: 'edge', indices: null, filterArgs: '0' },
-      ],
-    });
-    expect(twoParts.error).toBe('malformed slot edit spec');
-  });
-});
-
-describe('parseFeatureStatement — slot', () => {
-  const base = [
-    `import { sketch, hLine, slot } from 'fluidcad/core'`,
-    ``,
-    `sketch('xy', () => {`,
-    `  const l = hLine(60)`,
-  ].join('\n');
-  /** `statement` lands on line 5, inside the sketch body. */
-  const codeWith = (statement: string) => `${base}\n  ${statement}\n})\n`;
-
-  it('reads the source, the radius and the default deleteSource', async () => {
-    const result = await parseFeatureStatement(codeWith(`slot(l, 10)`), 5);
-    expect(result).toEqual({
-      ok: true,
-      parsed: { feature: 'slot', value: 10, removeOriginal: true, argsText: 'l' },
-      statement: `slot(l, 10)`,
-    });
-  });
-
-  it('reads the explicit deleteSource flag', async () => {
-    const kept = await parseFeatureStatement(codeWith(`slot(l, 10, false)`), 5);
-    expect(kept).toMatchObject({
-      ok: true,
-      parsed: { feature: 'slot', value: 10, removeOriginal: false, argsText: 'l' },
-    });
-
-    const removed = await parseFeatureStatement(codeWith(`slot(l, 10, true)`), 5);
-    expect(removed).toMatchObject({
-      ok: true,
-      parsed: { feature: 'slot', removeOriginal: true },
-    });
-  });
-
-  it('reads a variable radius', async () => {
-    const code = [
-      `import { sketch, hLine, slot } from 'fluidcad/core'`,
-      `const r = 8`,
-      `sketch('xy', () => {`,
-      `  const l = hLine(60)`,
-      `  slot(l, r)`,
-      `})`,
-      ``,
-    ].join('\n');
-    const result = await parseFeatureStatement(code, 5);
-    expect(result).toMatchObject({ ok: true, parsed: { feature: 'slot', value: 'r', argsText: 'l' } });
-  });
-
-  it('refuses the from-dimensions forms with a drag-to-edit hint', async () => {
-    const distance = await parseFeatureStatement(codeWith(`slot(40, 8)`), 5);
-    expect(distance).toMatchObject({ ok: false, reason: expect.stringContaining('dimensions') });
-
-    const twoPoints = await parseFeatureStatement(codeWith(`slot([0, 0], [40, 20], 8)`), 5);
-    expect(twoPoints).toMatchObject({ ok: false, reason: expect.stringContaining('dimensions') });
-  });
-
-  it('refuses shapes the dialog cannot represent', async () => {
-    const missingRadius = await parseFeatureStatement(codeWith(`slot(l)`), 5);
-    expect(missingRadius).toMatchObject({ ok: false, reason: expect.stringContaining('radius') });
-
-    const computedFlag = await parseFeatureStatement(codeWith(`slot(l, 10, keep)`), 5);
-    expect(computedFlag).toMatchObject({ ok: false });
-  });
-});
-
-describe('applyFeatureEdit (slot edits removed)', () => {
-  const base = [
-    `import { sketch, hLine, slot } from 'fluidcad/core'`,
-    ``,
-    `sketch('xy', () => {`,
-    `  const l = hLine(60)`,
-  ].join('\n');
-  const codeWith = (statement: string) => `${base}\n  ${statement}\n})\n`;
-
-  it('refuses an edit-addressed slot spec — the slot edit dialog is gone', async () => {
-    const code = codeWith(`slot(l, 10)`);
-    const result = await applyFeatureEdit(
-      code,
-      editSpec('slot', { line: 5, column: 2 }, { value: 12, slot: { removeOriginal: true } }),
-    );
-    expect(result.error).toBe('slot statements no longer support dialog editing');
-    expect(result.newCode).toBe(code);
-  });
-});
-
 describe('rib statement templates', () => {
   function ribSpec(
     rib: Partial<NonNullable<ApplyFeatureEditSpec['rib']>> = {},
@@ -6881,11 +6733,11 @@ describe('rib statement templates', () => {
   }
 
   const ribBase = [
-    `import { sketch, rect, extrude, aLine } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude, line } from 'fluidcad/core'`,
     ``,
-    `sketch('xy', () => { rect(100, 50) })`,
+    `sketch('xy', () => { ellipse(100, 50) })`,
     `extrude(30)`,
-    `sketch('front', () => { aLine(45, 20) })`,
+    `sketch('front', () => { line([0, 0], [45, 20]) })`,
     ``,
   ].join('\n');
 
@@ -6919,7 +6771,7 @@ describe('rib statement templates', () => {
     ));
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
-    const boundRow = lines.findIndex(l => l === `const s = sketch('front', () => { aLine(45, 20) })`);
+    const boundRow = lines.findIndex(l => l === `const s = sketch('front', () => { line([0, 0], [45, 20]) })`);
     expect(boundRow).toBeGreaterThan(-1);
     expect(lines[boundRow + 1]).toBe(`rib(5, s)`);
   });
@@ -6937,7 +6789,7 @@ describe('rib statement templates', () => {
     expect(result.error).toBeUndefined();
     const lines = result.newCode.split('\n');
     expect(lines).toContain(`const f = extrude(30)`);
-    const boundRow = lines.findIndex(l => l === `const s = sketch('front', () => { aLine(45, 20) })`);
+    const boundRow = lines.findIndex(l => l === `const s = sketch('front', () => { line([0, 0], [45, 20]) })`);
     // Inserted after the LATEST referenced statement (the spine here).
     expect(lines[boundRow + 1]).toBe(`rib(5, s).scope(f)`);
   });
@@ -6951,10 +6803,10 @@ describe('rib statement templates', () => {
 
 describe('parseFeatureStatement — rib', () => {
   const ribEditBase = [
-    `import { sketch, rect, extrude, rib, aLine } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude, rib, line } from 'fluidcad/core'`,
     ``,
     `const body = extrude(30)`,
-    `const s = sketch('front', () => { aLine(45, 20) })`,
+    `const s = sketch('front', () => { line([0, 0], [45, 20]) })`,
   ].join('\n');
 
   it('reads a plain rib', async () => {
@@ -7011,11 +6863,11 @@ describe('parseFeatureStatement — rib', () => {
 
 describe('applyFeatureEdit (rib in-place statement edit)', () => {
   const ribEditBase = [
-    `import { sketch, rect, extrude, rib, aLine } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude, rib, line } from 'fluidcad/core'`,
     ``,
     `const body = extrude(30)`,
     `const tower = extrude(50).new()`,
-    `const s = sketch('front', () => { aLine(45, 20) })`,
+    `const s = sketch('front', () => { line([0, 0], [45, 20]) })`,
   ].join('\n');
 
   function ribEditOptions(
@@ -7085,7 +6937,7 @@ describe('applyFeatureEdit (rib in-place statement edit)', () => {
   });
 
   it('re-sources the spine to a picked sketch', async () => {
-    const code = `${ribEditBase}\nconst s2 = sketch('front', () => { aLine(30, 10) })\nrib(5, s)\n`;
+    const code = `${ribEditBase}\nconst s2 = sketch('front', () => { line([0, 0], [30, 10]) })\nrib(5, s)\n`;
     const result = await applyFeatureEdit(code, editSpec('rib', {
       line: 7, column: 0,
       rib: ribEditOptions({ spine: { kind: 'sketch', producer: 0 } }),
@@ -7098,14 +6950,14 @@ describe('applyFeatureEdit (rib in-place statement edit)', () => {
 
   it('re-picks a scope solid held by an assignment statement, reusing its variable', async () => {
     const code = [
-      `import { sketch, rect, extrude, shell, fillet, rib, aLine } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, shell, fillet, rib, line } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const box = extrude(30)`,
       `let s`,
       `s = shell(-4, box.endFaces())`,
       `s = fillet(2, s.internalEdges())`,
-      `sketch('front', () => { aLine(-45, 20) })`,
+      `sketch('front', () => { line([0, 0], [-45, 20]) })`,
       `rib(5).scope(s)`,
       '',
     ].join('\n');
@@ -7135,10 +6987,10 @@ describe('applyFeatureEdit (rib in-place statement edit)', () => {
 describe('.scope() chains — extrude, sweep, loft, revolve', () => {
   // A solid to scope to (line 3) ahead of the inputs each feature consumes.
   const scopedCreateBase = [
-    `import { sketch, rect, extrude } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
     ``,
     `const base = extrude(30)`,
-    `sketch('xy', () => { rect(100, 50) })`,
+    `sketch('xy', () => { ellipse(100, 50) })`,
     ``,
   ].join('\n');
 
@@ -7177,10 +7029,10 @@ describe('.scope() chains — extrude, sweep, loft, revolve', () => {
 
   it('extrude binds an unbound scope solid to a variable', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
       `extrude(30)`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, scopedExtrudeSpec());
@@ -7197,11 +7049,11 @@ describe('.scope() chains — extrude, sweep, loft, revolve', () => {
 
   it('sweep chains .scope() after the op chains', async () => {
     const code = [
-      `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
       ``,
       `const base = extrude(30)`,
       `sketch('xz', () => { circle(5) })`,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, {
@@ -7226,10 +7078,10 @@ describe('.scope() chains — extrude, sweep, loft, revolve', () => {
 
   it('loft chains .scope() after the op chains', async () => {
     const code = [
-      `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, circle, extrude } from 'fluidcad/core'`,
       ``,
       `const base = extrude(30)`,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
       `sketch('xz', () => { circle(5) })`,
       ``,
     ].join('\n');
@@ -7283,7 +7135,7 @@ describe('.scope() chains — extrude, sweep, loft, revolve', () => {
 
 describe('parseFeatureStatement — .scope() chains', () => {
   const scopeParseBase = [
-    `import { sketch, rect, extrude, cut, sweep, loft, revolve, circle } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude, cut, sweep, loft, revolve, circle } from 'fluidcad/core'`,
     ``,
     `const body = extrude(30)`,
     `const tower = extrude(50).new()`,
@@ -7332,7 +7184,7 @@ describe('parseFeatureStatement — .scope() chains', () => {
 
 describe('applyFeatureEdit (.scope() in-place statement edits)', () => {
   const scopeEditBase = [
-    `import { sketch, rect, extrude, cut, sweep, loft, revolve, circle } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude, cut, sweep, loft, revolve, circle } from 'fluidcad/core'`,
     ``,
     `const body = extrude(30)`,
     `const tower = extrude(50).new()`,
@@ -7400,11 +7252,11 @@ describe('applyFeatureEdit (.scope() in-place statement edits)', () => {
 
 describe('mirror statement templates', () => {
   const base = [
-    `import { sketch, rect, extrude, cut } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
     ``,
-    `sketch('xy', () => { rect(100, 50) })`,
+    `sketch('xy', () => { ellipse(100, 50) })`,
     `extrude(30)`,
-    `sketch('xy', () => { rect(10, 10) })`,
+    `sketch('xy', () => { ellipse(10, 10) })`,
     `cut(5)`,
   ].join('\n');
 
@@ -7436,11 +7288,11 @@ describe('mirror statement templates', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {mirror, sketch, rect, extrude, cut } from 'fluidcad/core'`,
+      `import {mirror, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const f = extrude(30)`,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
       `const f2 = cut(5)`,
       `mirror('yz', f, f2)`,
       ``,
@@ -7449,9 +7301,9 @@ describe('mirror statement templates', () => {
 
   it('reuses an existing const target binding', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       ``,
     ].join('\n');
@@ -7487,10 +7339,10 @@ describe('mirror statement templates', () => {
 
   it('renders an existing plane feature as its bound variable', async () => {
     const code = [
-      `import { sketch, rect, extrude, plane } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, plane } from 'fluidcad/core'`,
       ``,
       `const p = plane('yz', 40)`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       ``,
     ].join('\n');
@@ -7534,11 +7386,11 @@ describe('mirror statement templates', () => {
 });
 
 const mirrorEditBase = [
-  `import { sketch, rect, extrude, cut, mirror } from 'fluidcad/core'`,
+  `import { sketch, ellipse, extrude, cut, mirror } from 'fluidcad/core'`,
   ``,
-  `sketch('xy', () => { rect(100, 50) })`,
+  `sketch('xy', () => { ellipse(100, 50) })`,
   `const e = extrude(30)`,
-  `sketch('xy', () => { rect(10, 10) })`,
+  `sketch('xy', () => { ellipse(10, 10) })`,
   `const c = cut(5)`,
 ].join('\n');
 
@@ -7705,11 +7557,11 @@ describe('applyFeatureEdit (mirror in-place statement edit)', () => {
 
 describe('rotate statement templates', () => {
   const base = [
-    `import { sketch, rect, extrude, cut } from 'fluidcad/core'`,
+    `import { sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
     ``,
-    `sketch('xy', () => { rect(100, 50) })`,
+    `sketch('xy', () => { ellipse(100, 50) })`,
     `extrude(30)`,
-    `sketch('xy', () => { rect(10, 10) })`,
+    `sketch('xy', () => { ellipse(10, 10) })`,
     `cut(5)`,
   ].join('\n');
 
@@ -7742,11 +7594,11 @@ describe('rotate statement templates', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {rotate, sketch, rect, extrude, cut } from 'fluidcad/core'`,
+      `import {rotate, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const f = extrude(30)`,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { ellipse(10, 10) })`,
       `const f2 = cut(5)`,
       `rotate('z', 45, f, f2)`,
       ``,
@@ -7755,9 +7607,9 @@ describe('rotate statement templates', () => {
 
   it('renders the copy flag and reuses an existing const binding', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       ``,
     ].join('\n');
@@ -7776,10 +7628,10 @@ describe('rotate statement templates', () => {
 
   it('renders an existing axis feature as its bound variable', async () => {
     const code = [
-      `import { sketch, rect, extrude, axis } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, axis } from 'fluidcad/core'`,
       ``,
       `const a = axis([0, 0, 0], [0, 0, 1])`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       ``,
     ].join('\n');
@@ -7834,11 +7686,11 @@ describe('rotate statement templates', () => {
 });
 
 const rotateEditBase = [
-  `import { sketch, rect, extrude, cut, rotate } from 'fluidcad/core'`,
+  `import { sketch, ellipse, extrude, cut, rotate } from 'fluidcad/core'`,
   ``,
-  `sketch('xy', () => { rect(100, 50) })`,
+  `sketch('xy', () => { ellipse(100, 50) })`,
   `const e = extrude(30)`,
-  `sketch('xy', () => { rect(10, 10) })`,
+  `sketch('xy', () => { ellipse(10, 10) })`,
   `const c = cut(5)`,
 ].join('\n');
 
@@ -7875,9 +7727,9 @@ describe('parseFeatureStatement — rotate', () => {
 
   it('reads a variable angle as its expression text', async () => {
     const code = [
-      `import { sketch, rect, extrude, rotate } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, rotate } from 'fluidcad/core'`,
       `const ang = 30`,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
       `rotate('z', ang, e)`,
       ``,
@@ -8029,18 +7881,18 @@ describe('new part statement', () => {
 
   it('appends an exported part() after the last statement and allocates Part 1', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, newPartSpec());
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {part, sketch, rect, extrude } from 'fluidcad/core'`,
+      `import {part, sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       `export const part1 = part('Part 1', () => {`,
       ``,
@@ -8051,10 +7903,10 @@ describe('new part statement', () => {
 
   it('allocates the first free Part N past existing part names', async () => {
     const code = [
-      `import { part, sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { part, sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
       `part('Part 1', () => {`,
-      `  sketch('xy', () => { rect(100, 50) })`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
       `  extrude(30)`,
       `})`,
       `part('Part 3', () => {})`,
@@ -8079,10 +7931,10 @@ describe('new part statement', () => {
 
   it('suffixes the export identifier past a taken word', async () => {
     const code = [
-      `import { part, sketch, rect } from 'fluidcad/core'`,
+      `import { part, sketch, ellipse } from 'fluidcad/core'`,
       ``,
       `const bracket = 5`,
-      `part('Other', () => { sketch('xy', () => { rect(bracket, 4) }) })`,
+      `part('Other', () => { sketch('xy', () => { ellipse(bracket, 4) }) })`,
       ``,
     ].join('\n');
     const result = await applyFeatureEdit(code, newPartSpec('Bracket'));
@@ -8098,7 +7950,7 @@ describe('new part statement', () => {
 
   it('lands before an active breakpoint', async () => {
     const code = [
-      `import { sketch, rect, extrude, breakpoint } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude, breakpoint } from 'fluidcad/core'`,
       ``,
       `extrude(30)`,
       `breakpoint()`,
@@ -8118,10 +7970,10 @@ describe('active part insertion', () => {
 
   it('lands the pick-less sketch at the end of the part body', async () => {
     const code = [
-      `import { part, sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { part, sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
       `part('Body', () => {`,
-      `  sketch('xy', () => { rect(100, 50) })`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
       `  extrude(30)`,
       `})`,
       ``,
@@ -8129,14 +7981,14 @@ describe('active part insertion', () => {
     const result = await applyFeatureEdit(code, partSketchSpec(3));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import { part, sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { part, sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
       `part('Body', () => {`,
-      `  sketch('xy', () => { rect(100, 50) })`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
       `  extrude(30)`,
       `  sketch('xy', () => {`,
       ``,
-      `  }, true)`,
+      `  })`,
       `})`,
       ``,
     ].join('\n'));
@@ -8157,7 +8009,7 @@ describe('active part insertion', () => {
       `part('Body', () => {`,
       `  sketch('xy', () => {`,
       ``,
-      `  }, true)`,
+      `  })`,
       `})`,
       ``,
     ].join('\n'));
@@ -8180,7 +8032,7 @@ describe('active part insertion', () => {
       `export const part1 = part('Part 1', () => {`,
       `  sketch('xy', () => {`,
       ``,
-      `  }, true)`,
+      `  })`,
       ``,
       `})`,
       ``,
@@ -8189,10 +8041,10 @@ describe('active part insertion', () => {
 
   it('lands before a breakpoint inside the part body', async () => {
     const code = [
-      `import { part, sketch, rect, extrude, breakpoint } from 'fluidcad/core'`,
+      `import { part, sketch, ellipse, extrude, breakpoint } from 'fluidcad/core'`,
       ``,
       `part('Body', () => {`,
-      `  sketch('xy', () => { rect(100, 50) })`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
       `  extrude(30)`,
       `  breakpoint()`,
       `})`,
@@ -8204,17 +8056,17 @@ describe('active part insertion', () => {
       `  extrude(30)`,
       `  sketch('xy', () => {`,
       ``,
-      `  }, true)`,
+      `  })`,
       `  breakpoint()`,
     ].join('\n'));
   });
 
   it('lands a standard-base plane inside the part body', async () => {
     const code = [
-      `import { part, sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { part, sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
       `part('Body', () => {`,
-      `  sketch('xy', () => { rect(100, 50) })`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
       `  extrude(30)`,
       `})`,
       ``,
@@ -8237,9 +8089,9 @@ describe('active part insertion', () => {
 
   it('refuses when the active-part line does not hold a part() call', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
       ``,
     ].join('\n');

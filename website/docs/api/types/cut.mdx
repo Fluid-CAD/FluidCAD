@@ -98,12 +98,12 @@ Offsets the cut end face by a specified distance along the cut direction.
 ### startEdges()
 
 ```ts
-startEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges at the start of the cut path, classified by signed distance from the cut plane.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -114,12 +114,12 @@ Selects edges at the start of the cut path, classified by signed distance from t
 ### endEdges()
 
 ```ts
-endEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges at the end of the cut path, classified by signed distance from the cut plane.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -130,12 +130,12 @@ Selects edges at the end of the cut path, classified by signed distance from the
 ### internalEdges()
 
 ```ts
-internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects internal edges created by the cut that are not on the cut plane boundary.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -146,12 +146,12 @@ Selects internal edges created by the cut that are not on the cut plane boundary
 ### internalFaces()
 
 ```ts
-internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects internal faces exposed by the cut — newly created surfaces not from the original stock.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

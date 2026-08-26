@@ -3,8 +3,8 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import copy from "../../core/copy.js";
-import { rect } from "../../core/2d/index.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
+import { testRect } from "../helpers/profiles.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 
 describe("copy linear 2D", () => {
@@ -12,9 +12,9 @@ describe("copy linear 2D", () => {
 
   it("should create 2D copies inside a sketch", () => {
     sketch("xy", () => {
-      const r = rect(20, 20);
-      copy("linear", "x", { count: 3, offset: 40 }, r);
-    });
+        const r = testRect(20, 20);
+        copy("linear", "x", { count: 3, offset: 40 }, r.b, r.r, r.t, r.l);
+      });
 
     const e = extrude(10) as ExtrudeBase;
 
@@ -26,9 +26,9 @@ describe("copy linear 2D", () => {
 
   it("should produce copies at correct positions when extruded", () => {
     sketch("xy", () => {
-      const r = rect(20, 20);
-      copy("linear", "x", { count: 3, offset: 40 }, r);
-    });
+        const r = testRect(20, 20);
+        copy("linear", "x", { count: 3, offset: 40 }, r.b, r.r, r.t, r.l);
+      });
 
     const e = extrude(10).new() as ExtrudeBase;
 

@@ -29,7 +29,7 @@ afterEach(() => {
 
 describe('packModel — Pack v2 workspace packaging', () => {
   it('ships the whole non-ignored tree under files/, honoring .gitignore', async () => {
-    write('widget.fluid.js', "import { rect } from 'fluidcad/core';\nrect(1, 1);\n");
+    write('widget.fluid.js', "import { circle } from 'fluidcad/core';\ncircle(1);\n");
     write('init.js', "import { init } from 'fluidcad';\nexport default await init();\n");
     write('package.json', JSON.stringify({ name: 'widget', version: '1.2.3' }));
     write('README.md', '# Widget');
@@ -86,7 +86,7 @@ describe('packModel — Pack v2 workspace packaging', () => {
   });
 
   it('with no .gitignore, includes everything but hidden dot-entries', async () => {
-    write('model.fluid.js', "import { rect } from 'fluidcad/core';\nrect(1, 1);\n");
+    write('model.fluid.js', "import { circle } from 'fluidcad/core';\ncircle(1);\n");
     write('package.json', JSON.stringify({ name: 'm' }));
     write('.hidden', 'should be skipped');
     write('.config/settings.json', '{}'); // hidden dir → skipped
@@ -105,7 +105,7 @@ describe('packModel — Pack v2 workspace packaging', () => {
   });
 
   it('embeds paramDefinitions only when provided', async () => {
-    write('m.fluid.js', "import { rect } from 'fluidcad/core';\nrect(1, 1);\n");
+    write('m.fluid.js', "import { circle } from 'fluidcad/core';\ncircle(1);\n");
     const defs: ParamDefinition[] = [
       { label: 'width', defaultValue: 10, currentValue: 10, controlType: 'number' },
     ];

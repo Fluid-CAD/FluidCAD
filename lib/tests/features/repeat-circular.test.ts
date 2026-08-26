@@ -3,18 +3,18 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import repeat from "../../core/repeat.js";
-import { move, rect } from "../../core/2d/index.js";
+import { } from "../../core/2d/index.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { countShapes } from "../utils.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("repeat circular", () => {
   setupOC();
 
   it("should create repeated instances around z axis", () => {
     sketch("xy", () => {
-      move([50, 0]);
-      rect(20, 20);
-    });
+        testRect(20, 20, { at: [50, 0] });
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     repeat("circular", "z", { count: 4, angle: 360 }, e);
@@ -26,9 +26,8 @@ describe("repeat circular", () => {
 
   it("should repeat around y axis", () => {
     sketch("xz", () => {
-      move([50, 0]);
-      rect(20, 20);
-    });
+        testRect(20, 20, { at: [50, 0] });
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     repeat("circular", "y", { count: 4, angle: 360 }, e);
@@ -39,9 +38,8 @@ describe("repeat circular", () => {
 
   it("should space instances over a partial angle", () => {
     sketch("xy", () => {
-      move([50, 0]);
-      rect(20, 20);
-    });
+        testRect(20, 20, { at: [50, 0] });
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     // 3 instances over 180° → offset = 90° each
@@ -54,9 +52,8 @@ describe("repeat circular", () => {
 
   it("should evenly space 3 instances around full circle", () => {
     sketch("xy", () => {
-      move([50, 0]);
-      rect(20, 20);
-    });
+        testRect(20, 20, { at: [50, 0] });
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     // count: 3, angle: 360 → 120° apart
@@ -69,9 +66,8 @@ describe("repeat circular", () => {
 
   it("should use explicit offset between instances", () => {
     sketch("xy", () => {
-      move([50, 0]);
-      rect(20, 20);
-    });
+        testRect(20, 20, { at: [50, 0] });
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     repeat("circular", "z", { count: 4, offset: 90 }, e);
@@ -83,9 +79,8 @@ describe("repeat circular", () => {
 
   it("should center the pattern around the origin", () => {
     sketch("xy", () => {
-      move([50, 0]);
-      rect(20, 20);
-    });
+        testRect(20, 20, { at: [50, 0] });
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     repeat("circular", "z", { count: 5, angle: 360, centered: true }, e);
@@ -97,9 +92,8 @@ describe("repeat circular", () => {
 
   it("should skip specified indices", () => {
     sketch("xy", () => {
-      move([50, 0]);
-      rect(20, 20);
-    });
+        testRect(20, 20, { at: [50, 0] });
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     repeat("circular", "z", { count: 4, angle: 360, skip: [1] }, e);
@@ -111,9 +105,8 @@ describe("repeat circular", () => {
 
   it("should skip multiple indices", () => {
     sketch("xy", () => {
-      move([50, 0]);
-      rect(20, 20);
-    });
+        testRect(20, 20, { at: [50, 0] });
+      });
     const e = extrude(10).new() as ExtrudeBase;
 
     repeat("circular", "z", { count: 6, angle: 360, skip: [1, 3] }, e);
@@ -125,15 +118,13 @@ describe("repeat circular", () => {
 
   it("should repeat multiple objects together", () => {
     sketch("xy", () => {
-      move([50, 0]);
-      rect(20, 20);
-    });
+        testRect(20, 20, { at: [50, 0] });
+      });
     const e1 = extrude(10).new() as ExtrudeBase;
 
     sketch("xy", () => {
-      move([50, 20]);
-      rect(10, 10);
-    });
+        testRect(10, 10, { at: [50, 20] });
+      });
     const e2 = extrude(5).new() as ExtrudeBase;
 
     repeat("circular", "z", { count: 3, angle: 360 }, e1, e2);
@@ -145,9 +136,8 @@ describe("repeat circular", () => {
 
   it("should use last object when no objects specified", () => {
     sketch("xy", () => {
-      move([50, 0]);
-      rect(20, 20);
-    });
+        testRect(20, 20, { at: [50, 0] });
+      });
     extrude(10).new();
 
     repeat("circular", "z", { count: 4, angle: 360 });

@@ -30,13 +30,18 @@ plane(p1: Plane, p2: Plane, options?)
 ## Example
 
 ```fluid.js
-import { circle, extrude, plane, rect, sketch } from "fluidcad/core";
+import { circle, extrude, line, plane, sketch } from "fluidcad/core";
 
-sketch("xy", () => rect(100, 60).centered());
+sketch("xy", () => {
+  line([-50, -30], [50, -30]);
+  line([50, -30], [50, 30]);
+  line([50, 30], [-50, 30]);
+  line([-50, 30], [-50, -30]);
+});
 extrude(20);
 
 const top = plane("xy", 80);                        // XY shifted up 80
-sketch(top, () => circle(20));
+sketch(top, () => circle([0, 0], 20));
 extrude(10);
 ```
 

@@ -216,14 +216,13 @@ export interface IGeometry extends ISceneObject {
   guide(): this;
 
   /**
-   * Uniform edge accessor. `edge('top')` selects this feature's edges by role
-   * (optionally disambiguated by role index, e.g. `edge('corner-arc', 2)`);
-   * `edge(1)` selects by build-order index over the feature's real edges.
-   * Rect roles: `top`/`bottom`/`left`/`right` and `corner-arc` 0–3 (radius-arg
-   * order bl/br/tr/tl); polygon: `side` i; slot: `side` 0–1, `cap-arc`
-   * 0=left/1=right; circle/ellipse: `perimeter`.
+   * Uniform edge accessor. `edge('body')` selects this feature's edges by
+   * role (optionally disambiguated by role index); `edge(1)` selects by
+   * build-order index over the feature's real edges. Roles: solver lines and
+   * arcs stamp `body`; circles and ellipses `perimeter`; derived-op outputs
+   * carry provenance-specific roles (e.g. fillet arcs).
    * @param roleOrIndex - A role name, or a build-order edge index.
-   * @param roleIndex - Disambiguates roles that repeat (e.g. polygon sides).
+   * @param roleIndex - Disambiguates roles that repeat.
    */
   edge(roleOrIndex: string | number, roleIndex?: number): ISelection;
 
@@ -327,6 +326,13 @@ export interface IText extends IExtrudableGeometry {
   size(value: number): this;
 
   /**
+   * Places the text anchor at an explicit local position. Default: the
+   * sketch plane origin. Not applicable to text following a path.
+   * @param position - The anchor point in sketch coordinates.
+   */
+  at(position: [number, number]): this;
+
+  /**
    * Sets the font. A name without a font extension (e.g. `"Arial"`) is resolved
    * to a system font; a value ending in `.ttf`/`.otf`/`.ttc`/`.woff` (e.g.
    * `"fonts/Brand.ttf"`) is loaded as a workspace-relative file. When omitted, a
@@ -413,178 +419,6 @@ export interface IOffset extends IExtrudableGeometry {
    * is already closed.
    */
   close(): this;
-}
-
-export interface IArcPoints extends IExtrudableGeometry {
-  /**
-   * Sets the bulge radius for point-to-point arcs.
-   * Positive = CCW, negative = CW.
-   * @param value - The bulge radius.
-   */
-  radius(value: NumberParam): IArcRadius;
-
-  /**
-   * Specifies the circle center point for the arc.
-   * Mutually exclusive with `.radius()`.
-   * @param value - The center point of the arc's circle.
-   */
-  center(value: Point2DLike): IArcCenter;
-}
-
-export interface IArcRadius extends IExtrudableGeometry {
-  /**
-   * Switches to the major arc (> 180°).
-   * By default, `.radius()` produces the minor arc (< 180°);
-   * `.major()` switches to the complementary major arc on the same circle.
-   */
-  major(): this;
-}
-
-export interface IArcCenter extends IExtrudableGeometry {
-  /**
-   * Sweeps the arc clockwise from start to end instead of the default counter-clockwise.
-   */
-  cw(): this;
-}
-
-export interface IArcAngles extends IExtrudableGeometry {
-  /**
-   * Centers the arc symmetrically around the start angle.
-   */
-  centered(): this;
-}
-
-export interface IRect extends IExtrudableGeometry {
-  /**
-   * Sets corner radii for a rounded rectangle. Accepts 1–4 values
-   * in order: `[bottomLeft, bottomRight, topRight, topLeft]`.
-   * A single value applies to all corners.
-   * @param r - One or more radius values.
-   */
-  radius(...r: number[]): this;
-
-  /**
-   * Controls how the rectangle is positioned relative to the current point.
-   * @param value - `true` centers on both axes, `'horizontal'` or `'vertical'` centers
-   *   on one axis, `false` (default) keeps the current point as the origin corner.
-   */
-  centered(value?: boolean | 'horizontal' | 'vertical'): this;
-
-  /**
-   * Returns a lazy-evaluated vertex at the top-left corner.
-   */
-  topLeft(): LazyVertex;
-
-  /**
-   * Returns a lazy-evaluated vertex at the top-right corner.
-   */
-  topRight(): LazyVertex;
-
-  /**
-   * Returns a lazy-evaluated vertex at the bottom-left corner.
-   */
-  bottomLeft(): LazyVertex;
-
-  /**
-   * Returns a lazy-evaluated vertex at the bottom-right corner.
-   */
-  bottomRight(): LazyVertex;
-}
-
-export interface ISlot extends IExtrudableGeometry {
-  /**
-   * Controls whether the slot is centered on the current position.
-   * When `true`, the slot is offset backward by half its length.
-   * @param value - `true` to center, `false` (default) to start from the current position.
-   */
-  centered(value?: boolean): this;
-
-  /**
-   * Sets the rotation angle of the slot's primary axis.
-   * @param angle - Rotation in degrees.
-   */
-  rotate(angle: NumberParam): this;
-}
-
-export interface IALine extends IGeometry {
-  /**
-   * Controls whether the line is centered on the current position.
-   * When `true`, the line is offset backward by half its length so that the
-   * current position falls at its midpoint.
-   * @param value - `true` to center, `false` (default) to start from the current position.
-   */
-  centered(value?: boolean): this;
-}
-
-export interface IHLine extends IGeometry {
-  /**
-   * Controls whether the line is centered on the current position.
-   * When `true`, the line is offset backward by half its length so that the
-   * current position falls at its midpoint.
-   * @param value - `true` to center, `false` (default) to start from the current position.
-   */
-  centered(value?: boolean): this;
-}
-
-export interface IVLine extends IGeometry {
-  /**
-   * Controls whether the line is centered on the current position.
-   * When `true`, the line is offset backward by half its length so that the
-   * current position falls at its midpoint.
-   * @param value - `true` to center, `false` (default) to start from the current position.
-   */
-  centered(value?: boolean): this;
-}
-
-export interface IPolygon extends IExtrudableGeometry {
-  /**
-   * Returns a specific edge of the polygon by index.
-   * @param index - Zero-based edge index.
-   */
-  getEdge(index: number): ISelection;
-
-  /**
-   * Returns a lazy-evaluated vertex at a specific corner of the polygon.
-   * @param index - Zero-based vertex index.
-   */
-  getVertex(index: number): LazyVertex;
-}
-
-export interface ITwoObjectsTangentLine extends IGeometry {
-  /**
-   * Returns the start vertex of the tangent line.
-   * @param index - Solution index when multiple tangent lines exist (defaults to 0).
-   */
-  start(index?: number): LazyVertex;
-
-  /**
-   * Returns the end vertex of the tangent line.
-   * @param index - Solution index when multiple tangent lines exist (defaults to 0).
-   */
-  end(index?: number): LazyVertex;
-}
-
-export interface ITangentArcToObject extends IGeometry {
-  /**
-   * Flips the arc to the opposite side of the start tangent. By default,
-   * the arc curves to the left of the current tangent direction;
-   * `.flip()` switches it to the right.
-   */
-  flip(): this;
-}
-
-export interface ITangentArcTwoObjects extends IGeometry {
-  /**
-   * Returns the start vertex of the tangent arc.
-   * @param index - Solution index when multiple tangent arcs exist (defaults to 0).
-   */
-  start(index?: number): LazyVertex;
-
-  /**
-   * Returns the end vertex of the tangent arc.
-   * @param index - Solution index when multiple tangent arcs exist (defaults to 0).
-   */
-  end(index?: number): LazyVertex;
 }
 
 export interface ICommon extends ISceneObject {

@@ -51,7 +51,7 @@ export type InsertPartEntry = {
 
 /**
  * The Insert dialog's edit payload — rides `ApplyFeatureEditSpec` as a
- * side-channel (like `paramEdit`/`segmentSwap`): every other spec field is
+ * side-channel (like `paramEdit`): every other spec field is
  * ignored and the transform below runs instead. A BATCH: the dialog's whole
  * basket lands as one transform → one editor round trip → one re-render.
  */

@@ -5,13 +5,14 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import part from "../../core/part.js";
 import insert from "../../core/insert.js";
-import { rect } from "../../core/2d/index.js";
+import { } from "../../core/2d/index.js";
 import { Part } from "../../features/part.js";
 import { AssemblyScene } from "../../rendering/assembly-scene.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
 import { suggestConnectorAnchors } from "../../selection/connector-anchors.js";
 import { faceRefsWhere, findSolid, setLocation } from "./pick-helpers.js";
 import type { PickRef } from "../../selection/types.js";
+import { testRect } from "../helpers/profiles.js";
 
 const ASSEMBLY_FILE = "/ws/rig.assembly.js";
 
@@ -30,8 +31,8 @@ describe("connector synthesis on an assembly render", () => {
     getSceneManager().startAssemblyScene();
     const p = part("housing", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30);
       setLocation(e, 5);
     }) as unknown as Part;

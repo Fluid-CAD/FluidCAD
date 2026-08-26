@@ -1,57 +1,27 @@
 ---
 sidebar_position: 2
 title: "arc"
-description: "Draws an arc to an end point from the current position. Chain `.radius(r)` to set bulge radius, or `.center(point)` to specify the circle center."
+description: "Draws an arc fully specified by start, end and center guesses. Chain `.cw()` to flip the sweep side."
 ---
 
 # arc()
 
-Draws an arc to an end point from the current position.
-Chain `.radius(r)` to set bulge radius, or `.center(point)` to specify the circle center.
+Draws an arc fully specified by start, end and center guesses. Chain
+`.cw()` to flip the sweep side.
 
-**Returns**: [**`ArcPoints`**](/docs/api/types/arc-points) \| [**`ArcAngles`**](/docs/api/types/arc-angles)
+**Returns**: [**`SolvedArc`**](/docs/api/types/solved-arc)
 
 ## Signatures
 
 ```ts
-arc(endPoint: Point2DLike): ArcPoints
+arc(startPoint: Point2DLike, endPoint: Point2DLike, centerPoint: Point2DLike): SolvedArc
 ```
 
-Draws an arc to an end point from the current position.
-Chain `.radius(r)` to set bulge radius, or `.center(point)` to specify the circle center.
+Draws an arc fully specified by start, end and center guesses. Chain
+`.cw()` to flip the sweep side.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point of the arc |
-
----
-
-```ts
-arc(startPoint: Point2DLike, endPoint: Point2DLike): ArcPoints
-```
-
-Draws an arc from a start point to an end point.
-By default, uses the current position as the arc center.
-Chain `.radius(r)` to use bulge radius instead, or `.center(point)` to specify an explicit center.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `startPoint` | [Point2DLike](/docs/api/types/point2dlike) | The start point of the arc |
-| `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point of the arc |
-
----
-
-```ts
-arc(radius: NumberParam, startAngle?: NumberParam, endAngle?: NumberParam): ArcAngles
-```
-
-Draws an arc by radius and angle range at the current position.
-Angles are measured relative to the current tangent (the tangent of the previous
-geometry, or +X when there is none).
-Chain `.centered()` to center the arc symmetrically around the start angle.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `radius` | NumberParam | The arc radius |
-| `startAngle` | NumberParam | The start angle in degrees, relative to the current tangent (defaults to 0) *(optional)* |
-| `endAngle` | NumberParam | The end angle in degrees, relative to the current tangent (defaults to 180) *(optional)* |
+| `startPoint` | [Point2DLike](/docs/api/types/point2dlike) | The start point |
+| `endPoint` | [Point2DLike](/docs/api/types/point2dlike) | The end point |
+| `centerPoint` | [Point2DLike](/docs/api/types/point2dlike) | The center point |

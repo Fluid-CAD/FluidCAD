@@ -3,12 +3,13 @@ import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
-import { circle, move, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { countShapes, getFacesByType } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { SceneObject } from "../../common/scene-object.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("cut two distances", () => {
   setupOC();
@@ -17,14 +18,13 @@ describe("cut two distances", () => {
     it("should cut with different depths in each direction", () => {
       // Symmetric extrude spans z=-25 to z=+25, sketch plane is at z=0
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50).symmetric();
 
       sketch("xy", () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       cut(20, 10);
 
       const scene = render();
@@ -42,14 +42,13 @@ describe("cut two distances", () => {
 
     it("should remove the extrudable sketch shapes", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50).symmetric();
 
       const s = sketch("xy", () => {
-        move([25, 25]);
-        rect(50, 50);
-      }) as SceneObject;
+          testRect(50, 50, { at: [25, 25] });
+        }) as SceneObject;
 
       cut(20, 10);
 
@@ -62,14 +61,13 @@ describe("cut two distances", () => {
   describe("section edges", () => {
     it("should expose section edges", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50).symmetric();
 
       sketch("xy", () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       const c = cut(20, 10) as ExtrudeBase;
       const edgesObj = c.edges();
       addToScene(edgesObj);
@@ -85,14 +83,13 @@ describe("cut two distances", () => {
 
     it("should expose specific edge by index", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50).symmetric();
 
       sketch("xy", () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       const c = cut(20, 10) as ExtrudeBase;
       const edge0 = c.edges(0);
       const edge1 = c.edges(1);
@@ -110,20 +107,18 @@ describe("cut two distances", () => {
   describe("fuse scope", () => {
     it("should only cut the targeted object", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       const e1 = extrude(50).symmetric();
 
       sketch("xy", () => {
-        move([200, 0]);
-        rect(100, 100);
-      });
+          testRect(100, 100, { at: [200, 0] });
+        });
       extrude(50).symmetric();
 
       sketch("xy", () => {
-        move([25, 25]);
-        rect(50, 50);
-      });
+          testRect(50, 50, { at: [25, 25] });
+        });
       cut(20, 10).scope(e1);
 
       const scene = render();
@@ -136,16 +131,14 @@ describe("cut two distances", () => {
   describe("pick", () => {
     it("should only cut the picked region", () => {
       sketch("xy", () => {
-        rect(100, 100);
-      });
+          testRect(100, 100);
+        });
       extrude(50).symmetric();
 
       sketch("xy", () => {
-        move([25, 25]);
-        circle(30);
-        move([75, 25]);
-        circle(30);
-      });
+          circle([25, 25], 30);
+          circle([75, 25], 30);
+        });
       const c = cut(20, 10).pick([25, 25]) as ExtrudeBase;
 
       render();

@@ -43,11 +43,21 @@ out of it:
 ## Example
 
 ```fluid.js
-import { circle, cut, extrude, rect, sketch } from "fluidcad/core";
+import { cut, extrude, line, offset, project, sketch } from "fluidcad/core";
 
-sketch("xy", () => rect(120, 80).centered());
+sketch("xy", () => {
+  line([-60, -40], [60, -40]);
+  line([60, -40], [60, 40]);
+  line([60, 40], [-60, 40]);
+  line([-60, 40], [-60, -40]);
+});
 const block = extrude(30);
-sketch(block.endFaces(), () => circle(20));
+sketch(block.endFaces(), () => {
+  // The face plane's origin isn't guaranteed to be the face centroid —
+  // anchor to a projected reference instead of raw coordinates.
+  const outline = project(block.endFaces()).guide();
+  offset(-15, outline);                // pocket profile, inset 15
+});
 cut(10);                               // 10mm-deep blind pocket
 ```
 

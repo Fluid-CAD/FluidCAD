@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../../setup.js";
 import sketch from "../../../core/sketch.js";
-import { hLine, vLine, arc, offset } from "../../../core/2d/index.js";
+import { line, arc, offset } from "../../../core/2d/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { Edge } from "../../../common/edge.js";
 
@@ -30,9 +30,12 @@ describe("offset near-connected profile", () => {
   it("offsets a gapped quarter-pie outward as one closed profile", () => {
     let l: any, l2: any, a: any;
     const s = sketch("xy", () => {
-      l = hLine(50);
-      l2 = vLine([0.02, 0], -50);
-      a = arc([50.02, 0]).center([-0.02, 0.04]);
+      // Legacy pen walk: hLine(50) from the origin, vLine from [0.02, 0]
+      // down 50, arc from the pen's [0.02, -50] to [50.02, 0]. The 0.02
+      // gaps are the point of the test — no coincident constraints.
+      l = line([0, 0], [50, 0]);
+      l2 = line([0.02, 0], [0.02, -50]);
+      a = arc([0.02, -50], [50.02, 0], [-0.02, 0.04]);
       offset(5, a, l, l2);
     }) as Sketch;
     render();
@@ -61,9 +64,12 @@ describe("offset near-connected profile", () => {
   it("offsets a gapped quarter-pie inward with a negative distance", () => {
     let l: any, l2: any, a: any;
     const s = sketch("xy", () => {
-      l = hLine(50);
-      l2 = vLine([0.02, 0], -50);
-      a = arc([50.02, 0]).center([-0.02, 0.04]);
+      // Legacy pen walk: hLine(50) from the origin, vLine from [0.02, 0]
+      // down 50, arc from the pen's [0.02, -50] to [50.02, 0]. The 0.02
+      // gaps are the point of the test — no coincident constraints.
+      l = line([0, 0], [50, 0]);
+      l2 = line([0.02, 0], [0.02, -50]);
+      a = arc([0.02, -50], [50.02, 0], [-0.02, 0.04]);
       offset(-5, a, l, l2);
     }) as Sketch;
     render();
@@ -82,8 +88,8 @@ describe("offset near-connected profile", () => {
   it("still offsets far-apart edges as independent chains", () => {
     let l: any, l2: any;
     const s = sketch("xy", () => {
-      l = hLine(50);
-      l2 = vLine([0, -20], -50);
+      l = line([0, 0], [50, 0]);
+      l2 = line([0, -20], [0, -70]);
       offset(5, l, l2);
     }) as Sketch;
     render();

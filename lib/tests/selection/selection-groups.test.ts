@@ -4,12 +4,13 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
 import fillet from "../../core/fillet.js";
-import { circle, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Explorer } from "../../oc/explorer.js";
 import { EdgeProps } from "../../oc/edge-props.js";
 import { Extrude } from "../../features/extrude.js";
 import { listSelectionGroups, SelectionGroup, SelectionGroupKind } from "../../selection/selection-groups.js";
 import { edgeRefsWhere, faceRefsWhere, findSolid } from "./pick-helpers.js";
+import { testRect } from "../helpers/profiles.js";
 
 function groupsFor(result: ReturnType<typeof listSelectionGroups>): SelectionGroup[] {
   expect(result.ok).toBe(true);
@@ -25,8 +26,8 @@ describe("selection groups (right-click multi-select menu)", () => {
 
   it("offers classified, same-type and equal-length groups for a box edge", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     const scene = render();
@@ -69,9 +70,9 @@ describe("selection groups (right-click multi-select menu)", () => {
 
   it("offers the tangent chain on a rounded rim, and drops an equal group identical to its same-type group", () => {
     sketch("xy", () => {
-      rect(100, 50);
-      fillet(5);
-    });
+        testRect(100, 50);
+        fillet(5);
+      });
     extrude(20);
 
     const scene = render();
@@ -100,8 +101,8 @@ describe("selection groups (right-click multi-select menu)", () => {
 
   it("groups equal-radius hole rims apart from differently sized ones", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(10) as Extrude;
     sketch(e.endFaces(), () => {
       circle([25, 25], 16);
@@ -130,8 +131,8 @@ describe("selection groups (right-click multi-select menu)", () => {
 
   it("offers face groups (classified only) for a face pick", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     const scene = render();
@@ -160,8 +161,8 @@ describe("selection groups (right-click multi-select menu)", () => {
 
   it("reports a clear reason for an unresolvable pick", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     extrude(30);
 
     const scene = render();

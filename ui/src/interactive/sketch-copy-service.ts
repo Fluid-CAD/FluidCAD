@@ -118,9 +118,9 @@ export class SketchCopyService {
     return this.active;
   }
 
-  /** Always the pick body — the copy dialog has no draw tab. */
-  get mode(): 'pick' {
-    return 'pick';
+  /** The copy dialog runs the regular pick body (SketchOpDialog contract). */
+  get isDrawDialog(): boolean {
+    return false;
   }
 
   /** True while the dialog rewrites an existing statement instead of writing one. */
@@ -135,9 +135,6 @@ export class SketchCopyService {
   get isAwaitingSketch(): boolean {
     return this.awaitingEditSketch;
   }
-
-  /** Tab-less dialog — nothing to hide (SketchOpDialog contract). */
-  setPickTabHidden(): void {}
 
   /** The edit dialog's sketch has rendered — normal teardown rules resume. */
   noteSketchActive(): void {

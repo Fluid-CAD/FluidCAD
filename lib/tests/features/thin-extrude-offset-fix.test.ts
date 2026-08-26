@@ -4,11 +4,12 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import select from "../../core/select.js";
 import fillet from "../../core/fillet.js";
-import { rect, intersect, offset } from "../../core/2d/index.js";
+import { intersect, offset } from "../../core/2d/index.js";
 import { edge } from "../../filters/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Offset } from "../../features/2d/offset.js";
 import { SelectSceneObject } from "../../features/select.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("thin extrude offset auto-fix", () => {
   setupOC();
@@ -20,8 +21,8 @@ describe("thin extrude offset auto-fix", () => {
     // not closed."), but the face-spine path can — ThinFaceMaker.doOffset
     // should retry on failure.
     sketch("top", () => {
-      rect(205, 133).centered();
-    });
+        testRect(205, 133, { at: [-102.5, -66.5] });
+      });
     const body = extrude(100).draft(10) as Extrude;
     fillet(32, body.sideEdges());
 

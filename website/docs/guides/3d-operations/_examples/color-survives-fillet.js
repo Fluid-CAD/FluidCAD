@@ -3,8 +3,8 @@ import { circle } from 'fluidcad/core';
 import { face } from 'fluidcad/filters';
 
 sketch("xy", () => {
-    circle(40)
-})
+    circle([0, 0], 40);
+  })
 
 const e = extrude(50)
 

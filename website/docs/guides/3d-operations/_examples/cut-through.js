@@ -1,14 +1,29 @@
 import { sketch, extrude, cut } from 'fluidcad/core';
-import { rect, circle } from 'fluidcad/core';
+import { circle, line } from 'fluidcad/core';
+import { coincident, distance, fix, horizontal, vertical } from "fluidcad/constraints";
 
 sketch("xy", () => {
-    rect(100, 60).centered()
-})
+    const sg1 = line([-50, -30], [50, -30]);
+    const sg2 = line([50, -30], [50, 30]);
+    const sg3 = line([50, 30], [-50, 30]);
+    const sg4 = line([-50, 30], [-50, -30]);
+    coincident(sg1.end(), sg2.start());
+    coincident(sg2.end(), sg3.start());
+    coincident(sg3.end(), sg4.start());
+    coincident(sg4.end(), sg1.start());
+    horizontal(sg1);
+    vertical(sg2);
+    horizontal(sg3);
+    vertical(sg4);
+    fix(sg1.start(), [-50, -30]);
+    distance(sg1.start(), sg1.end(), 100);
+    distance(sg2.start(), sg2.end(), 60);
+  })
 
 const box = extrude(30)
 
 sketch(box.endFaces(), () => {
-    circle(40)
-})
+    circle([0, 0], 40);
+  })
 
 cut()

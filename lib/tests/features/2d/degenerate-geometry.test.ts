@@ -49,7 +49,7 @@ describe("degenerate geometry inputs", () => {
       coincident(l2.start(), l3.end());
       distance(l2.end(), l2.start(), 120);
       angle(l3, l1, 80);
-    }, true);
+    });
     const scene = render();
 
     const lines = scene.getRenderedObjects().filter(r => r.uniqueType === 'solved-line');

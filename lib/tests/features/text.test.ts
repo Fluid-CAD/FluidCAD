@@ -8,12 +8,13 @@ import extrude from "../../core/extrude.js";
 import select from "../../core/select.js";
 import cylinder from "../../core/cylinder.js";
 import helix from "../../core/helix.js";
-import { arc, circle, hLine, text } from "../../core/2d/index.js";
+import { arc, circle, text, line } from "../../core/2d/index.js";
 import { edge } from "../../filters/index.js";
 import { getBoundingBoxOfShapes } from "../utils.js";
 import { Shape } from "../../common/shape.js";
 import { Text } from "../../features/2d/text.js";
 import { FontRegistry } from "../../io/font-registry.js";
+import { horizontal } from "../../core/constraints/index.js";
 
 const normFamily = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
 
@@ -128,8 +129,9 @@ describe("text along a path", () => {
 
   it("lays text upright along a straight sketch line", () => {
     const path = sketch("xy", () => {
-      hLine(100);
-    });
+        const sg1 = line([0, 0], [100, 0]);
+        horizontal(sg1);
+      });
     const t = text("Hi", path).size(10) as Text;
     render();
 
@@ -147,8 +149,9 @@ describe("text along a path", () => {
 
   it("extrudes path text into a solid", () => {
     const path = sketch("xy", () => {
-      hLine(100);
-    });
+        const sg2 = line([0, 0], [100, 0]);
+        horizontal(sg2);
+      });
     const t = text("Hi", path).size(10);
     const e = extrude(5, t);
     render();
@@ -161,8 +164,8 @@ describe("text along a path", () => {
 
   it("keeps every glyph on the ring when following a circle", () => {
     const path = sketch("xy", () => {
-      circle(100); // diameter 100 -> radius 50
-    });
+        circle([0, 0], 100);
+      });
     const t = text("FLUIDCAD", path).size(8).align("center") as Text;
     render();
 
@@ -181,8 +184,9 @@ describe("text along a path", () => {
 
   it("offsets the baseline away from the path", () => {
     const path = sketch("xy", () => {
-      hLine(100);
-    });
+        const sg3 = line([0, 0], [100, 0]);
+        horizontal(sg3);
+      });
     const t = text("Hi", path).size(10).offset(5) as Text;
     render();
 
@@ -193,8 +197,9 @@ describe("text along a path", () => {
 
   it("flips text to the other side of the path", () => {
     const path = sketch("xy", () => {
-      hLine(100);
-    });
+        const sg4 = line([0, 0], [100, 0]);
+        horizontal(sg4);
+      });
     const t = text("Hi", path).size(10).flip() as Text;
     render();
 
@@ -207,8 +212,9 @@ describe("text along a path", () => {
 
   it("starts at an arc-length distance along the path", () => {
     const path = sketch("xy", () => {
-      hLine(100);
-    });
+        const sg5 = line([0, 0], [100, 0]);
+        horizontal(sg5);
+      });
     const t = text("I", path).size(10).startAt(30) as Text;
     render();
 
@@ -220,8 +226,9 @@ describe("text along a path", () => {
 
   it("aligns right against the path end", () => {
     const path = sketch("xy", () => {
-      hLine(100);
-    });
+        const sg6 = line([0, 0], [100, 0]);
+        horizontal(sg6);
+      });
     const t = text("Hi", path).size(10).align("right") as Text;
     render();
 
@@ -233,7 +240,7 @@ describe("text along a path", () => {
 
   it("follows a closed circular path and wraps around", () => {
     // Text much longer than the circumference must wrap, not error.
-    const ring = sketch("xy", () => circle(30)); // radius 15, circumference ~94
+    const ring = sketch("xy", () => circle([0, 0], 30)); // radius 15, circumference ~94
     const t = text("WRAPPING ALL THE WAY AROUND", ring).size(8) as Text;
     render();
 
@@ -263,8 +270,9 @@ describe("text along a path", () => {
 
   it("stacks multi-line text perpendicular to the path", () => {
     const path = sketch("xy", () => {
-      hLine(100);
-    });
+        const sg7 = line([0, 0], [100, 0]);
+        horizontal(sg7);
+      });
     const t = text("AB\nCD", path).size(10) as Text;
     render();
 
@@ -294,7 +302,7 @@ describe("text along a path", () => {
   });
 
   it("sits on the outside of a closed circle by default", () => {
-    const ring = sketch("xy", () => circle(100)); // radius 50
+    const ring = sketch("xy", () => circle([0, 0], 100)); // radius 50
     const t = text("OUTSIDE", ring).size(8) as Text;
     render();
 
@@ -308,7 +316,7 @@ describe("text along a path", () => {
   });
 
   it("moves closed-path text inside with flip", () => {
-    const ring = sketch("xy", () => circle(100)); // radius 50
+    const ring = sketch("xy", () => circle([0, 0], 100)); // radius 50
     const t = text("INSIDE", ring).size(8).flip() as Text;
     render();
 
@@ -323,8 +331,9 @@ describe("text along a path", () => {
 
   it("justifies text across the full path with space-between", () => {
     const path = sketch("xy", () => {
-      hLine(100);
-    });
+        const sg8 = line([0, 0], [100, 0]);
+        horizontal(sg8);
+      });
     const t = text("AB", path).size(10).align("space-between") as Text;
     render();
 
@@ -336,8 +345,9 @@ describe("text along a path", () => {
 
   it("leaves half a gap at each end with space-around", () => {
     const path = sketch("xy", () => {
-      hLine(100);
-    });
+        const sg9 = line([0, 0], [100, 0]);
+        horizontal(sg9);
+      });
     const t = text("AB", path).size(10).align("space-around") as Text;
     render();
 
@@ -352,8 +362,9 @@ describe("text along a path", () => {
 
   it("accepts start/end alignment synonyms", () => {
     const path = sketch("xy", () => {
-      hLine(100);
-    });
+        const sg10 = line([0, 0], [100, 0]);
+        horizontal(sg10);
+      });
     const t = text("Hi", path).size(10).align("end") as Text;
     render();
 
@@ -386,7 +397,7 @@ describe("text along a path", () => {
   it("follows an arc drawn in the same sketch", () => {
     let t: Text;
     sketch("xy", () => {
-      const a = arc([0, 0], [100, 0]).center([50, -200]).cw().guide();
+      const a = arc([0, 0], [100, 0], [50, -200]).cw().guide();
       t = text("Marwan", a).size(15) as Text;
     });
     render();
@@ -405,7 +416,7 @@ describe("text along a path", () => {
 
   it("extrudes in-sketch path text whose guide path stays out of the profile", () => {
     sketch("xy", () => {
-      const a = arc([0, 0], [100, 0]).center([50, -200]).cw().guide();
+      const a = arc([0, 0], [100, 0], [50, -200]).cw().guide();
       text("Hi", a).size(12);
     });
     const e = extrude(4);
@@ -418,7 +429,7 @@ describe("text along a path", () => {
   });
 
   it("multiple texts can share one path", () => {
-    const ring = sketch("xy", () => circle(100));
+    const ring = sketch("xy", () => circle([0, 0], 100));
     const outside = text("OUTSIDE", ring).size(8) as Text;
     const inside = text("INSIDE", ring).size(8).flip() as Text;
     render();

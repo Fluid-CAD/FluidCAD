@@ -3,12 +3,14 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import revolve from "../../core/revolve.js";
 import extrude from "../../core/extrude.js";
-import { move, rect, circle, line, vLine } from "../../core/2d/index.js";
+import { circle, line } from "../../core/2d/index.js";
+import { vertical } from "../../core/constraints/index.js";
 import { Revolve } from "../../features/revolve.js";
 import { Face } from "../../common/face.js";
 import { Edge } from "../../common/edge.js";
 import { ShapeProps } from "../../oc/props.js";
 import { EdgeQuery } from "../../oc/edge-query.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("thin revolve", () => {
   setupOC();
@@ -16,9 +18,8 @@ describe("thin revolve", () => {
   describe("closed profile - full revolution", () => {
     it("should create a thin-walled revolved solid", () => {
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 20);
-      });
+          testRect(10, 20, { at: [20, 0] });
+        });
 
       const r = revolve("z").thin(3) as Revolve;
       render();
@@ -30,16 +31,14 @@ describe("thin revolve", () => {
 
     it("should have less volume than a solid revolve of the same profile", () => {
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 20);
-      });
+          testRect(10, 20, { at: [20, 0] });
+        });
 
       const thinR = revolve("z").thin(3).new() as Revolve;
 
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 20);
-      });
+          testRect(10, 20, { at: [20, 0] });
+        });
 
       const solidR = revolve("z").new() as Revolve;
       render();
@@ -52,9 +51,8 @@ describe("thin revolve", () => {
 
     it("should classify internal faces for closed profile with partial revolve", () => {
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 20);
-      });
+          testRect(10, 20, { at: [20, 0] });
+        });
 
       const r = revolve("z", 180).thin(3) as Revolve;
       render();
@@ -65,9 +63,8 @@ describe("thin revolve", () => {
 
     it("should create a thin-walled solid with dual offset", () => {
       sketch("xz", () => {
-        move([30, 0]);
-        circle(10);
-      });
+          circle([30, 0], 10);
+        });
 
       const r = revolve("z", 180).thin(3, -2).new() as Revolve;
       render();
@@ -83,9 +80,8 @@ describe("thin revolve", () => {
 
     it("should create a thin-walled pipe from a circle", () => {
       sketch("xz", () => {
-        move([30, 0]);
-        circle(10);
-      });
+          circle([30, 0], 10);
+        });
 
       const r = revolve("z").thin(3) as Revolve;
       render();
@@ -99,9 +95,8 @@ describe("thin revolve", () => {
   describe("closed profile - partial revolution", () => {
     it("should create a thin-walled partial revolve", () => {
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 20);
-      });
+          testRect(10, 20, { at: [20, 0] });
+        });
 
       const r = revolve("z", 180).thin(3) as Revolve;
       render();
@@ -113,9 +108,8 @@ describe("thin revolve", () => {
 
     it("should classify start faces for partial revolve", () => {
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 20);
-      });
+          testRect(10, 20, { at: [20, 0] });
+        });
 
       const r = revolve("z", 90).thin(3) as Revolve;
       render();
@@ -128,9 +122,8 @@ describe("thin revolve", () => {
   describe("symmetric", () => {
     it("should create a symmetric thin-walled revolve", () => {
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 20);
-      });
+          testRect(10, 20, { at: [20, 0] });
+        });
 
       const r = revolve("z", 180).thin(3).symmetric() as Revolve;
       render();
@@ -174,9 +167,10 @@ describe("thin revolve", () => {
 
     it("should classify cap faces for vertical line profile parallel to axis (90 deg)", () => {
       sketch("xy", () => {
-        move([50, 0]);
-        vLine(100).centered();
-      });
+          // legacy: move([50, 0]); vLine(100).centered()
+          const l = line([50, -50], [50, 50]);
+          vertical(l);
+        });
 
       const r = revolve("y", -90).thin(20).new() as Revolve;
       render();
@@ -196,9 +190,10 @@ describe("thin revolve", () => {
 
     it("should classify cap faces for vertical line profile parallel to axis (180 deg)", () => {
       sketch("xy", () => {
-        move([50, 0]);
-        vLine(100).centered();
-      });
+          // legacy: move([50, 0]); vLine(100).centered()
+          const l = line([50, -50], [50, 50]);
+          vertical(l);
+        });
 
       const r = revolve("y", 180).thin(20).new() as Revolve;
       render();
@@ -220,14 +215,13 @@ describe("thin revolve", () => {
   describe("remove mode", () => {
     it("should cut a thin-walled revolve from existing geometry", () => {
       sketch("xy", () => {
-        rect(200, 200);
-      });
+          testRect(200, 200);
+        });
       extrude(50);
 
       sketch("xz", () => {
-        move([20, 0]);
-        rect(10, 20);
-      });
+          testRect(10, 20, { at: [20, 0] });
+        });
 
       const r = revolve("z").thin(3).remove() as Revolve;
       render();

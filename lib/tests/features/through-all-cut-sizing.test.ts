@@ -49,21 +49,21 @@ function flutedCone(): ISceneObject {
     symmetric(l2.end(), l3.end(), yAxis());
     symmetric(l2.start(), l3.start(), xAxis());
     fillet(6, l2, l3, l4, l1);
-  }, true);
+  });
   extrude(3);
 
   sketch('xy', () => {
     const c1 = circle([0, 0], 44) as ISolvedCircle;
     coincident(c1.center(), origin());
     diameter(c1, 44);
-  }, true);
+  });
   const cone = extrude(33).draft(-4);
 
   sketch(cone.endFaces(), () => {
     const c2 = circle([0, 0], 30) as ISolvedCircle;
     coincident(c2.center(), origin());
     diameter(c2, 30);
-  }, true);
+  });
   cut(30).draft(-4);
 
   sketch('xz', () => {
@@ -90,7 +90,7 @@ function flutedCone(): ISceneObject {
     distance(l7.end(), yAxis(), 5);
     distance(l7.start(), l7.end(), 10, 'x');
     distance(l6.end(), yAxis(), 5);
-  }, true);
+  });
 
   return cut().symmetric();
 }

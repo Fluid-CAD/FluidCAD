@@ -3,7 +3,7 @@ import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import plane from "../../core/plane.js";
 import loft from "../../core/loft.js";
-import { move, rect, circle } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Loft } from "../../features/loft.js";
 import { Sketch } from "../../features/2d/sketch.js";
@@ -11,6 +11,7 @@ import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { ShapeProps } from "../../oc/props.js";
 import { face } from "../../filters/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("loft", () => {
   setupOC();
@@ -18,12 +19,12 @@ describe("loft", () => {
   describe("loft between two profiles", () => {
     it("should loft between two rects on parallel planes", () => {
       const s1 = sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const l = loft(s1, s2) as Loft;
 
@@ -36,12 +37,12 @@ describe("loft", () => {
 
     it("should span the correct height between profiles", () => {
       const s1 = sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const s2 = sketch(plane("xy", { offset: 60 }), () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const l = loft(s1, s2) as Loft;
 
@@ -54,12 +55,12 @@ describe("loft", () => {
 
     it("should loft between two circles of different radii", () => {
       const s1 = sketch("xy", () => {
-        circle(80);
-      });
+          circle([0, 0], 80);
+        });
 
       const s2 = sketch(plane("xy", { offset: 50 }), () => {
-        circle(40);
-      });
+          circle([0, 0], 40);
+        });
 
       const l = loft(s1, s2) as Loft;
 
@@ -77,12 +78,12 @@ describe("loft", () => {
 
     it("should produce a solid with positive volume", () => {
       const s1 = sketch("xy", () => {
-        circle(60);
-      });
+          circle([0, 0], 60);
+        });
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        circle(30);
-      });
+          circle([0, 0], 30);
+        });
 
       const l = loft(s1, s2) as Loft;
 
@@ -96,12 +97,12 @@ describe("loft", () => {
   describe("loft between different shapes", () => {
     it("should loft between a rect and a circle", () => {
       const s1 = sketch("xy", () => {
-        rect(60, 60).centered();
-      });
+          testRect(60, 60, { at: [-30, -30] });
+        });
 
       const s2 = sketch(plane("xy", { offset: 50 }), () => {
-        circle(60);
-      });
+          circle([0, 0], 60);
+        });
 
       const l = loft(s1, s2) as Loft;
 
@@ -116,16 +117,16 @@ describe("loft", () => {
   describe("loft between three profiles", () => {
     it("should loft through three profiles", () => {
       const s1 = sketch("xy", () => {
-        circle(60);
-      });
+          circle([0, 0], 60);
+        });
 
       const s2 = sketch(plane("xy", { offset: 25 }), () => {
-        circle(100);
-      });
+          circle([0, 0], 100);
+        });
 
       const s3 = sketch(plane("xy", { offset: 50 }), () => {
-        circle(60);
-      });
+          circle([0, 0], 60);
+        });
 
       const l = loft(s1, s2, s3) as Loft;
 
@@ -143,12 +144,12 @@ describe("loft", () => {
   describe("loft removes profile shapes", () => {
     it("should remove sketch shapes from the profiles", () => {
       const s1 = sketch("xy", () => {
-        rect(100, 50);
-      }) as Sketch;
+          testRect(100, 50);
+        }) as Sketch;
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        rect(100, 50);
-      }) as Sketch;
+          testRect(100, 50);
+        }) as Sketch;
 
       loft(s1, s2);
 
@@ -162,12 +163,12 @@ describe("loft", () => {
   describe("loft produces single shape", () => {
     it("should produce a single shape in the scene", () => {
       const s1 = sketch("xy", () => {
-        circle(60);
-      });
+          circle([0, 0], 60);
+        });
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        circle(40);
-      });
+          circle([0, 0], 40);
+        });
 
       loft(s1, s2);
 
@@ -180,12 +181,12 @@ describe("loft", () => {
   describe("startFaces / endFaces / sideFaces", () => {
     it("should expose start and end faces", () => {
       const s1 = sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const l = loft(s1, s2) as Loft;
       const sf = l.startFaces();
@@ -206,12 +207,12 @@ describe("loft", () => {
 
     it("start and end faces should be different", () => {
       const s1 = sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const l = loft(s1, s2) as Loft;
       const sf = l.startFaces();
@@ -228,12 +229,12 @@ describe("loft", () => {
 
     it("should expose side faces", () => {
       const s1 = sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const l = loft(s1, s2) as Loft;
       const sidf = l.sideFaces();
@@ -250,12 +251,12 @@ describe("loft", () => {
 
     it("should filter faces by index", () => {
       const s1 = sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const l = loft(s1, s2) as Loft;
       const allSide = l.sideFaces();
@@ -271,12 +272,12 @@ describe("loft", () => {
 
     it("should filter faces with face filter builder", () => {
       const s1 = sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const l = loft(s1, s2) as Loft;
       const parallelXY = l.startFaces(face().parallelTo("xy"));
@@ -291,12 +292,12 @@ describe("loft", () => {
   describe("startEdges / endEdges / sideEdges", () => {
     it("should expose start and end edges", () => {
       const s1 = sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const l = loft(s1, s2) as Loft;
       const se = l.startEdges();
@@ -318,12 +319,12 @@ describe("loft", () => {
 
     it("should expose side edges excluding start/end edges", () => {
       const s1 = sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const l = loft(s1, s2) as Loft;
       const side = l.sideEdges();
@@ -351,12 +352,12 @@ describe("loft", () => {
 
     it("should filter edges by index", () => {
       const s1 = sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const s2 = sketch(plane("xy", { offset: 40 }), () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
 
       const l = loft(s1, s2) as Loft;
       const allStart = l.startEdges();

@@ -1,15 +1,14 @@
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../setup.js";
 import { getSceneManager } from "../../scene-manager.js";
-import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import fillet from "../../core/fillet.js";
 import part from "../../core/part.js";
 import select from "../../core/select.js";
 import expose from "../../core/expose.js";
 import insert from "../../core/insert.js";
-import { rect } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
+import { testRectSketch } from "../helpers/profiles.js";
 import { resolveContactPick } from "../../selection/contact-pick.js";
 import { faceRefsWhere, edgeRefsWhere, findSolid, setLocation } from "./pick-helpers.js";
 
@@ -22,7 +21,7 @@ describe("resolveContactPick", () => {
   function makeAssembly(donorBody?: (e: ReturnType<typeof extrude>) => void) {
     getSceneManager().startScene();
     const donor = part("Donor", () => {
-      sketch("xy", () => rect(40, 20));
+      testRectSketch("xy", 40, 20);
       const e = extrude(10);
       donorBody?.(e);
     });

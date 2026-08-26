@@ -4,19 +4,21 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import cylinder from "../../core/cylinder.js";
 import plane from "../../core/plane.js";
-import { rect, slot } from "../../core/2d/index.js";
+import { arc, line } from "../../core/2d/index.js";
+import { coincident } from "../../core/constraints/index.js";
 import part from "../../core/part.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { Point } from "../../math/point.js";
 import { IPlane } from "../../core/interfaces.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("sketch snap vertices", () => {
   setupOC();
 
   it("attaches plane-crossing endpoints to the tip sketch", () => {
     sketch("top", () => {
-      rect(20, 10).centered();
-    });
+        testRect(20, 10, { at: [-10, -5] });
+      });
     extrude(10);
 
     const front = sketch("front", () => {}) as unknown as Sketch;
@@ -41,8 +43,8 @@ describe("sketch snap vertices", () => {
 
   it("projects body vertices onto a plane the body never touches", () => {
     sketch("top", () => {
-      rect(20, 10).centered();
-    });
+        testRect(20, 10, { at: [-10, -5] });
+      });
     extrude(10);
 
     const off = plane("front", 20) as IPlane;
@@ -71,8 +73,8 @@ describe("sketch snap vertices", () => {
   it("snaps to other parts' bodies when sketching inside a part", () => {
     part("donor", () => {
       sketch("top", () => {
-        rect(20, 10).centered();
-      });
+          testRect(20, 10, { at: [-10, -5] });
+        });
       extrude(10);
     });
 
@@ -122,9 +124,17 @@ describe("sketch snap vertices", () => {
   });
 
   it("projects arc centers onto the plane", () => {
+    // legacy slot([-10, 0], [10, 0], 4): cap centers ±10 on x, r=4.
     sketch("top", () => {
-      slot([-10, 0], [10, 0], 4);
-    });
+        const top = line([-10, 4], [10, 4]);
+        const capRight = arc([10, 4], [10, -4], [10, 0]).cw();
+        const bottom = line([10, -4], [-10, -4]);
+        const capLeft = arc([-10, -4], [-10, 4], [-10, 0]).cw();
+        coincident(top.end(), capRight.start());
+        coincident(capRight.end(), bottom.start());
+        coincident(bottom.end(), capLeft.start());
+        coincident(capLeft.end(), top.start());
+      });
     extrude(5);
 
     const off = plane("top", 20) as IPlane;
@@ -148,8 +158,8 @@ describe("sketch snap vertices", () => {
 
   it("leaves renders whose tip is not a sketch untouched", () => {
     sketch("top", () => {
-      rect(20, 10).centered();
-    });
+        testRect(20, 10, { at: [-10, -5] });
+      });
     extrude(10);
 
     const scene = render();

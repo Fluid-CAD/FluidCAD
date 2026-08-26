@@ -79,7 +79,6 @@ export class SolvedDimensionEditor {
           this.getSketchSourceLine(),
           newVariable,
           dimOffset,
-          dimCall,
         );
         this.hide();
       },

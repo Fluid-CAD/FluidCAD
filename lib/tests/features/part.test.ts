@@ -6,13 +6,14 @@ import extrude from "../../core/extrude.js";
 import cut from "../../core/cut.js";
 import repeat from "../../core/repeat.js";
 import translate from "../../core/translate.js";
-import { circle, rect } from "../../core/2d/index.js";
+import { circle } from "../../core/2d/index.js";
 import part from "../../core/part.js";
 import { Part } from "../../features/part.js";
 import { Extrude } from "../../features/extrude.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { countShapes } from "../utils.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("part", () => {
   setupOC();
@@ -22,8 +23,8 @@ describe("part", () => {
     part("my-part", () => {
       ran++;
       sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
       extrude(20);
     });
 
@@ -42,8 +43,8 @@ describe("part", () => {
   it("should produce a solid", () => {
     part("solid-part", () => {
       sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
       extrude(20);
     });
 
@@ -63,15 +64,15 @@ describe("part", () => {
     it("should keep two parts as separate solids", () => {
       part("part1", () => {
         sketch("xy", () => {
-          circle(10);
-        });
+            circle([0, 0], 10);
+          });
         extrude(20);
       });
 
       part("part2", () => {
         sketch("xy", () => {
-          circle(10);
-        });
+            circle([0, 0], 10);
+          });
         extrude(20);
       });
 
@@ -121,8 +122,8 @@ describe("part", () => {
     it("should make sketch a child of the part", () => {
       part("container-test", () => {
         sketch("xy", () => {
-          circle(10);
-        });
+            circle([0, 0], 10);
+          });
         extrude(20);
       });
 
@@ -147,8 +148,8 @@ describe("part", () => {
   describe("backward compatibility", () => {
     it("should work normally without parts", () => {
       sketch("xy", () => {
-        circle(10);
-      });
+          circle([0, 0], 10);
+        });
       const e = extrude(20) as Extrude;
 
       render();
@@ -180,8 +181,8 @@ describe("part", () => {
     it("should repeat with explicit objects", () => {
       part("repeat-explicit", () => {
         sketch("xy", () => {
-          rect(50);
-        });
+            testRect(50, 50);
+          });
         const e = extrude().new() as ExtrudeBase;
 
         repeat("linear", "x", { count: 3, offset: 80 }, e);
@@ -194,8 +195,8 @@ describe("part", () => {
     it("should repeat with default input (last object)", () => {
       part("repeat-default", () => {
         sketch("xy", () => {
-          rect(50);
-        });
+            testRect(50, 50);
+          });
         extrude().new();
 
         repeat("linear", "x", { count: 3, offset: 80 });
@@ -208,12 +209,13 @@ describe("part", () => {
     it("should not override clone parent-child relationships", () => {
       part("clone-parents", () => {
         sketch("xy", () => {
-          rect(50);
-        });
+            testRect(50, 50);
+          });
         const e = extrude();
 
         sketch(e.endFaces(), () => {
-          circle(20);
+          // Legacy circle(20) drew at the face center ([25, 25] local).
+          circle([25, 25], 20);
         });
         const c = cut();
 
@@ -229,9 +231,9 @@ describe("part", () => {
     it("should preserve pick meta shapes on extrude inside a part", () => {
       part("pick-test", () => {
         sketch("xy", () => {
-          rect(50);
-          circle(20);
-        });
+            testRect(50, 50);
+            circle([50, 50], 20);
+          });
         extrude().pick();
       });
 
@@ -247,16 +249,16 @@ describe("part", () => {
     it("should preserve pick meta shapes with multiple parts", () => {
       part("pick-part1", () => {
         sketch("xy", () => {
-          rect(50);
-          circle(20);
-        });
+            testRect(50, 50);
+            circle([50, 50], 20);
+          });
         extrude().pick();
       });
 
       part("pick-part2", () => {
         sketch("xy", () => {
-          circle(10);
-        });
+            circle([0, 0], 10);
+          });
         extrude();
       });
 
@@ -272,7 +274,9 @@ describe("part", () => {
   describe("part() as transform target", () => {
     it("should return a lazy PartDefinition that materializes into a Part", () => {
       const result = part("ret-test", () => {
-        sketch("xy", () => { circle(10); });
+        sketch("xy", () => {
+            circle([0, 0], 10);
+          });
         extrude(20);
       });
 
@@ -283,7 +287,9 @@ describe("part", () => {
 
     it("should translate a Part target", () => {
       const p = part("translate-part", () => {
-        sketch("xy", () => { rect(20, 20); });
+        sketch("xy", () => {
+            testRect(20, 20);
+          });
         extrude(10);
       });
 
@@ -295,7 +301,9 @@ describe("part", () => {
 
     it("should translate-copy a Part target", () => {
       const p = part("copy-part", () => {
-        sketch("xy", () => { rect(20, 20); });
+        sketch("xy", () => {
+            testRect(20, 20);
+          });
         extrude(10);
       });
 
@@ -307,12 +315,16 @@ describe("part", () => {
 
     it("should transform only the targeted Part", () => {
       const p1 = part("multi-a", () => {
-        sketch("xy", () => { rect(10, 10); });
+        sketch("xy", () => {
+            testRect(10, 10);
+          });
         extrude(10);
       });
 
       part("multi-b", () => {
-        sketch("xy", () => { rect(20, 20); });
+        sketch("xy", () => {
+            testRect(20, 20);
+          });
         extrude(20);
       });
 
@@ -324,7 +336,9 @@ describe("part", () => {
 
     it("should work inline with translate", () => {
       translate(50, 0, 0, part("inline-part", () => {
-        sketch("xy", () => { circle(10); });
+        sketch("xy", () => {
+            circle([0, 0], 10);
+          });
         extrude(20);
       }));
       const scene = render();
@@ -345,8 +359,8 @@ describe("part", () => {
       function makePart(radius: number, height: number) {
         return part("opts-part", () => {
           sketch("xy", () => {
-            circle(radius);
-          });
+              circle([0, 0], radius);
+            });
           extrude(height);
         });
       }
@@ -371,8 +385,8 @@ describe("part", () => {
       function makePart(name: string, size: number) {
         return part(name, () => {
           sketch("xy", () => {
-            circle(size);
-          });
+              circle([0, 0], size);
+            });
           extrude(size);
         });
       }

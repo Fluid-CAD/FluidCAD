@@ -38,12 +38,17 @@ spacing or the span.
 ## Examples
 
 ```fluid.js
-import { circle, cut, extrude, rect, repeat, sketch } from "fluidcad/core";
+import { circle, cut, extrude, line, repeat, sketch } from "fluidcad/core";
 
 // Cut one pocket, then repeat the cut across a 4×2 grid → one solid with 8 pockets
-sketch("xy", () => rect(200, 100).centered());
+sketch("xy", () => {
+  line([-100, -50], [100, -50]);
+  line([100, -50], [100, 50]);
+  line([100, 50], [-100, 50]);
+  line([-100, 50], [-100, -50]);
+});
 extrude(20);
-sketch("xy", () => circle(5));
+sketch("xy", () => circle([0, 0], 5));
 const pocket = cut(10);
 repeat("linear", ["x", "y"], { count: [4, 2], offset: [30, 30] }, pocket);
 ```

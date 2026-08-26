@@ -4,10 +4,9 @@ import { SceneContext } from '../../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../../types';
 import { SnapController } from '../../../snapping/snap-controller';
 import { SnapManager } from '../../../snapping/snap-manager';
-import { pixelToSketchThreshold, projectToSketch, roundPoint } from '../../sketch-plane-utils';
+import { projectToSketch, roundPoint } from '../../sketch-plane-utils';
 import { ICON_POLYLINE } from '../../../ui/icons';
 import { ExpressionInput } from '../../../ui/expression-input';
-import { CONNECTABLE_TYPES, meshToSketch2D, tangentFromVertices } from '../tangent-utils';
 import { SNAP_VERTEX_COLOR, SNAP_GRID_COLOR, addDot } from '../tool-preview-utils';
 import { ModeIndicator } from './mode-indicator';
 import { LineMode } from './mode-line';
@@ -166,12 +165,8 @@ export class PolylineTool extends SketchTool {
     this.updateSnapManager(snapManager);
     this.refreshVariables();
 
-    if (this.phase === PolylinePhase.DRAWING && this.startPoint) {
-      if (this.solvedCtx) {
-        this.resyncSolvedChain();
-      } else {
-        this.resyncChainStateFromScene();
-      }
+    if (this.phase === PolylinePhase.DRAWING && this.startPoint && this.solvedCtx) {
+      this.resyncSolvedChain();
     }
   }
 
@@ -216,18 +211,11 @@ export class PolylineTool extends SketchTool {
       camera: this.ctx.camera,
       planeNormal,
       tangent: this.tangent,
-      sceneObjects: this.sceneObjects,
-      sketchId: this.sketchId,
       startPoint: this.startPoint,
-      isAtCurrentPosition: (p) => this.isAtCurrentPosition(p),
       pendingStartText: () => this.pendingStart ? this.formatPoint(this.pendingStart) : null,
-      pendingStartVariables: () => this.pendingStart?.newVariables ?? [],
-      clearPendingStart: () => { this.pendingStart = null; },
-      pixelThreshold: (px) => pixelToSketchThreshold(this.ctx, px),
       setSnapHint: (hint) => this.modeIndicator.setHint(hint),
       resolveCommittedValue: (result) => SketchTool.resolveCommittedValue(result, this.cachedVariables),
       formatPoint: (p) => this.formatPoint(p),
-      insertGeometry: (stmt, nv) => this.insertSegment(stmt, nv),
       solved: this.solvedCtx
         ? {
           prevEntity: () => this.solvedPrev
@@ -328,25 +316,14 @@ export class PolylineTool extends SketchTool {
   /**
    * Open a chain at a picked point. A typed absolute address is deferred and
    * rides on the first segment as its explicit start argument
-   * (`hLine(start, d)`, `line(start, end)`, ...) — one statement, not a
-   * `move(...)` plus a chained form. A typed relative offset keeps its own
-   * `move(dx, dy)`: the chained forms that follow are exactly the relative
-   * emission the offset asks for.
+   * (`line(start, end)`) — one fully-specified statement; no pen exists.
    */
   private beginChainAt(picked: PickedPoint, snap?: SnapResult): void {
     this.pendingStart = null;
     this.solvedPrev = null;
     this.solvedStartRef = null;
     if (picked.typed) {
-      if (picked.relative && !this.solvedCtx) {
-        const statement = this.relativeMovePrefix(picked) ?? `move(${this.formatPoint(picked)})`;
-        this.insertGeometry(
-          statement,
-          picked.newVariables.length > 0 ? picked.newVariables : undefined,
-        );
-      } else {
-        this.pendingStart = picked;
-      }
+      this.pendingStart = picked;
     }
 
     if (this.solvedCtx && !picked.typed && snap?.ref && !this.ctrlHeld && this.autoConstraintsEnabled()) {
@@ -369,22 +346,11 @@ export class PolylineTool extends SketchTool {
       }
     }
 
-    // Continuing the existing chain anchors to the kernel's exact cursor,
-    // not the rounded click — a tArc emitted from an offset start would
-    // rebuild slightly away from the rendered chain end.
-    this.startPoint = this.currentPosition && !picked.typed && this.isAtCurrentPosition(picked.value)
-      ? [this.currentPosition[0], this.currentPosition[1]]
-      : picked.value;
+    this.startPoint = picked.value;
     this.phase = PolylinePhase.DRAWING;
-    // A deferred typed start is an explicit re-anchor, not a chain
-    // continuation: tangent modes don't apply, even when the address lands
-    // on the cursor.
-    this.tangent = this.pendingStart ? null : this.findTangentAtPoint(this.startPoint);
-    if (this.solvedCtx) {
-      // Solved sketches have no kernel pen; the tangent comes from the
-      // (resumed) previous segment's geometry at the junction.
-      this.tangent = this.solvedPrev ? this.solvedJunctionTangent() : null;
-    }
+    // Solved sketches have no kernel pen; the tangent comes from the
+    // (resumed) previous segment's geometry at the junction.
+    this.tangent = this.solvedPrev ? this.solvedJunctionTangent() : null;
 
     if (!this.isModeUsable(this.currentMode, this.buildModeContext())) {
       this.advanceToNextValidMode();
@@ -395,21 +361,6 @@ export class PolylineTool extends SketchTool {
     this.modeIndicator.update(this.currentMode.id);
     this.syncPointInput();
     this.rebuildPreview();
-  }
-
-  /**
-   * Mode insertions funnel through here so the first segment of a chain
-   * opened at a typed address spends the pending start: its declarations ride
-   * along, and later segments chain off the cursor as usual.
-   */
-  private insertSegment(statement: string, newVariable?: NewVariable | NewVariable[]): void {
-    const pending = this.pendingStart;
-    this.pendingStart = null;
-    const modeVars = newVariable === undefined
-      ? []
-      : Array.isArray(newVariable) ? newVariable : [newVariable];
-    const variables = [...(pending?.newVariables ?? []), ...modeVars];
-    this.insertGeometry(statement, variables.length > 0 ? variables : undefined);
   }
 
   private handleMouseMove(e: MouseEvent): void {
@@ -547,50 +498,6 @@ export class PolylineTool extends SketchTool {
         return;
       }
     }
-  }
-
-  private findTangentAtPoint(point: Point2D): TangentInfo | null {
-    if (!this.isAtCurrentPosition(roundPoint(point))) {
-      return null;
-    }
-
-    // The kernel's exact chain tangent (from the scene payload) beats the
-    // mesh-derived fallback below: tessellation chords are a degree or two
-    // off the true tangent, which visibly rotates a tangency-exact tArc.
-    if (this.currentTangent) {
-      return { direction: [this.currentTangent[0], this.currentTangent[1]], point };
-    }
-
-    let lastGeom: SceneObjectRender | null = null;
-    for (const child of this.sceneObjects) {
-      if (child.parentId !== this.sketchId || !child.sourceLocation) {
-        continue;
-      }
-      if (!CONNECTABLE_TYPES.has(child.uniqueType ?? '')) {
-        continue;
-      }
-      lastGeom = child;
-    }
-    if (!lastGeom) {
-      return null;
-    }
-
-    for (const part of lastGeom.sceneShapes) {
-      if (part.isMetaShape) {
-        continue;
-      }
-      for (const mesh of part.meshes) {
-        const verts = meshToSketch2D(mesh.vertices, this.plane);
-        if (verts.length < 2) {
-          continue;
-        }
-        const dir = tangentFromVertices(verts, 'end');
-        if (dir) {
-          return { direction: dir, point };
-        }
-      }
-    }
-    return null;
   }
 
   // ------------------------------------------------- solved-sketch chaining
@@ -734,31 +641,6 @@ export class PolylineTool extends SketchTool {
     this.startPoint = [junction[0], junction[1]];
     this.solvedPrev = { ...prev, orientedDir: solvedLineOrientedDir(entity) };
     const tangent = this.solvedJunctionTangent();
-    if (tangent) {
-      this.tangent = tangent;
-    }
-    this.rebuildPreview();
-  }
-
-  /**
-   * Re-anchor the drawing chain to the kernel's rendered cursor after each
-   * render. The tool's analytic bookkeeping (rounded endpoints, projected
-   * tArc ends) approximates the kernel; adopting the kernel's exact
-   * position and tangent every render keeps the divergence from ever
-   * compounding across segments.
-   */
-  private resyncChainStateFromScene(): void {
-    // An unwritten typed start isn't in the scene: there is no rendered chain
-    // end to adopt, and adopting a tangent would re-arm the tangent modes.
-    if (this.pendingStart) {
-      return;
-    }
-    if (!this.startPoint || !this.currentPosition
-      || !this.isAtCurrentPosition(roundPoint(this.startPoint))) {
-      return;
-    }
-    this.startPoint = [this.currentPosition[0], this.currentPosition[1]];
-    const tangent = this.findTangentAtPoint(this.startPoint);
     if (tangent) {
       this.tangent = tangent;
     }

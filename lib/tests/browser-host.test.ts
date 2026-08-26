@@ -4,7 +4,8 @@ import { param } from "../core/index.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import fillet from "../core/fillet.js";
-import { rect } from "../core/2d/index.js";
+import { line, arc } from "../core/2d/index.js";
+import { coincident } from "../core/constraints/index.js";
 
 interface RenderedMesh { vertices: number[] }
 interface RenderedShape { meshes: RenderedMesh[] }
@@ -39,7 +40,27 @@ function totalMeshes(result: unknown[]): number {
 const modelEvaluator = async () => {
   const width = param("Width", 100) as number;
   sketch("xy", () => {
-    rect(width, 50).radius(10).centered();
+    // Legacy rect(width, 50).radius(10).centered(): rounded rectangle centered
+    // on the origin, corner radius 10 — four lines + four corner arcs.
+    const W = width / 2;
+    const H = 25;
+    const r = 10;
+    const b = line([-W + r, -H], [W - r, -H]);
+    const br = arc([W - r, -H], [W, -H + r], [W - r, -H + r]);
+    const rt = line([W, -H + r], [W, H - r]);
+    const tr = arc([W, H - r], [W - r, H], [W - r, H - r]);
+    const t = line([W - r, H], [-W + r, H]);
+    const tl = arc([-W + r, H], [-W, H - r], [-W + r, H - r]);
+    const l = line([-W, H - r], [-W, -H + r]);
+    const bl = arc([-W, -H + r], [-W + r, -H], [-W + r, -H + r]);
+    coincident(b.end(), br.start());
+    coincident(br.end(), rt.start());
+    coincident(rt.end(), tr.start());
+    coincident(tr.end(), t.start());
+    coincident(t.end(), tl.start());
+    coincident(tl.end(), l.start());
+    coincident(l.end(), bl.start());
+    coincident(bl.end(), b.start());
   });
   const e = extrude(30);
   fillet(4, e.startEdges());

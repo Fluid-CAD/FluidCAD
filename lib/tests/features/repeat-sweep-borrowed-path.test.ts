@@ -4,8 +4,9 @@ import sketch from "../../core/sketch.js";
 import sweep from "../../core/sweep.js";
 import repeat from "../../core/repeat.js";
 import fillet from "../../core/fillet.js";
-import { hLine, vLine, circle } from "../../core/2d/index.js";
+import { circle, line } from "../../core/2d/index.js";
 import { countShapes } from "../utils.js";
+import { coincident, horizontal, vertical } from "../../core/constraints/index.js";
 
 // Regression: circular-repeating a sweep whose PATH is a bare curve borrowed
 // from another sketch (`pathSketch.regions.corner`). cloneWithTransform used to
@@ -19,15 +20,18 @@ describe("repeat circular of a sweep with a borrowed in-sketch path", () => {
 
   it("renders every instance without orphaning the path's 2D source curves", () => {
     const pathSketch = sketch("front", () => {
-      const up = vLine(20);
-      const across = hLine(20);
-      const corner = fillet(5, up, across).reusable();
-      return { corner };
-    });
+        const up = line([0, 0], [0, 20]);
+        const across = line([0, 20], [20, 20]);
+        const corner = fillet(5, up, across).reusable();
+        vertical(up);
+        coincident(up.end(), across.start());
+        horizontal(across);
+        return { corner };
+      });
 
     sketch("top", () => {
-      circle(2);
-    });
+        circle([0, 0], 2);
+      });
 
     const s1 = sweep(pathSketch.regions.corner);
 

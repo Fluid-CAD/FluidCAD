@@ -34,9 +34,14 @@ the sketch plane's local X, use `mirror(local("x"))`. See
 ## Example
 
 ```fluid.js
-import { extrude, mirror, rect, sketch } from "fluidcad/core";
+import { extrude, line, mirror, sketch } from "fluidcad/core";
 
-sketch("xy", () => rect(40, 30).centered());
+sketch("xy", () => {
+  line([-20, -15], [20, -15]);
+  line([20, -15], [20, 15]);
+  line([20, 15], [-20, 15]);
+  line([-20, 15], [-20, -15]);
+});
 const block = extrude(20).new();
 mirror("yz", block);                             // mirror across the YZ plane
 ```

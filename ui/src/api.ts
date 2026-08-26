@@ -784,25 +784,6 @@ export async function fetchFeatureGhostResult(
 // Drag / position updates (fire-and-forget)
 // ---------------------------------------------------------------------------
 
-export function setLinePosition(
-  newStart: [number, number],
-  newEnd: [number, number],
-  sourceLocation: SourceLocationParam,
-): void {
-  postFireAndForget('/api/set-line-position', { newStart, newEnd, sourceLocation });
-}
-
-export function updatePosition(
-  newPosition: [number, number],
-  sourceLocation: SourceLocationParam,
-  pointIndex?: number,
-  oldPosition?: [number, number],
-): void {
-  postFireAndForget('/api/update-position', {
-    newPosition, sourceLocation, pointIndex, oldPosition: oldPosition ?? null,
-  });
-}
-
 /** One statement's worth of a solved-sketch drag write-back (P4). */
 export type SketchPositionEditParam = {
   sourceLine: number;
@@ -843,60 +824,12 @@ export async function updateSketchPositions(
   }
 }
 
-/**
- * Rewrite a point from per-axis expressions — the coordinate pill's commit.
- * `updatePosition` above stays the numeric drag path.
- */
-export function updatePointExpression(
-  xExpr: string,
-  yExpr: string,
-  sourceLocation: SourceLocationParam,
-  sketchSourceLine: number | null,
-  newVariable?: { name: string; initializer: string }[] | null,
-  pointIndex?: number,
-  oldPosition?: [number, number],
-): void {
-  postFireAndForget('/api/update-point-expression', {
-    xExpr,
-    yExpr,
-    sourceLocation,
-    sketchSourceLine,
-    newVariable: newVariable && newVariable.length > 0 ? newVariable : null,
-    pointIndex: pointIndex ?? 0,
-    oldPosition: oldPosition ?? null,
-  });
-}
-
-export function setChainPositions(
-  updates: { pointIndex: number; position: [number, number] }[],
-  sourceLocation: SourceLocationParam,
-): void {
-  postFireAndForget('/api/set-chain-positions', { updates, sourceLocation });
-}
-
-export function setRectDimensions(
-  width: number,
-  height: number,
-  sourceLocation: SourceLocationParam,
-  startPoint?: [number, number],
-  oldStartPoint?: [number, number],
-): void {
-  postFireAndForget('/api/set-rect-dimensions', {
-    width, height, sourceLocation,
-    startPoint: startPoint ?? null,
-    oldStartPoint: oldStartPoint ?? null,
-  });
-}
-
 export function updateDimensionExpression(
   expression: string,
   sourceLocation: SourceLocationParam,
   sketchSourceLine: number | null,
   newVariable?: { name: string; initializer: string } | null,
   dimensionOffset?: number,
-  dimensionCall?: string | null,
-  dimensionInsert?: boolean,
-  dimensionPoint?: [number, number] | null,
 ): void {
   postFireAndForget('/api/update-dimension-expression', {
     expression,
@@ -904,9 +837,6 @@ export function updateDimensionExpression(
     sketchSourceLine,
     newVariable: newVariable ?? null,
     dimensionOffset: dimensionOffset ?? 0,
-    dimensionCall: dimensionCall ?? null,
-    dimensionInsert: dimensionInsert ?? false,
-    dimensionPoint: dimensionPoint ?? null,
   });
 }
 
@@ -1243,7 +1173,7 @@ export async function applyProjectEdit(
 export type SketchApplyEntity = { shapeId: string };
 
 /** The 2D operations the sketch-branch apply supports. */
-export type SketchOpFeature = 'fillet' | 'offset' | 'slot' | 'rotate2d';
+export type SketchOpFeature = 'fillet' | 'offset' | 'rotate2d';
 
 /**
  * The offset dialog's toggle: `close` chains `.close()` to cap an open
@@ -1264,15 +1194,6 @@ export type Rotate2DOptionValues = {
 };
 
 /**
- * The slot dialog's single toggle: `removeOriginal` mirrors the statement's
- * `deleteSource` argument (kernel default true) — `slot(l, 4)` consumes the
- * source line, `slot(l, 4, false)` keeps it.
- */
-export type SlotOptionValues = {
-  removeOriginal: boolean;
-};
-
-/**
  * Ask the server to synthesize (and, unless `preview` is set, apply) a 2D
  * operation for the picked sketch edges. The synthesized statement lands
  * inside the sketch body (`fillet(4, r.edge('top'), l)`,
@@ -1284,7 +1205,6 @@ export async function applySketchOp(
   entities: SketchApplyEntity[],
   options: {
     offset?: OffsetOptionValues;
-    slot?: SlotOptionValues;
     rotate2d?: Rotate2DOptionValues;
     selectorOverride?: string;
     newVariables?: NewVariable[];
@@ -1296,7 +1216,6 @@ export async function applySketchOp(
     feature,
     value,
     sketchEntities: entities,
-    removeOriginal: options.slot?.removeOriginal,
     close: options.offset?.close,
     rotate2d: options.rotate2d,
     selectorOverride: options.selectorOverride,
@@ -1405,66 +1324,6 @@ export async function applySketchCopyEdit(
   }, options.signal);
 }
 
-/**
- * Commit the polyline tool's tangent-arc-to-edge snap: `tArc(<radius>,
- * <target>)`, where the picked edge's producing statement is bound to a
- * variable by the server and referenced as the target. The signed radius
- * follows the kernel's convention — positive curves left of the chain
- * tangent, negative right; the arc ends at its first intersection with the
- * target along the sweep.
- */
-export async function applyTarcToEdge(
-  radius: number,
-  shapeId: string,
-): Promise<ApplyFeatureResponse> {
-  return postApplyFeature({
-    feature: 'tarc',
-    value: radius,
-    sketchEntities: [{ shapeId }],
-  });
-}
-
-/**
- * Rewrite the `tArc(radius, endPoint)` statement at `sourceLocation` to the
- * to-target overload — `tArc(radius, <target>)` — referencing the picked
- * edge's statement (an end-drag snapped onto it). The radius argument text
- * is preserved server-side; `sign` is the solved sweep in the to-target
- * convention (+1 CCW), applied by negating the radius for a clockwise arc.
- */
-export async function retargetTarcToEdge(
-  sourceLocation: SourceLocationParam,
-  shapeId: string,
-  sign: 1 | -1,
-): Promise<ApplyFeatureResponse> {
-  return postApplyFeature({
-    feature: 'tarc',
-    sketchEntities: [{ shapeId }],
-    tarcRetarget: { line: sourceLocation.line, sign },
-  });
-}
-
-/**
- * Commit the polyline tool's angled-line-to-target snap: `aLine(<angle>,
- * <target>)`, where the picked geometry's producing statement is bound to a
- * variable by the server and referenced as the target. The line ends at its
- * nearest intersection with the target along the drawn direction (in either
- * sign). A chain opened away from the sketch cursor carries its start
- * address as the statement's first argument — `aLine([10, 5], 30, l)`.
- */
-export async function applyAlineToEdge(
-  angle: number | string,
-  shapeId: string,
-  options: { start?: string; newVariables?: NewVariable[] } = {},
-): Promise<ApplyFeatureResponse> {
-  return postApplyFeature({
-    feature: 'aline',
-    value: angle,
-    sketchEntities: [{ shapeId }],
-    alineStart: options.start,
-    newVariables: options.newVariables?.length ? options.newVariables : undefined,
-  });
-}
-
 export type OffsetEditOptions = OffsetOptionValues & EditSessionFields & {
   value: ValueExpr;
   /** Edited target argument list; omitted keeps the statement's verbatim. */
@@ -1552,71 +1411,6 @@ export async function applyFillet2DEdit(
   }, options.signal);
 }
 
-/** The constrained/free forms a chained sketch segment can be rewritten to. */
-export type ConversionTarget = 'hLine' | 'vLine' | 'tLine' | 'aLine' | 'tArc' | 'free';
-
-/** One conversion the mini-toolbar offers for the selected segment. */
-export type ConversionOption = {
-  target: ConversionTarget;
-  enabled: boolean;
-  /** Human-readable, for disabled-button tooltips. */
-  reason?: string;
-  /** Fully rendered call chain, e.g. `aLine(45, 141.42)`. */
-  newStatement?: string;
-  /** |new end − old end| in mm, for the UI to warn on snap size. */
-  endpointDelta?: number;
-  /**
-   * Start-tangent deviation (degrees) an arc→tArc conversion re-bulges away;
-   * endpoints stay put but the arc visibly reshapes.
-   */
-  reshapeAngle?: number;
-};
-
-export type SegmentConversionsResponse = {
-  ok: boolean;
-  /** Why nothing is convertible (not chained, buffer out of sync, …). */
-  reason?: string;
-  /** uniqueType of the owning feature, e.g. `line-two-points`. */
-  currentKind?: string;
-  sourceLocation?: SourceLocation;
-  options?: ConversionOption[];
-  /** Statement text the apply drift-guards against. */
-  expectedStatement?: string;
-};
-
-/**
- * Legal conversions for the picked chained sketch segment. Refusal bodies
- * (422s) surface their reason so the mini-toolbar can tooltip it.
- */
-export async function fetchSegmentConversions(
-  shapeId: string,
-  signal?: AbortSignal,
-): Promise<SegmentConversionsResponse> {
-  try {
-    const res = await fetch('/api/sketch/segment-conversions', {
-      method: 'POST',
-      headers: JSON_HEADERS,
-      signal,
-      body: JSON.stringify({ shapeId }),
-    });
-    const body = await res.json().catch(() => null);
-    if (!res.ok) {
-      return { ok: false, reason: body?.error ?? `Request failed (${res.status})` };
-    }
-    return body ?? { ok: false, reason: 'Empty server response' };
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw err;
-    }
-    return { ok: false, reason: 'Could not reach the FluidCAD server' };
-  }
-}
-
-/**
- * Rewrite the segment's statement to `target`'s constrained (or free) form.
- * `expectedStatement` guards against the buffer having drifted since the
- * options were fetched.
- */
 /** One target of a solved-sketch constraint statement (P4): a statement
  * addressed by source line (+role), or an implicit sketch datum rendered
  * as its accessor call (origin()/xAxis()/yAxis()). */
@@ -1742,27 +1536,6 @@ export async function insertSolvedGeometry(options: {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify(options),
-    });
-    const body = await res.json().catch(() => null);
-    if (!res.ok) {
-      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
-    }
-    return body ?? { success: false, reason: 'Empty server response' };
-  } catch {
-    return { success: false, reason: 'Could not reach the FluidCAD server' };
-  }
-}
-
-export async function convertSegment(
-  shapeId: string,
-  target: ConversionTarget,
-  expectedStatement: string,
-): Promise<{ success: boolean; reason?: string }> {
-  try {
-    const res = await fetch('/api/sketch/convert-segment', {
-      method: 'POST',
-      headers: JSON_HEADERS,
-      body: JSON.stringify({ shapeId, target, expectedStatement }),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) {

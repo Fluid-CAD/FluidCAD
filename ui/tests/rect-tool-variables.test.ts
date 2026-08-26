@@ -5,7 +5,11 @@ import { ExpressionInput } from '../src/ui/expression-input';
 
 Element.prototype.scrollIntoView = () => {};
 
-type Inserted = { statement: string; newVariable?: unknown };
+type Emitted = {
+  geometry: { kind: string; text: string }[];
+  constraints: { kind: string; valueExpr?: string }[];
+  newVariables?: { name: string; initializer: string }[];
+};
 
 function type(input: HTMLInputElement, text: string): void {
   input.value = text;
@@ -18,19 +22,23 @@ function pressEnter(input: HTMLInputElement): void {
 
 // Drives a RectTool's expression-commit flow against a real ExpressionInput,
 // bypassing the canvas/scene: the tool object is created without its
-// constructor and fed the state a started rectangle drag would hold.
-function makeTool(inserted: Inserted[]): { tool: any; input: HTMLInputElement } {
+// constructor and fed the state a started rectangle drag would hold. The
+// solved-context stub records the atomic emission.
+function makeTool(emitted: Emitted[]): { tool: any; input: HTMLInputElement } {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const expr = new ExpressionInput(container);
 
   const tool: any = Object.create(RectTool.prototype);
-  tool.insertGeometry = (statement: string, newVariable?: unknown) => {
-    inserted.push({ statement, newVariable });
+  tool.solvedCtx = {
+    emit: async (request: Emitted) => {
+      emitted.push(request);
+      return { success: true };
+    },
+    autoConstraints: () => true,
   };
   tool.centered = false;
   tool.cachedVariables = [];
-  tool.currentPosition = null;
   tool.startPoint = [0, 0];
   // The anchor's two halves are written together by `consumeStart`; the
   // harness skips that, so inject the pick the origin click would have made.
@@ -47,6 +55,8 @@ function makeTool(inserted: Inserted[]): { tool: any; input: HTMLInputElement } 
   tool.widthExpression = null;
   tool.lockedWidth = null;
   tool.widthIsNumeric = false;
+  tool.widthTyped = false;
+  tool.heightTyped = false;
 
   tool.updateDimensionInput();
   return { tool, input: container.querySelector('.expression-input')! };
@@ -59,8 +69,8 @@ async function flushMicrotasks(): Promise<void> {
 
 describe('rect tool variable declarations', () => {
   it('declaring on height only carries the declaration', async () => {
-    const inserted: Inserted[] = [];
-    const { tool, input } = makeTool(inserted);
+    const emitted: Emitted[] = [];
+    const { tool, input } = makeTool(emitted);
 
     pressEnter(input); // accept numeric width
     await flushMicrotasks();
@@ -72,14 +82,15 @@ describe('rect tool variable declarations', () => {
     pressEnter(input);
     await flushMicrotasks();
 
-    expect(inserted).toHaveLength(1);
-    expect(inserted[0].statement).toContain('myVar');
-    expect(inserted[0].newVariable).toEqual([{ name: 'myVar', initializer: '50' }]);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].newVariables).toEqual([{ name: 'myVar', initializer: '50' }]);
+    // The typed height becomes a dimension carrying the variable.
+    expect(emitted[0].constraints.some(c => c.kind === 'distance' && c.valueExpr === 'myVar')).toBe(true);
   });
 
   it('declaring on width only carries the declaration', async () => {
-    const inserted: Inserted[] = [];
-    const { tool, input } = makeTool(inserted);
+    const emitted: Emitted[] = [];
+    const { tool, input } = makeTool(emitted);
 
     type(input, 'myVar = 50');
     pressEnter(input);
@@ -89,13 +100,13 @@ describe('rect tool variable declarations', () => {
     pressEnter(input); // accept numeric height
     await flushMicrotasks();
 
-    expect(inserted).toHaveLength(1);
-    expect(inserted[0].newVariable).toEqual([{ name: 'myVar', initializer: '50' }]);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].newVariables).toEqual([{ name: 'myVar', initializer: '50' }]);
   });
 
   it('declaring on both width and height carries both declarations', async () => {
-    const inserted: Inserted[] = [];
-    const { tool, input } = makeTool(inserted);
+    const emitted: Emitted[] = [];
+    const { tool, input } = makeTool(emitted);
 
     type(input, 'w = 30');
     pressEnter(input);
@@ -106,17 +117,17 @@ describe('rect tool variable declarations', () => {
     pressEnter(input);
     await flushMicrotasks();
 
-    expect(inserted).toHaveLength(1);
-    expect(inserted[0].statement).toContain('rect');
-    expect(inserted[0].newVariable).toEqual([
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].geometry.length).toBeGreaterThan(0);
+    expect(emitted[0].newVariables).toEqual([
       { name: 'w', initializer: '30' },
       { name: 'h', initializer: '20' },
     ]);
   });
 
   it('declaring via the bare-name dropdown suggestion uses the live seed value', async () => {
-    const inserted: Inserted[] = [];
-    const { tool, input } = makeTool(inserted);
+    const emitted: Emitted[] = [];
+    const { tool, input } = makeTool(emitted);
 
     pressEnter(input); // accept numeric width
     await flushMicrotasks();
@@ -127,7 +138,7 @@ describe('rect tool variable declarations', () => {
     pressEnter(input);
     await flushMicrotasks();
 
-    expect(inserted).toHaveLength(1);
-    expect(inserted[0].newVariable).toEqual([{ name: 'myVar', initializer: '20' }]);
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].newVariables).toEqual([{ name: 'myVar', initializer: '20' }]);
   });
 });

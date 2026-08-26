@@ -5,7 +5,7 @@ import extrude from "../core/extrude.js";
 import part from "../core/part.js";
 import insert from "../core/insert.js";
 import mate from "../core/mate.js";
-import { rect } from "../core/2d/index.js";
+import { testRect } from "./helpers/profiles.js";
 import { Part } from "../features/part.js";
 
 describe("insert scope", () => {
@@ -16,7 +16,7 @@ describe("insert scope", () => {
 
     it("throws when insert() is called in a part file", () => {
       const p = part("housing", () => {
-        sketch("xy", () => rect(20, 20));
+        sketch("xy", () => { testRect(20, 20); });
         extrude(10);
       }) as unknown as Part;
 
@@ -31,7 +31,7 @@ describe("insert scope", () => {
       // Build a part inside a regular scene first.
       getSceneManager().startScene();
       p = part("housing", () => {
-        sketch("xy", () => rect(20, 20));
+        sketch("xy", () => { testRect(20, 20); });
         extrude(10);
       }) as unknown as Part;
       // Now switch to assembly mode.

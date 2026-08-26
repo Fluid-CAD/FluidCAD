@@ -19,7 +19,7 @@ Call `.guide()` on any sketch shape:
 
 ![Guide circle with hexagon](/img/docs/sketching/guide-basic.png)
 
-The guide circle helps you visually align the hexagon, but it's excluded from the final sketch output.
+The guide circle helps you place the hexagon's vertices, but it's excluded from the final sketch output. (In a constraint sketch you can also constrain against a guide — `coincident(s1.start(), guideCircle)` pins a vertex onto it.)
 
 ## Use cases
 
@@ -33,8 +33,9 @@ The guide circle helps you visually align the hexagon, but it's excluded from th
 
 ```js
 sketch("xy", () => {
-    line([0, 0], [100, 100]).guide()   // diagonal construction line
-    rect(50, 30).centered()              // actual geometry
+    const diag = line([0, 0], [100, 100]).guide()   // construction line
+    const c = circle([30, 30], 20)                  // actual geometry
+    coincident(c.center(), diag)                    // centered somewhere on the diagonal
 })
 ```
 

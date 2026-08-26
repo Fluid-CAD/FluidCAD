@@ -15,7 +15,7 @@ const CODE = [
   `sketch('xy', () => {`,
   `  const a = line([0, 0], [100, 0]);`,
   `  horizontal(a);`,
-  `}, true);`,
+  `});`,
 ].join('\n');
 
 let server: http.Server;
@@ -71,7 +71,7 @@ describe('/api/sketch/insert-solved', () => {
     expect((await post({ sketchLine: 4, geometry: [], constraints: [] })).status).toBe(400);
     expect((await post({
       sketchLine: 4,
-      geometry: [{ kind: 'rect', text: 'rect(4, 4)' }],
+      geometry: [{ kind: 'square', text: 'circle([0, 0], 4)' }],
       constraints: [],
     })).status).toBe(400);
     expect((await post({

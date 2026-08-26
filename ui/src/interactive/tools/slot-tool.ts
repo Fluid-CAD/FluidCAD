@@ -481,16 +481,7 @@ export class SlotTool extends SketchTool {
         ...(variables.length > 0 ? { newVariables: variables } : {}),
       });
       this.distanceTyped = false;
-      return;
     }
-
-    const suffix = `${this.rotateSuffix}${this.centered ? '.centered()' : ''}`;
-    this.insertAtPoint(
-      start,
-      (point) => `slot(${point}, ${distanceResult.expression}, ${radiusResult.expression})${suffix}`,
-      () => `slot(${distanceResult.expression}, ${radiusResult.expression})${suffix}`,
-      newVariables,
-    );
   }
 
   private rebuildPreview(): void {

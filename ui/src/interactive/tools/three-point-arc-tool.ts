@@ -423,14 +423,6 @@ export class ThreePointArcTool extends SketchTool {
           ? { newVariables: [...start.newVariables, ...end.newVariables, ...(newVariable ? [newVariable] : [])] }
           : {}),
       });
-    } else {
-      const suffix = `.center(${this.formatPoint(rc)})${cwSuffix}`;
-      this.insertAtPoint(
-        start,
-        (point) => `arc(${point}, ${this.formatPoint(end)})${suffix}`,
-        () => `arc(${this.formatPoint(end)})${suffix}`,
-        [...end.newVariables, ...(newVariable ? [newVariable] : [])],
-      );
     }
     this.expressionInput.hide();
     this.resetState();

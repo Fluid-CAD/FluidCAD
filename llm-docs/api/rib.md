@@ -29,9 +29,14 @@ Plus the standard face/edge accessors (`startFaces`, `endFaces`,
 ## Example
 
 ```fluid.js
-import { extrude, line, rect, rib, sketch } from "fluidcad/core";
+import { extrude, line, rib, sketch } from "fluidcad/core";
 
-sketch("xy", () => rect(120, 80).centered());
+sketch("xy", () => {
+  line([-60, -40], [60, -40]);
+  line([60, -40], [60, 40]);
+  line([60, 40], [-60, 40]);
+  line([-60, 40], [-60, -40]);
+});
 extrude(40);
 sketch("xz", () => line([-40, 5], [40, 5]));
 rib(3).extend();

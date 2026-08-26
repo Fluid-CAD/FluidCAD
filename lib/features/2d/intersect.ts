@@ -135,10 +135,6 @@ export class Intersect extends ExtrudableGeometryBase {
     if (this.targetPlane) {
       this.targetPlane.removeShapes(this);
     }
-
-    if (this.sketch && !this.sketch.isSolvedMode()) {
-      this.setCurrentPosition(this.getCurrentPosition());
-    }
   }
 
   override getDependencies(): SceneObject[] {

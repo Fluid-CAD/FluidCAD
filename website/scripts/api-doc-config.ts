@@ -6,6 +6,10 @@ export interface FeatureEntry {
   category: FeatureCategory | FeatureCategory[];
   sourceFile: string;
   interfaceName: string | null;
+  /** For commands exported as a documented `const` (the sketch datums):
+   * extract the JSDoc from this exported variable instead of a call-signature
+   * interface. */
+  constName?: string;
   returnType: string;
   relatedGuide?: string;
   sidebarPosition: number;
@@ -31,10 +35,23 @@ export interface FilterEntry {
   sidebarPosition: number;
 }
 
+export type ConstraintGroup = 'geometric' | 'dimension';
+
 export interface ConstraintEntry {
   name: string;
+  /** Source file (relative to lib/) holding the command's `build` function. */
   sourceFile: string;
-  functionName: string;
+  group: ConstraintGroup;
+  /**
+   * Doc fallback for the kinds produced by the shared `twoTargetCommand`
+   * factory in `core/constraints/common.ts` — their source files are bare
+   * re-exports with no JSDoc of their own.
+   */
+  fallback?: {
+    description: string;
+    params: OptionsProperty[];
+    returnType: string;
+  };
 }
 
 export const categoryLabels: Record<FeatureCategory, string> = {
@@ -53,31 +70,17 @@ export const categoryPositions: Record<FeatureCategory, number> = {
 
 export const features: FeatureEntry[] = [
   // 2D Sketching — Basic Geometry
-  { name: 'line', displayName: 'line', category: '2d', sourceFile: 'core/2d/line.ts', interfaceName: 'LineFunction', returnType: 'IGeometry', relatedGuide: '/docs/guides/sketching/introduction', sidebarPosition: 1 },
-  { name: 'arc', displayName: 'arc', category: '2d', sourceFile: 'core/2d/arc.ts', interfaceName: 'ArcFunction', returnType: 'IArcPoints | IArcAngles', sidebarPosition: 2 },
-  { name: 'circle', displayName: 'circle', category: '2d', sourceFile: 'core/2d/circle.ts', interfaceName: 'CircleFunction', returnType: 'IExtrudableGeometry', relatedGuide: '/docs/guides/sketching/primitive-shapes', sidebarPosition: 3 },
-  { name: 'ellipse', displayName: 'ellipse', category: '2d', sourceFile: 'core/2d/ellipse.ts', interfaceName: 'EllipseFunction', returnType: 'IExtrudableGeometry', relatedGuide: '/docs/guides/sketching/primitive-shapes', sidebarPosition: 4 },
-  { name: 'rect', displayName: 'rect', category: '2d', sourceFile: 'core/2d/rect.ts', interfaceName: 'RectFunction', returnType: 'IRect', relatedGuide: '/docs/guides/sketching/primitive-shapes', sidebarPosition: 5 },
-  { name: 'slot', displayName: 'slot', category: '2d', sourceFile: 'core/2d/slot.ts', interfaceName: 'SlotFunction', returnType: 'ISlot', sidebarPosition: 6 },
-  { name: 'polygon', displayName: 'polygon', category: '2d', sourceFile: 'core/2d/polygon.ts', interfaceName: 'PolygonFunction', returnType: 'IPolygon', sidebarPosition: 7 },
+  { name: 'line', displayName: 'line', category: '2d', sourceFile: 'core/2d/line.ts', interfaceName: 'LineFunction', returnType: 'ISolvedLine', relatedGuide: '/docs/guides/sketching/introduction', sidebarPosition: 1 },
+  { name: 'arc', displayName: 'arc', category: '2d', sourceFile: 'core/2d/arc.ts', interfaceName: 'ArcFunction', returnType: 'ISolvedArc', sidebarPosition: 2 },
+  { name: 'circle', displayName: 'circle', category: '2d', sourceFile: 'core/2d/circle.ts', interfaceName: 'CircleFunction', returnType: 'ISolvedCircle', relatedGuide: '/docs/guides/sketching/primitives', sidebarPosition: 3 },
+  { name: 'ellipse', displayName: 'ellipse', category: '2d', sourceFile: 'core/2d/ellipse.ts', interfaceName: 'EllipseFunction', returnType: 'IExtrudableGeometry', relatedGuide: '/docs/guides/sketching/primitives', sidebarPosition: 4 },
+  { name: 'point', displayName: 'point', category: '2d', sourceFile: 'core/2d/point.ts', interfaceName: 'PointFunction', returnType: 'IGeometry', sidebarPosition: 5 },
   { name: 'bezier', displayName: 'bezier', category: '2d', sourceFile: 'core/2d/bezier.ts', interfaceName: 'BezierFunction', returnType: 'IGeometry', sidebarPosition: 8 },
-  { name: 'text', displayName: 'text', category: '2d', sourceFile: 'core/2d/text.ts', interfaceName: 'TextFunction', returnType: 'IText', relatedGuide: '/docs/guides/sketching/compound-shapes', sidebarPosition: 9 },
-  // 2D Sketching — Line Shortcuts
-  { name: 'hLine', displayName: 'hLine', category: '2d', sourceFile: 'core/2d/hline.ts', interfaceName: 'HLineFunction', returnType: 'IHLine', sidebarPosition: 10 },
-  { name: 'vLine', displayName: 'vLine', category: '2d', sourceFile: 'core/2d/vline.ts', interfaceName: 'VLineFunction', returnType: 'IVLine', sidebarPosition: 11 },
-  { name: 'aLine', displayName: 'aLine', category: '2d', sourceFile: 'core/2d/aline.ts', interfaceName: 'ALineFunction', returnType: 'IALine', sidebarPosition: 12 },
-  // 2D Sketching — Positioning
-  { name: 'center', displayName: 'center', category: '2d', sourceFile: 'core/2d/center.ts', interfaceName: 'CenterFunction', returnType: 'IGeometry', sidebarPosition: 13 },
-  { name: 'move', displayName: 'move', category: '2d', sourceFile: 'core/2d/move.ts', interfaceName: 'MoveFunction', returnType: 'IGeometry', sidebarPosition: 14 },
-  { name: 'hMove', displayName: 'hMove', category: '2d', sourceFile: 'core/2d/hmove.ts', interfaceName: 'HMoveFunction', returnType: 'void', sidebarPosition: 15 },
-  { name: 'vMove', displayName: 'vMove', category: '2d', sourceFile: 'core/2d/vmove.ts', interfaceName: 'VMoveFunction', returnType: 'void', sidebarPosition: 16 },
-  { name: 'rMove', displayName: 'rMove', category: '2d', sourceFile: 'core/2d/rmove.ts', interfaceName: 'RMoveFunction', returnType: 'IGeometry', sidebarPosition: 17 },
-  { name: 'pMove', displayName: 'pMove', category: '2d', sourceFile: 'core/2d/pmove.ts', interfaceName: 'PolarMoveFunction', returnType: 'IGeometry', sidebarPosition: 18 },
-  // 2D Sketching — Constrained Geometry
-  { name: 'tLine', displayName: 'tLine', category: '2d', sourceFile: 'core/2d/tline.ts', interfaceName: 'TLineFunction', returnType: 'IGeometry', relatedGuide: '/docs/guides/sketching/constrained-geometry', sidebarPosition: 19 },
-  { name: 'tCircle', displayName: 'tCircle', category: '2d', sourceFile: 'core/2d/tcircle.ts', interfaceName: 'TCircleFunction', returnType: 'IGeometry', relatedGuide: '/docs/guides/sketching/constrained-geometry', sidebarPosition: 20 },
-  { name: 'tArc', displayName: 'tArc', category: '2d', sourceFile: 'core/2d/tarc.ts', interfaceName: 'TArcFunction', returnType: 'IGeometry', relatedGuide: '/docs/guides/sketching/constrained-geometry', sidebarPosition: 21 },
-  { name: 'connect', displayName: 'connect', category: '2d', sourceFile: 'core/2d/connect.ts', interfaceName: 'ConnectFunction', returnType: 'IGeometry', sidebarPosition: 22 },
+  { name: 'text', displayName: 'text', category: '2d', sourceFile: 'core/2d/text.ts', interfaceName: 'TextFunction', returnType: 'IText', relatedGuide: '/docs/guides/sketching/text', sidebarPosition: 9 },
+  // 2D Sketching — Datums (fixed constraint targets)
+  { name: 'origin', displayName: 'origin', category: '2d', sourceFile: 'core/2d/datum.ts', interfaceName: null, constName: 'origin', returnType: 'SketchDatum', sidebarPosition: 10 },
+  { name: 'xAxis', displayName: 'xAxis', category: '2d', sourceFile: 'core/2d/datum.ts', interfaceName: null, constName: 'xAxis', returnType: 'SketchDatum', sidebarPosition: 11 },
+  { name: 'yAxis', displayName: 'yAxis', category: '2d', sourceFile: 'core/2d/datum.ts', interfaceName: null, constName: 'yAxis', returnType: 'SketchDatum', sidebarPosition: 12 },
   // 2D Sketching — Advanced Operations
   { name: 'offset', displayName: 'offset', category: '2d', sourceFile: 'core/2d/offset.ts', interfaceName: 'OffsetFunction', returnType: 'IOffset', relatedGuide: '/docs/guides/sketching/offset', sidebarPosition: 23 },
 
@@ -116,8 +119,8 @@ export const features: FeatureEntry[] = [
   { name: 'axis', displayName: 'axis', category: 'utilities', sourceFile: 'core/axis.ts', interfaceName: 'AxisFunction', returnType: 'IAxis', sidebarPosition: 5 },
   { name: 'plane', displayName: 'plane', category: 'utilities', sourceFile: 'core/plane.ts', interfaceName: 'PlaneFunction', returnType: 'IPlane', sidebarPosition: 6 },
   { name: 'local', displayName: 'local', category: 'utilities', sourceFile: 'core/local.ts', interfaceName: 'LocalFunction', returnType: 'IAxis', relatedGuide: '/docs/guides/sketching/transforms', sidebarPosition: 7 },
-  { name: 'project', displayName: 'project', category: '2d', sourceFile: 'core/2d/project.ts', interfaceName: 'ProjectFunction', returnType: 'IExtrudableGeometry', relatedGuide: '/docs/guides/sketching/projection', sidebarPosition: 25 },
-  { name: 'intersect', displayName: 'intersect', category: '2d', sourceFile: 'core/2d/intersect.ts', interfaceName: 'IntersectFunction', returnType: 'IExtrudableGeometry', sidebarPosition: 26 },
+  { name: 'project', displayName: 'project', category: '2d', sourceFile: 'core/2d/project.ts', interfaceName: 'ProjectFunction', returnType: 'IReference', relatedGuide: '/docs/guides/sketching/projection', sidebarPosition: 25 },
+  { name: 'intersect', displayName: 'intersect', category: '2d', sourceFile: 'core/2d/intersect.ts', interfaceName: 'IntersectFunction', returnType: 'IReference', sidebarPosition: 26 },
   { name: 'part', displayName: 'part', category: 'utilities', sourceFile: 'core/part.ts', interfaceName: null, returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/parts', sidebarPosition: 9 },
 ];
 
@@ -127,6 +130,12 @@ export const types: TypeEntry[] = [
   { name: 'IBooleanOperation', displayName: 'BooleanOperation', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 3 },
   { name: 'IGeometry', displayName: 'Geometry', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 4 },
   { name: 'IExtrudableGeometry', displayName: 'ExtrudableGeometry', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 5 },
+  { name: 'ISolvedLine', displayName: 'SolvedLine', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 5.1 },
+  { name: 'ISolvedArc', displayName: 'SolvedArc', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 5.2 },
+  { name: 'ISolvedCircle', displayName: 'SolvedCircle', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 5.3 },
+  { name: 'IReference', displayName: 'Reference', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 5.4 },
+  { name: 'IReferenceEntity', displayName: 'ReferenceEntity', sourceFile: 'core/interfaces.ts', sidebarPosition: 5.5 },
+  { name: 'IDistance', displayName: 'Distance', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 5.6 },
   { name: 'IExtrude', displayName: 'Extrude', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 6 },
   { name: 'ICut', displayName: 'Cut', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 7 },
   { name: 'IRevolve', displayName: 'Revolve', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 8 },
@@ -140,21 +149,11 @@ export const types: TypeEntry[] = [
   { name: 'IRib', displayName: 'Rib', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 12.5 },
   { name: 'IWrap', displayName: 'Wrap', sourceFile: 'core/interfaces.ts', extendsType: 'IBooleanOperation', sidebarPosition: 12.6 },
   { name: 'IHelix', displayName: 'Helix', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 12.7 },
-  { name: 'IArcPoints', displayName: 'ArcPoints', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 13 },
-  { name: 'IArcAngles', displayName: 'ArcAngles', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 14 },
-  { name: 'IRect', displayName: 'Rect', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 15 },
-  { name: 'ISlot', displayName: 'Slot', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 16 },
-  { name: 'IALine', displayName: 'ALine', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 16.5 },
-  { name: 'IHLine', displayName: 'HLine', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 16.6 },
-  { name: 'IVLine', displayName: 'VLine', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 16.7 },
-  { name: 'IPolygon', displayName: 'Polygon', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 17 },
   { name: 'IText', displayName: 'Text', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 17.5 },
   { name: 'IOffset', displayName: 'Offset', sourceFile: 'core/interfaces.ts', extendsType: 'IExtrudableGeometry', sidebarPosition: 32 },
   { name: 'IPlane', displayName: 'Plane', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 18 },
   { name: 'IAxis', displayName: 'Axis', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 19 },
   { name: 'ISelect', displayName: 'Select', sourceFile: 'core/interfaces.ts', extendsType: 'ISceneObject', sidebarPosition: 20 },
-  { name: 'ITwoObjectsTangentLine', displayName: 'TwoObjectsTangentLine', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 21 },
-  { name: 'ITangentArcTwoObjects', displayName: 'TangentArcTwoObjects', sourceFile: 'core/interfaces.ts', extendsType: 'IGeometry', sidebarPosition: 22 },
   { name: 'Point2DLike', displayName: 'Point2DLike', sourceFile: 'math/point.ts', sidebarPosition: 23 },
   { name: 'PointLike', displayName: 'PointLike', sourceFile: 'math/point.ts', sidebarPosition: 24 },
   { name: 'PlaneLike', displayName: 'PlaneLike', sourceFile: 'math/plane.ts', sidebarPosition: 25 },
@@ -186,11 +185,81 @@ export const filters: FilterEntry[] = [
   },
 ];
 
+const constraintTargetPair: OptionsProperty[] = [
+  { name: 'a', type: 'ConstraintTarget', description: 'The first entity', optional: false },
+  { name: 'b', type: 'ConstraintTarget', description: 'The second entity', optional: false },
+];
+
+/**
+ * The solver constraint statements (`fluidcad/constraints`,
+ * `lib/core/constraints/`). Signatures and descriptions are extracted from
+ * each command's `build` function JSDoc; the `twoTargetCommand` kinds carry
+ * a `fallback` here instead (their files are bare factory re-exports).
+ */
 export const constraints: ConstraintEntry[] = [
-  { name: 'outside', sourceFile: 'features/2d/constraints/geometry-qualifier.ts', functionName: 'outside' },
-  { name: 'enclosed', sourceFile: 'features/2d/constraints/geometry-qualifier.ts', functionName: 'enclosed' },
-  { name: 'enclosing', sourceFile: 'features/2d/constraints/geometry-qualifier.ts', functionName: 'enclosing' },
-  { name: 'unqualified', sourceFile: 'features/2d/constraints/geometry-qualifier.ts', functionName: 'unqualified' },
+  // Geometric constraints
+  { name: 'coincident', sourceFile: 'core/constraints/coincident.ts', group: 'geometric' },
+  { name: 'horizontal', sourceFile: 'core/constraints/horizontal.ts', group: 'geometric' },
+  { name: 'vertical', sourceFile: 'core/constraints/vertical.ts', group: 'geometric' },
+  {
+    name: 'parallel', sourceFile: 'core/constraints/parallel.ts', group: 'geometric',
+    fallback: {
+      description: 'Constrains two lines to be parallel (1 dim).',
+      params: constraintTargetPair,
+      returnType: 'ISceneObject',
+    },
+  },
+  {
+    name: 'perpendicular', sourceFile: 'core/constraints/perpendicular.ts', group: 'geometric',
+    fallback: {
+      description: 'Constrains two lines to be perpendicular (1 dim).',
+      params: constraintTargetPair,
+      returnType: 'ISceneObject',
+    },
+  },
+  {
+    name: 'tangent', sourceFile: 'core/constraints/tangent.ts', group: 'geometric',
+    fallback: {
+      description: 'Constrains a line–circle/arc or circle–circle pair to be tangent (1 dim). '
+        + 'The tangency side (internal vs external) is locked from the guess positions. '
+        + 'Also accepts a fixed reference: `tangent(bore, l)` with a single-edge `project()` result.',
+      params: constraintTargetPair,
+      returnType: 'ISceneObject',
+    },
+  },
+  {
+    name: 'equal', sourceFile: 'core/constraints/equal.ts', group: 'geometric',
+    fallback: {
+      description: 'Constrains two entities to be equal (1 dim): equal line lengths or equal circle/arc radii.',
+      params: constraintTargetPair,
+      returnType: 'ISceneObject',
+    },
+  },
+  {
+    name: 'concentric', sourceFile: 'core/constraints/concentric.ts', group: 'geometric',
+    fallback: {
+      description: 'Constrains two circles/arcs to share a center (2 dims).',
+      params: constraintTargetPair,
+      returnType: 'ISceneObject',
+    },
+  },
+  {
+    name: 'collinear', sourceFile: 'core/constraints/collinear.ts', group: 'geometric',
+    fallback: {
+      description: 'Constrains line b to lie on the infinite line of a (2 dims). '
+        + 'The first slot also takes an axis datum: `collinear(xAxis(), l)`.',
+      params: constraintTargetPair,
+      returnType: 'ISceneObject',
+    },
+  },
+  { name: 'midpoint', sourceFile: 'core/constraints/midpoint.ts', group: 'geometric' },
+  { name: 'symmetric', sourceFile: 'core/constraints/symmetric.ts', group: 'geometric' },
+  { name: 'fix', sourceFile: 'core/constraints/fix.ts', group: 'geometric' },
+  // Dimensions
+  { name: 'distance', sourceFile: 'core/constraints/distance.ts', group: 'dimension' },
+  { name: 'angle', sourceFile: 'core/constraints/angle.ts', group: 'dimension' },
+  { name: 'radius', sourceFile: 'core/constraints/radius.ts', group: 'dimension' },
+  { name: 'diameter', sourceFile: 'core/constraints/diameter.ts', group: 'dimension' },
 ];
 
 // ── Expandable options types ──
@@ -244,21 +313,11 @@ export const typeDisplayNameMap: Record<string, string> = {
   'IRib': 'Rib',
   'IWrap': 'Wrap',
   'IHelix': 'Helix',
-  'IArcPoints': 'ArcPoints',
-  'IArcAngles': 'ArcAngles',
-  'IRect': 'Rect',
-  'ISlot': 'Slot',
-  'IALine': 'ALine',
-  'IHLine': 'HLine',
-  'IVLine': 'VLine',
-  'IPolygon': 'Polygon',
   'IText': 'Text',
   'IOffset': 'Offset',
   'IPlane': 'Plane',
   'IAxis': 'Axis',
   'ISelect': 'Select',
-  'ITwoObjectsTangentLine': 'TwoObjectsTangentLine',
-  'ITangentArcTwoObjects': 'TangentArcTwoObjects',
   'FaceFilterBuilder': 'FaceFilter',
   'EdgeFilterBuilder': 'EdgeFilter',
   'Point2DLike': 'Point2DLike',
@@ -268,8 +327,14 @@ export const typeDisplayNameMap: Record<string, string> = {
   'AxisLike': 'AxisLike',
   'AxisObjectBase': 'AxisLike',
   'LazyVertex': 'Vertex',
-  'ITrim': 'Trim',
-  'QualifiedSceneObject': 'QualifiedGeometry',
+  'ISolvedLine': 'SolvedLine',
+  'ISolvedArc': 'SolvedArc',
+  'ISolvedCircle': 'SolvedCircle',
+  'IReference': 'Reference',
+  'IReferenceEntity': 'ReferenceEntity',
+  'IDistance': 'Distance',
+  'SketchDatum': 'SketchDatum',
+  'ConstraintTarget': 'ConstraintTarget',
   'LinearRepeatOptions': 'LinearRepeatOptions',
   'CircularRepeatOptions': 'CircularRepeatOptions',
   'PlaneTransformOptions': 'PlaneTransformOptions',

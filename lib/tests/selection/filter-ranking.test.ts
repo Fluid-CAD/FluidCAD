@@ -3,13 +3,29 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import shell from "../../core/shell.js";
-import { circle, move, polygon, rect } from "../../core/2d/index.js";
+import { circle, line as sketchLine } from "../../core/2d/index.js";
+import { coincident } from "../../core/constraints/index.js";
+import { testRect } from "../helpers/profiles.js";
 import { Extrude } from "../../features/extrude.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
 import { induceConjunction } from "../../selection/induction.js";
 import type { Atom } from "../../selection/atoms.js";
 import type { PickRef } from "../../selection/types.js";
 import { edgeRefsWhere, faceRefsWhere, findSolid, findSolids, setLocation } from "./pick-helpers.js";
+
+/** Solved stand-in for legacy `polygon(n, dia)` (inscribed) centered at `at`. */
+function testPolygon(n: number, dia: number, at: [number, number]) {
+  const r = dia / 2;
+  const pts: [number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    const a = (2 * Math.PI * i) / n;
+    pts.push([at[0] + r * Math.cos(a), at[1] + r * Math.sin(a)]);
+  }
+  const lines = pts.map((p, i) => sketchLine(p, pts[(i + 1) % n]));
+  for (let i = 0; i < n; i++) {
+    coincident(lines[i].end(), lines[(i + 1) % n].start());
+  }
+}
 
 describe("filter ranking robustness", () => {
   setupOC();
@@ -20,10 +36,10 @@ describe("filter ranking robustness", () => {
     // two seams above the xz plane must come out as the constant-free
     // half-space, not onPlane with the baked offset.
     sketch("xy", () => {
-      circle(80);
-      circle([40, 0], 80);
-      circle([80, 0], 80);
-    });
+        circle([0, 0], 80);
+        circle([40, 0], 80);
+        circle([80, 0], 80);
+      });
     const e = extrude(100) as Extrude;
     setLocation(e, 6);
     shell(-2, e.endFaces());
@@ -50,13 +66,13 @@ describe("filter ranking robustness", () => {
     // keeps the filter form: the emitted name follows the variable.
     sketch("xy", () => {
       circle([50, 70], 35.77);
-      move(33.66, 7.54);
-      rect(110.99, -51.9);
-      move(-44.65, 74.36);
-      circle(72.84);
-      rect(83.74, -54.35);
-      move(-233.74, 124.35);
-      polygon(5, 107.7);
+      // Legacy pen walk: move(33.66, 7.54) from [50, 70] put the rect corner
+      // at [83.66, 77.54]; the second rect started at the pen's [150, 100];
+      // the pentagon's center landed at [0, 170].
+      testRect(110.99, -51.9, { at: [83.66, 77.54] });
+      circle([150, 100], 72.84);
+      testRect(83.74, -54.35, { at: [150, 100] });
+      testPolygon(5, 107.7, [0, 170]);
     });
     const e = extrude() as Extrude;
     setLocation(e, 13);

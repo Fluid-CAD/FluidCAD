@@ -12,7 +12,7 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={gearHousingFinal} entry="gear-housing.fluid.js" />
 
-In this tutorial, you'll build a gear housing based on exercises from [Too Tall Toby](https://www.tootalltoby.com/practice/). It covers filleting, angled chamfers, multi-level extrusions, draft cuts, arc profiles, complex sketches with rounded corners, drilling, counterbores, circular copy patterns, and mirror symmetry.
+In this tutorial, you'll build a gear housing based on exercises from [Too Tall Toby](https://www.tootalltoby.com/practice/). It covers constraint sketches, filleting, angled chamfers, multi-level extrusions, draft cuts, arc profiles, rounded-corner profiles, drilling, counterbores, circular copy patterns, and mirror symmetry.
 
 Create a new file called `gear-housing.fluid.js` in your project.
 
@@ -21,8 +21,9 @@ Create a new file called `gear-housing.fluid.js` in your project.
 Start with the imports and parameters for the support brackets:
 
 ```js
-import { arc, chamfer, circle, copy, cut, extrude, fillet, hMove, mirror, move, plane, pMove, rect, repeat, sketch, vMove } from "fluidcad/core";
+import { arc, chamfer, circle, copy, cut, extrude, fillet, line, mirror, plane, repeat, sketch } from "fluidcad/core";
 import { edge } from "fluidcad/filters";
+import { coincident, distance, equal, fix, horizontal, radius, tangent, vertical } from "fluidcad/constraints";
 
 let supportWidth = (150 - 63) / 2;
 let supportThickness = 12;
@@ -30,16 +31,31 @@ let supportThickness = 12;
 
 The gear housing is **150mm** wide overall. The central gap between the support brackets is **63mm**, so each bracket is `(150 - 63) / 2 = 43.5mm` wide. The brackets are **12mm** thick.
 
+Every sketch in this tutorial is a **constraint sketch**: `sketch(plane, callback)`. Geometry statements like `line()` and `circle()` carry fully-specified coordinates that act as *guesses*, and constraint statements (`coincident`, `horizontal`, `distance`, …) pin the geometry down. The solver moves the guesses onto the constraints; anything you don't constrain simply stays where you drew it.
+
 ## Step 1: Support Bracket
 
 ### Sketch the bracket profile
 
-The first bracket sits to the right of center. `hMove(63 / 2)` shifts the cursor to the edge of the central gap, then `rect()` draws the bracket profile. `.centered('vertical')` centers it vertically so it extends equally above and below the origin.
+The first bracket sits to the right of center: a rectangle from `x = 63 / 2` spanning `supportWidth`, centered vertically about the origin. Four lines form the loop; `coincident()` joins their endpoints, `horizontal()`/`vertical()` square them up, `fix()` anchors the bottom-left corner, and two `distance()` dimensions set the width and height.
 
 ```js
 sketch("xy", () => {
-    hMove(63 / 2)
-    rect(supportWidth, 115).centered('vertical')
+    const b = line([63 / 2, -115 / 2], [63 / 2 + supportWidth, -115 / 2]);
+    const r = line([63 / 2 + supportWidth, -115 / 2], [63 / 2 + supportWidth, 115 / 2]);
+    const t = line([63 / 2 + supportWidth, 115 / 2], [63 / 2, 115 / 2]);
+    const l = line([63 / 2, 115 / 2], [63 / 2, -115 / 2]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    fix(b.start(), [63 / 2, -115 / 2]);
+    distance(b.start(), b.end(), supportWidth);
+    distance(r.start(), r.end(), 115);
 });
 ```
 
@@ -63,12 +79,26 @@ chamfer(8, 90 - 25, true, e1.endEdges(edge().onPlane('yz', 31.5)))
 
 ### Lower body
 
-Sketch a centered rectangle on the `"top"` plane and extrude it **130mm** upward to form the main housing block. Also create a reference plane on the bracket's side face — you'll use `rightPlane` later for the slot and bolt hole.
+Sketch a **116 × 77** rectangle centered on the origin of the `"top"` plane and extrude it **130mm** upward to form the main housing block. The pattern is the same as step 1 — four lines, coincident corners, horizontal/vertical constraints, a fixed corner, and two dimensions. Also create a reference plane on the bracket's side face — you'll use `rightPlane` later for the slot and bolt hole.
 
 ```js
 sketch("top", () => {
-    rect(116, 77).centered();
-});
+    const sg1 = line([-58, -38.5], [58, -38.5]);
+    const sg2 = line([58, -38.5], [58, 38.5]);
+    const sg3 = line([58, 38.5], [-58, 38.5]);
+    const sg4 = line([-58, 38.5], [-58, -38.5]);
+    coincident(sg1.end(), sg2.start());
+    coincident(sg2.end(), sg3.start());
+    coincident(sg3.end(), sg4.start());
+    coincident(sg4.end(), sg1.start());
+    horizontal(sg1);
+    vertical(sg2);
+    horizontal(sg3);
+    vertical(sg4);
+    fix(sg1.start(), [-58, -38.5]);
+    distance(sg1.start(), sg1.end(), 116);
+    distance(sg2.start(), sg2.end(), 77);
+  });
 
 const e2 = extrude(130);
 const rightPlane = plane(e1.sideFaces(2))
@@ -80,8 +110,22 @@ Sketch a slightly narrower rectangle on the end face of the lower body and extru
 
 ```js
 sketch(e2.endFaces(), () => {
-    rect(116, 68).centered();
-});
+    const sg5 = line([-58, -34], [58, -34]);
+    const sg6 = line([58, -34], [58, 34]);
+    const sg7 = line([58, 34], [-58, 34]);
+    const sg8 = line([-58, 34], [-58, -34]);
+    coincident(sg5.end(), sg6.start());
+    coincident(sg6.end(), sg7.start());
+    coincident(sg7.end(), sg8.start());
+    coincident(sg8.end(), sg5.start());
+    horizontal(sg5);
+    vertical(sg6);
+    horizontal(sg7);
+    vertical(sg8);
+    fix(sg5.start(), [-58, -34]);
+    distance(sg5.start(), sg5.end(), 116);
+    distance(sg6.start(), sg6.end(), 68);
+  });
 
 const e3 = extrude(168 - 130);
 
@@ -92,13 +136,27 @@ chamfer(8, e3.endEdges());
 
 ## Step 3: Internal Cavity
 
-Sketch a centered rectangle on the `"xy"` plane and cut downward **158mm** with a **3°** draft angle. The negative depth cuts downward, and `.draft(-3)` tapers the cavity walls inward — typical for cast parts where draft helps with mold release.
+Sketch a centered **100 × 62** rectangle on the `"xy"` plane and cut downward **158mm** with a **3°** draft angle. The negative depth cuts downward, and `.draft(-3)` tapers the cavity walls inward — typical for cast parts where draft helps with mold release.
 
 ```js
 const p1 = plane("xy");
 sketch(p1, () => {
-    rect(100, 62).centered();
-});
+    const sg9 = line([-50, -31], [50, -31]);
+    const sg10 = line([50, -31], [50, 31]);
+    const sg11 = line([50, 31], [-50, 31]);
+    const sg12 = line([-50, 31], [-50, -31]);
+    coincident(sg9.end(), sg10.start());
+    coincident(sg10.end(), sg11.start());
+    coincident(sg11.end(), sg12.start());
+    coincident(sg12.end(), sg9.start());
+    horizontal(sg9);
+    vertical(sg10);
+    horizontal(sg11);
+    vertical(sg12);
+    fix(sg9.start(), [-50, -31]);
+    distance(sg9.start(), sg9.end(), 100);
+    distance(sg10.start(), sg10.end(), 62);
+  });
 
 cut(-158).draft(-3)
 ```
@@ -109,16 +167,29 @@ cut(-158).draft(-3)
 
 ### Sketch the slot profile
 
-On `rightPlane`, build a keyhole-shaped profile: a narrow rectangle topped by a semicircular arc. `vMove()` positions the cursor vertically, `rect(20, 4).centered('horizontal')` draws the narrow slot, then `arc(10, 0, 180)` adds a **180°** semicircle on top.
+On `rightPlane`, build a keyhole-shaped profile: a narrow **20 × 4** rectangle whose top edge runs at `y = 16`, capped by a semicircular arc. The arc is declared with `arc(start, end, center)` — start and end sit on the top corners of the rectangle, and the center is the middle of the top edge, so it bulges upward. `coincident()` ties the arc's ends to the rectangle, and `radius(cap, 10)` dimensions it.
 
 ```js
 sketch(rightPlane, () => {
-    move([0, 0]);
-    vMove(16)
-    vMove(-4)
-    rect(20, 4).centered('horizontal')
-    vMove(4)
-    arc(10, 0, 180)
+    const b = line([-10, 12], [10, 12]);
+    const r = line([10, 12], [10, 16]);
+    const t = line([10, 16], [-10, 16]);
+    const l = line([-10, 16], [-10, 12]);
+    const cap = arc([10, 16], [-10, 16], [0, 16]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    coincident(cap.start(), t.start());
+    coincident(cap.end(), t.end());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    radius(cap, 10);
+    fix(b.start(), [-10, 12]);
+    distance(b.start(), b.end(), 20);
+    distance(r.start(), r.end(), 4);
 });
 ```
 
@@ -126,15 +197,13 @@ sketch(rightPlane, () => {
 
 ### Extrude the slot and cut the bolt hole
 
-Extrude the slot profile **20mm** inward, then sketch a circle on the same plane and cut through for the bolt hole.
+Extrude the slot profile **20mm** inward, then sketch a circle on the same plane and cut through for the bolt hole. `circle([0, 16], 9)` places a **9mm-diameter** circle at the arc's center.
 
 ```js
 extrude(-40 / 2)
 sketch(rightPlane, () => {
-    move([0, 0]);
-    vMove(16)
-    circle(9);
-});
+    circle([0, 16], 9);
+  });
 
 cut();
 ```
@@ -145,25 +214,58 @@ cut();
 
 ### Sketch the boss profile
 
-On the side face of the upper section, sketch a profile made of two stacked rectangles with rounded corners. `.radius(8, 8, 0, 0)` rounds the top corners of the lower rectangle, while `.radius(0, 0, 8, 8)` rounds the bottom corners of the upper one, creating a smooth transition.
+On the side face of the upper section, sketch a profile made of two stacked openings with selectively rounded corners. Each rounded corner is an explicit `arc()` joined to its neighboring lines with `coincident()` and `tangent()` constraints — the lower opening rounds its bottom corners, the upper slot rounds its top corners, creating a smooth transition. `radius()` dimensions one arc of each pair and `equal()` keeps its twin matched.
 
 ```js
 sketch(e2.sideFaces(0), () => {
-    const rect1Width = 77;
-    const offset = 90;
-    const rect1Height = 130 - offset;
-    move([-rect1Width / 2, offset]);
-
-    rect(rect1Width, rect1Height).radius(8, 8, 0, 0)
-
-    const leftOffset = (rect1Width - 68) / 2;
-
-    hMove(-rect1Width + leftOffset);
-
-    const rect2Width = 68;
-    const rect2Height = 152 - 130;
-
-    rect(rect2Width, rect2Height).radius(0, 0, 8, 8)
+    // Upper opening: 77 wide, y = 90..130, bottom corners rounded r = 8
+    const b1 = line([-30.5, 90], [30.5, 90]);
+    const br = arc([30.5, 90], [38.5, 98], [30.5, 98]);
+    const r1 = line([38.5, 98], [38.5, 130]);
+    const t1 = line([38.5, 130], [-38.5, 130]);
+    const l1 = line([-38.5, 130], [-38.5, 98]);
+    const bl = arc([-38.5, 98], [-30.5, 90], [-30.5, 98]);
+    // Lower slot: 68 wide, y = 130..152, top corners rounded r = 8
+    const b2 = line([-34, 130], [34, 130]);
+    const r2 = line([34, 130], [34, 144]);
+    const tr = arc([34, 144], [26, 152], [26, 144]);
+    const t2 = line([26, 152], [-26, 152]);
+    const tl = arc([-26, 152], [-34, 144], [-26, 144]);
+    const l2 = line([-34, 144], [-34, 130]);
+    coincident(b1.end(), br.start());
+    coincident(br.end(), r1.start());
+    coincident(r1.end(), t1.start());
+    coincident(t1.end(), l1.start());
+    coincident(l1.end(), bl.start());
+    coincident(bl.end(), b1.start());
+    coincident(b2.end(), r2.start());
+    coincident(r2.end(), tr.start());
+    coincident(tr.end(), t2.start());
+    coincident(t2.end(), tl.start());
+    coincident(tl.end(), l2.start());
+    coincident(l2.end(), b2.start());
+    horizontal(b1);
+    vertical(r1);
+    horizontal(t1);
+    vertical(l1);
+    horizontal(b2);
+    vertical(r2);
+    horizontal(t2);
+    vertical(l2);
+    tangent(b1, br);
+    tangent(br, r1);
+    tangent(l1, bl);
+    tangent(bl, b1);
+    tangent(r2, tr);
+    tangent(tr, t2);
+    tangent(t2, tl);
+    tangent(tl, l2);
+    radius(br, 8);
+    equal(br, bl);
+    radius(tr, 8);
+    equal(tr, tl);
+    fix(t1.start(), [38.5, 130]);
+    fix(b2.start(), [-34, 130]);
 });
 ```
 
@@ -182,20 +284,18 @@ mirror("yz")
 
 ## Step 6: Bearing Bore and Counterbore
 
-Cut a through-hole for the bearing with a **42mm** radius circle, then add a larger **54mm** radius counterbore **10mm** deep. `repeat("mirror", "yz", counterbore)` mirrors the counterbore to the opposite side.
+Cut a through-hole for the bearing with a **42mm-diameter** circle at `[0, 122]`, then add a larger **54mm-diameter** counterbore **10mm** deep. `repeat("mirror", "yz", counterbore)` mirrors the counterbore to the opposite side.
 
 ```js
 sketch(e5.endFaces(), () => {
-    move([0, 122])
-    circle(42);
-});
+    circle([0, 122], 42);
+  });
 
 cut()
 
 sketch(e5.endFaces(), () => {
-    move([0, 122])
-    circle(54);
-});
+    circle([0, 122], 54);
+  });
 
 const counterbore = cut(10);
 repeat("mirror", "yz", counterbore);
@@ -207,25 +307,38 @@ repeat("mirror", "yz", counterbore);
 
 ### Circular front plate
 
-Sketch a large circle on the front face of the housing and extrude it **5.5mm** to create the bearing mounting plate.
+Sketch a large circle on the front face of the housing and extrude it **5.5mm** to create the bearing mounting plate. The plate is centered on the face — `[0, 65]` in face coordinates, halfway up the **130mm** housing body.
 
 ```js
 sketch(e2.sideFaces(3), () => {
-    circle(122)
-});
+    circle([0, 65], 122);
+  });
 
 const e6 = extrude(11/2)
 ```
 
 ### Keyway notches
 
-Cut narrow rectangular notches at the sides of the plate. `repeat("mirror", "yz", c2)` mirrors the notch to the other side.
+Cut a narrow **5 × 40** rectangular notch at the side of the plate, vertically centered on the plate's `y = 65` centerline. `repeat("mirror", "yz", c2)` mirrors the notch to the other side.
 
 ```js
 sketch(e6.endFaces(), () => {
-    hMove(116 / 2);
-    rect(5, 40).centered('vertical')
-});
+    const sg17 = line([58, 45], [63, 45]);
+    const sg18 = line([63, 45], [63, 85]);
+    const sg19 = line([63, 85], [58, 85]);
+    const sg20 = line([58, 85], [58, 45]);
+    coincident(sg17.end(), sg18.start());
+    coincident(sg18.end(), sg19.start());
+    coincident(sg19.end(), sg20.start());
+    coincident(sg20.end(), sg17.start());
+    horizontal(sg17);
+    vertical(sg18);
+    horizontal(sg19);
+    vertical(sg20);
+    fix(sg17.start(), [58, 45]);
+    distance(sg17.start(), sg17.end(), 5);
+    distance(sg18.start(), sg18.end(), 40);
+  });
 
 const c2 = cut()
 repeat("mirror", "yz", c2);
@@ -233,20 +346,16 @@ repeat("mirror", "yz", c2);
 
 ### Bolt hole pattern
 
-Use `pMove()` to position the cursor in polar coordinates, then draw a bolt hole with `circle(9)`. `copy('circular', [0, 65], ...)` repeats the hole **4** times around center `[0, 65]` at equal **90°** intervals. Finally, `circle(85)` adds the large central bore.
+Place a **9mm-diameter** bolt hole on the ⌀103 bolt circle around the plate center `[0, 65]` — its center sits `103 / 2` out at **45°**, i.e. `[103 / 2 / Math.SQRT2, 65 + 103 / 2 / Math.SQRT2]`. `copy('circular', [0, 65], ..., c1)` repeats the hole **4** times around the plate center at equal **90°** intervals, and `circle([0, 65], 85)` adds the large central bore.
 
 ```js
 sketch(e6.endFaces(), () => {
-
-    pMove(103 / 2, 45)
-    circle(9)
-
+    const c1 = circle([103 / 2 / Math.SQRT2, 65 + 103 / 2 / Math.SQRT2], 9);
+    circle([0, 65], 85);
     copy('circular', [0, 65], {
         count: 4,
         angle: 360
-    });
-
-    circle(85)
+    }, c1);
 });
 
 cut()
@@ -272,15 +381,15 @@ mirror("front")
 
 ## What you practiced
 
+- **Constraint sketches** — `sketch(plane, callback)`: geometry guesses pinned down by `coincident`, `horizontal`/`vertical`, `fix`, and `distance` constraints
+- **`arc(start, end, center)`** — declares an arc by its endpoints and center; `radius()` dimensions it
+- **`tangent()` + `equal()`** — smooth rounded corners built from explicit arcs kept equal in radius
 - **`fillet()`** — rounds selected edges with a given radius
 - **`chamfer()` with angle** — creates chamfers using a distance and angle when `isAngle` is `true`
 - **`edge().onPlane()`** — filters an edge selection down to the edges lying on a specific plane
 - **`plane()`** — creates a reference plane from an existing face for subsequent sketches
 - **`cut().draft()`** — cuts material with tapered walls for mold-release draft angles
-- **`arc()`** — draws semicircular arcs to build keyhole-shaped profiles
-- **`rect().radius()`** — creates rectangles with selectively rounded corners
 - **`.drill(false)`** — extrudes material without cutting into the existing body
 - **`mirror()`** — mirrors geometry across a principal plane
 - **`repeat("mirror", ...)`** — mirrors specific operations to the opposite side
 - **`copy('circular', ...)`** — creates circular patterns of sketch elements
-- **`pMove()`** — positions the cursor using polar coordinates

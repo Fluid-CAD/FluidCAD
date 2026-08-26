@@ -21,12 +21,14 @@ Create a new file called `drafted-box.fluid.js` in your project.
 Start with the imports. This model uses core operations together with edge and face filters.
 
 ```js
-import { circle, cut, extrude, fillet, hLine, move, plane, rect, repeat, rib, select, shell, sketch } from "fluidcad/core";
+import { circle, cut, extrude, fillet, plane, repeat, rib, select, shell, sketch, line } from "fluidcad/core";
 import { edge, face } from "fluidcad/filters";
+import { coincident, distance, fix, horizontal, vertical } from "fluidcad/constraints";
 ```
 
 - **`fluidcad/core`** — modeling operations (sketch, extrude, cut, shell, fillet, rib, repeat, etc.) and sketch primitives
 - **`fluidcad/filters`** — `edge` and `face` selection filters used to pick faces and edges by plane
+- **`fluidcad/constraints`** — constraint statements (`coincident`, `horizontal`, `distance`, …) that tell the sketch solver how the drawn geometry relates
 
 ## Step 1: Drafted base box
 
@@ -36,11 +38,25 @@ The base footprint sits on a plane offset 1.5 above the top plane — that way t
 
 ```js
 sketch(plane("top", 1.50), () => {
-    rect(7, 5).centered()
-});
+    const sg1 = line([-3.5, -2.5], [3.5, -2.5]);
+    const sg2 = line([3.5, -2.5], [3.5, 2.5]);
+    const sg3 = line([3.5, 2.5], [-3.5, 2.5]);
+    const sg4 = line([-3.5, 2.5], [-3.5, -2.5]);
+    coincident(sg1.end(), sg2.start());
+    coincident(sg2.end(), sg3.start());
+    coincident(sg3.end(), sg4.start());
+    coincident(sg4.end(), sg1.start());
+    horizontal(sg1);
+    vertical(sg2);
+    horizontal(sg3);
+    vertical(sg4);
+    fix(sg1.start(), [-3.5, -2.5]);
+    distance(sg1.start(), sg1.end(), 7);
+    distance(sg2.start(), sg2.end(), 5);
+  });
 ```
 
-`plane("top", 1.50)` builds a plane parallel to `"top"` and offset 1.5 along its normal. Inside the sketch, `rect(7, 5).centered()` draws a 7×5 rectangle centered on the origin.
+`plane("top", 1.50)` builds a plane parallel to `"top"` and offset 1.5 along its normal. The `true` after the callback makes this a constraint sketch: the four `line()` statements draw a 7×5 rectangle centered on the origin, and the constraints pin it down — `coincident` joins the corners, `horizontal`/`vertical` square the sides, `fix` anchors one corner, and the two `distance` dimensions set the width and height. With those in place the rectangle is fully constrained: the solver reports zero remaining degrees of freedom, and editing either `distance` value resizes the whole footprint.
 
 ![Base footprint sketch](/img/docs/tutorials/drafted-box-step1-sketch.png)
 
@@ -75,11 +91,11 @@ shell(-.250, select(face().onPlane("top", 1.5)))
 
 ```js
 sketch(plane("top", 2), () => {
-    circle(2)
-});
+    circle([0, 0], 2);
+  });
 ```
 
-A new offset plane at `"top" + 2` hosts a circle of radius 2. Putting the sketch above the box means the resulting extrude will pass through the open top and seat itself inside the shell.
+A new offset plane at `"top" + 2` hosts a circle of diameter 2 centered on the origin — in a constraint sketch the center is spelled out rather than inherited from a cursor. Putting the sketch above the box means the resulting extrude will pass through the open top and seat itself inside the shell.
 
 ![Pipe footprint](/img/docs/tutorials/drafted-box-step3-sketch.png)
 
@@ -99,11 +115,11 @@ const pipeBody = extrude(-2).draft(8);
 
 ```js
 sketch(pipeBody.startFaces(), () => {
-    circle(1.5)
-});
+    circle([0, 0], 1.5);
+  });
 ```
 
-`pipeBody.startFaces()` returns the face the pipe extrude started from — its flat top. Sketching directly on a face starts the cursor at that face's center, so `circle(1.5)` places a 1.5-radius circle at the pipe's axis.
+`pipeBody.startFaces()` returns the face the pipe extrude started from — its flat top. A face sketch puts its local origin at the face's center, so `circle([0, 0], 1.5)` places a diameter-1.5 circle exactly on the pipe's axis.
 
 ![Hole sketch on the pipe top](/img/docs/tutorials/drafted-box-step4-sketch.png)
 
@@ -125,12 +141,12 @@ A single line on the front plane defines where the rib sits between the pipe and
 
 ```js
 sketch("front", () => {
-    move([-2, 1.250])
-    hLine(.5)
-});
+    const sg5 = line([-2, 1.25], [-1.5, 1.25]);
+    horizontal(sg5);
+  });
 ```
 
-`move([-2, 1.250])` parks the cursor at x=-2, y=1.25 within the front plane. `hLine(.5)` draws a half-unit horizontal line — that's the rib's **spine**. It doesn't need to span the full gap between the pipe and the wall; `.extend()` will take care of that in the next step.
+The line from `[-2, 1.25]` to `[-1.5, 1.25]` is a half-unit segment on the front plane — that's the rib's **spine** — and the `horizontal` constraint records that it must stay level. It doesn't need to span the full gap between the pipe and the wall; `.extend()` will take care of that in the next step.
 
 ![Rib spine sketch](/img/docs/tutorials/drafted-box-step5-sketch.png)
 

@@ -16,7 +16,7 @@ import { setupOC, render } from "./setup.js";
 import { extractFluidJsBlocks } from "./helpers/extract-blocks.js";
 import * as core from "../core/index.js";
 import * as filters from "../filters/index.js";
-import * as constraints from "../features/2d/constraints/geometry-qualifier.js";
+import * as constraints from "../core/constraints/index.js";
 import * as math from "../math/index.js";
 import { countShapes } from "./utils.js";
 

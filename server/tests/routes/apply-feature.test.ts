@@ -400,10 +400,10 @@ describe('apply-feature route validation', () => {
   describe('foreign sketch (cross-part reference)', () => {
     const FILE = '/ws/m.fluid.js';
     const TWO_PART_CODE = [
-      `import { sketch, rect, extrude, part, expose } from 'fluidcad/core'`,
+      `import { sketch, circle, extrude, part, expose } from 'fluidcad/core'`,
       ``,
       `export const p1 = part('Donor', () => {`,
-      `  sketch('xy', () => { rect(100, 50) })`,
+      `  sketch('xy', () => { circle([0, 0], 100) })`,
       `  const e = extrude(30)`,
       `  expose('endFace', e.endFaces(0))`,
       `})`,
@@ -428,7 +428,7 @@ describe('apply-feature route validation', () => {
         feature: 'sketch', entities: [PICK], activePart: ACTIVE,
       });
       expect(status).toBe(200);
-      expect(body.preview).toBe(`sketch(p1.features.endFace, () => { ... }, true)`);
+      expect(body.preview).toBe(`sketch(p1.features.endFace, () => { ... })`);
       // A matched exposure needs no donor-side synthesis and no normal
       // sketch synthesis — the reference is composed route-side.
       expect(synthesizeCalls).toEqual([]);
@@ -460,7 +460,7 @@ describe('apply-feature route validation', () => {
         feature: 'sketch', entities: [PICK], activePart: ACTIVE,
       });
       expect(status).toBe(200);
-      expect(body.preview).toBe(`sketch(p1.features.g2, () => { ... }, true)`);
+      expect(body.preview).toBe(`sketch(p1.features.g2, () => { ... })`);
       // Both synthesis passes ran the donor-side expose rail with the
       // allocated name (g1 was taken).
       expect(synthesizeCalls.every(c => c.feature === 'expose')).toBe(true);
@@ -498,7 +498,7 @@ describe('apply-feature route validation', () => {
 
     it('refuses a donor that is not bound to a const', async () => {
       currentCode = [
-        `import { sketch, rect, extrude, part } from 'fluidcad/core'`,
+        `import { sketch, circle, extrude, part } from 'fluidcad/core'`,
         ``,
         `export function makeDonor() {`,
         `  return part('Donor', () => {`,
@@ -1876,10 +1876,10 @@ describe('apply-feature route validation', () => {
 
   it('resolves bound plane names with the plane callee', async () => {
     currentCode = [
-      `import { plane, sketch, rect } from 'fluidcad/core'`,
+      `import { plane, sketch, circle } from 'fluidcad/core'`,
       ``,
       `const top = plane('xy', 30)`,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { circle([0, 0], 10) })`,
       ``,
     ].join('\n');
     const res = await fetch(`${baseUrl}/api/sketch-names`, {
@@ -1893,10 +1893,10 @@ describe('apply-feature route validation', () => {
 
   it('resolves bound sketch names and nulls for everything else', async () => {
     currentCode = [
-      `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+      `import { sketch, circle, extrude } from 'fluidcad/core'`,
       ``,
       `const spine = sketch('xz', () => { circle(5) })`,
-      `sketch('xy', () => { rect(10, 10) })`,
+      `sketch('xy', () => { circle([0, 0], 10) })`,
       `extrude(30)`,
       ``,
     ].join('\n');
@@ -1920,9 +1920,9 @@ describe('apply-feature route validation', () => {
 
   describe('in-place statement edit routes', () => {
     const EDIT_CODE = [
-      `import { sketch, rect, extrude, shell } from 'fluidcad/core'`,
+      `import { sketch, circle, extrude, shell } from 'fluidcad/core'`,
       ``,
-      `const s = sketch('xy', () => { rect(100, 50) })`,
+      `const s = sketch('xy', () => { circle([0, 0], 100) })`,
       `extrude(30)`,
       `shell(-2, e.endFaces())`,
       ``,
@@ -1999,7 +1999,7 @@ describe('apply-feature route validation', () => {
 
     it('relays an edited scope list — keeps by index, re-picks as bound feature producers', async () => {
       currentCode = [
-        `import { sketch, rect, extrude } from 'fluidcad/core'`,
+        `import { sketch, circle, extrude } from 'fluidcad/core'`,
         ``,
         `const body = extrude(30)`,
         `const tower = extrude(50).new()`,
@@ -2158,10 +2158,10 @@ describe('apply-feature route validation', () => {
 
     describe('offset (2D) edits', () => {
       const OFFSET_CODE = [
-        `import { sketch, rect, offset } from 'fluidcad/core'`,
+        `import { sketch, circle, offset } from 'fluidcad/core'`,
         ``,
         `sketch('xy', () => {`,
-        `  const r = rect(100, 50)`,
+        `  const r = circle([0, 0], 100)`,
         `  offset(2, r.edge('top'))`,
         `})`,
         ``,
@@ -2195,7 +2195,7 @@ describe('apply-feature route validation', () => {
           ok: true,
           spec: {
             feature: 'offset', value: 5, filePath: '/ws/m.fluid.js',
-            producers: [{ line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true }],
+            producers: [{ line: 4, column: 2, featureType: 'circle', nameHint: 'r', bind: true }],
             parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: `'left'` }],
             imports: [],
           },
@@ -2241,7 +2241,7 @@ describe('apply-feature route validation', () => {
           value: 5,
         });
         expect(status).toBe(422);
-        expect(body.reason).toContain('rect');
+        expect(body.reason).toContain('circle');
         expect(relayed).toHaveLength(0);
       });
 
@@ -2251,10 +2251,10 @@ describe('apply-feature route validation', () => {
         // the dialog captured (OFFSET_EDIT still says 5). The statement's
         // exact text re-locates it.
         currentCode = [
-          `import { sketch, rect, offset, breakpoint } from 'fluidcad/core'`,
+          `import { sketch, circle, offset, breakpoint } from 'fluidcad/core'`,
           ``,
           `sketch('xy', () => {`,
-          `  const r = rect(100, 50)`,
+          `  const r = circle([0, 0], 100)`,
           `  breakpoint();`,
           ``,
           `  offset(2, r.edge('top'))`,
@@ -2275,16 +2275,16 @@ describe('apply-feature route validation', () => {
         // the edited one, so the heal declines and the stale line surfaces
         // as the ordinary drift refusal instead of guessing.
         currentCode = [
-          `import { sketch, rect, offset, breakpoint } from 'fluidcad/core'`,
+          `import { sketch, circle, offset, breakpoint } from 'fluidcad/core'`,
           ``,
           `sketch('xy', () => {`,
-          `  const r = rect(100, 50)`,
+          `  const r = circle([0, 0], 100)`,
           `  breakpoint();`,
           ``,
           `  offset(2, r.edge('top'))`,
           `})`,
           `sketch('xz', () => {`,
-          `  const r = rect(100, 50)`,
+          `  const r = circle([0, 0], 100)`,
           `  offset(2, r.edge('top'))`,
           `})`,
           ``,
@@ -2298,35 +2298,12 @@ describe('apply-feature route validation', () => {
       });
     });
 
-    describe('slot (2D) edits removed', () => {
-      it('refuses a slot edit request — the slot edit dialog is gone', async () => {
-        currentCode = [
-          `import { sketch, hLine, slot } from 'fluidcad/core'`,
-          ``,
-          `sketch('xy', () => {`,
-          `  const l = hLine(60)`,
-          `  slot(l, 10)`,
-          `})`,
-          ``,
-        ].join('\n');
-        currentFileName = '/ws/m.fluid.js';
-        const { status, body } = await post({
-          feature: 'slot',
-          edit: { filePath: '/ws/m.fluid.js', line: 5, column: 2 },
-          value: 12,
-        });
-        expect(status).toBe(400);
-        expect(body.error).toContain('for an edit');
-        expect(relayed).toHaveLength(0);
-      });
-    });
-
     describe('fillet (2D) edits', () => {
       const FILLET_CODE = [
-        `import { sketch, rect, fillet } from 'fluidcad/core'`,
+        `import { sketch, circle, fillet } from 'fluidcad/core'`,
         ``,
         `sketch('xy', () => {`,
-        `  const r = rect(100, 50)`,
+        `  const r = circle([0, 0], 100)`,
         `  fillet(2, r.edge('top'))`,
         `})`,
         ``,
@@ -2359,7 +2336,7 @@ describe('apply-feature route validation', () => {
           ok: true,
           spec: {
             feature: 'fillet', value: 5, filePath: '/ws/m.fluid.js',
-            producers: [{ line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true }],
+            producers: [{ line: 4, column: 2, featureType: 'circle', nameHint: 'r', bind: true }],
             parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: `'left'` }],
             imports: [],
           },
@@ -2400,10 +2377,10 @@ describe('apply-feature route validation', () => {
 
       it('heals the edit line when the pause-before breakpoint shifted the statement', async () => {
         currentCode = [
-          `import { sketch, rect, fillet, breakpoint } from 'fluidcad/core'`,
+          `import { sketch, circle, fillet, breakpoint } from 'fluidcad/core'`,
           ``,
           `sketch('xy', () => {`,
-          `  const r = rect(100, 50)`,
+          `  const r = circle([0, 0], 100)`,
           `  breakpoint();`,
           ``,
           `  fillet(2, r.edge('top'))`,
@@ -2422,10 +2399,10 @@ describe('apply-feature route validation', () => {
 
     describe('offset edit target seeding (/sketch/feature-sources)', () => {
       const SEED_CODE = [
-        `import {breakpoint, sketch, rect, offset } from 'fluidcad/core'`,
+        `import {breakpoint, sketch, circle, offset } from 'fluidcad/core'`,
         ``,
         `sketch('xy', () => {`,
-        `  const r = rect(100, 50)`,
+        `  const r = circle([0, 0], 100)`,
         `  breakpoint();`,
         ``,
         `  offset(2, r.edge('top'))`,
@@ -2634,7 +2611,7 @@ describe('apply-feature route validation', () => {
       });
       expect(status).toBe(200);
       expect(body.success).toBe(true);
-      expect(body.preview).toBe(`sketch('xz', () => { rect(100, 50) })`);
+      expect(body.preview).toBe(`sketch('xz', () => { circle([0, 0], 100) })`);
       expect(synthesizeCalls).toEqual([]);
       expect(relayed[0].spec).toMatchObject({
         feature: 'sketch',
@@ -2665,7 +2642,7 @@ describe('apply-feature route validation', () => {
       });
       expect(status).toBe(200);
       expect(body.success).toBe(true);
-      expect(body.preview).toBe(`sketch(e2.endFaces(1), () => { rect(100, 50) })`);
+      expect(body.preview).toBe(`sketch(e2.endFaces(1), () => { circle([0, 0], 100) })`);
       expect(synthesizeCalls).toEqual([{ feature: 'sketch', value: undefined }]);
       expect(synthesizeBoundaries).toEqual([undefined]);
       expect(relayed[0].spec).toMatchObject({
@@ -2696,9 +2673,9 @@ describe('apply-feature route validation', () => {
 
     describe('edit-mode source re-picking', () => {
       const SOURCE_CODE = [
-        `import { sketch, rect, circle, extrude, sweep, loft, shell, wrap } from 'fluidcad/core'`,
+        `import { sketch, circle, extrude, sweep, loft, shell, wrap } from 'fluidcad/core'`,
         ``,
-        `const s = sketch('xy', () => { rect(100, 50) })`,
+        `const s = sketch('xy', () => { circle([0, 0], 100) })`,
         `const e = extrude(30)`,
         `const p = sketch('xz', () => { circle(30) })`,
         `shell(-2, e.endFaces())`,
@@ -2774,9 +2751,9 @@ describe('apply-feature route validation', () => {
 
       it('re-picks a face offset selection: synthesis with the boundary, parts on the spec', async () => {
         currentCode = [
-          `import { sketch, rect, extrude, offset } from 'fluidcad/core'`,
+          `import { sketch, circle, extrude, offset } from 'fluidcad/core'`,
           ``,
-          `sketch('xy', () => { rect(100, 50) })`,
+          `sketch('xy', () => { circle([0, 0], 100) })`,
           `const e = extrude(30)`,
           `offset(-5, e.endFaces())`,
           ``,
@@ -2854,9 +2831,9 @@ describe('apply-feature route validation', () => {
       });
 
       const TOFACE_CODE = [
-        `import { sketch, rect, circle, extrude } from 'fluidcad/core'`,
+        `import { sketch, circle, extrude } from 'fluidcad/core'`,
         ``,
-        `const s = sketch('xy', () => { rect(100, 50) })`,
+        `const s = sketch('xy', () => { circle([0, 0], 100) })`,
         `const e = extrude(30, s)`,
         `const p = sketch('xy', () => { circle(30) })`,
         `extrude(e.endFaces(), p)`,
@@ -3232,11 +3209,11 @@ describe('apply-feature route validation', () => {
     const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
     const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
     const CODE = [
-      "import { sketch, rect, extrude, cut } from 'fluidcad/core'",
+      "import { sketch, circle, extrude, cut } from 'fluidcad/core'",
       '',
-      "sketch('xy', () => { rect(100, 50) })",
+      "sketch('xy', () => { circle([0, 0], 100) })",
       'extrude(30)',
-      "sketch('xy', () => { rect(10, 10) })",
+      "sketch('xy', () => { circle([0, 0], 10) })",
       'cut(5)',
       '',
     ].join('\n');
@@ -3419,11 +3396,11 @@ describe('apply-feature route validation', () => {
 
   describe('repeat edit', () => {
     const EDIT_CODE = [
-      "import { sketch, rect, extrude, cut, repeat } from 'fluidcad/core'",
+      "import { sketch, circle, extrude, cut, repeat } from 'fluidcad/core'",
       '',
-      "sketch('xy', () => { rect(100, 50) })",
+      "sketch('xy', () => { circle([0, 0], 100) })",
       'const e = extrude(30)',
-      "sketch('xy', () => { rect(10, 10) })",
+      "sketch('xy', () => { circle([0, 0], 10) })",
       'const c = cut(5)',
       "repeat('rotate', 'z', 45, e)",
       '',
@@ -3543,11 +3520,11 @@ describe('apply-feature route validation', () => {
     const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
     const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
     const CODE = [
-      "import { sketch, rect, extrude, cut } from 'fluidcad/core'",
+      "import { sketch, circle, extrude, cut } from 'fluidcad/core'",
       '',
-      "sketch('xy', () => { rect(100, 50) })",
+      "sketch('xy', () => { circle([0, 0], 100) })",
       'extrude(30)',
-      "sketch('xy', () => { rect(10, 10) })",
+      "sketch('xy', () => { circle([0, 0], 10) })",
       'cut(5)',
       '',
     ].join('\n');
@@ -3738,11 +3715,11 @@ describe('apply-feature route validation', () => {
 
   describe('copy edit', () => {
     const EDIT_CODE = [
-      "import { sketch, rect, extrude, cut, copy } from 'fluidcad/core'",
+      "import { sketch, circle, extrude, cut, copy } from 'fluidcad/core'",
       '',
-      "sketch('xy', () => { rect(100, 50) })",
+      "sketch('xy', () => { circle([0, 0], 100) })",
       'const e = extrude(30)',
-      "sketch('xy', () => { rect(10, 10) })",
+      "sketch('xy', () => { circle([0, 0], 10) })",
       'const c = cut(5)',
       "copy('linear', 'x', { count: 3, offset: 40 }, e)",
       '',
@@ -3892,12 +3869,12 @@ describe('apply-feature route validation', () => {
   // rendering and spec assembly are the real route's.
   describe('2D copy (sketch branch)', () => {
     const CODE = [
-      "import { sketch, rect, aLine, move } from 'fluidcad/core'",
+      "import { sketch, circle, line, point } from 'fluidcad/core'",
       '',
       "sketch('xy', () => {",
-      '  rect(20, 20)',
-      '  move([0, 40])',
-      '  aLine(30, 50)',
+      '  circle([0, 0], 20)',
+      '  point([0, 40])',
+      '  line([0, 0], [30, 50])',
       '})',
       '',
     ].join('\n');
@@ -3917,7 +3894,7 @@ describe('apply-feature route validation', () => {
     it('renders a linear copy along a sketch-local axis and imports local', async () => {
       currentCode = CODE;
       currentSynthesis = copySynthesis({
-        producers: [{ line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true }],
+        producers: [{ line: 4, column: 2, featureType: 'circle', nameHint: 'r', bind: true }],
         targets: [0],
       });
       const { status, body } = await post({
@@ -3948,7 +3925,7 @@ describe('apply-feature route validation', () => {
       currentCode = CODE;
       currentSynthesis = copySynthesis({
         producers: [
-          { line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true },
+          { line: 4, column: 2, featureType: 'circle', nameHint: 'r', bind: true },
           { line: 6, column: 2, featureType: 'line', nameHint: 'l', bind: true },
         ],
         parts: [{ producer: 1, accessor: '', indices: null, filterArgs: null }],
@@ -3976,7 +3953,7 @@ describe('apply-feature route validation', () => {
     it('renders a circular copy around its [x, y] center', async () => {
       currentCode = CODE;
       currentSynthesis = copySynthesis({
-        producers: [{ line: 4, column: 2, featureType: 'rect', nameHint: 'r', bind: true }],
+        producers: [{ line: 4, column: 2, featureType: 'circle', nameHint: 'r', bind: true }],
         targets: [0],
       });
       const { status, body } = await post({
@@ -4028,10 +4005,10 @@ describe('apply-feature route validation', () => {
 
   describe('2D copy edit (sketch branch)', () => {
     const EDIT_CODE = [
-      "import { sketch, rect, copy, local } from 'fluidcad/core'",
+      "import { sketch, circle, copy, local } from 'fluidcad/core'",
       '',
       "sketch('xy', () => {",
-      '  const r = rect(20, 20)',
+      '  const r = circle([0, 0], 20)',
       "  copy('linear', local('x'), { count: 3, offset: 20 }, r)",
       '})',
       '',
@@ -4077,7 +4054,7 @@ describe('apply-feature route validation', () => {
         ok: true,
         spec: {
           feature: 'copy', filePath: '/ws/m.fluid.js',
-          producers: [{ line: 4, column: 12, featureType: 'rect', nameHint: 'r', bind: true }],
+          producers: [{ line: 4, column: 12, featureType: 'circle', nameHint: 'r', bind: true }],
           parts: [], imports: [],
         },
         preview: '', args: 'r', alternatives: [],
@@ -4136,11 +4113,11 @@ describe('apply-feature route validation', () => {
     const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
     const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
     const CODE = [
-      "import { sketch, rect, extrude, cut } from 'fluidcad/core'",
+      "import { sketch, circle, extrude, cut } from 'fluidcad/core'",
       '',
-      "sketch('xy', () => { rect(100, 50) })",
+      "sketch('xy', () => { circle([0, 0], 100) })",
       'extrude(30)',
-      "sketch('xy', () => { rect(10, 10) })",
+      "sketch('xy', () => { circle([0, 0], 10) })",
       'cut(5)',
       '',
     ].join('\n');
@@ -4214,11 +4191,11 @@ describe('apply-feature route validation', () => {
     const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
     const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
     const CODE = [
-      "import { sketch, rect, extrude, cut } from 'fluidcad/core'",
+      "import { sketch, circle, extrude, cut } from 'fluidcad/core'",
       '',
-      "sketch('xy', () => { rect(100, 50) })",
+      "sketch('xy', () => { circle([0, 0], 100) })",
       'extrude(30)',
-      "sketch('xy', () => { rect(10, 10) })",
+      "sketch('xy', () => { circle([0, 0], 10) })",
       'cut(5)',
       '',
     ].join('\n');
@@ -4331,11 +4308,11 @@ describe('apply-feature route validation', () => {
 
   describe('mirror edit', () => {
     const EDIT_CODE = [
-      "import { sketch, rect, extrude, cut, mirror } from 'fluidcad/core'",
+      "import { sketch, circle, extrude, cut, mirror } from 'fluidcad/core'",
       '',
-      "sketch('xy', () => { rect(100, 50) })",
+      "sketch('xy', () => { circle([0, 0], 100) })",
       'const e = extrude(30)',
-      "sketch('xy', () => { rect(10, 10) })",
+      "sketch('xy', () => { circle([0, 0], 10) })",
       'const c = cut(5)',
       "mirror('yz', e)",
       '',
@@ -4461,11 +4438,11 @@ describe('apply-feature route validation', () => {
     const T1 = { filePath: '/ws/m.fluid.js', line: 4, column: 0 };
     const T2 = { filePath: '/ws/m.fluid.js', line: 6, column: 0 };
     const CODE = [
-      "import { sketch, rect, extrude, cut } from 'fluidcad/core'",
+      "import { sketch, circle, extrude, cut } from 'fluidcad/core'",
       '',
-      "sketch('xy', () => { rect(100, 50) })",
+      "sketch('xy', () => { circle([0, 0], 100) })",
       'extrude(30)',
-      "sketch('xy', () => { rect(10, 10) })",
+      "sketch('xy', () => { circle([0, 0], 10) })",
       'cut(5)',
       '',
     ].join('\n');
@@ -4580,11 +4557,11 @@ describe('apply-feature route validation', () => {
   describe('rotate edit', () => {
     const EDGE_PICK = { shapeId: 'shape-1', sub: { type: 'edge', index: 0 } };
     const EDIT_CODE = [
-      "import { sketch, rect, extrude, cut, rotate } from 'fluidcad/core'",
+      "import { sketch, circle, extrude, cut, rotate } from 'fluidcad/core'",
       '',
-      "sketch('xy', () => { rect(100, 50) })",
+      "sketch('xy', () => { circle([0, 0], 100) })",
       'const e = extrude(30)',
-      "sketch('xy', () => { rect(10, 10) })",
+      "sketch('xy', () => { circle([0, 0], 10) })",
       'const c = cut(5)',
       "rotate('z', 45, e)",
       '',
@@ -4707,11 +4684,11 @@ describe('apply-feature route validation', () => {
 
   describe('boolean edit', () => {
     const EDIT_CODE = [
-      "import { sketch, rect, extrude, cut, fuse } from 'fluidcad/core'",
+      "import { sketch, circle, extrude, cut, fuse } from 'fluidcad/core'",
       '',
-      "sketch('xy', () => { rect(100, 50) })",
+      "sketch('xy', () => { circle([0, 0], 100) })",
       'const e = extrude(30)',
-      "sketch('xy', () => { rect(10, 10) })",
+      "sketch('xy', () => { circle([0, 0], 10) })",
       'const c = cut(5)',
       'fuse(e, c)',
       '',
@@ -4792,9 +4769,9 @@ describe('apply-feature route validation', () => {
 
   describe('plane edit', () => {
     const EDIT_CODE = [
-      "import { sketch, rect, extrude, plane } from 'fluidcad/core'",
+      "import { sketch, circle, extrude, plane } from 'fluidcad/core'",
       '',
-      "sketch('xy', () => { rect(100, 50) })",
+      "sketch('xy', () => { circle([0, 0], 100) })",
       'const e = extrude(30)',
       "const top = plane('xy', 20)",
       "plane('xz', 10)",
@@ -4907,7 +4884,7 @@ describe('apply-feature route validation', () => {
         feature: 'fillet',
         value: 4,
         filePath: '/ws/m.fluid.js',
-        producers: [{ line: 4, column: 0, featureType: 'rect', nameHint: 'r', bind: true }],
+        producers: [{ line: 4, column: 0, featureType: 'circle', nameHint: 'r', bind: true }],
         parts: [{ producer: 0, accessor: 'edge', indices: null, filterArgs: "'top'" }],
         imports: [],
       },
@@ -5076,87 +5053,7 @@ describe('apply-feature route validation', () => {
           feature: 'fillet', value: 4, close: true, sketchEntities: [{ shapeId: 'edge-1' }],
         });
         expect(status).toBe(400);
-        expect(body.error).toContain('only apply to offset');
-      });
-    });
-
-    describe('slot from edge', () => {
-      const SLOT_SYNTHESIS = {
-        ok: true,
-        spec: {
-          feature: 'slot',
-          value: 10,
-          slot: { removeOriginal: true },
-          filePath: '/ws/m.fluid.js',
-          producers: [{ line: 4, column: 2, featureType: 'line', nameHint: 'l', bind: true }],
-          parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
-          imports: [],
-        },
-        preview: 'slot(l, 10)',
-        args: 'l',
-        alternatives: [],
-      };
-
-      it('previews through the sketch branch with the slot options', async () => {
-        currentSynthesis = SLOT_SYNTHESIS;
-        const { status, body } = await post({
-          feature: 'slot', value: 10, sketchEntities: [{ shapeId: 'edge-1' }], preview: true,
-        });
-        expect(status).toBe(200);
-        expect(body).toMatchObject({ success: true, preview: 'slot(l, 10)', args: 'l' });
-        expect(sketchSynthesizeCalls).toEqual([
-          {
-            picks: [{ shapeId: 'edge-1' }],
-            feature: 'slot',
-            value: 10,
-            // Absent toggle reads as the kernel default: remove the source.
-            slot: { removeOriginal: true },
-          },
-        ]);
-        expect(relayed).toHaveLength(0);
-      });
-
-      it('writes the keep-original form as the trailing false', async () => {
-        currentSynthesis = SLOT_SYNTHESIS;
-        const { status, body } = await post({
-          feature: 'slot', value: 10, removeOriginal: false,
-          sketchEntities: [{ shapeId: 'edge-1' }],
-        });
-        expect(status).toBe(200);
-        expect(body.preview).toBe('slot(l, 10, false)');
-        expect(sketchSynthesizeCalls[0].slot).toEqual({ removeOriginal: false });
-        expect(relayed[0].spec.slot).toEqual({ removeOriginal: false });
-      });
-
-      it('rejects a non-positive radius and the offset-only close toggle', async () => {
-        const zero = await post({
-          feature: 'slot', value: 0, sketchEntities: [{ shapeId: 'edge-1' }],
-        });
-        expect(zero.status).toBe(400);
-        expect(zero.body.error).toContain('positive');
-
-        const closed = await post({
-          feature: 'slot', value: 10, close: true, sketchEntities: [{ shapeId: 'edge-1' }],
-        });
-        expect(closed.status).toBe(400);
-        expect(closed.body.error).toContain('close only applies to offset');
-      });
-
-      it('422s a kernel whose synthesis cannot render a bare source variable', async () => {
-        // An old workspace kernel without the 'slot' kind falls through its
-        // accessor ladder — the route refuses instead of writing a statement
-        // SlotFromEdge cannot consume.
-        currentSynthesis = {
-          ...SLOT_SYNTHESIS,
-          preview: "slot(l.edge('top'), 10)",
-          args: "l.edge('top')",
-        };
-        const { status, body } = await post({
-          feature: 'slot', value: 10, sketchEntities: [{ shapeId: 'edge-1' }],
-        });
-        expect(status).toBe(422);
-        expect(body.reason).toContain('does not support slot from edge');
-        expect(relayed).toHaveLength(0);
+        expect(body.error).toContain('only applies to offset');
       });
     });
   });

@@ -8,7 +8,7 @@ import connector from "../core/connector.js";
 import insert from "../core/insert.js";
 import mate from "../core/mate.js";
 import expose from "../core/expose.js";
-import { rect } from "../core/2d/index.js";
+import { testRect } from "./helpers/profiles.js";
 import { face } from "../filters/index.js";
 import { Part } from "../features/part.js";
 import { AssemblyScene } from "../rendering/assembly-scene.js";
@@ -17,7 +17,7 @@ import { MateBuilder, makeTangentAssemblyMate } from "../features/mate.js";
 
 function buildHousing(name = "housing"): Part {
   return part(name, () => {
-    sketch("xy", () => rect(20, 20));
+    sketch("xy", () => { testRect(20, 20); });
     extrude(10);
     connector("top", select(face().planar().onPlane("xy", 10)));
     connector("bottom", select(face().planar().onPlane("xy", 0)));
@@ -239,8 +239,8 @@ describe("tangent mate (parse gate + record shape)", () => {
   // part-design only.
   function startTangentAssembly() {
     getSceneManager().startScene();
-    const srcA = sketch("xy", () => rect(1, 1));
-    const srcB = sketch("xy", () => rect(2, 2));
+    const srcA = sketch("xy", () => { testRect(1, 1); });
+    const srcB = sketch("xy", () => { testRect(2, 2); });
     const scene = getSceneManager().startAssemblyScene();
     const a = new BoundExposure(new Exposed("profile", srcA as never), "inst-0");
     const b = new BoundExposure(new Exposed("tip", srcB as never), "inst-1");
@@ -261,7 +261,7 @@ describe("tangent mate (parse gate + record shape)", () => {
   it("mate('tangent', …) with bound exposures records geometry sides", () => {
     getSceneManager().startScene();
     const donor = part("Donor", () => {
-      sketch("xy", () => rect(20, 20));
+      sketch("xy", () => { testRect(20, 20); });
       extrude(10);
       expose("top", select(face().planar().onPlane("xy", 10)));
     });
@@ -283,7 +283,7 @@ describe("tangent mate (parse gate + record shape)", () => {
   it("mate('tangent') on the same instance's same exposure throws", () => {
     getSceneManager().startScene();
     const donor = part("Donor", () => {
-      sketch("xy", () => rect(20, 20));
+      sketch("xy", () => { testRect(20, 20); });
       extrude(10);
       expose("top", select(face().planar().onPlane("xy", 10)));
     });
@@ -332,7 +332,7 @@ describe("tangent mate (parse gate + record shape)", () => {
 
   it("connector mates reject exposed-geometry arguments with a pointed error", () => {
     getSceneManager().startScene();
-    const src = sketch("xy", () => rect(1, 1));
+    const src = sketch("xy", () => { testRect(1, 1); });
     getSceneManager().startAssemblyScene();
     const bound = new BoundExposure(new Exposed("g1", src as never), "inst-0");
     expect(() => mate("fastened", bound, bound)).toThrow(/takes connectors, not exposed geometry/i);

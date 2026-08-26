@@ -98,14 +98,6 @@ export class MirrorShape2D extends GeometrySceneObject {
           this.setTangent(transformedTangent);
         }
       }
-
-      const currentPos = this.getCurrentPosition();
-      if (currentPos) {
-        const worldPos = plane.localToWorld(currentPos);
-        const mirroredWorldPos = matrix.transformPoint(worldPos);
-        const mirroredLocalPos = plane.worldToLocal(mirroredWorldPos);
-        this.setCurrentPosition(mirroredLocalPos);
-      }
     }
 
     // Copies keep the source role (via ShapeOps.transform) but are derived.

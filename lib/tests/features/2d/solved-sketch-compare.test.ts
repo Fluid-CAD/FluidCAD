@@ -28,7 +28,7 @@ function declareModel(width: number) {
     vertical(r);
     fix(b.start());
     distance(b.start(), b.end(), width);
-  }, true);
+  });
   extrude(30);
 }
 
@@ -109,7 +109,7 @@ describe("solved sketch cache atomicity (SceneCompare)", () => {
         fix(b.start());
         distance(b.start(), b.end(), width);
         o = offset(5, b, r, t, l) as unknown as Offset;
-      }, true);
+      });
     };
     declare(100);
     render();
@@ -131,7 +131,7 @@ describe("solved sketch cache atomicity (SceneCompare)", () => {
     expect(box.maxX - box.minX).toBeCloseTo(130, 0);
   });
 
-  it("still prefix-caches legacy sketches child by child", () => {
+  it("unflagged sketches are solved too — the edit rebuilds atomically", () => {
     sketch('xy', () => {
       line([0, 0], [50, 0]);
       line([50, 0], [50, 30]);
@@ -146,12 +146,11 @@ describe("solved sketch cache atomicity (SceneCompare)", () => {
     });
     SceneCompare.compare(previousScene, newScene);
 
-    // Legacy behavior: the sketch and the first (unchanged) child stay
-    // cached; only the diverging child onward rebuilds.
+    // Since P7 every sketch is a solved sketch: container-atomic matching —
+    // one diverging child rebuilds the whole subtree, no prefix caching.
     const sketchObj = byUniqueType(newScene, 'sketch')[0];
-    expect(newScene.isCached(sketchObj)).toBe(true);
+    expect(newScene.isCached(sketchObj)).toBe(false);
     const children = sketchObj.getChildren();
-    expect(newScene.isCached(children[0])).toBe(true);
-    expect(newScene.isCached(children[children.length - 1])).toBe(false);
+    expect(children.every(c => !newScene.isCached(c))).toBe(true);
   });
 });

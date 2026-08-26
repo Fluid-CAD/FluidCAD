@@ -12,9 +12,9 @@ seeAlso: [api/translate, api/mirror]
 Imported from `fluidcad/core`.
 
 ```ts
-// 2D — inside a sketch, around the plane's Z (i.e., the sketch normal)
-rotate(angle, ...targets)
-rotate(angle, copy: boolean, ...targets)
+// 2D — inside a sketch, around an explicit center point in sketch coordinates
+rotate(angle, center: Point2D, ...targets)
+rotate(angle, center, copy: boolean, ...targets)
 
 // 3D — around a world or custom axis
 rotate(axis: AxisLike, angle, ...targets)
@@ -23,7 +23,21 @@ rotate(axis, angle, copy: boolean, ...targets)
 
 Angles are degrees. `AxisLike` is `"x"` / `"y"` / `"z"`, a direction
 vector, or an `{ point?, direction }` record. `copy: true` clones the
-source rather than rotating it in place.
+source rather than rotating it in place. The 2D form requires the
+explicit `center` — there is no implicit rotation point in a constraint
+sketch.
+
+## 2D example
+
+```fluid.js
+import { circle, extrude, rotate, sketch } from "fluidcad/core";
+
+sketch("xy", () => {
+  const c = circle([40, 0], 16);
+  rotate(120, [0, 0], true, c);      // copy rotated 120° about the origin
+});
+extrude(6);
+```
 
 ## Example
 

@@ -5,11 +5,12 @@ import extrude from "../../core/extrude.js";
 import part from "../../core/part.js";
 import select from "../../core/select.js";
 import expose from "../../core/expose.js";
-import { rect } from "../../core/2d/index.js";
+import { } from "../../core/2d/index.js";
 import { face } from "../../filters/index.js";
 import { Scene } from "../../rendering/scene.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
 import { faceRefsWhere, findSolid, setLocation } from "./pick-helpers.js";
+import { testRect } from "../helpers/profiles.js";
 
 describe("expose synthesis", () => {
   setupOC();
@@ -18,8 +19,8 @@ describe("expose synthesis", () => {
   function makePartScene(): { scene: Scene; topFace: ReturnType<typeof faceRefsWhere>[number] } {
     const p = part("housing", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30);
       setLocation(e, 5);
     });
@@ -50,8 +51,8 @@ describe("expose synthesis", () => {
 
   it("refuses a pick outside any part() block", () => {
     sketch("xy", () => {
-      rect(100, 50);
-    });
+        testRect(100, 50);
+      });
     const e = extrude(30);
     setLocation(e, 3);
     const scene = render();
@@ -68,8 +69,8 @@ describe("expose synthesis", () => {
   it("refuses a name the part already exposes", () => {
     const p = part("housing", () => {
       sketch("xy", () => {
-        rect(100, 50);
-      });
+          testRect(100, 50);
+        });
       const e = extrude(30);
       setLocation(e, 5);
       expose("endFace", select(face().planar().onPlane("xy", 30)));

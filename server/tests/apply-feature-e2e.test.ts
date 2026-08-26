@@ -12,7 +12,7 @@ import extrude from '../../lib/core/extrude.js';
 import * as core from '../../lib/core/index.js';
 import * as filters from '../../lib/filters/index.js';
 import * as math from '../../lib/math/index.js';
-import { rect } from '../../lib/core/2d/index.js';
+import { line } from '../../lib/core/2d/index.js';
 import { Scene } from '../../lib/rendering/scene.js';
 import { SceneObject } from '../../lib/common/scene-object.js';
 import { Shape } from '../../lib/common/shape.js';
@@ -48,6 +48,23 @@ function topEdgeRefs(solid: Shape, z: number): PickRef[] {
   return refs;
 }
 
+/** Solved-model stand-in for the legacy `rect(w, h)` fixture: four exact lines. */
+function drawRect(w: number, h: number, x = 0, y = 0): void {
+  line([x, y], [x + w, y]);
+  line([x + w, y], [x + w, y + h]);
+  line([x + w, y + h], [x, y + h]);
+  line([x, y + h], [x, y]);
+}
+
+/** The same four-line body as source text, for the code-string fixtures. */
+function rectBodySrc(w: number, h: number, x = 0, y = 0): string {
+  const n = (v: number) => String(Math.round(v * 1000) / 1000);
+  return `line([${n(x)}, ${n(y)}], [${n(x + w)}, ${n(y)}]); `
+    + `line([${n(x + w)}, ${n(y)}], [${n(x + w)}, ${n(y + h)}]); `
+    + `line([${n(x + w)}, ${n(y + h)}], [${n(x)}, ${n(y + h)}]); `
+    + `line([${n(x)}, ${n(y + h)}], [${n(x)}, ${n(y)}])`;
+}
+
 const IMPORT_LINE_RE = /^\s*import\s[\s\S]*?from\s+['"][^'"]+['"]\s*;?\s*$/gm;
 
 /** Execute a .fluid.js source string against the real runtime (fresh scene). */
@@ -66,16 +83,16 @@ describe('select→apply-feature end to end', () => {
 
   it('fillets the picked whole top rim through synthesized code', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ${rectBodySrc(100, 50)} })`,
       `extrude(30)`,
       ``,
     ].join('\n');
 
     // Build the same model in-process and stamp the extrude with the line it
     // occupies in `code`, as the live-render stack capture would.
-    sketch('xy', () => { rect(100, 50) });
+    sketch('xy', () => { drawRect(100, 50) });
     const e = extrude(30);
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
 
@@ -108,14 +125,14 @@ describe('select→apply-feature end to end', () => {
 
   it('fillets a picked face through a synthesized face selector', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ${rectBodySrc(100, 50)} })`,
       `extrude(30)`,
       ``,
     ].join('\n');
 
-    sketch('xy', () => { rect(100, 50) });
+    sketch('xy', () => { drawRect(100, 50) });
     const e = extrude(30);
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
 
@@ -151,15 +168,15 @@ describe('select→apply-feature end to end', () => {
 
   it('shells a filleted extrude through a plane-reference selector', async () => {
     const code = [
-      `import { sketch, rect, extrude, fillet } from 'fluidcad/core'`,
+      `import { sketch, line, extrude, fillet } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(123.28, 56.07).centered() })`,
+      `sketch('xy', () => { ${rectBodySrc(123.28, 56.07, -123.28 / 2, -56.07 / 2)} })`,
       `const e = extrude(25)`,
       `fillet(10, e.sideEdges())`,
       ``,
     ].join('\n');
 
-    sketch('xy', () => { rect(123.28, 56.07).centered() });
+    sketch('xy', () => { drawRect(123.28, 56.07, -123.28 / 2, -56.07 / 2) });
     const e = extrude(25);
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
     const f = core.fillet(10, (e as any).sideEdges());
@@ -201,15 +218,15 @@ describe('select→apply-feature end to end', () => {
 
   it('fillets one repeat instance through a synthesized scene-wide select()', async () => {
     const code = [
-      `import { sketch, rect, extrude, repeat } from 'fluidcad/core'`,
+      `import { sketch, line, extrude, repeat } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(20, 20) })`,
+      `sketch('xy', () => { ${rectBodySrc(20, 20)} })`,
       `const e = extrude(10).new()`,
       `repeat('linear', 'x', { count: 3, offset: 40 }, e)`,
       ``,
     ].join('\n');
 
-    sketch('xy', () => { rect(20, 20) });
+    sketch('xy', () => { drawRect(20, 20) });
     const e = (extrude(10) as any).new();
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
     const r = core.repeat('linear', 'x', { count: 3, offset: 40 }, e);
@@ -280,14 +297,14 @@ describe('select→apply-feature end to end', () => {
 
   it('shells the picked top face through synthesized code', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ${rectBodySrc(100, 50)} })`,
       `extrude(30)`,
       ``,
     ].join('\n');
 
-    sketch('xy', () => { rect(100, 50) });
+    sketch('xy', () => { drawRect(100, 50) });
     const e = extrude(30);
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
 
@@ -323,14 +340,14 @@ describe('select→apply-feature end to end', () => {
 
   it('offsets the picked top face outline through synthesized code', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ${rectBodySrc(100, 50)} })`,
       `extrude(30)`,
       ``,
     ].join('\n');
 
-    sketch('xy', () => { rect(100, 50) });
+    sketch('xy', () => { drawRect(100, 50) });
     const e = extrude(30);
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
 
@@ -382,15 +399,15 @@ describe('select→apply-feature end to end', () => {
 
   it('re-picks an offset face against the pre-offset world and re-executes', async () => {
     const code = [
-      `import { sketch, rect, extrude, offset } from 'fluidcad/core'`,
+      `import { sketch, line, extrude, offset } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ${rectBodySrc(100, 50)} })`,
       `const e = extrude(30)`,
       `offset(-5, e.endFaces())`,
       ``,
     ].join('\n');
 
-    sketch('xy', () => { rect(100, 50) });
+    sketch('xy', () => { drawRect(100, 50) });
     const e = extrude(30);
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
     const off = core.offset(-5, (e as any).endFaces());
@@ -453,9 +470,9 @@ describe('select→apply-feature end to end', () => {
 
   it('extrudes a bound face-offset profile through the offset callee guard', async () => {
     const code = [
-      `import { sketch, rect, extrude, offset } from 'fluidcad/core'`,
+      `import { sketch, line, extrude, offset } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ${rectBodySrc(100, 50)} })`,
       `const e = extrude(30)`,
       `offset(-5, e.endFaces())`,
       ``,
@@ -495,7 +512,7 @@ describe('select→apply-feature end to end', () => {
   });
 
   it('refuses an offset over edge picks', () => {
-    sketch('xy', () => { rect(100, 50) });
+    sketch('xy', () => { drawRect(100, 50) });
     const e = extrude(30);
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
 
@@ -514,14 +531,14 @@ describe('select→apply-feature end to end', () => {
 
   it('inserts an empty sketch on the picked face and the model still renders green', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ${rectBodySrc(100, 50)} })`,
       `extrude(30)`,
       ``,
     ].join('\n');
 
-    sketch('xy', () => { rect(100, 50) });
+    sketch('xy', () => { drawRect(100, 50) });
     const e = extrude(30);
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
 
@@ -542,7 +559,7 @@ describe('select→apply-feature end to end', () => {
     if (synthesis.ok !== true) {
       return;
     }
-    expect(synthesis.preview).toBe('sketch(e.endFaces(), () => { ... }, true)');
+    expect(synthesis.preview).toBe('sketch(e.endFaces(), () => { ... })');
     expect(synthesis.spec.value).toBeUndefined();
 
     const edited = await applyFeatureEdit(code, synthesis.spec);
@@ -550,7 +567,7 @@ describe('select→apply-feature end to end', () => {
     expect(edited.newCode).toContain([
       `sketch(e.endFaces(), () => {`,
       ``,
-      `}, true)`,
+      `})`,
     ].join('\n'));
 
     // The empty sketch must not break the model: no compile error (runFluid
@@ -565,7 +582,7 @@ describe('select→apply-feature end to end', () => {
   });
 
   it('refuses a sketch over more than one face', () => {
-    sketch('xy', () => { rect(100, 50) });
+    sketch('xy', () => { drawRect(100, 50) });
     const e = extrude(30);
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
 
@@ -585,7 +602,7 @@ describe('select→apply-feature end to end', () => {
   });
 
   it('refuses a sketch on an edge pick', () => {
-    sketch('xy', () => { rect(100, 50) });
+    sketch('xy', () => { drawRect(100, 50) });
     const e = extrude(30);
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
 
@@ -604,15 +621,15 @@ describe('select→apply-feature end to end', () => {
 
   it('re-picks a shell face against the pre-shell world and re-executes', async () => {
     const code = [
-      `import { sketch, rect, extrude, shell } from 'fluidcad/core'`,
+      `import { sketch, line, extrude, shell } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ${rectBodySrc(100, 50)} })`,
       `const e = extrude(30)`,
       `shell(-2, e.endFaces())`,
       ``,
     ].join('\n');
 
-    sketch('xy', () => { rect(100, 50) });
+    sketch('xy', () => { drawRect(100, 50) });
     const e = extrude(30);
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
     const sh = core.shell(-2, (e as any).endFaces());
@@ -672,14 +689,14 @@ describe('select→apply-feature end to end', () => {
 
   it('chamfers a picked subset through synthesized bucket indices', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(100, 50) })`,
+      `sketch('xy', () => { ${rectBodySrc(100, 50)} })`,
       `extrude(30)`,
       ``,
     ].join('\n');
 
-    sketch('xy', () => { rect(100, 50) });
+    sketch('xy', () => { drawRect(100, 50) });
     const e = extrude(30);
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
 
@@ -725,14 +742,14 @@ describe('select→apply-feature end to end', () => {
 
   it('repeats a picked feature across two directions through the array forms', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(20, 20) })`,
+      `sketch('xy', () => { ${rectBodySrc(20, 20)} })`,
       `extrude(10).new()`,
       ``,
     ].join('\n');
 
-    sketch('xy', () => { rect(20, 20) });
+    sketch('xy', () => { drawRect(20, 20) });
     const e = (extrude(10) as any).new();
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
     render();
@@ -766,14 +783,14 @@ describe('select→apply-feature end to end', () => {
 
   it('repeats a picked feature linearly through the dialog spec', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(20, 20) })`,
+      `sketch('xy', () => { ${rectBodySrc(20, 20)} })`,
       `extrude(10).new()`,
       ``,
     ].join('\n');
 
-    sketch('xy', () => { rect(20, 20) });
+    sketch('xy', () => { drawRect(20, 20) });
     const e = (extrude(10) as any).new();
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
     render();
@@ -802,14 +819,14 @@ describe('select→apply-feature end to end', () => {
 
   it('mirrors a picked feature across its own picked face through plane(<selector>)', async () => {
     const code = [
-      `import { sketch, rect, extrude } from 'fluidcad/core'`,
+      `import { sketch, line, extrude } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(20, 20) })`,
+      `sketch('xy', () => { ${rectBodySrc(20, 20)} })`,
       `extrude(10).new()`,
       ``,
     ].join('\n');
 
-    sketch('xy', () => { rect(20, 20) });
+    sketch('xy', () => { drawRect(20, 20) });
     const e = (extrude(10) as any).new();
     (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 0 });
     const scene = render();
@@ -874,9 +891,9 @@ describe('select→apply-feature end to end', () => {
 
   it('edits an existing repeat statement in place and re-executes', async () => {
     const code = [
-      `import { sketch, rect, extrude, repeat } from 'fluidcad/core'`,
+      `import { sketch, line, extrude, repeat } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(20, 20) })`,
+      `sketch('xy', () => { ${rectBodySrc(20, 20)} })`,
       `const f = extrude(10).new()`,
       `repeat('linear', 'x', { count: 3, offset: 40 }, f)`,
       ``,
@@ -922,9 +939,9 @@ describe('select→apply-feature end to end', () => {
 
   it('edits an existing plane statement in place and re-executes', async () => {
     const code = [
-      `import { sketch, rect, extrude, plane } from 'fluidcad/core'`,
+      `import { sketch, line, extrude, plane } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(20, 20) })`,
+      `sketch('xy', () => { ${rectBodySrc(20, 20)} })`,
       `extrude(10)`,
       `plane('xy', 30)`,
       ``,
@@ -956,9 +973,9 @@ describe('select→apply-feature end to end', () => {
 
   it('lifts a kept face selector into plane() when the edit makes it a mid plane', async () => {
     const code = [
-      `import { sketch, rect, extrude, plane } from 'fluidcad/core'`,
+      `import { sketch, line, extrude, plane } from 'fluidcad/core'`,
       ``,
-      `sketch('xy', () => { rect(20, 20) })`,
+      `sketch('xy', () => { ${rectBodySrc(20, 20)} })`,
       `const e = extrude(10)`,
       `plane(e.endFaces(), 4)`,
       ``,
@@ -1006,11 +1023,11 @@ describe('select→apply-feature end to end', () => {
 
   it('offsets picked sketch edges, capping the open ends through .close()', async () => {
     const code = [
-      `import { sketch, hLine, vLine, offset } from 'fluidcad/core'`,
+      `import { sketch, line, offset } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
-      `  hLine(40)`,
-      `  vLine(20)`,
+      `  line([0, 0], [40, 0])`,
+      `  line([40, 0], [40, 20])`,
       `})`,
       ``,
     ].join('\n');
@@ -1020,8 +1037,8 @@ describe('select→apply-feature end to end', () => {
     let h: SceneObject;
     let v: SceneObject;
     sketch('xy', () => {
-      h = core.hLine(40) as unknown as SceneObject;
-      v = core.vLine(20) as unknown as SceneObject;
+      h = core.line([0, 0], [40, 0]) as unknown as SceneObject;
+      v = core.line([40, 0], [40, 20]) as unknown as SceneObject;
     });
     h!.setSourceLocation({ filePath: '/ws/model.fluid.js', line: 4, column: 2 });
     v!.setSourceLocation({ filePath: '/ws/model.fluid.js', line: 5, column: 2 });

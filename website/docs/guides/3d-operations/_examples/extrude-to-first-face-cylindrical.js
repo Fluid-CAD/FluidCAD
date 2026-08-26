@@ -9,8 +9,8 @@ sketch(plane("xy"), () => {
 extrude(100)
 
 sketch(plane("front"), () => {
-    circle(60)
-})
+    circle([0, 0], 60);
+  })
 
 // highlight-next-line
 extrude('first-face');

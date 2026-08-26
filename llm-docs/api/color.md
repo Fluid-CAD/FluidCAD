@@ -25,9 +25,14 @@ you had written `select(face())` first.
 ## Example
 
 ```fluid.js
-import { color, extrude, rect, sketch } from "fluidcad/core";
+import { color, extrude, line, sketch } from "fluidcad/core";
 
-sketch("xy", () => rect(80, 60).centered());
+sketch("xy", () => {
+  line([-40, -30], [40, -30]);
+  line([40, -30], [40, 30]);
+  line([40, 30], [-40, 30]);
+  line([-40, 30], [-40, -30]);
+});
 const e = extrude(20);
 color("#3498db", e.endFaces());
 ```

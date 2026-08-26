@@ -45,12 +45,12 @@ shapes from a reusable object.
 ### internalFaces()
 
 ```ts
-internalFaces(...args: (number | FaceFilterBuilder)[]): SceneObject
+internalFaces(...args: (number | FaceFilterBuilder)[]): ISelection
 ```
 
 Selects the inner wall faces created by the shell operation (from thickness removal).
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -61,13 +61,13 @@ Selects the inner wall faces created by the shell operation (from thickness remo
 ### internalEdges()
 
 ```ts
-internalEdges(...args: (number | EdgeFilterBuilder)[]): SceneObject
+internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection
 ```
 
 Selects edges created by the shell operation that are not from the original solid
 or on the opening rim.
 
-**Returns**: [`SceneObject`](/docs/api/types/scene-object)
+**Returns**: `ISelection`
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

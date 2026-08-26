@@ -8,10 +8,12 @@ import helix from "../../core/helix.js";
 import plane from "../../core/plane.js";
 import sweep from "../../core/sweep.js";
 import repeat from "../../core/repeat.js";
-import { rect, circle, line, hLine } from "../../core/2d/index.js";
+import { circle, line } from "../../core/2d/index.js";
 import { FaceProps } from "../../oc/face-props.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { Solid } from "../../common/solid.js";
+import { coincident, horizontal } from "../../core/constraints/index.js";
+import { testRect } from "../helpers/profiles.js";
 
 // A threaded through-hole is a helix sweep subtracted from a plain cut hole,
 // leaving many small same-domain faces (thread flanks) around the bore. A
@@ -55,8 +57,8 @@ function cylinderCountByHole(): { atX0: number; atX50: number } {
 
 function threadedPlate() {
   sketch("xy", () => {
-    rect(160).centered();
-  });
+      testRect(160, 160, { at: [-80, -80] });
+    });
   const e = extrude(25);
   sketch(e.endFaces(), () => {
     circle([0, 0], 30);
@@ -67,10 +69,14 @@ function threadedPlate() {
   const h = helix(c.internalFaces()).turns(6).startOffset(-5).endOffset(5);
   const p = plane(h, 0);
   sketch(p, () => {
-    line([-0.01, -3.37], [2.69, 4.11]);
-    hLine(-5.32);
-    line([-0.01, -3.37]);
-  });
+      const sg1 = line([-0.01, -3.37], [2.69, 4.11]);
+      const sg2 = line([2.69, 4.11], [-2.63, 4.11]);
+      const sg3 = line([-2.63, 4.11], [-0.01, -3.37]);
+      coincident(sg1.end(), sg2.start());
+      horizontal(sg2);
+      coincident(sg2.end(), sg3.start());
+      coincident(sg3.end(), sg1.start());
+    });
   return { e, h, p, sweepFeature: sweep(h).remove() };
 }
 

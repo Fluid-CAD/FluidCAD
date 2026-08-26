@@ -12,32 +12,31 @@ type Extend<T> = T extends object ? { regions: T } : {};
 
 interface SketchFunction {
   /**
-   * Draws 2D geometry on a standard plane.
+   * Draws 2D geometry on a standard plane. Geometry statements are
+   * fully-specified guesses; constraint statements drive the solve.
    * @param plane - The plane to sketch on
-   * @param sketcher - Callback containing sketch operations
-   * @param mode - true for a solved (constraint) sketch: geometry statements
-   * are fully-specified guesses and constraint statements drive the solve.
-   * Defaults to the legacy pen sketcher.
+   * @param sketcher - Callback containing sketch statements
    */
-  <T>(plane: PlaneLike, sketcher: () => T, mode?: boolean): ISceneObject & Extend<T>;
+  <T>(plane: PlaneLike, sketcher: () => T): ISceneObject & Extend<T>;
   /**
    * Draws 2D geometry on a face selection.
    * @param face - The face to sketch on
-   * @param sketcher - Callback containing sketch operations
-   * @param mode - true for a solved (constraint) sketch
+   * @param sketcher - Callback containing sketch statements
    */
-  <T>(face: ISceneObject, sketcher: () => T, mode?: boolean): ISceneObject & Extend<T>;
+  <T>(face: ISceneObject, sketcher: () => T): ISceneObject & Extend<T>;
   /**
    * Draws 2D geometry on an existing Plane object.
    * @param plane - The Plane object to sketch on
-   * @param sketcher - Callback containing sketch operations
-   * @param mode - true for a solved (constraint) sketch
+   * @param sketcher - Callback containing sketch statements
    */
-  <T>(plane: IPlane, sketcher: () => T, mode?: boolean): ISceneObject & Extend<T>;
+  <T>(plane: IPlane, sketcher: () => T): ISceneObject & Extend<T>;
 }
 
 function build(context: SceneParserContext): SketchFunction {
-  return function sketch<T>(p: PlaneLike | SceneObject, sketcher: () => T, mode?: boolean): ISceneObject & Extend<T> {
+  // The P7-era third argument (`, true` for solved mode) is gone from the
+  // signature; a stale extra argument is silently ignored at runtime so
+  // pre-P7 files load without edits.
+  return function sketch<T>(p: PlaneLike | SceneObject, sketcher: () => T): ISceneObject & Extend<T> {
     let planeObj: PlaneObjectBase;
 
     // A plane the sketch makes for itself is internal: it carries the
@@ -62,7 +61,7 @@ function build(context: SceneParserContext): SketchFunction {
       throw new Error('Invalid argument for sketch: expected a plane or a scene object');
     }
 
-    const sketch = new Sketch(planeObj, mode === true);
+    const sketch = new Sketch(planeObj);
 
     context.startProgressiveContainer(sketch);
     const extensions = sketcher();

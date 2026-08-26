@@ -1,0 +1,101 @@
+---
+sidebar_position: 2
+title: "Primitives"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import primitiveCircle from '!!raw-loader!./_examples/primitive-circle.js';
+import primitiveLineBasic from '!!raw-loader!./_examples/primitive-line-basic.js';
+import primitiveArc from '!!raw-loader!./_examples/primitive-arc.js';
+import primitiveArcSweep from '!!raw-loader!./_examples/primitive-arc-sweep.js';
+import primitivePoint from '!!raw-loader!./_examples/primitive-point.js';
+
+# Primitives
+
+Primitives are the building blocks of sketches — lines, arcs, circles, and points. Every primitive is **fully specified**: you give it complete coordinates, and those coordinates act as a *guess*. Unconstrained geometry stays exactly where you drew it; constrained geometry is moved by the solver to satisfy the [constraints](./constraints) and [dimensions](./dimensions) you add.
+
+All primitives expose **point accessors** for use in constraint statements:
+
+| Primitive | Accessors |
+|---|---|
+| `line(start, end)` | `.start()`, `.end()`, `.mid()` |
+| `arc(start, end, center)` | `.start()`, `.end()`, `.center()` |
+| `circle(center, diameter)` | `.center()` |
+| `point([x, y])` | the statement itself is the point |
+
+`.mid()` is special: it can only be used with `coincident()` (it lowers to a midpoint constraint).
+
+## line
+
+`line(start, end)` draws a straight segment between two explicit points:
+
+<CodeBlock language="js">{primitiveLineBasic}</CodeBlock>
+
+![Closed quadrilateral built from four lines](/img/docs/sketching/primitive-line-basic.png)
+
+Nothing connects consecutive lines automatically — the `coincident(a.end(), b.start())` statements are what pin the corners together. Without them, dragging one line would tear the loop open.
+
+## circle
+
+`circle(center, diameter)` takes a center point and a **diameter** (not radius):
+
+<CodeBlock language="js">{primitiveCircle}</CodeBlock>
+
+![Circles](/img/docs/sketching/primitive-circle.png)
+
+## arc
+
+`arc(start, end, center)` draws a circular arc through fully-specified start, end, and center guesses:
+
+<CodeBlock language="js">{primitiveArc}</CodeBlock>
+
+![Line with a tangent arc](/img/docs/sketching/primitive-arc.png)
+
+The solver keeps the arc internally consistent — the center stays equidistant from both endpoints — so a rough center guess is fine; pair the arc with `radius()` or `tangent()` constraints to pin it down.
+
+### Sweep direction
+
+The arc sweeps **counter-clockwise** from start to end by default. Chain `.cw()` to take the other side of the chord:
+
+<CodeBlock language="js">{primitiveArcSweep}</CodeBlock>
+
+![CCW and CW sweeps of the same chord](/img/docs/sketching/primitive-arc-sweep.png)
+
+The sweep side is a pure display/topology choice — the solver treats both the same.
+
+## point
+
+`point([x, y])` places a standalone point. Points don't contribute edges to the profile; they exist to be constrained against — as snap targets, pattern centers, or probe locations:
+
+<CodeBlock language="js">{primitivePoint}</CodeBlock>
+
+![Point held at a line's midpoint](/img/docs/sketching/primitive-point.png)
+
+## bezier
+
+Draws bezier curves through explicit control points:
+
+```js
+sketch("xy", () => {
+    bezier([0, 0], [50, 100], [100, 0])   // quadratic bezier (1 control point)
+})
+```
+
+The last point is the endpoint. Points in between are control points:
+- 2 points = straight line
+- 3 points = quadratic bezier (1 control point)
+- 4 points = cubic bezier (2 control points)
+
+:::note
+Bezier curves are not solver entities yet — constraints cannot target them. They render at exactly the coordinates you give.
+:::
+
+## Modifiers
+
+Every primitive supports the standard sketch modifiers:
+
+```js
+line([0, 0], [100, 100]).guide()    // construction geometry — see the Guides page
+circle([0, 0], 40).name('bore')     // name the statement for later reference
+circle([0, 0], 40).reusable()       // keep the shape available after the sketch is consumed
+```

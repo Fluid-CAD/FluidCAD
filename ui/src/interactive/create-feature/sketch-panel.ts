@@ -34,6 +34,12 @@ export class SketchStartPanel {
   /** The auto-constraints toggle — constraint inference (snap coincidents,
    * auto horizontal/vertical) while drawing in solved sketches. */
   onAutoConstraintsToggle?: (enabled: boolean) => void;
+  /** The dimensional-constraints toggle — distance/angle/radius/diameter
+   * annotations (leaders, readouts, angle arcs). */
+  onDimensionsToggle?: (enabled: boolean) => void;
+  /** The positional-constraints toggle — every other constraint's badges
+   * and coincidence dots. */
+  onPositionalToggle?: (enabled: boolean) => void;
 
   private shell: PanelShell;
   private slot: PickSlot;
@@ -75,6 +81,19 @@ export class SketchStartPanel {
             <input data-role="auto-constraints" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
           </label>
         </div>
+        <div class="border-t border-base-content/10 pt-2 flex flex-col gap-2">
+          <span class="text-xs font-semibold uppercase tracking-wide text-base-content/50">Show constraints</span>
+          <label class="flex items-center justify-between cursor-pointer"
+            title="Show dimensional constraints — distance, angle, radius and diameter annotations">
+            <span class="text-base-content/70">Dimensional</span>
+            <input data-role="show-dimensions" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
+          </label>
+          <label class="flex items-center justify-between cursor-pointer"
+            title="Show positional constraints — coincident, tangent, horizontal/vertical and the other relation markers">
+            <span class="text-base-content/70">Positional</span>
+            <input data-role="show-positional" type="checkbox" class="toggle toggle-sm toggle-primary" checked />
+          </label>
+        </div>
       </div>
       <div class="flex items-center pt-1">
         <button data-role="cancel" class="btn btn-ghost btn-sm flex-1"
@@ -108,6 +127,14 @@ export class SketchStartPanel {
     const autoConstraintsInput = this.shell.body.querySelector('[data-role="auto-constraints"]') as HTMLInputElement;
     autoConstraintsInput.addEventListener('change', () => {
       this.onAutoConstraintsToggle?.(autoConstraintsInput.checked);
+    });
+    const showDimensionsInput = this.shell.body.querySelector('[data-role="show-dimensions"]') as HTMLInputElement;
+    showDimensionsInput.addEventListener('change', () => {
+      this.onDimensionsToggle?.(showDimensionsInput.checked);
+    });
+    const showPositionalInput = this.shell.body.querySelector('[data-role="show-positional"]') as HTMLInputElement;
+    showPositionalInput.addEventListener('change', () => {
+      this.onPositionalToggle?.(showPositionalInput.checked);
     });
   }
 

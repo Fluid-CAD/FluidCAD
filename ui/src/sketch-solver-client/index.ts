@@ -16,10 +16,13 @@ export type {
   SolvedSketchModel,
 } from './model';
 export {
-  layoutConstraintGlyphs, distanceSpecEndpoints, distanceSpecExtensions, formatDim, BADGE_LABELS,
+  layoutConstraintGlyphs, distanceLeaderLayout, distanceSpecEndpoints, distanceSpecExtensions,
+  formatDim, BADGE_LABELS,
 } from './glyphs';
-export type { ArrowEnds, ConstraintGlyph, GlyphColorRole } from './glyphs';
+export type { ArrowEnds, ConstraintGlyph, DistanceLeaderLayout, GlyphColorRole } from './glyphs';
 export { diameterChord } from './diameter-chord';
+export { angleLabelPlacement } from './angle-label';
+export type { AngleLabelPlacement } from './angle-label';
 export { computeSketchDofState } from './dof-state';
 export type { SketchDofState, FailedConstraint } from './dof-state';
 export { LiveSolvedSystem } from './live-system';

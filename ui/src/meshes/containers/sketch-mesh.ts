@@ -26,6 +26,7 @@ import {
 import type { LiveEntityGeometry } from '../../sketch-solver-client';
 import { localToWorld } from '../../interactive/sketch-plane-utils';
 import { themeColors } from '../../scene/theme-colors';
+import { viewerSettings } from '../../scene/viewer-settings';
 import { applyConstantPixelSize } from '../screen-scale';
 
 const SKETCH_EDGE_COLOR = '#2297ff';
@@ -77,7 +78,7 @@ export class SketchMesh extends Group {
     this.buildEdges(sceneObject, allObjects);
     this.buildVertices(sceneObject, allObjects);
     this.bindSolvedDots();
-    this.addConstraintIcons(sceneObject, allObjects);
+    this.addConstraintIcons();
   }
 
   get solved(): SolvedSketchModel | null {
@@ -213,6 +214,13 @@ export class SketchMesh extends Group {
     }
   }
 
+  /** Re-derive the constraint annotations from the model and the current
+   * visibility settings — the sketch dialog's dimensional/positional
+   * toggles call this on the live mesh (a full render replaces it anyway). */
+  refreshConstraintGlyphs(): void {
+    this.rebuildSolvedGlyphs();
+  }
+
   private rebuildSolvedGlyphs(): void {
     const model = this.solvedModel;
     if (!model || !this.showConstraints) {
@@ -229,7 +237,14 @@ export class SketchMesh extends Group {
         (mesh.material as { dispose?: () => void } | undefined)?.dispose?.();
       });
     }
-    const glyphs = layoutConstraintGlyphs(model);
+    // The sketch dialog's visibility toggles: dimensional constraints draw
+    // as leaders/readouts/angle arcs, positional ones as badges and dots —
+    // a filtered category also releases its reserved layout space.
+    const { sketchShowDimensions, sketchShowPositional } = viewerSettings.current;
+    const glyphs = layoutConstraintGlyphs(model).filter(glyph => {
+      const dimensional = glyph.type === 'text' || glyph.type === 'leader' || glyph.type === 'angle-arc';
+      return dimensional ? sketchShowDimensions : sketchShowPositional;
+    });
     const { groups, hitTargets, layout } = buildSolvedConstraintMeshes(model, glyphs);
     this.solvedGlyphGroups = groups;
     this.glyphLayout = layout;
@@ -469,7 +484,7 @@ export class SketchMesh extends Group {
     return SKETCH_EDGE_COLOR;
   }
 
-  private addConstraintIcons(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[]): void {
+  private addConstraintIcons(): void {
     if (!this.showConstraints) {
       return;
     }

@@ -294,50 +294,70 @@ describe('dimensionPreviewLayout', () => {
   const distance = { kind: 'distance' as const, axisChoice: true, tangencyChoice: false };
   const end1: SolvedPick = { entityId: 1, kind: 'line', role: 'end', sourceLocation: loc(6) };
 
-  it('point–point: leader between the vertices, input at the midpoint', () => {
+  /** The lifted-leader standoff (12% of the span), in the same float ops
+   * distanceLeaderLayout performs so equality stays exact. */
+  const lift = (span: number): number => span * 0.12;
+
+  it('point–point on a straight edge: leader LIFTED off it, witnesses back to the vertices', () => {
+    // (10,0)→(10,8) lies exactly on lineB — the leader lifts 12% of the
+    // span to the side away from the centroid (leftward here), and dashed
+    // witnesses tie the lifted ends back to the measured vertices.
+    const x = 10 - lift(8);
     expect(dimensionPreviewLayout(model, [endA, end1], distance)).toEqual({
-      line: [[10, 0], [10, 8]],
-      at: [10, 4],
+      line: [[x, 0], [x, 8]],
+      at: [x, 4],
       arrows: 'both',
+      extensions: [[[10, 0], [x, 0]], [[10, 8], [x, 8]]],
     });
   });
 
-  it('a lone line: leader along the line, input at its midpoint', () => {
+  it('a lone line: leader lifted parallel to the line, input at its midpoint', () => {
+    const y = -lift(10);
     expect(dimensionPreviewLayout(model, [lineA], distance)).toEqual({
-      line: [[0, 0], [10, 0]],
-      at: [5, 0],
+      line: [[0, y], [10, y]],
+      at: [5, y],
       arrows: 'both',
+      extensions: [[[0, 0], [0, y]], [[10, 0], [10, y]]],
     });
   });
 
   it('axis forms: leader drawn axis-aligned from the first anchor, dashed witness extension to the floating far point', () => {
     const start0: SolvedPick = { entityId: 0, kind: 'line', role: 'start', sourceLocation: loc(5) };
-    // start0 (0,0), end1 (10,8).
+    const y = -lift(10);
+    // start0 (0,0), end1 (10,8). The x form's leader runs along lineA, so
+    // it lifts too, and the far witness ties the lifted corner to the REAL
+    // second point.
     expect(dimensionPreviewLayout(model, [start0, end1], distance, 'x')).toEqual({
-      line: [[0, 0], [10, 0]],
-      at: [5, 0],
+      line: [[0, y], [10, y]],
+      at: [5, y],
       arrows: 'both',
-      extensions: [[[10, 0], [10, 8]]],
+      extensions: [[[0, 0], [0, y]], [[10, 8], [10, y]]],
     });
+    // The y form's leader (x=0) rides no edge — drawn in place.
     expect(dimensionPreviewLayout(model, [start0, end1], distance, 'y')).toEqual({
       line: [[0, 0], [0, 8]],
       at: [0, 4],
       arrows: 'both',
       extensions: [[[0, 8], [10, 8]]],
     });
-    // A pair already on the axis needs no witness line.
+    // A pair already on the axis needs no corner witness — but it rides
+    // lineA, so it lifts like the aligned form.
     expect(dimensionPreviewLayout(model, [endA, { ...endA, role: 'start' }], distance, 'x')).toEqual({
-      line: [[10, 0], [0, 0]],
-      at: [5, 0],
+      line: [[10, y], [0, y]],
+      at: [5, y],
       arrows: 'both',
+      extensions: [[[10, 0], [10, y]], [[0, 0], [0, y]]],
     });
   });
 
-  it('point–line: leader from the point to its perpendicular foot', () => {
+  it('point–line: leader from the point to its perpendicular foot, lifted off the edge it rides', () => {
+    // end1's drop onto lineA runs straight down lineB — lifted leftward.
+    const x = 10 - lift(8);
     expect(dimensionPreviewLayout(model, [end1, lineA], { kind: 'distance', axisChoice: false, tangencyChoice: false })).toEqual({
-      line: [[10, 8], [10, 0]],
-      at: [10, 4],
+      line: [[x, 8], [x, 0]],
+      at: [x, 4],
       arrows: 'both',
+      extensions: [[[10, 8], [x, 8]], [[10, 0], [x, 0]]],
     });
   });
 

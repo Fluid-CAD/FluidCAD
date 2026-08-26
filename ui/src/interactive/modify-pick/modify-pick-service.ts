@@ -283,6 +283,8 @@ export class ModifyPickService {
     this.sketchPanel.onSnapVerticesToggle = (checked) => hooks.onSnapVerticesChange?.(checked);
     this.sketchPanel.onSnapGridToggle = (checked) => hooks.onSnapGridChange?.(checked);
     this.sketchPanel.onAutoConstraintsToggle = (checked) => hooks.onAutoConstraintsChange?.(checked);
+    this.sketchPanel.onDimensionsToggle = (checked) => this.viewer.setSketchDimensionsVisible(checked);
+    this.sketchPanel.onPositionalToggle = (checked) => this.viewer.setSketchPositionalVisible(checked);
     this.viewer.setSectionViewControl({
       setVisible: (visible) => this.sketchPanel.setSectionViewVisible(visible),
       setActive: (active) => this.sketchPanel.setSectionViewActive(active),

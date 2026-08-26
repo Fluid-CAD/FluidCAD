@@ -487,7 +487,7 @@ describe("feature ghost — loft", () => {
 
   it("follows a rail named by call site", () => {
     circleStack();
-    locatedSketch(7, () => { bezier([40, 0], [65, 30], [40, 60]); }, 'xz', false);
+    locatedSketch(7, () => { bezier([40, 0], [65, 30], [40, 60]); }, 'xz');
     const scene = render();
 
     const plain = bounds(loftGhost(scene, [sketchRef(5), sketchRef(9)]));
@@ -503,7 +503,7 @@ describe("feature ghost — loft", () => {
   /** The rails are consumed by the edited loft too — same read-back. */
   it("still follows a rail the edited statement already consumed", () => {
     const [bottom, top] = circleStack();
-    const bowed = locatedSketch(7, () => { bezier([40, 0], [65, 30], [40, 60]); }, 'xz', false);
+    const bowed = locatedSketch(7, () => { bezier([40, 0], [65, 30], [40, 60]); }, 'xz');
     loft(bottom as never, top as never).guides(bowed as never);
     const scene = render();
 

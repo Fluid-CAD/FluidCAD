@@ -30,6 +30,7 @@ import {
   refPoint,
   segmentCoversRay,
   segmentExtensionTo,
+  segmentRidesEntityLine,
   sketchCentroid,
   sub,
   tangencyPoint,
@@ -313,11 +314,10 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
       }
 
       case 'distance': {
-        const points = distanceSpecEndpoints(model, spec);
-        if (points) {
-          const [from, to] = points;
+        const layout = distanceLeaderLayout(model, spec);
+        if (layout) {
+          const { from, to, extensions } = layout;
           const dir = normalize(sub(to, from));
-          const extensions = distanceSpecExtensions(model, spec);
           glyphs.push({
             ...base, type: 'leader', from, to, arrows: 'both',
             ...(extensions.length > 0 ? { extensions } : {}),
@@ -461,13 +461,70 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
   return glyphs;
 }
 
-/** The two anchor points a distance dimension spans, by resolved form.
- * Shared with the toolbar's dimension preview (P4.5) so the preview line
- * lands exactly where the committed glyph's leader will. */
 /** `p` reflected across `c` — probes the FAR side of a circumference
  * for max-tangency dimensions. */
 function mirrorAcross(c: Vec2, p: Vec2): Vec2 {
   return [2 * c[0] - p[0], 2 * c[1] - p[1]];
+}
+
+/** Standoff for a leader lifted off collinear geometry, as a fraction of
+ * the measured span — world-scale like the leader itself, so the picture
+ * zooms as one drawing. */
+const LIFTED_LEADER_FRACTION = 0.12;
+
+export type DistanceLeaderLayout = {
+  from: Vec2;
+  to: Vec2;
+  /** Dashed witness leaders from real anchors the leader doesn't touch. */
+  extensions: [Vec2, Vec2][];
+  /** The leader was lifted off a straight edge it lay along. */
+  lifted: boolean;
+};
+
+/**
+ * The dimension line a distance constraint draws, shared with the toolbar's
+ * preview (P4.5) so the preview lands exactly where the committed glyph's
+ * leader will.
+ *
+ * A span whose two anchors lie ON a straight edge (the endpoints of a line,
+ * an axis-locked run along one) would draw its leader exactly on top of
+ * that edge — arrows, value and all. Drafting lifts such a dimension line
+ * parallel to the span and ties each end back to its real anchor with a
+ * dashed witness leader; the side faces away from the sketch's centroid,
+ * like the badges' outward normals.
+ */
+export function distanceLeaderLayout(
+  model: SolvedSketchModel,
+  spec: Extract<ConstraintSpec, { kind: 'distance' }>,
+): DistanceLeaderLayout | null {
+  const points = distanceSpecEndpoints(model, spec);
+  if (!points) {
+    return null;
+  }
+  const [from, to] = points;
+  const extensions = distanceSpecExtensions(model, spec);
+  const span = dist(from, to);
+  if (span < 1e-9 || !segmentRidesEntityLine(model, from, to)) {
+    return { from, to, extensions, lifted: false };
+  }
+  const n = perp(normalize(sub(to, from)));
+  const centroid = sketchCentroid(model);
+  const m = mid(from, to);
+  const side = centroid
+    && n[0] * (m[0] - centroid[0]) + n[1] * (m[1] - centroid[1]) < 0 ? -1 : 1;
+  const d = span * LIFTED_LEADER_FRACTION * side;
+  const liftedFrom: Vec2 = [from[0] + n[0] * d, from[1] + n[1] * d];
+  const liftedTo: Vec2 = [to[0] + n[0] * d, to[1] + n[1] * d];
+  // The witnesses tie each lifted end to the REAL anchor it measures — for
+  // an axis-locked span the far end is a synthetic corner whose anchor is
+  // the actual second point (distanceSpecExtensions' convention).
+  const realTo = extensions.length > 0 ? extensions[0][1] : to;
+  return {
+    from: liftedFrom,
+    to: liftedTo,
+    extensions: [[from, liftedFrom], [realTo, liftedTo]],
+    lifted: true,
+  };
 }
 
 /**

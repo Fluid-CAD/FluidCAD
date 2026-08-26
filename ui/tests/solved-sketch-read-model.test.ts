@@ -233,7 +233,7 @@ describe('constraint glyph layout', () => {
     expect(badge.at).toEqual([100, 0]);
   });
 
-  it('lays a distance dimension as leader plus midpoint label', () => {
+  it('lays a distance dimension as a leader LIFTED off the edge it measures, label at its midpoint', () => {
     const objects = [
       line(0, [0, 0], [100, 0]),
       constraint('distance', 0, { kind: 'distance', a: { entity: 0, point: 'start' }, b: { entity: 0, point: 'end' }, value: 100 }, 100),
@@ -241,10 +241,29 @@ describe('constraint glyph layout', () => {
     const { glyphs } = glyphsOf(objects);
     const leader = glyphs.find(g => g.type === 'leader') as any;
     const text = glyphs.find(g => g.type === 'text') as any;
-    expect(leader.from).toEqual([0, 0]);
-    expect(leader.to).toEqual([100, 0]);
+    // The span runs endpoint-to-endpoint of the line itself, so drawing it
+    // in place would bury it under the edge: it lifts 12% of the span,
+    // with dashed witnesses tying the lifted ends back to the vertices.
+    const y = 100 * 0.12;
+    expect(leader.from).toEqual([0, y]);
+    expect(leader.to).toEqual([100, y]);
+    expect(leader.extensions).toEqual([[[0, 0], [0, y]], [[100, 0], [100, y]]]);
     expect(text.label).toBe('100');
-    expect(text.at).toEqual([50, 0]);
+    expect(text.at).toEqual([50, y]);
+  });
+
+  it('draws a distance between free-standing points in place', () => {
+    const objects = [
+      line(0, [0, 0], [100, 0]),
+      // A span between vertices of DIFFERENT lines, off any edge.
+      line(1, [20, 30], [80, 60]),
+      constraint('distance', 0, { kind: 'distance', a: { entity: 0, point: 'end' }, b: { entity: 1, point: 'start' }, value: 0 }, 0),
+    ];
+    const { glyphs } = glyphsOf(objects);
+    const leader = glyphs.find(g => g.type === 'leader') as any;
+    expect(leader.from).toEqual([100, 0]);
+    expect(leader.to).toEqual([20, 30]);
+    expect(leader.extensions).toBeUndefined();
   });
 
   it('lays a radius dimension as a center→rim leader, R label riding the line', () => {
@@ -449,7 +468,9 @@ describe('constraint glyph layout', () => {
     expect(text.style).toBe('span');
     expect(text.slideRange).toBeCloseTo(50, 9);
     expect(Math.abs(text.alongDir[0])).toBeCloseTo(1, 9);
-    expect(text.leader).toEqual([[0, 0], [100, 0]]);
+    // The label rides the LIFTED leader (the span lies on the line itself).
+    const y = 100 * 0.12;
+    expect(text.leader).toEqual([[0, y], [100, y]]);
   });
 
   it('carries diagnostic colors onto glyphs', () => {
@@ -534,8 +555,11 @@ describe('axis-locked distance leaders', () => {
     ];
     const { glyphs } = glyphsOf(objects);
     const leaders = glyphs.filter(g => g.type === 'leader') as any[];
-    expect(leaders[0].from).toEqual([30, 25]);
-    expect(leaders[0].to).toEqual([80, 25]);
+    // The x span runs along the (horizontal) line itself, so it lifts.
+    const y = 25 + 50 * 0.12;
+    expect(leaders[0].from).toEqual([30, y]);
+    expect(leaders[0].to).toEqual([80, y]);
+    // The degenerate y span has no length to ride anything — in place.
     expect(leaders[1].from).toEqual([30, 25]);
     expect(leaders[1].to).toEqual([30, 25]);
   });

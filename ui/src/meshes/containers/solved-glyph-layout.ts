@@ -75,6 +75,12 @@ const CURVE_SAMPLES = 24;
 /** How far a label may slide down its own dimension line before it stops
  * reading as that dimension's value. */
 const MAX_SLIDE_PX = 90;
+/** Half reach of the cross registered in the geometry index for each solved
+ * vertex/center dot: the drawn dot's 6 px radius plus a little clearance.
+ * Dots are drag handles (and coincidence rings sit on them), so a badge
+ * parked on one hides an affordance — the cross makes that spot score as
+ * clutter like any curve. */
+const VERTEX_CROSS_PX = 8;
 
 /** A decluttered sprite: the layout owns its transform outright. */
 export type LayoutSprite = {
@@ -199,7 +205,10 @@ export class SolvedGlyphLayout {
   readonly pillGroup = new Group();
 
   private pills: { group: Group; mesh: Mesh; material: MeshBasicMaterial }[] = [];
+  private rowLinks: Line[] = [];
   private geometryLocal: Vec2[][] = [];
+  /** Solved vertex/center dots — registered as point clutter per solve. */
+  private dotsLocal: Vec2[] = [];
   private cacheKey = '';
   private pillColor: Color;
 
@@ -218,6 +227,11 @@ export class SolvedGlyphLayout {
       const points = tessellateSolvedEntity(entity, entity.kind === 'line' ? 1 : CURVE_SAMPLES);
       if (points && points.length > 1) {
         this.geometryLocal.push(points as Vec2[]);
+      }
+      for (const dot of [entity.point, entity.start, entity.end, entity.center]) {
+        if (dot) {
+          this.dotsLocal.push(dot);
+        }
       }
     }
   }
@@ -250,6 +264,11 @@ export class SolvedGlyphLayout {
       pill.material.dispose();
     }
     this.pills = [];
+    for (const line of this.rowLinks) {
+      line.geometry.dispose();
+      (line.material as LineBasicMaterial).dispose();
+    }
+    this.rowLinks = [];
     this.pillGroup.clear();
   }
 
@@ -289,6 +308,17 @@ export class SolvedGlyphLayout {
     const geometry = new GeometryIndex();
     for (const polyline of this.geometryLocal) {
       geometry.addPolyline(polyline.map(p => project(localToWorld(p, this.plane))));
+    }
+    // Vertex/center dots are drawn (and draggable) too: a small cross per
+    // dot makes a candidate box over one score as sitting on geometry.
+    for (const dot of this.dotsLocal) {
+      const at = project(localToWorld(dot, this.plane));
+      geometry.addSegment(
+        { x: at.x - VERTEX_CROSS_PX, y: at.y }, { x: at.x + VERTEX_CROSS_PX, y: at.y },
+      );
+      geometry.addSegment(
+        { x: at.x, y: at.y - VERTEX_CROSS_PX }, { x: at.x, y: at.y + VERTEX_CROSS_PX },
+      );
     }
     // Dimension lines count as drawn geometry — a badge parked on one reads
     // as part of the dimension — but each is OWNED by its own label, which
@@ -369,6 +399,39 @@ export class SolvedGlyphLayout {
       this.updateLink(sprite, projection);
     });
     this.syncPills(result.pills, projection);
+    this.syncRowLinks(result.links, projection);
+  }
+
+  /**
+   * Stubs from displaced badge rows back to their anchors (the badge
+   * counterpart of updateLink). Endpoints are carried back to the plane and
+   * written in world coordinates, so they stay glued across pans like the
+   * pills do; a zoom step re-solves and rewrites them.
+   */
+  private syncRowLinks(links: { from: Pt; to: Pt }[], projection: PlaneProjection): void {
+    const originPx = projection.originPx;
+    const toWorld = (p: Pt): Vector3 => localToWorld(
+      screenOffsetToLocal(projection, p.x - originPx.x, p.y - originPx.y), this.plane,
+    );
+    for (let i = 0; i < links.length; i++) {
+      let line = this.rowLinks[i];
+      if (!line) {
+        line = createLinkLine(this.pillColor);
+        this.rowLinks[i] = line;
+        this.pillGroup.add(line);
+      }
+      const from = toWorld(links[i].from);
+      const to = toWorld(links[i].to);
+      const position = line.geometry.getAttribute('position');
+      position.setXYZ(0, from.x, from.y, from.z);
+      position.setXYZ(1, to.x, to.y, to.z);
+      position.needsUpdate = true;
+      line.geometry.computeBoundingSphere();
+      line.visible = true;
+    }
+    for (let i = links.length; i < this.rowLinks.length; i++) {
+      this.rowLinks[i].visible = false;
+    }
   }
 
   /**

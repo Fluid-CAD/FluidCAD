@@ -3,6 +3,7 @@ import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { DialogViewOffset } from './scene/dialog-view-offset';
 import { SceneModeManager } from './scene/scene-mode';
 import { buildSceneMesh } from './meshes/mesh-factory';
+import type { SketchMesh } from './meshes/containers/sketch-mesh';
 import { PlaneData, SceneObjectPart, SceneObjectRender, SerializedAssembly, SerializedAssemblyMate, SubSelection } from './types';
 import { AssemblyController, DragValueHandler, InstanceDragReleaseHandler, SolverUpdateHandler } from './scene/assembly-controller';
 import { SettingsPanel } from './ui/settings-panel';
@@ -377,6 +378,37 @@ export class Viewer {
         this.modeManager.enforceSketchNormal(active.object.plane);
       }
     }
+  }
+
+  /**
+   * The sketch dialog's constraint-visibility toggles. Dimensional =
+   * distance/angle/radius/diameter annotations; positional = every other
+   * constraint's badges and dots. Session-wide (like the camera lock), and
+   * applied to the live sketch meshes in place — no server round-trip.
+   */
+  setSketchDimensionsVisible(enabled: boolean): void {
+    viewerSettings.update({ sketchShowDimensions: enabled });
+    this.refreshSketchConstraintGlyphs();
+  }
+
+  setSketchPositionalVisible(enabled: boolean): void {
+    viewerSettings.update({ sketchShowPositional: enabled });
+    this.refreshSketchConstraintGlyphs();
+  }
+
+  private refreshSketchConstraintGlyphs(): void {
+    // Collect before refreshing: the rebuild swaps the mesh's own children,
+    // which must not happen under scene.traverse's child iteration.
+    const meshes: SketchMesh[] = [];
+    this.ctx.scene.traverse(node => {
+      if (node.userData.isSketchRoot) {
+        meshes.push(node as SketchMesh);
+      }
+    });
+    for (const mesh of meshes) {
+      mesh.refreshConstraintGlyphs();
+    }
+    this.ctx.requestRender();
   }
 
   setParamsToggleHandler(fn: () => void): void {

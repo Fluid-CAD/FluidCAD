@@ -49,6 +49,11 @@ export type DeclutterOptions = {
   /** Row budget for badges with no host edge to measure (a fixed point, a
    * datum): they get a flat allowance instead. */
   defaultSpanPx: number;
+  /** A badge row whose nearest edge ends up further than this from its
+   * anchor grows a link stub back to it — past the first rung the pairing
+   * stops being obvious (the badge counterpart of the dimension labels'
+   * LABEL_LINK_THRESHOLD_PX). */
+  linkThresholdPx: number;
 };
 
 export const DEFAULT_DECLUTTER_OPTIONS: DeclutterOptions = {
@@ -61,6 +66,7 @@ export const DEFAULT_DECLUTTER_OPTIONS: DeclutterOptions = {
   padPx: 2,
   rungs: 3,
   defaultSpanPx: 70,
+  linkThresholdPx: 24,
 };
 
 export type BoxSize = { hw: number; hh: number };
@@ -134,6 +140,10 @@ export type DeclutterResult = {
   /** Parallel to `input.dimensions` — always visible (see the header). */
   dimensions: Placement[];
   pills: OverflowPill[];
+  /** Stubs from a displaced badge row's nearest edge back to its anchor —
+   * the drafting answer to "whose badges are those?" once a row has been
+   * pushed past `linkThresholdPx` (screen px, like everything here). */
+  links: { from: Pt; to: Pt }[];
 };
 
 /** Cost of a candidate sitting on top of the sketch's own curves. Soft: it
@@ -420,6 +430,8 @@ function applyRow(
   occ: Occupancy,
   placements: Placement[],
   pills: OverflowPill[],
+  links: { from: Pt; to: Pt }[],
+  opts: DeclutterOptions,
 ): void {
   occ.release(cluster.id);
   const rects = row.plan.rects;
@@ -440,6 +452,36 @@ function applyRow(
     occ.add(pill, cluster.id);
     pills.push({ at: { x: pill.cx, y: pill.cy }, hw: pill.hw, hh: pill.hh, count: row.hidden });
   }
+  const link = rowLink(cluster.anchor, rects, opts.linkThresholdPx);
+  if (link) {
+    links.push(link);
+  }
+}
+
+/**
+ * Stub from a displaced row back to its anchor, or null while the row still
+ * sits close enough to read as the anchor's. Measured (and drawn) to the
+ * nearest point on the nearest box's boundary, so the stub stops AT the row
+ * instead of running underneath the badges.
+ */
+function rowLink(
+  anchor: Pt,
+  rects: Rect[],
+  thresholdPx: number,
+): { from: Pt; to: Pt } | null {
+  let best: { to: Pt; d2: number } | null = null;
+  for (const rect of rects) {
+    const x = Math.min(Math.max(anchor.x, rect.cx - rect.hw), rect.cx + rect.hw);
+    const y = Math.min(Math.max(anchor.y, rect.cy - rect.hh), rect.cy + rect.hh);
+    const d2 = (x - anchor.x) ** 2 + (y - anchor.y) ** 2;
+    if (!best || d2 < best.d2) {
+      best = { to: { x, y }, d2 };
+    }
+  }
+  if (!best || best.d2 <= thresholdPx * thresholdPx) {
+    return null;
+  }
+  return { from: anchor, to: best.to };
 }
 
 // ---------------------------------------------------------------------------
@@ -455,6 +497,7 @@ export function declutterAnnotations(input: DeclutterInput): DeclutterResult {
 
   const badges = input.badges.map(() => hiddenPlacement());
   const pills: OverflowPill[] = [];
+  const links: { from: Pt; to: Pt }[] = [];
   const clusters = buildClusters(input.badges, opts);
 
   // Pass A — reserve one head slot per cluster before anybody expands, so a
@@ -484,8 +527,10 @@ export function declutterAnnotations(input: DeclutterInput): DeclutterResult {
       occ,
       badges,
       pills,
+      links,
+      opts,
     );
   }
 
-  return { badges, dimensions, pills };
+  return { badges, dimensions, pills, links };
 }

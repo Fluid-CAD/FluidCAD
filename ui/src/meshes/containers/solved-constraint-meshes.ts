@@ -32,6 +32,7 @@ import {
 } from 'three';
 import type { PlaneData, SourceLocation, Vec3Data } from '../../types';
 import type { ConstraintGlyph, GlyphColorRole, SolvedSketchModel } from '../../sketch-solver-client';
+import { angleLabelPlacement } from '../../sketch-solver-client';
 import type { Placement } from '../../sketch-solver-client/declutter';
 import { localToWorld } from '../../interactive/sketch-plane-utils';
 import { applyConstantPixelSize, pixelScale, pixelsToWorld } from '../screen-scale';
@@ -58,7 +59,9 @@ const DOT_PLANE_RADIUS = 2;
 const DOT_PX_RADIUS = 8;
 const LEADER_OPACITY = 0.45;
 const ANGLE_ARC_RADIUS = 5;
-const ANGLE_ARC_PX_RADIUS = 26;
+/** Base pixel radius of the angle dimension arc — exported so the value
+ * input's placement can share the committed glyph's geometry. */
+export const ANGLE_ARC_PX_RADIUS = 26;
 const ANGLE_TEXT_PX_SIZE = ANGLE_LABEL_PX_SIZE;
 const ANGLE_ARC_SEGMENTS = 32;
 
@@ -222,7 +225,10 @@ export type AngleArcVisual = {
   group: Group;
   /** World position of the arc center (the lines' intersection). */
   position: Vector3;
-  midAngle: number;
+  /** Direction (sketch-local radians) from the center to the readout —
+   * the bisector for a comfortable angle, pushed off it for a thin one
+   * (see angleLabelPlacement). */
+  labelAngle: number;
   /** Pixel radius of the label anchor from the arc center. */
   textPxRadius: number;
   textAspect: number;
@@ -247,6 +253,10 @@ export function buildAngleArc(
   color: Color,
   opacity = 0.9,
   tails: number[] = [],
+  /** Arc radius override for LABEL-LESS previews whose caller placed its
+   * own readout (the value input) with angleLabelPlacement — so the arc
+   * still trails out to it. Ignored when `label` is set. */
+  arcPx?: number,
 ): AngleArcVisual {
   const position = localToWorld(at, plane);
   const group = new Group();
@@ -254,10 +264,42 @@ export function buildAngleArc(
   group.userData.isConstraintIcon = true;
   orientToPlane(group, position, plane, normal);
 
+  // Where the readout sits decides where the arc is drawn: the label rides
+  // one text-height past its arc (drafting reads the value AT the arc), so
+  // when a thin wedge pushes the label out along the bisector — until its
+  // box clears both rays, or outside the wedge entirely when no radius ever
+  // would — the arc follows it out instead of staying a sliver at the
+  // vertex, swamped by the vertex dots.
+  const textSize = ANGLE_ARC_RADIUS * (ANGLE_TEXT_PX_SIZE / ANGLE_ARC_PX_RADIUS);
+  let labelAngle = startAngle + sweep / 2;
+  let textPxRadius = ANGLE_ARC_PX_RADIUS + ANGLE_TEXT_PX_SIZE;
+  let arcPxRadius = arcPx ?? ANGLE_ARC_PX_RADIUS;
+  let textAspect = 1;
+  let ownedTexture: IconTexture['texture'] | null = null;
+  const cached = opacity >= 0.9;
+  const texture = label !== null
+    ? (cached ? getTextTexture(label, '#ffffff') : createTextTexture(label, '#ffffff'))
+    : null;
+  if (texture) {
+    textAspect = texture.aspect;
+    if (!cached) {
+      ownedTexture = texture.texture;
+    }
+    const placed = angleLabelPlacement(
+      startAngle, sweep,
+      (ANGLE_TEXT_PX_SIZE * texture.aspect) / 2, ANGLE_TEXT_PX_SIZE / 2,
+      textPxRadius, ANGLE_ARC_PX_RADIUS,
+    );
+    labelAngle = placed.angle;
+    textPxRadius = placed.radiusPx;
+    arcPxRadius = placed.arcRadiusPx;
+  }
+  const arcRadius = ANGLE_ARC_RADIUS * (arcPxRadius / ANGLE_ARC_PX_RADIUS);
+
   const arcPoints: number[] = [];
   for (let i = 0; i <= ANGLE_ARC_SEGMENTS; i++) {
     const a = startAngle + sweep * (i / ANGLE_ARC_SEGMENTS);
-    arcPoints.push(Math.cos(a) * ANGLE_ARC_RADIUS, Math.sin(a) * ANGLE_ARC_RADIUS, 0);
+    arcPoints.push(Math.cos(a) * arcRadius, Math.sin(a) * arcRadius, 0);
   }
   const arcGeometry = new BufferGeometry();
   arcGeometry.setAttribute('position', new Float32BufferAttribute(arcPoints, 3));
@@ -273,7 +315,7 @@ export function buildAngleArc(
   // on the opposite ray, the pair reads as one straight dashed line through
   // the intersection that TOUCHES the arc's end. Group-local units, so the
   // dashes stay screen-constant like the arc.
-  const tailRadius = ANGLE_ARC_RADIUS * 1.25;
+  const tailRadius = arcRadius * 1.25;
   for (const angle of tails) {
     const geometry = new BufferGeometry();
     geometry.setAttribute('position', new Float32BufferAttribute([
@@ -293,19 +335,8 @@ export function buildAngleArc(
   }
 
   const materials: (MeshBasicMaterial | LineBasicMaterial)[] = [arcMaterial];
-  const midAngle = startAngle + sweep / 2;
-  const textSize = ANGLE_ARC_RADIUS * (ANGLE_TEXT_PX_SIZE / ANGLE_ARC_PX_RADIUS);
-  const textRadius = ANGLE_ARC_RADIUS + textSize;
-  let textAspect = 1;
-  let ownedTexture: IconTexture['texture'] | null = null;
   let sizeAnchor: Mesh | Line = arc;
-  if (label !== null) {
-    const cached = opacity >= 0.9;
-    const texture = cached ? getTextTexture(label, '#ffffff') : createTextTexture(label, '#ffffff');
-    textAspect = texture.aspect;
-    if (!cached) {
-      ownedTexture = texture.texture;
-    }
+  if (texture) {
     const textMaterial = new MeshBasicMaterial({
       map: texture.texture, transparent: true, opacity, depthTest: false, side: DoubleSide, color,
     });
@@ -314,7 +345,8 @@ export function buildAngleArc(
       textMaterial,
     );
     textMesh.renderOrder = ICON_RENDER_ORDER;
-    textMesh.position.set(Math.cos(midAngle) * textRadius, Math.sin(midAngle) * textRadius, 0);
+    const textRadius = ANGLE_ARC_RADIUS * (textPxRadius / ANGLE_ARC_PX_RADIUS);
+    textMesh.position.set(Math.cos(labelAngle) * textRadius, Math.sin(labelAngle) * textRadius, 0);
     group.add(textMesh);
     materials.push(textMaterial);
     sizeAnchor = textMesh;
@@ -325,8 +357,8 @@ export function buildAngleArc(
   return {
     group,
     position,
-    midAngle,
-    textPxRadius: (textRadius / ANGLE_ARC_RADIUS) * ANGLE_ARC_PX_RADIUS,
+    labelAngle,
+    textPxRadius,
     textAspect,
     materials,
     ownedTexture,
@@ -551,7 +583,7 @@ export function buildSolvedConstraintMeshes(
         const placement: Placement = { visible: true, dx: 0, dy: 0 };
         fixedAnnotations.push({
           anchorWorld: visual.position,
-          dirLocal: [Math.cos(visual.midAngle), Math.sin(visual.midAngle)],
+          dirLocal: [Math.cos(visual.labelAngle), Math.sin(visual.labelAngle)],
           radiusPx: visual.textPxRadius,
           halfWidthPx: (ANGLE_TEXT_PX_SIZE * visual.textAspect) / 2,
           halfHeightPx: ANGLE_TEXT_PX_SIZE / 2,

@@ -333,3 +333,45 @@ export function lineIntersection(a: SolvedEntityView, b: SolvedEntityView): Vec2
   const t = (dx * db[1] - dy * db[0]) / cross;
   return add(a.start, scale(da, t));
 }
+
+/**
+ * Does the segment a→b lie ALONG some line entity of the sketch — collinear
+ * with it and overlapping it for a real length? This is what makes a
+ * distance leader between two points of a straight edge invisible: it draws
+ * exactly on top of the edge. Tolerances are relative, so the test is
+ * zoom- and scale-free.
+ */
+export function segmentRidesEntityLine(
+  model: SolvedSketchModel,
+  a: Vec2,
+  b: Vec2,
+): boolean {
+  const span = dist(a, b);
+  if (span < 1e-12) {
+    return false;
+  }
+  for (const e of model.entities.values()) {
+    if (e.kind !== 'line' || !e.start || !e.end) {
+      continue;
+    }
+    const len = dist(e.start, e.end);
+    if (len < 1e-12) {
+      continue;
+    }
+    const ed: Vec2 = [(e.end[0] - e.start[0]) / len, (e.end[1] - e.start[1]) / len];
+    const tol = Math.max(span, len) * 1e-3;
+    const off = (p: Vec2): number =>
+      Math.abs((p[0] - e.start![0]) * ed[1] - (p[1] - e.start![1]) * ed[0]);
+    if (off(a) > tol || off(b) > tol) {
+      continue;
+    }
+    const t = (p: Vec2): number =>
+      (p[0] - e.start![0]) * ed[0] + (p[1] - e.start![1]) * ed[1];
+    const t0 = Math.min(t(a), t(b));
+    const t1 = Math.max(t(a), t(b));
+    if (Math.min(t1, len) - Math.max(t0, 0) > 0.05 * span) {
+      return true;
+    }
+  }
+  return false;
+}

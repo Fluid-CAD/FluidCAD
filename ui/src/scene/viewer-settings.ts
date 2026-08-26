@@ -5,6 +5,11 @@ export interface ViewerSettings {
   showGrid: boolean;
   sectionView: boolean;
   sketchLockCamera: boolean;
+  /** Sketch dimensional-constraint annotations (distance, angle, radius,
+   * diameter): leaders, value readouts, angle arcs. */
+  sketchShowDimensions: boolean;
+  /** Sketch positional-constraint annotations: badges and coincidence dots. */
+  sketchShowPositional: boolean;
 }
 
 type Listener = (settings: ViewerSettings) => void;
@@ -14,6 +19,8 @@ const defaults: ViewerSettings = {
   showGrid: true,
   sectionView: true,
   sketchLockCamera: true,
+  sketchShowDimensions: true,
+  sketchShowPositional: true,
 };
 
 class ViewerSettingsStore {

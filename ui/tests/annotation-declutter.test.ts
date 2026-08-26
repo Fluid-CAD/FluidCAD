@@ -302,3 +302,43 @@ describe('dimension labels', () => {
     expect(anyOverlap(drawn)).toBe(false);
   });
 });
+
+describe('badge row links', () => {
+  it('draws no stub for a row resting at its first rung', () => {
+    const result = run([badge({ x: 100, y: 100 }, 0)]);
+    expect(result.links).toHaveLength(0);
+  });
+
+  it('stubs a displaced row back to its anchor, stopping at the row edge', () => {
+    // Obstacles blocking the first two rungs on BOTH sides push the row to
+    // rung 2, 62 px out — past the point where the pairing is obvious.
+    const obstacles = [22, 42].flatMap(d => [
+      { cx: 100, cy: 100 + d, hw: 60, hh: 8 },
+      { cx: 100, cy: 100 - d, hw: 60, hh: 8 },
+    ]);
+    const result = declutterAnnotations({
+      badges: [badge({ x: 100, y: 100 }, 0)],
+      dimensions: [],
+      obstacles,
+      geometry: new GeometryIndex(),
+      pillSize: count => ({ hw: 8 + 3 * String(count).length, hh: 8 }),
+    });
+    expect(result.badges[0].visible).toBe(true);
+    expect(result.links).toHaveLength(1);
+    const link = result.links[0];
+    expect(link.from).toEqual({ x: 100, y: 100 });
+    // The stub ends on the row's boundary, not under the badge's center.
+    const rowEdge = Math.abs(result.badges[0].dy) - 8;
+    expect(Math.abs(link.to.y - 100)).toBeCloseTo(rowEdge, 9);
+    expect(rowEdge).toBeGreaterThan(DEFAULT_DECLUTTER_OPTIONS.linkThresholdPx);
+  });
+});
+
+describe('vertex dot clutter', () => {
+  it('treats a degenerate segment as point clutter a badge steers around', () => {
+    const geometry = new GeometryIndex();
+    geometry.addSegment({ x: 50, y: 50 }, { x: 50, y: 50 });
+    expect(geometry.crosses({ cx: 50, cy: 52, hw: 8, hh: 8 })).toBe(true);
+    expect(geometry.crosses({ cx: 80, cy: 50, hw: 8, hh: 8 })).toBe(false);
+  });
+});

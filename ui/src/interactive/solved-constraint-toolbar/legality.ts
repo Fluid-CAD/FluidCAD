@@ -6,7 +6,7 @@
 import type { ConstraintSpec, SolverRef } from '../../../../lib/sketch-solver/types.js';
 import type { SolvedPick } from '../sketch-hover-select-handler';
 import type { ArrowEnds, SolvedSketchModel } from '../../sketch-solver-client';
-import { diameterChord, distanceSpecEndpoints, distanceSpecExtensions } from '../../sketch-solver-client';
+import { diameterChord, distanceLeaderLayout } from '../../sketch-solver-client';
 import {
   Vec2,
   entityAnchor,
@@ -530,7 +530,7 @@ export type DimensionPreviewLayout = {
 };
 
 /** Where the dimension a pick set would create will sit: the same anchors
- * the committed glyph's leader uses (distanceSpecEndpoints — the preview
+ * the committed glyph's leader uses (distanceLeaderLayout — the preview
  * lands exactly where the real dimension will render), with the value
  * input anchored at the label position. Angles preview the given sector
  * (default: between the start→end directions). */
@@ -604,15 +604,14 @@ export function dimensionPreviewLayout(
   if (tangency === 'max' && form.tangencyChoice) {
     spec.tangency = 'max';
   }
-  const endpoints = distanceSpecEndpoints(model, spec);
-  if (!endpoints) {
+  const layout = distanceLeaderLayout(model, spec);
+  if (!layout) {
     return null;
   }
-  const extensions = distanceSpecExtensions(model, spec);
   return {
-    line: endpoints,
-    at: mid(endpoints[0], endpoints[1]),
+    line: [layout.from, layout.to],
+    at: mid(layout.from, layout.to),
     arrows: 'both',
-    ...(extensions.length > 0 ? { extensions } : {}),
+    ...(layout.extensions.length > 0 ? { extensions: layout.extensions } : {}),
   };
 }

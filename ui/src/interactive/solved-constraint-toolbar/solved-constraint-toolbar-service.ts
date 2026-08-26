@@ -16,6 +16,7 @@ import { ExpressionInput, VariableInfo } from '../../ui/expression-input';
 import { themeColors } from '../../scene/theme-colors';
 import { localToWorld, projectToSketch, sketchToClient } from '../sketch-plane-utils';
 import {
+  ANGLE_ARC_PX_RADIUS,
   buildAngleArc,
   buildAngleExtensions,
   buildDimensionReadout,
@@ -23,6 +24,8 @@ import {
 import { buildDimensionArrows } from '../../meshes/containers/dimension-arrows';
 import type { SketchHoverSelectHandler, SolvedPick } from '../sketch-hover-select-handler';
 import type { ArrowEnds } from '../../sketch-solver-client';
+import { angleLabelPlacement } from '../../sketch-solver-client';
+import type { AngleLabelPlacement } from '../../sketch-solver-client';
 import {
   LiveSolvedSystem,
   SolvedSketchModel,
@@ -67,12 +70,28 @@ const PLACEMENT_OPACITY = 0.65;
 /** Pixel offset from the arc center to the value input — the committed
  * glyph's label radius ((ANGLE_ARC_RADIUS + textSize) in arc px). */
 const ANGLE_INPUT_OFFSET_PX = 46;
+/** The value input's half extents, standing in for the label box when the
+ * adaptive angle placement positions it (see angleLabelPlacement). */
+const ANGLE_INPUT_HALF_WIDTH_PX = 60;
+const ANGLE_INPUT_HALF_HEIGHT_PX = 16;
 /** Below this pointer travel a mousedown+up pair reads as a click (the
  * drag handlers' shared threshold) — placement commits, orbits pass. */
 const CLICK_THRESHOLD_PX = 4;
 
 function picksKey(picks: SolvedPick[]): string {
   return picks.map(p => `${p.entityId}:${p.role ?? 'entity'}`).join('|');
+}
+
+/** The value input's spot on an angle preview — the committed readout's
+ * adaptive placement with the input's box standing in for the label's, so
+ * a thin wedge pushes the input out (or beside the arc) instead of parking
+ * it on both rays at once. */
+function angleInputPlacement(arc: { startAngle: number; sweep: number }): AngleLabelPlacement {
+  return angleLabelPlacement(
+    arc.startAngle, arc.sweep,
+    ANGLE_INPUT_HALF_WIDTH_PX, ANGLE_INPUT_HALF_HEIGHT_PX,
+    ANGLE_INPUT_OFFSET_PX, ANGLE_ARC_PX_RADIUS,
+  );
 }
 
 export class SolvedConstraintToolbarService {
@@ -821,18 +840,20 @@ export class SolvedConstraintToolbarService {
     }
     let { clientX, clientY } = sketchToClient(this.ctx, model.plane, layout.at);
     if (layout.arc) {
-      // Sit at the arc's label spot: offset from the intersection along the
-      // sector bisector, in screen pixels (the arc radius is screen-constant).
-      const midAngle = layout.arc.startAngle + layout.arc.sweep / 2;
+      // Sit at the arc's label spot — the same adaptive placement the
+      // committed readout uses, so a thin wedge pushes the input out (or
+      // beside the arc) instead of parking it on both rays at once. The
+      // input's box stands in for the label's.
+      const placed = angleInputPlacement(layout.arc);
       const probe = sketchToClient(this.ctx, model.plane, [
-        layout.at[0] + Math.cos(midAngle),
-        layout.at[1] + Math.sin(midAngle),
+        layout.at[0] + Math.cos(placed.angle),
+        layout.at[1] + Math.sin(placed.angle),
       ]);
       const dx = probe.clientX - clientX;
       const dy = probe.clientY - clientY;
       const len = Math.hypot(dx, dy) || 1;
-      clientX += (dx / len) * ANGLE_INPUT_OFFSET_PX;
-      clientY += (dy / len) * ANGLE_INPUT_OFFSET_PX;
+      clientX += (dx / len) * placed.radiusPx;
+      clientY += (dy / len) * placed.radiusPx;
     }
     return {
       clientX: Math.min(Math.max(clientX, rect.left + 8), rect.right - 180),
@@ -850,7 +871,8 @@ export class SolvedConstraintToolbarService {
       return;
     }
     if (layout.arc) {
-      // Label-less sector arc — the open value input IS the readout.
+      // Label-less sector arc — the open value input IS the readout, so the
+      // arc trails out to wherever the adaptive placement parks the input.
       const visual = buildAngleArc(
         layout.at,
         layout.arc.startAngle,
@@ -861,6 +883,7 @@ export class SolvedConstraintToolbarService {
         themeColors.constraintColor,
         PREVIEW_LEADER_OPACITY,
         layout.arc.tails,
+        angleInputPlacement(layout.arc).arcRadiusPx,
       );
       const wrapper = new Group();
       wrapper.userData.isMetaShape = true;

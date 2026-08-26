@@ -20,3 +20,4 @@ llm-docs/api/index.json
 .gstack/
 shell/release/
 shell/engine/
+.verify-tmp/

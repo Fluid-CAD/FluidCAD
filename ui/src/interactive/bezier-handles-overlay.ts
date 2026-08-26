@@ -58,11 +58,13 @@ export class BezierHandlesOverlay {
       const start = (obj as any).object?.startPoint as [number, number] | undefined;
       const poles = (obj as any).object?.resolvedPoints as [number, number][] | undefined;
 
-      // A committed curve whose edge was consumed downstream (offset with
-      // removeOriginal, fillet) must not leave ghost handles behind. An
-      // in-progress placeholder (< 2 points, no edge yet) still shows its dot.
+      // A committed curve whose edge was consumed downstream (fillet, trim)
+      // must not leave ghost handles behind. Consumed edges are dropped from
+      // the payload outright, so any non-meta shape — a `.guide()` edge
+      // included, which still renders and stays draggable — counts as live.
+      // An in-progress placeholder (< 2 points, no edge yet) still shows its dot.
       const hasCurve = !!start && !!poles && poles.length > 0;
-      const hasLiveEdge = obj.sceneShapes?.some(s => !s.isMetaShape && !s.isGuide);
+      const hasLiveEdge = obj.sceneShapes?.some(s => !s.isMetaShape);
       if (hasCurve && !hasLiveEdge) {
         continue;
       }

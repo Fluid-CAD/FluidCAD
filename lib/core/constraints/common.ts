@@ -201,18 +201,11 @@ export function requireValue(value: unknown, what: string): number {
 
 /** Builder for the plain two-target constraints (no value argument). */
 export function twoTargetCommand(
-  kind: 'parallel' | 'perpendicular' | 'tangent' | 'equal' | 'concentric' | 'collinear',
+  kind: 'parallel' | 'perpendicular' | 'tangent' | 'concentric' | 'collinear',
 ): (a: ConstraintTarget, b: ConstraintTarget) => ISceneObject {
   return registerBuilder((context: SceneParserContext) =>
     function (a: ConstraintTarget, b: ConstraintTarget): ISceneObject {
       return emitConstraint(context, kind, undefined, () => {
-        if (kind === 'equal') {
-          for (const t of [a, b]) {
-            if (t instanceof SketchDatum && t.isAxis) {
-              throw new Error(`equal: ${t.commandName} is an infinite axis — it has no length to equate`);
-            }
-          }
-        }
         return { kind, a: toRef(a, kind), b: toRef(b, kind) } as ConstraintSpec;
       }, [a, b]);
     });

@@ -329,14 +329,15 @@ function extractConstraintInfo(
     // Prefer the declared annotation text (e.g. `ConstraintTarget`,
     // `NumberParam`) over the resolved structural type.
     const paramType = simplifyType(param.getTypeNode()?.getText() ?? param.getType().getText(param));
+    const isRest = param.isRestParameter();
     const isOptional = param.isOptional();
     const desc = jsDocParams.get(paramName) || '';
 
     params.push({
-      name: paramName,
+      name: isRest ? `...${paramName}` : paramName,
       type: paramType,
       description: desc,
-      optional: isOptional,
+      optional: isRest ? false : isOptional,
     });
   }
 

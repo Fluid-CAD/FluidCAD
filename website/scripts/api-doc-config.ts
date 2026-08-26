@@ -230,7 +230,8 @@ export const constraints: ConstraintEntry[] = [
   {
     name: 'equal', sourceFile: 'core/constraints/equal.ts', group: 'geometric',
     fallback: {
-      description: 'Constrains two entities to be equal (1 dim): equal line lengths or equal circle/arc radii.',
+      description: 'Constrains two or more entities to be equal (1 dim per pair): equal line lengths '
+        + 'or equal circle/arc radii. Every entity after the first is equated to the first.',
       params: constraintTargetPair,
       returnType: 'ISceneObject',
     },

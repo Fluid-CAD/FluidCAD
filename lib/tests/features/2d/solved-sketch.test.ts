@@ -5,7 +5,7 @@ import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import { line, circle, arc, point } from "../../../core/2d/index.js";
 import {
-  coincident, horizontal, vertical, fix, distance, tangent, radius, diameter,
+  coincident, horizontal, vertical, fix, distance, tangent, radius, diameter, equal,
 } from "../../../core/constraints/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { ExtrudeBase } from "../../../features/extrude-base.js";
@@ -189,6 +189,50 @@ describe("solved sketch (constraint mode)", () => {
     const pointPayload = renderedByUniqueType(scene, 'solved-point')[0].object;
     expect(pointPayload.x).toBeCloseTo(10, 6);
     expect(pointPayload.y).toBeCloseTo(10, 6);
+  });
+
+  it("equates three line lengths with one variadic equal()", () => {
+    sketch('xy', () => {
+      const a = line([0, 0], [30, 0]);
+      const b = line([0, 10], [18, 10]);
+      const c = line([0, 20], [44, 20]);
+      horizontal(a);
+      horizontal(b);
+      horizontal(c);
+      fix(a.start(), [0, 0]);
+      fix(b.start(), [0, 10]);
+      fix(c.start(), [0, 20]);
+      distance(a.start(), a.end(), 30);
+      equal(a, b, c);
+    });
+    const scene = render();
+
+    const lines = solvedLinePayloads(scene);
+    expect(lines).toHaveLength(3);
+    for (const l of lines) {
+      expect(Math.hypot(l.end.x - l.start.x, l.end.y - l.start.y)).toBeCloseTo(30, 6);
+    }
+  });
+
+  it("equates circle/arc radii with one variadic equal()", () => {
+    sketch('xy', () => {
+      const c1 = circle([0, 0], 20);
+      const c2 = circle([50, 0], 33);
+      const a = arc([100, 8], [84, -8], [92, 0]);
+      diameter(c1, 20);
+      equal(c1, c2, a);
+    });
+    const scene = render();
+
+    for (const r of renderedByUniqueType(scene, 'solved-circle')) {
+      expect(r.object.diameter).toBeCloseTo(20, 6);
+    }
+    const arcPayload = renderedByUniqueType(scene, 'solved-arc')[0].object;
+    const arcRadius = Math.hypot(
+      arcPayload.start.x - arcPayload.center.x,
+      arcPayload.start.y - arcPayload.center.y,
+    );
+    expect(arcRadius).toBeCloseTo(10, 6);
   });
 
   it("lowers coincident(p, l.mid()) to the midpoint constraint", () => {

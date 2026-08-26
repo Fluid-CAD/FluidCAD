@@ -267,7 +267,8 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
       case 'perpendicular':
       case 'equal':
       case 'collinear': {
-        for (const ref of [spec.a, spec.b]) {
+        const others = spec.kind === 'equal' ? spec.others ?? [] : [];
+        for (const ref of [spec.a, spec.b, ...others]) {
           const e = entityFor(model, ref);
           if (e) {
             badge(spec.kind, entityAnchor(e), e);

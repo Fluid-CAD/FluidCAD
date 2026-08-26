@@ -129,15 +129,18 @@ Constrains a line–circle/arc or circle–circle pair to be tangent (1 dim). Th
 ### equal()
 
 ```ts
-equal(a: ConstraintTarget, b: ConstraintTarget): SceneObject
+equal(a: ConstraintTarget, b: ConstraintTarget, ...rest: ConstraintTarget[]): SceneObject
 ```
 
-Constrains two entities to be equal (1 dim): equal line lengths or equal circle/arc radii.
+Constrains two or more entities to be equal (1 dim per pair): equal line
+lengths or equal circle/arc radii. Every entity after the first is
+equated to the first.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `a` | [ConstraintTarget](#constraint-targets) | The first entity |
+| `a` | [ConstraintTarget](#constraint-targets) | The reference entity |
 | `b` | [ConstraintTarget](#constraint-targets) | The second entity |
+| `...rest` | ConstraintTarget[] | Further entities to equate to the first |
 
 ---
 

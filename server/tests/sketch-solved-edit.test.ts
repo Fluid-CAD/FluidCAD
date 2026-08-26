@@ -80,6 +80,56 @@ describe('applySolvedEmission', () => {
     expect(fixIdx).toBeLessThan(offsetIdx);
   });
 
+  it('emits a variadic equal over more than three targets (other kinds stay capped at three)', async () => {
+    const code = [
+      `import { sketch, line } from "fluidcad/core";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const a = line([0, 0], [100, 0]);`,
+      `  const b = line([0, 10], [80, 10]);`,
+      `  const c = line([0, 20], [60, 20]);`,
+      `  const d = line([0, 30], [40, 30]);`,
+      `});`,
+    ].join('\n');
+    const result = await applySolvedEmission(code, {
+      sketchLine: 3,
+      geometry: [],
+      constraints: [{
+        kind: 'equal',
+        targets: [
+          { line: 4, featureType: 'line' },
+          { line: 5, featureType: 'line' },
+          { line: 6, featureType: 'line' },
+          { line: 7, featureType: 'line' },
+        ],
+      }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('equal(a, b, c, d);');
+
+    const single = await applySolvedEmission(code, {
+      sketchLine: 3,
+      geometry: [],
+      constraints: [{ kind: 'equal', targets: [{ line: 4, featureType: 'line' }] }],
+    });
+    expect(single.error).toContain('equal takes two or more targets');
+
+    const capped = await applySolvedEmission(code, {
+      sketchLine: 3,
+      geometry: [],
+      constraints: [{
+        kind: 'parallel',
+        targets: [
+          { line: 4, featureType: 'line' },
+          { line: 5, featureType: 'line' },
+          { line: 6, featureType: 'line' },
+          { line: 7, featureType: 'line' },
+        ],
+      }],
+    });
+    expect(capped.error).toContain('one to three targets');
+  });
+
   it('emits a full rect (4 lines + 8 constraints) into an empty body, geometry above constraints', async () => {
     const result = await applySolvedEmission(EMPTY_SKETCH, {
       sketchLine: 3,

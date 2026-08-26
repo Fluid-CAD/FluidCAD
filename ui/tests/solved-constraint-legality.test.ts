@@ -62,6 +62,23 @@ describe('constraintOptions', () => {
     );
   });
 
+  it('three or more homogeneous entities: variadic equal', () => {
+    const lineE: SolvedPick = { entityId: 5, kind: 'line', sourceLocation: loc(10) };
+    const circleF: SolvedPick = { entityId: 6, kind: 'circle', sourceLocation: loc(11) };
+    expect(enabledIds([lineA, lineB, lineE])).toEqual(['equal']);
+    expect(enabledIds([circleC, arcD, circleF])).toEqual(['equal']);
+    // Mixed families and duplicate picks disable it.
+    expect(enabledIds([lineA, lineB, circleC])).toEqual([]);
+    expect(enabledIds([lineA, lineB, { ...lineA }])).toEqual([]);
+    // Everything after the first pick equates to it.
+    expect(candidateSpec('equal', [lineA, lineB, lineE])).toEqual({
+      kind: 'equal', a: { entity: 0 }, b: { entity: 1 }, others: [{ entity: 5 }],
+    });
+    expect(candidateSpec('equal', [lineA, lineB])).toEqual({
+      kind: 'equal', a: { entity: 0 }, b: { entity: 1 },
+    });
+  });
+
   it('one vertex: fix; a point entity counts as a point', () => {
     expect(enabledIds([endA])).toEqual(['fix']);
     expect(enabledIds([pointP])).toEqual(['dimension', 'fix'].sort().filter(id => id !== 'dimension'));

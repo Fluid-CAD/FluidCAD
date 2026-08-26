@@ -164,7 +164,7 @@ const NEED = {
   parallel: 'pick two lines',
   perpendicular: 'pick two lines',
   tangent: 'pick a line and a circle/arc, or two circles/arcs',
-  equal: 'pick two lines or two circles/arcs',
+  equal: 'pick two or more lines, or two or more circles/arcs',
   concentric: 'pick two circles/arcs',
   collinear: 'pick two lines',
   midpoint: 'pick a point and a line',
@@ -209,10 +209,13 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
       return picks.length === 2 && a.entityId !== b.entityId
         && ((isLine(a) && isRound(b)) || (isRound(a) && isLine(b)) || (isRound(a) && isRound(b)));
     case 'equal':
-      // A datum axis is infinite — it has no length to equate.
-      return picks.length === 2 && a.entityId !== b.entityId
-        && !isAxisPick(a) && !isAxisPick(b)
-        && ((isLine(a) && isLine(b)) || (isRound(a) && isRound(b)));
+      // Any number of entities equate to the first — all lines or all
+      // circles/arcs, all distinct. A datum axis is infinite — it has no
+      // length to equate.
+      return picks.length >= 2
+        && new Set(picks.map(p => p.entityId)).size === picks.length
+        && picks.every(p => !isAxisPick(p))
+        && (picks.every(isLine) || picks.every(isRound));
     case 'concentric':
       return picks.length === 2 && isRound(a) && isRound(b) && a.entityId !== b.entityId;
     case 'midpoint': {
@@ -458,10 +461,15 @@ export function candidateSpec(
     case 'parallel':
     case 'perpendicular':
     case 'tangent':
-    case 'equal':
     case 'concentric':
     case 'collinear':
       return { kind: id, a: pickRef(a), b: pickRef(b) };
+    case 'equal':
+      // Everything after the first pick equates to it.
+      return {
+        kind: 'equal', a: pickRef(a), b: pickRef(b),
+        ...(picks.length > 2 ? { others: picks.slice(2).map(pickRef) } : {}),
+      };
     case 'midpoint': {
       const point = isPointPick(a) ? a : b;
       const line = point === a ? b : a;

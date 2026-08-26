@@ -245,7 +245,13 @@ export async function applySolvedEmission(
     if (!SOLVED_CONSTRAINT_KINDS.has(c.kind)) {
       return refuse(code, `unknown constraint kind '${c.kind}'`);
     }
-    if (c.targets.length < 1 || c.targets.length > 3) {
+    // equal is variadic (everything equates to the first target); the
+    // other constraint forms are positional with at most three slots.
+    if (c.kind === 'equal') {
+      if (c.targets.length < 2) {
+        return refuse(code, 'equal takes two or more targets');
+      }
+    } else if (c.targets.length < 1 || c.targets.length > 3) {
       return refuse(code, 'a constraint takes one to three targets');
     }
     if (c.valueExpr !== undefined && !isExpressionText(c.valueExpr)) {

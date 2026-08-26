@@ -103,8 +103,10 @@ export type ConstraintSpec =
   | { kind: 'distance'; a: SolverRef; b: SolverRef; value: number; axis?: 'x' | 'y'; tangency?: 'min' | 'max' }
   | { kind: 'radius'; a: SolverRef; value: number }
   | { kind: 'diameter'; a: SolverRef; value: number }
-  /** Equal line lengths or equal radii (1). */
-  | { kind: 'equal'; a: SolverRef; b: SolverRef }
+  /** Equal line lengths or equal radii (1 per pair). `others` extends the
+   * equality to further entities of the same family — each is equated to
+   * `a`, one residual row apiece. */
+  | { kind: 'equal'; a: SolverRef; b: SolverRef; others?: SolverRef[] }
   /** Circle/arc centers coincide (2). */
   | { kind: 'concentric'; a: SolverRef; b: SolverRef }
   /** Both endpoints of line b on the infinite line of a (2). */

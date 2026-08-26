@@ -224,8 +224,11 @@ function entityView(obj: SceneObjectRender, kind: SolvedEntityKind): SolvedEntit
 export function specEntityIds(spec: ConstraintSpec): number[] {
   const ids: number[] = [];
   for (const value of Object.values(spec)) {
-    if (value && typeof value === 'object' && typeof (value as any).entity === 'number') {
-      ids.push((value as any).entity);
+    // A ref array (equal's `others`) contributes each element.
+    for (const ref of Array.isArray(value) ? value : [value]) {
+      if (ref && typeof ref === 'object' && typeof (ref as any).entity === 'number') {
+        ids.push((ref as any).entity);
+      }
     }
   }
   if (spec.kind === 'arc-consistency') {

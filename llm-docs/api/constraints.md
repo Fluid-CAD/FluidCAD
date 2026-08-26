@@ -48,7 +48,8 @@ vertical(l)           // line vertical — or vertical(p1, p2): equal x
 parallel(a, b)        // two lines
 perpendicular(a, b)   // two lines
 tangent(a, b)         // line/arc/circle tangent to another
-equal(a, b)           // equal length (lines) or equal radius (arcs/circles)
+equal(a, b, ...more)  // equal length (lines) or equal radius (arcs/circles);
+                      // takes two or more entities, all equated to the first
 concentric(a, b)      // arcs/circles share a center
 collinear(a, b)       // line along another line — or along xAxis()/yAxis()
 midpoint(p, l)        // point at the line's midpoint

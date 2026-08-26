@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SketchSystem,
+  X_AXIS_ENTITY,
   diagnose,
   end,
   entityRef,
@@ -114,5 +115,42 @@ describe("degenerate-collapse guard", () => {
     expect(result.outcome).toBe("solved");
     expect(result.collapsed).toBeUndefined();
     expect(diagnose(consistent).conflicting).toEqual([]);
+  });
+
+  it("a radius driven through zero re-solves pinned positive (Marwan's tangent + far-branch angle)", () => {
+    // tangent(l1, c) plus an angle target ~180° from the line's current
+    // direction (the corrupted emission that dropped the axis's 'start'
+    // orientation): LM flips the line and satisfies the tangent's
+    // distance row at a NEGATIVE radius — |r| looks healthy, so the
+    // absolute-value collapse check missed it, and the render threw
+    // "Cannot create a circle with radius −22…". The signed check routes
+    // it through the same restore-and-pin rail as a collapse.
+    const sys = new SketchSystem();
+    sys.ensureDatums();
+    const c = sys.circle(75.06, 70.57, 78.57);
+    const l1 = sys.line(15.13, 64.3, 93.05, 10.32);
+    sys.constrain({ kind: "tangent", a: entityRef(l1), b: entityRef(c) });
+    sys.constrain({
+      kind: "angle",
+      a: start(l1),
+      b: entityRef(X_AXIS_ENTITY),
+      value: (34.71 * Math.PI) / 180,
+    });
+    const result = solve(sys);
+    expect(result.outcome).toBe("solved");
+    expect(result.collapsed).toEqual([c]);
+    const o = sys.entity(c).paramOffset;
+    expect(sys.values[o + 2]).toBeCloseTo(78.57, 6);
+  });
+
+  it("a radius legitimately dimensioned small does not trip the signed check", () => {
+    const sys = new SketchSystem();
+    const c = sys.circle(50, 50, 40);
+    sys.constrain({ kind: "radius", a: entityRef(c), value: 0.5 });
+    const result = solve(sys);
+    expect(result.outcome).toBe("solved");
+    expect(result.collapsed).toBeUndefined();
+    const o = sys.entity(c).paramOffset;
+    expect(sys.values[o + 2]).toBeCloseTo(0.5, 6);
   });
 });

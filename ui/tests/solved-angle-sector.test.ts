@@ -19,6 +19,7 @@ function makeModel(entities: [number, SolvedEntityView][]): SolvedSketchModel {
     sketch: {} as any,
     plane: {} as any,
     solver: null,
+    hasDatums: true,
     entities: new Map(entities),
     constraints: [],
     conflictingEntityIds: new Set(),
@@ -176,6 +177,62 @@ describe('angleSectorSpec / angleSectorTargets', () => {
       b: { entity: 1, point: 'start' },
       value: (106.26 * Math.PI) / 180,
     });
+    expect(angleSectorTargets(pickA, pickB, s)).toEqual([
+      { ...pickA, role: 'start' },
+      { ...pickB, role: 'start' },
+    ]);
+  });
+});
+
+describe('datum-safe role normalization', () => {
+  // Marwan's bug: line falling at −34.71° dimensioned against the x axis.
+  // Clicking the sector between the line's BODY and the −x ray needs both
+  // directions reversed — but a datum axis has no orientation accessor, so
+  // the axis's 'start' role used to be silently dropped at emission,
+  // persisting the SUPPLEMENTARY sector's constraint (180° off). The solver
+  // then flipped the line and drove an attached tangent circle's radius
+  // negative. Negating BOTH directions names the same constraint, so the
+  // pair flips to (end, end) — bare refs, no accessor needed.
+  const X_AXIS = -2;
+  const axisPickB: SolvedPick = { entityId: X_AXIS, kind: 'line', datum: 'x-axis' };
+  const slanted = makeModel([
+    [0, entityView(0, { kind: 'line', start: [15.13, 64.3], end: [93.05, 10.32] })],
+    [X_AXIS, entityView(X_AXIS, { kind: 'line', start: [0, 0], end: [1, 0] })],
+  ]);
+
+  it('a both-start sector against a datum axis emits the bare vertical-opposite pair', () => {
+    const s = angleSectorFor(slanted, pickA, axisPickB, 'start', 'start')!;
+    expect(s.swap).toBe(false);
+    expect(s.valueDeg).toBeCloseTo(34.71, 2);
+    expect(angleSectorTargets(pickA, axisPickB, s)).toEqual([
+      { ...pickA },
+      { ...axisPickB },
+    ]);
+    expect(angleSectorSpec(pickA, axisPickB, s, s.valueDeg)).toEqual({
+      kind: 'angle',
+      a: { entity: 0 },
+      b: { entity: X_AXIS },
+      value: (s.valueDeg * Math.PI) / 180,
+    });
+  });
+
+  it('a datum-start/line-end sector flips to datum-end/line-start', () => {
+    // Supplementary sector: axis reversed, line forward — the flip moves
+    // the accessor onto the line, where `.start()` exists.
+    const s = angleSectorFor(slanted, pickA, axisPickB, 'end', 'start')!;
+    expect(s.valueDeg).toBeCloseTo(145.29, 2);
+    const targets = angleSectorTargets(pickA, axisPickB, s);
+    expect(targets.some(t => t.datum !== undefined && t.role === 'start')).toBe(false);
+    // The same sector re-derived from the flipped roles measures the same.
+    const roles = targets.map(t => (t.role === 'start' ? 'start' : 'end'));
+    const reFlipped = s.swap
+      ? angleSectorFor(slanted, pickA, axisPickB, roles[1] as any, roles[0] as any)!
+      : angleSectorFor(slanted, pickA, axisPickB, roles[0] as any, roles[1] as any)!;
+    expect(reFlipped.valueDeg).toBeCloseTo(s.valueDeg, 2);
+  });
+
+  it('a start role on a non-datum line still emits as before', () => {
+    const s = angleSectorAt(crossing, pickA, pickB, [0, -5])!;
     expect(angleSectorTargets(pickA, pickB, s)).toEqual([
       { ...pickA, role: 'start' },
       { ...pickB, role: 'start' },

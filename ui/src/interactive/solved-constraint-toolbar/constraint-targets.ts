@@ -15,8 +15,15 @@ import type { SolvedPick } from '../sketch-hover-select-handler';
 export function constraintTargetFor(p: SolvedPick): SketchConstraintTargetParam {
   if (p.datum !== undefined) {
     // Datum picks (origin/axes) have no source statement — the server
-    // renders the accessor call (origin()/xAxis()/yAxis()) instead.
-    return { datum: p.datum };
+    // renders the accessor call (origin()/xAxis()/yAxis()) instead. A role
+    // rides along so an unrepresentable orientation is refused loudly by
+    // the server ('a datum target takes no point role') instead of being
+    // silently dropped into a different constraint — the angle sector rail
+    // normalizes its roles off datums before reaching here.
+    return {
+      datum: p.datum,
+      ...(p.role !== undefined && p.role !== null ? { role: p.role } : {}),
+    };
   }
   if (p.copyInstance !== undefined) {
     // Copy-duplicate picks address their copy() statement plus the

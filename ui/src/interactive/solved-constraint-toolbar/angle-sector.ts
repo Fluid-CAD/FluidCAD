@@ -150,6 +150,31 @@ function orientedRef(pick: SolvedPick, role: AngleRole): SolverRef {
   return role === 'start' ? { entity: pick.entityId, point: 'start' } : { entity: pick.entityId };
 }
 
+/**
+ * The sector's roles in their datum-safe representation. A datum axis has
+ * no orientation accessor (`xAxis()` cannot say `.start()`), and negating
+ * BOTH directions names the same constraint — the vertical-opposite sector
+ * sweeps the identical CCW angle — so a 'start' that would land on a datum
+ * flips the pair instead. Dropping just the datum's role (the pre-fix
+ * behavior) names the SUPPLEMENTARY sector: a constraint 180° off the
+ * clicked one that the solver satisfies by flipping the line — and, with a
+ * tangent circle attached, driving its radius negative.
+ */
+function datumSafeRoles(
+  pickA: SolvedPick,
+  pickB: SolvedPick,
+  sector: AngleSector,
+): { aRole: AngleRole; bRole: AngleRole } {
+  const violations = (a: AngleRole, b: AngleRole): number =>
+    Number(pickA.datum !== undefined && a === 'start')
+    + Number(pickB.datum !== undefined && b === 'start');
+  const flip = (r: AngleRole): AngleRole => (r === 'start' ? 'end' : 'start');
+  const flipped = { aRole: flip(sector.aRole), bRole: flip(sector.bRole) };
+  return violations(flipped.aRole, flipped.bRole) < violations(sector.aRole, sector.bRole)
+    ? flipped
+    : { aRole: sector.aRole, bRole: sector.bRole };
+}
+
 /** Solver spec for the sector's constraint at `valueDeg` (the ghost/preview
  * solve) — refs oriented per role, in the sector's emission order. */
 export function angleSectorSpec(
@@ -158,8 +183,9 @@ export function angleSectorSpec(
   sector: AngleSector,
   valueDeg: number,
 ): ConstraintSpec {
-  const refA = orientedRef(pickA, sector.aRole);
-  const refB = orientedRef(pickB, sector.bRole);
+  const { aRole, bRole } = datumSafeRoles(pickA, pickB, sector);
+  const refA = orientedRef(pickA, aRole);
+  const refB = orientedRef(pickB, bRole);
   const [from, to] = sector.swap ? [refB, refA] : [refA, refB];
   return { kind: 'angle', a: from, b: to, value: (valueDeg * Math.PI) / 180 };
 }
@@ -172,7 +198,8 @@ export function angleSectorTargets(
   pickB: SolvedPick,
   sector: AngleSector,
 ): SolvedPick[] {
-  const ta: SolvedPick = sector.aRole === 'start' ? { ...pickA, role: 'start' } : { ...pickA };
-  const tb: SolvedPick = sector.bRole === 'start' ? { ...pickB, role: 'start' } : { ...pickB };
+  const { aRole, bRole } = datumSafeRoles(pickA, pickB, sector);
+  const ta: SolvedPick = aRole === 'start' ? { ...pickA, role: 'start' } : { ...pickA };
+  const tb: SolvedPick = bRole === 'start' ? { ...pickB, role: 'start' } : { ...pickB };
   return sector.swap ? [tb, ta] : [ta, tb];
 }

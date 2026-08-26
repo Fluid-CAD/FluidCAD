@@ -141,7 +141,13 @@ function collapsedEntities(sys: SketchSystem, pinned: SizePin[]): SizePin[] {
       }
     } else {
       const guessR = Math.abs(guesses[o + 2]);
-      const r = Math.abs(values[o + 2]);
+      // Signed on purpose: a radius that crossed through zero to the
+      // negative side (a tangent's distance row is satisfiable at −r on
+      // the flipped side, and |−r| can look healthy) is as bogus as one
+      // that collapsed — no renderable circle/arc has r ≤ 0. Both take
+      // the restore-and-pin path so the re-solve lands positive or the
+      // conflict materializes as residual.
+      const r = values[o + 2];
       if (guessR >= HEALTHY_GUESS_SIZE && r < COLLAPSED_SIZE) {
         out.push({ entity: e.id, kind: 'radius', ir: o + 2, target: guessR });
       }

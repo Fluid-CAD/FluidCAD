@@ -176,8 +176,9 @@ export class TimelinePanel {
     onResetAllTransparency: () => void,
   ) {
     this.panel = document.createElement('div');
-    // Docked below the host chrome (--fluidcad-chrome-top) with breathing room.
-    this.panel.className = 'absolute left-[calc(var(--fluidcad-editor-width,0px)+1.5rem)] top-[calc(var(--fluidcad-chrome-top,104px)+12px)] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
+    // Docked in the scene's left gutter (--fluidcad-scene-left already clears
+    // the rail and the editor pane) and below the host chrome.
+    this.panel.className = 'absolute left-[calc(var(--fluidcad-scene-left,0px)+1.5rem)] top-[calc(var(--fluidcad-chrome-top,104px)+12px)] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
     this.applyPanelWidth();
 

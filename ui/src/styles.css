@@ -149,11 +149,20 @@ html.fluidcad-editor-animating {
   transition: --fluidcad-editor-width 180ms ease;
 }
 
+:root {
+  /* How far the scene's left edge is pushed in: the panel rail, then the
+     editor pane it docks against. Every overlay that has to line up with the
+     scene — the docked panel column, the centred toasts and pills — reads
+     this one value rather than adding the pieces up itself, and a host that
+     mounts neither (the embedded viewer) resolves it to 0px. */
+  --fluidcad-scene-left: calc(var(--fluidcad-rail-width, 0px) + var(--fluidcad-editor-width, 0px));
+}
+
 #fluidcad-scene {
   position: absolute;
   /* Height of the host's top chrome (top bar + navbar). Viewing hosts with
      no toolbar set --fluidcad-chrome-top: 0px for a full-bleed scene. */
-  inset: var(--fluidcad-chrome-top, 104px) 0 0 var(--fluidcad-editor-width, 0px);
+  inset: var(--fluidcad-chrome-top, 104px) 0 0 var(--fluidcad-scene-left, 0px);
 }
 
 #fluidcad-scene canvas {

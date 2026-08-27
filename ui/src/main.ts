@@ -15,6 +15,7 @@ import { ErrorBanner } from './ui/error-banner';
 import { LoadingOverlay } from './ui/loading-overlay';
 import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
+import { PanelRail } from './ui/panel-rail';
 import { Navbar } from './ui/navbar';
 import { AssemblyToolbar } from './ui/assembly-toolbar';
 import { InsertPartDialog } from './ui/insert-part/insert-part-dialog';
@@ -118,7 +119,12 @@ function startEditorSurface(): void {
       onEditRefused: (message) => showToast(message),
       initialOpen: editorPaneOpenOnArrival || editorPreferences.open,
       initialWidth: editorPreferences.width,
-      onOpenChange: (open) => savePreference('editorOpen', open),
+      onOpenChange: (open) => {
+        savePreference('editorOpen', open);
+        // Ctrl+B, the desktop menu and the restored preference all land here,
+        // so the rail's latch follows the pane however it was opened.
+        panelRail.sync();
+      },
       onWidthChange: (width) => savePreference('editorWidth', width),
     });
     if (editorSceneFile) {
@@ -514,11 +520,25 @@ function matesWithStatus(
 const initialRail = buildPartRail();
 currentRail = initialRail;
 
-// Top application bar (logo, feature-tree toggle, file name) and the secondary
-// tool bar below it (host for conditionally-visible tool groups).
+// Top application bar (logo, workspace, file tabs) and the secondary tool bar
+// below it (host for conditionally-visible tool groups).
 const topBar = new TopBar(container, {
-  // One hamburger entry covers whichever rail the scene kind mounted: the
-  // part-design timeline or the assembly parts/joints column.
+  // A viewport-only host gets no tab affordances: the handler set is absent,
+  // which is what removes them.
+  tabs: editorSurfaceEnabled ? {
+    // Switching tabs re-targets the scene; it never opens the pane. The editor
+    // shows only when toggled on explicitly (menu / Ctrl+B) — Invariant 7.
+    onActivate: (absPath) => void editorSurface?.activateTab(absPath),
+    onClose: (absPath) => editorSurface?.closeTab(absPath),
+    onAdd: (anchor) => editorSurface?.showQuickOpen(anchor),
+  } : undefined,
+});
+
+// The panel rail on the window's left edge: one latch button per surface it
+// opens. Its tree button covers whichever rail the scene kind mounted — the
+// part-design timeline or the assembly parts/joints column — and the editor
+// button is absent on a viewport-only host.
+const panelRail = new PanelRail(container, {
   onToggleTree: () => {
     if (currentRail?.kind === 'part') {
       timelinePanel.togglePanel();
@@ -529,18 +549,11 @@ const topBar = new TopBar(container, {
   isTreeVisible: () => currentRail?.kind === 'assembly'
     ? currentRail.parts.isPanelVisible
     : timelinePanel.isPanelVisible,
-  // A viewport-only host gets neither the menu item nor the tab affordances:
-  // both handler sets are absent, which is what removes them.
+  treeLabel: () => currentRail?.kind === 'assembly' ? 'Parts' : 'Feature tree',
   onToggleEditor: editorSurfaceEnabled ? () => toggleEditorPane() : undefined,
   isEditorOpen: editorSurfaceEnabled ? () => editorSurface?.isOpen() === true : undefined,
-  tabs: editorSurfaceEnabled ? {
-    // Switching tabs re-targets the scene; it never opens the pane. The editor
-    // shows only when toggled on explicitly (menu / Ctrl+B) — Invariant 7.
-    onActivate: (absPath) => void editorSurface?.activateTab(absPath),
-    onClose: (absPath) => editorSurface?.closeTab(absPath),
-    onAdd: (anchor) => editorSurface?.showQuickOpen(anchor),
-  } : undefined,
 });
+
 const navbar = new Navbar(container);
 
 // Undo/Redo — registered first so the group leads the bar, ahead of every
@@ -1320,9 +1333,9 @@ function showToast(message: string): void {
   if (!editRefusalToast) {
     editRefusalToast = document.createElement('div');
     // Below the constraint mini bar (top-[106px]) so refusals don't cover it,
-    // and centered on the scene rather than the window — the editor pane takes
-    // real width from the left.
-    editRefusalToast.className = 'absolute top-[152px] left-[calc(50%+var(--fluidcad-editor-width,0px)/2)] '
+    // and centered on the scene rather than the window — the panel rail and
+    // the editor pane take real width off the left.
+    editRefusalToast.className = 'absolute top-[152px] left-[calc(50%+var(--fluidcad-scene-left,0px)/2)] '
       + '-translate-x-1/2 z-[1003] max-w-[440px] '
       + 'bg-base-100 border border-base-300 text-base-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md';
     container.appendChild(editRefusalToast);
@@ -2552,6 +2565,9 @@ function connectWebSocket() {
           // gizmo (or dismiss it if its instance is gone or now locked).
           assemblyGizmo.handleSceneRendered();
         }
+        // The panel column becomes visible on its first update, and a
+        // part/assembly swap renames the button it hangs off.
+        panelRail.sync();
         // The mate dialog re-resolves its picks against the re-minted scene
         // ids (or closes, when the render switched to a part scene).
         assemblyMateService.handleSceneRendered(sceneKind);

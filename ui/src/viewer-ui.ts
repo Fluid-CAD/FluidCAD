@@ -15,6 +15,8 @@ export { themeColors, onThemeChange } from './scene/theme-colors';
 export { viewerSettings, applyPreferences } from './scene/viewer-settings';
 
 export { TimelinePanel } from './ui/timeline-panel';
+export { AccordionSection } from './ui/accordion-section';
+export type { AccordionSectionOptions } from './ui/accordion-section';
 export { ShapesPanel } from './ui/shapes-panel';
 export { ParamsPanel } from './ui/params-panel';
 export { ShapePropertiesModal } from './ui/shape-properties-modal';

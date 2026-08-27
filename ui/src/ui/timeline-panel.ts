@@ -4,8 +4,7 @@ import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
-
-const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
+import { AccordionSection } from './accordion-section';
 
 function formatDuration(ms: number): string {
   if (ms < 1000) {
@@ -117,7 +116,16 @@ export class TimelinePanel {
   private panel: HTMLDivElement;
   private timelineBody: HTMLDivElement;
   private contentWrapper: HTMLDivElement;
+  private historySection: AccordionSection;
   private shapesPanel: ShapesPanel;
+  /**
+   * The sections at most one of which may be open: Shapes, and the Parameters
+   * panel once a host attaches one. Both are browsable lists of the whole
+   * model rather than steps of it, and either at full height leaves the
+   * History nothing — so opening one closes the other. The History itself
+   * stays independent; it is the column's subject.
+   */
+  private exclusiveSections: AccordionSection[] = [];
   private loaded = false;
   private userHidden = false;
   private sceneObjects: SceneObjectRender[] = [];
@@ -157,7 +165,6 @@ export class TimelinePanel {
   private selectionAnchor: number | null = null;
   /** Snapshot of the rows being dragged; null outside a drag. */
   private dragIndices: number[] | null = null;
-  private timelineExpanded = true;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
   private showBuildTimings = false;
@@ -186,32 +193,20 @@ export class TimelinePanel {
     this.contentWrapper.className = 'flex-1 min-h-0 flex flex-col gap-1 overflow-y-auto';
     this.panel.appendChild(this.contentWrapper);
 
-    // Timeline accordion section
-    const timelineHeader = document.createElement('div');
-    timelineHeader.className = SECTION_HEADER;
-    timelineHeader.innerHTML = `
-      <span data-ref="chevron" class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${ICON_CHEVRON_RIGHT}</span>
-      <span class="text-sm font-medium text-base-content/70">History</span>
-      <span data-ref="history-total" class="text-xs text-base-content/40 tabular-nums hidden"></span>
-      <button data-ref="history-dots" class="ml-auto btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0">${ICON_DOTS_VERTICAL}</button>
-    `;
-    this.contentWrapper.appendChild(timelineHeader);
-    this.historyTotalLabel = timelineHeader.querySelector<HTMLSpanElement>('[data-ref="history-total"]')!;
-    const historyDotsBtn = timelineHeader.querySelector<HTMLButtonElement>('[data-ref="history-dots"]')!;
+    // History accordion section
+    this.historySection = new AccordionSection('History', {
+      trailing: `
+        <span data-ref="history-total" class="text-xs text-base-content/40 tabular-nums hidden"></span>
+        <button data-ref="history-dots" class="ml-auto btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0">${ICON_DOTS_VERTICAL}</button>
+      `,
+    });
+    this.historySection.mount(this.contentWrapper);
+    this.timelineBody = this.historySection.body;
+    this.historyTotalLabel = this.historySection.header.querySelector<HTMLSpanElement>('[data-ref="history-total"]')!;
+    const historyDotsBtn = this.historySection.header.querySelector<HTMLButtonElement>('[data-ref="history-dots"]')!;
     historyDotsBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.showHistoryDropdown(historyDotsBtn);
-    });
-
-    this.timelineBody = document.createElement('div');
-    this.timelineBody.className = 'py-1 overflow-y-auto min-h-0';
-    this.contentWrapper.appendChild(this.timelineBody);
-
-    timelineHeader.addEventListener('click', () => {
-      this.timelineExpanded = !this.timelineExpanded;
-      this.timelineBody.classList.toggle('hidden', !this.timelineExpanded);
-      const chevron = timelineHeader.querySelector('[data-ref="chevron"]')!;
-      chevron.classList.toggle('rotate-90', this.timelineExpanded);
     });
 
     // Shapes accordion section (delegated to ShapesPanel)
@@ -225,9 +220,40 @@ export class TimelinePanel {
       getShapeTransparency,
       onResetAllTransparency,
     );
-    this.contentWrapper.appendChild(this.shapesPanel.header);
-    this.contentWrapper.appendChild(this.shapesPanel.body);
+    this.shapesPanel.mount(this.contentWrapper);
+    this.addExclusiveSection(this.shapesPanel);
+  }
 
+  /**
+   * Mount a Parameters section under the Shapes one and join it to the pair
+   * that opens one at a time. The section is owned by the host, not by this
+   * panel: the rail rebuilds the panel on every part/assembly swap, and the
+   * parameters — values, groups, open state — outlive that.
+   */
+  attachParams(section: AccordionSection): void {
+    section.mount(this.contentWrapper);
+    section.setVisible(true);
+    this.addExclusiveSection(section);
+  }
+
+  private addExclusiveSection(section: AccordionSection): void {
+    // At most one of the group is ever open, joining sections included: the
+    // Parameters panel arrives expanded (that is what its floating hosts'
+    // toggle means) and comes in closed behind an already-open Shapes.
+    if (this.exclusiveSections.some((other) => other.isExpanded)) {
+      section.setExpanded(false);
+    }
+    this.exclusiveSections.push(section);
+    section.onToggle = (opened) => {
+      if (!opened.isExpanded) {
+        return;
+      }
+      for (const other of this.exclusiveSections) {
+        if (other !== opened) {
+          other.setExpanded(false);
+        }
+      }
+    };
   }
 
   update(sceneObjects: SceneObjectRender[], rollbackStop: number, rollbackScopePartId: string | null = null): void {

@@ -217,9 +217,17 @@ const measureController = new MeasureController(
   (handlers) => new SelectionContextMenu(container, 'fluidcad-measure-select-menu', handlers),
 );
 const exportDialog = new ExportDialog(container, engineClient, viewer.sceneContext);
+
+// Built detached: it is a section of the part rail's docked column, and that
+// column is torn down and rebuilt on every part/assembly swap. Owning the
+// panel here is what carries the parameter values, their groups' collapse
+// state and the section's own across those rebuilds — buildPartRail() mounts
+// this same instance into whichever column is current.
+const paramsPanel = new ParamsPanel(null, engineClient, new ParamEditorDialog(container));
+
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design
-// rail (TimelinePanel, History+Shapes) or the assembly rail
+// rail (TimelinePanel, History + Shapes + Parameters) or the assembly rail
 // (PartsPanel + JointsPanel + DofStatus). `ensureRailFor(kind)` swaps them
 // when the current scene's `sceneKind` changes.
 // ---------------------------------------------------------------------------
@@ -278,6 +286,7 @@ function buildPartRail(): Extract<LeftRail, { kind: 'part' }> {
     () => viewer.resetAllTransparency(),
   );
   timeline.setShowBuildTimings(pendingShowBuildTimings);
+  timeline.attachParams(paramsPanel);
   timelinePanel = timeline;
   wireTimelinePanel(timeline);
   return { kind: 'part', timeline };
@@ -654,13 +663,6 @@ new AssemblyToolbar(navbar, {
   // The service is constructed later (it needs the gizmo driver); toolbar
   // clicks only ever fire after startup completes.
   onMate: (type) => assemblyMateService.enter(type),
-});
-
-const paramsPanel = new ParamsPanel(viewer.settingsPanelHost, engineClient, new ParamEditorDialog(container));
-
-viewer.setParamsToggleHandler(() => {
-  paramsPanel.toggle();
-  viewer.setParamsButtonActive(paramsPanel.isVisible);
 });
 
 const trimService = new TrimPickService(viewer);
@@ -2573,9 +2575,6 @@ function connectWebSocket() {
         assemblyMateService.handleSceneRendered(sceneKind);
         if (msg.params !== undefined) {
           paramsPanel.update(msg.params);
-          // Reachable from the first render on, params or not — an empty panel
-          // is where the model's first parameter gets added.
-          viewer.setParamsButtonVisible(true);
         }
         errorBanner.update(msg.result, msg.compileError ?? null);
         const compileError = msg.compileError ?? null;

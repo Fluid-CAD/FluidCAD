@@ -2,59 +2,75 @@ import type { UIParamDefinition } from '../types';
 import type { ParamEditorDialog } from './param-editor-dialog';
 import type { EngineClient } from '../engine-client';
 import { ICON_PENCIL } from './icons';
+import { AccordionSection } from './accordion-section';
 
-export class ParamsPanel {
-  private root: HTMLDivElement;
-  private body: HTMLDivElement;
-  private visible = false;
+/** Same sizing contract as the Shapes section above it — see SHAPES_BODY. */
+const PARAMS_BODY = 'px-3 shrink-0 max-h-[var(--fluidcad-half-scene)]';
+
+/**
+ * Add and reset sit in the header card rather than above the first row, so
+ * the section reads as one row of chrome like the History's menu does. Both
+ * stop the click short of the header, which would otherwise collapse the
+ * section out from under the dialog the button just opened.
+ */
+const HEADER_BUTTONS = `
+  <span class="ml-auto flex items-center">
+    <button class="btn btn-ghost btn-xs btn-circle text-base-content/40 hover:text-base-content/70" title="Add parameter" data-add-param>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+        <path d="M10 4.25a.75.75 0 01.75.75v4.25H15a.75.75 0 010 1.5h-4.25V15a.75.75 0 01-1.5 0v-4.25H5a.75.75 0 010-1.5h4.25V5a.75.75 0 01.75-.75z" />
+      </svg>
+    </button>
+    <button class="btn btn-ghost btn-xs btn-circle text-base-content/40 hover:text-base-content/70" title="Reset all to defaults" data-reset-params>
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+        <path fill-rule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H4.598a.75.75 0 00-.75.75v3.634a.75.75 0 001.5 0v-2.09l.312.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm-10.624-2.85a5.5 5.5 0 019.201-2.465l.312.31H11.77a.75.75 0 000 1.5h3.634a.75.75 0 00.75-.75V3.535a.75.75 0 00-1.5 0v2.09l-.312-.31A7 7 0 002.63 8.453a.75.75 0 001.449.39z" clip-rule="evenodd" />
+      </svg>
+    </button>
+  </span>
+`;
+
+/**
+ * The model's parameters, as one section of a docked panel column.
+ *
+ * `container` is optional: a host that already knows where the section goes
+ * passes it and is done, while the part rail builds the panel before the
+ * column that will hold it exists and mounts it later ({@link mount}). Its
+ * values and its open/closed state then survive a rail rebuild, because the
+ * panel outlives the column its elements happen to be parented to.
+ */
+export class ParamsPanel extends AccordionSection {
   private currentParams: UIParamDefinition[] = [];
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private collapsedGroups = new Set<string>();
 
-  constructor(container: HTMLElement, private client: EngineClient, private editor?: ParamEditorDialog) {
-    this.root = document.createElement('div');
-    this.root.className = 'w-[220px] mt-2 select-none hidden';
-    container.appendChild(this.root);
+  constructor(container: HTMLElement | null, private client: EngineClient, private editor?: ParamEditorDialog) {
+    // Hidden until a host shows it — the floating hosts toggle it from a
+    // button, and the docked column turns it on for good when it mounts it.
+    super('Parameters', { visible: false, bodyClass: PARAMS_BODY, trailing: HEADER_BUTTONS });
 
-    const panel = document.createElement('div');
-    panel.className = 'panel-bg border border-base-content/10 rounded-md overflow-y-auto max-h-[60vh]';
-    this.root.appendChild(panel);
-
-    const header = document.createElement('div');
-    header.className = 'flex items-center justify-between px-3 pt-2 pb-1';
-    header.innerHTML = `
-      <span class="text-xs font-medium text-base-content/50 uppercase tracking-wider">Parameters</span>
-      <span class="flex items-center">
-        <button class="btn btn-ghost btn-xs btn-circle text-base-content/40 hover:text-base-content/70" title="Add parameter" data-add-param>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
-            <path d="M10 4.25a.75.75 0 01.75.75v4.25H15a.75.75 0 010 1.5h-4.25V15a.75.75 0 01-1.5 0v-4.25H5a.75.75 0 010-1.5h4.25V5a.75.75 0 01.75-.75z" />
-          </svg>
-        </button>
-        <button class="btn btn-ghost btn-xs btn-circle text-base-content/40 hover:text-base-content/70" title="Reset all to defaults" data-reset-params>
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
-            <path fill-rule="evenodd" d="M15.312 11.424a5.5 5.5 0 01-9.201 2.466l-.312-.311h2.433a.75.75 0 000-1.5H4.598a.75.75 0 00-.75.75v3.634a.75.75 0 001.5 0v-2.09l.312.31a7 7 0 0011.712-3.138.75.75 0 00-1.449-.39zm-10.624-2.85a5.5 5.5 0 019.201-2.465l.312.31H11.77a.75.75 0 000 1.5h3.634a.75.75 0 00.75-.75V3.535a.75.75 0 00-1.5 0v2.09l-.312-.31A7 7 0 002.63 8.453a.75.75 0 001.449.39z" clip-rule="evenodd" />
-          </svg>
-        </button>
-      </span>
-    `;
-    panel.appendChild(header);
-
-    header.querySelector('[data-reset-params]')!.addEventListener('click', () => {
+    const resetButton = this.header.querySelector('[data-reset-params]')!;
+    resetButton.addEventListener('click', (e) => {
+      e.stopPropagation();
       this.client.resetParams();
     });
     // Declaration edits rewrite source; without an editor-backed host the
     // panel is a pure value surface.
+    const addButton = this.header.querySelector('[data-add-param]')!;
     if (this.editor) {
-      header.querySelector('[data-add-param]')!.addEventListener('click', () => {
+      addButton.addEventListener('click', (e) => {
+        e.stopPropagation();
         this.editor!.openForCreate();
       });
     } else {
-      header.querySelector('[data-add-param]')!.remove();
+      addButton.remove();
     }
 
-    this.body = document.createElement('div');
-    this.body.className = 'px-3 pb-2';
-    panel.appendChild(this.body);
+    // The empty state is part of the section, not something the first render
+    // brings: a model with no parameters at all never sends an update.
+    this.renderParams();
+
+    if (container) {
+      this.mount(container);
+    }
   }
 
   update(params: UIParamDefinition[]): void {
@@ -67,13 +83,9 @@ export class ParamsPanel {
     }
   }
 
+  /** Show the section if it is hidden, hide it if it is not. */
   toggle(): void {
-    this.visible = !this.visible;
-    this.applyVisibility();
-  }
-
-  get isVisible(): boolean {
-    return this.visible;
+    this.setVisible(!this.isVisible);
   }
 
   private canUpdateInPlace(prev: UIParamDefinition[], next: UIParamDefinition[]): boolean {
@@ -127,14 +139,8 @@ export class ParamsPanel {
     }
   }
 
-  private applyVisibility(): void {
-    this.root.classList.toggle('hidden', !this.visible);
-  }
-
   private renderParams(): void {
     const params = this.currentParams;
-
-    this.applyVisibility();
 
     // The panel is reachable with nothing in it — adding the model's first
     // parameter is one of the things it is for.

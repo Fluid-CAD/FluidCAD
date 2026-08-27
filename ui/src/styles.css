@@ -159,6 +159,12 @@ html.fluidcad-editor-animating {
      the centred toasts and pills — reads this rather than adding the pieces
      up itself. */
   --fluidcad-scene-left: var(--fluidcad-panel-left);
+  /* Half the scene's own height. The docked column's two browsable sections —
+     Shapes and Parameters — cap their bodies here, so whichever one is open
+     can never grow past the halfway mark and push the History above it off
+     the column. The scene runs from the host's top chrome to the bottom of
+     the page (see #fluidcad-scene below), which is what this halves. */
+  --fluidcad-half-scene: calc((100dvh - var(--fluidcad-chrome-top, 104px)) / 2);
 }
 
 /* Narrow enough that 48px of permanent chrome costs too much: the rail floats

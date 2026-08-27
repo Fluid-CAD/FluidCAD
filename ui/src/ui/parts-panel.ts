@@ -107,10 +107,10 @@ export class PartsPanel {
 
     this.panel = document.createElement('div');
     // Docked exactly like the part-design timeline: in the scene's left
-    // gutter (--fluidcad-scene-left already clears the rail and the editor
+    // gutter (--fluidcad-panel-left already clears the rail and the editor
     // pane), below the host chrome. The TopBar owns the logo and file name
     // for both rails.
-    this.panel.className = 'absolute left-[calc(var(--fluidcad-scene-left,0px)+1.5rem)] top-[calc(var(--fluidcad-chrome-top,104px)+12px)] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
+    this.panel.className = 'absolute left-[calc(var(--fluidcad-panel-left,0px)+1.5rem)] top-[calc(var(--fluidcad-chrome-top,104px)+12px)] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
 
     const partsHeader = document.createElement('div');

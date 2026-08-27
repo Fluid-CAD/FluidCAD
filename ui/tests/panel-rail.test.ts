@@ -1,12 +1,34 @@
 // @vitest-environment jsdom
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PanelRail, type PanelRailHandlers } from '../src/ui/panel-rail';
 
 // The rail that replaced the top bar's hamburger: a latch per docked surface.
 // What matters is that the latch always reflects the surface rather than a
 // remembered click — the pane and the panels are toggled from the keyboard and
-// the desktop menu too — and that a host without a code editor gets no button
-// for one.
+// the desktop menu too — that a host without a code editor gets no button for
+// one, and that a narrow window drops the bar for floating circles without the
+// shell left behind eating the scene's drags.
+
+/**
+ * Stands in for the float media query, which jsdom never matches on its own.
+ * Returns a setter that fires `change` the way a real resize past the
+ * breakpoint would.
+ */
+function stubFloatQuery(initial: boolean): (matches: boolean) => void {
+  const listeners: (() => void)[] = [];
+  const query = {
+    matches: initial,
+    addEventListener: (_: string, fn: () => void) => { listeners.push(fn); },
+    removeEventListener: () => undefined,
+  };
+  vi.stubGlobal('matchMedia', () => query);
+  return (matches: boolean) => {
+    query.matches = matches;
+    listeners.forEach((fn) => fn());
+  };
+}
+
+afterEach(() => vi.unstubAllGlobals());
 
 function mount(handlers: Partial<PanelRailHandlers> = {}) {
   const container = document.createElement('div');
@@ -24,6 +46,7 @@ function mount(handlers: Partial<PanelRailHandlers> = {}) {
   return {
     container,
     rail,
+    shell: () => container.firstElementChild as HTMLElement,
     buttons,
     button: (label: string) =>
       buttons().find((b) => b.getAttribute('aria-label') === label)!,
@@ -96,5 +119,36 @@ describe('panel rail', () => {
     const h = mount({ onToggleTree, isTreeVisible: () => false });
     h.button('Feature tree').click();
     expect(onToggleTree).toHaveBeenCalledTimes(1);
+  });
+
+  it('floats the buttons as circles once the window is too narrow for a bar', () => {
+    stubFloatQuery(true);
+    const h = mount();
+    expect(h.shell().className).not.toContain('panel-bg');
+    expect(h.shell().className).not.toContain('bottom-0');
+    for (const button of h.buttons()) {
+      expect(button.className).toContain('btn-circle');
+    }
+  });
+
+  it('hands the scene back the drags the floating shell covers', () => {
+    // Docked it is real chrome and nothing is behind it; floating, everything
+    // between the circles is scene.
+    stubFloatQuery(true);
+    const h = mount();
+    expect(h.shell().className).toContain('pointer-events-none');
+    expect(h.button('Feature tree').parentElement!.className).toContain('pointer-events-auto');
+  });
+
+  it('swaps shape when the window crosses the breakpoint, latches intact', () => {
+    const setFloating = stubFloatQuery(false);
+    const h = mount();
+    h.button('Feature tree').click();
+    expect(h.button('Feature tree').className).toContain('btn-square');
+
+    setFloating(true);
+    expect(h.button('Feature tree').className).toContain('btn-circle');
+    expect(h.button('Feature tree').getAttribute('aria-pressed')).toBe('true');
+    expect(h.button('Code editor').className).toContain('panel-bg');
   });
 });

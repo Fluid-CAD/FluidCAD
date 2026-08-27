@@ -150,12 +150,27 @@ html.fluidcad-editor-animating {
 }
 
 :root {
-  /* How far the scene's left edge is pushed in: the panel rail, then the
-     editor pane it docks against. Every overlay that has to line up with the
-     scene — the docked panel column, the centred toasts and pills — reads
-     this one value rather than adding the pieces up itself, and a host that
-     mounts neither (the embedded viewer) resolves it to 0px. */
-  --fluidcad-scene-left: calc(var(--fluidcad-rail-width, 0px) + var(--fluidcad-editor-width, 0px));
+  /* How far in the docked panel column starts: past the panel rail's gutter,
+     then past the editor pane the rail docks against. A host that mounts
+     neither (the embedded viewer) resolves it to 0px. */
+  --fluidcad-panel-left: calc(var(--fluidcad-rail-width, 0px) + var(--fluidcad-editor-width, 0px));
+  /* How far the scene's own left edge is pushed in. The same thing while the
+     rail is docked, which is why every overlay that lines up with the scene —
+     the centred toasts and pills — reads this rather than adding the pieces
+     up itself. */
+  --fluidcad-scene-left: var(--fluidcad-panel-left);
+}
+
+/* Narrow enough that 48px of permanent chrome costs too much: the rail floats
+   its buttons over the scene instead of docking beside it (see FLOAT_QUERY in
+   ui/panel-rail.ts, which must match), so the scene reclaims the width. The
+   buttons still own their gutter, which is the whole reason the docked panels
+   read --fluidcad-panel-left instead. With no rail mounted both sides of this
+   are --fluidcad-editor-width, so it is a no-op. */
+@media (width < 40rem) {
+  :root {
+    --fluidcad-scene-left: var(--fluidcad-editor-width, 0px);
+  }
 }
 
 #fluidcad-scene {

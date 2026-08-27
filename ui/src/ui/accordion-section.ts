@@ -67,6 +67,17 @@ export class AccordionSection {
     this.apply();
   }
 
+  /**
+   * What a section shows in place of rows when it has none: the thing that is
+   * missing, then the call that would make one. Italic and dimmed so it reads
+   * as a note about the section rather than as its first row — the same
+   * surface the assembly rail's Parts and Joints sections use, kept here so
+   * every empty column looks like the same column.
+   */
+  static emptyState(message: string): string {
+    return `<div class="px-3 py-2 text-xs text-base-content/40 italic">${message}</div>`;
+  }
+
   /** Append the section's header and body, in order, to the end of `host`. */
   mount(host: HTMLElement): void {
     host.appendChild(this.header);

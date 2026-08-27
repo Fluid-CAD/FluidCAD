@@ -126,7 +126,8 @@ export class ShapesPanel extends AccordionSection {
       }
     }
 
-    this.body.innerHTML = html;
+    this.body.innerHTML = html
+      || AccordionSection.emptyState('No shapes yet — they appear here as features build geometry.');
 
     this.body.querySelectorAll<HTMLElement>('[data-shape-group]').forEach((el) => {
       el.addEventListener('click', () => {

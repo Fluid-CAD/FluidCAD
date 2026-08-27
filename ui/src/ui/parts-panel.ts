@@ -34,6 +34,7 @@ import {
   ICON_PENCIL,
   ICON_TRASH,
 } from './icons';
+import { AccordionSection } from './accordion-section';
 
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
 
@@ -215,11 +216,9 @@ export class PartsPanel {
 
   private renderRows(): void {
     if (this.instances.length === 0) {
-      this.partsBody.innerHTML = `
-        <div class="px-3 py-2 text-xs text-base-content/40 italic">
-          No instances yet — call <code>insert(part)</code> in the assembly file.
-        </div>
-      `;
+      this.partsBody.innerHTML = AccordionSection.emptyState(
+        'No instances yet — call <code>insert(part)</code> in the assembly file.',
+      );
       return;
     }
 

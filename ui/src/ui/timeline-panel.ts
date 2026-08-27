@@ -470,7 +470,8 @@ export class TimelinePanel {
       }
     }
 
-    this.timelineBody.innerHTML = html;
+    this.timelineBody.innerHTML = html
+      || AccordionSection.emptyState('No features yet — start with <code>sketch(...)</code>.');
 
     this.timelineBody.querySelectorAll<HTMLElement>('[data-index]').forEach((el) => {
       el.addEventListener('click', (e) => {

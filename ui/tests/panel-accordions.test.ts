@@ -102,6 +102,26 @@ describe('docked panel column', () => {
     }
   });
 
+  it('says what each empty section is missing, and how to make one', () => {
+    const h = mount();
+    h.timeline.update([], -1);
+    h.params.update([]);
+    const body = (title: string) => h.header(title).nextElementSibling!.textContent ?? '';
+    expect(body('History')).toContain('No features yet');
+    expect(body('History')).toContain('sketch(...)');
+    expect(body('Shapes')).toContain('No shapes yet');
+    expect(body('Parameters')).toContain('No parameters yet');
+    expect(body('Parameters')).toContain('param(...)');
+  });
+
+  it('points an editor-backed host at its own Add button first', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const editor = { openForCreate: vi.fn() } as never;
+    const params = new ParamsPanel(container, stubClient(), editor);
+    expect(params.body.textContent).toContain('use +');
+  });
+
   it('runs the header buttons without collapsing the section', () => {
     const h = mount();
     h.header('Parameters').click();

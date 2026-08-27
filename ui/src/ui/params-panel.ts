@@ -5,7 +5,7 @@ import { ICON_PENCIL } from './icons';
 import { AccordionSection } from './accordion-section';
 
 /** Same sizing contract as the Shapes section above it — see SHAPES_BODY. */
-const PARAMS_BODY = 'px-3 shrink-0 max-h-[var(--fluidcad-half-scene)]';
+const PARAMS_BODY = 'shrink-0 max-h-[var(--fluidcad-half-scene)]';
 
 /**
  * Add and reset sit in the header card rather than above the first row, so
@@ -145,8 +145,11 @@ export class ParamsPanel extends AccordionSection {
     // The panel is reachable with nothing in it — adding the model's first
     // parameter is one of the things it is for.
     if (params.length === 0) {
-      this.body.innerHTML =
-        '<div class="text-[11px] text-base-content/40 py-1.5">No parameters yet.</div>';
+      this.body.innerHTML = AccordionSection.emptyState(
+        this.editor
+          ? 'No parameters yet — use + above, or <code>param(...)</code> in the file.'
+          : 'No parameters yet — declare one with <code>param(...)</code>.',
+      );
       return;
     }
 
@@ -165,20 +168,25 @@ export class ParamsPanel extends AccordionSection {
 
     let html = '';
     for (const p of ungrouped) {
-      html += this.renderParamControl(p, false);
+      html += this.renderParamControl(p);
     }
     for (const [groupName, groupParams] of groups) {
       const isCollapsed = this.collapsedGroups.has(groupName);
       const checked = isCollapsed ? '' : ' checked';
       let controlsHtml = '';
       for (const p of groupParams) {
-        controlsHtml += this.renderParamControl(p, true);
+        controlsHtml += this.renderParamControl(p);
       }
+      // The card takes its inset from a wrapper rather than its own margin:
+      // daisyUI's .collapse is width:100%, so a margin would shift it past
+      // the column's right edge instead of narrowing it.
       html += `
-        <div class="collapse collapse-arrow border border-base-content/10 rounded-md mt-1.5" data-param-group="${this.escapeHtml(groupName)}">
-          <input type="checkbox"${checked} class="!min-h-0 !p-0 !h-8" />
-          <div class="collapse-title !min-h-0 !py-2 !px-3 !pr-8 text-xs font-medium text-base-content/50 uppercase tracking-wider">${this.escapeHtml(groupName)}</div>
-          <div class="collapse-content px-0 pb-0">${controlsHtml}</div>
+        <div class="px-3">
+          <div class="collapse collapse-arrow border border-base-content/10 rounded-md mt-1.5" data-param-group="${this.escapeHtml(groupName)}">
+            <input type="checkbox"${checked} class="!min-h-0 !p-0 !h-8" />
+            <div class="collapse-title !min-h-0 !py-2 !px-3 !pr-8 text-xs font-medium text-base-content/50 uppercase tracking-wider">${this.escapeHtml(groupName)}</div>
+            <div class="collapse-content px-0 pb-0">${controlsHtml}</div>
+          </div>
         </div>
       `;
     }
@@ -199,7 +207,7 @@ export class ParamsPanel extends AccordionSection {
     });
   }
 
-  private renderParamControl(p: UIParamDefinition, grouped: boolean): string {
+  private renderParamControl(p: UIParamDefinition): string {
     const effectiveType = p.controlType === 'auto'
       ? (typeof p.defaultValue === 'boolean' ? 'checkbox' : typeof p.defaultValue === 'number' ? 'number' : 'text')
       : p.controlType;
@@ -252,13 +260,12 @@ export class ParamsPanel extends AccordionSection {
         break;
       case 'checkbox': {
         const checked = p.currentValue ? ' checked' : '';
-        const px = grouped ? 'px-3' : '';
         const toggle = `
           <input type="checkbox" class="toggle toggle-xs toggle-primary"
             ${checked}
             data-param-label="${escapedLabel}" data-param-type="checkbox" />`;
         return `
-          <div class="${px} py-1.5 group">
+          <div class="px-3 py-1.5 group">
             ${this.renderLabelRow(p, toggle)}
             ${descHtml}
           </div>
@@ -341,9 +348,8 @@ export class ParamsPanel extends AccordionSection {
         break;
     }
 
-    const px = grouped ? 'px-3' : '';
     return `
-      <div class="${px} py-1.5 group">
+      <div class="px-3 py-1.5 group">
         ${this.renderLabelRow(p, '')}
         ${descHtml}
         ${controlHtml}

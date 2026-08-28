@@ -281,6 +281,16 @@ export type ProducerNamer = (producers: {
 }[]) => (string | null)[];
 
 /**
+ * Whether the code transform can bind the producer's statement to a
+ * variable. Implementations must be pure lookups over already-parsed source.
+ */
+export type ProducerBindable = (producer: {
+  line: number;
+  column: number;
+  featureType: string;
+}) => boolean;
+
+/**
  * Source-derived context for synthesis, built server-side from the live
  * buffer: `namer` keeps previewed variable names truthful to the transform;
  * `params` are the file's top-level numeric constants, letting dimension
@@ -288,6 +298,15 @@ export type ProducerNamer = (producers: {
  */
 export type SynthesizeOptions = {
   namer?: ProducerNamer;
+  /**
+   * Statement-level bindability, resolved server-side with the code
+   * transform's own statement resolution: false means the transform cannot
+   * bind the producer's statement to a variable (its variable is reassigned
+   * after the call, a destructuring binding, a nested call) — synthesis must
+   * not emit a selector that references it and routes its picks through the
+   * variable-free global tier instead. Absent means "assume bindable".
+   */
+  bindable?: ProducerBindable;
   params?: { name: string; value: number }[];
   /** Connector-only: anchor + dialog adjustments to fold into the statement. */
   connector?: ConnectorSynthesisOptions;

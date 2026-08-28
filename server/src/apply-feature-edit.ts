@@ -2555,23 +2555,8 @@ export async function makeProducerNamer(
   return (producers) => {
     const used = new Set(fileIdentifiers);
     return producers.map(producer => {
-      const call = findEditableCallAt(tree, lines, producer.line);
-      if (!call) {
-        return null;
-      }
-      const root = chainRootCallee(call);
-      // Sketch/plane/wire producers must name their own call — the pick
-      // features never attribute to one, so the looser callee stays scoped
-      // by type.
-      const requiredRoots = requiredChainRoots(producer.featureType ?? '');
-      const valid = requiredRoots
-        ? root !== null && requiredRoots.includes(root)
-        : root !== null && producerCallees(producer.featureType ?? '').has(root);
-      if (!valid) {
-        return null;
-      }
-      const resolved = resolveStatement(call);
-      if ('error' in resolved) {
+      const resolved = resolveBindableStatementAt(tree, lines, producer);
+      if (resolved === null) {
         return null;
       }
       if (!resolved.needsBinding && resolved.varName) {
@@ -2588,6 +2573,55 @@ export async function makeProducerNamer(
       return name;
     });
   };
+}
+
+/**
+ * The producer's statement resolved with the transform's own binding logic,
+ * or null when the transform would refuse to bind it: no producing call at
+ * the line, a callee the feature type does not accept, or a statement
+ * `resolveStatement` rejects (variable reassigned after the call, a
+ * destructuring binding, a call nested in another expression).
+ */
+function resolveBindableStatementAt(
+  tree: TSTree,
+  lines: string[],
+  producer: { line: number; featureType?: string },
+): Omit<ProducerBinding, 'bind'> | null {
+  const call = findEditableCallAt(tree, lines, producer.line);
+  if (!call) {
+    return null;
+  }
+  const root = chainRootCallee(call);
+  // Sketch/plane/wire producers must name their own call — the pick
+  // features never attribute to one, so the looser callee stays scoped
+  // by type.
+  const requiredRoots = requiredChainRoots(producer.featureType ?? '');
+  const valid = requiredRoots
+    ? root !== null && requiredRoots.includes(root)
+    : root !== null && producerCallees(producer.featureType ?? '').has(root);
+  if (!valid) {
+    return null;
+  }
+  const resolved = resolveStatement(call);
+  return 'error' in resolved ? null : resolved;
+}
+
+/**
+ * Statement-level bindability probe for selection synthesis (the
+ * SynthesizeOptions `bindable` hook): whether the transform can bind the
+ * producer's statement to a variable. Built over the same file the emitted
+ * statement will land in, so synthesis avoids selectors referencing a
+ * producer the apply would refuse — a variable reassigned after the
+ * producing call routes its picks through the variable-free global tier
+ * instead of failing at apply time.
+ */
+export async function makeProducerBindable(
+  code: string,
+): Promise<(producer: { line: number; featureType?: string }) => boolean> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const lines = splitLines(code);
+  return producer => resolveBindableStatementAt(tree, lines, producer) !== null;
 }
 
 /**

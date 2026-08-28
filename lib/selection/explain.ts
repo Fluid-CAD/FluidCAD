@@ -19,6 +19,7 @@ import {
   PickDescriptors,
   PickExplanation,
   PickRef,
+  ProducerBindable,
   ProducerNamer,
   SelectionScene,
   SynthesizeOptions,
@@ -207,9 +208,10 @@ export function synthesizeApplyFeature(
     // routes it to a geometric select(). Every other feature uses the face
     // itself, where the ancestor accessor would resolve to geometry the final
     // solid lost. (Edge picks pass through: the re-home is face-only.)
+    const stmtBindable = makeStatementBindable(options.bindable);
     if (feature === 'sketch' || feature === 'plane') {
       for (let i = 0; i < attributions.length; i++) {
-        attributions[i] = rehomePlaneFacePick(index, attributions[i]);
+        attributions[i] = rehomePlaneFacePick(index, attributions[i], stmtBindable);
       }
     }
     const chainInputs: SelectorChain[] = chains.map(c => ({
@@ -221,7 +223,7 @@ export function synthesizeApplyFeature(
     // compact index form over induced filters with baked-in constants.
     const synthesis = synthesizeSelectors(
       scene, index, attributions, chainInputs, options.params ?? [],
-      feature === 'sketch' || feature === 'plane',
+      feature === 'sketch' || feature === 'plane', stmtBindable,
     );
     if (synthesis.ok === false) {
       return { ok: false, reason: synthesis.reason, pick: synthesis.pick };
@@ -418,7 +420,11 @@ const REHOME_PLANE_TOLERANCE = 1e-6;
  * bindable feature and coplanarity with a same-side normal; anything else
  * keeps the original attribution (and its select() fallback).
  */
-function rehomePlaneFacePick(index: SelectionIndex, attr: PickAttribution): PickAttribution {
+function rehomePlaneFacePick(
+  index: SelectionIndex,
+  attr: PickAttribution,
+  stmtBindable?: (feature: SceneObject) => boolean,
+): PickAttribution {
   if (attr.producer || !(attr.picked instanceof Face)) {
     return attr;
   }
@@ -428,9 +434,9 @@ function rehomePlaneFacePick(index: SelectionIndex, attr: PickAttribution): Pick
   }
 
   const ancestor = attr.lineage ? attr.lineage.classified : null;
-  const hit = ancestor && isCoplanarBindableFaceHit(index, ancestor, pickedPlane)
+  const hit = ancestor && isCoplanarBindableFaceHit(index, ancestor, pickedPlane, stmtBindable)
     ? ancestor
-    : findCoplanarClassifiedFace(index, pickedPlane);
+    : findCoplanarClassifiedFace(index, pickedPlane, stmtBindable);
   if (!hit) {
     return attr;
   }
@@ -444,8 +450,14 @@ function rehomePlaneFacePick(index: SelectionIndex, attr: PickAttribution): Pick
 }
 
 /** True when the hit's feature can be bound and its member face lies on `plane` facing the same way. */
-function isCoplanarBindableFaceHit(index: SelectionIndex, hit: BucketHit, plane: Plane): boolean {
-  if (hit.bucket.def.kind !== 'face' || checkBindable(index, hit.bucket.feature) !== null) {
+function isCoplanarBindableFaceHit(
+  index: SelectionIndex,
+  hit: BucketHit,
+  plane: Plane,
+  stmtBindable?: (feature: SceneObject) => boolean,
+): boolean {
+  if (hit.bucket.def.kind !== 'face' || checkBindable(index, hit.bucket.feature) !== null
+    || !(stmtBindable?.(hit.bucket.feature) ?? true)) {
     return false;
   }
   const member = hit.bucket.members[hit.index];
@@ -463,14 +475,18 @@ function isCoplanarBindableFaceHit(index: SelectionIndex, hit: BucketHit, plane:
  * latest-feature-first with specific categories (end/start/side/…) first, so
  * the name mirrors what attribution would have preferred.
  */
-function findCoplanarClassifiedFace(index: SelectionIndex, plane: Plane): BucketHit | null {
+function findCoplanarClassifiedFace(
+  index: SelectionIndex,
+  plane: Plane,
+  stmtBindable?: (feature: SceneObject) => boolean,
+): BucketHit | null {
   for (const bucket of index.buckets) {
     if (bucket.def.kind !== 'face') {
       continue;
     }
     for (let i = 0; i < bucket.members.length; i++) {
       const hit: BucketHit = { bucket, index: i };
-      if (isCoplanarBindableFaceHit(index, hit, plane)) {
+      if (isCoplanarBindableFaceHit(index, hit, plane, stmtBindable)) {
         return hit;
       }
     }
@@ -535,6 +551,31 @@ function renderPreview(
     return `expose('${value}', ${args})`;
   }
   return `${feature}(${value}, ${args})`;
+}
+
+/**
+ * Wrap the source-level bindability probe into SceneObject terms for the
+ * selector search. A probe failure must never block synthesis — treat it as
+ * "assume bindable", the same contract as a namer failure; a feature without
+ * a source location is already unbindable structurally (`checkBindable`).
+ */
+function makeStatementBindable(
+  bindable?: ProducerBindable,
+): ((feature: SceneObject) => boolean) | undefined {
+  if (!bindable) {
+    return undefined;
+  }
+  return (feature) => {
+    const loc = feature.getSourceLocation();
+    if (!loc) {
+      return true;
+    }
+    try {
+      return bindable({ line: loc.line, column: loc.column, featureType: feature.getType() });
+    } catch {
+      return true;
+    }
+  };
 }
 
 /**

@@ -455,6 +455,15 @@ export function cutWithSceneObjects(
   }
 
   const stock = Array.from(shapeObjectMap.keys());
+  // An empty stock list makes BRepAlgoAPI_Cut report a bare kernel error —
+  // refuse it here with the actual problem instead.
+  if (stock.length === 0) {
+    throw new Error(
+      `${caller.getType()} has nothing to remove — no solid is in scope. `
+      + 'Add material first (e.g. extrude a profile), or move this feature '
+      + 'into the part() that owns the solid it should cut.',
+    );
+  }
   const cutResult = BooleanOps.cutMultiShape(stock, toolShapes, plane, distance);
 
   const cleanedShapes: Shape[] = [];

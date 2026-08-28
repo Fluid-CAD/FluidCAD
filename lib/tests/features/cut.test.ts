@@ -11,9 +11,53 @@ import { Extrude } from "../../features/extrude.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
 import { SceneObject } from "../../common/scene-object.js";
+import part from "../../core/part.js";
+import shell from "../../core/shell.js";
+import select from "../../core/select.js";
+import expose from "../../core/expose.js";
+import { face } from "../../filters/index.js";
 
 describe("cut", () => {
   setupOC();
+
+  describe("cut with no solid in scope", () => {
+    it("reports a pointed error instead of a bare kernel failure", () => {
+      sketch("xy", () => {
+        circle(10);
+      });
+      cut(100);
+
+      const scene = render();
+      const cutObj = scene.getAllSceneObjects().find(o => o.getType() === "cut")!;
+      expect(cutObj.getError()).toMatch(/nothing to remove — no solid is in scope/);
+      expect(cutObj.getError()).toMatch(/extrude a profile|part\(\)/);
+    });
+
+    it("reports the same pointed error for a foreign-sketch cut in an empty part", () => {
+      // A lid part whose only content is a sketch on another part's exposed
+      // face: the cut scopes to the lid, which owns no solid yet.
+      const boxBody = part("Box Body", () => {
+        sketch("top", () => {
+          rect(100, 60);
+        });
+        let body;
+        body = extrude(30);
+        body = shell(-2, (body as any).endFaces());
+        void body;
+        expose("g1", select(face().onPlane("xy", 30)));
+      });
+      part("Box Lid", () => {
+        sketch((boxBody as any).features.g1, () => {
+          circle(12);
+        });
+        cut(100);
+      });
+
+      const scene = render();
+      const cutObj = scene.getAllSceneObjects().find(o => o.getType() === "cut")!;
+      expect(cutObj.getError()).toMatch(/nothing to remove — no solid is in scope/);
+    });
+  });
 
   describe("cut by distance", () => {
     it("should cut into an existing solid", () => {

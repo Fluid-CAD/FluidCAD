@@ -159,6 +159,11 @@ html.fluidcad-editor-animating {
      the centred toasts and pills — reads this rather than adding the pieces
      up itself. */
   --fluidcad-scene-left: var(--fluidcad-panel-left);
+  /* How far a docked panel column sits in from the rail it clears, and down
+     from the host's top chrome. One value on both axes: the column reads the
+     same gap to its left as it does above it, so the corner it tucks into
+     reads as one inset rather than as two that drifted apart. */
+  --fluidcad-panel-gap: 12px;
 }
 
 /* Narrow enough that 48px of permanent chrome costs too much: the rail floats

@@ -6,8 +6,23 @@ import { ICON_CHEVRON_RIGHT } from './icons';
  */
 const HEADER_CLASS =
   'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
-/** Bodies float bare over the scene under their header, and scroll in place. */
-const BODY_CLASS = 'py-1 overflow-y-auto min-h-0';
+/**
+ * How the column divides itself, and it is the same deal for every section.
+ * Each body grows from nothing (`flex-1`, so a zero basis) but never past its
+ * own rows (`max-h-max`), which hands the whole split to flexbox: the two
+ * open bodies claim half the column each, whichever of them wants less than
+ * its half is frozen at what it actually has, and the room that frees up goes
+ * straight back to the other one.
+ *
+ * That is the behaviour from all three directions at once. With room to spare
+ * nobody is capped, so an open Parameters ends where its last row does rather
+ * than at some fraction of the viewport, and the space under it stays scene.
+ * With the column full neither section can be crushed below half by the other,
+ * and each scrolls in place under a header that stays put. And a collapsed
+ * section is `display: none`, so it leaves the flex line entirely and the
+ * feature tree above it takes everything it was holding.
+ */
+const BODY_CLASS = 'py-1 overflow-y-auto min-h-0 flex-1 max-h-max';
 /**
  * A sheet body instead ({@link AccordionSectionOptions.sheet}): the header's
  * own surface carried on below it, so a section whose rows are controls
@@ -18,8 +33,8 @@ const BODY_CLASS = 'py-1 overflow-y-auto min-h-0';
  * {@link HEADER_JOINED}) so no hairline crosses the middle of the card.
  */
 const BODY_SHEET_CLASS =
-  '-mt-1 pt-1 pb-2 overflow-y-auto min-h-0 panel-bg border border-t-0 '
-  + 'border-base-content/10 rounded-b-md';
+  '-mt-1 pt-1 pb-2 overflow-y-auto min-h-0 flex-1 max-h-max panel-bg border '
+  + 'border-t-0 border-base-content/10 rounded-b-md';
 /**
  * What the header gives up while its sheet body is open. The background is
  * painted under the transparent border, not clipped to it, so the seam

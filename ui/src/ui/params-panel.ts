@@ -4,9 +4,6 @@ import type { EngineClient } from '../engine-client';
 import { ICON_PENCIL } from './icons';
 import { AccordionSection } from './accordion-section';
 
-/** Same sizing contract as the Shapes section above it — see SHAPES_BODY. */
-const PARAMS_BODY = 'shrink-0 max-h-[var(--fluidcad-half-scene)]';
-
 /**
  * What every control is drawn on. This section is the one whose rows are
  * controls rather than names, so it is the one that takes a sheet body
@@ -59,7 +56,6 @@ export class ParamsPanel extends AccordionSection {
     // button, and the docked column turns it on for good when it mounts it.
     super('Parameters', {
       visible: false,
-      bodyClass: PARAMS_BODY,
       trailing: HEADER_BUTTONS,
       sheet: true,
     });

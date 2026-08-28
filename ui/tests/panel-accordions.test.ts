@@ -90,15 +90,21 @@ describe('docked panel column', () => {
     expect(h.isOpen('Parameters')).toBe(true);
   });
 
-  it('caps Shapes and Parameters at half the scene, reserving nothing', () => {
+  it('splits the column between every section on the same terms', () => {
     const h = mount();
-    for (const title of ['Shapes', 'Parameters']) {
+    for (const title of ['History', 'Shapes', 'Parameters']) {
       const body = h.header(title).nextElementSibling as HTMLElement;
-      expect(body.className).toContain('max-h-[var(--fluidcad-half-scene)]');
-      // No floor and no grow: an empty section takes no height, so the one
-      // below it sits flush under it instead of hanging over the scene.
-      expect(body.className).not.toMatch(/\bmin-h-\[|\bflex-1\b/);
-      expect(body.className).toContain('shrink-0');
+      // Grow from nothing, stop at your own rows: half the column each under
+      // contention, and whatever is left over when the other wants less.
+      expect(body.className).toContain('flex-1');
+      expect(body.className).toContain('max-h-max');
+      // Scrollable in place, so the header stays put once the cap bites.
+      expect(body.className).toContain('min-h-0');
+      expect(body.className).toContain('overflow-y-auto');
+      // Nothing reserved: no floor, and no cap tied to the viewport rather
+      // than to what the section actually holds.
+      expect(body.className).not.toMatch(/\bmin-h-\[|\bshrink-0\b/);
+      expect(body.className).not.toMatch(/max-h-\[/);
     }
   });
 

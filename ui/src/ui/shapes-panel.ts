@@ -3,18 +3,6 @@ import { ICON_EYE, ICON_EYE_OFF, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL } from '
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { AccordionSection } from './accordion-section';
 
-/**
- * Sized by its rows and never past half the scene — the cap the Parameters
- * section below it shares. It claims no height it isn't using: an empty list
- * takes none, so the section under it stays where the eye expects, flush
- * under this one, instead of hanging in the middle of the scene.
- *
- * shrink-0 sets the priority when the column runs out of room: the list stays
- * whole up to its cap and the History above it yields and scrolls, rather
- * than both being squeezed a proportional amount.
- */
-const SHAPES_BODY = 'shrink-0 max-h-[var(--fluidcad-half-scene)]';
-
 export class ShapesPanel extends AccordionSection {
   private panel: HTMLElement;
   private sceneObjects: SceneObjectRender[] = [];
@@ -42,7 +30,9 @@ export class ShapesPanel extends AccordionSection {
     getTransparency: (shapeId: string) => number,
     onResetAllTransparency: () => void,
   ) {
-    super('Shapes', { bodyClass: SHAPES_BODY });
+    // Nothing but the shared body: how this section and the History above it
+    // split the column is BODY_CLASS's deal — see accordion-section.ts.
+    super('Shapes');
     this.panel = panel;
     this.onHighlightShape = onHighlightShape;
     this.onExportShapes = onExportShapes;

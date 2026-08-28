@@ -102,6 +102,43 @@ describe('docked panel column', () => {
     }
   });
 
+  it('gives Parameters, and only Parameters, a sheet under its header', () => {
+    const h = mount();
+    // The two list sections stay bare over the scene: their rows are names,
+    // and reading them against the model is the whole point of the column.
+    for (const title of ['History', 'Shapes']) {
+      const body = h.header(title).nextElementSibling as HTMLElement;
+      expect(body.className).not.toContain('panel-bg');
+    }
+
+    // Parameters' rows are controls, so its body carries the header's card on
+    // down, with -mt-1 cancelling the column's gap so the two halves meet.
+    const params = h.header('Parameters');
+    const body = params.nextElementSibling as HTMLElement;
+    expect(body.className).toContain('panel-bg');
+    expect(body.className).toContain('rounded-b-md');
+    expect(body.className).toContain('-mt-1');
+
+    // The header only gives up its bottom edge while the sheet is showing;
+    // closed, it is a card like every other one in the column.
+    expect(params.className).not.toContain('rounded-b-none');
+    params.click();
+    expect(params.className).toContain('rounded-b-none');
+    expect(params.className).toContain('border-b-transparent');
+    params.click();
+    expect(params.className).not.toContain('rounded-b-none');
+    expect(params.className).not.toContain('border-b-transparent');
+  });
+
+  it('draws the controls on the sheet rather than through it', () => {
+    const h = mount();
+    h.params.update([PARAM]);
+    const input = h.params.body.querySelector<HTMLInputElement>('[data-param-type="number"]')!;
+    // bg-transparent would put the scene's grid inside the field.
+    expect(input.className).not.toContain('bg-transparent');
+    expect(input.className).toContain('bg-base-content/[0.06]');
+  });
+
   it('says what each empty section is missing, and how to make one', () => {
     const h = mount();
     h.timeline.update([], -1);

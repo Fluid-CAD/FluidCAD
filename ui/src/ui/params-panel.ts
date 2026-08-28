@@ -8,6 +8,18 @@ import { AccordionSection } from './accordion-section';
 const PARAMS_BODY = 'shrink-0 max-h-[var(--fluidcad-half-scene)]';
 
 /**
+ * What every control is drawn on. This section is the one whose rows are
+ * controls rather than names, so it is the one that takes a sheet body
+ * (`sheet: true` below): a field has to read as something you can type into,
+ * and an outline with the scene showing through it does not.
+ *
+ * The tint is the panel's own ink rather than a value of its own, which
+ * darkens the light theme and lightens the dark one — a recess in the sheet
+ * either way, without the two themes needing separate colours.
+ */
+const FIELD_SURFACE = 'bg-base-content/[0.06]';
+
+/**
  * Add and reset sit in the header card rather than above the first row, so
  * the section reads as one row of chrome like the History's menu does. Both
  * stop the click short of the header, which would otherwise collapse the
@@ -45,7 +57,12 @@ export class ParamsPanel extends AccordionSection {
   constructor(container: HTMLElement | null, private client: EngineClient, private editor?: ParamEditorDialog) {
     // Hidden until a host shows it — the floating hosts toggle it from a
     // button, and the docked column turns it on for good when it mounts it.
-    super('Parameters', { visible: false, bodyClass: PARAMS_BODY, trailing: HEADER_BUTTONS });
+    super('Parameters', {
+      visible: false,
+      bodyClass: PARAMS_BODY,
+      trailing: HEADER_BUTTONS,
+      sheet: true,
+    });
 
     const resetButton = this.header.querySelector('[data-reset-params]')!;
     resetButton.addEventListener('click', (e) => {
@@ -184,7 +201,7 @@ export class ParamsPanel extends AccordionSection {
         <div class="px-3">
           <div class="collapse collapse-arrow border border-base-content/10 rounded-md mt-1.5" data-param-group="${this.escapeHtml(groupName)}">
             <input type="checkbox"${checked} class="!min-h-0 !p-0 !h-8" />
-            <div class="collapse-title !min-h-0 !py-2 !px-3 !pr-8 text-xs font-medium text-base-content/50 uppercase tracking-wider">${this.escapeHtml(groupName)}</div>
+            <div class="collapse-title !min-h-0 !py-2 !px-3 !pr-8 text-xs font-medium text-base-content/65 uppercase tracking-wider">${this.escapeHtml(groupName)}</div>
             <div class="collapse-content px-0 pb-0">${controlsHtml}</div>
           </div>
         </div>
@@ -212,8 +229,10 @@ export class ParamsPanel extends AccordionSection {
       ? (typeof p.defaultValue === 'boolean' ? 'checkbox' : typeof p.defaultValue === 'number' ? 'number' : 'text')
       : p.controlType;
 
+    // /65 rather than the /40 a dimmed note would take: at 11px this is body
+    // text on a surface, and /40 measures 2.3:1 against the light sheet.
     const descHtml = p.description
-      ? `<div class="text-[11px] text-base-content/40 mt-0.5">${this.escapeHtml(p.description)}</div>`
+      ? `<div class="text-[11px] text-base-content/65 mt-0.5">${this.escapeHtml(p.description)}</div>`
       : '';
 
     const escapedLabel = this.escapeHtml(p.label);
@@ -230,7 +249,7 @@ export class ParamsPanel extends AccordionSection {
               min="${min}" max="${max}" step="${step}"
               value="${p.currentValue}"
               data-param-label="${escapedLabel}" data-param-type="slider" />
-            <span class="text-xs text-base-content/50 tabular-nums w-8 text-right" data-param-display="${escapedLabel}">${p.currentValue}</span>
+            <span class="text-xs text-base-content/80 tabular-nums w-8 text-right" data-param-display="${escapedLabel}">${p.currentValue}</span>
           </div>
         `;
         break;
@@ -242,7 +261,7 @@ export class ParamsPanel extends AccordionSection {
         if (p.step != null) { attrs.push(`step="${p.step}"`); }
         controlHtml = `
           <div class="mt-1">
-            <input type="number" class="input input-xs input-bordered w-full bg-transparent"
+            <input type="number" class="input input-xs input-bordered w-full ${FIELD_SURFACE}"
               value="${p.currentValue}" ${attrs.join(' ')}
               data-param-label="${escapedLabel}" data-param-type="number" />
           </div>
@@ -252,7 +271,7 @@ export class ParamsPanel extends AccordionSection {
       case 'text':
         controlHtml = `
           <div class="mt-1">
-            <input type="text" class="input input-xs input-bordered w-full bg-transparent"
+            <input type="text" class="input input-xs input-bordered w-full ${FIELD_SURFACE}"
               value="${this.escapeHtml(String(p.currentValue))}"
               data-param-label="${escapedLabel}" data-param-type="text" />
           </div>
@@ -285,7 +304,7 @@ export class ParamsPanel extends AccordionSection {
                 <label class="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
                     value="${this.escapeHtml(String(o.value))}"${checked} />
-                  <span class="text-xs text-base-content/60">${this.escapeHtml(o.label)}</span>
+                  <span class="text-xs text-base-content/80">${this.escapeHtml(o.label)}</span>
                 </label>`;
             }).join('');
             controlHtml = `
@@ -313,7 +332,7 @@ export class ParamsPanel extends AccordionSection {
             }).join('');
             controlHtml = `
               <div class="mt-1">
-                <select multiple class="select select-xs select-bordered w-full bg-base-300"
+                <select multiple class="select select-xs select-bordered w-full ${FIELD_SURFACE}"
                   size="${Math.min(opts.length, 5)}"
                   data-param-label="${escapedLabel}" data-param-type="multi-select">
                   ${optionHtml}
@@ -328,7 +347,7 @@ export class ParamsPanel extends AccordionSection {
           }).join('');
           controlHtml = `
             <div class="mt-1">
-              <select class="select select-xs select-bordered w-full bg-base-300"
+              <select class="select select-xs select-bordered w-full ${FIELD_SURFACE}"
                 data-param-label="${escapedLabel}" data-param-type="select">
                 ${optionHtml}
               </select>
@@ -371,7 +390,7 @@ export class ParamsPanel extends AccordionSection {
         </button>`;
     return `
       <div class="flex items-center gap-1">
-        <label class="text-xs text-base-content/60 flex-1 truncate">${escapedLabel}</label>
+        <label class="text-xs text-base-content/80 flex-1 truncate">${escapedLabel}</label>
         ${trailing}${editButton}
       </div>
     `;

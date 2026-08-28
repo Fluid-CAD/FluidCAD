@@ -25,6 +25,7 @@ export { ErrorBanner } from './ui/error-banner';
 export { LoadingOverlay } from './ui/loading-overlay';
 export { TopBar } from './ui/top-bar';
 export type { TopBarHandlers } from './ui/top-bar';
+export type { TopBarAction, TopBarActionHandlers, TopBarExportHandlers } from './ui/top-bar-actions';
 export { PanelRail } from './ui/panel-rail';
 export type { PanelRailHandlers } from './ui/panel-rail';
 export type { FileTab, FileTabsHandlers } from './editor/tabs';

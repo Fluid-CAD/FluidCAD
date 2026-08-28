@@ -21,8 +21,6 @@ import { AssemblyToolbar } from './ui/assembly-toolbar';
 import { InsertPartDialog } from './ui/insert-part/insert-part-dialog';
 import { EditParamsDialog } from './ui/edit-params-dialog';
 import { HistoryToolbar } from './ui/history-toolbar';
-import { ICON_IMG_FALLBACK } from './ui/object-icons';
-import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
 import { SelectionContextMenu } from './interactive/selection-menu';
 import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
@@ -541,6 +539,14 @@ const topBar = new TopBar(container, {
     onClose: (absPath) => editorSurface?.closeTab(absPath),
     onAdd: (anchor) => editorSurface?.showQuickOpen(anchor),
   } : undefined,
+  saveTheme: (theme) => savePreference('theme', theme),
+  // The bar's Export dropdown picks ONE solid — its thumbnail is what makes
+  // the choice; File ▸ Export stays the whole-scene path.
+  export: {
+    onExport: (shapeId) => exportDialog.show([shapeId]),
+    captureThumbnail: (shapeId) => viewer.captureSolidThumbnail(shapeId),
+  },
+  onImport: () => fileImporter.openPicker(),
 });
 
 // The panel rail on the window's left edge: one latch button per surface it
@@ -598,21 +604,6 @@ const historyToolbar = new HistoryToolbar(navbar, {
   onUndo: () => runEditorHistory('undo'),
   onRedo: () => runEditorHistory('redo'),
 });
-
-// Import group — always visible for now.
-const importGroup = navbar.addGroup('import');
-const importBtn = document.createElement('button');
-importBtn.className = TOOLBAR_BTN_BASE;
-importBtn.setAttribute('aria-label', 'Import file');
-importBtn.innerHTML =
-  `<img src="/icons/load.png" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`
-  + `<span class="${TOOLBAR_BTN_LABEL}">Import</span>`;
-importBtn.addEventListener('click', () => fileImporter.openPicker());
-const importBtnWrap = document.createElement('span');
-importBtnWrap.className = 'tooltip tooltip-bottom shrink-0';
-importBtnWrap.dataset.tip = 'Import file';
-importBtnWrap.appendChild(importBtn);
-importGroup.appendChild(importBtnWrap);
 
 /**
  * The desktop shell's application menu. It sends intents, never actions — each
@@ -2577,6 +2568,7 @@ function connectWebSocket() {
           paramsPanel.update(msg.params);
         }
         errorBanner.update(msg.result, msg.compileError ?? null);
+        topBar.updateSolids(msg.result);
         const compileError = msg.compileError ?? null;
         activeCompileError = compileError !== null;
         if (compileError === null) {

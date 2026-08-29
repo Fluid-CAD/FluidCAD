@@ -83,7 +83,7 @@
     "get-system-fonts": "^2.0.2",
     "ignore": "^5.3.2",
     "jszip": "^3.10.1",
-    "ocjs-fluidcad": "^1.1.0",
+    "ocjs-fluidcad": "^1.2.0",
     "open": "^11.0.0",
     "stacktrace-parser": "^0.1.11",
     "undici": "^8.3.0",

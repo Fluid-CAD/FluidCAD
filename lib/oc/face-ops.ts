@@ -54,9 +54,6 @@ export class FaceOps {
 
     let loc: Vector3d = new Vector3d(location.X(), location.Y(), location.Z());
 
-    const xDir = ax3.XDirection();
-    const xDirection = new Vector3d(xDir.X(), xDir.Y(), xDir.Z());
-
     const dot = loc.dot(normal);
     const origin = normal.multiply(dot);
 
@@ -66,8 +63,12 @@ export class FaceOps {
     direction.delete();
     location.delete();
 
-    const plane = new Plane(new Point(origin.x, origin.y, origin.z), xDirection, normal);
-    return plane;
+    // The in-plane axes come from the normal, never from the surface's own
+    // ax3 X direction: that is whatever the modelling operation happened to
+    // store, and it is *not* flipped when the face is REVERSED — so a prism's
+    // start cap came out rotated 180° from the sketch plane that made it,
+    // and a sketch on it rendered upside down.
+    return Plane.upright(new Point(origin.x, origin.y, origin.z), normal);
   }
 
   /**
@@ -93,14 +94,9 @@ export class FaceOps {
     const geomPlane = finder.Plane();
     const pln = geomPlane.Pln();
     const location = pln.Location();
-    const xAxis = pln.XAxis();
-    const xDir = xAxis.Direction();
 
     const loc = new Vector3d(location.X(), location.Y(), location.Z());
-    const xDirection = new Vector3d(xDir.X(), xDir.Y(), xDir.Z());
 
-    xDir.delete();
-    xAxis.delete();
     location.delete();
     pln.delete();
     geomPlane.delete();
@@ -115,8 +111,10 @@ export class FaceOps {
 
     // Canonical origin: foot of the perpendicular from the world origin onto
     // the plane, matching the GeomAbs_Plane path so identical planes compare equal.
+    // FindPlane only fits a least-squares X direction, so — as in that path —
+    // the in-plane axes are derived from the normal instead.
     const origin = normal.multiply(loc.dot(normal));
-    return new Plane(new Point(origin.x, origin.y, origin.z), xDirection, normal);
+    return Plane.upright(new Point(origin.x, origin.y, origin.z), normal);
   }
 
   /**

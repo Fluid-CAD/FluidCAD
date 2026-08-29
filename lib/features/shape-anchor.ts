@@ -185,7 +185,7 @@ export function buildOrthonormalFrame(origin: Point, normal: Vector3d, options: 
     const axis = toAxis(options.xDirection);
     x = orthogonalizeAgainst(axis.direction, z);
   } else {
-    x = autoXFromZ(z);
+    x = Plane.uprightXDirection(z);
   }
 
   return new Plane(origin, x, z);
@@ -198,21 +198,6 @@ function orthogonalizeAgainst(candidate: Vector3d, z: Vector3d): Vector3d {
     throw new Error("xDirection is parallel to Z; cannot orthogonalize.");
   }
   return projected.normalize();
-}
-
-// Anchor the auto-frame to world up (+Z): project +Z onto the face plane
-// to define Y, then derive X = Y × Z. This gives every non-horizontal face
-// a "screen up" Y axis, so the X direction is the same predictable
-// horizontal vector regardless of which sketch plane produced the face.
-// The previous worldX-or-worldY fallback flipped at |Z·X| = 0.9, which
-// made adjacent box faces use different reference axes.
-function autoXFromZ(z: Vector3d): Vector3d {
-  const worldUp = Vector3d.unitZ();
-  // Horizontal face (top/bottom): worldUp lies along Z, so use +Y as the
-  // in-plane "up" so the convention stays continuous with side faces.
-  const upRef = Math.abs(z.dot(worldUp)) > 0.9 ? Vector3d.unitY() : worldUp;
-  const y = upRef.subtract(z.multiply(upRef.dot(z))).normalize();
-  return y.cross(z).normalize();
 }
 
 export function computeFaceBoundingBoxCenter(face: TopoDS_Face): Point {

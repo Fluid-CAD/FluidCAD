@@ -236,6 +236,35 @@ export class Plane {
     return new Plane(Point.origin(), Vector3d.unitY(), Vector3d.unitX());
   }
 
+  /**
+   * The canonical in-plane X direction for a face normal. World up (+Z) is
+   * projected onto the plane to give Y, so a sketch on any non-horizontal
+   * face reads upright and X = Y × normal is the same predictable
+   * horizontal vector whatever operation built the face. A near-horizontal
+   * face has no meaningful uphill direction, so it falls back to +Y.
+   *
+   * The rule reproduces all six standard planes exactly: a face lying in the
+   * XZ plane gets the frame `sketch('xz', …)` would have given it. It is
+   * also the convention connectors already use (see `buildOrthonormalFrame`),
+   * so a connector and a sketch on the same face now agree.
+   */
+  static uprightXDirection(normal: Vector3d): Vector3d {
+    const z = normal.normalize();
+    const worldUp = Vector3d.unitZ();
+    const upRef = Math.abs(z.dot(worldUp)) > 0.9 ? Vector3d.unitY() : worldUp;
+    const y = upRef.subtract(z.multiply(upRef.dot(z))).normalize();
+    return y.cross(z).normalize();
+  }
+
+  /**
+   * A plane through `origin` with the given `normal`, oriented by
+   * {@link uprightXDirection}. Unlike {@link fromPointAndNormal}, whose
+   * in-plane axes are an arbitrary basis, this frame is stable and upright.
+   */
+  static upright(origin: Point, normal: Vector3d): Plane {
+    return new Plane(origin, Plane.uprightXDirection(normal), normal.normalize());
+  }
+
   static fromPointAndNormal(point: Point, normal: Vector3d): Plane {
     const n = normal.normalize();
     let xDir: Vector3d;

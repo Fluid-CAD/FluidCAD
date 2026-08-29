@@ -36,6 +36,7 @@ import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 import {
   applySolvedEmission,
+  constraintTargetCountValid,
   type SolvedConstraintEmission,
   type SolvedEmissionTarget,
   type SolvedGeometryEmission,
@@ -6978,7 +6979,7 @@ export function createApplyFeatureRouter(
   router.post('/sketch/add-constraint', async (req, res) => {
     const { sketchLine, filePath, kind, targets, valueExpr, axis, tangency } = req.body ?? {};
     if (typeof sketchLine !== 'number' || typeof kind !== 'string'
-      || !Array.isArray(targets) || targets.length === 0 || targets.length > 3
+      || !Array.isArray(targets) || !constraintTargetCountValid(kind, targets.length)
       || (filePath !== undefined && typeof filePath !== 'string')
       || (valueExpr !== undefined && typeof valueExpr !== 'string')
       || (axis !== undefined && axis !== 'x' && axis !== 'y')
@@ -7147,7 +7148,7 @@ export function createApplyFeatureRouter(
     const cleanConstraints: SolvedConstraintEmission[] = [];
     for (const c of constraints) {
       if (typeof c !== 'object' || c === null || !SOLVED_CONSTRAINT_KINDS.has(c.kind)
-        || !Array.isArray(c.targets) || c.targets.length === 0 || c.targets.length > 3
+        || !Array.isArray(c.targets) || !constraintTargetCountValid(c.kind, c.targets.length)
         || (c.valueExpr !== undefined && typeof c.valueExpr !== 'string')
         || (c.axis !== undefined && c.axis !== 'x' && c.axis !== 'y')) {
         res.status(400).json({ error: 'Invalid request body' });

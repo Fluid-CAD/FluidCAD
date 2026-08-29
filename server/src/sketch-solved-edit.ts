@@ -121,6 +121,17 @@ const VARIADIC_CONSTRAINT_KINDS = new Map([
   ['equal', 2], ['parallel', 2], ['horizontal', 1], ['vertical', 1],
 ]);
 
+/** Shallow arity gate for the routes: variadic kinds take any number of
+ * targets (the transform refuses below-minimum with a descriptive 422);
+ * every other kind is positional with one to three slots. Shared with the
+ * routes so their caps can never drift from this map again. */
+export function constraintTargetCountValid(kind: string, count: number): boolean {
+  if (count < 1) {
+    return false;
+  }
+  return VARIADIC_CONSTRAINT_KINDS.has(kind) || count <= 3;
+}
+
 /** Collector-array irregular plurals — a loop of copy() statements collects
  * into `copies`, never `copys`. Everything else takes a bare `s`. */
 const IRREGULAR_PLURALS: Record<string, string> = { copy: 'copies' };

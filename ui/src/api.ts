@@ -3586,8 +3586,19 @@ export function clearBreakpoints(): void {
   postFireAndForget('/api/clear-breakpoints');
 }
 
-export function gotoSource(sourceLocation: SourceLocationParam): void {
-  postFireAndForget('/api/code/goto-source', sourceLocation);
+/**
+ * Jump the editor to a source line.
+ *
+ * `revealEditor: false` marks a passive navigation — a timeline row click,
+ * which is about the scene, not the code. The in-page editor then moves its
+ * caret only when the pane is already visible and stays shut otherwise;
+ * hosts whose editor is the whole window (VS Code, Neovim) jump regardless.
+ */
+export function gotoSource(
+  sourceLocation: SourceLocationParam,
+  opts: { revealEditor?: boolean } = {},
+): void {
+  postFireAndForget('/api/code/goto-source', { ...sourceLocation, revealEditor: opts.revealEditor !== false });
 }
 
 // ---------------------------------------------------------------------------

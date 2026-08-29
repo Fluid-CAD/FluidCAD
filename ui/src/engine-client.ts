@@ -18,7 +18,11 @@ import type {
  */
 export interface EngineEditorClient {
   addBreakpoint(sourceLocation: SourceLocationParam): void;
-  gotoSource(sourceLocation: SourceLocationParam): void;
+  /**
+   * Reveal a source line. `revealEditor: false` is a passive navigation: an
+   * editor that is hidden stays hidden (see {@link gotoSource} in api.ts).
+   */
+  gotoSource(sourceLocation: SourceLocationParam, opts?: { revealEditor?: boolean }): void;
   removeFeature(sourceLocation: SourceLocationParam): void;
   renameFeature(sourceLocation: SourceLocationParam, name: string | null): void;
   /** Step the editor's native undo history for the file at `filePath`. */

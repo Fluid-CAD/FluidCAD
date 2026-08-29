@@ -81,12 +81,15 @@ function install(opts: { loaded: FakeEntry[]; loadable?: FakeEntry[]; current: s
     };
   });
 
+  const reveals: { absPath: string; line?: number; column?: number; revealPane?: boolean }[] = [];
   const host = new EditorHost({
     models,
     currentModelPath: () => opts.current,
-    reveal: async () => undefined,
+    reveal: async (absPath, line, column, revealPane) => {
+      reveals.push({ absPath, line, column, revealPane });
+    },
   });
-  return { host, requests, responses, saved, store };
+  return { host, requests, responses, saved, store, reveals };
 }
 
 // vitest runs this repo with `isolate: false`; a stubbed fetch must not
@@ -184,5 +187,29 @@ describe('in-page editor host — which buffer an edit lands in', () => {
 
     expect(part.text).toBe('');
     expect(requests.find((r) => r.url === '/api/render')!.body).toEqual({ filePath: PART, code: '', keepCurrent: true });
+  });
+});
+
+describe('in-page editor host — goto-source reveal', () => {
+  it('passes a passive goto-source through without revealing the pane', async () => {
+    // A timeline row click. The pane is a strip beside the scene here (unlike
+    // VS Code / Neovim, where the editor *is* the window), so the flag has to
+    // survive the trip or every row click pops the code open again.
+    const asm = entry(ASSEMBLY, '// assembly');
+    const { host, reveals } = install({ loaded: [asm], current: ASSEMBLY });
+
+    await host.handle({ type: 'goto-source', filePath: ASSEMBLY, line: 7, column: 2, revealEditor: false });
+
+    expect(reveals).toEqual([{ absPath: ASSEMBLY, line: 7, column: 2, revealPane: false }]);
+  });
+
+  it('reveals for an explicit goto-source, including one from a host that sends no flag', async () => {
+    const asm = entry(ASSEMBLY, '// assembly');
+    const { host, reveals } = install({ loaded: [asm], current: ASSEMBLY });
+
+    await host.handle({ type: 'goto-source', filePath: ASSEMBLY, line: 3, column: 0, revealEditor: true });
+    await host.handle({ type: 'goto-source', filePath: ASSEMBLY, line: 4, column: 0 });
+
+    expect(reveals.map((r) => r.revealPane)).toEqual([true, true]);
   });
 });

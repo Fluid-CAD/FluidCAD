@@ -25,8 +25,12 @@ export interface EditorHostDeps {
   models: WorkspaceModels;
   /** Absolute path of the model the scene is rendered from. */
   currentModelPath(): string | null;
-  /** Make `absPath` the visible buffer, loading it if needed. */
-  reveal(absPath: string, line?: number, column?: number): Promise<void>;
+  /**
+   * Make `absPath` the visible buffer, loading it if needed. `revealPane`
+   * false is a passive navigation (a timeline row click): move the caret in
+   * an open pane, but leave a hidden one hidden.
+   */
+  reveal(absPath: string, line?: number, column?: number, revealPane?: boolean): Promise<void>;
   /** A breakpoint marker moved — the gutter is a view of the code. */
   onBreakpointsChanged?(absPath: string): void;
   /** Surface a refusal to the user (an apply that the transform rejected). */
@@ -73,7 +77,7 @@ export class EditorHost {
         await this.stepHistory(msg.type, msg.filePath, msg.editId);
         return;
       case 'goto-source':
-        await this.deps.reveal(msg.filePath, msg.line, msg.column);
+        await this.deps.reveal(msg.filePath, msg.line, msg.column, msg.revealEditor !== false);
         return;
       default:
         await this.applyTransform(msg);

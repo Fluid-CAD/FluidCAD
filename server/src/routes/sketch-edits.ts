@@ -686,7 +686,7 @@ export function createSketchEditsRouter(
   });
 
   router.post('/code/goto-source', (req, res) => {
-    const { filePath, line, column } = req.body;
+    const { filePath, line, column, revealEditor } = req.body;
     if (
       typeof filePath !== 'string' ||
       typeof line !== 'number' ||
@@ -695,7 +695,14 @@ export function createSketchEditsRouter(
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
-    sendToExtension({ type: 'goto-source', filePath, line, column });
+    sendToExtension({
+      type: 'goto-source',
+      filePath,
+      line,
+      column,
+      // Absent (an older UI, or an explicit "show me the code") reveals.
+      revealEditor: revealEditor !== false,
+    });
     res.json({ success: true });
   });
 

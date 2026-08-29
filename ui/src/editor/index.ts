@@ -76,8 +76,8 @@ export class EditorSurface {
     this.host = new EditorHost({
       models: this.models,
       currentModelPath: () => this.currentModelPath,
-      reveal: (absPath, line, column) =>
-        this.gotoSource({ filePath: absPath, line: line ?? 1, column: column ?? 0 }),
+      reveal: (absPath, line, column, revealPane) =>
+        this.gotoSource({ filePath: absPath, line: line ?? 1, column: column ?? 0 }, { revealPane }),
       onBreakpointsChanged: (absPath) => this.breakpoints.refresh(absPath),
       onError: (message) => deps.onEditRefused?.(message),
     });
@@ -310,18 +310,32 @@ export class EditorSurface {
   }
 
   /**
-   * An explicit "show me this line" — a timeline feature's Go to source, a
-   * click on a compile error. Every call site is the user asking for the
-   * editor, so opening it is the answer, not a side effect. Passive sync (a
-   * viewport click scrolling the editor) is deliberately not a thing.
+   * An explicit "show me this line" — a "Show in source" action, a click on a
+   * compile error. The call site is the user asking for the editor, so
+   * opening it is the answer, not a side effect.
+   *
+   * @param revealPane false for a passive navigation — a timeline row click,
+   * whose subject is the scene, not the code. The caret follows along in a
+   * pane that is already open; a hidden pane stays hidden, and the jump is
+   * dropped rather than queued for whenever the pane next opens (Invariant 7:
+   * nothing but an explicit gesture pops the editor).
    */
-  async gotoSource(location: Partial<SourceLocation> & { line: number }): Promise<void> {
+  async gotoSource(
+    location: Partial<SourceLocation> & { line: number },
+    options: { revealPane?: boolean } = {},
+  ): Promise<void> {
     const absPath = location.filePath ?? this.currentModelPath;
     if (!absPath) {
       return;
     }
-    this.pane.setOpen(true);
-    await this.openFile(absPath, { reveal: true });
+    const reveal = options.revealPane !== false;
+    if (!reveal && !this.pane.isOpen()) {
+      return;
+    }
+    if (reveal) {
+      this.pane.setOpen(true);
+    }
+    await this.openFile(absPath, { reveal });
     const editor = this.pane.getEditor();
     if (!editor) {
       return;
@@ -329,7 +343,12 @@ export class EditorSurface {
     const position = { lineNumber: location.line, column: (location.column ?? 0) + 1 };
     editor.revealLineInCenter(position.lineNumber);
     editor.setPosition(position);
-    editor.focus();
+    // A passive jump scrolls the caret into view but leaves the keyboard
+    // where the user put it — they clicked the timeline, so Escape and the
+    // arrow keys still belong to the scene, not to Monaco.
+    if (reveal) {
+      editor.focus();
+    }
   }
 
   private async showFile(absPath: string): Promise<void> {

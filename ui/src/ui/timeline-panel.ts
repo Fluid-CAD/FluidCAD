@@ -1339,11 +1339,18 @@ export class TimelinePanel {
     this.client.editor?.addBreakpoint(obj.sourceLocation);
   }
 
+  /**
+   * Follow a row into the code — passively. Every timeline gesture is about
+   * the scene (roll back to here, activate this part, pause and edit this
+   * feature), and none of them is a "show me the code" request, so none of
+   * them pops a hidden editor open: the caret follows only in a pane that is
+   * already visible. Opening the editor stays the user's own gesture.
+   */
   private goToSource(obj: SceneObjectRender | undefined): void {
     if (!obj || !obj.sourceLocation) {
       return;
     }
-    this.client.editor?.gotoSource(obj.sourceLocation);
+    this.client.editor?.gotoSource(obj.sourceLocation, { revealEditor: false });
   }
 
   // ---------------------------------------------------------------------------

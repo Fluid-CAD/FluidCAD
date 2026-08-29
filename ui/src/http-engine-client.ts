@@ -25,8 +25,8 @@ class HttpEngineEditorClient implements EngineEditorClient {
     addBreakpoint(sourceLocation);
   }
 
-  gotoSource(sourceLocation: SourceLocationParam): void {
-    gotoSource(sourceLocation);
+  gotoSource(sourceLocation: SourceLocationParam, opts?: { revealEditor?: boolean }): void {
+    gotoSource(sourceLocation, opts);
   }
 
   removeFeature(sourceLocation: SourceLocationParam): void {

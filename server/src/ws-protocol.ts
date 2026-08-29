@@ -231,6 +231,14 @@ export type GotoSourceMessage = {
   filePath: string;
   line: number;
   column: number;
+  /**
+   * False for a passive navigation (a timeline row click): move the caret,
+   * but never pop a hidden editor open. Hosts where the editor *is* the
+   * window — VS Code, Neovim — have nothing to reveal and ignore it; only
+   * the in-page host, whose editor is a pane beside the scene, honors it.
+   * Omitted means the caller is an explicit "show me the code".
+   */
+  revealEditor?: boolean;
 };
 
 export type UpdateInsertChainMessage = {

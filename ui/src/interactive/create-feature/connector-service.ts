@@ -104,7 +104,8 @@ export class ConnectorFeatureService {
     // The connector gets its own group at the end of the bar: it is the
     // assembly-prep tool, neither reshaping bodies (modify) nor repositioning
     // them (transform). main.ts constructs this service last so the group
-    // registers — and therefore renders — after every other one. Part-design
+    // registers — and therefore renders — after every other one, then builds
+    // the Part tool into the same group ahead of this button. Part-design
     // only: connectors are declared on the part, and assemblies mate through
     // those part-owned connectors — the assembly bar has no Connector tool.
     const group = navbar.getGroup('connector')

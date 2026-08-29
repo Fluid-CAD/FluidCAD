@@ -51,7 +51,11 @@ export class Intersect extends ExtrudableGeometryBase {
 
       // Dedup crossings shared between sources (parity with project) — it
       // also stabilizes the `.ref(i)` edge indices.
-      const uniqueEdges = EdgeOps.unifyCoincident(allEdges);
+      // Section curves over B-spline surfaces come back as approximated
+      // B-splines even when straight/circular — recognize them back to
+      // analytic curves so they register as fixed reference entities.
+      const uniqueEdges = EdgeOps.unifyCoincident(allEdges)
+        .map(edge => EdgeOps.toAnalyticEdge(edge));
       for (const edge of uniqueEdges) {
         edge.setProvenance('intersected');
       }

@@ -76,7 +76,12 @@ export class Projection extends ExtrudableGeometryBase {
         endpoints = WireOps.findChainEndpoints(groups[0]);
       }
 
-      const uniqueEdges = EdgeOps.unifyCoincident(allEdges);
+      // Normal projection emits approximated B-splines even for straight
+      // results (and the fuse may keep that representation of a coincident
+      // pair) — recognize them back to analytic curves so they register as
+      // fixed reference entities below instead of being silently skipped.
+      const uniqueEdges = EdgeOps.unifyCoincident(allEdges)
+        .map(edge => EdgeOps.toAnalyticEdge(edge));
       for (const edge of uniqueEdges) {
         edge.setProvenance('projected');
       }

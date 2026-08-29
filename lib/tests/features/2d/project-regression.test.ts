@@ -7,6 +7,7 @@ import { project, circle } from "../../../core/2d/index.js";
 import { Extrude } from "../../../features/extrude.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { Cylinder } from "../../../features/cylinder.js";
+import { Projection } from "../../../features/2d/projection.js";
 import { Shape } from "../../../common/shape.js";
 import { Edge } from "../../../common/edge.js";
 import { EdgeOps } from "../../../oc/edge-ops.js";
@@ -108,6 +109,32 @@ describe("project — regression: all projected edges land on sketch plane", () 
     }
 
     assertNoDuplicateEdges(shapes);
+  });
+
+  it("registers edge-on (perpendicular) end-face projections as fixed line references", () => {
+    // Projecting a face perpendicular to the sketch plane goes through
+    // BRepAlgo_NormalProjection, which approximates to B-splines even for a
+    // straight result. Without analytic recognition the surviving edge
+    // classifies as 'other', gets no solver identity, and its endpoints are
+    // unpickable for constraints.
+    sketch("xy", () => {
+        testRect(200, 160);
+      });
+    const e = extrude(50) as Extrude;
+
+    let p: Projection;
+    const s = sketch(e.sideFaces(3), () => {
+      p = project(e.endFaces()) as unknown as Projection;
+    }) as Sketch;
+    render();
+
+    expect(s.getShapes().length).toBeGreaterThan(0);
+    expect(p!.referenceEdgeCount()).toBeGreaterThan(0);
+    const records = p!.referenceEntities();
+    expect(records.length).toBe(p!.referenceEdgeCount());
+    for (const record of records) {
+      expect(record.kind).toBe('line');
+    }
   });
 
   it("dedupes when the same source is projected twice", () => {

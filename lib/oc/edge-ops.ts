@@ -209,6 +209,59 @@ export class EdgeOps {
     return edge;
   }
 
+  static toAnalyticEdge(edge: Edge, tolerance?: number): Edge {
+    const raw = EdgeOps.toAnalyticEdgeRaw(edge.getShape() as TopoDS_Edge, tolerance);
+    return raw === edge.getShape() ? edge : Edge.fromTopoDSEdge(raw);
+  }
+
+  /** Recognize an approximation-only edge (B-spline/bezier) as an analytic
+   * line, circle or ellipse and rebuild it on the exact curve. Projection and
+   * section algorithms emit B-splines even for straight/circular results;
+   * those edges classify as 'other' and cannot join the sketch solver as
+   * reference entities. Returns the input edge unchanged when it is already
+   * analytic or nothing fits within tolerance. */
+  static toAnalyticEdgeRaw(edge: TopoDS_Edge, tolerance?: number): TopoDS_Edge {
+    const oc = getOC();
+    const adaptor = new oc.BRepAdaptor_Curve(edge);
+    const curveType = adaptor.GetType();
+    adaptor.delete();
+    if (curveType !== oc.GeomAbs_CurveType.GeomAbs_BSplineCurve
+      && curveType !== oc.GeomAbs_CurveType.GeomAbs_BezierCurve) {
+      return edge;
+    }
+
+    const curveResult = oc.BRep_Tool.Curve(edge, 0, 1);
+    const curve = curveResult?.returnValue;
+    if (!curve) {
+      return edge;
+    }
+
+    // BRepAlgo_NormalProjection approximates to 1e-4 by default, so
+    // recognition must admit at least that much deviation or a projected
+    // straight edge stays a B-spline.
+    const tol = tolerance ?? Math.max(oc.BRep_Tool.Tolerance(edge), 1e-4);
+    const converted = oc.GeomConvert_CurveToAnaCurve.ComputeCurve(
+      curve, tol, curveResult.First, curveResult.Last, 0, 0, 0,
+      oc.GeomConvert_ConvType.GeomConvert_MinGap,
+      oc.GeomAbs_CurveType.GeomAbs_Line,
+    );
+    const analytic = converted?.returnValue;
+    if (!analytic) {
+      return edge;
+    }
+
+    const maker = new oc.BRepBuilderAPI_MakeEdge(analytic, converted.cf, converted.cl);
+    if (!maker.IsDone()) {
+      maker.delete();
+      return edge;
+    }
+    // Keep the original traversal direction — first/last vertices must not
+    // swap under the caller's feet.
+    const rebuilt = oc.TopoDS.Edge(maker.Edge().Oriented(edge.Orientation()));
+    maker.delete();
+    return rebuilt;
+  }
+
   static splitEdges(edges: Edge[]): Edge[] {
     return EdgeOps.splitEdgesWithMapping(edges).edges;
   }

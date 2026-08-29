@@ -24,6 +24,7 @@ import {
   normalize,
   offsetDirAt,
   orientedLineDir,
+  outwardSide,
   perp,
   pointOnCircumference,
   refAnchor,
@@ -244,17 +245,18 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
       case 'horizontal':
       case 'vertical': {
         if (spec.b) {
-          const pa = refPoint(model, spec.a);
-          // Every point after the first pairs with it — one badge per
-          // pair, at the pair's midpoint.
-          for (const ref of [spec.b, ...(spec.others ?? [])]) {
-            const pb = refPoint(model, ref);
-            if (pa && pb) {
-              // A point-pair H/V has no owning entity — the pair itself is
-              // the edge, so it supplies the row axis and budget directly.
-              const dir = normalize(sub(pb, pa));
-              badge(spec.kind, mid(pa, pb), undefined, {
-                out: perp(dir), along: dir, span: dist(pa, pb),
+          // One badge ON each constrained point — a pair-midpoint badge
+          // floats in empty space once the aligned points sit far apart,
+          // saying nothing about which vertices it binds. The alignment
+          // axis is the row axis; no host edge, so the flat allowance
+          // applies (like fix/symmetric point badges).
+          const along: Vec2 = spec.kind === 'horizontal' ? [1, 0] : [0, 1];
+          const out = perp(along);
+          for (const ref of [spec.a, spec.b, ...(spec.others ?? [])]) {
+            const p = refPoint(model, ref);
+            if (p) {
+              badge(spec.kind, p, undefined, {
+                out: outwardSide(out, p, centroid), along, span: 0,
               });
             }
           }

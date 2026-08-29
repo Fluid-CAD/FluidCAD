@@ -252,6 +252,33 @@ describe('constraint glyph layout', () => {
     expect(badge.refEntityIds).toEqual([0]);
   });
 
+  it('places a point H/V badge ON each constrained point, offset off the alignment axis', () => {
+    const objects = [
+      line(0, [-103.6, 150], [-90, 90]),
+      line(1, [-50, 90], [-50, 150]),
+      line(2, [66.41, 97.51], [57.39, 150]),
+      constraint('horizontal', 0, {
+        kind: 'horizontal',
+        a: { entity: 2, point: 'end' },
+        b: { entity: 1, point: 'end' },
+        others: [{ entity: 0, point: 'start' }],
+      }),
+    ];
+    const { glyphs } = glyphsOf(objects);
+    const badges = glyphs.filter(g => g.type === 'badge') as any[];
+    expect(badges).toHaveLength(3);
+    expect(badges.map(b => b.at)).toEqual([[57.39, 150], [-50, 150], [-103.6, 150]]);
+    for (const badge of badges) {
+      expect(badge.label).toBe('H');
+      // Row runs along the alignment axis; the badge floats off it, away
+      // from the sketch centroid (which sits below y=150 here).
+      expect(badge.alongDir).toEqual([1, 0]);
+      expect(badge.offsetDir[0]).toBeCloseTo(0, 9);
+      expect(badge.offsetDir[1]).toBeCloseTo(1, 9);
+      expect(badge.span).toBe(0);
+    }
+  });
+
   it('renders point-point coincidence as one deduped dot at the shared point', () => {
     const objects = [
       line(0, [0, 0], [100, 0]),

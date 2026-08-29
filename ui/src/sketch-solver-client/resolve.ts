@@ -192,6 +192,16 @@ export function refAnchor(model: SolvedSketchModel, ref: SolverRef): Vec2 | null
  * when known) breaks the perpendicular's sign ambiguity by pushing the badge
  * OUT of the profile — annotations belong outside the shape they describe.
  * Radial directions already point outward and are left alone. */
+/** Flip `n` so it points from `away` toward `at` — a badge picking the
+ * "outside" of the sketch for the side of its edge it floats on. */
+export function outwardSide(n: Vec2, at: Vec2, away: Vec2 | null): Vec2 {
+  if (!away) {
+    return n;
+  }
+  const outward = sub(at, away);
+  return n[0] * outward[0] + n[1] * outward[1] < 0 ? [-n[0], -n[1]] : n;
+}
+
 export function offsetDirAt(
   e: SolvedEntityView | undefined,
   at: Vec2,
@@ -205,12 +215,7 @@ export function offsetDirAt(
     if (!d) {
       return [0, 1];
     }
-    const n = perp(d);
-    if (!away) {
-      return n;
-    }
-    const outward = sub(at, away);
-    return n[0] * outward[0] + n[1] * outward[1] < 0 ? [-n[0], -n[1]] : n;
+    return outwardSide(perp(d), at, away);
   }
   if ((e.kind === 'circle' || e.kind === 'arc') && e.center) {
     const radial = sub(at, e.center);

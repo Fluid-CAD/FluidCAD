@@ -983,7 +983,7 @@ export class SketchToolbarService {
     if (!this.opMessageToast) {
       this.opMessageToast = document.createElement('div');
       // Below the constraint mini bar (top-[106px]) so refusals don't cover it.
-      this.opMessageToast.className = 'absolute top-[152px] left-[calc(50%+var(--fluidcad-editor-width,0px)/2)] -translate-x-1/2 z-[1003] max-w-[440px] '
+      this.opMessageToast.className = 'absolute top-[152px] left-[calc(50%+var(--fluidcad-scene-left,0px)/2)] -translate-x-1/2 z-[1003] max-w-[440px] '
         + 'bg-base-100 border border-base-300 text-base-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md';
       this.container.appendChild(this.opMessageToast);
     }

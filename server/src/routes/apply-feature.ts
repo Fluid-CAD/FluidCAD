@@ -2,7 +2,7 @@ import { Router, type Response } from 'express';
 import type { FluidCadServer, SelectionBoundary } from '../fluidcad-server.ts';
 import { FeatureEditDispatcher, type EditDispatcherOptions } from '../edit-dispatch.ts';
 import {
-  applyFeatureEdit, extractNumericParams, makeProducerNamer, parseFeatureStatement, renderBooleanStatement,
+  applyFeatureEdit, extractNumericParams, makeProducerBindable, makeProducerNamer, parseFeatureStatement, renderBooleanStatement,
   parseOffsetTargetDescriptors,
   resolveEditedStatementLine,
   renderCopyCenterExpr,
@@ -3576,7 +3576,11 @@ export type ApplyFeatureRouterOptions = EditDispatcherOptions & {
 export function makeSynthesisOptionsForFile(fluidCadServer: FluidCadServer) {
   return async (
     filePath: string | null | undefined,
-  ): Promise<{ namer: Awaited<ReturnType<typeof makeProducerNamer>>; params: ReturnType<typeof resolveParamValues> } | undefined> => {
+  ): Promise<{
+    namer: Awaited<ReturnType<typeof makeProducerNamer>>;
+    bindable: Awaited<ReturnType<typeof makeProducerBindable>>;
+    params: ReturnType<typeof resolveParamValues>;
+  } | undefined> => {
     const currentFile = fluidCadServer.getCurrentFileName();
     let code: string | null = null;
     if (!filePath || (currentFile && normalizePath(filePath) === normalizePath(currentFile))) {
@@ -3593,6 +3597,7 @@ export function makeSynthesisOptionsForFile(fluidCadServer: FluidCadServer) {
     }
     return {
       namer: await makeProducerNamer(code),
+      bindable: await makeProducerBindable(code),
       params: resolveParamValues(
         await extractNumericParams(code),
         fluidCadServer.getParamDefinitions(),

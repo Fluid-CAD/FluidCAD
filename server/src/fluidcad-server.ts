@@ -91,6 +91,7 @@ type SceneManager = {
     }[],
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      bindable?: (producer: { line: number; featureType?: string }) => boolean;
       params?: { name: string; value: number }[];
     },
     before?: SelectionBoundary,
@@ -113,6 +114,7 @@ type SceneManager = {
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      bindable?: (producer: { line: number; featureType?: string }) => boolean;
       params?: { name: string; value: number }[];
     },
   ): any;
@@ -146,6 +148,7 @@ type SceneManager = {
     value: number | string | undefined,
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      bindable?: (producer: { line: number; featureType?: string }) => boolean;
       params?: { name: string; value: number }[];
       /** Copy only: one pick per edge-picked direction, in direction order. */
       axisRefs?: { shapeId: string }[];
@@ -1406,6 +1409,7 @@ export class FluidCadServer {
     }[] = [],
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      bindable?: (producer: { line: number; featureType?: string }) => boolean;
       params?: { name: string; value: number }[];
       connector?: {
         anchor?: { kind: string; mode?: string; value?: number };
@@ -1474,6 +1478,7 @@ export class FluidCadServer {
     ref: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } },
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      bindable?: (producer: { line: number; featureType?: string }) => boolean;
       params?: { name: string; value: number }[];
     },
   ): any {
@@ -1498,6 +1503,7 @@ export class FluidCadServer {
     value: number | string | undefined,
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
+      bindable?: (producer: { line: number; featureType?: string }) => boolean;
       params?: { name: string; value: number }[];
       /** Copy only: one pick per edge-picked direction, in direction order. */
       axisRefs?: { shapeId: string }[];

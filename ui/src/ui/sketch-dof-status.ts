@@ -31,7 +31,7 @@ export class SketchDofStatus {
 
     this.pill = document.createElement('div');
     this.pill.id = 'fluidcad-sketch-dof';
-    this.pill.className = 'absolute bottom-6 left-[calc(50%+var(--fluidcad-editor-width,0px)/2)] -translate-x-1/2 z-[100] panel-bg border border-base-content/10 rounded-full px-4 py-2 text-xs text-base-content/70 select-none flex items-center gap-2 cursor-default hidden';
+    this.pill.className = 'absolute bottom-6 left-[calc(50%+var(--fluidcad-scene-left,0px)/2)] -translate-x-1/2 z-[100] panel-bg border border-base-content/10 rounded-full px-4 py-2 text-xs text-base-content/70 select-none flex items-center gap-2 cursor-default hidden';
 
     this.icon = document.createElement('span');
     this.icon.className = 'shrink-0 [&>svg]:size-3.5';
@@ -43,7 +43,7 @@ export class SketchDofStatus {
     container.appendChild(this.pill);
 
     this.expandedList = document.createElement('div');
-    this.expandedList.className = 'absolute bottom-16 left-[calc(50%+var(--fluidcad-editor-width,0px)/2)] -translate-x-1/2 z-[100] panel-bg border border-base-content/10 rounded-md p-2 text-xs text-base-content/80 hidden min-w-[220px]';
+    this.expandedList.className = 'absolute bottom-16 left-[calc(50%+var(--fluidcad-scene-left,0px)/2)] -translate-x-1/2 z-[100] panel-bg border border-base-content/10 rounded-md p-2 text-xs text-base-content/80 hidden min-w-[220px]';
     container.appendChild(this.expandedList);
 
     this.pill.addEventListener('click', () => {

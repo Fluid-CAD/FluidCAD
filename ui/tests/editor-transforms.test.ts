@@ -60,12 +60,6 @@ const CASES: Record<string, Case> = {
     target: 'current',
     body: { sourceLine: 12, points: [[1, 2], [3, 4]] },
   },
-  'set-trim-targets': {
-    message: { args: "edge().line(80)", sourceLocation: SOURCE_LOCATION },
-    endpoint: 'set-trim-targets',
-    target: 'current',
-    body: { sourceLine: 12, args: "edge().line(80)" },
-  },
   'insert-geometry': {
     message: {
       statement: 'hLine([0, 0], 40)',

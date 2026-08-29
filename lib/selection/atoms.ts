@@ -147,6 +147,15 @@ export function instantiateEdgeAtoms(
       atoms.push({ code: `.circle(${c.text})`, addTo: b => b.circle(c.value), weight: 15, constants: 1, bakedConstants: c.linked ? 0 : 1, needsScope: false });
     }
   }
+  if (curveClass === null || curveClass === 'ellipse' || curveClass === 'other') {
+    // No positive curve-class atom covers these picks (mixed classes, or a
+    // class with no predicate — fillet transition edges probe as 'other').
+    // A negated class can still separate them: e.g. a rim of arcs plus
+    // fillet splines needs `.notCircle()` to shed a coplanar bore circle.
+    atoms.push({ code: '.notLine()', addTo: b => b.notLine(), weight: 28, constants: 0, needsScope: false });
+    atoms.push({ code: '.notCircle()', addTo: b => b.notCircle(), weight: 28, constants: 0, needsScope: false });
+    atoms.push({ code: '.notArc()', addTo: b => b.notArc(), weight: 28, constants: 0, needsScope: false });
+  }
 
   for (const plane of PRINCIPAL_PLANES) {
     atoms.push({
@@ -215,6 +224,14 @@ export function instantiateFaceAtoms(
   }
   if (surfaceClass === 'cone') {
     atoms.push({ code: '.cone()', addTo: b => b.cone(), weight: 30, constants: 0, needsScope: false });
+  }
+  if (surfaceClass === null || surfaceClass === 'sphere' || surfaceClass === 'other') {
+    // Same rationale as the negated edge classes: picks with no positive
+    // surface-class atom (mixed classes, or sphere/freeform) can still be
+    // separated from a same-plane intruder by what they are not.
+    atoms.push({ code: '.notPlanar()', addTo: b => b.notPlanar(), weight: 28, constants: 0, needsScope: false });
+    atoms.push({ code: '.notCylinder()', addTo: b => b.notCylinder(), weight: 28, constants: 0, needsScope: false });
+    atoms.push({ code: '.notCircle()', addTo: b => b.notCircle(), weight: 28, constants: 0, needsScope: false });
   }
   if (surfaceClass === 'torus') {
     atoms.push({ code: '.torus()', addTo: b => b.torus(), weight: 30, constants: 0, needsScope: false });

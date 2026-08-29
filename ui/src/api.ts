@@ -3623,6 +3623,45 @@ export function editorRedo(filePath: string): Promise<EditorHistoryResult> {
 }
 
 // ---------------------------------------------------------------------------
+// Timeline move-to-part (acked — a dry-run analyzes dependencies against the
+// server's copy and answers the companion set without touching the buffer;
+// the real call rides the edit dispatcher round trip with the editor)
+// ---------------------------------------------------------------------------
+
+export type MoveToPartResult = {
+  success: boolean;
+  reason?: string;
+  /** Statements the move must also include (the "Also moves: …" confirm). */
+  needs?: { name: string; line: number }[];
+};
+
+export async function moveToPart(
+  filePath: string,
+  lines: number[],
+  part: { line: number; column: number },
+  opts: { dryRun?: boolean } = {},
+): Promise<MoveToPartResult> {
+  try {
+    const res = await fetch('/api/move-to-part', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath, lines, part, ...(opts.dryRun ? { dryRun: true } : {}) }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || body?.success !== true) {
+      return {
+        success: false,
+        reason: body?.reason ?? `HTTP ${res.status}`,
+        ...(Array.isArray(body?.needs) ? { needs: body.needs } : {}),
+      };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, reason: err?.message || String(err) };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // File operations
 // ---------------------------------------------------------------------------
 

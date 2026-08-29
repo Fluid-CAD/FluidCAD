@@ -21,6 +21,7 @@ import {
   type SolvedEmissionSpec,
 } from './sketch-solved-edit.ts';
 import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
+import { MoveToPart, type MoveToPartSpec } from './move-to-part.ts';
 import { applyInsertPartEdit, type InsertPartEditSpec } from './part-catalog/insert-edit.ts';
 import { applyInstancePoseEdit, type InstancePoseEditSpec } from './insert-chain-edit.ts';
 import { applyInsertParamsEdit, type InsertParamsEditSpec } from './insert-params-edit.ts';
@@ -267,6 +268,13 @@ export type ApplyFeatureEditSpec = {
    * spec field is ignored.
    */
   newPart?: { name?: string };
+  /**
+   * Timeline drag-drop: move the selected top-level feature statements into
+   * a `part(...)` callback body, dependency-checked against the whole file.
+   * Rides the same round trip as `newPart`; every other spec field is
+   * ignored.
+   */
+  moveToPart?: MoveToPartSpec;
   /**
    * The `part(...)` call site whose callback body receives the created
    * statement — the timeline's active part. Only the producer-less appends
@@ -1449,6 +1457,9 @@ export async function applyFeatureEdit(
   if (spec.newPart) {
     return applyNewPart(code, spec.newPart);
   }
+  if (spec.moveToPart) {
+    return MoveToPart.apply(code, spec.moveToPart);
+  }
   if (spec.instancePose) {
     return applyInstancePoseWithDecls(code, spec);
   }
@@ -2536,23 +2547,8 @@ export async function makeProducerNamer(
   return (producers) => {
     const used = new Set(fileIdentifiers);
     return producers.map(producer => {
-      const call = findEditableCallAt(tree, lines, producer.line);
-      if (!call) {
-        return null;
-      }
-      const root = chainRootCallee(call);
-      // Sketch/plane/wire producers must name their own call — the pick
-      // features never attribute to one, so the looser callee stays scoped
-      // by type.
-      const requiredRoots = requiredChainRoots(producer.featureType ?? '');
-      const valid = requiredRoots
-        ? root !== null && requiredRoots.includes(root)
-        : root !== null && producerCallees(producer.featureType ?? '').has(root);
-      if (!valid) {
-        return null;
-      }
-      const resolved = resolveStatement(call);
-      if ('error' in resolved) {
+      const resolved = resolveBindableStatementAt(tree, lines, producer);
+      if (resolved === null) {
         return null;
       }
       if (!resolved.needsBinding && resolved.varName) {
@@ -2569,6 +2565,55 @@ export async function makeProducerNamer(
       return name;
     });
   };
+}
+
+/**
+ * The producer's statement resolved with the transform's own binding logic,
+ * or null when the transform would refuse to bind it: no producing call at
+ * the line, a callee the feature type does not accept, or a statement
+ * `resolveStatement` rejects (variable reassigned after the call, a
+ * destructuring binding, a call nested in another expression).
+ */
+function resolveBindableStatementAt(
+  tree: TSTree,
+  lines: string[],
+  producer: { line: number; featureType?: string },
+): Omit<ProducerBinding, 'bind'> | null {
+  const call = findEditableCallAt(tree, lines, producer.line);
+  if (!call) {
+    return null;
+  }
+  const root = chainRootCallee(call);
+  // Sketch/plane/wire producers must name their own call — the pick
+  // features never attribute to one, so the looser callee stays scoped
+  // by type.
+  const requiredRoots = requiredChainRoots(producer.featureType ?? '');
+  const valid = requiredRoots
+    ? root !== null && requiredRoots.includes(root)
+    : root !== null && producerCallees(producer.featureType ?? '').has(root);
+  if (!valid) {
+    return null;
+  }
+  const resolved = resolveStatement(call);
+  return 'error' in resolved ? null : resolved;
+}
+
+/**
+ * Statement-level bindability probe for selection synthesis (the
+ * SynthesizeOptions `bindable` hook): whether the transform can bind the
+ * producer's statement to a variable. Built over the same file the emitted
+ * statement will land in, so synthesis avoids selectors referencing a
+ * producer the apply would refuse — a variable reassigned after the
+ * producing call routes its picks through the variable-free global tier
+ * instead of failing at apply time.
+ */
+export async function makeProducerBindable(
+  code: string,
+): Promise<(producer: { line: number; featureType?: string }) => boolean> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const lines = splitLines(code);
+  return producer => resolveBindableStatementAt(tree, lines, producer) !== null;
 }
 
 /**
@@ -4118,7 +4163,7 @@ async function insertDeclsAfterImports(code: string, decls: string[]): Promise<s
  * which reads the sketch it is called from and so lands inside that
  * sketch's body rather than in the producers' scope.
  */
-type Insertion = { index: number; indent: string; wrap: (stmt: string) => string };
+export type Insertion = { index: number; indent: string; wrap: (stmt: string) => string };
 
 function resolveInsertion(
   spec: ApplyFeatureEditSpec,
@@ -4209,7 +4254,7 @@ const LOOP_NODE_TYPES = new Set([
  * part body itself. Bound producers must live inside the body: a variable
  * declared elsewhere isn't visible at the insertion point.
  */
-function resolvePartBodyInsertion(
+export function resolvePartBodyInsertion(
   partLoc: { line: number; column: number },
   bindings: ProducerBinding[],
   lines: string[],

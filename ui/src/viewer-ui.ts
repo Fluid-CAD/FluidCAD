@@ -15,6 +15,8 @@ export { themeColors, onThemeChange } from './scene/theme-colors';
 export { viewerSettings, applyPreferences } from './scene/viewer-settings';
 
 export { TimelinePanel } from './ui/timeline-panel';
+export { AccordionSection } from './ui/accordion-section';
+export type { AccordionSectionOptions } from './ui/accordion-section';
 export { ShapesPanel } from './ui/shapes-panel';
 export { ParamsPanel } from './ui/params-panel';
 export { ShapePropertiesModal } from './ui/shape-properties-modal';
@@ -23,6 +25,9 @@ export { ErrorBanner } from './ui/error-banner';
 export { LoadingOverlay } from './ui/loading-overlay';
 export { TopBar } from './ui/top-bar';
 export type { TopBarHandlers } from './ui/top-bar';
+export type { TopBarAction, TopBarActionHandlers, TopBarExportHandlers } from './ui/top-bar-actions';
+export { PanelRail } from './ui/panel-rail';
+export type { PanelRailHandlers } from './ui/panel-rail';
 export type { FileTab, FileTabsHandlers } from './editor/tabs';
 export { PartsPanel } from './ui/parts-panel';
 export type { PartsPanelOptions } from './ui/parts-panel';

@@ -67,11 +67,6 @@ export const TRANSFORMS: Record<string, TransformSpec> = {
     target: 'current',
     body: (msg) => ({ ...atSourceLine(msg), points: msg.points }),
   },
-  'set-trim-targets': {
-    endpoint: 'set-trim-targets',
-    target: 'current',
-    body: (msg) => ({ ...atSourceLine(msg), args: msg.args }),
-  },
   'insert-geometry': {
     endpoint: 'insert-geometry',
     target: 'current',

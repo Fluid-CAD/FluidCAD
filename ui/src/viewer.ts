@@ -16,6 +16,7 @@ import { themeColors } from './scene/theme-colors';
 import { StandardPlaneId, StandardPlanes } from './scene/standard-planes';
 import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates } from './interactive/pick-candidates';
+import { captureScreenshot } from './screenshot';
 import { findActiveObject, isSceneEmpty } from './helpers/scene-utils';
 
 /** Recursively expand `box` to include `object`, skipping meta-shape subtrees. */
@@ -274,6 +275,44 @@ export class Viewer {
 
   get currentSceneObjects(): SceneObjectRender[] {
     return this.sceneObjects;
+  }
+
+  /**
+   * One solid alone, rendered to a small transparent PNG from the standard
+   * iso view — the top bar's Export rows preview themselves with these.
+   *
+   * The other shapes are hidden only across the synchronous
+   * {@link captureScreenshot} render (bounds fitting skips invisible objects,
+   * so the solid fills the frame), which is why the interactive canvas never
+   * sees the toggle.
+   */
+  captureSolidThumbnail(shapeId: string, size = 128): Promise<Blob> {
+    const touched: Array<[Object3D, boolean]> = [];
+    this.ctx.scene.traverse((child) => {
+      const id = child.userData.shapeId as string | undefined;
+      if (id === undefined) {
+        return;
+      }
+      if (id !== shapeId && child.visible) {
+        touched.push([child, true]);
+        child.visible = false;
+      } else if (id === shapeId && !child.visible) {
+        touched.push([child, false]);
+        child.visible = true;
+      }
+    });
+    try {
+      return captureScreenshot(this.ctx, {
+        width: size,
+        height: size,
+        transparent: true,
+        view: { kind: 'named', name: 'iso-ftr' },
+      });
+    } finally {
+      for (const [child, visible] of touched) {
+        child.visible = visible;
+      }
+    }
   }
 
   /**

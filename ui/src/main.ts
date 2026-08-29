@@ -1535,14 +1535,6 @@ const modifyService = new ModifyPickService(container, viewer, navbar, {
 // The dialogs dock at top-[196px] right-4: the sketch dialog steps aside
 // while a 2D op dialog (fillet, offset) is open and returns when it closes.
 sketchService.onOpDialogToggle = (open) => modifyService.setSketchPanelSuspended(open);
-// The Part tool appends an empty part() statement — constructed after the
-// modify service so its button prepends ahead of Sketch. The fresh part
-// becomes the active part on the render that carries it, so the next
-// sketch/plane lands inside its callback body.
-const partTool = new PartToolButton(navbar, {
-  onCreated: () => activePartTracker.activateLastOnNextRender(),
-  onRefused: (reason) => showToast(reason),
-});
 // Constructed after the modify service so its solo navbar group registers
 // after every other tool group — the Repeat button renders last, behind the
 // separator the navbar draws between visible groups.
@@ -1757,6 +1749,16 @@ const connectorService = new ConnectorFeatureService(container, viewer, navbar, 
   onActiveChange: syncSketchButtonBlocked,
   onSuspendSketchUI: suspendSketchForFeature,
   onResumeSketchUI: resumeSketchForFeature,
+});
+
+// The Part tool appends an empty part() statement — constructed after the
+// connector service so that group already exists (and sits last on the bar),
+// and its button prepends ahead of Connector. The fresh part becomes the
+// active part on the render that carries it, so the next sketch/plane lands
+// inside its callback body.
+const partTool = new PartToolButton(navbar, {
+  onCreated: () => activePartTracker.activateLastOnNextRender(),
+  onRefused: (reason) => showToast(reason),
 });
 
 // While a sketch is active, the create-feature buttons collapse into a single

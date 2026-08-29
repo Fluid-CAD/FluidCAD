@@ -367,10 +367,10 @@ export class SketchMesh extends Group {
         : bucketFor(color, NON_INTERACTIVE_VERTEX_PX_RADIUS, NON_INTERACTIVE_VERTEX_OPACITY);
 
       for (const shape of obj.sceneShapes) {
-        if (shape.isGuide) {
-          continue;
-        }
-
+        // Meta point vertices (circle/arc/ellipse centers, text anchors)
+        // before the guide skip: guiding an entity marks every shape it
+        // owns, but its center stays a solver point — draggable and
+        // constrainable — so the dot must survive the conversion.
         if (shape.isMetaShape) {
           for (const meshData of shape.meshes) {
             if (meshData.vertices.length === 3 && meshData.indices.length === 0) {
@@ -381,6 +381,10 @@ export class SketchMesh extends Group {
               ));
             }
           }
+          continue;
+        }
+
+        if (shape.isGuide) {
           continue;
         }
 

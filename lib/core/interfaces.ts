@@ -300,6 +300,45 @@ export interface ISolvedCircle extends IExtrudableGeometry {
 }
 
 /**
+ * One named edge of a macro shape (`r.bottom()`, `r.corner(i)`): a
+ * constraint/dimension target. Its point accessors name the edge's
+ * endpoints (and an arc's center), like the solved primitives'.
+ */
+export interface IMacroEdge {
+  start(): LazyVertex;
+  end(): LazyVertex;
+  center(): LazyVertex;
+}
+
+/**
+ * A `rect()` macro shape (fluidcad/shapes): an axis-aligned rectangle as
+ * one atomic, self-constrained statement. All arguments are guesses — a
+ * bare rect keeps 4 degrees of freedom (5 with `.radius()`); pin and
+ * dimension it with external constraints against its edge accessors.
+ */
+export interface IRect extends ISceneObject {
+  // rect(pos, width, height? = width) — omitting height draws a square.
+  /** Marks the whole shape as construction geometry. */
+  guide(): this;
+  /** Reinterprets the position argument as the rectangle's center. */
+  centered(): this;
+  /**
+   * Rounds all four corners with a shared radius. The value is a guess
+   * (one extra degree of freedom) — lock it with a `radius()` dimension
+   * on a corner arc.
+   */
+  radius(r: number): this;
+  /** The bottom edge (drawing order: the side leaving the pos corner). */
+  bottom(): IMacroEdge;
+  right(): IMacroEdge;
+  top(): IMacroEdge;
+  left(): IMacroEdge;
+  /** Corner arc `i` (0 at the pos corner, numbered counter-clockwise) —
+   * rounded rects only. */
+  corner(i: number): IMacroEdge;
+}
+
+/**
  * An ellipse statement. Inside a sketch its center is a solver point
  * entity — constraints target `.center()` and the solve positions the
  * ellipse; the radii stay fixed literals.

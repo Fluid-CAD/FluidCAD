@@ -10,6 +10,7 @@ import { Extrudable } from "../../helpers/types.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { SketchSolverContext } from "./solved/solver-context.js";
 import { isReferenceProducer } from "./solved/reference.js";
+import { isMacroProducer } from "./solved/macros/finalize.js";
 
 export class Sketch extends SceneObject implements Extrudable {
 
@@ -49,6 +50,13 @@ export class Sketch extends SceneObject implements Extrudable {
     }
     this._solveDone = true;
     for (const child of this.getChildren()) {
+      // Macro shapes register their sub-entities + internal rows now — the
+      // callback has executed, so chained modifiers (.radius/.centered) are
+      // final. Like prepare, finalize stashes its own error for the child's
+      // build slot rather than aborting the solve.
+      if (isMacroProducer(child)) {
+        child.finalizeMacro();
+      }
       if (isReferenceProducer(child)) {
         // prepare caches its own error for the child's build slot — a failed
         // projection must not abort the sketch's solve.

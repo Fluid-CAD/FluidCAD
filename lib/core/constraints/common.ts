@@ -15,6 +15,8 @@ import {
   ReferenceEntityRef, ReferencePointRef, isReferenceProducer,
   type ReferenceProducer,
 } from "../../features/2d/solved/reference.js";
+import { MacroShapeBase } from "../../features/2d/solved/macros/base.js";
+import { MacroEdgeRef, MacroPointRef } from "../../features/2d/solved/macros/refs.js";
 import { Copy2DBase } from "../../features/copy2d-base.js";
 import { Copy2DInstance, Copy2DInstancePointRef } from "../../features/copy2d-instance-ref.js";
 import { LazyVertex } from "../../features/lazy-vertex.js";
@@ -30,7 +32,8 @@ import type { ConstraintSpec, SolverRef } from "../../sketch-solver/index.js";
  * project()/intersect() statement, its `.ref(i)` handle, or one of their
  * point accessors (P6).
  */
-export type ConstraintTarget = ISceneObject | LazyVertex | SketchDatum | ReferenceEntityRef | IReferenceEntity;
+export type ConstraintTarget =
+  ISceneObject | LazyVertex | SketchDatum | ReferenceEntityRef | IReferenceEntity | MacroEdgeRef;
 
 /**
  * A reference target's entity id only exists after the sketch's pre-solve
@@ -39,12 +42,18 @@ export type ConstraintTarget = ISceneObject | LazyVertex | SketchDatum | Referen
  * registers deferred; SolvedConstraint substitutes the real ids into a clone
  * at resolve time. Keeping the placeholder in the stored spec makes
  * compareTo stable across rebuilds — real ids never enter the comparison.
+ * Macro shape targets (fluidcad/shapes accessors) defer the same way: their
+ * sub-entities register at the pre-solve pass too (finalizeMacro).
  */
-export type PendingReference = {
-  placeholder: number;
-  owner: ReferenceProducer;
-  index: number | null;
-};
+export type PendingReference =
+  | { placeholder: number; owner: ReferenceProducer; index: number | null }
+  | { placeholder: number; macro: MacroShapeBase; slot: string };
+
+export function isMacroPending(
+  p: PendingReference,
+): p is { placeholder: number; macro: MacroShapeBase; slot: string } {
+  return 'macro' in p;
+}
 
 /** Collector for the emitConstraint call currently resolving its spec. */
 let currentPending: PendingReference[] | null = null;
@@ -61,6 +70,22 @@ function pendingRef(owner: ReferenceProducer, index: number | null, point?: Solv
   const placeholder = referencePlaceholder(owner, index);
   if (currentPending && !currentPending.some(p => p.placeholder === placeholder)) {
     currentPending.push({ placeholder, owner, index });
+  }
+  return point ? { entity: placeholder, point } : { entity: placeholder };
+}
+
+function macroPlaceholder(macro: MacroShapeBase, slot: string): number {
+  const sketch = macro.sketch;
+  const childIndex = sketch ? sketch.getChildren().indexOf(macro) : -1;
+  // A separate range from reference placeholders (-1000…): deterministic per
+  // (statement position, slot ordinal), so identical rebuilds compare equal.
+  return -(2_000_000 + Math.max(childIndex, 0) * 1000 + macro.slotOrdinal(slot));
+}
+
+function pendingMacroRef(macro: MacroShapeBase, slot: string, point?: SolverRef['point']): SolverRef {
+  const placeholder = macroPlaceholder(macro, slot);
+  if (currentPending && !currentPending.some(p => p.placeholder === placeholder)) {
+    currentPending.push({ placeholder, macro, slot });
   }
   return point ? { entity: placeholder, point } : { entity: placeholder };
 }
@@ -89,6 +114,20 @@ export function toRef(arg: ConstraintTarget, what: string): SolverRef {
   }
   if (arg instanceof ReferenceEntityRef) {
     return pendingRef(arg.owner, arg.index);
+  }
+  // Macro shape accessors (rect().bottom(), .corner(i), their points):
+  // sub-entities register at the pre-solve pass, so they defer like
+  // references — with their own placeholder range.
+  if (arg instanceof MacroPointRef) {
+    return pendingMacroRef(arg.owner, arg.slot, arg.role);
+  }
+  if (arg instanceof MacroEdgeRef) {
+    return pendingMacroRef(arg.owner, arg.slot);
+  }
+  if (arg instanceof MacroShapeBase) {
+    throw new Error(
+      `${what}: a ${arg.getType()}() shape has several edges — name one with its accessors (.bottom(), .corner(i), …)`,
+    );
   }
   if (arg instanceof SketchDatum) {
     return arg.ref();
@@ -123,6 +162,25 @@ function ownerOf(arg: ConstraintTarget | undefined): GeometrySceneObject | null 
     return arg.owner;
   }
   if (arg instanceof SolvedGeometryBase) {
+    return arg;
+  }
+  if (arg instanceof MacroPointRef || arg instanceof MacroEdgeRef) {
+    return arg.owner;
+  }
+  if (arg instanceof MacroShapeBase) {
+    return arg;
+  }
+  return null;
+}
+
+/** Macro shape behind a target, if any — such targets register deferred
+ * (their entity ids exist only after the pre-solve pass) but are NOT
+ * fixed: a macro is drawn geometry. */
+function macroOwnerOf(arg: ConstraintTarget | undefined): MacroShapeBase | null {
+  if (arg instanceof MacroPointRef || arg instanceof MacroEdgeRef) {
+    return arg.owner;
+  }
+  if (arg instanceof MacroShapeBase) {
     return arg;
   }
   return null;
@@ -210,10 +268,13 @@ export function emitConstraint(
     return specFn();
   };
 
-  // Reference targets defer id resolution to the sketch's pre-solve pass —
-  // the spec still resolves EAGERLY (validation, values, branches) with
-  // deterministic placeholder ids; only the constrain() call waits.
-  const hasReference = args.some(a => a !== undefined && referenceOwnerOf(a) !== null);
+  // Reference and macro-shape targets defer id resolution to the sketch's
+  // pre-solve pass — the spec still resolves EAGERLY (validation, values,
+  // branches) with deterministic placeholder ids; only the constrain() call
+  // waits.
+  const hasReference = args.some(
+    a => a !== undefined && (referenceOwnerOf(a) !== null || macroOwnerOf(a) !== null),
+  );
   if (hasReference) {
     const pending: PendingReference[] = [];
     statement.registerDeferred(sketch, () => {

@@ -206,6 +206,37 @@ export class SketchSystem {
   }
 
   /**
+   * INTERNAL constraint row(s) owned by a macro shape statement
+   * (fluidcad/shapes): a user-kind spec (coincident, horizontal,
+   * tangent, equal, …) stored as an internal record — negative id,
+   * no user statement, never individually deletable. Diagnose boosts
+   * internal rows so redundancy attribution names USER statements,
+   * and a conflicting internal id maps back to the owning macro
+   * statement in the context layer. `id` (negative) replays a
+   * snapshot record — the UI rebuild path, like transform ties.
+   */
+  constrainInternal(spec: ConstraintSpec, id?: number): number {
+    let cid: number;
+    if (id !== undefined) {
+      if (id >= 0 || !Number.isInteger(id)) {
+        throw new Error(`sketch-solver: internal constraint id must be a negative integer, got ${id}`);
+      }
+      if (this.constraintList.some((c) => c.id === id)) {
+        throw new Error(`sketch-solver: duplicate internal constraint id ${id}`);
+      }
+      cid = id;
+      this.nextInternalId = Math.min(this.nextInternalId, cid - 1);
+    } else {
+      cid = this.nextInternalId--;
+    }
+    const record: ConstraintRecord = { id: cid, internal: true, spec };
+    compileConstraint(record, this.compileCtx()); // validate eagerly, discard rows
+    this.constraintList.push(record);
+    this.structuralVersion++;
+    return cid;
+  }
+
+  /**
    * INTERNAL affine tie: rigidly derive `target` from `source` (same
    * kind) through p' = [[a,b],[c,d]]·p + [tx,ty] with matrix =
    * [a, b, c, d, tx, ty] — the engine-side registration for derived
@@ -414,13 +445,17 @@ export class SketchSystem {
   // -- resolution ---------------------------------------------------------
 
   private compileCtx(): CompileCtx {
-    // Junction index for tangency-at-endpoint detection: user
-    // coincident statements, keyed by the point's ix param.
+    // Junction index for tangency-at-endpoint detection: coincident
+    // records keyed by the point's ix param. INTERNAL coincidents (macro
+    // shape corner junctions) count too — a macro's internal tangent rows
+    // must compile in junction form at those corners, exactly like user
+    // tangents at user coincidents (P1 finding: the distance form is
+    // rank-deficient at a coincident endpoint).
     const linked = new Map<number, Set<number>>();
     const onEntity = new Map<number, Set<number>>();
     for (const record of this.constraintList) {
       const spec = record.spec;
-      if (record.internal || spec.kind !== 'coincident') {
+      if (spec.kind !== 'coincident') {
         continue;
       }
       const aIsPoint = this.entity(spec.a.entity).kind === 'point' || spec.a.point !== undefined;

@@ -106,7 +106,11 @@ export class SolvedConstraint extends SceneObject {
             const ref = value as Partial<SolverRef>;
             const pendingRef = typeof ref.entity === 'number' ? byPlaceholder.get(ref.entity) : undefined;
             if (pendingRef) {
-              ref.entity = referenceEntityId(pendingRef.owner, pendingRef.index, this.kind);
+              // Macro pendings resolve through the shape's slot table;
+              // reference pendings through the producer's edge records.
+              ref.entity = 'macro' in pendingRef
+                ? pendingRef.macro.macroEntityId(pendingRef.slot, this.kind)
+                : referenceEntityId(pendingRef.owner, pendingRef.index, this.kind);
             }
             substitute(value);
           }
@@ -163,10 +167,9 @@ export class SolvedConstraint extends SceneObject {
     copy._deps = this._deps.map(d => remap.get(d) ?? d);
     copy._resolvedSpec = this._resolvedSpec;
     copy._pendingRefs = this._pendingRefs
-      ? this._pendingRefs.map(p => ({
-        ...p,
-        owner: (remap.get(p.owner) as typeof p.owner) ?? p.owner,
-      }))
+      ? this._pendingRefs.map(p => ('macro' in p
+        ? { ...p, macro: (remap.get(p.macro) as typeof p.macro) ?? p.macro }
+        : { ...p, owner: (remap.get(p.owner) as typeof p.owner) ?? p.owner }))
       : null;
     return copy;
   }

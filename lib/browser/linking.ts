@@ -2,6 +2,7 @@ import * as fluidcadRoot from "../index.js";
 import * as core from "../core/index.js";
 import * as filters from "../filters/index.js";
 import * as constraints from "../core/constraints/index.js";
+import * as shapes from "../core/shapes/index.js";
 import * as math from "../math/index.js";
 
 /**
@@ -15,6 +16,7 @@ const ENGINE_NAMESPACES: Record<string, Record<string, unknown>> = {
   "fluidcad/core": core as unknown as Record<string, unknown>,
   "fluidcad/filters": filters as unknown as Record<string, unknown>,
   "fluidcad/constraints": constraints as unknown as Record<string, unknown>,
+  "fluidcad/shapes": shapes as unknown as Record<string, unknown>,
   "fluidcad/math": math as unknown as Record<string, unknown>,
 };
 

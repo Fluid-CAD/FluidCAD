@@ -52,6 +52,11 @@ const CONSTRAINT_SYMBOLS = new Set<string>([
   'concentric', 'collinear', 'midpoint', 'symmetric', 'fix',
 ]);
 
+const SHAPE_SYMBOLS = new Set<string>([
+  // Macro shapes (fluidcad/shapes) — atomic self-constrained units.
+  'rect',
+]);
+
 const MODULE_FOR_SYMBOL = new Map<string, string>();
 for (const s of CORE_SYMBOLS) {
   MODULE_FOR_SYMBOL.set(s, 'fluidcad/core');
@@ -61,6 +66,9 @@ for (const s of FILTER_SYMBOLS) {
 }
 for (const s of CONSTRAINT_SYMBOLS) {
   MODULE_FOR_SYMBOL.set(s, 'fluidcad/constraints');
+}
+for (const s of SHAPE_SYMBOLS) {
+  MODULE_FOR_SYMBOL.set(s, 'fluidcad/shapes');
 }
 
 export type EngineSymbol = { name: string; module: string };

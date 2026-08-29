@@ -43,6 +43,7 @@
     "./core": "./lib/dist/core/index.js",
     "./filters": "./lib/dist/filters/index.js",
     "./constraints": "./lib/dist/core/constraints/index.js",
+    "./shapes": "./lib/dist/core/shapes/index.js",
     "./server": "./server/dist/index.js",
     "./server/api": "./server/dist/api.js",
     "./math": "./lib/dist/math/index.js",

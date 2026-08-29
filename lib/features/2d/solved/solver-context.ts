@@ -89,6 +89,18 @@ export class SketchSolverContext {
   }
 
   /**
+   * INTERNAL constraint row owned by a macro shape statement
+   * (fluidcad/shapes): negative id, no badge/timeline presence, not
+   * individually deletable. The owner mapping makes a conflicting
+   * internal id surface as an error on the macro's own row.
+   */
+  addInternalConstraint(owner: SceneObject, spec: ConstraintSpec): number {
+    const id = this.system.constrainInternal(spec);
+    this.constraintStatements.set(id, owner);
+    return id;
+  }
+
+  /**
    * Queue a constraint whose targets include fixed references (P6): their
    * entity ids only exist after the pre-solve pass builds the projections,
    * so the spec resolves in {@link resolveDeferredConstraints} instead of at

@@ -162,31 +162,52 @@ describe('slotEmission', () => {
 });
 
 describe('polygonEmission', () => {
-  it('emits n lines with chain coincidents, n−1 equal, n−3 turn angles', () => {
-    const e = polygonEmission({ center: [0, 0], diameter: 20, sides: 4 });
-    expect(e.geometry).toHaveLength(4);
-    // Across-flats ⌀20 square: vertices on the circumscribed radius
-    // 10/cos(45°) ≈ 14.14, first vertex at +X (the preview's convention).
-    expect(e.geometry[0].text).toBe('line([14.14, 0], [0, 14.14])');
-    expect(e.constraints.filter(c => c.kind === 'coincident')).toHaveLength(4);
-    expect(e.constraints.filter(c => c.kind === 'equal')).toHaveLength(3);
+  it('circumscribed: n lines + a guide circle, chain coincidents, one variadic equal, n tangents', () => {
+    const e = polygonEmission({ center: [0, 0], diameter: 20, sides: 5, mode: 'circumscribed' });
+    expect(e.geometry).toHaveLength(6);
+    expect(e.geometry[5]).toEqual({ kind: 'circle', text: 'circle([0, 0], 20)', guide: true });
+    // Guide ⌀20 across flats: vertices on the circumscribed radius
+    // 10/cos(36°) ≈ 12.36, first vertex at +X (the preview's convention).
+    expect(e.geometry[0].text).toBe('line([12.36, 0], [3.82, 11.76])');
+    expect(e.constraints.filter(c => c.kind === 'coincident')).toHaveLength(5);
+    const equal = e.constraints.filter(c => c.kind === 'equal');
+    expect(equal).toHaveLength(1);
+    expect(equal[0].targets).toHaveLength(5);
+    expect(e.constraints.filter(c => c.kind === 'tangent')).toHaveLength(5);
+    // Odd n: fully pinned without an angle.
+    expect(e.constraints.filter(c => c.kind === 'angle')).toHaveLength(0);
+  });
+
+  it('circumscribed even n: leaves the last side out of the equal and pins one corner angle', () => {
+    const e = polygonEmission({ center: [0, 0], diameter: 20, sides: 6, mode: 'circumscribed' });
+    const equal = e.constraints.filter(c => c.kind === 'equal');
+    expect(equal).toHaveLength(1);
+    // Pitot: the 6th side's equality is implied by the tangents; keeping it
+    // would add a redundant row and leave the squished-hexagon freedom.
+    expect(equal[0].targets).toEqual([0, 1, 2, 3, 4].map(i => ({ newIndex: i })));
+    expect(e.constraints.filter(c => c.kind === 'tangent')).toHaveLength(6);
     const angles = e.constraints.filter(c => c.kind === 'angle');
     expect(angles).toHaveLength(1);
-    expect(angles[0]).toEqual({ kind: 'angle', targets: [{ newIndex: 0 }, { newIndex: 1 }], valueExpr: '90' });
+    expect(angles[0]).toEqual({ kind: 'angle', targets: [{ newIndex: 0 }, { newIndex: 1 }], valueExpr: '60' });
   });
 
-  it('dims a typed ⌀ as the opposite-side distance for even n', () => {
-    const e = polygonEmission({ center: [0, 0], diameter: 20, sides: 6, diameterDim: '20' });
-    const dim = e.constraints.find(c => c.kind === 'distance');
-    expect(dim?.targets).toEqual([{ newIndex: 0 }, { newIndex: 3 }]);
+  it('inscribed: vertices ride the guide circle instead of tangent sides', () => {
+    const e = polygonEmission({ center: [0, 0], diameter: 20, sides: 4, mode: 'inscribed' });
+    expect(e.geometry).toHaveLength(5);
+    expect(e.geometry[4]).toEqual({ kind: 'circle', text: 'circle([0, 0], 20)', guide: true });
+    // Guide ⌀20 across corners: vertices at radius 10.
+    expect(e.geometry[0].text).toBe('line([10, 0], [0, 10])');
+    // 4 chain junctions + 4 vertex-on-circle.
+    expect(e.constraints.filter(c => c.kind === 'coincident')).toHaveLength(8);
+    expect(e.constraints.filter(c => c.kind === 'equal')[0].targets).toHaveLength(4);
+    expect(e.constraints.filter(c => c.kind === 'tangent')).toHaveLength(0);
+    expect(e.constraints.filter(c => c.kind === 'angle')).toHaveLength(0);
+  });
+
+  it('dims a typed ⌀ on the guide circle', () => {
+    const e = polygonEmission({ center: [0, 0], diameter: 20, sides: 5, mode: 'circumscribed', diameterDim: '20' });
+    const dim = e.constraints.find(c => c.kind === 'diameter');
+    expect(dim?.targets).toEqual([{ newIndex: 5 }]);
     expect(dim?.valueExpr).toBe('20');
-  });
-
-  it('converts a typed ⌀ to a numeric side length for odd n', () => {
-    const e = polygonEmission({ center: [0, 0], diameter: 20, sides: 5, diameterDim: '20' });
-    const dim = e.constraints.find(c => c.kind === 'distance');
-    expect(dim?.targets).toEqual([{ newIndex: 0, role: 'start' }, { newIndex: 0, role: 'end' }]);
-    // side = ⌀ · tan(π/5)
-    expect(dim?.valueExpr).toBe('14.53');
   });
 });

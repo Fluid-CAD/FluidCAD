@@ -12,8 +12,16 @@ import {
   pixelToSketchThreshold,
 } from '../sketch-plane-utils';
 import { ICON_POLYGON } from '../../ui/icons';
-import { dimMagnitude, polygonEmission } from './solved-emission';
-import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
+import {
+  coincident,
+  dimMagnitude,
+  newTarget,
+  polygonEmission,
+  refTarget,
+  type PolygonMode,
+} from './solved-emission';
+import type { SolvedVertexRef } from '../../snapping/types';
+import { ExpressionInput, CommitResult } from '../../ui/expression-input';
 import {
   START_POINT_COLOR,
   SNAP_VERTEX_COLOR,
@@ -38,6 +46,9 @@ export class PolygonTool extends SketchTool {
   private centerPoint: [number, number] | null = null;
   /** The centre as picked: same position, plus any typed axis expressions. */
   private centerPick: PickedPoint | null = null;
+  /** The centre click's snap provenance — becomes a coincident on the guide
+   * circle's centre (the polygon's only centre-carrying entity). */
+  private centerSnapRef: SolvedVertexRef | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private expressionInput: ExpressionInput;
@@ -66,6 +77,7 @@ export class PolygonTool extends SketchTool {
     insertGeometry: InsertGeometryFn,
     container: HTMLElement,
     fetchVariables: FetchVariablesFn,
+    private readonly mode: PolygonMode,
   ) {
     super(ctx, plane, snapController, insertGeometry, container, fetchVariables);
     this.expressionInput = new ExpressionInput(container);
@@ -120,6 +132,7 @@ export class PolygonTool extends SketchTool {
   private resetState(): void {
     this.centerPoint = null;
     this.centerPick = null;
+    this.centerSnapRef = null;
     this.mousePoint = null;
     this.expressionPhase = 'diameter';
     this.diameterExpression = null;
@@ -161,7 +174,11 @@ export class PolygonTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (!this.centerPoint) {
-      this.consumeCenter(this.applyPointInput(result.point2d));
+      // The pill contributes any axis the user typed; free axes come from the
+      // cursor, so a plain click behaves exactly as it always did.
+      const picked = this.applyPointInput(result.point2d);
+      this.consumeCenter(picked);
+      this.centerSnapRef = !picked.typed && !(e.ctrlKey || e.metaKey) ? result.ref ?? null : null;
       return;
     }
 
@@ -336,11 +353,21 @@ export class PolygonTool extends SketchTool {
         center: center.value,
         diameter,
         sides,
+        mode: this.mode,
         ...(this.diameterTyped ? { diameterDim: dimMagnitude(diameterResult.expression) } : {}),
       });
+      const constraints = [...emission.constraints];
+      if (this.centerSnapRef && this.autoConstraintsEnabled()) {
+        // The guide circle (last geometry entry) carries the polygon's centre.
+        constraints.push(coincident(
+          newTarget(emission.geometry.length - 1, 'center'),
+          refTarget(this.centerSnapRef),
+        ));
+      }
       const variables = [...center.newVariables, ...newVariables];
       void this.solvedCtx.emit({
-        ...emission,
+        geometry: emission.geometry,
+        constraints,
         ...(variables.length > 0 ? { newVariables: variables } : {}),
       });
       this.diameterTyped = false;
@@ -363,13 +390,18 @@ export class PolygonTool extends SketchTool {
             addDashedCircle(this.previewGroup, this.centerPoint, radius, this.plane);
           }
         } else {
-          const inscribedRadius = this.lockedDiameter !== null
+          const guideRadius = this.lockedDiameter !== null
             ? this.lockedDiameter / 2
             : dist2D(this.centerPoint, this.mousePoint);
 
-          if (inscribedRadius > 0 && this.currentSides >= MIN_SIDES) {
-            const circumscribedRadius = inscribedRadius / Math.cos(Math.PI / this.currentSides);
-            addDashedPolygon(this.previewGroup, this.centerPoint, circumscribedRadius, this.currentSides, this.plane);
+          if (guideRadius > 0 && this.currentSides >= MIN_SIDES) {
+            // The dragged circle is the guide circle: sides tangent to it when
+            // circumscribed, vertices on it when inscribed.
+            const vertexRadius = this.mode === 'circumscribed'
+              ? guideRadius / Math.cos(Math.PI / this.currentSides)
+              : guideRadius;
+            addDashedCircle(this.previewGroup, this.centerPoint, guideRadius, this.plane);
+            addDashedPolygon(this.previewGroup, this.centerPoint, vertexRadius, this.currentSides, this.plane);
           }
         }
       }

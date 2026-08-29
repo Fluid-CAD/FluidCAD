@@ -117,8 +117,28 @@ describe('shape-gesture emissions solve clean', () => {
     expect(solver.dof).toBe(3);
   });
 
-  it('hexagon: solved, no diagnostics, DOF 4 (position + rotation + size)', async () => {
-    const solver = await emitAndSolve(polygonEmission({ center: [0, 0], diameter: 20, sides: 6 }));
+  // The guide-circle polygon's even-n case is the Pitot trap: all-tangent +
+  // full-equal would solve at DOF 5 with a redundant tangent row, so the
+  // recipe swaps one equality for one corner angle — both parities must land
+  // on the same clean DOF 4 (position + rotation + size).
+  it('hexagon (circumscribed, even n): solved, no diagnostics, DOF 4', async () => {
+    const solver = await emitAndSolve(polygonEmission({ center: [0, 0], diameter: 20, sides: 6, mode: 'circumscribed' }));
+    expect(solver.outcome).toBe('solved');
+    expect(solver.conflicting).toEqual([]);
+    expect(solver.redundant).toEqual([]);
+    expect(solver.dof).toBe(4);
+  });
+
+  it('pentagon (circumscribed, odd n): solved, no diagnostics, DOF 4', async () => {
+    const solver = await emitAndSolve(polygonEmission({ center: [0, 0], diameter: 20, sides: 5, mode: 'circumscribed' }));
+    expect(solver.outcome).toBe('solved');
+    expect(solver.conflicting).toEqual([]);
+    expect(solver.redundant).toEqual([]);
+    expect(solver.dof).toBe(4);
+  });
+
+  it('hexagon (inscribed): solved, no diagnostics, DOF 4', async () => {
+    const solver = await emitAndSolve(polygonEmission({ center: [0, 0], diameter: 20, sides: 6, mode: 'inscribed' }));
     expect(solver.outcome).toBe('solved');
     expect(solver.conflicting).toEqual([]);
     expect(solver.redundant).toEqual([]);
@@ -178,7 +198,7 @@ describe('shape-gesture emissions solve clean', () => {
 
   it('hexagon with a typed ⌀: DOF 3', async () => {
     const solver = await emitAndSolve(polygonEmission({
-      center: [0, 0], diameter: 20, sides: 6, diameterDim: '20',
+      center: [0, 0], diameter: 20, sides: 6, mode: 'circumscribed', diameterDim: '20',
     }));
     expect(solver.outcome).toBe('solved');
     expect(solver.conflicting).toEqual([]);

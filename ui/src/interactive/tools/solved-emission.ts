@@ -298,32 +298,38 @@ export function slotEmission(opts: {
   return { geometry, constraints };
 }
 
+export type PolygonMode = 'circumscribed' | 'inscribed';
+
 /**
- * The polygon gesture: n lines, n coincident, n−1 equal sides, n−3 corner
- * angles (the CCW exterior turn 360/n) — exactly the regular polygon's
- * 4 freedoms (position + rotation + size) for every n.
+ * The polygon gesture (guide-circle form): n lines around a `.guide()`
+ * circle (geometry index n) — n chain coincidents, ONE variadic equal, and
+ * the mode's circle tie: every side tangent to the circle (circumscribed)
+ * or every vertex on it (inscribed). The ⌀ is the guide circle's diameter —
+ * across flats when circumscribed, across corners when inscribed — so a
+ * typed ⌀ dims the circle directly for either mode and any n.
  *
- * NOT a construction circle + tangents: a tangential equilateral polygon
- * with EVEN n satisfies the Pitot identity, which makes one tangent row
- * redundant AND leaves a genuine internal freedom (the "squished hexagon"
- * family) — verified by the DOF tests.
- *
- * A typed ⌀ (across flats) dims the opposite-side line–line distance for
- * even n verbatim; odd n has no two-entity across-flats measure, so the ⌀
- * converts to a numeric side-length dim (side = ⌀·tan(π/n)).
+ * Even-n circumscribed trap (Pitot identity): a tangential equilateral
+ * polygon with even n has one tangent row dependent AND keeps a genuine
+ * internal freedom (the "squished hexagon" family), so all-tangent +
+ * full-equal solves at DOF 5 with a permanently-flagged redundant row. The
+ * recipe therefore leaves the last side out of the equal (Pitot forces it
+ * equal anyway) and pins the internal freedom with one regular corner
+ * angle — DOF 4, rank-clean. Verified across modes/parities by the server
+ * DOF tests (solved-shape-emissions).
  */
 export function polygonEmission(opts: {
   center: [number, number];
-  /** Across-flats (inscribed-circle) diameter — the tool's ⌀. */
+  /** The guide circle's diameter — the tool's ⌀. */
   diameter: number;
   sides: number;
+  mode: PolygonMode;
   /** Angle of the first vertex, radians (the preview's convention: 0). */
   startAngle?: number;
   diameterDim?: string;
 }): SolvedEmissionRequest {
   const n = Math.max(3, Math.round(opts.sides));
-  const inscribed = Math.abs(opts.diameter) / 2;
-  const rad = inscribed / Math.cos(Math.PI / n);
+  const guideR = Math.abs(opts.diameter) / 2;
+  const rad = opts.mode === 'circumscribed' ? guideR / Math.cos(Math.PI / n) : guideR;
   const a0 = opts.startAngle ?? 0;
   const vertex = (i: number): [number, number] => [
     round2(opts.center[0] + rad * Math.cos(a0 + (i * 2 * Math.PI) / n)),
@@ -333,35 +339,43 @@ export function polygonEmission(opts: {
   for (let i = 0; i < n; i++) {
     geometry.push({ kind: 'line', text: lineText(vertex(i), vertex(i + 1)) });
   }
+  const circleIdx = n;
+  geometry.push({
+    kind: 'circle',
+    text: circleText(opts.center, Math.abs(opts.diameter)),
+    guide: true,
+  });
   const constraints: SolvedConstraintParam[] = [];
   for (let i = 0; i < n; i++) {
     constraints.push(coincident(newTarget(i, 'end'), newTarget((i + 1) % n, 'start')));
   }
-  for (let i = 1; i < n; i++) {
-    constraints.push({ kind: 'equal', targets: [newTarget(0), newTarget(i)] });
-  }
-  const turn = round2(360 / n);
-  for (let i = 0; i < n - 3; i++) {
-    constraints.push({
-      kind: 'angle',
-      targets: [newTarget(i), newTarget(i + 1)],
-      valueExpr: String(turn),
-    });
-  }
-  if (opts.diameterDim !== undefined) {
-    if (n % 2 === 0) {
+  const dropLastEqual = opts.mode === 'circumscribed' && n % 2 === 0;
+  constraints.push({
+    kind: 'equal',
+    targets: Array.from({ length: dropLastEqual ? n - 1 : n }, (_, i) => newTarget(i)),
+  });
+  if (opts.mode === 'circumscribed') {
+    for (let i = 0; i < n; i++) {
+      constraints.push({ kind: 'tangent', targets: [newTarget(i), newTarget(circleIdx)] });
+    }
+    if (dropLastEqual) {
       constraints.push({
-        kind: 'distance',
-        targets: [newTarget(0), newTarget(n / 2)],
-        valueExpr: opts.diameterDim,
-      });
-    } else {
-      constraints.push({
-        kind: 'distance',
-        targets: [newTarget(0, 'start'), newTarget(0, 'end')],
-        valueExpr: String(round2(Math.abs(opts.diameter) * Math.tan(Math.PI / n))),
+        kind: 'angle',
+        targets: [newTarget(0), newTarget(1)],
+        valueExpr: String(round2(360 / n)),
       });
     }
+  } else {
+    for (let i = 0; i < n; i++) {
+      constraints.push(coincident(newTarget(i, 'start'), newTarget(circleIdx)));
+    }
+  }
+  if (opts.diameterDim !== undefined) {
+    constraints.push({
+      kind: 'diameter',
+      targets: [newTarget(circleIdx)],
+      valueExpr: opts.diameterDim,
+    });
   }
   return { geometry, constraints };
 }

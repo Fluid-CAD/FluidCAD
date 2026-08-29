@@ -88,6 +88,7 @@ export class SketchToolbar {
 
   private boundKeyDown: (e: KeyboardEvent) => void;
   private boundCloseRectMenu: (e: MouseEvent) => void;
+  private boundClosePolygonMenu: (e: MouseEvent) => void;
 
   // Rectangle-button options; session-only state (deliberately not persisted).
   private rectMenu: HTMLDivElement | null = null;
@@ -95,6 +96,11 @@ export class SketchToolbar {
   private rectCenteredState = false;
   private rectButtonImg: HTMLImageElement | null = null;
   private rectTooltip: HTMLDivElement | null = null;
+
+  // Polygon-button options; session-only state (deliberately not persisted).
+  private polygonMenu: HTMLDivElement | null = null;
+  private polygonModeState: 'circumscribed' | 'inscribed' = 'circumscribed';
+  private polygonTooltip: HTMLDivElement | null = null;
 
   /**
    * Guide mode: a latch, not a tool — it rides alongside whatever tool is
@@ -130,6 +136,7 @@ export class SketchToolbar {
 
     this.boundKeyDown = this.handleKeyDown.bind(this);
     this.boundCloseRectMenu = this.handleCloseRectMenu.bind(this);
+    this.boundClosePolygonMenu = this.handleClosePolygonMenu.bind(this);
 
     this.shortcutManager = new ShortcutManager({ timeout: 200 });
     for (const [toolId, keys] of Object.entries(TOOL_SHORTCUTS)) {
@@ -149,6 +156,7 @@ export class SketchToolbar {
     this.visible = false;
     this.setGroupVisible(false);
     this.closeRectMenu();
+    this.closePolygonMenu();
     window.removeEventListener('keydown', this.boundKeyDown);
     this.shortcutManager.disable();
     if (this.activeToolId) {
@@ -174,6 +182,9 @@ export class SketchToolbar {
     if (!SketchToolbar.isRectVariant(toolId)) {
       this.closeRectMenu();
     }
+    if (toolId !== 'polygon') {
+      this.closePolygonMenu();
+    }
     this.syncButtonStates();
   }
 
@@ -183,6 +194,10 @@ export class SketchToolbar {
 
   get rectCenteredChecked(): boolean {
     return this.rectCenteredState;
+  }
+
+  get polygonModeChecked(): 'circumscribed' | 'inscribed' {
+    return this.polygonModeState;
   }
 
   get guideModeChecked(): boolean {
@@ -233,9 +248,104 @@ export class SketchToolbar {
     return label;
   }
 
+  private static buildMenuRadio(
+    text: string,
+    name: string,
+    checked: boolean,
+    onSelect: () => void,
+  ): HTMLLabelElement {
+    const radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = name;
+    radio.className = 'radio radio-xs radio-primary';
+    radio.checked = checked;
+    radio.addEventListener('change', () => {
+      if (radio.checked) {
+        onSelect();
+      }
+    });
+    const label = document.createElement('label');
+    label.className = 'flex items-center gap-2 cursor-pointer';
+    // Select without taking keyboard focus: the coordinate chip listens at the
+    // window and ignores keystrokes targeted at an <input>, so a focused
+    // radio would swallow the digits meant for the X field.
+    label.addEventListener('mousedown', (e) => e.preventDefault());
+    label.appendChild(radio);
+    const span = document.createElement('span');
+    span.className = 'text-xs text-base-content/70';
+    span.textContent = text;
+    label.appendChild(span);
+    return label;
+  }
+
+  // Dropdown on the Polygon button: a session-only radio pair picking where
+  // the guide circle sits — Circumscribed draws the sides tangent around it,
+  // Inscribed puts the vertices on it. Switching while the tool is active
+  // reselects it so the new mode takes effect immediately.
+  private openPolygonMenu(anchor: HTMLElement): void {
+    this.closePolygonMenu();
+
+    const menu = SketchToolbar.createDropdownMenu('left-1/2 -translate-x-1/2');
+
+    const modes = [
+      { text: 'Circumscribed', value: 'circumscribed' as const },
+      { text: 'Inscribed', value: 'inscribed' as const },
+    ];
+    for (const mode of modes) {
+      menu.appendChild(SketchToolbar.buildMenuRadio(
+        mode.text,
+        'polygon-mode',
+        this.polygonModeState === mode.value,
+        () => {
+          this.polygonModeState = mode.value;
+          if (this.activeToolId === 'polygon') {
+            this.onToolSelect('polygon');
+          }
+        },
+      ));
+    }
+
+    anchor.appendChild(menu);
+    this.polygonMenu = menu;
+    // The hover tooltip occupies the same spot below the button; keep it out
+    // of the way while the menu is open.
+    if (this.polygonTooltip) {
+      this.polygonTooltip.style.display = 'none';
+    }
+
+    setTimeout(() => document.addEventListener('click', this.boundClosePolygonMenu), 0);
+  }
+
+  private closePolygonMenu(): void {
+    if (this.polygonMenu) {
+      this.polygonMenu.remove();
+      this.polygonMenu = null;
+      document.removeEventListener('click', this.boundClosePolygonMenu);
+      if (this.polygonTooltip) {
+        this.polygonTooltip.style.display = '';
+      }
+    }
+  }
+
+  private handleClosePolygonMenu(e: MouseEvent): void {
+    if (this.polygonMenu && !this.polygonMenu.contains(e.target as Node) && !this.polygonMenu.parentElement?.contains(e.target as Node)) {
+      this.closePolygonMenu();
+    }
+  }
+
+  private handlePolygonButtonClick(anchor: HTMLElement): void {
+    if (this.activeToolId === 'polygon') {
+      this.onToolSelect(null);
+      this.closePolygonMenu();
+    } else {
+      this.onToolSelect('polygon');
+      this.openPolygonMenu(anchor);
+    }
+  }
+
   // Dropdown on the merged Rectangle button: two session-only toggles that
   // pick the variant (Rounded → rounded-rect tool) and the anchor mode
-  // (Centered → `.centered()` on the emitted statement). Toggling while the
+  // (Centered picks the anchor the gesture grows from). Toggling while the
   // tool is active reselects it so the new options take effect immediately.
   private openRectMenu(anchor: HTMLElement): void {
     this.closeRectMenu();
@@ -358,6 +468,8 @@ export class SketchToolbar {
       + `<span class="${TOOLBAR_BTN_LABEL}">${tool.caption ?? tool.label}</span>`;
     if (tool.id === 'rect') {
       btn.addEventListener('click', () => this.handleRectButtonClick(wrapper));
+    } else if (tool.id === 'polygon') {
+      btn.addEventListener('click', () => this.handlePolygonButtonClick(wrapper));
     } else {
       btn.addEventListener('click', () => this.handleToolClick(tool.id));
     }
@@ -376,6 +488,9 @@ export class SketchToolbar {
       this.rectButtonImg = btn.querySelector('img');
       this.rectTooltip = tip;
       this.updateRectButtonDisplay();
+    }
+    if (tool.id === 'polygon') {
+      this.polygonTooltip = tip;
     }
     return wrapper;
   }

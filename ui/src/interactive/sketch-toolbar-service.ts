@@ -759,7 +759,7 @@ export class SketchToolbarService {
       case 'circle':
         return applySolvedContext(new CircleTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars));
       case 'polygon':
-        return applySolvedContext(new PolygonTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars));
+        return applySolvedContext(new PolygonTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.polygonModeChecked));
       case 'arc2':
         return applySolvedContext(new CenterArcTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars));
       case 'arc3': {

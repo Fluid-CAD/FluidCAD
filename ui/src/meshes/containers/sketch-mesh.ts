@@ -1,8 +1,11 @@
 import {
+  BufferAttribute,
+  BufferGeometry,
   Camera,
   CircleGeometry,
   DoubleSide,
   Group,
+  Line,
   Mesh,
   MeshBasicMaterial,
   Object3D,
@@ -51,8 +54,9 @@ const DETACHED_GRACE_FRAMES = 300;
 export class SketchMesh extends Group {
   /** Read model of a solved-mode sketch; null for legacy sketches. */
   private solvedModel: SolvedSketchModel | null;
-  /** Solved entity id → its edge meshes, for live drag updates (P4). */
-  private solvedEdgeMeshes = new Map<number, EdgeMesh[]>();
+  /** Solved entity id → its edge meshes — EdgeMesh for regular entities,
+   * MetaEdgeMesh (dash-dot) for guides — for live drag updates (P4). */
+  private solvedEdgeMeshes = new Map<number, Group[]>();
   /** Vertex-dot groups bound to solved entity points, for live drag moves. */
   private solvedDotBindings: { group: Group; entityId: number; role: 'point' | 'start' | 'end' | 'center' }[] = [];
   /** The current glyph groups — replaced wholesale on live updates. */
@@ -126,38 +130,62 @@ export class SketchMesh extends Group {
       }
       for (const edgeMesh of meshes) {
         for (const child of edgeMesh.children) {
-          if (!child.userData.isEdgeLine) {
-            continue;
+          if (child.userData.isEdgeLine) {
+            const line = child as LineSegments2;
+            const geometry = line.geometry as LineSegmentsGeometry;
+            // setPositions must keep the segment count the mesh was built
+            // with — the renderer caches the instance count per geometry, so
+            // a different count clips or overruns the draw.
+            const segments = geometry.attributes.instanceStart?.count;
+            if (!segments) {
+              continue;
+            }
+            const points = tessellateSolvedEntity(view, segments);
+            if (!points || points.length !== segments + 1) {
+              continue;
+            }
+            const positions = new Float32Array(segments * 6);
+            let offset = 0;
+            let prev = localToWorld(points[0], model.plane);
+            for (let i = 1; i < points.length; i++) {
+              const next = localToWorld(points[i], model.plane);
+              positions[offset++] = prev.x;
+              positions[offset++] = prev.y;
+              positions[offset++] = prev.z;
+              positions[offset++] = next.x;
+              positions[offset++] = next.y;
+              positions[offset++] = next.z;
+              prev = next;
+            }
+            geometry.setPositions(positions);
+            geometry.computeBoundingBox();
+            geometry.computeBoundingSphere();
+          } else if (child.userData.isDashDotEdgeLine) {
+            // Guide entities render as a continuous dash-dot polyline —
+            // rewrite its points in place, keeping the vertex count the
+            // geometry was built with.
+            const line = child as Line;
+            const geometry = line.geometry as BufferGeometry;
+            const posAttr = geometry.getAttribute('position') as BufferAttribute | undefined;
+            const pointCount = posAttr?.count ?? 0;
+            if (!posAttr || pointCount < 2) {
+              continue;
+            }
+            const points = tessellateSolvedEntity(view, pointCount - 1);
+            if (!points || points.length !== pointCount) {
+              continue;
+            }
+            for (let i = 0; i < points.length; i++) {
+              const world = localToWorld(points[i], model.plane);
+              posAttr.setXYZ(i, world.x, world.y, world.z);
+            }
+            posAttr.needsUpdate = true;
+            // The dash pattern accumulates distance along the polyline —
+            // stale distances would stretch the dashes as the curve moves.
+            line.computeLineDistances();
+            geometry.computeBoundingBox();
+            geometry.computeBoundingSphere();
           }
-          const line = child as LineSegments2;
-          const geometry = line.geometry as LineSegmentsGeometry;
-          // setPositions must keep the segment count the mesh was built
-          // with — the renderer caches the instance count per geometry, so
-          // a different count clips or overruns the draw.
-          const segments = geometry.attributes.instanceStart?.count;
-          if (!segments) {
-            continue;
-          }
-          const points = tessellateSolvedEntity(view, segments);
-          if (!points || points.length !== segments + 1) {
-            continue;
-          }
-          const positions = new Float32Array(segments * 6);
-          let offset = 0;
-          let prev = localToWorld(points[0], model.plane);
-          for (let i = 1; i < points.length; i++) {
-            const next = localToWorld(points[i], model.plane);
-            positions[offset++] = prev.x;
-            positions[offset++] = prev.y;
-            positions[offset++] = prev.z;
-            positions[offset++] = next.x;
-            positions[offset++] = next.y;
-            positions[offset++] = next.z;
-            prev = next;
-          }
-          geometry.setPositions(positions);
-          geometry.computeBoundingBox();
-          geometry.computeBoundingSphere();
         }
       }
     }
@@ -313,6 +341,16 @@ export class SketchMesh extends Group {
             // select handler needs to tell the two apart.
             if (shape.isGuide && !shape.isMetaShape) {
               metaMesh.userData.isGuideShape = true;
+              // A guided solved entity still drags live — register its
+              // dash-dot mesh so updateSolvedGeometry rewrites it per frame
+              // instead of leaving it parked until the commit re-render.
+              if (this.isSolvedEntity(obj)) {
+                const entityId = obj.object.entityId as number;
+                metaMesh.userData.entityId = entityId;
+                const list = this.solvedEdgeMeshes.get(entityId) ?? [];
+                list.push(metaMesh);
+                this.solvedEdgeMeshes.set(entityId, list);
+              }
             }
             this.add(metaMesh);
           }

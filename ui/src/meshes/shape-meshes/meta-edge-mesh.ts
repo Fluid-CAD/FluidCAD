@@ -41,6 +41,9 @@ export class MetaEdgeMesh extends Group {
         polygonOffsetFactor: 2,
         polygonOffsetUnits: 1,
       });
+      // Live drags rewrite guide-entity polylines in place (SketchMesh
+      // updateSolvedGeometry) — mark the line so the rewrite can find it.
+      line.userData.isDashDotEdgeLine = true;
       this.add(line);
     }
   }

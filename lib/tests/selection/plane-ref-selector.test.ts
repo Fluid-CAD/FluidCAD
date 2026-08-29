@@ -65,6 +65,61 @@ describe("plane-reference selectors", () => {
     }
   });
 
+  it("falls back to the baked datum offset when the producer's statement cannot be bound", () => {
+    // The transform refuses to reference a producer whose variable is
+    // reassigned after the call (`let body; body = extrude(...); body =
+    // shell(...)`). The server reports that through the `bindable` probe;
+    // synthesis must then skip the plane reference — which would bind the
+    // variable — and emit the constant datum form, which binds nothing.
+    sketch("xy", () => {
+      rect(123.28, 56.07).centered();
+    });
+    const e = extrude(25) as Extrude;
+    setLocation(e, 6);
+    const l = fillet(10, e.sideEdges());
+    setLocation(l, 7);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const refs = faceRefsWhere(solid, m => Math.abs(m.z - 25) < 1e-6);
+    expect(refs).toHaveLength(1);
+
+    const result = synthesizeApplyFeature(scene, refs, 'shell', -2, [], {
+      bindable: producer => producer.featureType !== 'extrude',
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.preview).toBe("shell(-2, select(face().onPlane('xy', 25)))");
+      expect(result.spec.producers.filter(p => p.bind)).toHaveLength(0);
+    }
+  });
+
+  it("routes a bucket-classified pick to the global tier when its producer cannot be bound", () => {
+    // A pick that classifies straight into the extrude's end-face bucket
+    // would normally emit `e.endFaces()` and bind `e`; when the statement
+    // cannot be bound the pick must reroute through the variable-free
+    // scene-wide select().
+    sketch("xy", () => {
+      rect(123.28, 56.07).centered();
+    });
+    const e = extrude(25) as Extrude;
+    setLocation(e, 6);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const refs = faceRefsWhere(solid, m => Math.abs(m.z - 25) < 1e-6);
+    expect(refs).toHaveLength(1);
+
+    const result = synthesizeApplyFeature(scene, refs, 'shell', -2, [], {
+      bindable: () => false,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.preview).toBe("shell(-2, select(face().onPlane('xy', 25)))");
+      expect(result.spec.producers.filter(p => p.bind)).toHaveLength(0);
+    }
+  });
+
   it("still prefers the bare datum plane when the pick lies on one", () => {
     sketch("xy", () => {
       rect(123.28, 56.07).centered();

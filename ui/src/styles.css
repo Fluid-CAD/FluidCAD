@@ -149,11 +149,40 @@ html.fluidcad-editor-animating {
   transition: --fluidcad-editor-width 180ms ease;
 }
 
+:root {
+  /* How far in the docked panel column starts: past the panel rail's gutter,
+     then past the editor pane the rail docks against. A host that mounts
+     neither (the embedded viewer) resolves it to 0px. */
+  --fluidcad-panel-left: calc(var(--fluidcad-rail-width, 0px) + var(--fluidcad-editor-width, 0px));
+  /* How far the scene's own left edge is pushed in. The same thing while the
+     rail is docked, which is why every overlay that lines up with the scene —
+     the centred toasts and pills — reads this rather than adding the pieces
+     up itself. */
+  --fluidcad-scene-left: var(--fluidcad-panel-left);
+  /* How far a docked panel column sits in from the rail it clears, and down
+     from the host's top chrome. One value on both axes: the column reads the
+     same gap to its left as it does above it, so the corner it tucks into
+     reads as one inset rather than as two that drifted apart. */
+  --fluidcad-panel-gap: 12px;
+}
+
+/* Narrow enough that 48px of permanent chrome costs too much: the rail floats
+   its buttons over the scene instead of docking beside it (see FLOAT_QUERY in
+   ui/panel-rail.ts, which must match), so the scene reclaims the width. The
+   buttons still own their gutter, which is the whole reason the docked panels
+   read --fluidcad-panel-left instead. With no rail mounted both sides of this
+   are --fluidcad-editor-width, so it is a no-op. */
+@media (width < 40rem) {
+  :root {
+    --fluidcad-scene-left: var(--fluidcad-editor-width, 0px);
+  }
+}
+
 #fluidcad-scene {
   position: absolute;
   /* Height of the host's top chrome (top bar + navbar). Viewing hosts with
      no toolbar set --fluidcad-chrome-top: 0px for a full-bleed scene. */
-  inset: var(--fluidcad-chrome-top, 104px) 0 0 var(--fluidcad-editor-width, 0px);
+  inset: var(--fluidcad-chrome-top, 104px) 0 0 var(--fluidcad-scene-left, 0px);
 }
 
 #fluidcad-scene canvas {

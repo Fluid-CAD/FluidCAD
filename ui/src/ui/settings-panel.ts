@@ -1,18 +1,10 @@
 import { viewerSettings } from '../scene/viewer-settings';
 import { viewportChrome } from './viewport-chrome';
 import type { EngineClient } from '../engine-client';
-import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_SUN, ICON_MOON, ICON_SETTINGS, ICON_CLOSE, ICON_ADJUSTMENTS } from './icons';
+import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_SETTINGS, ICON_CLOSE, ICON_ADJUSTMENTS } from './icons';
 
 const FAB_BTN = 'btn btn-ghost btn-circle btn-sm text-base-content/60';
 const FAB_BTN_ACTIVE = 'btn btn-soft btn-primary btn-circle btn-sm';
-
-function getCurrentTheme(): string {
-  return document.documentElement.getAttribute('data-theme') || 'fluidcad-dark';
-}
-
-function isDarkTheme(): boolean {
-  return getCurrentTheme() !== 'fluidcad-light';
-}
 
 export class SettingsPanel {
   private wrapper: HTMLDivElement;
@@ -74,8 +66,6 @@ export class SettingsPanel {
 
   private buildFabHTML(): string {
     const s = viewerSettings.current;
-    const themeIcon = isDarkTheme() ? ICON_SUN : ICON_MOON;
-    const themeLabel = isDarkTheme() ? 'Light theme' : 'Dark theme';
     const cameraLabel = s.cameraMode === 'orthographic' ? 'Orthographic' : 'Perspective';
 
     return `
@@ -87,10 +77,6 @@ export class SettingsPanel {
       <div>
         <span data-camera-label>${cameraLabel}</span>
         <button class="${FAB_BTN}" data-action="camera" title="Toggle projection">${ICON_VIDEO}</button>
-      </div>
-      <div>
-        <span data-theme-label>${themeLabel}</span>
-        <button class="${FAB_BTN}" data-action="theme" title="${isDarkTheme() ? 'Switch to light theme' : 'Switch to dark theme'}">${themeIcon}</button>
       </div>
     `;
   }
@@ -115,13 +101,6 @@ export class SettingsPanel {
       const next = !viewerSettings.current.showGrid;
       viewerSettings.update({ showGrid: next });
       this.client.savePreference('showGrid', next);
-    });
-
-    this.fabEl.querySelector<HTMLButtonElement>('[data-action="theme"]')?.addEventListener('click', () => {
-      const next = isDarkTheme() ? 'fluidcad-light' : 'fluidcad-dark';
-      document.documentElement.setAttribute('data-theme', next);
-      this.syncThemeButton();
-      this.client.savePreference('theme', next);
     });
   }
 
@@ -154,18 +133,6 @@ export class SettingsPanel {
   setProjectionLocked(locked: boolean): void {
     const btn = this.fabEl.querySelector<HTMLButtonElement>('[data-action="camera"]');
     if (btn) { btn.disabled = locked; }
-  }
-
-  private syncThemeButton(): void {
-    const btn = this.fabEl.querySelector<HTMLButtonElement>('[data-action="theme"]');
-    if (btn) {
-      btn.innerHTML = isDarkTheme() ? ICON_SUN : ICON_MOON;
-      btn.title = isDarkTheme() ? 'Switch to light theme' : 'Switch to dark theme';
-    }
-    const label = this.fabEl.querySelector<HTMLElement>('[data-theme-label]');
-    if (label) {
-      label.textContent = isDarkTheme() ? 'Light theme' : 'Dark theme';
-    }
   }
 
   private sync(): void {

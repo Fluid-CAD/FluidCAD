@@ -10,13 +10,14 @@ import {
   gotoSource,
   loadPreferences,
   measureEntities,
+  moveToPart,
   recompute,
   removeFeature,
   renameFeature,
   rollback,
   savePreference,
 } from './api';
-import type { EdgeProperties, EditorHistoryResult, FaceProperties, Material, MeasureEntityRef, MeasureResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
+import type { EdgeProperties, EditorHistoryResult, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 
 class HttpEngineEditorClient implements EngineEditorClient {
@@ -42,6 +43,15 @@ class HttpEngineEditorClient implements EngineEditorClient {
 
   redo(filePath: string): Promise<EditorHistoryResult> {
     return editorRedo(filePath);
+  }
+
+  moveToPart(
+    filePath: string,
+    lines: number[],
+    part: { line: number; column: number },
+    opts?: { dryRun?: boolean },
+  ): Promise<MoveToPartResult> {
+    return moveToPart(filePath, lines, part, opts);
   }
 }
 

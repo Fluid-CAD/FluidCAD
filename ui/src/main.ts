@@ -16,13 +16,12 @@ import { ErrorBanner } from './ui/error-banner';
 import { LoadingOverlay } from './ui/loading-overlay';
 import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
+import { PanelRail } from './ui/panel-rail';
 import { Navbar } from './ui/navbar';
 import { AssemblyToolbar } from './ui/assembly-toolbar';
 import { InsertPartDialog } from './ui/insert-part/insert-part-dialog';
 import { EditParamsDialog } from './ui/edit-params-dialog';
 import { HistoryToolbar } from './ui/history-toolbar';
-import { ICON_IMG_FALLBACK } from './ui/object-icons';
-import { TOOLBAR_BTN_BASE, TOOLBAR_BTN_ICON, TOOLBAR_BTN_LABEL } from './ui/toolbar-styles';
 import { SelectionContextMenu } from './interactive/selection-menu';
 import { TrimPickService } from './interactive/trim-pick-service';
 import { RegionPickService } from './interactive/region-pick-service';
@@ -119,7 +118,12 @@ function startEditorSurface(): void {
       onEditRefused: (message) => showToast(message),
       initialOpen: editorPaneOpenOnArrival || editorPreferences.open,
       initialWidth: editorPreferences.width,
-      onOpenChange: (open) => savePreference('editorOpen', open),
+      onOpenChange: (open) => {
+        savePreference('editorOpen', open);
+        // Ctrl+B, the desktop menu and the restored preference all land here,
+        // so the rail's latch follows the pane however it was opened.
+        panelRail.sync();
+      },
       onWidthChange: (width) => savePreference('editorWidth', width),
     });
     if (editorSceneFile) {
@@ -212,9 +216,17 @@ const measureController = new MeasureController(
   (handlers) => new SelectionContextMenu(container, 'fluidcad-measure-select-menu', handlers),
 );
 const exportDialog = new ExportDialog(container, engineClient, viewer.sceneContext);
+
+// Built detached: it is a section of the part rail's docked column, and that
+// column is torn down and rebuilt on every part/assembly swap. Owning the
+// panel here is what carries the parameter values, their groups' collapse
+// state and the section's own across those rebuilds — buildPartRail() mounts
+// this same instance into whichever column is current.
+const paramsPanel = new ParamsPanel(null, engineClient, new ParamEditorDialog(container));
+
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design
-// rail (TimelinePanel, History+Shapes) or the assembly rail
+// rail (TimelinePanel, History + Shapes + Parameters) or the assembly rail
 // (PartsPanel + JointsPanel + DofStatus). `ensureRailFor(kind)` swaps them
 // when the current scene's `sceneKind` changes.
 // ---------------------------------------------------------------------------
@@ -274,6 +286,7 @@ function buildPartRail(): Extract<LeftRail, { kind: 'part' }> {
     () => viewer.resetAllTransparency(),
   );
   timeline.setShowBuildTimings(pendingShowBuildTimings);
+  timeline.attachParams(paramsPanel);
   timelinePanel = timeline;
   wireTimelinePanel(timeline);
   return { kind: 'part', timeline };
@@ -559,11 +572,33 @@ function matesWithStatus(
 const initialRail = buildPartRail();
 currentRail = initialRail;
 
-// Top application bar (logo, feature-tree toggle, file name) and the secondary
-// tool bar below it (host for conditionally-visible tool groups).
+// Top application bar (logo, workspace, file tabs) and the secondary tool bar
+// below it (host for conditionally-visible tool groups).
 const topBar = new TopBar(container, {
-  // One hamburger entry covers whichever rail the scene kind mounted: the
-  // part-design timeline or the assembly parts/joints column.
+  // A viewport-only host gets no tab affordances: the handler set is absent,
+  // which is what removes them.
+  tabs: editorSurfaceEnabled ? {
+    // Switching tabs re-targets the scene; it never opens the pane. The editor
+    // shows only when toggled on explicitly (menu / Ctrl+B) — Invariant 7.
+    onActivate: (absPath) => void editorSurface?.activateTab(absPath),
+    onClose: (absPath) => editorSurface?.closeTab(absPath),
+    onAdd: (anchor) => editorSurface?.showQuickOpen(anchor),
+  } : undefined,
+  saveTheme: (theme) => savePreference('theme', theme),
+  // The bar's Export dropdown picks ONE solid — its thumbnail is what makes
+  // the choice; File ▸ Export stays the whole-scene path.
+  export: {
+    onExport: (shapeId) => exportDialog.show([shapeId]),
+    captureThumbnail: (shapeId) => viewer.captureSolidThumbnail(shapeId),
+  },
+  onImport: () => fileImporter.openPicker(),
+});
+
+// The panel rail on the window's left edge: one latch button per surface it
+// opens. Its tree button covers whichever rail the scene kind mounted — the
+// part-design timeline or the assembly parts/joints column — and the editor
+// button is absent on a viewport-only host.
+const panelRail = new PanelRail(container, {
   onToggleTree: () => {
     if (currentRail?.kind === 'part') {
       timelinePanel.togglePanel();
@@ -574,18 +609,11 @@ const topBar = new TopBar(container, {
   isTreeVisible: () => currentRail?.kind === 'assembly'
     ? currentRail.parts.isPanelVisible
     : timelinePanel.isPanelVisible,
-  // A viewport-only host gets neither the menu item nor the tab affordances:
-  // both handler sets are absent, which is what removes them.
+  treeLabel: () => currentRail?.kind === 'assembly' ? 'Parts' : 'Feature tree',
   onToggleEditor: editorSurfaceEnabled ? () => toggleEditorPane() : undefined,
   isEditorOpen: editorSurfaceEnabled ? () => editorSurface?.isOpen() === true : undefined,
-  tabs: editorSurfaceEnabled ? {
-    // Switching tabs re-targets the scene; it never opens the pane. The editor
-    // shows only when toggled on explicitly (menu / Ctrl+B) — Invariant 7.
-    onActivate: (absPath) => void editorSurface?.activateTab(absPath),
-    onClose: (absPath) => editorSurface?.closeTab(absPath),
-    onAdd: (anchor) => editorSurface?.showQuickOpen(anchor),
-  } : undefined,
 });
+
 const navbar = new Navbar(container);
 
 // Undo/Redo — registered first so the group leads the bar, ahead of every
@@ -595,6 +623,17 @@ const navbar = new Navbar(container);
 // an editor-less server. The file targeted is whatever the last render came
 // from — the same file every other toolbar action edits.
 let currentSceneAbsPath: string | null = null;
+// Set while the last render carried a compile error — drag-to-part refuses
+// then: the timeline's rows describe the previous scene, so their line
+// anchors can't be trusted against the broken buffer.
+let activeCompileError = false;
+/**
+ * Armed after a successful move-to-part ack: if the render that follows
+ * fails to compile, the move is undone automatically (it applied as exactly
+ * one editor undo step) instead of leaving the timeline serving stale rows
+ * against a broken buffer. A successful render — or the timeout — disarms.
+ */
+let moveRevertGuard: { filePath: string; expiresAt: number } | null = null;
 const runEditorHistory = (action: 'undo' | 'redo') => {
   const editor = engineClient.editor;
   if (!editor || !currentSceneAbsPath) {
@@ -610,21 +649,6 @@ const historyToolbar = new HistoryToolbar(navbar, {
   onUndo: () => runEditorHistory('undo'),
   onRedo: () => runEditorHistory('redo'),
 });
-
-// Import group — always visible for now.
-const importGroup = navbar.addGroup('import');
-const importBtn = document.createElement('button');
-importBtn.className = TOOLBAR_BTN_BASE;
-importBtn.setAttribute('aria-label', 'Import file');
-importBtn.innerHTML =
-  `<img src="/icons/load.png" ${ICON_IMG_FALLBACK} class="${TOOLBAR_BTN_ICON}" alt="" />`
-  + `<span class="${TOOLBAR_BTN_LABEL}">Import</span>`;
-importBtn.addEventListener('click', () => fileImporter.openPicker());
-const importBtnWrap = document.createElement('span');
-importBtnWrap.className = 'tooltip tooltip-bottom shrink-0';
-importBtnWrap.dataset.tip = 'Import file';
-importBtnWrap.appendChild(importBtn);
-importGroup.appendChild(importBtnWrap);
 
 /**
  * The desktop shell's application menu. It sends intents, never actions — each
@@ -675,13 +699,6 @@ new AssemblyToolbar(navbar, {
   // The service is constructed later (it needs the gizmo driver); toolbar
   // clicks only ever fire after startup completes.
   onMate: (type) => assemblyMateService.enter(type),
-});
-
-const paramsPanel = new ParamsPanel(viewer.settingsPanelHost, engineClient, new ParamEditorDialog(container));
-
-viewer.setParamsToggleHandler(() => {
-  paramsPanel.toggle();
-  viewer.setParamsButtonActive(paramsPanel.isVisible);
 });
 
 const trimService = new TrimPickService(viewer);
@@ -1039,6 +1056,13 @@ function wireTimelinePanel(panel: TimelinePanel): void {
       viewer.highlightDetachedShapes(obj.referencedShapes ?? []);
     }
   };
+  // Multi-selected rows dropped onto a part row → move their statements
+  // into its callback body: dry-run analysis, a confirm for any companion
+  // statements, then the acked dispatcher write with auto-revert if the
+  // compile still breaks.
+  panel.onMoveToPart = (filePath, lines, partLoc) => {
+    void handleMoveToPart(filePath, lines, partLoc);
+  };
   // Double-clicking an editable feature row (the enter-breakpoint gesture)
   // also opens that feature's dialog prefilled from its statement.
   panel.onFeatureEdit = (obj, index) => {
@@ -1347,9 +1371,9 @@ function showToast(message: string): void {
   if (!editRefusalToast) {
     editRefusalToast = document.createElement('div');
     // Below the constraint mini bar (top-[106px]) so refusals don't cover it,
-    // and centered on the scene rather than the window — the editor pane takes
-    // real width from the left.
-    editRefusalToast.className = 'absolute top-[152px] left-[calc(50%+var(--fluidcad-editor-width,0px)/2)] '
+    // and centered on the scene rather than the window — the panel rail and
+    // the editor pane take real width off the left.
+    editRefusalToast.className = 'absolute top-[152px] left-[calc(50%+var(--fluidcad-scene-left,0px)/2)] '
       + '-translate-x-1/2 z-[1003] max-w-[440px] '
       + 'bg-base-100 border border-base-300 text-base-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md';
     container.appendChild(editRefusalToast);
@@ -1367,6 +1391,110 @@ function showToast(message: string): void {
 
 function showEditRefusal(reason: string): void {
   showToast(`Can't edit this feature in a dialog: ${reason}`);
+}
+
+/**
+ * The timeline drop: dry-run the move so a dependency-closed selection
+ * applies silently, an incomplete one confirms its companion set first,
+ * and anything unmovable toasts the server's refusal.
+ */
+async function handleMoveToPart(
+  filePath: string,
+  lines: number[],
+  partLoc: { filePath: string; line: number; column: number },
+): Promise<void> {
+  const editor = engineClient.editor;
+  if (!editor) {
+    return;
+  }
+  if (activeCompileError) {
+    showToast("Can't move features while the file has a compile error — fix it first");
+    return;
+  }
+  const part = { line: partLoc.line, column: partLoc.column };
+  const probe = await editor.moveToPart(filePath, lines, part, { dryRun: true });
+  let moveLines = lines;
+  if (!probe.success) {
+    if (!probe.needs || probe.needs.length === 0) {
+      showToast(`Can't move: ${probe.reason ?? 'unknown error'}`);
+      return;
+    }
+    const listed = probe.needs.map((n) => `${n.name} (line ${n.line})`).join(', ');
+    const confirmed = await confirmMoveDialog(
+      `These features depend on others that must move with them. Also moves: ${listed}.`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    moveLines = [...new Set([...lines, ...probe.needs.map((n) => n.line)])].sort((a, b) => a - b);
+  }
+  const result = await editor.moveToPart(filePath, moveLines, part);
+  if (!result.success) {
+    showToast(`Can't move: ${result.reason ?? 'unknown error'}`);
+    return;
+  }
+  // The move acked: the next render is its verdict. A compile error inside
+  // this window auto-reverts through the editor's history.
+  moveRevertGuard = { filePath, expiresAt: Date.now() + 10_000 };
+}
+
+/**
+ * Minimal confirm for the move-to-part drop: the dependency closure the
+ * server computed, one accept, one cancel. Escape / Enter / backdrop all
+ * settle it; the promise resolves exactly once.
+ */
+function confirmMoveDialog(message: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const backdrop = document.createElement('div');
+    backdrop.className = 'absolute inset-0 z-[1004] bg-black/30 flex items-center justify-center';
+    const card = document.createElement('div');
+    card.className = 'bg-base-100 border border-base-300 rounded-lg shadow-lg px-4 py-3 max-w-[420px] flex flex-col gap-3';
+    const text = document.createElement('div');
+    text.className = 'text-sm text-base-content/80 leading-snug';
+    text.textContent = message;
+    const row = document.createElement('div');
+    row.className = 'flex justify-end gap-2';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-ghost btn-xs';
+    cancelBtn.textContent = 'Cancel';
+    const okBtn = document.createElement('button');
+    okBtn.className = 'btn btn-primary btn-xs';
+    okBtn.textContent = 'Move all';
+    row.appendChild(cancelBtn);
+    row.appendChild(okBtn);
+    card.appendChild(text);
+    card.appendChild(row);
+    backdrop.appendChild(card);
+    container.appendChild(backdrop);
+    let settled = false;
+    const finish = (value: boolean) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      document.removeEventListener('keydown', onKey, true);
+      backdrop.remove();
+      resolve(value);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        finish(false);
+      } else if (e.key === 'Enter') {
+        e.stopPropagation();
+        finish(true);
+      }
+    };
+    document.addEventListener('keydown', onKey, true);
+    backdrop.addEventListener('click', (e) => {
+      if (e.target === backdrop) {
+        finish(false);
+      }
+    });
+    okBtn.addEventListener('click', () => finish(true));
+    cancelBtn.addEventListener('click', () => finish(false));
+    okBtn.focus();
+  });
 }
 const sketchService = new SketchToolbarService(container, viewer, trimService, projectionService, navbar);
 const modifyService = new ModifyPickService(container, viewer, navbar, {
@@ -2475,16 +2603,37 @@ function connectWebSocket() {
           // gizmo (or dismiss it if its instance is gone or now locked).
           assemblyGizmo.handleSceneRendered();
         }
+        // The panel column becomes visible on its first update, and a
+        // part/assembly swap renames the button it hangs off.
+        panelRail.sync();
         // The mate dialog re-resolves its picks against the re-minted scene
         // ids (or closes, when the render switched to a part scene).
         assemblyMateService.handleSceneRendered(sceneKind);
         if (msg.params !== undefined) {
           paramsPanel.update(msg.params);
-          // Reachable from the first render on, params or not — an empty panel
-          // is where the model's first parameter gets added.
-          viewer.setParamsButtonVisible(true);
         }
         errorBanner.update(msg.result, msg.compileError ?? null);
+        topBar.updateSolids(msg.result);
+        const compileError = msg.compileError ?? null;
+        activeCompileError = compileError !== null;
+        if (compileError === null) {
+          moveRevertGuard = null;
+        } else if (moveRevertGuard !== null) {
+          const guard = moveRevertGuard;
+          moveRevertGuard = null;
+          if (Date.now() <= guard.expiresAt && engineClient.editor) {
+            // The render right after a timeline move failed to compile:
+            // step the editor's history once (the move applied as one undo
+            // entry) so the buffer and the served scene reconverge.
+            void engineClient.editor.undo(guard.filePath).then((result) => {
+              if (result.success) {
+                showToast(`Move undone — the file failed to compile: ${compileError.message ?? 'compile error'}`);
+              } else {
+                showToast(`The move broke the compile — undo it in the editor (${result.reason ?? 'undo unavailable'})`);
+              }
+            });
+          }
+        }
         // Only update the breakpoint indicator when the server sends an
         // authoritative value. Rollback responses don't re-run the module but
         // carry the last full render's state (so a refresh whose replayed

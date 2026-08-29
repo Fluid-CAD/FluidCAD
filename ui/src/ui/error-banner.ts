@@ -19,7 +19,7 @@ export class ErrorBanner {
 
     this.element = document.createElement('div');
     this.element.id = 'fluidcad-error-banner';
-    this.element.className = 'absolute top-[112px] left-[calc(50%+var(--fluidcad-editor-width,0px)/2)] -translate-x-1/2 z-[1001] pointer-events-auto hidden max-w-[600px]';
+    this.element.className = 'absolute top-[112px] left-[calc(50%+var(--fluidcad-scene-left,0px)/2)] -translate-x-1/2 z-[1001] pointer-events-auto hidden max-w-[600px]';
     this.element.innerHTML = `
       <div class="panel-bg border border-error/40 rounded-lg shadow-md overflow-hidden">
         <div class="flex items-start gap-3 px-5 py-2.5 text-sm select-none">

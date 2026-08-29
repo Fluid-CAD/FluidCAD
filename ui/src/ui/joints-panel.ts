@@ -13,6 +13,7 @@
 
 import type { SerializedAssemblyMate, RenderedInstance } from '../types';
 import { ICON_IMG_FALLBACK } from './object-icons';
+import { AccordionSection } from './accordion-section';
 
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
 const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
@@ -125,11 +126,9 @@ export class JointsPanel {
 
   private renderRows(): void {
     if (this.mates.length === 0) {
-      this.body.innerHTML = `
-        <div class="px-3 py-2 text-xs text-base-content/40 italic">
-          No joints yet — define mates with <code>mate(...)</code>.
-        </div>
-      `;
+      this.body.innerHTML = AccordionSection.emptyState(
+        'No joints yet — define mates with <code>mate(...)</code>.',
+      );
       return;
     }
 

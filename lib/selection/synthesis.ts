@@ -81,6 +81,7 @@ export function synthesizeSelectors(
   chains: SelectorChain[] = [],
   params: ParameterLink[] = [],
   preferBucketIndices: boolean = false,
+  stmtBindable?: (feature: SceneObject) => boolean,
 ): SelectorSynthesis {
   const allAttributions = [
     ...attributions,
@@ -121,7 +122,8 @@ export function synthesizeSelectors(
   const globalPools: { edge: PickAttribution[]; face: PickAttribution[] } = { edge: [], face: [] };
 
   for (const attr of attributions) {
-    if (attr.producer && checkBindable(index, attr.producer.bucket.feature) === null) {
+    if (attr.producer && checkBindable(index, attr.producer.bucket.feature) === null
+      && (stmtBindable?.(attr.producer.bucket.feature) ?? true)) {
       const bucket = attr.producer.bucket;
       let list = bucketGroups.get(bucket);
       if (!list) {
@@ -158,32 +160,81 @@ export function synthesizeSelectors(
     return null;
   };
 
-  const planeSources = collectPlaneSources(index);
+  const planeSources = collectPlaneSources(index, stmtBindable);
 
+  // Bucket groups synthesize first but commit last: a global pool that can't
+  // resolve on its own may need to absorb same-kind bucket picks (see below),
+  // and an absorbed group must not have bound its producer already.
+  const bucketResults = new Map<BucketRecord, { attrs: PickAttribution[]; result: GroupResult }>();
   for (const [bucket, groupAttrs] of bucketGroups) {
-    const failure = addGroup(
-      synthesizeBucketCandidates(index, bucket, groupAttrs, params, preferBucketIndices),
-    );
-    if (failure) {
-      return failure;
-    }
+    bucketResults.set(bucket, {
+      attrs: groupAttrs,
+      result: synthesizeBucketCandidates(index, bucket, groupAttrs, params, preferBucketIndices),
+    });
   }
 
+  const globalResults: GroupResult[] = [];
+  const absorbed = new Set<BucketRecord>();
   for (const kind of ['edge', 'face'] as const) {
     const pool = globalPools[kind];
     if (pool.length === 0) {
       continue;
     }
-    const failure = addGroup(
-      synthesizeGlobalCandidates(scene, index, kind, pool, params, planeSources),
-    );
+    let result = synthesizeGlobalCandidates(scene, index, kind, pool, params, planeSources);
+    if (result.ok === false) {
+      // The pool must resolve to exactly its own picks — but when the user
+      // selected a whole repeat family (original + clones), the original's
+      // picks were routed to its bindable bucket, and no filter separates the
+      // clones from that geometrically identical twin. Retry over the union:
+      // first the pool plus the same-kind buckets of the clones' source
+      // features, then plus every same-kind bucket. On success the merged
+      // select() replaces the absorbed bucket groups.
+      const sameKind = [...bucketResults.entries()]
+        .filter(([bucket]) => bucket.def.kind === kind);
+      const sources = new Set(pool.map(a =>
+        a.producer ? a.producer.bucket.feature.getCloneSource() : null));
+      const family = sameKind.filter(([bucket]) => sources.has(bucket.feature));
+      for (const merge of family.length > 0 && family.length < sameKind.length
+        ? [family, sameKind] : [sameKind]) {
+        if (merge.length === 0) {
+          break;
+        }
+        const mergedPool = [...pool, ...merge.flatMap(([, group]) => group.attrs)];
+        const retry = synthesizeGlobalCandidates(scene, index, kind, mergedPool, params, planeSources);
+        if (retry.ok) {
+          result = retry;
+          for (const [bucket] of merge) {
+            absorbed.add(bucket);
+          }
+          break;
+        }
+      }
+    }
+    if (result.ok === false) {
+      return result;
+    }
+    globalResults.push(result);
+  }
+
+  for (const [bucket, { result }] of bucketResults) {
+    if (absorbed.has(bucket)) {
+      continue;
+    }
+    const failure = addGroup(result);
+    if (failure) {
+      return failure;
+    }
+  }
+
+  for (const result of globalResults) {
+    const failure = addGroup(result);
     if (failure) {
       return failure;
     }
   }
 
   for (const chain of chains) {
-    const failure = addGroup(synthesizeChainCandidates(scene, index, chain, params, planeSources));
+    const failure = addGroup(synthesizeChainCandidates(scene, index, chain, params, planeSources, stmtBindable));
     if (failure) {
       return failure;
     }
@@ -216,10 +267,14 @@ const PLANE_SOURCE_TOLERANCE = 1e-7;
  * faces, and a plane reference only reads the plane off them (the same
  * contract sketch-on-face relies on).
  */
-function collectPlaneSources(index: SelectionIndex): PlaneSource[] {
+function collectPlaneSources(
+  index: SelectionIndex,
+  stmtBindable?: (feature: SceneObject) => boolean,
+): PlaneSource[] {
   const sources: PlaneSource[] = [];
   for (const bucket of index.buckets) {
-    if (bucket.def.kind !== 'face' || checkBindable(index, bucket.feature) !== null) {
+    if (bucket.def.kind !== 'face' || checkBindable(index, bucket.feature) !== null
+      || !(stmtBindable?.(bucket.feature) ?? true)) {
       continue;
     }
     const planes: Plane[] = [];
@@ -391,6 +446,7 @@ function synthesizeChainCandidates(
   chain: SelectorChain,
   params: ParameterLink[],
   planeSources: PlaneSource[],
+  stmtBindable?: (feature: SceneObject) => boolean,
 ): GroupResult {
   const kind = chain.seed.ref.sub.type;
   const members = chain.members;
@@ -401,7 +457,8 @@ function synthesizeChainCandidates(
   const bucket = buckets[0];
   const sameBindableBucket = bucket !== null
     && buckets.every(b => b === bucket)
-    && checkBindable(index, bucket.feature) === null;
+    && checkBindable(index, bucket.feature) === null
+    && (stmtBindable?.(bucket.feature) ?? true);
 
   if (sameBindableBucket) {
     const candidates: SelectorPart[] = [];

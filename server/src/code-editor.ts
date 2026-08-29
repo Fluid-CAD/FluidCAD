@@ -936,7 +936,7 @@ export async function setTrimTargets(
 // ---------------------------------------------------------------------------
 
 /** Nearest ancestor that is a direct child of a statement_block or program. */
-function enclosingStatementOf(node: TSNode): TSNode | null {
+export function enclosingStatementOf(node: TSNode): TSNode | null {
   let current: TSNode | null = node;
   while (current && current.parent) {
     if (current.parent.type === 'statement_block' || current.parent.type === 'program') {

@@ -1,17 +1,13 @@
 import type { SceneObjectRender } from '../types';
 import { ICON_EYE, ICON_EYE_OFF, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL } from './icons';
 import { ICON_IMG_FALLBACK } from './object-icons';
-const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
+import { AccordionSection } from './accordion-section';
 
-export class ShapesPanel {
-  readonly header: HTMLDivElement;
-  readonly body: HTMLDivElement;
-
+export class ShapesPanel extends AccordionSection {
   private panel: HTMLElement;
   private sceneObjects: SceneObjectRender[] = [];
   private collapsedGroups = new Set<string>();
   private selectedIds = new Set<string>();
-  private expanded = true;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
   private activeTransparencyPopover: HTMLDivElement | null = null;
@@ -34,6 +30,9 @@ export class ShapesPanel {
     getTransparency: (shapeId: string) => number,
     onResetAllTransparency: () => void,
   ) {
+    // Nothing but the shared body: how this section and the History above it
+    // split the column is BODY_CLASS's deal — see accordion-section.ts.
+    super('Shapes');
     this.panel = panel;
     this.onHighlightShape = onHighlightShape;
     this.onExportShapes = onExportShapes;
@@ -42,23 +41,6 @@ export class ShapesPanel {
     this.onSetTransparency = onSetTransparency;
     this.getTransparency = getTransparency;
     this.onResetAllTransparency = onResetAllTransparency;
-
-    this.header = document.createElement('div');
-    this.header.className = SECTION_HEADER;
-    this.header.innerHTML = `
-      <span class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${ICON_CHEVRON_RIGHT}</span>
-      <span class="text-sm font-medium text-base-content/70">Shapes</span>
-    `;
-
-    this.body = document.createElement('div');
-    this.body.className = 'py-1 overflow-y-auto min-h-[33vh] flex-1';
-
-    this.header.addEventListener('click', () => {
-      this.expanded = !this.expanded;
-      this.body.classList.toggle('hidden', !this.expanded);
-      const chevron = this.header.querySelector('span')!;
-      chevron.classList.toggle('rotate-90', this.expanded);
-    });
   }
 
   update(sceneObjects: SceneObjectRender[]): void {
@@ -134,7 +116,8 @@ export class ShapesPanel {
       }
     }
 
-    this.body.innerHTML = html;
+    this.body.innerHTML = html
+      || AccordionSection.emptyState('No shapes yet — they appear here as features build geometry.');
 
     this.body.querySelectorAll<HTMLElement>('[data-shape-group]').forEach((el) => {
       el.addEventListener('click', () => {

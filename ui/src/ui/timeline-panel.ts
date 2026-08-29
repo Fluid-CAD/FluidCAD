@@ -4,8 +4,7 @@ import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK } from './object-icons';
 import { ShapesPanel } from './shapes-panel';
-
-const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
+import { AccordionSection } from './accordion-section';
 
 function formatDuration(ms: number): string {
   if (ms < 1000) {
@@ -102,10 +101,31 @@ export class TimelinePanel {
    */
   managesOwnBreakpoint?: (obj: SceneObjectRender) => boolean;
 
+  /**
+   * Multi-selected rows were dropped onto a part row: move their statements
+   * into the part's callback body. `lines` are the rows' 1-based source
+   * lines (deduped, ascending); `partLoc` is the part row's own call site.
+   * Unset, the timeline offers no selection or drag at all.
+   */
+  onMoveToPart?: (
+    filePath: string,
+    lines: number[],
+    partLoc: { filePath: string; line: number; column: number },
+  ) => void;
+
   private panel: HTMLDivElement;
   private timelineBody: HTMLDivElement;
   private contentWrapper: HTMLDivElement;
+  private historySection: AccordionSection;
   private shapesPanel: ShapesPanel;
+  /**
+   * The sections at most one of which may be open: Shapes, and the Parameters
+   * panel once a host attaches one. Both are browsable lists of the whole
+   * model rather than steps of it, and either at full height leaves the
+   * History nothing — so opening one closes the other. The History itself
+   * stays independent; it is the column's subject.
+   */
+  private exclusiveSections: AccordionSection[] = [];
   private loaded = false;
   private userHidden = false;
   private sceneObjects: SceneObjectRender[] = [];
@@ -135,7 +155,16 @@ export class TimelinePanel {
   private pickedFeatureId: string | null = null;
   /** True only for the render setPickedFeature triggers — one-shot flash. */
   private pickedFlash = false;
-  private timelineExpanded = true;
+  /**
+   * Multi-selected top-level feature rows (flat indices), for drag-to-part.
+   * Cleared on every update() — indices shift with each render, and any
+   * scene change invalidates what the selection meant anyway.
+   */
+  private selectedIndices = new Set<number>();
+  /** Anchor row of the last toggle gesture, for shift-range selection. */
+  private selectionAnchor: number | null = null;
+  /** Snapshot of the rows being dragged; null outside a drag. */
+  private dragIndices: number[] | null = null;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
   private showBuildTimings = false;
@@ -154,8 +183,10 @@ export class TimelinePanel {
     onResetAllTransparency: () => void,
   ) {
     this.panel = document.createElement('div');
-    // Docked below the host chrome (--fluidcad-chrome-top) with breathing room.
-    this.panel.className = 'absolute left-[calc(var(--fluidcad-editor-width,0px)+1.5rem)] top-[calc(var(--fluidcad-chrome-top,104px)+12px)] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
+    // Docked in the scene's left gutter (--fluidcad-panel-left already clears
+    // the rail and the editor pane) and below the host chrome, tucked into
+    // that corner by one --fluidcad-panel-gap on both axes.
+    this.panel.className = 'absolute left-[calc(var(--fluidcad-panel-left,0px)+var(--fluidcad-panel-gap))] top-[calc(var(--fluidcad-chrome-top,104px)+var(--fluidcad-panel-gap))] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
     this.applyPanelWidth();
 
@@ -163,32 +194,20 @@ export class TimelinePanel {
     this.contentWrapper.className = 'flex-1 min-h-0 flex flex-col gap-1 overflow-y-auto';
     this.panel.appendChild(this.contentWrapper);
 
-    // Timeline accordion section
-    const timelineHeader = document.createElement('div');
-    timelineHeader.className = SECTION_HEADER;
-    timelineHeader.innerHTML = `
-      <span data-ref="chevron" class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${ICON_CHEVRON_RIGHT}</span>
-      <span class="text-sm font-medium text-base-content/70">History</span>
-      <span data-ref="history-total" class="text-xs text-base-content/40 tabular-nums hidden"></span>
-      <button data-ref="history-dots" class="ml-auto btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0">${ICON_DOTS_VERTICAL}</button>
-    `;
-    this.contentWrapper.appendChild(timelineHeader);
-    this.historyTotalLabel = timelineHeader.querySelector<HTMLSpanElement>('[data-ref="history-total"]')!;
-    const historyDotsBtn = timelineHeader.querySelector<HTMLButtonElement>('[data-ref="history-dots"]')!;
+    // History accordion section
+    this.historySection = new AccordionSection('History', {
+      trailing: `
+        <span data-ref="history-total" class="text-xs text-base-content/40 tabular-nums hidden"></span>
+        <button data-ref="history-dots" class="ml-auto btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0">${ICON_DOTS_VERTICAL}</button>
+      `,
+    });
+    this.historySection.mount(this.contentWrapper);
+    this.timelineBody = this.historySection.body;
+    this.historyTotalLabel = this.historySection.header.querySelector<HTMLSpanElement>('[data-ref="history-total"]')!;
+    const historyDotsBtn = this.historySection.header.querySelector<HTMLButtonElement>('[data-ref="history-dots"]')!;
     historyDotsBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       this.showHistoryDropdown(historyDotsBtn);
-    });
-
-    this.timelineBody = document.createElement('div');
-    this.timelineBody.className = 'py-1 overflow-y-auto min-h-0';
-    this.contentWrapper.appendChild(this.timelineBody);
-
-    timelineHeader.addEventListener('click', () => {
-      this.timelineExpanded = !this.timelineExpanded;
-      this.timelineBody.classList.toggle('hidden', !this.timelineExpanded);
-      const chevron = timelineHeader.querySelector('[data-ref="chevron"]')!;
-      chevron.classList.toggle('rotate-90', this.timelineExpanded);
     });
 
     // Shapes accordion section (delegated to ShapesPanel)
@@ -202,13 +221,47 @@ export class TimelinePanel {
       getShapeTransparency,
       onResetAllTransparency,
     );
-    this.contentWrapper.appendChild(this.shapesPanel.header);
-    this.contentWrapper.appendChild(this.shapesPanel.body);
+    this.shapesPanel.mount(this.contentWrapper);
+    this.addExclusiveSection(this.shapesPanel);
+  }
 
+  /**
+   * Mount a Parameters section under the Shapes one and join it to the pair
+   * that opens one at a time. The section is owned by the host, not by this
+   * panel: the rail rebuilds the panel on every part/assembly swap, and the
+   * parameters — values, groups, open state — outlive that.
+   */
+  attachParams(section: AccordionSection): void {
+    section.mount(this.contentWrapper);
+    section.setVisible(true);
+    this.addExclusiveSection(section);
+  }
+
+  private addExclusiveSection(section: AccordionSection): void {
+    // At most one of the group is ever open, joining sections included: the
+    // Parameters panel arrives expanded (that is what its floating hosts'
+    // toggle means) and comes in closed behind an already-open Shapes.
+    if (this.exclusiveSections.some((other) => other.isExpanded)) {
+      section.setExpanded(false);
+    }
+    this.exclusiveSections.push(section);
+    section.onToggle = (opened) => {
+      if (!opened.isExpanded) {
+        return;
+      }
+      for (const other of this.exclusiveSections) {
+        if (other !== opened) {
+          other.setExpanded(false);
+        }
+      }
+    };
   }
 
   update(sceneObjects: SceneObjectRender[], rollbackStop: number, rollbackScopePartId: string | null = null): void {
     this.pickedFeatureId = null;
+    this.selectedIndices.clear();
+    this.selectionAnchor = null;
+    this.dragIndices = null;
     this.sceneObjects = sceneObjects;
     this.rollbackStop = rollbackStop;
     this.rollbackScopePartId = rollbackScopePartId;
@@ -418,7 +471,8 @@ export class TimelinePanel {
       }
     }
 
-    this.timelineBody.innerHTML = html;
+    this.timelineBody.innerHTML = html
+      || AccordionSection.emptyState('No features yet — start with <code>sketch(...)</code>.');
 
     this.timelineBody.querySelectorAll<HTMLElement>('[data-index]').forEach((el) => {
       el.addEventListener('click', (e) => {
@@ -428,6 +482,13 @@ export class TimelinePanel {
         const index = parseInt(el.dataset.index!, 10);
         const rollbackIndex = parseInt(el.dataset.rollbackIndex ?? el.dataset.index!, 10);
         const obj = this.sceneObjects[index];
+        // Ctrl/meta toggles a row into the drag-to-part selection, shift
+        // extends it as a range; a plain click anywhere drops the selection
+        // and keeps its normal meaning.
+        if ((e.ctrlKey || e.metaKey || e.shiftKey) && this.handleSelectionClick(index, e)) {
+          return;
+        }
+        this.clearSelection();
         if (obj && this.onFeatureIntercept?.(obj)) {
           return;
         }
@@ -507,6 +568,63 @@ export class TimelinePanel {
           this.expandedGroupKeys.add(key);
         }
         this.renderTimeline();
+      });
+    });
+
+    // Drag-to-part: any movable row drags — the whole selection when it is
+    // part of one, itself alone otherwise. Part rows are the drop targets.
+    this.timelineBody.querySelectorAll<HTMLElement>('[data-movable="true"]').forEach((el) => {
+      el.addEventListener('dragstart', (e) => {
+        const index = parseInt(el.dataset.index!, 10);
+        if (!this.selectedIndices.has(index)) {
+          // Re-rendering mid-dragstart would detach the source node and kill
+          // the drag, so the highlight is painted directly and the full
+          // repaint waits for dragend.
+          this.selectedIndices.clear();
+          this.selectedIndices.add(index);
+          this.selectionAnchor = index;
+          el.classList.add('bg-primary/15', 'ring-1', 'ring-inset', 'ring-primary/40');
+        }
+        this.dragIndices = [...this.selectedIndices].sort((a, b) => a - b);
+        e.dataTransfer!.effectAllowed = 'move';
+        e.dataTransfer!.setData('text/plain', String(this.dragIndices.length));
+        if (this.dragIndices.length > 1) {
+          const ghost = document.createElement('div');
+          ghost.className = 'absolute px-2 py-1 rounded bg-base-100 border border-base-300 text-xs text-base-content shadow-md';
+          ghost.style.top = '-1000px';
+          ghost.textContent = `${this.dragIndices.length} features`;
+          document.body.appendChild(ghost);
+          e.dataTransfer!.setDragImage(ghost, 12, 12);
+          window.setTimeout(() => ghost.remove(), 0);
+        } else {
+          e.dataTransfer!.setDragImage(el, 16, 12);
+        }
+      });
+      el.addEventListener('dragend', () => {
+        this.dragIndices = null;
+        this.renderTimeline();
+      });
+    });
+
+    this.timelineBody.querySelectorAll<HTMLElement>('[data-drop-part="true"]').forEach((el) => {
+      el.addEventListener('dragover', (e) => {
+        if (!this.dragIndices) {
+          return;
+        }
+        e.preventDefault();
+        e.dataTransfer!.dropEffect = 'move';
+        el.classList.add('ring-1', 'ring-inset', 'ring-primary');
+      });
+      el.addEventListener('dragleave', () => {
+        el.classList.remove('ring-1', 'ring-inset', 'ring-primary');
+      });
+      el.addEventListener('drop', (e) => {
+        if (!this.dragIndices) {
+          return;
+        }
+        e.preventDefault();
+        el.classList.remove('ring-1', 'ring-inset', 'ring-primary');
+        this.completeDrop(parseInt(el.dataset.index!, 10));
       });
     });
 
@@ -642,6 +760,10 @@ export class TimelinePanel {
     // as "consumed" about something nothing can consume.
     const isInvisible = obj.visible === false && obj.type !== 'exposed';
     const isActivePart = !isChild && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
+    const isSelected = this.selectedIndices.has(index);
+    const isDraggable = !this.sketchActive && this.isMovableRow(obj);
+    const isDropTarget = this.onMoveToPart != null && !this.sketchActive && !isChild
+      && obj.type === 'part' && obj.sourceLocation != null;
     const name = obj.name || 'Unknown';
     const iconSrc = obj.type === 'part' ? '/icons/box.png' : `/icons/${resolveIconName(obj.uniqueType, obj.type)}.png`;
 
@@ -662,7 +784,9 @@ export class TimelinePanel {
     // wash, like the hover state) rather than primary, so it never reads as
     // navigation. Tailwind resolves competing bg- classes by stylesheet
     // order, not class order — a branch, not an append.
-    if (isPicked) {
+    if (isSelected) {
+      itemClass += ' bg-primary/15 ring-1 ring-inset ring-primary/40';
+    } else if (isPicked) {
       itemClass += ' bg-base-content/10 ring-1 ring-inset ring-base-content/30';
       if (this.pickedFlash) {
         itemClass += ' animate-[timeline-pick-flash_0.9s_ease-out] motion-reduce:animate-none';
@@ -714,7 +838,7 @@ export class TimelinePanel {
       : '';
 
     return `
-      <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-picked="${isPicked}">
+      <div class="${itemClass}" data-index="${index}" data-rollback-index="${rollbackIndex}" data-container="${obj.isContainer ?? false}" data-current="${isCurrent}" data-active-part="${isActivePart}" data-picked="${isPicked}"${isDraggable ? ' draggable="true" data-movable="true"' : ''}${isDropTarget ? ' data-drop-part="true"' : ''}>
         ${chevron}
         ${errorDot}
         <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="${imgClass}" alt="" />
@@ -1106,6 +1230,95 @@ export class TimelinePanel {
       return;
     }
     this.client.editor?.gotoSource(obj.sourceLocation);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Drag-to-part selection
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Rows that can join the drag-to-part selection: top-level feature
+   * statements. Parts themselves (nesting is refused), children (they
+   * already live in a scope) and rows with no statement stay out.
+   */
+  private isMovableRow(obj: SceneObjectRender | undefined): obj is SceneObjectRender {
+    return this.onMoveToPart != null
+      && obj != null
+      && obj.parentId == null
+      && obj.type !== 'part'
+      && obj.sourceLocation != null
+      && !isHiddenRow(obj);
+  }
+
+  /** Flat indices of every selectable row, in timeline order. */
+  private movableIndices(): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < this.sceneObjects.length; i++) {
+      if (this.isMovableRow(this.sceneObjects[i])) {
+        out.push(i);
+      }
+    }
+    return out;
+  }
+
+  /** The modifier-click selection gesture; false leaves the click to its default. */
+  private handleSelectionClick(index: number, e: MouseEvent): boolean {
+    const obj = this.sceneObjects[index];
+    if (this.sketchActive || !this.isMovableRow(obj)) {
+      return false;
+    }
+    if (e.shiftKey && this.selectionAnchor !== null) {
+      const rows = this.movableIndices();
+      const from = rows.indexOf(this.selectionAnchor);
+      const to = rows.indexOf(index);
+      if (from !== -1 && to !== -1) {
+        this.selectedIndices.clear();
+        for (const i of rows.slice(Math.min(from, to), Math.max(from, to) + 1)) {
+          this.selectedIndices.add(i);
+        }
+      }
+    } else if (this.selectedIndices.has(index)) {
+      this.selectedIndices.delete(index);
+      if (this.selectedIndices.size === 0) {
+        this.selectionAnchor = null;
+      }
+    } else {
+      this.selectedIndices.add(index);
+      this.selectionAnchor = index;
+    }
+    this.renderTimeline();
+    return true;
+  }
+
+  private clearSelection(): void {
+    if (this.selectedIndices.size === 0) {
+      return;
+    }
+    this.selectedIndices.clear();
+    this.selectionAnchor = null;
+    this.renderTimeline();
+  }
+
+  /** The selected rows landed on a part row — hand the move to the host. */
+  private completeDrop(partIndex: number): void {
+    const indices = this.dragIndices;
+    this.dragIndices = null;
+    const part = this.sceneObjects[partIndex];
+    if (!indices || !part || part.type !== 'part' || !part.sourceLocation || !this.onMoveToPart) {
+      return;
+    }
+    const lines = new Set<number>();
+    for (const i of indices) {
+      const obj = this.sceneObjects[i];
+      // Rows rendered from another file can't move into this one.
+      if (obj?.sourceLocation && obj.sourceLocation.filePath === part.sourceLocation.filePath) {
+        lines.add(obj.sourceLocation.line);
+      }
+    }
+    if (lines.size === 0) {
+      return;
+    }
+    this.onMoveToPart(part.sourceLocation.filePath, [...lines].sort((a, b) => a - b), part.sourceLocation);
   }
 
   private escapeHtml(text: string): string {

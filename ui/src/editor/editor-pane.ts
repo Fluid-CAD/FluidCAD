@@ -8,10 +8,11 @@ import { setupMonaco, EDITOR_OPTIONS, monaco } from './monaco-setup';
  *
  * The resize is free. `SceneContext` already runs a `ResizeObserver` on
  * `#fluidcad-scene`, and `styles.css` insets that element by
- * `--fluidcad-editor-width` — so this pane only has to set one custom
- * property and the viewport re-renders itself at the new size, correctly, with
- * no viewer changes at all. `setViewOffset` is deliberately *not* used: that
- * is for overlays occluding a full-size canvas, and this genuinely takes room.
+ * `--fluidcad-scene-left`, which this pane's own width feeds — so the pane
+ * only has to set one custom property and the viewport re-renders itself at
+ * the new size, correctly, with no viewer changes at all. `setViewOffset` is
+ * deliberately *not* used: that is for overlays occluding a full-size canvas,
+ * and this genuinely takes room.
  */
 
 const WIDTH_VARIABLE = '--fluidcad-editor-width';
@@ -44,8 +45,11 @@ export class EditorPane {
     this.width = clampWidth(options.initialWidth ?? DEFAULT_WIDTH);
 
     this.el = document.createElement('div');
+    // Docked against the panel rail rather than the window edge — the rail is
+    // the outermost chrome on this side, and `--fluidcad-rail-width` is 0px on
+    // a host that mounts none.
     this.el.className =
-      'absolute left-0 top-[var(--fluidcad-chrome-top,104px)] bottom-0 z-[115] ' +
+      'absolute left-[var(--fluidcad-rail-width,0px)] top-[var(--fluidcad-chrome-top,104px)] bottom-0 z-[115] ' +
       'flex flex-col bg-base-100 border-r border-base-content/10 hidden';
     this.el.style.width = `${this.width}px`;
 
@@ -132,7 +136,9 @@ export class EditorPane {
 
   private applyWidth(animate: boolean): void {
     if (this.isMobile()) {
-      this.el.style.width = '100%';
+      // Everything the rail hasn't taken — `100%` would hang off the right
+      // edge by exactly the rail's width.
+      this.el.style.width = 'calc(100% - var(--fluidcad-rail-width, 0px))';
       this.setWidthVariable(0, animate);
       return;
     }
@@ -209,6 +215,11 @@ function overflowWidgetsHost(): HTMLDivElement {
 }
 
 function clampWidth(width: number): number {
-  const max = Math.max(MIN_WIDTH, window.innerWidth - MIN_SCENE_WIDTH);
+  // The rail is chrome the pane can never borrow from, so it comes off the
+  // budget before the scene's own minimum does.
+  const rail = parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--fluidcad-rail-width'),
+  ) || 0;
+  const max = Math.max(MIN_WIDTH, window.innerWidth - rail - MIN_SCENE_WIDTH);
   return Math.round(Math.min(max, Math.max(MIN_WIDTH, width)));
 }

@@ -28,7 +28,7 @@ import { synthesizeApplyFeature } from '../../lib/selection/explain.js';
 import { synthesizeSketchApplyFeature } from '../../lib/selection/sketch-apply.js';
 import { scopedSceneBefore } from '../../lib/selection/types.js';
 import type { PickRef } from '../../lib/selection/types.js';
-import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit.ts';
+import { applyFeatureEdit, makeProducerBindable, makeProducerNamer, type ApplyFeatureEditSpec } from '../src/apply-feature-edit.ts';
 
 function findSolid(scene: Scene): Shape {
   const solid = scene.getAllSceneObjects()
@@ -1105,5 +1105,111 @@ describe('select→apply-feature end to end', () => {
     // Slots 0+1 (overlapping) fuse into one 2-arc outline; slot 2 survives.
     const fused = runFluid(edited.newCode);
     expect(sketchEdgeIds(fused).size).toBe(3);
+  });
+});
+
+describe('cross-part sketch on a face whose producer variable is reassigned', () => {
+  setupOC();
+
+  // `let body; body = extrude(30); body = shell(-2, …)` — the transform
+  // refuses to reference the extrude ('body' is reassigned after it), so the
+  // file-coupled bindable probe must steer the exposure's selector to the
+  // constant datum form, and the foreign sketch then lands in the active
+  // part referencing it. This is the whole route flow minus HTTP.
+  it('publishes the rim through a constant-plane exposure and sketches on it', async () => {
+    const code = [
+      `import { extrude, part, rect, shell, sketch } from "fluidcad/core";`,
+      ``,
+      `export const boxBody = part("Box Body", () => {`,
+      `    sketch("top", () => {`,
+      `        rect(100, 60).centered().radius(15)`,
+      `    });`,
+      ``,
+      `    let body;`,
+      ``,
+      `    body = extrude(30)`,
+      ``,
+      `    body = shell(-2, body.endFaces())`,
+      `});`,
+      ``,
+      `export const boxLid = part("Box Lid", () => {`,
+      ``,
+      `});`,
+      ``,
+    ].join('\n');
+
+    getSceneManager()!.startScene();
+    const bodyPart = core.part('Box Body', () => {
+      sketch('top', () => { rect(100, 60).centered().radius(15); });
+      const e = extrude(30);
+      (e as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 10, column: 4 });
+      const sh = core.shell(-2, (e as any).endFaces());
+      (sh as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 12, column: 4 });
+    });
+    (bodyPart as unknown as SceneObject).setSourceLocation({ filePath: '/ws/model.fluid.js', line: 3, column: 23 });
+
+    const scene = render();
+    const solid = findSolid(scene);
+    // The rim: the only planar face whose edges all sit at z = 30.
+    const picks: PickRef[] = [];
+    Explorer.findFacesWrapped(solid).forEach((f, index) => {
+      const mids = f.getEdges().map(eg => EdgeOps.getEdgeMidPoint(eg));
+      if (mids.length > 0 && mids.every(m => Math.abs(m.z - 30) < 1e-6)) {
+        picks.push({ shapeId: solid.id, sub: { type: 'face', index } });
+      }
+    });
+    expect(picks).toHaveLength(1);
+
+    // The file-coupled options the route builds (synthesisOptionsForFile).
+    const namer = await makeProducerNamer(code);
+    const bindable = await makeProducerBindable(code);
+    const synthesis = synthesizeApplyFeature(scene, picks, 'expose', 'lidSeat', [], { namer, bindable });
+    expect(synthesis.ok).toBe(true);
+    if (synthesis.ok !== true) {
+      return;
+    }
+    // No plane reference to the unbindable extrude — a constant datum plane,
+    // binding no variable at all.
+    expect(synthesis.preview).toBe("expose('lidSeat', select(face().onPlane('xy', 30)))");
+    expect(synthesis.spec.producers.filter(p => p.bind)).toHaveLength(0);
+    expect(synthesis.spec.expose?.part).toEqual({ line: 3, column: 23 });
+
+    // The foreign-sketch spec the route composes for a same-file donor.
+    const edited = await applyFeatureEdit(code, {
+      feature: 'sketch',
+      filePath: '/ws/model.fluid.js',
+      producers: [],
+      parts: [],
+      imports: [],
+      activePart: { line: 15, column: 22 },
+      sketchForeign: {
+        exposeName: 'lidSeat',
+        donor: { line: 3, column: 23 },
+        create: synthesis.spec,
+      },
+    });
+    expect(edited.error).toBeUndefined();
+    const lines = edited.newCode.split('\n');
+    const exposeRow = lines.findIndex(l => l.includes("expose('lidSeat', select(face().onPlane('xy', 30)))"));
+    const lidRow = lines.findIndex(l => l.includes('part("Box Lid"'));
+    const sketchRow = lines.findIndex(l => l.includes('sketch(boxBody.features.lidSeat, () => {'));
+    expect(exposeRow).toBeGreaterThan(-1);
+    expect(exposeRow).toBeLessThan(lidRow);
+    expect(sketchRow).toBeGreaterThan(lidRow);
+
+    // Execute the edited program: the exposure must resolve the rim and the
+    // lid's foreign sketch must build on it.
+    getSceneManager()!.startScene();
+    const globals: Record<string, unknown> = { ...core, ...filters, ...math };
+    const names = Object.keys(globals);
+    const src = edited.newCode.replace(IMPORT_LINE_RE, '').replace(/^export /gm, '');
+    const fn = new Function(...names, `"use strict";\n${src}\nreturn { boxBody, boxLid };`);
+    const handles = fn(...names.map(n => globals[n])) as { boxBody: any; boxLid: any };
+    expect(handles.boxBody.features.lidSeat).toBeDefined();
+    handles.boxLid.materialize();
+    const rerun = render();
+    for (const obj of rerun.getAllSceneObjects()) {
+      expect(obj.getError?.() ?? null).toBeNull();
+    }
   });
 });

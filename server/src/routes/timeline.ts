@@ -1,10 +1,14 @@
 import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server.ts';
+import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
+import type { ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
+import { MoveToPart } from '../move-to-part.ts';
 
 export function createTimelineRouter(
   fluidCadServer: FluidCadServer,
   sendToExtension: (msg: any) => void,
   broadcastToUI: (msg: any) => void,
+  options: { dispatcher?: FeatureEditDispatcher } = {},
 ): Router {
   const router = Router();
 
@@ -116,6 +120,70 @@ export function createTimelineRouter(
     sendToExtension({ type: 'clear-breakpoints' });
     res.json({ success: true });
   });
+
+  // Timeline drag-drop: move the selected feature statements into a part()
+  // callback body. Two phases — a dry-run analyzes against the server's copy
+  // of the file and answers the companion set (the UI's "Also moves: …"
+  // confirm) without touching the buffer; the real call rides the shared
+  // edit dispatcher (preflight refusal, editId ack) like every other
+  // statement write, never the legacy fire-and-forget path.
+  router.post('/move-to-part', async (req, res) => {
+    const { filePath, lines, part, dryRun } = req.body ?? {};
+    if (
+      typeof filePath !== 'string' ||
+      !Array.isArray(lines) ||
+      lines.length === 0 ||
+      !lines.every((l: unknown) => typeof l === 'number' && Number.isInteger(l) && l >= 1) ||
+      !part ||
+      typeof part.line !== 'number' ||
+      typeof part.column !== 'number'
+    ) {
+      res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    if (filePath !== fluidCadServer.getCurrentFileName()) {
+      res.status(422).json({ success: false, reason: 'features can only be moved within the currently rendered file' });
+      return;
+    }
+    const code = fluidCadServer.getCurrentCode();
+    if (code === null) {
+      res.status(422).json({ success: false, reason: 'no rendered code to move features in — is the file in sync with the last render?' });
+      return;
+    }
+    const captured = await MoveToPart.captureStatements(code, lines);
+    if ('error' in captured) {
+      if (dryRun) {
+        res.json({ success: false, reason: captured.error });
+      } else {
+        res.status(422).json({ success: false, reason: captured.error });
+      }
+      return;
+    }
+    const moveToPart = { statements: captured.statements, part: { line: part.line, column: part.column } };
+    if (dryRun) {
+      const analysis = await MoveToPart.analyze(code, moveToPart);
+      if (analysis.ok === false) {
+        res.json({ success: false, reason: analysis.reason, ...(analysis.needs ? { needs: analysis.needs } : {}) });
+      } else {
+        res.json({ success: true });
+      }
+      return;
+    }
+    if (!options.dispatcher) {
+      res.status(503).json({ success: false, reason: 'this server has no edit dispatcher to apply the move' });
+      return;
+    }
+    const spec: ApplyFeatureEditSpec = {
+      feature: 'sketch',
+      filePath,
+      producers: [],
+      parts: [],
+      imports: [],
+      moveToPart,
+    };
+    await options.dispatcher.dispatch(res, spec, { success: true });
+  });
+
 
   return router;
 }

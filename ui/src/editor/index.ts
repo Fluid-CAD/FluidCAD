@@ -238,7 +238,7 @@ export class EditorSurface {
 
   private async createFile(relPath: string): Promise<void> {
     try {
-      const created = await createWorkspaceFile(relPath, scaffoldFor(relPath));
+      const created = await createWorkspaceFile(relPath);
       await this.openFile(created.absPath);
     } catch (err) {
       console.warn(`FluidCAD: could not create ${relPath}:`, err);
@@ -456,35 +456,6 @@ export class EditorSurface {
       }
     });
   }
-}
-
-/**
- * A new model starts as something that renders, not an empty file. The suffix
- * picks the kind (`server/src/file-kind.ts`): an assembly driver gets the
- * imports the Insert dialog and mate tools append to, a part gets a first
- * feature. Anything else is a plain helper and starts empty.
- */
-function scaffoldFor(relPath: string): string {
-  if (relPath.endsWith('.assembly.js')) {
-    return [
-      "import { insert, mate } from 'fluidcad/core';",
-      '',
-      '',
-    ].join('\n');
-  }
-  if (!relPath.endsWith('.part.js') && !relPath.endsWith('.fluid.js')) {
-    return '';
-  }
-  return [
-    "import { sketch, rect, extrude } from 'fluidcad/core';",
-    '',
-    "sketch('xy', () => {",
-    '  rect(40, 20);',
-    '});',
-    '',
-    'extrude(10);',
-    '',
-  ].join('\n');
 }
 
 export { monaco };

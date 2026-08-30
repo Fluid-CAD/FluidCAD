@@ -453,16 +453,6 @@ export function circumcenter(
   return [ux, uy];
 }
 
-export function isCCW(center: [number, number], start: [number, number], through: [number, number]): boolean {
-  const startAngle = angleFromCenter(center, start);
-  const throughAngle = angleFromCenter(center, through);
-  let diff = throughAngle - startAngle;
-  if (diff < 0) {
-    diff += Math.PI * 2;
-  }
-  return diff < Math.PI;
-}
-
 export function centerFromChordAndRadius(
   start: [number, number],
   end: [number, number],

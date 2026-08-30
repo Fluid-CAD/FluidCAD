@@ -21,9 +21,14 @@ import {
   addDashedArc,
   angleFromCenter,
   pointOnCircle,
-  isCCW,
 } from './tool-preview-utils';
 import { coincident, newTarget, refTarget, type SolvedConstraintParam } from './solved-emission';
+
+const TWO_PI = Math.PI * 2;
+/** A full turn would put the arc's end back on its start, which the
+ * three-point fit has no circle for — hold the sweep just shy of one. */
+const MAX_SWEEP_DEG = 359.5;
+const MAX_SWEEP_RAD = MAX_SWEEP_DEG * (Math.PI / 180);
 
 const enum State {
   IDLE,
@@ -55,7 +60,10 @@ export class CenterArcTool extends SketchTool {
   private expressionInput: ExpressionInput;
   private lastClientX = 0;
   private lastClientY = 0;
-  private lastCCW = true;
+  /** Sweep from the start ray, signed (positive is counter-clockwise) and
+   * carried across cursor samples. Read straight off the cursor's bearing
+   * instead, it could never pass a half turn — the shorter way round won. */
+  private sweepRad = 0;
 
   private boundMouseDown: (e: MouseEvent) => void;
   private boundMouseUp: (e: MouseEvent) => void;
@@ -133,6 +141,7 @@ export class CenterArcTool extends SketchTool {
       this.startPoint = picked.value;
       this.startSnapRef = null;
       this.state = State.START_PLACED;
+      this.beginSweep();
     }
     this.syncPointInput();
     this.rebuildPreview();
@@ -148,6 +157,7 @@ export class CenterArcTool extends SketchTool {
     this.startSnapRef = null;
     this.lastSnapRef = null;
     this.mousePoint = null;
+    this.beginSweep();
   }
 
   private handleMouseDown(e: MouseEvent): void {
@@ -208,10 +218,16 @@ export class CenterArcTool extends SketchTool {
       return;
     }
 
-    const result = this.snapController.snap(raw);
+    // Once the start is down the cursor is an angle, not a position: the
+    // grid lattice would step that angle in quantised jumps, so only real
+    // geometry snaps the sweep.
+    const result = this.state === State.START_PLACED
+      ? this.snapController.snapVerticesOnly(raw)
+      : this.snapController.snap(raw);
     this.mousePoint = result.point2d;
     this.lastSnapType = result.snapType;
     this.lastSnapRef = result.ref ?? null;
+    this.advanceSweep();
     this.rebuildPreview();
     if (this.state === State.START_PLACED) {
       this.updateDimensionInput();
@@ -225,6 +241,7 @@ export class CenterArcTool extends SketchTool {
         this.startPick = null;
         this.startSnapRef = null;
         this.state = State.CENTER_PLACED;
+        this.beginSweep();
         this.expressionInput.hide();
       } else if (this.state === State.CENTER_PLACED) {
         this.centerPoint = null;
@@ -236,29 +253,46 @@ export class CenterArcTool extends SketchTool {
     }
   }
 
+  private get ccw(): boolean {
+    return this.sweepRad >= 0;
+  }
+
+  /** Restart the sweep — a fresh start anchor sweeps from zero. */
+  private beginSweep(): void {
+    this.sweepRad = 0;
+  }
+
+  /**
+   * Carry the sweep to where the cursor now sits, taking the nearest angle
+   * congruent to it rather than its raw bearing: each sample moves the sweep
+   * by less than a half turn, so passing 180 degrees keeps going round to a
+   * major arc instead of flipping to the short side. Holds at a hair under a
+   * full turn, which start and end coinciding would make unbuildable.
+   */
+  private advanceSweep(): void {
+    if (this.state !== State.START_PLACED
+      || !this.centerPoint || !this.startPoint || !this.mousePoint) {
+      return;
+    }
+    if (dist2D(this.centerPoint, this.mousePoint) <= 0) {
+      return;
+    }
+    const target = angleFromCenter(this.centerPoint, this.mousePoint)
+      - angleFromCenter(this.centerPoint, this.startPoint);
+    let step = (target - this.sweepRad) % TWO_PI;
+    if (step > Math.PI) {
+      step -= TWO_PI;
+    } else if (step <= -Math.PI) {
+      step += TWO_PI;
+    }
+    this.sweepRad = Math.max(-MAX_SWEEP_RAD, Math.min(MAX_SWEEP_RAD, this.sweepRad + step));
+  }
+
   private getSweepDeg(): number | null {
-    if (!this.centerPoint || !this.startPoint || !this.mousePoint) {
+    if (this.state !== State.START_PLACED || this.sweepRad === 0) {
       return null;
     }
-    const startAngle = angleFromCenter(this.centerPoint, this.startPoint);
-    const mouseAngle = angleFromCenter(this.centerPoint, this.mousePoint);
-    this.lastCCW = isCCW(this.centerPoint, this.startPoint, this.mousePoint);
-    let sweep: number;
-    if (this.lastCCW) {
-      sweep = mouseAngle - startAngle;
-      if (sweep <= 0) {
-        sweep += Math.PI * 2;
-      }
-    } else {
-      sweep = startAngle - mouseAngle;
-      if (sweep <= 0) {
-        sweep += Math.PI * 2;
-      }
-    }
-    if (sweep === 0) {
-      return null;
-    }
-    return Math.round(sweep * (180 / Math.PI) * 100) / 100;
+    return Math.round(Math.abs(this.sweepRad) * (180 / Math.PI) * 100) / 100;
   }
 
   private updateDimensionInput(): void {
@@ -284,19 +318,18 @@ export class CenterArcTool extends SketchTool {
   }
 
   private commitFromMouse(suppressEndRef: boolean): void {
-    if (!this.centerPoint || !this.startPoint || !this.mousePoint) {
+    if (!this.centerPoint || !this.startPoint || !this.mousePoint || this.sweepRad === 0) {
       return;
     }
-    const ccw = isCCW(this.centerPoint, this.startPoint, this.mousePoint);
     const radius = dist2D(this.centerPoint, this.startPoint);
-    const endAngle = angleFromCenter(this.centerPoint, this.mousePoint);
+    const endAngle = angleFromCenter(this.centerPoint, this.startPoint) + this.sweepRad;
     const endPoint = pointOnCircle(this.centerPoint, radius, endAngle);
     // The end coincident only holds when the on-circle projection didn't
     // move the endpoint off the snapped vertex.
     const endRef = !suppressEndRef && this.lastSnapRef
       && dist2D(endPoint, this.mousePoint) < 1e-6
       ? this.lastSnapRef : null;
-    this.emitArc(this.startPick!, endPoint, this.centerPick!, ccw, undefined, endRef);
+    this.emitArc(this.startPick!, endPoint, this.centerPick!, this.ccw, undefined, endRef);
   }
 
   private commitFromExpression(result: CommitResult): void {
@@ -305,16 +338,16 @@ export class CenterArcTool extends SketchTool {
     }
     const { expression, newVariable } = result;
     const num = parseFloat(expression);
-    if (isNaN(num) || num <= 0) {
+    if (isNaN(num) || num <= 0 || num > MAX_SWEEP_DEG) {
       return;
     }
     const sweepRad = num * (Math.PI / 180);
     const radius = dist2D(this.centerPoint, this.startPoint);
     const startAngle = angleFromCenter(this.centerPoint, this.startPoint);
-    const direction = this.lastCCW ? 1 : -1;
+    const direction = this.ccw ? 1 : -1;
     const endAngle = startAngle + direction * sweepRad;
     const endPoint = pointOnCircle(this.centerPoint, radius, endAngle);
-    this.emitArc(this.startPick!, endPoint, this.centerPick!, this.lastCCW, newVariable);
+    this.emitArc(this.startPick!, endPoint, this.centerPick!, this.ccw, newVariable);
   }
 
   private emitArc(
@@ -389,13 +422,16 @@ export class CenterArcTool extends SketchTool {
       if (this.mousePoint) {
         const radius = dist2D(this.centerPoint, this.startPoint);
         const startAngle = angleFromCenter(this.centerPoint, this.startPoint);
-        const mouseAngle = angleFromCenter(this.centerPoint, this.mousePoint);
-        const endPointOnCircle = pointOnCircle(this.centerPoint, radius, mouseAngle);
+        const endAngle = startAngle + this.sweepRad;
+        const endPointOnCircle = pointOnCircle(this.centerPoint, radius, endAngle);
 
         addDashedLine(this.previewGroup, this.centerPoint, endPointOnCircle, this.plane);
 
-        const ccw = isCCW(this.centerPoint, this.startPoint, this.mousePoint);
-        addDashedArc(this.previewGroup, this.centerPoint, radius, startAngle, mouseAngle, ccw, this.plane);
+        // A zero sweep has no side to draw — addDashedArc would read it as a
+        // whole turn and ghost a full circle over the cursor.
+        if (this.sweepRad !== 0) {
+          addDashedArc(this.previewGroup, this.centerPoint, radius, startAngle, endAngle, this.ccw, this.plane);
+        }
 
         if (this.lastSnapType !== 'none') {
           const color = this.lastSnapType === 'vertex' ? SNAP_VERTEX_COLOR : SNAP_GRID_COLOR;

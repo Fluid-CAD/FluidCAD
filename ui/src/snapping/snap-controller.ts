@@ -52,6 +52,23 @@ export class SnapController {
     return result;
   }
 
+  /**
+   * Vertex snapping only — the grid lattice is skipped even when its toggle
+   * is on. For a caller measuring an angle off the cursor the lattice would
+   * step that angle in quantised jumps, while snapping onto real geometry
+   * (vertices, the sketch axes) still has to work.
+   */
+  snapVerticesOnly(point2d: [number, number]): SnapResult {
+    if (!this.snapToVertices) {
+      return this.noSnapResult(point2d);
+    }
+    const result = this.snapManager.snap(point2d, this.plane);
+    if (result.snapType !== 'vertex') {
+      return this.noSnapResult(point2d);
+    }
+    return result;
+  }
+
   private noSnapResult(point2d: [number, number]): SnapResult {
     const o = this.plane.origin;
     const x = this.plane.xDirection;

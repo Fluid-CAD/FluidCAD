@@ -6,7 +6,7 @@ import { arc, line } from "../../../core/2d/index.js";
 import { ExtrudeBase } from "../../../features/extrude-base.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { Solid } from "../../../common/solid.js";
-import { getEdgesByType } from "../../utils.js";
+import { getBoundingBoxOfShapes, getEdgesByType } from "../../utils.js";
 import { coincident, horizontal, vertical } from "../../../core/constraints/index.js";
 
 describe("arc", () => {
@@ -55,6 +55,31 @@ describe("arc", () => {
       const end = arcEdge.getLastVertex().toPoint();
       expect(end.x).toBeCloseTo(solvedEnd.x, 9);
       expect(end.y).toBeCloseTo(solvedEnd.y, 9);
+    });
+
+    it("builds a major arc — the flag picks the side, not the shorter way round", () => {
+      // Both a 270 degree and a 90 degree arc join [10, 0] to [0, -10] around
+      // the origin; only the sweep direction tells them apart. The UI's centre
+      // arc emits either, so the major one has to build on the side it asked
+      // for rather than collapsing to the short way round.
+      const major = sketch("xy", () => {
+        arc([10, 0], [0, -10], [0, 0]);
+      }) as Sketch;
+      render();
+      // Counter-clockwise it goes the long way, through [0, 10] and [-10, 0].
+      // OCC pads a bounding box by its gap, so read the reach, not the extent.
+      const bMajor = getBoundingBoxOfShapes(major.getShapes());
+      expect(bMajor.minX).toBeLessThan(-9.9);
+      expect(bMajor.maxY).toBeGreaterThan(9.9);
+
+      const minor = sketch("xy", () => {
+        arc([10, 0], [0, -10], [0, 0]).cw();
+      }) as Sketch;
+      render();
+      // Clockwise over the same endpoints it never leaves the fourth quadrant.
+      const bMinor = getBoundingBoxOfShapes(minor.getShapes());
+      expect(bMinor.minX).toBeGreaterThan(-0.2);
+      expect(bMinor.maxY).toBeLessThan(0.2);
     });
 
     it("flips the sweep with .cw()", () => {

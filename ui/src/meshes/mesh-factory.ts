@@ -63,6 +63,7 @@ export function buildObjectMesh(
   camera: Camera,
   isRegionPicking: boolean,
   inherited?: MeshRenderOptions,
+  isRollback: boolean = false,
 ): Object3D {
   // Drop invisible objects (e.g. children of a part hidden by `remove(part)`).
   // The container types — connector/plane/axis/sketch — build their visuals
@@ -76,7 +77,7 @@ export function buildObjectMesh(
   // --- dedicated mesh classes for construction geometry ---
   switch (obj.type) {
     case 'sketch':
-      return new SketchMesh(obj, allObjects, activeSketchId, camera);
+      return new SketchMesh(obj, allObjects, activeSketchId, camera, isRollback);
     case 'plane':
       return new PlaneMesh(obj, camera);
     case 'axis':
@@ -95,7 +96,7 @@ export function buildObjectMesh(
   if (children.length > 0) {
     const group = new Group();
     for (const child of children) {
-      group.add(buildObjectMesh(child, allObjects, activeSketchId, camera, isRegionPicking, options));
+      group.add(buildObjectMesh(child, allObjects, activeSketchId, camera, isRegionPicking, options, isRollback));
     }
     result = group;
   } else {
@@ -126,6 +127,7 @@ export function buildSceneMesh(
   activeSketchId: string | null,
   camera: Camera,
   isRegionPicking: boolean = false,
+  isRollback: boolean = false,
 ): Object3D {
   const container = new Group();
   container.name = 'compiledMesh';
@@ -133,7 +135,7 @@ export function buildSceneMesh(
   for (const obj of sceneObjects) {
     if (obj.parentId) continue;
     if (!obj.visible && !(activeSketchId && obj.type === 'sketch')) continue;
-    container.add(buildObjectMesh(obj, sceneObjects, activeSketchId, camera, isRegionPicking));
+    container.add(buildObjectMesh(obj, sceneObjects, activeSketchId, camera, isRegionPicking, undefined, isRollback));
   }
 
   return container;

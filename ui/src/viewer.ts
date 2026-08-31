@@ -983,7 +983,7 @@ export class Viewer {
         : null;
     }
 
-    const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking);
+    const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, isRollback);
     this.ctx.scene.add(mesh);
     this.applyShapeOverridesAndPrune(sceneObjects);
 
@@ -1995,7 +1995,7 @@ export class Viewer {
       return;
     }
     this.removeCompiledMesh();
-    const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking);
+    const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, this.lastRenderIsRollback);
     this.ctx.scene.add(mesh);
     this.applyShapeOverridesAndPrune(this.sceneObjects);
     // The rebuilt materials are un-tinted — reapply the sketch-mode ghosting

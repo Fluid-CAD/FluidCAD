@@ -67,16 +67,20 @@ export class SketchMesh extends Group {
    * sketch's own, so only the active sketch draws them. Outside sketch mode
    * (no active sketch) every visible sketch still annotates itself. */
   private readonly showConstraints: boolean;
+  /** True when this mesh renders a truncated rollback preview — annotations
+   * drop to dimensions only (see rebuildSolvedGlyphs). */
+  private readonly isRollback: boolean;
   /** Screen-space annotation placement (P5.5); null without annotations. */
   private glyphLayout: SolvedGlyphLayout | null = null;
   private layoutHookOff: (() => void) | null = null;
   private layoutAttached = false;
   private detachedFrames = 0;
 
-  constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], activeSketchId: string | null, _camera: Camera) {
+  constructor(sceneObject: SceneObjectRender, allObjects: SceneObjectRender[], activeSketchId: string | null, _camera: Camera, isRollback = false) {
     super();
     this.userData.isSketchRoot = true;
     this.userData.sketchObjectId = sceneObject.id;
+    this.isRollback = isRollback;
     this.showConstraints = !activeSketchId || sceneObject.id === activeSketchId;
     this.solvedModel = buildSolvedSketchModel(sceneObject, allObjects);
     this.buildEdges(sceneObject, allObjects);
@@ -267,11 +271,15 @@ export class SketchMesh extends Group {
     }
     // The sketch dialog's visibility toggles: dimensional constraints draw
     // as leaders/readouts/angle arcs, positional ones as badges and dots —
-    // a filtered category also releases its reserved layout space.
+    // a filtered category also releases its reserved layout space. A
+    // rollback preview drops the positional category regardless: badges
+    // describe the sketch's internal wiring, and a stepped-back view is
+    // about reading the geometry, not editing it.
     const { sketchShowDimensions, sketchShowPositional } = viewerSettings.current;
+    const showPositional = sketchShowPositional && !this.isRollback;
     const glyphs = layoutConstraintGlyphs(model).filter(glyph => {
       const dimensional = glyph.type === 'text' || glyph.type === 'leader' || glyph.type === 'angle-arc';
-      return dimensional ? sketchShowDimensions : sketchShowPositional;
+      return dimensional ? sketchShowDimensions : showPositional;
     });
     const { groups, hitTargets, layout } = buildSolvedConstraintMeshes(model, glyphs);
     this.solvedGlyphGroups = groups;

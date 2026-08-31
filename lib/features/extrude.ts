@@ -8,6 +8,7 @@ import { Face } from "../common/face.js";
 import { FaceMaker2 } from "../oc/face-maker2.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
 import { EdgeOps } from "../oc/edge-ops.js";
+import { ShapeOps } from "../oc/shape-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { ThinFaceMaker, ThinFaceResult } from "../oc/thin-face-maker.js";
 import { Plane } from "../math/plane.js";
@@ -254,7 +255,12 @@ export class Extrude extends ExtrudeBase {
 
     const all = [...extrusions1, ...extrusions2];
     const halvesFuse = p.record('Fuse halves', () => BooleanOps.fuse(all));
-    const extrusions = halvesFuse.result;
+    // The fuse leaves every lateral edge split in two at the mid-plane seam;
+    // merge those pairs (and nothing else) so a symmetric extrude reads as one
+    // continuous edge per lateral boundary. Caps keep their TShape identity,
+    // which the IsSame re-find below depends on.
+    const extrusions = p.record('Unify seam edges', () =>
+      ShapeOps.unifySeamEdges(halvesFuse.result, plane));
     halvesFuse.dispose();
 
     // Re-find start/end faces in the fused solid (NonDestructive preserves
@@ -352,7 +358,9 @@ export class Extrude extends ExtrudeBase {
       const extruder2 = new Extruder(faces, plane, halfDistance, draft, this.getEndOffset());
       const all = [...extruder1.extrude(), ...extruder2.extrude()];
       const halvesFuse = BooleanOps.fuse(all);
-      toolShapes = halvesFuse.result;
+      // Merge the tool's mid-plane seam edges so the cavity walls the cut
+      // carves don't inherit lateral edges split in two at the sketch plane.
+      toolShapes = ShapeOps.unifySeamEdges(halvesFuse.result, plane);
       halvesFuse.dispose();
     } else {
       const distance = isThroughAll ? -throughAll : -this.distance;

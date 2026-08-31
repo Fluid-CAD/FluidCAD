@@ -2,6 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { ExtrudeBase } from "./extrude-base.js";
 import { fuseWithSceneObjects, cutWithSceneObjects } from "../helpers/scene-helpers.js";
 import { BooleanOps } from "../oc/boolean-ops.js";
+import { ShapeOps } from "../oc/shape-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
@@ -65,7 +66,12 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
 
     const all = [...extrusions1, ...extrusions2];
     const halvesFuse = p.record('Fuse halves', () => BooleanOps.fuse(all));
-    const extrusions = halvesFuse.result;
+    // The fuse leaves every lateral edge split in two at the sketch-plane
+    // seam; merge those pairs (and nothing else) so the two-sided extrude
+    // reads as one continuous edge per lateral boundary. Caps keep their
+    // TShape identity, which the IsSame re-find below depends on.
+    const extrusions = p.record('Unify seam edges', () =>
+      ShapeOps.unifySeamEdges(halvesFuse.result, plane));
     halvesFuse.dispose();
 
     const remainingFaces: Face[] = [];

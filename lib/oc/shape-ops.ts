@@ -6,11 +6,13 @@ import type {
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Matrix4 } from "../math/matrix4.js";
+import { Plane } from "../math/plane.js";
 import { Shape } from "../common/shape.js";
 import { ShapeFactory } from "../common/shape-factory.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { Explorer } from "./explorer.js";
+import { VertexOps } from "./vertex-ops.js";
 import { BoundingBox } from "../helpers/types.js";
 
 /**
@@ -233,6 +235,82 @@ export class ShapeOps {
       },
       dispose,
     };
+  }
+
+  /**
+   * Merge the colinear edge pairs a two-half extrude (symmetric / two-distance)
+   * leaves along its mid-plane seam after the halves are fused. The fuse's
+   * `SimplifyResult` already unifies the lateral faces but runs with edge
+   * unification off, so every lateral edge stays split in two at the seam
+   * vertex.
+   *
+   * A global edge-unify would also merge colinear PROFILE edges (breakpoint
+   * splits, chained segments) — rebuilding the cap faces and breaking the
+   * IsSame identity the start/end-face remapping and edge classification rely
+   * on. So merging is physically restricted to the seam: UnifySameDomain runs
+   * with edge unification only, and every vertex OFF `plane` is registered via
+   * `KeepShape`, which forbids merging its edges. The only merge candidates
+   * left are the seam vertices on the sketch plane.
+   *
+   * Shapes with no on-plane vertex are returned as-is, as is any shape whose
+   * unified result fails validation (UnifySameDomain can corrupt periodic
+   * surfaces) — this pass never makes a shape worse.
+   */
+  static unifySeamEdges(shapes: Shape[], plane: Plane | null): Shape[] {
+    if (!plane) {
+      return shapes;
+    }
+    return shapes.map(s => ShapeOps.unifySeamEdgesOne(s, plane));
+  }
+
+  private static unifySeamEdgesOne(shape: Shape, plane: Plane): Shape {
+    const oc = getOC();
+    const VERTEX = oc.TopAbs_ShapeEnum.TopAbs_VERTEX as TopAbs_ShapeEnum;
+    // Seam vertices are exact copies of the profile vertices on the sketch
+    // plane; the tolerance only needs to absorb numeric drift.
+    const tolerance = 1e-6;
+
+    const raw = shape.getShape();
+    const keptVertices: TopoDS_Shape[] = [];
+    let seamVertexCount = 0;
+    for (const v of Explorer.findShapes(raw, VERTEX)) {
+      const point = VertexOps.toPointRaw(Explorer.toVertex(v));
+      if (Math.abs(plane.signedDistanceToPoint(point)) < tolerance) {
+        seamVertexCount++;
+      } else {
+        keptVertices.push(v);
+      }
+    }
+
+    if (seamVertexCount === 0) {
+      return shape;
+    }
+
+    try {
+      const unify = new oc.ShapeUpgrade_UnifySameDomain(raw, true, false, false);
+      // Safe input mode (the default) copies rebuilt regions so the input
+      // stays untouched — but that replaces the TShapes of faces the merge
+      // never touched, breaking the caller's IsSame cap re-find. The input
+      // here is a just-fused intermediate owned by the caller, so in-place
+      // is fine and keeps untouched faces identical.
+      unify.SetSafeInputMode(false);
+      for (const v of keptVertices) {
+        unify.KeepShape(v);
+      }
+      unify.Build();
+      const unified = unify.Shape();
+      unify.delete();
+
+      const checker = new oc.BRepCheck_Analyzer(unified, true, true);
+      const valid = checker.IsValid();
+      checker.delete();
+      if (!valid) {
+        return shape;
+      }
+      return ShapeFactory.fromShape(unified);
+    } catch {
+      return shape;
+    }
   }
 
   static cleanShapeRaw(shape: TopoDS_Shape) {

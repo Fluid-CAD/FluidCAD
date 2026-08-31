@@ -9,6 +9,9 @@ import { Sketch } from "../../features/2d/sketch.js";
 import cylinder from "../../core/cylinder.js";
 import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import { VertexOps } from "../../oc/vertex-ops.js";
+import { Explorer } from "../../oc/explorer.js";
+import { Face } from "../../common/face.js";
 import { testRect } from "../helpers/profiles.js";
 
 describe("extrude symmetric", () => {
@@ -214,6 +217,61 @@ describe("extrude symmetric", () => {
       const bbox = ShapeOps.getBoundingBox(sf0.getShapes()[0]);
       expect(bbox.minZ).toBeCloseTo(-15, 0);
       expect(bbox.maxZ).toBeCloseTo(15, 0);
+    });
+  });
+
+  describe("seam cleanup", () => {
+    it("should produce clean box topology with no mid-plane edge splits", () => {
+      sketch("xy", () => {
+          testRect(100, 50);
+        });
+
+      const e = extrude(30).symmetric() as Extrude;
+
+      render();
+
+      const solid = e.getShapes()[0] as Solid;
+      expect(solid.getFaces()).toHaveLength(6);
+      expect(solid.getEdges()).toHaveLength(12);
+      expect(Explorer.findVerticesWrapped(solid)).toHaveLength(8);
+    });
+
+    it("should expose side edges spanning the full height", () => {
+      sketch("xy", () => {
+          testRect(100, 50);
+        });
+
+      const e = extrude(30).symmetric() as Extrude;
+      const se = e.sideEdges();
+      addToScene(se);
+
+      render();
+
+      expect(se.getShapes()).toHaveLength(4);
+      for (const edge of se.getShapes()) {
+        const bbox = ShapeOps.getBoundingBox(edge);
+        expect(bbox.minZ).toBeCloseTo(-15, 0);
+        expect(bbox.maxZ).toBeCloseTo(15, 0);
+      }
+    });
+
+    it("should keep hole classification and leave no vertex on the sketch plane", () => {
+      sketch("xy", () => {
+          circle([0, 0], 100);
+          circle([0, 0], 40);
+        });
+
+      const e = extrude(30).symmetric() as Extrude;
+
+      render();
+
+      const internalFaces = e.getState('internal-faces') as Face[];
+      expect(internalFaces).toHaveLength(1);
+
+      const solid = e.getShapes()[0] as Solid;
+      for (const v of Explorer.findVerticesWrapped(solid)) {
+        expect(Math.abs(VertexOps.toPoint(v).z)).toBeCloseTo(15);
+      }
     });
   });
 

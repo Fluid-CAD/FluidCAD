@@ -232,6 +232,22 @@ describe("extrude two distances", () => {
     });
   });
 
+  describe("seam cleanup", () => {
+    it("should produce clean box topology with no sketch-plane edge splits", () => {
+      sketch("xy", () => {
+          testRect(100, 50);
+        });
+
+      const e = extrude(20, 10) as ExtrudeTwoDistances;
+
+      render();
+
+      const solid = e.getShapes()[0] as Solid;
+      expect(solid.getFaces()).toHaveLength(6);
+      expect(solid.getEdges()).toHaveLength(12);
+    });
+  });
+
   describe("startEdges / endEdges", () => {
     it("should expose start and end edges", () => {
       sketch("xy", () => {

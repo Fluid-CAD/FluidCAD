@@ -8,6 +8,8 @@ import { Solid } from "../../common/solid.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { countShapes, getFacesByType, getEdgesByType } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import { VertexOps } from "../../oc/vertex-ops.js";
+import { Explorer } from "../../oc/explorer.js";
 import { testRect } from "../helpers/profiles.js";
 
 describe("cut symmetric", () => {
@@ -59,6 +61,32 @@ describe("cut symmetric", () => {
       const bbox = ShapeOps.getBoundingBox(solid);
       expect(bbox.minZ).toBeCloseTo(-25, 0);
       expect(bbox.maxZ).toBeCloseTo(25, 0);
+    });
+  });
+
+  describe("seam cleanup", () => {
+    it("should not split the pocket wall edges at the sketch plane", () => {
+      sketch("xy", () => {
+          testRect(100, 100);
+        });
+      extrude(50).symmetric();
+
+      sketch("xy", () => {
+          testRect(50, 50, { at: [25, 25] });
+        });
+      extrude(20).symmetric().remove();
+
+      const scene = render();
+
+      const solid = scene.getAllSceneObjects()
+        .flatMap(o => o.getShapes())
+        .find(s => s.getType() === "solid") as Solid;
+
+      // Pocket floor/ceiling sit at z=±10, the stock at z=±25 — a leftover
+      // seam split would put a vertex on the sketch plane at z=0.
+      for (const v of Explorer.findVerticesWrapped(solid)) {
+        expect(Math.abs(VertexOps.toPoint(v).z)).toBeGreaterThan(9);
+      }
     });
   });
 

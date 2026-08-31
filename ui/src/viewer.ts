@@ -616,6 +616,7 @@ export class Viewer {
   /** The raycast every pick query shares: candidates collected, hits by distance. */
   private castPick(clientX: number, clientY: number): {
     raycaster: Raycaster;
+    faceTargets: Mesh[];
     faceHits: Intersection[];
     edgeHits: Intersection[];
     sketchWireHits: Intersection[];
@@ -651,15 +652,23 @@ export class Viewer {
       ? raycaster.intersectObjects(candidates.planeQuads, false)
       : [];
 
-    return { raycaster, faceHits, edgeHits, sketchWireHits, axisHits, planeHits, planeQuadHits };
+    return { raycaster, faceTargets: candidates.faces, faceHits, edgeHits, sketchWireHits, axisHits, planeHits, planeQuadHits };
   }
 
-  /** Closest point of an edge hit projected onto the pick ray — its depth. */
-  private static edgeHitDepth(hit: Intersection, raycaster: Raycaster): number {
-    // LineSegments2 hits expose `pointOnLine` (closest point on the segment
-    // in world space); the old BufferGeometry index path doesn't apply.
-    const pointOnLine = (hit as { pointOnLine?: Vector3 }).pointOnLine ?? hit.point;
-    return raycaster.ray.direction.dot(new Vector3().copy(pointOnLine).sub(raycaster.ray.origin));
+  /**
+   * Whether `point` is visible from the camera: no occluder strictly in
+   * front of it (beyond `tolerance` world units) along the sight line
+   * through the point itself.
+   */
+  private isPointVisible(point: Vector3, occluders: Object3D[], tolerance: number): boolean {
+    if (occluders.length === 0) {
+      return true;
+    }
+    const ndc = point.clone().project(this.ctx.camera);
+    const ray = this.ctx.createPickingRaycaster(ndc.x, ndc.y);
+    const pointDepth = ray.ray.direction.dot(new Vector3().copy(point).sub(ray.ray.origin));
+    const hits = ray.intersectObjects(occluders, false);
+    return hits.length === 0 || hits[0].distance >= pointDepth - tolerance;
   }
 
   /**
@@ -682,7 +691,7 @@ export class Viewer {
       }
     }
     const camera = this.ctx.camera;
-    const { raycaster, faceHits, edgeHits, sketchWireHits, axisHits, planeHits, planeQuadHits } = this.castPick(clientX, clientY);
+    const { faceTargets, faceHits, edgeHits, sketchWireHits, axisHits, planeHits, planeQuadHits } = this.castPick(clientX, clientY);
 
     if (faceHits.length === 0 && edgeHits.length === 0 && sketchWireHits.length === 0
       && axisHits.length === 0 && planeHits.length === 0 && planeQuadHits.length === 0) {
@@ -725,15 +734,29 @@ export class Viewer {
       }
     }
 
-    // Edge depth test: project actual closest point on the edge segment onto
-    // the pick ray and compare with the face depth.
+    // Edge visibility test: an edge candidate wins iff the closest point on
+    // it is itself visible — no face (or shown origin plane) strictly in
+    // front of that point along the sight line through it. Testing against
+    // the cursor ray's own face hit instead rejects every concave edge: near
+    // a shelled pocket's floor edge the cursor lands on an adjacent face
+    // that really is closer than the corner, so only a sub-pixel band over
+    // the line ever passed. Through the edge point the adjacent faces sit at
+    // the edge's own depth, so a visible concave edge ties within tolerance
+    // while an edge behind other geometry stays strictly occluded.
     const faceDist = bestFace != null ? bestFace.distance : Infinity;
     const planeDist = planeHits.length > 0 ? planeHits[0].distance : Infinity;
     const planeQuadDist = planeQuadHits.length > 0 ? planeQuadHits[0].distance : Infinity;
     if (this.pickFilter === 'all' || this.pickFilter === 'edge') {
+      const occluders: Object3D[] = [...faceTargets, ...this.standardPlanes.pickTargets];
+      // ~2px worth of world units: forgiving of tessellation putting an
+      // adjacent face marginally in front of the edge polyline, while a real
+      // occluder (a wall between camera and edge) still rejects the edge.
+      const tolerance = this.computeEdgePickThreshold() / 4;
       for (const edgeHit of edgeHits) {
-        const edgeDist = Viewer.edgeHitDepth(edgeHit, raycaster);
-        if (edgeDist <= faceDist + 1e-3 && edgeDist <= planeDist + 1e-3) {
+        // LineSegments2 hits expose `pointOnLine` (closest point on the
+        // segment in world space); legacy Line hits carry it as `point`.
+        const pointOnLine = (edgeHit as { pointOnLine?: Vector3 }).pointOnLine ?? edgeHit.point;
+        if (this.isPointVisible(pointOnLine, occluders, tolerance)) {
           const edgeIndex = edgeHit.object.userData.edgeIndex as number;
           const shapeId = this.findShapeIdForObject(edgeHit.object);
           if (shapeId) {

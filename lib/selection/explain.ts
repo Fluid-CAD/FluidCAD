@@ -4,6 +4,7 @@ import { Face } from "../common/face.js";
 import { EdgeProps } from "../oc/edge-props.js";
 import { FaceProps } from "../oc/face-props.js";
 import { FaceOps } from "../oc/face-ops.js";
+import { FaceQuery } from "../oc/face-query.js";
 import { Plane } from "../math/plane.js";
 import { BucketHit, SelectionIndex } from "./selection-index.js";
 import { attributePick, PickAttribution } from "./attribution.js";
@@ -212,6 +213,15 @@ export function synthesizeApplyFeature(
     if (feature === 'sketch' || feature === 'plane') {
       for (let i = 0; i < attributions.length; i++) {
         attributions[i] = rehomePlaneFacePick(index, attributions[i], stmtBindable);
+      }
+    }
+    // Extrude's up-to-face target only reads the picked face's underlying
+    // surface — plane/cylinder/cone targets are resized to the infinite
+    // surface before splitting — so the same re-home applies with surface
+    // identity in place of coplanarity.
+    if (feature === 'extrude') {
+      for (let i = 0; i < attributions.length; i++) {
+        attributions[i] = rehomeSurfaceFacePick(index, attributions[i], stmtBindable);
       }
     }
     const chainInputs: SelectorChain[] = chains.map(c => ({
@@ -447,6 +457,90 @@ function rehomePlaneFacePick(
     producer: hit,
     lineage: null,
   };
+}
+
+/** Surface types extrude-to-face resolves as the infinite surface, so a
+ * same-surface stand-in names the target exactly; every other type is
+ * consumed as-trimmed and must keep its select() fallback. */
+const RESIZED_TARGET_SURFACES = new Set(['plane', 'cylinder', 'cone']);
+
+/**
+ * Re-home extrude's up-to-face pick to a classified stand-in. A face
+ * reshaped by later features belongs to no bucket, so synthesis falls back
+ * to a geometric select(); but the build only reads the target's underlying
+ * surface, and any bindable classified face on that same surface — the
+ * as-built bore wall a later cross-hole pierced, say — names it just as
+ * well. The lineage ancestor is preferred; otherwise the classified face
+ * buckets are scanned for a same-surface member. Mirrors
+ * `rehomePlaneFacePick` with `FaceQuery.isSameSurface` in place of
+ * coplanarity (orientation-free: the resized surface is identical either
+ * way).
+ */
+function rehomeSurfaceFacePick(
+  index: SelectionIndex,
+  attr: PickAttribution,
+  stmtBindable?: (feature: SceneObject) => boolean,
+): PickAttribution {
+  if (attr.producer || !(attr.picked instanceof Face)) {
+    return attr;
+  }
+  if (!RESIZED_TARGET_SURFACES.has(FaceQuery.getSurfaceType(attr.picked))) {
+    return attr;
+  }
+
+  const ancestor = attr.lineage ? attr.lineage.classified : null;
+  const hit = ancestor && isSameSurfaceBindableFaceHit(index, ancestor, attr.picked, stmtBindable)
+    ? ancestor
+    : findSameSurfaceClassifiedFace(index, attr.picked, stmtBindable);
+  if (!hit) {
+    return attr;
+  }
+  return {
+    ...attr,
+    picked: hit.bucket.members[hit.index],
+    pickedKey: hit.bucket.memberKeys[hit.index],
+    producer: hit,
+    lineage: null,
+  };
+}
+
+/** True when the hit's feature can be bound and its member face lies on the same underlying surface as `picked`. */
+function isSameSurfaceBindableFaceHit(
+  index: SelectionIndex,
+  hit: BucketHit,
+  picked: Face,
+  stmtBindable?: (feature: SceneObject) => boolean,
+): boolean {
+  if (hit.bucket.def.kind !== 'face' || checkBindable(index, hit.bucket.feature) !== null
+    || !(stmtBindable?.(hit.bucket.feature) ?? true)) {
+    return false;
+  }
+  const member = hit.bucket.members[hit.index];
+  return member instanceof Face && FaceQuery.isSameSurface(picked, member);
+}
+
+/**
+ * First classified face on `picked`'s underlying surface in bucket scan
+ * order — the same latest-feature-first preference `rehomePlaneFacePick`'s
+ * coplanar scan follows.
+ */
+function findSameSurfaceClassifiedFace(
+  index: SelectionIndex,
+  picked: Face,
+  stmtBindable?: (feature: SceneObject) => boolean,
+): BucketHit | null {
+  for (const bucket of index.buckets) {
+    if (bucket.def.kind !== 'face') {
+      continue;
+    }
+    for (let i = 0; i < bucket.members.length; i++) {
+      const hit: BucketHit = { bucket, index: i };
+      if (isSameSurfaceBindableFaceHit(index, hit, picked, stmtBindable)) {
+        return hit;
+      }
+    }
+  }
+  return null;
 }
 
 /** True when the hit's feature can be bound and its member face lies on `plane` facing the same way. */

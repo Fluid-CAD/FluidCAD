@@ -1,9 +1,10 @@
-import type { gp_Pln, gp_Cylinder, gp_Cone, TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
+import type { gp_Ax1, gp_Pln, gp_Cylinder, gp_Cone, TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
 import { FaceOps } from "./face-ops.js";
 import { Convert } from "./convert.js";
 import { Vector3d } from "../math/vector3d.js";
+import { Point } from "../math/point.js";
 import { Plane } from "../math/plane.js";
 import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
@@ -85,6 +86,71 @@ export class FaceQuery {
     plane1.delete();
     plane2.delete();
     return result;
+  }
+
+  /**
+   * True when both faces lie on the same underlying surface — coplanar
+   * planes, coaxial equal-radius cylinders, or coaxial cones sharing apex
+   * and semi-angle. Trim and orientation differences are ignored: this is
+   * surface identity, for consumers that resolve the infinite surface
+   * rather than the bounded face.
+   */
+  static isSameSurface(face1: Shape, face2: Shape): boolean {
+    const type = FaceQuery.getSurfaceTypeRaw(face1.getShape());
+    if (type !== FaceQuery.getSurfaceTypeRaw(face2.getShape())) {
+      return false;
+    }
+    const tolerance = 1e-7;
+    if (type === 'plane') {
+      return FaceQuery.getSurfacePlane(face1)
+        .isCoplanarWith(FaceQuery.getSurfacePlane(face2), tolerance, tolerance);
+    }
+    if (type === 'cylinder') {
+      const c1 = FaceQuery.getSurfaceAdaptorCylinderRaw(face1.getShape());
+      const c2 = FaceQuery.getSurfaceAdaptorCylinderRaw(face2.getShape());
+      const axis1 = FaceQuery.extractAxisFrame(c1.Axis());
+      const axis2 = FaceQuery.extractAxisFrame(c2.Axis());
+      const sameRadius = Math.abs(c1.Radius() - c2.Radius()) < tolerance;
+      c1.delete();
+      c2.delete();
+      return sameRadius && FaceQuery.areAxesCollinear(axis1, axis2, tolerance);
+    }
+    if (type === 'cone') {
+      const c1 = FaceQuery.getSurfaceAdaptorConeRaw(face1.getShape());
+      const c2 = FaceQuery.getSurfaceAdaptorConeRaw(face2.getShape());
+      const axis1 = FaceQuery.extractAxisFrame(c1.Axis());
+      const axis2 = FaceQuery.extractAxisFrame(c2.Axis());
+      const apex1 = Convert.toPoint(c1.Apex(), true);
+      const apex2 = Convert.toPoint(c2.Apex(), true);
+      const sameShape = Math.abs(Math.abs(c1.SemiAngle()) - Math.abs(c2.SemiAngle())) < 1e-9
+        && apex1.distanceTo(apex2) < tolerance;
+      c1.delete();
+      c2.delete();
+      return sameShape && FaceQuery.areAxesCollinear(axis1, axis2, tolerance);
+    }
+    return false;
+  }
+
+  private static extractAxisFrame(axis: gp_Ax1): { origin: Point; dir: Vector3d } {
+    const frame = {
+      origin: Convert.toPoint(axis.Location(), true),
+      dir: Convert.toVector3dFromGpDir(axis.Direction(), true),
+    };
+    axis.delete();
+    return frame;
+  }
+
+  /** Collinear = parallel directions (either sense) with origins on one line. */
+  private static areAxesCollinear(
+    a: { origin: Point; dir: Vector3d },
+    b: { origin: Point; dir: Vector3d },
+    tolerance: number,
+  ): boolean {
+    if (!a.dir.isParallelTo(b.dir, 1e-9)) {
+      return false;
+    }
+    const offset = b.origin.subtract(a.origin).toVector3d();
+    return offset.cross(a.dir).length() < tolerance;
   }
 
   static getSignedPlaneDistance(startFace: Shape, targetFace: Shape): number {

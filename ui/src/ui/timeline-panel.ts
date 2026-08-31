@@ -444,7 +444,7 @@ export class TimelinePanel {
       const isCollapsed = obj.id != null && this.collapsedIds.has(obj.id);
       const childHasError = obj.id != null && childErrorByParent.get(obj.id) === true;
       const effectiveError = obj.hasError === true || childHasError;
-      const rollbackIndex = hidesChildren ? this.lastDescendantIndex(items, i) : i;
+      const rollbackIndex = TimelinePanel.rollsBackToLastDescendant(obj) ? this.lastDescendantIndex(items, i) : i;
 
       html += this.renderTimelineItem(obj, i, rollbackStop, false, hasChildren, isCollapsed, effectiveError, rollbackIndex, scopedIds, pickedRowId !== null && obj.id === pickedRowId);
 
@@ -467,7 +467,7 @@ export class TimelinePanel {
               grouped.set(group.key, list);
               continue;
             }
-            const childRollbackIndex = items[j].hideChildren === true ? this.lastDescendantIndex(items, j) : j;
+            const childRollbackIndex = TimelinePanel.rollsBackToLastDescendant(items[j]) ? this.lastDescendantIndex(items, j) : j;
             html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true, childRollbackIndex, scopedIds, pickedRowId !== null && items[j].id === pickedRowId);
           }
         }
@@ -740,6 +740,18 @@ export class TimelinePanel {
     }
     this.onPartActivate(part);
     this.renderTimeline();
+  }
+
+  /**
+   * Rows whose one-click rollback targets their last descendant instead of
+   * themselves: hide-children containers (a repeat stands in for its hidden
+   * clones) and sketches — a sketch's geometry lives in its element children,
+   * so stopping ON the sketch row would render its constraint glyphs (drawn
+   * from the row's own solved snapshot) with no curves under them. Clicking
+   * either previews the scene with the whole feature applied.
+   */
+  private static rollsBackToLastDescendant(obj: SceneObjectRender): boolean {
+    return obj.hideChildren === true || obj.type === 'sketch';
   }
 
   /**

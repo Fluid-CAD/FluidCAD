@@ -119,7 +119,8 @@ export function fetchEngineTypes(): Promise<EngineTypesPayload> {
 /**
  * Settle a server-dispatched editor action. `apply-feature-edit` acks through
  * `POST /api/code/apply-feature` like every host; this is the channel for
- * `undo`/`redo`, which have no transform round-trip of their own.
+ * `undo`/`redo`, which have no transform round-trip of their own, and for
+ * `update-sketch-positions`, whose round-trip carries no editId.
  */
 export function ackEdit(editId: string, error?: string): Promise<{ success: boolean }> {
   return post('/api/editor/ack', { editId, error });

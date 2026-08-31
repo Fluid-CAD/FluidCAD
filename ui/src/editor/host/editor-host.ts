@@ -13,8 +13,8 @@ import { TRANSFORMS, postCodeEdit, targetPathOf } from './transforms';
  *
  * - apply the source transforms it dispatches, against the *live buffer*,
  * - re-render after each one,
- * - settle the acked ones (`apply-feature-edit`, `undo`, `redo`) with the
- *   real outcome instead of silence,
+ * - settle the acked ones (`apply-feature-edit`, `undo`, `redo`,
+ *   `update-sketch-positions`) with the real outcome instead of silence,
  * - reveal a line when asked.
  */
 
@@ -75,6 +75,9 @@ export class EditorHost {
       case 'undo':
       case 'redo':
         await this.stepHistory(msg.type, msg.filePath, msg.editId);
+        return;
+      case 'update-sketch-positions':
+        await this.updateSketchPositions(msg);
         return;
       case 'goto-source':
         await this.deps.reveal(msg.filePath, msg.line, msg.column, msg.revealEditor !== false);
@@ -147,6 +150,46 @@ export class EditorHost {
       return;
     }
     this.applyResult(entry, result.newCode);
+  }
+
+  /**
+   * The solved-sketch drag write-back (P4). Acked, unlike the TRANSFORMS
+   * table: the server's dispatcher holds the drag's HTTP request open until
+   * this host answers with `edit-ack`, and a host that stays silent turns
+   * every desktop drag into a 5s timeout and a reverted sketch. The ack must
+   * therefore go out on every path, refusals and crashes included.
+   */
+  private async updateSketchPositions(msg: {
+    type: string;
+    editId?: string;
+    filePath?: string;
+    edits?: unknown;
+  }): Promise<void> {
+    let error: string | undefined;
+    try {
+      const filePath = typeof msg.filePath === 'string' && msg.filePath.length > 0 ? msg.filePath : null;
+      const entry = await this.resolveOrLoad(filePath);
+      if (!entry) {
+        error = "the sketch's file is not open in the editor";
+      } else {
+        const result = await postCodeEdit('update-sketch-positions', {
+          code: entry.model.getValue(),
+          edits: msg.edits,
+        });
+        if (!result) {
+          error = 'the code transform request failed — check the browser console';
+        } else if (result.error) {
+          error = result.error;
+        } else {
+          this.applyResult(entry, result.newCode);
+        }
+      }
+    } catch (err: any) {
+      error = err?.message ?? String(err);
+    }
+    if (typeof msg.editId === 'string') {
+      await ackEdit(msg.editId, error).catch(() => undefined);
+    }
   }
 
   // ---------------------------------------------------------------------------

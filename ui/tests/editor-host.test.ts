@@ -190,6 +190,67 @@ describe('in-page editor host — which buffer an edit lands in', () => {
   });
 });
 
+describe('in-page editor host — acked solved-sketch drag write-back', () => {
+  // The server's dispatcher holds the drag's HTTP request open until the host
+  // answers /api/editor/ack; a host that stays silent is a 5s timeout and a
+  // reverted drag in the product. So every case here asserts the ack itself,
+  // success and failure alike — that ack is the bug this suite pins.
+  const EDITS = [{ sourceLine: 102, points: [{ pointIndex: 0, position: [-60.01, 60], expected: [-60, 60] }] }];
+
+  function ackOf(requests: Recorded[]) {
+    return requests.find((r) => r.url === '/api/editor/ack');
+  }
+
+  it('applies the edit, re-renders, and acks success', async () => {
+    const part = entry(PART, 'circle([-60, 60], 36.58);');
+    const { host, requests, responses } = install({ loaded: [part], current: PART });
+    responses.set('/api/code/update-sketch-positions', () => ({ newCode: 'circle([-60.01, 60], 36.58);' }));
+
+    await host.handle({ type: 'update-sketch-positions', editId: 'e10', filePath: PART, edits: EDITS });
+
+    const apply = requests.find((r) => r.url === '/api/code/update-sketch-positions')!;
+    expect(apply.body).toEqual({ code: 'circle([-60, 60], 36.58);', edits: EDITS });
+    expect(part.text).toBe('circle([-60.01, 60], 36.58);');
+    expect(requests.find((r) => r.url === '/api/render')!.body.keepCurrent).toBe(false);
+    expect(ackOf(requests)!.body).toEqual({ editId: 'e10' });
+  });
+
+  it('falls back to the current model when the message names no file', async () => {
+    const part = entry(PART, 'circle([0, 0], 5);');
+    const { host, requests, responses } = install({ loaded: [part], current: PART });
+    responses.set('/api/code/update-sketch-positions', () => ({ newCode: 'circle([1, 0], 5);' }));
+
+    await host.handle({ type: 'update-sketch-positions', editId: 'e11', edits: EDITS });
+
+    expect(part.text).toBe('circle([1, 0], 5);');
+    expect(ackOf(requests)!.body).toEqual({ editId: 'e11' });
+  });
+
+  it('acks a transform refusal instead of applying it', async () => {
+    const part = entry(PART, 'circle([-60, 60], 36.58);');
+    const { host, requests, responses } = install({ loaded: [part], current: PART });
+    responses.set('/api/code/update-sketch-positions', () => ({
+      newCode: 'circle([-60, 60], 36.58);',
+      error: 'the sketch moved under this drag',
+    }));
+
+    await host.handle({ type: 'update-sketch-positions', editId: 'e12', filePath: PART, edits: EDITS });
+
+    expect(part.text).toBe('circle([-60, 60], 36.58);');
+    expect(requests.map((r) => r.url)).not.toContain('/api/render');
+    expect(ackOf(requests)!.body).toEqual({ editId: 'e12', error: 'the sketch moved under this drag' });
+  });
+
+  it('acks an error when no buffer is open for the named file, rather than staying silent', async () => {
+    const { host, requests } = install({ loaded: [], current: null });
+
+    await host.handle({ type: 'update-sketch-positions', editId: 'e13', filePath: '/ws/missing.part.js', edits: EDITS });
+
+    expect(requests.map((r) => r.url)).not.toContain('/api/code/update-sketch-positions');
+    expect(ackOf(requests)!.body).toEqual({ editId: 'e13', error: "the sketch's file is not open in the editor" });
+  });
+});
+
 describe('in-page editor host — goto-source reveal', () => {
   it('passes a passive goto-source through without revealing the pane', async () => {
     // A timeline row click. The pane is a strip beside the scene here (unlike

@@ -18,6 +18,7 @@ import { countShapes } from "../utils.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
 import { face } from "../../filters/index.js";
 import { testRect } from "../helpers/profiles.js";
+import { Point } from "../../math/point.js";
 
 describe("extrude to face", () => {
   setupOC();
@@ -335,6 +336,39 @@ describe("extrude to face", () => {
       // stays a separate, smaller solid instead of fusing with the base.
       expect(withOffset).not.toBeCloseTo(without, 1);
       expect(withOffset).toBeLessThan(without);
+    });
+  });
+
+  describe("surrounding cylindrical face", () => {
+    it("extrudes along the sketch normal when the target cylinder surrounds the sketch", () => {
+      // The target cylinder straddles the sketch plane: the sketch sits inside
+      // the bore, offset from the axis, so the wall is deeper behind the plane
+      // (axis side) than in front. The extrusion must still follow the sketch
+      // normal, not run off toward the farther wall.
+      cylinder(50, 80);
+      const cylFace = select(face().cylinder());
+
+      const s = sketch(plane("xz", 19), () => {
+          testRect(20, 20, { at: [-10, 20] });
+        }) as Sketch;
+      const e = extrude(cylFace).new() as ExtrudeToFace;
+
+      render();
+
+      const shapes = e.getShapes();
+      expect(shapes).toHaveLength(1);
+
+      const sketchPlane = s.getPlane();
+      const bbox = ShapeOps.getBoundingBox(shapes[0]);
+      const corners = [
+        new Point(bbox.minX, bbox.minY, bbox.minZ),
+        new Point(bbox.maxX, bbox.maxY, bbox.maxZ),
+      ];
+      const dists = corners.map(c => sketchPlane.signedDistanceToPoint(c));
+      // The whole solid lies on the sketch-normal side of the plane…
+      expect(Math.min(...dists)).toBeGreaterThan(-0.5);
+      // …and reaches out to the near cylinder wall (~31mm away), not 0.
+      expect(Math.max(...dists)).toBeGreaterThan(10);
     });
   });
 

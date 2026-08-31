@@ -197,8 +197,12 @@ export class ExtrudeToFace extends ExtrudeBase {
   /**
    * Computes the signed distance from the sketch plane to the farthest
    * bounding-box corner of the target face, measured along the sketch
-   * plane normal. This ensures the extrusion direction is always
-   * consistent with the sketch plane orientation.
+   * plane normal. A target with any extent in front of the plane extrudes
+   * along the sketch normal; only a target lying entirely behind the plane
+   * extrudes backwards. A target straddling the plane — a cylinder
+   * surrounding the sketch, a crossing plane — is reachable both ways, and
+   * must not flip direction just because its far wall is deeper behind the
+   * sketch than in front.
    */
   private computeSignedDistanceToFace(targetFace: Face, sketchPlane: Plane): number {
     const bbox = ShapeOps.getBoundingBox(targetFace);
@@ -213,15 +217,19 @@ export class ExtrudeToFace extends ExtrudeBase {
       new Point(bbox.maxX, bbox.maxY, bbox.maxZ),
     ];
 
-    let maxDistance = 0;
+    let forward = 0;
+    let backward = 0;
     for (const corner of corners) {
       const d = sketchPlane.signedDistanceToPoint(corner);
-      if (Math.abs(d) > Math.abs(maxDistance)) {
-        maxDistance = d;
+      if (d > forward) {
+        forward = d;
+      }
+      if (d < backward) {
+        backward = d;
       }
     }
 
-    return maxDistance;
+    return forward > 0 ? forward : backward;
   }
 
   private splitShapesByFace(extrusions: Shape[], targetFace: Face): Shape[] {

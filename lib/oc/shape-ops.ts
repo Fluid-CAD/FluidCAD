@@ -124,17 +124,34 @@ export class ShapeOps {
    * Variant of `cleanShape` that preserves UnifySameDomain lineage via
    * `BRepTools_History`. Caller must call `dispose()` exactly once to free
    * the OC wrappers.
+   *
+   * `unifyEdges` additionally merges same-domain edge chains — the residue a
+   * face merge leaves behind: when this cleanup (or an earlier one) unifies
+   * two faces, the edges that used to separate structure along their shared
+   * boundary keep their split vertices even though both sides of every piece
+   * now bound the same face pair (e.g. a saddle contact arc split by a fillet
+   * foot whose blend face later merged away). UnifySameDomain only merges
+   * edges that are same-curve AND share the same face pair, so deliberate
+   * splits that still separate real structure (a breakpoint's cap edges next
+   * to their side edge) are untouched. Opt-in because callers that match
+   * result faces by IsSame instead of through this lineage would see more
+   * rebuilt faces.
    */
-  static cleanShapeWithLineage(shape: Shape, opts?: { skipSimplify?: boolean }): CleanShapeLineage {
+  static cleanShapeWithLineage(
+    shape: Shape,
+    opts?: { skipSimplify?: boolean; unifyEdges?: boolean },
+  ): CleanShapeLineage {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
 
     // skipSimplify: pass unifyFaces=false to avoid the slow face-merging step
     // that hangs on tangent contact along curves (e.g., helix sweep + cylinder).
+    // It also disables edge unification — delicate tangent geometry opted out
+    // of merging entirely.
     const unify = new oc.ShapeUpgrade_UnifySameDomain(
       shape.getShape(),
-      false,
+      opts?.skipSimplify ? false : (opts?.unifyEdges ?? false),
       opts?.skipSimplify ? false : true,
       false,
     );

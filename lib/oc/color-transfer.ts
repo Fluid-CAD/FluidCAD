@@ -19,6 +19,7 @@ export class ColorTransfer {
     sources: Shape[],
     results: Shape[],
     maker: BRepBuilderAPI_MakeShape,
+    remapFace?: (raw: TopoDS_Shape) => TopoDS_Shape[],
   ) {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
@@ -39,6 +40,13 @@ export class ColorTransfer {
           targets = [entry.shape];
         } else {
           continue;
+        }
+
+        // A post-maker cleanup (UnifySameDomain) may rebuild faces again;
+        // `remapFace` chains the maker's output onto the final faces so the
+        // IsSame search below still lands.
+        if (remapFace) {
+          targets = targets.flatMap(remapFace);
         }
 
         for (const target of targets) {
@@ -83,6 +91,7 @@ export class ColorTransfer {
     sceneSources: Shape[],
     results: Shape[],
     maker: BRepBuilderAPI_MakeShape,
+    remapFace?: (raw: TopoDS_Shape) => TopoDS_Shape[],
   ) {
     if (!sceneSources.some(s => s.hasColors())) {
       return;
@@ -93,17 +102,23 @@ export class ColorTransfer {
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
     const VERTEX = oc.TopAbs_ShapeEnum.TopAbs_VERTEX as TopAbs_ShapeEnum;
 
+    // Chain maker output through the post-maker cleanup (if any) so the
+    // protected/generated sets are expressed in final faces.
+    const toFinal = (raws: TopoDS_Shape[]) => (remapFace ? raws.flatMap(remapFace) : raws);
+
     const protectedFaces = new oc.TopTools_MapOfShape();
     for (const scene of sceneSources) {
       for (const inputFace of Explorer.findShapes(scene.getShape(), FACE)) {
         const modified = ShapeOps.shapeListToArray(maker.Modified(inputFace))
           .filter(s => s.ShapeType() === FACE);
         if (modified.length > 0) {
-          for (const r of modified) {
+          for (const r of toFinal(modified)) {
             protectedFaces.Add(r);
           }
         } else if (!maker.IsDeleted(inputFace)) {
-          protectedFaces.Add(inputFace);
+          for (const r of toFinal([inputFace])) {
+            protectedFaces.Add(r);
+          }
         }
       }
     }
@@ -123,8 +138,8 @@ export class ColorTransfer {
           const sceneFaceSubs = sceneFaces.map(f => Explorer.findShapes(f, subType));
 
           for (const sub of Explorer.findShapes(scene.getShape(), subType)) {
-            const generatedFaces = ShapeOps.shapeListToArray(maker.Generated(sub))
-              .filter(s => s.ShapeType() === FACE);
+            const generatedFaces = toFinal(ShapeOps.shapeListToArray(maker.Generated(sub))
+              .filter(s => s.ShapeType() === FACE));
             if (generatedFaces.length === 0) {
               continue;
             }

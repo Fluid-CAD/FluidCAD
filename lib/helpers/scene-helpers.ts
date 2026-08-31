@@ -10,7 +10,7 @@ import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { getOC } from "../oc/init.js";
 import { ColorTransfer } from "../oc/color-transfer.js";
-import type { TopAbs_ShapeEnum } from "ocjs-fluidcad";
+import type { TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
 import { Profiler } from "../common/profiler.js";
 import { Wire } from "../common/wire.js";
 import { WireOps } from "../oc/wire-ops.js";
@@ -101,7 +101,7 @@ export function fuseWithSceneObjects(
   const cleanups: CleanShapeLineage[] = [];
   const runCleanups = () => {
     for (const shape of shapesToAdd) {
-      const cleanup = ShapeOps.cleanShapeWithLineage(shape, { skipSimplify });
+      const cleanup = ShapeOps.cleanShapeWithLineage(shape, { skipSimplify, unifyEdges: true });
       if (skipSimplify) {
         cleanup.shape.markNoSimplify();
       }
@@ -346,10 +346,13 @@ function recordFusionHistory(
   };
   p ? p.record('Record additions', recordAdditions) : recordAdditions();
 
-  const colorThrough = () => ColorTransfer.applyThroughMaker(sceneShapes, newShapes, maker);
+  const remapRawFace = (raw: TopoDS_Shape): TopoDS_Shape[] =>
+    remapFaces([Face.fromTopoDSFace(Explorer.toFace(raw))]).map(f => f.getShape());
+
+  const colorThrough = () => ColorTransfer.applyThroughMaker(sceneShapes, newShapes, maker, remapRawFace);
   p ? p.record('Color through maker', colorThrough) : colorThrough();
 
-  const colorBleed = () => ColorTransfer.applyBleeding(sceneShapes, newShapes, maker);
+  const colorBleed = () => ColorTransfer.applyBleeding(sceneShapes, newShapes, maker, remapRawFace);
   p ? p.record('Color bleeding', colorBleed) : colorBleed();
 
   claimedFaces.delete();
@@ -476,7 +479,7 @@ export function cutWithSceneObjects(
       // caller asked to or when the stock is flagged, and re-flag the result.
       const skipSimplify = options?.skipSimplify || shape.noSimplify();
       for (const newShape of list) {
-        const cleanup = ShapeOps.cleanShapeWithLineage(newShape, { skipSimplify });
+        const cleanup = ShapeOps.cleanShapeWithLineage(newShape, { skipSimplify, unifyEdges: true });
         if (skipSimplify) {
           cleanup.shape.markNoSimplify();
         }

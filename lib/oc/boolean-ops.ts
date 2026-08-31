@@ -322,7 +322,13 @@ export class BooleanOps {
     builder.SimplifyResult(false, true, oc.Precision.Angular());
     console.log(`[perf] BooleanOps.fuse.SimplifyResult: ${(performance.now() - tSimplify).toFixed(1)} ms`);
 
-    const resultShape = builder.Shape();
+    const tUnify = performance.now();
+    const resultShape = BooleanOps.unifyEdgesSplitByBoolean(
+      builder,
+      args.map(a => a.getShape()),
+      builder.Shape(),
+    );
+    console.log(`[perf] BooleanOps.fuse.unifyEdgesSplitByBoolean: ${(performance.now() - tUnify).toFixed(1)} ms`);
 
     const tExplore = performance.now();
     const rawShapes = Explorer.findAllShapes(resultShape);
@@ -359,6 +365,123 @@ export class BooleanOps {
     };
 
     return { result, newShapes, modifiedShapes, maker: builder, dispose };
+  }
+
+  /**
+   * Merge result edges that the fuse split at vertices the boolean itself
+   * created. A fuse's pave filler cuts smooth edges wherever the arguments'
+   * faces intersect — e.g. two coaxial equal-radius cylinders joined end to
+   * end leave each junction circle as two 180° arcs — and `SimplifyResult`
+   * runs with edge unification off, so those splits survive.
+   *
+   * A global edge-unify would also merge colinear/co-curve edges the USER
+   * modeled (breakpoint splits, chained segments) and churn the TShape
+   * identity callers match with IsSame. So merging is restricted to the
+   * boolean's own artifacts: every STRUCTURAL input vertex — one bounding
+   * two or more distinct input edges — is registered via `KeepShape`
+   * (together with the substituted copies the NonDestructive boolean records
+   * under `Modified`), leaving as merge candidates only vertices the boolean
+   * created plus closure vertices of closed input edges. A closure vertex
+   * (the parametric origin a full circle's single vertex sits at) is an
+   * accident of parametrization, not modeling intent — and it is exactly
+   * what survives as the split points when a fuse unifies two coincident
+   * circles whose origins differ (e.g. one argument rotated 180°: the
+   * junction circle comes out as two 180° arcs). Faces adjacent to merged
+   * vertices necessarily contain a split or re-imprinted edge, so they are
+   * boolean-rebuilt TShapes, never subshapes shared with an input — which is
+   * what makes the in-place `SetSafeInputMode(false)` pass (needed to keep
+   * untouched faces' identity) safe.
+   *
+   * The unifier's history is merged into the builder's, exactly like
+   * `SimplifyResult` does internally, so the maker's `Modified` /
+   * `Generated` / `IsDeleted` lineage queries (color transfer, history
+   * recording) keep answering correctly for rebuilt faces.
+   *
+   * Returns the input shape unchanged when the boolean created no vertices
+   * or the unified result fails validation.
+   */
+  private static unifyEdgesSplitByBoolean(
+    builder: any,
+    argRaws: TopoDS_Shape[],
+    resultShape: TopoDS_Shape,
+  ): TopoDS_Shape {
+    const oc = getOC();
+    const VERTEX = Explorer.getOcShapeType("vertex");
+
+    const EDGE = Explorer.getOcShapeType("edge");
+
+    // A closure vertex is the single distinct vertex of a closed input edge
+    // (a full circle); it may also bound open edges (a cylinder's seam), so
+    // collect closure vertices first and exclude them from the kept set.
+    const closureVertices = new oc.TopTools_MapOfShape();
+    for (const raw of argRaws) {
+      for (const e of Explorer.findShapes(raw, EDGE)) {
+        const edgeVertices = Explorer.findShapes(e, VERTEX);
+        if (edgeVertices.length === 1) {
+          closureVertices.Add(edgeVertices[0]);
+        }
+      }
+    }
+
+    const structuralVertices = new oc.TopTools_MapOfShape();
+    for (const raw of argRaws) {
+      for (const v of Explorer.findShapes(raw, VERTEX)) {
+        if (closureVertices.Contains(v)) {
+          continue;
+        }
+        structuralVertices.Add(v);
+        const modifiedList = builder.Modified(v);
+        while (modifiedList.Size() > 0) {
+          structuralVertices.Add(modifiedList.First());
+          modifiedList.RemoveFirst();
+        }
+        modifiedList.delete();
+      }
+    }
+    closureVertices.delete();
+
+    const keptVertices: TopoDS_Shape[] = [];
+    let candidateCount = 0;
+    for (const v of Explorer.findShapes(resultShape, VERTEX)) {
+      if (structuralVertices.Contains(v)) {
+        keptVertices.push(v);
+      } else {
+        candidateCount++;
+      }
+    }
+    structuralVertices.delete();
+
+    if (candidateCount === 0) {
+      return resultShape;
+    }
+
+    try {
+      const unify = new oc.ShapeUpgrade_UnifySameDomain(resultShape, true, false, false);
+      unify.SetSafeInputMode(false);
+      for (const v of keptVertices) {
+        unify.KeepShape(v);
+      }
+      unify.Build();
+      const unified = unify.Shape();
+
+      const checker = new oc.BRepCheck_Analyzer(unified, true, true);
+      const valid = checker.IsValid();
+      checker.delete();
+      if (!valid) {
+        unify.delete();
+        return resultShape;
+      }
+
+      const builderHistory = builder.History();
+      const unifyHistory = unify.History();
+      builderHistory.Merge(unifyHistory);
+      unifyHistory.delete();
+      builderHistory.delete();
+      unify.delete();
+      return unified;
+    } catch {
+      return resultShape;
+    }
   }
 
   static fuseFaces(args: Shape[]): {

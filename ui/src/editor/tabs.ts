@@ -82,12 +82,14 @@ export class FileTabs {
     this.labelOnly.className = 'text-sm text-base-content/70 truncate max-w-[40vw]';
 
     if (tabsEnabled) {
-      // Shrink-to-fit up to a cap, so `+` sits next to the last tab rather
-      // than being pushed to the far end of the bar.
+      // Shrink-to-fit: the host sizes to its tabs (keeping `+` next to the
+      // last one) and, as the only shrinkable item in the top bar, gives way
+      // exactly when the bar itself runs out of room — which is when the
+      // scroller's arrows should appear, and not before.
       // `[&>div]:h-full` reaches the scroller's viewport (its only div child;
       // the arrows are buttons), which the class on the track can't.
       const scrollHost = document.createElement('div');
-      scrollHost.className = 'relative flex items-center min-w-0 max-w-[45vw] h-full [&>div]:h-full';
+      scrollHost.className = 'relative flex items-center min-w-0 h-full [&>div]:h-full';
       this.bar.appendChild(scrollHost);
       this.scroller = new ToolbarScroller(scrollHost);
       this.scroller.track.classList.add('h-full');

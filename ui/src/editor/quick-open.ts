@@ -188,17 +188,25 @@ export class QuickOpen {
   }
 
   private renderResults(list: HTMLElement): void {
-    this.results = this.files
-      .map((file) => ({ file, score: fuzzyScore(file.path, this.query) }))
-      .filter((row): row is { file: WorkspaceFileEntry; score: number } => row.score !== null)
-      // Models before helpers, then by match quality: opening a part is the
-      // common case and a model should not lose to a same-named helper.
-      .sort((a, b) =>
-        (a.file.kind === b.file.kind ? 0 : a.file.kind === 'model' ? -1 : 1) ||
-        a.score - b.score ||
-        a.file.path.localeCompare(b.file.path))
-      .slice(0, MAX_RESULTS)
-      .map((row) => row.file);
+    // A dot means the user is spelling out a file name, not filtering: offer
+    // only Create — except a name an existing file already answers to, which
+    // shows that file so a fully typed name still opens it.
+    if (this.query.includes('.')) {
+      const name = this.query.trim();
+      this.results = this.files.filter((file) => file.path === name);
+    } else {
+      this.results = this.files
+        .map((file) => ({ file, score: fuzzyScore(file.path, this.query) }))
+        .filter((row): row is { file: WorkspaceFileEntry; score: number } => row.score !== null)
+        // Models before helpers, then by match quality: opening a part is the
+        // common case and a model should not lose to a same-named helper.
+        .sort((a, b) =>
+          (a.file.kind === b.file.kind ? 0 : a.file.kind === 'model' ? -1 : 1) ||
+          a.score - b.score ||
+          a.file.path.localeCompare(b.file.path))
+        .slice(0, MAX_RESULTS)
+        .map((row) => row.file);
+    }
 
     list.replaceChildren();
 

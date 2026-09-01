@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { applyInsertPartEdit } from '../src/part-catalog/insert-edit.ts';
 import { applyFeatureEdit, type ApplyFeatureEditSpec } from '../src/apply-feature-edit.ts';
+import { newFileContent } from '../src/file-kind.ts';
 
 /** Single-entry sugar — most cases exercise one insert. */
 function one(entry: {
@@ -224,6 +225,23 @@ describe('applyInsertPartEdit', () => {
       `    return assembly("rig", () => {\n`
       + `        const block1 = insert(block());\n`
       + `    });`,
+    );
+  });
+
+  it('puts the first insert of a freshly created assembly file inside the prefilled body', async () => {
+    // The exact content /files/create writes for a new assembly file — the
+    // template and this transform are two halves of one contract.
+    const code = newFileContent('gantry.assembly.js');
+    const result = await applyInsertPartEdit(code, one({
+      importFrom: './block.fluid.js',
+      exportName: 'block',
+      kind: 'factory',
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `export const gantry = assembly('gantry', () => {\n`
+      + `    const block1 = insert(block());\n`
+      + `});`,
     );
   });
 

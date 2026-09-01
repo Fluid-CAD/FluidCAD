@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { Router, type Response } from 'express';
 import { listWorkspaceFiles, classifyFile } from '../files/file-tree.ts';
+import { newFileContent } from '../file-kind.ts';
 import { resolveWorkspaceFile, WorkspacePathError, type WorkspaceFile } from '../files/workspace-paths.ts';
 
 /**
@@ -132,9 +133,12 @@ export function createFilesRouter(deps: FilesRouterDeps): Router {
         res.status(409).json({ error: `${file.relPath} already exists.` });
         return;
       }
+      // A file created with no content still starts useful: an assembly
+      // file gets its assembly() wrapper so inserts land inside the body.
+      const initial = content || newFileContent(file.relPath);
       fs.mkdirSync(path.dirname(file.absPath), { recursive: true });
-      fs.writeFileSync(file.absPath, content ?? '', 'utf8');
-      deps.onWrite?.(file.absPath, content ?? '');
+      fs.writeFileSync(file.absPath, initial, 'utf8');
+      deps.onWrite?.(file.absPath, initial);
       res.json(fileInfo(file, fs.statSync(file.absPath)));
     } catch (err) {
       respondToError(res, err);

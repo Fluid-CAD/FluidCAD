@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectKind, isFluidScriptFile } from '../src/file-kind.ts';
+import { detectKind, isFluidScriptFile, newFileContent } from '../src/file-kind.ts';
 
 describe('detectKind', () => {
   const cases: Array<{ input: string; expected: 'part' | 'assembly' | null }> = [
@@ -21,6 +21,35 @@ describe('detectKind', () => {
       expect(detectKind(input)).toBe(expected);
     });
   }
+});
+
+describe('newFileContent', () => {
+  it('prefills an assembly file with an exported assembly() wrapper', () => {
+    expect(newFileContent('gantry.assembly.js')).toBe([
+      `import { assembly } from 'fluidcad/core';`,
+      ``,
+      `export const gantry = assembly('gantry', () => {`,
+      `});`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('camel-cases a dashed name into the export and keeps it as the display name', () => {
+    const content = newFileContent('parts/gantry-frame.assembly.js');
+    expect(content).toContain(`export const gantryFrame = assembly('gantry-frame', () => {`);
+  });
+
+  it('falls back when the name is not a usable identifier', () => {
+    expect(newFileContent('3d.assembly.js')).toContain(`export const mainAssembly = assembly('3d', () => {`);
+    // `assembly` itself would shadow the import.
+    expect(newFileContent('assembly.assembly.js')).toContain(`export const mainAssembly = assembly('assembly', () => {`);
+  });
+
+  it('leaves part files and non-fluid files blank', () => {
+    expect(newFileContent('bracket.part.js')).toBe('');
+    expect(newFileContent('legacy.fluid.js')).toBe('');
+    expect(newFileContent('helper.js')).toBe('');
+  });
 });
 
 describe('isFluidScriptFile', () => {

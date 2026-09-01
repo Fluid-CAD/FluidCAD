@@ -138,6 +138,22 @@ describe('workspace file routes', () => {
       ]);
     });
 
+    it('prefills a new assembly file with the assembly() wrapper', async () => {
+      const { status } = await post('/files/create', { path: 'rig.assembly.js' });
+      expect(status).toBe(200);
+      const content = fs.readFileSync(path.join(workspace, 'rig.assembly.js'), 'utf8');
+      expect(content).toContain(`import { assembly } from 'fluidcad/core';`);
+      expect(content).toContain(`export const rig = assembly('rig', () => {`);
+      // The prefill is what lands in the write ledger too, so the watcher
+      // echo of the template is recognised as our own write.
+      expect(written).toEqual([{ absPath: path.join(workspace, 'rig.assembly.js'), content }]);
+    });
+
+    it('keeps explicit content over the assembly prefill', async () => {
+      await post('/files/create', { path: 'custom.assembly.js', content: '// mine' });
+      expect(fs.readFileSync(path.join(workspace, 'custom.assembly.js'), 'utf8')).toBe('// mine');
+    });
+
     it('round-trips a file by workspace-relative path', async () => {
       fs.writeFileSync(path.join(workspace, 'a.fluid.js'), 'const x = 1;');
 

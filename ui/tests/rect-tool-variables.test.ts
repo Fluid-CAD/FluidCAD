@@ -142,3 +142,58 @@ describe('rect tool variable declarations', () => {
     expect(emitted[0].newVariables).toEqual([{ name: 'myVar', initializer: '20' }]);
   });
 });
+
+describe('rect tool snap coincidents', () => {
+  it('pins a snapped anchor and a snapped opposite corner onto their vertices', async () => {
+    const emitted: Emitted[] = [];
+    const { tool, input } = makeTool(emitted);
+    tool.startSnapRef = { line: 5, role: 'start', featureType: 'line' };
+    // The size click's snap: an off-grid vertex the mouse-derived 30×20
+    // corner still sits on after 2dp rounding.
+    tool.lastSnap = {
+      snapType: 'vertex',
+      point2d: [30.004, 19.996],
+      ref: { line: 9, role: 'center', featureType: 'circle' },
+    };
+
+    pressEnter(input); // accept numeric width
+    await flushMicrotasks();
+    tool.updateDimensionInput();
+    pressEnter(input); // accept numeric height
+    await flushMicrotasks();
+
+    expect(emitted).toHaveLength(1);
+    const constraints = emitted[0].constraints as any[];
+    expect(constraints).toContainEqual({
+      kind: 'coincident',
+      targets: [{ newIndex: 0, role: 'start' }, { line: 5, role: 'start', featureType: 'line' }],
+    });
+    expect(constraints).toContainEqual({
+      kind: 'coincident',
+      targets: [{ newIndex: 2, role: 'start' }, { line: 9, role: 'center', featureType: 'circle' }],
+    });
+  });
+
+  it('drops the opposite-corner pin when a typed size moved the corner off the vertex', async () => {
+    const emitted: Emitted[] = [];
+    const { tool, input } = makeTool(emitted);
+    tool.lastSnap = {
+      snapType: 'vertex',
+      point2d: [30, 20],
+      ref: { line: 9, role: 'center', featureType: 'circle' },
+    };
+
+    type(input, '50'); // typed width ≠ the hovered corner's 30
+    pressEnter(input);
+    await flushMicrotasks();
+    tool.updateDimensionInput();
+    pressEnter(input); // accept numeric height
+    await flushMicrotasks();
+
+    expect(emitted).toHaveLength(1);
+    const pins = (emitted[0].constraints as any[]).filter(
+      (c) => c.kind === 'coincident' && c.targets.some((t: any) => t.line === 9),
+    );
+    expect(pins).toHaveLength(0);
+  });
+});

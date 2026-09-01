@@ -15,13 +15,19 @@ export class TLineMode implements SegmentMode {
   readonly requiresTangent = true;
 
   private mousePoint: Point2D | null = null;
+  /** The cursor's latest snap — the T: pill claims the commit click, so the
+   * emission takes the endpoint's snap provenance from here (the tool drops
+   * it unless the on-tangent projection still sits on the vertex). */
+  private lastSnap: SnapResult | null = null;
 
   enter(_ctx: ModeContext): void {
     this.mousePoint = null;
+    this.lastSnap = null;
   }
 
   exit(ctx: ModeContext): void {
     this.mousePoint = null;
+    this.lastSnap = null;
     ctx.hideExpressionInput();
   }
 
@@ -36,7 +42,8 @@ export class TLineMode implements SegmentMode {
     return { projected, distance: projection };
   }
 
-  handleClick(_point: Point2D, _snapResult: SnapResult, ctx: ModeContext): ClickResult {
+  handleClick(_point: Point2D, snapResult: SnapResult, ctx: ModeContext): ClickResult {
+    this.lastSnap = snapResult;
     if (!ctx.tangent) {
       return { kind: 'ignored' };
     }
@@ -106,13 +113,15 @@ export class TLineMode implements SegmentMode {
       kind: 'line',
       text: `line(${ctx.pendingStartText() ?? ctx.formatPoint(roundPoint(ctx.startPoint))}, ${ctx.formatPoint(endPoint)})`,
       constraints,
+      endSnap: this.lastSnap,
       endPoint,
       newVariable,
     });
   }
 
-  handleMouseMove(point: Point2D, _snapResult: SnapResult, clientX: number, clientY: number, ctx: ModeContext): void {
+  handleMouseMove(point: Point2D, snapResult: SnapResult, clientX: number, clientY: number, ctx: ModeContext): void {
     this.mousePoint = point;
+    this.lastSnap = snapResult;
 
     if (!ctx.tangent) {
       return;

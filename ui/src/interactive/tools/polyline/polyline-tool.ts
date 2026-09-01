@@ -25,9 +25,16 @@ import {
   type SolvedSegmentSpec,
 } from './types';
 import type { SnapResult, SnapType, SolvedVertexRef } from '../../../snapping/types';
-import { coincident, newTarget, refTarget, type SolvedConstraintParam } from '../solved-emission';
+import {
+  coincident,
+  dropImpliedAxisOrtho,
+  emittedPointOnSnap,
+  newTarget,
+  refTarget,
+  sameVertexRef,
+  type SolvedConstraintParam,
+} from '../solved-emission';
 import { buildSolvedSketchModel, type SolvedEntityView } from '../../../sketch-solver-client/model';
-import { dist2D } from '../../sketch-plane-utils';
 
 /** The previous solved chain segment: what the next segment's junction
  * coincident and tangent/angle constraints reference. */
@@ -527,18 +534,23 @@ export class PolylineTool extends SketchTool {
     } else if (startRef) {
       constraints.push(coincident(newTarget(0, 'start'), refTarget(startRef)));
     }
-    constraints.push(...(spec.constraints ?? []));
 
     const endRef = spec.endSnap?.ref;
+    // Up-to-2dp-rounding match: the emitted endpoint is always rounded while
+    // the snapped vertex rarely sits on the grid — an exact comparison here
+    // dropped nearly every end coincident onto solver-adjusted vertices.
     const endMatchesSnap = !spec.endPoint || !spec.endSnap
-      || dist2D(spec.endPoint, spec.endSnap.point2d) < 1e-6;
+      || emittedPointOnSnap(spec.endPoint, spec.endSnap.point2d, spec.endSnap.ref);
     const isJunctionRef = (ref: SolvedVertexRef) =>
       (prev && ref.line === prev.line && ref.role === prev.junctionRole)
-      || (startRef && ref.line === startRef.line
-        && ref.occurrence === startRef.occurrence && ref.role === startRef.role);
-    if (endRef && endMatchesSnap && !this.ctrlHeld && this.autoConstraintsEnabled()
-      && !isJunctionRef(endRef)) {
-      constraints.push(coincident(newTarget(0, 'end'), refTarget(endRef)));
+      || (startRef && sameVertexRef(ref, startRef));
+    const keptEndRef = endRef && endMatchesSnap && !this.ctrlHeld
+      && this.autoConstraintsEnabled() && !isJunctionRef(endRef) ? endRef : null;
+    // Both endpoints pinned onto one axis imply the segment's H/V — the
+    // mode's inferred ortho constraint would only be a redundant row.
+    constraints.push(...dropImpliedAxisOrtho(spec.constraints ?? [], startRef, keptEndRef));
+    if (keptEndRef) {
+      constraints.push(coincident(newTarget(0, 'end'), refTarget(keptEndRef)));
     }
 
     // Spend the pending typed start's declarations (mirrors insertSegment).

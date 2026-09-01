@@ -569,3 +569,154 @@ describe('PolylineTool Escape delegation', () => {
     expect(tool.handleEscape()).toBe(false); // idle: toolbar disarms the tool
   });
 });
+
+describe('LineMode end-snap provenance', () => {
+  const VERTEX_SNAP = {
+    snapType: 'vertex',
+    point2d: [40.003, 0.001] as Point2D,
+    ref: { line: 12, role: 'end', featureType: 'line' },
+  } as unknown as SnapResult;
+
+  it('free-direction click carries the snap through to the spec', () => {
+    const { ctx, emitted } = makeCtx();
+    const mode = new LineMode();
+    mode.enter(ctx);
+
+    mode.handleClick([30, 40], VERTEX_SNAP, ctx);
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].endSnap).toBe(VERTEX_SNAP);
+  });
+
+  it('the H/V pill commit click keeps the snap provenance too', () => {
+    const { ctx, emitted, expr } = makeCtx();
+    const mode = new LineMode();
+    mode.enter(ctx);
+
+    // A near-horizontal hover shows the H: pill, which then claims the click.
+    mode.handleMouseMove([40.003, 0.001], VERTEX_SNAP, 0, 0, ctx);
+    expect(expr.isVisible).toBe(true);
+    mode.handleClick([40.003, 0.001], VERTEX_SNAP, ctx);
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].text).toBe('line([0, 0], [40, 0])');
+    expect(emitted[0].endSnap).toBe(VERTEX_SNAP);
+    expect(emitted[0].endPoint).toEqual([40, 0]);
+  });
+});
+
+describe('PolylineTool end-snap coincident', () => {
+  function makeEmitTool(emitted: any[]) {
+    const tool: any = Object.create(PolylineTool.prototype);
+    tool.phase = PolylinePhase.DRAWING;
+    tool.startPoint = [0, 0];
+    tool.pendingStart = null;
+    tool.solvedPrev = null;
+    tool.solvedStartRef = null;
+    tool.solvedEmitChain = Promise.resolve();
+    tool.solvedEmitsPending = 0;
+    tool.ctrlHeld = false;
+    tool.solvedCtx = {
+      emit: async (request: any) => {
+        emitted.push(request);
+        return { success: true, geometryLines: [20] };
+      },
+      autoConstraints: () => true,
+    };
+    return tool;
+  }
+
+  it('keeps the end coincident when the snapped vertex is off the 2dp grid', async () => {
+    const emitted: any[] = [];
+    const tool = makeEmitTool(emitted);
+
+    tool.emitSolvedSegment({
+      kind: 'line',
+      text: 'line([0, 0], [40, 0])',
+      endSnap: {
+        snapType: 'vertex',
+        point2d: [40.003, 0.001],
+        ref: { line: 12, role: 'end', featureType: 'line' },
+      },
+      endPoint: [40, 0],
+    });
+    await tool.solvedEmitChain;
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].constraints).toContainEqual({
+      kind: 'coincident',
+      targets: [
+        { newIndex: 0, role: 'end' },
+        { line: 12, role: 'end', featureType: 'line' },
+      ],
+    });
+  });
+
+  it('still drops the coincident when a quantization moved the endpoint off the vertex', async () => {
+    const emitted: any[] = [];
+    const tool = makeEmitTool(emitted);
+
+    tool.emitSolvedSegment({
+      kind: 'line',
+      text: 'line([0, 0], [40, 0])',
+      endSnap: {
+        snapType: 'vertex',
+        point2d: [40, 1.5],
+        ref: { line: 12, role: 'end', featureType: 'line' },
+      },
+      endPoint: [40, 0],
+    });
+    await tool.solvedEmitChain;
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].constraints.filter((c: any) => c.kind === 'coincident')).toHaveLength(0);
+  });
+});
+
+describe('PolylineTool axis-datum end snaps', () => {
+  function makeEmitTool(emitted: any[]) {
+    const tool: any = Object.create(PolylineTool.prototype);
+    tool.phase = PolylinePhase.DRAWING;
+    tool.startPoint = [0, 0];
+    tool.pendingStart = null;
+    tool.solvedPrev = null;
+    tool.solvedStartRef = null;
+    tool.solvedEmitChain = Promise.resolve();
+    tool.solvedEmitsPending = 0;
+    tool.ctrlHeld = false;
+    tool.solvedCtx = {
+      emit: async (request: any) => {
+        emitted.push(request);
+        return { success: true, geometryLines: [20] };
+      },
+      autoConstraints: () => true,
+    };
+    return tool;
+  }
+
+  it('chain start and end both on the x axis get two coincidents, implied H dropped', async () => {
+    const emitted: any[] = [];
+    const tool = makeEmitTool(emitted);
+    tool.solvedStartRef = { datum: 'x-axis' };
+
+    tool.emitSolvedSegment({
+      kind: 'line',
+      text: 'line([0, 0], [40, 0])',
+      constraints: [{ kind: 'horizontal', targets: [{ newIndex: 0 }] }],
+      endSnap: { snapType: 'vertex', point2d: [40, 0], ref: { datum: 'x-axis' } },
+      endPoint: [40, 0],
+    });
+    await tool.solvedEmitChain;
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].constraints).toContainEqual({
+      kind: 'coincident',
+      targets: [{ newIndex: 0, role: 'start' }, { datum: 'x-axis' }],
+    });
+    expect(emitted[0].constraints).toContainEqual({
+      kind: 'coincident',
+      targets: [{ newIndex: 0, role: 'end' }, { datum: 'x-axis' }],
+    });
+    expect(emitted[0].constraints.filter((c: any) => c.kind === 'horizontal')).toHaveLength(0);
+  });
+});

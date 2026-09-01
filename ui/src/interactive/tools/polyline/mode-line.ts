@@ -20,22 +20,28 @@ export class LineMode implements SegmentMode {
 
   private mousePoint: Point2D | null = null;
   private lastSnapType: SnapResult['snapType'] = 'none';
+  /** The cursor's latest snap — the H/V pill claims the commit click, so its
+   * commit path needs the click's snap provenance from here. */
+  private lastSnap: SnapResult | null = null;
   private direction: LineDirection = 'free';
 
   enter(_ctx: ModeContext): void {
     this.mousePoint = null;
     this.lastSnapType = 'none';
+    this.lastSnap = null;
     this.direction = 'free';
   }
 
   exit(ctx: ModeContext): void {
     this.mousePoint = null;
+    this.lastSnap = null;
     this.direction = 'free';
     ctx.hideExpressionInput();
   }
 
   handleClick(point: Point2D, snapResult: SnapResult, ctx: ModeContext): ClickResult {
     if (ctx.isExpressionVisible()) {
+      this.lastSnap = snapResult;
       ctx.commitExpressionValue();
       return { kind: 'ignored' };
     }
@@ -106,6 +112,7 @@ export class LineMode implements SegmentMode {
   handleMouseMove(point: Point2D, snapResult: SnapResult, clientX: number, clientY: number, ctx: ModeContext): void {
     this.mousePoint = point;
     this.lastSnapType = snapResult.snapType;
+    this.lastSnap = snapResult;
 
     const dx = point[0] - ctx.startPoint[0];
     const dy = point[1] - ctx.startPoint[1];
@@ -182,6 +189,10 @@ export class LineMode implements SegmentMode {
         kind: 'line',
         text: `line(${pendingStart ?? ctx.formatPoint(roundedStart)}, ${ctx.formatPoint(roundedEnd)})`,
         constraints,
+        // The commit click's snap provenance (stashed before the pill commit);
+        // the tool keeps the coincident only when the resolved ortho endpoint
+        // still sits on the snapped vertex.
+        endSnap: this.lastSnap,
         endPoint: roundedEnd,
         newVariable,
       });

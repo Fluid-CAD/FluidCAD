@@ -137,3 +137,128 @@ describe('center arc sweep', () => {
     expect(emitted).toHaveLength(0);
   });
 });
+
+describe('center arc end-snap coincident', () => {
+  const END_COINCIDENT = {
+    kind: 'coincident',
+    targets: [
+      { newIndex: 0, role: 'end' },
+      { line: 12, role: 'start', featureType: 'line' },
+    ],
+  };
+
+  function makeSnappedTool(emitted: Emitted[]): any {
+    const tool = makeTool(emitted);
+    tool.solvedCtx.autoConstraints = () => true;
+    tool.lastSnapRef = { line: 12, role: 'start', featureType: 'line' };
+    return tool;
+  }
+
+  it('a snapped sweep click pins the endpoint onto the vertex', async () => {
+    const emitted: Emitted[] = [];
+    const tool = makeSnappedTool(emitted);
+    drag(tool, 0, 90);
+    tool.commitFromMouse(false);
+    await flushMicrotasks();
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].constraints).toContainEqual(END_COINCIDENT);
+  });
+
+  it('the ∠ pill commit click keeps the snap provenance too', async () => {
+    const emitted: Emitted[] = [];
+    const tool = makeSnappedTool(emitted);
+    drag(tool, 0, 90);
+    tool.commitFromExpression({ expression: '90' });
+    await flushMicrotasks();
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].constraints).toContainEqual(END_COINCIDENT);
+  });
+
+  it('a vertex far off the circle only locked the sweep angle — no coincident', async () => {
+    const emitted: Emitted[] = [];
+    const tool = makeSnappedTool(emitted);
+    drag(tool, 0, 90);
+    // The snapped vertex sits on the 90° bearing but well off the radius.
+    tool.mousePoint = [0, 25];
+    tool.commitFromMouse(false);
+    await flushMicrotasks();
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].constraints).not.toContainEqual(END_COINCIDENT);
+  });
+
+  it('Ctrl on the commit click suppresses the inference', async () => {
+    const emitted: Emitted[] = [];
+    const tool = makeSnappedTool(emitted);
+    drag(tool, 0, 90);
+    tool.commitFromMouse(true);
+    await flushMicrotasks();
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].constraints).not.toContainEqual(END_COINCIDENT);
+  });
+});
+
+describe('center arc axis-datum snaps', () => {
+  it('start and end both on the x axis get two distinct coincidents', async () => {
+    const emitted: Emitted[] = [];
+    const tool = makeTool(emitted);
+    tool.solvedCtx.autoConstraints = () => true;
+    // The start click snapped onto the x axis; the sweep click did too.
+    tool.startSnapRef = { datum: 'x-axis' };
+    tool.lastSnapRef = { datum: 'x-axis' };
+    drag(tool, 0, 180);
+    tool.commitFromMouse(false);
+    await flushMicrotasks();
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].constraints).toContainEqual({
+      kind: 'coincident',
+      targets: [{ newIndex: 0, role: 'start' }, { datum: 'x-axis' }],
+    });
+    expect(emitted[0].constraints).toContainEqual({
+      kind: 'coincident',
+      targets: [{ newIndex: 0, role: 'end' }, { datum: 'x-axis' }],
+    });
+  });
+});
+
+describe('center arc axis snap with the cursor far from the endpoint', () => {
+  it('keeps the on-axis coincident — the axis snap holds the cursor x, not the meet point', async () => {
+    const emitted: Emitted[] = [];
+    const tool = makeTool(emitted);
+    tool.solvedCtx.autoConstraints = () => true;
+    tool.lastSnapRef = { datum: 'x-axis' };
+    drag(tool, 0, 180);
+    // The commit click sits ON the axis but well away from where the arc
+    // meets it (the axis snap zeroes y and keeps the cursor's x).
+    tool.mousePoint = [-5, 0];
+    tool.commitFromMouse(false);
+    await flushMicrotasks();
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].constraints).toContainEqual({
+      kind: 'coincident',
+      targets: [{ newIndex: 0, role: 'end' }, { datum: 'x-axis' }],
+    });
+  });
+
+  it('an endpoint clearly off the axis still gets no pin', async () => {
+    const emitted: Emitted[] = [];
+    const tool = makeTool(emitted);
+    tool.solvedCtx.autoConstraints = () => true;
+    tool.lastSnapRef = { datum: 'x-axis' };
+    drag(tool, 0, 90);
+    // Endpoint at [0, 10]; the cursor's axis snap can't make that on-axis.
+    tool.mousePoint = [0.2, 0];
+    tool.commitFromMouse(false);
+    await flushMicrotasks();
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].constraints.filter(
+      (c: any) => c.kind === 'coincident',
+    )).toHaveLength(0);
+  });
+});

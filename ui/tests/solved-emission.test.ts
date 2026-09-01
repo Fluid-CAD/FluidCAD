@@ -2,6 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   chainAngleConstraint,
   dimMagnitude,
+  dropImpliedAxisOrtho,
+  emittedPointOnSnap,
+  sameVertexRef,
   lineText,
   arcText,
   circleText,
@@ -209,5 +212,129 @@ describe('polygonEmission', () => {
     const dim = e.constraints.find(c => c.kind === 'diameter');
     expect(dim?.targets).toEqual([{ newIndex: 5 }]);
     expect(dim?.valueExpr).toBe('20');
+  });
+});
+
+describe('emittedPointOnSnap', () => {
+  it('matches up to the 2dp rounding every emission applies', () => {
+    // Solver-adjusted vertices rarely sit on the 2dp grid; the emitted
+    // literal is their rounding, and the coincident must survive that.
+    expect(emittedPointOnSnap([40, 0], [40.004, -0.003])).toBe(true);
+    expect(emittedPointOnSnap([40, 0], [40, 0])).toBe(true);
+  });
+
+  it('rejects a point a quantization actually moved off the vertex', () => {
+    expect(emittedPointOnSnap([40, 0], [40.02, 0])).toBe(false);
+    expect(emittedPointOnSnap([40, 0], [40, 1.5])).toBe(false);
+  });
+});
+
+describe('sameVertexRef', () => {
+  it('compares line, occurrence, role and pointIndex', () => {
+    expect(sameVertexRef(
+      { line: 7, role: 'end', featureType: 'line' },
+      { line: 7, role: 'end', featureType: 'line' },
+    )).toBe(true);
+    expect(sameVertexRef(
+      { line: 7, role: 'end', featureType: 'line' },
+      { line: 7, role: 'start', featureType: 'line' },
+    )).toBe(false);
+    expect(sameVertexRef(
+      { line: 7, occurrence: 0, featureType: 'circle' },
+      { line: 7, occurrence: 1, featureType: 'circle' },
+    )).toBe(false);
+  });
+
+  it('axis datums are lines, not points — two snaps on one axis are distinct', () => {
+    // The naive field comparison read undefined === undefined here and
+    // swallowed the second coincident of every axis-snapped shape.
+    expect(sameVertexRef({ datum: 'x-axis' }, { datum: 'x-axis' })).toBe(false);
+    expect(sameVertexRef({ datum: 'y-axis' }, { datum: 'y-axis' })).toBe(false);
+    expect(sameVertexRef({ datum: 'x-axis' }, { datum: 'y-axis' })).toBe(false);
+    // The origin IS a point.
+    expect(sameVertexRef({ datum: 'origin' }, { datum: 'origin' })).toBe(true);
+    // A datum never equals a statement vertex.
+    expect(sameVertexRef({ datum: 'x-axis' }, { line: 7, role: 'end', featureType: 'line' })).toBe(false);
+  });
+});
+
+describe('dropImpliedAxisOrtho', () => {
+  const H = { kind: 'horizontal', targets: [{ newIndex: 0 }] };
+  const V = { kind: 'vertical', targets: [{ newIndex: 0 }] };
+
+  it('drops the H implied by both endpoints pinned onto the x axis', () => {
+    expect(dropImpliedAxisOrtho([H], { datum: 'x-axis' }, { datum: 'x-axis' })).toEqual([]);
+    expect(dropImpliedAxisOrtho([V], { datum: 'y-axis' }, { datum: 'y-axis' })).toEqual([]);
+  });
+
+  it('keeps the constraint when only one endpoint sits on the axis', () => {
+    expect(dropImpliedAxisOrtho([H], { datum: 'x-axis' }, null)).toEqual([H]);
+    expect(dropImpliedAxisOrtho([H], null, { datum: 'x-axis' })).toEqual([H]);
+    expect(dropImpliedAxisOrtho(
+      [H], { datum: 'x-axis' }, { line: 7, role: 'end', featureType: 'line' },
+    )).toEqual([H]);
+  });
+});
+
+describe('slotEmission snap coincidents', () => {
+  it('pins snapped cap centres onto their vertices', () => {
+    const e = slotEmission({
+      p0: [0, 0],
+      p1: [40, 0],
+      radius: 5,
+      p0Snap: { line: 3, role: 'end', featureType: 'line' },
+      p1Snap: { datum: 'origin' },
+    });
+    const coincidents = e.constraints.filter(c => c.kind === 'coincident');
+    // 4 chain junctions + the two cap-centre pins.
+    expect(coincidents).toHaveLength(6);
+    expect(coincidents).toContainEqual({
+      kind: 'coincident',
+      targets: [{ newIndex: 3, role: 'center' }, { line: 3, role: 'end', featureType: 'line' }],
+    });
+    expect(coincidents).toContainEqual({
+      kind: 'coincident',
+      targets: [{ newIndex: 1, role: 'center' }, { datum: 'origin' }],
+    });
+  });
+});
+
+describe('rectEmission snap coincidents', () => {
+  it('pins the snapped anchor and opposite corners onto their vertices', () => {
+    const e = rectEmission({
+      corner: [0, 0],
+      w: 30,
+      h: 20,
+      cornerSnap: { line: 5, role: 'start', featureType: 'line' },
+      oppositeSnap: { line: 9, role: 'center', featureType: 'circle' },
+    });
+    const coincidents = e.constraints.filter(c => c.kind === 'coincident');
+    // 4 chain junctions + the two corner pins.
+    expect(coincidents).toHaveLength(6);
+    expect(coincidents).toContainEqual({
+      kind: 'coincident',
+      targets: [{ newIndex: 0, role: 'start' }, { line: 5, role: 'start', featureType: 'line' }],
+    });
+    expect(coincidents).toContainEqual({
+      kind: 'coincident',
+      targets: [{ newIndex: 2, role: 'start' }, { line: 9, role: 'center', featureType: 'circle' }],
+    });
+  });
+});
+
+describe('emittedPointOnSnap with axis-datum refs', () => {
+  it('validates point-on-axis, not point-near-cursor', () => {
+    // An axis snap keeps the cursor's free coordinate — the snapped point can
+    // sit far from where the geometry meets the axis.
+    expect(emittedPointOnSnap([-10, 0], [-5, 0], { datum: 'x-axis' })).toBe(true);
+    expect(emittedPointOnSnap([0, 7], [0, 2], { datum: 'y-axis' })).toBe(true);
+    expect(emittedPointOnSnap([-10, 1.5], [-5, 0], { datum: 'x-axis' })).toBe(false);
+    expect(emittedPointOnSnap([1.5, 7], [0, 2], { datum: 'y-axis' })).toBe(false);
+  });
+
+  it('origin and statement refs keep the pointwise comparison', () => {
+    expect(emittedPointOnSnap([0, 0], [0, 0], { datum: 'origin' })).toBe(true);
+    expect(emittedPointOnSnap([5, 0], [0, 0], { datum: 'origin' })).toBe(false);
+    expect(emittedPointOnSnap([40, 0], [40.004, -0.003], { line: 7, role: 'end', featureType: 'line' })).toBe(true);
   });
 });

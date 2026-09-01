@@ -19,7 +19,16 @@ import {
   addDashedLine,
 } from './tool-preview-utils';
 import { classifyDelta, orthoEffectiveEnd, LineDirection } from './ortho-snap';
-import { coincident, dimMagnitude, newTarget, refTarget, type SolvedConstraintParam } from './solved-emission';
+import {
+  coincident,
+  dimMagnitude,
+  dropImpliedAxisOrtho,
+  emittedPointOnSnap,
+  newTarget,
+  refTarget,
+  sameVertexRef,
+  type SolvedConstraintParam,
+} from './solved-emission';
 import type { SnapResult, SolvedVertexRef } from '../../snapping/types';
 
 export class LineTool extends SketchTool {
@@ -34,6 +43,9 @@ export class LineTool extends SketchTool {
   private startSnapRef: SolvedVertexRef | null = null;
   /** Solved sketches: the latest cursor snap (the end click's provenance). */
   private lastSnapRef: SolvedVertexRef | null = null;
+  /** The snapped position lastSnapRef refers to — validates that a commit's
+   * resolved endpoint actually landed on the snapped vertex. */
+  private lastSnapPoint: [number, number] | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private ctrlHeld = false;
@@ -126,6 +138,11 @@ export class LineTool extends SketchTool {
       return;
     }
 
+    // The click's own snap is the end's provenance — fresher than the last
+    // mousemove sample the tracking fields hold.
+    this.lastSnapRef = result.ref ?? null;
+    this.lastSnapPoint = result.ref ? result.point2d : null;
+
     if (this.expressionInput.isVisible) {
       this.expressionInput.commitCurrentValue();
     } else {
@@ -175,6 +192,7 @@ export class LineTool extends SketchTool {
     this.mousePoint = result.point2d;
     this.lastSnapType = result.snapType;
     this.lastSnapRef = result.ref ?? null;
+    this.lastSnapPoint = result.ref ? result.point2d : null;
     this.rebuildPreview();
     this.updateDimensionInput();
   }
@@ -302,7 +320,13 @@ export class LineTool extends SketchTool {
           valueExpr: dimMagnitude(expression),
         });
       }
-      this.emitSolvedLine(this.startPick!, roundPoint(end), null, constraints,
+      // The H/V pill claims the commit click, so the end's snap provenance
+      // has to ride through here too — kept only when the resolved ortho
+      // endpoint still sits on the snapped vertex.
+      const endRef = this.lastSnapRef && this.lastSnapPoint
+        && emittedPointOnSnap(end, this.lastSnapPoint, this.lastSnapRef)
+        ? this.lastSnapRef : null;
+      this.emitSolvedLine(this.startPick!, roundPoint(end), endRef, constraints,
         newVariable ? [newVariable] : []);
     }
 
@@ -326,8 +350,8 @@ export class LineTool extends SketchTool {
         const effectiveEnd = roundPoint(orthoEffectiveEnd(start.value, roundedEnd, dir));
         // The ortho quantization may have moved the end off the snapped
         // vertex — the coincident only holds when it didn't.
-        const stillSnapped = this.lastSnapRef
-          && Math.hypot(effectiveEnd[0] - roundedEnd[0], effectiveEnd[1] - roundedEnd[1]) < 1e-6;
+        const stillSnapped = this.lastSnapRef && this.lastSnapPoint
+          && emittedPointOnSnap(effectiveEnd, this.lastSnapPoint, this.lastSnapRef);
         // Auto-constraints off: the ortho quantization still applies (a
         // drafting aid, as in legacy sketches) but the H/V stays unwritten.
         this.emitSolvedLine(start, effectiveEnd, stillSnapped ? this.lastSnapRef : null,
@@ -353,11 +377,15 @@ export class LineTool extends SketchTool {
     if (this.startSnapRef && infer) {
       all.push(coincident(newTarget(0, 'start'), refTarget(this.startSnapRef)));
     }
-    if (endRef && infer && !this.ctrlHeld
-      && !(this.startSnapRef && endRef.line === this.startSnapRef.line && endRef.role === this.startSnapRef.role)) {
-      all.push(coincident(newTarget(0, 'end'), refTarget(endRef)));
+    const keptEndRef = endRef && infer && !this.ctrlHeld
+      && !(this.startSnapRef && sameVertexRef(endRef, this.startSnapRef))
+      ? endRef : null;
+    if (keptEndRef) {
+      all.push(coincident(newTarget(0, 'end'), refTarget(keptEndRef)));
     }
-    all.push(...constraints);
+    // Both endpoints pinned onto one axis imply the line's H/V — the
+    // inferred ortho constraint would only be a redundant row.
+    all.push(...dropImpliedAxisOrtho(constraints, this.startSnapRef, keptEndRef));
     void this.solvedCtx!.emit({
       geometry: [{
         kind: 'line',

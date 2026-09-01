@@ -120,6 +120,73 @@ export function coincident(
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
+/**
+ * Whether an emitted point still sits on the snapped target, up to the 2dp
+ * rounding every emission applies to clicked positions. The old exact
+ * (1e-6) comparisons silently dropped snap coincidents whenever the solved
+ * vertex wasn't itself on the 2dp grid (solver-adjusted positions rarely
+ * are) — the coincident is exactly how the solver closes that residue, so
+ * the guard only has to catch a quantization (ortho, on-ray projection,
+ * a locked dimension) that actually MOVED the point off the target.
+ *
+ * An axis-datum snap is a line, not a point: its `point2d` keeps the
+ * cursor's free coordinate, which can sit far from where the geometry meets
+ * the axis — so with the snap's `ref` given, an axis ref is validated as
+ * point-ON-AXIS (the constrained coordinate rounds to 0) instead of
+ * point-near-cursor.
+ */
+export function emittedPointOnSnap(
+  emitted: [number, number],
+  snapped: [number, number],
+  ref?: SolvedVertexRef,
+): boolean {
+  if (ref?.datum === 'x-axis') {
+    return Math.abs(round2(emitted[1])) < 1e-9;
+  }
+  if (ref?.datum === 'y-axis') {
+    return Math.abs(round2(emitted[0])) < 1e-9;
+  }
+  return Math.abs(round2(emitted[0]) - round2(snapped[0])) < 1e-9
+    && Math.abs(round2(emitted[1]) - round2(snapped[1])) < 1e-9;
+}
+
+/**
+ * Whether two snap refs address the same POINT — the guard against emitting
+ * two coincidents of one new shape onto a single snapped vertex. The axis
+ * datums are infinite lines, not points: two snaps on one axis are two
+ * distinct point-on-axis coincidents, both wanted (comparing their fields
+ * naively reads undefined === undefined and swallowed the second — the
+ * "only the first vertex auto-constrains" bug for axis snapping). Only the
+ * origin datum addresses a point.
+ */
+export function sameVertexRef(a: SolvedVertexRef, b: SolvedVertexRef): boolean {
+  if (a.datum !== undefined || b.datum !== undefined) {
+    return a.datum === 'origin' && b.datum === 'origin';
+  }
+  return a.line === b.line && a.occurrence === b.occurrence
+    && a.role === b.role && a.pointIndex === b.pointIndex;
+}
+
+/**
+ * When BOTH endpoints of a new line are pinned onto the same axis datum,
+ * the line's horizontality/verticality is implied — an inferred
+ * horizontal/vertical on top would only add a redundant row. Returns the
+ * constraint list with the implied kind filtered out, or the list untouched.
+ */
+export function dropImpliedAxisOrtho(
+  constraints: SolvedConstraintParam[],
+  startRef: SolvedVertexRef | null,
+  endRef: SolvedVertexRef | null,
+): SolvedConstraintParam[] {
+  const axis = startRef?.datum !== undefined && startRef.datum !== 'origin'
+    && endRef?.datum === startRef.datum ? startRef.datum : null;
+  if (!axis) {
+    return constraints;
+  }
+  const implied = axis === 'x-axis' ? 'horizontal' : 'vertical';
+  return constraints.filter(c => c.kind !== implied);
+}
+
 /** A dimension's value expression from a possibly-signed commit: numeric
  * text loses its sign (dimensions are positive; the sign only picked the
  * guess side); non-numeric expressions pass verbatim. */
@@ -144,6 +211,10 @@ export function rectEmission(opts: {
   /** Positive width/height dimension expressions — only when typed. */
   widthDim?: string;
   heightDim?: string;
+  /** Snapped anchor corner (p0) — coincident onto the snapped vertex. */
+  cornerSnap?: SolvedVertexRef;
+  /** Snapped opposite corner (p2) — coincident onto the snapped vertex. */
+  oppositeSnap?: SolvedVertexRef;
 }): SolvedEmissionRequest {
   const [x, y] = opts.corner;
   const p0: [number, number] = [round2(x), round2(y)];
@@ -173,6 +244,12 @@ export function rectEmission(opts: {
       targets: [newTarget(1, 'start'), newTarget(1, 'end')],
       valueExpr: opts.heightDim,
     });
+  }
+  if (opts.cornerSnap !== undefined) {
+    constraints.push(coincident(newTarget(0, 'start'), refTarget(opts.cornerSnap)));
+  }
+  if (opts.oppositeSnap !== undefined) {
+    constraints.push(coincident(newTarget(2, 'start'), refTarget(opts.oppositeSnap)));
   }
   return {
     geometry: [
@@ -260,6 +337,10 @@ export function slotEmission(opts: {
   radius: number;
   lengthDim?: string;
   radiusDim?: string;
+  /** Snapped cap centres — coincident onto the snapped vertex. p0 is the
+   * cap arc at geometry index 3, p1 the one at index 1. */
+  p0Snap?: SolvedVertexRef;
+  p1Snap?: SolvedVertexRef;
 }): SolvedEmissionRequest {
   const dx = opts.p1[0] - opts.p0[0];
   const dy = opts.p1[1] - opts.p0[1];
@@ -294,6 +375,12 @@ export function slotEmission(opts: {
   }
   if (opts.radiusDim !== undefined) {
     constraints.push({ kind: 'radius', targets: [newTarget(1)], valueExpr: opts.radiusDim });
+  }
+  if (opts.p0Snap !== undefined) {
+    constraints.push(coincident(newTarget(3, 'center'), refTarget(opts.p0Snap)));
+  }
+  if (opts.p1Snap !== undefined) {
+    constraints.push(coincident(newTarget(1, 'center'), refTarget(opts.p1Snap)));
   }
   return { geometry, constraints };
 }

@@ -4,7 +4,7 @@ import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
 import { SnapManager } from '../../snapping/snap-manager';
-import { SnapType } from '../../snapping/types';
+import { SnapType, SnapResult, SolvedVertexRef } from '../../snapping/types';
 import {
   projectToSketch,
   roundPoint,
@@ -19,7 +19,7 @@ import {
   addDot,
   addDashedRect,
 } from './tool-preview-utils';
-import { dimMagnitude, rectEmission } from './solved-emission';
+import { dimMagnitude, emittedPointOnSnap, rectEmission, sameVertexRef } from './solved-emission';
 
 type ExpressionPhase = 'width' | 'height';
 
@@ -31,6 +31,13 @@ export class RectTool extends SketchTool {
   private startPoint: [number, number] | null = null;
   /** The start corner as picked: same position, plus any typed axis expressions. */
   private startPick: PickedPoint | null = null;
+  /** Solved sketches: the anchor click's snap provenance. Non-centered mode
+   * only — the anchor IS corner p0 there; the centered anchor is the rect's
+   * centre, which no rect vertex sits on. */
+  private startSnapRef: SolvedVertexRef | null = null;
+  /** The cursor's latest snap (mousemove or the commit click) — the opposite
+   * corner's provenance, validated against p2 at emission. */
+  private lastSnap: SnapResult | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private readonly centered: boolean;
@@ -106,10 +113,13 @@ export class RectTool extends SketchTool {
   }
 
   /** Single writer for both halves of the anchor, so the position the preview
-   * draws and the expressions the statement emits cannot drift. */
+   * draws and the expressions the statement emits cannot drift. Clears the
+   * anchor's snap ref — the mouse pick path re-captures it right after
+   * (typed picks never carry one). */
   private consumeStart(start: PickedPoint): void {
     this.startPick = start;
     this.startPoint = start.value;
+    this.startSnapRef = null;
     this.syncPointInput();
     this.rebuildPreview();
   }
@@ -117,6 +127,7 @@ export class RectTool extends SketchTool {
   private resetState(): void {
     this.startPoint = null;
     this.startPick = null;
+    this.startSnapRef = null;
     this.mousePoint = null;
     this.expressionPhase = 'width';
     this.widthExpression = null;
@@ -146,9 +157,18 @@ export class RectTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (!this.startPoint) {
-      this.consumeStart(this.applyPointInput(result.point2d));
+      const picked = this.applyPointInput(result.point2d);
+      this.consumeStart(picked);
+      // Non-centered rects anchor at corner p0 — a snapped anchor becomes
+      // its coincident. The centered anchor is the rect's centre, which no
+      // rect vertex sits on.
+      this.startSnapRef = !this.centered && !picked.typed && !(e.ctrlKey || e.metaKey)
+        ? result.ref ?? null : null;
       return;
     }
+
+    // The click's own snap is fresher than the last mousemove sample.
+    this.lastSnap = e.ctrlKey || e.metaKey ? null : result;
 
     if (this.expressionInput.isVisible) {
       this.expressionInput.commitCurrentValue();
@@ -172,6 +192,7 @@ export class RectTool extends SketchTool {
     const result = this.snapController.snap(raw);
     this.mousePoint = result.point2d;
     this.lastSnapType = result.snapType;
+    this.lastSnap = result;
     this.rebuildPreview();
     this.updateDimensionInput();
   }
@@ -418,12 +439,25 @@ export class RectTool extends SketchTool {
       const corner: [number, number] = this.centered
         ? [start.value[0] - w / 2, start.value[1] - h / 2]
         : [start.value[0], start.value[1]];
+      // Snap provenance → corner coincidents (the Auto-constraints toggle
+      // gates the inference). The anchor IS p0 in non-centered mode; the
+      // size click's snap holds only when the committed opposite corner p2
+      // still sits on the snapped vertex (a typed size may have moved it).
+      const infer = this.autoConstraintsEnabled();
+      const cornerSnap = infer ? this.startSnapRef : null;
+      const p2: [number, number] = [corner[0] + w, corner[1] + h];
+      const oppositeSnap = infer && this.lastSnap?.ref
+        && emittedPointOnSnap(p2, this.lastSnap.point2d, this.lastSnap.ref)
+        && !(cornerSnap && sameVertexRef(this.lastSnap.ref, cornerSnap))
+        ? this.lastSnap.ref : null;
       const emission = rectEmission({
         corner,
         w,
         h,
         ...(this.widthTyped ? { widthDim: dimMagnitude(widthResult.expression) } : {}),
         ...(this.heightTyped ? { heightDim: dimMagnitude(heightResult.expression) } : {}),
+        ...(cornerSnap ? { cornerSnap } : {}),
+        ...(oppositeSnap ? { oppositeSnap } : {}),
       });
       const variables = [...start.newVariables, ...newVariables];
       void this.solvedCtx.emit({

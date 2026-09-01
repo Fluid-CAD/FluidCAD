@@ -4,7 +4,7 @@ import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
 import { SnapManager } from '../../snapping/snap-manager';
-import { SnapType } from '../../snapping/types';
+import { SnapType, SnapResult, SolvedVertexRef } from '../../snapping/types';
 import {
   projectToSketch,
   roundPoint,
@@ -13,7 +13,7 @@ import {
 import { ICON_SLOT } from '../../ui/icons';
 import { ExpressionInput, CommitResult } from '../../ui/expression-input';
 import { classifyDelta } from './ortho-snap';
-import { dimMagnitude, slotEmission } from './solved-emission';
+import { dimMagnitude, emittedPointOnSnap, sameVertexRef, slotEmission } from './solved-emission';
 import {
   START_POINT_COLOR,
   SNAP_VERTEX_COLOR,
@@ -43,6 +43,15 @@ export class SlotTool extends SketchTool {
   private startPoint: [number, number] | null = null;
   /** The anchor as picked, carrying any typed axis expressions. */
   private startPick: PickedPoint | null = null;
+  /** Solved sketches: the anchor click's snap provenance. Non-centered mode
+   * only — the anchor IS the first cap centre there; the centered anchor is
+   * the slot's midpoint, which no slot vertex sits on. */
+  private startSnapRef: SolvedVertexRef | null = null;
+  /** The cursor's latest snap (mousemove or the commit click). */
+  private lastSnap: SnapResult | null = null;
+  /** The distance commit's snap — the second cap centre's provenance, held
+   * across the radius phase and validated against p1 at emission. */
+  private distSnap: SnapResult | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private ctrlHeld = false;
@@ -126,6 +135,7 @@ export class SlotTool extends SketchTool {
       this.rotateSuffix = '';
       this.lockedDir = null;
       this.lockedDistance = null;
+      this.distSnap = null;
       this.expressionInput.hide();
       this.rebuildPreview();
       return true;
@@ -146,10 +156,13 @@ export class SlotTool extends SketchTool {
   }
 
   /** Single writer for both halves of the anchor, so the position the preview
-   * draws and the expressions the statement emits cannot drift. */
+   * draws and the expressions the statement emits cannot drift. Clears the
+   * anchor's snap ref — the mouse pick path re-captures it right after
+   * (typed picks never carry one). */
   private consumeStart(start: PickedPoint): void {
     this.startPick = start;
     this.startPoint = start.value;
+    this.startSnapRef = null;
     this.syncPointInput();
     this.rebuildPreview();
   }
@@ -157,6 +170,8 @@ export class SlotTool extends SketchTool {
   private resetState(): void {
     this.startPoint = null;
     this.startPick = null;
+    this.startSnapRef = null;
+    this.distSnap = null;
     this.mousePoint = null;
     this.expressionPhase = 'distance';
     this.distanceExpression = null;
@@ -188,9 +203,18 @@ export class SlotTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (!this.startPoint) {
-      this.consumeStart(this.applyPointInput(result.point2d));
+      const picked = this.applyPointInput(result.point2d);
+      this.consumeStart(picked);
+      // Non-centered slots anchor at the first cap centre — a snapped anchor
+      // becomes its coincident. The centered anchor is the slot midpoint,
+      // which no slot vertex sits on.
+      this.startSnapRef = !this.centered && !picked.typed && !(e.ctrlKey || e.metaKey)
+        ? result.ref ?? null : null;
       return;
     }
+
+    // The click's own snap is fresher than the last mousemove sample.
+    this.lastSnap = result;
 
     if (this.expressionInput.isVisible) {
       this.expressionInput.commitCurrentValue();
@@ -234,6 +258,7 @@ export class SlotTool extends SketchTool {
     const result = this.snapController.snap(raw);
     this.mousePoint = result.point2d;
     this.lastSnapType = result.snapType;
+    this.lastSnap = result;
     this.rebuildPreview();
     this.updateDimensionInput();
   }
@@ -390,6 +415,9 @@ export class SlotTool extends SketchTool {
     const factor = this.centered ? 2 : 1;
 
     this.distanceTyped = this.expressionInput.isTyping;
+    // The distance click's snap — the second cap centre's provenance, kept
+    // for the emission's position check (Ctrl suppresses the inference).
+    this.distSnap = this.ctrlHeld ? null : this.lastSnap;
     if (direction === 'horizontal' || direction === 'vertical') {
       const axisDelta = direction === 'horizontal' ? dx : dy;
       const sign = Math.sign(axisDelta) || 1;
@@ -468,12 +496,24 @@ export class SlotTool extends SketchTool {
         ? [anchor[0] - dir[0] * dist / 2, anchor[1] - dir[1] * dist / 2]
         : [anchor[0], anchor[1]];
       const p1: [number, number] = [p0[0] + dir[0] * dist, p0[1] + dir[1] * dist];
+      // Snap provenance → cap-centre coincidents (the Auto-constraints toggle
+      // gates the inference). The anchor IS p0 in non-centered mode; the
+      // distance click's snap holds only when the committed p1 still sits on
+      // the snapped vertex (an ortho or typed distance may have moved it).
+      const infer = this.autoConstraintsEnabled();
+      const p0Snap = infer ? this.startSnapRef : null;
+      const p1Snap = infer && this.distSnap?.ref
+        && emittedPointOnSnap(p1, this.distSnap.point2d, this.distSnap.ref)
+        && !(p0Snap && sameVertexRef(this.distSnap.ref, p0Snap))
+        ? this.distSnap.ref : null;
       const emission = slotEmission({
         p0,
         p1,
         radius,
         ...(this.distanceTyped ? { lengthDim: dimMagnitude(distanceResult.expression) } : {}),
         ...(radiusTyped ? { radiusDim: dimMagnitude(radiusResult.expression) } : {}),
+        ...(p0Snap ? { p0Snap } : {}),
+        ...(p1Snap ? { p1Snap } : {}),
       });
       const variables = [...start.newVariables, ...newVariables];
       void this.solvedCtx.emit({

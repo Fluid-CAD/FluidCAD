@@ -7,9 +7,11 @@ import { SnapManager } from '../../snapping/snap-manager';
 import { SnapType, SolvedVertexRef } from '../../snapping/types';
 import {
   projectToSketch,
+  localToWorld,
   roundPoint,
   dist2D,
 } from '../sketch-plane-utils';
+import { pixelsToWorld } from '../../meshes/screen-scale';
 import { ICON_CENTER_ARC } from '../../ui/icons';
 import { ExpressionInput, VariableInfo, CommitResult } from '../../ui/expression-input';
 import {
@@ -22,7 +24,7 @@ import {
   angleFromCenter,
   pointOnCircle,
 } from './tool-preview-utils';
-import { coincident, newTarget, refTarget, type SolvedConstraintParam } from './solved-emission';
+import { coincident, newTarget, refTarget, sameVertexRef, type SolvedConstraintParam } from './solved-emission';
 
 const TWO_PI = Math.PI * 2;
 /** A full turn would put the arc's end back on its start, which the
@@ -57,6 +59,9 @@ export class CenterArcTool extends SketchTool {
   private lastSnapRef: SolvedVertexRef | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
+  /** Ctrl state of the click that committed the ∠ pill — the pill's commit
+   * callback has no event of its own to read the modifier from. */
+  private suppressEndRefOnCommit = false;
   private expressionInput: ExpressionInput;
   private lastClientX = 0;
   private lastClientY = 0;
@@ -199,7 +204,11 @@ export class CenterArcTool extends SketchTool {
 
     if (this.state === State.START_PLACED) {
       if (this.expressionInput.isVisible) {
+        // The ∠ pill claims the commit click; remember its modifier so the
+        // pill's commit path can still honor Ctrl's snap suppression.
+        this.suppressEndRefOnCommit = e.ctrlKey || e.metaKey;
         this.expressionInput.commitCurrentValue();
+        this.suppressEndRefOnCommit = false;
       } else {
         this.commitFromMouse(e.ctrlKey || e.metaKey);
       }
@@ -324,12 +333,34 @@ export class CenterArcTool extends SketchTool {
     const radius = dist2D(this.centerPoint, this.startPoint);
     const endAngle = angleFromCenter(this.centerPoint, this.startPoint) + this.sweepRad;
     const endPoint = pointOnCircle(this.centerPoint, radius, endAngle);
-    // The end coincident only holds when the on-circle projection didn't
-    // move the endpoint off the snapped vertex.
-    const endRef = !suppressEndRef && this.lastSnapRef
-      && dist2D(endPoint, this.mousePoint) < 1e-6
-      ? this.lastSnapRef : null;
-    this.emitArc(this.startPick!, endPoint, this.centerPick!, this.ccw, undefined, endRef);
+    this.emitArc(this.startPick!, endPoint, this.centerPick!, this.ccw, undefined,
+      suppressEndRef ? null : this.endSnapRef(endPoint));
+  }
+
+  /**
+   * The sweep click's snapped vertex as the endpoint's coincident target.
+   * The endpoint is the on-circle projection of the cursor, so it sits at
+   * the vertex's bearing but generally not its radius — the vertex still
+   * reads as "on the arc" when the residue is within the snap radius on
+   * screen, and the coincident is exactly how the solver closes it. A vertex
+   * far off the circle only locked the sweep angle, not a connection.
+   *
+   * An axis-datum snap is a line, not a point — its snapped position keeps
+   * the cursor's free coordinate, which legitimately sits far from where the
+   * arc meets the axis. There the gap that matters is the endpoint's own
+   * distance to the axis.
+   */
+  private endSnapRef(endPoint: [number, number]): SolvedVertexRef | null {
+    if (!this.lastSnapRef || !this.mousePoint) {
+      return null;
+    }
+    const tolerance = this.ctx?.renderer
+      ? pixelsToWorld(this.ctx.renderer, this.ctx.camera, localToWorld(endPoint, this.plane), 15)
+      : 0.01;
+    const gap = this.lastSnapRef.datum === 'x-axis' ? Math.abs(endPoint[1])
+      : this.lastSnapRef.datum === 'y-axis' ? Math.abs(endPoint[0])
+        : dist2D(endPoint, this.mousePoint);
+    return gap <= tolerance ? this.lastSnapRef : null;
   }
 
   private commitFromExpression(result: CommitResult): void {
@@ -347,7 +378,11 @@ export class CenterArcTool extends SketchTool {
     const direction = this.ccw ? 1 : -1;
     const endAngle = startAngle + direction * sweepRad;
     const endPoint = pointOnCircle(this.centerPoint, radius, endAngle);
-    this.emitArc(this.startPick!, endPoint, this.centerPick!, this.ccw, newVariable);
+    // The ∠ pill claims the commit click, so the sweep's snap provenance has
+    // to ride through here too. A typed sweep naturally fails the position
+    // check when it lands the endpoint away from the hovered vertex.
+    this.emitArc(this.startPick!, endPoint, this.centerPick!, this.ccw, newVariable,
+      this.suppressEndRefOnCommit ? null : this.endSnapRef(endPoint));
   }
 
   private emitArc(
@@ -374,9 +409,7 @@ export class CenterArcTool extends SketchTool {
         if (this.startSnapRef) {
           constraints.push(coincident(newTarget(0, 'start'), refTarget(this.startSnapRef)));
         }
-        if (endRef
-          && !(this.startSnapRef && endRef.line === this.startSnapRef.line
-            && endRef.role === this.startSnapRef.role)) {
+        if (endRef && !(this.startSnapRef && sameVertexRef(endRef, this.startSnapRef))) {
           constraints.push(coincident(newTarget(0, 'end'), refTarget(endRef)));
         }
       }

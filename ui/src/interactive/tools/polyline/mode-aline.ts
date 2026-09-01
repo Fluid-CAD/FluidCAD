@@ -39,6 +39,10 @@ export class ALineMode implements SegmentMode {
   private subState: ALineSubState = ALineSubState.AWAITING_ANGLE;
   private mousePoint: Point2D | null = null;
   private lastSnapType: SnapResult['snapType'] = 'none';
+  /** The cursor's latest snap — the L: pill claims the commit click, so the
+   * emission takes the endpoint's snap provenance from here (the tool drops
+   * it unless the angle-locked endpoint still sits on the vertex). */
+  private lastSnap: SnapResult | null = null;
   /** Live mouse-derived angle in degrees, snapped to 15° multiples. */
   private previewAngle = 0;
   /** Numeric angle locked by the first stage (preview/endpoint math). */
@@ -64,6 +68,7 @@ export class ALineMode implements SegmentMode {
     this.subState = ALineSubState.AWAITING_ANGLE;
     this.mousePoint = null;
     this.lastSnapType = 'none';
+    this.lastSnap = null;
     this.previewAngle = 0;
     this.lockedAngle = null;
     this.angleExpr = null;
@@ -108,7 +113,8 @@ export class ALineMode implements SegmentMode {
     return Math.max(0, dx * dir[0] + dy * dir[1]);
   }
 
-  handleClick(point: Point2D, _snapResult: SnapResult, ctx: ModeContext): ClickResult {
+  handleClick(point: Point2D, snapResult: SnapResult, ctx: ModeContext): ClickResult {
+    this.lastSnap = snapResult;
     if (this.subState === ALineSubState.AWAITING_ANGLE) {
       if (ctx.isExpressionVisible()) {
         // The field live-tracks the snapped mouse angle, so a plain click and a
@@ -142,6 +148,7 @@ export class ALineMode implements SegmentMode {
   handleMouseMove(point: Point2D, snapResult: SnapResult, clientX: number, clientY: number, ctx: ModeContext): void {
     this.mousePoint = point;
     this.lastSnapType = snapResult.snapType;
+    this.lastSnap = snapResult;
 
     if (this.subState === ALineSubState.AWAITING_ANGLE) {
       const dx = point[0] - ctx.startPoint[0];
@@ -280,6 +287,7 @@ export class ALineMode implements SegmentMode {
       kind: 'line',
       text: `line(${ctx.pendingStartText() ?? ctx.formatPoint(roundPoint(ctx.startPoint))}, ${ctx.formatPoint(endpoint)})`,
       constraints,
+      endSnap: this.lastSnap,
       endPoint: endpoint,
       newVariable: lengthVariable ?? undefined,
     });

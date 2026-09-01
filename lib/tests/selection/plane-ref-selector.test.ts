@@ -14,9 +14,10 @@ import { PlaneFromObject } from "../../features/plane-from-object.js";
 import { Solid } from "../../common/solid.js";
 import { Scene } from "../../rendering/scene.js";
 import { ShapeProps } from "../../oc/props.js";
+import part from "../../core/part.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
-import { faceRefsWhere, findSolid, setLocation } from "./pick-helpers.js";
-import { testRect } from "../helpers/profiles.js";
+import { faceRefsWhere, findSolid, findSolids, setLocation } from "./pick-helpers.js";
+import { testRect, testRectSketch } from "../helpers/profiles.js";
 
 function sceneSolid(scene: Scene): Solid {
   return scene.getAllSceneObjects()
@@ -141,6 +142,69 @@ describe("plane-reference selectors", () => {
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.preview).toBe("shell(-2, select(face().onPlane('xy')))");
+    }
+  });
+
+  it("never references a plane source from another part() scope", () => {
+    // Part 1's extrude is bindable and its end faces are coplanar with the
+    // picked face — but its variable lives in part 1's callback, out of reach
+    // of a statement executing in part 2. The reference would be written as
+    // `onPlane(e.endFaces())` and die as an undefined variable at build time;
+    // the constant datum form must win instead.
+    const p1 = part("first", () => {
+      testRectSketch("xy", 20, 20);
+      const e = extrude(25) as Extrude;
+      setLocation(e, 3);
+    });
+    setLocation(p1, 2);
+    const p2 = part("second", () => {
+      testRectSketch("xy", 30, 30);
+      const e = extrude(25) as Extrude;
+      setLocation(e, 8);
+    });
+    setLocation(p2, 7);
+
+    const scene = render();
+    const solids = findSolids(scene);
+    expect(solids).toHaveLength(2);
+    const refs = faceRefsWhere(solids[1], m => Math.abs(m.z - 25) < 1e-6);
+    expect(refs).toHaveLength(1);
+
+    // Part 2's own extrude cannot be bound (its statement is refused by the
+    // server probe), so the pick routes through the scene-wide select() —
+    // where part 1's coplanar end-face group used to leak in as a source.
+    const result = synthesizeApplyFeature(scene, refs, 'shell', -2, [], {
+      bindable: producer => producer.line !== 8,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.preview).toBe("shell(-2, select(face().onPlane('xy', 25)))");
+      expect(result.spec.producers.filter(p => p.bind)).toHaveLength(0);
+    }
+  });
+
+  it("keeps the plane reference when the source lives in the pick's own part", () => {
+    const p = part("solo", () => {
+      sketch("xy", () => {
+        testRect(123.28, 56.07, { at: [-61.64, -28.035] });
+      });
+      const e = extrude(25) as Extrude;
+      setLocation(e, 3);
+      fillet(10, e.sideEdges());
+    });
+    setLocation(p, 2);
+
+    const scene = render();
+    const solid = findSolid(scene);
+    const refs = faceRefsWhere(solid, m => Math.abs(m.z - 25) < 1e-6);
+    expect(refs).toHaveLength(1);
+
+    const result = synthesizeApplyFeature(scene, refs, 'shell', -2);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.preview).toBe("shell(-2, select(face().onPlane(e.endFaces())))");
+      expect(result.spec.producers).toHaveLength(1);
+      expect(result.spec.parts[0].refs).toEqual([0]);
     }
   });
 

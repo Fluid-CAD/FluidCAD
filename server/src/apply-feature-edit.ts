@@ -4219,6 +4219,20 @@ function resolveSketchBodyInsertion(
         + 'before the sketch can be projected into it',
     };
   }
+  // Preceding in source is not enough: a declaration inside another part()'s
+  // callback precedes this sketch textually but its variable is out of scope
+  // here — the emitted reference would die as an undefined variable at build
+  // time. The binding's scope must enclose the sketch statement (the same
+  // rule the in-place project edit applies).
+  const outOfScope = bindings.find(b => b.bind
+    && !(b.scope.startIndex <= sketchStatement.startIndex
+      && b.scope.endIndex >= sketchStatement.endIndex));
+  if (outOfScope) {
+    return {
+      error: 'the picked geometry is declared in a different scope than this sketch — '
+        + 'only features visible from the sketch can be projected into it',
+    };
+  }
 
   const children = body.namedChildren;
   // Land before an active breakpoint(); — a paused build never runs

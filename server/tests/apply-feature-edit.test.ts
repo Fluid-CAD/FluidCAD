@@ -6291,6 +6291,32 @@ describe('project into a sketch body', () => {
     expect(result.newCode).toBe(code);
   });
 
+  it('refuses a source declared in a different part() scope than the sketch', async () => {
+    // The producer precedes the sketch in source order, but its variable
+    // lives in another part()'s callback — binding it would write an
+    // undefined identifier into the second part.
+    const code = [
+      `import { sketch, ellipse, extrude, circle, project, part } from 'fluidcad/core'`,
+      ``,
+      `export const part1 = part('Part 1', () => {`,
+      `  sketch('xy', () => { ellipse(100, 50) })`,
+      `  extrude(30)`,
+      `})`,
+      `export const part2 = part('Part 2', () => {`,
+      `  sketch('xz', () => {`,
+      `    circle(4)`,
+      `  })`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, projectSpec({
+      project: { sketch: { line: 8, column: 2 } },
+      producers: [{ line: 5, column: 2, featureType: 'extrude', nameHint: 'e', bind: true }],
+    }));
+    expect(result.error).toContain('different scope');
+    expect(result.newCode).toBe(code);
+  });
+
   it('refuses when the target line is not a sketch call', async () => {
     const result = await applyFeatureEdit(`${base}\n`, projectSpec({
       project: { sketch: { line: 4, column: 0 } },

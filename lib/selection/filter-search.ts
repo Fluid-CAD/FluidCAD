@@ -82,6 +82,14 @@ export function globalContext(
   partScope: SceneObject | null = null,
   planeSources: PlaneSource[] = [],
 ): InductionContext {
+  // A plane reference renders as `onPlane(<var>.<accessor>())`, and the
+  // variable only exists inside the part() callback that declared it — a
+  // source from another part (or from a part when the picks are unparted)
+  // would emit an out-of-scope identifier that dies as an undefined variable
+  // at build time. Scope the sources exactly like the universe below.
+  const scopedPlaneSources = planeSources.filter(
+    source => scene.findEnclosingPart(source.feature) === partScope,
+  );
   const solids: Solid[] = [];
   const seenSolids = new Set<string>();
   const objects = scene.getAllSceneObjects();
@@ -139,13 +147,13 @@ export function globalContext(
         universe as Edge[],
         true,
         params,
-        planeSources,
+        scopedPlaneSources,
       ) as Atom<FilterBuilderBase<Shape>>[]
       : instantiateFaceAtoms(
         attrs.map(a => probeFace(a.picked as Face)),
         universe as Face[],
         params,
-        planeSources,
+        scopedPlaneSources,
       ) as Atom<FilterBuilderBase<Shape>>[],
     orSplit: true,
   };

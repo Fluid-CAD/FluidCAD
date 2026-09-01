@@ -123,3 +123,99 @@ describe("breakpoint inside a part body (double materialization)", () => {
     expect(topParts(merged3).map(p => p.partName).sort()).toEqual(["Donor", "Part 1"]);
   });
 });
+
+type DonorBreakpoint = "above-expose" | "below-expose" | "none";
+
+/**
+ * The user-facing shape of the donor-pause bug: the DONOR pauses before its
+ * `expose()` statement runs, so the consumer's `donor.features.g1` read finds
+ * no exposure. That read must re-propagate the pause (both materialization
+ * passes already swallow BreakpointHit) — before the fix it returned
+ * undefined and the consumer's sketch() failed the whole render with
+ * "expected a plane or a scene object".
+ */
+function buildDonorPauseScene(breakpointAt: DonorBreakpoint): Scene {
+  const scene = getSceneManager().startScene();
+  const donor = part("Donor", () => {
+    sketch("xy", () => {
+        testRect(100, 50);
+      });
+    const e = extrude(30);
+    if (breakpointAt === "above-expose") {
+      (breakpoint as unknown as () => void)();
+    }
+    expose("g1", (e as unknown as IExtrude).endFaces(0) as any);
+    if (breakpointAt === "below-expose") {
+      (breakpoint as unknown as () => void)();
+    }
+  });
+  const consumer = part("Consumer", () => {
+    sketch(donor.features.g1 as any, () => {
+      circle([50, 25], 20);
+    });
+    extrude(-8);
+  });
+  materializeLikeTheServer(scene, [donor, consumer] as PartDefinition<unknown>[]);
+  return scene;
+}
+
+describe("breakpoint inside the donor part (exposure consumers)", () => {
+  setupOC();
+
+  it("a donor paused above its expose() pauses the consumer instead of failing the render", () => {
+    // materializeLikeTheServer only swallows BreakpointHit — reaching the
+    // assertions at all means the missing exposure paused the consumer
+    // rather than throwing the generic invalid-sketch-argument error.
+    const scene = buildDonorPauseScene("above-expose");
+    getSceneManager().renderScene(scene);
+
+    const parts = topParts(scene);
+    expect(parts.map(p => p.partName).sort()).toEqual(["Consumer", "Donor"]);
+    expect(parts.find(p => p.partName === "Donor")!.isPaused()).toBe(true);
+    expect(parts.find(p => p.partName === "Consumer")!.isPaused()).toBe(true);
+  });
+
+  it("a donor paused below its expose() leaves the consumer building fully", () => {
+    const scene = buildDonorPauseScene("below-expose");
+    getSceneManager().renderScene(scene);
+
+    const consumer = topParts(scene).find(p => p.partName === "Consumer")!;
+    expect(consumer.isPaused()).toBe(false);
+    // Both consumer features built: the foreign sketch and its extrude.
+    expect(consumer.getChildren().length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("resuming after a donor pause converges back to one of each part", () => {
+    const s1 = buildDonorPauseScene("none");
+    getSceneManager().renderScene(s1);
+
+    const s2 = buildDonorPauseScene("above-expose");
+    const merged2 = getSceneManager().compare(s1, s2);
+    getSceneManager().renderScene(merged2);
+
+    const s3 = buildDonorPauseScene("none");
+    const merged3 = getSceneManager().compare(merged2, s3);
+    getSceneManager().renderScene(merged3);
+
+    expect(topParts(merged3).map(p => p.partName).sort()).toEqual(["Consumer", "Donor"]);
+  });
+
+  it("an undeclared exposure name on a built part throws a pointed error", () => {
+    const scene = getSceneManager().startScene();
+    const donor = part("Donor", () => {
+      sketch("xy", () => {
+          testRect(100, 50);
+        });
+      const e = extrude(30);
+      expose("g1", (e as unknown as IExtrude).endFaces(0) as any);
+    });
+    const consumer = part("Consumer", () => {
+      sketch((donor.features as Record<string, unknown>).gOne as any, () => {
+        circle([50, 25], 20);
+      });
+    });
+
+    expect(() => materializeLikeTheServer(scene, [donor, consumer] as PartDefinition<unknown>[]))
+      .toThrow(/exposes no "gOne" — declared exposures: g1/);
+  });
+});

@@ -1,4 +1,5 @@
 import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js";
+import { BreakpointHit } from "../common/breakpoint-hit.js";
 import { Connector } from "./connector.js";
 import { Exposed } from "./exposed.js";
 import { IPart } from "../core/interfaces.js";
@@ -14,6 +15,15 @@ export class Part extends SceneObject implements IPart {
   params?: ParamDefinition[];
   /** Resolved parameter values of the variant build — rides SerializedInstance. */
   paramValues?: Record<string, ParamVal>;
+
+  /**
+   * The breakpoint() that cut this variant's build short, if any — stamped
+   * by `PartDefinition.buildVariant` when it records a paused partial. Kept
+   * so `features` reads of an exposure the pause prevented from registering
+   * re-propagate the pause (with the original hit's source location)
+   * instead of failing the render — see the `features` getter.
+   */
+  private pausedBy: BreakpointHit | null = null;
 
   constructor(public partName: string) {
     super();
@@ -87,9 +97,74 @@ export class Part extends SceneObject implements IPart {
     return out;
   }
 
-  /** The part's geometry interface: exposure sources by name (`def.features.<name>`). */
+  /** Record the breakpoint() that cut this variant's build short. */
+  markPaused(hit: BreakpointHit): void {
+    this.pausedBy = hit;
+  }
+
+  isPaused(): boolean {
+    return this.pausedBy !== null;
+  }
+
+  /**
+   * The part's geometry interface: exposure sources by name
+   * (`def.features.<name>`). Reads are guarded — an exposure name this part
+   * does not carry never comes back `undefined` (which would surface later
+   * as a baffling argument error in the consumer):
+   *
+   * - If this variant's build paused at a breakpoint() before the
+   *   `expose()` statement ran, the read re-throws BreakpointHit with the
+   *   original hit's location — the consumer pauses like everything else
+   *   downstream of the breakpoint, instead of failing the whole render.
+   * - Otherwise the name is genuinely undeclared (a typo, or the expose()
+   *   was removed) and the read throws a pointed error naming the declared
+   *   exposures.
+   *
+   * Only identifier-shaped string keys are guarded: symbol keys and
+   * protocol probes (`then` from await coercion, JSON/console lookups)
+   * fall through so the record still behaves like a plain object.
+   * Internal callers that enumerate exposures use `getNamedExposures()`,
+   * which stays an unguarded plain record.
+   */
   get features(): Record<string, SceneObject> {
-    return this.getNamedExposures();
+    const exposures = this.getNamedExposures();
+    return new Proxy(exposures, {
+      get: (target, prop, receiver) => {
+        if (typeof prop === "string" && !(prop in target) && Part.isExposureLookup(prop)) {
+          if (this.pausedBy) {
+            throw new BreakpointHit(this.pausedBy.sourceLocation);
+          }
+          throw new Error(this.missingExposureMessage(prop));
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+  }
+
+  /**
+   * Names the runtime itself may probe on any object — never treated as a
+   * missing exposure so the guarded `features` record still awaits,
+   * stringifies, and logs like a plain object.
+   */
+  private static readonly PROTOCOL_PROPS = new Set([
+    "then", "catch", "finally", "toJSON", "toString", "valueOf", "constructor", "inspect",
+  ]);
+
+  /** Whether a missing-property read looks like a real `def.features.<name>` lookup. */
+  private static isExposureLookup(name: string): boolean {
+    if (Part.PROTOCOL_PROPS.has(name)) {
+      return false;
+    }
+    return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name);
+  }
+
+  private missingExposureMessage(name: string): string {
+    const declared = Object.keys(this.getNamedExposures());
+    const listing = declared.length > 0
+      ? `declared exposures: ${declared.join(", ")}`
+      : "it declares none";
+    return `part "${this.partName}" exposes no "${name}" — ${listing}. `
+      + `Publish it inside the part body with expose('${name}', source).`;
   }
 
   serialize() {

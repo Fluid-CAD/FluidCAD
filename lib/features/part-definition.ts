@@ -170,7 +170,11 @@ export class PartDefinition<T = unknown> {
         // in the scene, so record it — otherwise a second materialization
         // pass (the host's export arm plus the leftover-definitions pass both
         // materialize entry-file definitions) re-runs the callback and lands
-        // a DUPLICATE partial part in the same scene.
+        // a DUPLICATE partial part in the same scene. The pause is stamped on
+        // the partial so consumer reads of an exposure the breakpoint kept
+        // from registering re-propagate the pause instead of failing the
+        // render (Part.features).
+        partObj.markPaused(e);
         variants.set(key, partObj);
       }
       throw e;

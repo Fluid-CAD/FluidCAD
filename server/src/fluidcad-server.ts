@@ -53,6 +53,8 @@ export type SerializedAssembly = {
     connectorB?: { instanceId: string; connectorId: string };
     geometryA?: { instanceId: string; exposeName: string };
     geometryB?: { instanceId: string; exposeName: string };
+    frameA?: { axis: 'x' | 'y' | 'z' };
+    frameB?: { axis: 'x' | 'y' | 'z' };
     status: 'satisfied' | 'redundant' | 'inconsistent';
     options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number]; propagate?: boolean };
     sourceLocation?: { filePath: string; line: number; column: number };

@@ -245,6 +245,97 @@ describe('applyAssemblyMateEdit', () => {
       expect(result.newCode).toBe(CODE);
     });
   });
+
+  // `origin(axis?)` sides: a literal expression with no source anchor —
+  // placement chases the one instance-anchored side, and the origin import
+  // joins the mate import.
+  describe('origin-frame sides', () => {
+    it('writes origin() for the default axis and imports the symbol', async () => {
+      const code = `${HEADER}\nconst crank1 = insert(crank());\n`;
+      const result = await applyAssemblyMateEdit(code, {
+        create: {
+          type: 'revolute',
+          frameA: { axis: 'z' },
+          connectorB: { instanceLine: 3, connectorName: 'shaft' },
+        },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toMatch(/import \{[^}]*\borigin\b[^}]*\} from "fluidcad\/core";/);
+      expect(result.newCode).toContain(`mate('revolute', origin(), crank1.connectors.shaft);`);
+    });
+
+    it('writes the axis shorthand on either side', async () => {
+      const code = `${HEADER}\nconst rail1 = insert(rail());\n`;
+      const result = await applyAssemblyMateEdit(code, {
+        create: {
+          type: 'slider',
+          connectorA: { instanceLine: 3, connectorName: 'carriage' },
+          frameB: { axis: 'x' },
+        },
+      });
+      expect(result.newCode).toContain(`mate('slider', rail1.connectors.carriage, origin('x'));`);
+    });
+
+    it('places the statement inside the assembly body holding the instance anchor', async () => {
+      const code = `${HEADER}\nexport const sub = assembly('sub', () => {\n`
+        + `  const a1 = insert(a());\n  return { a1 };\n});\n`;
+      const result = await applyAssemblyMateEdit(code, {
+        create: {
+          type: 'revolute',
+          frameA: { axis: 'z' },
+          connectorB: { instanceLine: 4, connectorName: 'top' },
+        },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toContain(`  mate('revolute', origin(), a1.connectors.top);\n  return { a1 };`);
+    });
+
+    it('edits an origin mate in place, re-aiming the axis', async () => {
+      const code = `${HEADER}\nconst c1 = insert(c());\n\n`
+        + `mate('revolute', origin(), c1.connectors.shaft);\n`;
+      const result = await applyAssemblyMateEdit(code, {
+        edit: {
+          sourceLine: 5,
+          type: 'revolute',
+          frameA: { axis: 'y' },
+          connectorB: { instanceLine: 3, connectorName: 'shaft' },
+          options: { offset: [0, 40, 15] },
+        },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toContain(`mate('revolute', origin('y'), c1.connectors.shaft).offset(0, 40, 15);`);
+    });
+
+    it('refuses both sides as the origin', async () => {
+      const result = await applyAssemblyMateEdit(`${HEADER}\n`, {
+        create: {
+          type: 'fastened',
+          frameA: { axis: 'z' },
+          frameB: { axis: 'x' },
+        },
+      });
+      expect(result.error).toMatch(/both sides are the assembly origin/i);
+    });
+
+    it('refuses an origin side on a tangent mate and a bad axis', async () => {
+      const tangent = await applyAssemblyMateEdit(`${HEADER}\n`, {
+        create: {
+          type: 'tangent',
+          frameA: { axis: 'z' },
+          geometryB: { instanceLine: 3, exposeName: 'g1' },
+        } as any,
+      });
+      expect(tangent.error).toMatch(/no surface to touch/i);
+      const badAxis = await applyAssemblyMateEdit(`${HEADER}\nconst a1 = insert(a());\n`, {
+        create: {
+          type: 'fastened',
+          frameA: { axis: 'w' } as any,
+          connectorB: { instanceLine: 3, connectorName: 'top' },
+        },
+      });
+      expect(badAxis.error).toMatch(/not a valid origin axis/i);
+    });
+  });
 });
 
 // Statements referencing insert() bindings inside an `assembly()` body must

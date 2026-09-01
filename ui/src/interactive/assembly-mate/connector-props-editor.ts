@@ -5,7 +5,7 @@ import {
   ConnectorProperties,
 } from '../../api';
 import type { Viewer } from '../../viewer';
-import type { MateSlotState } from './mate-service';
+import type { ConnectorSlotState } from './mate-service';
 
 const NAME_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
@@ -182,7 +182,7 @@ export class ConnectorPropsEditor {
   private panel: ConnectorPropsPanel;
   private target: {
     sourceLocation: { filePath: string; line: number };
-    slot: MateSlotState;
+    slot: ConnectorSlotState;
     originalName: string;
   } | null = null;
   private applying = false;
@@ -192,7 +192,7 @@ export class ConnectorPropsEditor {
     private viewer: Viewer,
     private hooks: {
       /** The connector was renamed — the mate dialog re-points its slot. */
-      onRenamed?: (slot: MateSlotState, newName: string) => void;
+      onRenamed?: (slot: ConnectorSlotState, newName: string) => void;
     } = {},
   ) {
     this.panel = new ConnectorPropsPanel(container);
@@ -202,7 +202,7 @@ export class ConnectorPropsEditor {
   }
 
   /** The mate dialog's pen: open (or re-seed) the editor for a picked connector. */
-  async open(slot: MateSlotState): Promise<void> {
+  async open(slot: ConnectorSlotState): Promise<void> {
     const sourceLocation = this.viewer.getAssemblyController()
       ?.getConnectorSourceLocation(slot.connectorId) ?? null;
     if (!sourceLocation) {

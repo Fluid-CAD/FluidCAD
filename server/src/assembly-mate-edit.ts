@@ -49,6 +49,16 @@ export type MateGeometryRef = {
 };
 
 /**
+ * One origin-frame side (`origin(axis?)`) — no source anchor: the world
+ * frame is render-stable by construction, so the side serializes to a
+ * literal `origin()` / `origin('x')` expression and contributes nothing
+ * to statement placement.
+ */
+export type MateFrameRef = {
+  axis: 'x' | 'y' | 'z';
+};
+
+/**
  * The dialog's option state, rendered as the canonical chain
  * `.flip().rotate(deg).offset(x, y, z).limits(min, max)` — each call omitted
  * at its no-op value so an untouched dialog writes a bare `mate(...)`.
@@ -64,15 +74,18 @@ export type AssemblyMateOptions = {
 };
 
 /**
- * A mate payload's two sides: connector-authored (every type but tangent)
- * or geometry-authored (tangent only) — `validateMatePayload` enforces the
- * per-type side-kind rule.
+ * A mate payload's two sides: connector-authored (every type but tangent,
+ * either side may instead be an origin-frame ref) or geometry-authored
+ * (tangent only) — `validateMatePayload` enforces the per-type
+ * side-kind rule.
  */
 export type MateSideRefs = {
   connectorA?: MateConnectorRef;
   connectorB?: MateConnectorRef;
   geometryA?: MateGeometryRef;
   geometryB?: MateGeometryRef;
+  frameA?: MateFrameRef;
+  frameB?: MateFrameRef;
 };
 
 export type AssemblyMatePayload = MateSideRefs & {
@@ -145,34 +158,45 @@ export async function applyAssemblyMateEdit(
   // `import { mate }` line would shift every row the spec points at.
   let working = code;
 
-  const sides = mateSideRefs(payload)!; // validateMatePayload guaranteed the pair
-  const sideA = payload.connectorA ?? payload.geometryA!;
-  const sideB = payload.connectorB ?? payload.geometryB!;
-  const refA = await resolveMateSideRef(working, sideA);
-  if ('error' in refA) {
-    return { newCode: code, error: refA.error };
+  // Frame sides carry no source anchor: they render as a literal
+  // `origin(...)` expression and are skipped for statement placement —
+  // validateMatePayload guaranteed at least one instance-anchored side.
+  const sideA = payload.connectorA ?? payload.geometryA ?? payload.frameA!;
+  const sideB = payload.connectorB ?? payload.geometryB ?? payload.frameB!;
+  const anchorLines: number[] = [];
+  const expressions: string[] = [];
+  for (const side of [sideA, sideB]) {
+    if ('axis' in side) {
+      expressions.push(renderOriginExpression(side));
+      continue;
+    }
+    const ref = await resolveMateSideRef(working, side);
+    if ('error' in ref) {
+      return { newCode: code, error: ref.error };
+    }
+    working = ref.newCode;
+    expressions.push(ref.expression);
+    anchorLines.push(side.instanceLine);
   }
-  working = refA.newCode;
-  const refB = await resolveMateSideRef(working, sideB);
-  if ('error' in refB) {
-    return { newCode: code, error: refB.error };
-  }
-  working = refB.newCode;
 
-  const statement = renderMateStatement(payload, refA.expression, refB.expression);
+  const statement = renderMateStatement(payload, expressions[0], expressions[1]);
 
   const result = spec.edit
-    ? await replaceMateStatement(
-      working, spec.edit.sourceLine, statement,
-      [sides.a.instanceLine, sides.b.instanceLine],
-    )
-    : await appendStatementInScope(
-      working, statement, sides.a.instanceLine, sides.b.instanceLine,
-    );
+    ? await replaceMateStatement(working, spec.edit.sourceLine, statement, anchorLines)
+    : await appendStatementInScope(working, statement, anchorLines[0], anchorLines[1]);
   if (result.error) {
     return { newCode: code, error: result.error };
   }
-  return { newCode: await ensureSymbolImport(result.newCode, 'mate') };
+  let out = await ensureSymbolImport(result.newCode, 'mate');
+  if (payload.frameA || payload.frameB) {
+    out = await ensureSymbolImport(out, 'origin');
+  }
+  return { newCode: out };
+}
+
+/** The literal a frame side writes: `origin()` for the default Z axis. */
+function renderOriginExpression(ref: MateFrameRef): string {
+  return ref.axis === 'z' ? 'origin()' : `origin('${ref.axis}')`;
 }
 
 export function validateMatePayload(payload: AssemblyMatePayload): string | null {
@@ -182,6 +206,9 @@ export function validateMatePayload(payload: AssemblyMatePayload): string | null
   // Per-type side-kind rule: tangent is authored on exposed geometry,
   // every other type on connectors.
   if (payload.type === 'tangent') {
+    if (payload.frameA || payload.frameB) {
+      return 'tangent mates take exposed geometry sides — the assembly origin has no surface to touch';
+    }
     if (!payload.geometryA || !payload.geometryB) {
       return 'tangent mates take exposed geometry sides (instance.features.<name>), not connectors';
     }
@@ -207,8 +234,14 @@ export function validateMatePayload(payload: AssemblyMatePayload): string | null
     }
     return null;
   }
-  if (!payload.connectorA || !payload.connectorB) {
-    return `${payload.type} mates take connector sides (instance.connectors.<name>)`;
+  if (payload.frameA && payload.frameB) {
+    return 'both sides are the assembly origin — one side must be an inserted instance\'s connector';
+  }
+  if ((payload.connectorA && payload.frameA) || (payload.connectorB && payload.frameB)) {
+    return 'a mate side is either a connector or the origin frame, not both';
+  }
+  if (!(payload.connectorA || payload.frameA) || !(payload.connectorB || payload.frameB)) {
+    return `${payload.type} mates take connector sides (instance.connectors.<name>) or the origin frame`;
   }
   if (payload.geometryA || payload.geometryB) {
     return `${payload.type} mates take connector sides only — geometry sides are for tangent mates`;
@@ -216,13 +249,19 @@ export function validateMatePayload(payload: AssemblyMatePayload): string | null
   if (payload.options?.propagate !== undefined) {
     return 'tangent propagation only applies to tangent mates';
   }
+  for (const frame of [payload.frameA, payload.frameB]) {
+    if (frame && !['x', 'y', 'z'].includes(frame.axis)) {
+      return `"${frame.axis}" is not a valid origin axis — expected 'x', 'y', or 'z'`;
+    }
+  }
   for (const side of [payload.connectorA, payload.connectorB]) {
-    if (!CONNECTOR_NAME.test(side.connectorName)) {
+    if (side && !CONNECTOR_NAME.test(side.connectorName)) {
       return `"${side.connectorName}" is not a valid connector name`;
     }
   }
   if (
-    payload.connectorA.instanceLine === payload.connectorB.instanceLine
+    payload.connectorA && payload.connectorB
+    && payload.connectorA.instanceLine === payload.connectorB.instanceLine
     && payload.connectorA.connectorName === payload.connectorB.connectorName
   ) {
     return 'a connector cannot be mated to itself';

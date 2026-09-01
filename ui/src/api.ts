@@ -4032,6 +4032,14 @@ export type AssemblyMateGeometryRef = {
   pick?: { shapeId: string; sub: { type: 'face' | 'edge'; index: number } };
 };
 
+/**
+ * One origin-frame side (`origin(axis?)`): the world frame with Z along
+ * the named axis — no instance anchor.
+ */
+export type AssemblyMateFrameRef = {
+  axis: 'x' | 'y' | 'z';
+};
+
 export type AssemblyMatePayload = {
   type: AssemblyMateType;
   connectorA?: AssemblyMateConnectorRef;
@@ -4039,6 +4047,9 @@ export type AssemblyMatePayload = {
   /** Tangent sides (the per-type side-kind rule is validated server-side). */
   geometryA?: AssemblyMateGeometryRef;
   geometryB?: AssemblyMateGeometryRef;
+  /** Origin-frame sides — lower-pair mates only, at most one of the two. */
+  frameA?: AssemblyMateFrameRef;
+  frameB?: AssemblyMateFrameRef;
   options?: AssemblyMateOptions;
 };
 

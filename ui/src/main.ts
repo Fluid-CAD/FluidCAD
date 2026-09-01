@@ -438,8 +438,12 @@ function buildAssemblyRail(): LeftRail {
         viewer.highlightMate(mate);
         const instName = (instId: string | undefined) =>
           lastAssemblyPayload?.instances.find(i => i.instanceId === instId)?.name ?? '?';
-        const aName = instName(mate.connectorA?.instanceId ?? mate.geometryA?.instanceId);
-        const bName = instName(mate.connectorB?.instanceId ?? mate.geometryB?.instanceId);
+        const aName = mate.frameA
+          ? 'Origin'
+          : instName(mate.connectorA?.instanceId ?? mate.geometryA?.instanceId);
+        const bName = mate.frameB
+          ? 'Origin'
+          : instName(mate.connectorB?.instanceId ?? mate.geometryB?.instanceId);
         animateBar.open({
           mateId: id,
           label: `${mate.type} · ${aName} ↔ ${bName}`,
@@ -1954,9 +1958,11 @@ function formatMateLabel(mate: SerializedAssembly['mates'][number]): string {
     const b = mate.geometryB;
     return `${mate.type} — ${a.instanceId}.${a.exposeName} ↔ ${b.instanceId}.${b.exposeName}`;
   }
-  const a = mate.connectorA;
-  const b = mate.connectorB;
-  return `${mate.type} — ${a?.instanceId}.${a?.connectorId} ↔ ${b?.instanceId}.${b?.connectorId}`;
+  const side = (
+    conn: { instanceId: string; connectorId: string } | undefined,
+    frame: { axis: 'x' | 'y' | 'z' } | undefined,
+  ) => frame ? `origin(${frame.axis === 'z' ? '' : `'${frame.axis}'`})` : `${conn?.instanceId}.${conn?.connectorId}`;
+  return `${mate.type} — ${side(mate.connectorA, mate.frameA)} ↔ ${side(mate.connectorB, mate.frameB)}`;
 }
 
 // An armed modify mode (fillet/chamfer) owns hover (teach-mode tooltip) and

@@ -10,6 +10,7 @@ import {
   type AssemblyMatePayload,
   type AssemblyMateType,
   type MateConnectorRef,
+  type MateFrameRef,
 } from '../assembly-mate-edit.ts';
 import { allocateExposeName, makeSynthesisOptionsForFile } from './apply-feature.ts';
 import { normalizePath } from '../normalize-path.ts';
@@ -19,6 +20,11 @@ function isConnectorRef(v: unknown): v is MateConnectorRef {
   return v !== null && typeof v === 'object'
     && Number.isInteger((v as any).instanceLine) && (v as any).instanceLine >= 1
     && typeof (v as any).connectorName === 'string' && (v as any).connectorName.length > 0;
+}
+
+function isFrameRef(v: unknown): v is MateFrameRef {
+  return v !== null && typeof v === 'object'
+    && ['x', 'y', 'z'].includes((v as any).axis);
 }
 
 type Pick = { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
@@ -81,13 +87,18 @@ function isMateOptions(v: unknown): v is AssemblyMateOptions {
     && (o.propagate === undefined || typeof o.propagate === 'boolean');
 }
 
-/** The wire payload: connector sides for the lower pairs, geometry sides for tangent. */
+/**
+ * The wire payload: connector sides for the lower pairs (either side may
+ * instead be an origin-frame ref, never both), geometry sides for tangent.
+ */
 export type MatePayloadBody = {
   type: AssemblyMateType;
   connectorA?: MateConnectorRef;
   connectorB?: MateConnectorRef;
   geometryA?: MateGeometrySideBody;
   geometryB?: MateGeometrySideBody;
+  frameA?: MateFrameRef;
+  frameB?: MateFrameRef;
   options?: AssemblyMateOptions;
 };
 
@@ -101,9 +112,16 @@ function isMatePayload(v: unknown): v is MatePayloadBody {
   }
   if (o.type === 'tangent') {
     return isGeometrySide(o.geometryA) && isGeometrySide(o.geometryB)
-      && o.connectorA === undefined && o.connectorB === undefined;
+      && o.connectorA === undefined && o.connectorB === undefined
+      && o.frameA === undefined && o.frameB === undefined;
   }
-  return isConnectorRef(o.connectorA) && isConnectorRef(o.connectorB)
+  // Each side is exactly one of connector-ref or frame-ref; at least one
+  // side must be a connector (validateMatePayload words the refusal).
+  const sideOk = (conn: unknown, frame: unknown) =>
+    (isConnectorRef(conn) && frame === undefined)
+    || (conn === undefined && isFrameRef(frame));
+  return sideOk(o.connectorA, o.frameA) && sideOk(o.connectorB, o.frameB)
+    && (isConnectorRef(o.connectorA) || isConnectorRef(o.connectorB))
     && o.geometryA === undefined && o.geometryB === undefined;
 }
 

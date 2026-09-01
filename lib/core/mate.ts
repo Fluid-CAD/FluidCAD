@@ -3,6 +3,7 @@ import { getCurrentScene } from "../scene-manager.js";
 import { AssemblyScene, MateType } from "../rendering/assembly-scene.js";
 import { BoundConnector } from "../features/connector.js";
 import { BoundExposure } from "../features/exposed.js";
+import { AssemblyOriginFrame } from "../features/origin-frame.js";
 import { MateBuilder, makeAssemblyMate, makeTangentAssemblyMate } from "../features/mate.js";
 
 const VALID_TYPES: ReadonlyArray<MateType> = [
@@ -43,6 +44,11 @@ function mate(type: MateType, a: unknown, b: unknown): MateBuilder {
   // sides are exposures bound to an instance (`instance.features.<name>`).
   if (type === "tangent") {
     if (!(a instanceof BoundExposure) || !(b instanceof BoundExposure)) {
+      if (a instanceof AssemblyOriginFrame || b instanceof AssemblyOriginFrame) {
+        throw new Error(
+          "mate('tangent'): the assembly origin has no surface to touch — tangent mates take exposed geometry on both sides.",
+        );
+      }
       if (a instanceof BoundConnector || b instanceof BoundConnector) {
         throw new Error(
           "mate('tangent'): takes exposed geometry, not connectors — pass instance.features.<name> for both sides (published in the part with `expose('name', ...)`).",
@@ -67,17 +73,44 @@ function mate(type: MateType, a: unknown, b: unknown): MateBuilder {
       `mate('${type}'): takes connectors, not exposed geometry — pass instance.connectors.<name> for both sides. Only mate('tangent', …) is authored on exposed faces/edges.`,
     );
   }
-  if (!(a instanceof BoundConnector) || !(b instanceof BoundConnector)) {
+  if (a instanceof AssemblyOriginFrame && b instanceof AssemblyOriginFrame) {
     throw new Error(
-      "mate(): both arguments must be connectors from inserted instances (e.g. instance.connectors.main). Define them inside the part with `connector('main', ...)`.",
+      "mate(): both sides are the assembly origin — one side must be an inserted instance's connector (instance.connectors.<name>).",
     );
   }
-  if (a.instanceId === b.instanceId && a.connector.id === b.connector.id) {
+  const sideOk = (s: unknown) => s instanceof BoundConnector || s instanceof AssemblyOriginFrame;
+  if (!sideOk(a) || !sideOk(b)) {
+    throw new Error(
+      "mate(): both arguments must be connectors from inserted instances (e.g. instance.connectors.main) or the assembly origin (`origin()`). Define connectors inside the part with `connector('main', ...)`.",
+    );
+  }
+  if (
+    a instanceof BoundConnector && b instanceof BoundConnector
+    && a.instanceId === b.instanceId && a.connector.id === b.connector.id
+  ) {
     throw new Error("mate(): a connector cannot be mated to itself.");
   }
 
+  // v1 origin scope rule: origin() itself refuses to run inside an
+  // assembly() body, but the frame VALUE could leak into one through a
+  // closure — the mate is where it would silently stop meaning "the
+  // world", so refuse here too.
+  if (
+    (a instanceof AssemblyOriginFrame || b instanceof AssemblyOriginFrame)
+    && scene.currentScopePath() !== ""
+  ) {
+    throw new Error(
+      "mate(): origin frames are root-scope only for now — a sub-assembly's own frame is not a mate target yet.",
+    );
+  }
+
   const record = makeAssemblyMate(
-    type, a, b, scene.nextMateId(), scene.currentScopePath(), sourceLocation ?? undefined,
+    type,
+    a as BoundConnector | AssemblyOriginFrame,
+    b as BoundConnector | AssemblyOriginFrame,
+    scene.nextMateId(),
+    scene.currentScopePath(),
+    sourceLocation ?? undefined,
   );
   scene.addMate(record);
   return new MateBuilder(record);

@@ -1,6 +1,7 @@
 import { AssemblyMate, MateType } from "../rendering/assembly-scene.js";
 import { BoundConnector } from "./connector.js";
 import { BoundExposure } from "./exposed.js";
+import { AssemblyOriginFrame } from "./origin-frame.js";
 import { SourceLocation } from "../common/scene-object.js";
 
 export class MateBuilder {
@@ -88,20 +89,28 @@ export class MateBuilder {
 
 export function makeAssemblyMate(
   type: MateType,
-  a: BoundConnector,
-  b: BoundConnector,
+  a: BoundConnector | AssemblyOriginFrame,
+  b: BoundConnector | AssemblyOriginFrame,
   mateId: string,
   owner: string,
   sourceLocation: SourceLocation | undefined,
 ): AssemblyMate {
   // Hold live Connector references — see AssemblyMate's docs for why
   // snapshotting `.id` here would go stale across SceneCompare runs.
+  // Origin-frame sides carry only their axis (mate() already rejected the
+  // both-frames case).
   return {
     mateId,
     owner,
     type,
-    connectorA: { instanceId: a.instanceId, connector: a.connector },
-    connectorB: { instanceId: b.instanceId, connector: b.connector },
+    connectorA: a instanceof BoundConnector
+      ? { instanceId: a.instanceId, connector: a.connector }
+      : undefined,
+    connectorB: b instanceof BoundConnector
+      ? { instanceId: b.instanceId, connector: b.connector }
+      : undefined,
+    frameA: a instanceof AssemblyOriginFrame ? { axis: a.axis } : undefined,
+    frameB: b instanceof AssemblyOriginFrame ? { axis: b.axis } : undefined,
     options: {},
     sourceLocation,
   };

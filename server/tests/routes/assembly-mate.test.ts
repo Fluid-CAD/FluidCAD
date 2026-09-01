@@ -130,6 +130,56 @@ describe('assembly-mate route', () => {
     expect(relayed).toEqual([]);
   });
 
+  it('accepts an origin-frame side and round-trips the origin() statement', async () => {
+    const applied = postMate({
+      filePath: '/ws/m.assembly.js',
+      create: {
+        type: 'revolute',
+        frameA: { axis: 'x' },
+        connectorB: { instanceLine: 5, connectorName: 'tip' },
+      },
+    });
+    const msg = await untilRelayed();
+    expect(msg.spec.assemblyMate.create).toMatchObject({ frameA: { axis: 'x' } });
+
+    const roundTrip = await postRoundTrip(ASSEMBLY_CODE, msg.spec);
+    expect(roundTrip.body.error).toBeUndefined();
+    expect(roundTrip.body.newCode).toContain(`mate('revolute', origin('x'), arm1.connectors.tip);`);
+    expect(roundTrip.body.newCode).toMatch(/import \{[^}]*\borigin\b[^}]*\} from 'fluidcad\/core';/);
+
+    const { status, body } = await applied;
+    expect(status).toBe(200);
+    expect(body).toMatchObject({ success: true });
+  });
+
+  it('rejects malformed origin-frame sides at the wire', async () => {
+    const bothFrames = await postMate({
+      filePath: '/ws/m.assembly.js',
+      create: { type: 'fastened', frameA: { axis: 'z' }, frameB: { axis: 'x' } },
+    });
+    expect(bothFrames.status).toBe(400);
+    const badAxis = await postMate({
+      filePath: '/ws/m.assembly.js',
+      create: {
+        type: 'fastened',
+        frameA: { axis: 'w' },
+        connectorB: { instanceLine: 5, connectorName: 'tip' },
+      },
+    });
+    expect(badAxis.status).toBe(400);
+    const frameAndConnector = await postMate({
+      filePath: '/ws/m.assembly.js',
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 5, connectorName: 'tip' },
+        frameA: { axis: 'z' },
+        connectorB: { instanceLine: 6, connectorName: 'slot' },
+      },
+    });
+    expect(frameAndConnector.status).toBe(400);
+    expect(relayed).toEqual([]);
+  });
+
   it('refuses when the current file is not an assembly', async () => {
     currentFileName = '/ws/m.fluid.js';
     const { status, body } = await postMate({ ...CREATE_BODY, filePath: '/ws/m.fluid.js' });

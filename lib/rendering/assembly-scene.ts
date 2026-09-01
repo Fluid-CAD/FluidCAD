@@ -78,6 +78,14 @@ export type MateOptions = {
 export type MateGeometrySide = { instanceId: string; exposeName: string };
 
 /**
+ * Wire form of an origin-frame mate side (`origin(axis?)`): the assembly's
+ * own frame with Z re-aimed along the named world axis. The UI solver
+ * mirrors the axis→frame table (ORIGIN_AXIS_FRAMES) and pins the side on
+ * a synthetic grounded world body.
+ */
+export type MateFrameSide = { axis: 'x' | 'y' | 'z' };
+
+/**
  * Live mate record. `connectorA/B.connector` is a live SceneObject
  * reference, not a snapshotted id. SceneCompare may rewrite a Connector's
  * id during scene-diff to inherit the prior render's id; reading
@@ -86,7 +94,8 @@ export type MateGeometrySide = { instanceId: string; exposeName: string };
  * fresh-UUID value before the inherit. Mirrors how `AssemblyInstance`
  * keeps a live `part: Part` ref and reads `part.id` live.
  *
- * Sides are per-type: lower-pair mates carry two connector sides; tangent
+ * Sides are per-type: lower-pair mates carry two connector sides (either
+ * of which may instead be an origin-frame side — `origin(axis?)`); tangent
  * mates carry two geometry sides (live `Exposed` refs, names read at
  * serialize time for the same staleness reason as connector ids).
  */
@@ -97,10 +106,13 @@ export type AssemblyMate = {
   type: MateType;
   options?: MateOptions;
   sourceLocation?: SourceLocation;
+  /** Origin-frame sides — lower-pair mates only, at most one of the two. */
+  frameA?: MateFrameSide;
+  frameB?: MateFrameSide;
 } & (
   | {
-    connectorA: { instanceId: string; connector: Connector };
-    connectorB: { instanceId: string; connector: Connector };
+    connectorA?: { instanceId: string; connector: Connector };
+    connectorB?: { instanceId: string; connector: Connector };
     geometryA?: undefined;
     geometryB?: undefined;
   }
@@ -158,6 +170,9 @@ export type SerializedMate = {
   /** Geometry sides — tangent mates only. */
   geometryA?: MateGeometrySide;
   geometryB?: MateGeometrySide;
+  /** Origin-frame sides — lower-pair mates only, at most one of the two. */
+  frameA?: MateFrameSide;
+  frameB?: MateFrameSide;
   status: 'satisfied' | 'redundant' | 'inconsistent';
   options?: MateOptions;
   sourceLocation?: SourceLocation;
@@ -407,6 +422,8 @@ export class AssemblyScene extends Scene {
         instanceId: mate.geometryB.instanceId,
         exposeName: mate.geometryB.exposed.exposeName,
       },
+      frameA: mate.frameA && { axis: mate.frameA.axis },
+      frameB: mate.frameB && { axis: mate.frameB.axis },
       // Parse-time placeholder: the UI solver evaluates real mate
       // health per solve (SolverOutput.failed) and overrides this live
       // via matesWithStatus — the server never re-checks it.

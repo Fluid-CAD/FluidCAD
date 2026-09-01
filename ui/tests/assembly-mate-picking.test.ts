@@ -13,6 +13,7 @@ import {
   type WebGLRenderer,
 } from 'three';
 import { AssemblyController } from '../src/scene/assembly-controller';
+import { ORIGIN_BODY_ID, ORIGIN_CONNECTOR_ID } from '../src/solver';
 import type { SceneObjectRender, SerializedAssembly } from '../src/types';
 
 // The mate dialog's connector picking: arming reveals every connector and
@@ -224,6 +225,36 @@ describe('mate-dialog connector picking', () => {
   it('does not pick hidden connectors (not armed, not hovered)', () => {
     const { controller } = makeRig();
     expect(controller.pickConnectorAt(W / 2, H / 2)).toBeNull();
+  });
+
+  it('arming reveals the origin triad and makes it pickable as the world side', () => {
+    const { controller, scene } = makeRig();
+    const origin = scene.getObjectByName('assemblyOriginGizmo')!;
+    expect(origin.visible).toBe(false);
+    // The world origin projects to screen center (camera looks at 0,0,0),
+    // safely past the 22px radius of the instance's gizmo at world (1,0,0).
+    expect(controller.pickConnectorAt(W / 2, H / 2)).toBeNull();
+
+    controller.setMatePicking(true);
+    expect(origin.visible).toBe(true);
+    expect(controller.pickConnectorAt(W / 2, H / 2)).toEqual({
+      instanceId: ORIGIN_BODY_ID,
+      connectorId: ORIGIN_CONNECTOR_ID.z,
+    });
+
+    controller.setMatePicking(false);
+    expect(origin.visible).toBe(false);
+    expect(controller.pickConnectorAt(W / 2, H / 2)).toBeNull();
+  });
+
+  it('hover highlight and slot pinning reach the origin triad', () => {
+    const { controller, scene } = makeRig();
+    const origin = scene.getObjectByName('assemblyOriginGizmo')!;
+    controller.setMatePicking(true);
+    controller.setHighlightedConnector(ORIGIN_CONNECTOR_ID.z);
+    expect(origin.children[0].userData.highlight).toBeGreaterThan(1);
+    controller.setHighlightedConnector(null);
+    expect(origin.children[0].userData.highlight).toBe(1);
   });
 
   it('hover highlight rides the gizmo scale multiplier and clears', () => {

@@ -81,6 +81,20 @@ export type MateGraph = {
   bodyComponent: Map<string, number>;
 };
 
+/**
+ * Tripwire for the "silently unenforced mate" failure mode: a mate whose
+ * side can't resolve to a body/connector never reaches the solver OR the
+ * failed-mate report — it just stops constraining anything, with a green
+ * status dot. Warn once per mate id so a wiring bug is visible in the
+ * console without spamming per-drag-frame graph rebuilds.
+ */
+const warnedDroppedMates = new Set<string>();
+function warnDroppedMate(mateId: string, reason: string): void {
+  if (warnedDroppedMates.has(mateId)) return;
+  warnedDroppedMates.add(mateId);
+  console.warn(`[solver] mate ${mateId} is not being enforced — ${reason}.`);
+}
+
 // Lower number = more rigid → preferred as tree edge.
 const MATE_RIGIDITY: Record<MateRecord['type'], number> = {
   fastened: 0,
@@ -147,10 +161,16 @@ export function buildMateGraph(
     if (!mate.connectorA || !mate.connectorB) continue;
     const aBody = byId.get(mate.connectorA.instanceId);
     const bBody = byId.get(mate.connectorB.instanceId);
-    if (!aBody || !bBody) continue;
+    if (!aBody || !bBody) {
+      warnDroppedMate(mate.mateId, 'a body it references is not in the solve');
+      continue;
+    }
     const aConn = aBody.connectors.find(c => c.connectorId === mate.connectorA!.connectorId);
     const bConn = bBody.connectors.find(c => c.connectorId === mate.connectorB!.connectorId);
-    if (!aConn || !bConn) continue;
+    if (!aConn || !bConn) {
+      warnDroppedMate(mate.mateId, 'a connector it references is not on its body');
+      continue;
+    }
     adjacency.get(aBody.instanceId)!.push({
       neighbor: bBody, selfConn: aConn, neighborConn: bConn, mate, selfIsA: true,
     });

@@ -14,7 +14,7 @@ import {
 import { buildObjectMesh } from '../../meshes/mesh-factory';
 import { computeSceneBounds, eyeTargetForNamedView } from '../../screenshot-view';
 import { FIT_PADDING } from '../../scene/scene-context';
-import { Solver } from '../../solver';
+import { Solver, makeOriginBody, matesReferenceOrigin, originConnectorRef } from '../../solver';
 import type { BodyState, ConnectorState, MateRecord } from '../../solver';
 import type {
   ConnectorData,
@@ -100,7 +100,11 @@ export class PartThumbnailRenderer {
     // Best-effort: a solve that fails (or an over-free assembly) keeps the
     // warm-start poses, which the source authored to be roughly right.
     try {
-      const out = this.solver.solve({ bodies, mates: mates.map(toMateRecord) });
+      const mateRecords = mates.map(toMateRecord);
+      if (matesReferenceOrigin(mateRecords)) {
+        bodies.push(makeOriginBody());
+      }
+      const out = this.solver.solve({ bodies, mates: mateRecords });
       if (out.result === 'okay') {
         for (const solved of out.bodies) {
           const group = groups.get(solved.instanceId);
@@ -215,8 +219,10 @@ function toMateRecord(m: SerializedAssemblyMate): MateRecord {
   return {
     mateId: m.mateId,
     type: m.type,
-    connectorA: m.connectorA,
-    connectorB: m.connectorB,
+    // Origin-frame sides resolve on the synthetic grounded world body,
+    // same as the assembly controller's conversion.
+    connectorA: m.frameA ? originConnectorRef(m.frameA) : m.connectorA,
+    connectorB: m.frameB ? originConnectorRef(m.frameB) : m.connectorB,
     options: m.options,
   };
 }

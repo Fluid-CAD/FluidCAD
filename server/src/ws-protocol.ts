@@ -142,6 +142,9 @@ export type SerializedAssemblyMate = {
   /** Geometry sides — tangent mates only (exposure resolved per instance). */
   geometryA?: { instanceId: string; exposeName: string };
   geometryB?: { instanceId: string; exposeName: string };
+  /** Origin-frame sides (`origin(axis?)`) — lower-pair mates only, at most one. */
+  frameA?: { axis: 'x' | 'y' | 'z' };
+  frameB?: { axis: 'x' | 'y' | 'z' };
   status: 'satisfied' | 'redundant' | 'inconsistent';
   options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number]; propagate?: boolean };
   sourceLocation?: { filePath: string; line: number; column: number };

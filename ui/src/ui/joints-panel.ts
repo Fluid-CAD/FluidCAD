@@ -134,11 +134,21 @@ export class JointsPanel {
 
     let html = '';
     for (const mate of this.mates) {
-      // Tangent mates carry geometry sides instead of connector sides.
-      const aId = mate.connectorA?.instanceId ?? mate.geometryA?.instanceId;
-      const bId = mate.connectorB?.instanceId ?? mate.geometryB?.instanceId;
-      const aName = (aId !== undefined ? this.instancesById.get(aId)?.name : undefined) ?? '?';
-      const bName = (bId !== undefined ? this.instancesById.get(bId)?.name : undefined) ?? '?';
+      // Tangent mates carry geometry sides instead of connector sides;
+      // origin-frame sides label as the world origin.
+      const sideName = (
+        conn: { instanceId: string } | undefined,
+        geo: { instanceId: string } | undefined,
+        frame: { axis: 'x' | 'y' | 'z' } | undefined,
+      ): string => {
+        if (frame) {
+          return frame.axis === 'z' ? 'Origin' : `Origin · ${frame.axis.toUpperCase()}`;
+        }
+        const id = conn?.instanceId ?? geo?.instanceId;
+        return (id !== undefined ? this.instancesById.get(id)?.name : undefined) ?? '?';
+      };
+      const aName = sideName(mate.connectorA, mate.geometryA, mate.frameA);
+      const bName = sideName(mate.connectorB, mate.geometryB, mate.frameB);
       const dotColor = STATUS_COLORS[mate.status];
       const selected = this.selectedId === mate.mateId;
       const selectedClass = selected ? ' bg-primary/10' : '';

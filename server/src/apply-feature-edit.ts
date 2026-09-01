@@ -26,9 +26,11 @@ import { applyInsertPartEdit, type InsertPartEditSpec } from './part-catalog/ins
 import { applyInstancePoseEdit, type InstancePoseEditSpec } from './insert-chain-edit.ts';
 import { applyInsertParamsEdit, type InsertParamsEditSpec } from './insert-params-edit.ts';
 import {
+  applyAssemblyExportEdit,
   applyAssemblyMateEdit,
   applyConnectorPropsEdit,
   mateSideRefs,
+  type AssemblyExportEditSpec,
   type AssemblyMateEditSpec,
   type ConnectorPropsEditSpec,
 } from './assembly-mate-edit.ts';
@@ -261,6 +263,15 @@ export type ApplyFeatureEditSpec = {
    * round trip as `assemblyMate`; every other spec field is ignored.
    */
   connectorProps?: ConnectorPropsEditSpec;
+  /**
+   * Occurrence-aware mate prerequisite: ensure the handle inserted on
+   * `insertLine` is exported from its `assembly()` body's return object, so
+   * the inserting file can reference it as `<occBinding>.parts.<key>`. The
+   * spec's `filePath` addresses the SUB-ASSEMBLY file (current-file
+   * preflight self-skips, like `connectorProps`). Rides the same round trip
+   * as `assemblyMate`; every other spec field is ignored.
+   */
+  assemblyExport?: AssemblyExportEditSpec;
   /**
    * Part-tool statement write: append `part('<name>', () => {})` at top
    * level, the name auto-allocated past every part name already in the file
@@ -1471,6 +1482,9 @@ export async function applyFeatureEdit(
   }
   if (spec.connectorProps) {
     return applyConnectorPropsEdit(code, spec.connectorProps);
+  }
+  if (spec.assemblyExport) {
+    return applyAssemblyExportEdit(code, spec.assemblyExport);
   }
   if (spec.edit) {
     return applyStatementEdit(code, spec);

@@ -345,6 +345,14 @@ export type SerializedAssemblyOccurrence = {
   params?: InstanceParamDef[];
   /** Resolved parameter values of this occurrence's run. */
   paramValues?: Record<string, InstanceParamValue>;
+  /**
+   * Handles the assembly() callback RETURNED, keyed by return-object path
+   * (plain-object nesting flattened: `{ left: { p1 } }` → `["left","p1"]`).
+   * How a mate in the inserting file spells a reference into this occurrence:
+   * `<binding>.parts.<path...>`. Always an array (possibly empty) on current
+   * engines; absent only on engines predating occurrence exports.
+   */
+  exports?: { path: string[]; instanceId?: string; occurrenceId?: string }[];
   sourceLocation?: { filePath: string; line: number; column: number };
 };
 

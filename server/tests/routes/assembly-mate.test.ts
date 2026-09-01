@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import express from 'express';
 import http from 'http';
+import { mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import { createAssemblyMateRouter } from '../../src/routes/assembly-mate.ts';
 import { createApplyFeatureRouter } from '../../src/routes/apply-feature.ts';
 import { FeatureEditDispatcher } from '../../src/edit-dispatch.ts';
@@ -178,6 +181,118 @@ describe('assembly-mate route', () => {
     });
     expect(frameAndConnector.status).toBe(400);
     expect(relayed).toEqual([]);
+  });
+
+  describe('occurrence-aware sides (viaParts)', () => {
+    it('rejects malformed viaParts entries at the wire', async () => {
+      const badKeys = await postMate({
+        ...CREATE_BODY,
+        create: {
+          ...CREATE_BODY.create,
+          connectorA: { instanceLine: 5, connectorName: 'tip', viaParts: [{ keys: [1] }] },
+        },
+      });
+      expect(badKeys.status).toBe(400);
+      const bothKinds = await postMate({
+        ...CREATE_BODY,
+        create: {
+          ...CREATE_BODY.create,
+          connectorA: {
+            instanceLine: 5, connectorName: 'tip',
+            viaParts: [{ keys: ['a'], createFrom: { filePath: '/ws/x.assembly.js', insertLine: 3 } }],
+          },
+        },
+      });
+      expect(bothKinds.status).toBe(400);
+      expect(relayed).toEqual([]);
+    });
+
+    it('writes a resolved keys chain as a .parts deref off the occurrence binding', async () => {
+      const applied = postMate({
+        filePath: '/ws/m.assembly.js',
+        create: {
+          type: 'revolute',
+          connectorA: { instanceLine: 5, connectorName: 'c2', viaParts: [{ keys: ['rodCap1'] }] },
+          connectorB: { instanceLine: 6, connectorName: 'c2' },
+        },
+      });
+      const msg = await untilRelayed();
+      const roundTrip = await postRoundTrip(ASSEMBLY_CODE, msg.spec);
+      expect(roundTrip.body.error).toBeUndefined();
+      expect(roundTrip.body.newCode).toContain(
+        `mate('revolute', arm1.parts.rodCap1.connectors.c2, base1.connectors.c2);`,
+      );
+      const { status, body } = await applied;
+      expect(status).toBe(200);
+      expect(body).toMatchObject({ success: true });
+    });
+
+    it('sequences a sub-assembly export create before the mate dispatch', async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'fluidcad-mate-'));
+      const pistonPath = join(dir, 'piston.assembly.js');
+      const pistonCode = [
+        `import { insert, assembly } from 'fluidcad/core';`,
+        ``,
+        `export const piston = assembly('piston', () => {`,
+        `  const rodCap1 = insert(rodCap());`,
+        `});`,
+        ``,
+      ].join('\n');
+      writeFileSync(pistonPath, pistonCode);
+      try {
+        const applied = postMate({
+          filePath: '/ws/m.assembly.js',
+          create: {
+            type: 'revolute',
+            connectorA: {
+              instanceLine: 5, connectorName: 'c2',
+              viaParts: [{ createFrom: { filePath: pistonPath, insertLine: 4 } }],
+            },
+            connectorB: { instanceLine: 6, connectorName: 'c2' },
+          },
+        });
+        // First relay: the export edit against the sub-assembly file.
+        const exportMsg = await untilRelayed();
+        expect(exportMsg.spec.assemblyExport).toEqual({ insertLine: 4 });
+        expect(exportMsg.spec.filePath).toBe(pistonPath);
+        const exportTrip = await postRoundTrip(pistonCode, exportMsg.spec);
+        expect(exportTrip.body.error).toBeUndefined();
+        expect(exportTrip.body.newCode).toContain('return { rodCap1 };');
+        // Second relay: the mate referencing the freshly exported key.
+        let mateMsg: any;
+        for (let i = 0; i < 100 && !mateMsg; i++) {
+          mateMsg = relayed.find(m => m.spec.assemblyMate);
+          if (!mateMsg) await new Promise(r => setTimeout(r, 5));
+        }
+        expect(mateMsg.spec.assemblyMate.create.connectorA.viaParts).toEqual([['rodCap1']]);
+        const mateTrip = await postRoundTrip(ASSEMBLY_CODE, mateMsg.spec);
+        expect(mateTrip.body.newCode).toContain(
+          `mate('revolute', arm1.parts.rodCap1.connectors.c2, base1.connectors.c2);`,
+        );
+        const { status, body } = await applied;
+        expect(status).toBe(200);
+        expect(body).toMatchObject({ success: true });
+      } finally {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
+    it('a missing sub-assembly file surfaces a 422 before anything dispatches', async () => {
+      const { status, body } = await postMate({
+        filePath: '/ws/m.assembly.js',
+        create: {
+          type: 'revolute',
+          connectorA: {
+            instanceLine: 5, connectorName: 'c2',
+            viaParts: [{ createFrom: { filePath: '/nowhere/piston.assembly.js', insertLine: 4 } }],
+          },
+          connectorB: { instanceLine: 6, connectorName: 'c2' },
+        },
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('piston.assembly.js');
+      expect(relayed).toEqual([]);
+    });
   });
 
   it('refuses when the current file is not an assembly', async () => {

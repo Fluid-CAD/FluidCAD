@@ -4002,13 +4002,28 @@ export type AssemblyMateType =
   | 'fastened' | 'revolute' | 'slider' | 'cylindrical' | 'planar' | 'parallel' | 'pin-slot' | 'tangent';
 
 /**
- * One side of a mate statement: the instance whose `insert()` chain starts on
- * `instanceLine` (its serialized sourceLocation) and the part-owned
- * connector's name, dereferenced as `<binding>.connectors.<connectorName>`.
+ * One occurrence level of a nested pick's export chain: `keys` when the
+ * sub-assembly already exports the next handle (the key path within its
+ * return object), `createFrom` when it doesn't — the handle's `insert()`
+ * address in its own file, which the server turns into an export edit (and
+ * thereby a key) before writing the mate.
+ */
+export type AssemblyMateViaEntry =
+  | { keys: string[] }
+  | { createFrom: { filePath: string; insertLine: number } };
+
+/**
+ * One side of a mate statement: the anchor whose `insert()` chain starts on
+ * `instanceLine` (its serialized sourceLocation — the instance itself, or
+ * with `viaParts` the top-level OCCURRENCE the pick lives under) and the
+ * part-owned connector's name. A direct side dereferences as
+ * `<binding>.connectors.<connectorName>`; a `viaParts` side reaches through
+ * `.parts.<keys...>` export chains, one entry per occurrence level.
  */
 export type AssemblyMateConnectorRef = {
   instanceLine: number;
   connectorName: string;
+  viaParts?: AssemblyMateViaEntry[];
 };
 
 /** The mate dialog's option state; no-op values are omitted from the chain. */

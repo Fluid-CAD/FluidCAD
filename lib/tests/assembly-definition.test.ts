@@ -291,6 +291,40 @@ describe("mates across scopes", () => {
   });
 });
 
+describe("occurrence exports", () => {
+  it("records returned handles by key path, plain-object nesting flattened", () => {
+    const { p, scene } = startAssembly();
+    const inner = assembly("inner", () => ({ a: insert(p) }));
+    const def = assembly("sub", () => {
+      const first = insert(p);
+      insert(p); // not returned — not exported
+      const nested = insert(inner);
+      return { first, deep: { nested } };
+    });
+    insert(def);
+
+    const occs = scene.getSerializedOccurrences();
+    const outer = occs.find(o => o.occurrenceId === "asm-0")!;
+    expect(outer.exports).toEqual([
+      { path: ["first"], instanceId: "asm-0/inst-0" },
+      { path: ["deep", "nested"], occurrenceId: "asm-0/asm-0" },
+    ]);
+    const nested = occs.find(o => o.occurrenceId === "asm-0/asm-0")!;
+    expect(nested.exports).toEqual([{ path: ["a"], instanceId: "asm-0/asm-0/inst-0" }]);
+  });
+
+  it("a bare returned handle exports with an empty path; no return exports nothing", () => {
+    const { p, scene } = startAssembly();
+    insert(assembly("bare", () => insert(p)));
+    insert(assembly("void", () => { insert(p); }));
+
+    const occs = scene.getSerializedOccurrences();
+    expect(occs.find(o => o.occurrenceId === "asm-0")!.exports)
+      .toEqual([{ path: [], instanceId: "asm-0/inst-0" }]);
+    expect(occs.find(o => o.occurrenceId === "asm-1")!.exports).toEqual([]);
+  });
+});
+
 describe("dangling definitions", () => {
   it("names a definition that was declared but never run in an empty scene", () => {
     const { scene } = startAssembly();

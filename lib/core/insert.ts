@@ -1,6 +1,6 @@
 import { captureSourceLocation } from "../index.js";
 import { getCurrentScene } from "../scene-manager.js";
-import { AssemblyScene, AssemblyInstance, AssemblyOccurrence } from "../rendering/assembly-scene.js";
+import { AssemblyScene, AssemblyInstance, AssemblyOccurrence, OccurrenceExport } from "../rendering/assembly-scene.js";
 import { Part } from "../features/part.js";
 import { PartDefinition } from "../features/part-definition.js";
 import { Assembly } from "../features/assembly.js";
@@ -88,7 +88,50 @@ function insertOccurrence<T>(scene: AssemblyScene, definition: Assembly<T>, over
   } finally {
     scene.endOccurrence();
   }
+  // The return value is the occurrence's export surface: whatever handles it
+  // chose to expose become addressable from the inserting file as
+  // `occ.parts.<path...>` — recorded here so the serialized scene can tell
+  // the mate writer HOW to spell a reference into this occurrence.
+  record.exports = collectOccurrenceExports(parts);
   return new Occurrence<T>(record, parts);
+}
+
+/**
+ * Walk the callback's return value for Instance/Occurrence handles, flattening
+ * plain-object nesting into key paths (`{ left: { p1 } }` → `["left", "p1"]`).
+ * Depth-capped and cycle-guarded — a self-referential return must not hang the
+ * render; arrays and exotic objects are skipped (they have no stable member
+ * path the writer could render).
+ */
+function collectOccurrenceExports(parts: unknown): OccurrenceExport[] {
+  const out: OccurrenceExport[] = [];
+  const seen = new Set<object>();
+  const walk = (value: unknown, path: string[]): void => {
+    if (value instanceof Instance) {
+      out.push({ path, instanceId: value.record.instanceId });
+      return;
+    }
+    if (value instanceof Occurrence) {
+      out.push({ path, occurrenceId: value.record.occurrenceId });
+      return;
+    }
+    if (
+      path.length >= 4
+      || value === null
+      || typeof value !== "object"
+      || Array.isArray(value)
+      || Object.getPrototypeOf(value) !== Object.prototype
+      || seen.has(value)
+    ) {
+      return;
+    }
+    seen.add(value);
+    for (const [key, child] of Object.entries(value)) {
+      walk(child, [...path, key]);
+    }
+  };
+  walk(parts, []);
+  return out;
 }
 
 export default insert;

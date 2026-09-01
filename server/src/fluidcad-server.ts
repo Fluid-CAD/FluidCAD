@@ -44,6 +44,12 @@ export type SerializedAssembly = {
     params?: Record<string, unknown>[];
     /** Resolved parameter values of this occurrence's run. */
     paramValues?: Record<string, string | number | boolean | (string | number)[]>;
+    /**
+     * Handles the callback returned, keyed by return-object path — how a mate
+     * in the inserting file references this occurrence's contents
+     * (`<binding>.parts.<path...>`). Absent on engines predating exports.
+     */
+    exports?: Array<{ path: string[]; instanceId?: string; occurrenceId?: string }>;
     sourceLocation?: { filePath: string; line: number; column: number };
   }>;
   mates: Array<{

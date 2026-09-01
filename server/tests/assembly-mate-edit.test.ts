@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import {
+  applyAssemblyExportEdit,
   applyAssemblyMateEdit,
   applyConnectorPropsEdit,
+  resolveExportKey,
 } from '../src/assembly-mate-edit.ts';
 
 const HEADER = `import { insert, mate } from "fluidcad/core";\n`;
@@ -466,6 +468,125 @@ describe('scope-aware placement (assembly() bodies)', () => {
 
 // The pen-button edit: rewrite a connector() statement's name and adjustment
 // chain in the part file, keeping the source argument text verbatim.
+// The occurrence-aware mate flow's cross-file companion: make an insert()
+// binding part of its assembly() body's return object.
+describe('applyAssemblyExportEdit', () => {
+  const ASM = `import { insert, assembly } from "fluidcad/core";\n\n`;
+
+  it('adds the binding to an existing return object', async () => {
+    const code = `${ASM}export const sub = assembly("sub", () => {\n  const a1 = insert(a());\n  const b1 = insert(b());\n  return { a1 };\n});\n`;
+    const result = await applyAssemblyExportEdit(code, { insertLine: 5 });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('return { a1, b1 };');
+  });
+
+  it('appends a return when the body has none, before nothing else moves', async () => {
+    const code = `${ASM}export const sub = assembly("sub", () => {\n  const a1 = insert(a());\n});\n`;
+    const result = await applyAssemblyExportEdit(code, { insertLine: 4 });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('  const a1 = insert(a());\n  return { a1 };\n});');
+  });
+
+  it('auto-binds a bare insert and exports the fresh binding', async () => {
+    const code = `${ASM}export const sub = assembly("sub", () => {\n  insert(rodCap());\n  return {};\n});\n`;
+    const key = await resolveExportKey(code, 4);
+    expect(key).toEqual({ name: 'rodCap1' });
+    const result = await applyAssemblyExportEdit(code, { insertLine: 4 });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('const rodCap1 = insert(rodCap());');
+    expect(result.newCode).toContain('return { rodCap1 };');
+  });
+
+  it('is a no-op when the binding is already exported (shorthand or pair)', async () => {
+    const code = `${ASM}export const sub = assembly("sub", () => {\n  const a1 = insert(a());\n  return { left: a1, a1 };\n});\n`;
+    const result = await applyAssemblyExportEdit(code, { insertLine: 4 });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(code);
+  });
+
+  it('extends a parenthesized return object', async () => {
+    const code = `${ASM}export const sub = assembly("sub", () => {\n  const a1 = insert(a());\n  const b1 = insert(b());\n  return ({ a1 });\n});\n`;
+    const result = await applyAssemblyExportEdit(code, { insertLine: 5 });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('return ({ a1, b1 });');
+  });
+
+  it('refuses a non-object return and a top-level insert', async () => {
+    const nonObject = `${ASM}export const sub = assembly("sub", () => {\n  const a1 = insert(a());\n  return a1;\n});\n`;
+    expect((await applyAssemblyExportEdit(nonObject, { insertLine: 4 })).error)
+      .toMatch(/not an object literal/);
+    const topLevel = `${ASM}const a1 = insert(a());\n`;
+    expect((await applyAssemblyExportEdit(topLevel, { insertLine: 3 })).error)
+      .toMatch(/needs no export/);
+  });
+});
+
+// Occurrence-aware sides: `viaParts` levels render as `.parts.<keys...>`
+// export-chain dereferences off the OCCURRENCE's insert binding.
+describe('applyAssemblyMateEdit — viaParts sides', () => {
+  it('renders a deep ref through one occurrence level', async () => {
+    const code = `${HEADER}\nconst crank1 = insert(crank());\nconst piston1 = insert(pistonAssembly);\n`;
+    const result = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'revolute',
+        connectorA: { instanceLine: 4, connectorName: 'c2', viaParts: [['rodCap']] },
+        connectorB: { instanceLine: 3, connectorName: 'c2' },
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `mate('revolute', piston1.parts.rodCap.connectors.c2, crank1.connectors.c2);`,
+    );
+  });
+
+  it('renders nested object keys and multiple levels', async () => {
+    const code = `${HEADER}\nconst g1 = insert(gantry);\nconst g2 = insert(gantry);\n`;
+    const result = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 3, connectorName: 'end', viaParts: [['left', 'axis'], ['carriage']] },
+        connectorB: { instanceLine: 4, connectorName: 'end', viaParts: [[]] },
+      },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `mate('fastened', g1.parts.left.axis.parts.carriage.connectors.end, g2.parts.connectors.end);`,
+    );
+  });
+
+  it('allows same line + connector when the export chains differ, refuses when identical', async () => {
+    const code = `${HEADER}\nconst g1 = insert(gantry);\n`;
+    const differing = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 3, connectorName: 'end', viaParts: [['left']] },
+        connectorB: { instanceLine: 3, connectorName: 'end', viaParts: [['right']] },
+      },
+    });
+    expect(differing.error).toBeUndefined();
+    const identical = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 3, connectorName: 'end', viaParts: [['left']] },
+        connectorB: { instanceLine: 3, connectorName: 'end', viaParts: [['left']] },
+      },
+    });
+    expect(identical.error).toMatch(/mated to itself/);
+  });
+
+  it('rejects an export key that is not an identifier', async () => {
+    const code = `${HEADER}\nconst g1 = insert(gantry);\nconst c1 = insert(crank());\n`;
+    const result = await applyAssemblyMateEdit(code, {
+      create: {
+        type: 'fastened',
+        connectorA: { instanceLine: 3, connectorName: 'end', viaParts: [['not a key']] },
+        connectorB: { instanceLine: 4, connectorName: 'end' },
+      },
+    });
+    expect(result.error).toMatch(/not a valid export key/);
+  });
+});
+
 describe('applyConnectorPropsEdit', () => {
   const PART = `import { part, connector, extrude } from "fluidcad/core";\n\n`
     + `part('arm', () => {\n`

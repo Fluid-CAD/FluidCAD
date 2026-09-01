@@ -28,14 +28,24 @@ const CONNECTOR_NAME = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 const NUMBER_DECIMALS = 6;
 
 /**
- * One side of a connector-authored mate: the instance whose `insert()` chain
- * starts on `instanceLine` (1-based, the serialized instance's
- * sourceLocation), and the part-owned connector's name, dereferenced as
- * `<binding>.connectors.<connectorName>`.
+ * One side of a connector-authored mate: the anchor whose `insert()` chain
+ * starts on `instanceLine` (1-based, the serialized sourceLocation — the
+ * instance itself, or with `viaParts` the top-level OCCURRENCE the instance
+ * lives under), and the part-owned connector's name.
+ *
+ * A direct side dereferences as `<binding>.connectors.<connectorName>`. A
+ * `viaParts` side reaches through sub-assembly export chains instead: one
+ * key path per occurrence level, each rendered as `.parts.<keys...>` —
+ * `[["deep","nested"],["rodCap"]]` →
+ * `<occBinding>.parts.deep.nested.parts.rodCap.connectors.<connectorName>`
+ * (an empty key path is a callback that returned the handle bare: `.parts`
+ * alone). The route resolves missing exports into keys before this module
+ * ever sees the payload.
  */
 export type MateConnectorRef = {
   instanceLine: number;
   connectorName: string;
+  viaParts?: string[][];
 };
 
 /**
@@ -258,11 +268,19 @@ export function validateMatePayload(payload: AssemblyMatePayload): string | null
     if (side && !CONNECTOR_NAME.test(side.connectorName)) {
       return `"${side.connectorName}" is not a valid connector name`;
     }
+    for (const key of (side?.viaParts ?? []).flat()) {
+      if (!CONNECTOR_NAME.test(key)) {
+        return `"${key}" is not a valid export key`;
+      }
+    }
   }
   if (
     payload.connectorA && payload.connectorB
     && payload.connectorA.instanceLine === payload.connectorB.instanceLine
     && payload.connectorA.connectorName === payload.connectorB.connectorName
+    // Two occurrences of one sub-assembly share their instances' source
+    // lines — only an identical export chain is truly the same connector.
+    && JSON.stringify(payload.connectorA.viaParts ?? []) === JSON.stringify(payload.connectorB.viaParts ?? [])
   ) {
     return 'a connector cannot be mated to itself';
   }
@@ -296,7 +314,8 @@ export function validateMatePayload(payload: AssemblyMatePayload): string | null
 /**
  * The expression one side of the mate is written as: the connector or
  * exposure dereferenced through the insert binding (`arm1.connectors.hinge`
- * / `cam1.features.profile`).
+ * / `cam1.features.profile`), reaching through `.parts.<keys...>` export
+ * chains first when the side lives inside a sub-assembly occurrence.
  */
 async function resolveMateSideRef(
   code: string,
@@ -306,12 +325,14 @@ async function resolveMateSideRef(
   if ('error' in instanceBinding) {
     return { error: instanceBinding.error };
   }
+  const via = ('viaParts' in ref ? ref.viaParts : undefined) ?? [];
+  const chain = via.map(keys => ['parts', ...keys].join('.'));
   const member = 'connectorName' in ref
     ? `connectors.${ref.connectorName}`
     : `features.${ref.exposeName}`;
   return {
     newCode: instanceBinding.newCode,
-    expression: `${instanceBinding.name}.${member}`,
+    expression: [instanceBinding.name, ...chain, member].join('.'),
   };
 }
 
@@ -364,7 +385,7 @@ async function resolveInstanceBinding(
   }
   const base = chainBaseCall(tail);
   if (baseCallName(base) !== 'insert') {
-    return { error: `the statement on line ${instanceLine} is not an insert() — sub-assembly instances can only be mated inside their own file` };
+    return { error: `the statement on line ${instanceLine} is not an insert() — the source may have shifted; re-render and try again` };
   }
 
   const statement = enclosingStatement(tail);
@@ -686,4 +707,92 @@ async function replaceMateStatement(
     }
   }
   return { newCode: spliceCode(code, target.startIndex, target.endIndex, statement) };
+}
+
+/**
+ * The occurrence-aware mate flow's cross-file companion: make the handle
+ * inserted on `insertLine` part of its `assembly()` body's export surface, so
+ * the inserting file can dereference it as `<occBinding>.parts.<key>`. Rides
+ * `ApplyFeatureEditSpec` as the `assemblyExport` side-channel; the spec's
+ * `filePath` addresses the SUB-ASSEMBLY file (dispatcher preflight
+ * self-skips, the editor host's round-trip applies and verifies).
+ */
+export type AssemblyExportEditSpec = {
+  /** 1-based row the handle's `insert()` chain starts on (its sourceLocation). */
+  insertLine: number;
+};
+
+/**
+ * Ensure the `insert()` on `insertLine` is bound to a const (auto-binding a
+ * bare statement, exactly like a mate side) and that the enclosing
+ * `assembly()` body's `return {...}` includes that binding — added as a
+ * shorthand property, appended as `return { <name> };` when the body has no
+ * return at all. Idempotent: an already-exported binding is a no-op.
+ */
+export async function applyAssemblyExportEdit(
+  code: string,
+  spec: AssemblyExportEditSpec,
+): Promise<AssemblyMateEditResult> {
+  const bound = await resolveInstanceBinding(code, spec.insertLine);
+  if ('error' in bound) {
+    return { newCode: code, error: bound.error };
+  }
+  // Auto-binding prepends on the insert's own line — row numbers are stable,
+  // so re-parsing the working code with the same line stays valid.
+  const working = bound.newCode;
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(working);
+  const scope = scopeOfAnchor(tree, spec.insertLine);
+  if (!scope || scope.type !== 'statement_block') {
+    return {
+      newCode: code,
+      error: `the insert() on line ${spec.insertLine} is not inside an assembly() body — it needs no export`,
+    };
+  }
+  const statements = scope.namedChildren.filter(c => c.type !== 'comment');
+  const returnStmt = statements.find(c => c.type === 'return_statement') ?? null;
+  if (!returnStmt) {
+    const lines = splitLines(working);
+    const lastStmt = statements[statements.length - 1];
+    const insertRow = lastStmt ? lastStmt.endPosition.row + 1 : scope.startPosition.row + 1;
+    const indent = lastStmt ? indentOf(lines, lastStmt.startPosition.row) : '';
+    lines.splice(insertRow, 0, `${indent}return { ${bound.name} };`);
+    return { newCode: joinLines(lines) };
+  }
+  let objectNode = returnStmt.namedChildren.find(c => c.type !== 'comment') ?? null;
+  if (objectNode?.type === 'parenthesized_expression') {
+    objectNode = objectNode.namedChildren[0] ?? null;
+  }
+  if (!objectNode || objectNode.type !== 'object') {
+    return {
+      newCode: code,
+      error: `the assembly body's return is not an object literal — add ${bound.name} to its exports yourself`,
+    };
+  }
+  const properties = objectNode.namedChildren.filter(c => c.type !== 'comment');
+  const exported = properties.some(p =>
+    (p.type === 'shorthand_property_identifier' && p.text === bound.name)
+    || (p.type === 'pair' && p.childForFieldName('key')?.text === bound.name),
+  );
+  if (exported) {
+    return { newCode: working };
+  }
+  const last = properties[properties.length - 1];
+  return last
+    ? { newCode: spliceCode(working, last.endIndex, last.endIndex, `, ${bound.name}`) }
+    : { newCode: spliceCode(working, objectNode.startIndex + 1, objectNode.startIndex + 1, ` ${bound.name} `) };
+}
+
+/**
+ * The binding name {@link applyAssemblyExportEdit} will export for the
+ * insert() on `insertLine` — the route precomputes the mate's `.parts.<key>`
+ * from it before dispatching the export edit. Runs the exact binding logic
+ * and discards the edit.
+ */
+export async function resolveExportKey(
+  code: string,
+  insertLine: number,
+): Promise<{ name: string } | { error: string }> {
+  const bound = await resolveInstanceBinding(code, insertLine);
+  return 'error' in bound ? bound : { name: bound.name };
 }

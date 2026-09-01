@@ -6,6 +6,7 @@ import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import { parseFeatureStatement, type ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
 import {
   ASSEMBLY_MATE_TYPES,
+  resolveExportKey,
   type AssemblyMateOptions,
   type AssemblyMatePayload,
   type AssemblyMateType,
@@ -16,10 +17,44 @@ import { allocateExposeName, makeSynthesisOptionsForFile } from './apply-feature
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 
-function isConnectorRef(v: unknown): v is MateConnectorRef {
+/**
+ * One occurrence level of a nested pick's export chain, as the dialog wires
+ * it: `keys` when the sub-assembly already exports the next handle (the key
+ * path within its return object), `createFrom` when it doesn't — the handle's
+ * `insert()` address in its own file, which the route turns into an
+ * `assemblyExport` edit (and thereby a key) before writing the mate.
+ */
+export type MateViaEntryBody =
+  | { keys: string[] }
+  | { createFrom: { filePath: string; insertLine: number } };
+
+/** The wire form of a connector side: MateConnectorRef with unresolved levels. */
+export type MateConnectorSideBody = {
+  instanceLine: number;
+  connectorName: string;
+  viaParts?: MateViaEntryBody[];
+};
+
+function isViaEntry(v: unknown): v is MateViaEntryBody {
+  if (v === null || typeof v !== 'object') {
+    return false;
+  }
+  const o = v as any;
+  if (Array.isArray(o.keys)) {
+    return o.createFrom === undefined && o.keys.every((k: unknown) => typeof k === 'string' && k.length > 0);
+  }
+  return o.keys === undefined
+    && o.createFrom !== null && typeof o.createFrom === 'object'
+    && typeof o.createFrom.filePath === 'string' && o.createFrom.filePath.length > 0
+    && Number.isInteger(o.createFrom.insertLine) && o.createFrom.insertLine >= 1;
+}
+
+function isConnectorRef(v: unknown): v is MateConnectorSideBody {
   return v !== null && typeof v === 'object'
     && Number.isInteger((v as any).instanceLine) && (v as any).instanceLine >= 1
-    && typeof (v as any).connectorName === 'string' && (v as any).connectorName.length > 0;
+    && typeof (v as any).connectorName === 'string' && (v as any).connectorName.length > 0
+    && ((v as any).viaParts === undefined
+      || (Array.isArray((v as any).viaParts) && (v as any).viaParts.every(isViaEntry)));
 }
 
 function isFrameRef(v: unknown): v is MateFrameRef {
@@ -93,8 +128,8 @@ function isMateOptions(v: unknown): v is AssemblyMateOptions {
  */
 export type MatePayloadBody = {
   type: AssemblyMateType;
-  connectorA?: MateConnectorRef;
-  connectorB?: MateConnectorRef;
+  connectorA?: MateConnectorSideBody;
+  connectorB?: MateConnectorSideBody;
   geometryA?: MateGeometrySideBody;
   geometryB?: MateGeometrySideBody;
   frameA?: MateFrameRef;
@@ -227,6 +262,89 @@ export function createAssemblyMateRouter(
     return { resolved, exposeCreates, crossFileCreates };
   };
 
+  /**
+   * Occurrence-aware side resolution: a `viaParts` level whose sub-assembly
+   * doesn't export the next handle yet (`createFrom`) gets an
+   * `assemblyExport` edit dispatched to that file FIRST (§7.2-style
+   * sequencing, like cross-file tangent exposures), and the level resolves
+   * to the binding key that edit exports. Entries are deduped and processed
+   * in descending line order per file so an added `return {...}` line never
+   * shifts a later entry's address. A mid-sequence failure names what was
+   * and wasn't written — an extra export is inert and reused on retry.
+   */
+  const prepareConnectorSides = async (
+    sides: (MateConnectorSideBody | undefined)[],
+  ): Promise<
+    | { resolved: (MateConnectorRef | undefined)[] }
+    | { status: number; body: unknown }
+  > => {
+    type Pending = { filePath: string; insertLine: number; key?: string };
+    const pending = new Map<string, Pending>();
+    for (const side of sides) {
+      for (const entry of side?.viaParts ?? []) {
+        if ('createFrom' in entry) {
+          const id = `${normalizePath(entry.createFrom.filePath)}:${entry.createFrom.insertLine}`;
+          pending.set(id, { ...entry.createFrom });
+        }
+      }
+    }
+    const ordered = [...pending.entries()].sort(([, a], [, b]) =>
+      a.filePath === b.filePath ? b.insertLine - a.insertLine : a.filePath.localeCompare(b.filePath));
+    const written: string[] = [];
+    for (const [, task] of ordered) {
+      let code: string | null = null;
+      if (normalizePath(task.filePath) === normalizePath(fluidCadServer.getCurrentFileName() ?? '')) {
+        code = fluidCadServer.getCurrentCode();
+      }
+      if (code === null) {
+        try {
+          code = await readFile(task.filePath, 'utf8');
+        } catch {
+          return { status: 422, body: { success: false, reason: `could not read ${basename(task.filePath)} to export the picked instance` } };
+        }
+      }
+      const key = await resolveExportKey(code, task.insertLine);
+      if ('error' in key) {
+        return { status: 422, body: { success: false, reason: `${basename(task.filePath)}: ${key.error}` } };
+      }
+      const sent = await dispatcher.send({
+        feature: 'sketch',
+        filePath: task.filePath,
+        producers: [],
+        parts: [],
+        imports: [],
+        assemblyExport: { insertLine: task.insertLine },
+      });
+      if (sent.error) {
+        const partial = written.length > 0
+          ? ` Already exported: ${written.join(', ')} (harmless — an unused export is inert and reused on retry).`
+          : '';
+        return {
+          status: 422,
+          body: { success: false, reason: `could not export ${key.name} from ${basename(task.filePath)}: ${sent.error}.${partial}` },
+        };
+      }
+      task.key = key.name;
+      written.push(`${key.name} in ${basename(task.filePath)}`);
+    }
+    const resolved = sides.map(side => {
+      if (!side) {
+        return undefined;
+      }
+      const { viaParts, ...rest } = side;
+      if (!viaParts) {
+        return rest;
+      }
+      return {
+        ...rest,
+        viaParts: viaParts.map(entry => 'keys' in entry
+          ? entry.keys
+          : [pending.get(`${normalizePath(entry.createFrom.filePath)}:${entry.createFrom.insertLine}`)!.key!]),
+      };
+    });
+    return { resolved };
+  };
+
   router.post('/assembly-mate', async (req, res) => {
     const { filePath, create, edit } = req.body ?? {};
     const editValid = edit === undefined
@@ -300,7 +418,19 @@ export function createAssemblyMateRouter(
         ? { create: resolvedPayload, ...exposeCreates }
         : { edit: { ...resolvedPayload, sourceLine: (edit as any).sourceLine }, ...exposeCreates };
     } else {
-      assemblyMate = create !== undefined ? { create } : { edit };
+      const prepared = await prepareConnectorSides([payload.connectorA, payload.connectorB]);
+      if ('status' in prepared) {
+        res.status(prepared.status).json(prepared.body);
+        return;
+      }
+      const resolvedPayload = {
+        ...payload,
+        ...(prepared.resolved[0] !== undefined ? { connectorA: prepared.resolved[0] } : {}),
+        ...(prepared.resolved[1] !== undefined ? { connectorB: prepared.resolved[1] } : {}),
+      } as AssemblyMatePayload;
+      assemblyMate = create !== undefined
+        ? { create: resolvedPayload }
+        : { edit: { ...resolvedPayload, sourceLine: (edit as any).sourceLine } };
     }
 
     const spec: ApplyFeatureEditSpec = {

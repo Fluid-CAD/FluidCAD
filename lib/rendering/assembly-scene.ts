@@ -30,6 +30,20 @@ export type AssemblyInstance = {
 };
 
 /**
+ * One handle the occurrence's callback RETURNED, addressed by its key path
+ * within the return object (plain-object nesting flattened into the path:
+ * `{ left: { p1 } }` → `["left", "p1"]`). This is what makes a nested
+ * instance referenceable from the inserting file — the mate writer renders
+ * `<occBinding>.parts.<path...>.connectors.<name>` from it. Exactly one of
+ * `instanceId`/`occurrenceId` is set.
+ */
+export type OccurrenceExport = {
+  path: string[];
+  instanceId?: string;
+  occurrenceId?: string;
+};
+
+/**
  * One inserted sub-assembly: `insert(assembly('name', cb))`. The callback's
  * records all land in this same flat scene (rendering, compare, and the UI
  * solver keep seeing a flat assembly), tagged with the occurrence path as
@@ -52,6 +66,8 @@ export type AssemblyOccurrence = {
   params?: ParamDefinition[];
   /** Resolved parameter values of this occurrence's run. */
   paramValues?: Record<string, ParamVal>;
+  /** Handles the callback returned — always set on insert (possibly empty). */
+  exports?: OccurrenceExport[];
   sourceLocation?: SourceLocation;
 };
 
@@ -157,6 +173,13 @@ export type SerializedOccurrence = {
   params?: Omit<ParamDefinition, 'sourceLocation'>[];
   /** Resolved parameter values of this occurrence's run. */
   paramValues?: Record<string, ParamVal>;
+  /**
+   * Handles the callback returned, keyed by return-object path — what the
+   * mate writer dereferences as `<binding>.parts.<path...>`. Always an
+   * array (possibly empty) on current engines; absent only on engines
+   * predating occurrence exports.
+   */
+  exports?: OccurrenceExport[];
   sourceLocation?: SourceLocation;
 };
 
@@ -394,6 +417,7 @@ export class AssemblyScene extends Scene {
       groundConnected: connected.get(occ.occurrenceId) ?? false,
       params: occ.params ? serializableParamDefs(occ.params) : undefined,
       paramValues: occ.paramValues,
+      exports: occ.exports ?? [],
       sourceLocation: occ.sourceLocation,
     }));
   }

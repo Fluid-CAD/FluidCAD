@@ -2,9 +2,11 @@ import { MatePanel, MateSlotKey } from './mate-panel';
 import {
   applyAssemblyMate,
   classifyContactPick,
+  AssemblyMateConnectorRef,
   AssemblyMateGeometryRef,
   AssemblyMateOptions,
   AssemblyMateType,
+  AssemblyMateViaEntry,
 } from '../../api';
 import type { Viewer } from '../../viewer';
 import type { SerializedAssembly, SerializedAssemblyMate, SubSelection } from '../../types';
@@ -25,8 +27,31 @@ type ConnectorSlotState = {
   instanceLine: number;
   connectorName: string;
   instanceName: string;
-  /** The assembly file the insert() lives in — the mate's target file. */
+  /** The assembly file the instance's own insert() lives in. */
   filePath: string;
+  /**
+   * Owning scope path: '' for instances the open file inserts directly, an
+   * occurrence path ('asm-0', 'asm-0/asm-1') for picks inside a
+   * sub-assembly. Nested picks anchor the statement on the top OCCURRENCE's
+   * insert() and reach the connector through `.parts` export chains — see
+   * {@link AssemblyMateService.resolveSideChain}.
+   */
+  owner: string;
+  /** The top-level occurrence's display name (chip prefix); null at root. */
+  ownerLabel: string | null;
+};
+
+/**
+ * A connector side resolved for writing: the statement's anchor insert()
+ * (the instance itself, or the top occurrence of a nested pick) plus the
+ * `.parts` levels the server dereferences — with `createFrom` for levels
+ * whose sub-assembly doesn't export the next handle yet.
+ */
+type ResolvedSideChain = {
+  /** The file the anchor insert() lives in — the statement's target file. */
+  filePath: string;
+  instanceLine: number;
+  viaParts?: AssemblyMateViaEntry[];
 };
 
 /**
@@ -253,7 +278,7 @@ export class AssemblyMateService {
           continue;
         }
         this.slots[key] = state;
-        this.panel.setSlotChip(key, `${state.instanceName} · ${state.connectorName}`);
+        this.panel.setSlotChip(key, connectorChipLabel(state));
       }
       // show() armed slot A; aim picks at the first EMPTY slot instead when
       // exactly one side failed to resolve.
@@ -337,7 +362,7 @@ export class AssemblyMateService {
       return;
     }
     this.slots[slot] = state;
-    this.panel.setSlotChip(slot, `${state.instanceName} · ${state.connectorName}`);
+    this.panel.setSlotChip(slot, connectorChipLabel(state));
     this.panel.setMessage(null);
     if (!this.slots[other]) {
       this.panel.armSlot(other);
@@ -367,6 +392,12 @@ export class AssemblyMateService {
     }
     if (!instance.sourceLocation) {
       this.panel.setMessage(`${instance.name} has no source location — its insert() cannot be referenced.`);
+      return;
+    }
+    if (instance.owner) {
+      this.panel.setMessage(
+        `${instance.name} lives inside a sub-assembly — tangent mates can't reach through .parts yet; open the sub-assembly's own file to mate there.`,
+      );
       return;
     }
     const pick = { shapeId, sub: { type: sub.type, index: sub.index } };
@@ -438,6 +469,9 @@ export class AssemblyMateService {
     }
     if (!instance.sourceLocation) {
       return { error: `${instance.name} has no source location — its insert() cannot be referenced.` };
+    }
+    if (instance.owner) {
+      return { error: `${instance.name} lives inside a sub-assembly — tangent mates can't reach through .parts yet.` };
     }
     const contact = this.viewer.getAssemblyController()?.getContactState(instanceId, exposeName);
     if (!contact) {
@@ -575,6 +609,10 @@ export class AssemblyMateService {
     if (!name) {
       return { error: 'This connector has no name — its statement failed to build.' };
     }
+    const owner = instance.owner ?? '';
+    const topOccurrence = owner
+      ? assembly?.occurrences?.find(o => o.occurrenceId === owner.split('/')[0])
+      : undefined;
     return {
       kind: 'connector',
       instanceId: instance.instanceId,
@@ -583,6 +621,8 @@ export class AssemblyMateService {
       connectorName: name,
       instanceName: instance.name,
       filePath: instance.sourceLocation.filePath,
+      owner,
+      ownerLabel: topOccurrence?.name ?? null,
     };
   }
 
@@ -596,9 +636,13 @@ export class AssemblyMateService {
     if (!assembly || !controller) {
       return null;
     }
+    // Owner is part of the address: two occurrences of one sub-assembly
+    // share their instances' insert() lines, so (line, file) alone would
+    // re-resolve both picks onto the first occurrence's twin.
     const instance = assembly.instances.find(
       i => i.sourceLocation?.line === state.instanceLine
-        && i.sourceLocation?.filePath === state.filePath,
+        && i.sourceLocation?.filePath === state.filePath
+        && (i.owner ?? '') === state.owner,
     );
     if (!instance || !instance.sourceLocation) {
       return null;
@@ -619,7 +663,10 @@ export class AssemblyMateService {
     return a !== null
       && a.kind === 'connector'
       && a.instanceLine === b.instanceLine
-      && a.connectorName === b.connectorName;
+      && a.connectorName === b.connectorName
+      // Same line + name on DIFFERENT occurrences of one sub-assembly are
+      // two distinct connectors — mating them is the whole point.
+      && a.owner === b.owner;
   }
 
   /**
@@ -632,7 +679,7 @@ export class AssemblyMateService {
       const state = this.slots[key];
       if (!state || state !== slot || state.kind !== 'connector') continue;
       state.connectorName = newName;
-      this.panel.setSlotChip(key, `${state.instanceName} · ${newName}`);
+      this.panel.setSlotChip(key, connectorChipLabel(state));
     }
     this.refreshPreview();
   }
@@ -656,22 +703,108 @@ export class AssemblyMateService {
   }
 
   /**
-   * A referenced connector's `insert()` must live in the file the statement
-   * is written to — its line number is meaningless in any other file. Create
-   * mode targets the first pick's file; edit mode targets the statement's.
+   * How the statement will reference this pick: directly through the
+   * instance's own insert() binding for root-scope picks, or — for a pick
+   * inside a sub-assembly — anchored on the top-level OCCURRENCE's insert()
+   * and reaching down through each level's `.parts` export chain. A level
+   * whose sub-assembly doesn't export the next handle resolves to
+   * `createFrom` (the server adds the export before writing the mate).
+   */
+  private resolveSideChain(state: ConnectorSlotState): ResolvedSideChain | { error: string } {
+    if (!state.owner) {
+      return { filePath: state.filePath, instanceLine: state.instanceLine };
+    }
+    const occurrences = this.hooks.getAssembly()?.occurrences;
+    // 'asm-0/asm-1' → ['asm-0', 'asm-0/asm-1']: the occurrence chain from
+    // the open file down to the pick's owner.
+    const segments = state.owner.split('/');
+    const chain = segments.map((_, i) => {
+      const id = segments.slice(0, i + 1).join('/');
+      return occurrences?.find(o => o.occurrenceId === id);
+    });
+    if (chain.some(occ => occ === undefined)) {
+      return { error: 'Could not resolve the pick\'s sub-assembly — try re-rendering.' };
+    }
+    const top = chain[0]!;
+    if (!top.sourceLocation) {
+      return { error: `${top.name} has no source location — its insert() cannot be referenced.` };
+    }
+    const viaParts: AssemblyMateViaEntry[] = [];
+    for (let i = 0; i < chain.length; i++) {
+      const occ = chain[i]!;
+      // The handle occ must export at this level: the next occurrence down,
+      // or — at the last level — the picked instance itself.
+      const next = i + 1 < chain.length
+        ? { match: (e: { occurrenceId?: string }) => e.occurrenceId === chain[i + 1]!.occurrenceId,
+          label: chain[i + 1]!.name, location: chain[i + 1]!.sourceLocation }
+        : { match: (e: { instanceId?: string }) => e.instanceId === state.instanceId,
+          label: state.instanceName,
+          location: { filePath: state.filePath, line: state.instanceLine } };
+      if (occ.exports === undefined) {
+        return { error: `This engine build predates sub-assembly exports — update fluidcad to mate into ${occ.name}.` };
+      }
+      const exported = occ.exports.find(next.match);
+      if (exported) {
+        viaParts.push({ keys: exported.path });
+        continue;
+      }
+      if (!next.location) {
+        return { error: `${next.label} has no source location — its insert() cannot be referenced.` };
+      }
+      viaParts.push({ createFrom: { filePath: next.location.filePath, insertLine: next.location.line } });
+    }
+    return { filePath: top.sourceLocation.filePath, instanceLine: top.sourceLocation.line, viaParts };
+  }
+
+  /**
+   * Both connector picks resolved for writing, or the reason they can't be.
+   * The statement lands where its anchors live: the current file for
+   * root-scope and sub-assembly picks alike (a nested pick anchors on its
+   * occurrence's insert() here), so the chains must agree on one file — and
+   * in edit mode that file must be the statement's own.
+   */
+  private resolveConnectorSides():
+    | { a: ResolvedSideChain | null; b: ResolvedSideChain | null }
+    | { error: string } {
+    const chains: (ResolvedSideChain | null)[] = [];
+    for (const state of [this.slots.a, this.slots.b]) {
+      if (state?.kind !== 'connector') {
+        chains.push(null); // empty and origin slots constrain nothing
+        continue;
+      }
+      const chain = this.resolveSideChain(state);
+      if ('error' in chain) {
+        return { error: chain.error };
+      }
+      if (this.editTarget && chain.filePath !== this.editTarget.filePath) {
+        return { error: `${state.instanceName} is not reachable from this mate's file — pick a connector the statement's own file inserts.` };
+      }
+      chains.push(chain);
+    }
+    const [a, b] = chains;
+    if (a && b && a.filePath !== b.filePath) {
+      return { error: 'The two picks are inserted by different files — mate them in the file that inserts both.' };
+    }
+    return { a, b };
+  }
+
+  /**
+   * The pick constraint behind the Apply button. Tangent sides still
+   * reference their instance's own file directly — a pick inside a
+   * sub-assembly is refused at pick time, so only the same-file rule
+   * remains here; connector sides defer to {@link resolveConnectorSides}.
    */
   private crossFileConflict(): string | null {
-    const tangent = this.panel.getType() === 'tangent';
-    // Origin slots carry no file — they are scope-neutral and never conflict.
-    const anchored = (s: MateSlotState | null): ConnectorSlotState | null =>
-      s?.kind === 'connector' ? s : null;
-    const a = tangent ? this.tangentSlots.a : anchored(this.slots.a);
-    const b = tangent ? this.tangentSlots.b : anchored(this.slots.b);
-    const what = tangent ? 'geometry' : 'a connector';
+    if (this.panel.getType() !== 'tangent') {
+      const sides = this.resolveConnectorSides();
+      return 'error' in sides ? sides.error : null;
+    }
+    const a = this.tangentSlots.a;
+    const b = this.tangentSlots.b;
     if (this.editTarget) {
       for (const state of [a, b]) {
         if (state && state.filePath !== this.editTarget.filePath) {
-          return `${state.instanceName} is inserted by a different file than this mate — pick ${what} from an instance of the mate's own file.`;
+          return `${state.instanceName} is inserted by a different file than this mate — pick geometry from an instance of the mate's own file.`;
         }
       }
       return null;
@@ -716,10 +849,28 @@ export class AssemblyMateService {
     const a = this.slots.a;
     const b = this.slots.b;
     this.panel.setOriginAxisRow(a?.kind === 'origin' || b?.kind === 'origin');
-    const ref = (s: MateSlotState | null) =>
-      s === null ? '…'
-        : s.kind === 'origin' ? originExpression(s)
-          : `${s.instanceName}.connectors.${s.connectorName}`;
+    // Stand-in refs (display names for bindings, server writes truth); a
+    // sub-assembly pick previews its `.parts` export chain, `…` marking a
+    // key the server will export on Apply.
+    const ref = (s: MateSlotState | null) => {
+      if (s === null) {
+        return '…';
+      }
+      if (s.kind === 'origin') {
+        return originExpression(s);
+      }
+      if (!s.owner) {
+        return `${s.instanceName}.connectors.${s.connectorName}`;
+      }
+      const chain = this.resolveSideChain(s);
+      const via: AssemblyMateViaEntry[] = 'error' in chain ? [] : chain.viaParts ?? [];
+      const levels = via.length > 0
+        ? via.map(e => 'keys' in e
+          ? (e.keys.length > 0 ? `.parts.${e.keys.join('.')}` : '.parts')
+          : '.parts.…')
+        : ['.parts.…'];
+      return `${s.ownerLabel ?? s.owner}${levels.join('')}.connectors.${s.connectorName}`;
+    };
     let chain = `mate('${values.type}', ${ref(a)}, ${ref(b)})`;
     if (values.flip) chain += '.flip()';
     if (values.rotate !== 0) chain += `.rotate(${values.rotate})`;
@@ -843,28 +994,40 @@ export class AssemblyMateService {
       offset: values.offset,
       limits: values.limits,
     };
-    // The statement lands in the file that inserts the picked connector's
-    // instance — an origin side has no file, and both-origin is blocked at
-    // pick time, so at least one connector side carries the path.
-    const anchor = a.kind === 'connector' ? a : b.kind === 'connector' ? b : null;
-    if (!anchor) {
+    // The statement lands where its anchors live: the file whose insert()
+    // each side dereferences through — a nested pick anchors on its
+    // occurrence's insert() there. An origin side has no file, and
+    // both-origin is blocked at pick time, so at least one chain carries
+    // the path.
+    const sides = this.resolveConnectorSides();
+    if ('error' in sides) {
+      this.panel.setMessage(sides.error);
+      return;
+    }
+    const anchorFile = sides.a?.filePath ?? sides.b?.filePath;
+    if (!anchorFile) {
       return;
     }
     this.applying = true;
     this.panel.setApplyEnabled(false);
     try {
-      const sideRef = (key: 'A' | 'B', s: MateSlotState) => s.kind === 'origin'
+      const connectorRef = (s: ConnectorSlotState, chain: ResolvedSideChain): AssemblyMateConnectorRef => ({
+        instanceLine: chain.instanceLine,
+        connectorName: s.connectorName,
+        ...(chain.viaParts ? { viaParts: chain.viaParts } : {}),
+      });
+      const sideRef = (key: 'A' | 'B', s: MateSlotState, chain: ResolvedSideChain | null) => s.kind === 'origin'
         ? { [`frame${key}`]: { axis: s.axis } }
-        : { [`connector${key}`]: { instanceLine: s.instanceLine, connectorName: s.connectorName } };
+        : { [`connector${key}`]: connectorRef(s, chain!) };
       const target = this.editTarget;
       const payload = {
         type: values.type,
-        ...sideRef('A', a),
-        ...sideRef('B', b),
+        ...sideRef('A', a, sides.a),
+        ...sideRef('B', b, sides.b),
         options,
       };
       const result = await applyAssemblyMate(
-        target?.filePath ?? anchor.filePath,
+        target?.filePath ?? anchorFile,
         target ? { edit: { sourceLine: target.sourceLine, ...payload } } : { create: payload },
       );
       if (!result.success) {
@@ -939,6 +1102,12 @@ export class AssemblyMateService {
       this.applying = false;
     }
   }
+}
+
+/** `Cam · main` — prefixed `Gantry › Cam · main` for a sub-assembly pick. */
+function connectorChipLabel(state: ConnectorSlotState): string {
+  const scope = state.ownerLabel ? `${state.ownerLabel} › ` : '';
+  return `${scope}${state.instanceName} · ${state.connectorName}`;
 }
 
 /** `Cam · cylinder` (+ ` · new` while the exposure is still to be created). */

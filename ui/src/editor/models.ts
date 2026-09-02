@@ -207,6 +207,36 @@ export class WorkspaceModels {
     return 'adopted';
   }
 
+  /**
+   * The file behind `absPath` now lives at `newAbsPath`. Monaco models can't
+   * change URI, so the buffer moves into a fresh model under the new path —
+   * text, and dirtiness, come along: an unsaved buffer stays unsaved under its
+   * new name, since the disk holds only what was last saved. The old entry is
+   * left in place for the caller to {@link forget} once the editor has
+   * switched over, so a visible buffer never goes blank in between.
+   *
+   * Returns the new entry, or undefined when `absPath` was never loaded.
+   */
+  rename(absPath: string, newAbsPath: string, newRelPath: string, kind: FileKind, mtimeMs: number): ModelEntry | undefined {
+    const old = this.entries.get(absPath);
+    if (!old) {
+      return undefined;
+    }
+    const content = old.model.getValue();
+    const dirty = this.isDirty(absPath);
+    // The watcher's echo of the rename may already have loaded the new path.
+    const next = this.entries.get(newAbsPath) ?? this.create(newAbsPath, newRelPath, kind, content, mtimeMs);
+    next.relPath = newRelPath;
+    next.kind = kind;
+    next.mtimeMs = mtimeMs;
+    if (next.model.getValue() !== content) {
+      applyTextAsSingleEdit(next.model, content);
+    }
+    this.savedVersions.set(newAbsPath, dirty ? -1 : next.model.getVersionId());
+    this.notifyDirty();
+    return next;
+  }
+
   forget(absPath: string): void {
     const entry = this.entries.get(absPath);
     if (!entry) {

@@ -9,8 +9,10 @@ import {
   fetchWorkspaceEditorState,
   openWorkspaceFile,
   readWorkspaceFile,
+  renameWorkspaceFile,
   saveWorkspaceEditorState,
   type FileKind,
+  type WorkspaceFileEntry,
 } from './editor-api';
 import { EditorHost } from './host/editor-host';
 import { Diagnostics, type CompileError } from './diagnostics';
@@ -234,6 +236,86 @@ export class EditorSurface {
     // Closing a tab does not dispose its model — the language service still
     // needs it to cross-complete.
     this.renderTabs();
+  }
+
+  /** The strip was dragged into a new order. Only a permutation of the open tabs is accepted. */
+  reorderTabs(absPaths: string[]): void {
+    const current = this.openTabs.slice().sort();
+    const proposed = absPaths.slice().sort();
+    if (current.length !== proposed.length || current.some((path, index) => path !== proposed[index])) {
+      return;
+    }
+    this.openTabs = absPaths.slice();
+    this.persistTabs();
+    this.renderTabs();
+  }
+
+  /**
+   * Rename the file behind a tab, in its own folder. The tab keeps its slot
+   * and its buffer — unsaved edits included — and if the scene was rendered
+   * from the file, the server is re-pointed at the new name so the viewport
+   * keeps following the same file.
+   */
+  async renameTab(absPath: string, newBasename: string): Promise<void> {
+    const entry = this.models.get(absPath);
+    if (!entry) {
+      return;
+    }
+    const folder = entry.relPath.includes('/') ? entry.relPath.slice(0, entry.relPath.lastIndexOf('/') + 1) : '';
+    const newRelPath = `${folder}${newBasename}`;
+    if (newRelPath === entry.relPath) {
+      return;
+    }
+    let renamed: WorkspaceFileEntry;
+    try {
+      renamed = await renameWorkspaceFile(entry.relPath, newRelPath);
+    } catch (err) {
+      this.deps.onEditRefused?.(`Could not rename ${entry.relPath}: ${(err as Error).message}`);
+      this.renderTabs();
+      return;
+    }
+    const next = this.models.rename(absPath, renamed.absPath, renamed.path, renamed.kind, renamed.mtimeMs);
+    if (!next) {
+      return;
+    }
+
+    // Same slot, new key — and never the same file twice, should the watcher
+    // have opened the new path in the meantime.
+    const index = this.openTabs.indexOf(absPath);
+    this.openTabs = this.openTabs.filter((path) => path !== next.absPath);
+    if (index !== -1) {
+      this.openTabs.splice(Math.min(index, this.openTabs.length), 0, next.absPath);
+    }
+    if (this.activePath === absPath) {
+      this.activePath = next.absPath;
+    }
+    const wasCurrentModel = this.currentModelPath === absPath;
+    if (wasCurrentModel) {
+      this.currentModelPath = next.absPath;
+    }
+
+    // Swap the visible buffer before the old model goes, keeping the caret
+    // and scroll where they were.
+    const editor = this.pane.getEditor();
+    if (editor && editor.getModel() === entry.model) {
+      const viewState = editor.saveViewState();
+      editor.setModel(next.model);
+      if (viewState) {
+        editor.restoreViewState(viewState);
+      }
+    }
+    this.breakpoints.forget(absPath);
+    this.models.forget(absPath);
+    this.breakpoints.refresh(next.absPath);
+    this.persistTabs();
+    this.renderTabs();
+
+    // The server still holds the old name as its current file. A live render
+    // of the buffer under the new one re-points it — and, unlike re-opening
+    // from disk, keeps whatever is unsaved on screen.
+    if (wasCurrentModel) {
+      this.host.scheduleLiveRender(next.absPath);
+    }
   }
 
   private async createFile(relPath: string): Promise<void> {

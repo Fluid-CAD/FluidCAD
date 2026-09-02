@@ -98,6 +98,12 @@ export class Breakpoints {
     collection.set(decorations);
   }
 
+  /** `absPath` is gone (renamed away): drop the dots that were drawn for it. */
+  forget(absPath: string): void {
+    this.collections.get(absPath)?.clear();
+    this.collections.delete(absPath);
+  }
+
   private refreshCurrent(): void {
     const model = this.editor?.getModel();
     const entry = model ? this.deps.models.findByModel(model) : undefined;

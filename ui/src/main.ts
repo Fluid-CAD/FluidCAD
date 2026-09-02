@@ -586,6 +586,8 @@ const topBar = new TopBar(container, {
     onActivate: (absPath) => void editorSurface?.activateTab(absPath),
     onClose: (absPath) => editorSurface?.closeTab(absPath),
     onAdd: (anchor) => editorSurface?.showQuickOpen(anchor),
+    onReorder: (absPaths) => editorSurface?.reorderTabs(absPaths),
+    onRename: (absPath, newBasename) => void editorSurface?.renameTab(absPath, newBasename),
   } : undefined,
   saveTheme: (theme) => savePreference('theme', theme),
   // The bar's Export dropdown picks ONE solid — its thumbnail is what makes

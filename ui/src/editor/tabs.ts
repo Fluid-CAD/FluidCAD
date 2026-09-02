@@ -1,6 +1,9 @@
-import { ICON_CUBE, ICON_FILE_CODE, ICON_CLOSE, ICON_ALERT_DOT, ICON_PLUS } from '../ui/icons';
+import { ICON_CUBE, ICON_FILE_CODE, ICON_CLOSE, ICON_ALERT_DOT, ICON_PLUS, ICON_PENCIL } from '../ui/icons';
 import { ToolbarScroller } from '../ui/navbar/toolbar-scroller';
 import type { FileKind } from './editor-api';
+import { TabReorder } from './tab-reorder';
+import { buildRenameField, editableNameOf, modelSuffixOf, renamedBasename } from './tab-rename';
+import { closeTabMenu, showTabMenu, type TabMenuItem } from './tab-menu';
 
 /**
  * The top bar's file tabs — the whole file-navigation surface, in place of a
@@ -16,6 +19,10 @@ import type { FileKind } from './editor-api';
  *   unmistakable: the scene belongs to it.
  * - `source` — a plain `.js` helper, `init.js`. Editor-only; activating it
  *   leaves the viewport showing whatever model is current.
+ *
+ * Tabs can be dragged into a new order ({@link TabReorder}) and renamed in
+ * place from their right-click menu — a rename is a rename of the file, and
+ * the strip only asks; the owner does it.
  *
  * No monaco import here, deliberately: the top bar is loaded on every page,
  * including the viewport-only hosts that never fetch the editor chunk.
@@ -35,17 +42,24 @@ export interface FileTabsHandlers {
   onClose?(absPath: string): void;
   /** The `+` button — the caller opens the quick-open popover under it. Absent: no `+`. */
   onAdd?(anchor: HTMLElement): void;
+  /** The tabs were dragged into a new order. Absent: tabs don't drag. */
+  onReorder?(absPaths: string[]): void;
+  /**
+   * The user renamed a tab: rename the file to `newBasename` (in its own
+   * folder). Absent: no Rename in the tab menu.
+   */
+  onRename?(absPath: string, newBasename: string): void;
 }
 
 type ModelType = 'Part' | 'Assembly';
 type ModelName = { stem: string; type: ModelType };
 
-/** Model suffixes and the type they announce, in match order. */
-const MODEL_SUFFIXES: ReadonlyArray<readonly [string, ModelType]> = [
-  ['.assembly.js', 'Assembly'],
-  ['.part.js', 'Part'],
-  ['.fluid.js', 'Part'],
-];
+/** The type a model suffix announces. */
+const MODEL_TYPES: Readonly<Record<string, ModelType>> = {
+  '.assembly.js': 'Assembly',
+  '.part.js': 'Part',
+  '.fluid.js': 'Part',
+};
 
 /** The assembly workbench's teal, worn by assembly tab icons. */
 const ASSEMBLY_ACCENT = '#12A8A8';
@@ -61,9 +75,18 @@ const TAB_BASE =
   'group relative flex items-center gap-2 h-full pl-3 pr-2 text-sm ' +
   'cursor-pointer select-none transition-colors shrink-0';
 
+/** An in-progress rename: which tab, and what the field holds so far. */
+type Renaming = {
+  absPath: string;
+  draft: string;
+  /** The field hasn't been shown yet — select its text when it first appears. */
+  fresh: boolean;
+};
+
 export class FileTabs {
   private readonly bar: HTMLDivElement;
   private readonly scroller: ToolbarScroller;
+  private readonly reorder: TabReorder;
   private readonly addButton: HTMLButtonElement;
   /** `?editor=0`: a plain file name, no tab or `+` affordances at all. */
   private readonly labelOnly: HTMLSpanElement;
@@ -71,6 +94,7 @@ export class FileTabs {
   private activePath: string | null = null;
   /** The model the scene belongs to — not necessarily the active tab. */
   private currentModelPath: string | null = null;
+  private renaming: Renaming | null = null;
 
   constructor(container: HTMLElement, private readonly handlers: FileTabsHandlers, tabsEnabled: boolean) {
     // `self-stretch` against the top bar's `items-center`, so full-height tabs
@@ -104,6 +128,9 @@ export class FileTabs {
       this.addButton = this.buildAddButton();
       this.bar.appendChild(this.labelOnly);
     }
+    this.reorder = new TabReorder(this.scroller.track, {
+      onReorder: (absPaths) => this.handlers.onReorder?.(absPaths),
+    });
 
     container.appendChild(this.bar);
   }
@@ -130,6 +157,20 @@ export class FileTabs {
     this.tabs = tabs;
     this.activePath = activePath;
     this.currentModelPath = currentModelPath;
+    // A rename outlives a re-render, but not its tab.
+    if (this.renaming && !tabs.some((tab) => tab.absPath === this.renaming!.absPath)) {
+      this.renaming = null;
+    }
+    this.render();
+  }
+
+  /** Put `absPath`'s label into edit mode — what the menu's Rename does. */
+  beginRename(absPath: string): void {
+    const tab = this.tabs.find((candidate) => candidate.absPath === absPath);
+    if (!tab || !this.handlers.onRename) {
+      return;
+    }
+    this.renaming = { absPath, draft: editableNameOf(FileTabs.basenameOf(tab)), fresh: true };
     this.render();
   }
 
@@ -144,16 +185,32 @@ export class FileTabs {
   }
 
   private render(): void {
+    closeTabMenu();
     this.scroller.track.replaceChildren();
+    let field: HTMLInputElement | null = null;
     for (const tab of this.tabs) {
-      this.scroller.track.appendChild(this.buildTab(tab));
+      const el = this.buildTab(tab);
+      this.scroller.track.appendChild(el);
+      field ??= el.querySelector<HTMLInputElement>('[data-rename-input]');
     }
     this.scroller.refresh();
+    if (field && this.renaming) {
+      // Focus after the field is in the document: a strip re-render mid-rename
+      // rebuilt it, and the caret must land back where typing continues.
+      field.focus();
+      if (this.renaming.fresh) {
+        field.select();
+        this.renaming.fresh = false;
+      } else {
+        field.setSelectionRange(field.value.length, field.value.length);
+      }
+    }
   }
 
   private buildTab(tab: FileTab): HTMLElement {
     const isActive = tab.absPath === this.activePath;
     const isCurrentModel = tab.absPath === this.currentModelPath;
+    const isRenaming = this.renaming?.absPath === tab.absPath;
 
     const el = document.createElement('div');
     el.className = `${TAB_BASE} ${
@@ -164,14 +221,34 @@ export class FileTabs {
     el.style.minWidth = `${TAB_MIN_WIDTH}px`;
     el.style.maxWidth = `${TAB_MAX_WIDTH}px`;
     el.title = tab.relPath;
-    el.addEventListener('click', () => this.handlers.onActivate(tab.absPath));
+    el.addEventListener('click', (event) => {
+      // The click that ends a drag is the drag's, and a click in the rename
+      // field is typing.
+      if (this.reorder.consumeClick() || (event.target as HTMLElement).closest('[data-rename-input]')) {
+        return;
+      }
+      this.handlers.onActivate(tab.absPath);
+    });
+    if (this.handlers.onReorder) {
+      this.reorder.attach(el, tab.absPath);
+    }
+    const menuItems = this.menuItemsFor(tab);
+    if (menuItems.length > 0) {
+      el.addEventListener('contextmenu', (event) => {
+        if ((event.target as HTMLElement).closest('[data-rename-input]')) {
+          return;
+        }
+        event.preventDefault();
+        showTabMenu(this.menuHost(), event, menuItems);
+      });
+    }
 
-    const basename = tab.relPath.split('/').pop() || tab.relPath;
+    const basename = FileTabs.basenameOf(tab);
     const model = FileTabs.splitModelName(basename);
     el.appendChild(FileTabs.buildIcon(tab, model, isCurrentModel));
-    el.appendChild(FileTabs.buildLabel(basename, model));
+    el.appendChild(isRenaming ? this.buildRenameField(tab, basename) : FileTabs.buildLabel(basename, model));
 
-    if (tab.dirty) {
+    if (tab.dirty && !isRenaming) {
       const dot = document.createElement('span');
       dot.className = 'shrink-0 text-warning [&>svg]:size-2';
       dot.title = 'Unsaved changes';
@@ -179,7 +256,7 @@ export class FileTabs {
       el.appendChild(dot);
     }
 
-    if (this.handlers.onClose) {
+    if (this.handlers.onClose && !isRenaming) {
       el.appendChild(this.buildCloseButton(tab, isActive));
     }
 
@@ -192,6 +269,51 @@ export class FileTabs {
     }
 
     return el;
+  }
+
+  /** The right-click menu's rows for `tab`; empty when the host offers neither action. */
+  private menuItemsFor(tab: FileTab): TabMenuItem[] {
+    const items: TabMenuItem[] = [];
+    if (this.handlers.onRename) {
+      items.push({ icon: ICON_PENCIL, label: 'Rename', onSelect: () => this.beginRename(tab.absPath) });
+    }
+    if (this.handlers.onClose) {
+      items.push({ icon: ICON_CLOSE, label: 'Close', onSelect: () => this.handlers.onClose?.(tab.absPath) });
+    }
+    return items;
+  }
+
+  /** Where the tab menu mounts: the viewer container, or the bar's parent before one exists. */
+  private menuHost(): HTMLElement {
+    return this.bar.closest<HTMLElement>('#fluidcad-viewer') ?? this.bar.parentElement ?? document.body;
+  }
+
+  private buildRenameField(tab: FileTab, basename: string): HTMLInputElement {
+    const renaming = this.renaming!;
+    const finish = () => {
+      if (this.renaming === renaming) {
+        this.renaming = null;
+      }
+    };
+    return buildRenameField(renaming.draft, {
+      onInput: (draft) => {
+        renaming.draft = draft;
+      },
+      onCommit: (typed) => {
+        finish();
+        const next = renamedBasename(basename, typed);
+        if (next) {
+          this.handlers.onRename?.(tab.absPath, next);
+        }
+        // Whether or not the name changed, the label comes back; a rename
+        // that goes through re-renders again with the new one.
+        this.render();
+      },
+      onCancel: () => {
+        finish();
+        this.render();
+      },
+    });
   }
 
   private buildCloseButton(tab: FileTab, isActive: boolean): HTMLButtonElement {
@@ -260,13 +382,13 @@ export class FileTabs {
     return label;
   }
 
+  private static basenameOf(tab: FileTab): string {
+    return tab.relPath.split('/').pop() || tab.relPath;
+  }
+
   /** `bracket.part.js` → `{ stem: 'bracket', type: 'Part' }`; null for anything else. */
   private static splitModelName(basename: string): ModelName | null {
-    for (const [suffix, type] of MODEL_SUFFIXES) {
-      if (basename.endsWith(suffix) && basename.length > suffix.length) {
-        return { stem: basename.slice(0, -suffix.length), type };
-      }
-    }
-    return null;
+    const suffix = modelSuffixOf(basename);
+    return suffix ? { stem: basename.slice(0, -suffix.length), type: MODEL_TYPES[suffix] } : null;
   }
 }

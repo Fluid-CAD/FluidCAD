@@ -321,8 +321,11 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
       }
 
       case 'midpoint': {
+        // Badge ON the constrained point: pushed off the carrier line in
+        // the line form; free-floating (flat allowance, like fix) between
+        // two points.
         const at = refPoint(model, spec.p);
-        badge('midpoint', at, entityFor(model, spec.l));
+        badge('midpoint', at, 'l' in spec ? entityFor(model, spec.l) : undefined);
         break;
       }
 

@@ -107,16 +107,17 @@ describe("constraint jacobians vs finite differences", () => {
     sys.constrain({ kind: "concentric", a: entityRef(circleA), b: entityRef(arcA) });
     sys.constrain({ kind: "collinear", a: entityRef(lineA), b: entityRef(lineC) });
     sys.constrain({ kind: "midpoint", p: entityRef(pA), l: entityRef(lineB) });
+    sys.constrain({ kind: "midpoint", p: entityRef(pB), a: end(lineC), b: center(circleA) });
     sys.constrain({ kind: "symmetric", a: entityRef(pA), b: entityRef(pB), l: entityRef(lineC) });
     sys.constrain({ kind: "fix", p: start(lineA) });
 
-    // 38 user constraint statements + 1 internal arc-consistency.
-    expect(sys.constraints().length).toBe(39);
+    // 39 user constraint statements + 1 internal arc-consistency.
+    expect(sys.constraints().length).toBe(40);
     // Row count: coincident 2+1+1+1, h/v 4×1, par/perp/angle 3×1,
     // tangent 4×1, distance 13×1, radius/diameter 3×1, equal 2×1,
-    // concentric 2, collinear 2, midpoint 2, symmetric 2, fix 2,
+    // concentric 2, collinear 2, midpoint 2+2, symmetric 2, fix 2,
     // arc-consistency 2.
-    expect(sys.compiled().rows.length).toBe(46);
+    expect(sys.compiled().rows.length).toBe(48);
     fdCheckRows(sys, [11, 29, 53], 0.25);
   });
 
@@ -158,5 +159,36 @@ describe("constraint jacobians vs finite differences", () => {
     // "above", the residual reads −(cy + r), not 0.
     p[compiled.paramCount - 2] = -3; // cy = −3
     expect(row.eval(p)).toBeCloseTo(-6, 12);
+  });
+});
+
+describe("midpoint forms", () => {
+  it("the point-pair form over a line's endpoints compiles the line form's rows", () => {
+    const sys = new SketchSystem();
+    const l = sys.line(1.2, -0.7, 8.9, 4.3);
+    const p1 = sys.point(3.3, 2.2);
+    const p2 = sys.point(-1.1, 0.4);
+    sys.constrain({ kind: "midpoint", p: entityRef(p1), l: entityRef(l) });
+    sys.constrain({ kind: "midpoint", p: entityRef(p2), a: start(l), b: end(l) });
+    const rows = sys.compiled().rows;
+    expect(rows.length).toBe(4);
+    const values = new Float64Array(sys.values);
+    // Move p2 onto p1: identical residuals row for row.
+    const [lineX, lineY, pairX, pairY] = rows;
+    values[pairX.params[0]] = values[lineX.params[0]];
+    values[pairY.params[0]] = values[lineY.params[0]];
+    expect(pairX.eval(values)).toBeCloseTo(lineX.eval(values), 12);
+    expect(pairY.eval(values)).toBeCloseTo(lineY.eval(values), 12);
+    expect(pairX.params.slice(1)).toEqual(lineX.params.slice(1));
+    expect(pairY.params.slice(1)).toEqual(lineY.params.slice(1));
+  });
+
+  it("refuses a line in a point slot with a pointed message", () => {
+    const sys = new SketchSystem();
+    const l1 = sys.line(0, 0, 10, 0);
+    const l2 = sys.line(0, 5, 10, 5);
+    const p = sys.point(5, 2);
+    expect(() => sys.constrain({ kind: "midpoint", p: entityRef(p), a: entityRef(l1), b: end(l2) }))
+      .toThrow(/midpoint first point: line entity 0 does not resolve to a point/);
   });
 });

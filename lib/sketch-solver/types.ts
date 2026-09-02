@@ -115,6 +115,9 @@ export type ConstraintSpec =
   | { kind: 'collinear'; a: SolverRef; b: SolverRef }
   /** Point p is the midpoint of line l (2). */
   | { kind: 'midpoint'; p: SolverRef; l: SolverRef }
+  /** Point p sits halfway between points a and b (2). Same rows as the
+   * line form with a/b standing in for the line's endpoints. */
+  | { kind: 'midpoint'; p: SolverRef; a: SolverRef; b: SolverRef }
   /** Points a and b mirror across line l (2). */
   | { kind: 'symmetric'; a: SolverRef; b: SolverRef; l: SolverRef }
   /**

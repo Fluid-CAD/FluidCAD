@@ -252,6 +252,27 @@ describe('constraint glyph layout', () => {
     expect(badge.refEntityIds).toEqual([0]);
   });
 
+  it('places the M badge on the constrained point for both midpoint forms', () => {
+    const objects = [
+      line(0, [0, 0], [100, 0]),
+      line(1, [20, 40], [50, 0]),
+      line(2, [0, 30], [80, 30]),
+      constraint('midpoint', 0, { kind: 'midpoint', p: { entity: 1, point: 'end' }, l: { entity: 0 } }),
+      constraint('midpoint', 1, { kind: 'midpoint', p: { entity: 1, point: 'start' }, a: { entity: 2, point: 'start' }, b: { entity: 0, point: 'end' } }),
+    ];
+    const { glyphs } = glyphsOf(objects);
+    const badges = glyphs.filter(g => g.type === 'badge') as any[];
+    expect(badges).toHaveLength(2);
+    expect(badges.map(b => b.label)).toEqual(['M', 'M']);
+    // Line form: on p, pushed off the carrier line.
+    expect(badges[0].at).toEqual([50, 0]);
+    expect(badges[0].refEntityIds).toEqual([1, 0]);
+    // Point-pair form: on p, no host entity — flat allowance (span 0 like
+    // a fix badge), all three referenced entities listed.
+    expect(badges[1].at).toEqual([20, 40]);
+    expect(badges[1].refEntityIds).toEqual([1, 2, 0]);
+  });
+
   it('places a point H/V badge ON each constrained point, offset off the alignment axis', () => {
     const objects = [
       line(0, [-103.6, 150], [-90, 90]),

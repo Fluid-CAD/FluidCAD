@@ -24,6 +24,23 @@ const EMPTY_SKETCH = [
 ].join('\n');
 
 describe('applySolvedEmission', () => {
+  it('renders a three-target midpoint (point-pair form) positionally', async () => {
+    const result = await applySolvedEmission(SKETCH, {
+      sketchLine: 4,
+      geometry: [{ kind: 'point', text: 'point([50, 25])' }],
+      constraints: [{
+        kind: 'midpoint',
+        targets: [
+          { newIndex: 0 },
+          { line: 5, role: 'start', featureType: 'line' },
+          { line: 6, role: 'end', featureType: 'line' },
+        ],
+      }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain('midpoint(p1, a.start(), l1.end());');
+  });
+
   it('inserts geometry BEFORE the first constraint statement, constraints at the body end', async () => {
     const result = await applySolvedEmission(SKETCH, {
       sketchLine: 4,

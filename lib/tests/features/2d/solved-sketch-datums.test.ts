@@ -171,8 +171,11 @@ describe("sketch datum misuse diagnostics", () => {
       const l = line([0, 0], [30, 0]);
       const p = point([5, 5]);
       fix(l.start());
+      fix(l.end());
       equal(l, xAxis());
       midpoint(p, yAxis());
+      midpoint(p, xAxis(), l.end());
+      midpoint(p, origin(), l.end());
     });
     const scene = render();
 
@@ -180,9 +183,16 @@ describe("sketch datum misuse diagnostics", () => {
     expect(eq.hasError).toBe(true);
     expect(eq.errorMessage).toContain('no length to equate');
 
-    const mid = renderedByUniqueType(scene, 'constraint-midpoint')[0];
-    expect(mid.hasError).toBe(true);
-    expect(mid.errorMessage).toContain('midpoint is undefined');
+    const mids = renderedByUniqueType(scene, 'constraint-midpoint');
+    expect(mids[0].hasError).toBe(true);
+    expect(mids[0].errorMessage).toContain('midpoint is undefined');
+    expect(mids[1].hasError).toBe(true);
+    expect(mids[1].errorMessage).toContain('is an infinite axis — it is not a point');
+    // The origin IS a point: halfway between it and a drawn vertex is fine.
+    expect(mids[2].hasError).toBe(false);
+    const pt = renderedByUniqueType(scene, 'solved-point')[0].object;
+    expect(pt.x).toBeCloseTo(15, 6);
+    expect(pt.y).toBeCloseTo(0, 6);
   });
 
   it("a self-referential datum coincident errors on the constraint, not the sketch", () => {

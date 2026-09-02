@@ -54,6 +54,7 @@ equal(a, b, ...more)  // equal length (lines) or equal radius (arcs/circles);
 concentric(a, b)      // arcs/circles share a center
 collinear(a, b)       // line along another line — or along xAxis()/yAxis()
 midpoint(p, l)        // point at the line's midpoint
+midpoint(p, a, b)     // point halfway between two points a and b
 symmetric(a, b, l)    // points a and b mirror across line (or axis) l
 fix(p)                // pin a point at its current guess coordinates
 fix(p, [x, y])        // pin a point at explicit coordinates

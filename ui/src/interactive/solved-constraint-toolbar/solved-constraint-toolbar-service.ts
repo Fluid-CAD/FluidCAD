@@ -51,6 +51,7 @@ import {
   inferTangency,
   isPointPick,
   measureDimension,
+  orderMidpointPicks,
   pickRef,
 } from './legality';
 import {
@@ -712,17 +713,31 @@ export class SolvedConstraintToolbarService {
       return;
     }
 
-    const spec = candidateSpec(id, this.picks);
+    const spec = candidateSpec(id, this.specPicks(id));
     if (!spec) {
       return;
     }
     await this.emit(id, this.orderedTargets(id), undefined, undefined);
   }
 
+  /** Picks in the order `candidateSpec` reads them: the three-point
+   * Midpoint form puts the constrained point (geometry decides which)
+   * first; every other kind reads the raw pick order. */
+  private specPicks(id: ConstraintButtonId): SolvedPick[] {
+    if (id === 'midpoint' && this.model) {
+      return orderMidpointPicks(this.model, this.picks);
+    }
+    return this.picks;
+  }
+
   /** Emission arg order per kind (the statement forms are positional):
-   * midpoint(point, line); symmetric(a, b, mirrorLine); rest keep pick order. */
+   * midpoint(point, line) / midpoint(point, a, b); symmetric(a, b,
+   * mirrorLine); rest keep pick order. */
   private orderedTargets(id: ConstraintButtonId): SolvedPick[] {
     if (id === 'midpoint') {
+      if (this.picks.length === 3) {
+        return this.specPicks(id);
+      }
       const point = this.picks.find(isPointPick)!;
       const line = this.picks.find(p => p !== point)!;
       return [point, line];
@@ -1043,7 +1058,7 @@ export class SolvedConstraintToolbarService {
       }
       value = form ? measureDimension(model, this.picks, form, undefined, sector) ?? undefined : undefined;
     }
-    const spec = candidateSpec(id, this.picks, value, undefined, sector);
+    const spec = candidateSpec(id, this.specPicks(id), value, undefined, sector);
     if (!spec) {
       return;
     }

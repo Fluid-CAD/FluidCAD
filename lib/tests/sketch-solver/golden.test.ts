@@ -291,3 +291,35 @@ describe("golden solves", () => {
     }
   });
 });
+
+describe("midpoint between two points", () => {
+  it("lands the point on the mean of two vertices from a rough guess", () => {
+    const sys = new SketchSystem();
+    const l1 = sys.line(0, 0, 10, 0);
+    const l2 = sys.line(4, 6, 12, 8);
+    const p = sys.point(30, -20);
+    for (const ref of [start(l1), end(l1), start(l2), end(l2)]) {
+      sys.constrain({ kind: "fix", p: ref });
+    }
+    sys.constrain({ kind: "midpoint", p: entityRef(p), a: end(l1), b: end(l2) });
+    perturb(sys, 0.5, 11);
+    expect(solve(sys).outcome).toBe("solved");
+    expectPoint(sys, entityRef(p), 11, 4);
+    expect(diagnose(sys).dof).toBe(0);
+  });
+
+  it("is symmetric in a and b and moves free endpoints too", () => {
+    const sys = new SketchSystem();
+    const l = sys.line(0, 0, 10, 0);
+    const c = sys.circle(3, 9, 2);
+    sys.constrain({ kind: "fix", p: start(l) });
+    sys.constrain({ kind: "fix", p: end(l) });
+    sys.constrain({ kind: "fix", p: center(c) });
+    // The line's end must be the midpoint of start→center: start is
+    // fixed, so the free center of a second circle takes the slack.
+    const c2 = sys.circle(0, 0, 1);
+    sys.constrain({ kind: "midpoint", p: end(l), a: center(c2), b: start(l) });
+    expect(solve(sys).outcome).toBe("solved");
+    expectPoint(sys, center(c2), 20, 0);
+  });
+});

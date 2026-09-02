@@ -10,6 +10,7 @@ import { diameterChord, distanceLeaderLayout } from '../../sketch-solver-client'
 import {
   Vec2,
   entityAnchor,
+  dist,
   entityFor,
   footOnLine,
   lineMid,
@@ -54,6 +55,44 @@ export function isDatumPick(p: SolvedPick): boolean {
  * constraint needs at least one free entity to act on. */
 export function isFixedPick(p: SolvedPick): boolean {
   return p.datum !== undefined || p.reference !== undefined;
+}
+
+/** Do two point picks name the same solver point? Compares the entity and
+ * the role — `l.start()` twice is one point, `l.start()` vs `l.end()` two. */
+export function samePointPick(a: SolvedPick, b: SolvedPick): boolean {
+  return a.entityId === b.entityId && (a.role ?? null) === (b.role ?? null);
+}
+
+function distinctPointPicks(picks: SolvedPick[]): boolean {
+  return picks.every((p, i) => picks.slice(i + 1).every(q => !samePointPick(p, q)));
+}
+
+/**
+ * Three point picks for the Midpoint button, reordered so the point that
+ * gets constrained comes first: the one nearest the mean of the other two
+ * (the user has usually roughed it in near the middle already), ties by
+ * pick order. Pick order never matters on this toolbar — geometry decides.
+ * Anything but three point picks passes through untouched.
+ */
+export function orderMidpointPicks(model: SolvedSketchModel, picks: SolvedPick[]): SolvedPick[] {
+  if (picks.length !== 3 || !picks.every(isPointPick)) {
+    return picks;
+  }
+  const at = picks.map(p => refPoint(model, pickRef(p)));
+  if (at.some(v => v === null)) {
+    return picks;
+  }
+  let best = 0;
+  let bestErr = Infinity;
+  for (let i = 0; i < 3; i++) {
+    const others = at.filter((_, k) => k !== i) as Vec2[];
+    const err = dist(at[i] as Vec2, mid(others[0], others[1]));
+    if (err < bestErr - 1e-12) {
+      best = i;
+      bestErr = err;
+    }
+  }
+  return [picks[best], ...picks.filter((_, k) => k !== best)];
 }
 
 function isAxisPick(p: SolvedPick): boolean {
@@ -167,7 +206,7 @@ const NEED = {
   equal: 'pick two or more lines, or two or more circles/arcs',
   concentric: 'pick two circles/arcs',
   collinear: 'pick two lines',
-  midpoint: 'pick a point and a line',
+  midpoint: 'pick a point and a line, or three points',
   symmetric: 'pick two points and their mirror line',
   fix: 'pick one point',
   dimension: 'pick two points/entities, one line, or one circle/arc',
@@ -224,6 +263,12 @@ function pairEnabled(id: ConstraintButtonId, picks: SolvedPick[]): boolean {
     case 'concentric':
       return picks.length === 2 && isRound(a) && isRound(b) && a.entityId !== b.entityId;
     case 'midpoint': {
+      // Point-pair form: three distinct points, the first (after the
+      // geometric reorder, see orderMidpointPicks) sits halfway between
+      // the other two.
+      if (picks.length === 3) {
+        return picks.every(isPointPick) && distinctPointPicks(picks);
+      }
       if (picks.length !== 2 || a.entityId === b.entityId) {
         return false;
       }
@@ -479,6 +524,11 @@ export function candidateSpec(
         ...(picks.length > 2 ? { others: picks.slice(2).map(pickRef) } : {}),
       };
     case 'midpoint': {
+      if (picks.length === 3) {
+        // Callers hand picks through orderMidpointPicks first: picks[0]
+        // is the constrained point.
+        return { kind: 'midpoint', p: pickRef(a), a: pickRef(b), b: pickRef(picks[2]) };
+      }
       const point = isPointPick(a) ? a : b;
       const line = point === a ? b : a;
       return { kind: 'midpoint', p: pickRef(point), l: pickRef(line) };

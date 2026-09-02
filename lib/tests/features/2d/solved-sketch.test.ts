@@ -5,7 +5,7 @@ import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import { line, circle, arc, point } from "../../../core/2d/index.js";
 import {
-  coincident, horizontal, vertical, fix, distance, tangent, radius, diameter, equal, parallel,
+  coincident, horizontal, vertical, fix, distance, tangent, radius, diameter, equal, parallel, midpoint,
 } from "../../../core/constraints/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { ExtrudeBase } from "../../../features/extrude-base.js";
@@ -291,6 +291,62 @@ describe("solved sketch (constraint mode)", () => {
     const pointPayload = renderedByUniqueType(scene, 'solved-point')[0].object;
     expect(pointPayload.x).toBeCloseTo(10, 6);
     expect(pointPayload.y).toBeCloseTo(0, 6);
+  });
+
+  it("midpoint(p, a, b) puts the point halfway between two vertices of different entities", () => {
+    const s = sketch('xy', () => {
+      const l1 = line([0, 0], [10, 0]);
+      const l2 = line([4, 6], [12, 8]);
+      fix(l1.start());
+      fix(l1.end());
+      fix(l2.start());
+      fix(l2.end());
+      const p = point([30, -20]);
+      midpoint(p, l1.end(), l2.end());
+    });
+    const scene = render();
+
+    const pointPayload = renderedByUniqueType(scene, 'solved-point')[0].object;
+    expect(pointPayload.x).toBeCloseTo(11, 6);
+    expect(pointPayload.y).toBeCloseTo(4, 6);
+    const payload = scene.getRenderedObject(s as unknown as SceneObject).object;
+    expect(payload.solver.dof).toBe(0);
+    expect(renderedByUniqueType(scene, 'constraint-midpoint')[0].hasError).toBe(false);
+  });
+
+  it("midpoint(c.center(), l.start(), l.end()) is the line form's twin", () => {
+    sketch('xy', () => {
+      const l = line([0, 0], [20, 0]);
+      fix(l.start());
+      fix(l.end());
+      const c = circle([3, 8], 4);
+      midpoint(c.center(), l.start(), l.end());
+    });
+    const scene = render();
+
+    const c = renderedByUniqueType(scene, 'solved-circle')[0].object;
+    expect(c.center.x).toBeCloseTo(10, 6);
+    expect(c.center.y).toBeCloseTo(0, 6);
+  });
+
+  it("midpoint(p, a, b) refuses degenerate point pairs and non-point slots on the statement", () => {
+    const s = sketch('xy', () => {
+      const l = line([0, 0], [20, 0]);
+      const l2 = line([0, 5], [20, 5]);
+      fix(l.start());
+      const p = point([3, 8]);
+      midpoint(p, l.start(), l.start());
+      midpoint(l.end(), l.start(), l.end());
+      midpoint(p, l, l2.end());
+    });
+    const scene = render();
+
+    const mids = renderedByUniqueType(scene, 'constraint-midpoint');
+    expect(mids.map(m => m.hasError)).toEqual([true, true, true]);
+    expect(mids[0].errorMessage).toContain('the two points are the same point');
+    expect(mids[1].errorMessage).toContain('would force them together');
+    expect(mids[2].errorMessage).toContain('does not resolve to a point');
+    expect(scene.getRenderedObject(s as unknown as SceneObject).hasError).toBe(false);
   });
 
   it("is statement-order agnostic: interleaved constraints solve identically", () => {

@@ -10,6 +10,7 @@ import {
   expandDimensionPicks,
   inferTangency,
   measureDimension,
+  orderMidpointPicks,
 } from '../src/interactive/solved-constraint-toolbar/legality';
 import { angleSectorAt } from '../src/interactive/solved-constraint-toolbar/angle-sector';
 import type { SolvedPick } from '../src/interactive/sketch-hover-select-handler';
@@ -55,6 +56,18 @@ describe('constraintOptions', () => {
     expect(enabledIds([endA, circleC])).toEqual(['coincident', 'dimension'].sort());
   });
 
+  it('three distinct points: midpoint (point-pair form) joins coincident-free H/V', () => {
+    const startA: SolvedPick = { entityId: 0, kind: 'line', role: 'start', sourceLocation: loc(5) };
+    expect(enabledIds([endA, startB, pointP])).toEqual(['horizontal', 'midpoint', 'vertical'].sort());
+    // Two picks naming the same solver point collapse the pair.
+    expect(enabledIds([endA, { ...endA }, pointP])).toEqual(['horizontal', 'vertical'].sort());
+    // Two points + a line is neither form.
+    expect(enabledIds([endA, startA, lineB]).includes('midpoint')).toBe(false);
+    // Any fixed point may take part as long as one pick is drawn geometry.
+    const origin: SolvedPick = { entityId: -1, kind: 'point', role: null, datum: 'origin' } as SolvedPick;
+    expect(enabledIds([origin, endA, pointP]).includes('midpoint')).toBe(true);
+  });
+
   it('line + circle: tangent, and dimension (gap to the circumference)', () => {
     expect(enabledIds([lineA, circleC])).toEqual(['dimension', 'tangent']);
     expect(enabledIds([circleC, arcD])).toEqual(
@@ -87,7 +100,7 @@ describe('constraintOptions', () => {
 
   it('three or more points: variadic horizontal/vertical (point form)', () => {
     const centerC: SolvedPick = { entityId: 2, kind: 'circle', role: 'center', sourceLocation: loc(7) };
-    expect(enabledIds([endA, startB, centerC])).toEqual(['horizontal', 'vertical']);
+    expect(enabledIds([endA, startB, centerC])).toEqual(['horizontal', 'midpoint', 'vertical']);
     // A line pick among the points breaks the point form.
     expect(enabledIds([endA, startB, lineB])).toContain('symmetric');
     expect(enabledIds([endA, startB, lineB])).not.toContain('horizontal');
@@ -480,6 +493,9 @@ describe('candidateSpec', () => {
       kind: 'coincident', a: { entity: 0, point: 'end' }, b: { entity: 1, point: 'start' },
     });
     expect(candidateSpec('horizontal', [lineA])).toEqual({ kind: 'horizontal', a: { entity: 0 } });
+    expect(candidateSpec('midpoint', [pointP, endA, startB])).toEqual({
+      kind: 'midpoint', p: { entity: 4 }, a: { entity: 0, point: 'end' }, b: { entity: 1, point: 'start' },
+    });
     expect(candidateSpec('midpoint', [lineB, endA])).toEqual({
       kind: 'midpoint', p: { entity: 0, point: 'end' }, l: { entity: 1 },
     });
@@ -518,5 +534,28 @@ describe('candidateSpec', () => {
     expect(candidateSpec('tangent', [lineA, lineB])).toBeNull();
     expect(candidateSpec('angle', [lineA, lineB])).toBeNull();
     expect(candidateSpec('angle', [lineA, lineB], 90)).toBeNull();
+  });
+});
+
+describe('orderMidpointPicks', () => {
+  // Model: line 0 from (0,0) to (10,0), line 1 from (10,0) to (10,8),
+  // circle 2 centered (30,0). The point nearest the mean of the other two
+  // leads, whatever the pick order.
+  const startA: SolvedPick = { entityId: 0, kind: 'line', role: 'start', sourceLocation: loc(5) };
+  const endB: SolvedPick = { entityId: 1, kind: 'line', role: 'end', sourceLocation: loc(6) };
+  const centerC: SolvedPick = { entityId: 2, kind: 'circle', role: 'center', sourceLocation: loc(7) };
+
+  it('puts the geometric middle point first regardless of pick order', () => {
+    // (0,0), (10,8), (30,0): (10,8) is nearest the mean of the other two (15,0).
+    expect(orderMidpointPicks(model, [startA, endB, centerC])).toEqual([endB, startA, centerC]);
+    expect(orderMidpointPicks(model, [centerC, startA, endB])).toEqual([endB, centerC, startA]);
+    expect(orderMidpointPicks(model, [endB, centerC, startA])).toEqual([endB, centerC, startA]);
+  });
+
+  it('breaks exact ties by pick order and passes other pick sets through', () => {
+    // (0,0), (10,0), (10,8) → means: (10,4)→(0,0) err 10.8; (5,4)→(10,0) err 6.4; (5,0)→(10,8) err 9.4.
+    expect(orderMidpointPicks(model, [startA, endA, endB])).toEqual([endA, startA, endB]);
+    expect(orderMidpointPicks(model, [endA, lineB])).toEqual([endA, lineB]);
+    expect(orderMidpointPicks(model, [startA, endA, lineB])).toEqual([startA, endA, lineB]);
   });
 });

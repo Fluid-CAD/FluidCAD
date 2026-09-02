@@ -183,15 +183,17 @@ Constrains line b to lie on the infinite line of a (2 dims). The first slot also
 ### midpoint()
 
 ```ts
-midpoint(p: ConstraintTarget, l: ConstraintTarget): SceneObject
+midpoint(p: ConstraintTarget, l: ConstraintTarget, b?: ConstraintTarget): SceneObject
 ```
 
-Constrains point p to be the midpoint of line l (2 dims).
+Constrains point p to be the midpoint of line l — or, with three
+arguments, to sit halfway between points a and b (2 dims either way).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `p` | [ConstraintTarget](#constraint-targets) | The point |
-| `l` | [ConstraintTarget](#constraint-targets) | The line |
+| `l` | [ConstraintTarget](#constraint-targets) | The line whose midpoint p takes; with b given, the first of the two points |
+| `b` | [ConstraintTarget](#constraint-targets) | The second point, for the point-pair form `midpoint(p, a, b)` *(optional)* |
 
 ---
 

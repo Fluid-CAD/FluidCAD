@@ -72,7 +72,8 @@ export type SolvedConstraintView = {
   kind: string;
   /** Resolved solver spec — glyph choice keys off `spec.kind`, which can
    * differ from the statement (`coincident(p, l.mid())` lowers to
-   * `midpoint`). */
+   * `midpoint`), and off its shape (`midpoint` carries `l` for the line
+   * form or `a`/`b` for the point-pair form). */
   spec: ConstraintSpec;
   /** Dimension value in display units (degrees for `angle`). */
   value?: number;

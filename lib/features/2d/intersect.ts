@@ -11,7 +11,8 @@ import { ExtrudableGeometryBase } from "./extrudable-base.js";
 import { SelectSceneObject } from "../select.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import {
-  ReferenceEntityRecord, ReferenceEntityRef, ReferencePointRef, registerReferenceEntities,
+  ReferenceEntityRecord, ReferenceEntityRef, ReferencePointRef, centerMetaVertices,
+  registerReferenceEntities,
 } from "./solved/reference.js";
 import { withUnit } from "../../units/registry.js";
 
@@ -113,6 +114,9 @@ export class Intersect extends ExtrudableGeometryBase {
     const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
     const allEdges = this._prepared!.edges;
     this.addShapes(allEdges);
+    for (const center of centerMetaVertices(allEdges)) {
+      this.addShape(center);
+    }
 
     // Section across multiple source faces yields an unordered edge set that
     // may form one connected chain, several disjoint chains, or closed loops.

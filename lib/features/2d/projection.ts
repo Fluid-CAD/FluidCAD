@@ -12,7 +12,8 @@ import { LazySelectionSceneObject } from "../lazy-scene-object.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import {
-  ReferenceEntityRecord, ReferenceEntityRef, ReferencePointRef, registerReferenceEntities,
+  ReferenceEntityRecord, ReferenceEntityRef, ReferencePointRef, centerMetaVertices,
+  registerReferenceEntities,
 } from "./solved/reference.js";
 import { withUnit } from "../../units/registry.js";
 
@@ -139,6 +140,9 @@ export class Projection extends ExtrudableGeometryBase {
     const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
     const uniqueEdges = this._prepared!.edges;
     this.addShapes(uniqueEdges);
+    for (const center of centerMetaVertices(uniqueEdges)) {
+      this.addShape(center);
+    }
 
     // Pen state stays a legacy concept — never written in a solved sketch.
     const endpoints = this._prepared!.endpoints;

@@ -82,6 +82,27 @@ export function registerReferenceEntities(
   return records;
 }
 
+/**
+ * Center meta vertices for the circle/arc members of a reference producer's
+ * output — the same dot a native circle()/arc() emits (a hover-only overlay
+ * would otherwise be the only sign of a projected bore's center). Meta
+ * shapes stay out of profiles and edge indexing, so the edgeIndex join of
+ * the records above is unaffected.
+ */
+export function centerMetaVertices(edges: Edge[]): Vertex[] {
+  const centers: Vertex[] = [];
+  for (const edge of edges) {
+    const props = EdgeProps.getProperties(edge.getShape());
+    if (props.curveType !== 'circle' && props.curveType !== 'arc') {
+      continue;
+    }
+    const vertex = Vertex.fromPoint(EdgeQuery.getCircleDataFromEdge(edge).center);
+    vertex.markAsMetaShape();
+    centers.push(vertex);
+  }
+  return centers;
+}
+
 /** The producer's label for error messages: `projection (line 5)`. */
 function labelOf(owner: ReferenceProducer): string {
   const loc = owner.getSourceLocation();

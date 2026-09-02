@@ -8,6 +8,9 @@ import { project } from "../../../core/2d/index.js";
 import { Extrude } from "../../../features/extrude.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { testRect } from "../../helpers/profiles.js";
+import { circle } from "../../../core/2d/index.js";
+import { Projection } from "../../../features/2d/projection.js";
+import { Vertex } from "../../../common/vertex.js";
 
 describe("project", () => {
   setupOC();
@@ -67,6 +70,31 @@ describe("project", () => {
       render();
 
       expect(s.getShapes().length).toBeGreaterThan(0);
+    });
+  });
+
+  describe("center meta vertices", () => {
+    it("emits a center vertex for a projected circle, like a native circle()", () => {
+      // A projected bore rendered without its center dot only revealed the
+      // center on hover — the meta vertex is what the sketch mesh draws.
+      sketch("xy", () => {
+        circle([10, 20], 30);
+      });
+      const e = extrude(15) as Extrude;
+
+      let p!: Projection;
+      sketch("xy", () => {
+        p = project(e.endFaces(0)) as Projection;
+      });
+      render();
+
+      const centers = p.getShapes({ excludeMeta: false, excludeGuide: false })
+        .filter(s => s.isVertex() && s.isMetaShape()) as Vertex[];
+      expect(centers.length).toBe(1);
+      expect(centers[0].toPoint().x).toBeCloseTo(10, 6);
+      expect(centers[0].toPoint().y).toBeCloseTo(20, 6);
+      // Profiles still see only the perimeter.
+      expect(p.getShapes().every(s => !s.isVertex())).toBe(true);
     });
   });
 });

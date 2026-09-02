@@ -4,8 +4,11 @@ import { fileURLToPath } from 'url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Shared by `pack` and `publish`: both resolve the entry `.fluid.js` the same
-// way and stamp the same fluidcad version onto the package.
+// Shared by `pack`, `publish` and `export`: all resolve the entry script the
+// same way and stamp the same fluidcad version onto the package.
+
+/** Script suffixes an entry can have — mirrors the server's file-kind table. */
+const SCRIPT_SUFFIXES = ['.part.js', '.assembly.js', '.fluid.js'];
 
 /** The installed fluidcad version (from the package's own package.json). */
 export function readPackageVersion() {
@@ -35,7 +38,7 @@ export function readWorkspacePackage(workspace) {
   }
 }
 
-/** Resolve the entry `.fluid.js`: the override if given, else the sole one. */
+/** Resolve the entry script: the override if given, else the sole one. */
 export function findEntry(workspace, override) {
   if (override) {
     const abs = resolve(workspace, override);
@@ -44,13 +47,14 @@ export function findEntry(workspace, override) {
     }
     return abs;
   }
-  const candidates = readdirSync(workspace).filter((f) => f.endsWith('.fluid.js'));
+  const candidates = readdirSync(workspace)
+    .filter((f) => SCRIPT_SUFFIXES.some((suffix) => f.endsWith(suffix)));
   if (candidates.length === 0) {
-    throw new Error('No .fluid.js files found in the workspace. Pass --entry to specify one.');
+    throw new Error('No .part.js, .assembly.js or .fluid.js files found in the workspace. Pass --entry to specify one.');
   }
   if (candidates.length > 1) {
     throw new Error(
-      `Multiple .fluid.js files found: ${candidates.join(', ')}. Pass --entry to choose one.`,
+      `Multiple model files found: ${candidates.join(', ')}. Pass --entry to choose one.`,
     );
   }
   return resolve(workspace, candidates[0]);

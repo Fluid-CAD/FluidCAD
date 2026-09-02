@@ -214,7 +214,7 @@ export function registerPublishCommand(program) {
     .command('publish')
     .description('Pack the current model and publish it to the FluidCAD hub')
     .option('-w, --workspace <path>', 'Workspace directory (defaults to cwd)')
-    .option('-e, --entry <file>', 'Entry .fluid.js file (auto-detected if only one exists)')
+    .option('-e, --entry <file>', 'Entry model file: .part.js, .assembly.js or .fluid.js (auto-detected if only one exists)')
     .option('-n, --name <name>', 'Model name (defaults to the package name)')
     .option('-d, --description <text>', 'Optional human description')
     .option('--new-model', 'Publish as a new model, ignoring any saved model id')

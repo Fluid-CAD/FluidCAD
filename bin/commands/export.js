@@ -81,7 +81,7 @@ export function registerExportCommand(program) {
 function withCommonOptions(command) {
   return command
     .option('-w, --workspace <path>', 'workspace directory (defaults to cwd)')
-    .option('-e, --entry <file>', 'entry .fluid.js file (auto-detected if only one exists)')
+    .option('-e, --entry <file>', 'entry model file: .part.js, .assembly.js or .fluid.js (auto-detected if only one exists)')
     .option('-o, --out <path>', 'output file (defaults to <entry>.<ext> in the current directory)')
     .option('-p, --port <port>', 'export from the running server on this port instead of discovering one')
     .option('--timeout <sec>', 'seconds to wait for the server to come up (and for a UI client, for png)', '60');
@@ -191,7 +191,7 @@ async function fetchShapes(ctx) {
   const result = await getJson(ctx.port, '/api/scene/shapes');
   if (result.status === 404) {
     throw new Error(
-      `The server on port ${ctx.port} has not rendered a model yet — open a .fluid.js file in it first.`,
+      `The server on port ${ctx.port} has not rendered a model yet — open a model file in it first.`,
     );
   }
   if (!result.ok) {

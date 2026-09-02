@@ -8,7 +8,7 @@ import { isFluidScriptFile } from './file-kind';
 /**
  * "New project" from the start screen: the user picks an empty folder and the
  * shell runs `fluidcad init` inside it — the same scaffold `npx fluidcad init`
- * produces on the command line (`init.js`, `test.fluid.js`, `jsconfig.json`,
+ * produces on the command line (`init.js`, `box.part.js`, `jsconfig.json`,
  * and a `fluidcad.json` pin).
  *
  * The CLI comes from the engine that ships with the app: it is the engine an

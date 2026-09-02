@@ -37,9 +37,9 @@ async function runPack(opts) {
 export function registerPackCommand(program) {
   program
     .command('pack')
-    .description('Package a .fluid.js model into a shareable .fluidpkg archive')
+    .description('Package a model into a shareable .fluidpkg archive')
     .option('-w, --workspace <path>', 'Workspace directory (defaults to cwd)')
-    .option('-e, --entry <file>', 'Entry .fluid.js file (auto-detected if only one exists)')
+    .option('-e, --entry <file>', 'Entry model file: .part.js, .assembly.js or .fluid.js (auto-detected if only one exists)')
     .option('-o, --out <path>', 'Output path (defaults to <entry-basename>.fluidpkg in the workspace)')
     .option('-n, --name <name>', 'Package name (defaults to the entry file basename)')
     .option('-d, --description <text>', 'Optional human description')

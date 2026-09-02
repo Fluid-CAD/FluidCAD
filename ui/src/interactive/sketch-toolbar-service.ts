@@ -854,7 +854,7 @@ export class SketchToolbarService {
     };
     this.activeHoverSelectHandler.onConstraintPick = (pick) => {
       if (pick.sourceLocation) {
-        gotoSource(pick.sourceLocation);
+        gotoSource(pick.sourceLocation, { revealEditor: false });
       }
       this.solvedToolbar.noteConstraintPick(pick);
       this.onConstraintPick?.(pick);

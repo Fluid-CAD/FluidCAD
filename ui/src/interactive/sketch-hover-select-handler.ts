@@ -85,7 +85,8 @@ export class SketchHoverSelectHandler {
   onSelectionChange?: () => void;
 
   /** Fired when a solved-sketch constraint badge/dimension is clicked —
-   * selecting the constraint statement (goto-source, timeline flash). */
+   * selecting the constraint statement (timeline flash, passive goto-source
+   * that never pops the in-page editor open). */
   onConstraintPick?: (pick: { objId?: string; sourceLocation?: SourceLocation }) => void;
 
   /** Fired when a badge/dimension glyph is double-clicked — the dimensional

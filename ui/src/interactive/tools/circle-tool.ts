@@ -19,7 +19,7 @@ import {
   addDot,
   addDashedCircle,
 } from './tool-preview-utils';
-import { coincident, newTarget, refTarget, type SolvedConstraintParam } from './solved-emission';
+import { coincident, inferred, newTarget, refTarget, type SolvedConstraintParam } from './solved-emission';
 import type { SolvedVertexRef } from '../../snapping/types';
 
 export class CircleTool extends SketchTool {
@@ -224,7 +224,7 @@ export class CircleTool extends SketchTool {
     if (this.solvedCtx) {
       const constraints: SolvedConstraintParam[] = [];
       if (this.centerSnapRef && this.autoConstraintsEnabled()) {
-        constraints.push(coincident(newTarget(0, 'center'), refTarget(this.centerSnapRef)));
+        constraints.push(inferred(coincident(newTarget(0, 'center'), refTarget(this.centerSnapRef))));
       }
       if (typed) {
         constraints.push({ kind: 'diameter', targets: [{ newIndex: 0 }], valueExpr: expression });

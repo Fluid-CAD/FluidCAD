@@ -6,13 +6,14 @@
 // write-back rounds to 2dp anyway (see phase1.md's cross-engine float
 // caveat).
 
-import { SketchSystem, solve } from '../../../lib/sketch-solver/index.js';
+import { SketchSystem, diagnose, solve } from '../../../lib/sketch-solver/index.js';
 import { MM_PER_UNIT } from '../units/units';
 import { sceneUnit } from '../units/scene-unit';
 import type {
   ConstraintSpec,
   DragPoint,
   EntityKind,
+  SketchDiagnostics,
   SketchSolverSystem,
   SolveOutcome,
   SolverRef,
@@ -134,6 +135,43 @@ export class LiveSolvedSystem {
    * specs — callers surface that as "not applicable". */
   constrain(spec: ConstraintSpec): void {
     this.system.constrain(spec);
+  }
+
+  /**
+   * Add a free entity to THIS instance — an emission's not-yet-written
+   * geometry, for the redundancy trial that runs before the statement lands.
+   * `params` use the solver layout (point [x,y]; line [sx,sy,ex,ey]; circle
+   * [cx,cy,r]; arc [cx,cy,r,sx,sy,ex,ey]). Existing solved values are kept;
+   * the new slots start at the given params. Returns the entity id.
+   */
+  addEntity(kind: EntityKind, params: number[]): number {
+    if (params.length !== PARAM_COUNT[kind]) {
+      throw new Error(`LiveSolvedSystem: ${kind} takes ${PARAM_COUNT[kind]} params, got ${params.length}`);
+    }
+    let id: number;
+    switch (kind) {
+      case 'point':
+        id = this.system.point(params[0], params[1]);
+        break;
+      case 'line':
+        id = this.system.line(params[0], params[1], params[2], params[3]);
+        break;
+      case 'circle':
+        id = this.system.circle(params[0], params[1], params[2]);
+        break;
+      case 'arc':
+        id = this.system.arc(params[0], params[1], params[3], params[4], params[5], params[6]);
+        break;
+    }
+    this.kinds.set(id, kind);
+    this.system.invalidateCompile();
+    return id;
+  }
+
+  /** Diagnostics at the current params (DOF, redundant/conflicting rows) —
+   * run after solve(), like the kernel does. */
+  diagnose(): SketchDiagnostics {
+    return diagnose(this.system, { lengthScale: this.lengthScale() });
   }
 
   /** Reset every param back to the snapshot's solved values. */

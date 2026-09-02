@@ -167,10 +167,12 @@ describe('rect tool snap coincidents', () => {
     expect(constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'start' }, { line: 5, role: 'start', featureType: 'line' }],
+      inferred: true,
     });
     expect(constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 2, role: 'start' }, { line: 9, role: 'center', featureType: 'circle' }],
+      inferred: true,
     });
   });
 

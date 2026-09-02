@@ -26,7 +26,7 @@ import {
   centerFromChordAndRadius,
 } from './tool-preview-utils';
 import { pixelsToWorld } from '../../meshes/screen-scale';
-import { coincident, newTarget, refTarget, sameVertexRef, type SolvedConstraintParam } from './solved-emission';
+import { coincident, inferred, newTarget, refTarget, sameVertexRef, type SolvedConstraintParam } from './solved-emission';
 
 const enum State {
   IDLE,
@@ -405,11 +405,11 @@ export class ThreePointArcTool extends SketchTool {
       const constraints: SolvedConstraintParam[] = [];
       if (this.autoConstraintsEnabled()) {
         if (this.startSnapRef) {
-          constraints.push(coincident(newTarget(0, 'start'), refTarget(this.startSnapRef)));
+          constraints.push(inferred(coincident(newTarget(0, 'start'), refTarget(this.startSnapRef))));
         }
         if (this.endSnapRef
           && !(this.startSnapRef && sameVertexRef(this.endSnapRef, this.startSnapRef))) {
-          constraints.push(coincident(newTarget(0, 'end'), refTarget(this.endSnapRef)));
+          constraints.push(inferred(coincident(newTarget(0, 'end'), refTarget(this.endSnapRef))));
         }
       }
       void this.solvedCtx.emit({

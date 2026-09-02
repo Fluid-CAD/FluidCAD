@@ -54,6 +54,7 @@ describe('slot tool snap coincidents', () => {
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 3, role: 'center' }, { line: 7, role: 'end', featureType: 'line' }],
+      inferred: true,
     });
   });
 
@@ -73,6 +74,7 @@ describe('slot tool snap coincidents', () => {
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 1, role: 'center' }, { line: 9, role: 'center', featureType: 'circle' }],
+      inferred: true,
     });
   });
 
@@ -131,10 +133,12 @@ describe('slot tool axis-datum snaps', () => {
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 3, role: 'center' }, { datum: 'x-axis' }],
+      inferred: true,
     });
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 1, role: 'center' }, { datum: 'x-axis' }],
+      inferred: true,
     });
   });
 });

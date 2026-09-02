@@ -54,10 +54,12 @@ describe('three-point arc snap coincidents', () => {
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'start' }, { line: 7, role: 'end', featureType: 'line' }],
+      inferred: true,
     });
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'end' }, { line: 9, role: 'start', featureType: 'line' }],
+      inferred: true,
     });
   });
 
@@ -74,10 +76,12 @@ describe('three-point arc snap coincidents', () => {
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'start' }, { datum: 'x-axis' }],
+      inferred: true,
     });
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'end' }, { datum: 'x-axis' }],
+      inferred: true,
     });
   });
 

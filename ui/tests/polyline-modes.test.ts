@@ -130,7 +130,7 @@ describe('LineMode H/V auto-snap', () => {
 
     expect(emitted).toHaveLength(1);
     expect(emitted[0].text).toBe('line([0, 0], [100, 0])');
-    expect(emitted[0].constraints).toEqual([{ kind: 'horizontal', targets: [{ newIndex: 0 }] }]);
+    expect(emitted[0].constraints).toEqual([{ kind: 'horizontal', targets: [{ newIndex: 0 }], inferred: true }]);
     expect(result.kind).toBe('committed');
     if (result.kind === 'committed') {
       expect(result.result.endpoint).toEqual([100, 0]);
@@ -158,7 +158,7 @@ describe('LineMode H/V auto-snap', () => {
     const result = mode.handleClick([1, -50], SNAP, ctx);
 
     expect(emitted[0].text).toBe('line([0, 0], [0, -50])');
-    expect(emitted[0].constraints).toEqual([{ kind: 'vertical', targets: [{ newIndex: 0 }] }]);
+    expect(emitted[0].constraints).toEqual([{ kind: 'vertical', targets: [{ newIndex: 0 }], inferred: true }]);
     if (result.kind === 'committed') {
       expect(result.result.endpoint).toEqual([0, -50]);
       expect(result.result.exitTangent?.direction).toEqual([0, -1]);
@@ -212,7 +212,8 @@ describe('LineMode H/V auto-snap', () => {
     expect(emitted).toHaveLength(1);
     expect(emitted[0].text).toBe('line([0, 0], [50, 0])');
     expect(emitted[0].constraints).toEqual([
-      { kind: 'horizontal', targets: [{ newIndex: 0 }] },
+      // The auto-ortho row is inference; the typed dimension is explicit.
+      { kind: 'horizontal', targets: [{ newIndex: 0 }], inferred: true },
       {
         kind: 'distance',
         targets: [{ newIndex: 0, role: 'start' }, { newIndex: 0, role: 'end' }],
@@ -649,6 +650,7 @@ describe('PolylineTool end-snap coincident', () => {
         { newIndex: 0, role: 'end' },
         { line: 12, role: 'end', featureType: 'line' },
       ],
+      inferred: true,
     });
   });
 
@@ -694,7 +696,7 @@ describe('PolylineTool axis-datum end snaps', () => {
     return tool;
   }
 
-  it('chain start and end both on the x axis get two coincidents, implied H dropped', async () => {
+  it('chain start and end both on the x axis get two inferred coincidents; the H rides through for the trial', async () => {
     const emitted: any[] = [];
     const tool = makeEmitTool(emitted);
     tool.solvedStartRef = { datum: 'x-axis' };
@@ -712,11 +714,15 @@ describe('PolylineTool axis-datum end snaps', () => {
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'start' }, { datum: 'x-axis' }],
+      inferred: true,
     });
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'end' }, { datum: 'x-axis' }],
+      inferred: true,
     });
-    expect(emitted[0].constraints.filter((c: any) => c.kind === 'horizontal')).toHaveLength(0);
+    // The tool passes the mode's H through untouched — the emission rail's
+    // redundancy trial (emission-redundancy) is where it gets dropped.
+    expect(emitted[0].constraints).toContainEqual({ kind: 'horizontal', targets: [{ newIndex: 0 }] });
   });
 });

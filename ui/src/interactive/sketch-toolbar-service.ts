@@ -20,7 +20,8 @@ import {
   insertGeometry, insertSolvedGeometry, addGuide, removeGuide, getScopeVariables, gotoSource,
   FeatureEditTarget, ParsedFeatureStatement,
 } from '../api';
-import type { SolvedToolContext } from './tools/solved-emission';
+import type { SolvedEmissionRequest, SolvedEmitResult, SolvedToolContext } from './tools/solved-emission';
+import { pendingEmissionOf, pruneRedundantInferred, type PendingEmission } from './tools/emission-redundancy';
 import { findActiveObject } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData, SourceLocation } from '../types';
 import { Viewer } from '../viewer';
@@ -95,6 +96,11 @@ export class SketchToolbarService {
    * emission — used until the next render refreshes activeSketchInfo, so a
    * rapid drawing chain can't target a line that an added import shifted. */
   private solvedEmitSketchLine: number | null = null;
+  /** Solved emissions the render hasn't caught up with — geometry keyed by
+   * the lines they landed on, so a rapid chain's redundancy trial can still
+   * see its predecessors. Cleared by every fresh payload (update()), and
+   * whenever an edit may have shifted earlier lines. */
+  private pendingEmissions: PendingEmission[] = [];
   private activeDrawingTool: SketchTool | null = null;
   /** Solver-driven drag (P4). */
   private activeSolvedDragHandler: SolvedDragHandler | null = null;
@@ -189,26 +195,7 @@ export class SketchToolbarService {
       model: () => this.activeSketchInfo
         ? buildSolvedSketchModel(this.activeSketchInfo.sketchObj, this.viewer.currentSceneObjects)
         : null,
-      emit: async (request) => {
-        const info = this.activeSketchInfo;
-        if (!info) {
-          return { success: false, reason: 'no active sketch' };
-        }
-        const result = await insertSolvedGeometry({
-          sketchLine: this.solvedEmitSketchLine ?? info.sourceLocation.line,
-          filePath: info.sourceLocation.filePath,
-          geometry: request.geometry,
-          constraints: request.constraints,
-          ...(request.newVariables && request.newVariables.length > 0
-            ? { newVariables: request.newVariables } : {}),
-          ...(request.removals && request.removals.length > 0
-            ? { removals: request.removals } : {}),
-        });
-        if (result.success && result.sketchLine !== undefined) {
-          this.solvedEmitSketchLine = result.sketchLine;
-        }
-        return result;
-      },
+      emit: (request) => this.emitSolved(request, { guide: false, toast: false }),
     };
     this.filletOp = new SketchOpService(container, {
       feature: 'fillet', title: 'Fillet', pickHint: 'Pick sketch edges to fillet',
@@ -480,6 +467,7 @@ export class SketchToolbarService {
       };
       // The fresh payload's sourceLocation is authoritative again.
       this.solvedEmitSketchLine = null;
+      this.pendingEmissions = [];
 
       if (!this.toolbar.isVisible) {
         this.toolbar.show();
@@ -572,6 +560,7 @@ export class SketchToolbarService {
       this.dofStatus.update({ result: 'hidden' });
       this.activeSketchInfo = null;
       this.solvedEmitSketchLine = null;
+      this.pendingEmissions = [];
       if (this.keepToolbar) {
         // A create-feature dialog launched from this sketch has suspended
         // editing to pick in the free 3D view — keep (or restore, when a
@@ -709,33 +698,7 @@ export class SketchToolbarService {
     const solved = this.activeSketchInfo && isSolvedSketch(this.activeSketchInfo.sketchObj);
     const solvedCtx: SolvedToolContext | null = solved
       ? {
-        emit: async (request) => {
-          const info = this.activeSketchInfo;
-          if (!info) {
-            return { success: false, reason: 'no active sketch' };
-          }
-          const result = await insertSolvedGeometry({
-            // Emissions can outpace the render: an added import shifts the
-            // sketch statement, and the route reports where it landed. The
-            // override is cleared by every fresh payload (update()).
-            sketchLine: this.solvedEmitSketchLine ?? info.sourceLocation.line,
-            filePath: info.sourceLocation.filePath,
-            geometry: this.toolbar.guideModeChecked
-              ? request.geometry.map(g => ({ ...g, guide: true }))
-              : request.geometry,
-            constraints: request.constraints,
-            ...(request.newVariables && request.newVariables.length > 0
-              ? { newVariables: request.newVariables } : {}),
-            ...(request.removals && request.removals.length > 0
-              ? { removals: request.removals } : {}),
-          });
-          if (!result.success) {
-            this.showOpMessage(result.reason ?? 'the sketch edit was refused');
-          } else if (result.sketchLine !== undefined) {
-            this.solvedEmitSketchLine = result.sketchLine;
-          }
-          return result;
-        },
+        emit: (request) => this.emitSolved(request, { guide: this.toolbar.guideModeChecked, toast: true }),
         autoConstraints: () => this.autoConstraints,
       }
       : null;
@@ -864,6 +827,66 @@ export class SketchToolbarService {
     };
     this.activeHoverSelectHandler.updateSceneData(this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!);
     this.activeHoverSelectHandler.activate();
+  }
+
+  /**
+   * The one path every solved emission takes to the insert-solved rail
+   * (drawing tools, shape gestures, the constraint-native fillet). Before
+   * the statement is written, the emission's INFERRED constraints go
+   * through the redundancy trial against the live solver rebuild — an
+   * inferred row the sketch already enforces (a vertical between two
+   * vertices a rectangle stacks, a horizontal with both ends on the x
+   * axis, a snap onto a vertex the chain junction ties) never reaches
+   * the source. Explicit constraints always land.
+   */
+  private async emitSolved(
+    request: SolvedEmissionRequest,
+    opts: { guide: boolean; toast: boolean },
+  ): Promise<SolvedEmitResult> {
+    const info = this.activeSketchInfo;
+    if (!info) {
+      return { success: false, reason: 'no active sketch' };
+    }
+    const model = buildSolvedSketchModel(info.sketchObj, this.viewer.currentSceneObjects);
+    const { constraints } = pruneRedundantInferred(model, request, this.pendingEmissions);
+    // Emissions can outpace the render: an added import shifts the sketch
+    // statement, and the route reports where it landed. The override is
+    // cleared by every fresh payload (update()).
+    const sketchLine = this.solvedEmitSketchLine ?? info.sourceLocation.line;
+    // The guide latch applies per geometry entry — never to a constraint.
+    const geometry = opts.guide ? request.geometry.map(g => ({ ...g, guide: true })) : request.geometry;
+    const result = await insertSolvedGeometry({
+      sketchLine,
+      filePath: info.sourceLocation.filePath,
+      geometry,
+      constraints,
+      ...(request.newVariables && request.newVariables.length > 0
+        ? { newVariables: request.newVariables } : {}),
+      ...(request.removals && request.removals.length > 0
+        ? { removals: request.removals } : {}),
+    });
+    if (!result.success) {
+      if (opts.toast) {
+        this.showOpMessage(result.reason ?? 'the sketch edit was refused');
+      }
+      return result;
+    }
+    if (result.sketchLine !== undefined) {
+      this.solvedEmitSketchLine = result.sketchLine;
+    }
+    // Remember what just landed for the next trial — unless this edit may
+    // have moved earlier statements (a hoisted declaration, a removal, an
+    // import shift), in which case the earlier records' lines are stale.
+    const shifted = (request.newVariables?.length ?? 0) > 0
+      || (request.removals?.length ?? 0) > 0
+      || (result.sketchLine !== undefined && result.sketchLine !== sketchLine);
+    if (shifted) {
+      this.pendingEmissions = [];
+    }
+    if (result.geometryLines) {
+      this.pendingEmissions.push(pendingEmissionOf({ geometry, constraints }, result.geometryLines));
+    }
+    return result;
   }
 
   private deactivateDragHandler(): void {

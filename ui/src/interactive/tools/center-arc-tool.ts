@@ -24,7 +24,7 @@ import {
   angleFromCenter,
   pointOnCircle,
 } from './tool-preview-utils';
-import { coincident, newTarget, refTarget, sameVertexRef, type SolvedConstraintParam } from './solved-emission';
+import { coincident, inferred, newTarget, refTarget, sameVertexRef, type SolvedConstraintParam } from './solved-emission';
 
 const TWO_PI = Math.PI * 2;
 /** A full turn would put the arc's end back on its start, which the
@@ -404,13 +404,13 @@ export class CenterArcTool extends SketchTool {
       const constraints: SolvedConstraintParam[] = [];
       if (this.autoConstraintsEnabled()) {
         if (this.centerSnapRef) {
-          constraints.push(coincident(newTarget(0, 'center'), refTarget(this.centerSnapRef)));
+          constraints.push(inferred(coincident(newTarget(0, 'center'), refTarget(this.centerSnapRef))));
         }
         if (this.startSnapRef) {
-          constraints.push(coincident(newTarget(0, 'start'), refTarget(this.startSnapRef)));
+          constraints.push(inferred(coincident(newTarget(0, 'start'), refTarget(this.startSnapRef))));
         }
         if (endRef && !(this.startSnapRef && sameVertexRef(endRef, this.startSnapRef))) {
-          constraints.push(coincident(newTarget(0, 'end'), refTarget(endRef)));
+          constraints.push(inferred(coincident(newTarget(0, 'end'), refTarget(endRef))));
         }
       }
       void this.solvedCtx.emit({

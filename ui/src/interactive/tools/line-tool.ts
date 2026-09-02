@@ -22,8 +22,9 @@ import { classifyDelta, orthoEffectiveEnd, LineDirection } from './ortho-snap';
 import {
   coincident,
   dimMagnitude,
-  dropImpliedAxisOrtho,
   emittedPointOnSnap,
+  inferred,
+  inferredOrtho,
   newTarget,
   refTarget,
   sameVertexRef,
@@ -309,7 +310,7 @@ export class LineTool extends SketchTool {
         ? [start[0] + resolvedDist, start[1]]
         : [start[0], start[1] + resolvedDist];
       const constraints: SolvedConstraintParam[] = this.autoConstraintsEnabled()
-        ? [{ kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] }]
+        ? [inferredOrtho(isHorizontal ? 'horizontal' : 'vertical')]
         : [];
       // Only a TYPED value becomes a dimension; a click merely commits the
       // pill's mouse-tracked value.
@@ -356,7 +357,7 @@ export class LineTool extends SketchTool {
         // drafting aid, as in legacy sketches) but the H/V stays unwritten.
         this.emitSolvedLine(start, effectiveEnd, stillSnapped ? this.lastSnapRef : null,
           this.autoConstraintsEnabled()
-            ? [{ kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] }]
+            ? [inferredOrtho(isHorizontal ? 'horizontal' : 'vertical')]
             : []);
       }
     }
@@ -364,7 +365,9 @@ export class LineTool extends SketchTool {
 
   /** Solved emission for one line: geometry + the given constraints, plus
    * the start/end snap coincidents (Ctrl and the Auto-constraints toggle
-   * suppress inference). */
+   * suppress inference). Inferred rows are marked for the emission rail's
+   * redundancy trial — a vertical between two vertices the sketch already
+   * stacks, or with both ends on one axis, never reaches the source. */
   private emitSolvedLine(
     start: PickedPoint,
     end: [number, number],
@@ -375,17 +378,15 @@ export class LineTool extends SketchTool {
     const infer = this.autoConstraintsEnabled();
     const all: SolvedConstraintParam[] = [];
     if (this.startSnapRef && infer) {
-      all.push(coincident(newTarget(0, 'start'), refTarget(this.startSnapRef)));
+      all.push(inferred(coincident(newTarget(0, 'start'), refTarget(this.startSnapRef))));
     }
     const keptEndRef = endRef && infer && !this.ctrlHeld
       && !(this.startSnapRef && sameVertexRef(endRef, this.startSnapRef))
       ? endRef : null;
     if (keptEndRef) {
-      all.push(coincident(newTarget(0, 'end'), refTarget(keptEndRef)));
+      all.push(inferred(coincident(newTarget(0, 'end'), refTarget(keptEndRef))));
     }
-    // Both endpoints pinned onto one axis imply the line's H/V — the
-    // inferred ortho constraint would only be a redundant row.
-    all.push(...dropImpliedAxisOrtho(constraints, this.startSnapRef, keptEndRef));
+    all.push(...constraints);
     void this.solvedCtx!.emit({
       geometry: [{
         kind: 'line',

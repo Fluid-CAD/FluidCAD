@@ -8,14 +8,26 @@
 // against the statement-time values (P4 gotcha).
 
 import type {
-  SolvedConstraintParam,
+  SolvedConstraintParam as WireConstraintParam,
   SolvedEmissionTargetParam,
   SolvedGeometryParam,
 } from '../../api';
 import type { SolvedVertexRef } from '../../snapping/types';
 import type { NewVariable, PickedPoint } from '../sketch-tool';
 
-export type { SolvedConstraintParam, SolvedEmissionTargetParam, SolvedGeometryParam };
+export type { SolvedEmissionTargetParam, SolvedGeometryParam };
+
+/**
+ * A constraint as a tool emits it: the wire shape plus the INFERRED mark.
+ * Inferred constraints are the ones a gesture implied rather than stated —
+ * snap coincidents, the auto-ortho horizontal/vertical — and are the only
+ * ones the emission rail may drop when a trial solve shows the sketch
+ * already enforces them (emission-redundancy.ts). Explicit constraints
+ * (typed dimensions, chain junctions, shape recipes, tangent/angle modes)
+ * never carry the mark and always land. The mark is stripped before the
+ * request goes on the wire.
+ */
+export type SolvedConstraintParam = WireConstraintParam & { inferred?: boolean };
 
 export type SolvedEmitResult = {
   success: boolean;
@@ -122,6 +134,16 @@ export function coincident(
   return { kind: 'coincident', targets: [a, b] };
 }
 
+/** Mark a constraint as gesture-inferred (see SolvedConstraintParam). */
+export function inferred(c: SolvedConstraintParam): SolvedConstraintParam {
+  return { ...c, inferred: true };
+}
+
+/** The inferred auto-ortho constraint on a new line at `newIndex`. */
+export function inferredOrtho(kind: 'horizontal' | 'vertical', newIndex = 0): SolvedConstraintParam {
+  return inferred({ kind, targets: [newTarget(newIndex)] });
+}
+
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 /**
@@ -170,26 +192,6 @@ export function sameVertexRef(a: SolvedVertexRef, b: SolvedVertexRef): boolean {
   return a.line === b.line && a.occurrence === b.occurrence
     && a.role === b.role && a.pointIndex === b.pointIndex
     && a.refIndex === b.refIndex && a.instanceIndex === b.instanceIndex;
-}
-
-/**
- * When BOTH endpoints of a new line are pinned onto the same axis datum,
- * the line's horizontality/verticality is implied — an inferred
- * horizontal/vertical on top would only add a redundant row. Returns the
- * constraint list with the implied kind filtered out, or the list untouched.
- */
-export function dropImpliedAxisOrtho(
-  constraints: SolvedConstraintParam[],
-  startRef: SolvedVertexRef | null,
-  endRef: SolvedVertexRef | null,
-): SolvedConstraintParam[] {
-  const axis = startRef?.datum !== undefined && startRef.datum !== 'origin'
-    && endRef?.datum === startRef.datum ? startRef.datum : null;
-  if (!axis) {
-    return constraints;
-  }
-  const implied = axis === 'x-axis' ? 'horizontal' : 'vertical';
-  return constraints.filter(c => c.kind !== implied);
 }
 
 /** A dimension's value expression from a possibly-signed commit: numeric
@@ -251,10 +253,10 @@ export function rectEmission(opts: {
     });
   }
   if (opts.cornerSnap !== undefined) {
-    constraints.push(coincident(newTarget(0, 'start'), refTarget(opts.cornerSnap)));
+    constraints.push(inferred(coincident(newTarget(0, 'start'), refTarget(opts.cornerSnap))));
   }
   if (opts.oppositeSnap !== undefined) {
-    constraints.push(coincident(newTarget(2, 'start'), refTarget(opts.oppositeSnap)));
+    constraints.push(inferred(coincident(newTarget(2, 'start'), refTarget(opts.oppositeSnap))));
   }
   return {
     geometry: [
@@ -382,10 +384,10 @@ export function slotEmission(opts: {
     constraints.push({ kind: 'radius', targets: [newTarget(1)], valueExpr: opts.radiusDim });
   }
   if (opts.p0Snap !== undefined) {
-    constraints.push(coincident(newTarget(3, 'center'), refTarget(opts.p0Snap)));
+    constraints.push(inferred(coincident(newTarget(3, 'center'), refTarget(opts.p0Snap))));
   }
   if (opts.p1Snap !== undefined) {
-    constraints.push(coincident(newTarget(1, 'center'), refTarget(opts.p1Snap)));
+    constraints.push(inferred(coincident(newTarget(1, 'center'), refTarget(opts.p1Snap))));
   }
   return { geometry, constraints };
 }

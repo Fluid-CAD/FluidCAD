@@ -145,6 +145,7 @@ describe('center arc end-snap coincident', () => {
       { newIndex: 0, role: 'end' },
       { line: 12, role: 'start', featureType: 'line' },
     ],
+    inferred: true,
   };
 
   function makeSnappedTool(emitted: Emitted[]): any {
@@ -217,10 +218,12 @@ describe('center arc axis-datum snaps', () => {
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'start' }, { datum: 'x-axis' }],
+      inferred: true,
     });
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'end' }, { datum: 'x-axis' }],
+      inferred: true,
     });
   });
 });
@@ -242,6 +245,7 @@ describe('center arc axis snap with the cursor far from the endpoint', () => {
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'end' }, { datum: 'x-axis' }],
+      inferred: true,
     });
   });
 

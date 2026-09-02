@@ -54,10 +54,12 @@ describe('line tool H/V pill end-snap coincident', () => {
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'end' }, { line: 12, role: 'end', featureType: 'line' }],
+      inferred: true,
     });
     expect(emitted[0].constraints).toContainEqual({
       kind: 'horizontal',
       targets: [{ newIndex: 0 }],
+      inferred: true,
     });
   });
 
@@ -78,7 +80,7 @@ describe('line tool H/V pill end-snap coincident', () => {
 });
 
 describe('line tool axis-datum snaps', () => {
-  it('pins BOTH endpoints onto the x axis and drops the implied horizontal', async () => {
+  it('pins BOTH endpoints onto the x axis; the implied horizontal rides as inferred', async () => {
     const emitted: Emitted[] = [];
     const tool = makeTool(emitted);
     tool.startSnapRef = { datum: 'x-axis' };
@@ -92,16 +94,24 @@ describe('line tool axis-datum snaps', () => {
     expect(emitted).toHaveLength(1);
     const coincidents = emitted[0].constraints.filter((c: any) => c.kind === 'coincident');
     // Axis datums are lines, not points — the second on-axis pin must not be
-    // deduped against the first, and the H they imply together stays out.
+    // deduped against the first. The H the two pins imply together is
+    // emitted INFERRED: the rail's redundancy trial (emission-redundancy)
+    // is what drops it, with the solver's rank as the verdict.
     expect(coincidents).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'start' }, { datum: 'x-axis' }],
+      inferred: true,
     });
     expect(coincidents).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'end' }, { datum: 'x-axis' }],
+      inferred: true,
     });
-    expect(emitted[0].constraints.filter((c: any) => c.kind === 'horizontal')).toHaveLength(0);
+    expect(emitted[0].constraints).toContainEqual({
+      kind: 'horizontal',
+      targets: [{ newIndex: 0 }],
+      inferred: true,
+    });
   });
 
   it('keeps the horizontal when only the end sits on the axis', async () => {
@@ -118,10 +128,12 @@ describe('line tool axis-datum snaps', () => {
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'end' }, { datum: 'x-axis' }],
+      inferred: true,
     });
     expect(emitted[0].constraints).toContainEqual({
       kind: 'horizontal',
       targets: [{ newIndex: 0 }],
+      inferred: true,
     });
   });
 });
@@ -146,10 +158,12 @@ describe('line tool axis snap with the cursor far from the endpoint', () => {
     expect(emitted[0].constraints).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'end' }, { datum: 'x-axis' }],
+      inferred: true,
     });
     expect(emitted[0].constraints).toContainEqual({
       kind: 'vertical',
       targets: [{ newIndex: 0 }],
+      inferred: true,
     });
   });
 });

@@ -27,8 +27,8 @@ import {
 import type { SnapResult, SnapType, SolvedVertexRef } from '../../../snapping/types';
 import {
   coincident,
-  dropImpliedAxisOrtho,
   emittedPointOnSnap,
+  inferred,
   newTarget,
   refTarget,
   sameVertexRef,
@@ -513,7 +513,10 @@ export class PolylineTool extends SketchTool {
    * Assemble and send one segment through the atomic insert-solved rail
    * (P5): the mode's geometry + constraints, prefixed by the junction
    * coincident to the previous segment (or the chain-start snap ref) and
-   * suffixed by the end-snap coincident. Emissions are serialized on a
+   * suffixed by the end-snap coincident. The junction coincident is the
+   * gesture itself (explicit); the snap coincidents and the mode's
+   * auto-ortho row are inferred, and the rail's redundancy trial drops any
+   * of them the sketch already enforces. Emissions are serialized on a
    * promise chain so each knows its predecessor's source line; a refusal
    * ends the chain (the preview no longer matches the source).
    */
@@ -532,7 +535,7 @@ export class PolylineTool extends SketchTool {
         { line: prev.line, role: prev.junctionRole, featureType: prev.featureType },
       ));
     } else if (startRef) {
-      constraints.push(coincident(newTarget(0, 'start'), refTarget(startRef)));
+      constraints.push(inferred(coincident(newTarget(0, 'start'), refTarget(startRef))));
     }
 
     const endRef = spec.endSnap?.ref;
@@ -546,11 +549,9 @@ export class PolylineTool extends SketchTool {
       || (startRef && sameVertexRef(ref, startRef));
     const keptEndRef = endRef && endMatchesSnap && !this.ctrlHeld
       && this.autoConstraintsEnabled() && !isJunctionRef(endRef) ? endRef : null;
-    // Both endpoints pinned onto one axis imply the segment's H/V — the
-    // mode's inferred ortho constraint would only be a redundant row.
-    constraints.push(...dropImpliedAxisOrtho(spec.constraints ?? [], startRef, keptEndRef));
+    constraints.push(...(spec.constraints ?? []));
     if (keptEndRef) {
-      constraints.push(coincident(newTarget(0, 'end'), refTarget(keptEndRef)));
+      constraints.push(inferred(coincident(newTarget(0, 'end'), refTarget(keptEndRef))));
     }
 
     // Spend the pending typed start's declarations (mirrors insertSegment).

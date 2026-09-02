@@ -15,6 +15,7 @@ import { ICON_POLYGON } from '../../ui/icons';
 import {
   coincident,
   dimMagnitude,
+  inferred,
   newTarget,
   polygonEmission,
   refTarget,
@@ -359,10 +360,10 @@ export class PolygonTool extends SketchTool {
       const constraints = [...emission.constraints];
       if (this.centerSnapRef && this.autoConstraintsEnabled()) {
         // The guide circle (last geometry entry) carries the polygon's centre.
-        constraints.push(coincident(
+        constraints.push(inferred(coincident(
           newTarget(emission.geometry.length - 1, 'center'),
           refTarget(this.centerSnapRef),
-        ));
+        )));
       }
       const variables = [...center.newVariables, ...newVariables];
       void this.solvedCtx.emit({

@@ -11,7 +11,7 @@ import {
 import type { SegmentMode, ModeContext, ClickResult, Point2D } from './types';
 import type { SnapResult } from '../../../snapping/types';
 import type { CommitResult } from '../../../ui/expression-input';
-import { dimMagnitude, type SolvedConstraintParam } from '../solved-emission';
+import { dimMagnitude, inferredOrtho, type SolvedConstraintParam } from '../solved-emission';
 
 export class LineMode implements SegmentMode {
   readonly id = 'line' as const;
@@ -73,7 +73,7 @@ export class LineMode implements SegmentMode {
           kind: 'line',
           text: `line(${startText}, ${ctx.formatPoint(snappedEnd)})`,
           constraints: ctx.solved.autoConstraints()
-            ? [{ kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] }]
+            ? [inferredOrtho(isHorizontal ? 'horizontal' : 'vertical')]
             : [],
           endSnap: snapResult,
           endPoint: snappedEnd,
@@ -176,7 +176,7 @@ export class LineMode implements SegmentMode {
       // pill value stays a guess. The H/V is inference — the Auto-constraints
       // toggle gates it; the typed dimension is explicit and always lands.
       const constraints: SolvedConstraintParam[] = ctx.solved.autoConstraints()
-        ? [{ kind: isHorizontal ? 'horizontal' : 'vertical', targets: [{ newIndex: 0 }] }]
+        ? [inferredOrtho(isHorizontal ? 'horizontal' : 'vertical')]
         : [];
       if (ctx.isExpressionTyping()) {
         constraints.push({

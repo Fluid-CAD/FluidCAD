@@ -184,6 +184,7 @@ export class BezierTool extends SketchTool {
           },
           refTarget(ref),
         ],
+        inferred: true,
       }],
     });
   }

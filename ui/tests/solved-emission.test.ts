@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   chainAngleConstraint,
   dimMagnitude,
-  dropImpliedAxisOrtho,
   emittedPointOnSnap,
   sameVertexRef,
   lineText,
@@ -258,24 +257,6 @@ describe('sameVertexRef', () => {
   });
 });
 
-describe('dropImpliedAxisOrtho', () => {
-  const H = { kind: 'horizontal', targets: [{ newIndex: 0 }] };
-  const V = { kind: 'vertical', targets: [{ newIndex: 0 }] };
-
-  it('drops the H implied by both endpoints pinned onto the x axis', () => {
-    expect(dropImpliedAxisOrtho([H], { datum: 'x-axis' }, { datum: 'x-axis' })).toEqual([]);
-    expect(dropImpliedAxisOrtho([V], { datum: 'y-axis' }, { datum: 'y-axis' })).toEqual([]);
-  });
-
-  it('keeps the constraint when only one endpoint sits on the axis', () => {
-    expect(dropImpliedAxisOrtho([H], { datum: 'x-axis' }, null)).toEqual([H]);
-    expect(dropImpliedAxisOrtho([H], null, { datum: 'x-axis' })).toEqual([H]);
-    expect(dropImpliedAxisOrtho(
-      [H], { datum: 'x-axis' }, { line: 7, role: 'end', featureType: 'line' },
-    )).toEqual([H]);
-  });
-});
-
 describe('slotEmission snap coincidents', () => {
   it('pins snapped cap centres onto their vertices', () => {
     const e = slotEmission({
@@ -288,14 +269,18 @@ describe('slotEmission snap coincidents', () => {
     const coincidents = e.constraints.filter(c => c.kind === 'coincident');
     // 4 chain junctions + the two cap-centre pins.
     expect(coincidents).toHaveLength(6);
+    // Snap pins are gesture inference — marked for the rail's redundancy trial.
     expect(coincidents).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 3, role: 'center' }, { line: 3, role: 'end', featureType: 'line' }],
+      inferred: true,
     });
     expect(coincidents).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 1, role: 'center' }, { datum: 'origin' }],
+      inferred: true,
     });
+    expect(coincidents.filter(c => c.inferred)).toHaveLength(2);
   });
 });
 
@@ -314,11 +299,16 @@ describe('rectEmission snap coincidents', () => {
     expect(coincidents).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 0, role: 'start' }, { line: 5, role: 'start', featureType: 'line' }],
+      inferred: true,
     });
     expect(coincidents).toContainEqual({
       kind: 'coincident',
       targets: [{ newIndex: 2, role: 'start' }, { line: 9, role: 'center', featureType: 'circle' }],
+      inferred: true,
     });
+    // The recipe's own rows (chain junctions, H/V) are explicit.
+    expect(coincidents.filter(c => c.inferred)).toHaveLength(2);
+    expect(e.constraints.filter(c => c.kind !== 'coincident').some(c => c.inferred)).toBe(false);
   });
 });
 

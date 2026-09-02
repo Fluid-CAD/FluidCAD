@@ -25,7 +25,11 @@ export class Projection extends ExtrudableGeometryBase {
   // object before its own build slot, so build() re-throws from here.
   private _prepared: { edges: Edge[]; endpoints: { start: Vertex, end: Vertex } | null } | null = null;
   private _prepareError: string | null = null;
-  private _referenceRecords: ReferenceEntityRecord[] = [];
+  // The registered fixed-entity records and the emitted edge count live in
+  // STATE, not on the instance: a cached re-render (the editor's
+  // whitespace-only edit) serves a fresh instance whose prepare never runs,
+  // and SceneCompare transfers state — the UI keys the constrained (green)
+  // tint on the serialized entities, so an instance-only copy went blue.
 
   constructor(private sourceObjects: SceneObject[], targetPlane: PlaneObjectBase = null) {
     super(targetPlane);
@@ -88,10 +92,11 @@ export class Projection extends ExtrudableGeometryBase {
         edge.setProvenance('projected');
       }
       this._prepared = { edges: uniqueEdges, endpoints };
+      this.setState('reference-edge-count', uniqueEdges.length);
 
       const solver = this.sketch?.isSolvedMode() ? this.sketch.solver() : null;
       if (solver) {
-        this._referenceRecords = registerReferenceEntities(this, solver, plane, uniqueEdges);
+        this.setState('reference-entities', registerReferenceEntities(this, solver, plane, uniqueEdges));
       }
     } catch (error) {
       this._prepareError = error instanceof Error ? error.message : String(error);
@@ -99,11 +104,11 @@ export class Projection extends ExtrudableGeometryBase {
   }
 
   referenceEntities(): ReferenceEntityRecord[] {
-    return this._referenceRecords;
+    return (this.getState('reference-entities') as ReferenceEntityRecord[] | undefined) ?? [];
   }
 
   referenceEdgeCount(): number {
-    return this._prepared?.edges.length ?? 0;
+    return (this.getState('reference-edge-count') as number | undefined) ?? 0;
   }
 
   /** Constraint target naming projected edge `i` (fixed reference, P6). */
@@ -184,7 +189,8 @@ export class Projection extends ExtrudableGeometryBase {
     // and the registered fixed-entity records (P2 clone rule).
     copy._prepared = this._prepared;
     copy._prepareError = this._prepareError;
-    copy._referenceRecords = this._referenceRecords;
+    copy.setState('reference-entities', this.referenceEntities());
+    copy.setState('reference-edge-count', this.referenceEdgeCount());
     return copy;
   }
 
@@ -237,7 +243,7 @@ export class Projection extends ExtrudableGeometryBase {
       // the sketch snapshot (which carries the locked params) for pick-only
       // constraint targeting; edgeIndex is the `.ref(i)` address emission
       // renders.
-      base.entities = this._referenceRecords.map(r => ({
+      base.entities = this.referenceEntities().map(r => ({
         entityId: r.entityId, kind: r.kind, edgeIndex: r.edgeIndex,
       }));
       base.edgeCount = this.referenceEdgeCount();

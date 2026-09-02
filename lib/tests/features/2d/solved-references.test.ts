@@ -9,6 +9,7 @@ import { getSceneManager } from "../../../scene-manager.js";
 import { SceneCompare } from "../../../rendering/scene-compare.js";
 import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
+import part from "../../../core/part.js";
 import { line, circle, arc, project, intersect } from "../../../core/2d/index.js";
 import {
   coincident, horizontal, tangent, distance, radius, fix,
@@ -228,6 +229,38 @@ describe("fixed reference entities (P6)", () => {
     for (const obj of newScene.getSceneObjects()) {
       expect(newScene.isCached(obj)).toBe(true);
     }
+  });
+
+  it("a cached re-render still serializes the projection's reference entities (green tint)", () => {
+    // The editor re-render after a whitespace-only edit: the module reloads,
+    // every object is a fresh instance, the compare matches the whole
+    // subtree and the render skips its build. The projection must still
+    // report its fixed entities — the UI keys the constrained (green) tint
+    // on them, and without them a projected bore fell back to sketch blue.
+    const declare = () => {
+      part("Housing", () => {
+        const donor = boreDonor(20);
+        sketch('xy', () => {
+          project(donor.endFaces());
+        });
+      });
+    };
+    declare();
+    const first = render();
+    const before = solvedPayload(first, 'projection')[0] as { entities: unknown[] };
+    expect(before.entities.length).toBe(1);
+    const previousScene = getSceneManager()!.currentScene;
+
+    const newScene = getSceneManager()!.startScene();
+    declare();
+    newScene.materializeLeftoverDefinitions();
+    SceneCompare.compare(previousScene, newScene);
+    const second = render();
+    const projectionObj = second.getSceneObjects().find(o => o.getUniqueType() === 'projection')!;
+    expect(second.isCached(projectionObj)).toBe(true);
+
+    const after = solvedPayload(second, 'projection')[0] as { entities: unknown[] };
+    expect(after.entities.length).toBe(1);
   });
 
   it("demo chain (P6 exit criterion): project → constraints → extrude", () => {

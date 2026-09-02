@@ -2,7 +2,8 @@ import { ICON_CUBE, ICON_FILE_CODE, ICON_CLOSE, ICON_ALERT_DOT, ICON_PLUS, ICON_
 import { ToolbarScroller } from '../ui/navbar/toolbar-scroller';
 import type { FileKind } from './editor-api';
 import { TabReorder } from './tab-reorder';
-import { buildRenameField, editableNameOf, modelSuffixOf, renamedBasename } from './tab-rename';
+import { buildRenameField, editableNameOf, renamedBasename } from './tab-rename';
+import { ASSEMBLY_ACCENT, splitModelName, type ModelName } from './model-name';
 import { closeTabMenu, showTabMenu, type TabMenuItem } from './tab-menu';
 
 /**
@@ -50,19 +51,6 @@ export interface FileTabsHandlers {
    */
   onRename?(absPath: string, newBasename: string): void;
 }
-
-type ModelType = 'Part' | 'Assembly';
-type ModelName = { stem: string; type: ModelType };
-
-/** The type a model suffix announces. */
-const MODEL_TYPES: Readonly<Record<string, ModelType>> = {
-  '.assembly.js': 'Assembly',
-  '.part.js': 'Part',
-  '.fluid.js': 'Part',
-};
-
-/** The assembly workbench's teal, worn by assembly tab icons. */
-const ASSEMBLY_ACCENT = '#12A8A8';
 
 /**
  * Tabs keep a floor width so a short stem (`main`) doesn't collapse the tab
@@ -244,7 +232,7 @@ export class FileTabs {
     }
 
     const basename = FileTabs.basenameOf(tab);
-    const model = FileTabs.splitModelName(basename);
+    const model = splitModelName(basename);
     el.appendChild(FileTabs.buildIcon(tab, model, isCurrentModel));
     el.appendChild(isRenaming ? this.buildRenameField(tab, basename) : FileTabs.buildLabel(basename, model));
 
@@ -384,11 +372,5 @@ export class FileTabs {
 
   private static basenameOf(tab: FileTab): string {
     return tab.relPath.split('/').pop() || tab.relPath;
-  }
-
-  /** `bracket.part.js` → `{ stem: 'bracket', type: 'Part' }`; null for anything else. */
-  private static splitModelName(basename: string): ModelName | null {
-    const suffix = modelSuffixOf(basename);
-    return suffix ? { stem: basename.slice(0, -suffix.length), type: MODEL_TYPES[suffix] } : null;
   }
 }

@@ -1,5 +1,6 @@
 import { ICON_CUBE, ICON_FILE_CODE, ICON_PLUS } from '../ui/icons';
 import { listWorkspaceFiles, type FileKind, type WorkspaceFileEntry } from './editor-api';
+import { ASSEMBLY_ACCENT, splitModelName } from './model-name';
 
 /**
  * The `+` picker: a fuzzy filter over the workspace's source files, plus an
@@ -211,9 +212,11 @@ export class QuickOpen {
     list.replaceChildren();
 
     for (const [index, file] of this.results.entries()) {
+      const basename = file.path.split('/').pop() || file.path;
       list.appendChild(this.buildRow({
-        icon: file.kind === 'model' ? ICON_CUBE : ICON_FILE_CODE,
-        label: file.path,
+        icon: QuickOpen.buildIcon(file.kind === 'model' ? ICON_CUBE : ICON_FILE_CODE, basename),
+        label: basename,
+        detail: file.path,
         highlighted: index === this.highlighted,
         onPick: () => this.activate(index),
       }));
@@ -222,7 +225,7 @@ export class QuickOpen {
     const createTarget = this.createTarget();
     if (createTarget) {
       list.appendChild(this.buildRow({
-        icon: ICON_PLUS,
+        icon: QuickOpen.buildIcon(ICON_PLUS),
         label: `Create ${createTarget}`,
         highlighted: this.highlighted === this.results.length,
         onPick: () => this.activate(this.results.length),
@@ -237,9 +240,33 @@ export class QuickOpen {
     }
   }
 
+  /**
+   * A row's icon, tinted the way the file tabs tint theirs: a part's cube in
+   * the theme's primary blue, an assembly's in the assembly teal, and a helper
+   * (or the Create row's plus) in the quiet gray everything else here uses.
+   */
+  private static buildIcon(svg: string, basename?: string): HTMLElement {
+    const icon = document.createElement('span');
+    icon.className = 'shrink-0 [&>svg]:size-3.5';
+    icon.innerHTML = svg;
+    const model = basename === undefined ? null : splitModelName(basename);
+    if (model?.type === 'Assembly') {
+      icon.style.color = ASSEMBLY_ACCENT;
+    } else {
+      icon.classList.add(model?.type === 'Part' ? 'text-primary' : 'text-base-content/40');
+    }
+    return icon;
+  }
+
+  /**
+   * One result row: the label, with an optional second line underneath for
+   * the workspace-relative path — file rows read as name-over-path so a name
+   * is scannable and the path still disambiguates same-named files.
+   */
   private buildRow(options: {
-    icon: string;
+    icon: HTMLElement;
     label: string;
+    detail?: string;
     highlighted: boolean;
     onPick: () => void;
   }): HTMLElement {
@@ -247,10 +274,24 @@ export class QuickOpen {
     row.className =
       'w-full flex items-center gap-2 px-3 py-1.5 text-left text-sm ' +
       (options.highlighted ? 'bg-base-content/10 text-base-content' : 'text-base-content/70');
-    row.innerHTML =
-      `<span class="shrink-0 text-base-content/40 [&>svg]:size-3.5">${options.icon}</span>` +
-      `<span class="truncate"></span>`;
-    row.querySelector('span:last-child')!.textContent = options.label;
+    row.appendChild(options.icon);
+
+    const text = document.createElement('span');
+    text.className = 'min-w-0 flex flex-col leading-tight';
+    row.appendChild(text);
+
+    const label = document.createElement('span');
+    label.className = 'truncate';
+    label.textContent = options.label;
+    text.appendChild(label);
+
+    if (options.detail !== undefined) {
+      const detail = document.createElement('span');
+      detail.className = 'truncate text-xs text-base-content/50';
+      detail.textContent = options.detail;
+      text.appendChild(detail);
+    }
+
     row.addEventListener('click', options.onPick);
     return row;
   }

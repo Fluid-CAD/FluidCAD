@@ -5,18 +5,7 @@
  * into a file name the same way.
  */
 
-/** Model suffixes, longest first so `.assembly.js` isn't mistaken for `.js`. */
-const MODEL_SUFFIXES = ['.assembly.js', '.part.js', '.fluid.js'] as const;
-
-/** `bracket.part.js` → `.part.js`; null for a file that is not a model. */
-export function modelSuffixOf(basename: string): string | null {
-  for (const suffix of MODEL_SUFFIXES) {
-    if (basename.endsWith(suffix) && basename.length > suffix.length) {
-      return suffix;
-    }
-  }
-  return null;
-}
+import { modelSuffixOf } from './model-name';
 
 /** What the rename field starts out holding: the stem for a model, the basename otherwise. */
 export function editableNameOf(basename: string): string {

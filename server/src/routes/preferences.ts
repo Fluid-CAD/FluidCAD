@@ -58,12 +58,6 @@ export function createPreferencesRouter(): Router {
         if (MEASURE_LENGTH_UNITS.includes(body.measureLengthUnit)) {
           current.measureLengthUnit = body.measureLengthUnit;
         }
-        if (['deg', 'rad'].includes(body.measureAngleUnit)) {
-          current.measureAngleUnit = body.measureAngleUnit;
-        }
-        if (typeof body.sketchDimensionSuffix === 'boolean') {
-          current.sketchDimensionSuffix = body.sketchDimensionSuffix;
-        }
         if (typeof body.gridAdaptive === 'boolean') {
           current.gridAdaptive = body.gridAdaptive;
         }

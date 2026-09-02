@@ -6,7 +6,6 @@
 import type { ConstraintSpec } from '../../../lib/sketch-solver/types.js';
 import { UNIT_DISPLAY_DECIMALS } from '../units/units';
 import { sceneUnit } from '../units/scene-unit';
-import { viewerSettings } from '../scene/viewer-settings';
 import type { SourceLocation } from '../types';
 import type { DimensionStyle } from './declutter';
 import type { SolvedConstraintView, SolvedEntityView, SolvedSketchModel } from './model';
@@ -173,13 +172,12 @@ export function formatDim(value: number, decimals = UNIT_DISPLAY_DECIMALS[sceneU
 }
 
 /**
- * A length label: `formatDim` plus the document unit when the user asked
- * for suffixes (the "Show unit suffix" display preference). Lengths only —
- * angles carry their own ° sign.
+ * A length label: `formatDim` plus the document unit, always — a value
+ * read off the canvas must not depend on the status bar being in view.
+ * Lengths only (distance, R, ⌀); angles carry their own ° sign.
  */
 export function formatLengthLabel(value: number): string {
-  const text = formatDim(value);
-  return viewerSettings.current.sketchDimensionSuffix ? `${text} ${sceneUnit.current}` : text;
+  return `${formatDim(value)} ${sceneUnit.current}`;
 }
 
 function statusColor(c: SolvedConstraintView): GlyphColorRole {

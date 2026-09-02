@@ -13,7 +13,6 @@
  */
 
 export type LengthUnit = 'mm' | 'cm' | 'm' | 'in' | 'ft';
-export type AngleUnit = 'deg' | 'rad';
 
 export const DEFAULT_LENGTH_UNIT: LengthUnit = 'mm';
 
@@ -23,11 +22,6 @@ export const LENGTH_UNITS: { value: LengthUnit; label: string }[] = [
   { value: 'm', label: 'Meter' },
   { value: 'in', label: 'Inch' },
   { value: 'ft', label: 'Foot' },
-];
-
-export const ANGLE_UNITS: { value: AngleUnit; label: string }[] = [
-  { value: 'deg', label: 'Degree' },
-  { value: 'rad', label: 'Radian' },
 ];
 
 export const MM_PER_UNIT: Record<LengthUnit, number> = {
@@ -95,9 +89,7 @@ export function formatVolume(value: number, unit: LengthUnit, opts: FormatLength
   return opts.suffix === false ? text : `${text} ${unit}³`;
 }
 
-export function formatAngle(deg: number, unit: AngleUnit): string {
-  if (unit === 'rad') {
-    return `${(deg * (Math.PI / 180)).toFixed(4)} rad`;
-  }
+/** Angles are always degrees — there is no angle display unit. */
+export function formatAngle(deg: number): string {
   return `${deg.toFixed(2)} deg`;
 }

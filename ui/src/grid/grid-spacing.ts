@@ -27,8 +27,6 @@ export const DEFAULT_GRID_FIXED_SPACING: Record<LengthUnit, number> = {
 
 export const DEFAULT_GRID_MIN_CELL_PX = 20;
 export const DEFAULT_GRID_MAJOR_EVERY = 10;
-export const GRID_MIN_CELL_PX_RANGE: [number, number] = [8, 80];
-export const GRID_MAJOR_EVERY_RANGE: [number, number] = [2, 100];
 
 type Rung = { minor: number; major: number };
 

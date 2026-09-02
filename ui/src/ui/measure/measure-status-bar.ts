@@ -130,6 +130,7 @@ export class MeasureStatusBar {
       header: doc.kind === 'assembly' ? 'Project unit (fluidcad.json)' : 'Document unit',
       items: buildUnitMenuOptions(doc, sceneUnit.current).map((option) => ({
         label: option.label,
+        title: option.title,
         current: option.current,
         onSelect: () => {
           // Re-picking the checked entry would be a rewrite to the same

@@ -83,10 +83,6 @@ export class MeasureController {
         // rest, so a rejected choice just stays session-local.
         this.client.savePreference('measureLengthUnit', unit);
       },
-      onAngleUnitChange: (unit) => {
-        viewerSettings.update({ measureAngleUnit: unit });
-        this.client.savePreference('measureAngleUnit', unit);
-      },
       onHoverViz: (viz) => {
         if (viz) {
           this.overlay.show(viz);
@@ -106,7 +102,6 @@ export class MeasureController {
   applyPreferences(prefs: UserPreferences): void {
     viewerSettings.update({
       ...(prefs.measureLengthUnit ? { measureLengthUnit: prefs.measureLengthUnit } : {}),
-      ...(prefs.measureAngleUnit ? { measureAngleUnit: prefs.measureAngleUnit } : {}),
     });
   }
 
@@ -244,16 +239,15 @@ export class MeasureController {
       result: this.result,
       baseUnit: sceneUnit.current,
       lengthUnit: viewerSettings.current.measureLengthUnit,
-      angleUnit: viewerSettings.current.measureAngleUnit,
     });
 
     this.applyDefaultViz();
   }
 
   private primaryValueText(result: MeasureResult): string {
-    const { measureLengthUnit: unit, measureAngleUnit } = viewerSettings.current;
+    const { measureLengthUnit: unit } = viewerSettings.current;
     if (result.primary === 'angle') {
-      return result.angleDeg !== undefined ? formatAngle(result.angleDeg, measureAngleUnit) : '—';
+      return result.angleDeg !== undefined ? formatAngle(result.angleDeg) : '—';
     }
     if (result.primary === 'totalArea') {
       return result.totalArea !== undefined ? formatArea(convertArea(result.totalArea, unit), unit) : '—';

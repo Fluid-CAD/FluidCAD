@@ -286,16 +286,6 @@ export class Viewer {
       this.lastFitBox = null;
     });
 
-    // The sketch-dimension suffix is baked into the glyph labels — re-lay
-    // them out when it flips.
-    let dimensionSuffix = viewerSettings.current.sketchDimensionSuffix;
-    viewerSettings.subscribe((s) => {
-      if (s.sketchDimensionSuffix !== dimensionSuffix) {
-        dimensionSuffix = s.sketchDimensionSuffix;
-        this.refreshSketchConstraintGlyphs();
-      }
-    });
-
     this.initClickDetection();
     this.initHoverDetection();
   }

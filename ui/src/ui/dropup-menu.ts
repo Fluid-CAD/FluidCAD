@@ -3,6 +3,8 @@ import { MENU_CLASS, MENU_HEADER_CLASS, MENU_ROW_CLASS } from './menu-styles';
 
 export type DropupMenuItem = {
   label: string;
+  /** Hover tooltip — the long form of a terse label. */
+  title?: string;
   /** Marked with a check and announced as the current choice. */
   current?: boolean;
   onSelect(): void;
@@ -52,6 +54,9 @@ export function showDropupMenu(host: HTMLElement, anchor: HTMLElement, options: 
     row.className = MENU_ROW_CLASS;
     row.setAttribute('role', 'menuitemradio');
     row.setAttribute('aria-checked', item.current ? 'true' : 'false');
+    if (item.title) {
+      row.title = item.title;
+    }
     row.innerHTML =
       `<span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-3.5 ${item.current ? '' : 'invisible'}">${ICON_CHECK}</span>`;
     const label = document.createElement('span');

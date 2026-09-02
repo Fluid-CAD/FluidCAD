@@ -3,8 +3,10 @@
  * and the unit chip's dropup. Kept as class strings, not a component: each
  * menu positions itself differently and that is the only thing that differs.
  */
+// z-[1000]: a transient menu must clear the docked feature panels (z-[999]);
+// toasts stay above it at 1003.
 export const MENU_CLASS =
-  'absolute z-[300] min-w-[160px] p-1 panel-bg border border-base-content/10 rounded-md ' +
+  'absolute z-[1000] min-w-[160px] p-1 panel-bg border border-base-content/10 rounded-md ' +
   'shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
 
 export const MENU_ROW_CLASS =

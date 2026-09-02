@@ -321,7 +321,7 @@ describe('constraint glyph layout', () => {
     expect(leader.from).toEqual([0, y]);
     expect(leader.to).toEqual([100, y]);
     expect(leader.extensions).toEqual([[[0, 0], [0, y]], [[100, 0], [100, y]]]);
-    expect(text.label).toBe('100');
+    expect(text.label).toBe('100 mm');
     expect(text.at).toEqual([50, y]);
   });
 
@@ -350,7 +350,7 @@ describe('constraint glyph layout', () => {
     expect(leader.from).toEqual([10, 10]);
     // Only the rim end measures anything, so only it carries an arrowhead.
     expect(leader.arrows).toBe('end');
-    expect(text.label).toBe('R5');
+    expect(text.label).toBe('R5 mm');
     expect(text.style).toBe('aligned');
     // The value rides the radius: anchored halfway along it and aligned to
     // it, rather than orbiting the rim on the end of a stub.
@@ -380,7 +380,7 @@ describe('constraint glyph layout', () => {
     expect((leader.from[0] + leader.to[0]) / 2).toBeCloseTo(10, 9);
     expect((leader.from[1] + leader.to[1]) / 2).toBeCloseTo(10, 9);
 
-    expect(text.label).toBe('⌀10');
+    expect(text.label).toBe('⌀10 mm');
     expect(text.style).toBe('aligned');
     // The value rides the chord: anchored ON the line, sliding along it,
     // pushed only across it — never pushed out past the rim.

@@ -3,11 +3,10 @@ import path from 'node:path';
 import os from 'node:os';
 
 export type MeasureLengthUnit = 'mm' | 'cm' | 'm' | 'in' | 'ft';
-export type MeasureAngleUnit = 'deg' | 'rad';
 export type GridFixedSpacing = Record<MeasureLengthUnit, number>;
 
 export const MEASURE_LENGTH_UNITS: MeasureLengthUnit[] = ['mm', 'cm', 'm', 'in', 'ft'];
-/** Bounds the POST guard clamps to; mirrored in the UI's grid module. */
+/** Bounds the POST guard clamps to (no UI edits these; they only arrive from a hand-edited file). */
 export const GRID_MIN_CELL_PX_RANGE: [number, number] = [8, 80];
 export const GRID_MAJOR_EVERY_RANGE: [number, number] = [2, 100];
 
@@ -17,9 +16,6 @@ export interface Preferences {
   cameraMode: 'perspective' | 'orthographic';
   showBuildTimings: boolean;
   measureLengthUnit: MeasureLengthUnit;
-  measureAngleUnit: MeasureAngleUnit;
-  /** Append the document unit to on-canvas sketch dimension labels. */
-  sketchDimensionSuffix: boolean;
   /** Grid pitch follows zoom (true) or pins `gridFixedSpacing` (false). */
   gridAdaptive: boolean;
   /** Adaptive grid: the minor cell never shrinks below this many pixels. */
@@ -40,8 +36,6 @@ const DEFAULTS: Preferences = {
   cameraMode: 'orthographic',
   showBuildTimings: false,
   measureLengthUnit: 'mm',
-  measureAngleUnit: 'deg',
-  sketchDimensionSuffix: false,
   gridAdaptive: true,
   gridMinCellPx: 20,
   gridFixedSpacing: { mm: 10, cm: 1, m: 0.1, in: 0.5, ft: 0.25 },

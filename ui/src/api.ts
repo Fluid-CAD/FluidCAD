@@ -1,5 +1,5 @@
 import type { VariableInfo } from './ui/expression-input';
-import type { AngleUnit, LengthUnit } from './units/units';
+import type { LengthUnit } from './units/units';
 import type { ContactEntity } from './solver/types';
 import type {
   SceneObjectMesh,
@@ -134,9 +134,6 @@ export interface UserPreferences {
   cameraMode: 'perspective' | 'orthographic';
   showBuildTimings: boolean;
   measureLengthUnit?: LengthUnit;
-  measureAngleUnit?: AngleUnit;
-  /** Unit suffix on on-canvas sketch dimension labels. Default false. */
-  sketchDimensionSuffix?: boolean;
   /** Grid pitch follows zoom. Default true. */
   gridAdaptive?: boolean;
   /** Adaptive grid: minimum minor-cell width in px. Default 20. */

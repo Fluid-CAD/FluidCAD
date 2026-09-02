@@ -1,5 +1,5 @@
 import { UserPreferences } from '../api';
-import type { AngleUnit, LengthUnit } from '../units/units';
+import type { LengthUnit } from '../units/units';
 import {
   DEFAULT_GRID_FIXED_SPACING,
   DEFAULT_GRID_MAJOR_EVERY,
@@ -19,9 +19,6 @@ export interface ViewerSettings {
   /** The measure tool's display unit — a preference, distinct from the
    * document unit (`sceneUnit`), which it converts from. */
   measureLengthUnit: LengthUnit;
-  measureAngleUnit: AngleUnit;
-  /** Append the document unit to on-canvas sketch dimension labels. */
-  sketchDimensionSuffix: boolean;
   /** Grid pitch follows zoom (ladder) rather than `gridFixedSpacing`. */
   gridAdaptive: boolean;
   /** Adaptive grid: the minor cell never shrinks below this many pixels. */
@@ -42,8 +39,6 @@ const defaults: ViewerSettings = {
   sketchShowDimensions: true,
   sketchShowPositional: true,
   measureLengthUnit: 'mm',
-  measureAngleUnit: 'deg',
-  sketchDimensionSuffix: false,
   gridAdaptive: true,
   gridMinCellPx: DEFAULT_GRID_MIN_CELL_PX,
   gridFixedSpacing: { ...DEFAULT_GRID_FIXED_SPACING },
@@ -72,8 +67,6 @@ export function applyPreferences(prefs: UserPreferences): void {
     showGrid: prefs.showGrid,
     cameraMode: prefs.cameraMode,
     ...(prefs.measureLengthUnit ? { measureLengthUnit: prefs.measureLengthUnit } : {}),
-    ...(prefs.measureAngleUnit ? { measureAngleUnit: prefs.measureAngleUnit } : {}),
-    ...(typeof prefs.sketchDimensionSuffix === 'boolean' ? { sketchDimensionSuffix: prefs.sketchDimensionSuffix } : {}),
     ...(typeof prefs.gridAdaptive === 'boolean' ? { gridAdaptive: prefs.gridAdaptive } : {}),
     ...(typeof prefs.gridMinCellPx === 'number' ? { gridMinCellPx: prefs.gridMinCellPx } : {}),
     // Older preference files may carry a partial record — fill from defaults

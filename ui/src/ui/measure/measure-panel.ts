@@ -1,7 +1,7 @@
 import type { MeasureDistanceValue, MeasureEntityInfo, MeasureEntityRef, MeasureResult } from '../../api';
 import { ICON_CLOSE } from '../icons';
-import { ANGLE_UNITS, LENGTH_UNITS, convertLength, formatAngle, formatArea, formatLength } from '../../units/units';
-import type { AngleUnit, LengthUnit } from '../../units/units';
+import { LENGTH_UNITS, convertLength, formatAngle, formatArea, formatLength } from '../../units/units';
+import type { LengthUnit } from '../../units/units';
 import type { MeasureAxis, MeasureViz } from './measure-overlay';
 
 export type MeasurePanelData = {
@@ -9,16 +9,15 @@ export type MeasurePanelData = {
   result: MeasureResult | null;
   /** The document unit — what the result's numbers are in. */
   baseUnit: LengthUnit;
-  /** The chosen display unit; lengths convert base → display. */
+  /** The chosen display unit; lengths convert base → display. Angles are
+   * always degrees. */
   lengthUnit: LengthUnit;
-  angleUnit: AngleUnit;
 };
 
 export type MeasurePanelCallbacks = {
   onClose: () => void;
   onRemoveEntity: (ref: MeasureEntityRef) => void;
   onLengthUnitChange: (unit: LengthUnit) => void;
-  onAngleUnitChange: (unit: AngleUnit) => void;
   onHoverViz: (viz: MeasureViz | null) => void;
 };
 
@@ -57,13 +56,13 @@ function esc(text: string): string {
 }
 
 /**
- * Expanded Onshape-style measure dialog: selected entity chips, unit
- * selectors, and every applicable measurement with hoverable X/Y/Z
+ * Expanded Onshape-style measure dialog: selected entity chips, the length
+ * unit selector, and every applicable measurement with hoverable X/Y/Z
  * decompositions.
  */
 export class MeasurePanel {
   private el: HTMLDivElement;
-  private data: MeasurePanelData = { entities: [], result: null, baseUnit: 'mm', lengthUnit: 'mm', angleUnit: 'deg' };
+  private data: MeasurePanelData = { entities: [], result: null, baseUnit: 'mm', lengthUnit: 'mm' };
 
   constructor(container: HTMLElement, private callbacks: MeasurePanelCallbacks) {
     this.el = document.createElement('div');
@@ -115,9 +114,6 @@ export class MeasurePanel {
     const lengthOptions = LENGTH_UNITS.map(
       (u) => `<option value="${u.value}" ${u.value === this.data.lengthUnit ? 'selected' : ''}>${u.label}</option>`,
     ).join('');
-    const angleOptions = ANGLE_UNITS.map(
-      (u) => `<option value="${u.value}" ${u.value === this.data.angleUnit ? 'selected' : ''}>${u.label}</option>`,
-    ).join('');
 
     this.el.innerHTML = `
       <div class="flex items-center justify-between mb-2">
@@ -128,8 +124,6 @@ export class MeasurePanel {
       <div class="grid grid-cols-[auto_1fr] items-center gap-x-2 gap-y-1 mb-2">
         <span class="text-base-content/60">Length unit</span>
         <select data-length-unit class="select select-xs w-full bg-base-200 border-base-content/15">${lengthOptions}</select>
-        <span class="text-base-content/60">Angle unit</span>
-        <select data-angle-unit class="select select-xs w-full bg-base-200 border-base-content/15">${angleOptions}</select>
       </div>
       ${result ? `<div class="border-t border-base-content/10 pt-2">${this.renderRows(result)}</div>` : ''}
     `;
@@ -148,14 +142,14 @@ export class MeasurePanel {
     const isPair = result.entities.length === 2;
     if (isPair) {
       if (result.primary === 'angle' && result.angleDeg !== undefined) {
-        rows.push(this.row(esc(result.angleLabel ?? 'Angle'), formatAngle(result.angleDeg, this.data.angleUnit)));
+        rows.push(this.row(esc(result.angleLabel ?? 'Angle'), formatAngle(result.angleDeg)));
       } else {
         const primaryDist = DIST_KEYS.find((d) => d.key === result.primary);
         if (primaryDist && result[primaryDist.key]) {
           rows.push(this.distanceRows(primaryDist.key, primaryDist.label, result[primaryDist.key]!));
         }
         if (result.angleDeg !== undefined) {
-          rows.push(this.row(esc(result.angleLabel ?? 'Angle'), formatAngle(result.angleDeg, this.data.angleUnit)));
+          rows.push(this.row(esc(result.angleLabel ?? 'Angle'), formatAngle(result.angleDeg)));
         }
       }
     }
@@ -235,9 +229,6 @@ export class MeasurePanel {
 
     this.el.querySelector<HTMLSelectElement>('[data-length-unit]')?.addEventListener('change', (e) => {
       this.callbacks.onLengthUnitChange((e.target as HTMLSelectElement).value as LengthUnit);
-    });
-    this.el.querySelector<HTMLSelectElement>('[data-angle-unit]')?.addEventListener('change', (e) => {
-      this.callbacks.onAngleUnitChange((e.target as HTMLSelectElement).value as AngleUnit);
     });
 
     this.el.querySelectorAll<HTMLElement>('[data-viz]').forEach((rowEl) => {

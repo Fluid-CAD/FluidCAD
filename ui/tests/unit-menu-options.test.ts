@@ -5,13 +5,24 @@
 import { describe, it, expect } from 'vitest';
 import { buildUnitMenuOptions } from '../src/ui/measure/unit-menu-options';
 
+const ALL_UNITS = ['mm', 'cm', 'm', 'in', 'ft'];
+
 describe('buildUnitMenuOptions', () => {
   it('leads a part with "Same as project (<project unit>)", checked when nothing is declared', () => {
     const options = buildUnitMenuOptions({ kind: 'part', declaredUnit: null, projectUnit: 'mm' }, 'mm');
-    expect(options).toEqual([
-      { label: 'Same as project (mm)', unit: null, current: true },
-      { label: 'mm', unit: 'mm', current: false },
-      { label: 'in', unit: 'in', current: false },
+    expect(options[0]).toEqual({ label: 'Same as project (mm)', unit: null, current: true });
+    expect(options.slice(1).map((o) => o.label)).toEqual(ALL_UNITS);
+    expect(options.slice(1).every((o) => !o.current)).toBe(true);
+  });
+
+  it('offers every unit as its code, with the long name as the tooltip', () => {
+    const options = buildUnitMenuOptions({ kind: 'part', declaredUnit: null, projectUnit: 'mm' }, 'mm');
+    expect(options.slice(1).map((o) => [o.label, o.title, o.unit])).toEqual([
+      ['mm', 'Millimeter', 'mm'],
+      ['cm', 'Centimeter', 'cm'],
+      ['m', 'Meter', 'm'],
+      ['in', 'Inch', 'in'],
+      ['ft', 'Foot', 'ft'],
     ]);
   });
 
@@ -20,27 +31,23 @@ describe('buildUnitMenuOptions', () => {
     expect(options.map((o) => [o.label, o.current])).toEqual([
       ['Same as project (mm)', false],
       ['mm', true],
+      ['cm', false],
+      ['m', false],
       ['in', false],
+      ['ft', false],
     ]);
   });
 
   it('labels the project entry with the live project unit', () => {
     const options = buildUnitMenuOptions({ kind: 'part', declaredUnit: 'in', projectUnit: 'ft' }, 'in');
     expect(options[0]).toEqual({ label: 'Same as project (ft)', unit: null, current: false });
-    expect(options.find((o) => o.unit === 'in')?.current).toBe(true);
-  });
-
-  it('appends an unusual current unit so the checked entry is always listed', () => {
-    const options = buildUnitMenuOptions({ kind: 'part', declaredUnit: 'cm', projectUnit: 'mm' }, 'cm');
-    expect(options.map((o) => o.label)).toEqual(['Same as project (mm)', 'mm', 'in', 'cm']);
-    expect(options.filter((o) => o.current).map((o) => o.unit)).toEqual(['cm']);
+    expect(options.filter((o) => o.current).map((o) => o.unit)).toEqual(['in']);
   });
 
   it('gives an assembly only the units, checked on the scene unit', () => {
     const options = buildUnitMenuOptions({ kind: 'assembly', declaredUnit: null, projectUnit: 'in' }, 'in');
-    expect(options).toEqual([
-      { label: 'mm', unit: 'mm', current: false },
-      { label: 'in', unit: 'in', current: true },
-    ]);
+    expect(options.map((o) => o.label)).toEqual(ALL_UNITS);
+    expect(options.every((o) => o.unit === o.label)).toBe(true);
+    expect(options.filter((o) => o.current).map((o) => o.unit)).toEqual(['in']);
   });
 });

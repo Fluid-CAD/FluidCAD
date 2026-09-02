@@ -1,6 +1,7 @@
 import type { Geom_BSplineCurve, TopoDS_Edge, TopoDS_Wire } from "ocjs-fluidcad";
 import { getOC } from "../init.js";
 import { CurveData } from "./curve-data.js";
+import { mmTol } from "../../units/tolerance.js";
 
 /**
  * Turns a profile wire into a single clamped B-spline curve, parameterized
@@ -17,7 +18,9 @@ export class SectionCurve {
   // stage (knot union, skinning, surface, meshing). Caps always sew exactly
   // (they share the section's poles), so this only bounds the deviation of
   // the loft wall from the true profile curve.
-  private static readonly APPROX_TOLERANCE = 1e-4;
+  private static get APPROX_TOLERANCE(): number {
+    return mmTol(1e-4);
+  }
   private static readonly LENGTH_SAMPLES = 32;
 
   /**

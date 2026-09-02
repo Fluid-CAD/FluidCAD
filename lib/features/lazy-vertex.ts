@@ -3,6 +3,7 @@ import { ShapeType } from "../common/shape-type.js";
 import { Shape, ShapeFilter } from "../common/shape.js";
 import { Vertex } from "../common/vertex.js";
 import { Plane } from "../math/plane.js";
+import { withUnit } from "../units/registry.js";
 
 export class LazyVertex extends SceneObject {
 
@@ -34,7 +35,7 @@ export class LazyVertex extends SceneObject {
       return super.getShapes(filter, type);
     }
 
-    this.build();
+    withUnit(this.getUnit(), () => this.build());
     this._isBuilt = true;
     const shapes = super.getShapes(filter, type);
     return shapes;

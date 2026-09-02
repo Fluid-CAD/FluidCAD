@@ -14,7 +14,7 @@ import { Edge } from "../common/edge.js";
  * Matches OCCT's Precision::Confusion (1e-7): anything smaller is
  * geometrically meaningless downstream anyway.
  */
-const DEGENERATE_TOL = 1e-7;
+const DEGENERATE_TOL = 1e-7; // unit: OCCT floor (Precision::Confusion), deliberately unscaled
 
 export class Geometry {
   // ── Shape factories ────────────────────────────────────────────────────────

@@ -16,6 +16,7 @@ import {
   induceFilterArgs,
   resolvesExactly,
 } from "./filter-search.js";
+import { mmTol } from "../units/tolerance.js";
 
 export type SelectorPart = {
   /** Producer to bind (tiers 0–2, 4), or null for a global `select()` (tier 3). */
@@ -255,6 +256,7 @@ export function synthesizeSelectors(
   return { ok: true, producers, anchor, groups };
 }
 
+/** Angular half of the coplanar test — unit: dimensionless; the linear half is mmTol(1e-7). */
 const PLANE_SOURCE_TOLERANCE = 1e-7;
 
 /**
@@ -290,7 +292,7 @@ function collectPlaneSources(
     }
     const first = planes[0];
     const shared = planes.every(p =>
-      first.isCoplanarWith(p, PLANE_SOURCE_TOLERANCE, PLANE_SOURCE_TOLERANCE)
+      first.isCoplanarWith(p, mmTol(1e-7), PLANE_SOURCE_TOLERANCE)
       && first.normal.dot(p.normal) > 0);
     if (shared) {
       sources.push({ feature: bucket.feature, accessor: bucket.def.accessor, plane: first });

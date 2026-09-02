@@ -1,5 +1,7 @@
 import type { FaceProperties, EdgeProperties } from '../api';
 import type { EngineClient } from '../engine-client';
+import { formatArea, formatLength } from '../units/units';
+import { sceneUnit } from '../units/scene-unit';
 
 const SURFACE_LABELS: Record<FaceProperties['surfaceType'], string> = {
   plane: 'Plane',
@@ -25,7 +27,7 @@ export class SelectionInfoOverlay {
 
   constructor(container: HTMLElement, private client: EngineClient) {
     this.el = document.createElement('div');
-    this.el.className = 'absolute bottom-6 right-[76px] w-[200px] panel-bg border border-base-content/10 rounded-lg p-3 z-[150] shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-base-content text-xs pointer-events-none select-none hidden';
+    this.el.className = 'absolute bottom-6 right-[128px] w-[200px] panel-bg border border-base-content/10 rounded-lg p-3 z-[150] shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-base-content text-xs pointer-events-none select-none hidden';
     container.appendChild(this.el);
   }
 
@@ -82,24 +84,24 @@ export class SelectionInfoOverlay {
     const rows: { label: string; value: string }[] = [];
 
     if (props.surfaceType === 'plane' && props.areaMm2 != null) {
-      rows.push({ label: 'Area', value: `${props.areaMm2.toFixed(4)} mm\u00B2` });
+      rows.push({ label: 'Area', value: formatArea(props.areaMm2, sceneUnit.current) });
     } else if (props.surfaceType === 'circle' && props.radius != null) {
-      rows.push({ label: 'Radius', value: `${props.radius.toFixed(4)} mm` });
+      rows.push({ label: 'Radius', value: formatLength(props.radius, sceneUnit.current) });
     } else if (props.surfaceType === 'cylinder' && props.radius != null) {
-      rows.push({ label: 'Radius', value: `${props.radius.toFixed(4)} mm` });
+      rows.push({ label: 'Radius', value: formatLength(props.radius, sceneUnit.current) });
     } else if (props.surfaceType === 'sphere' && props.radius != null) {
-      rows.push({ label: 'Radius', value: `${props.radius.toFixed(4)} mm` });
+      rows.push({ label: 'Radius', value: formatLength(props.radius, sceneUnit.current) });
     } else if (props.surfaceType === 'torus') {
       if (props.majorRadius != null) {
-        rows.push({ label: 'Major R', value: `${props.majorRadius.toFixed(4)} mm` });
+        rows.push({ label: 'Major R', value: formatLength(props.majorRadius, sceneUnit.current) });
       }
       if (props.minorRadius != null) {
-        rows.push({ label: 'Minor R', value: `${props.minorRadius.toFixed(4)} mm` });
+        rows.push({ label: 'Minor R', value: formatLength(props.minorRadius, sceneUnit.current) });
       }
     } else if (props.surfaceType === 'cone' && props.halfAngleDeg != null) {
       rows.push({ label: 'Half-angle', value: `${props.halfAngleDeg.toFixed(2)}\u00B0` });
     } else if (props.areaMm2 != null) {
-      rows.push({ label: 'Area', value: `${props.areaMm2.toFixed(4)} mm\u00B2` });
+      rows.push({ label: 'Area', value: formatArea(props.areaMm2, sceneUnit.current) });
     }
 
     this.renderPanel(badge, rows);
@@ -111,29 +113,29 @@ export class SelectionInfoOverlay {
 
     if (props.curveType === 'line') {
       if (props.length != null) {
-        rows.push({ label: 'Length', value: `${props.length.toFixed(4)} mm` });
+        rows.push({ label: 'Length', value: formatLength(props.length, sceneUnit.current) });
       }
     } else if (props.curveType === 'circle') {
       if (props.radius != null) {
-        rows.push({ label: 'Radius', value: `${props.radius.toFixed(4)} mm` });
+        rows.push({ label: 'Radius', value: formatLength(props.radius, sceneUnit.current) });
       }
     } else if (props.curveType === 'arc') {
       if (props.radius != null) {
-        rows.push({ label: 'Radius', value: `${props.radius.toFixed(4)} mm` });
+        rows.push({ label: 'Radius', value: formatLength(props.radius, sceneUnit.current) });
       }
       if (props.length != null) {
-        rows.push({ label: 'Length', value: `${props.length.toFixed(4)} mm` });
+        rows.push({ label: 'Length', value: formatLength(props.length, sceneUnit.current) });
       }
     } else if (props.curveType === 'ellipse') {
       if (props.majorRadius != null) {
-        rows.push({ label: 'Major R', value: `${props.majorRadius.toFixed(4)} mm` });
+        rows.push({ label: 'Major R', value: formatLength(props.majorRadius, sceneUnit.current) });
       }
       if (props.minorRadius != null) {
-        rows.push({ label: 'Minor R', value: `${props.minorRadius.toFixed(4)} mm` });
+        rows.push({ label: 'Minor R', value: formatLength(props.minorRadius, sceneUnit.current) });
       }
     } else {
       if (props.length != null) {
-        rows.push({ label: 'Length', value: `${props.length.toFixed(4)} mm` });
+        rows.push({ label: 'Length', value: formatLength(props.length, sceneUnit.current) });
       }
     }
 

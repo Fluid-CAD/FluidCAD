@@ -27,6 +27,7 @@ import { themeColors, onThemeChange } from './theme-colors';
 import { LineResolutionRegistry } from '../meshes/shape-meshes/line-resolution';
 import { runFrameHooks } from '../meshes/frame-hooks';
 import { setScreenScaleSource } from '../meshes/screen-scale';
+import { worldFromMm } from '../units/scene-scale';
 
 // Install camera-controls with only the Three.js submodules it needs
 CameraControls.install({
@@ -45,7 +46,19 @@ CameraControls.install({
 });
 
 const Z_UP = new Vector3(0, 0, 1);
-const VIEW_SIZE = 120;
+/** Default orthographic view height and eye position, in mm — evaluated
+ * through `worldFromMm` so an inch or metre document opens on the same
+ * picture. */
+const VIEW_SIZE_MM = 120;
+const DEFAULT_EYE_MM = new Vector3(50, -50, 40);
+
+function viewSize(): number {
+  return worldFromMm(VIEW_SIZE_MM);
+}
+
+function defaultEye(): Vector3 {
+  return DEFAULT_EYE_MM.clone().multiplyScalar(worldFromMm(1));
+}
 
 /** Factor applied to the bounding sphere radius when fitting to add breathing room. */
 export const FIT_PADDING = 1.1;
@@ -93,6 +106,10 @@ export class SceneContext {
   private running = false;
   private idleFrames = 0;
   private disposed = false;
+  /** Radius of the last fitted sphere — near/far are re-derived from it
+   * when the camera is swapped, so a switch keeps the fit's depth range. */
+  private lastFitRadius = 0;
+  private cameraChangeListeners = new Set<() => void>();
 
   constructor(private container: HTMLElement) {
     Object3D.DEFAULT_UP = Z_UP.clone();
@@ -114,24 +131,19 @@ export class SceneContext {
     this.scene = new Scene();
     this.scene.background = themeColors.backgroundColor.clone();
 
-    // Dual cameras
+    // Dual cameras — frustum, eye and clip planes come from the document
+    // unit; see applyUnitDefaults.
     const aspect = width / height;
-    this.orthoCamera = new OrthographicCamera(
-      -aspect * VIEW_SIZE / 2,
-      aspect * VIEW_SIZE / 2,
-      VIEW_SIZE / 2,
-      -VIEW_SIZE / 2,
-      -10000,
-      10000,
-    );
-    this.orthoCamera.position.set(50, -50, 40);
+    this.orthoCamera = new OrthographicCamera(-aspect, aspect, 1, -1, -1, 1);
     this.orthoCamera.up.copy(Z_UP);
-    this.orthoCamera.lookAt(0, 0, 0);
-
     this.perspCamera = new PerspectiveCamera(50, aspect, 0.5, 10000);
-    this.perspCamera.position.set(50, -50, 40);
     this.perspCamera.up.copy(Z_UP);
-    this.perspCamera.lookAt(0, 0, 0);
+    this.applyOrthoFrustum(aspect);
+    this.applyClipPlanes(defaultEye().length(), viewSize() / 2);
+    for (const cam of [this.orthoCamera, this.perspCamera]) {
+      cam.position.copy(defaultEye());
+      cam.lookAt(0, 0, 0);
+    }
 
     // Let screen-space markers size themselves on creation against the live
     // renderer + active camera (the getter always returns the current one).
@@ -159,7 +171,8 @@ export class SceneContext {
       size: 80,
       type: 'sphere',
     });
-    this._cc.setLookAt(50, -50, 40, 0, 0, 0, false);
+    const eye = defaultEye();
+    this._cc.setLookAt(eye.x, eye.y, eye.z, 0, 0, 0, false);
     this._cc.getTarget(this._adapter.target);
     this.gizmo.target = this._adapter.target;
     this.gizmo.attachControls(this._adapter as any);
@@ -225,6 +238,74 @@ export class SceneContext {
   }
 
   /**
+   * Fires whenever the view changes — camera-controls updates (orbit, zoom,
+   * transitions), a camera swap, a resize. Registered here rather than on
+   * the adapter because {@link switchCamera} rebuilds both the controls and
+   * the adapter, which would silently drop adapter listeners.
+   */
+  subscribeCameraChange(fn: () => void): () => void {
+    this.cameraChangeListeners.add(fn);
+    return () => {
+      this.cameraChangeListeners.delete(fn);
+    };
+  }
+
+  private notifyCameraChange(): void {
+    for (const fn of this.cameraChangeListeners) {
+      fn();
+    }
+  }
+
+  /**
+   * Re-seat the cameras on the unit-scaled defaults: the 120 mm-equivalent
+   * ortho window, the (50, −50, 40) mm-equivalent eye, and clip planes for
+   * that depth. Used at construction and again when the document unit
+   * changes while nothing is on screen — a fit would have nothing to fit.
+   */
+  applyUnitDefaults(): void {
+    const width = this.container.clientWidth || window.innerWidth;
+    const height = this.container.clientHeight || window.innerHeight;
+    this.applyOrthoFrustum(width / height);
+    this.orthoCamera.zoom = 1;
+    const eye = defaultEye();
+    this.applyClipPlanes(eye.length(), viewSize() / 2);
+    this._cc.setLookAt(eye.x, eye.y, eye.z, 0, 0, 0, false);
+    this._cc.getTarget(this._adapter.target);
+    this.gizmo.update();
+    this.requestRender();
+    this.notifyCameraChange();
+  }
+
+  private applyOrthoFrustum(aspect: number): void {
+    const size = viewSize();
+    this.orthoCamera.left = -aspect * size / 2;
+    this.orthoCamera.right = aspect * size / 2;
+    this.orthoCamera.top = size / 2;
+    this.orthoCamera.bottom = -size / 2;
+    this.orthoCamera.updateProjectionMatrix();
+  }
+
+  /**
+   * Clip planes for a view whose eye sits `dist` from a subject of
+   * `radius`. Perspective: near as deep as depth precision allows
+   * (dist/1000, floored at 0.01 mm-equivalent so a metre model's near
+   * plane doesn't sit inside the model), far past the subject's back.
+   * Orthographic: the same magnitude mirrored about the camera plane —
+   * the picking raycaster reads this depth to start its ray in front of
+   * everything visible (see createPickingRaycaster).
+   */
+  private applyClipPlanes(dist: number, radius: number): void {
+    this.lastFitRadius = radius;
+    const far = dist + 10 * radius;
+    this.perspCamera.near = Math.max(dist / 1000, worldFromMm(0.01));
+    this.perspCamera.far = far;
+    this.perspCamera.updateProjectionMatrix();
+    this.orthoCamera.near = -far;
+    this.orthoCamera.far = far;
+    this.orthoCamera.updateProjectionMatrix();
+  }
+
+  /**
    * Lock the camera orientation: left-drag and one-finger touch pan instead
    * of rotating, and the gizmo goes inert (a gizmo click/drag is a rotation
    * too). Pan and zoom stay available. Survives camera switches — the
@@ -264,6 +345,13 @@ export class SceneContext {
 
     const sphere = new Sphere(center, radius * FIT_PADDING);
     this._cc.fitToSphere(sphere, enableTransition);
+    // Clip planes for the fitted view. Perspective fits move the eye to the
+    // sphere-fitting distance (known up front, even mid-transition); an
+    // orthographic fit only re-zooms, so its eye distance is what it is.
+    const dist = this.activeCamera === 'perspective'
+      ? this._cc.getDistanceToFitSphere(sphere.radius)
+      : this._cc.distance;
+    this.applyClipPlanes(dist, sphere.radius);
     // The instant form dispatches no transitionstart — wake so the next
     // update() applies and renders it.
     this.wake();
@@ -346,7 +434,10 @@ export class SceneContext {
     this.gizmo.attachControls(this._adapter as any);
     this.gizmo.update();
 
+    // The new eye distance needs its own depth range.
+    this.applyClipPlanes(pos.distanceTo(tgt), this.lastFitRadius || viewSize() / 2);
     this.requestRender();
+    this.notifyCameraChange();
   }
 
   /** Immediately render one frame. */
@@ -388,10 +479,14 @@ export class SceneContext {
     cc.addEventListener('controlstart', this.wakeListener);
     cc.addEventListener('control', this.wakeListener);
     cc.addEventListener('transitionstart', this.wakeListener);
+    // 'update' fires inside cc.update() — before this tick's render, so a
+    // listener's uniform writes land in the same frame.
+    cc.addEventListener('update', this.cameraChangeListener);
     return cc;
   }
 
   private wakeListener = (): void => this.wake();
+  private cameraChangeListener = (): void => this.notifyCameraChange();
 
   /** Restart the animation loop if it went to sleep. */
   private wake(): void {
@@ -463,11 +558,7 @@ export class SceneContext {
     LineResolutionRegistry.setResolution(width, height);
 
     // Update ortho camera
-    this.orthoCamera.left = -aspect * VIEW_SIZE / 2;
-    this.orthoCamera.right = aspect * VIEW_SIZE / 2;
-    this.orthoCamera.top = VIEW_SIZE / 2;
-    this.orthoCamera.bottom = -VIEW_SIZE / 2;
-    this.orthoCamera.updateProjectionMatrix();
+    this.applyOrthoFrustum(aspect);
 
     // Update perspective camera
     this.perspCamera.aspect = aspect;
@@ -480,6 +571,8 @@ export class SceneContext {
 
     this.gizmo.update();
     this.requestRender();
+    // Pixels per world unit changed with the canvas height.
+    this.notifyCameraChange();
   }
 
   private updateLightPositions(): void {

@@ -1,6 +1,7 @@
 import type { TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Explorer } from "./explorer.js";
+import { mmTol } from "../units/tolerance.js";
 
 export type HitTestResult = { type: 'face'; index: number } | { type: 'edge'; index: number } | null;
 
@@ -23,8 +24,11 @@ export class OccHitTest {
     let bestW = Infinity;
 
     const intersector = new oc.IntCurvesFace_ShapeIntersector();
+    // 1e-7 is the kernel's classification floor (OCCT-internal, unit-free);
+    // the ray range is a length.
     intersector.Load(shape, 1e-7);
-    intersector.Perform(ray, -1e10, 1e10);
+    const rayRange = mmTol(1e10);
+    intersector.Perform(ray, -rayRange, rayRange);
 
     if (intersector.IsDone()) {
       const nbPnts = intersector.NbPnt();
@@ -89,7 +93,7 @@ export class OccHitTest {
             (closestOnRay.X() - rayOrigin[0]) * rayDir[0] +
             (closestOnRay.Y() - rayOrigin[1]) * rayDir[1] +
             (closestOnRay.Z() - rayOrigin[2]) * rayDir[2];
-          if (edgeDepth <= bestW + 1e-3) {
+          if (edgeDepth <= bestW + mmTol(1e-3)) {
             minEdgeDist = d;
             minEdgeIndex = i;
           }

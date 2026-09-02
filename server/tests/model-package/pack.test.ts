@@ -126,3 +126,68 @@ describe('packModel — Pack v2 workspace packaging', () => {
     expect(withoutDefs.manifest.paramDefinitions).toBeUndefined();
   });
 });
+
+describe('packModel — units (manifest v3)', () => {
+  it('records the project unit from fluidcad.json and each script\'s unit() declaration', async () => {
+    write('fluidcad.json', JSON.stringify({ unit: 'in' }));
+    write('bracket.fluid.js', "import { circle } from 'fluidcad/core';\nunit('mm');\ncircle(1);\n");
+    write('parts/pin.part.js', "import { part } from 'fluidcad';\nunit('cm');\nexport const pin = part('pin', () => {});\n");
+    write('parts/plain.part.js', "import { part } from 'fluidcad';\nexport const plain = part('plain', () => {});\n");
+    write('README.md', "unit('ft') mentioned in prose must not count");
+
+    const { manifest, zip } = await packModel({
+      entryPath: join(ws, 'bracket.fluid.js'),
+      workspacePath: ws,
+      fluidcadVersion: '0.0.42',
+    });
+
+    expect(manifest.schemaVersion).toBe(3);
+    // Lifted out of fluidcad.json — which itself still never ships.
+    expect(manifest.unit).toBe('in');
+    expect(manifest.files).not.toContain('fluidcad.json');
+    // Only declaring scripts appear; `files` stays a plain path list.
+    expect(manifest.fileUnits).toEqual({ 'bracket.fluid.js': 'mm', 'parts/pin.part.js': 'cm' });
+    expect(manifest.files).toContain('parts/plain.part.js');
+
+    const z = await JSZip.loadAsync(zip);
+    const stored = JSON.parse(await z.file('manifest.json')!.async('string'));
+    expect(stored.unit).toBe('in');
+    expect(stored.fileUnits['parts/pin.part.js']).toBe('cm');
+  });
+
+  it('defaults the project unit to mm and omits fileUnits when no script declares one', async () => {
+    write('m.fluid.js', "import { circle } from 'fluidcad/core';\ncircle(1);\n");
+
+    const { manifest } = await packModel({
+      entryPath: join(ws, 'm.fluid.js'),
+      workspacePath: ws,
+      fluidcadVersion: '0.0.42',
+    });
+    expect(manifest.unit).toBe('mm');
+    expect('fileUnits' in manifest).toBe(false);
+  });
+
+  it('prefers an explicit unit input over fluidcad.json', async () => {
+    write('fluidcad.json', JSON.stringify({ unit: 'in' }));
+    write('m.fluid.js', "import { circle } from 'fluidcad/core';\ncircle(1);\n");
+
+    const { manifest } = await packModel({
+      entryPath: join(ws, 'm.fluid.js'),
+      workspacePath: ws,
+      fluidcadVersion: '0.0.42',
+      unit: 'cm',
+    });
+    expect(manifest.unit).toBe('cm');
+  });
+
+  it('ignores a unit() literal that is not a length unit', async () => {
+    write('m.fluid.js', "import { circle } from 'fluidcad/core';\nunit('furlong');\ncircle(1);\n");
+
+    const { manifest } = await packModel({
+      entryPath: join(ws, 'm.fluid.js'),
+      workspacePath: ws,
+      fluidcadVersion: '0.0.42',
+    });
+    expect('fileUnits' in manifest).toBe(false);
+  });
+});

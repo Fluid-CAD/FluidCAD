@@ -7,6 +7,7 @@ import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 import { listCandidateFiles } from '../part-catalog/walk.ts';
 import { PartScanCache } from '../part-catalog/cache.ts';
+import { readProjectConfig } from '../project-config.ts';
 
 const IDENTIFIER_RE = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
 
@@ -28,13 +29,17 @@ export function createPartCatalogRouter(
   const inWorkspace = (absPath: string): boolean =>
     workspacePath !== '' && (absPath === workspacePath || absPath.startsWith(workspacePath + '/'));
 
+  // Read per request: `fluidcad.json` may change while the server runs, and
+  // a stale project unit would mislabel every file without its own `unit()`.
+  const projectUnit = () => readProjectConfig(workspacePath).unit ?? 'mm';
+
   router.get('/part-catalog/files', async (_req, res) => {
     if (!workspacePath) {
       res.status(404).json({ error: 'No workspace path configured' });
       return;
     }
     try {
-      const files = await listCandidateFiles(workspacePath, p => fluidCadServer.getLiveBuffer(p));
+      const files = await listCandidateFiles(workspacePath, p => fluidCadServer.getLiveBuffer(p), projectUnit());
       res.json({ workspacePath, files });
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });
@@ -63,7 +68,7 @@ export function createPartCatalogRouter(
     }
 
     try {
-      const result = await fluidCadServer.scanPartsInFile(absPath);
+      const result = await fluidCadServer.scanPartsInFile(absPath, projectUnit());
       if (!result) {
         res.status(503).json({ error: 'Engine not initialized yet' });
         return;

@@ -418,3 +418,53 @@ describe('MoveToPart — refusals and guards', () => {
     }
   });
 });
+
+describe('MoveToPart — unit() statements', () => {
+  it('leaves a top-level unit() where it is when features move', async () => {
+    const code = src(
+      `import { sketch, rect, extrude, part, unit } from 'fluidcad/core'`,
+      ``,
+      `unit('in')`,
+      ``,
+      `sketch('xy', () => { rect(4, 2) })`,
+      `extrude(1)`,
+      ``,
+      `const p1 = part('Body', () => {`,
+      `  sketch('xy', () => { rect(1, 1) })`,
+      `})`,
+    );
+    const result = await MoveToPart.apply(code, await moveSpec(code, [5, 6], 8));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toBe(src(
+      `import { sketch, rect, extrude, part, unit } from 'fluidcad/core'`,
+      ``,
+      `unit('in')`,
+      ``,
+      `const p1 = part('Body', () => {`,
+      `  sketch('xy', () => { rect(1, 1) })`,
+      `  sketch('xy', () => { rect(4, 2) })`,
+      `  extrude(1)`,
+      `})`,
+    ));
+  });
+
+  it('refuses to move the unit() statement itself', async () => {
+    const code = src(
+      `import { sketch, rect, part, unit } from 'fluidcad/core'`,
+      ``,
+      `unit('in')`,
+      ``,
+      `const p1 = part('Body', () => {`,
+      `  sketch('xy', () => { rect(1, 1) })`,
+      `})`,
+    );
+    const analysis = await MoveToPart.analyze(code, await moveSpec(code, [3], 5));
+    expect(analysis.ok).toBe(false);
+    if (!analysis.ok) {
+      expect(analysis.reason).toContain('unit()');
+      expect(analysis.reason).toContain('cannot move into a part');
+    }
+    const result = await MoveToPart.apply(code, await moveSpec(code, [3], 5));
+    expect(result.newCode).toBe(code);
+  });
+});

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { sceneUnitFields } from '../fluidcad-server.ts';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
@@ -34,6 +35,7 @@ export function createTimelineRouter(
       type: 'scene-rendered',
       absPath: data.absPath,
       sceneKind: data.sceneKind,
+      ...sceneUnitFields(data),
       result: data.result,
       rollbackStop: data.rollbackStop,
       ...(data.rollbackScopePartId ? { rollbackScopePartId: data.rollbackScopePartId } : {}),
@@ -44,6 +46,7 @@ export function createTimelineRouter(
       result: data.result,
       absPath: data.absPath,
       sceneKind: data.sceneKind,
+      ...sceneUnitFields(data),
       rollbackStop: data.rollbackStop,
       ...(data.rollbackScopePartId ? { rollbackScopePartId: data.rollbackScopePartId } : {}),
       ...(data.assembly ? { assembly: data.assembly } : {}),

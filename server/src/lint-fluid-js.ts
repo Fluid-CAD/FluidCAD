@@ -12,6 +12,7 @@
 // Doing it that way means we don't double-load the JavaScript wasm grammar.
 
 import { getJavaScriptParser } from './code-editor.ts';
+import { lintUnitStatements, type LintDiagnostic } from './unit-lint.ts';
 
 type TSNode = {
   type: string;
@@ -41,7 +42,19 @@ const CORE_SYMBOLS = new Set<string>([
   'bezier', 'point',
   // Sketch datum accessors (origin + axes, constraint sketches).
   'origin', 'xAxis', 'yAxis',
+  // Document unit declaration — metadata, not a feature (unit-lint.ts).
+  'unit',
 ]);
+
+/**
+ * Inline conversion helpers (`extrude(inch(1))`). Matched only when the
+ * identifier is being CALLED: `m`, `mm`, `cm` and `ft` are exactly the names
+ * people give local variables and callback parameters, and the linter's
+ * shadow tracking is top-level only — a plain-reference match would refuse
+ * to write a file over its own `(m) => m * 2`. A user's own function named
+ * `m` is rare enough to be the accepted trade-off.
+ */
+const UNIT_HELPER_SYMBOLS = new Set<string>(['mm', 'cm', 'm', 'inch', 'ft']);
 
 const FILTER_SYMBOLS = new Set<string>(['face', 'edge']);
 
@@ -70,6 +83,20 @@ for (const s of CONSTRAINT_SYMBOLS) {
 for (const s of SHAPE_SYMBOLS) {
   MODULE_FOR_SYMBOL.set(s, 'fluidcad/shapes');
 }
+for (const s of UNIT_HELPER_SYMBOLS) {
+  MODULE_FOR_SYMBOL.set(s, 'fluidcad/units');
+}
+
+/**
+ * Statements that start geometry for the unit-order rule: every engine
+ * statement except the unit declaration itself and `breakpoint()`, which
+ * builds nothing. Sketch-only symbols are included — they can't legally
+ * precede `unit()` either.
+ */
+const GEOMETRY_CALLEES = new Set<string>(
+  [...CORE_SYMBOLS, ...FILTER_SYMBOLS, ...CONSTRAINT_SYMBOLS, ...SHAPE_SYMBOLS]
+    .filter((s) => s !== 'unit' && s !== 'breakpoint'),
+);
 
 export type EngineSymbol = { name: string; module: string };
 
@@ -96,7 +123,24 @@ export type LintFluidJsResult = {
   missing: MissingImport[];
   /** A copy-pasteable block of suggested import statements, grouped by module. */
   suggestion: string;
+  /** File-level rule violations the runtime would reject (`unit()` placement). */
+  diagnostics: LintDiagnostic[];
 };
+
+export type LintFluidJsOptions = {
+  /** The file the code will be written to — `unit()` is illegal in `*.assembly.js`. */
+  filePath?: string;
+};
+
+/** True when `node` is the callee of a call expression (`m(…)`, not `m * 2`). */
+function isCalleeUse(node: TSNode): boolean {
+  const parent = node.parent;
+  if (!parent || parent.type !== 'call_expression') {
+    return false;
+  }
+  const fn = parent.childForFieldName('function');
+  return !!fn && fn.startIndex === node.startIndex;
+}
 
 /**
  * Walk every named child recursively, invoking `visit` once per node. The
@@ -291,7 +335,7 @@ function collectTopLevelDeclaredNames(root: TSNode, into: Set<string>): void {
   }
 }
 
-export async function lintFluidJs(code: string): Promise<LintFluidJsResult> {
+export async function lintFluidJs(code: string, options: LintFluidJsOptions = {}): Promise<LintFluidJsResult> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code) as { rootNode: TSNode };
   const root = tree.rootNode;
@@ -321,6 +365,9 @@ export async function lintFluidJs(code: string): Promise<LintFluidJsResult> {
     if (!isReferenceUse(n)) {
       return;
     }
+    if (UNIT_HELPER_SYMBOLS.has(n.text) && !isCalleeUse(n)) {
+      return;
+    }
     if (missingByName.has(n.text)) {
       return;
     }
@@ -346,5 +393,9 @@ export async function lintFluidJs(code: string): Promise<LintFluidJsResult> {
     .map(([mod, syms]) => `import { ${syms.join(', ')} } from "${mod}";`)
     .join('\n');
 
-  return { missing: sorted, suggestion };
+  return {
+    missing: sorted,
+    suggestion,
+    diagnostics: lintUnitStatements(root, options.filePath, GEOMETRY_CALLEES),
+  };
 }

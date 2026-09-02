@@ -11,7 +11,7 @@ import {
 
 const _sizeTmp = new Vector2();
 
-function getViewportHeightPx(renderer: WebGLRenderer): number {
+export function getViewportHeightPx(renderer: WebGLRenderer): number {
   renderer.getSize(_sizeTmp);
   const h = _sizeTmp.y;
   if (h > 0) {
@@ -20,16 +20,32 @@ function getViewportHeightPx(renderer: WebGLRenderer): number {
   return renderer.domElement.clientHeight || 1;
 }
 
-function viewHeightWorldAt(camera: Camera, position: Vector3): number {
-  if (camera instanceof OrthographicCamera) {
-    return (camera.top - camera.bottom) / camera.zoom;
+/**
+ * Visible world height at `focus`. Duck-typed on three's `is*Camera` flags
+ * rather than instanceof so a bare camera-shaped object (tests) works; for
+ * a perspective camera the height is the one at `focus` (the orbit target
+ * or the object being sized), with the origin as the stand-in when absent.
+ */
+function viewHeightWorldAt(camera: Camera, focus?: Vector3): number {
+  const cam = camera as Partial<OrthographicCamera & PerspectiveCamera>;
+  if (cam.isOrthographicCamera) {
+    return (cam.top! - cam.bottom!) / (cam.zoom || 1);
   }
-  if (camera instanceof PerspectiveCamera) {
-    const dist = camera.position.distanceTo(position);
-    const vFov = (camera.fov * Math.PI) / 180;
+  if (cam.isPerspectiveCamera) {
+    const dist = focus ? camera.position.distanceTo(focus) : camera.position.length();
+    const vFov = (cam.fov! * Math.PI) / 180;
     return 2 * dist * Math.tan(vFov / 2);
   }
   return 1;
+}
+
+/**
+ * The zoom as document units per screen pixel — the one number the grid
+ * ladder, the snapper thresholds and the scale bar all key off, so they
+ * must all read it from here.
+ */
+export function worldUnitsPerPixel(camera: Camera, canvasHeightPx: number, focus?: Vector3): number {
+  return viewHeightWorldAt(camera, focus) / (canvasHeightPx || 1);
 }
 
 export function pixelsToWorld(

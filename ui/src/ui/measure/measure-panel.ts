@@ -1,12 +1,15 @@
 import type { MeasureDistanceValue, MeasureEntityInfo, MeasureEntityRef, MeasureResult } from '../../api';
 import { ICON_CLOSE } from '../icons';
-import { ANGLE_UNITS, LENGTH_UNITS, formatAngle, formatArea, formatLength } from './format';
-import type { AngleUnit, LengthUnit } from './format';
+import { ANGLE_UNITS, LENGTH_UNITS, convertLength, formatAngle, formatArea, formatLength } from '../../units/units';
+import type { AngleUnit, LengthUnit } from '../../units/units';
 import type { MeasureAxis, MeasureViz } from './measure-overlay';
 
 export type MeasurePanelData = {
   entities: { ref: MeasureEntityRef; label: string }[];
   result: MeasureResult | null;
+  /** The document unit — what the result's numbers are in. */
+  baseUnit: LengthUnit;
+  /** The chosen display unit; lengths convert base → display. */
   lengthUnit: LengthUnit;
   angleUnit: AngleUnit;
 };
@@ -60,7 +63,7 @@ function esc(text: string): string {
  */
 export class MeasurePanel {
   private el: HTMLDivElement;
-  private data: MeasurePanelData = { entities: [], result: null, lengthUnit: 'mm', angleUnit: 'deg' };
+  private data: MeasurePanelData = { entities: [], result: null, baseUnit: 'mm', lengthUnit: 'mm', angleUnit: 'deg' };
 
   constructor(container: HTMLElement, private callbacks: MeasurePanelCallbacks) {
     this.el = document.createElement('div');
@@ -81,6 +84,17 @@ export class MeasurePanel {
   update(data: MeasurePanelData): void {
     this.data = data;
     this.render();
+  }
+
+  private length(value: number): string {
+    const { baseUnit, lengthUnit } = this.data;
+    return formatLength(convertLength(value, baseUnit, lengthUnit), lengthUnit);
+  }
+
+  private area(value: number): string {
+    const { baseUnit, lengthUnit } = this.data;
+    const f = convertLength(1, baseUnit, lengthUnit);
+    return formatArea(value * f * f, lengthUnit);
   }
 
   private render(): void {
@@ -149,10 +163,10 @@ export class MeasurePanel {
     const faceCount = result.entities.filter((e) => e.ref.kind === 'face').length;
     const edgeCount = result.entities.filter((e) => e.ref.kind === 'edge').length;
     if (result.totalArea !== undefined) {
-      rows.push(this.row(faceCount > 1 ? 'Total area' : 'Area', formatArea(result.totalArea, this.data.lengthUnit)));
+      rows.push(this.row(faceCount > 1 ? 'Total area' : 'Area', this.area(result.totalArea)));
     }
     if (result.totalLength !== undefined) {
-      rows.push(this.row(edgeCount > 1 ? 'Total length' : 'Length', formatLength(result.totalLength, this.data.lengthUnit)));
+      rows.push(this.row(edgeCount > 1 ? 'Total length' : 'Length', this.length(result.totalLength)));
     }
 
     if (isPair) {
@@ -173,11 +187,11 @@ export class MeasurePanel {
   private renderEntityDetails(info: MeasureEntityInfo): string {
     const rows: string[] = [this.row('Type', GEOM_LABELS[info.geomType] ?? info.geomType)];
     if (info.area !== undefined) {
-      rows.push(this.row('Area', formatArea(info.area, this.data.lengthUnit)));
+      rows.push(this.row('Area', this.area(info.area)));
     }
     if (info.radius !== undefined) {
-      rows.push(this.row('Radius', formatLength(info.radius, this.data.lengthUnit)));
-      rows.push(this.row('Diameter', formatLength(info.radius * 2, this.data.lengthUnit)));
+      rows.push(this.row('Radius', this.length(info.radius)));
+      rows.push(this.row('Diameter', this.length(info.radius * 2)));
     }
     return rows.join('');
   }
@@ -192,14 +206,14 @@ export class MeasurePanel {
   private distanceRows(key: string, label: string, dist: MeasureDistanceValue): string {
     const main = `<div data-viz="${key}" class="flex justify-between items-baseline gap-2 px-1 py-0.5 rounded hover:bg-base-content/10 cursor-default">
       <span class="text-base-content/60">${label}</span>
-      <span class="font-medium tabular-nums">${formatLength(dist.value, this.data.lengthUnit)}</span>
+      <span class="font-medium tabular-nums">${this.length(dist.value)}</span>
     </div>`;
 
     const subs = AXES.map(({ axis, cls }) => {
       const component = dist.to[axis] - dist.from[axis];
       return `<div data-viz="${key}:${axis}" class="flex justify-between items-baseline gap-2 pl-5 pr-1 py-0.5 rounded hover:bg-base-content/10 cursor-default">
         <span class="${cls} font-semibold">${axis.toUpperCase()}</span>
-        <span class="tabular-nums text-base-content/90">${formatLength(component, this.data.lengthUnit)}</span>
+        <span class="tabular-nums text-base-content/90">${this.length(component)}</span>
       </div>`;
     }).join('');
 

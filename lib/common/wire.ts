@@ -66,6 +66,7 @@ export class Wire extends Shape<TopoDS_Wire> {
   // (lexicographic x → y → z). This ensures consistent indexing regardless of
   // how OCCT constructed the wire internally.
   private static normalizeStartEdge(edges: Edge[]): Edge[] {
+    // unit: length, but a sub-Confusion ordering tie-break — deliberately unscaled.
     const eps = 1e-10;
     let minIdx = 0;
     let minMid = EdgeOps.getEdgeMidPoint(edges[0]);

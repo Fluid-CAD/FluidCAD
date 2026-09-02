@@ -28,7 +28,7 @@ describe('applySketchConstraint', () => {
     });
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  perpendicular(a, b);\n});`);
-    expect(result.newCode).toContain(`import {perpendicular, horizontal } from "fluidcad/constraints"`);
+    expect(result.newCode).toContain(`import { perpendicular, horizontal } from "fluidcad/constraints"`);
   });
 
   it('hoists an unbound producer to a collision-free const', async () => {

@@ -178,6 +178,16 @@ export const TRANSFORMS: Record<string, TransformSpec> = {
     target: 'current',
     body: () => ({}),
   },
+
+  // The unit chip: make the part file declare `unit('…')`, or un-declare it
+  // when `unit` is null ("Same as project") — the null must reach the route
+  // as JSON null, not a dropped key. `filePath` rides along so the server
+  // can refuse an assembly file with a 422.
+  'set-unit': {
+    endpoint: 'set-unit',
+    target: 'path',
+    body: (msg) => ({ unit: msg.unit, filePath: msg.filePath }),
+  },
 };
 
 export type CodeEditResult = {

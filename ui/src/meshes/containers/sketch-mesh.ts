@@ -30,10 +30,11 @@ import type { LiveEntityGeometry } from '../../sketch-solver-client';
 import { localToWorld } from '../../interactive/sketch-plane-utils';
 import { themeColors } from '../../scene/theme-colors';
 import { viewerSettings } from '../../scene/viewer-settings';
+import { worldFromMm } from '../../units/scene-scale';
 import { applyConstantPixelSize } from '../screen-scale';
 
 const SKETCH_EDGE_COLOR = '#2297ff';
-const VERTEX_RADIUS = 2;
+const VERTEX_RADIUS_MM = 2;
 const VERTEX_SEGMENTS = 16;
 const VERTEX_PX_RADIUS = 6;
 // Non-interactive edges (text outlines, derived curves) can carry dozens of
@@ -41,7 +42,7 @@ const VERTEX_PX_RADIUS = 6;
 const NON_INTERACTIVE_VERTEX_PX_RADIUS = 3;
 const NON_INTERACTIVE_VERTEX_OPACITY = 0.6;
 const META_VERTEX_COLOR = '#8899aa';
-const META_VERTEX_RADIUS = 1.5;
+const META_VERTEX_RADIUS_MM = 1.5;
 const META_VERTEX_PX_RADIUS = 4.5;
 /** Frames a glyph-layout hook waits for its mesh to reach the scene before
  * assuming it never will (a mesh built and then dropped). */
@@ -234,7 +235,8 @@ export class SketchMesh extends Group {
       push('end', e.end);
       push('center', e.center);
     }
-    const EPS_SQ = 1e-10;
+    // A dot sits on its slot within a hundred-thousandth of a millimetre.
+    const EPS_SQ = worldFromMm(1e-5) ** 2;
     for (const child of this.children) {
       if (!child.userData.isVertexDot) {
         continue;
@@ -470,15 +472,19 @@ export class SketchMesh extends Group {
       }
     }
 
-    const EPSILON_SQ = 1e-12;
+    // Coincident within a millionth of a millimetre.
+    const EPSILON_SQ = worldFromMm(1e-6) ** 2;
 
+    // The geometry radius pairs with a pixel radius (applyConstantPixelSize
+    // scales geometry → pixels), so it only needs to be the right order of
+    // magnitude for the document unit to keep the scale inside its clamps.
     for (const [key, bucket] of buckets) {
       const color = key.split('|')[0];
       const unique = this.dedup(bucket.positions, EPSILON_SQ);
-      this.addVertexDots(unique, normal, VERTEX_RADIUS, bucket.pxRadius, color, bucket.opacity);
+      this.addVertexDots(unique, normal, worldFromMm(VERTEX_RADIUS_MM), bucket.pxRadius, color, bucket.opacity);
     }
     const uniqueMeta = this.dedup(metaVertices, EPSILON_SQ);
-    this.addVertexDots(uniqueMeta, normal, META_VERTEX_RADIUS, META_VERTEX_PX_RADIUS, META_VERTEX_COLOR, 0.5);
+    this.addVertexDots(uniqueMeta, normal, worldFromMm(META_VERTEX_RADIUS_MM), META_VERTEX_PX_RADIUS, META_VERTEX_COLOR, 0.5);
   }
 
   /** Solved-entity child of this solved sketch (they report 'selectable'
@@ -550,7 +556,7 @@ export class SketchMesh extends Group {
     const dx = vertices[a * 3] - vertices[b * 3];
     const dy = vertices[a * 3 + 1] - vertices[b * 3 + 1];
     const dz = vertices[a * 3 + 2] - vertices[b * 3 + 2];
-    return dx * dx + dy * dy + dz * dz < 1e-12;
+    return dx * dx + dy * dy + dz * dz < worldFromMm(1e-6) ** 2;
   }
 
   private dedup(points: Vector3[], epsilonSq: number): Vector3[] {

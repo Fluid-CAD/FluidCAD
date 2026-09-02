@@ -56,6 +56,8 @@ describe('scene routes', () => {
 
     expect(body.schemaVersion).toBe(1);
     expect(body.file).toBe(FIXTURE_FILE);
+    // A fixture without unit() is an mm document — the summary says so.
+    expect(body.unit).toBe('mm');
     expect(body.rollbackStop).toBe(1);
     expect(body.compileError).toBeNull();
     expect(Array.isArray(body.objects)).toBe(true);

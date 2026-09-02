@@ -3,6 +3,7 @@ export { Convert } from "./convert.js";
 export type { Disposable } from "./convert.js";
 export { Explorer } from "./explorer.js";
 export { ShapeOps } from "./shape-ops.js";
+export { ScaleOps } from "./scale-ops.js";
 export { VertexOps } from "./vertex-ops.js";
 export { FaceOps } from "./face-ops.js";
 export { EdgeOps } from "./edge-ops.js";

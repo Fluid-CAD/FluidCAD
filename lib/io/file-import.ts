@@ -4,6 +4,31 @@ import { Shape } from "../common/shape.js";
 import { OcIO } from "../oc/io.js";
 import { getSceneManager } from "../scene-manager.js";
 import { Solid } from "../common/solid.js";
+import { isLengthUnit } from "../units/units.js";
+import type { LengthUnit } from "../units/units.js";
+import type { StepFileUnits } from "../oc/step-units.js";
+
+/**
+ * Sidecar written next to an imported `.brep` (`<name>.import.json`). It is
+ * separate from `.colors.json` (a bare array that older readers index by
+ * solid) so those readers keep working. `unit` is the unit the cached
+ * geometry is in — always mm, because the STEP reader converts into mm —
+ * and `sourceUnits` are the names the source file declared.
+ */
+export interface ImportMeta {
+  schemaVersion: 1;
+  unit: LengthUnit;
+  sourceUnits: StepFileUnits;
+  importedAt: string;
+}
+
+export interface ImportFileResult {
+  solids: Solid[];
+  /** The unit the cached geometry is in. */
+  unit: LengthUnit;
+  /** What the source STEP file declared, for the import report. */
+  sourceUnits: StepFileUnits;
+}
 
 /**
  * Override hook for hub mode (and tests). When set, asset reads consult
@@ -88,9 +113,10 @@ export class FileImport {
       file);
   }
 
-  static importFile(workspacePath: string, fileName: string, data: Uint8Array): Solid[] {
+  static importFile(workspacePath: string, fileName: string, data: Uint8Array): ImportFileResult {
     console.log(`Importing file: ${fileName}, size: ${data.length} bytes`);
 
+    const sourceUnits = OcIO.readStepFileUnits(data);
     const { docHandle, cleanup } = OcIO.readStepXCAF(fileName, data);
 
     const { solids: solidEntries } = OcIO.extractSolidsAndColors(docHandle);
@@ -123,10 +149,52 @@ export class FileImport {
     fs.writeFileSync(jsonPath, JSON.stringify(colorData, null, 2));
     console.log(`Written color metadata to ${jsonPath}`);
 
+    // The reader converts every file unit into mm, so the cache is mm
+    // whatever the source declared; load() scales into the loading document.
+    const meta: ImportMeta = {
+      schemaVersion: 1,
+      unit: 'mm',
+      sourceUnits,
+      importedAt: new Date().toISOString(),
+    };
+    const metaPath = join(workspacePath, 'imports', fileName.replace(/\.(step|stp)$/i, '.import.json'));
+    fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2));
+
     cleanup();
 
-    console.log(`Imported ${solids.length} solids with color metadata`);
-    return solids;
+    console.log(`Imported ${solids.length} solids with color metadata (file units: ${sourceUnits.length.join(', ') || 'undeclared'})`);
+    return { solids, unit: 'mm', sourceUnits };
+  }
+
+  /** The `<name>.import.json` sidecar, or null when the asset has none (or it is unreadable). */
+  static readImportMeta(fileName: string): ImportMeta | null {
+    const baseName = fileName.replace(/\.(step|stp|brep)$/i, '');
+    const result = readWorkspaceAsset(join('imports', baseName + '.import.json'));
+    if (!result.exists) {
+      return null;
+    }
+    try {
+      const parsed = JSON.parse(result.text);
+      if (parsed && typeof parsed === 'object') {
+        return parsed as ImportMeta;
+      }
+    } catch (err) {
+      console.warn(`Ignoring unreadable import sidecar for ${baseName}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    return null;
+  }
+
+  /**
+   * The unit an imported asset's cached geometry is in. Assets without a
+   * sidecar (imported before units existed, or copied in by hand) are mm:
+   * that is what the STEP reader has always produced.
+   */
+  static readAssetUnit(fileName: string): LengthUnit {
+    const meta = FileImport.readImportMeta(fileName);
+    if (meta && isLengthUnit(meta.unit)) {
+      return meta.unit;
+    }
+    return 'mm';
   }
 
   static deserializeShapesWithMetadata(

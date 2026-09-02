@@ -5,6 +5,8 @@ import { Exposed } from "./exposed.js";
 import { IPart } from "../core/interfaces.js";
 import { serializableParamDefs } from "./param-overrides.js";
 import type { ParamDefinition, ParamVal } from "../param-registry.js";
+import { unitFactor } from "../units/units.js";
+import type { LengthUnit } from "../units/units.js";
 
 export class Part extends SceneObject implements IPart {
   /**
@@ -24,6 +26,15 @@ export class Part extends SceneObject implements IPart {
    * instead of failing the render — see the `features` getter.
    */
   private pausedBy: BreakpointHit | null = null;
+
+  /**
+   * The unit this variant was materialized INTO — the active unit at the
+   * consuming statement (an assembly's project unit, or the unit of the
+   * part file reading `def.features`). When it differs from the defining
+   * file's unit the render pass rescales the built geometry into it
+   * (part-scale.ts); `null` until buildVariant stamps it.
+   */
+  private _targetUnit: LengthUnit | null = null;
 
   constructor(public partName: string) {
     super();
@@ -52,11 +63,43 @@ export class Part extends SceneObject implements IPart {
       return false;
     }
 
+    // A unit change on either side (the defining file's unit(), or the
+    // project unit the scene runs in) changes the scale factor baked into
+    // the cached geometry — never serve it from cache.
+    if (this.getDefinitionUnit() !== other.getDefinitionUnit()
+        || this.getTargetUnit() !== other.getTargetUnit()) {
+      return false;
+    }
+
     return true;
   }
 
   getType(): string {
     return "part";
+  }
+
+  /** The unit the defining file's numbers are in. */
+  getDefinitionUnit(): LengthUnit {
+    return this.getAuthoredUnit();
+  }
+
+  setTargetUnit(unit: LengthUnit): void {
+    this._targetUnit = unit;
+  }
+
+  /** The unit the variant is consumed in — the definition unit when unset. */
+  getTargetUnit(): LengthUnit {
+    return this._targetUnit ?? this.getDefinitionUnit();
+  }
+
+  /** Whether the built geometry has to be rescaled into the target unit. */
+  isForeignUnit(): boolean {
+    return this.getDefinitionUnit() !== this.getTargetUnit();
+  }
+
+  /** Multiplier taking definition-unit lengths into the target unit. */
+  getUnitScaleFactor(): number {
+    return unitFactor(this.getDefinitionUnit(), this.getTargetUnit());
   }
 
   getConnectors(): Connector[] {

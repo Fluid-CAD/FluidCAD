@@ -11,6 +11,8 @@ import { getCurrentScene } from "../scene-manager.js";
 import { popParamScope, pushParamScope } from "../param-registry.js";
 import type { ParamOverrides, ParamVal } from "../param-registry.js";
 import { canonicalVariantKey, collectedParamValues, toOverrideMap, warnUnknownOverrides } from "./param-overrides.js";
+import { getActiveUnit, getUnitRegistry, withUnit } from "../units/registry.js";
+import type { LengthUnit } from "../units/units.js";
 
 /**
  * A lazy part definition created by `part(name, callback)`.
@@ -139,7 +141,15 @@ export class PartDefinition<T = unknown> {
 
   private buildVariant(scene: Scene, overrides: Map<string, ParamVal>, scoped: boolean): Part {
     const variants = this.variantsIn(scene);
-    const key = canonicalVariantKey(overrides);
+    // The body's numbers are in the DEFINING file's unit, whatever the
+    // consumer runs in. The consumer is the ACTIVE unit at this call: the
+    // scene's root unit for insert() and the entry-file pass, the enclosing
+    // part's unit when another definition reads `def.features` mid-body.
+    // The render pass rescales the built geometry from the former into the
+    // latter (part-scale.ts) — nothing is built here, only registered.
+    const definitionUnit = getUnitRegistry().resolve(this.sourceLocation?.filePath);
+    const targetUnit = getActiveUnit();
+    const key = variantKey(overrides, targetUnit);
     const cached = variants.get(key);
     if (cached) {
       return cached;
@@ -149,6 +159,9 @@ export class PartDefinition<T = unknown> {
     if (this.sourceLocation) {
       partObj.setSourceLocation(this.sourceLocation);
     }
+    // The Part itself bypasses registerBuilder so it is stamped here.
+    partObj.setUnit(definitionUnit);
+    partObj.setTargetUnit(targetUnit);
 
     const scope = scoped ? pushParamScope(overrides) : null;
     let extensions: T;
@@ -156,14 +169,14 @@ export class PartDefinition<T = unknown> {
       // Templates are always top-level: a definition referenced mid-build of
       // another container (a filter's `.from(def)`, a nested reference) must
       // not become that container's child.
-      extensions = scene.runTopLevel(() => {
+      extensions = withUnit(definitionUnit, () => scene.runTopLevel(() => {
         scene.startProgressiveContainer(partObj);
         try {
           return this.callback();
         } finally {
           scene.endProgressiveContainer();
         }
-      });
+      }));
     } catch (e) {
       if (e instanceof BreakpointHit) {
         // A paused build IS this variant's world: the partial Part is already
@@ -201,6 +214,10 @@ export class PartDefinition<T = unknown> {
       warnUnknownOverrides('part', this.partName, scope);
     }
 
+    // Rescaling into the target unit happens at render time, once the
+    // part's members have built (SceneRenderer → scaleForeignPart): the
+    // geometry does not exist yet here. Geometry and part-owned connectors
+    // are scaled, never the instance pose.
     variants.set(key, partObj);
     return partObj;
   }
@@ -233,6 +250,18 @@ export class PartDefinition<T = unknown> {
   getNamedExposures(): Record<string, SceneObject> {
     return this.materialize().getNamedExposures();
   }
+}
+
+/**
+ * Variant cache key: the canonical override map plus the unit the variant
+ * is consumed in. One render has one root, so a definition normally meets a
+ * single target unit per scene — but a foreign-unit part reading another
+ * definition mid-body consumes it in ITS unit, and the root may consume the
+ * same definition in the scene's, so the two scaled templates must not
+ * share a slot.
+ */
+function variantKey(overrides: Map<string, ParamVal>, targetUnit: LengthUnit): string {
+  return `${targetUnit}\u0000${canonicalVariantKey(overrides)}`;
 }
 
 /**

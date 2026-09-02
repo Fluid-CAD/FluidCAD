@@ -46,6 +46,10 @@ remove(profile);
 
 Without this, a reusable sketch or selection can leak into later operations and cause unexpected results.
 
+## Units across files
+
+Reuse across files follows the [units](/docs/guides/units) rule: a part is built in the unit of the file that defines it. An assembly's own lengths (mate offsets, limits, translations) are in the project unit, parts inserted into it are scaled into that unit automatically, and parameter overrides such as `insert(def, { width: 10 })` are read in the part's unit, not the assembly's.
+
 ## Where `.reusable()` applies
 
 `.reusable()` works on any scene object whose shapes would otherwise be consumed:

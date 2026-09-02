@@ -29,8 +29,8 @@ const DRAG_PASS_MAX_ITERS = 60;
  * target's optimum has nonzero residual, so run to sub-visual
  * progress, not to the step tolerance. */
 const DRAG_PASS_FTOL = 1e-6;
-/** Points closer than this (both axes) coincide by value. */
-const GLUE_TOL = 1e-6;
+/** Points closer than this (both axes, in mm) coincide by value. */
+const GLUE_TOL_MM = 1e-6;
 
 // Degenerate-collapse guard. Direction constraints with absolute
 // residuals (a vertical's dx, a parallel's cross product) vanish as
@@ -44,17 +44,28 @@ const GLUE_TOL = 1e-6;
 // internal size-pin row, so the real inconsistency materializes as
 // residual and diagnose names the conflicting constraints. The
 // collapse floor is absolute on purpose — escape sizes scale with
-// residualTol, not with the sketch.
-const COLLAPSED_SIZE = 1e-4;
-/** Entities whose guess size was already below this never pin — they
- * were authored degenerate, not collapsed by the solver. */
-const HEALTHY_GUESS_SIZE = 1e-3;
+// residualTol, not with the sketch. Authored in mm; divided by the
+// document's lengthScale at solve time.
+const COLLAPSED_SIZE_MM = 1e-4;
+/** Entities whose guess size was already below this (mm) never pin —
+ * they were authored degenerate, not collapsed by the solver. */
+const HEALTHY_GUESS_SIZE_MM = 1e-3;
+/** LM defaults, in mm (the residual vector mixes lengths and radians;
+ * scaling the whole threshold is the v1 fix — see plan §7). */
+const DEFAULT_TOL_MM = 1e-9;
+const DEFAULT_RESIDUAL_TOL_MM = 1e-8;
 /** Pinning one entity can unmask a collapse of another (equal-length
  * chains); bounded whack-a-mole. */
 const MAX_PIN_ROUNDS = 3;
 
 export function solve(sys: SketchSystem, opts: SolveOptions = {}): SolveResult {
   const compiled = sys.compiled();
+  const lengthScale = opts.lengthScale ?? 1;
+  opts = {
+    ...opts,
+    tol: opts.tol ?? DEFAULT_TOL_MM / lengthScale,
+    residualTol: opts.residualTol ?? DEFAULT_RESIDUAL_TOL_MM / lengthScale,
+  };
   const drag = opts.drag;
   const dragPoints = (drag?.points ?? []).map((point) => sys.pointIndices(point.ref));
   ensurePlanCache(sys, compiled.version);
@@ -71,7 +82,7 @@ export function solve(sys: SketchSystem, opts: SolveOptions = {}): SolveResult {
       gluePairs = cache.pairs as GluePair[];
       glueKey = cache.key;
     } else {
-      gluePairs = valueCoincidencePairs(sys, compiled.freeMask);
+      gluePairs = valueCoincidencePairs(sys, compiled.freeMask, GLUE_TOL_MM / lengthScale);
       glueKey = gluePairs.map((p) => `${p.aix}~${p.bix}`).join(',');
       sys.planCache!.glue = { dragKey, pairs: gluePairs, key: glueKey };
     }
@@ -97,7 +108,7 @@ export function solve(sys: SketchSystem, opts: SolveOptions = {}): SolveResult {
 
   let pins: SizePin[] = [];
   for (let round = 0; round < MAX_PIN_ROUNDS; round++) {
-    const fresh = collapsedEntities(sys, pins);
+    const fresh = collapsedEntities(sys, pins, lengthScale);
     if (fresh.length === 0) {
       break;
     }
@@ -115,9 +126,11 @@ export function solve(sys: SketchSystem, opts: SolveOptions = {}): SolveResult {
 
 /** Entities (beyond the already-pinned ones) whose size collapsed
  * from a healthy guess to ~zero in the current values. */
-function collapsedEntities(sys: SketchSystem, pinned: SizePin[]): SizePin[] {
+function collapsedEntities(sys: SketchSystem, pinned: SizePin[], lengthScale: number): SizePin[] {
   const values = sys.values;
   const guesses = sys.guesses;
+  const COLLAPSED_SIZE = COLLAPSED_SIZE_MM / lengthScale;
+  const HEALTHY_GUESS_SIZE = HEALTHY_GUESS_SIZE_MM / lengthScale;
   const done = new Set(pinned.map((pin) => pin.entity));
   const out: SizePin[] = [];
   for (const e of sys.entities()) {
@@ -258,14 +271,14 @@ type GluePair = { aix: number; aiy: number; bix: number; biy: number };
 /**
  * Glue pairs between point slots that coincide by value: sweep the
  * slots sorted by (x, y, entity, role) and union everything within
- * GLUE_TOL, then pair each cluster member to its first slot.
+ * glueTol, then pair each cluster member to its first slot.
  * Deterministic; fixed slots never enter the sweep — value
  * coincidence with reference geometry (datums, P6 projections) must
  * not glue, or a point drawn at the origin without a constraint would
  * snap back on every drag. Sticking to reference geometry takes an
  * explicit coincident.
  */
-function valueCoincidencePairs(sys: SketchSystem, freeMask: Uint8Array): GluePair[] {
+function valueCoincidencePairs(sys: SketchSystem, freeMask: Uint8Array, glueTol: number): GluePair[] {
   const values = sys.values;
   const roleOrder: Record<string, number> = { point: 0, start: 1, end: 2, center: 3 };
   const slots = sys
@@ -285,8 +298,8 @@ function valueCoincidencePairs(sys: SketchSystem, freeMask: Uint8Array): GluePai
     return i;
   };
   for (let i = 0; i < slots.length; i++) {
-    for (let j = i + 1; j < slots.length && slots[j].x - slots[i].x <= GLUE_TOL; j++) {
-      if (Math.abs(slots[j].y - slots[i].y) <= GLUE_TOL) {
+    for (let j = i + 1; j < slots.length && slots[j].x - slots[i].x <= glueTol; j++) {
+      if (Math.abs(slots[j].y - slots[i].y) <= glueTol) {
         const ri = find(i);
         const rj = find(j);
         if (ri !== rj) {

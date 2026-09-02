@@ -1,44 +1,26 @@
 import { ICON_SCALE } from './icons';
 import type { EngineClient } from '../engine-client';
 import type { ShapeProperties } from '../api';
+import { LENGTH_UNITS, convertLength, formatArea, formatLength, formatVolume, isLengthUnit } from '../units/units';
+import type { LengthUnit } from '../units/units';
+import { sceneUnit } from '../units/scene-unit';
 
 /**
- * Convert density from g/cm³ (canonical) to [massUnit]/[lengthUnit]³ for display.
- *
- * Derivation: density [massUnit/lengthUnit³] = density [g/cm³]
- *   × (cm³ per lengthUnit³)   — volume factor
- *   ÷ (g per massUnit)        — mass factor
+ * cm³ contained in one cube of the given length unit — the bridge between
+ * a g/cm³ density and a volume in any of the display units.
  */
-/** cm³ contained in one cube of the given length unit. */
-function cm3PerUnit(lengthUnit: string): number {
-  switch (lengthUnit) {
-    case 'inch': return 16.387064;       // 1 in³ = 16.387064 cm³
-    case 'foot': return 28316.846592;    // 1 ft³ = 28316.847 cm³
-    case 'yard': return 764554.857984;   // 1 yd³ = 764554.858 cm³
-    case 'meter': return 1_000_000;      // 1 m³  = 1 000 000 cm³
-    default: return 0.001;               // 1 mm³ = 0.001 cm³
-  }
+function cm3PerUnit(lengthUnit: LengthUnit): number {
+  const cmPerUnit = convertLength(1, lengthUnit, 'cm');
+  return cmPerUnit * cmPerUnit * cmPerUnit;
 }
 
-function lengthSuffix(lengthUnit: string): string {
-  switch (lengthUnit) {
-    case 'inch': return 'in';
-    case 'foot': return 'ft';
-    case 'yard': return 'yd';
-    case 'meter': return 'm';
-    default: return 'mm';
-  }
-}
-
-function toDisplayDensity(gcm3: number, massUnit: string, lengthUnit: string): number {
-  const gPerMassUnit = massUnit === 'kg' ? 1000 : massUnit === 'lbs' ? 453.592 : 1;
-  return gcm3 * cm3PerUnit(lengthUnit) / gPerMassUnit;
-}
-
-/** Inverse of toDisplayDensity: convert [massUnit]/[lengthUnit]³ back to g/cm³. */
-function toCanonicalDensity(display: number, massUnit: string, lengthUnit: string): number {
-  const gPerMassUnit = massUnit === 'kg' ? 1000 : massUnit === 'lbs' ? 453.592 : 1;
-  return display * gPerMassUnit / cm3PerUnit(lengthUnit);
+/**
+ * Convert density from g/cm³ (canonical) to g/[lengthUnit]³.
+ *
+ * Derivation: density [g/lengthUnit³] = density [g/cm³] × (cm³ per lengthUnit³).
+ */
+function gramsPerUnitVolume(gcm3: number, lengthUnit: LengthUnit): number {
+  return gcm3 * cm3PerUnit(lengthUnit);
 }
 
 /** Convert density from its native material unit to canonical g/cm³. */
@@ -108,6 +90,13 @@ export class ShapePropertiesModal {
     this.bindRefs();
     this.bindEvents();
     this.loadMaterials();
+    // Results open in the document's own unit; the selector then converts
+    // away from it. Follow the document when it changes (file switch).
+    this.lengthUnitEl.value = sceneUnit.current;
+    sceneUnit.subscribe((unit) => {
+      this.lengthUnitEl.value = unit;
+      this.renderResults();
+    });
   }
 
   private buildHTML(): string {
@@ -122,11 +111,7 @@ export class ShapePropertiesModal {
           <div class="flex-1">
             <label class="label text-[11px] uppercase tracking-wide">Length Unit</label>
             <select class="select select-sm select-bordered w-full" data-ref="length-unit">
-              <option value="mm">mm</option>
-              <option value="inch">inch</option>
-              <option value="foot">foot</option>
-              <option value="yard">yard</option>
-              <option value="meter">meter</option>
+              ${LENGTH_UNITS.map((u) => `<option value="${u.value}">${u.value}</option>`).join('')}
             </select>
           </div>
           <div class="flex-1">
@@ -322,16 +307,19 @@ export class ShapePropertiesModal {
   private renderResults(): void {
     if (!this.rawProps) { return; }
 
-    const lengthUnit = this.lengthUnitEl.value;
+    const lengthUnit: LengthUnit = isLengthUnit(this.lengthUnitEl.value) ? this.lengthUnitEl.value : sceneUnit.current;
     const massUnit = this.massUnitEl.value;
 
-    const suffix = lengthSuffix(lengthUnit);
-    const vol = `${this.rawProps.volumeMm3.toFixed(4)} ${suffix}\u00B3`;
-    const area = `${this.rawProps.surfaceAreaMm2.toFixed(4)} ${suffix}\u00B2`;
+    // `volumeMm3` / `surfaceAreaMm2` are field NAMES only — their values are
+    // in the document unit (³ / ²). Convert from that base, not from mm.
+    const docUnit = sceneUnit.current;
+    const f = convertLength(1, docUnit, lengthUnit);
+    const vol = formatVolume(this.rawProps.volumeMm3 * f * f * f, lengthUnit, { decimals: 4 });
+    const area = formatArea(this.rawProps.surfaceAreaMm2 * f * f, lengthUnit, { decimals: 4 });
 
     const densityGcm3 = this.canonicalDensityGcm3 ?? 0;
-    const densityGPerVol = toDisplayDensity(densityGcm3, 'g', lengthUnit);
-    const massG = this.rawProps.volumeMm3 * densityGPerVol;
+    // Mass = volume in document unit³ × grams per document unit³.
+    const massG = this.rawProps.volumeMm3 * gramsPerUnitVolume(densityGcm3, docUnit);
     let mass: string;
     if (massUnit === 'kg') {
       mass = `${(massG / 1000).toFixed(4)} kg`;
@@ -342,8 +330,8 @@ export class ShapePropertiesModal {
     }
 
     const { centroid } = this.rawProps;
-    const f = (v: number) => v.toFixed(4);
-    const centroidText = `(${f(centroid.x)}, ${f(centroid.y)}, ${f(centroid.z)}) ${suffix}`;
+    const coord = (v: number) => formatLength(v * f, lengthUnit, { decimals: 4, suffix: false });
+    const centroidText = `(${coord(centroid.x)}, ${coord(centroid.y)}, ${coord(centroid.z)}) ${lengthUnit}`;
 
     this.volVal.textContent = vol;
     this.areaVal.textContent = area;

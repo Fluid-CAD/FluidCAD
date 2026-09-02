@@ -99,6 +99,32 @@ afterEach(() => {
 });
 
 describe('in-page editor host — which buffer an edit lands in', () => {
+  it('applies set-unit to the file the message names, passing the path so the server can refuse an assembly', async () => {
+    const part = entry(PART, `extrude(1);`);
+    const asm = entry(ASSEMBLY, '// assembly');
+    const { host, requests, responses } = install({ loaded: [asm, part], current: ASSEMBLY });
+    responses.set('/api/code/set-unit', () => ({ newCode: `unit('in');\nextrude(1);` }));
+
+    await host.handle({ type: 'set-unit', filePath: PART, unit: 'in' });
+
+    const call = requests.find((r) => r.url === '/api/code/set-unit')!;
+    expect(call.body).toEqual({ code: `extrude(1);`, unit: 'in', filePath: PART });
+    expect(part.text).toBe(`unit('in');\nextrude(1);`);
+    expect(asm.text).toBe('// assembly');
+  });
+
+  it('posts set-unit with unit: null intact so the server removes the declaration', async () => {
+    const part = entry(PART, `unit('in');\nextrude(1);`);
+    const { host, requests, responses } = install({ loaded: [part], current: PART });
+    responses.set('/api/code/set-unit', () => ({ newCode: `extrude(1);` }));
+
+    await host.handle({ type: 'set-unit', filePath: PART, unit: null });
+
+    const call = requests.find((r) => r.url === '/api/code/set-unit')!;
+    expect(call.body).toEqual({ code: `unit('in');\nextrude(1);`, unit: null, filePath: PART });
+    expect(part.text).toBe(`extrude(1);`);
+  });
+
   it('applies apply-feature-edit to the model the scene renders from when the spec names no file', async () => {
     const asm = entry(ASSEMBLY, 'const a = 1;');
     const { host, requests, responses } = install({ loaded: [asm], current: ASSEMBLY });

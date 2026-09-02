@@ -1,4 +1,5 @@
 import type { VariableInfo } from './ui/expression-input';
+import type { AngleUnit, LengthUnit } from './units/units';
 import type { ContactEntity } from './solver/types';
 import type {
   SceneObjectMesh,
@@ -27,6 +28,10 @@ export type SourceLocationParam = { filePath?: string; line: number; column: num
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * Lengths/areas are in the document's unit (`unit` names it): `areaMm2` is a
+ * field NAME kept for compatibility, not a promise of mm².
+ */
 export type FaceProperties = {
   surfaceType: 'plane' | 'circle' | 'cylinder' | 'sphere' | 'torus' | 'cone' | 'other';
   areaMm2?: number;
@@ -34,25 +39,45 @@ export type FaceProperties = {
   majorRadius?: number;
   minorRadius?: number;
   halfAngleDeg?: number;
+  /** The document unit the values are in; absent on servers predating units (mm). */
+  unit?: LengthUnit;
 };
 
+/** Lengths are in the document's unit (`unit` names it). */
 export type EdgeProperties = {
   curveType: 'line' | 'circle' | 'arc' | 'ellipse' | 'other';
   length?: number;
   radius?: number;
   majorRadius?: number;
   minorRadius?: number;
+  /** The document unit the values are in; absent on servers predating units (mm). */
+  unit?: LengthUnit;
 };
 
 export type Material = { name: string; density: number; densityUnit: string };
 
+/**
+ * Values are in the document's unit (`unit` names it): `volumeMm3` /
+ * `surfaceAreaMm2` are field NAMES kept for compatibility — an inch document
+ * reports in³ / in² under them.
+ */
 export type ShapeProperties = {
   volumeMm3: number;
   surfaceAreaMm2: number;
   centroid: { x: number; y: number; z: number };
+  /** The document unit the values are in; absent on servers predating units (mm). */
+  unit?: LengthUnit;
 };
 
-export type ImportResult = { success: boolean; fileName?: string; error?: string };
+export type ImportResult = {
+  success: boolean;
+  fileName?: string;
+  error?: string;
+  /** Solids the import produced (absent from older servers). */
+  solidCount?: number;
+  /** Unit names the STEP file declared (absent from older servers). */
+  sourceUnits?: { length: string[]; angle: string[] };
+};
 
 export type MeasureVec = { x: number; y: number; z: number };
 
@@ -85,8 +110,11 @@ export type MeasurePrimaryKey =
   | 'totalArea'
   | 'totalLength';
 
+/** Every length/area is in the document's unit (`unit` names it); angles in degrees. */
 export type MeasureResult = {
   entities: MeasureEntityInfo[];
+  /** The document unit the values are in; absent on servers predating units (mm). */
+  unit?: LengthUnit;
   primary: MeasurePrimaryKey;
   primaryLabel: string;
   minDist?: MeasureDistanceValue;
@@ -105,8 +133,18 @@ export interface UserPreferences {
   showGrid: boolean;
   cameraMode: 'perspective' | 'orthographic';
   showBuildTimings: boolean;
-  measureLengthUnit?: 'mm' | 'cm' | 'm' | 'in';
-  measureAngleUnit?: 'deg' | 'rad';
+  measureLengthUnit?: LengthUnit;
+  measureAngleUnit?: AngleUnit;
+  /** Unit suffix on on-canvas sketch dimension labels. Default false. */
+  sketchDimensionSuffix?: boolean;
+  /** Grid pitch follows zoom. Default true. */
+  gridAdaptive?: boolean;
+  /** Adaptive grid: minimum minor-cell width in px. Default 20. */
+  gridMinCellPx?: number;
+  /** Fixed grid: minor pitch per document unit (may be partial on disk). */
+  gridFixedSpacing?: Partial<Record<LengthUnit, number>>;
+  /** Fixed grid: major line every N minor cells. Default 10. */
+  gridMajorEvery?: number;
   /** Code-editor pane open at startup. Default false. */
   editorOpen?: boolean;
   /** Code-editor pane width, in px. */
@@ -3634,6 +3672,40 @@ export function editorRedo(filePath: string): Promise<EditorHistoryResult> {
 }
 
 // ---------------------------------------------------------------------------
+// Document unit (the unit chip's dropup). Neither call touches a number —
+// a document's numbers ARE its unit; only the declaration changes.
+// ---------------------------------------------------------------------------
+
+export type SetUnitResult = { success: boolean; reason?: string };
+
+async function postAcked(url: string, body: unknown): Promise<SetUnitResult> {
+  try {
+    const res = await fetch(url, { method: 'POST', headers: JSON_HEADERS, body: JSON.stringify(body) });
+    const answer = await res.json().catch(() => null);
+    if (!res.ok || answer?.success !== true) {
+      return { success: false, reason: answer?.reason ?? answer?.error ?? `HTTP ${res.status}` };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, reason: err?.message || String(err) };
+  }
+}
+
+/**
+ * Make a part file declare `unit('…')`. The server relays to the editor
+ * host, which rewrites its live buffer and re-renders — so success here
+ * means "dispatched"; the new unit shows up with the next scene-rendered.
+ */
+export function setDocumentUnit(filePath: string, unit: LengthUnit | null): Promise<SetUnitResult> {
+  return postAcked('/api/set-unit', { filePath, unit });
+}
+
+/** Write the project unit into `fluidcad.json` and recompute the current file. */
+export function setProjectUnit(unit: LengthUnit): Promise<SetUnitResult> {
+  return postAcked('/api/project/unit', { unit });
+}
+
+// ---------------------------------------------------------------------------
 // Timeline move-to-part (acked — a dry-run analyzes dependencies against the
 // server's copy and answers the companion set without touching the buffer;
 // the real call rides the edit dispatcher round trip with the editor)
@@ -3819,6 +3891,11 @@ export type CatalogFileEntry = {
   /** Workspace-relative path, for display. */
   path: string;
   absPath: string;
+  /**
+   * The unit the file's parts are authored in (its `unit()` statement, else
+   * the project unit) — read statically; absent on servers predating units.
+   */
+  unit?: LengthUnit;
 };
 
 /** Values a `param()` can resolve to — what the Insert dialog's form posts. */
@@ -3893,6 +3970,12 @@ export type CatalogEntryKind = 'value' | 'factory' | 'assembly';
 
 export type CatalogScanResult = {
   file: string;
+  /**
+   * The unit every part in the file is in, as the engine resolved it —
+   * `insert()` scales a part whose unit differs from the assembly's, so the
+   * dialog badges such tiles. Absent on servers predating units.
+   */
+  unit?: LengthUnit;
   parts: CatalogPart[];
   assemblies: CatalogAssembly[];
   /** Exports that didn't evaluate to a part — benign noise included. */

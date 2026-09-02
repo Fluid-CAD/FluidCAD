@@ -6,6 +6,7 @@ import { rad } from "../helpers/math-helpers.js";
 import { Explorer } from "../oc/explorer.js";
 import { getOC } from "../oc/init.js";
 import { ShapeOps } from "../oc/shape-ops.js";
+import { mmTol } from "../units/tolerance.js";
 
 /** The dialog values a ghost fillet/chamfer is built from, all resolved. */
 export type FilletGhostOptions = {
@@ -179,12 +180,12 @@ function bandKind(target: Solid, face: Face): BandKind {
     (bounds.UMin + bounds.UMax) / 2,
     (bounds.VMin + bounds.VMax) / 2,
     1,
-    BAND_PROBE_TOLERANCE,
+    bandProbeTolerance(),
   );
   const classifier = new oc.BRepClass3d_SolidClassifier(target.getShape());
   try {
     const point = props.Value();
-    classifier.Perform(point, BAND_PROBE_TOLERANCE);
+    classifier.Perform(point, bandProbeTolerance());
     return classifier.State() === oc.TopAbs_State.TopAbs_OUT ? 'add' : 'remove';
   } finally {
     classifier.delete();
@@ -193,5 +194,7 @@ function bandKind(target: Solid, face: Face): BandKind {
   }
 }
 
-/** Surface sampling and point classification both work well below feature size. */
-const BAND_PROBE_TOLERANCE = 1e-7;
+/** Surface sampling and point classification both work well below feature size: 1e-7 mm. */
+function bandProbeTolerance(): number {
+  return mmTol(1e-7);
+}

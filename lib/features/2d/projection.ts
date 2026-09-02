@@ -14,6 +14,7 @@ import { LazyVertex } from "../lazy-vertex.js";
 import {
   ReferenceEntityRecord, ReferenceEntityRef, ReferencePointRef, registerReferenceEntities,
 } from "./solved/reference.js";
+import { withUnit } from "../../units/registry.js";
 
 export class Projection extends ExtrudableGeometryBase {
 
@@ -41,7 +42,7 @@ export class Projection extends ExtrudableGeometryBase {
       // early; their build latch makes the loop's own slot a no-op.
       for (const obj of this.sourceObjects) {
         if (obj instanceof LazySelectionSceneObject) {
-          obj.build();
+          withUnit(obj.getUnit(), () => obj.build());
         }
       }
       const shapes = this.sourceObjects.flatMap(obj => obj.getShapes());

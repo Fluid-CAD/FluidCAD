@@ -1,4 +1,6 @@
 import { Quaternion, Ray, Vector3 } from 'three';
+import { sceneUnit } from '../../units/scene-unit';
+import type { GizmoValueUnit } from './gizmo-value-input';
 import { GizmoMath } from './gizmo-math';
 
 export type GizmoHandleId =
@@ -143,9 +145,10 @@ export class GizmoDragSession {
     return this.lastDeltaValue;
   }
 
-  /** The floating input's unit for this handle. */
-  get inputKind(): 'mm' | 'deg' {
-    return this.handleId in RING_HANDLES ? 'deg' : 'mm';
+  /** The floating input's unit for this handle: degrees on a ring, the
+   *  document unit on an arrow (the typed value is written back verbatim). */
+  get inputKind(): GizmoValueUnit {
+    return this.handleId in RING_HANDLES ? 'deg' : sceneUnit.current;
   }
 
   /**

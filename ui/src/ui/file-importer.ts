@@ -67,6 +67,11 @@ export class FileImporter {
       const result = await importFile(file.name, base64);
       if (!result.success) {
         this.showToast(`Import failed: ${result.error || 'Unknown error'}`);
+      } else if (result.sourceUnits && result.sourceUnits.length.length > 0) {
+        // The one thing the scene cannot show: which unit the file was in.
+        const count = result.solidCount ?? 0;
+        const solids = `${count} solid${count === 1 ? '' : 's'}`;
+        this.showToast(`Imported ${result.fileName ?? file.name}: ${solids}, file unit ${result.sourceUnits.length.join(', ')}`);
       }
     } catch (_err) {
       this.showToast('Import failed: network error');

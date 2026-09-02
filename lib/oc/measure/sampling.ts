@@ -1,16 +1,27 @@
 import type { TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "../init.js";
-import { Mesh } from "../mesh.js";
+import { Mesh, DEFAULT_MESH_QUALITY, resolveMeshConfigFor } from "../mesh.js";
+import type { MeshQuality } from "../mesh.js";
+import type { LengthUnit } from "../../units/units.js";
+import { getActiveUnit } from "../../units/registry.js";
 import type { MeasureDistanceValue, MeasureVec } from "./measure-types.js";
 import type { ClassifiedEntity } from "./classify.js";
 
 const MAX_FACE_SAMPLES = 400;
 const EDGE_SAMPLES = 64;
 
-function sampleFacePoints(shape: TopoDS_Shape): MeasureVec[] {
+/** The density face samples are taken at: the scene's own quality, in the document's unit. */
+export type SamplingOptions = {
+  quality?: MeshQuality;
+  unit?: LengthUnit;
+};
+
+function sampleFacePoints(shape: TopoDS_Shape, options: SamplingOptions): MeasureVec[] {
   const oc = getOC();
   const face = oc.TopoDS.Face(shape);
-  Mesh.ensureTriangulated(face);
+  // Max-distance accuracy is bounded by the deflection, so the face is meshed
+  // at its own size-aware density rather than at a fixed millimetre value.
+  Mesh.ensureTriangulated(face, resolveMeshConfigFor(face, options.quality ?? DEFAULT_MESH_QUALITY, options.unit ?? getActiveUnit()));
 
   const location = new oc.TopLoc_Location();
   // A null Handle arrives as JS `null` (see Mesh.extractFaceTriangulationRaw).
@@ -58,8 +69,8 @@ function sampleEdgePoints(shape: TopoDS_Shape): MeasureVec[] {
   return points;
 }
 
-export function sampleEntityPoints(entity: ClassifiedEntity): MeasureVec[] {
-  const points = entity.kind === 'face' ? sampleFacePoints(entity.shape) : sampleEdgePoints(entity.shape);
+export function sampleEntityPoints(entity: ClassifiedEntity, options: SamplingOptions = {}): MeasureVec[] {
+  const points = entity.kind === 'face' ? sampleFacePoints(entity.shape, options) : sampleEdgePoints(entity.shape);
   if (points.length === 0) {
     points.push(entity.anchor);
   }

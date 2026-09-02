@@ -1,7 +1,9 @@
 import { ExpressionInput } from '../../ui/expression-input';
 import { resolveExpressionValue, VariableInfo } from '../../ui/expression-core';
+import type { LengthUnit } from '../../units/units';
 
-export type GizmoValueUnit = 'mm' | 'deg';
+/** The label's unit: the document's length unit for arrows, degrees for rings. */
+export type GizmoValueUnit = LengthUnit | 'deg';
 
 export type GizmoExpressionCommit = {
   /** The committed source expression (the declared name for `myVar = 120`). */

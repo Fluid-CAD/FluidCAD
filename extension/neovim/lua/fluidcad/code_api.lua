@@ -126,6 +126,18 @@ function M.update_dimension_expression(code, source_line, expression, sketch_sou
   })
 end
 
+--- Make a part file declare unit('<unit>'), or remove its declaration when
+--- `unit` is nil / vim.NIL ("Same as project"). `file_path` lets the server
+--- refuse an assembly file (a 422, which `post` reports as nil).
+function M.set_unit(code, unit, file_path)
+  -- The bridge decodes JSON null to vim.NIL, which encodes back as null; a
+  -- Lua nil would drop the key and fail the route's validation instead.
+  if unit == nil then
+    unit = vim.NIL
+  end
+  return post('set-unit', { code = code, unit = unit, filePath = file_path })
+end
+
 function M.apply_feature(code, spec)
   return post('apply-feature', { code = code, spec = spec })
 end

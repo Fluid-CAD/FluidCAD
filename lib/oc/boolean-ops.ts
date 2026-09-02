@@ -9,6 +9,7 @@ import { Edge } from "../common/edge.js";
 import { Face } from "../common/face.js";
 import { EdgeOps } from "./edge-ops.js";
 import { Plane } from "../math/plane.js";
+import { mmTol, mmTol3 } from "../units/tolerance.js";
 
 export class BooleanOps {
   // Fuzzy tolerance (mm) for the feature cut/fuse builders. A swept tube whose
@@ -19,8 +20,11 @@ export class BooleanOps {
   // resolves the near-coincident contact into clean intersections. 1e-4 is the
   // smallest that works reliably here (1e-5 lands in a worse-than-zero regime);
   // at 1e-4 mm it's far below any real feature size, so well-separated geometry
-  // is unaffected.
-  private static readonly FEATURE_BOOLEAN_FUZZY = 1e-4;
+  // is unaffected. Authored in mm and read in the active unit: a metre
+  // document would otherwise fuzz at 0.1 mm and merge real 0.2 mm gaps.
+  private static get FEATURE_BOOLEAN_FUZZY(): number {
+    return mmTol(1e-4);
+  }
 
   static cutShapes(shape: Shape, tool: Shape): Shape {
     const result = BooleanOps.cutShapesRaw(shape.getShape(), tool.getShape());
@@ -723,6 +727,6 @@ export class BooleanOps {
     props.delete();
     common.delete();
 
-    return volume > 1e-9;
+    return volume > mmTol3(1e-9);
   }
 }

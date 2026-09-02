@@ -11,6 +11,7 @@ import type {
 import { classifyEdge, classifyFace } from "./classify.js";
 import type { ClassifiedEntity } from "./classify.js";
 import { maxDistanceBetween, sampleEntityPoints } from "./sampling.js";
+import type { SamplingOptions } from "./sampling.js";
 import { acuteAngleDeg, add, areParallel, dist, dot, projectPointOnLine, scale, sub } from "./vec.js";
 
 export interface MeasureInput {
@@ -196,7 +197,7 @@ function pickPrimary(a: ClassifiedEntity, b: ClassifiedEntity, result: MeasureRe
 }
 
 export class MeasureOps {
-  static measure(inputs: MeasureInput[]): MeasureResult {
+  static measure(inputs: MeasureInput[], sampling: SamplingOptions = {}): MeasureResult {
     const classified = inputs.map((input) =>
       input.ref.kind === 'face' ? classifyFace(input.shape) : classifyEdge(input.shape),
     );
@@ -220,7 +221,7 @@ export class MeasureOps {
       const [a, b] = classified;
 
       result.minDist = minDistanceBetween(a, b);
-      result.maxDist = maxDistanceBetween(sampleEntityPoints(a), sampleEntityPoints(b));
+      result.maxDist = maxDistanceBetween(sampleEntityPoints(a, sampling), sampleEntityPoints(b, sampling));
       result.parallelDist = parallelDistanceBetween(a, b);
       result.axisDist = axisDistanceBetween(a, b);
       if (a.center && b.center) {

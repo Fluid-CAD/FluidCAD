@@ -33,7 +33,7 @@ describe('applyFeatureEdit', () => {
     const result = await applyFeatureEdit(code, spec());
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {fillet, sketch, ellipse, extrude } from 'fluidcad/core'`,
+      `import { fillet, sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => { ellipse(100, 50) })`,
       `const e = extrude(30)`,
@@ -434,7 +434,7 @@ describe('shell and sketch statement templates', () => {
       parts: [{ producer: 0, accessor: 'endFaces', indices: null, filterArgs: null }],
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`import {shell, sketch, ellipse, extrude } from 'fluidcad/core'`);
+    expect(result.newCode).toContain(`import { shell, sketch, ellipse, extrude } from 'fluidcad/core'`);
     expect(result.newCode).toContain(`const e = extrude(30)`);
     expect(result.newCode).toContain(`shell(-2, e.endFaces())`);
   });
@@ -2539,7 +2539,7 @@ describe('plane statement templates', () => {
   it('appends a standard-base offset plane at top level and imports plane', async () => {
     const result = await applyFeatureEdit(base, planeSpec(planeOptions({ offset: 10 })));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`import {plane, sketch, ellipse, extrude } from 'fluidcad/core'`);
+    expect(result.newCode).toContain(`import { plane, sketch, ellipse, extrude } from 'fluidcad/core'`);
     expect(result.newCode).toContain(`extrude(30)\nplane('xy', 10)`);
   });
 
@@ -4153,7 +4153,7 @@ describe('repeat statement templates', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {repeat, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
+      `import { repeat, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => { ellipse(100, 50) })`,
       `const f = extrude(30)`,
@@ -4667,7 +4667,7 @@ describe('copy statement templates', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {copy, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
+      `import { copy, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => { ellipse(100, 50) })`,
       `const f = extrude(30)`,
@@ -5237,7 +5237,7 @@ describe('boolean statement templates', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {fuse, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
+      `import { fuse, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => { ellipse(100, 50) })`,
       `const f = extrude(30)`,
@@ -5894,6 +5894,29 @@ describe('expression values in dialog slots', () => {
     expect(result.newCode).toContain(`from 'fluidcad/core'\nconst depth = param("depth", 25)\n`);
     expect(result.newCode).toContain(`extrude(depth)`);
     expect(result.newCode).toMatch(/import \{[^}]*\bparam\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('declares a param() newVariable after a unit() statement, keeping the unit first', async () => {
+    const code = [
+      `import { sketch, rect, extrude, unit } from 'fluidcad/core'`,
+      ``,
+      `unit('in')`,
+      ``,
+      `sketch('xy', () => { rect(4, 2) })`,
+      `extrude(1)`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 6, column: 0,
+      extrude: extrudeEditOptions({ distance: 'depth' }),
+    }, {
+      newVariables: [{ name: 'depth', initializer: 'param("depth", 1)' }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`unit('in')\nconst depth = param("depth", 1)\n`);
+    expect(result.newCode).toContain(`extrude(depth)`);
+    expect(result.newCode).toMatch(/import \{[^}]*\bparam\b[^}]*\} from 'fluidcad\/core'/);
+    expect(result.newCode.indexOf(`unit('in')`)).toBeLessThan(result.newCode.indexOf('const depth'));
   });
 
   it('skips declaring a newVariable the file already declares', async () => {
@@ -7314,7 +7337,7 @@ describe('mirror statement templates', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {mirror, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
+      `import { mirror, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => { ellipse(100, 50) })`,
       `const f = extrude(30)`,
@@ -7620,7 +7643,7 @@ describe('rotate statement templates', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {rotate, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
+      `import { rotate, sketch, ellipse, extrude, cut } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => { ellipse(100, 50) })`,
       `const f = extrude(30)`,
@@ -7916,7 +7939,7 @@ describe('new part statement', () => {
     const result = await applyFeatureEdit(code, newPartSpec());
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {part, sketch, ellipse, extrude } from 'fluidcad/core'`,
+      `import { part, sketch, ellipse, extrude } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => { ellipse(100, 50) })`,
       `extrude(30)`,
@@ -8110,7 +8133,7 @@ describe('active part insertion', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  extrude(30)\n  plane('xy', 10)\n})`);
-    expect(result.newCode).toContain(`import {plane,`);
+    expect(result.newCode).toContain(`import { plane,`);
   });
 
   it('refuses when the active-part line does not hold a part() call', async () => {

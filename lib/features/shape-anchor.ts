@@ -116,6 +116,7 @@ function anchorFromEdge(edge: Edge, spec: VertexAnchorSpec): AnchorPlacement {
   }
 }
 
+// unit: dimensionless — compares components of a normalised direction.
 const AXIS_EPS = 1e-7;
 
 /**

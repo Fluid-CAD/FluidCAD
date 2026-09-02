@@ -45,3 +45,7 @@ translate(0, -50, 25)
 ```
 
 Imported files preserve color metadata automatically.
+
+## Units
+
+`load()` needs no unit. STEP files carry theirs, the import is cached in millimetres, and `load()` scales it into the loading file's [unit](/docs/guides/units) — a factor of 1 in a millimetre file, so existing projects are untouched. `load("bracket", { unit: 'in' })` is an assertion for assets with no trustworthy metadata (a `.brep` copied into `imports/` by hand, a STEP whose header is wrong); it overrides what the import recorded, and you should leave it out otherwise.

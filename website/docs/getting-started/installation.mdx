@@ -25,9 +25,12 @@ This creates a project with the following structure:
 my-app/
 ├── package.json
 ├── jsconfig.json
+├── fluidcad.json       ← project configuration (engine pin, unit)
 ├── init.js             ← required project entry point
 └── test.fluid.js       ← your first model
 ```
+
+`fluidcad.json` records which FluidCAD version the project was authored against and, optionally, its default length unit — see [Project configuration](/docs/getting-started/project-configuration).
 
 :::note
 FluidCAD files use the `.fluid.js` extension. The viewer only picks up files with this naming convention.
@@ -48,6 +51,8 @@ export default await init();
 ```
 
 Do not modify this file — it is generated automatically by `npx fluidcad init` and is required for the viewer to work.
+
+For completeness: `init()` accepts an options object, and `init({ unit: 'in' })` overrides the project's length unit programmatically. That is an advanced hook for embedding hosts and test setups; a normal project sets its unit in [`fluidcad.json`](/docs/getting-started/project-configuration) instead and leaves `init.js` untouched.
 
 ## The starter file
 

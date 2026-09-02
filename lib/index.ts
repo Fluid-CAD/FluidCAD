@@ -8,6 +8,7 @@ import { SelectSceneObject } from "./features/select.js";
 import { Sketch } from "./features/2d/sketch.js";
 import { Extrudable } from "./helpers/types.js";
 import { parse as parseStackTrace } from "stacktrace-parser";
+import { getActiveUnit, getUnitRegistry } from "./units/registry.js";
 
 const SCRIPT_SUFFIXES = ['.part.js', '.assembly.js', '.fluid.js'];
 
@@ -93,13 +94,19 @@ export function registerBuilder<T extends Function>(
       throw new Error("This command is part-design only and cannot be used at the top level of an *.assembly.js file.");
     }
     const sourceLocation = captureSourceLocation();
+    // Geometry has started for this file: a later unit() in it is an error.
+    getUnitRegistry().markGeometry(sourceLocation?.filePath);
 
     // An object's source location is the statement that CREATED it. Builders
     // re-add pre-existing inputs (loft/sweep/extrude profiles) to register
     // stragglers, and that must not re-attribute them to the consuming call.
+    // The unit follows the same first-registration rule.
     const stamp = (obj: SceneObject) => {
       if (sourceLocation && !obj.getSourceLocation()) {
         obj.setSourceLocation(sourceLocation);
+      }
+      if (!obj.hasUnit()) {
+        obj.setUnit(getActiveUnit());
       }
     };
 
@@ -151,15 +158,33 @@ export type { ParamRegistry, ParamDefinition, MultiControlType, SelectOption, Pa
 export { PartDefinition } from './features/part-definition.js';
 export { Assembly } from './features/assembly.js';
 export { setAssetProvider } from './io/file-import.js';
-export type { AssetProvider } from './io/file-import.js';
+export type { AssetProvider, ImportMeta, ImportFileResult } from './io/file-import.js';
+export type { StepFileUnits } from './oc/step-units.js';
+export type { ImportReport } from './scene-manager.js';
 export { getSceneManager } from './scene-manager.js';
 export { describeOcException } from './oc/errors.js';
+export type { LengthUnit } from './units/units.js';
+export { LENGTH_UNITS, MM_PER_UNIT, parseLengthUnit, isLengthUnit, convertLength, unitFactor } from './units/units.js';
+export { getUnitRegistry, createUnitRegistry, setUnitRegistry, getActiveUnit, withUnit } from './units/registry.js';
+export { mmTol, mmTol2, mmTol3 } from './units/tolerance.js';
+export { MESH_PRESETS, DEFAULT_MESH_QUALITY, DEFAULT_MESH_CONFIG, resolveLinearDeflection, resolveMeshConfigFor } from './oc/mesh.js';
+export type { MeshQuality, MeshPreset, MeshConfig, MeshSettings } from './oc/mesh.js';
 
 export interface FluidCADOptions {
   mesh?: {
+    /** Display density preset; `standard` when omitted. */
+    quality?: 'draft' | 'standard' | 'fine';
+    /** Pin the linear deflection, in document units (the project unit). Marks the quality `custom`. */
     lineDeflection?: number;
+    /** Pin the angular deflection, radians. Marks the quality `custom`. */
     angularDeflection?: number;
   };
+  /**
+   * Programmatic project-unit override (hosts and tests) — takes precedence
+   * over the workspace's `fluidcad.json` "unit". Any name parseLengthUnit
+   * accepts. Files without unit() run in this unit.
+   */
+  unit?: string;
 }
 
 export async function init(options?: FluidCADOptions) {

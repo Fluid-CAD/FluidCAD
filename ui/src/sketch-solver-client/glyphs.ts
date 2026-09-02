@@ -4,6 +4,9 @@
 // these, so what is drawn is exactly what is pickable.
 
 import type { ConstraintSpec } from '../../../lib/sketch-solver/types.js';
+import { UNIT_DISPLAY_DECIMALS } from '../units/units';
+import { sceneUnit } from '../units/scene-unit';
+import { viewerSettings } from '../scene/viewer-settings';
 import type { SourceLocation } from '../types';
 import type { DimensionStyle } from './declutter';
 import type { SolvedConstraintView, SolvedEntityView, SolvedSketchModel } from './model';
@@ -158,8 +161,25 @@ const BADGE_RANK: Record<string, number> = {
 
 const DEFAULT_BADGE_RANK = 5;
 
-export function formatDim(value: number): string {
-  return String(Math.round(value * 100) / 100);
+/**
+ * Compact canvas label: no suffix (the status bar names the unit), rounded
+ * to the document unit's display decimals — 2 for mm, 3 for inches, etc.
+ * Angles pass an explicit 2.
+ */
+export function formatDim(value: number, decimals = UNIT_DISPLAY_DECIMALS[sceneUnit.current]): string {
+  const scale = 10 ** decimals;
+  const rounded = Math.round(value * scale) / scale;
+  return String(Object.is(rounded, -0) ? 0 : rounded);
+}
+
+/**
+ * A length label: `formatDim` plus the document unit when the user asked
+ * for suffixes (the "Show unit suffix" display preference). Lengths only —
+ * angles carry their own ° sign.
+ */
+export function formatLengthLabel(value: number): string {
+  const text = formatDim(value);
+  return viewerSettings.current.sketchDimensionSuffix ? `${text} ${sceneUnit.current}` : text;
 }
 
 function statusColor(c: SolvedConstraintView): GlyphColorRole {
@@ -332,7 +352,7 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
           glyphs.push({
             ...base,
             type: 'text',
-            label: formatDim(c.value ?? spec.value),
+            label: formatLengthLabel(c.value ?? spec.value),
             at: mid(from, to),
             // Push clear of the dimension line, slide along it — the label
             // stays ON its own dimension wherever the declutterer parks it.
@@ -358,7 +378,7 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
             glyphs.push({
               ...base,
               type: 'text',
-              label: `R${formatDim(c.value ?? spec.value)}`,
+              label: `R${formatLengthLabel(c.value ?? spec.value)}`,
               at: mid(e.center, rim),
               // The value rides the radius like a diameter rides its chord:
               // laid ALONG the line, centered between center and rim, one
@@ -391,7 +411,7 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
             glyphs.push({
               ...base,
               type: 'text',
-              label: `⌀${formatDim(c.value ?? spec.value)}`,
+              label: `⌀${formatLengthLabel(c.value ?? spec.value)}`,
               at: mid(from, to),
               // The value rides the chord: laid ALONG it (the sprite layer
               // rolls an `aligned` label to its line), centered on it, one gap
@@ -415,7 +435,7 @@ export function layoutConstraintGlyphs(model: SolvedSketchModel): ConstraintGlyp
         const b = entityFor(model, spec.b);
         if (a && b) {
           const at = lineIntersection(a, b);
-          const label = `${formatDim(c.value ?? (spec.value * 180) / Math.PI)}°`;
+          const label = `${formatDim(c.value ?? (spec.value * 180) / Math.PI, 2)}°`;
           // The refs orient their lines ('start' reverses) — the arc sweeps
           // counterclockwise from a's ray by the (positive) target, landing
           // in exactly the sector the statement dimensions.

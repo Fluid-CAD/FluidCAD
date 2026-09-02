@@ -6,6 +6,7 @@ import { Explorer } from "../oc/explorer.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Point } from "../math/point.js";
 import { Plane } from "../math/plane.js";
+import { mmTol } from "../units/tolerance.js";
 
 /**
  * Classifies edges and faces from cleaned result shapes by comparing with
@@ -33,7 +34,7 @@ export function classifyCutResult(
     }
   }
 
-  const tolerance = 1e-6;
+  const tolerance = mmTol(1e-6);
   const isStockEdge = (edge: Edge): boolean => {
     const mid = EdgeOps.getEdgeMidPoint(edge);
     return stockEdgeMidpoints.some(sm =>
@@ -84,7 +85,7 @@ export function classifyCutResult(
     const startDist = isThroughAll ? Math.max(...dists.map(e => e.d)) : 0;
     const endDist = isThroughAll ? Math.min(...dists.map(e => e.d)) : -cutDistance;
 
-    const distTolerance = 1e-4;
+    const distTolerance = mmTol(1e-4);
     for (const { edge, d } of dists) {
       if (Math.abs(d - startDist) < distTolerance) {
         startEdges.push(edge);

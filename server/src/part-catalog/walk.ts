@@ -2,9 +2,8 @@ import { join } from 'path';
 import { readFile } from 'fs/promises';
 import { normalizePath } from '../normalize-path.ts';
 import { collectWorkspaceFiles } from '../model-package/pack.ts';
-
-/** The suffixes a FluidCAD script can carry (mirrors lib SCRIPT_SUFFIXES). */
-const SCRIPT_SUFFIXES = ['.fluid.js', '.part.js', '.assembly.js'];
+import { isScriptPath, readDeclaredUnit } from '../file-unit.ts';
+import type { LengthUnit } from '../project-config.ts';
 
 /** Matches any `part(` call — the cheap text prefilter before evaluating. */
 const PART_CALL = /\bpart\s*\(/;
@@ -16,6 +15,13 @@ export type CatalogFileEntry = {
   /** Workspace-relative path, for display. */
   path: string;
   absPath: string;
+  /**
+   * The unit the file's parts are authored in: its `unit()` statement (read
+   * statically — nothing is evaluated here), else the project unit. The
+   * scan's runtime answer supersedes this once it lands; this one lets the
+   * Insert dialog badge a foreign-unit file before then.
+   */
+  unit: LengthUnit;
 };
 
 /**
@@ -31,11 +37,12 @@ export type CatalogFileEntry = {
 export async function listCandidateFiles(
   workspacePath: string,
   readContent?: (absPath: string) => string | null,
+  projectUnit: LengthUnit = 'mm',
 ): Promise<CatalogFileEntry[]> {
   const relFiles = await collectWorkspaceFiles(workspacePath);
   const out: CatalogFileEntry[] = [];
   for (const rel of relFiles) {
-    if (!SCRIPT_SUFFIXES.some(s => rel.endsWith(s))) {
+    if (!isScriptPath(rel)) {
       continue;
     }
     const absPath = normalizePath(join(workspacePath, rel));
@@ -54,7 +61,8 @@ export async function listCandidateFiles(
       ? EXPORT_DECL.test(content)
       : PART_CALL.test(content);
     if (qualifies) {
-      out.push({ path: rel, absPath });
+      const unit = (await readDeclaredUnit(content)) ?? projectUnit;
+      out.push({ path: rel, absPath, unit });
     }
   }
   return out;

@@ -41,7 +41,7 @@ describe('applyFeatureEdit — connector', () => {
     expect(connectorRow).toBeGreaterThan(-1);
     expect(connectorRow).toBeLessThan(returnRow);
     expect(lines[connectorRow].startsWith('    ')).toBe(true);
-    expect(result.newCode).toContain(`import {connector, sketch, circle, extrude, part } from 'fluidcad/core'`);
+    expect(result.newCode).toContain(`import { connector, sketch, circle, extrude, part } from 'fluidcad/core'`);
   });
 
   it('appends at the end of a part body with no return', async () => {

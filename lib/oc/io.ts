@@ -2,11 +2,17 @@ import type { TDocStd_Document, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { ShapeHasher } from "./shape-hash.js";
 import { StepConform } from "./step-conform.js";
+import { ScaleOps } from "./scale-ops.js";
 import { Explorer } from "./explorer.js";
 import { Shape } from "../common/shape.js";
 import { Solid } from "../common/solid.js";
 import { Face } from "../common/face.js";
 import { ShapeFactory } from "../common/shape-factory.js";
+import { Mesh } from "./mesh.js";
+import { MM_PER_UNIT, unitFactor } from "../units/units.js";
+import type { LengthUnit } from "../units/units.js";
+import { parseStepFileUnits } from "./step-units.js";
+import type { StepFileUnits } from "./step-units.js";
 
 export class OcIO {
   // Wrapper methods (public API for external callers)
@@ -22,6 +28,26 @@ export class OcIO {
   static readStep(fileName: string, data: Uint8Array): Shape {
     const raw = OcIO.readStepRaw(fileName, data);
     return ShapeFactory.fromShape(raw);
+  }
+
+  /**
+   * The unit names a STEP file declares, read from its text. The reader
+   * itself always converts into mm, so this is metadata for reports and
+   * sidecars, not something the geometry depends on.
+   */
+  static readStepFileUnits(data: Uint8Array | string): StepFileUnits {
+    const text = typeof data === 'string' ? data : new TextDecoder().decode(data);
+    return parseStepFileUnits(text);
+  }
+
+  /** Uniform scale about the origin, colours carried over — see ScaleOps. */
+  static scaleSolids(solids: Solid[], factor: number): Solid[] {
+    return ScaleOps.scaleSolids(solids, factor);
+  }
+
+  /** Uniformly scales a raw shape about the origin; the input is left untouched. */
+  static scaleShapeRaw(shape: TopoDS_Shape, factor: number): TopoDS_Shape {
+    return ScaleOps.scaleShapeRaw(shape, factor);
   }
 
   static findSolids(shape: Shape): Solid[] {
@@ -310,14 +336,29 @@ export class OcIO {
     return { solids };
   }
 
-  /** Raw (colorless) STEP of `solids`, each made STEP-conformant first. */
-  static writeStep(solids: Solid[], fileName: string): string {
+  /**
+   * Raw (colorless) STEP of `solids`, each made STEP-conformant first.
+   * `unit` is the unit the solids' numbers are in. The plain writer has no
+   * document to carry a unit, so the compound is pre-scaled into the MM the
+   * header declares; the result is physically the same size as the model.
+   */
+  static writeStep(solids: Solid[], fileName: string, unit: LengthUnit = 'mm'): string {
     const shapes = solids.map(solid => {
       const conformed = StepConform.conformSolid(solid.getShape());
       conformed.delete();
       return conformed.shape;
     });
-    return OcIO.writeStepRaw(OcIO.makeCompoundRaw(shapes), fileName);
+    const compound = OcIO.makeCompoundRaw(shapes);
+    const factor = unitFactor(unit, 'mm');
+    if (factor === 1) {
+      return OcIO.writeStepRaw(compound, fileName);
+    }
+    const scaled = OcIO.scaleShapeRaw(compound, factor);
+    try {
+      return OcIO.writeStepRaw(scaled, fileName);
+    } finally {
+      scaled.delete();
+    }
   }
 
   static writeStepRaw(compound: TopoDS_Shape, fileName: string): string {
@@ -346,7 +387,14 @@ export class OcIO {
     return file;
   }
 
-  static writeStepXCAF(solids: Solid[], fileName: string): string {
+  /**
+   * Coloured STEP via XCAF. `unit` is the unit the solids' numbers are in:
+   * the document is told its length unit and OCCT's writer scales the model
+   * into the file's MM itself (verified: a 1-inch box reads back as 25.4 mm).
+   * Writing an INCH header instead would need Interface_Static
+   * ("write.step.unit"), which the binding does not expose.
+   */
+  static writeStepXCAF(solids: Solid[], fileName: string, unit: LengthUnit = 'mm'): string {
     const oc = getOC();
 
     const app = new oc.TDocStd_Application();
@@ -381,6 +429,9 @@ export class OcIO {
     }
 
     shapeTool.UpdateAssemblies();
+
+    // The 2-arg overload takes the document's internal unit in metres.
+    oc.XCAFDoc_DocumentTool.SetLengthUnit(docHandle, MM_PER_UNIT[unit] / 1000);
 
     const cleanup = () => {
       shapeToolHandle.delete();
@@ -418,10 +469,13 @@ export class OcIO {
     return file;
   }
 
+  /** Deflections are in the units of `compound` itself; callers convert first. */
   static writeStl(compound: TopoDS_Shape, fileName: string, linearDeflection: number, angularDeflection: number): Uint8Array {
     const oc = getOC();
 
-    const mesh = new oc.BRepMesh_IncrementalMesh(compound, linearDeflection, false, angularDeflection, true);
+    // The one public mesher: reuses a stored triangulation when it is already
+    // at least this fine, and otherwise rebuilds it at the requested deflection.
+    Mesh.ensureTriangulated(compound, { linDefl: linearDeflection, angDefl: angularDeflection });
 
     const writer = new oc.StlAPI_Writer();
     const progress = new oc.Message_ProgressRange();
@@ -429,14 +483,12 @@ export class OcIO {
     progress.delete();
 
     if (!ok) {
-      mesh.delete();
       writer.delete();
       throw new Error('STL write failed');
     }
 
     const file = oc.FS.readFile(fileName);
     oc.FS.unlink(fileName);
-    mesh.delete();
     writer.delete();
 
     return file;

@@ -96,7 +96,10 @@ function resolveWithinWorkspace(
 type DirtyFileEntry = { path: string; lastModifiedMs: number };
 
 type LintMissingImport = { symbol: string; module: string; line: number; column: number };
-type LintResult = { missing: LintMissingImport[]; suggestion: string };
+/** A file-level rule violation the lint can prove statically (`unit()` placement). */
+type LintDiagnostic = { message: string; line: number; column: number };
+/** `diagnostics` is absent from servers that predate it. */
+type LintResult = { missing: LintMissingImport[]; suggestion: string; diagnostics?: LintDiagnostic[] };
 
 /**
  * Static import lint for a `.fluid.js` payload via the server's
@@ -108,10 +111,11 @@ type LintResult = { missing: LintMissingImport[]; suggestion: string };
  * still succeed. The render step downstream will catch any resulting
  * `ReferenceError` if the lint was bypassed.
  */
-async function lintFluidJsCode(entry: RegistryEntry, code: string): Promise<LintResult | null> {
+async function lintFluidJsCode(entry: RegistryEntry, absPath: string, code: string): Promise<LintResult | null> {
   const client = new FluidCadClient(entry);
   try {
-    const result = await client.postJson<LintResult>('/api/lint-fluid-js', { code });
+    // The path travels too: `unit()` is only legal outside `*.assembly.js`.
+    const result = await client.postJson<LintResult>('/api/lint-fluid-js', { code, filePath: absPath });
     return result;
   } catch (e) {
     if (e instanceof HttpError && e.statusCode === 404) {
@@ -123,8 +127,14 @@ async function lintFluidJsCode(entry: RegistryEntry, code: string): Promise<Lint
   }
 }
 
-function isFluidJsPath(absPath: string): boolean {
-  return absPath.toLowerCase().endsWith('.fluid.js');
+/**
+ * Every FluidCAD script kind (mirrors `server/src/file-kind.ts`): assembly
+ * files are linted too, both for their imports and because `unit()` is the
+ * one statement the lint has to REJECT there.
+ */
+function isFluidScriptPath(absPath: string): boolean {
+  const lower = absPath.toLowerCase();
+  return lower.endsWith('.fluid.js') || lower.endsWith('.part.js') || lower.endsWith('.assembly.js');
 }
 
 /**
@@ -142,11 +152,29 @@ async function assertImportsPresent(
   if (force === true) {
     return ok(undefined);
   }
-  if (!isFluidJsPath(absPath)) {
+  if (!isFluidScriptPath(absPath)) {
     return ok(undefined);
   }
-  const lint = await lintFluidJsCode(entry, code);
-  if (!lint || lint.missing.length === 0) {
+  const lint = await lintFluidJsCode(entry, absPath, code);
+  if (!lint) {
+    return ok(undefined);
+  }
+  const diagnostics = lint.diagnostics ?? [];
+  if (diagnostics.length > 0) {
+    // Placement rules the runtime would reject anyway — refusing here gives
+    // the agent the row instead of a compile error after the render.
+    const listed = diagnostics.map((d) => `  line ${d.line + 1}: ${d.message}`).join('\n');
+    return err(
+      'unit-statement',
+      [
+        `Refusing to write "${absPath}" — ${diagnostics.length} unit() rule violation(s)` +
+          ' (pass `force: true` to override):',
+        listed,
+      ].join('\n'),
+      { diagnostics },
+    );
+  }
+  if (lint.missing.length === 0) {
     return ok(undefined);
   }
   const symbolList = lint.missing.map((m) => m.symbol).join(', ');

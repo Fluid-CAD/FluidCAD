@@ -3,6 +3,7 @@ import {
   ensureSymbolImport,
   findEditableCallAt,
   findSketchBody,
+  findTopLevelDeclarationAnchor,
   indentOf,
   isBreakpointStatement,
   isExpressionText,
@@ -4148,22 +4149,18 @@ function renderNewVariableDecls(
 }
 
 /** Splice top-level declarations directly after the file's last import (or
- * as the file's first lines) — where `param()` declarations live. */
+ * its `unit()` statement, which stays first — or as the file's first lines)
+ * — where `param()` declarations live. */
 async function insertDeclsAfterImports(code: string, decls: string[]): Promise<string> {
   if (decls.length === 0) {
     return code;
   }
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
-  let lastImport: TSNode | null = null;
-  for (const child of tree.rootNode.namedChildren) {
-    if (child.type === 'import_statement') {
-      lastImport = child;
-    }
-  }
+  const anchor = findTopLevelDeclarationAnchor(tree);
   const text = decls.join('\n');
-  return lastImport
-    ? spliceCode(code, lastImport.endIndex, lastImport.endIndex, `\n${text}`)
+  return anchor
+    ? spliceCode(code, anchor.endIndex, anchor.endIndex, `\n${text}`)
     : `${text}\n${code}`;
 }
 

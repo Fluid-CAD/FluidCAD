@@ -6,6 +6,7 @@ import { attributePick, resolvePickShape } from "./attribution.js";
 import { bucketMembersOnSolid, expandTangentChain } from "./expand.js";
 import { SelectionIndex } from "./selection-index.js";
 import { PickRef, SelectionScene } from "./types.js";
+import { mmTol } from "../units/tolerance.js";
 
 /**
  * `sibling` marks the "Select other" section: the producing feature's OTHER
@@ -44,7 +45,8 @@ function nearlyEqual(a: number | undefined, b: number | undefined): boolean {
   if (a === undefined || b === undefined) {
     return a === b;
   }
-  return Math.abs(a - b) <= EQUAL_MEASURE_TOLERANCE * Math.max(1, Math.abs(a), Math.abs(b));
+  // Relative, with a 1 mm floor so sub-millimetre measures still group.
+  return Math.abs(a - b) <= EQUAL_MEASURE_TOLERANCE * Math.max(mmTol(1), Math.abs(a), Math.abs(b));
 }
 
 /** Same defining measure per curve type: length for lines, radii for the rest. */

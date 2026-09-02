@@ -255,7 +255,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get the feature tree for a workspace',
       description:
-        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced. Use this before list_shapes when you need feature-tree context.',
+        'Returns a JSON projection of the current scene: every scene object with its index, id, kind, parameters, source location, and the shape ids it produced, plus `unit` — the document unit (mm/cm/m/in/ft) every length in the parameters is in. Use this before list_shapes when you need feature-tree context.',
       inputSchema: workspaceArg,
     },
     async ({ workspace }) => toMcp(await getSceneSummary({ workspace })),
@@ -288,7 +288,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get geometric properties of a shape',
       description:
-        'Returns volume, surface area, bounding box, center of mass, and similar measurements for a single shape.',
+        'Returns volume, surface area, bounding box, center of mass, and similar measurements for a single shape. Values are in the document unit, returned as `unit` (the `volumeMm3`/`surfaceAreaMm2` field names are historical — an inch document reports in³/in² under them).',
       inputSchema: { ...workspaceArg, shapeId: shapeIdArg },
     },
     async ({ workspace, shapeId }) =>
@@ -300,7 +300,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get geometric properties of a face',
       description:
-        'Returns area, normal, surface kind (plane/cylinder/...), and related measurements for a single face on a shape.',
+        'Returns area, normal, surface kind (plane/cylinder/...), and related measurements for a single face on a shape. Lengths and areas are in the document unit, returned as `unit` (`areaMm2` is a historical field name).',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg,
@@ -316,7 +316,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Get geometric properties of an edge',
       description:
-        'Returns length, curve kind, endpoints, and related measurements for a single edge on a shape.',
+        'Returns length, curve kind, endpoints, and related measurements for a single edge on a shape. Lengths are in the document unit, returned as `unit`.',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg,
@@ -340,7 +340,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       description:
         'Measures the selected faces/edges like a CAD measure tool. One entity returns its area/length; two entities ' +
         'return min/max distance with their realizing points, plus parallel/center/axis distance and angle when the ' +
-        'geometry relation supports them. `primary` names the headline value. All lengths are mm, angles deg.',
+        'geometry relation supports them. `primary` names the headline value. Lengths are in the document unit (returned as `unit`), angles in degrees.',
       inputSchema: {
         ...workspaceArg,
         entities: z
@@ -574,7 +574,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a file inside the workspace (atomic)',
       description:
-        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | build-error | compile-error | superseded | no-scene-manager | render-failed, plus `version`, `durationMs`, optional `compileError`). `build-error` means the file ran but one or more features failed to build — `render.objectErrors` lists each one (`name`, `uniqueKind`, `message`, 1-based `sourceLocation`) and the scene is missing their geometry; only `rendered` means the model matches the source. For `.fluid.js` files, refuses writes that use a known FluidCAD symbol without an `import { … } from "fluidcad/…"` line — fails with code `missing-imports` and `details.suggestion` shows the imports to add. Also refuses to clobber a file the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override either guard.',
+        'Writes `content` to `path` (UTF-8, tmp+rename atomic), then synchronously triggers a render and returns the outcome under `render` (`state`: rendered | build-error | compile-error | superseded | no-scene-manager | render-failed, plus `version`, `durationMs`, optional `compileError`). `build-error` means the file ran but one or more features failed to build — `render.objectErrors` lists each one (`name`, `uniqueKind`, `message`, 1-based `sourceLocation`) and the scene is missing their geometry; only `rendered` means the model matches the source. For FluidCAD script files (`.fluid.js`, `.part.js`, `.assembly.js`), refuses writes that use a known FluidCAD symbol without an `import { … } from "fluidcad/…"` line — fails with code `missing-imports` and `details.suggestion` shows the imports to add — and writes whose `unit()` statement breaks a placement rule (must be top-level, before any geometry, once per file, a string literal, never in a `*.assembly.js` file) — fails with code `unit-statement` and `details.diagnostics` lists each violation with its 0-based line. Also refuses to clobber a file the editor extension reports as dirty — fails with code `dirty-buffer` whose `details.dirtyFiles` lists every dirty path. Pass `force: true` to override either guard.',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,
@@ -591,7 +591,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Replace a [start, end) range inside a workspace file (atomic)',
       description:
-        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard, missing-imports guard (for `.fluid.js` files), `force` semantics, and synchronous `render` outcome as `write_file`.',
+        'Replaces the half-open range `[start, end)` in `path` with `newText`. Positions are 0-based `{ line, column }` (UTF-16 columns). End-of-line and end-of-file overrun clamp gracefully. Same dirty-buffer guard, missing-imports and unit-statement guards (for FluidCAD script files), `force` semantics, and synchronous `render` outcome as `write_file`.',
       inputSchema: {
         ...workspaceArg,
         path: pathArg,
@@ -671,7 +671,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Import a STEP file into the workspace',
       description:
-        'Reads `path` from disk, base64-encodes the bytes, and posts to the server\'s import pipeline. The imported geometry shows up as a new shape in the current scene.',
+        'Reads `path` from disk, base64-encodes the bytes, and posts to the server\'s import pipeline. The imported geometry shows up as a new shape in the current scene. The reply reports `solidCount` and `sourceUnits` (the unit names the STEP file declared, e.g. `INCH`); the cached geometry is always mm and `load()` scales it into the loading document\'s unit, so no unit argument is needed.',
       inputSchema: {
         ...workspaceArg,
         path: z
@@ -688,7 +688,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Export shapes to STEP or STL',
       description:
-        'Exports the listed shapes to a STEP or STL file. Prefer `saveAsPath` (must resolve inside the workspace root) — the encoded bytes can be multi-MB and shouldn\'t round-trip through the agent\'s context. Returns `{ savedTo, bytesWritten }` when saved, or `{ format, mimeType, base64, bytes }` otherwise. For STL, `resolution: "fine"` produces the cleanest mesh but is slow; default to `"medium"` unless the user asks for higher fidelity.',
+        'Exports the listed shapes to a STEP or STL file. Prefer `saveAsPath` (must resolve inside the workspace root) — the encoded bytes can be multi-MB and shouldn\'t round-trip through the agent\'s context. Returns `{ savedTo, bytesWritten }` when saved, or `{ format, mimeType, base64, bytes }` otherwise. STEP files are physically correct whatever the document\'s unit. STL carries no unit: by default the mesh is scaled into mm (what slicers expect); `scaleTo: "document"` keeps the document\'s numbers. For STL, `resolution: "fine"` produces the cleanest mesh but is slow; default to `"medium"` unless the user asks for higher fidelity.',
       inputSchema: {
         ...workspaceArg,
         format: z.enum(['step', 'stl']).describe('Output format.'),
@@ -708,9 +708,13 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .boolean()
           .optional()
           .describe('Include per-face color metadata (STEP/STL with color extension).'),
+        scaleTo: z
+          .enum(['mm', 'document'])
+          .optional()
+          .describe('STL only. "mm" (default) scales the mesh into millimetres for slicers; "document" keeps the document\'s units.'),
       },
     },
-    async ({ workspace, format, shapeIds, saveAsPath, resolution, includeColors }) =>
+    async ({ workspace, format, shapeIds, saveAsPath, resolution, includeColors, scaleTo }) =>
       toMcp(
         await exportShapes({
           workspace,
@@ -719,6 +723,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           saveAsPath,
           resolution,
           includeColors,
+          scaleTo,
         }),
       ),
   );
@@ -728,7 +733,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Package the current model into a shareable .fluidpkg archive',
       description:
-        'Produces a self-contained .fluidpkg (zip) capturing the current `.fluid.js` entry as an esbuild ES module bundle, any STEP assets in the workspace (as raw bytes), the live param overrides, and the latest camera state. Inside the archive: `manifest.json`, `bundle.js`, optional `init.js`, and `assets/<path>` entries. Prefer `saveAsPath` — the binary payload can be multi-MB and shouldn\'t round-trip through the agent\'s context as base64. Returns `{ savedTo, bytesWritten, packageName }` when saved, or `{ mimeType, base64, bytes, packageName }` otherwise.',
+        'Produces a self-contained .fluidpkg (zip) capturing the current `.fluid.js` entry as an esbuild ES module bundle, any STEP assets in the workspace (as raw bytes), the live param overrides, and the latest camera state. Inside the archive: `manifest.json` (schemaVersion 3: `name`, `entry`, `fluidcadVersion`, `hasInit`, `unit` — the project unit from fluidcad.json, `fileUnits` — per-file `unit()` declarations, `assets`, `files`, `params`, `camera`), `bundle.js`, optional `init.js`, `assets/<path>` and `files/<path>` entries. Prefer `saveAsPath` — the binary payload can be multi-MB and shouldn\'t round-trip through the agent\'s context as base64. Returns `{ savedTo, bytesWritten, packageName }` when saved, or `{ mimeType, base64, bytes, packageName }` otherwise.',
       inputSchema: {
         ...workspaceArg,
         name: z.string().optional().describe('Optional package name; defaults to the entry file basename. Becomes the file name when `saveAsPath` is omitted.'),

@@ -88,13 +88,13 @@ export class ExtrudePanel extends FeaturePanel {
         <div data-role="face-slot-wrap" class="hidden"><div data-role="face-slot"></div></div>
         <label data-role="distance-wrap" class="flex flex-col gap-1.5">
           <span class="text-base-content/70" data-role="distance-label">Distance</span>
-          <input data-role="distance" type="number" step="0.5" value="25"
+          <input data-role="distance" data-unit="length" type="number" step="0.5" value="25"
             class="input input-sm input-bordered w-full text-xs" />
         </label>
         <label data-role="distance2-wrap" class="hidden flex-col gap-1.5"
           title="Extrusion distance on the opposite side of the sketch plane">
           <span class="text-base-content/70" data-role="distance2-label">Distance 2</span>
-          <input data-role="distance2" type="number" step="0.5" value="25"
+          <input data-role="distance2" data-unit="length" type="number" step="0.5" value="25"
             class="input input-sm input-bordered w-full text-xs" />
         </label>
         <label data-role="through-wrap" class="hidden items-center justify-between cursor-pointer">
@@ -110,7 +110,7 @@ export class ExtrudePanel extends FeaturePanel {
         <label class="flex flex-col gap-1.5"
           title="Pull the far end back by this much — positive stops short of the distance (or the target face), negative overshoots it">
           <span class="text-base-content/70">End offset</span>
-          <input data-role="end-offset" type="number" step="0.5" placeholder="0"
+          <input data-role="end-offset" data-unit="length" type="number" step="0.5" placeholder="0"
             class="input input-sm input-bordered w-full text-xs" />
         </label>
         <label class="flex items-center justify-between cursor-pointer"

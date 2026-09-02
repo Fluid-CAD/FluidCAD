@@ -1,13 +1,15 @@
 import { Group, Vector3 } from 'three';
 import { SceneContext } from '../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../types';
+import { worldFromMm } from '../units/scene-scale';
 import {
   addDot,
   addDashedLine,
 } from './tools/tool-preview-utils';
 
 const META_VERTEX_COLOR = '#8899aa';
-const META_VERTEX_RADIUS = 1.5;
+/** Geometry radius in mm, paired with the pixel radius below. */
+const META_VERTEX_RADIUS_MM = 1.5;
 const META_VERTEX_PX_RADIUS = 4.5;
 const META_VERTEX_OPACITY = 0.5;
 const META_VERTEX_RENDER_ORDER = 2;
@@ -89,7 +91,7 @@ export class BezierHandlesOverlay {
           plane,
           META_VERTEX_OPACITY,
           META_VERTEX_RENDER_ORDER,
-          META_VERTEX_RADIUS,
+          worldFromMm(META_VERTEX_RADIUS_MM),
           META_VERTEX_PX_RADIUS,
         );
       }

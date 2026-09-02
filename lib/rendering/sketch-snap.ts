@@ -6,15 +6,22 @@ import { Plane } from "../math/plane.js";
 import { SectionOps } from "../oc/section-ops.js";
 import { Explorer } from "../oc/explorer.js";
 import { EdgeQuery } from "../oc/edge-query.js";
+import { mmTol2 } from "../units/tolerance.js";
+import { withUnit } from "../units/registry.js";
 
-/** Matches the snap dedup tolerance the sketcher UI uses for mesh vertices. */
-const DEDUP_EPSILON_SQ = 1e-6;
+/** Matches the snap dedup tolerance the sketcher UI uses for mesh vertices: (1e-3 mm)². */
+function dedupEpsilonSq(): number {
+  return mmTol2(1e-6);
+}
 
 /**
  * A closed section loop (the plane passing clean through a bore or boss) has
  * coincident chain ends at an arbitrary seam parameter — not a model crossing.
+ * (1e-6 mm)².
  */
-const SEAM_EPSILON_SQ = 1e-12;
+function seamEpsilonSq(): number {
+  return mmTol2(1e-12);
+}
 
 /** Shape types with area — the only ones a plane section can cross. */
 const SECTIONABLE_TYPES = new Set(["solid", "shell", "face", "compound"]);
@@ -40,6 +47,12 @@ export function attachSketchSnapVertices(scene: Scene): void {
   if (!sketch) {
     return;
   }
+  // A render() post-pass runs outside any build scope; the epsilons below
+  // are lengths in the sketch's own unit.
+  withUnit(sketch.getUnit(), () => attachSnapVerticesInUnit(scene, sketch));
+}
+
+function attachSnapVerticesInUnit(scene: Scene, sketch: Sketch): void {
   const rendered = scene.getRenderedObject(sketch);
   if (!rendered) {
     return;
@@ -153,7 +166,7 @@ function collectSectionVertices(shape: Shape, plane: Plane, out: [number, number
     last.dispose();
     edge.dispose();
 
-    if (p1.distanceToSquared(p2) < SEAM_EPSILON_SQ) {
+    if (p1.distanceToSquared(p2) < seamEpsilonSq()) {
       continue;
     }
 
@@ -194,7 +207,7 @@ function pushUnique(vertices: [number, number][], v: [number, number]): void {
   for (const p of vertices) {
     const dx = p[0] - v[0];
     const dy = p[1] - v[1];
-    if (dx * dx + dy * dy < DEDUP_EPSILON_SQ) {
+    if (dx * dx + dy * dy < dedupEpsilonSq()) {
       return;
     }
   }

@@ -9,9 +9,16 @@ import { testRect } from "../helpers/profiles.js";
 import { Copy2DBase } from "../../features/copy2d-base.js";
 import { Offset } from "../../features/2d/offset.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
+import { EdgeQuery } from "../../oc/edge-query.js";
 import { Edge } from "../../common/edge.js";
 
+// The analytic centre for circles: after render() an edge's bounding box is
+// read off its polygon, whose x-extent is asymmetric by R(1−cos(π/N))/2 for
+// an odd segment count — a mesh artefact, not a slot position.
 const centerX = (edges: Edge[]) => {
+  if (EdgeQuery.getEdgeCurveType(edges[0]) === 'circle') {
+    return EdgeQuery.getCircleDataFromEdge(edges[0]).center.x;
+  }
   const box = ShapeOps.getBoundingBox(edges[0]);
   return (box.minX + box.maxX) / 2;
 };

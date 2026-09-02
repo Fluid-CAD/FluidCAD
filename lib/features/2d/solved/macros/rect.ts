@@ -11,9 +11,13 @@ import { MacroShapeBase, MacroEntityDef } from "./base.js";
 import { MacroEdgeRef } from "./refs.js";
 import { start, end, entityRef } from "../../../../sketch-solver/index.js";
 import type { ConstraintSpec } from "../../../../sketch-solver/index.js";
+import { mmTol } from "../../../../units/tolerance.js";
 
 const SIDES = ['bottom', 'right', 'top', 'left'] as const;
-const MIN_SPAN = 1e-6;
+/** A side shorter than 1e-6 mm (in the active unit) is degenerate. */
+function minSpan(): number {
+  return mmTol(1e-6);
+}
 
 /** Perimeter walk order (CCW for positive spans): side, then the corner
  * arc joining it to the next side. corner0 sits at the pos corner
@@ -103,6 +107,7 @@ export class RectMacro extends MacroShapeBase {
   protected validateArgs(): void {
     const w = this.widthGuess;
     const h = this.heightGuess;
+    const MIN_SPAN = minSpan();
     if (Math.abs(w) < MIN_SPAN || Math.abs(h) < MIN_SPAN) {
       throw new Error(`rect() width and height must be non-zero — got ${w} × ${h}`);
     }

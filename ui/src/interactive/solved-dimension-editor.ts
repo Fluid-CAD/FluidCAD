@@ -6,6 +6,8 @@
 // trailing 'x'/'y' string, so the scalar sits one non-array arg earlier.
 
 import { ExpressionInput, VariableInfo } from '../ui/expression-input';
+import { roundToUnitDecimals } from '../units/units';
+import { sceneUnit } from '../units/scene-unit';
 import { getDimensionExpression, updateDimensionExpression } from '../api';
 import type { SolvedConstraintView } from '../sketch-solver-client';
 import type { FetchVariablesFn } from './sketch-tool';
@@ -65,14 +67,16 @@ export class SolvedDimensionEditor {
 
     this.expressionInput.show({
       label,
-      value: String(Math.round(c.value * 100) / 100),
+      // Seed rounded to the document unit's display decimals; what the user
+      // types is never re-rounded except the historical mm 2-decimal tidy-up.
+      value: String(roundToUnitDecimals(c.value, sceneUnit.current)),
       clientX,
       clientY,
       variables: this.cachedVariables,
       onCommit: ({ expression, newVariable }) => {
         const num = parseFloat(expression);
         const isNumeric = !isNaN(num) && String(num) === expression;
-        const finalExpr = isNumeric ? String(Math.round(num * 100) / 100) : expression;
+        const finalExpr = isNumeric && sceneUnit.current === 'mm' ? String(Math.round(num * 100) / 100) : expression;
         updateDimensionExpression(
           finalExpr,
           loc,

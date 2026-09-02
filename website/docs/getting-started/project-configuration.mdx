@@ -1,0 +1,59 @@
+---
+sidebar_position: 5
+title: "Project Configuration"
+---
+
+# Project configuration
+
+`npx fluidcad init` writes a `fluidcad.json` next to `init.js`. It is the project's descriptor: plain JSON that the server, the CLI and the desktop app read without executing any of your code.
+
+```json
+{
+  "engine": "0.0.42",
+  "unit": "mm"
+}
+```
+
+Both keys are optional. A project with no `fluidcad.json` behaves as if the file held neither: no engine pin, millimetres.
+
+## `engine`
+
+The FluidCAD version the project's geometry was authored against. `npx fluidcad init` pins the version it was run with and leaves an existing pin alone.
+
+The pin records intent; it does not switch versions by itself. `npx fluidcad serve` runs whatever `fluidcad` is installed in the project, and when that differs from the pin the startup banner says so before anything is rebuilt:
+
+```
+FluidCAD: this project pins engine 0.0.42 (fluidcad.json), but 0.0.45 is running.
+Geometry may differ from what the project was authored against.
+```
+
+The desktop app goes one step further and uses the pin to choose which engine to load for the project. Bump the pin once you have upgraded `fluidcad` and checked the model still builds the way you expect.
+
+`package.json` is accepted as an alternative home for the same pin — `{ "fluidcad": { "engine": "0.0.42" } }` — and `fluidcad.json` wins when both exist. An `engine` value that is not a version string is reported and ignored.
+
+## `unit`
+
+The project's length unit. It is the unit of every part file that does not declare its own with `unit()`, and the unit of assembly space. One of `mm`, `cm`, `m`, `in`, `ft`; the default is `mm`.
+
+```bash
+npx fluidcad init --unit in
+```
+
+writes `"unit": "in"`. Editing the file by hand is fine too — the change is picked up on the next render, no restart needed.
+
+### Units
+
+Numbers in a file are in that file's unit. A part file can opt out of the project unit with a single statement at the top:
+
+```js
+import { unit, extrude, sketch, circle } from 'fluidcad/core';
+
+unit('in');
+
+sketch("xy", () => {
+    circle([0, 0], 1);   // 1 in
+});
+extrude(0.5);            // 0.5 in
+```
+
+Assemblies never declare a unit: their offsets and translations are in the project unit, and inserted parts of any unit are scaled into it automatically. The [Units guide](/docs/guides/units) covers the rules, the `fluidcad/units` conversion helpers, import/export, and which unit to pick for which feature scale.

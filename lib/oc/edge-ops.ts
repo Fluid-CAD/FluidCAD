@@ -8,6 +8,7 @@ import { Edge } from "../common/edge.js";
 import { Vertex } from "../common/vertex.js";
 import { Explorer } from "./explorer.js";
 import { EdgeQuery } from "./edge-query.js";
+import { mmTol } from "../units/tolerance.js";
 
 export class EdgeOps {
   // Wrapper methods (public API for external callers)
@@ -119,7 +120,8 @@ export class EdgeOps {
   static axisToEdgeRaw(axis: Axis): TopoDS_Edge {
     const oc = getOC();
 
-    const length = 300;
+    // A 300 mm visual half-length, in the document's unit.
+    const length = mmTol(300);
 
     const start = new oc.gp_Pnt(axis.origin.x + (axis.direction.x * -length),
       axis.origin.y + (axis.direction.y * -length),
@@ -239,7 +241,7 @@ export class EdgeOps {
     // BRepAlgo_NormalProjection approximates to 1e-4 by default, so
     // recognition must admit at least that much deviation or a projected
     // straight edge stays a B-spline.
-    const tol = tolerance ?? Math.max(oc.BRep_Tool.Tolerance(edge), 1e-4);
+    const tol = tolerance ?? Math.max(oc.BRep_Tool.Tolerance(edge), mmTol(1e-4));
     const converted = oc.GeomConvert_CurveToAnaCurve.ComputeCurve(
       curve, tol, curveResult.First, curveResult.Last, 0, 0, 0,
       oc.GeomConvert_ConvType.GeomConvert_MinGap,
@@ -271,7 +273,8 @@ export class EdgeOps {
     sourceIndex: number[];
   } {
     const oc = getOC();
-    const tol = 1e-7;
+    // Parameter-space dedup of split points; a line's parameter is arc length.
+    const tol = mmTol(1e-7);
 
     // Extract individual edges (expand wires passed at runtime)
     const allEdges: TopoDS_Edge[] = [];
@@ -477,7 +480,7 @@ export class EdgeOps {
 
   static findNearestEdgeIndices(edges: Edge[], point: Point, tolerance: number = -1): number[] {
     const oc = getOC();
-    const DISTANCE_EPSILON = 1e-6;
+    const DISTANCE_EPSILON = mmTol(1e-6);
 
     const gpPnt = new oc.gp_Pnt(point.x, point.y, point.z);
     const vertexMaker = new oc.BRepBuilderAPI_MakeVertex(gpPnt);
@@ -564,7 +567,8 @@ export class EdgeOps {
       return live;
     }
 
-    const fuzzValue = fuzzy ?? Math.max(oc.Precision.Confusion() * 100, 1e-6);
+    // Precision.Confusion() is the kernel floor in any unit; the 1e-6 mm part scales.
+    const fuzzValue = fuzzy ?? Math.max(oc.Precision.Confusion() * 100, mmTol(1e-6));
 
     const args = new oc.TopTools_ListOfShape();
     let builder: any = null;

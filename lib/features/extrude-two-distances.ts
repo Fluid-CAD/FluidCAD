@@ -11,6 +11,7 @@ import { FaceMaker2 } from "../oc/face-maker2.js";
 import { EdgeOps } from "../oc/edge-ops.js";
 import { Extruder } from "./simple-extruder.js";
 import { ThinFaceMaker } from "../oc/thin-face-maker.js";
+import { mmTol } from "../units/tolerance.js";
 
 export class ExtrudeTwoDistances extends ExtrudeBase {
 
@@ -121,7 +122,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
         for (const sf of fusedStartFaces) {
           for (const sfe of sf.getEdges()) {
             const mid = plane.worldToLocal(EdgeOps.getEdgeMidPointRaw(sfe.getShape()));
-            if (innerMids.some(im => mid.distanceTo(im) < 1e-4)) {
+            if (innerMids.some(im => mid.distanceTo(im) < mmTol(1e-4))) {
               fusedInnerEdges.push(sfe);
             }
           }

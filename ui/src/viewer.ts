@@ -1,7 +1,10 @@
 import { Box3, BufferAttribute, BufferGeometry, Color, Group, Intersection, LineSegments, Material, Mesh, MeshPhongMaterial, Object3D, Raycaster, Vector3 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { DialogViewOffset } from './scene/dialog-view-offset';
-import { SceneModeManager } from './scene/scene-mode';
+import { SceneModeManager, sketchCameraDistance } from './scene/scene-mode';
+import { worldFromMm } from './units/scene-scale';
+import { sceneUnit } from './units/scene-unit';
+import { GridScaleBar } from './ui/grid-scale-bar';
 import { buildSceneMesh } from './meshes/mesh-factory';
 import type { SketchMesh } from './meshes/containers/sketch-mesh';
 import { PlaneData, SceneObjectPart, SceneObjectRender, SerializedAssembly, SerializedAssemblyMate, SubSelection } from './types';
@@ -125,6 +128,7 @@ export class Viewer {
   private ctx: SceneContext;
   private modeManager: SceneModeManager;
   private settingsPanel: SettingsPanel;
+  private gridScaleBar: GridScaleBar;
   private sceneObjects: SceneObjectRender[] = [];
   private highlightedShapeId: string | null = null;
   private highlightedSolidShapeIds: string[] = [];
@@ -261,9 +265,36 @@ export class Viewer {
     new DialogViewOffset(this.ctx);
     this.settingsPanel = new SettingsPanel(container, client, (mode) => this.ctx.switchCamera(mode));
     this.settingsPanel.setFitHandler(() => this.fitViewToScene());
+    this.gridScaleBar = new GridScaleBar(container, (key, value) => client.savePreference(key, value));
+    this.modeManager.subscribeGridSpacing((spacing, visible) => this.gridScaleBar.update(spacing, visible));
     if (viewerSettings.current.cameraMode === 'perspective') {
       this.ctx.switchCamera('perspective');
     }
+
+    // The document unit is set from scene-rendered BEFORE the render lands.
+    // Nothing on screen yet: re-seat the cameras on the unit's defaults so
+    // an inch or metre file opens on the same picture a mm file does. A
+    // scene already up: its geometry is about to be replaced at a different
+    // scale, so let the next render auto-fit rather than keep a camera that
+    // may now be inside — or a kilometre from — the model.
+    sceneUnit.subscribe(() => {
+      if (!this.hasRendered) {
+        this.ctx.applyUnitDefaults();
+        return;
+      }
+      this.hasRendered = false;
+      this.lastFitBox = null;
+    });
+
+    // The sketch-dimension suffix is baked into the glyph labels — re-lay
+    // them out when it flips.
+    let dimensionSuffix = viewerSettings.current.sketchDimensionSuffix;
+    viewerSettings.subscribe((s) => {
+      if (s.sketchDimensionSuffix !== dimensionSuffix) {
+        dimensionSuffix = s.sketchDimensionSuffix;
+        this.refreshSketchConstraintGlyphs();
+      }
+    });
 
     this.initClickDetection();
     this.initHoverDetection();
@@ -899,7 +930,7 @@ export class Viewer {
 
     const tgt = new Vector3();
     cc.getTarget(tgt);
-    const camPos = tgt.clone().add(normal.clone().multiplyScalar(50));
+    const camPos = tgt.clone().add(normal.clone().multiplyScalar(sketchCameraDistance()));
 
     this.ctx.camera.up.copy(yDir);
     cc.updateCameraUp();
@@ -1929,7 +1960,7 @@ export class Viewer {
         return box.getSize(new Vector3()).length() * 0.015;
       }
     }
-    return 2;
+    return worldFromMm(2);
   }
 
   /** Fit the camera to all scene geometry, excluding meta shapes. */

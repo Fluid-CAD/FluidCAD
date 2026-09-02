@@ -6,6 +6,7 @@ import { Quaternion } from "./quaternion.js";
 import { rad } from "../helpers/math-helpers.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
 import { IPlane } from "../core/interfaces.js";
+import { mmTol } from "../units/tolerance.js";
 
 export interface PlaneTransformOptions {
   offset?: number;
@@ -166,7 +167,8 @@ export class Plane {
     return v.dot(this.normal);
   }
 
-  containsPoint(point: Point, tolerance: number = 1e-10): boolean {
+  /** `tolerance` is a distance; the default is 1e-10 mm in the active unit. */
+  containsPoint(point: Point, tolerance: number = mmTol(1e-10)): boolean {
     return Math.abs(this.signedDistanceToPoint(point)) <= tolerance;
   }
 
@@ -174,7 +176,7 @@ export class Plane {
     return this.normal.isParallelTo(other.normal, tolerance);
   }
 
-  isCoplanarWith(other: Plane, linearTolerance: number = 1e-10, angularTolerance: number = 1e-10): boolean {
+  isCoplanarWith(other: Plane, linearTolerance: number = mmTol(1e-10), angularTolerance: number = 1e-10): boolean {
     if (!this.isParallelTo(other, angularTolerance)) {
       return false;
     }

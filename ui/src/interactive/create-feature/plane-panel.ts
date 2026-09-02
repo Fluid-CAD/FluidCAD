@@ -62,7 +62,7 @@ export class PlanePanel extends FeaturePanel {
         <div data-role="bases-slot"></div>
         <label data-role="offset-row" class="flex flex-col gap-1.5">
           <span class="text-base-content/70">Offset</span>
-          <input data-role="offset" type="number" step="1" value="10"
+          <input data-role="offset" data-unit="length" type="number" step="1" value="10"
             class="input input-sm input-bordered w-full text-xs" />
         </label>
         <label data-role="position-row" class="hidden flex-col gap-1.5">

@@ -2,37 +2,20 @@ import { Vector3 } from 'three';
 import { Snapper, SnapResult } from './types';
 import { PlaneData } from '../types';
 
+/** A snap engages within this fraction of a cell — past it the cursor is
+ * "between" lines and must stay free, whatever the pitch. */
 const GRID_SNAP_RADIUS_FRACTION = 0.35;
-const SEQUENCE = [1, 2, 5];
 
-export function computeAdaptiveGridSpacing(
-  worldUnitsPerPixel: number,
-  baseSpacing: number = 10,
-  minCellPixels: number = 15,
-): number {
-  const cellPixels = baseSpacing / worldUnitsPerPixel;
-  if (cellPixels >= minCellPixels) {
-    return baseSpacing;
-  }
-
-  let decade = baseSpacing;
-  for (;;) {
-    for (const s of SEQUENCE) {
-      const candidate = decade * s;
-      if (candidate / worldUnitsPerPixel >= minCellPixels) {
-        return candidate;
-      }
-    }
-    decade *= 10;
-  }
-}
-
-
+/**
+ * Snaps to the grid lattice. Owns no ladder of its own: the pitch comes
+ * from `resolveGridSpacing` via SnapManager, the same call that pitches the
+ * drawn grid, so the snapped and drawn lattices are one lattice.
+ */
 export class GridSnapper implements Snapper {
   private spacing: number;
   private plane: PlaneData;
 
-  constructor(plane: PlaneData, spacing: number = 10) {
+  constructor(plane: PlaneData, spacing: number) {
     this.plane = plane;
     this.spacing = spacing;
   }

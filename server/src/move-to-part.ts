@@ -18,6 +18,7 @@ import {
   findSketchBody,
   getJavaScriptParser,
   isBlankRow,
+  isUnitStatement,
   spliceCode,
   splitLines,
   walkTree,
@@ -230,6 +231,12 @@ export class MoveToPart {
       }
       if (MoveToPart.declaresPart(stmt)) {
         return { error: `the feature at line ${sel.line} declares a part() — parts cannot nest inside parts` };
+      }
+      // A unit() statement is file metadata, not a feature: it is never a
+      // timeline row, but a stale or hand-built request could still name
+      // its line, and inside a part() body it would be a runtime error.
+      if (isUnitStatement(stmt)) {
+        return { error: `unit() at line ${sel.line} declares the whole file's unit — it stays at the top level and cannot move into a part` };
       }
       byStart.set(stmt.startIndex, stmt);
     }

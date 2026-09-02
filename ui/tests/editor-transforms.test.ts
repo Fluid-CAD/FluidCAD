@@ -198,7 +198,24 @@ const CASES: Record<string, Case> = {
     target: 'current',
     body: {},
   },
+
+  // The unit chip: the path rides along so the server can refuse an
+  // assembly file.
+  'set-unit': {
+    message: { filePath: '/ws/m.part.js', unit: 'in' },
+    endpoint: 'set-unit',
+    target: 'path',
+    body: { unit: 'in', filePath: '/ws/m.part.js' },
+  },
 };
+
+describe('set-unit transform body', () => {
+  it('keeps a null unit ("Same as project") as an explicit null, not a dropped key', () => {
+    const body = TRANSFORMS['set-unit'].body({ filePath: '/ws/m.part.js', unit: null });
+    expect(body).toEqual({ unit: null, filePath: '/ws/m.part.js' });
+    expect(JSON.parse(JSON.stringify(body))).toEqual({ unit: null, filePath: '/ws/m.part.js' });
+  });
+});
 
 describe('editor host transform table', () => {
   for (const [type, expected] of Object.entries(CASES)) {

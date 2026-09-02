@@ -10,6 +10,17 @@ import { collectedParamValues, validateParamOverrides } from "../features/param-
 import type { ParamOverrides } from "../param-registry.js";
 import { IPart } from "./interfaces.js";
 
+/**
+ * Place a part or sub-assembly definition in the current assembly.
+ *
+ * Units: a part built from a file with a different `unit()` than the
+ * project is rescaled into the assembly's unit at render time — an inch
+ * part inserted into an mm project renders 25.4× larger, connectors and all,
+ * with the instance pose untouched. Parameter overrides are NOT converted:
+ * `insert(def, { width: 10 })` reads `10` in the PART's unit (10 in for an
+ * inch part), whatever the assembly runs in — the values feed the part's
+ * own `param()` calls, whose numbers are the part file's numbers.
+ */
 function insert<T>(definition: PartDefinition<T>, overrides?: ParamOverrides): Instance<T>;
 function insert<T>(definition: Assembly<T>, overrides?: ParamOverrides): Occurrence<T>;
 function insert<P extends IPart>(part: P, overrides?: ParamOverrides): Instance<P>;

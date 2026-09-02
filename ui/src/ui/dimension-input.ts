@@ -1,3 +1,5 @@
+import { roundToUnitDecimals } from '../units/units';
+import { sceneUnit } from '../units/scene-unit';
 const OFFSET_X = 16;
 const OFFSET_Y = -36;
 
@@ -56,7 +58,7 @@ export class DimensionInput {
     this.userIsTyping = false;
     this.el.classList.remove('hidden');
     this.updatePosition(clientX, clientY);
-    this.input.value = String(Math.round(value * 100) / 100);
+    this.input.value = String(roundToUnitDecimals(value, sceneUnit.current));
     this.input.focus();
     this.input.select();
   }
@@ -80,7 +82,7 @@ export class DimensionInput {
     if (!this.visible || this.userIsTyping) {
       return;
     }
-    this.input.value = String(Math.round(value * 100) / 100);
+    this.input.value = String(roundToUnitDecimals(value, sceneUnit.current));
     this.input.select();
   }
 

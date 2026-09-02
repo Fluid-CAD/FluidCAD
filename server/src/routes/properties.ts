@@ -2,6 +2,12 @@ import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import { getMaterials } from '../../../lib/dist/common/materials.js';
 
+/**
+ * Property routes answer in the document's unit — the kernel runs in it, so
+ * `volumeMm3` / `surfaceAreaMm2` / `areaMm2` are field NAMES only (kept for
+ * compatibility): an inch document reports in³ / in² under those names.
+ * Each response carries `unit` so callers can label the values.
+ */
 export function createPropertiesRouter(fluidCadServer: FluidCadServer): Router {
   const router = Router();
 
@@ -16,7 +22,7 @@ export function createPropertiesRouter(fluidCadServer: FluidCadServer): Router {
       res.status(404).json({ error: 'Shape not found' });
       return;
     }
-    res.json(props);
+    res.json({ ...props, unit: fluidCadServer.getSceneUnit() });
   });
 
   router.get('/face-properties', (req, res) => {
@@ -31,7 +37,7 @@ export function createPropertiesRouter(fluidCadServer: FluidCadServer): Router {
       res.status(404).json({ error: 'Face not found' });
       return;
     }
-    res.json(props);
+    res.json({ ...props, unit: fluidCadServer.getSceneUnit() });
   });
 
   router.get('/edge-properties', (req, res) => {
@@ -46,7 +52,7 @@ export function createPropertiesRouter(fluidCadServer: FluidCadServer): Router {
       res.status(404).json({ error: 'Edge not found' });
       return;
     }
-    res.json(props);
+    res.json({ ...props, unit: fluidCadServer.getSceneUnit() });
   });
 
   return router;

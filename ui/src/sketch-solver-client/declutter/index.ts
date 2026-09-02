@@ -18,5 +18,5 @@ export { Occupancy } from './occupancy';
 export { clusterAnchors } from './cluster';
 export type { AnchorGroup, Cluster } from './cluster';
 export { rowRects } from './rows';
-export { hiddenPlacement, orientReading, perpPt, unit } from './types';
+export { hiddenPlacement, normalize, orientReading, perpPt } from './types';
 export type { Placement, Pt, Rect } from './types';

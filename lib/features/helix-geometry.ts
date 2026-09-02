@@ -9,12 +9,19 @@ import { Convert } from "../oc/convert.js";
 import { CoordinateSystem } from "../math/coordinate-system.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Axis } from "../math/axis.js";
+import { mmTol } from "../units/tolerance.js";
 
 const DEFAULT_RADIUS = 20;
 const DEFAULT_HEIGHT = 50;
 const DEFAULT_TURNS = 1;
-const EPS = 1e-7;
-const TANGENCY_BREAK_EPSILON = 1e-6;
+/** Pitch / height below this (1e-7 mm, in the active unit) is degenerate. */
+function lengthEps(): number {
+  return mmTol(1e-7);
+}
+/** Radial nudge (1e-6 mm) that keeps a tangent start off its source face. */
+function tangencyBreakEpsilon(): number {
+  return mmTol(1e-6);
+}
 
 /**
  * What a helix is built around, once the source shape has been read: an axis,
@@ -85,7 +92,7 @@ export function buildHelixEdge(
         warn?.("helix: .endRadius() is ignored when source is a cylindrical face — for a tapered helix, use a conical face or axis input.");
       }
       cs = source.cs;
-      // Nudge inward by TANGENCY_BREAK_EPSILON when falling back to the
+      // Nudge inward by tangencyBreakEpsilon() when falling back to the
       // face's natural radius. A helix exactly on the cylinder's surface
       // produces a swept tube that's tangent to the cylinder along helical
       // curves, and OCC's BOPAlgo (BRepAlgoAPI_Fuse/Cut) silently fails on
@@ -95,7 +102,7 @@ export function buildHelixEdge(
       // BOPAlgo handles cleanly. Sweep also passes skipSimplify=true to
       // avoid SimplifyResult/UnifySameDomain hanging on the resulting
       // tangent-curve topology.
-      startRadius = radius ?? (source.radius - TANGENCY_BREAK_EPSILON);
+      startRadius = radius ?? (source.radius - tangencyBreakEpsilon());
       endRadius = startRadius;
       if (height !== undefined) {
         zStart = 0;
@@ -160,7 +167,7 @@ export function buildHelixEdge(
     zEnd += endOffset;
   }
 
-  if (pitch !== undefined && Math.abs(pitch) < EPS) {
+  if (pitch !== undefined && Math.abs(pitch) < lengthEps()) {
     throw new BuildError(`helix: .pitch() must be non-zero.`);
   }
   if (requestedTurns !== undefined && requestedTurns <= 0) {
@@ -179,7 +186,7 @@ export function buildHelixEdge(
     );
   }
 
-  if (Math.abs(zEnd - zStart) < EPS) {
+  if (Math.abs(zEnd - zStart) < lengthEps()) {
     throw new BuildError(
       `helix: resulting axial height is zero (zStart=${zStart}, zEnd=${zEnd}).`,
       `Check .startOffset()/.endOffset()/.height() values.`,
@@ -284,7 +291,7 @@ function deriveTurnsFromHeight(height: number, pitch: number | undefined): numbe
   if (pitch === undefined) {
     return DEFAULT_TURNS;
   }
-  if (Math.abs(pitch) < EPS) {
+  if (Math.abs(pitch) < lengthEps()) {
     throw new BuildError(`helix: .pitch() must be non-zero.`);
   }
   return Math.abs(height / pitch);

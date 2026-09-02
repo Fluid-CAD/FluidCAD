@@ -17,6 +17,10 @@ FluidCAD supports exporting your model as STEP, STL, or PNG. To export:
 
 The exported file includes all geometry and color information, and can be opened in any standard CAD tool (Fusion 360, SolidWorks, FreeCAD, etc.).
 
+## Units
+
+STEP files carry their unit, so a STEP export is physically correct whatever the document's [unit](/docs/guides/units) — a 2 in boss opens as 2 in elsewhere. STL is unitless and slicers assume millimetres, so STL exports are scaled to mm by default; an export option keeps document units instead when the consumer expects them. BRep is written as-is.
+
 ## From the command line
 
 The same exports run from a terminal, which is what you want for build scripts and CI:

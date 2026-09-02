@@ -4,6 +4,7 @@ import * as filters from "../filters/index.js";
 import * as constraints from "../core/constraints/index.js";
 import * as shapes from "../core/shapes/index.js";
 import * as math from "../math/index.js";
+import * as units from "../units/index.js";
 
 /**
  * The engine's public module namespaces, keyed by the import specifiers user
@@ -18,6 +19,7 @@ const ENGINE_NAMESPACES: Record<string, Record<string, unknown>> = {
   "fluidcad/constraints": constraints as unknown as Record<string, unknown>,
   "fluidcad/shapes": shapes as unknown as Record<string, unknown>,
   "fluidcad/math": math as unknown as Record<string, unknown>,
+  "fluidcad/units": units as unknown as Record<string, unknown>,
 };
 
 export const ENGINE_NAMESPACE_SPECIFIERS = Object.keys(ENGINE_NAMESPACES);

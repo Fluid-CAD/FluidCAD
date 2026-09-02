@@ -5,6 +5,8 @@
  * would be cut short.
  */
 
+import { MENU_CLASS as MENU, MENU_ROW_CLASS as ROW } from '../ui/menu-styles';
+
 export type TabMenuItem = {
   icon: string;
   label: string;
@@ -12,13 +14,6 @@ export type TabMenuItem = {
   /** Tailwind classes for the row, e.g. `text-error` for a destructive item. */
   className?: string;
 };
-
-const MENU =
-  'absolute z-[300] min-w-[160px] p-1 panel-bg border border-base-content/10 rounded-md ' +
-  'shadow-[0_4px_12px_rgba(0,0,0,0.4)]';
-const ROW =
-  'flex items-center gap-2.5 w-full px-2 py-1.5 rounded text-left text-[13px] ' +
-  'text-base-content/80 cursor-pointer hover:bg-base-content/[0.08]';
 
 /** Keep the menu clear of the viewport's edges by at least this much. */
 const EDGE_MARGIN = 8;

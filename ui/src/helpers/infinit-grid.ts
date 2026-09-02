@@ -140,6 +140,27 @@ class InfiniteGridHelper extends Mesh {
 
         this.frustumCulled = false;
     }
+
+    /**
+     * Re-pitch the lattice. `uSize1/uSize2` are plain uniforms, so a zoom
+     * change re-grids for the price of two floats — no rebuild.
+     */
+    setSpacing(minor : number, major : number) : void {
+        const uniforms = (this.material as ShaderMaterial).uniforms;
+        uniforms.uSize1.value = minor;
+        uniforms.uSize2.value = major;
+    }
+
+    /**
+     * Re-size the quad / fade radius. The plane coordinates are varyings
+     * interpolated from the quad's corners, so their precision near the
+     * camera is float32's at `distance` magnitude (≈ 0.008 at 1e5): a fixed
+     * extent erases any lattice finer than that once zoomed in. Callers
+     * keep it a constant multiple of the visible height instead.
+     */
+    setExtent(distance : number) : void {
+        (this.material as ShaderMaterial).uniforms.uDistance.value = distance;
+    }
 };
 
 export default InfiniteGridHelper;

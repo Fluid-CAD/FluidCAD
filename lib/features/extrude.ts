@@ -14,6 +14,7 @@ import { ThinFaceMaker, ThinFaceResult } from "../oc/thin-face-maker.js";
 import { Plane } from "../math/plane.js";
 import { throughAllLength } from "../helpers/through-all.js";
 import { Shape } from "../common/shape.js";
+import { mmTol } from "../units/tolerance.js";
 
 export class Extrude extends ExtrudeBase {
   constructor(public distance: number, source?: Extrudable | SceneObject) {
@@ -323,7 +324,7 @@ export class Extrude extends ExtrudeBase {
     for (const sf of fusedStartFaces) {
       for (const sfe of sf.getEdges()) {
         const mid = plane.worldToLocal(EdgeOps.getEdgeMidPointRaw(sfe.getShape()));
-        if (innerMids.some(im => mid.distanceTo(im) < 1e-4)) {
+        if (innerMids.some(im => mid.distanceTo(im) < mmTol(1e-4))) {
           fusedInnerEdges.push(sfe);
         }
       }

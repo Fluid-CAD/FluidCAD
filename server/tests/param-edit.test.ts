@@ -37,7 +37,7 @@ describe('ParamEditor.add', () => {
       kind: 'add', param: spec({ label: 'Depth', defaultValue: 25 }),
     });
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`import {param, sketch } from 'fluidcad/core';\nconst depth = param('Depth', 25);`);
+    expect(result.newCode).toContain(`import { param, sketch } from 'fluidcad/core';\nconst depth = param('Depth', 25);`);
   });
 
   it('omits the type argument when param() would infer it anyway', async () => {

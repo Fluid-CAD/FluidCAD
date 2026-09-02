@@ -5,9 +5,16 @@ import { Explorer } from "./explorer.js";
 import { Plane } from "../math/plane.js";
 import { Point, Point2D } from "../math/point.js";
 import { SceneObject } from "../common/scene-object.js";
+import { mmTol } from "../units/tolerance.js";
 
-const PROBE_HALF_LENGTH = 1e6;
-const ON_TARGET_EPSILON = 1e-7;
+/** A 1 km probe in mm, read in the active unit at use time. */
+function probeHalfLength(): number {
+  return mmTol(1e6);
+}
+/** Signed-distance band that counts as "on the target", 1e-7 mm. */
+function onTargetEpsilon(): number {
+  return mmTol(1e-7);
+}
 
 /**
  * Finds the nearest intersection of an oriented "ray" with a target geometry's
@@ -36,13 +43,14 @@ export function findNearestRayIntersection(
   }
   const dir = new Point2D(direction.x / dirLen, direction.y / dirLen);
 
+  const probeHalf = probeHalfLength();
   const probeStart2d = new Point2D(
-    start.x - dir.x * PROBE_HALF_LENGTH,
-    start.y - dir.y * PROBE_HALF_LENGTH
+    start.x - dir.x * probeHalf,
+    start.y - dir.y * probeHalf
   );
   const probeEnd2d = new Point2D(
-    start.x + dir.x * PROBE_HALF_LENGTH,
-    start.y + dir.y * PROBE_HALF_LENGTH
+    start.x + dir.x * probeHalf,
+    start.y + dir.y * probeHalf
   );
 
   const probeStartWorld = plane.localToWorld(probeStart2d);
@@ -102,7 +110,7 @@ export function findNearestRayIntersection(
 
       const hit2d = plane.worldToLocal(hitWorld);
       const signedDist = (hit2d.x - start.x) * dir.x + (hit2d.y - start.y) * dir.y;
-      if (Math.abs(signedDist) < ON_TARGET_EPSILON) {
+      if (Math.abs(signedDist) < onTargetEpsilon()) {
         continue;
       }
 

@@ -212,17 +212,27 @@ export type DragSpec = {
 
 export type SolveOptions = {
   maxIters?: number;
-  /** Step-size stop ‖Δx‖ < tol. Default 1e-9. */
+  /** Step-size stop ‖Δx‖ < tol. Default 1e-9 mm / lengthScale. */
   tol?: number;
-  /** Residual success threshold. Default 1e-8. */
+  /** Residual success threshold. Default 1e-8 mm / lengthScale. */
   residualTol?: number;
+  /**
+   * Millimetres per sketch length unit (25.4 for an inch document). The
+   * absolute floors (glue, collapse guard, default tolerances) are
+   * authored in mm and divided by it, so a sketch keeps the same physical
+   * behaviour in every unit. Default 1. The solver stays unit-agnostic:
+   * the caller that knows the document's unit passes it.
+   */
+  lengthScale?: number;
   drag?: DragSpec;
 };
 
 export type DiagnoseOptions = {
   /** |residual| above this at convergence reads as conflicting.
-   * Default 1e-6. */
+   * Default 1e-6 mm / lengthScale. */
   conflictTol?: number;
+  /** Millimetres per sketch length unit; see SolveOptions.lengthScale. */
+  lengthScale?: number;
 };
 
 export type ComponentDiagnostics = {

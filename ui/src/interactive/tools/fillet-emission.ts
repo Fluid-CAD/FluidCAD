@@ -35,7 +35,7 @@ const mul = (a: V2, s: number): V2 => [a[0] * s, a[1] * s];
 const dot = (a: V2, b: V2): number => a[0] * b[0] + a[1] * b[1];
 const cross = (a: V2, b: V2): number => a[0] * b[1] - a[1] * b[0];
 const norm = (a: V2): number => Math.hypot(a[0], a[1]);
-const unit = (a: V2): V2 => mul(a, 1 / (norm(a) || 1));
+const normalize = (a: V2): V2 => mul(a, 1 / (norm(a) || 1));
 /** +90° rotation. */
 const perp = (a: V2): V2 => [-a[1], a[0]];
 
@@ -192,7 +192,7 @@ function intersectLoci(a: OffsetLocus, b: OffsetLocus): V2[] {
   const x = (d * d + ca.r * ca.r - cb.r * cb.r) / (2 * d);
   const h2 = ca.r * ca.r - x * x;
   const h = Math.sqrt(Math.max(0, h2));
-  const u = unit(sub(cb.center, ca.center));
+  const u = normalize(sub(cb.center, ca.center));
   const foot = add(ca.center, mul(u, x));
   const n = perp(u);
   return h < 1e-12

@@ -12,6 +12,7 @@ import {
   PlaneGeometry,
   Scene,
 } from 'three';
+import { worldFromMm } from '../units/scene-scale';
 
 export type StandardPlaneId = 'xy' | 'xz' | 'yz';
 
@@ -29,9 +30,10 @@ const FILL_OPACITY = 0.1;
 const FILL_OPACITY_HOVER = 0.25;
 const BORDER_OPACITY = 0.45;
 const BORDER_OPACITY_HOVER = 0.9;
-/** Half-extent when the scene gives no bounds (empty scene). */
-const DEFAULT_HALF_SIZE = 50;
-const MIN_HALF_SIZE = 10;
+/** Half-extent when the scene gives no bounds (empty scene), in mm —
+ * converted to the document unit at show time. */
+const DEFAULT_HALF_SIZE_MM = 50;
+const MIN_HALF_SIZE_MM = 10;
 /** How far past the scene bounds the planes extend. */
 const BOUNDS_MARGIN = 1.25;
 const LABEL_CANVAS = 64;
@@ -73,14 +75,14 @@ export class StandardPlanes {
     if (!this.group) {
       this.group = this.build();
     }
-    let halfSize = DEFAULT_HALF_SIZE;
+    let halfSize = worldFromMm(DEFAULT_HALF_SIZE_MM);
     if (bounds && !bounds.isEmpty()) {
       const maxAbs = Math.max(
         Math.abs(bounds.min.x), Math.abs(bounds.max.x),
         Math.abs(bounds.min.y), Math.abs(bounds.max.y),
         Math.abs(bounds.min.z), Math.abs(bounds.max.z),
       );
-      halfSize = Math.max(maxAbs * BOUNDS_MARGIN, MIN_HALF_SIZE);
+      halfSize = Math.max(maxAbs * BOUNDS_MARGIN, worldFromMm(MIN_HALF_SIZE_MM));
     }
     this.group.scale.setScalar(halfSize);
     if (!this.group.parent) {

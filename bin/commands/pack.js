@@ -6,6 +6,7 @@ async function runPack(opts) {
   // The packer lives in server/ because esbuild + jszip belong at that layer;
   // import it lazily so the rest of the CLI doesn't pay the cost.
   const { packModel } = await import('../../server/dist/model-package/pack.js');
+  const { readProjectConfig } = await import('../../server/dist/project-config.js');
 
   const workspace = resolve(opts.workspace ?? process.cwd());
   const entry = findEntry(workspace, opts.entry);
@@ -17,6 +18,8 @@ async function runPack(opts) {
     fluidcadVersion,
     name: opts.name,
     description: opts.description,
+    // The project unit ships in the manifest — `fluidcad.json` itself never does.
+    unit: readProjectConfig(workspace).unit ?? 'mm',
   });
 
   const outPath = opts.out
@@ -27,7 +30,7 @@ async function runPack(opts) {
   const assetCount = manifest.assets.length;
   console.log(
     `Wrote ${outPath} (${zip.length} bytes, ${fileCount} file${fileCount === 1 ? '' : 's'}, ` +
-      `${assetCount} asset${assetCount === 1 ? '' : 's'})`,
+      `${assetCount} asset${assetCount === 1 ? '' : 's'}, unit ${manifest.unit})`,
   );
 }
 

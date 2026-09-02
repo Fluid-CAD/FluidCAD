@@ -8,6 +8,7 @@ import { EdgeOps } from "./edge-ops.js";
 import { Explorer } from "./explorer.js";
 import { getOC } from "./init.js";
 import type { TopAbs_ShapeEnum, TopoDS_Wire } from "ocjs-fluidcad";
+import { mmTol } from "../units/tolerance.js";
 
 export interface ThinFaceResult {
   faces: Face[];
@@ -161,7 +162,7 @@ export class ThinFaceMaker {
     const wireMidpoints = wireEdges.map(we => EdgeOps.getEdgeMidPointRaw(we.getShape()));
     return face.getEdges().filter(fe => {
       const feMid = EdgeOps.getEdgeMidPointRaw(fe.getShape());
-      return wireMidpoints.some(mp => feMid.distanceTo(mp) < 1e-4);
+      return wireMidpoints.some(mp => feMid.distanceTo(mp) < mmTol(1e-4));
     });
   }
 

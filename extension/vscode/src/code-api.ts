@@ -160,6 +160,17 @@ export function updateDimensionExpression(
   );
 }
 
+/**
+ * `filePath` lets the server refuse an assembly file (422 → null here). A
+ * null `unit` removes the file's declaration ("Same as project") — it is
+ * sent as JSON null, which the route accepts, never dropped.
+ */
+export function setUnit(
+  serverUrl: string, code: string, unit: string | null, filePath: string, logger: vscode.OutputChannel,
+) {
+  return postCodeEdit<CodeEditResult>(serverUrl, 'set-unit', { code, unit, filePath }, logger);
+}
+
 export function applyFeature(
   serverUrl: string, code: string, spec: unknown, logger: vscode.OutputChannel,
 ) {

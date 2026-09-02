@@ -263,7 +263,7 @@ export async function exportFile(client: Client) {
       options.customAngularDeflectionDeg = parseFloat(angStr);
 
       const linStr = await vscode.window.showInputBox({
-        prompt: 'Linear deflection in mm',
+        prompt: 'Linear deflection in document units',
         value: '0.3',
       });
       if (!linStr) {
@@ -271,6 +271,16 @@ export async function exportFile(client: Client) {
       }
       options.customLinearDeflection = parseFloat(linStr);
     }
+
+    // STL carries no unit; slicers assume mm, so that is the first choice.
+    const scalePick = await vscode.window.showQuickPick(
+      ['Scale to millimetres (recommended for slicers)', 'Keep document units'],
+      { placeHolder: 'STL units' },
+    );
+    if (!scalePick) {
+      return;
+    }
+    options.scaleTo = scalePick.startsWith('Scale') ? 'mm' : 'document';
   }
 
   const ext = isStl ? 'stl' : 'step';

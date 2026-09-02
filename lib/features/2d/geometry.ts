@@ -14,6 +14,7 @@ import { FilterBuilderBase } from "../../filters/filter-builder-base.js";
 import { ShapeFilter } from "../../filters/filter.js";
 import type { SketchInteractivity } from "../../rendering/scene.js";
 import { IGeometry } from "../../core/interfaces.js";
+import { mmTol } from "../../units/tolerance.js";
 
 export type GeometryOrientation = "cw" | "ccw";
 
@@ -249,7 +250,7 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
       return false;
     }
 
-    const eps = 1e-6;
+    const eps = mmTol(1e-6);
     if (curveType === 'line') {
       const aStart = EdgeOps.getVertexPoint(EdgeOps.getFirstVertex(a));
       const aMid = EdgeOps.getEdgeMidPoint(a);
@@ -261,6 +262,7 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
       if (dirA.length() < eps || dirB.length() < eps) {
         return false;
       }
+      // unit: angular
       if (!dirA.normalize().isParallelTo(dirB.normalize(), 1e-6)) {
         return false;
       }

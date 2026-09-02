@@ -1,7 +1,7 @@
 export type {
   ISceneObject, ITransformable, IBooleanOperation, IPlane, IAxis, ISelect,
   IGeometry, IExtrudableGeometry, IReference, IReferenceEntity, ISolvedLine, ISolvedArc, ISolvedCircle, IText,
-  IConnector, IPart,
+  IConnector, IPart, ILoadFile, LoadOptions,
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap
 } from "./interfaces.js";
 export { default as axis } from "./axis.js";
@@ -43,3 +43,4 @@ export { default as mate } from "./mate.js";
 export * from "./2d/index.js";
 export { breakpoint } from "./breakpoint.js";
 export { default as param, type ParamType, type ParamOptionsMap, type NumberParamOptions, type SliderParamOptions, type SelectParamOptions, type CheckboxParamOptions, type TextParamOptions, type NumberParam, type StringParam, type BooleanParam, type ParamValue, resolveParam, isNumberParam, isBooleanParam } from "./param.js";
+export { default as unit } from "./unit.js";

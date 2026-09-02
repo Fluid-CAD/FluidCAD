@@ -43,14 +43,23 @@ Scaffolds a project in the **current directory**:
 my-app/
 ├── init.js             ← required project entry point
 ├── test.fluid.js       ← starter model
-└── jsconfig.json       ← enables editor type hints
+├── jsconfig.json       ← enables editor type hints
+└── fluidcad.json       ← project configuration: engine pin, unit
 ```
 
 `init.js` is required — the viewer cannot run a `.fluid.js` file without it. Don't edit it.
 
-The command refuses to run if `init.js` already exists, so it can't clobber a project. `test.fluid.js` and `jsconfig.json` are only written when they're missing, so re-running it in a half-set-up folder fills in the gaps.
+The command refuses to run if `init.js` already exists, so it can't clobber a project. `test.fluid.js`, `jsconfig.json` and `fluidcad.json` are only written when they're missing, so re-running it in a half-set-up folder fills in the gaps.
 
-This command takes no options.
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--unit <unit>` | Project length unit written to `fluidcad.json`: `mm`, `cm`, `m`, `in` or `ft` | `mm` |
+
+```bash
+npx fluidcad init --unit in        # an inch project
+```
+
+See [Project configuration](/docs/getting-started/project-configuration) for what `fluidcad.json` holds.
 
 ---
 
@@ -147,8 +156,9 @@ npx fluidcad export step --no-colors -o build/housing.step
 | `--shapes <ids...>` | Export a subset of the scene's shapes | All shapes |
 | `--list-shapes` | Print the scene's shapes and exit without exporting | — |
 | `--resolution <r>` | Mesh resolution: `coarse`, `medium`, `fine`, or `custom` | `medium` |
-| `--linear-deflection <mm>` | Custom linear deflection, in mm | — |
+| `--linear-deflection <length>` | Custom linear deflection, in document units | — |
 | `--angular-deflection <deg>` | Custom angular deflection, in degrees | — |
+| `--scale-to <mm\|document>` | Write the STL in millimetres (what slicers expect) or keep the document's unit | `mm` |
 
 The two deflection flags imply `--resolution custom`, and `custom` needs both of them:
 

@@ -6,10 +6,12 @@ import type {
   MeasureEntityRef,
   MeasureResult,
   MoveToPartResult,
+  SetUnitResult,
   ShapeProperties,
   SourceLocationParam,
   UserPreferences,
 } from './api';
+import type { LengthUnit } from './units/units';
 
 /**
  * Source-editing commands only an editor-backed host can honor. A read-only
@@ -40,6 +42,13 @@ export interface EngineEditorClient {
     part: { line: number; column: number },
     opts?: { dryRun?: boolean },
   ): Promise<MoveToPartResult>;
+  /**
+   * Make the part file at `filePath` declare `unit('…')` (a source edit the
+   * host applies). Numbers are never converted — only the declaration.
+   */
+  setDocumentUnit(filePath: string, unit: LengthUnit | null): Promise<SetUnitResult>;
+  /** Write the project unit (`fluidcad.json`) — what assemblies are measured in. */
+  setProjectUnit(unit: LengthUnit): Promise<SetUnitResult>;
 }
 
 /**

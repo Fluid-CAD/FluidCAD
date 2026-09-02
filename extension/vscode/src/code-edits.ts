@@ -219,6 +219,23 @@ export async function handleInsertLoad(client: Client, msg: { filePath: string; 
   }
 }
 
+/**
+ * The unit chip's "Document unit" pick: make the part file declare
+ * `unit('…')`. The server names the file (the rendered model) — resolve it
+ * like the other path-targeted edits rather than trusting the active editor.
+ */
+export async function handleSetUnit(client: Client, msg: { filePath: string; unit: string | null }) {
+  const editor = await resolveEditorForPath(msg.filePath || client.currentFileName);
+  const doc = editor.document;
+  const result = await codeApi.setUnit(client.serverUrl, doc.getText(), msg.unit, doc.fileName, client.logger);
+  if (!result) {
+    return;
+  }
+  if (await codeApi.replaceDocument(doc, result.newCode)) {
+    client.updateLiveCode(doc.fileName, doc.getText());
+  }
+}
+
 export async function handleGotoSource(
   _client: Client,
   msg: { filePath: string; line: number; column: number },

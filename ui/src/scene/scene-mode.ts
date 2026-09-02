@@ -17,11 +17,34 @@ import { PlaneData, Vec3Data } from '../types';
 import { SceneContext } from './scene-context';
 import { viewerSettings } from './viewer-settings';
 import { themeColors, onThemeChange } from './theme-colors';
-import { applyConstantPixelSize } from '../meshes/screen-scale';
+import { applyConstantPixelSize, getViewportHeightPx, worldUnitsPerPixel } from '../meshes/screen-scale';
+import { worldFromMm } from '../units/scene-scale';
+import { sceneUnit } from '../units/scene-unit';
+import { resolveGridSpacing } from '../grid/grid-spacing';
+import type { GridSpacing } from '../grid/grid-spacing';
+import { currentGridPrefs } from '../grid/grid-prefs';
 
 const Z_UP = new Vector3(0, 0, 1);
-const DEFAULT_CAMERA_POSITION = new Vector3(50, -50, 40);
-const SKETCH_CAMERA_DISTANCE = 50;
+// Camera stand-offs in mm, converted per document unit at use time.
+const DEFAULT_CAMERA_POSITION_MM = new Vector3(50, -50, 40);
+const SKETCH_CAMERA_DISTANCE_MM = 50;
+/** Initial grid extent / fade radius in mm-equivalent — re-derived from
+ * the zoom on every camera change (see updateGridSpacing). */
+const GRID_FADE_DISTANCE_MM = 100000;
+/** Grid extent as a multiple of the visible height: ~100 m at the 120 mm
+ * default view (what the fixed 100000 gave), and small enough when zoomed
+ * in that the shader's interpolated coordinates keep the precision a
+ * sub-millimetre lattice needs. */
+const GRID_EXTENT_VIEW_HEIGHTS = 800;
+
+/** Eye-to-target distance when looking down a sketch plane. */
+export function sketchCameraDistance(): number {
+  return worldFromMm(SKETCH_CAMERA_DISTANCE_MM);
+}
+
+function defaultCameraPosition(): Vector3 {
+  return DEFAULT_CAMERA_POSITION_MM.clone().multiplyScalar(worldFromMm(1));
+}
 
 // Sketch datum visuals: the x/y axis lines through the sketch origin and the
 // origin marker. Both directions, matching the reach of the old AxesHelper.
@@ -31,9 +54,13 @@ const AXIS_OPACITY = 0.55;
  * −0.01) so sketch geometry drawn ON an axis renders cleanly above it. */
 const DATUM_PLANE_OFFSET = -0.005;
 const ORIGIN_MARKER_PX = 10;
-const ORIGIN_MARKER_UNITS = 3;
+/** Marker geometry radius in mm — paired with the pixel size above, so it
+ * only has to be the document's order of magnitude. */
+const ORIGIN_MARKER_MM = 3;
 
 export type SceneMode = 'default' | 'sketch';
+
+type GridSpacingListener = (spacing: GridSpacing | null, visible: boolean) => void;
 
 function toVec3(v: Vec3Data): Vector3 {
   return new Vector3(v.x, v.y, v.z);
@@ -56,12 +83,22 @@ export class SceneModeManager {
    * on theme changes. */
   private lastSketchPlane: PlaneData | null = null;
   private _sectionPlane: Plane | null = null;
+  private gridSpacing: GridSpacing | null = null;
+  private gridListeners = new Set<GridSpacingListener>();
 
   constructor(private ctx: SceneContext) {
     this.setupDefaultAxes();
     this.setupGrid(Z_UP);
 
-    viewerSettings.subscribe(() => this.applyGridVisibility());
+    viewerSettings.subscribe(() => {
+      this.applyGridVisibility();
+      // Adaptive/fixed mode or the pitch prefs may have changed.
+      this.updateGridSpacing();
+    });
+    // The pitch is a function of zoom — re-derive on every view change
+    // (plain arithmetic, no debounce needed) and when the unit swaps.
+    this.ctx.subscribeCameraChange(() => this.updateGridSpacing());
+    sceneUnit.subscribe(() => this.updateGridSpacing());
 
     // Rebuild theme-colored scene furniture (grid, sketch datums) on switch
     onThemeChange(() => {
@@ -160,7 +197,7 @@ export class SceneModeManager {
     const tgt = new Vector3();
     cc.getTarget(tgt);
 
-    const camPos = tgt.clone().add(normal.clone().multiplyScalar(SKETCH_CAMERA_DISTANCE));
+    const camPos = tgt.clone().add(normal.clone().multiplyScalar(sketchCameraDistance()));
 
     this.ctx.camera.up.copy(yDir);
     cc.updateCameraUp();
@@ -202,7 +239,7 @@ export class SceneModeManager {
     const normal = toVec3(plane.normal);
     const yDir = toVec3(plane.yDirection);
 
-    const camPos = center.clone().add(normal.clone().multiplyScalar(SKETCH_CAMERA_DISTANCE));
+    const camPos = center.clone().add(normal.clone().multiplyScalar(sketchCameraDistance()));
 
     // Set up vector BEFORE setLookAt so camera-controls computes correct orientation
     this.ctx.camera.up.copy(yDir);
@@ -219,7 +256,7 @@ export class SceneModeManager {
   private restoreCamera(): void {
     const cc = this.ctx.cameraControls;
     const backup = this.cameraBackup;
-    const position = backup?.position ?? DEFAULT_CAMERA_POSITION.clone();
+    const position = backup?.position ?? defaultCameraPosition();
     const target = backup?.target ?? new Vector3(0, 0, 0);
 
     // Set up vector BEFORE setLookAt so camera-controls computes correct orientation
@@ -304,12 +341,13 @@ export class SceneModeManager {
 
   private buildOriginMarker(origin: Vector3, normal: Vector3): Group {
     const color = themeColors.sketchOriginColor.getHex();
+    const markerUnits = worldFromMm(ORIGIN_MARKER_MM);
     const ring = new Mesh(
-      new RingGeometry(ORIGIN_MARKER_UNITS * 0.72, ORIGIN_MARKER_UNITS, 32),
+      new RingGeometry(markerUnits * 0.72, markerUnits, 32),
       new MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false }),
     );
     const dot = new Mesh(
-      new CircleGeometry(ORIGIN_MARKER_UNITS * 0.28, 24),
+      new CircleGeometry(markerUnits * 0.28, 24),
       new MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false }),
     );
     ring.renderOrder = 2;
@@ -323,7 +361,7 @@ export class SceneModeManager {
     marker.add(dot);
     marker.position.copy(origin);
     marker.lookAt(origin.clone().add(normal));
-    applyConstantPixelSize(ring, marker, marker.position, ORIGIN_MARKER_PX, ORIGIN_MARKER_UNITS);
+    applyConstantPixelSize(ring, marker, marker.position, ORIGIN_MARKER_PX, markerUnits);
     return marker;
   }
 
@@ -344,23 +382,91 @@ export class SceneModeManager {
       : undefined;
     this.removeByName('grid');
 
-    const grid = new InfiniteGridHelper(10, 100, themeColors.gridColor, 100000, normal, frame);
+    const spacing = this.resolveSpacing();
+    const grid = new InfiniteGridHelper(
+      spacing.minor,
+      spacing.major,
+      themeColors.gridColor,
+      worldFromMm(GRID_FADE_DISTANCE_MM),
+      normal,
+      frame,
+    );
     grid.name = 'grid';
 
     if (position) {
       grid.position.copy(position);
     }
 
-    grid.visible = this.mode === 'sketch' || viewerSettings.current.showGrid;
+    grid.visible = this.gridVisible;
     this.ctx.scene.add(grid);
+    this.publishGridSpacing(spacing);
+  }
+
+  private get gridVisible(): boolean {
+    return this.mode === 'sketch' || viewerSettings.current.showGrid;
   }
 
   private applyGridVisibility(): void {
     const grid = this.ctx.scene.getObjectByName('grid');
     if (grid) {
-      grid.visible = this.mode === 'sketch' || viewerSettings.current.showGrid;
+      grid.visible = this.gridVisible;
       this.ctx.requestRender();
     }
+    this.publishGridSpacing(this.gridSpacing);
+  }
+
+  /**
+   * The grid pitch for the current zoom, from the shared resolver the
+   * snapper also calls — one lattice, drawn and snapped. Zoom is measured
+   * at the orbit target (the sketch plane in sketch mode).
+   */
+  private resolveSpacing(): GridSpacing {
+    return resolveGridSpacing(sceneUnit.current, this.zoom().wupp, currentGridPrefs());
+  }
+
+  /** Document units per pixel and the visible height, at the orbit target. */
+  private zoom(): { wupp: number; viewHeight: number } {
+    const focus = this.ctx.cameraControls.getTarget(new Vector3());
+    const heightPx = getViewportHeightPx(this.ctx.renderer);
+    const wupp = worldUnitsPerPixel(this.ctx.camera, heightPx, focus);
+    return { wupp, viewHeight: wupp * heightPx };
+  }
+
+  private updateGridSpacing(): void {
+    const grid = this.ctx.scene.getObjectByName('grid') as InfiniteGridHelper | undefined;
+    if (!grid) {
+      return;
+    }
+    const { wupp, viewHeight } = this.zoom();
+    if (Number.isFinite(viewHeight) && viewHeight > 0) {
+      grid.setExtent(viewHeight * GRID_EXTENT_VIEW_HEIGHTS);
+    }
+    const spacing = resolveGridSpacing(sceneUnit.current, wupp, currentGridPrefs());
+    if (this.gridSpacing && spacing.minor === this.gridSpacing.minor && spacing.major === this.gridSpacing.major) {
+      return;
+    }
+    grid.setSpacing(spacing.minor, spacing.major);
+    this.publishGridSpacing(spacing);
+    this.ctx.requestRender();
+  }
+
+  private publishGridSpacing(spacing: GridSpacing | null): void {
+    this.gridSpacing = spacing;
+    for (const fn of this.gridListeners) {
+      fn(spacing, this.gridVisible);
+    }
+  }
+
+  /**
+   * Follow the drawn grid's pitch and visibility (the scale-bar readout).
+   * Fires immediately with the current state.
+   */
+  subscribeGridSpacing(fn: GridSpacingListener): () => void {
+    this.gridListeners.add(fn);
+    fn(this.gridSpacing, this.gridVisible);
+    return () => {
+      this.gridListeners.delete(fn);
+    };
   }
 
   // -------------------------------------------------------------------------

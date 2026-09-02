@@ -21,6 +21,10 @@ import {
   getDimensionExpression,
   getPointExpression,
   extractVariablesInScope,
+  declareTopLevelVariable,
+  readUnitStatement,
+  setDocumentUnit,
+  ensureSymbolImport,
 } from '../src/code-editor.ts';
 
 describe('addBreakpoint', () => {
@@ -616,7 +620,7 @@ describe('insertGeometryCall', () => {
     ].join('\n');
     const result = await insertGeometryCall(code, 2, 'circle([5, 5], 10)');
     expect(result.newCode).toBe([
-      `import {circle, sketch } from 'fluidcad/core';`,
+      `import { circle, sketch } from 'fluidcad/core';`,
       `sketch(XY, () => {`,
       `  circle([5, 5], 10)`,
       `})`,
@@ -677,7 +681,7 @@ describe('insertGeometryCall', () => {
     ].join('\n');
     const result = await insertGeometryCall(code, 2, 'point([5, 5]);\ntext("Hi").size(14).bold()');
     expect(result.newCode).toBe([
-      `import { text,point, sketch } from 'fluidcad/core';`,
+      `import { text, point, sketch } from 'fluidcad/core';`,
       `sketch(XY, () => {`,
       `  line([0, 0], [10, 0])`,
       `  point([5, 5]);`,
@@ -815,7 +819,7 @@ describe('insertLoadCall', () => {
     const code = `import { extrude } from 'fluidcad/core';\n\nextrude(10);\n`;
     const result = await insertLoadCall(code, 'bracket');
     expect(result.newCode).toBe(
-      `import {load, extrude } from 'fluidcad/core';\n\nextrude(10);\n\nload('bracket');\n`,
+      `import { load, extrude } from 'fluidcad/core';\n\nextrude(10);\n\nload('bracket');\n`,
     );
   });
 
@@ -981,7 +985,7 @@ describe('insertGeometryCallWithVariable', () => {
       { name: 'depth', initializer: 'param("depth", 25)' },
     );
     expect(result.newCode).toContain(
-      `import {param, sketch, line } from 'fluidcad/core';\nconst depth = param("depth", 25);\nsketch(XY, () => {`,
+      `import { param, sketch, line } from 'fluidcad/core';\nconst depth = param("depth", 25);\nsketch(XY, () => {`,
     );
     expect(result.newCode).toContain(`line([0, 0], [depth, 0])`);
   });
@@ -1115,5 +1119,176 @@ describe('extractVariablesInScope numeric classification', () => {
     const width = vars.find(v => v.name === 'width')!;
     expect(width.initializer).toBe("param('Width', 700)");
     expect(width.numeric).toBe(true);
+  });
+});
+
+describe('readUnitStatement', () => {
+  it('reads the first top-level unit() literal with its span', async () => {
+    const code = `import { unit, sketch } from 'fluidcad/core';\n\nunit('in');\nsketch('xy', () => {});\n`;
+    const found = await readUnitStatement(code);
+    expect(found).toEqual({
+      unit: 'in',
+      row: 2,
+      startIndex: code.indexOf(`unit('in')`),
+      endIndex: code.indexOf(`unit('in');`) + `unit('in');`.length,
+    });
+  });
+
+  it('accepts double quotes and reads the literal verbatim', async () => {
+    const found = await readUnitStatement(`unit("Inches")\n`);
+    expect(found?.unit).toBe('Inches');
+  });
+
+  it('is null for a file without one', async () => {
+    expect(await readUnitStatement(`const a = 1;\nextrude(10);\n`)).toBeNull();
+  });
+
+  it('ignores a unit() that is nested, bound, or given a non-literal', async () => {
+    expect(await readUnitStatement(`part('a', () => { unit('in'); });\n`)).toBeNull();
+    expect(await readUnitStatement(`const u = unit('in');\n`)).toBeNull();
+    expect(await readUnitStatement(`const u = 'in';\nunit(u);\n`)).toBeNull();
+    expect(await readUnitStatement(`unit();\n`)).toBeNull();
+  });
+});
+
+describe('setDocumentUnit', () => {
+  it('inserts unit() directly after the imports and adds the import', async () => {
+    const code = `import { extrude } from 'fluidcad/core';\n\nextrude(10);\n`;
+    expect(await setDocumentUnit(code, 'in')).toEqual({
+      newCode: `import { unit, extrude } from 'fluidcad/core';\nunit('in');\n\nextrude(10);\n`,
+    });
+  });
+
+  it('replaces the literal of an existing top-level unit(), keeping its quotes', async () => {
+    const code = `import { unit, extrude } from 'fluidcad/core';\n\nunit("mm"); // declared\n\nextrude(10);\n`;
+    expect((await setDocumentUnit(code, 'in')).newCode).toBe(
+      `import { unit, extrude } from 'fluidcad/core';\n\nunit("in"); // declared\n\nextrude(10);\n`,
+    );
+  });
+
+  it('is a no-op when the file already declares that unit', async () => {
+    const code = `import { unit } from 'fluidcad/core';\nunit('in');\n`;
+    expect(await setDocumentUnit(code, 'in')).toEqual({ newCode: code });
+  });
+
+  it('lands above param() declarations, where the anchor rule wants the unit', async () => {
+    const code = [
+      `import { param, extrude } from 'fluidcad/core';`,
+      `import { face } from 'fluidcad/filters';`,
+      ``,
+      `const depth = param('Depth', 10);`,
+      `extrude(depth);`,
+      ``,
+    ].join('\n');
+    expect((await setDocumentUnit(code, 'in')).newCode).toBe([
+      `import { unit, param, extrude } from 'fluidcad/core';`,
+      `import { face } from 'fluidcad/filters';`,
+      `unit('in');`,
+      ``,
+      `const depth = param('Depth', 10);`,
+      `extrude(depth);`,
+      ``,
+    ].join('\n'));
+  });
+
+  it('puts the import above the statement in an import-less file', async () => {
+    expect((await setDocumentUnit(`extrude(10);\n`, 'mm')).newCode).toBe(
+      `import { unit } from 'fluidcad/core';\nunit('mm');\nextrude(10);\n`,
+    );
+  });
+
+  it('canonicalises the unit spelling and refuses an unknown one', async () => {
+    expect((await setDocumentUnit(`extrude(10);\n`, 'inches')).newCode).toContain(`unit('in');`);
+    const refused = await setDocumentUnit(`extrude(10);\n`, 'furlong');
+    expect(refused.newCode).toBe(`extrude(10);\n`);
+    expect(refused.error).toMatch(/Unknown length unit 'furlong'/);
+  });
+
+  it('refuses an assembly file without touching it', async () => {
+    const code = `import { assembly } from 'fluidcad/core';\nexport const a = () => assembly('a', () => {});\n`;
+    const refused = await setDocumentUnit(code, 'in', '/ws/robot.assembly.js');
+    expect(refused.newCode).toBe(code);
+    expect(refused.error).toMatch(/not allowed in assembly files/);
+    // A part path is fine.
+    expect((await setDocumentUnit(code, 'in', '/ws/arm.part.js')).error).toBeUndefined();
+  });
+
+  describe('unit: null — follow the project unit', () => {
+    it('removes the statement line and the now-unused import specifier', async () => {
+      const code = `import {unit, extrude } from 'fluidcad/core';\nunit('in');\n\nextrude(10);\n`;
+      expect(await setDocumentUnit(code, null)).toEqual({
+        newCode: `import { extrude } from 'fluidcad/core';\n\nextrude(10);\n`,
+      });
+    });
+
+    it('takes the comma before a last specifier and collapses a double blank line', async () => {
+      const code = `import { extrude, unit } from 'fluidcad/core';\n\nunit("mm"); // declared\n\nextrude(10);\n`;
+      expect((await setDocumentUnit(code, null)).newCode).toBe(
+        `import { extrude } from 'fluidcad/core';\n\nextrude(10);\n`,
+      );
+    });
+
+    it('keeps the import when another unit identifier is still used', async () => {
+      const code = `import { unit, extrude } from 'fluidcad/core';\nunit('in');\nconst u = unit;\nextrude(10);\n`;
+      expect((await setDocumentUnit(code, null)).newCode).toBe(
+        `import { unit, extrude } from 'fluidcad/core';\nconst u = unit;\nextrude(10);\n`,
+      );
+    });
+
+    it('removes the whole import line when unit was all it brought in', async () => {
+      const code = `import { extrude } from 'fluidcad/core';\nimport { unit } from 'fluidcad';\nunit('in');\nextrude(10);\n`;
+      expect((await setDocumentUnit(code, null)).newCode).toBe(
+        `import { extrude } from 'fluidcad/core';\nextrude(10);\n`,
+      );
+    });
+
+    it('is a no-op when the file declares no unit', async () => {
+      const code = `import { extrude } from 'fluidcad/core';\nextrude(10);\n`;
+      expect(await setDocumentUnit(code, null)).toEqual({ newCode: code });
+    });
+
+    it('still refuses an assembly file', async () => {
+      const refused = await setDocumentUnit(`// asm\n`, null, '/ws/robot.assembly.js');
+      expect(refused.newCode).toBe(`// asm\n`);
+      expect(refused.error).toMatch(/not allowed in assembly files/);
+    });
+  });
+});
+
+describe('declareTopLevelVariable', () => {
+  it('lands directly after the last import', async () => {
+    const code = `import { extrude } from 'fluidcad/core';\n\nextrude(10);\n`;
+    expect(await declareTopLevelVariable(code, 'depth', 'param("depth", 10)')).toBe(
+      `import { extrude } from 'fluidcad/core';\nconst depth = param("depth", 10);\n\nextrude(10);\n`,
+    );
+  });
+
+  it('lands after the unit() statement so the unit stays first', async () => {
+    const code = `import { unit, extrude } from 'fluidcad/core';\n\nunit('in');\n\nextrude(10);\n`;
+    expect(await declareTopLevelVariable(code, 'depth', 'param("depth", 10)')).toBe(
+      `import { unit, extrude } from 'fluidcad/core';\n\nunit('in');\nconst depth = param("depth", 10);\n\nextrude(10);\n`,
+    );
+  });
+
+  it('keeps anchoring after the imports when unit() comes before them', async () => {
+    // Legal JS (imports hoist) — but the anchor rule is about not splitting
+    // "imports, then unit"; a unit written above its imports stays as it is.
+    const code = `unit('in');\nimport { unit, extrude } from 'fluidcad/core';\nextrude(10);\n`;
+    expect(await declareTopLevelVariable(code, 'depth', '10')).toBe(
+      `unit('in');\nimport { unit, extrude } from 'fluidcad/core';\nconst depth = 10;\nextrude(10);\n`,
+    );
+  });
+
+  it('becomes the first line of an import-less, unit-less file', async () => {
+    expect(await declareTopLevelVariable(`extrude(10);\n`, 'depth', '10')).toBe(
+      `const depth = 10;\nextrude(10);\n`,
+    );
+  });
+
+  it('still lets a new import statement go above the unit()', async () => {
+    const code = `import { unit } from 'fluidcad/core';\nunit('in');\nface();\n`;
+    expect(await ensureSymbolImport(code, 'face', 'fluidcad/filters')).toBe(
+      `import { unit } from 'fluidcad/core';\nimport { face } from 'fluidcad/filters';\nunit('in');\nface();\n`,
+    );
   });
 });

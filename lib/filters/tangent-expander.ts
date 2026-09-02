@@ -99,6 +99,7 @@ export class TangentExpander {
    */
   static areEdgesTangent(e1: Edge, e2: Edge): boolean {
     const oc = getOC();
+    // unit: angular (radians) — scale-free
     const angTol = 1e-4;
 
     const e1Raw = e1.getShape() as TopoDS_Edge;

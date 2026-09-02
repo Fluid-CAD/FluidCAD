@@ -29,6 +29,7 @@ import {
   renderConnectorAnchorSuffix,
 } from "./types.js";
 import { Part } from "../features/part.js";
+import { mmTol } from "../units/tolerance.js";
 
 /**
  * Read-only attribution report for a set of picks: which feature bucket each
@@ -415,6 +416,7 @@ function refKey(ref: PickRef): string {
   return `${ref.shapeId}:${ref.sub.type}:${ref.sub.index}`;
 }
 
+/** Angular half of the coplanar test — unit: dimensionless; the linear half is mmTol(1e-6). */
 const REHOME_PLANE_TOLERANCE = 1e-6;
 
 /**
@@ -560,7 +562,7 @@ function isCoplanarBindableFaceHit(
   }
   const memberPlane = FaceOps.tryGetPlane(member);
   return memberPlane !== null
-    && plane.isCoplanarWith(memberPlane, REHOME_PLANE_TOLERANCE, REHOME_PLANE_TOLERANCE)
+    && plane.isCoplanarWith(memberPlane, mmTol(1e-6), REHOME_PLANE_TOLERANCE)
     && plane.normal.dot(memberPlane.normal) > 0;
 }
 

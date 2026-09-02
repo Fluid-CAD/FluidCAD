@@ -128,3 +128,108 @@ describe('lintFluidJs', () => {
     expect(sketch.column).toBe(0);
   });
 });
+
+describe('lintFluidJs — unit symbols', () => {
+  it('reports unit() without its import, from fluidcad/core', async () => {
+    const result = await lintFluidJs(`unit('in');\n`);
+    expect(result.missing).toEqual([{ symbol: 'unit', module: 'fluidcad/core', line: 0, column: 0 }]);
+    expect(result.suggestion).toBe(`import { unit } from "fluidcad/core";`);
+  });
+
+  it('reports the conversion helpers only when they are called', async () => {
+    const code = [
+      `import { extrude, sketch, circle } from 'fluidcad/core';`,
+      `sketch('xy', () => { circle(mm(3.2)); });`,
+      `extrude(inch(1));`,
+      `const scale = (m) => m * 2;`,
+      `const cm = 10;`,
+      `let ft;`,
+      `extrude(cm + scale(ft));`,
+    ].join('\n');
+    const result = await lintFluidJs(code);
+    expect(result.missing.map((m) => m.symbol)).toEqual(['inch', 'mm']);
+    expect(result.suggestion).toBe(`import { inch, mm } from "fluidcad/units";`);
+  });
+});
+
+describe('lintFluidJs — unit() placement diagnostics', () => {
+  const header = `import { unit, sketch, rect, extrude, part } from 'fluidcad/core';`;
+
+  it('is clean for a well-placed unit()', async () => {
+    const result = await lintFluidJs(
+      `${header}\nunit('in');\nconst w = 4;\nsketch('xy', () => { rect(w, 2); });\nextrude(1);\n`,
+      { filePath: '/ws/bracket.fluid.js' },
+    );
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('accepts every alias the project config does', async () => {
+    const result = await lintFluidJs(`${header}\nunit("Inches");\n`);
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('rejects unit() in an assembly file, wherever it sits', async () => {
+    const result = await lintFluidJs(
+      `${header}\nunit('in');\n`,
+      { filePath: '/ws/rig.assembly.js' },
+    );
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].message).toContain('not allowed in assembly files');
+    expect(result.diagnostics[0].line).toBe(1);
+  });
+
+  it('rejects unit() inside a part() callback', async () => {
+    const result = await lintFluidJs(
+      `${header}\npart('a', () => {\n  unit('in');\n  sketch('xy', () => { rect(1, 1); });\n});\n`,
+    );
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].message).toContain('top level');
+    expect(result.diagnostics[0]).toMatchObject({ line: 2, column: 2 });
+  });
+
+  it('rejects unit() after geometry', async () => {
+    const result = await lintFluidJs(
+      `${header}\nsketch('xy', () => { rect(1, 1); });\nunit('in');\n`,
+    );
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].message).toContain('before any geometry');
+    expect(result.diagnostics[0].line).toBe(2);
+  });
+
+  it('does not count value declarations or breakpoint() as geometry', async () => {
+    const result = await lintFluidJs(
+      `${header}\nimport { param, breakpoint } from 'fluidcad/core';\nconst w = param('w', 4);\nbreakpoint();\nunit('in');\n`,
+    );
+    expect(result.diagnostics).toEqual([]);
+  });
+
+  it('rejects a second top-level unit()', async () => {
+    const result = await lintFluidJs(`${header}\nunit('in');\nunit('mm');\n`);
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].message).toContain('already called');
+    expect(result.diagnostics[0].line).toBe(2);
+  });
+
+  it('rejects a non-literal or missing argument', async () => {
+    const result = await lintFluidJs(`${header}\nconst u = 'in';\nunit(u);\n`);
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].message).toContain('string literal');
+
+    const none = await lintFluidJs(`${header}\nunit();\n`);
+    expect(none.diagnostics[0].message).toContain('string literal');
+  });
+
+  it('rejects an unknown unit literal with the accepted list', async () => {
+    const result = await lintFluidJs(`${header}\nunit('yd');\n`);
+    expect(result.diagnostics).toHaveLength(1);
+    expect(result.diagnostics[0].message).toBe("Unknown length unit 'yd'. Use one of: mm, cm, m, in, ft.");
+  });
+
+  it("leaves a user's own unit binding alone", async () => {
+    const result = await lintFluidJs(
+      `import { extrude } from 'fluidcad/core';\nfunction unit(v) { return v; }\nextrude(5);\nunit('whatever');\nunit(3);\n`,
+    );
+    expect(result.diagnostics).toEqual([]);
+    expect(result.missing).toEqual([]);
+  });
+});

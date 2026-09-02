@@ -3,6 +3,9 @@ import { getOC } from "./init.js";
 import { Face } from "../common/face.js";
 import { Shape } from "../common/shape.js";
 import { Explorer } from "./explorer.js";
+import { MM_PER_UNIT } from "../units/units.js";
+import type { LengthUnit } from "../units/units.js";
+import { getActiveUnit } from "../units/registry.js";
 
 export interface MeshData {
   vertices: number[];
@@ -11,15 +14,157 @@ export interface MeshData {
   count?: number;
 }
 
+/**
+ * The resolved per-call mesher input: an absolute linear deflection in the
+ * shape's own unit plus an angular deflection in radians. Callers that know
+ * exactly what they want pass one of these; everything scene-driven resolves
+ * it from a {@link MeshQuality} per shape.
+ */
 export interface MeshConfig {
   linDefl: number;
   angDefl: number;
 }
 
-export const DEFAULT_MESH_CONFIG: MeshConfig = {
-  linDefl: 0.1,
-  angDefl: 0.5,
+export type MeshPreset = 'draft' | 'standard' | 'fine';
+
+/**
+ * Size- and unit-aware mesh density. One absolute deflection cannot serve a
+ * 2 mm pin and a 2 m frame (nor an inch document and a millimetre one), so
+ * the linear deflection is a fraction of the shape's bounding-box diagonal,
+ * clamped to a floor/ceiling authored in millimetres and converted to the
+ * shape's unit at resolve time. The angular deflection is scale-free.
+ */
+export interface MeshQuality {
+  preset: MeshPreset | 'custom';
+  /** Linear deflection as a fraction of the shape's bbox diagonal. */
+  relative: number;
+  /** Floor for the linear deflection, in mm. */
+  minMm: number;
+  /** Ceiling for the linear deflection, in mm. */
+  maxMm: number;
+  /** Angular deflection, radians. */
+  angularRad: number;
+}
+
+/**
+ * `standard` reproduces today's look on a 100–300 mm part and is visibly
+ * better on small ones; `draft` trades detail for speed on big scenes;
+ * `fine` is for export-grade output.
+ */
+export const MESH_PRESETS: Record<MeshPreset, MeshQuality> = {
+  draft: { preset: 'draft', relative: 2e-3, minMm: 0.02, maxMm: 1.0, angularRad: 0.5 },
+  standard: { preset: 'standard', relative: 5e-4, minMm: 0.005, maxMm: 0.5, angularRad: 0.35 },
+  fine: { preset: 'fine', relative: 1e-4, minMm: 0.001, maxMm: 0.1, angularRad: 0.2 },
 };
+
+export const DEFAULT_MESH_QUALITY: MeshQuality = MESH_PRESETS.standard;
+
+/** What the renderer, the mesh builder and the ghost path accept. */
+export type MeshSettings = MeshQuality | MeshConfig;
+
+export function isMeshQuality(settings: MeshSettings): settings is MeshQuality {
+  return 'preset' in settings;
+}
+
+/**
+ * A fixed `MeshConfig` expressed as a quality: `relative` 0 with floor and
+ * ceiling both pinned to the deflection, so resolving it in any unit yields
+ * the same physical deflection. `unit` says which unit `linDefl` is in.
+ */
+export function meshQualityFromConfig(config: MeshConfig, unit: LengthUnit): MeshQuality {
+  const linDeflMm = config.linDefl * MM_PER_UNIT[unit];
+  return { preset: 'custom', relative: 0, minMm: linDeflMm, maxMm: linDeflMm, angularRad: config.angDefl };
+}
+
+/** Normalise either accepted shape to a quality; a bare config counts in `unit`. */
+export function toMeshQuality(settings: MeshSettings, unit: LengthUnit = getActiveUnit()): MeshQuality {
+  return isMeshQuality(settings) ? settings : meshQualityFromConfig(settings, unit);
+}
+
+/** `clamp(diagonal × relative, minMm / f, maxMm / f)` with `f = MM_PER_UNIT[unit]`. */
+export function resolveLinearDeflection(diagonal: number, quality: MeshQuality, unit: LengthUnit): number {
+  const f = MM_PER_UNIT[unit];
+  const lo = quality.minMm / f;
+  const hi = quality.maxMm / f;
+  const wanted = Number.isFinite(diagonal) && diagonal > 0 ? diagonal * quality.relative : 0;
+  return Math.min(hi, Math.max(lo, wanted));
+}
+
+export function resolveMeshConfig(diagonal: number, quality: MeshQuality, unit: LengthUnit): MeshConfig {
+  return { linDefl: resolveLinearDeflection(diagonal, quality, unit), angDefl: quality.angularRad };
+}
+
+/** Bounding-box diagonal; 0 for a void box (an empty compound has no corners). */
+export function bboxDiagonal(shape: TopoDS_Shape): number {
+  const oc = getOC();
+  const box = new oc.Bnd_Box();
+  try {
+    oc.BRepBndLib.Add(shape, box, true);
+    // Bnd_Box.IsVoid is not bound; CornerMin throws Standard_ConstructionError
+    // on a void box, which is the only failure mode here.
+    const min = box.CornerMin();
+    const max = box.CornerMax();
+    const diagonal = Math.hypot(max.X() - min.X(), max.Y() - min.Y(), max.Z() - min.Z());
+    min.delete();
+    max.delete();
+    return Number.isFinite(diagonal) ? diagonal : 0;
+  } catch {
+    return 0;
+  } finally {
+    box.delete();
+  }
+}
+
+/**
+ * Size bucket of a diagonal: `round(log10(diagonal))`. Shapes in one bucket
+ * are meshed together at one deflection, so a pin never inherits a plate's.
+ * Degenerate diagonals land in bucket 0 (the floor clamps them anyway).
+ */
+export function meshSizeBucket(diagonal: number): number {
+  if (!Number.isFinite(diagonal) || diagonal <= 0) {
+    return 0;
+  }
+  return Math.round(Math.log10(diagonal));
+}
+
+/**
+ * The diagonal a bucket is meshed at: its geometric centre `10^bucket`. A
+ * member's true diagonal is within √10 either side, so its effective relative
+ * deflection stays within √10 of the preset; using the bucket's upper edge
+ * instead would let the smallest members drift a full 10× coarser.
+ */
+export function bucketDiagonal(bucket: number): number {
+  return Math.pow(10, bucket);
+}
+
+/**
+ * The exact size-aware config for one shape (its own diagonal, no bucket
+ * quantisation) — for export (STL) and measurement, where the shape stands
+ * alone. The renderer uses {@link resolveRenderMeshConfig} instead.
+ */
+export function resolveMeshConfigFor(shape: TopoDS_Shape | Shape, quality: MeshQuality, unit: LengthUnit = getActiveUnit()): MeshConfig {
+  const raw = shape instanceof Shape ? shape.getShape() : shape;
+  return resolveMeshConfig(bboxDiagonal(raw), quality, unit);
+}
+
+/**
+ * The config the renderer meshes `shape` at: resolved from its size bucket,
+ * not its exact diagonal. The batch mesher triangulates a whole bucket's
+ * compound at one deflection; the per-shape path afterwards must ask for the
+ * very same value or `BRepTools.Triangulation`'s "already meshed at ≤ this
+ * deflection" check fails and every shape is re-meshed one by one.
+ */
+export function resolveRenderMeshConfig(shape: TopoDS_Shape | Shape, quality: MeshQuality, unit: LengthUnit = getActiveUnit()): MeshConfig {
+  const raw = shape instanceof Shape ? shape.getShape() : shape;
+  return resolveMeshConfig(bucketDiagonal(meshSizeBucket(bboxDiagonal(raw))), quality, unit);
+}
+
+/**
+ * The fallback for callers that mesh without a scene: the standard preset
+ * resolved for a typical ~150 mm part, in millimetres. Scene-driven paths
+ * resolve per shape and never read this.
+ */
+export const DEFAULT_MESH_CONFIG: MeshConfig = resolveMeshConfig(150, DEFAULT_MESH_QUALITY, 'mm');
 
 export interface EnsureTriangulatedOptions {
   linDefl?: number;

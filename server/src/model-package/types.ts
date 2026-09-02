@@ -1,4 +1,5 @@
 import type { ParamDefinition } from '../../../lib/dist/index.js';
+import type { LengthUnit } from '../project-config.ts';
 
 export type ParamValue = string | number | boolean | (string | number)[];
 
@@ -15,15 +16,22 @@ export interface ModelPackageCamera {
  * separate entries in the zip — we never base64-embed binaries in JSON.
  *
  * The HubSceneHost reads this manifest first to decide what else to load from
- * the archive (presence of `init.js`, which asset paths to map, the file tree).
+ * the archive (presence of `init.js`, which asset paths to map, the file tree)
+ * and how to boot the engine (`unit` seeds `BrowserEngineHost.init({ unit })`
+ * so the viewer's grid, readouts and export scaling match the project).
  *
  * `schemaVersion: 2` retired the `src/` source tree: the single self-contained
  * `bundle.js` is what the engine executes, and the `files` tree (below) is the
  * full human-readable project the hub displays — so `sources`/`src/` (the old
  * transitive-import subset) is gone.
+ *
+ * `schemaVersion: 3` added `unit` (the project unit, lifted out of the
+ * excluded `fluidcad.json`) and `fileUnits` (per-file `unit()` declarations).
+ * A v2 manifest has neither: readers must treat it as an mm project — the
+ * unit every file had before units existed.
  */
 export interface ModelPackageManifest {
-  schemaVersion: 2;
+  schemaVersion: 3;
   name: string;
   description?: string;
   fluidcadVersion: string;
@@ -36,6 +44,13 @@ export interface ModelPackageManifest {
    * `init.js` text is still in the `files` tree for display.
    */
   hasInit: boolean;
+  /**
+   * The project unit (`fluidcad.json` `"unit"`, `mm` when unset): what every
+   * file without its own `unit()` statement, and every assembly, is measured
+   * in. `fluidcad.json` itself never ships (see `files`), so this is the only
+   * place the hub can learn it from.
+   */
+  unit: LengthUnit;
   assets: string[];
   /**
    * Workspace-relative paths of every non-ignored file in the workspace
@@ -52,6 +67,14 @@ export interface ModelPackageManifest {
    * not they're gitignored.
    */
   files: string[];
+  /**
+   * Per-file `unit('…')` declarations, keyed by the same workspace-relative
+   * path used in `files`, read statically from each script's source (no
+   * execution). Only files that declare a unit appear; every other script is
+   * on the project `unit`. Kept beside `files` rather than turning its
+   * entries into objects so `files` stays a plain path list for every reader.
+   */
+  fileUnits?: Record<string, LengthUnit>;
   params?: Record<string, ParamValue>;
   /**
    * Full parameter schema captured by rendering the model once at pack time

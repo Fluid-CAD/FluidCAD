@@ -2,6 +2,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { Scene } from "./scene.js";
 import { SceneDisposal } from "./scene-disposal.js";
 import { Sketch } from "../features/2d/sketch.js";
+import type { Part } from "../features/part.js";
 
 // State entries whose records reference the scene object that performed the
 // action. On transfer they are pruned to actors that survived the compare —
@@ -66,6 +67,8 @@ export class SceneCompare {
       i++;
     }
 
+    SceneCompare.dropPartiallyMatchedForeignParts(newScene, map);
+
     // Snapshot before the state rewrite below prunes cross-references out of
     // the transferred maps — the pruned records are exactly the resources
     // the disposal pass has to see as replaced.
@@ -98,6 +101,50 @@ export class SceneCompare {
     }
 
     return newScene;
+  }
+
+  /**
+   * A foreign-unit part matches all or nothing, like a solved sketch: its
+   * members are rescaled into the scene's unit as one unit after the last
+   * of them builds, so a rebuilt member reading a cached (already scaled)
+   * sibling would mix units. Membership is by enclosing part rather than a
+   * contiguous run — a donor materialized mid-body interleaves with the
+   * consumer's children — so this runs as a pass over the prefix match.
+   */
+  private static dropPartiallyMatchedForeignParts(
+    newScene: Scene,
+    map: Map<SceneObject, SceneObject>,
+  ): void {
+    const objects = newScene.getAllSceneObjects();
+    const members = new Map<Part, SceneObject[]>();
+    for (const obj of objects) {
+      const part = newScene.findEnclosingPart(obj);
+      if (!part || !part.isForeignUnit()) {
+        continue;
+      }
+      let list = members.get(part);
+      if (!list) {
+        list = [];
+        members.set(part, list);
+      }
+      list.push(obj);
+    }
+
+    for (const list of members.values()) {
+      const cachedCount = list.filter(obj => newScene.isCached(obj)).length;
+      if (cachedCount === 0 || cachedCount === list.length) {
+        continue;
+      }
+      const dropped = new Set(list.filter(obj => newScene.isCached(obj)));
+      for (const obj of dropped) {
+        newScene.unmarkCached(obj);
+      }
+      for (const [oldObj, newObj] of map) {
+        if (dropped.has(newObj)) {
+          map.delete(oldObj);
+        }
+      }
+    }
   }
 
   /** The container at `index` plus the contiguous run of its descendants. */

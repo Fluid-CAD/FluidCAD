@@ -6,6 +6,7 @@ import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Face } from "../common/face.js";
 import { Wire } from "../common/wire.js";
+import { mmTol } from "../units/tolerance.js";
 
 export class FaceOps {
   static getPlane(face: Face | TopoDS_Face): Plane {
@@ -413,7 +414,8 @@ export class FaceOps {
   static planeToFace(plane: Plane, center?: Point): Face {
     const oc = getOC();
 
-    const size = 100;
+    // A 100 mm visual half-size, in the document's unit.
+    const size = mmTol(100);
 
     if (center) {
       const translation = center.subtract(plane.origin);

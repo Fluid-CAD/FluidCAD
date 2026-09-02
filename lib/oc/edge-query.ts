@@ -198,6 +198,7 @@ export class EdgeQuery {
 
     const dotProduct = Math.abs(tangent.Dot(planeNormal));
 
+    // unit: dimensionless (dot of unit vectors)
     const tolerance = 1e-6;
     const result = dotProduct < tolerance;
 

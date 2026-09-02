@@ -116,7 +116,14 @@ export async function clearBreakpoints(
 // ---------------------------------------------------------------------------
 
 export type ImportStepInput = WorkspaceArg & { path: string };
-export type ImportStepOutput = { success: boolean; fileName: string };
+export type ImportStepOutput = {
+  success: boolean;
+  fileName: string;
+  /** Solids the file produced (absent from older servers). */
+  solidCount?: number;
+  /** Unit names the STEP file declared; the cache is always mm (absent from older servers). */
+  sourceUnits?: { length: string[]; angle: string[] };
+};
 
 export async function importStep(input: ImportStepInput): Promise<ToolResult<ImportStepOutput>> {
   if (!input?.path || typeof input.path !== 'string') {
@@ -145,6 +152,7 @@ export async function importStep(input: ImportStepInput): Promise<ToolResult<Imp
 
 export type ExportFormat = 'step' | 'stl';
 export type ExportResolution = 'coarse' | 'medium' | 'fine';
+export type ExportScaleTo = 'mm' | 'document';
 
 export type ExportInput = WorkspaceArg & {
   format: ExportFormat;
@@ -152,6 +160,8 @@ export type ExportInput = WorkspaceArg & {
   saveAsPath?: string;
   resolution?: ExportResolution;
   includeColors?: boolean;
+  /** STL only: scale the mesh into mm (default) or keep the document's units. */
+  scaleTo?: ExportScaleTo;
 };
 
 export type ExportSavedOutput = { savedTo: string; bytesWritten: number };
@@ -241,6 +251,9 @@ export async function exportShapes(input: ExportInput): Promise<ToolResult<Expor
   if (input.saveAsPath !== undefined && typeof input.saveAsPath !== 'string') {
     return err('invalid-input', '`saveAsPath` must be a string when provided.');
   }
+  if (input.scaleTo !== undefined && input.scaleTo !== 'mm' && input.scaleTo !== 'document') {
+    return err('invalid-input', '`scaleTo` must be "mm" or "document".');
+  }
 
   const body: Record<string, unknown> = {
     format: input.format,
@@ -249,6 +262,9 @@ export async function exportShapes(input: ExportInput): Promise<ToolResult<Expor
   };
   if (input.includeColors !== undefined) {
     body.includeColors = input.includeColors;
+  }
+  if (input.scaleTo !== undefined) {
+    body.scaleTo = input.scaleTo;
   }
   if (input.saveAsPath !== undefined) {
     body.saveAsPath = input.saveAsPath;

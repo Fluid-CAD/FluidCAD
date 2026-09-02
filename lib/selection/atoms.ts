@@ -6,6 +6,7 @@ import { Plane, toPlane } from "../math/plane.js";
 import { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import { EdgeProbe, FaceProbe, edgeEndPoints, faceBoundaryPoints } from "./probe.js";
+import { mmTol } from "../units/tolerance.js";
 
 /**
  * One filter predicate candidate: a rendered code fragment plus the builder
@@ -88,7 +89,12 @@ const PRINCIPAL_PLANES: PrincipalPlane[] = [
   { name: 'yz', axis: 'x' },
 ];
 
-const SHARED_TOLERANCE = 1e-7;
+/** Coordinate / plane-distance slack: 1e-7 mm, in the active unit. */
+function sharedTolerance(): number {
+  return mmTol(1e-7);
+}
+/** The angular half of the coplanar test — unit: dimensionless. */
+const SHARED_ANGULAR_TOLERANCE = 1e-7;
 
 /**
  * Sign of the principal plane's normal along its axis (`'xz'` has a −y
@@ -380,10 +386,10 @@ function planeRefAtoms<B extends { onPlane(plane: Plane): unknown }>(
   const atoms: Atom<B>[] = [];
   const seen: Plane[] = [];
   for (const source of sources) {
-    if (!points.every(pt => source.plane.containsPoint(pt, SHARED_TOLERANCE))) {
+    if (!points.every(pt => source.plane.containsPoint(pt, sharedTolerance()))) {
       continue;
     }
-    if (seen.some(p => p.isCoplanarWith(source.plane, SHARED_TOLERANCE, SHARED_TOLERANCE))) {
+    if (seen.some(p => p.isCoplanarWith(source.plane, sharedTolerance(), SHARED_ANGULAR_TOLERANCE))) {
       continue;
     }
     seen.push(source.plane);
@@ -405,7 +411,7 @@ function onPlaneAtom<B>(
   addTo: (b: B, offset: number) => unknown,
 ): Atom<B> {
   const offset = planeNormalSign(plane) * axisCoordinate;
-  if (Math.abs(offset) <= SHARED_TOLERANCE) {
+  if (Math.abs(offset) <= sharedTolerance()) {
     return {
       code: `.onPlane('${plane.name}')`,
       addTo: b => addTo(b, 0),
@@ -449,7 +455,7 @@ function thresholdAtoms<B>(
     const targetHi = Math.max(...targetCoords);
     const universeCoords = universePointSets.flat().map(pt => sign * pt[plane.axis]);
 
-    const beyondLo = universeCoords.filter(v => v < targetLo - SHARED_TOLERANCE);
+    const beyondLo = universeCoords.filter(v => v < targetLo - sharedTolerance());
     if (beyondLo.length > 0) {
       const cut = niceValueInGap(Math.max(...beyondLo), targetLo);
       if (cut !== null) {
@@ -465,7 +471,7 @@ function thresholdAtoms<B>(
       }
     }
 
-    const beyondHi = universeCoords.filter(v => v > targetHi + SHARED_TOLERANCE);
+    const beyondHi = universeCoords.filter(v => v > targetHi + sharedTolerance());
     if (beyondHi.length > 0) {
       const cut = niceValueInGap(targetHi, Math.min(...beyondHi));
       if (cut !== null) {
@@ -500,10 +506,10 @@ export function formatConstant(value: number): { text: string; value: number } {
 
 /** The roundest number strictly inside the open interval (lo, hi). */
 export function niceValueInGap(lo: number, hi: number): number | null {
-  if (!(hi > lo + SHARED_TOLERANCE * 2)) {
+  if (!(hi > lo + sharedTolerance() * 2)) {
     return null;
   }
-  const epsilon = Math.min(1e-6, (hi - lo) / 100);
+  const epsilon = Math.min(mmTol(1e-6), (hi - lo) / 100);
   const innerLo = lo + epsilon;
   const innerHi = hi - epsilon;
   const mid = (innerLo + innerHi) / 2;
@@ -535,7 +541,7 @@ function sharedNumber(values: (number | undefined)[]): number | null {
   }
   const first = values[0];
   for (const v of values) {
-    if (v === undefined || Math.abs(v - first) > SHARED_TOLERANCE) {
+    if (v === undefined || Math.abs(v - first) > sharedTolerance()) {
       return null;
     }
   }

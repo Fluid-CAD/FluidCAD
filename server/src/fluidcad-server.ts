@@ -11,8 +11,10 @@ import { BreakpointHit } from '../../lib/dist/common/breakpoint-hit.js';
 import { createParamRegistry, getParamRegistry } from '../../lib/dist/index.js';
 import { scanFileForParts } from './part-catalog/scan.ts';
 import type { PartScanResult } from './part-catalog/scan.ts';
-import type { ParamDefinition, ParamRegistry, ParamVal } from '../../lib/dist/index.js';
+import type { ImportReport, ParamDefinition, ParamRegistry, ParamVal } from '../../lib/dist/index.js';
 import type { CompileError } from './ws-protocol.ts';
+import { readProjectConfig } from './project-config.ts';
+import type { LengthUnit } from './project-config.ts';
 
 export type SerializedAssembly = {
   instances: Array<{
@@ -233,6 +235,18 @@ export type ObjectBuildError = {
 export type SceneRenderedData = {
   absPath: string;
   sceneKind: FluidScriptKind;
+  /**
+   * The unit every length in `result` is in — the file's own `unit()`
+   * statement, else the project unit, else mm (see `sceneUnitOf`).
+   */
+  unit: LengthUnit;
+  /**
+   * The unit the file declares with `unit()`, or null when it has none and
+   * follows the project unit — the unit chip's "Same as project" state.
+   */
+  declaredUnit: LengthUnit | null;
+  /** The project unit this render ran under (`fluidcad.json`, else mm). */
+  projectUnit: LengthUnit;
   result: any[];
   rollbackStop: number;
   /**
@@ -703,9 +717,21 @@ export type SceneSummaryObject = {
   visible: boolean;
 };
 
+/**
+ * The unit trio every `scene-rendered` message carries, spread by each
+ * emitter so none of them can forget a field when the set grows.
+ */
+export function sceneUnitFields(
+  data: Pick<SceneRenderedData, 'unit' | 'declaredUnit' | 'projectUnit'>,
+): Pick<SceneRenderedData, 'unit' | 'declaredUnit' | 'projectUnit'> {
+  return { unit: data.unit, declaredUnit: data.declaredUnit, projectUnit: data.projectUnit };
+}
+
 export type SceneSummary = {
   schemaVersion: 1;
   file: string;
+  /** The unit every length in `objects[].params` is in (see SceneRenderedData.unit). */
+  unit: LengthUnit;
   objects: SceneSummaryObject[];
   rollbackStop: number;
   /** Present while a part-scoped rollback is displayed — see SceneRenderedData. */
@@ -734,13 +760,15 @@ export class FluidCadServer {
   private host: SceneHost;
   private sceneManager: SceneManager | undefined;
   private initDiagnostic: string | null = null;
+  /** Set by `init`; empty on the hub path, which has no workspace on disk. */
+  private workspacePath = '';
 
   // Per-session render output, scene cache, and param overrides. Desktop's
   // sessionId is the normalized filePath; hub mode's sessionId is the WS
   // connection UUID. Maps must be cleared via `destroySession` on hub-side
   // disconnect to avoid leaks.
   private previousScenes: Map<string, any> = new Map();
-  private renderingCache = new Map<string, { result: any[]; assembly?: SerializedAssembly }>();
+  private renderingCache = new Map<string, { result: any[]; unit: LengthUnit; declaredUnit: LengthUnit | null; assembly?: SerializedAssembly }>();
   // Records the last successful render per session as `{ paramsHash, data }`.
   // Any subsequent render request short-circuits when the new params hash to
   // the same value — avoids redundant OCC work when desktop producers see the
@@ -797,6 +825,7 @@ export class FluidCadServer {
   }
 
   async init(workspacePath: string) {
+    this.workspacePath = workspacePath;
     await this.host.init(workspacePath);
 
     const initFilePath = normalizePath(join(workspacePath, 'init.js'));
@@ -899,6 +928,51 @@ export class FluidCadServer {
   // Render — internal core used by both desktop and hub entry points
   // ---------------------------------------------------------------------------
 
+  /**
+   * Re-read the project unit from `fluidcad.json` before every scene start.
+   * The workspace's SceneManager seeds `projectUnit` once, from init.js —
+   * without this a unit edited while the server runs (the unit chip's
+   * "Project unit" menu) would only show up after a restart. Guarded for a
+   * workspace engine that predates the field, and skipped for the hub path,
+   * which installs its manager without a workspace and must keep whatever
+   * unit it was built with.
+   */
+  private reseedProjectUnit(): void {
+    if (!this.workspacePath || !this.sceneManager || !('projectUnit' in this.sceneManager)) {
+      return;
+    }
+    (this.sceneManager as { projectUnit: LengthUnit }).projectUnit = readProjectConfig(this.workspacePath).unit ?? 'mm';
+  }
+
+  /**
+   * The unit a rendered scene's lengths are in. Optional read: the
+   * workspace's fluidcad install may predate units, and a scene without the
+   * accessor is an mm scene — exactly what every file was before units.
+   */
+  private static sceneUnitOf(scene: unknown): LengthUnit {
+    return (scene as { unit?: LengthUnit } | null | undefined)?.unit ?? 'mm';
+  }
+
+  /**
+   * What the scene's root file declared with `unit()`, or null when it
+   * follows the project unit. Optional for the same reason as `sceneUnitOf`;
+   * an engine without the accessor can't say, and "undeclared" is the
+   * answer that keeps the chip's menu honest (no unit gets a false check).
+   */
+  private static sceneDeclaredUnitOf(scene: unknown): LengthUnit | null {
+    return (scene as { declaredUnit?: LengthUnit | null } | null | undefined)?.declaredUnit ?? null;
+  }
+
+  /**
+   * The project unit the scene manager is seeded with — re-read from
+   * `fluidcad.json` before every render (`reseedProjectUnit`), and for the
+   * hub whatever it was built with. An engine predating units is an mm
+   * project.
+   */
+  private projectUnitOf(): LengthUnit {
+    return (this.sceneManager as { projectUnit?: LengthUnit } | null)?.projectUnit ?? 'mm';
+  }
+
   private async processFileInternal(
     sessionId: string,
     filePath: string,
@@ -924,6 +998,9 @@ export class FluidCadServer {
           return {
             absPath: normalizedFileName,
             sceneKind,
+            unit: fromCache.unit,
+            declaredUnit: fromCache.declaredUnit,
+            projectUnit: this.projectUnitOf(),
             result: fromCache.result,
             rollbackStop: fromCache.result.length - 1,
             breakpointHit: this.lastBreakpointHit,
@@ -934,6 +1011,7 @@ export class FluidCadServer {
       }
 
       try {
+        this.reseedProjectUnit();
         let scene = sceneKind === 'assembly'
           ? this.sceneManager.startAssemblyScene()
           : this.sceneManager.startScene();
@@ -1031,8 +1109,13 @@ export class FluidCadServer {
           }
         }
 
+        // Read after the module ran: a file's `unit()` statement declares the
+        // unit during evaluation, and the scene resolves it lazily.
+        const unit = FluidCadServer.sceneUnitOf(scene);
+        const declaredUnit = FluidCadServer.sceneDeclaredUnitOf(scene);
+
         if (!filePath.startsWith('virtual:live-render')) {
-          this.renderingCache.set(sessionId, assembly ? { result, assembly } : { result });
+          this.renderingCache.set(sessionId, assembly ? { result, unit, declaredUnit, assembly } : { result, unit, declaredUnit });
         }
 
         // This file's fresh content must reach every OTHER session that
@@ -1048,6 +1131,9 @@ export class FluidCadServer {
         return {
           absPath: normalizedFileName,
           sceneKind,
+          unit,
+          declaredUnit,
+          projectUnit: this.projectUnitOf(),
           result,
           rollbackStop: result.length - 1,
           breakpointHit,
@@ -1206,13 +1292,22 @@ export class FluidCadServer {
    * compare baselines, so the live session's incremental rebuilds are
    * unaffected. Returns null before init.
    */
-  async scanPartsInFile(filePath: string): Promise<PartScanResult | null> {
+  async scanPartsInFile(filePath: string, projectUnit: LengthUnit = 'mm'): Promise<PartScanResult | null> {
     return this.serialized(async () => {
       if (!this.sceneManager) {
         return null;
       }
-      return scanFileForParts(this.host, this.sceneManager, normalizePath(filePath));
+      return scanFileForParts(this.host, this.sceneManager, normalizePath(filePath), { projectUnit });
     });
+  }
+
+  /**
+   * The unit the current file's last render is in — what every length the
+   * measure/properties commands return is expressed in. `mm` before the
+   * first render, matching what those commands' callers assumed pre-units.
+   */
+  getSceneUnit(): LengthUnit {
+    return FluidCadServer.sceneUnitOf(this.previousScenes.get(this.currentFileName));
   }
 
   /**
@@ -1287,6 +1382,9 @@ export class FluidCadServer {
     return {
       absPath: fileName,
       sceneKind: detectKind(fileName) ?? 'part',
+      unit: FluidCadServer.sceneUnitOf(scene),
+      declaredUnit: FluidCadServer.sceneDeclaredUnitOf(scene),
+      projectUnit: this.projectUnitOf(),
       result,
       rollbackStop: stop,
       ...(scopePartId ? { rollbackScopePartId: scopePartId } : {}),
@@ -1297,13 +1395,14 @@ export class FluidCadServer {
     };
   }
 
-  async importFile(workspacePath: string, fileName: string, data: string): Promise<void> {
+  async importFile(workspacePath: string, fileName: string, data: string): Promise<ImportReport | void> {
     if (!this.sceneManager) {
       throw new Error('SceneManager not initialized');
     }
 
     const binaryData = Buffer.from(data, 'base64');
-    await this.sceneManager.importFile(workspacePath, fileName, binaryData);
+    // Older lib installs return nothing here; the import route tolerates that.
+    return await this.sceneManager.importFile(workspacePath, fileName, binaryData);
   }
 
   getShapeProperties(shapeId: string): any {
@@ -1865,6 +1964,7 @@ export class FluidCadServer {
     return {
       schemaVersion: 1,
       file: this.currentFileName,
+      unit: FluidCadServer.sceneUnitOf(scene),
       objects,
       rollbackStop: this.lastRollbackStop,
       ...(this.lastRollbackScopePartId ? { rollbackScopePartId: this.lastRollbackScopePartId } : {}),

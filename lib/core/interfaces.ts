@@ -23,6 +23,17 @@ export interface ISceneObject {
   reusable(): this;
 }
 
+export interface LoadOptions {
+  /**
+   * Asserts the unit the asset's cached geometry is in. Normally unnecessary:
+   * imports are cached in mm and `load()` scales them into the loading
+   * document's unit automatically. Use it only for assets without trustworthy
+   * metadata (a `.brep` copied in by hand, a STEP whose header lied); it
+   * overrides the import sidecar. One of `mm`, `cm`, `m`, `in`, `ft`.
+   */
+  unit?: string;
+}
+
 export interface ILoadFile extends ISceneObject {
   /**
    * Skip applying colors from the imported file's color metadata sidecar.
@@ -204,6 +215,12 @@ export interface IConnector extends ISceneObject {
  * definition, carrying the geometry and named connectors every instance of
  * that variant shares. `part()` itself returns the lazy `PartDefinition`;
  * this interface is the scene object the definition builds.
+ */
+/**
+ * A materialized part. Its geometry is in the unit of the scene that
+ * consumes it: a definition from a file with a different `unit()` is
+ * rescaled into the consumer's unit when it renders. `insert(def, { … })`
+ * parameter overrides stay in the part file's own unit — see `insert`.
  */
 export interface IPart extends ISceneObject {}
 

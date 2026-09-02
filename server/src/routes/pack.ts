@@ -2,6 +2,7 @@ import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import { packModel } from '../model-package/pack.ts';
 import type { ModelPackageCamera } from '../model-package/types.ts';
+import { readProjectConfig } from '../project-config.ts';
 import type { CameraStateMessage } from '../ws-protocol.ts';
 
 /**
@@ -43,6 +44,9 @@ export function createPackRouter(
         description,
         paramOverrides: fluidCadServer.getParamOverrides(currentFile),
         camera,
+        // Read per request, not at boot: `fluidcad.json` may have been edited
+        // since the server started, and the package must say what it says now.
+        unit: readProjectConfig(workspacePath).unit ?? 'mm',
       });
       res.setHeader('Content-Type', 'application/zip');
       res.setHeader('X-FluidCAD-Package-Name', result.manifest.name);

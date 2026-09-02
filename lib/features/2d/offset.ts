@@ -10,6 +10,7 @@ import { Wire } from "../../common/wire.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 import { EdgeTargetArg, GeometrySceneObject } from "./geometry.js";
 import { SelectSceneObject } from "../select.js";
+import { mmTol } from "../../units/tolerance.js";
 
 export class Offset extends ExtrudableGeometryBase {
 
@@ -155,7 +156,7 @@ export class Offset extends ExtrudableGeometryBase {
 
     const plane = faces[0].getPlane();
     for (const face of faces.slice(1)) {
-      if (!plane.isCoplanarWith(face.getPlane(), 1e-6, 1e-6)) {
+      if (!plane.isCoplanarWith(face.getPlane(), mmTol(1e-6), 1e-6)) {
         throw new Error("Offset: face targets must be coplanar");
       }
     }

@@ -1,7 +1,10 @@
+import { readFile } from 'fs/promises';
 import { normalizePath } from '../normalize-path.ts';
 import { detectKind } from '../file-kind.ts';
 import type { SceneHost } from '../host/scene-host.ts';
 import { isAssemblyDefinition, isPartDefinition } from '../host/scene-host.ts';
+import { readDeclaredUnit } from '../file-unit.ts';
+import type { LengthUnit } from '../project-config.ts';
 import { createParamRegistry, getParamRegistry, setParamRegistry } from '../../../lib/dist/index.js';
 
 /**
@@ -83,6 +86,15 @@ export type ScannedSubAssembly = {
 export type PartScanResult = {
   /** Normalized absolute path of the scanned file. */
   file: string;
+  /**
+   * The unit every part in this file is authored in — its `unit()`
+   * statement, else the project unit (`fluidcad.json`, nearest one up from
+   * the file), else mm. Read from the runtime registry after the module
+   * evaluated; a module that fails to load falls back to a static read of
+   * its `unit()` statement. `insert()` scales a part whose unit differs
+   * from the consuming assembly's, so the Insert dialog badges those tiles.
+   */
+  unit: LengthUnit;
   parts: ScannedPart[];
   /** Sub-assembly factories — only ever found in `.assembly.js` files. */
   assemblies: ScannedSubAssembly[];
@@ -135,9 +147,13 @@ export async function scanFileForParts(
   host: SceneHost,
   sceneManager: ScanSceneManager,
   filePath: string,
+  options: ScanOptions = {},
 ): Promise<PartScanResult> {
   const absPath = normalizePath(filePath);
-  const result: PartScanResult = { file: absPath, parts: [], assemblies: [], errors: [], deps: [] };
+  const projectUnit = options.projectUnit ?? 'mm';
+  const result: PartScanResult = {
+    file: absPath, unit: projectUnit, parts: [], assemblies: [], errors: [], deps: [],
+  };
 
   if (typeof host.loadModuleRaw !== 'function') {
     result.errors.push({ exportName: null, message: 'This host does not support part scanning.' });
@@ -180,8 +196,15 @@ export async function scanFileForParts(
       mod = await host.loadModuleRaw(absPath);
     } catch (err: any) {
       result.errors.push({ exportName: null, message: err?.message ?? String(err) });
+      // The module never ran, so no registry declaration exists — read the
+      // statement off the source instead (the UI still lists the file).
+      result.unit = (await readDeclaredUnitOf(host, absPath)) ?? projectUnit;
       return result;
     }
+    // A file's `unit()` statement declares during evaluation; the module
+    // scene resolves it (root file = this file) — read it now, before the
+    // per-export scenes below start fresh registries that no longer hold it.
+    result.unit = sceneUnitOf(moduleScene) ?? projectUnit;
 
     // Top-level part() calls (direct exports among them) all landed in the
     // module scene; render it once before the factories run so their builds
@@ -328,8 +351,44 @@ export async function scanFileForParts(
   }
 }
 
+export type ScanOptions = {
+  /**
+   * The unit a file without `unit()` is in when the engine cannot say —
+   * an engine predating units, or a module that failed to evaluate.
+   */
+  projectUnit?: LengthUnit;
+};
+
 const DEFAULT_EXPORT_MESSAGE =
   'Default exports are not insertable yet — export it with a name.';
+
+/**
+ * A scan scene's unit, or null on an engine whose scenes have no `unit`
+ * accessor (the workspace's fluidcad install predates units).
+ */
+function sceneUnitOf(scene: unknown): LengthUnit | null {
+  const unit = (scene as { unit?: unknown } | null | undefined)?.unit;
+  return typeof unit === 'string' ? (unit as LengthUnit) : null;
+}
+
+/** Static fallback: the file's `unit()` literal from its live buffer or disk. */
+async function readDeclaredUnitOf(host: SceneHost, absPath: string): Promise<LengthUnit | null> {
+  let code = host.getBuffer(absPath);
+  if (code === null) {
+    try {
+      code = await readFile(absPath, 'utf8');
+    } catch {
+      return null;
+    }
+  }
+  try {
+    return await readDeclaredUnit(code);
+  } catch {
+    // An unparseable file has no readable declaration; the load error above
+    // already tells the user what is wrong with it.
+    return null;
+  }
+}
 
 /** Duck-typed Part check — safe across fluidcad module instances/versions. */
 function isPartInstance(value: unknown): boolean {

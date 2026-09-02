@@ -25,7 +25,7 @@ import { clusterAnchors } from './cluster';
 import { GeometryIndex, NO_OWNER } from './geometry-index';
 import { Occupancy } from './occupancy';
 import { rowLength, rowRects } from './rows';
-import { hiddenPlacement, orientReading, unit } from './types';
+import { hiddenPlacement, normalize, orientReading } from './types';
 import type { Placement, Pt, Rect } from './types';
 
 /** Pixel budget knobs — all screen-space, all independent of sketch units. */
@@ -282,7 +282,7 @@ function averageDirection(vectors: Pt[], fallback: Pt): Pt {
     x += v.x * flip;
     y += v.y * flip;
   }
-  return unit({ x, y }, fallback);
+  return normalize({ x, y }, fallback);
 }
 
 function buildClusters(items: BadgeItem[], opts: DeclutterOptions): BadgeCluster[] {

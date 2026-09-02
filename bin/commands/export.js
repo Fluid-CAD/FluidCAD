@@ -30,6 +30,8 @@ const NAMED_VIEWS = [
 ];
 
 const STL_RESOLUTIONS = ['coarse', 'medium', 'fine', 'custom'];
+/** STL has no unit; slicers assume mm, so that is the default target. */
+const STL_SCALE_TARGETS = ['mm', 'document'];
 
 /** Grace for a freshly-connected UI to build the scene before we capture it. */
 const UI_SETTLE_MS = 2000;
@@ -56,8 +58,9 @@ export function registerExportCommand(program) {
     .option('--shapes <ids...>', 'shapes to export by position, feature name, or id (defaults to all)')
     .option('--list-shapes', 'print the scene\'s shapes and exit without exporting')
     .option('--resolution <r>', `mesh resolution: ${STL_RESOLUTIONS.join(', ')} (default: medium)`)
-    .option('--linear-deflection <mm>', 'custom linear deflection in mm (implies --resolution custom)')
+    .option('--linear-deflection <length>', 'custom linear deflection in document units (implies --resolution custom)')
     .option('--angular-deflection <deg>', 'custom angular deflection in degrees (implies --resolution custom)')
+    .option('--scale-to <target>', 'write the mesh in mm (what slicers expect) or in the document\'s units: mm, document', 'mm')
     .action(runner(runStlExport));
 
   withCommonOptions(exportCommand.command('png'))
@@ -133,6 +136,14 @@ async function runShapeExport(format, opts, formatBody) {
 }
 
 function stlBody(opts) {
+  const scaleTo = opts.scaleTo ?? 'mm';
+  if (!STL_SCALE_TARGETS.includes(scaleTo)) {
+    throw new Error(`Invalid --scale-to "${scaleTo}". Expected one of: ${STL_SCALE_TARGETS.join(', ')}.`);
+  }
+  return { scaleTo, ...stlResolutionBody(opts) };
+}
+
+function stlResolutionBody(opts) {
   const linear = parseNumberOption(opts.linearDeflection, '--linear-deflection', { min: 0, exclusive: true });
   const angular = parseNumberOption(opts.angularDeflection, '--angular-deflection', { min: 0, exclusive: true });
   const requested = opts.resolution;
@@ -152,7 +163,7 @@ function stlBody(opts) {
   }
   if (linear === undefined || angular === undefined) {
     throw new Error(
-      'Custom resolution needs both --linear-deflection <mm> and --angular-deflection <deg>.',
+      'Custom resolution needs both --linear-deflection <length> and --angular-deflection <deg>.',
     );
   }
   return {

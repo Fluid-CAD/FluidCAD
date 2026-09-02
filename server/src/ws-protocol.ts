@@ -1,3 +1,5 @@
+import type { LengthUnit } from './project-config.ts';
+
 // ---------------------------------------------------------------------------
 // IPC: Extension → Server messages
 // ---------------------------------------------------------------------------
@@ -49,6 +51,8 @@ export type ExportSceneMessage = {
     resolution?: string;
     customLinearDeflection?: number;
     customAngularDeflectionDeg?: number;
+    /** STL only: scale the mesh into mm (default) or keep document units. */
+    scaleTo?: 'mm' | 'document';
   };
 };
 
@@ -159,6 +163,15 @@ export type SceneRenderedMessage = {
   type: 'scene-rendered';
   absPath: string;
   sceneKind: 'part' | 'assembly';
+  /**
+   * The unit every length in `result` is in: the file's own `unit()`, else
+   * the project unit, else mm. Error replays carry the last known unit.
+   */
+  unit: LengthUnit;
+  /** The unit the file declares with `unit()`, or null when it follows the project unit. */
+  declaredUnit: LengthUnit | null;
+  /** The project unit (`fluidcad.json`, else mm) — what an undeclared file follows. */
+  projectUnit: LengthUnit;
   result: any[];
   rollbackStop: number;
   /** Part-scoped rollback: only this part is truncated at rollbackStop. */
@@ -175,6 +188,10 @@ export type ErrorMessage = {
 export type ImportCompleteMessage = {
   type: 'import-complete';
   success: boolean;
+  /** Solids the import produced (absent from older servers). */
+  solidCount?: number;
+  /** Unit names the source file declared (absent from older servers). */
+  sourceUnits?: { length: string[]; angle: string[] };
 };
 
 export type InsertPointMessage = {
@@ -227,6 +244,19 @@ export type RemoveFeatureMessage = {
 
 export type ClearBreakpointsMessage = {
   type: 'clear-breakpoints';
+};
+
+/**
+ * Make a part file declare `unit('<unit>')` — the host round-trips its live
+ * buffer through `/api/code/set-unit`. `unit: null` removes the declaration
+ * so the file follows the project unit again. Never sent for an assembly
+ * file: those are measured in the project unit, which the server writes
+ * itself.
+ */
+export type SetUnitMessage = {
+  type: 'set-unit';
+  filePath: string;
+  unit: string | null;
 };
 
 export type GotoSourceMessage = {
@@ -335,6 +365,7 @@ export type ServerToExtensionMessage =
   | AddBreakpointMessage
   | RemoveFeatureMessage
   | ClearBreakpointsMessage
+  | SetUnitMessage
   | GotoSourceMessage
   | UpdateInsertChainMessage
   | ExportCompleteMessage
@@ -369,6 +400,12 @@ export type UISceneRenderedMessage = {
   result: any[];
   absPath: string;
   sceneKind: 'part' | 'assembly';
+  /** See `SceneRenderedMessage.unit`. */
+  unit: LengthUnit;
+  /** See `SceneRenderedMessage.declaredUnit`. */
+  declaredUnit: LengthUnit | null;
+  /** See `SceneRenderedMessage.projectUnit`. */
+  projectUnit: LengthUnit;
   rollbackStop?: number;
   /** Part-scoped rollback: only this part is truncated at rollbackStop. */
   rollbackScopePartId?: string;

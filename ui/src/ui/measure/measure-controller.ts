@@ -7,13 +7,21 @@ import type { SelectionContextMenu, SelectionMenuHandlers } from '../../interact
 import { MeasureOverlay } from './measure-overlay';
 import { MeasurePanel } from './measure-panel';
 import { MeasureStatusBar } from './measure-status-bar';
-import { formatAngle, formatArea, formatLength } from './format';
-import type { AngleUnit, LengthUnit } from './format';
+import { convertLength, formatAngle, formatArea, formatLength } from '../../units/units';
+import type { LengthUnit } from '../../units/units';
+import { sceneUnit } from '../../units/scene-unit';
+import { viewerSettings } from '../../scene/viewer-settings';
 
 /** Measurements are computed up to this count; larger selections just select. */
 const MAX_MEASURE_ENTITIES = 8;
 
 const DISTANCE_KEYS = ['parallelDist', 'centerDist', 'axisDist', 'minDist', 'maxDist'] as const;
+
+/** An area in document unit², expressed in `unit`². */
+function convertArea(area: number, unit: LengthUnit): number {
+  const f = convertLength(1, sceneUnit.current, unit);
+  return area * f * f;
+}
 
 function toRef(entity: SelectedEntity): MeasureEntityRef {
   return { shapeId: entity.shapeId, kind: entity.sub.type, index: entity.sub.index };
@@ -27,8 +35,6 @@ export class MeasureController {
   private entities: SelectedEntity[] = [];
   private result: MeasureResult | null = null;
   private panelOpen = false;
-  private lengthUnit: LengthUnit = 'mm';
-  private angleUnit: AngleUnit = 'deg';
   private abortController: AbortController | null = null;
 
   private statusBar: MeasureStatusBar;
@@ -37,6 +43,10 @@ export class MeasureController {
   private menu: SelectionContextMenu | null;
   /** Notified whenever the selection set changes through this controller. */
   onSelectionChanged: ((selection: SelectedEntity[]) => void) | null = null;
+  /** A refusal from the unit chip's dropup (the server said no) to surface. */
+  set onNotice(fn: ((message: string) => void) | null) {
+    this.statusBar.onNotice = fn;
+  }
 
   constructor(
     container: HTMLElement,
@@ -63,19 +73,19 @@ export class MeasureController {
         }
       },
     });
-    this.statusBar = new MeasureStatusBar(container, () => this.togglePanel());
+    this.statusBar = new MeasureStatusBar(container, () => this.togglePanel(), client);
     this.panel = new MeasurePanel(container, {
       onClose: () => this.togglePanel(false),
       onRemoveEntity: (ref) => this.removeEntity(ref),
       onLengthUnitChange: (unit) => {
-        this.lengthUnit = unit;
+        viewerSettings.update({ measureLengthUnit: unit });
+        // Older servers allow-list only mm/cm/m/in and silently drop the
+        // rest, so a rejected choice just stays session-local.
         this.client.savePreference('measureLengthUnit', unit);
-        this.updateUI();
       },
       onAngleUnitChange: (unit) => {
-        this.angleUnit = unit;
+        viewerSettings.update({ measureAngleUnit: unit });
         this.client.savePreference('measureAngleUnit', unit);
-        this.updateUI();
       },
       onHoverViz: (viz) => {
         if (viz) {
@@ -86,16 +96,18 @@ export class MeasureController {
       },
     });
     this.overlay = new MeasureOverlay(viewer.sceneContext);
+    // Display units live in viewerSettings (any component may subscribe);
+    // the document unit is the conversion base for both readouts.
+    viewerSettings.subscribe(() => this.updateUI());
+    sceneUnit.subscribe(() => this.updateUI());
   }
 
+  /** Display-unit preferences now flow through `applyPreferences` in viewer-settings. */
   applyPreferences(prefs: UserPreferences): void {
-    if (prefs.measureLengthUnit) {
-      this.lengthUnit = prefs.measureLengthUnit;
-    }
-    if (prefs.measureAngleUnit) {
-      this.angleUnit = prefs.measureAngleUnit;
-    }
-    this.updateUI();
+    viewerSettings.update({
+      ...(prefs.measureLengthUnit ? { measureLengthUnit: prefs.measureLengthUnit } : {}),
+      ...(prefs.measureAngleUnit ? { measureAngleUnit: prefs.measureAngleUnit } : {}),
+    });
   }
 
   get selection(): SelectedEntity[] {
@@ -230,25 +242,27 @@ export class MeasureController {
         label: `Selection ${i + 1} [${entity.sub.type === 'face' ? 'Face' : 'Edge'}]`,
       })),
       result: this.result,
-      lengthUnit: this.lengthUnit,
-      angleUnit: this.angleUnit,
+      baseUnit: sceneUnit.current,
+      lengthUnit: viewerSettings.current.measureLengthUnit,
+      angleUnit: viewerSettings.current.measureAngleUnit,
     });
 
     this.applyDefaultViz();
   }
 
   private primaryValueText(result: MeasureResult): string {
+    const { measureLengthUnit: unit, measureAngleUnit } = viewerSettings.current;
     if (result.primary === 'angle') {
-      return result.angleDeg !== undefined ? formatAngle(result.angleDeg, this.angleUnit) : '—';
+      return result.angleDeg !== undefined ? formatAngle(result.angleDeg, measureAngleUnit) : '—';
     }
     if (result.primary === 'totalArea') {
-      return result.totalArea !== undefined ? formatArea(result.totalArea, this.lengthUnit) : '—';
+      return result.totalArea !== undefined ? formatArea(convertArea(result.totalArea, unit), unit) : '—';
     }
     if (result.primary === 'totalLength') {
-      return result.totalLength !== undefined ? formatLength(result.totalLength, this.lengthUnit) : '—';
+      return result.totalLength !== undefined ? formatLength(convertLength(result.totalLength, sceneUnit.current, unit), unit) : '—';
     }
     const dist = result[result.primary];
-    return dist ? formatLength(dist.value, this.lengthUnit) : '—';
+    return dist ? formatLength(convertLength(dist.value, sceneUnit.current, unit), unit) : '—';
   }
 
   /** Default viewport visualization: the primary distance line, when there is one. */

@@ -133,7 +133,7 @@ export class CopyPanel extends FeaturePanel {
               <option value="offset">Offset</option>
               <option value="length">Total</option>
             </select>
-            <input data-role="spacing" type="number" step="1" value="20"
+            <input data-role="spacing" data-unit="length" type="number" step="1" value="20"
               class="input input-sm input-bordered w-full min-w-0 text-xs" />
           </div>
         </div>
@@ -164,7 +164,7 @@ export class CopyPanel extends FeaturePanel {
           </label>
           <label class="flex flex-col gap-1.5" title="Spacing along the second direction — the Offset/Total mode is shared with Direction 1">
             <span data-role="value2-label" class="text-base-content/70">Offset</span>
-            <input data-role="value2" type="number" step="1" value="20"
+            <input data-role="value2" data-unit="length" type="number" step="1" value="20"
               class="input input-sm input-bordered w-full text-xs" />
           </label>
         </div>

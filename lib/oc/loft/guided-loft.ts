@@ -7,6 +7,7 @@ import { SectionCurve } from "./section-curve.js";
 import { CurveData, RationalBSplineData } from "./curve-data.js";
 import { Skinning, SkinnedGrid, LoftEndCondition } from "./skinning.js";
 import { evaluateBSplinePoint, closestCurveParameter, flattenKnots } from "./curve-eval.js";
+import { mmTol } from "../../units/tolerance.js";
 
 /** Where a guide meets one profile: guide parameter, section parameter, and the guide point. */
 interface GuideAnchor {
@@ -42,7 +43,9 @@ export class GuidedLoft {
   /** Virtual sections inserted between consecutive profiles. */
   private static readonly SECTIONS_PER_SPAN = 7;
   /** How far (mm) a guide may sit from a profile boundary and still count as touching. */
-  private static readonly CONTACT_TOLERANCE = 1e-3;
+  private static get CONTACT_TOLERANCE(): number {
+    return mmTol(1e-3);
+  }
   /** Fallback condition-falloff radius (in section parameter) for a single guide. */
   private static readonly SINGLE_GUIDE_FALLOFF = 0.25;
 

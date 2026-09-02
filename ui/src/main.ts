@@ -58,6 +58,9 @@ import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-prop
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { ConnectorData, SceneObjectRender } from './types';
 import { applyPreferences } from './scene/viewer-settings';
+import { sceneUnit } from './units/scene-unit';
+import { sceneDocument } from './units/scene-document';
+import type { LengthUnit } from './units/units';
 import { installHostKeyboardBridge } from './keyboard-bridge';
 import { installDesktopMenu } from './desktop';
 import type { EditorSurface } from './editor';
@@ -214,6 +217,7 @@ const measureController = new MeasureController(
   container, engineClient, viewer,
   (handlers) => new SelectionContextMenu(container, 'fluidcad-measure-select-menu', handlers),
 );
+measureController.onNotice = (message) => showToast(message);
 const exportDialog = new ExportDialog(container, engineClient, viewer.sceneContext);
 
 // Built detached: it is a section of the part rail's docked column, and that
@@ -2526,6 +2530,9 @@ function connectWebSocket() {
         break;
       case 'scene-rendered': {
         loadingOverlay.hide();
+        // The document's unit — every readout suffixes with it. Missing on
+        // older servers, which means mm.
+        sceneUnit.set((msg as { unit?: LengthUnit }).unit ?? 'mm');
         // "Rolled back" means something is actually hidden. A part-scoped
         // stop on that part's LAST feature hides nothing — the view is the
         // full render and must stay fully interactive (sketch-mode entry,
@@ -2533,6 +2540,14 @@ function connectWebSocket() {
         const isRollback = msg.rollbackStop != null
           && isRollbackViewTruncated(msg.result, msg.rollbackStop, msg.rollbackScopePartId ?? null);
         const sceneKind: 'part' | 'assembly' = msg.sceneKind === 'assembly' ? 'assembly' : 'part';
+        // The unit chip's dropup routes a pick by this: a part rewrites its
+        // own file, an assembly the project config — and checks either the
+        // declared unit or "Same as project". A server predating the field
+        // can't tell the two apart; its unit is taken as declared so the
+        // menu still checks what the chip shows.
+        const units = msg as { unit?: LengthUnit; declaredUnit?: LengthUnit | null; projectUnit?: LengthUnit };
+        const declaredUnit = units.declaredUnit === undefined ? sceneUnit.current : units.declaredUnit;
+        sceneDocument.set(msg.absPath, sceneKind, declaredUnit, units.projectUnit ?? 'mm');
         // Re-resolve the active part BEFORE the viewer or any service reads
         // this render — the scope helpers (findActiveObject & co.) consult the
         // tracker, so a stale activation would derive the sketch-mode entry

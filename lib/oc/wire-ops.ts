@@ -8,6 +8,7 @@ import { Explorer } from "./explorer.js";
 import { Convert } from "./convert.js";
 import { Plane } from "../math/plane.js";
 import { ShapeOps } from "./shape-ops.js";
+import { mmTol } from "../units/tolerance.js";
 
 export class WireOps {
   static isCW(wire: Wire, normal: Vector3d): boolean {
@@ -98,7 +99,7 @@ export class WireOps {
    * deprecated out-parameter overload, which returns a `{ wires }` envelope
    * instead of the sequence itself — unwrap at runtime.
    */
-  static connectEdgesToWires(edges: Edge[], tolerance = 1e-6): Wire[] {
+  static connectEdgesToWires(edges: Edge[], tolerance = mmTol(1e-6)): Wire[] {
     const oc = getOC();
     const input = new oc.NCollection_HSequence_TopoDS_Shape();
     for (const edge of edges) {
@@ -284,10 +285,11 @@ export class WireOps {
       const bbox = ShapeOps.getBoundingBox(edge);
       size = Math.max(size, bbox.maxX - bbox.minX, bbox.maxY - bbox.minY, bbox.maxZ - bbox.minZ);
     }
-    return Math.max(1e-6, size * 1e-3);
+    // The relative part is unit-free; only the absolute floor is a length.
+    return Math.max(mmTol(1e-6), size * 1e-3);
   }
 
-  static groupConnectedEdges(edges: Edge[], tolerance = 1e-7): Edge[][] {
+  static groupConnectedEdges(edges: Edge[], tolerance = mmTol(1e-7)): Edge[][] {
     if (edges.length === 0) {
       return [];
     }
@@ -335,7 +337,7 @@ export class WireOps {
     return groups;
   }
 
-  private static verticesMatch(v1: Vertex, v2: Vertex, tolerance = 1e-7): boolean {
+  private static verticesMatch(v1: Vertex, v2: Vertex, tolerance = mmTol(1e-7)): boolean {
     if (v1.compareTo(v2)) {
       return true;
     }

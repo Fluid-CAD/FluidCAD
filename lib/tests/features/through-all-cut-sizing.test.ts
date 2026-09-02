@@ -16,7 +16,7 @@ import { Solid } from "../../common/solid.js";
 import { Explorer } from "../../oc/explorer.js";
 import { getOC } from "../../oc/init.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
-import { THROUGH_ALL_FALLBACK, THROUGH_ALL_MARGIN, throughAllLength } from "../../helpers/through-all.js";
+import { THROUGH_ALL_FALLBACK_MM, THROUGH_ALL_MARGIN, throughAllLength } from "../../helpers/through-all.js";
 import { Scene } from "../../rendering/scene.js";
 import { ISceneObject, ISolvedCircle } from "../../core/interfaces.js";
 
@@ -220,6 +220,6 @@ describe("throughAllLength", () => {
   });
 
   it("falls back to a fixed length with nothing to measure", () => {
-    expect(throughAllLength([], [], Plane.XY())).toBe(THROUGH_ALL_FALLBACK);
+    expect(throughAllLength([], [], Plane.XY())).toBe(THROUGH_ALL_FALLBACK_MM);
   });
 });

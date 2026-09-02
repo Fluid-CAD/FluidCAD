@@ -27,7 +27,7 @@ let renderResponse: { status: number; body: unknown } = {
 // Default response for the fake `/api/lint-fluid-js`. Tests can override to
 // simulate missing imports. The default (200, empty `missing[]`) means lint
 // passes and the write proceeds.
-let lintRequests: { code: string }[] = [];
+let lintRequests: { code: string; filePath?: string }[] = [];
 let lintResponse: { status: number; body: unknown } = {
   status: 200,
   body: { missing: [], suggestion: '' },
@@ -85,7 +85,7 @@ function startFakeServer(): Promise<number> {
         req.on('end', () => {
           try {
             const parsed = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-            lintRequests.push({ code: parsed.code });
+            lintRequests.push({ code: parsed.code, filePath: parsed.filePath });
           } catch {
             // fall through
           }
@@ -336,6 +336,36 @@ describe('write_file', () => {
     expect(fs.existsSync(path.join(workspace, 'forced.fluid.js'))).toBe(true);
     // Lint skipped under force — no probe to /api/lint-fluid-js.
     expect(lintRequests).toHaveLength(0);
+  });
+
+  it('refuses a write whose unit() breaks a placement rule, with the rows', async () => {
+    lintResponse = {
+      status: 200,
+      body: {
+        missing: [],
+        suggestion: '',
+        diagnostics: [
+          { message: 'unit() must come before any geometry in this file — move it directly after the imports.', line: 3, column: 0 },
+        ],
+      },
+    };
+    const target = path.join(workspace, 'late-unit.fluid.js');
+    const result = await writeFile({ path: 'late-unit.fluid.js', content: 'extrude(1);\nunit("in");' });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) { return; }
+    expect(result.code).toBe('unit-statement');
+    expect(result.message).toContain('line 4:');
+    expect((result.details as any)?.diagnostics).toHaveLength(1);
+    expect(fs.existsSync(target)).toBe(false);
+    expect(renderRequests).toHaveLength(0);
+  });
+
+  it('lints assembly and part files too, and tells the server which file it is', async () => {
+    const result = await writeFile({ path: 'rig.assembly.js', content: 'insert(p);' });
+    expect(result.ok).toBe(true);
+    expect(lintRequests).toHaveLength(1);
+    expect(lintRequests[0].filePath).toBe(path.join(workspace, 'rig.assembly.js'));
   });
 
   it('skips the import lint for non-fluid.js paths', async () => {

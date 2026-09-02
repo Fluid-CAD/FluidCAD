@@ -5,6 +5,8 @@
 // statement-keyed errors (file:line speak, never solver ids).
 
 import { SketchSystem, solve, diagnose } from "../../../sketch-solver/index.js";
+import { MM_PER_UNIT } from "../../../units/units.js";
+import { getActiveUnit } from "../../../units/registry.js";
 import type {
   ConstraintSpec,
   EntityKind,
@@ -134,8 +136,11 @@ export class SketchSolverContext {
     // Gate on statements, not params — the datums alone (an empty sketch)
     // warrant no solve and no DOF verdict.
     if (this.entityStatements.size > 0 || this.constraintStatements.size > 0) {
-      result = solve(this.system);
-      diagnostics = diagnose(this.system);
+      // Build time runs inside withUnit(sketch unit): the solver's mm floors
+      // are scaled here so the pure solver never reads the unit registry.
+      const lengthScale = MM_PER_UNIT[getActiveUnit()];
+      result = solve(this.system, { lengthScale });
+      diagnostics = diagnose(this.system, { lengthScale });
       this.attributeConflicts(diagnostics.conflicting);
       if (this.statementErrors.size === 0 && result.outcome !== 'solved') {
         sketchError = result.outcome === 'singular'

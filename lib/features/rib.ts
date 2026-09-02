@@ -14,6 +14,7 @@ import { RibOps } from "../oc/rib-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
 import { Shape } from "../common/shape.js";
 import { requireShapes } from "../common/operand-check.js";
+import { mmTol } from "../units/tolerance.js";
 
 export class Rib extends ExtrudeBase implements IRib {
   private _thickness: number;
@@ -348,6 +349,7 @@ function findFacesAlignedWith(faces: Face[], direction: Vector3d): Face[] {
       continue;
     }
     const pl = FaceQuery.getSurfacePlane(f);
+    // unit: dimensionless (normalised dot)
     if (1 - Math.abs(pl.normal.dot(direction)) < 1e-4) {
       out.push(f);
     }
@@ -369,14 +371,14 @@ function findScopeCoincidentFaces(ribSideFaces: Face[], scopeShapes: Shape[]): F
       scopePlanarFaces.push({ face: wrapped, origin: pl.origin, normal: pl.normal });
     }
   }
-  const tol = 1e-4;
+  const tol = mmTol(1e-4);
   for (const rf of ribSideFaces) {
     if (FaceQuery.getSurfaceType(rf) !== "plane") {
       continue;
     }
     const rPl = FaceQuery.getSurfacePlane(rf);
     for (const { origin: sOrigin, normal: sNormal } of scopePlanarFaces) {
-      // Parallel test: |normal · normal'| ≈ 1
+      // Parallel test: |normal · normal'| ≈ 1 (unit: dimensionless)
       if (1 - Math.abs(rPl.normal.dot(sNormal)) > 1e-6) {
         continue;
       }

@@ -27,7 +27,10 @@ export function createMeasureRouter(fluidCadServer: FluidCadServer): Router {
         res.status(404).json({ error: 'Entity not found' });
         return;
       }
-      res.json(result);
+      // Every length in the result is in the document's unit — the kernel
+      // runs in it — so the response names that unit rather than the
+      // caller assuming mm.
+      res.json({ ...result, unit: fluidCadServer.getSceneUnit() });
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });
     }

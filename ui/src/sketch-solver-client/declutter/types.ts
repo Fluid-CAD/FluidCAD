@@ -32,7 +32,7 @@ export function len(p: Pt): number {
   return Math.hypot(p.x, p.y);
 }
 
-export function unit(p: Pt, fallback: Pt = { x: 1, y: 0 }): Pt {
+export function normalize(p: Pt, fallback: Pt = { x: 1, y: 0 }): Pt {
   const l = len(p);
   return l > 1e-9 ? { x: p.x / l, y: p.y / l } : fallback;
 }

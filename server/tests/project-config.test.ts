@@ -5,7 +5,11 @@ import path from 'path';
 import {
   readProjectConfig,
   writeEnginePin,
+  writeProjectUnit,
+  parseProjectUnit,
   describeEnginePinMismatch,
+  describeProjectUnitProblem,
+  isProjectUnitError,
   PROJECT_CONFIG_FILENAME,
 } from '../src/project-config.ts';
 
@@ -70,7 +74,7 @@ describe('readProjectConfig', () => {
   it('reads back empty for a workspace with no config at all', () => {
     const config = readProjectConfig(workspace);
 
-    expect(config).toEqual({ engine: null, source: null, filePath: null });
+    expect(config).toEqual({ engine: null, source: null, filePath: null, unit: null });
   });
 
   it('reads back empty for an empty workspace path', () => {
@@ -115,6 +119,169 @@ describe('readProjectConfig', () => {
     writeJson(PROJECT_CONFIG_FILENAME, { engine: '  0.0.41  ' });
 
     expect(readProjectConfig(workspace).engine).toBe('0.0.41');
+  });
+});
+
+describe('readProjectConfig — unit', () => {
+  it('reads back null when the project sets no unit (an mm project)', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { engine: '0.0.41' });
+
+    const config = readProjectConfig(workspace);
+
+    expect(config.unit).toBeNull();
+    expect(config.error).toBeUndefined();
+  });
+
+  it('reads the unit from fluidcad.json alongside the pin', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { engine: '0.0.41', unit: 'in' });
+
+    const config = readProjectConfig(workspace);
+
+    expect(config.unit).toBe('in');
+    expect(config.engine).toBe('0.0.41');
+  });
+
+  it('reads a unit-only fluidcad.json without complaining about the pin', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { unit: 'cm' });
+
+    const config = readProjectConfig(workspace);
+
+    expect(config.unit).toBe('cm');
+    expect(config.engine).toBeNull();
+    expect(config.error).toBeUndefined();
+  });
+
+  it('canonicalises aliases and case', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { unit: ' Inches ' });
+
+    expect(readProjectConfig(workspace).unit).toBe('in');
+  });
+
+  it('falls back to package.json for the unit, key by key', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { engine: '0.0.41' });
+    writeJson('package.json', { fluidcad: { engine: '0.0.38', unit: 'ft' } });
+
+    const config = readProjectConfig(workspace);
+
+    expect(config.engine).toBe('0.0.41');
+    expect(config.unit).toBe('ft');
+  });
+
+  it('prefers the fluidcad.json unit over package.json', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { unit: 'm' });
+    writeJson('package.json', { fluidcad: { unit: 'ft' } });
+
+    expect(readProjectConfig(workspace).unit).toBe('m');
+  });
+
+  it('reports an unknown unit and reads back null, keeping the pin', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { engine: '0.0.41', unit: 'furlongs' });
+
+    const config = readProjectConfig(workspace);
+
+    expect(config.unit).toBeNull();
+    expect(config.engine).toBe('0.0.41');
+    expect(config.error).toContain('"unit"');
+    expect(config.error).toContain('furlongs');
+    expect(isProjectUnitError(config)).toBe(true);
+  });
+
+  it('reports a unit that is not a string', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { unit: 25.4 });
+
+    const config = readProjectConfig(workspace);
+
+    expect(config.unit).toBeNull();
+    expect(config.error).toContain('"unit"');
+  });
+
+  it('does not let a bad unit in fluidcad.json fall through to package.json', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { unit: 'nope' });
+    writeJson('package.json', { fluidcad: { unit: 'in' } });
+
+    const config = readProjectConfig(workspace);
+
+    expect(config.unit).toBeNull();
+    expect(config.error).toContain('"unit"');
+  });
+});
+
+describe('parseProjectUnit', () => {
+  it('accepts the five short codes', () => {
+    expect(['mm', 'cm', 'm', 'in', 'ft'].map(parseProjectUnit)).toEqual(['mm', 'cm', 'm', 'in', 'ft']);
+  });
+
+  it('accepts the spelled-out forms and symbols', () => {
+    expect(parseProjectUnit('millimetres')).toBe('mm');
+    expect(parseProjectUnit('Meter')).toBe('m');
+    expect(parseProjectUnit('"')).toBe('in');
+    expect(parseProjectUnit("'")).toBe('ft');
+  });
+
+  it('rejects everything else', () => {
+    expect(parseProjectUnit('yd')).toBeNull();
+    expect(parseProjectUnit(25.4)).toBeNull();
+    expect(parseProjectUnit(undefined)).toBeNull();
+  });
+});
+
+describe('writeProjectUnit', () => {
+  it('creates fluidcad.json with just the unit', () => {
+    writeProjectUnit(workspace, 'in');
+
+    expect(readProjectConfig(workspace).unit).toBe('in');
+    expect(fs.readFileSync(path.join(workspace, PROJECT_CONFIG_FILENAME), 'utf8'))
+      .toBe('{\n  "unit": "in"\n}\n');
+  });
+
+  it('preserves the pin and other keys', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { engine: '0.0.41', keepMe: true });
+
+    writeProjectUnit(workspace, 'cm');
+
+    const written = JSON.parse(
+      fs.readFileSync(path.join(workspace, PROJECT_CONFIG_FILENAME), 'utf8'),
+    );
+    expect(written).toEqual({ engine: '0.0.41', keepMe: true, unit: 'cm' });
+  });
+
+  it('survives a later writeEnginePin', () => {
+    writeProjectUnit(workspace, 'ft');
+
+    writeEnginePin(workspace, '0.0.42');
+
+    const config = readProjectConfig(workspace);
+    expect(config.unit).toBe('ft');
+    expect(config.engine).toBe('0.0.42');
+  });
+});
+
+describe('describeProjectUnitProblem', () => {
+  it('is silent for a good or absent unit', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { unit: 'in' });
+
+    expect(describeProjectUnitProblem(readProjectConfig(workspace))).toBeNull();
+    expect(describeProjectUnitProblem(readProjectConfig(''))).toBeNull();
+  });
+
+  it('names the bad value and the fallback', () => {
+    writeJson(PROJECT_CONFIG_FILENAME, { engine: '0.0.41', unit: 'yards' });
+
+    const config = readProjectConfig(workspace);
+
+    expect(describeProjectUnitProblem(config)).toContain('yards');
+    expect(describeProjectUnitProblem(config)).toContain('Using mm');
+    // The pin is fine — the engine warning must not claim otherwise.
+    expect(describeEnginePinMismatch(config, '0.0.41')).toBeNull();
+  });
+
+  it('stays quiet about a parse error, which is the pin warning\'s job', () => {
+    write(PROJECT_CONFIG_FILENAME, '{ nope');
+
+    const config = readProjectConfig(workspace);
+
+    expect(describeProjectUnitProblem(config)).toBeNull();
+    expect(describeEnginePinMismatch(config, '0.0.41')).toContain('Ignoring the engine pin');
   });
 });
 

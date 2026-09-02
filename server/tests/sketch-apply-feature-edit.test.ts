@@ -40,7 +40,7 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
     const result = await applyFeatureEdit(code, sketchSpec());
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {fillet, sketch, circle, line, point, extrude } from 'fluidcad/core'`,
+      `import { fillet, sketch, circle, line, point, extrude } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
       `  const r = circle([0, 0], 80)`,
@@ -146,7 +146,7 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
     }));
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {fillet, sketch, circle, slot, extrude } from 'fluidcad/core'`,
+      `import { fillet, sketch, circle, slot, extrude } from 'fluidcad/core'`,
       ``,
       `const s = sketch('xy', () => {`,
       `  const r = circle([0, 0], 80)`,
@@ -196,7 +196,7 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`const r = circle([0, 0], 80)`);
     expect(result.newCode).toContain(`  offset(3, r.edge('top'))`);
-    expect(result.newCode).toContain(`import {offset, sketch, circle } from 'fluidcad/core'`);
+    expect(result.newCode).toContain(`import { offset, sketch, circle } from 'fluidcad/core'`);
   });
 
   it("writes the offset close toggle as the .close() chain", async () => {
@@ -259,7 +259,7 @@ describe('applyFeatureEdit — sketch-body fillet (2D)', () => {
       `  horizontal(a)`,
       `  rotate(30, [10, h / 2], true, a, l)`,
     ].join('\n'));
-    expect(result.newCode).toContain(`import {rotate, sketch, line } from 'fluidcad/core'`);
+    expect(result.newCode).toContain(`import { rotate, sketch, line } from 'fluidcad/core'`);
   });
 
   it('writes an in-sketch rotate whose center is a picked point reference (P8)', async () => {
@@ -373,7 +373,7 @@ describe('applyFeatureEdit — sketch-body text on path (2D)', () => {
     const result = await applyFeatureEdit(code, textSpec());
     expect(result.error).toBeUndefined();
     expect(result.newCode).toBe([
-      `import {text, sketch, arc, circle } from 'fluidcad/core'`,
+      `import { text, sketch, arc, circle } from 'fluidcad/core'`,
       ``,
       `sketch('xy', () => {`,
       `  const a = arc([0, 0], [60, 0], 40)`,

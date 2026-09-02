@@ -41,7 +41,7 @@ export class WrapPanel extends FeaturePanel {
         <label class="flex flex-col gap-1.5"
           title="Pad thickness measured along the surface normal">
           <span class="text-base-content/70">Thickness</span>
-          <input data-role="thickness" type="number" step="0.5" min="0.05" value="1"
+          <input data-role="thickness" data-unit="length" type="number" step="0.5" min="0.05" value="1"
             class="input input-sm input-bordered w-full text-xs" />
         </label>
       `,

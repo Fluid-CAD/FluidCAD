@@ -40,7 +40,7 @@ class ConditionRow {
           <option value="normal">Normal</option>
           <option value="tangent">Tangent</option>
         </select>
-        <input data-role="magnitude" type="number" step="0.5" value="1"
+        <input data-role="magnitude" data-unit="length" type="number" step="0.5" value="1"
           title="Takeoff strength (default 1)"
           class="input input-sm input-bordered w-16 text-xs hidden" />
       </div>

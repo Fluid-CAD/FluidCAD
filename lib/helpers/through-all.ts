@@ -2,12 +2,18 @@ import { Shape } from "../common/shape.js";
 import { Plane } from "../math/plane.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { BoundingBox } from "./types.js";
+import { mmTol } from "../units/tolerance.js";
 
 /** How far past the model a through-all extrusion runs, as a fraction of its reach. */
 export const THROUGH_ALL_MARGIN = 1.1;
 
-/** Through-all length when the scene offers nothing to size against. */
-export const THROUGH_ALL_FALLBACK = 100;
+/** Through-all length when the scene offers nothing to size against, in mm. */
+export const THROUGH_ALL_FALLBACK_MM = 100;
+
+/** {@link THROUGH_ALL_FALLBACK_MM} in the active unit — read at use time, never at load. */
+export function throughAllFallback(): number {
+  return mmTol(THROUGH_ALL_FALLBACK_MM);
+}
 
 /** The farthest a box's corners sit from the plane, along its normal. */
 export function normalReach(box: BoundingBox, plane: Plane): number {
@@ -60,5 +66,5 @@ export function throughAllLength(stock: Shape[], profile: Shape[], plane: Plane)
       reach = Math.max(reach, boxDiagonal(ShapeOps.getBoundingBox(shape)));
     }
   }
-  return reach > 0 ? reach * THROUGH_ALL_MARGIN : THROUGH_ALL_FALLBACK;
+  return reach > 0 ? reach * THROUGH_ALL_MARGIN : throughAllFallback();
 }

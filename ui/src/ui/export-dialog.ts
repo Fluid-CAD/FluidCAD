@@ -1,4 +1,5 @@
 import { SceneContext } from '../scene/scene-context';
+import { sceneUnit } from '../units/scene-unit';
 import { captureScreenshot } from '../screenshot';
 import { deliverFile } from '../desktop';
 import type { EngineClient } from '../engine-client';
@@ -15,6 +16,7 @@ export class ExportDialog {
   private customSection: HTMLDivElement;
   private angularInput: HTMLInputElement;
   private linearInput: HTMLInputElement;
+  private scaleToMmToggle: HTMLInputElement;
   private showGridToggle: HTMLInputElement;
   private showAxesToggle: HTMLInputElement;
   private transparentToggle: HTMLInputElement;
@@ -43,6 +45,13 @@ export class ExportDialog {
     this.customSection = this.overlay.querySelector('[data-ref="custom-section"]')!;
     this.angularInput = this.overlay.querySelector('[data-ref="angular"]')!;
     this.linearInput = this.overlay.querySelector('[data-ref="linear"]')!;
+    this.scaleToMmToggle = this.overlay.querySelector('[data-ref="scale-to-mm"]')!;
+    const linearLabel = this.overlay.querySelector<HTMLLabelElement>('[data-ref="linear-label"]')!;
+    const nameUnit = (): void => {
+      linearLabel.textContent = `Linear Deflection (${sceneUnit.current})`;
+    };
+    nameUnit();
+    sceneUnit.subscribe(nameUnit);
     this.showGridToggle = this.overlay.querySelector('[data-ref="show-grid"]')!;
     this.showAxesToggle = this.overlay.querySelector('[data-ref="show-axes"]')!;
     this.transparentToggle = this.overlay.querySelector('[data-ref="transparent"]')!;
@@ -96,6 +105,10 @@ export class ExportDialog {
           </div>
 
           <div data-ref="stl-section" class="hidden flex flex-col gap-3">
+            <label class="flex items-center justify-between cursor-pointer">
+              <span class="text-xs text-base-content/70">Scale to millimetres (recommended for slicers)</span>
+              <input type="checkbox" data-ref="scale-to-mm" class="toggle toggle-sm toggle-primary" checked />
+            </label>
             <div>
               <label class="text-xs text-base-content/60 mb-1 block">Resolution</label>
               <select data-ref="resolution" class="select select-sm select-bordered w-full">
@@ -112,7 +125,7 @@ export class ExportDialog {
                 <input data-ref="angular" type="number" class="input input-sm input-bordered w-full" value="17" min="1" max="90" step="1" />
               </div>
               <div class="flex-1">
-                <label class="text-xs text-base-content/60 mb-1 block">Linear Deflection (mm)</label>
+                <label data-ref="linear-label" class="text-xs text-base-content/60 mb-1 block">Linear Deflection (mm)</label>
                 <input data-ref="linear" type="number" class="input input-sm input-bordered w-full" value="0.3" min="0.001" max="10" step="0.01" />
               </div>
             </div>
@@ -207,6 +220,8 @@ export class ExportDialog {
       body.includeColors = this.includeColorsToggle.checked;
     } else {
       body.resolution = this.resolutionSelect.value;
+      // STL has no unit; an mm document is unaffected either way.
+      body.scaleTo = this.scaleToMmToggle.checked ? 'mm' : 'document';
       if (body.resolution === 'custom') {
         body.customAngularDeflectionDeg = parseFloat(this.angularInput.value);
         body.customLinearDeflection = parseFloat(this.linearInput.value);

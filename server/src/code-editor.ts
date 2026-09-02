@@ -1,5 +1,7 @@
 import path from 'path';
 import { DERIVED_OP_CALLEES, SOLVED_CONSTRAINT_KINDS } from './sketch-symbols.ts';
+import { parseProjectUnit } from './project-config.ts';
+import { ASSEMBLY_UNIT_MESSAGE, unknownUnitMessage } from './unit-lint.ts';
 
 export type TSNode = {
   type: string;
@@ -387,6 +389,257 @@ export function isBreakpointStatement(node: TSNode): boolean {
 }
 
 /**
+ * Recognise a `unit('in');` statement: an expression_statement wrapping a
+ * call to the bare identifier `unit` with exactly one string-literal
+ * argument. The literal form is the only legal one (a document's unit must
+ * be readable without running the file), so a `unit(someVar)` is not a unit
+ * statement here — the lint reports it instead.
+ */
+export function isUnitStatement(node: TSNode): boolean {
+  if (node.type !== 'expression_statement') {
+    return false;
+  }
+  const call = node.namedChild(0);
+  if (!call || call.type !== 'call_expression') {
+    return false;
+  }
+  const fn = call.childForFieldName('function');
+  if (!fn || fn.type !== 'identifier' || fn.text !== 'unit') {
+    return false;
+  }
+  const args = call.childForFieldName('arguments');
+  if (!args || args.namedChildren.length !== 1) {
+    return false;
+  }
+  return args.namedChildren[0].type === 'string';
+}
+
+/** The literal a unit statement declares (`unit('in')` → `in`), quotes stripped. */
+export function unitStatementLiteral(node: TSNode): string {
+  const literal = node.namedChild(0)!.childForFieldName('arguments')!.namedChildren[0];
+  return literal.text.slice(1, -1);
+}
+
+/** The file's first top-level unit statement, if any. */
+export function findTopLevelUnitStatement(tree: TSTree): TSNode | null {
+  for (const node of tree.rootNode.namedChildren) {
+    if (isUnitStatement(node)) {
+      return node;
+    }
+  }
+  return null;
+}
+
+export type UnitStatement = {
+  /** The declared literal, verbatim — validation is the lint's job. */
+  unit: string;
+  /** Zero-based row the statement starts on. */
+  row: number;
+  startIndex: number;
+  endIndex: number;
+};
+
+/**
+ * Read a file's `unit('…')` declaration without executing it — the first
+ * top-level one, which is the only one the runtime accepts. Null when the
+ * file declares none (an mm document, or one on the project unit).
+ */
+export async function readUnitStatement(code: string): Promise<UnitStatement | null> {
+  const p = await getParser();
+  const node = findTopLevelUnitStatement(p.parse(code));
+  if (!node) {
+    return null;
+  }
+  return {
+    unit: unitStatementLiteral(node),
+    row: node.startPosition.row,
+    startIndex: node.startIndex,
+    endIndex: node.endIndex,
+  };
+}
+
+/** The set-unit transform can refuse (assembly file, unknown unit) — the
+ * refusal rides `error` beside the untouched code, like apply-feature. */
+export type SetUnitResult = CodeEditResult & { error?: string };
+
+/**
+ * Make a part file declare `unit('<unit>')` — the literal only, never the
+ * numbers (a document's numbers ARE its unit; docs/unit-system-plan.md §2).
+ * An existing top-level statement has its literal replaced in place, so
+ * comments and quote style around it survive; a file without one gets
+ * `unit('…');` directly after its last import — the spot
+ * `findTopLevelDeclarationAnchor` treats as the unit's home, above any
+ * `param()` declarations — and `unit` added to the core import. `filePath`,
+ * when given, refuses assembly files: their lengths are in the project unit
+ * and the runtime would reject the statement anyway.
+ *
+ * `unit: null` un-declares instead — the chip's "Same as project" pick: the
+ * statement's line goes, and `unit` leaves the core import when nothing
+ * else in the file uses the identifier (see `clearDocumentUnit`).
+ */
+export async function setDocumentUnit(code: string, unit: string | null, filePath?: string): Promise<SetUnitResult> {
+  if (typeof filePath === 'string' && /\.assembly\.js$/i.test(filePath)) {
+    return { newCode: code, error: ASSEMBLY_UNIT_MESSAGE };
+  }
+  if (unit === null) {
+    return { newCode: await clearDocumentUnit(code) };
+  }
+  const canonical = parseProjectUnit(unit);
+  if (canonical === null) {
+    return { newCode: code, error: unknownUnitMessage(String(unit)) };
+  }
+  const p = await getParser();
+  const tree = p.parse(code);
+  const existing = findTopLevelUnitStatement(tree);
+  if (existing) {
+    const literal = existing.namedChild(0)!.childForFieldName('arguments')!.namedChildren[0];
+    if (literal.text.slice(1, -1) === canonical) {
+      return { newCode: code };
+    }
+    // Keep the author's quote character; only the word inside changes.
+    const quote = literal.text[0] === '"' ? '"' : "'";
+    return { newCode: spliceCode(code, literal.startIndex, literal.endIndex, `${quote}${canonical}${quote}`) };
+  }
+  const statement = `unit('${canonical}');`;
+  const lastImport = findLastImport(tree);
+  const withStatement = lastImport
+    ? spliceCode(code, lastImport.endIndex, lastImport.endIndex, `\n${statement}`)
+    : `${statement}\n${code}`;
+  // Import second: it splices after the last import, i.e. above the
+  // statement just placed there, so "imports, then unit()" holds either way.
+  return { newCode: await ensureSymbolImport(withStatement, 'unit', 'fluidcad/core') };
+}
+
+/**
+ * Remove a file's top-level `unit('…')` statement so it follows the project
+ * unit again. The whole line goes (a unit statement owns its line — it was
+ * placed that way and the runtime wants it alone before any geometry), and
+ * `unit` is dropped from the core import unless another `unit` identifier
+ * is still in use somewhere. A file that declares none is returned as is,
+ * so the caller can skip the write.
+ */
+export async function clearDocumentUnit(code: string): Promise<string> {
+  const p = await getParser();
+  const statement = findTopLevelUnitStatement(p.parse(code));
+  if (!statement) {
+    return code;
+  }
+  const withoutStatement = removeStatementLine(code, statement);
+  if (countIdentifierUses(p.parse(withoutStatement), 'unit') > 0) {
+    return withoutStatement;
+  }
+  return removeSymbolImport(withoutStatement, 'unit', 'fluidcad/core');
+}
+
+/**
+ * Delete the line(s) a top-level statement spans, newline included. A blank
+ * line on each side collapses to one: the statement usually sits between
+ * the imports and the first geometry with its own breathing room, and
+ * leaving both gaps would stack two blank lines where there was one.
+ */
+function removeStatementLine(code: string, node: TSNode): string {
+  let start = node.startIndex;
+  while (start > 0 && code[start - 1] !== '\n') {
+    start--;
+  }
+  let end = node.endIndex;
+  while (end < code.length && code[end] !== '\n') {
+    end++;
+  }
+  if (end < code.length) {
+    end++;
+  }
+  if (start >= 2 && code.slice(start - 2, start) === '\n\n' && code[end] === '\n') {
+    end++;
+  }
+  return code.slice(0, start) + code.slice(end);
+}
+
+/**
+ * How many `identifier` nodes named `symbol` the tree holds outside import
+ * statements — the uses an import specifier exists for. Property names
+ * (`x.unit`) are `property_identifier`s in the grammar and don't count.
+ */
+function countIdentifierUses(tree: TSTree, symbol: string): number {
+  let count = 0;
+  const visit = (n: TSNode): void => {
+    if (n.type === 'import_statement') {
+      return;
+    }
+    if (n.type === 'identifier' && n.text === symbol) {
+      count++;
+    }
+    for (const child of n.namedChildren) {
+      visit(child);
+    }
+  };
+  visit(tree.rootNode);
+  return count;
+}
+
+/**
+ * Drop `symbol` from the named imports of `module` (the default accepts both
+ * core spellings, as `ensureSymbolImport` does). The import statement's line
+ * goes with it when `symbol` was the only thing it brought in; a missing
+ * specifier is a no-op.
+ */
+export async function removeSymbolImport(
+  code: string,
+  symbol: string,
+  module = 'fluidcad/core',
+): Promise<string> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  // Unlike ensureSymbolImport, which only needs SOME import of the module,
+  // the specifier can sit in any of them — a file may spell the core module
+  // both ways across two lines — so every matching import is searched.
+  const accepts = (source: string): boolean => module === 'fluidcad/core'
+    ? source === 'fluidcad' || source === 'fluidcad/core'
+    : source === module;
+  let importNode: TSNode | null = null;
+  let specs: TSNode[] = [];
+  let index = -1;
+  for (const node of tree.rootNode.namedChildren) {
+    const source = node.type === 'import_statement' ? node.childForFieldName('source') : null;
+    if (!source || !accepts(source.text.slice(1, -1))) {
+      continue;
+    }
+    const namedImports = findNamedImports(node);
+    if (!namedImports) {
+      continue;
+    }
+    specs = namedImports.namedChildren.filter((n) => n.type === 'import_specifier');
+    index = specs.findIndex((spec) => (spec.childForFieldName('name') ?? spec.namedChild(0))?.text === symbol);
+    if (index >= 0) {
+      importNode = node;
+      break;
+    }
+  }
+  if (!importNode) {
+    return code;
+  }
+  const clause = importNode.namedChildren.find((n) => n.type === 'import_clause');
+  const bringsOnlyThis = specs.length === 1 && clause?.namedChildren.length === 1;
+  if (bringsOnlyThis) {
+    return removeStatementLine(code, importNode);
+  }
+  const spec = specs[index];
+  // A non-last specifier takes the comma after it; the last takes the one
+  // before, so `{ a, unit }` reads `{ a }` and `{unit, a }` reads `{ a }`.
+  const isLast = index === specs.length - 1;
+  const start = isLast ? consumeLeadingSeparator(code, spec.startIndex) : spec.startIndex;
+  const end = isLast ? spec.endIndex : consumeTrailingSeparator(code, spec.endIndex);
+  const withoutSpec = spliceCode(code, start, end, '');
+  // `{unit, a }` (the shape ensureSymbolImport writes) becomes `{a }` — put
+  // the space back so the brace pair reads evenly.
+  const braceOffset = findNamedImports(importNode)!.startIndex + 1;
+  if (!isLast && index === 0 && withoutSpec[braceOffset] !== ' ' && withoutSpec[braceOffset] !== '\n') {
+    return spliceCode(withoutSpec, braceOffset, braceOffset, ' ');
+  }
+  return withoutSpec;
+}
+
+/**
  * Recognise a solved-sketch constraint statement (`coincident(…);`,
  * `distance(…);`, …): an expression_statement whose call's chain-base callee
  * is one of the constraint commands. Geometry inserts before the first of
@@ -502,6 +755,22 @@ function findLastImport(tree: TSTree): TSNode | null {
     }
   }
   return last;
+}
+
+/**
+ * Where a generated top-level declaration goes: after the last import, or
+ * after the file's `unit()` statement when that sits below the imports.
+ * `unit()` must stay the first statement after the imports (before any
+ * geometry, and above `param()` declarations by convention), so nothing is
+ * ever inserted between the imports and it.
+ */
+export function findTopLevelDeclarationAnchor(tree: TSTree): TSNode | null {
+  const lastImport = findLastImport(tree);
+  const unitStatement = findTopLevelUnitStatement(tree);
+  if (unitStatement && (!lastImport || unitStatement.endIndex > lastImport.endIndex)) {
+    return unitStatement;
+  }
+  return lastImport;
 }
 
 function findNamedImports(importNode: TSNode): TSNode | null {
@@ -1096,10 +1365,20 @@ export async function ensureSymbolImport(
       return code;
     }
   }
+  // Match the import's own spacing: `{ a }` → `{ unit, a }`, `{a}` →
+  // `{unit, a}`, and a multi-line list gets its own indented line.
   const openBraceOffset = namedImports.startIndex + 1;
   const after = code[openBraceOffset];
-  const needsSpace = after !== ' ' && after !== '\t' && after !== '\n';
-  const insertText = needsSpace ? ` ${symbol},` : `${symbol},`;
+  let insertText: string;
+  if (after === '\n' || after === '\r') {
+    const nextLineStart = code.indexOf('\n', openBraceOffset) + 1;
+    const indent = code.slice(nextLineStart).match(/^[ \t]*/)?.[0] ?? '';
+    insertText = `\n${indent}${symbol},`;
+  } else if (after === ' ' || after === '\t') {
+    insertText = ` ${symbol},`;
+  } else {
+    insertText = `${symbol}, `;
+  }
   return code.slice(0, openBraceOffset) + insertText + code.slice(openBraceOffset);
 }
 
@@ -1545,8 +1824,9 @@ export async function declareSketchVariable(
 
 /**
  * Insert `const name = initializer;` at top level, directly after the last
- * import (or as the file's first line). Param declarations land here — one
- * shared spot right under the imports — rather than inside a sketch body.
+ * import — or after the file's `unit()` statement, which keeps its place
+ * right under the imports — or as the file's first line. Param declarations
+ * land here, one shared spot, rather than inside a sketch body.
  */
 export async function declareTopLevelVariable(
   code: string,
@@ -1556,9 +1836,9 @@ export async function declareTopLevelVariable(
   const p = await getParser();
   const tree = p.parse(code);
   const statement = `const ${name} = ${initializer};`;
-  const lastImport = findLastImport(tree);
-  if (lastImport) {
-    return spliceCode(code, lastImport.endIndex, lastImport.endIndex, `\n${statement}`);
+  const anchor = findTopLevelDeclarationAnchor(tree);
+  if (anchor) {
+    return spliceCode(code, anchor.endIndex, anchor.endIndex, `\n${statement}`);
   }
   return `${statement}\n${code}`;
 }

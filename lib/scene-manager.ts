@@ -8,12 +8,26 @@ import { buildFeatureGhost } from "./rendering/feature-ghost.js";
 import type { FeatureGhostRequest, FeatureGhostResult } from "./rendering/feature-ghost.js";
 import { buildTextPathPreview } from "./rendering/text-path-preview.js";
 import type { TextPathPreviewRequest } from "./rendering/text-path-preview.js";
-import { DEFAULT_MESH_CONFIG } from "./oc/mesh.js";
-import type { MeshConfig } from "./oc/mesh.js";
+import { MESH_PRESETS, DEFAULT_MESH_QUALITY } from "./oc/mesh.js";
+import type { MeshQuality } from "./oc/mesh.js";
 import type { FluidCADOptions } from "./index.js";
+import { createUnitRegistry, getUnitRegistry } from "./units/registry.js";
+import { MM_PER_UNIT } from "./units/units.js";
+import type { LengthUnit } from "./units/units.js";
+import { createProjectUnitLookup, resolveProjectUnit } from "./project-unit.js";
 import { FileImport } from "./io/file-import.js";
 import { FileExport } from "./io/file-export.js";
 import type { ExportOptions } from "./io/file-export.js";
+import type { StepFileUnits } from "./oc/step-units.js";
+
+/** What an import produced, for the "N solids, file unit INCH" report. */
+export type ImportReport = {
+  solidCount: number;
+  /** The unit the cached geometry is in (always mm). */
+  unit: LengthUnit;
+  /** The unit names the source file declared. */
+  sourceUnits: StepFileUnits;
+};
 import { Solid } from "./common/solid.js";
 import { ShapeProps } from "./oc/props.js";
 import type { ShapeProperties } from "./oc/props.js";
@@ -48,22 +62,42 @@ class SceneManager {
   currentScene: Scene = new Scene();
   currentFile: string = '';
   renderer: SceneRenderer;
+  /**
+   * The unit files without unit() run in (init options → fluidcad.json →
+   * mm). Mutable: a host that re-reads fluidcad.json per render re-seeds it
+   * here; the next startScene() picks it up.
+   */
+  projectUnit: LengthUnit;
 
-  constructor(public rootPath: string, public readonly meshConfig: MeshConfig) {
-    this.renderer = new SceneRenderer(meshConfig);
+  constructor(public rootPath: string, public readonly meshQuality: MeshQuality, projectUnit: LengthUnit) {
+    this.renderer = new SceneRenderer(meshQuality);
+    this.projectUnit = projectUnit;
   }
 
   setCurrentFile(filePath: string) {
     this.currentFile = filePath;
+    // Hosts call startScene() before setCurrentFile(): re-point the registry.
+    getUnitRegistry().rootFile = filePath;
+  }
+
+  /** A fresh unit registry per render — every scene start, so per-test starts reset it too. */
+  startUnitRegistry(): void {
+    createUnitRegistry({
+      projectUnit: this.projectUnit,
+      rootFile: this.currentFile,
+      projectUnitForFile: createProjectUnitLookup(this.rootPath),
+    });
   }
 
   startScene() {
+    this.startUnitRegistry();
     this.currentScene = new Scene();
     console.log("Starting new scene");
     return this.currentScene;
   }
 
   startAssemblyScene(): AssemblyScene {
+    this.startUnitRegistry();
     const scene = new AssemblyScene();
     this.currentScene = scene;
     console.log("Starting new assembly scene");
@@ -145,8 +179,9 @@ class SceneManager {
     SceneDisposal.disposeScene(scene);
   }
 
-  importFile(workspacePath: string, fileName: string, data: Uint8Array) {
-    FileImport.importFile(workspacePath, fileName, data);
+  importFile(workspacePath: string, fileName: string, data: Uint8Array): ImportReport {
+    const { solids, unit, sourceUnits } = FileImport.importFile(workspacePath, fileName, data);
+    return { solidCount: solids.length, unit, sourceUnits };
   }
 
   getShapeProperties(scene: Scene, shapeId: string): ShapeProperties | null {
@@ -206,7 +241,8 @@ class SceneManager {
     if (inputs.length === 0) {
       return null;
     }
-    return MeasureOps.measure(inputs);
+    // Measure runs outside any build scope: sample at the scene's own density.
+    return MeasureOps.measure(inputs, { quality: this.meshQuality, unit: scene.unit });
   }
 
   exportShapes(scene: Scene, shapeIds: string[], options: ExportOptions): { data: string | Uint8Array; fileName: string } {
@@ -223,7 +259,8 @@ class SceneManager {
       throw new Error('No matching solids found for export');
     }
 
-    return FileExport.exportShapes(solids, options);
+    // The shapes' numbers are in the scene's unit unless the caller asserts otherwise.
+    return FileExport.exportShapes(solids, { ...options, unit: options.unit ?? scene.unit });
   }
 
   explainSelection(scene: Scene, refs: PickRef[], before?: SelectionBoundary): ExplainResult | BoundaryFailure {
@@ -327,7 +364,7 @@ class SceneManager {
    * profile alone and freed before returning.
    */
   buildFeatureGhost(scene: Scene, request: FeatureGhostRequest): FeatureGhostResult {
-    return buildFeatureGhost(scene, request, this.meshConfig);
+    return buildFeatureGhost(scene, request, this.meshQuality);
   }
 
   /** Resolve a 2D statement's target arguments onto the active sketch's edges. */
@@ -391,16 +428,39 @@ function findShapeById(scene: Scene, shapeId: string) {
 
 let currentManager: SceneManager | null = null;
 
-function resolveMeshConfig(options?: FluidCADOptions): MeshConfig {
-  return {
-    linDefl: options?.mesh?.lineDeflection ?? DEFAULT_MESH_CONFIG.linDefl,
-    angDefl: options?.mesh?.angularDeflection ?? DEFAULT_MESH_CONFIG.angDefl,
-  };
+/**
+ * `init({ mesh })` → quality. `quality` picks a preset; an explicit
+ * `lineDeflection` (in document units — the project unit at init) or
+ * `angularDeflection` pins that value and marks the result `custom`. A pinned
+ * linear deflection is stored in mm with floor = ceiling so it resolves to
+ * the same physical density in every document.
+ */
+export function resolveMeshQuality(options: FluidCADOptions | undefined, projectUnit: LengthUnit): MeshQuality {
+  const mesh = options?.mesh;
+  const base = mesh?.quality ? MESH_PRESETS[mesh.quality] : DEFAULT_MESH_QUALITY;
+  if (!base) {
+    throw new Error(`init(): unknown mesh quality '${String(mesh?.quality)}'. Use one of: draft, standard, fine.`);
+  }
+  if (mesh?.lineDeflection === undefined && mesh?.angularDeflection === undefined) {
+    return base;
+  }
+  const quality: MeshQuality = { ...base, preset: 'custom' };
+  if (mesh.lineDeflection !== undefined) {
+    const linDeflMm = mesh.lineDeflection * MM_PER_UNIT[projectUnit];
+    quality.relative = 0;
+    quality.minMm = linDeflMm;
+    quality.maxMm = linDeflMm;
+  }
+  if (mesh.angularDeflection !== undefined) {
+    quality.angularRad = mesh.angularDeflection;
+  }
+  return quality;
 }
 
 export function createManager(rootPath: string, options?: FluidCADOptions) {
   console.log(`Creating SceneManager with root path: ${rootPath}`);
-  currentManager = new SceneManager(rootPath, resolveMeshConfig(options));
+  const projectUnit = resolveProjectUnit(rootPath, options);
+  currentManager = new SceneManager(rootPath, resolveMeshQuality(options, projectUnit), projectUnit);
   return currentManager;
 }
 

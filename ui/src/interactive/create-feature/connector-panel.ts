@@ -64,11 +64,11 @@ export class ConnectorPanel extends FeaturePanel {
           title="Move the connector along its own axes — X and Y in the frame plane, Z along the frame normal — measured before the rotation">
           <span class="text-base-content/70">Offset (X, Y, Z)</span>
           <div class="flex gap-1.5">
-            <input data-role="offset-x" type="number" step="any" placeholder="0" title="Along the connector's X axis"
+            <input data-role="offset-x" data-unit="length" type="number" step="any" placeholder="0" title="Along the connector's X axis"
               class="input input-sm input-bordered w-full text-xs" />
-            <input data-role="offset-y" type="number" step="any" placeholder="0" title="Along the connector's Y axis"
+            <input data-role="offset-y" data-unit="length" type="number" step="any" placeholder="0" title="Along the connector's Y axis"
               class="input input-sm input-bordered w-full text-xs" />
-            <input data-role="offset-z" type="number" step="any" placeholder="0" title="Along the connector's Z axis (the frame normal)"
+            <input data-role="offset-z" data-unit="length" type="number" step="any" placeholder="0" title="Along the connector's Z axis (the frame normal)"
               class="input input-sm input-bordered w-full text-xs" />
           </div>
         </div>

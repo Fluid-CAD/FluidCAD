@@ -6,6 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import type { LengthUnit } from './project-config.ts';
 
 export const INSTANCE_DIR_NAME = '.fluidcad';
 export const INSTANCE_FILE_NAME = 'instance.json';
@@ -23,6 +24,12 @@ export type InstanceFile = {
   version: string;
   /** ISO 8601 timestamp captured when the server began listening. */
   startedAt: string;
+  /**
+   * The project's configured unit (`fluidcad.json`), null when unset (mm).
+   * Additive on schema 1 — absent in files older servers wrote, and readers
+   * (`bin/lib/server-client.js`, MCP) validate only the fields above.
+   */
+  unit?: LengthUnit | null;
 };
 
 function instanceDir(workspacePath: string): string {

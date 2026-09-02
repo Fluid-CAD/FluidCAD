@@ -19,6 +19,7 @@
 //  4. Edit Start/End while paused → next Play restarts from Start.
 
 import { ICON_CLOSE, ICON_PAUSE, ICON_PLAY, ICON_STOP } from './icons';
+import { sceneUnit } from '../units/scene-unit';
 import type { MateReadout } from '../solver';
 
 const STEP_INTERVAL_MS = 40;
@@ -126,8 +127,8 @@ export class AnimateBar {
     this.restValue = current?.value ?? 0;
     this.step = 0;
     this.direction = 1;
-    const unit = target.kind === 'angle' ? '°' : ' mm';
-    this.title.textContent = `${target.label} (${unit.trim()})`;
+    const unit = target.kind === 'angle' ? '°' : sceneUnit.current;
+    this.title.textContent = `${target.label} (${unit})`;
     const start = current?.value ?? target.limits?.[0] ?? 0;
     const end = target.limits?.[1] ?? start + (target.kind === 'angle' ? 90 : 10);
     this.startInput.value = fmt(start);

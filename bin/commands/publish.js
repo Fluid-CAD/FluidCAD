@@ -72,6 +72,7 @@ async function runPublish(opts) {
   // import for the same reason (keeps esbuild/jszip off the startup path of
   // non-publish commands), consistent with how `pack` loads it.
   const { packModel } = await import('../../server/dist/model-package/pack.js');
+  const { readProjectConfig } = await import('../../server/dist/project-config.js');
   const { manifest, zip } = await packModel({
     entryPath: entry,
     workspacePath: workspace,
@@ -79,6 +80,8 @@ async function runPublish(opts) {
     name,
     description,
     paramDefinitions,
+    // The project unit ships in the manifest — `fluidcad.json` itself never does.
+    unit: readProjectConfig(workspace).unit ?? 'mm',
   });
 
   // Show exactly what's going up so stray files/secrets get caught before they

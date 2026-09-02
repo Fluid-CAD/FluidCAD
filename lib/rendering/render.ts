@@ -8,13 +8,17 @@ import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { Sketch } from "../features/2d/sketch.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { Exposed } from "../features/exposed.js";
+import type { Part } from "../features/part.js";
+import { scaleForeignPart } from "../features/part-scale.js";
 import { transformMeshes } from "./mesh-transform.js";
 import { attachSketchSnapVertices } from "./sketch-snap.js";
 import { ShapeOps } from "../oc/shape-ops.js";
-import { Mesh } from "../oc/mesh.js";
-import type { MeshConfig } from "../oc/mesh.js";
+import { Mesh, bboxDiagonal, bucketDiagonal, meshSizeBucket, resolveMeshConfig } from "../oc/mesh.js";
+import type { MeshQuality, MeshSettings } from "../oc/mesh.js";
 import { Profiler } from "../common/profiler.js";
 import { describeError } from "../common/describe-error.js";
+import { withUnit } from "../units/registry.js";
+import type { LengthUnit } from "../units/units.js";
 
 type RenderEmit = {
   sceneShapes: RenderedShape[];
@@ -55,15 +59,54 @@ function computeCallSiteOccurrences(sceneObjects: SceneObject[]): Map<SceneObjec
   return occurrences;
 }
 
+/**
+ * The parts in this render whose definition unit differs from the unit they
+ * are consumed in, keyed by the scene index of their LAST member — where the
+ * renderer rescales them. Members are found by enclosing part, not by
+ * position: a donor definition materialized mid-body interleaves with the
+ * consumer's children in the flat list.
+ */
+function collectForeignParts(
+  scene: Scene,
+  sceneObjects: SceneObject[],
+): Map<number, { part: Part; members: SceneObject[] }[]> {
+  const lastIndex = new Map<Part, number>();
+  const members = new Map<Part, SceneObject[]>();
+  for (let i = 0; i < sceneObjects.length; i++) {
+    const part = scene.findEnclosingPart(sceneObjects[i]);
+    if (!part || !part.isForeignUnit()) {
+      continue;
+    }
+    lastIndex.set(part, i);
+    let list = members.get(part);
+    if (!list) {
+      list = [];
+      members.set(part, list);
+    }
+    list.push(sceneObjects[i]);
+  }
+
+  const byIndex = new Map<number, { part: Part; members: SceneObject[] }[]>();
+  for (const [part, index] of lastIndex) {
+    let due = byIndex.get(index);
+    if (!due) {
+      due = [];
+      byIndex.set(index, due);
+    }
+    due.push({ part, members: members.get(part)! });
+  }
+  return byIndex;
+}
+
 export class SceneRenderer {
-  private readonly meshConfig: MeshConfig;
+  private readonly meshQuality: MeshQuality;
   private readonly meshBuilder: MeshBuilder;
   /** Recomputed at the top of every render pass — see computeCallSiteOccurrences. */
   private occurrenceIndexes: Map<SceneObject, number> = new Map();
 
-  constructor(meshConfig: MeshConfig) {
-    this.meshConfig = meshConfig;
-    this.meshBuilder = new MeshBuilder(meshConfig);
+  constructor(settings: MeshSettings) {
+    this.meshBuilder = new MeshBuilder(settings);
+    this.meshQuality = this.meshBuilder.quality;
   }
 
   render(scene: Scene): Scene {
@@ -74,28 +117,45 @@ export class SceneRenderer {
     const skippedContainers = new Set<SceneObject>();
     const buildDurations = new Map<SceneObject, number>();
     const profilers = new Map<SceneObject, Profiler>();
+    const foreignParts = collectForeignParts(scene, sceneObjects);
 
-    for (const object of sceneObjects) {
+    for (let i = 0; i < sceneObjects.length; i++) {
+      const object = sceneObjects[i];
       // Skip descendants of cloned sketches — their edges are already
       // computed by the parent sketch's clone-mode build.
       const parent = object.getParent();
       if (parent && skippedContainers.has(parent)) {
         skippedContainers.add(object);
-        continue;
+      } else {
+        console.log("Rendering object:", object.getUniqueType());
+
+        if (!scene.isCached(object)) {
+          const result = this.buildObject(object, scene);
+          buildDurations.set(object, result.totalMs);
+          profilers.set(object, result.profiler);
+        }
+
+        // After building, mark cloned sketches so their children are skipped —
+        // the sketch's build() already populated them with transformed shapes.
+        if (object instanceof Sketch && object.getCloneSource()) {
+          skippedContainers.add(object);
+        }
       }
 
-      console.log("Rendering object:", object.getUniqueType());
-
-      if (!scene.isCached(object)) {
-        const result = this.buildObject(object, scene);
-        buildDurations.set(object, result.totalMs);
-        profilers.set(object, result.profiler);
-      }
-
-      // After building, mark cloned sketches so their children are skipped —
-      // the sketch's build() already populated them with transformed shapes.
-      if (object instanceof Sketch && object.getCloneSource()) {
-        skippedContainers.add(object);
+      // A foreign-unit part is rescaled the moment its last member has
+      // built: its members had to build in the definition unit, and the
+      // first consumer outside the part (which comes later in scene order)
+      // must read it in the scene's. Cached members already carry scaled
+      // state from the previous render (the compares keep such parts
+      // atomic, so it is all or nothing).
+      const due = foreignParts.get(i);
+      if (due) {
+        for (const { part, members } of due) {
+          const built = members.filter(m => !scene.isCached(m));
+          if (built.length > 0) {
+            scaleForeignPart(part, built, scene);
+          }
+        }
       }
     }
 
@@ -176,7 +236,7 @@ export class SceneRenderer {
       }
 
       const sceneShapes = obj.getOwnShapes({ excludeMeta: false, excludeGuide: false }, scope);
-      const renderedSceneShapes = sceneShapes.map(s => this.toRenderedShape(s));
+      const renderedSceneShapes = sceneShapes.map(s => this.toRenderedShape(s, obj.getUnit()));
 
       // A rollback re-emits already-built objects rather than rebuilding them,
       // but an object that failed to build still carries its error — dropping
@@ -198,22 +258,30 @@ export class SceneRenderer {
     return scene;
   }
 
-  // Mesh every shape that still needs triangulation in a single
-  // BRepMesh_IncrementalMesh call. OC's parallel mode then balances faces
-  // across all shapes at once instead of running per-shape sequentially.
-  // The triangulation lives on each TFace, so the existing per-shape
-  // extraction in prepareRenderedShapes finds it cached and short-circuits
-  // its own ensureTriangulated call.
+  // Mesh every shape that still needs triangulation in one
+  // BRepMesh_IncrementalMesh call per size bucket. OC's parallel mode then
+  // balances faces across all shapes of a bucket at once instead of running
+  // per-shape sequentially. The triangulation lives on each TFace, so the
+  // per-shape extraction in prepareRenderedShapes finds it cached and
+  // short-circuits its own ensureTriangulated call — which asks for the same
+  // bucket-resolved deflection (resolveRenderMeshConfig), so the cache check
+  // agrees.
+  //
+  // Buckets are keyed on the owning object's unit as well as its size: until
+  // Phase 5 scales foreign parts, objects in one scene may run in different
+  // units, and a deflection is only meaningful in the unit it was resolved in.
   private batchTriangulate(
     sceneObjects: SceneObject[],
     skippedContainers: Set<SceneObject>,
   ): void {
-    const targets = new Set<Shape>();
+    const buckets = new Map<string, { unit: LengthUnit; bucket: number; targets: Set<Shape> }>();
+    let total = 0;
 
     for (const object of sceneObjects) {
       if (skippedContainers.has(object) || object.isLazy()) {
         continue;
       }
+      const unit = object.getUnit();
       const shapes = object.getOwnShapes({ excludeMeta: false, excludeGuide: false });
       for (const shape of shapes) {
         if (shape.getMeshes()) {
@@ -224,22 +292,34 @@ export class SceneRenderer {
         if (target.getMeshes()) {
           continue;
         }
-        targets.add(target);
+        const bucket = meshSizeBucket(bboxDiagonal(target.getShape()));
+        const key = `${unit}:${bucket}`;
+        let entry = buckets.get(key);
+        if (!entry) {
+          entry = { unit, bucket, targets: new Set<Shape>() };
+          buckets.set(key, entry);
+        }
+        if (!entry.targets.has(target)) {
+          entry.targets.add(target);
+          total++;
+        }
       }
     }
 
-    if (targets.size <= 1) {
+    if (total <= 1) {
       return;
     }
 
-    const compound = ShapeOps.makeCompoundRaw([...targets].map(s => s.getShape()));
-    try {
-      const t0 = performance.now();
-      Mesh.ensureTriangulated(compound, this.meshConfig);
-      console.log(`Batched mesh: ${targets.size} shapes in ${(performance.now() - t0).toFixed(1)}ms`);
-    } finally {
-      compound.delete();
+    const t0 = performance.now();
+    for (const { unit, bucket, targets } of buckets.values()) {
+      const compound = ShapeOps.makeCompoundRaw([...targets].map(s => s.getShape()));
+      try {
+        Mesh.ensureTriangulated(compound, resolveMeshConfig(bucketDiagonal(bucket), this.meshQuality, unit));
+      } finally {
+        compound.delete();
+      }
     }
+    console.log(`Batched mesh: ${total} shapes in ${buckets.size} bucket(s) in ${(performance.now() - t0).toFixed(1)}ms`);
   }
 
   private prepareRenderedShapes(
@@ -256,7 +336,7 @@ export class SceneRenderer {
       if (sceneShapes.length) {
         console.log(` - Scene shapes: ${sceneShapes.length}`);
         for (const shape of sceneShapes) {
-          renderedSceneShapes.push(this.toRenderedShape(shape, profiler));
+          renderedSceneShapes.push(this.toRenderedShape(shape, obj.getUnit(), profiler));
         }
       }
       return { renderedSceneShapes, ownShapeCount: sceneShapes.length };
@@ -304,7 +384,9 @@ export class SceneRenderer {
 
     try {
       object.validate();
-      object.build({
+      // A deferred build runs outside its statement's call stack: re-enter
+      // the unit the statement was authored in (a foreign part's features).
+      withUnit(object.getUnit(), () => object.build({
         getSceneObjects: () => scene.getPartScopedObjectsUpTo(object),
         getActiveSceneObjects: () => scene.getPartScopedActiveObjectsUpTo(object),
         getSceneObjectsFromTo: (from: SceneObject, to: SceneObject) => scene.getSceneObjectsFromTo(from, to),
@@ -320,7 +402,7 @@ export class SceneRenderer {
           return null;
         },
         getProfiler: () => profiler,
-      });
+      }));
 
       const appliedTransform = object.getAppliedTransform();
       if (appliedTransform && !object.isContainer()) {
@@ -339,7 +421,9 @@ export class SceneRenderer {
     return { totalMs, profiler };
   }
 
-  private getOrBuildMeshes(shape: Shape, profiler?: Profiler): SceneObjectMesh[] | null {
+  // Meshing runs outside the object's build scope, so the owning object's
+  // unit travels explicitly: the deflection is resolved in that unit.
+  private getOrBuildMeshes(shape: Shape, unit: LengthUnit, profiler?: Profiler): SceneObjectMesh[] | null {
     const existing = shape.getMeshes();
     if (existing) {
       return existing;
@@ -352,12 +436,12 @@ export class SceneRenderer {
       if (meshSource) {
         let sourceMeshes = meshSource.shape.getMeshes();
         if (!sourceMeshes) {
-          sourceMeshes = this.meshBuilder.build(meshSource.shape);
+          sourceMeshes = this.meshBuilder.build(meshSource.shape, unit);
           meshSource.shape.setMeshes(sourceMeshes);
         }
-        meshes = sourceMeshes ? transformMeshes(sourceMeshes, meshSource.matrix) : this.meshBuilder.build(shape);
+        meshes = sourceMeshes ? transformMeshes(sourceMeshes, meshSource.matrix) : this.meshBuilder.build(shape, unit);
       } else {
-        meshes = this.meshBuilder.build(shape);
+        meshes = this.meshBuilder.build(shape, unit);
       }
 
       shape.setMeshes(meshes);
@@ -367,10 +451,10 @@ export class SceneRenderer {
     }
   }
 
-  private toRenderedShape(shape: Shape, profiler?: Profiler): RenderedShape {
+  private toRenderedShape(shape: Shape, unit: LengthUnit, profiler?: Profiler): RenderedShape {
     return {
       shapeId: shape.id,
-      meshes: this.getOrBuildMeshes(shape, profiler),
+      meshes: this.getOrBuildMeshes(shape, unit, profiler),
       shapeType: shape.getType(),
       isMetaShape: shape.isMetaShape() || undefined,
       isGuide: shape.isGuideShape() || undefined,
@@ -442,7 +526,7 @@ export class SceneRenderer {
       return undefined;
     }
     try {
-      return obj.source.getShapes().map(s => this.toRenderedShape(s));
+      return obj.source.getShapes().map(s => this.toRenderedShape(s, obj.source.getUnit()));
     } catch {
       return undefined;
     }
@@ -494,6 +578,7 @@ export class SceneRenderer {
       interactivity: obj instanceof GeometrySceneObject && obj.getParent() instanceof Sketch
         ? obj.getSketchInteractivity()
         : undefined,
+      unit: obj.getUnit(),
       fromCache: scene.isCached(obj),
       visible: opts.visible,
       reusable: obj.isReusable() || undefined,

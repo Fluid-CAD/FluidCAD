@@ -4,6 +4,7 @@ import { Solid } from "../common/solid.js";
 import { Wire } from "../common/wire.js";
 import { ConstrainedLoft, LoftEndCondition, LoftConditionKind } from "./loft/constrained-loft.js";
 import { GuidedLoft } from "./loft/guided-loft.js";
+import { mmTol } from "../units/tolerance.js";
 
 export type { LoftEndCondition, LoftConditionKind };
 
@@ -50,7 +51,7 @@ export class LoftOps {
   private static makeThruSectionsLoft(wires: Wire[]): Solid[] {
     const oc = getOC();
 
-    const thruSections = new oc.BRepOffsetAPI_ThruSections(true, false, 1e-6);
+    const thruSections = new oc.BRepOffsetAPI_ThruSections(true, false, mmTol(1e-6));
 
     for (const wire of wires) {
       thruSections.AddWire(wire.getShape());

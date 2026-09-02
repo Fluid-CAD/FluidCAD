@@ -379,6 +379,21 @@ function extractPartSignatures(): SignatureInfo[] {
   ];
 }
 
+// `unit()` is a plain exported function with no call-signature interface
+// (same shape as `breakpoint()`), so its signature is written out here.
+function extractUnitSignatures(): SignatureInfo[] {
+  return [
+    {
+      description: "Declares the length unit of the file it is written in. Numbers in the file are then in that unit; the default is millimetres. Must be the first statement after the imports (top level, before any geometry, once per file, literal string) and is only allowed in part files — assemblies use the project unit from fluidcad.json.",
+      params: [
+        { name: 'name', type: 'string', description: "One of 'mm', 'cm', 'm', 'in', 'ft'. Aliases such as 'inch', 'inches', 'millimeter' or 'feet' are accepted.", optional: false },
+      ],
+      returnType: 'void',
+      isPlaneVariant: false,
+    },
+  ];
+}
+
 // Simplify type text by removing import(...) paths and internal types
 function simplifyType(typeText: string): string {
   // Remove import("..."). prefixes
@@ -493,6 +508,8 @@ function generate() {
       sigs = extractDatumSignatures(sf, feature.constName, feature.returnType);
     } else if (feature.name === 'part') {
       sigs = extractPartSignatures();
+    } else if (feature.name === 'unit') {
+      sigs = extractUnitSignatures();
     }
 
     const examples = findExamples(feature.name);

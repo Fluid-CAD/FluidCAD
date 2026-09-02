@@ -98,12 +98,12 @@ export class HelixPanel extends FeaturePanel {
         <div data-role="radius-row" class="grid grid-cols-2 gap-2">
           <label class="flex flex-col gap-1.5" title="Start radius — blank uses the API default (20)">
             <span class="text-base-content/70">Radius</span>
-            <input data-role="radius" type="number" step="1" class="input input-sm input-bordered w-full text-xs" />
+            <input data-role="radius" data-unit="length" type="number" step="1" class="input input-sm input-bordered w-full text-xs" />
           </label>
           <label class="flex flex-col gap-1.5"
             title="End radius — set it different from radius for a tapered (conical) helix">
             <span class="text-base-content/70">End radius</span>
-            <input data-role="end-radius" type="number" step="1" placeholder="taper"
+            <input data-role="end-radius" data-unit="length" type="number" step="1" placeholder="taper"
               class="input input-sm input-bordered w-full text-xs" />
           </label>
         </div>
@@ -116,27 +116,27 @@ export class HelixPanel extends FeaturePanel {
               class="input input-sm input-bordered w-full text-xs" />
           </label>
           <label data-role="pitch-row" class="flex flex-col gap-1" title="Axial rise per full turn">
-            <input data-role="pitch" type="number" step="1"
+            <input data-role="pitch" data-unit="length" type="number" step="1"
               class="input input-sm input-bordered w-full text-xs" />
           </label>
         </div>
         <label class="flex flex-col gap-1.5"
           title="Total axial height — leave blank to size it from the coil (turns × pitch) or the face">
           <span class="text-base-content/70">Height</span>
-          <input data-role="height" type="number" step="1" placeholder="auto"
+          <input data-role="height" data-unit="length" type="number" step="1" placeholder="auto"
             class="input input-sm input-bordered w-full text-xs" />
         </label>
         <div class="grid grid-cols-2 gap-2">
           <label class="flex flex-col gap-1.5"
             title="Shift the start along the axis — negative extends past the source">
             <span class="text-base-content/70">Start offset</span>
-            <input data-role="start-offset" type="number" step="1" placeholder="0"
+            <input data-role="start-offset" data-unit="length" type="number" step="1" placeholder="0"
               class="input input-sm input-bordered w-full text-xs" />
           </label>
           <label class="flex flex-col gap-1.5"
             title="Shift the end along the axis — positive extends past the source">
             <span class="text-base-content/70">End offset</span>
-            <input data-role="end-offset" type="number" step="1" placeholder="0"
+            <input data-role="end-offset" data-unit="length" type="number" step="1" placeholder="0"
               class="input input-sm input-bordered w-full text-xs" />
           </label>
         </div>

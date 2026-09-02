@@ -8,6 +8,7 @@ import { interpolateWithDerivatives, BSplineCurveData } from "../../math/bspline
 import { Solid } from "../../common/solid.js";
 import { CompatibleSections, CompatibleSection } from "./section-compatibility.js";
 import { CurveData } from "./curve-data.js";
+import { mmTol } from "../../units/tolerance.js";
 
 /** How a loft leaves (or arrives at) an end profile. */
 export type LoftConditionKind = "normal" | "tangent";
@@ -48,7 +49,10 @@ export interface SkinnedGrid {
  * and `GuidedLoft` (virtual sections along rails).
  */
 export class Skinning {
-  private static readonly SEWING_TOLERANCE = 1e-6;
+  /** 1e-6 mm, in the active unit. */
+  private static get SEWING_TOLERANCE(): number {
+    return mmTol(1e-6);
+  }
 
   /**
    * Interpolates each pole column along the loft. Every column shares the

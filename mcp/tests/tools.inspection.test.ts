@@ -15,6 +15,7 @@ import {
   getShapeProperties,
   hitTest,
   listShapes,
+  measure,
   resolveClient,
 } from '../src/tools/inspection.ts';
 import type { RegistryEntry } from '../src/types.ts';
@@ -153,6 +154,7 @@ describe('inspection tools (unit)', () => {
         body: {
           schemaVersion: 1,
           file: '/tmp/ws-mcp-inspect/part.fluid.js',
+          unit: 'in',
           objects: [
             { index: 0, id: 'obj-12', kind: 'sketch', name: 'outer', params: { plane: 'xy' }, shapeIds: ['sh-1'], fromCache: false, hasError: false, containerId: null },
             { index: 1, id: 'obj-13', kind: 'extrude', name: 'Extrude', params: { distance: 30 }, shapeIds: ['sh-2'], fromCache: false, hasError: false, containerId: null },
@@ -174,10 +176,11 @@ describe('inspection tools (unit)', () => {
         status: 200,
         body: { compileError: null },
       }),
-      '/api/shape-properties': () => ({ status: 200, body: { volume: 150000 } }),
-      '/api/face-properties': () => ({ status: 200, body: { area: 5000 } }),
-      '/api/edge-properties': () => ({ status: 200, body: { length: 100 } }),
+      '/api/shape-properties': () => ({ status: 200, body: { volumeMm3: 150000, unit: 'in' } }),
+      '/api/face-properties': () => ({ status: 200, body: { areaMm2: 5000, unit: 'in' } }),
+      '/api/edge-properties': () => ({ status: 200, body: { length: 100, unit: 'in' } }),
       '/api/hit-test': () => ({ status: 200, body: { type: 'face', index: 3 } }),
+      '/api/measure': () => ({ status: 200, body: { primary: 'totalArea', totalArea: 12.5, unit: 'in' } }),
     });
     writeRegistry([entry()]);
   });
@@ -190,6 +193,20 @@ describe('inspection tools (unit)', () => {
     }
     expect((result.data as any).schemaVersion).toBe(1);
     expect((result.data as any).objects.length).toBe(2);
+    // The document unit rides along verbatim — the agent labels lengths with it.
+    expect((result.data as any).unit).toBe('in');
+  });
+
+  it('property and measure payloads pass the document unit through untouched', async () => {
+    const shape = await getShapeProperties({ shapeId: 'sh-2' });
+    expect(shape.ok && (shape.data as any).unit).toBe('in');
+    const face = await getFaceProperties({ shapeId: 'sh-2', faceIndex: 0 });
+    expect(face.ok && (face.data as any).unit).toBe('in');
+    const edge = await getEdgeProperties({ shapeId: 'sh-2', edgeIndex: 0 });
+    expect(edge.ok && (edge.data as any).unit).toBe('in');
+    const measured = await measure({ entities: [{ shapeId: 'sh-2', kind: 'face', index: 0 }] });
+    expect(measured.ok && (measured.data as any).unit).toBe('in');
+    expect(lastRequest?.url).toBe('/api/measure');
   });
 
   it('list_shapes returns the flat shape list', async () => {
@@ -296,6 +313,15 @@ describe('inspection tools (over MCP)', () => {
       ]) {
         expect(names.has(expected)).toBe(true);
       }
+      // The descriptions must not promise mm: lengths are in the document unit.
+      const byName = new Map(tools.tools.map((t) => [t.name, t.description ?? '']));
+      expect(byName.get('measure')).toContain('document unit');
+      expect(byName.get('measure')).not.toContain('All lengths are mm');
+      for (const name of ['get_scene_summary', 'get_shape_properties', 'get_face_properties', 'get_edge_properties']) {
+        expect(byName.get(name)).toContain('`unit`');
+      }
+      expect(byName.get('pack_model')).toContain('`unit`');
+      expect(byName.get('pack_model')).toContain('schemaVersion 3');
     } finally {
       await client.close();
       await server.close();
@@ -309,6 +335,7 @@ describe('inspection tools (over MCP)', () => {
         body: {
           schemaVersion: 1,
           file: '/tmp/ws-mcp-inspect/part.fluid.js',
+          unit: 'in',
           objects: [],
           rollbackStop: -1,
           compileError: null,

@@ -44,7 +44,7 @@ export class RibPanel extends FeaturePanel {
         <label class="flex flex-col gap-1.5"
           title="Wall thickness, centered on the spine — the sign picks which side of the sketch plane the rib grows from">
           <span class="text-base-content/70">Thickness</span>
-          <input data-role="thickness" type="number" step="0.5" value="5"
+          <input data-role="thickness" data-unit="length" type="number" step="0.5" value="5"
             class="input input-sm input-bordered w-full text-xs" />
         </label>
         <label class="flex items-center justify-between cursor-pointer"

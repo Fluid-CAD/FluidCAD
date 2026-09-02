@@ -229,6 +229,7 @@ export class SweepOps {
     for (let i = 0; i + 1 < tangents.length; i++) {
       axis = axis.add(tangents[i].cross(tangents[i + 1]));
     }
+    // unit: dimensionless (sum of unit-tangent cross products)
     if (axis.length() < 1e-6) {
       return null;
     }

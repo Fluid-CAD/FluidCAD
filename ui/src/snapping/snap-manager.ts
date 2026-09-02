@@ -2,10 +2,15 @@ import { Vector3 } from 'three';
 import { Snapper, SnapResult, SolvedVertexRef } from './types';
 import { VertexSnapper, VertexCandidate } from './vertex-snapper';
 import { AxisSnapper } from './axis-snapper';
-import { GridSnapper, computeAdaptiveGridSpacing } from './grid-snapper';
+import { GridSnapper } from './grid-snapper';
 import { PlaneData, SceneObjectRender } from '../types';
 import { SceneContext } from '../scene/scene-context';
 import { buildSolvedSketchModel, isSolvedSketch } from '../sketch-solver-client/model';
+import { worldUnitsPerPixel } from '../meshes/screen-scale';
+import { resolveGridSpacing } from '../grid/grid-spacing';
+import { currentGridPrefs } from '../grid/grid-prefs';
+import { sceneUnit } from '../units/scene-unit';
+import { worldFromMm } from '../units/scene-scale';
 
 const DEFAULT_SNAP_THRESHOLD_PX = 15;
 
@@ -66,31 +71,22 @@ export class SnapManager {
   }
 
   private worldUnitsPerPixel(): number {
-    const camera = this.ctx!.camera;
-    const rect = this.ctx!.renderer.domElement.getBoundingClientRect();
-    const canvasHeight = rect.height || 1;
-
-    let worldHeight: number;
-    const cam = camera as any;
-    if (cam.isOrthographicCamera) {
-      worldHeight = (cam.top - cam.bottom) / (cam.zoom || 1);
-    } else {
-      const target = new Vector3();
-      this.ctx!.cameraControls.getTarget(target);
-      const d = camera.position.distanceTo(target);
-      const fovRad = (cam.fov * Math.PI) / 180;
-      worldHeight = 2 * d * Math.tan(fovRad / 2);
-    }
-
-    return worldHeight / canvasHeight;
+    const ctx = this.ctx!;
+    const rect = ctx.renderer.domElement.getBoundingClientRect();
+    // Sketch mode is orthographic, so the focus only matters for a 3D-mode
+    // snap; the orbit target is the honest depth there.
+    const cam = ctx.camera as { isOrthographicCamera?: boolean };
+    const focus = cam.isOrthographicCamera ? undefined : ctx.cameraControls.getTarget(new Vector3());
+    return worldUnitsPerPixel(ctx.camera, rect.height, focus);
   }
 
+  /** The drawn grid's pitch at this zoom — same resolver, same inputs. */
   private updateGridSpacing(worldUnitsPerPixel: number): void {
-    const adaptiveSpacing = computeAdaptiveGridSpacing(worldUnitsPerPixel);
+    const { minor } = resolveGridSpacing(sceneUnit.current, worldUnitsPerPixel, currentGridPrefs());
 
     for (const s of this.snappers) {
       if (s instanceof GridSnapper) {
-        s.setSpacing(adaptiveSpacing);
+        s.setSpacing(minor);
       }
     }
   }
@@ -104,7 +100,8 @@ export class SnapManager {
   ): SnapManager {
     // Extract vertex positions from sketch child mesh data
     const candidates: VertexCandidate[] = [];
-    const EPSILON_SQ = 1e-6;
+    // Two vertices within a thousandth of a millimetre are one vertex.
+    const EPSILON_SQ = worldFromMm(1e-3) ** 2;
     const pushUnique = (u: number, v: number, ref?: SolvedVertexRef) => {
       const isDup = candidates.some(
         ({ point: p }) => (p[0] - u) * (p[0] - u) + (p[1] - v) * (p[1] - v) < EPSILON_SQ,
@@ -217,11 +214,14 @@ export class SnapManager {
       pushUnique(u, v);
     }
 
-    // Priority order: vertex snap, then the datum axes, then grid snap
+    // Priority order: vertex snap, then the datum axes, then grid snap.
+    // The grid starts at the zoom-free pitch (fixed mode's value); with a
+    // context every snap re-pitches it to the drawn grid first.
+    const initialGrid = resolveGridSpacing(sceneUnit.current, 0, currentGridPrefs());
     const snappers: Snapper[] = [
       new VertexSnapper(candidates, plane),
       ...(hasDatums ? [new AxisSnapper(plane)] : []),
-      new GridSnapper(plane),
+      new GridSnapper(plane, initialGrid.minor),
     ];
 
     return new SnapManager(snappers, DEFAULT_SNAP_THRESHOLD_PX, ctx ?? null);

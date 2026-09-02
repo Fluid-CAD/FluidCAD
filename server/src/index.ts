@@ -2,7 +2,8 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import express from 'express';
-import { FluidCadServer } from './fluidcad-server.ts';
+import { FluidCadServer, sceneUnitFields } from './fluidcad-server.ts';
+import type { SceneRenderedData } from './fluidcad-server.ts';
 import { createServerCore } from './server-core.ts';
 import { createPropertiesRouter } from './routes/properties.ts';
 import { createParamsRouter } from './routes/params.ts';
@@ -29,12 +30,18 @@ import { createFeatureGhostRouter } from './routes/feature-ghost.ts';
 import { createFilesRouter } from './routes/files.ts';
 import { createEngineTypesRouter } from './routes/engine-types.ts';
 import { createWorkspaceStateRouter } from './routes/workspace-state.ts';
+import { createUnitRouter } from './routes/unit.ts';
 import { createWorkspaceWatcher, type WorkspaceWatcher } from './files/workspace-watcher.ts';
 import { FeatureEditDispatcher } from './edit-dispatch.ts';
 import { HostRegistry } from './host-registry.ts';
 import { attachEditorHostTransport, broadcastEditorCapabilities } from './editor-host-transport.ts';
 import { normalizePath } from './normalize-path.ts';
-import { readProjectConfig, describeEnginePinMismatch } from './project-config.ts';
+import {
+  readProjectConfig,
+  describeEnginePinMismatch,
+  describeProjectUnitProblem,
+  type LengthUnit,
+} from './project-config.ts';
 import { PageWriteLedger } from './files/page-write-ledger.ts';
 import type { CompileError, SerializedAssembly } from './ws-protocol.ts';
 import { detectKind } from './file-kind.ts';
@@ -74,6 +81,11 @@ const STARTED_AT = new Date().toISOString();
 // Read once at startup: the pin describes the project, and a project doesn't
 // change which engine it was authored against while its server is running.
 const PROJECT_CONFIG = readProjectConfig(WORKSPACE_PATH);
+// What an error replay reports as the scene's unit when no render of that
+// file has succeeded yet: the project unit, which is what a file without its
+// own `unit()` statement resolves to anyway. Read live, not from the startup
+// snapshot: the unit chip can rewrite fluidcad.json while the server runs.
+const projectUnitNow = (): LengthUnit => readProjectConfig(WORKSPACE_PATH).unit ?? 'mm';
 
 
 // ---------------------------------------------------------------------------
@@ -129,6 +141,8 @@ app.use('/api', createHealthRouter({
   workspacePath: WORKSPACE_PATH,
   startedAt: STARTED_AT,
   enginePin: PROJECT_CONFIG.engine,
+  unit: PROJECT_CONFIG.unit,
+  readUnit: projectUnitNow,
 }));
 app.use('/api', createPropertiesRouter(fluidCadServer));
 app.use('/api', createParamsRouter(fluidCadServer, sendToHost, broadcastToUI, editDispatcher));
@@ -153,6 +167,12 @@ app.use('/api', createFilesRouter({
 }));
 app.use('/api', createEngineTypesRouter(PACKAGE_VERSION));
 app.use('/api', createWorkspaceStateRouter(WORKSPACE_PATH));
+app.use('/api', createUnitRouter({
+  workspacePath: WORKSPACE_PATH,
+  fluidCadServer,
+  sendToExtension: sendToHost,
+  broadcastToUI,
+}));
 app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION, getLastCameraState));
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
 app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher));
@@ -202,26 +222,26 @@ let workspaceWatcher: WorkspaceWatcher | null = null;
  * (a PART the assembly's mate dialog just wrote a connector into).
  */
 const pageWrites = new PageWriteLedger();
-const lastSceneByFile = new Map<string, { result: any[]; rollbackStop: number; sceneKind: FluidScriptKind; assembly?: SerializedAssembly }>();
+const lastSceneByFile = new Map<string, {
+  result: any[];
+  rollbackStop: number;
+  sceneKind: FluidScriptKind;
+  unit: LengthUnit;
+  declaredUnit: LengthUnit | null;
+  assembly?: SerializedAssembly;
+}>();
 
 attachEditorHostTransport({ core, hosts, dispatcher: editDispatcher, dirtyBufferState });
 
-function emitSuccess(
-  version: number,
-  absPath: string,
-  sceneKind: FluidScriptKind,
-  result: any[],
-  rollbackStop: number,
-  breakpointHit?: boolean,
-  assembly?: SerializedAssembly,
-  params?: any[],
-) {
-  lastSceneByFile.set(absPath, { result, rollbackStop, sceneKind, assembly });
+function emitSuccess(version: number, data: SceneRenderedData) {
+  const { absPath, sceneKind, unit, declaredUnit, result, rollbackStop, breakpointHit, assembly, params } = data;
+  lastSceneByFile.set(absPath, { result, rollbackStop, sceneKind, unit, declaredUnit, assembly });
   fluidCadServer.setCompileError(null);
   sendToExtension({
     type: 'scene-rendered',
     absPath,
     sceneKind,
+    ...sceneUnitFields(data),
     result,
     rollbackStop,
     ...(assembly ? { assembly } : {}),
@@ -231,6 +251,7 @@ function emitSuccess(
     result,
     absPath,
     sceneKind,
+    ...sceneUnitFields(data),
     rollbackStop,
     breakpointHit,
     params,
@@ -265,12 +286,20 @@ function emitCompileError(version: number, filePath: string, err: any): CompileE
   const result = prev?.result ?? [];
   const rollbackStop = prev?.rollbackStop ?? -1;
   const sceneKind = prev?.sceneKind ?? detectKind(key) ?? 'part';
+  // The replayed scene is the last good one, so it keeps that render's
+  // unit; the project unit is not the scene's and is read live.
+  const units = {
+    unit: prev?.unit ?? projectUnitNow(),
+    declaredUnit: prev?.declaredUnit ?? null,
+    projectUnit: projectUnitNow(),
+  };
   const assembly = prev?.assembly;
   fluidCadServer.setCompileError(compileError);
   sendToExtension({
     type: 'scene-rendered',
     absPath: key,
     sceneKind,
+    ...units,
     result,
     rollbackStop,
     compileError,
@@ -281,6 +310,7 @@ function emitCompileError(version: number, filePath: string, err: any): CompileE
     result,
     absPath: key,
     sceneKind,
+    ...units,
     rollbackStop,
     compileError,
     ...(assembly ? { assembly } : {}),
@@ -307,10 +337,16 @@ function emitMissingEngine(version: number, filePath: string): boolean {
   }
   const key = normalizePath(filePath).replace('virtual:live-render:', '');
   const compileError: CompileError = { message: reason, filePath: key };
-  const sceneKind = lastSceneByFile.get(key)?.sceneKind ?? detectKind(key) ?? 'part';
+  const prev = lastSceneByFile.get(key);
+  const sceneKind = prev?.sceneKind ?? detectKind(key) ?? 'part';
+  const units = {
+    unit: prev?.unit ?? projectUnitNow(),
+    declaredUnit: prev?.declaredUnit ?? null,
+    projectUnit: projectUnitNow(),
+  };
   fluidCadServer.setCompileError(compileError);
-  sendToExtension({ type: 'scene-rendered', absPath: key, sceneKind, result: [], rollbackStop: -1, compileError });
-  broadcastToUI({ type: 'scene-rendered', result: [], absPath: key, sceneKind, rollbackStop: -1, compileError });
+  sendToExtension({ type: 'scene-rendered', absPath: key, sceneKind, ...units, result: [], rollbackStop: -1, compileError });
+  broadcastToUI({ type: 'scene-rendered', result: [], absPath: key, sceneKind, ...units, rollbackStop: -1, compileError });
   broadcastToUI({ type: 'render-version', version, state: 'error', absPath: key });
   return true;
 }
@@ -346,7 +382,7 @@ async function runLiveRender(fileName: string, code: string, keepCurrent = false
       emitMissingEngine(myVersion, fileName);
       return { state: 'no-scene-manager', version: myVersion, durationMs: Date.now() - startedAt };
     }
-    emitSuccess(myVersion, data.absPath, data.sceneKind, data.result, data.rollbackStop, data.breakpointHit, data.assembly, data.params);
+    emitSuccess(myVersion, data);
     // The scene is served either way — a feature that fails to build doesn't
     // abort the render, it just leaves its geometry out. But that is NOT a
     // successful render as far as the caller is concerned, so it gets its own
@@ -395,7 +431,7 @@ async function processFile(filePath: string): Promise<void> {
     const data = await fluidCadServer.processFile(filePath);
     if (myVersion !== renderVersion) { return; }
     if (data) {
-      emitSuccess(myVersion, data.absPath, data.sceneKind, data.result, data.rollbackStop, data.breakpointHit, data.assembly, data.params);
+      emitSuccess(myVersion, data);
       return;
     }
     // No data and no throw: there was nothing to render with. Say so rather
@@ -429,15 +465,20 @@ async function handleExtensionMessage(msg: any) {
         const data = await fluidCadServer.rollback(msg.fileName, msg.index);
         if (myVersion !== renderVersion) { return; }
         if (data) {
-          emitSuccess(myVersion, data.absPath, data.sceneKind, data.result, data.rollbackStop, data.breakpointHit, data.assembly);
+          emitSuccess(myVersion, data);
         }
         break;
       }
 
       case 'import-file': {
         try {
-          await fluidCadServer.importFile(msg.workspacePath, msg.fileName, msg.data);
-          sendToExtension({ type: 'import-complete', success: true });
+          const report = await fluidCadServer.importFile(msg.workspacePath, msg.fileName, msg.data);
+          // Older engines return nothing — the payload fields are optional for them.
+          sendToExtension({
+            type: 'import-complete',
+            success: true,
+            ...(report ? { solidCount: report.solidCount, sourceUnits: report.sourceUnits } : {}),
+          });
         } catch (err: any) {
           sendToExtension({ type: 'error', message: describeOcException(err) });
         }
@@ -534,6 +575,10 @@ httpServer.listen(PORT, () => {
   if (pinWarning) {
     console.warn(pinWarning);
   }
+  const unitWarning = describeProjectUnitProblem(PROJECT_CONFIG);
+  if (unitWarning) {
+    console.warn(unitWarning);
+  }
 
   // Tell the page about edits made outside it. Announcement only — the CLI's
   // watcher still owns re-rendering on an external change, so nothing here
@@ -560,6 +605,7 @@ httpServer.listen(PORT, () => {
         workspacePath: WORKSPACE_PATH,
         version: PACKAGE_VERSION,
         startedAt: STARTED_AT,
+        unit: PROJECT_CONFIG.unit,
       });
     } catch (err: any) {
       console.warn(`Failed to write instance file: ${err?.message ?? err}`);

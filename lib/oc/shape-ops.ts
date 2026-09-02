@@ -14,6 +14,7 @@ import { Edge } from "../common/edge.js";
 import { Explorer } from "./explorer.js";
 import { VertexOps } from "./vertex-ops.js";
 import { BoundingBox } from "../helpers/types.js";
+import { mmTol } from "../units/tolerance.js";
 
 /**
  * A cleanShape result that preserves UnifySameDomain lineage so callers can
@@ -285,7 +286,7 @@ export class ShapeOps {
     const VERTEX = oc.TopAbs_ShapeEnum.TopAbs_VERTEX as TopAbs_ShapeEnum;
     // Seam vertices are exact copies of the profile vertices on the sketch
     // plane; the tolerance only needs to absorb numeric drift.
-    const tolerance = 1e-6;
+    const tolerance = mmTol(1e-6);
 
     const raw = shape.getShape();
     const keptVertices: TopoDS_Shape[] = [];

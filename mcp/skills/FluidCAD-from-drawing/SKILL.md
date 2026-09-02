@@ -31,7 +31,7 @@ Do not transcribe the digits alone, one long careful pass at a time. The read sp
 
 **Your structural glance.** Read the sheet once for what it is, not yet for its numbers:
 
-- **Title block:** units (mm or inch), scale, projection angle (first vs third), general tolerance note, material, revision. These change how you interpret every view. FluidCAD works in millimetres; if the drawing is in inches, decide the conversion policy with the user up front.
+- **Title block:** units (mm or inch), scale, projection angle (first vs third), general tolerance note, material, revision. These change how you interpret every view. FluidCAD files are in millimetres unless they say otherwise: a drawing in inches is modelled with `unit('in')` as the first statement after the imports, writing the sheet's numbers verbatim (or, for a single imperial dimension in a metric part, `inch(x)` from `fluidcad/units`) — never by multiplying by 25.4 by hand. Confirm the policy with the user up front.
 - **Views:** which are orthographic (front/top/right), which are sections, which are detail blow-ups. For a section, note where the cutting plane is — a section shows internal geometry, not an outer face.
 - **Dashed lines are hidden geometry** — bores, pockets, and counterbores seen through material; internal features to cut, never outlines to extrude.
 - **Callouts** you'll need decoded: `⌀` diameter, `R` radius, `SR` spherical radius, `□` square, `⌴` counterbore, `⌵` countersink, `↧` depth, `THRU`, `TYP`, `4X`, `±`, bolt-circle notation, thread callouts (`M6×1`, `1/4-20 UNC`).

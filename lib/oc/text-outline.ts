@@ -4,6 +4,7 @@ import { Geometry } from "./geometry.js";
 import { Plane } from "../math/plane.js";
 import { Point, Point2D } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
+import { mmTol } from "../units/tolerance.js";
 
 export type TextAlign = "left" | "center" | "right" | "start" | "end" | "space-between" | "space-around";
 
@@ -44,11 +45,14 @@ interface FontPoint {
 }
 
 /**
- * Minimum edge length (model units) below which a segment/curve is treated as
- * degenerate and skipped. Safely above OCCT's Precision::Confusion (1e-7) and
- * far below any real glyph feature at typical sizes.
+ * Minimum edge length below which a segment/curve is treated as degenerate
+ * and skipped: 1e-6 mm, read in the active unit. Safely above OCCT's
+ * Precision::Confusion (1e-7) and far below any real glyph feature at
+ * typical sizes.
  */
-const EPS = 1e-6;
+function minEdgeLength(): number {
+  return mmTol(1e-6);
+}
 
 /**
  * Turns a text string into outline edges laid out on `plane`, suitable for
@@ -206,6 +210,7 @@ export class TextOutline {
 
     const dist = (a: FontPoint, b: FontPoint): number =>
       Math.hypot((a.x - b.x) * scale, (a.y - b.y) * scale);
+    const EPS = minEdgeLength();
 
     const addSegment = (a: FontPoint, b: FontPoint): void => {
       if (dist(a, b) < EPS) {

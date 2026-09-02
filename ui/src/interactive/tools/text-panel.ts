@@ -1,4 +1,6 @@
 import { PanelShell, ChoiceTabs } from '../create-feature/panel-controls';
+import { sceneUnit } from '../../units/scene-unit';
+import { applyUnitTitles } from '../../units/apply-unit-defaults';
 import { EntitySlotControl } from '../create-feature/entity-slot';
 import { getFontFamilies, TextAlignOption, TextOptionValues } from '../../api';
 
@@ -75,12 +77,12 @@ export class TextPanel {
       <div data-role="path-slot"></div>
       <div data-role="path-options" class="hidden flex-col gap-3.5">
         <div class="flex items-center gap-1.5">
-          <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="Shift off the path in mm; negative moves to the other side">
+          <label class="flex flex-col gap-1.5 flex-1 min-w-0" data-unit-title="Shift off the path in {unit}; negative moves to the other side">
             <span class="text-base-content/70">Offset</span>
             <input data-role="path-offset" type="number" step="0.5" value="0"
               class="input input-sm input-bordered w-full min-w-0 text-xs" />
           </label>
-          <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="Distance along the path before the text starts, in mm">
+          <label class="flex flex-col gap-1.5 flex-1 min-w-0" data-unit-title="Distance along the path before the text starts, in {unit}">
             <span class="text-base-content/70">Start at</span>
             <input data-role="path-start-at" type="number" step="1" min="0" value="0"
               class="input input-sm input-bordered w-full min-w-0 text-xs" />
@@ -128,7 +130,7 @@ export class TextPanel {
           <input data-role="line-spacing" type="number" step="0.1" min="0.1" value="1"
             class="input input-sm input-bordered w-full min-w-0 text-xs" />
         </label>
-        <label class="flex flex-col gap-1.5 flex-1 min-w-0" title="Extra advance between glyphs, in mm">
+        <label class="flex flex-col gap-1.5 flex-1 min-w-0" data-unit-title="Extra advance between glyphs, in {unit}">
           <span class="text-base-content/70">Letter spacing</span>
           <input data-role="letter-spacing" type="number" step="0.1" value="0"
             class="input input-sm input-bordered w-full min-w-0 text-xs" />
@@ -158,6 +160,8 @@ export class TextPanel {
     this.flipToggle = this.shell.body.querySelector('[data-role="path-flip"]')!;
     this.distributeRow = this.shell.body.querySelector('[data-role="distribute-row"]')!;
     this.alignJoin = this.shell.body.querySelector('[data-role="align"]')!;
+    applyUnitTitles(this.shell.body);
+    sceneUnit.subscribe(() => applyUnitTitles(this.shell.body));
 
     for (const { value, label } of WEIGHT_CHOICES) {
       const option = document.createElement('option');
@@ -370,7 +374,7 @@ export class TextPanel {
     }
     const letterSpacing = parseFloat(this.letterSpacingInput.value);
     if (!Number.isFinite(letterSpacing)) {
-      return { error: 'Enter a letter spacing in mm.' };
+      return { error: `Enter a letter spacing in ${sceneUnit.current}.` };
     }
     // The path-only options read as their defaults while no path is
     // selected — an anchored statement renders no path chains, whatever the
@@ -381,11 +385,11 @@ export class TextPanel {
     if (this.pathMode) {
       offset = parseFloat(this.pathOffsetInput.value);
       if (!Number.isFinite(offset)) {
-        return { error: 'Enter a path offset in mm.' };
+        return { error: `Enter a path offset in ${sceneUnit.current}.` };
       }
       startAt = parseFloat(this.startAtInput.value);
       if (!Number.isFinite(startAt) || startAt < 0) {
-        return { error: 'Enter a non-negative start distance in mm.' };
+        return { error: `Enter a non-negative start distance in ${sceneUnit.current}.` };
       }
       flip = this.flipToggle.checked;
     }

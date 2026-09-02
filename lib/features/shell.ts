@@ -14,6 +14,7 @@ import { ShapeFilter } from "../filters/filter.js";
 import { Matrix4 } from "../math/matrix4.js";
 import { IShell, ShellJoinType } from "../core/interfaces.js";
 import { requireShapes } from "../common/operand-check.js";
+import { mmTol } from "../units/tolerance.js";
 
 export class Shell extends SceneObject implements IShell {
 
@@ -131,7 +132,7 @@ export class Shell extends SceneObject implements IShell {
     // that were not in the original stock are internal (inner walls).
     // Edges on the plane of the removed face selection are excluded from
     // internal edges since they form the opening rim, not inner walls.
-    const tolerance = 1e-6;
+    const tolerance = mmTol(1e-6);
     const stockEdgeMidpoints: Point[] = [];
     for (const shape of allTargetShapes) {
       for (const edge of Explorer.findEdgesWrapped(shape)) {

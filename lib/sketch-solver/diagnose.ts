@@ -57,7 +57,7 @@ function isTransformTie(record: ConstraintRecord): boolean {
 }
 
 export function diagnose(sys: SketchSystem, opts: DiagnoseOptions = {}): SketchDiagnostics {
-  const conflictTol = opts.conflictTol ?? 1e-6;
+  const conflictTol = opts.conflictTol ?? 1e-6 / (opts.lengthScale ?? 1);
   const compiled = sys.compiled();
   const values = sys.values;
   const records = sys.constraints();

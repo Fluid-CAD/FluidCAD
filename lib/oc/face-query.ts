@@ -8,6 +8,7 @@ import { Point } from "../math/point.js";
 import { Plane } from "../math/plane.js";
 import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
+import { mmTol } from "../units/tolerance.js";
 
 export class FaceQuery {
   // Wrapper methods (public API for external callers)
@@ -100,10 +101,12 @@ export class FaceQuery {
     if (type !== FaceQuery.getSurfaceTypeRaw(face2.getShape())) {
       return false;
     }
-    const tolerance = 1e-7;
+    // Distances (plane offset, radius, apex, axis offset): 1e-7 mm in the
+    // active unit. The angular half of the coplanar test is unit-free.
+    const tolerance = mmTol(1e-7);
     if (type === 'plane') {
       return FaceQuery.getSurfacePlane(face1)
-        .isCoplanarWith(FaceQuery.getSurfacePlane(face2), tolerance, tolerance);
+        .isCoplanarWith(FaceQuery.getSurfacePlane(face2), tolerance, 1e-7);
     }
     if (type === 'cylinder') {
       const c1 = FaceQuery.getSurfaceAdaptorCylinderRaw(face1.getShape());

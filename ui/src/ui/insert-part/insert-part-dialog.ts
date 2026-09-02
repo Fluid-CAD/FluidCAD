@@ -11,8 +11,19 @@ import {
 import { ICON_CLOSE } from '../icons';
 import { ParamForm } from '../param-controls';
 import { PartThumbnailRenderer } from './part-thumbnails';
+import { sceneUnit } from '../../units/scene-unit';
+import type { LengthUnit } from '../../units/units';
 
 type CatalogFilter = 'all' | 'parts' | 'assemblies';
+
+/** Long names for the unit badge's tooltip. */
+const UNIT_NAMES: Record<LengthUnit, string> = {
+  mm: 'millimeters',
+  cm: 'centimeters',
+  m: 'meters',
+  in: 'inches',
+  ft: 'feet',
+};
 
 /** One queued instance — tile clicks append these, Insert commits them all. */
 type BasketEntry = {
@@ -281,6 +292,9 @@ export class InsertPartDialog {
   }
 
   private appendTiles(file: CatalogFileEntry, result: CatalogScanResult): void {
+    // The engine's answer wins over the file list's static read; servers
+    // predating units give neither, and an unknown unit draws no badge.
+    const unit = result.unit ?? file.unit;
     for (const part of result.parts) {
       const params = part.params ?? [];
       const paramNote = params.length > 0
@@ -292,6 +306,7 @@ export class InsertPartDialog {
         title: part.partName,
         subtitle: part.kind === 'factory' ? `${part.exportName}()` : part.exportName,
         file,
+        unit,
         tooltip: `Queue ${part.partName}${paramNote}`,
         exportName: part.exportName,
         insertKind: part.kind,
@@ -312,6 +327,7 @@ export class InsertPartDialog {
         title: sub.assemblyName ?? sub.exportName,
         subtitle: `assembly · ${count} instance${count === 1 ? '' : 's'}`,
         file,
+        unit,
         tooltip: `Queue sub-assembly ${sub.assemblyName ?? sub.exportName}`,
         exportName: sub.exportName,
         insertKind: exportKind,
@@ -326,6 +342,8 @@ export class InsertPartDialog {
     title: string;
     subtitle: string;
     file: CatalogFileEntry;
+    /** The entry's authoring unit; undefined when the server can't say. */
+    unit: LengthUnit | undefined;
     tooltip: string;
     exportName: string;
     insertKind: CatalogEntryKind;
@@ -393,6 +411,17 @@ export class InsertPartDialog {
     tile.appendChild(name);
     tile.appendChild(subtitle);
     tile.appendChild(fileCaption);
+    // A part authored in another unit is scaled into this assembly's unit on
+    // insert — say so on the tile, since its numbers won't match the grid.
+    if (opts.unit !== undefined && opts.unit !== sceneUnit.current) {
+      const unitBadge = document.createElement('span');
+      unitBadge.className = 'absolute top-1 left-1 px-1 rounded text-[9px] leading-4 '
+        + 'bg-warning/20 text-warning-content/80 border border-warning/40 pointer-events-none';
+      unitBadge.textContent = opts.unit;
+      unitBadge.title = `${opts.kind === 'assembly' ? 'Sub-assembly' : 'Part'} is in ${UNIT_NAMES[opts.unit]}; `
+        + `it is scaled into this assembly's unit (${sceneUnit.current}).`;
+      tile.appendChild(unitBadge);
+    }
 
     tile.addEventListener('click', () => {
       this.basket.push({

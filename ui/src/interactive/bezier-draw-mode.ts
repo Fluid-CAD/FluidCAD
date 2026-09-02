@@ -14,6 +14,7 @@ import {
   PerspectiveCamera,
   Vector3,
 } from 'three';
+import { worldFromMm } from '../units/scene-scale';
 import { createDashDotLine } from '../meshes/dash-dot-line';
 import { SceneContext } from '../scene/scene-context';
 import { PlaneData } from '../types';
@@ -38,7 +39,14 @@ const SNAP_INDICATOR_GRID_COLOR = 0x888888;
 const CP_RADIUS = 2.5;
 const CP_SEGMENTS = 16;
 const SCALE_FACTOR = 0.003;
-const MAX_SCALE = 1.5;
+/** The handles scale with the view height (unit-free), capped so a wide
+ * view doesn't grow them past 1.5 × CP_RADIUS = 3.75 mm — that cap is the
+ * one millimetre-shaped number here, so it is what converts per unit. */
+const MAX_SCALE_MM = 1.5;
+
+function maxScale(): number {
+  return MAX_SCALE_MM * worldFromMm(1);
+}
 const CP_HIT_THRESHOLD_PX = 12;
 
 // ---------------------------------------------------------------------------
@@ -498,10 +506,10 @@ export class BezierDrawMode {
       const pos = localToWorld(allPoles[i], this.plane);
       dotGroup.position.copy(pos);
       dotGroup.lookAt(pos.clone().add(planeNormal));
-      dotGroup.scale.setScalar(Math.min(computeViewScale(camera, pos, SCALE_FACTOR), MAX_SCALE));
+      dotGroup.scale.setScalar(Math.min(computeViewScale(camera, pos, SCALE_FACTOR), maxScale()));
 
       dot.onBeforeRender = (_r, _s, cam) => {
-        dotGroup.scale.setScalar(Math.min(computeViewScale(cam, pos, SCALE_FACTOR), MAX_SCALE));
+        dotGroup.scale.setScalar(Math.min(computeViewScale(cam, pos, SCALE_FACTOR), maxScale()));
         dotGroup.updateMatrixWorld(true);
       };
 
@@ -534,10 +542,10 @@ export class BezierDrawMode {
       const pos = localToWorld(snapPoint, this.plane);
       this.snapIndicator.position.copy(pos);
       this.snapIndicator.lookAt(pos.clone().add(planeNormal));
-      this.snapIndicator.scale.setScalar(Math.min(computeViewScale(camera, pos, SCALE_FACTOR), MAX_SCALE));
+      this.snapIndicator.scale.setScalar(Math.min(computeViewScale(camera, pos, SCALE_FACTOR), maxScale()));
 
       indicatorMesh.onBeforeRender = (_r, _s, cam) => {
-        this.snapIndicator!.scale.setScalar(Math.min(computeViewScale(cam, pos, SCALE_FACTOR), MAX_SCALE));
+        this.snapIndicator!.scale.setScalar(Math.min(computeViewScale(cam, pos, SCALE_FACTOR), maxScale()));
         this.snapIndicator!.updateMatrixWorld(true);
       };
 

@@ -115,13 +115,13 @@ export class ThinControl {
       <label class="flex flex-col gap-1.5 flex-1 min-w-0"
         title="Wall thickness — the sign picks which side of the profile the wall grows">
         <span class="text-base-content/70">Thickness</span>
-        <input data-role="thin-value" type="number" step="0.5" value="2"
+        <input data-role="thin-value" data-unit="length" type="number" step="0.5" value="2"
           class="input input-sm input-bordered w-full text-xs" />
       </label>
       <label class="flex flex-col gap-1.5 flex-1 min-w-0"
         title="Wall thickness on the opposite side of the profile — leave empty for a single-sided wall">
         <span class="text-base-content/70">Thickness 2</span>
-        <input data-role="thin-value2" type="number" step="0.5" placeholder="off"
+        <input data-role="thin-value2" data-unit="length" type="number" step="0.5" placeholder="off"
           class="input input-sm input-bordered w-full text-xs" />
       </label>
     `;

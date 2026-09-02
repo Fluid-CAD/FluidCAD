@@ -15,6 +15,7 @@ import { projectToSketch, pixelToSketchThreshold, localToWorld } from './sketch-
 import { EdgeEntry, CenterEntry, buildEdgeIndex, buildCenterIndex, pointToSegmentDist } from './sketch-edge-utils';
 import { themeColors } from '../scene/theme-colors';
 import { applyConstantPixelSize } from '../meshes/screen-scale';
+import { worldFromMm } from '../units/scene-scale';
 import { BadgeHitTarget } from '../meshes/containers/solved-constraint-meshes';
 import { insideGlyphBox } from '../meshes/containers/glyph-box';
 import {
@@ -75,7 +76,9 @@ type HoveredVertex = {
   role: 'start' | 'end' | 'center' | null;
   at: [number, number];
 };
-const CENTER_OVERLAY_RADIUS = 2.0;
+/** Geometry radius in mm (paired with the pixel radius below — the
+ * constant-pixel scaler only needs it in the document's magnitude). */
+const CENTER_OVERLAY_RADIUS_MM = 2.0;
 const CENTER_OVERLAY_PX_RADIUS = 6;
 /** Extra slack around a constraint badge's box before a hover counts. */
 const BADGE_HIT_SLACK_PX = 3;
@@ -880,7 +883,8 @@ export class SketchHoverSelectHandler {
   private buildVertexOverlay(point2d: [number, number], opacity: number): Group {
     const pos = localToWorld(point2d, this.plane);
     const normal = this.plane.normal;
-    const geo = new CircleGeometry(CENTER_OVERLAY_RADIUS, 16);
+    const radius = worldFromMm(CENTER_OVERLAY_RADIUS_MM);
+    const geo = new CircleGeometry(radius, 16);
     const mat = new MeshBasicMaterial({
       color: themeColors.highlightColor,
       side: DoubleSide,
@@ -898,7 +902,7 @@ export class SketchHoverSelectHandler {
     group.lookAt(pos.clone().add(new Vector3(normal.x, normal.y, normal.z)));
     // The group's own position anchors the scaling, so re-anchoring a
     // surviving pick after a re-render keeps its size honest.
-    applyConstantPixelSize(dot, group, group.position, CENTER_OVERLAY_PX_RADIUS, CENTER_OVERLAY_RADIUS);
+    applyConstantPixelSize(dot, group, group.position, CENTER_OVERLAY_PX_RADIUS, radius);
     this.ctx.scene.add(group);
     return group;
   }
@@ -1194,7 +1198,8 @@ export class SketchHoverSelectHandler {
     const normal = this.plane.normal;
     const planeNormal = new Vector3(normal.x, normal.y, normal.z);
 
-    const geo = new CircleGeometry(CENTER_OVERLAY_RADIUS, 16);
+    const radius = worldFromMm(CENTER_OVERLAY_RADIUS_MM);
+    const geo = new CircleGeometry(radius, 16);
     const mat = new MeshBasicMaterial({
       color: themeColors.highlightColor,
       side: DoubleSide,
@@ -1212,7 +1217,7 @@ export class SketchHoverSelectHandler {
     group.position.copy(pos);
     group.lookAt(pos.clone().add(planeNormal));
 
-    applyConstantPixelSize(dot, group, pos, CENTER_OVERLAY_PX_RADIUS, CENTER_OVERLAY_RADIUS);
+    applyConstantPixelSize(dot, group, pos, CENTER_OVERLAY_PX_RADIUS, radius);
 
     this.ctx.scene.add(group);
     this.hoveredCenterOverlay = group;

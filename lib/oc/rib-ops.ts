@@ -17,6 +17,7 @@ import { BooleanOps } from "./boolean-ops.js";
 import { Convert } from "./convert.js";
 import { getOC } from "./init.js";
 import type { TopoDS_Shape, TopoDS_Wire } from "ocjs-fluidcad";
+import { mmTol } from "../units/tolerance.js";
 
 export interface RibConformResult {
   solids: Shape[];
@@ -250,7 +251,7 @@ export class RibOps {
       }
     }
 
-    return maxDist + 1e-3;
+    return maxDist + mmTol(1e-3);
   }
 
   static computeExtrudeDistance(plane: Plane, scopeShapes: Shape[]): number {
@@ -280,7 +281,7 @@ export class RibOps {
       }
     }
 
-    return maxDist + 1e-3;
+    return maxDist + mmTol(1e-3);
   }
 
   // Conforms a (possibly over-extended) prismatic rib to the cavity defined by

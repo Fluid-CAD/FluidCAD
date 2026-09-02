@@ -23,6 +23,7 @@ import { getOC } from "../oc/init.js";
 import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
 import { fuseWithSceneObjects } from "../helpers/scene-helpers.js";
 import type { TopAbs_ShapeEnum } from "ocjs-fluidcad";
+import { mmTol } from "../units/tolerance.js";
 
 /** A 3D op's classified face buckets. Each is empty if the op doesn't produce that category. */
 export type ClassifiedFaces = {
@@ -673,9 +674,10 @@ export abstract class ExtrudeBase extends SceneObject implements IExtrude {
     for (const rf of referenceFaces) {
       for (const rfe of rf.getEdges()) {
         const rfeMid = to2D(rfe);
-        if (inwardMids.some(mp => rfeMid.distanceTo(mp) < 1e-4)) {
+        const midTol = mmTol(1e-4);
+        if (inwardMids.some(mp => rfeMid.distanceTo(mp) < midTol)) {
           solidInwardEdges.push(rfe);
-        } else if (outwardMids.some(mp => rfeMid.distanceTo(mp) < 1e-4)) {
+        } else if (outwardMids.some(mp => rfeMid.distanceTo(mp) < midTol)) {
           solidOutwardEdges.push(rfe);
         }
       }

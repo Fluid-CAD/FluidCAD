@@ -6,6 +6,8 @@ import JSZip from 'jszip';
 import ignoreFactory, { type Ignore } from 'ignore';
 import { normalizePath } from '../normalize-path.ts';
 import { getBlockedNodeModule } from '../host/blocked-imports.ts';
+import { isScriptPath, readDeclaredUnit } from '../file-unit.ts';
+import { readProjectConfig, type LengthUnit } from '../project-config.ts';
 import type { ParamDefinition } from '../../../lib/dist/index.js';
 import {
   ASSETS_PREFIX,
@@ -32,6 +34,13 @@ export interface PackInputs {
    */
   paramDefinitions?: ParamDefinition[];
   camera?: ModelPackageCamera;
+  /**
+   * The project unit to record in the manifest. Callers that already hold
+   * the workspace config pass it; when omitted the packer reads
+   * `fluidcad.json` itself (`mm` when unset), so a programmatic caller that
+   * predates units still produces a complete v3 manifest.
+   */
+  unit?: LengthUnit;
 }
 
 export interface PackResult {
@@ -219,6 +228,32 @@ export async function collectWorkspaceFiles(workspaceAbs: string): Promise<strin
   return out.sort();
 }
 
+/**
+ * Every shipped script's `unit()` declaration, keyed by its `files` path.
+ * Static (tree-sitter) so packing stays engine-free; a file that declares
+ * nothing is simply absent. Null when no file declares a unit, so an
+ * all-project-unit package carries no empty map.
+ */
+async function collectFileUnits(
+  workspaceAbs: string,
+  filePaths: string[],
+): Promise<Record<string, LengthUnit> | null> {
+  const units: Record<string, LengthUnit> = {};
+  let any = false;
+  for (const relPath of filePaths) {
+    if (!isScriptPath(relPath)) {
+      continue;
+    }
+    const code = await readFile(join(workspaceAbs, relPath), 'utf8');
+    const unit = await readDeclaredUnit(code);
+    if (unit) {
+      units[relPath] = unit;
+      any = true;
+    }
+  }
+  return any ? units : null;
+}
+
 export async function packModel(inputs: PackInputs): Promise<PackResult> {
   const entryAbs = normalizePath(inputs.entryPath);
   const workspaceAbs = normalizePath(inputs.workspacePath);
@@ -238,15 +273,20 @@ export async function packModel(inputs: PackInputs): Promise<PackResult> {
   const defaultName = basename(entryAbs).replace(/\.fluid\.js$/i, '');
 
   const manifest: ModelPackageManifest = {
-    schemaVersion: 2,
+    schemaVersion: 3,
     name: inputs.name ?? defaultName,
     fluidcadVersion: inputs.fluidcadVersion,
     createdAt: new Date().toISOString(),
     entry: entryRelative,
     hasInit: !!initAbs,
+    unit: inputs.unit ?? readProjectConfig(workspaceAbs).unit ?? 'mm',
     assets: assetPaths,
     files: filePaths,
   };
+  const fileUnits = await collectFileUnits(workspaceAbs, filePaths);
+  if (fileUnits) {
+    manifest.fileUnits = fileUnits;
+  }
   if (inputs.description) manifest.description = inputs.description;
   if (inputs.paramOverrides && Object.keys(inputs.paramOverrides).length > 0) {
     manifest.params = inputs.paramOverrides;

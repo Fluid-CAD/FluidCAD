@@ -57,7 +57,14 @@ export class BrowserEngineHost {
     return { protocolVersion: VIEWER_PROTOCOL_VERSION, engineVersion: version ?? "dev" };
   }
 
-  /** Boot the kernel (OCJS + fonts + scene manager) and expose the linking namespaces. */
+  /**
+   * Boot the kernel (OCJS + fonts + scene manager) and expose the linking
+   * namespaces. A hub host seeds `options.unit` from the package manifest's
+   * `unit` (schemaVersion 3; absent on older packages → mm): the browser has
+   * no `fluidcad.json` to read, so this is the only way the project unit
+   * reaches the engine, and `BrowserRenderResult.unit` then reports what the
+   * viewer should display in.
+   */
   async init(options?: FluidCADOptions): Promise<EngineInfo> {
     installEngineNamespaces();
     this.manager = await init(options);
@@ -148,6 +155,9 @@ export class BrowserEngineHost {
         return {
           result: this.previousScene ? this.previousScene.getRenderedObjects() : [],
           rollbackStop: this.lastRollbackStop,
+          unit: scene.unit,
+      declaredUnit: scene.declaredUnit,
+      projectUnit: this.manager.projectUnit,
           breakpointHit: false,
           objectErrors: [],
           compileError: { message: err?.message ?? String(error), stack: err?.stack },
@@ -173,6 +183,9 @@ export class BrowserEngineHost {
       sceneKind,
       result,
       rollbackStop: this.lastRollbackStop,
+      unit: scene.unit,
+      declaredUnit: scene.declaredUnit,
+      projectUnit: this.manager.projectUnit,
       breakpointHit,
       params,
       objectErrors: BrowserEngineHost.collectObjectErrors(result),
@@ -242,6 +255,9 @@ export class BrowserEngineHost {
     return {
       result,
       rollbackStop: stop,
+      unit: scene.unit,
+      declaredUnit: scene.declaredUnit,
+      projectUnit: this.manager.projectUnit,
       ...(scopePartId ? { rollbackScopePartId: scopePartId } : {}),
       // A rollback doesn't re-run the module — the paused state persists.
       breakpointHit: this.lastBreakpointHit,

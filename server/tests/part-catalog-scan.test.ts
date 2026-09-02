@@ -416,3 +416,46 @@ describe('scanFileForParts — lazy part definitions', () => {
     expect(result.parts[0].params[0]).not.toHaveProperty('sourceLocation');
   });
 });
+
+describe('scanFileForParts — units', () => {
+  it('reports the module scene\'s unit (the file\'s unit() or the project unit)', async () => {
+    const manager = fakeManager([[rendered('p1')]]);
+    const baseStart = manager.startScene.bind(manager);
+    manager.startScene = () => ({ ...baseStart(), unit: 'in' });
+    const result = await scanFileForParts(
+      fakeHost({ p: fakePart('p1', 'P') }),
+      manager,
+      '/ws/inch.part.js',
+      { projectUnit: 'cm' },
+    );
+    expect(result.unit).toBe('in');
+    expect(result.parts).toHaveLength(1);
+  });
+
+  it('falls back to the project unit on an engine whose scenes have no unit', async () => {
+    const result = await scanFileForParts(
+      fakeHost({ p: fakePart('p1', 'P') }),
+      fakeManager([[rendered('p1')]]),
+      '/ws/old-engine.part.js',
+      { projectUnit: 'cm' },
+    );
+    expect(result.unit).toBe('cm');
+  });
+
+  it('reads the unit() statement statically when the module fails to load', async () => {
+    const host = fakeHost({});
+    host.loadModuleRaw = async () => { throw new Error('boom'); };
+    host.getBuffer = () => "import { part } from 'fluidcad';\nunit('ft');\nthrow new Error('boom');\n";
+    const result = await scanFileForParts(host, fakeManager([[]]), '/ws/broken.part.js', { projectUnit: 'mm' });
+    expect(result.errors).toEqual([{ exportName: null, message: 'boom' }]);
+    expect(result.unit).toBe('ft');
+  });
+
+  it('uses the project unit for a failed module that declares nothing', async () => {
+    const host = fakeHost({});
+    host.loadModuleRaw = async () => { throw new Error('boom'); };
+    host.getBuffer = () => "throw new Error('boom');\n";
+    const result = await scanFileForParts(host, fakeManager([[]]), '/ws/broken.part.js', { projectUnit: 'in' });
+    expect(result.unit).toBe('in');
+  });
+});

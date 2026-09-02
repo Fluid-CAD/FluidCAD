@@ -293,6 +293,12 @@ function M.handle_message(msg)
       M.apply_code_edit(msg.filePath, function(code_api, code)
         return code_api.set_feature_name(code, msg.line, msg.name)
       end)
+    elseif msg.type == 'set-unit' then
+      -- `msg.unit` is vim.NIL for "Same as project" (JSON null) and is
+      -- passed through as such; code_api re-encodes it as null.
+      M.apply_code_edit(msg.filePath, function(code_api, code)
+        return code_api.set_unit(code, msg.unit, msg.filePath)
+      end)
     elseif msg.type == 'add-breakpoint' then
       local ok, breakpoints = pcall(require, 'fluidcad.breakpoints')
       if ok and msg.filePath and msg.line then

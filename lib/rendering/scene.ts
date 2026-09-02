@@ -3,6 +3,8 @@ import { SelectSceneObject } from "../features/select.js";
 import { SceneObject } from "../common/scene-object.js";
 import { Extrudable } from "../helpers/types.js";
 import { Part } from "../features/part.js";
+import { getUnitRegistry } from "../units/registry.js";
+import type { LengthUnit } from "../units/units.js";
 
 export type SceneObjectMesh = {
   label?: string;
@@ -57,6 +59,8 @@ export type SceneObjectRender = {
   uniqueType: string;
   /** Viewport classification for sketch geometry children (server-driven). */
   interactivity?: SketchInteractivity;
+  /** The unit the object's numbers are in (its creating statement's file). */
+  unit?: LengthUnit;
   fromCache: boolean;
   hasError: boolean;
   errorMessage?: string;
@@ -101,6 +105,44 @@ export class Scene {
   private partDefinitions: TrackedPartDefinition[] = [];
 
   constructor() {
+  }
+
+  private _units: { unit: LengthUnit; declaredUnit: LengthUnit | null } | null = null;
+
+  /**
+   * The root document's unit and whether the document declared it itself,
+   * frozen together on first read. Resolved by file, lazily: the root's
+   * unit() runs during module evaluation, after startScene(), so nothing
+   * reads this before the document has been evaluated. The first read
+   * freezes it: a rolled-back previous scene is re-emitted after later
+   * renders (possibly of another file) have replaced the registry, and it
+   * must keep reporting its own unit.
+   */
+  private resolveUnits(): { unit: LengthUnit; declaredUnit: LengthUnit | null } {
+    if (this._units === null) {
+      const registry = getUnitRegistry();
+      this._units = { unit: registry.rootUnit, declaredUnit: registry.declared(registry.rootFile) };
+    }
+    return this._units;
+  }
+
+  /**
+   * The unit of this scene's root document: its own unit(), else the project
+   * unit. An assembly scene always lands on the project unit — assembly
+   * files can never declare one.
+   */
+  get unit(): LengthUnit {
+    return this.resolveUnits().unit;
+  }
+
+  /**
+   * The unit the root document declares with unit(), or null when it has no
+   * statement and follows the project unit — the distinction the unit
+   * chip's "Same as project" option is built on (`unit` alone can't tell an
+   * explicit unit('mm') from an undeclared mm file).
+   */
+  get declaredUnit(): LengthUnit | null {
+    return this.resolveUnits().declaredUnit;
   }
 
   trackPartDefinition(definition: TrackedPartDefinition): void {
@@ -353,6 +395,11 @@ export class Scene {
 
   markCached(obj: SceneObject) {
     this.cached.add(obj);
+  }
+
+  /** Undo markCached — the compare decided the object must rebuild after all. */
+  unmarkCached(obj: SceneObject) {
+    this.cached.delete(obj);
   }
 
   isCached(obj: SceneObject) {

@@ -1,8 +1,12 @@
 import { Vector3 } from 'three';
 import { Snapper, SnapResult, SolvedVertexRef } from './types';
 import { PlaneData } from '../types';
+import { worldFromMm } from '../units/scene-scale';
 
-const EXCLUSION_EPSILON_SQ = 1e-6;
+/** An excluded vertex matches within a thousandth of a millimetre. */
+function exclusionEpsilonSq(): number {
+  return worldFromMm(1e-3) ** 2;
+}
 
 /** A snappable vertex; `ref` carries solved-sketch provenance (which entity
  * statement vertex this is) so tools can emit coincident constraints. */
@@ -26,10 +30,11 @@ export class VertexSnapper implements Snapper {
   }
 
   private isExcluded(v: [number, number]): boolean {
+    const epsilonSq = exclusionEpsilonSq();
     for (const e of this.excluded) {
       const dx = v[0] - e[0];
       const dy = v[1] - e[1];
-      if (dx * dx + dy * dy < EXCLUSION_EPSILON_SQ) {
+      if (dx * dx + dy * dy < epsilonSq) {
         return true;
       }
     }

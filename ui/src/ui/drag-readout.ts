@@ -1,12 +1,14 @@
 // Live drag readout pill — shows the dragged slider/revolute joint's
-// current value (Travel in mm / Angle in degrees) while the user drags,
-// so they can read a number straight into `.limits(min, max)`.
+// current value (Travel in document units / Angle in degrees) while the
+// user drags, so they can read a number straight into `.limits(min, max)`.
 //
 // Mirrors DofStatus (a bottom-center pill); sits just above it. Always
-// reports mm / degrees — the units `.limits()` takes — regardless of the
-// Measure tool's display-unit setting, so the value is copy-pasteable.
+// reports the document unit / degrees — what `.limits()` takes — never the
+// Measure tool's display unit, so the value is copy-pasteable. The number
+// is untouched; only the suffix names the unit.
 
 import type { MateReadout } from '../solver';
+import { sceneUnit } from '../units/scene-unit';
 
 /** One-decimal format that never prints "-0.0". */
 function fmt1(n: number): string {
@@ -75,7 +77,7 @@ export class DragReadout {
       this.value.textContent = `${fmt1(readout.value)}°`;
     } else {
       this.label.textContent = 'Travel';
-      this.value.textContent = `${fmt1(readout.value)} mm`;
+      this.value.textContent = `${fmt1(readout.value)} ${sceneUnit.current}`;
     }
     this.pill.classList.remove('hidden');
   }

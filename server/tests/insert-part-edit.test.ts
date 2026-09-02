@@ -118,7 +118,7 @@ describe('applyInsertPartEdit', () => {
       kind: 'assembly',
     }));
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`import {insert, mate } from 'fluidcad/core';`);
+    expect(result.newCode).toContain(`import { insert, mate } from 'fluidcad/core';`);
     expect(result.newCode).toContain(`import { gantryAssembly } from './gantry.assembly.js';`);
     expect(result.newCode).toContain(`const gantryAssembly1 = insert(gantryAssembly());`);
   });

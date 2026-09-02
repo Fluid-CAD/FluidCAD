@@ -2,6 +2,7 @@ import { SceneObject } from "../common/scene-object.js";
 import { Face } from "../common/face.js";
 import { Plane } from "../math/plane.js";
 import { PlaneObjectBase } from "../features/plane-renderable-base.js";
+import { withUnit } from "../units/registry.js";
 
 /**
  * What an `onPlane`/`notOnPlane` filter accepts beyond a raw plane: a plane
@@ -27,7 +28,7 @@ export function resolvePlaneRef(source: PlaneRefSource): Plane {
   }
   let shapes = source.getShapes();
   if (shapes.length === 0 && source.isLazy()) {
-    source.build();
+    withUnit(source.getUnit(), () => source.build());
     shapes = source.getShapes();
   }
   if (shapes.length === 0) {

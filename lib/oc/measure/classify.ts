@@ -2,6 +2,7 @@ import type { BRepAdaptor_Curve, BRepAdaptor_Surface, gp_Ax1, gp_Dir, gp_Pnt, To
 import { getOC } from "../init.js";
 import type { MeasureEntityKind, MeasureVec } from "./measure-types.js";
 import { cross, dot, len, scale, sub } from "./vec.js";
+import { mmTol } from "../../units/tolerance.js";
 
 export type FaceForm = 'plane' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'surface';
 export type EdgeForm = 'line' | 'circle' | 'arc' | 'ellipse' | 'curve';
@@ -58,6 +59,8 @@ function axisData(axis: gp_Ax1): { point: MeasureVec; dir: MeasureVec } {
 // the adaptor type alone misses them. These sampling fallbacks recover the
 // carrier plane/line numerically. (OCCT's GeomLib_IsPlanarSurface would do the
 // face check natively but is not in the current ocjs binding.)
+// Relative part of the carrier fit; the absolute floors below are 1 mm /
+// 1e-6 mm read in the active unit.
 const CARRIER_FIT_TOL = 1e-6;
 const PLANAR_GRID_STEPS = 5;
 const STRAIGHT_EDGE_STEPS = 8;
@@ -90,7 +93,7 @@ function detectPlanarSurface(adaptor: BRepAdaptor_Surface): { point: MeasureVec;
       span = p;
     }
   }
-  if (spanDist < CARRIER_FIT_TOL) {
+  if (spanDist < mmTol(1e-6)) {
     return null;
   }
 
@@ -110,7 +113,7 @@ function detectPlanarSurface(adaptor: BRepAdaptor_Surface): { point: MeasureVec;
   }
 
   const dir = scale(normal, 1 / normalLen);
-  const tol = CARRIER_FIT_TOL * (1 + spanDist);
+  const tol = CARRIER_FIT_TOL * (mmTol(1) + spanDist);
   for (const p of points) {
     if (Math.abs(dot(sub(p, origin), dir)) > tol) {
       return null;
@@ -133,12 +136,12 @@ function detectStraightCurve(
 
   const chord = sub(points[points.length - 1], points[0]);
   const chordLen = len(chord);
-  if (chordLen < CARRIER_FIT_TOL) {
+  if (chordLen < mmTol(1e-6)) {
     return null;
   }
 
   const dir = scale(chord, 1 / chordLen);
-  const tol = CARRIER_FIT_TOL * (1 + chordLen);
+  const tol = CARRIER_FIT_TOL * (mmTol(1) + chordLen);
   for (const p of points) {
     if (len(cross(sub(p, points[0]), dir)) > tol) {
       return null;

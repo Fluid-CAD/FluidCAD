@@ -199,8 +199,8 @@ describe('applySolvedEmission', () => {
       `});`,
     ].join('\n'));
     // Imports split per module, and geometryLines survive the added import line.
-    expect(result.newCode).toContain(`import {line, sketch } from "fluidcad/core";`);
-    expect(result.newCode).toContain(`import { vertical,horizontal, coincident } from 'fluidcad/constraints';`);
+    expect(result.newCode).toContain(`import { line, sketch } from "fluidcad/core";`);
+    expect(result.newCode).toContain(`import { vertical, horizontal, coincident } from 'fluidcad/constraints';`);
     const lines = result.newCode.split('\n');
     result.geometryLines!.forEach((n, i) => {
       expect(lines[n - 1]).toContain(`const l${i + 1} = `);

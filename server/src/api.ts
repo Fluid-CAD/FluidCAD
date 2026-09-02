@@ -69,6 +69,10 @@ export type {
   ModelPackageCamera,
   ParamValue,
 } from './model-package/types.ts';
+// The length-unit vocabulary the manifest's `unit` / `fileUnits` use — the
+// hub validates and displays against the same five codes the engine accepts.
+export type { LengthUnit } from './project-config.ts';
+export { LENGTH_UNITS } from './project-config.ts';
 export {
   MANIFEST_FILENAME,
   BUNDLE_FILENAME,

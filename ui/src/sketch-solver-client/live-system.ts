@@ -7,6 +7,8 @@
 // caveat).
 
 import { SketchSystem, solve } from '../../../lib/sketch-solver/index.js';
+import { MM_PER_UNIT } from '../units/units';
+import { sceneUnit } from '../units/scene-unit';
 import type {
   ConstraintSpec,
   DragPoint,
@@ -112,12 +114,19 @@ export class LiveSolvedSystem {
   /** One drag frame: soft target rows + projection polish (solve.ts). Warm-
    * started from the previous frame's params — call at pointer-move rate. */
   dragSolve(points: DragPoint[]): SolveOutcome {
-    return solve(this.system, { drag: { points } }).outcome;
+    return solve(this.system, { drag: { points }, lengthScale: this.lengthScale() }).outcome;
   }
 
   /** Re-solve without drag rows (constraint ghost previews). */
   solve(): SolveOutcome {
-    return solve(this.system).outcome;
+    return solve(this.system, { lengthScale: this.lengthScale() }).outcome;
+  }
+
+  /** The solver's absolute floors are authored in mm; the sketch's numbers
+   * are in the document unit, so the kernel's solver-context passes the same
+   * scale (see lib/features/2d/solved/solver-context.ts). */
+  private lengthScale(): number {
+    return MM_PER_UNIT[sceneUnit.current];
   }
 
   /** Add a candidate constraint permanently to THIS instance (ghost

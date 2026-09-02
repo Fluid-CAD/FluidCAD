@@ -36,6 +36,7 @@ import {
   handleRemoveFeature,
   handleRenameFeature,
   handleUndoRedo,
+  handleSetUnit,
 } from './code-edits';
 import { updateDiagnostics, type CompileError } from './diagnostics';
 
@@ -150,6 +151,12 @@ export class Client {
       }
       case 'remove-point': {
         handleRemovePoint(this, msg);
+        break;
+      }
+      case 'set-unit': {
+        handleSetUnit(this, msg).catch((err) => {
+          this.logger.appendLine(`[set-unit] error: ${err?.stack || err}`);
+        });
         break;
       }
       case 'goto-source': {

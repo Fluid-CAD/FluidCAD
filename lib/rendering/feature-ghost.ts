@@ -39,13 +39,14 @@ import { EdgeQuery } from "../oc/edge-query.js";
 import { Explorer } from "../oc/explorer.js";
 import { FaceQuery } from "../oc/face-query.js";
 import type { LoftEndCondition } from "../oc/loft-ops.js";
-import type { MeshConfig } from "../oc/mesh.js";
+import type { MeshSettings } from "../oc/mesh.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { WireOps } from "../oc/wire-ops.js";
 import { MeshBuilder } from "./mesh-builder.js";
 import { transformMeshes } from "./mesh-transform.js";
 import { renderFacePatch } from "./render-face.js";
 import { Scene, SceneObjectMesh } from "./scene.js";
+import { withUnit } from "../units/registry.js";
 
 /**
  * A dialog's live geometry request, every value already resolved to a number
@@ -557,7 +558,17 @@ const MAX_GHOST_INSTANCES = 200;
 export function buildFeatureGhost(
   scene: Scene,
   request: FeatureGhostRequest,
-  meshConfig: MeshConfig,
+  meshConfig: MeshSettings,
+): FeatureGhostResult {
+  // Ghosts preview a statement of the open document, so they build in the
+  // root document's unit (Phase 3 tolerances read it).
+  return withUnit(scene.unit, () => buildFeatureGhostInUnit(scene, request, meshConfig));
+}
+
+function buildFeatureGhostInUnit(
+  scene: Scene,
+  request: FeatureGhostRequest,
+  meshConfig: MeshSettings,
 ): FeatureGhostResult {
   // Each arm tests its own feature so the union narrows — `FilletGhostRequest`
   // is keyed on TWO literals, which a negative test can't rule out.
@@ -607,7 +618,7 @@ export function buildFeatureGhost(
  * Mesh the features that build their own geometry — the swept bodies and the
  * helix's curve — then free every shape they were built from.
  */
-function meshGhostBodies(built: GhostBuild, meshConfig: MeshConfig): FeatureGhostResult {
+function meshGhostBodies(built: GhostBuild, meshConfig: MeshSettings): FeatureGhostResult {
   if ('reason' in built) {
     return { ok: false, reason: built.reason };
   }
@@ -642,7 +653,7 @@ function meshGhostBodies(built: GhostBuild, meshConfig: MeshConfig): FeatureGhos
 function buildBandGhost(
   scene: Scene,
   request: FilletGhostRequest,
-  meshConfig: MeshConfig,
+  meshConfig: MeshSettings,
 ): FeatureGhostResult {
   const groups = resolvePickedEdgeGroups(scene, request.edges);
   if (!groups) {
@@ -659,8 +670,9 @@ function buildBandGhost(
         isAngle: request.isAngle,
       });
       try {
+        const builder = new MeshBuilder(meshConfig);
         for (const band of built.bands) {
-          const meshes = renderFacePatch(band.face, meshConfig);
+          const meshes = renderFacePatch(band.face, builder.resolveConfig(band.face));
           if (meshes.length > 0) {
             solids.push({ meshes, kind: band.kind });
           }
@@ -771,7 +783,7 @@ function resolvePickedEdgeGroups(
 function buildPlaneGhost(
   scene: Scene,
   request: PlaneGhostRequest,
-  meshConfig: MeshConfig,
+  meshConfig: MeshSettings,
 ): FeatureGhostResult {
   // Only a face or edge pick opens shapes here; the named sources are read off
   // scene objects and the numbers are plain numbers.
@@ -971,7 +983,7 @@ function buildFillet2DGhost(scene: Scene, request: Fillet2DGhostRequest): GhostB
 function buildCopy2DGhost(
   scene: Scene,
   request: Copy2DGhostRequest,
-  meshConfig: MeshConfig,
+  meshConfig: MeshSettings,
 ): FeatureGhostResult {
   // The cap reads the stated counts alone, before any grid or mesh work —
   // a mistyped count must refuse, not allocate.
@@ -1192,7 +1204,7 @@ function findSketchEdge(
 function buildRepeatGhost(
   scene: Scene,
   request: RepeatGhostRequest,
-  meshConfig: MeshConfig,
+  meshConfig: MeshSettings,
 ): FeatureGhostResult {
   // Only the mirror's face pick opens shapes here; the axis forms clean up
   // after themselves and the instances are plain numbers.
@@ -1368,7 +1380,7 @@ type RepeatStamp = { meshes: SceneObjectMesh[]; kind?: 'add' | 'remove' };
  */
 function repeatStamps(
   runs: RepeatChainRun[],
-  meshConfig: MeshConfig,
+  meshConfig: MeshSettings,
   scratch: Shape[],
 ): RepeatStamp[] {
   const added: Shape[] = [];
@@ -1607,7 +1619,7 @@ function stampMeshes(solids: Shape[], builder: MeshBuilder): SceneObjectMesh[] {
 function buildCopyGhost(
   scene: Scene,
   request: CopyGhostRequest,
-  meshConfig: MeshConfig,
+  meshConfig: MeshSettings,
 ): FeatureGhostResult {
   const placed = copyGhostMatrices(scene, request);
   if ('reason' in placed) {
@@ -1723,7 +1735,7 @@ function copyTargetSolids(targets: SceneObject[]): Shape[] {
 function buildMirrorGhost(
   scene: Scene,
   request: MirrorGhostRequest,
-  meshConfig: MeshConfig,
+  meshConfig: MeshSettings,
 ): FeatureGhostResult {
   const scratch: Shape[] = [];
   try {
@@ -1775,7 +1787,7 @@ function buildMirrorGhost(
 function buildRotateGhost(
   scene: Scene,
   request: RotateGhostRequest,
-  meshConfig: MeshConfig,
+  meshConfig: MeshSettings,
 ): FeatureGhostResult {
   const axis = resolveGhostAxis(scene, request.axis);
   if (!axis) {

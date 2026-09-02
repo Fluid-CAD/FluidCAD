@@ -16,9 +16,12 @@ import {
   renameFeature,
   rollback,
   savePreference,
+  setDocumentUnit,
+  setProjectUnit,
 } from './api';
-import type { EdgeProperties, EditorHistoryResult, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
+import type { EdgeProperties, EditorHistoryResult, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
+import type { LengthUnit } from './units/units';
 
 class HttpEngineEditorClient implements EngineEditorClient {
   addBreakpoint(sourceLocation: SourceLocationParam): void {
@@ -52,6 +55,14 @@ class HttpEngineEditorClient implements EngineEditorClient {
     opts?: { dryRun?: boolean },
   ): Promise<MoveToPartResult> {
     return moveToPart(filePath, lines, part, opts);
+  }
+
+  setDocumentUnit(filePath: string, unit: LengthUnit | null): Promise<SetUnitResult> {
+    return setDocumentUnit(filePath, unit);
+  }
+
+  setProjectUnit(unit: LengthUnit): Promise<SetUnitResult> {
+    return setProjectUnit(unit);
   }
 }
 

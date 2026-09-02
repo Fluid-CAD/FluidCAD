@@ -7,6 +7,8 @@ import { ISceneObject } from "../core/interfaces.js";
 import { FusionScope, OperationMode } from "../features/extrude-options.js";
 import { ShapeType } from "./shape-type.js";
 import { Profiler } from "./profiler.js";
+import { DEFAULT_LENGTH_UNIT } from "../units/units.js";
+import type { LengthUnit } from "../units/units.js";
 
 export type SourceLocation = {
   filePath: string;
@@ -47,6 +49,9 @@ export type BuildSceneObjectContext = {
   getProfiler(): Profiler;
 }
 
+/** State-map key of the post-rescale geometry unit — see SceneObject.getUnit(). */
+const GEOMETRY_UNIT_KEY = 'geometry-unit';
+
 export abstract class SceneObject implements Comparable<SceneObject>, Serializable, ISceneObject {
 
   private state: Map<string, any>;
@@ -64,6 +69,8 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
   private _reusable: boolean = false;
   private _internal: boolean = false;
   private _sourceLocation: SourceLocation | null = null;
+  /** Null until registerBuilder stamps the creating statement's unit — like `_sourceLocation`. */
+  private _unit: LengthUnit | null = null;
   private _error: string | null = null;
   private _destroyed: boolean = false;
   protected _fusionScope?: FusionScope = 'all';
@@ -339,6 +346,7 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
       if (obj._appliedTransform) {
         copy._appliedTransform = obj._appliedTransform;
       }
+      copy._unit = obj._unit;
       remap.set(obj, copy);
       result.push(copy);
 
@@ -782,6 +790,39 @@ export abstract class SceneObject implements Comparable<SceneObject>, Serializab
 
   getSourceLocation(): SourceLocation | null {
     return this._sourceLocation;
+  }
+
+  /** The unit the creating statement's numbers are in — stamped once, at statement time. */
+  setUnit(unit: LengthUnit) {
+    this._unit = unit;
+  }
+
+  hasUnit(): boolean {
+    return this._unit !== null;
+  }
+
+  /**
+   * The unit this object's GEOMETRY is in right now. Equal to the authored
+   * unit until a foreign-part pass rescales the built state into the
+   * consuming scene's unit (part-scale.ts) — from then on the marker in the
+   * state map wins, and it travels with the state through the compare
+   * caches, so a cached object keeps meshing and tolerancing in the unit
+   * its shapes are actually in. A rebuilt object starts from fresh state
+   * and so builds in its authored unit again.
+   */
+  getUnit(): LengthUnit {
+    const scaled = this.state.get(GEOMETRY_UNIT_KEY) as LengthUnit | undefined;
+    return scaled ?? this.getAuthoredUnit();
+  }
+
+  /** The unit the creating statement's numbers are in, ignoring any rescale. */
+  getAuthoredUnit(): LengthUnit {
+    return this._unit ?? DEFAULT_LENGTH_UNIT;
+  }
+
+  /** Record that the built state now holds geometry in `unit` — see getUnit(). */
+  setGeometryUnit(unit: LengthUnit) {
+    this.state.set(GEOMETRY_UNIT_KEY, unit);
   }
 
   setError(message: string) {

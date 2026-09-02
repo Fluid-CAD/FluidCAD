@@ -1,5 +1,7 @@
 import { PanelShell } from './panel-controls';
 import { ExpressionField } from '../../ui/expression-field';
+import { applyUnitDefaults } from '../../units/apply-unit-defaults';
+import { sceneUnit } from '../../units/scene-unit';
 
 /**
  * The base every create/edit feature dialog panel shares: the PanelShell with
@@ -35,6 +37,15 @@ export abstract class FeaturePanel {
         <button data-role="exit" class="btn btn-ghost btn-sm">${opts.exitLabel ?? 'Exit'}</button>
       </div>
     `);
+    // Length defaults are authored in mm; rewrite them for the document
+    // unit now and whenever it changes — but never under an open dialog,
+    // whose fields may hold the user's edit or an edit-mode seed.
+    applyUnitDefaults(this.body);
+    sceneUnit.subscribe(() => {
+      if (!this.shell.isVisible) {
+        applyUnitDefaults(this.body);
+      }
+    });
     this.applyBtn = this.role('apply');
     this.applyBtn.addEventListener('click', () => this.onApply?.());
     this.role('exit').addEventListener('click', () => this.onExit?.());

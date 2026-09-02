@@ -39,7 +39,7 @@ describe('applyFeatureEdit — expose', () => {
     expect(exposeRow).toBeGreaterThan(-1);
     expect(exposeRow).toBeLessThan(returnRow);
     expect(lines[exposeRow].startsWith('    ')).toBe(true);
-    expect(result.newCode).toContain(`import {expose, sketch, circle, extrude, part } from 'fluidcad/core'`);
+    expect(result.newCode).toContain(`import { expose, sketch, circle, extrude, part } from 'fluidcad/core'`);
   });
 
   it('appends at the end of a part body with no return', async () => {

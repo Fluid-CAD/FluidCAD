@@ -56,6 +56,17 @@ export class SceneDisposal {
     SceneDisposal.releaseShapes(shapes, new Set());
   }
 
+  /**
+   * Release wrappers a state rewrite dropped (the foreign-part rescale
+   * swaps every shape of a part for a scaled copy). Anything still reachable
+   * from the scene's state maps survives — a consumer that captured the old
+   * wrapper keeps a live handle.
+   */
+  static releaseReplacedShapes(replaced: Set<Shape>, scene: Scene): void {
+    const survivors = SceneDisposal.collectShapes(scene.getAllSceneObjects());
+    SceneDisposal.releaseShapes(replaced, survivors);
+  }
+
   /** Every Shape wrapper reachable from the objects' state maps. */
   static collectShapes(objects: SceneObject[]): Set<Shape> {
     const shapes = new Set<Shape>();

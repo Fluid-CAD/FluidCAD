@@ -16,7 +16,7 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
   })();
 
   router.post('/export', (req, res) => {
-    const { format, shapeIds, includeColors, resolution, customAngularDeflectionDeg, customLinearDeflection, saveAsPath } = req.body;
+    const { format, shapeIds, includeColors, resolution, customAngularDeflectionDeg, customLinearDeflection, saveAsPath, scaleTo } = req.body;
 
     if (format !== 'step' && format !== 'stl') {
       res.status(400).json({ error: 'Invalid format. Must be "step" or "stl".' });
@@ -40,6 +40,10 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
           return;
         }
       }
+      if (scaleTo !== undefined && scaleTo !== 'mm' && scaleTo !== 'document') {
+        res.status(400).json({ error: 'Invalid scaleTo. Must be "mm" or "document".' });
+        return;
+      }
     }
 
     if (saveAsPath !== undefined && typeof saveAsPath !== 'string') {
@@ -55,6 +59,9 @@ export function createExportRouter(fluidCadServer: FluidCadServer, workspacePath
         resolution: resolution || 'medium',
         customLinearDeflection,
         customAngularDeflectionDeg,
+        // The shapes' unit is the scene's; the engine fills it in. Only the
+        // STL target scale is the client's choice.
+        ...(format === 'stl' && scaleTo ? { scaleTo } : {}),
       });
 
       if (!result) {

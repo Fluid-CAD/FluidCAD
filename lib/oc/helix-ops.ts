@@ -3,6 +3,7 @@ import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Edge } from "../common/edge.js";
 import { CoordinateSystem } from "../math/coordinate-system.js";
+import { mmTol } from "../units/tolerance.js";
 
 /**
  * Builds 3D helix edges with OCCT's TKHelix package. The analytic helix
@@ -20,8 +21,10 @@ import { CoordinateSystem } from "../math/coordinate-system.js";
  * count so the adaptive fit can actually reach tolerance.
  */
 export class HelixOps {
-  // B-spline approximation tolerance for the analytic helix, in mm.
-  private static readonly APPROX_TOLERANCE = 1e-4;
+  // B-spline approximation tolerance for the analytic helix: 1e-4 mm, in the active unit.
+  private static get APPROX_TOLERANCE(): number {
+    return mmTol(1e-4);
+  }
   // Max B-spline degree for the fit (matches OCCT's ApprHelix default).
   private static readonly MAX_DEGREE = 8;
   // Segment budget per turn. A tapered helix needs ~25 segments/turn to reach

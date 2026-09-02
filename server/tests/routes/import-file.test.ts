@@ -12,6 +12,8 @@ let relayed: any[];
 let importCalls: { workspacePath: string; fileName: string }[];
 /** Per-test failure to throw out of importFile; reset to null. */
 let importError: Error | null;
+/** What importFile reports back; undefined mimics an older engine. */
+let importReport: { solidCount: number; unit: string; sourceUnits: { length: string[]; angle: string[] } } | undefined;
 
 const WORKSPACE = '/ws';
 
@@ -22,6 +24,7 @@ const fakeServer = {
     if (importError) {
       throw importError;
     }
+    return importReport;
   },
 };
 
@@ -63,6 +66,19 @@ describe('import-file route', () => {
     relayed = [];
     importCalls = [];
     importError = null;
+    importReport = undefined;
+  });
+
+  it('reports the solid count and the file\'s declared units', async () => {
+    importReport = { solidCount: 2, unit: 'mm', sourceUnits: { length: ['INCH'], angle: ['DEGREE'] } };
+    const { status, body } = await postImport({ fileName: 'bracket.step', data: 'AAAA' });
+    expect(status).toBe(200);
+    expect(body).toEqual({
+      success: true,
+      fileName: 'bracket',
+      solidCount: 2,
+      sourceUnits: { length: ['INCH'], angle: ['DEGREE'] },
+    });
   });
 
   it('tells the editor to insert the load call for the active file', async () => {

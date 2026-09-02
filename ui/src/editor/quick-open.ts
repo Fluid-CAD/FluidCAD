@@ -232,6 +232,10 @@ export class QuickOpen {
       }));
     }
 
+    // The list is capped in height, so an arrow-key highlight can land on a
+    // row the popover has scrolled out of sight; keep it on screen.
+    (list.children[this.highlighted] as HTMLElement | undefined)?.scrollIntoView({ block: 'nearest' });
+
     if (this.results.length === 0 && !createTarget) {
       const empty = document.createElement('div');
       empty.className = 'px-3 py-2 text-xs text-base-content/40';

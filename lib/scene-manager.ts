@@ -39,8 +39,10 @@ import { Explorer } from "./oc/explorer.js";
 import { OccHitTest } from "./oc/hit-test.js";
 import type { HitTestResult } from "./oc/hit-test.js";
 import { MeasureOps } from "./oc/measure/measure-ops.js";
+import { getOC } from "./oc/init.js";
+import { Convert } from "./oc/convert.js";
 import type { MeasureInput } from "./oc/measure/measure-ops.js";
-import type { MeasureEntityRef, MeasureResult } from "./oc/measure/measure-types.js";
+import type { MeasureEntityRef, MeasurePose, MeasureResult } from "./oc/measure/measure-types.js";
 import { explainSelection, synthesizeApplyFeature } from "./selection/explain.js";
 import { ConnectorAnchorSuggestions, suggestConnectorAnchors } from "./selection/connector-anchors.js";
 import { PickExposureResolution, resolvePickExposure } from "./selection/expose-lookup.js";
@@ -227,22 +229,48 @@ class SceneManager {
 
   measure(scene: Scene, refs: MeasureEntityRef[]): MeasureResult | null {
     const inputs: MeasureInput[] = [];
-    for (const ref of refs) {
-      const shape = findShapeById(scene, ref.shapeId);
-      if (!shape) {
+    const disposers: (() => void)[] = [];
+    try {
+      for (const ref of refs) {
+        const shape = findShapeById(scene, ref.shapeId);
+        if (!shape) {
+          return null;
+        }
+        const subShapes = ref.kind === 'face' ? Explorer.findFacesWrapped(shape) : Explorer.findEdgesWrapped(shape);
+        if (ref.index < 0 || ref.index >= subShapes.length) {
+          return null;
+        }
+        let subShape = subShapes[ref.index].getShape();
+        // Assembly entities are measured where their instance sits. Part
+        // shapes live once per template in the part's own frame, so the
+        // sub-shape is moved (location only — no geometry copy; every
+        // downstream kernel call reads through TopLoc_Location) by the
+        // instance pose: the caller's live pose, else the statement pose.
+        if (ref.instanceId !== undefined) {
+          const pose = ref.pose ?? serializedInstancePose(scene, ref.instanceId);
+          if (!pose) {
+            return null;
+          }
+          const [trsf, disposeTrsf] = Convert.toGpTrsfPose(pose.position, pose.quaternion);
+          const location = new (getOC().TopLoc_Location)(trsf);
+          subShape = subShape.Moved(location, false);
+          disposers.push(() => {
+            location.delete();
+            disposeTrsf();
+          });
+        }
+        inputs.push({ ref, shape: subShape });
+      }
+      if (inputs.length === 0) {
         return null;
       }
-      const subShapes = ref.kind === 'face' ? Explorer.findFacesWrapped(shape) : Explorer.findEdgesWrapped(shape);
-      if (ref.index < 0 || ref.index >= subShapes.length) {
-        return null;
+      // Measure runs outside any build scope: sample at the scene's own density.
+      return MeasureOps.measure(inputs, { quality: this.meshQuality, unit: scene.unit });
+    } finally {
+      for (const dispose of disposers) {
+        dispose();
       }
-      inputs.push({ ref, shape: subShapes[ref.index].getShape() });
     }
-    if (inputs.length === 0) {
-      return null;
-    }
-    // Measure runs outside any build scope: sample at the scene's own density.
-    return MeasureOps.measure(inputs, { quality: this.meshQuality, unit: scene.unit });
   }
 
   exportShapes(scene: Scene, shapeIds: string[], options: ExportOptions): { data: string | Uint8Array; fileName: string } {
@@ -413,6 +441,18 @@ function withBoundary<T>(
     return scoped;
   }
   return run(scoped.scene);
+}
+
+/** The world pose the scene serialized for an instance (occurrence chain composed), or null when unknown. */
+function serializedInstancePose(scene: Scene, instanceId: string): MeasurePose | null {
+  if (!(scene instanceof AssemblyScene)) {
+    return null;
+  }
+  const inst = scene.getSerializedInstances().find(i => i.instanceId === instanceId);
+  if (!inst) {
+    return null;
+  }
+  return { position: inst.position, quaternion: inst.quaternion };
 }
 
 function findShapeById(scene: Scene, shapeId: string) {

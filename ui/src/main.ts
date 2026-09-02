@@ -216,6 +216,22 @@ const selectionInfoOverlay = new SelectionInfoOverlay(container, engineClient);
 const measureController = new MeasureController(
   container, engineClient, viewer,
   (handlers) => new SelectionContextMenu(container, 'fluidcad-measure-select-menu', handlers),
+  {
+    // The browser-side solver owns instance poses (drags, mate drives, the
+    // animate bar); the server only knows the statement pose. Each measured
+    // entity carries the live one.
+    poseOf: (instanceId) => {
+      const pose = viewer.getAssemblyController()?.getInstancePose(instanceId);
+      if (!pose) {
+        return null;
+      }
+      return {
+        position: { x: pose.position.x, y: pose.position.y, z: pose.position.z },
+        quaternion: { x: pose.quaternion.x, y: pose.quaternion.y, z: pose.quaternion.z, w: pose.quaternion.w },
+      };
+    },
+    instanceLabel: (instanceId) => findInstance(instanceId)?.name ?? null,
+  },
 );
 measureController.onNotice = (message) => showToast(message);
 const exportDialog = new ExportDialog(container, engineClient, viewer.sceneContext);
@@ -307,6 +323,9 @@ function buildAssemblyRail(): LeftRail {
     (id, visible) => {
       visibility.set(id, visible);
       viewer.setInstanceVisibility(id, visible);
+      if (!visible) {
+        measureController.dropInstance(id);
+      }
     },
     (id) => {
       const inst = findInstance(id);
@@ -1950,6 +1969,9 @@ viewer.setSolverUpdateHandler((output) => {
       rendered,
     );
   }
+  // A solve moved instances without a re-render (mate drive, animate bar,
+  // gizmo nudge): the measurement follows the entities.
+  measureController.onPosesChanged();
 });
 
 function failedSetsDiffer(a: Set<string>, b: Set<string>): boolean {
@@ -2008,7 +2030,15 @@ const createDialogPicking = () =>
   || planeService.isPicking
   || projectionService.isPicking;
 
-viewer.setContextMenuHandler((shapeId, sub, clientX, clientY) => {
+viewer.setContextMenuHandler((shapeId, sub, clientX, clientY, instanceId) => {
+  if (currentRail?.kind === 'assembly') {
+    // The multi-select menu over an instance's face/edge; members inherit
+    // the seed's instance. Nothing while the mate dialog owns the viewport.
+    if (!assemblyMateService.isPicking) {
+      measureController.handleContextMenu(shapeId, sub, clientX, clientY, instanceId);
+    }
+    return;
+  }
   if (modifyService.isActive) {
     modifyService.handleContextMenu(shapeId, sub, clientX, clientY);
   } else if (sweepService.isEdgePicking) {
@@ -2034,7 +2064,8 @@ viewer.setDoubleClickHandler((shapeId, sub) => {
 
 viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
   // Assembly mode: instance-aware viewport selection drives the parts/joints
-  // panels; the part-design pick services and measure tool aren't active here.
+  // panels and the measure tool; the part-design pick services aren't
+  // active here.
   if (currentRail?.kind === 'assembly') {
     // The armed mate dialog owns every viewport click: connector picks fill
     // its slots; nothing below (gizmo attach, face highlight) may run.
@@ -2042,41 +2073,35 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
       assemblyMateService.handleClick(shapeId, sub, instanceId);
       return;
     }
-    if (shapeId) {
-      if (sub?.type === 'face') {
-        viewer.highlightFace(shapeId, sub.index, instanceId);
-      } else if (sub?.type === 'edge') {
-        viewer.highlightEdge(shapeId, sub.index, instanceId);
-      } else {
-        viewer.clearHighlight();
-      }
+    if (shapeId && sub && (sub.type === 'face' || sub.type === 'edge')) {
+      // A face/edge pick is a measure click, as in a part file: plain click
+      // replaces, ctrl/shift-click accumulates. The controller stamps the
+      // instance and its live pose, highlights per instance, and its
+      // onSelectionChanged drives the info overlay + properties modal. A
+      // no-move click on a movable part arrives here too (the viewer lets
+      // it through the drag claim), so every part measures.
+      measureController.handleClick(shapeId, sub, modifiers.additive, instanceId);
       // One click on a part attaches the transform gizmo at its origin
       // (non-locked instances only; the driver decides).
       assemblyGizmo.handleSelection(instanceId);
+    } else if (shapeId) {
+      // Some other pickable (a connector/axis/plane hit outside a dialog).
+      measureController.clearSelection();
+      assemblyGizmo.handleSelection(instanceId);
     } else if (instanceId) {
-      // Instance-only selection: a plain click on a draggable part. The
-      // assembly controller claims every pointerdown on those, so no face
-      // pick ever arrives — the id alone attaches the gizmo.
+      // Instance-only selection: a click on a draggable part whose pick
+      // resolved to no face/edge — the id alone attaches the gizmo.
+      measureController.clearSelection();
       assemblyGizmo.handleSelection(instanceId);
     } else {
       // Click in empty 3D space — clear face/edge selection AND the
       // parts/joints panel-driven instance tint so the user has a clean
       // way to deselect a row.
-      viewer.clearHighlight();
+      measureController.clearSelection();
       viewer.clearInstanceHighlight();
       currentRail.parts.setSelected(null);
       currentRail.joints.setSelected(null);
       assemblyGizmo.handleSelection(null);
-    }
-    shapePropertiesModal.setSelectedShape(shapeId);
-    if (shapeId !== null && sub !== null && (sub.type === 'face' || sub.type === 'edge')) {
-      if (sub.type === 'face') {
-        selectionInfoOverlay.showForFace(shapeId, sub.index);
-      } else {
-        selectionInfoOverlay.showForEdge(shapeId, sub.index);
-      }
-    } else {
-      selectionInfoOverlay.hide();
     }
     return;
   }

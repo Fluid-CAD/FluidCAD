@@ -345,3 +345,126 @@ describe("measure", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Assembly context: entities carry an instanceId (+ optional live pose) and
+// are measured where the instance sits, not in the part template's frame.
+// ---------------------------------------------------------------------------
+
+import part from "../core/part.js";
+import assembly from "../core/assembly.js";
+import insert from "../core/insert.js";
+import type { MeasurePose } from "../oc/measure/measure-types.js";
+
+type AsmFace = { shapeId: string; index: number };
+
+/** A 20×20×10 box definition, inserted twice — the second instance posed by `poseSecond`. */
+function makeAssemblyPair(poseSecond: (inst: ReturnType<typeof insert>) => void): { xMin: AsmFace; xMax: AsmFace; ids: string[] } {
+  const scene = getSceneManager().startAssemblyScene();
+  const def = part("box", () => {
+    sketch("xy", () => {
+      testRect(20, 20);
+    });
+    extrude(10);
+  });
+  insert(def);
+  poseSecond(insert(def));
+  render();
+  const ids = scene.getSerializedInstances().map((i) => i.instanceId);
+  const xFaces = findEntities('face', (c) => c.form === 'plane' && dirAlong(c, 1, 0, 0));
+  expect(xFaces).toHaveLength(2);
+  const byX = [...xFaces].sort((a, b) => a.info.point!.x - b.info.point!.x);
+  return {
+    xMin: { shapeId: byX[0].ref.shapeId, index: byX[0].ref.index },
+    xMax: { shapeId: byX[1].ref.shapeId, index: byX[1].ref.index },
+    ids,
+  };
+}
+
+function faceRef(face: AsmFace, instanceId?: string, pose?: MeasurePose): MeasureEntityRef {
+  return { shapeId: face.shapeId, kind: 'face', index: face.index, ...(instanceId ? { instanceId } : {}), ...(pose ? { pose } : {}) };
+}
+
+describe("measure — assembly context", () => {
+  setupOC();
+
+  it("an instance at the identity pose measures like the template", () => {
+    const { xMin, xMax, ids } = makeAssemblyPair(() => {});
+    const template = measureRefs([faceRef(xMin), faceRef(xMax)]);
+    const posed = measureRefs([faceRef(xMin, ids[0]), faceRef(xMax, ids[0])]);
+    expect(posed.primary).toBe('parallelDist');
+    expect(posed.parallelDist!.value).toBeCloseTo(template.parallelDist!.value, 6);
+    expect(posed.totalArea).toBeCloseTo(template.totalArea!, 6);
+    expect(posed.entities[0].ref.instanceId).toBe(ids[0]);
+  });
+
+  it("two instances of one part share a shapeId but measure at their own statement poses", () => {
+    const { xMin, xMax, ids } = makeAssemblyPair((inst) => inst.translate(30, 0, 0));
+    // Same face index on both instances: exactly the translation apart.
+    const same = measureRefs([faceRef(xMax, ids[0]), faceRef(xMax, ids[1])]);
+    expect(same.primary).toBe('parallelDist');
+    expect(same.parallelDist!.value).toBeCloseTo(30, 4);
+    // A's far face (x=20) to B's near face (x=30): the 10 gap, in world coordinates.
+    const gap = measureRefs([faceRef(xMax, ids[0]), faceRef(xMin, ids[1])]);
+    expect(gap.parallelDist!.value).toBeCloseTo(10, 4);
+    const xs = [gap.parallelDist!.from.x, gap.parallelDist!.to.x].sort((a, b) => a - b);
+    expect(xs[0]).toBeCloseTo(20, 4);
+    expect(xs[1]).toBeCloseTo(30, 4);
+    expect(gap.minDist!.value).toBeCloseTo(10, 4);
+  });
+
+  it("a caller-supplied pose overrides the statement pose", () => {
+    const { xMax, ids } = makeAssemblyPair((inst) => inst.translate(30, 0, 0));
+    const live: MeasurePose = { position: { x: 50, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 } };
+    const result = measureRefs([faceRef(xMax, ids[0]), faceRef(xMax, ids[1], live)]);
+    expect(result.parallelDist!.value).toBeCloseTo(50, 4);
+  });
+
+  it("a rotated instance turns a parallel pair into an angle", () => {
+    const { xMax, ids } = makeAssemblyPair((inst) => inst.rotate("z", 90).translate(60, 0, 0));
+    const result = measureRefs([faceRef(xMax, ids[0]), faceRef(xMax, ids[1])]);
+    expect(result.primary).toBe('angle');
+    expect(result.angleDeg).toBeCloseTo(90, 4);
+  });
+
+  it("an un-normalized live quaternion is treated as a pure rotation", () => {
+    const { xMax, ids } = makeAssemblyPair(() => {});
+    const s = Math.SQRT1_2 * 3; // 90° about Z, scaled ×3
+    const live: MeasurePose = { position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: s, w: s } };
+    const result = measureRefs([faceRef(xMax, ids[0]), faceRef(xMax, ids[1], live)]);
+    expect(result.angleDeg).toBeCloseTo(90, 4);
+    expect(result.entities[1].area).toBeCloseTo(result.entities[0].area!, 6);
+  });
+
+  it("an occurrence-owned instance measures at its composed world pose", () => {
+    const scene = getSceneManager().startAssemblyScene();
+    const def = part("box", () => {
+      sketch("xy", () => {
+        testRect(20, 20);
+      });
+      extrude(10);
+    });
+    const sub = assembly("sub", () => ({ b: insert(def).translate(5, 0, 0) }));
+    insert(def);
+    insert(sub).translate(40, 0, 0);
+    render();
+    const ids = scene.getSerializedInstances().map((i) => i.instanceId);
+    expect(ids).toHaveLength(2);
+    const owned = scene.getSerializedInstances().find((i) => i.owner !== "")!;
+    expect(owned.position.x).toBeCloseTo(45, 6);
+    const xFaces = findEntities('face', (c) => c.form === 'plane' && dirAlong(c, 1, 0, 0));
+    const xMax = [...xFaces].sort((a, b) => a.info.point!.x - b.info.point!.x)[1].ref;
+    const root = scene.getSerializedInstances().find((i) => i.owner === "")!;
+    const result = measureRefs([
+      { ...xMax, instanceId: root.instanceId },
+      { ...xMax, instanceId: owned.instanceId },
+    ]);
+    expect(result.parallelDist!.value).toBeCloseTo(45, 4);
+  });
+
+  it("returns null for an unknown instance", () => {
+    const { xMax, ids } = makeAssemblyPair(() => {});
+    const result = getSceneManager().measure(getCurrentScene(), [faceRef(xMax, ids[0]), faceRef(xMax, "inst-99")]);
+    expect(result).toBeNull();
+  });
+});

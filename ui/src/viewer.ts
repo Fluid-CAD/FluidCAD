@@ -102,6 +102,12 @@ export type SelectedEntity = {
     NonNullable<SubSelection>,
     { type: 'sketch' } | { type: 'axis' } | { type: 'plane' } | { type: 'connector' }
   >;
+  /**
+   * The assembly instance the pick landed in. Instances of one part share a
+   * shapeId, so highlights and measurements scope to this id; absent (or
+   * null) in part mode.
+   */
+  instanceId?: string | null;
 };
 
 /**
@@ -194,7 +200,7 @@ export class Viewer {
 
   private selectionHandler: ((shapeId: string | null, sub: SubSelection, instanceId: string | null, modifiers: SelectionModifiers) => void) | null = null;
   private hoverHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
-  private contextMenuHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void) | null = null;
+  private contextMenuHandler: ((shapeId: string | null, sub: SubSelection, clientX: number, clientY: number, instanceId: string | null) => void) | null = null;
   private doubleClickHandler: ((shapeId: string | null, sub: SubSelection) => void) | null = null;
   private centroidIndicator = new CentroidIndicator();
   private hoverState: { shapeId: string; sub: SubSelection; instanceId: string | null } | null = null;
@@ -370,7 +376,7 @@ export class Viewer {
   }
 
   /** Notified on a non-drag right-click over the canvas (pick may be null). */
-  setContextMenuHandler(fn: (shapeId: string | null, sub: SubSelection, clientX: number, clientY: number) => void): void {
+  setContextMenuHandler(fn: (shapeId: string | null, sub: SubSelection, clientX: number, clientY: number, instanceId: string | null) => void): void {
     this.contextMenuHandler = fn;
   }
 
@@ -530,12 +536,15 @@ export class Viewer {
       if (this.clickInterceptor?.()) {
         return;
       }
-      // A click on a draggable part (whether the cursor moved or not)
-      // shouldn't double as a face-selection click — otherwise a drop
-      // leaves a stray face/edge highlight on the part. Clear any
-      // pre-existing highlight too in case it was set by an earlier click.
+      // A drag of a draggable part shouldn't double as a face-selection
+      // click — otherwise a drop leaves a stray face/edge highlight on the
+      // part. Clear any pre-existing highlight too in case it was set by an
+      // earlier click. A claim that never moved IS a click on the part: it
+      // falls through to the ordinary pick below, so faces and edges of
+      // movable parts select (and measure) exactly like locked ones, with
+      // the pick's instance id attaching the transform gizmo.
       const dropped = this.assemblyController?.consumeRecentDrag();
-      if (dropped) {
+      if (dropped?.moved) {
         this.clearHighlight();
         this.clearHover();
         // The parts panel may have called assemblyController.highlightInstance
@@ -548,14 +557,7 @@ export class Viewer {
         // look like the highlight didn't clear. Cleared in updateHover as
         // soon as the cursor moves to a different instance or empty space.
         this.hoverSuppressForInstance = dropped.instanceId;
-        if (this.selectionHandler) {
-          // The claim swallowed the pick, so this is the only channel a
-          // click on a draggable part has: a finished drag clears the
-          // selection, a no-move claim IS the click — surface it as an
-          // instance-only selection (no face/edge) so the transform gizmo
-          // can attach.
-          this.selectionHandler(null, null, dropped.moved ? null : dropped.instanceId, { additive: false });
-        }
+        this.selectionHandler(null, null, null, { additive: false });
         return;
       }
       const dx = e.clientX - downX;
@@ -613,7 +615,8 @@ export class Viewer {
       if (isPlanePick(result)) {
         return;
       }
-      this.contextMenuHandler(result?.shapeId ?? null, result?.sub ?? null, e.clientX, e.clientY);
+      const instanceId = result && !isPlanePick(result) ? result.instanceId ?? null : null;
+      this.contextMenuHandler(result?.shapeId ?? null, result?.sub ?? null, e.clientX, e.clientY, instanceId);
     });
   }
 
@@ -1155,10 +1158,12 @@ export class Viewer {
       this.assemblyController.setDragReleaseHandler(this.pendingDragReleaseHandler);
       this.assemblyController.setSolverUpdateHandler(this.pendingSolverUpdateHandler);
       this.assemblyController.setDragValueHandler(this.pendingDragValueHandler);
-      // When the controller claims a drag, eagerly clear any face/edge/instance
-      // highlight that was set earlier (e.g. by a prior click or parts-panel
-      // row). Otherwise it would visually "stick" through the drag and the
-      // user would see the just-dropped part still highlighted.
+      // When a claimed pointer turns into a drag (first move past the
+      // threshold), eagerly clear any face/edge/instance highlight that was
+      // set earlier (e.g. by a prior click or parts-panel row). Otherwise it
+      // would visually "stick" through the drag and the user would see the
+      // just-dropped part still highlighted. A click that never moves keeps
+      // its selection — it is a pick.
       this.assemblyController.setDragClaimHandler(() => {
         // Cancel any hover RAF that was scheduled by a mousemove fired
         // before the drag began — otherwise its callback runs mid-drag and
@@ -1401,10 +1406,14 @@ export class Viewer {
     this.clearHighlight();
     this.highlightedInstanceId = instanceId;
     for (const entity of entities) {
+      // An entity's own instance wins over the call-wide one: a measure
+      // selection spans instances, and a shared part's clones must not all
+      // light up for one pick.
+      const scopeId = entity.instanceId ?? instanceId;
       if (entity.sub.type === 'face') {
-        this.applyFaceHighlight(entity.shapeId, entity.sub.index, instanceId);
+        this.applyFaceHighlight(entity.shapeId, entity.sub.index, scopeId);
       } else {
-        this.applyEdgeHighlight(entity.shapeId, entity.sub.index, instanceId);
+        this.applyEdgeHighlight(entity.shapeId, entity.sub.index, scopeId);
       }
     }
     for (const shapeId of sketchWireShapeIds) {

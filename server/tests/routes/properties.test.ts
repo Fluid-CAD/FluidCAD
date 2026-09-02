@@ -7,6 +7,7 @@ import { createMeasureRouter } from '../../src/routes/measure.ts';
 
 let server: http.Server;
 let baseUrl: string;
+let lastMeasureRefs: unknown[] = [];
 
 /**
  * The property and measure routes answer in the document's unit and say
@@ -22,7 +23,10 @@ describe('properties + measure routes — unit field', () => {
         shapeId === 'sh-1' ? { volumeMm3: 12, surfaceAreaMm2: 34, centroid: { x: 0, y: 0, z: 0 } } : null,
       getFaceProperties: () => ({ surfaceType: 'plane', areaMm2: 5 }),
       getEdgeProperties: () => ({ curveType: 'line', length: 7 }),
-      measure: () => ({ entities: [], primary: 'totalArea', primaryLabel: 'Area', totalArea: 5 }),
+      measure: (refs: unknown[]) => {
+        lastMeasureRefs = refs;
+        return { entities: [], primary: 'totalArea', primaryLabel: 'Area', totalArea: 5 };
+      },
     } as unknown as FluidCadServer;
 
     const app = express();
@@ -71,6 +75,37 @@ describe('properties + measure routes — unit field', () => {
     const body = await res.json() as any;
     expect(body.unit).toBe('in');
     expect(body.primary).toBe('totalArea');
+  });
+
+  it('POST /api/measure forwards assembly instance ids and poses untouched', async () => {
+    const pose = { position: { x: 1, y: 2, z: 3 }, quaternion: { x: 0, y: 0, z: 0.7071, w: 0.7071 } };
+    const entities = [
+      { shapeId: 'sh-1', kind: 'face', index: 0, instanceId: 'inst-0' },
+      { shapeId: 'sh-1', kind: 'face', index: 0, instanceId: 'inst-1', pose },
+    ];
+    const res = await fetch(`${baseUrl}/api/measure`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ entities }),
+    });
+    expect(res.status).toBe(200);
+    expect(lastMeasureRefs).toEqual(entities);
+  });
+
+  it('POST /api/measure rejects a malformed instance id or pose', async () => {
+    const post = (entities: unknown) => fetch(`${baseUrl}/api/measure`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ entities }),
+    });
+    expect((await post([{ shapeId: 'sh-1', kind: 'face', index: 0, instanceId: '' }])).status).toBe(400);
+    expect((await post([{ shapeId: 'sh-1', kind: 'face', index: 0, instanceId: 7 }])).status).toBe(400);
+    const zeroQuat = { position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 0 } };
+    expect((await post([{ shapeId: 'sh-1', kind: 'face', index: 0, instanceId: 'inst-0', pose: zeroQuat }])).status).toBe(400);
+    const nanPos = { position: { x: 'a', y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 } };
+    expect((await post([{ shapeId: 'sh-1', kind: 'face', index: 0, instanceId: 'inst-0', pose: nanPos }])).status).toBe(400);
+    const noQuat = { position: { x: 0, y: 0, z: 0 } };
+    expect((await post([{ shapeId: 'sh-1', kind: 'face', index: 0, instanceId: 'inst-0', pose: noQuat }])).status).toBe(400);
   });
 });
 

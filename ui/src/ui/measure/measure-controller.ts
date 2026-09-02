@@ -1,6 +1,6 @@
 import type { SelectedEntity, Viewer } from '../../viewer';
 import type { SubSelection } from '../../types';
-import type { MeasureEntityRef, MeasureResult, UserPreferences } from '../../api';
+import type { MeasureEntityRef, MeasurePose, MeasureResult, UserPreferences } from '../../api';
 import type { EngineClient } from '../../engine-client';
 import { mergeUniqueEntities, sameEntity } from '../../helpers/entities';
 import type { SelectionContextMenu, SelectionMenuHandlers } from '../../interactive/selection-menu';
@@ -23,19 +23,56 @@ function convertArea(area: number, unit: LengthUnit): number {
   return area * f * f;
 }
 
-function toRef(entity: SelectedEntity): MeasureEntityRef {
-  return { shapeId: entity.shapeId, kind: entity.sub.type, index: entity.sub.index };
+/** How far an instance must move between solver frames before the measurement is redone. */
+const POSE_CHANGE_TOL = 1e-9;
+/** Solver frames arrive per pointer event; coalesce them before hitting the server. */
+const POSE_REFRESH_DELAY_MS = 80;
+
+function sameRef(a: MeasureEntityRef, b: MeasureEntityRef): boolean {
+  return a.shapeId === b.shapeId && a.kind === b.kind && a.index === b.index
+    && (a.instanceId ?? null) === (b.instanceId ?? null);
 }
+
+function samePose(a: MeasurePose | undefined, b: MeasurePose | undefined): boolean {
+  if (!a || !b) {
+    return a === b;
+  }
+  return Math.abs(a.position.x - b.position.x) < POSE_CHANGE_TOL
+    && Math.abs(a.position.y - b.position.y) < POSE_CHANGE_TOL
+    && Math.abs(a.position.z - b.position.z) < POSE_CHANGE_TOL
+    && Math.abs(a.quaternion.x - b.quaternion.x) < POSE_CHANGE_TOL
+    && Math.abs(a.quaternion.y - b.quaternion.y) < POSE_CHANGE_TOL
+    && Math.abs(a.quaternion.z - b.quaternion.z) < POSE_CHANGE_TOL
+    && Math.abs(a.quaternion.w - b.quaternion.w) < POSE_CHANGE_TOL;
+}
+
+/**
+ * What the assembly workbench lends the controller: the live world pose of
+ * an instance (the browser-side solver owns it — the server only knows the
+ * statement pose) and a display name for the selection rows.
+ */
+export type MeasureAssemblyHooks = {
+  poseOf: (instanceId: string) => MeasurePose | null;
+  instanceLabel: (instanceId: string) => string | null;
+};
 
 /**
  * Owns the measure selection (plain click selects, ctrl/shift-click adds) and
  * coordinates the status bar, the expanded panel, and the viewport overlay.
+ *
+ * In an assembly every entity is stamped with its instance and that
+ * instance's live pose (see {@link MeasureAssemblyHooks}) — no separate
+ * tool: a click on any part's face or edge measures, exactly as in a part
+ * file.
  */
 export class MeasureController {
   private entities: SelectedEntity[] = [];
   private result: MeasureResult | null = null;
   private panelOpen = false;
   private abortController: AbortController | null = null;
+  /** The refs of the request in flight or last answered — poses included, for change detection. */
+  private lastRefs: MeasureEntityRef[] = [];
+  private poseRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 
   private statusBar: MeasureStatusBar;
   private panel: MeasurePanel;
@@ -55,17 +92,20 @@ export class MeasureController {
     // Injected so read-only hosts (no selection-groups backend) can omit the
     // menu without pulling interactive/selection-menu into their bundle.
     menuFactory?: (handlers: SelectionMenuHandlers) => SelectionContextMenu,
+    private assemblyHooks: MeasureAssemblyHooks | null = null,
   ) {
     // Right-click menu: multi-select groups + sibling buckets ("Select
     // other"). Groups merge into the measure selection, which seeds the
-    // modify tools.
+    // modify tools. Group members come back instance-less (they are the
+    // seed's shape), so they inherit the seed's instance.
     this.menu = !menuFactory ? null : menuFactory({
       kinds: ['tangent', 'classified', 'same-type', 'equal', 'sibling'],
-      onSelectGroup: (_kind, _seed, members) => {
-        this.setSelection(mergeUniqueEntities(this.entities, members));
+      onSelectGroup: (_kind, seed, members) => {
+        this.setSelection(mergeUniqueEntities(this.entities, this.withInstanceOf(seed, members)));
       },
       onPreview: (members) => {
-        const shown = members ? mergeUniqueEntities(this.entities, members) : this.entities;
+        const seed = this.menuSeed;
+        const shown = members && seed ? mergeUniqueEntities(this.entities, this.withInstanceOf(seed, members)) : this.entities;
         if (shown.length > 0) {
           this.viewer.highlightEntities(shown);
         } else {
@@ -114,7 +154,7 @@ export class MeasureController {
    * selection; ctrl/shift-clicks (or any click while the panel is open) toggle
    * the entity in the set. Returns the resulting selection.
    */
-  handleClick(shapeId: string | null, sub: SubSelection, additive: boolean): SelectedEntity[] {
+  handleClick(shapeId: string | null, sub: SubSelection, additive: boolean, instanceId: string | null = null): SelectedEntity[] {
     // Sketch-wire picks belong to the create dialogs, never to measurement.
     if (!shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane' || sub.type === 'connector') {
       if (additive && this.entities.length > 0) {
@@ -124,7 +164,7 @@ export class MeasureController {
       return this.entities;
     }
 
-    const entity: SelectedEntity = { shapeId, sub };
+    const entity: SelectedEntity = instanceId ? { shapeId, sub, instanceId } : { shapeId, sub };
     const existingIndex = this.entities.findIndex((e) => sameEntity(e, entity));
 
     let next: SelectedEntity[];
@@ -139,7 +179,7 @@ export class MeasureController {
   }
 
   /** Right-click in neutral mode: the multi-select menu over that pick. */
-  handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number): void {
+  handleContextMenu(shapeId: string | null, sub: SubSelection, clientX: number, clientY: number, instanceId: string | null = null): void {
     this.menu?.hide();
     if (!this.menu || !shapeId || !sub || sub.type === 'sketch' || sub.type === 'axis' || sub.type === 'plane' || sub.type === 'connector') {
       return;
@@ -147,7 +187,65 @@ export class MeasureController {
     // The hover tint would otherwise be stashed as an "original" color by the
     // preview highlight and stick around after the preview restores it.
     this.viewer.clearHover();
-    void this.menu.open({ shapeId, sub }, clientX, clientY);
+    this.menuSeed = instanceId ? { shapeId, sub, instanceId } : { shapeId, sub };
+    void this.menu.open(this.menuSeed, clientX, clientY);
+  }
+
+  /** The entity the open context menu was seeded from (its instance is what group members inherit). */
+  private menuSeed: SelectedEntity | null = null;
+
+  private withInstanceOf(seed: SelectedEntity, members: SelectedEntity[]): SelectedEntity[] {
+    if (!seed.instanceId) {
+      return members;
+    }
+    return members.map((m) => ({ ...m, instanceId: seed.instanceId }));
+  }
+
+  /**
+   * Instances moved without a re-render (a mate drive, the animate bar, a
+   * gizmo nudge): re-stamp every selected entity's pose and, when one
+   * moved, measure again — coalesced so per-pointer-event solver frames
+   * don't flood the server.
+   */
+  onPosesChanged(): void {
+    if (!this.assemblyHooks || this.entities.length === 0 || this.entities.length > MAX_MEASURE_ENTITIES) {
+      return;
+    }
+    const refs = this.entities.map((e) => this.toRef(e));
+    const moved = refs.some((ref, i) => {
+      const last = this.lastRefs[i];
+      return !last || !sameRef(ref, last) || !samePose(ref.pose, last.pose);
+    });
+    if (!moved) {
+      return;
+    }
+    if (this.poseRefreshTimer !== null) {
+      clearTimeout(this.poseRefreshTimer);
+    }
+    this.poseRefreshTimer = setTimeout(() => {
+      this.poseRefreshTimer = null;
+      this.fetchMeasurement({ keepResult: true });
+    }, POSE_REFRESH_DELAY_MS);
+  }
+
+  /** An instance left the scene (hidden or gone): drop its entities. */
+  dropInstance(instanceId: string): void {
+    if (!this.entities.some((e) => e.instanceId === instanceId)) {
+      return;
+    }
+    this.setSelection(this.entities.filter((e) => e.instanceId !== instanceId));
+  }
+
+  private toRef(entity: SelectedEntity): MeasureEntityRef {
+    const ref: MeasureEntityRef = { shapeId: entity.shapeId, kind: entity.sub.type, index: entity.sub.index };
+    if (entity.instanceId) {
+      ref.instanceId = entity.instanceId;
+      const pose = this.assemblyHooks?.poseOf(entity.instanceId);
+      if (pose) {
+        ref.pose = pose;
+      }
+    }
+    return ref;
   }
 
   clearSelection(): void {
@@ -160,8 +258,13 @@ export class MeasureController {
     this.menu?.hide();
     this.abortController?.abort();
     this.abortController = null;
+    if (this.poseRefreshTimer !== null) {
+      clearTimeout(this.poseRefreshTimer);
+      this.poseRefreshTimer = null;
+    }
     this.entities = [];
     this.result = null;
+    this.lastRefs = [];
     this.updateUI();
   }
 
@@ -176,7 +279,11 @@ export class MeasureController {
     this.onSelectionChanged?.(this.entities);
   }
 
-  private fetchMeasurement(): void {
+  /**
+   * `keepResult` leaves the previous readout and overlay on screen until the
+   * new numbers land — a pose refresh mid-animation must not flicker.
+   */
+  private fetchMeasurement(options: { keepResult?: boolean } = {}): void {
     this.abortController?.abort();
     this.abortController = null;
 
@@ -185,16 +292,20 @@ export class MeasureController {
     // measurement input.
     if (this.entities.length === 0 || this.entities.length > MAX_MEASURE_ENTITIES) {
       this.result = null;
+      this.lastRefs = [];
       this.updateUI();
       return;
     }
 
     const abort = new AbortController();
     this.abortController = abort;
-    const refs = this.entities.map(toRef);
+    const refs = this.entities.map((e) => this.toRef(e));
+    this.lastRefs = refs;
 
-    this.result = null;
-    this.updateUI();
+    if (!options.keepResult) {
+      this.result = null;
+      this.updateUI();
+    }
 
     this.client.measureEntities(refs, abort.signal).then((result) => {
       if (abort.signal.aborted || this.abortController !== abort) {
@@ -206,9 +317,7 @@ export class MeasureController {
   }
 
   private removeEntity(ref: MeasureEntityRef): void {
-    const next = this.entities.filter(
-      (e) => !(e.shapeId === ref.shapeId && e.sub.type === ref.kind && e.sub.index === ref.index),
-    );
+    const next = this.entities.filter((e) => !sameRef(this.toRef(e), ref));
     this.setSelection(next);
   }
 
@@ -233,8 +342,8 @@ export class MeasureController {
 
     this.panel.update({
       entities: this.entities.map((entity, i) => ({
-        ref: toRef(entity),
-        label: `Selection ${i + 1} [${entity.sub.type === 'face' ? 'Face' : 'Edge'}]`,
+        ref: this.toRef(entity),
+        label: this.entityLabel(entity, i),
       })),
       result: this.result,
       baseUnit: sceneUnit.current,
@@ -242,6 +351,13 @@ export class MeasureController {
     });
 
     this.applyDefaultViz();
+  }
+
+  /** `Selection 2 [Face] · bracket` — the instance name tells a shared part's clones apart. */
+  private entityLabel(entity: SelectedEntity, i: number): string {
+    const base = `Selection ${i + 1} [${entity.sub.type === 'face' ? 'Face' : 'Edge'}]`;
+    const name = entity.instanceId ? this.assemblyHooks?.instanceLabel(entity.instanceId) : null;
+    return name ? `${base} · ${name}` : base;
   }
 
   private primaryValueText(result: MeasureResult): string {

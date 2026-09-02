@@ -1,11 +1,20 @@
 import type { SelectedEntity } from '../viewer';
 
+/**
+ * Assembly instances of one part share a shapeId, so an entity is only
+ * identified together with its instance. Part-mode entities carry none and
+ * compare as before.
+ */
 export function sameEntity(a: SelectedEntity, b: SelectedEntity): boolean {
-  return a.shapeId === b.shapeId && a.sub.type === b.sub.type && a.sub.index === b.sub.index;
+  return a.shapeId === b.shapeId
+    && a.sub.type === b.sub.type
+    && a.sub.index === b.sub.index
+    && (a.instanceId ?? null) === (b.instanceId ?? null);
 }
 
 export function entityKey(e: SelectedEntity): string {
-  return `${e.shapeId}:${e.sub.type}:${e.sub.index}`;
+  const base = `${e.shapeId}:${e.sub.type}:${e.sub.index}`;
+  return e.instanceId ? `${base}@${e.instanceId}` : base;
 }
 
 /** Click-to-toggle: re-picking the current entity clears it back to null. */

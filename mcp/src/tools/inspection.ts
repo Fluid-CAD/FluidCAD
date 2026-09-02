@@ -182,7 +182,7 @@ export async function hitTest(input: HitTestInput) {
   return callWithClient(input, (client) => client.postJson<unknown>('/api/hit-test', body));
 }
 
-export type MeasureEntityInput = { shapeId: string; kind: 'face' | 'edge'; index: number };
+export type MeasureEntityInput = { shapeId: string; kind: 'face' | 'edge'; index: number; instanceId?: string };
 export type MeasureInput = WorkspaceArg & { entities: MeasureEntityInput[] };
 export async function measure(input: MeasureInput) {
   const entities = input?.entities;
@@ -194,6 +194,9 @@ export async function measure(input: MeasureInput) {
     const validIndex = typeof entity?.index === 'number' && Number.isInteger(entity.index) && entity.index >= 0;
     if (!entity || typeof entity.shapeId !== 'string' || !entity.shapeId || !validKind || !validIndex) {
       return err('invalid-input', 'Each entity needs a `shapeId`, a `kind` (face|edge) and a non-negative `index`.');
+    }
+    if (entity.instanceId !== undefined && (typeof entity.instanceId !== 'string' || !entity.instanceId)) {
+      return err('invalid-input', '`instanceId` must be a non-empty string when given.');
     }
   }
   return callWithClient(input, (client) => client.postJson<unknown>('/api/measure', { entities }));

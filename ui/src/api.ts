@@ -87,10 +87,24 @@ export type MeasureDistanceValue = {
   to: MeasureVec;
 };
 
+/** A rigid world pose — where an assembly instance sits, in the assembly's unit. */
+export type MeasurePose = {
+  position: MeasureVec;
+  quaternion: { x: number; y: number; z: number; w: number };
+};
+
 export type MeasureEntityRef = {
   shapeId: string;
   kind: 'face' | 'edge';
   index: number;
+  /**
+   * Assembly context: the owning instance (two instances of one part share
+   * a shapeId) and its live world pose from the browser-side solver. The
+   * engine measures the entity where that pose puts it; without a pose it
+   * falls back to the instance's statement pose.
+   */
+  instanceId?: string;
+  pose?: MeasurePose;
 };
 
 export type MeasureEntityInfo = {

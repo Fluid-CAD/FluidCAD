@@ -331,6 +331,15 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     shapeId: shapeIdArg,
     kind: z.enum(['face', 'edge']).describe('Whether the index refers to a face or an edge of the shape.'),
     index: z.number().int().nonnegative().describe('Zero-based face/edge index inside the shape.'),
+    instanceId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'Assembly files only: the inserted instance the entity belongs to (instance ids come from get_scene_summary). ' +
+        'Instances of one part share a shapeId, and the entity is measured where the instance sits per its insert() ' +
+        'statement (translate/rotate) — mate-solved or dragged poses seen in the viewport are not applied.',
+      ),
   });
 
   server.registerTool(

@@ -42,6 +42,12 @@ export type InstanceDragReleaseHandler = (
   position: { x: number; y: number; z: number },
 ) => void;
 
+/**
+ * Fired once per gesture, when a claimed pointer first moves past the drag
+ * threshold — not on pointerdown, so a click that never moves keeps the
+ * viewer's selection (it is a face/edge pick, possibly ctrl-adding to a
+ * measurement).
+ */
 export type InstanceDragClaimHandler = () => void;
 
 export type SolverUpdateHandler = (output: SolverOutput) => void;
@@ -781,8 +787,6 @@ export class AssemblyController {
     const state = this.instances.get(hit.instanceId);
     if (!state) return;
 
-    this.dragClaimHandler?.();
-
     const planeNormal = new Vector3();
     this.camera.getWorldDirection(planeNormal);
     planeNormal.negate();
@@ -835,6 +839,13 @@ export class AssemblyController {
     }
     this.dragState.lastSolvedClientX = e.clientX;
     this.dragState.lastSolvedClientY = e.clientY;
+    if (!this.dragState.moved) {
+      // The gesture is now a drag, not a click: only here does the claim
+      // clear the viewer's selection — a click that never moves is a face
+      // /edge pick (it may be ctrl-adding to a measurement) and must keep
+      // what was selected before it.
+      this.dragClaimHandler?.();
+    }
     this.dragState.moved = true;
 
     const state = this.instances.get(this.dragState.instanceId);

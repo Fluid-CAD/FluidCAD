@@ -30,6 +30,7 @@ export type { MeasureInput } from "./measure/measure-ops.js";
 export type {
   MeasureResult,
   MeasureEntityRef,
+  MeasurePose,
   MeasureEntityInfo,
   MeasureEntityKind,
   MeasureDistanceValue,

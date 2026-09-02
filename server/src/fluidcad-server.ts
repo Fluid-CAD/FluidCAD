@@ -16,6 +16,15 @@ import type { CompileError } from './ws-protocol.ts';
 import { readProjectConfig } from './project-config.ts';
 import type { LengthUnit } from './project-config.ts';
 
+/** One measured face/edge; assembly entities name their instance and may carry its live world pose. */
+export type MeasureRef = {
+  shapeId: string;
+  kind: 'face' | 'edge';
+  index: number;
+  instanceId?: string;
+  pose?: { position: { x: number; y: number; z: number }; quaternion: { x: number; y: number; z: number; w: number } };
+};
+
 export type SerializedAssembly = {
   instances: Array<{
     instanceId: string;
@@ -84,7 +93,7 @@ type SceneManager = {
   getShapeProperties(scene: any, shapeId: string): any;
   getFaceProperties(scene: any, shapeId: string, faceIndex: number): any;
   getEdgeProperties(scene: any, shapeId: string, edgeIndex: number): any;
-  measure(scene: any, refs: { shapeId: string; kind: 'face' | 'edge'; index: number }[]): any;
+  measure(scene: any, refs: MeasureRef[]): any;
   explainSelection(
     scene: any,
     refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
@@ -1438,7 +1447,7 @@ export class FluidCadServer {
     return this.sceneManager.getEdgeProperties(scene, shapeId, edgeIndex);
   }
 
-  measure(refs: { shapeId: string; kind: 'face' | 'edge'; index: number }[]): any {
+  measure(refs: MeasureRef[]): any {
     if (!this.sceneManager) {
       return null;
     }

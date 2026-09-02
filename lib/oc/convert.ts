@@ -225,6 +225,27 @@ export class Convert {
     return result;
   }
 
+  /**
+   * A rigid transform from a position + unit quaternion (an assembly
+   * instance pose). The quaternion is normalized first: solver output can
+   * drift off unit length, and gp_Quaternion would fold that into a scale.
+   */
+  static toGpTrsfPose(
+    position: { x: number; y: number; z: number },
+    quaternion: { x: number; y: number; z: number; w: number },
+  ): Disposable<gp_Trsf> {
+    const oc = getOC();
+    const norm = Math.hypot(quaternion.x, quaternion.y, quaternion.z, quaternion.w) || 1;
+    const q = new oc.gp_Quaternion(quaternion.x / norm, quaternion.y / norm, quaternion.z / norm, quaternion.w / norm);
+    const v = new oc.gp_Vec(position.x, position.y, position.z);
+    const trsf = new oc.gp_Trsf();
+    trsf.SetRotationPart(q);
+    trsf.SetTranslationPart(v);
+    q.delete();
+    v.delete();
+    return [trsf, () => trsf.delete()];
+  }
+
   static toGpTrsfTranslation(dx: number, dy: number, dz: number): Disposable<gp_Trsf> {
     const oc = getOC();
     const trsf = new oc.gp_Trsf();

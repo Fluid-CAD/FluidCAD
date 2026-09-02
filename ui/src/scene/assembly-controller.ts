@@ -7,6 +7,7 @@ import {
   ORIGIN_BODY_ID,
   ORIGIN_CONNECTOR_ID,
   Solver,
+  bodyFreedom,
   buildMateGraph,
   isInstanceFullyLocked,
   makeOriginBody,
@@ -14,7 +15,7 @@ import {
   matesReferenceOrigin,
   originConnectorRef,
 } from '../solver';
-import type { BodyState, ConnectorState, ContactState, MateReadout, MateRecord, SolverInput, SolverOutput, TreeEdge } from '../solver';
+import type { BodyFreedom, BodyState, ConnectorState, ContactState, MateReadout, MateRecord, SolverInput, SolverOutput, TreeEdge } from '../solver';
 
 const DRAG_THRESHOLD_PX = 4;
 /** Screen radius a click may miss a connector-gizmo origin by and still pick it. */
@@ -1315,6 +1316,20 @@ export class AssemblyController {
       return true;
     }
     return this.computeLockedInstanceIds().has(instanceId);
+  }
+
+  /**
+   * How the instance may move relative to ground — the transform gizmo
+   * shows only the handles this leaves usable (a part revolute-mated to
+   * the origin keeps its hinge ring and loses the translate handles).
+   * Read off the committed mates, like {@link isInstanceLocked}; unknown
+   * ids read as immobile.
+   */
+  getInstanceFreedom(instanceId: string): BodyFreedom {
+    if (!this.instances.has(instanceId)) {
+      return { translates: false, rotates: [false, false, false] };
+    }
+    return bodyFreedom(instanceId, buildMateGraph(this.collectBodies(), this.mates));
   }
 
   /**

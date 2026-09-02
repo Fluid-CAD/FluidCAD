@@ -1,4 +1,6 @@
 import {
+  BufferAttribute,
+  BufferGeometry,
   ConeGeometry,
   CylinderGeometry,
   DoubleSide,
@@ -64,7 +66,11 @@ export type GizmoHandleSet = {
   root: Group;
   handles: GizmoHandleRecord[];
   hitMeshes: Mesh[];
-  /** A visible mesh whose onBeforeRender drives the screen-constant scaling. */
+  /**
+   * The mesh whose onBeforeRender drives the screen-constant scaling: a
+   * fully transparent, never-culled sliver at the root, so the hook fires
+   * every frame no matter which handles the host has hidden.
+   */
   scaleHost: Mesh;
 };
 
@@ -119,24 +125,22 @@ export class GizmoHandleFactory {
       handles.push(GizmoHandleFactory.buildCenter());
     }
 
-    let scaleHost: Mesh | null = null;
+    if (handles.length === 0) {
+      throw new Error('transform gizmo built with no handles');
+    }
     for (const handle of handles) {
       root.add(handle.group);
-      if (!scaleHost) {
-        const visual = handle.group.children.find(
-          (c): c is Mesh => c instanceof Mesh && c.visible,
-        );
-        scaleHost = visual ?? null;
-      }
     }
+    // The screen-scale hook rides a mesh's onBeforeRender, which only fires
+    // for meshes that render: a handle the host hides (setEnabledHandles)
+    // would take the hook down with it, so it lives on its own mesh.
+    const scaleHost = GizmoHandleFactory.buildScaleHost();
+    root.add(scaleHost);
     root.traverse((child) => {
       child.renderOrder = GIZMO_RENDER_ORDER;
       child.userData.isMetaShape = true;
     });
 
-    if (!scaleHost) {
-      throw new Error('transform gizmo built with no visible handles');
-    }
     return {
       root,
       handles,
@@ -147,6 +151,26 @@ export class GizmoHandleFactory {
 
   private static visualMaterial(color: number, opacity: number): MeshBasicMaterial {
     return new MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity });
+  }
+
+  /** A transparent, never-culled triangle that renders every frame. */
+  private static buildScaleHost(): Mesh {
+    const geometry = new BufferGeometry();
+    geometry.setAttribute('position', new BufferAttribute(new Float32Array([
+      0, 0, 0,
+      0.01, 0, 0,
+      0, 0.01, 0,
+    ]), 3));
+    const material = new MeshBasicMaterial({
+      transparent: true,
+      opacity: 0,
+      depthTest: false,
+      depthWrite: false,
+    });
+    const mesh = new Mesh(geometry, material);
+    mesh.name = 'transformGizmoScaleHost';
+    mesh.frustumCulled = false;
+    return mesh;
   }
 
   private static hitMaterial(): MeshBasicMaterial {

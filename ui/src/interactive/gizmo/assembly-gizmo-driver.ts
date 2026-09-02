@@ -2,6 +2,7 @@ import { Euler, MathUtils, Quaternion, Vector3 } from 'three';
 import type { Viewer } from '../../viewer';
 import type { SerializedAssemblyInstance } from '../../types';
 import type { AssemblyController } from '../../scene/assembly-controller';
+import type { BodyFreedom } from '../../solver';
 import { resolveExpressionValue, type VariableInfo } from '../../ui/expression-core';
 import { isEditableTarget } from '../../keyboard-bridge';
 import { TransformGizmo } from './transform-gizmo';
@@ -79,6 +80,10 @@ const DRAG_TOUCHED_ROTATE_AXES: Partial<Record<GizmoHandleId, [boolean, boolean,
   rx: [true, true, true], ry: [true, true, true], rz: [false, false, true],
 };
 
+/** Every handle that moves the body origin. */
+const TRANSLATE_HANDLES: GizmoHandleId[] = ['tx', 'ty', 'tz', 'pxy', 'pyz', 'pxz', 'center'];
+const RING_HANDLES: [GizmoHandleId, GizmoHandleId, GizmoHandleId] = ['rx', 'ry', 'rz'];
+
 /**
  * The assembly host for {@link TransformGizmo}: a single click on a
  * non-locked inserted part attaches the triad at the part's origin
@@ -88,8 +93,11 @@ const DRAG_TOUCHED_ROTATE_AXES: Partial<Record<GizmoHandleId, [boolean, boolean,
  *
  * Persistence mirrors the free-drag rule: mate-constrained ungrounded
  * instances move live but never write back; locked instances (grounded or
- * fastened-chain to ground) never show the gizmo at all. Free drag itself
- * is untouched — the gizmo is an additive precision layer.
+ * fastened-chain to ground) never show the gizmo at all, nor does a part
+ * whose mates pin its origin in place (a crank on a revolute to the origin
+ * — spinning it is a free-drag gesture, not a triad one). A part that can
+ * move shows only the rings its freedom can use. Free drag itself is
+ * untouched — the gizmo is an additive precision layer.
  */
 export class AssemblyGizmoDriver {
   private readonly bindings: AssemblyGizmoBindings;
@@ -175,6 +183,9 @@ export class AssemblyGizmoDriver {
     }
     this.attachedId = instanceId;
     this.gizmo.show(pose.position);
+    if (!this.applyFreedom(controller, instanceId)) {
+      return;
+    }
     this.refreshVariables();
     void this.refreshPoseExprs();
   }
@@ -191,6 +202,39 @@ export class AssemblyGizmoDriver {
       return;
     }
     this.gizmo.setPosition(pose.position);
+    // Mates change under a re-render (a new mate to the origin, a dropped
+    // one) — but never mid-gesture, where hiding the dragged handle would
+    // yank it away.
+    if (!this.gizmo.hasActiveGesture) {
+      this.applyFreedom(controller, this.attachedId);
+    }
+  }
+
+  /**
+   * Show the handles the instance's freedom relative to ground can use.
+   * False (detached) when its origin cannot move at all — locked parts
+   * (which the pre-attach check already refuses) and parts held in place
+   * by their mates with only a hinge left.
+   */
+  private applyFreedom(controller: AssemblyController, instanceId: string): boolean {
+    const freedom = controller.getInstanceFreedom(instanceId);
+    if (!freedom.translates) {
+      this.detach();
+      return false;
+    }
+    this.gizmo.setEnabledHandles(AssemblyGizmoDriver.enabledHandles(freedom));
+    return true;
+  }
+
+  /** Every translate handle plus the rings of the axes the part can turn about. */
+  private static enabledHandles(freedom: BodyFreedom): Set<GizmoHandleId> {
+    const enabled = new Set<GizmoHandleId>(TRANSLATE_HANDLES);
+    for (let axis = 0; axis < 3; axis++) {
+      if (freedom.rotates[axis]) {
+        enabled.add(RING_HANDLES[axis]);
+      }
+    }
+    return enabled;
   }
 
   /** The scene flipped to part mode. */

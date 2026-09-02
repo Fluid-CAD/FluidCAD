@@ -110,6 +110,8 @@ export class TransformGizmo {
 
   private built: GizmoHandleSet | null = null;
   private readonly orientation = new Quaternion();
+  /** Handles the host has switched off — hidden and unpickable. */
+  private readonly disabledHandles = new Set<GizmoHandleId>();
 
   private session: GizmoDragSession | null = null;
   private sessionPointerId: number | null = null;
@@ -152,6 +154,30 @@ export class TransformGizmo {
     this.endSession({ notifyCancel: this.isDragging() });
     this.setHovered(null);
     this.built.root.visible = false;
+    this.host.requestRender();
+  }
+
+  /**
+   * Show only these handles; the rest are hidden and unpickable until the
+   * next call. Hosts use it to drop the handles their target's constraints
+   * leave useless (a hinged part keeps its ring, loses the arrows). Sticky
+   * across show()/hide() — a host that never calls it gets every handle.
+   * Callers apply it between gestures: a handle mid-drag is not hidden.
+   */
+  setEnabledHandles(enabled: ReadonlySet<GizmoHandleId>): void {
+    const set = this.ensureBuilt();
+    const active = this.session?.handle ?? null;
+    this.disabledHandles.clear();
+    for (const handle of set.handles) {
+      const on = enabled.has(handle.id) || handle.id === active;
+      handle.group.visible = on;
+      if (!on) {
+        this.disabledHandles.add(handle.id);
+      }
+    }
+    if (this.hovered && this.disabledHandles.has(this.hovered.id)) {
+      this.setHovered(null);
+    }
     this.host.requestRender();
   }
 
@@ -505,7 +531,10 @@ export class TransformGizmo {
     if (!set || !set.root.visible) {
       return null;
     }
-    const hits = raycaster.intersectObjects(set.hitMeshes, false);
+    const pickable = this.disabledHandles.size === 0
+      ? set.hitMeshes
+      : set.hitMeshes.filter((m) => !this.disabledHandles.has(m.userData.gizmoHandle as GizmoHandleId));
+    const hits = raycaster.intersectObjects(pickable, false);
     if (hits.length === 0) {
       return null;
     }

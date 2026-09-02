@@ -1,5 +1,5 @@
 export { Solver, isUsableSolution } from './solver.js';
-export { buildMateGraph, isInstanceFullyLocked } from './graph.js';
+export { bodyFreedom, buildMateGraph, isInstanceFullyLocked } from './graph.js';
 export {
   ORIGIN_BODY_ID,
   ORIGIN_CONNECTOR_ID,
@@ -11,7 +11,7 @@ export {
 export type { OriginAxis } from './origin-body.js';
 export { mateReadoutValue } from './warm-start.js';
 export type { MateReadout } from './warm-start.js';
-export type { TreeEdge } from './graph.js';
+export type { BodyFreedom, TreeEdge } from './graph.js';
 export type {
   SolverInput,
   SolverOutput,

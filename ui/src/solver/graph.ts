@@ -23,6 +23,7 @@
 // rigid mate is honored as the tree edge and the looser one defers to
 // LM as a closure.
 
+import { Vector3 } from 'three';
 import { mateSideIds, type BodyState, type ConnectorState, type MateRecord } from './types.js';
 import { resolveContact } from './contact-model.js';
 
@@ -356,6 +357,130 @@ export function isInstanceFullyLocked(instanceId: string, graph: MateGraph): boo
   const idx = graph.bodyComponent.get(instanceId);
   if (idx === undefined) return false;
   return isFullyLocked(instanceId, graph.components[idx]);
+}
+
+/**
+ * How a body may move relative to ground, read off its spanning-tree path
+ * to a grounded root — what the transform gizmo uses to show only the
+ * handles that can do something.
+ */
+export type BodyFreedom = {
+  /**
+   * The body ORIGIN can move in world: some joint on the path leaves a
+   * translation (slider/cylindrical/planar), or a revolute on the path
+   * spins about an axis the origin does not lie on (the origin swings).
+   */
+  translates: boolean;
+  /**
+   * Per world axis (X, Y, Z): the body can rotate about it. All three
+   * when a rotation joint on the path is not world-axis aligned (the
+   * composition is not axis-separable) or the chain is unconstrained.
+   */
+  rotates: [boolean, boolean, boolean];
+};
+
+const WORLD_AXES: [Vector3, Vector3, Vector3] = [
+  new Vector3(1, 0, 0),
+  new Vector3(0, 1, 0),
+  new Vector3(0, 0, 1),
+];
+/** cos(~0.08°) — an axis this close to a world axis counts as aligned. */
+const AXIS_ALIGN_COS = 1 - 1e-6;
+/** An origin within this distance of a revolute axis is ON it. */
+const ON_AXIS_DISTANCE = 1e-3;
+
+function unrestrictedFreedom(): BodyFreedom {
+  return { translates: true, rotates: [true, true, true] };
+}
+
+/**
+ * The joint axis a tree edge turns about, in world: the parent connector's
+ * normal through its origin (both mate sides coincide once solved, so the
+ * parent — nearer ground — frame is the axis line).
+ */
+function treeEdgeAxis(edge: TreeEdge): { origin: Vector3; direction: Vector3 } {
+  const q = edge.parent.quaternion;
+  return {
+    origin: edge.parentConn.localOrigin.clone().applyQuaternion(q).add(edge.parent.position),
+    direction: edge.parentConn.localNormal.clone().applyQuaternion(q).normalize(),
+  };
+}
+
+function distanceToLine(point: Vector3, line: { origin: Vector3; direction: Vector3 }): number {
+  const offset = point.clone().sub(line.origin);
+  const along = offset.dot(line.direction);
+  return offset.sub(line.direction.clone().multiplyScalar(along)).length();
+}
+
+/** Mark the world axis `direction` lines up with; every axis when none does. */
+function markRotationAxis(rotates: [boolean, boolean, boolean], direction: Vector3): void {
+  for (let k = 0; k < 3; k++) {
+    if (Math.abs(direction.dot(WORLD_AXES[k])) >= AXIS_ALIGN_COS) {
+      rotates[k] = true;
+      return;
+    }
+  }
+  rotates[0] = rotates[1] = rotates[2] = true;
+}
+
+/**
+ * The freedom of `instanceId` relative to ground. Only the spanning-tree
+ * path is read: closure mates can remove freedom but never add it, so the
+ * answer errs toward showing a handle, never toward hiding a usable one.
+ * A grounded body (or a fastened-only chain to one) has none — the same
+ * set {@link isFullyLocked} reports. Bodies whose root is not grounded,
+ * bodies outside the graph, and chains through joints this does not
+ * model (parallel, pin-slot) are unrestricted.
+ */
+export function bodyFreedom(instanceId: string, graph: MateGraph): BodyFreedom {
+  const idx = graph.bodyComponent.get(instanceId);
+  if (idx === undefined) return unrestrictedFreedom();
+  const component = graph.components[idx];
+  const body = component.bodies.find(b => b.instanceId === instanceId);
+  if (!body) return unrestrictedFreedom();
+
+  const parentByChild = new Map<string, TreeEdge>();
+  for (const edge of component.treeEdges) {
+    parentByChild.set(edge.child.instanceId, edge);
+  }
+  const path: TreeEdge[] = [];
+  let current = instanceId;
+  for (;;) {
+    const edge = parentByChild.get(current);
+    if (!edge) break;
+    path.push(edge);
+    current = edge.parent.instanceId;
+  }
+  const root = component.roots.find(r => r.instanceId === current);
+  if (!root || !root.grounded) return unrestrictedFreedom();
+
+  let translates = false;
+  const rotates: [boolean, boolean, boolean] = [false, false, false];
+  for (const edge of path) {
+    switch (edge.mate.type) {
+      case 'fastened':
+        break;
+      case 'revolute': {
+        const axis = treeEdgeAxis(edge);
+        if (distanceToLine(body.position, axis) > ON_AXIS_DISTANCE) {
+          translates = true;
+        }
+        markRotationAxis(rotates, axis.direction);
+        break;
+      }
+      case 'cylindrical':
+      case 'planar':
+        translates = true;
+        markRotationAxis(rotates, treeEdgeAxis(edge).direction);
+        break;
+      case 'slider':
+        translates = true;
+        break;
+      default:
+        return unrestrictedFreedom();
+    }
+  }
+  return { translates, rotates };
 }
 
 /**

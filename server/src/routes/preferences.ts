@@ -49,6 +49,9 @@ export function createPreferencesRouter(): Router {
         if (typeof body.showGrid === 'boolean') {
           current.showGrid = body.showGrid;
         }
+        if (typeof body.showConnectors === 'boolean') {
+          current.showConnectors = body.showConnectors;
+        }
         if (body.cameraMode === 'perspective' || body.cameraMode === 'orthographic') {
           current.cameraMode = body.cameraMode;
         }

@@ -1,7 +1,7 @@
 import { viewerSettings } from '../scene/viewer-settings';
 import { viewportChrome } from './viewport-chrome';
 import type { EngineClient } from '../engine-client';
-import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_EYE, ICON_CLOSE, ICON_ADJUSTMENTS } from './icons';
+import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_GIZMO, ICON_EYE, ICON_CLOSE, ICON_ADJUSTMENTS } from './icons';
 
 const FAB_BTN = 'btn btn-ghost btn-circle btn-sm text-base-content/60';
 const FAB_BTN_ACTIVE = 'btn btn-soft btn-primary btn-circle btn-sm';
@@ -78,6 +78,7 @@ export class SettingsPanel {
         <span data-camera-label>${cameraLabel}</span>
         <button class="${FAB_BTN}" data-action="camera" title="Toggle projection">${ICON_VIDEO}</button>
       </div>
+      <div>Connectors <button class="${s.showConnectors ? FAB_BTN_ACTIVE : FAB_BTN}" data-action="connectors" title="Toggle connector gizmos">${ICON_GIZMO}</button></div>
     `;
   }
 
@@ -101,6 +102,12 @@ export class SettingsPanel {
       const next = !viewerSettings.current.showGrid;
       viewerSettings.update({ showGrid: next });
       this.client.savePreference('showGrid', next);
+    });
+
+    this.fabEl.querySelector<HTMLButtonElement>('[data-action="connectors"]')?.addEventListener('click', () => {
+      const next = !viewerSettings.current.showConnectors;
+      viewerSettings.update({ showConnectors: next });
+      this.client.savePreference('showConnectors', next);
     });
   }
 
@@ -140,6 +147,10 @@ export class SettingsPanel {
     const gridBtn = this.fabEl.querySelector<HTMLButtonElement>('[data-action="grid"]');
     if (gridBtn) {
       gridBtn.className = s.showGrid ? FAB_BTN_ACTIVE : FAB_BTN;
+    }
+    const connectorsBtn = this.fabEl.querySelector<HTMLButtonElement>('[data-action="connectors"]');
+    if (connectorsBtn) {
+      connectorsBtn.className = s.showConnectors ? FAB_BTN_ACTIVE : FAB_BTN;
     }
     const cameraLabel = this.fabEl.querySelector<HTMLElement>('[data-camera-label]');
     if (cameraLabel) {

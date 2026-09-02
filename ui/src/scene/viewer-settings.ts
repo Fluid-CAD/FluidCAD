@@ -9,6 +9,8 @@ import {
 export interface ViewerSettings {
   cameraMode: 'perspective' | 'orthographic';
   showGrid: boolean;
+  /** Part-view connector gizmos (the `connector()` axis triads). */
+  showConnectors: boolean;
   sectionView: boolean;
   sketchLockCamera: boolean;
   /** Sketch dimensional-constraint annotations (distance, angle, radius,
@@ -34,6 +36,7 @@ type Listener = (settings: ViewerSettings) => void;
 const defaults: ViewerSettings = {
   cameraMode: 'orthographic',
   showGrid: true,
+  showConnectors: true,
   sectionView: true,
   sketchLockCamera: true,
   sketchShowDimensions: true,
@@ -65,6 +68,7 @@ export const viewerSettings = new ViewerSettingsStore();
 export function applyPreferences(prefs: UserPreferences): void {
   viewerSettings.update({
     showGrid: prefs.showGrid,
+    ...(typeof prefs.showConnectors === 'boolean' ? { showConnectors: prefs.showConnectors } : {}),
     cameraMode: prefs.cameraMode,
     ...(prefs.measureLengthUnit ? { measureLengthUnit: prefs.measureLengthUnit } : {}),
     ...(typeof prefs.gridAdaptive === 'boolean' ? { gridAdaptive: prefs.gridAdaptive } : {}),

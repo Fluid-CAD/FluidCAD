@@ -286,6 +286,12 @@ export class Viewer {
       this.lastFitBox = null;
     });
 
+    // The "Connectors" view toggle: re-sync the part-view gizmos on change.
+    viewerSettings.subscribe(() => {
+      this.applyConnectorVisibility();
+      this.ctx.requestRender();
+    });
+
     this.initClickDetection();
     this.initHoverDetection();
   }
@@ -1033,6 +1039,7 @@ export class Viewer {
     const mesh = buildSceneMesh(sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, isRollback);
     this.ctx.scene.add(mesh);
     this.applyShapeOverridesAndPrune(sceneObjects);
+    this.applyConnectorVisibility();
 
     if (this.activeSketchId) {
       this.applySketchModeGhosting();
@@ -1247,7 +1254,29 @@ export class Viewer {
     this.clearHighlight();
     this.highlightedConnectorId = connectorId;
     this.applyConnectorScale(connectorId, CONNECTOR_SHOW_SCALE);
+    this.applyConnectorVisibility();
     this.ctx.render();
+  }
+
+  /**
+   * Part-view connector gizmos follow the "Connectors" view toggle; a
+   * timeline "show me" highlight always reveals its own gizmo so the row
+   * still points at something. Assembly instances manage their own
+   * connectors (AssemblyController.applyConnectorVisibility), so only the
+   * compiled part mesh is walked here.
+   */
+  private applyConnectorVisibility(): void {
+    const compiled = this.ctx.scene.getObjectByName('compiledMesh');
+    if (!compiled) {
+      return;
+    }
+    const show = viewerSettings.current.showConnectors;
+    compiled.traverse((child) => {
+      if (child.userData.isConnector !== true) {
+        return;
+      }
+      child.visible = show || child.userData.connectorId === this.highlightedConnectorId;
+    });
   }
 
   private applyConnectorScale(connectorId: string, scale: number): void {
@@ -1307,6 +1336,7 @@ export class Viewer {
     if (this.highlightedConnectorId !== null) {
       this.applyConnectorScale(this.highlightedConnectorId, 1);
       this.highlightedConnectorId = null;
+      this.applyConnectorVisibility();
     }
     for (const group of this.detachedHighlightGroups) {
       group.parent?.remove(group);
@@ -2045,6 +2075,7 @@ export class Viewer {
     const mesh = buildSceneMesh(this.sceneObjects, this.activeSketchId, this.ctx.camera, this.isRegionPicking, this.lastRenderIsRollback);
     this.ctx.scene.add(mesh);
     this.applyShapeOverridesAndPrune(this.sceneObjects);
+    this.applyConnectorVisibility();
     // The rebuilt materials are un-tinted — reapply the sketch-mode ghosting
     // (as updateView does) or a mid-sketch rebuild (a theme change, region
     // picking) silently drops the dimming until the next full render.

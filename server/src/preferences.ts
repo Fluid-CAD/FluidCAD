@@ -13,6 +13,8 @@ export const GRID_MAJOR_EVERY_RANGE: [number, number] = [2, 100];
 export interface Preferences {
   theme: string;
   showGrid: boolean;
+  /** Part-view connector gizmos visible. */
+  showConnectors: boolean;
   cameraMode: 'perspective' | 'orthographic';
   showBuildTimings: boolean;
   measureLengthUnit: MeasureLengthUnit;
@@ -33,6 +35,7 @@ export interface Preferences {
 const DEFAULTS: Preferences = {
   theme: 'fluidcad-dark',
   showGrid: true,
+  showConnectors: true,
   cameraMode: 'orthographic',
   showBuildTimings: false,
   measureLengthUnit: 'mm',

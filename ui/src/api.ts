@@ -131,6 +131,8 @@ export type MeasureResult = {
 export interface UserPreferences {
   theme: string;
   showGrid: boolean;
+  /** Part-view connector gizmos visible. Default true. */
+  showConnectors?: boolean;
   cameraMode: 'perspective' | 'orthographic';
   showBuildTimings: boolean;
   measureLengthUnit?: LengthUnit;

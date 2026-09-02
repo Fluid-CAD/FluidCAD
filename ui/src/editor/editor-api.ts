@@ -85,8 +85,41 @@ export function createWorkspaceFile(path: string, content = ''): Promise<Workspa
   return post('/api/files/create', { path, content });
 }
 
-export function renameWorkspaceFile(path: string, newPath: string): Promise<WorkspaceFileEntry> {
-  return post('/api/files/rename', { path, newPath });
+export type SpecifierReplacement = { from: string; to: string };
+
+/** One importer the server re-pointed at a renamed file. */
+export type ImportUpdate = {
+  /** Workspace-relative, as of after the rename. */
+  path: string;
+  absPath: string;
+  content: string;
+  replacements: SpecifierReplacement[];
+  /** The disk's mtime after the write; null when an unsaved buffer was rewritten and the disk left alone. */
+  mtimeMs: number | null;
+};
+
+export type ImportUpdateResult = {
+  updated: ImportUpdate[];
+  /** Importers still naming the old file, and why each was left. */
+  skipped: { path: string; reason: string }[];
+  /** The workspace listing hit its cap, so an importer past it went unchecked. */
+  truncated: boolean;
+};
+
+export type RenameResult = WorkspaceFileEntry & { from: string; imports?: ImportUpdateResult };
+
+export type RenameOptions = {
+  /** Re-point every workspace importer at the new name. */
+  updateImports?: boolean;
+  /**
+   * Unsaved texts by workspace-relative path. The server rewrites these from
+   * the text given and returns the result instead of writing over the file.
+   */
+  buffers?: Record<string, string>;
+};
+
+export function renameWorkspaceFile(path: string, newPath: string, options: RenameOptions = {}): Promise<RenameResult> {
+  return post('/api/files/rename', { path, newPath, ...options });
 }
 
 export function deleteWorkspaceFile(path: string): Promise<{ success: boolean }> {

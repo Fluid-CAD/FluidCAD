@@ -12,9 +12,11 @@ import {
   renameWorkspaceFile,
   saveWorkspaceEditorState,
   type FileKind,
-  type WorkspaceFileEntry,
+  type ImportUpdateResult,
+  type RenameResult,
 } from './editor-api';
 import { EditorHost } from './host/editor-host';
+import { replaceSpecifiers } from './import-specifiers';
 import { Diagnostics, type CompileError } from './diagnostics';
 import { Breakpoints } from './breakpoints';
 import type { SceneObjectRender, SourceLocation } from '../types';
@@ -266,9 +268,18 @@ export class EditorSurface {
     if (newRelPath === entry.relPath) {
       return;
     }
-    let renamed: WorkspaceFileEntry;
+    // Unsaved buffers go along: their imports are rewritten in the text we
+    // hold, not on the disk underneath them.
+    const buffers: Record<string, string> = {};
+    for (const dirtyPath of this.models.dirtyPaths()) {
+      const dirty = this.models.get(dirtyPath);
+      if (dirty) {
+        buffers[dirty.relPath] = dirty.model.getValue();
+      }
+    }
+    let renamed: RenameResult;
     try {
-      renamed = await renameWorkspaceFile(entry.relPath, newRelPath);
+      renamed = await renameWorkspaceFile(entry.relPath, newRelPath, { updateImports: true, buffers });
     } catch (err) {
       this.deps.onEditRefused?.(`Could not rename ${entry.relPath}: ${(err as Error).message}`);
       this.renderTabs();
@@ -306,9 +317,11 @@ export class EditorSurface {
     }
     this.breakpoints.forget(absPath);
     this.models.forget(absPath);
-    this.breakpoints.refresh(next.absPath);
+    this.adoptImportUpdates(renamed.imports, buffers, entry.relPath, next.relPath);
+    this.breakpoints.refreshAll();
     this.persistTabs();
     this.renderTabs();
+    this.reportSkippedImports(renamed.imports, entry.relPath, next.relPath);
 
     // The server still holds the old name as its current file. A live render
     // of the buffer under the new one re-points it — and, unlike re-opening
@@ -325,6 +338,56 @@ export class EditorSurface {
     } catch (err) {
       console.warn(`FluidCAD: could not create ${relPath}:`, err);
     }
+  }
+
+  /**
+   * Land the importer rewrites a rename produced. A file the server wrote on
+   * disk is adopted as saved text; one it rewrote from a buffer we sent lands
+   * as an edit and stays unsaved. Either way the buffer may have moved on
+   * during the round trip — then only the import paths are substituted, so
+   * nothing typed meanwhile is lost.
+   */
+  private adoptImportUpdates(
+    imports: ImportUpdateResult | undefined,
+    sent: Record<string, string>,
+    oldRelPath: string,
+    newRelPath: string,
+  ): void {
+    if (!imports) {
+      return;
+    }
+    for (const update of imports.updated) {
+      const target = this.models.get(update.absPath);
+      if (!target) {
+        continue;
+      }
+      // The renamed file was sent under its old name.
+      const sentText = sent[update.path === newRelPath ? oldRelPath : update.path];
+      const current = target.model.getValue();
+      const unchangedSinceSent = sentText !== undefined ? current === sentText : !this.models.isDirty(update.absPath);
+      if (unchangedSinceSent) {
+        this.models.setContentAsEdit(update.absPath, update.content);
+        if (update.mtimeMs !== null) {
+          this.models.markSaved(update.absPath, update.mtimeMs);
+        }
+      } else {
+        this.models.setContentAsEdit(update.absPath, replaceSpecifiers(current, update.replacements));
+      }
+    }
+  }
+
+  /** The rename went through, but these importers still name the old file — say so. */
+  private reportSkippedImports(imports: ImportUpdateResult | undefined, oldRelPath: string, newRelPath: string): void {
+    if (!imports || (imports.skipped.length === 0 && !imports.truncated)) {
+      return;
+    }
+    const reasons = imports.skipped.map((skip) => `${skip.path} (${skip.reason})`);
+    if (imports.truncated) {
+      reasons.push('files past the workspace listing cap were not checked');
+    }
+    this.deps.onEditRefused?.(
+      `Renamed to ${newRelPath}, but some imports still point at ${oldRelPath}: ${reasons.join('; ')}.`,
+    );
   }
 
   private tabRelPaths(): string[] {

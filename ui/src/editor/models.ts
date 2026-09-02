@@ -163,6 +163,17 @@ export class WorkspaceModels {
     this.notifyDirty();
   }
 
+  /** The disk now holds exactly the model's text — a server-side rewrite the page just adopted. */
+  markSaved(absPath: string, mtimeMs: number): void {
+    const entry = this.entries.get(absPath);
+    if (!entry) {
+      return;
+    }
+    entry.mtimeMs = mtimeMs;
+    this.savedVersions.set(absPath, entry.model.getVersionId());
+    this.notifyDirty();
+  }
+
   async saveAllDirty(): Promise<void> {
     await Promise.all(this.dirtyPaths().map((absPath) => this.save(absPath)));
   }

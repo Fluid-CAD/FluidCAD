@@ -209,6 +209,63 @@ describe('workspace file routes', () => {
       expect((await post('/files/delete', { path: 'new.fluid.js' })).status).toBe(404);
     });
 
+    it('renames without touching importers unless asked, and never over an existing file', async () => {
+      fs.writeFileSync(path.join(workspace, 'bracket.part.js'), 'export const bracket = 1;\n');
+      fs.writeFileSync(path.join(workspace, 'rig.assembly.js'), "import { bracket } from './bracket.part.js';\n");
+      fs.writeFileSync(path.join(workspace, 'taken.part.js'), 'taken');
+
+      const plain = await post('/files/rename', { path: 'bracket.part.js', newPath: 'arm.part.js' });
+      expect(plain.status).toBe(200);
+      expect(plain.body.imports).toBeUndefined();
+      expect(fs.readFileSync(path.join(workspace, 'rig.assembly.js'), 'utf8')).toContain('./bracket.part.js');
+
+      const clash = await post('/files/rename', { path: 'arm.part.js', newPath: 'taken.part.js', updateImports: true });
+      expect(clash.status).toBe(409);
+      expect(fs.readFileSync(path.join(workspace, 'taken.part.js'), 'utf8')).toBe('taken');
+      expect(fs.existsSync(path.join(workspace, 'arm.part.js'))).toBe(true);
+
+      expect((await post('/files/rename', { path: 'arm.part.js', newPath: 'arm.part.js' })).status).toBe(400);
+      fs.mkdirSync(path.join(workspace, 'dir'));
+      expect((await post('/files/rename', { path: 'dir', newPath: 'dir2' })).status).toBe(400);
+      expect(fs.existsSync(path.join(workspace, 'dir'))).toBe(true);
+    });
+
+    it('updates importers on rename: clean files on disk, unsaved buffers by return value', async () => {
+      fs.writeFileSync(path.join(workspace, 'bracket.part.js'), 'export const bracket = 1;\n');
+      fs.writeFileSync(path.join(workspace, 'rig.assembly.js'), "import { bracket } from './bracket.part.js';\n");
+      fs.mkdirSync(path.join(workspace, 'sub'));
+      fs.writeFileSync(path.join(workspace, 'sub', 'other.js'), "import { bracket } from '../bracket.part.js';\n");
+      fs.writeFileSync(path.join(workspace, 'broken.js'), "import { bracket } from './bracket.part.js';\nlet = ;\n");
+
+      const { status, body } = await post('/files/rename', {
+        path: 'bracket.part.js',
+        newPath: 'parts/arm.part.js',
+        updateImports: true,
+        buffers: { 'sub/other.js': "// unsaved\nimport { bracket } from '../bracket.part.js';\n" },
+      });
+      expect(status).toBe(200);
+      expect(body.from).toBe('bracket.part.js');
+      expect(body.path).toBe('parts/arm.part.js');
+      expect(fs.readFileSync(path.join(workspace, 'parts', 'arm.part.js'), 'utf8')).toBe('export const bracket = 1;\n');
+      expect(fs.existsSync(path.join(workspace, 'bracket.part.js'))).toBe(false);
+
+      expect(body.imports.truncated).toBe(false);
+      expect(body.imports.skipped).toEqual([{ path: 'broken.js', reason: 'it has syntax errors' }]);
+      expect(body.imports.updated.map((u: any) => [u.path, u.mtimeMs === null, u.replacements])).toEqual([
+        ['rig.assembly.js', false, [{ from: './bracket.part.js', to: './parts/arm.part.js' }]],
+        ['sub/other.js', true, [{ from: '../bracket.part.js', to: '../parts/arm.part.js' }]],
+      ]);
+      expect(fs.readFileSync(path.join(workspace, 'rig.assembly.js'), 'utf8')).toBe("import { bracket } from './parts/arm.part.js';\n");
+      // The unsaved buffer's file stays as it was on disk; the rewritten text came back instead.
+      expect(fs.readFileSync(path.join(workspace, 'sub', 'other.js'), 'utf8')).toBe("import { bracket } from '../bracket.part.js';\n");
+      expect(body.imports.updated[1].content).toBe("// unsaved\nimport { bracket } from '../parts/arm.part.js';\n");
+      // The file that couldn't be rewritten is exactly as it was.
+      expect(fs.readFileSync(path.join(workspace, 'broken.js'), 'utf8')).toBe("import { bracket } from './bracket.part.js';\nlet = ;\n");
+      // Both the moved model and the rewritten importer went through the ledger.
+      expect(written.map((w) => path.relative(workspace, w.absPath)).sort()).toEqual(['parts/arm.part.js', 'rig.assembly.js']);
+      expect(fs.readdirSync(workspace).filter((name) => name.endsWith('.tmp'))).toEqual([]);
+    });
+
     it('rejects a write whose content is not a string', async () => {
       const { status } = await post('/files/write', { path: 'a.js', content: { not: 'a string' } });
       expect(status).toBe(400);

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { dirname, relative } from 'path';
+import { relativeSpecifier } from '../files/relative-specifier.ts';
 import type { FluidCadServer } from '../fluidcad-server.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
@@ -153,11 +153,4 @@ function validParams(params: unknown): boolean {
   });
 }
 
-/** `./`-prefixed posix module specifier from the assembly file to the part file. */
-export function relativeSpecifier(fromFile: string, toFile: string): string {
-  let rel = relative(dirname(fromFile), toFile).replace(/\\/g, '/');
-  if (!rel.startsWith('.')) {
-    rel = './' + rel;
-  }
-  return rel;
-}
+export { relativeSpecifier };

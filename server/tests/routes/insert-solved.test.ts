@@ -23,9 +23,11 @@ let baseUrl: string;
 let relayed: any[];
 let delivered: boolean;
 
+let currentCode = CODE;
+
 const fakeFluidCadServer = {
   getCurrentFileName: () => '/ws/m.fluid.js',
-  getCurrentCode: () => CODE,
+  getCurrentCode: () => currentCode,
 } as any;
 
 async function post(body: unknown): Promise<{ status: number; body: any }> {
@@ -61,6 +63,7 @@ describe('/api/sketch/insert-solved', () => {
 
   beforeEach(() => {
     relayed = [];
+    currentCode = CODE;
     // Undelivered = no host attached = the dispatcher's immediate success,
     // so tests don't wait out the ack timeout.
     delivered = false;
@@ -80,6 +83,65 @@ describe('/api/sketch/insert-solved', () => {
       constraints: [{ kind: 'coincident', targets: [{ line: 5, newIndex: 0 }, { line: 5 }] }],
     })).status).toBe(400);
     expect(relayed).toHaveLength(0);
+  });
+
+  it('accepts reference and copy-instance targets (a snap onto projected/copied geometry)', async () => {
+    // A drawing tool that starts on a projected circle's center addresses
+    // the bare project() statement by its producer callee + .ref(i) — the
+    // entity-only type list used to 400 it as an invalid body.
+    currentCode = [
+      `import { sketch, line, project, copy } from "fluidcad/core";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  project(sel);`,
+      `  const a = line([0, 0], [100, 0]);`,
+      `  copy(a).linear(2, [0, 20]);`,
+      `});`,
+    ].join('\n');
+    const reference = await post({
+      sketchLine: 3,
+      geometry: [{ kind: 'line', text: 'line([5, 7], [40, 30])' }],
+      constraints: [{
+        kind: 'coincident',
+        targets: [
+          { newIndex: 0, role: 'start' },
+          { line: 4, role: 'center', featureType: 'project', refIndex: null },
+        ],
+      }],
+    });
+    expect(reference.status).toBe(200);
+    expect(reference.body.success).toBe(true);
+    const refTargets = relayed[0].spec.sketchEmission.constraints[0].targets;
+    expect(refTargets[1]).toEqual({ line: 4, role: 'center', featureType: 'project', refIndex: null });
+
+    const instance = await post({
+      sketchLine: 3,
+      geometry: [{ kind: 'line', text: 'line([100, 20], [140, 30])' }],
+      constraints: [{
+        kind: 'coincident',
+        targets: [
+          { newIndex: 0, role: 'start' },
+          { line: 6, role: 'end', featureType: 'copy', instanceIndex: 1 },
+        ],
+      }],
+    });
+    expect(instance.status).toBe(200);
+    const copyTargets = relayed[1].spec.sketchEmission.constraints[0].targets;
+    expect(copyTargets[1]).toEqual({ line: 6, role: 'end', featureType: 'copy', instanceIndex: 1 });
+
+    // Reference/instance addressing needs a statement line, and a reference
+    // featureType must be a producer callee.
+    expect((await post({
+      sketchLine: 3,
+      geometry: [{ kind: 'line', text: 'line([0, 0], [1, 1])' }],
+      constraints: [{ kind: 'coincident', targets: [{ newIndex: 0, role: 'start' }, { newIndex: 0, role: 'end', refIndex: null }] }],
+    })).status).toBe(400);
+    expect((await post({
+      sketchLine: 3,
+      geometry: [{ kind: 'line', text: 'line([0, 0], [1, 1])' }],
+      constraints: [{ kind: 'coincident', targets: [{ newIndex: 0, role: 'start' }, { line: 4, role: 'center', featureType: 'circle', refIndex: null }] }],
+    })).status).toBe(400);
+    expect(relayed).toHaveLength(2);
   });
 
   it('preflights a bad emission to a 422 without relaying', async () => {

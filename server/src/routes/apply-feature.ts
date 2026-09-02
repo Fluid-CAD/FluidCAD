@@ -7150,6 +7150,12 @@ export function createApplyFeatureRouter(
     // Anchor-point statements (P8) ride the entity domain — the transform
     // derives their accessor (`.center()`/`.anchor()`/`.point(i)`).
     const validTypes = new Set(['line', 'arc', 'circle', 'point', 'ellipse', 'text', 'bezier']);
+    // Reference targets (P6) address a project()/intersect() statement by
+    // `.ref(i)`; copy-instance targets a 2D copy() statement's duplicate
+    // slot — a drawing tool snapping onto projected/copied geometry emits
+    // them (the add-constraint route accepts the same shapes).
+    const validReferenceTypes = new Set(['project', 'intersect']);
+    const validCopyTypes = new Set(['copy']);
     const cleanConstraints: SolvedConstraintEmission[] = [];
     for (const c of constraints) {
       if (typeof c !== 'object' || c === null || !SOLVED_CONSTRAINT_KINDS.has(c.kind)
@@ -7178,9 +7184,20 @@ export function createApplyFeatureRouter(
         }
         const byLine = typeof t.line === 'number';
         const byNew = typeof t.newIndex === 'number';
+        const isReference = t.refIndex !== undefined;
+        const isCopyInstance = t.instanceIndex !== undefined;
         if (byLine === byNew
           || (t.role !== undefined && !validRoles.has(t.role))
-          || (t.featureType !== undefined && !validTypes.has(t.featureType))
+          // Reference/copy-instance addressing composes with `line` only,
+          // never with each other.
+          || ((isReference || isCopyInstance) && !byLine)
+          || (isReference && t.refIndex !== null && !Number.isInteger(t.refIndex))
+          || (isCopyInstance
+            && (!Number.isInteger(t.instanceIndex) || t.instanceIndex < 0 || isReference))
+          || (t.featureType !== undefined
+            && !(isReference ? validReferenceTypes
+              : isCopyInstance ? validCopyTypes
+              : validTypes).has(t.featureType))
           // Anchor-point targeting (P8): the bezier control-point index —
           // integer ≥ 0 (the transform enforces the featureType pairing).
           || (t.pointIndex !== undefined
@@ -7195,6 +7212,8 @@ export function createApplyFeatureRouter(
           ...(byLine && t.occurrence !== undefined ? { occurrence: t.occurrence } : {}),
           ...(t.role !== undefined ? { role: t.role } : {}),
           ...(t.featureType !== undefined ? { featureType: t.featureType } : {}),
+          ...(isReference ? { refIndex: t.refIndex } : {}),
+          ...(isCopyInstance ? { instanceIndex: t.instanceIndex } : {}),
           ...(t.pointIndex !== undefined ? { pointIndex: t.pointIndex } : {}),
         });
       }

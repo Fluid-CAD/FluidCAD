@@ -18,8 +18,19 @@ export type SolvedVertexRef = {
   /** Point accessor rendered as `.role()`; absent = the entity IS a point. */
   role?: 'start' | 'end' | 'center';
   /** Anchor-point statements (P8) name their own callee — the server
-   * renders `.center()` / `.anchor()` / `.point(i)` instead of a role. */
-  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'text' | 'bezier';
+   * renders `.center()` / `.anchor()` / `.point(i)` instead of a role.
+   * Reference snaps (P6) name their producer ('project' | 'intersect') and
+   * copy-duplicate snaps name 'copy' — the statement at `line` is NOT an
+   * entity call, and the server refuses a plain entity target on it. */
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'text' | 'bezier'
+    | 'project' | 'intersect' | 'copy';
+  /** Reference snaps (P6): the `.ref(i)` edge index on the project()/
+   * intersect() statement at `line`; null = the terse single-entity form.
+   * Presence marks the snap as landing on fixed reference geometry. */
+  refIndex?: number | null;
+  /** Copy-duplicate snaps: the picked duplicate's `instance()` slot on the
+   * 2D copy() statement at `line` — rides `featureType: 'copy'`. */
+  instanceIndex?: number;
   /** Bezier anchor snaps: the snapped control point's 0-based index —
    * rides `featureType: 'bezier'` only. */
   pointIndex?: number;

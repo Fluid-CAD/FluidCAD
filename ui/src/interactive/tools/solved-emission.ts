@@ -100,6 +100,10 @@ export function refTarget(ref: SolvedVertexRef): SolvedEmissionTargetParam {
     featureType: ref.featureType,
     // Bezier anchor snaps address the snapped control point (P8).
     ...(ref.pointIndex !== undefined ? { pointIndex: ref.pointIndex } : {}),
+    // Reference snaps address the producer's `.ref(i)` edge (P6); copy
+    // duplicates their `.instance(k)` slot.
+    ...(ref.refIndex !== undefined ? { refIndex: ref.refIndex } : {}),
+    ...(ref.instanceIndex !== undefined ? { instanceIndex: ref.instanceIndex } : {}),
   };
 }
 
@@ -164,7 +168,8 @@ export function sameVertexRef(a: SolvedVertexRef, b: SolvedVertexRef): boolean {
     return a.datum === 'origin' && b.datum === 'origin';
   }
   return a.line === b.line && a.occurrence === b.occurrence
-    && a.role === b.role && a.pointIndex === b.pointIndex;
+    && a.role === b.role && a.pointIndex === b.pointIndex
+    && a.refIndex === b.refIndex && a.instanceIndex === b.instanceIndex;
 }
 
 /**

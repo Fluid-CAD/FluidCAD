@@ -1573,8 +1573,13 @@ export type SolvedEmissionTargetParam = {
   occurrence?: number;
   newIndex?: number;
   role?: 'start' | 'end' | 'center' | 'mid';
-  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy' | 'ellipse' | 'text' | 'bezier';
+  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'copy' | 'ellipse' | 'text' | 'bezier'
+    | 'project' | 'intersect';
   datum?: 'origin' | 'x-axis' | 'y-axis';
+  /** Fixed reference targets (P6): the `.ref(i)` edge index on the
+   * project()/intersect() statement at `line`; null = the terse
+   * single-entity form. Rides `featureType: 'project' | 'intersect'`. */
+  refIndex?: number | null;
   /** Copy-duplicate targets: the `instance()` slot of a 2D copy()
    * statement's duplicate — rides `featureType: 'copy'`. */
   instanceIndex?: number;

@@ -138,6 +138,15 @@ export class SnapManager {
           line: loc.line,
           ...(loc.occurrence !== undefined ? { occurrence: loc.occurrence } : {}),
         };
+        // Fixed references (P6) and copy duplicates live on a
+        // project()/intersect()/copy() statement, not an entity call — the
+        // ref names that producer plus its `.ref(i)` / `.instance(k)`
+        // address so the emitted coincident targets the right edge.
+        const owner = e.reference
+          ? { featureType: e.reference.producer, refIndex: e.reference.refIndex }
+          : e.copyInstance
+            ? { featureType: 'copy' as const, instanceIndex: e.copyInstance.slot }
+            : { featureType: e.kind };
         const roles: ('start' | 'end' | 'center')[] =
           e.kind === 'line' ? ['start', 'end']
             : e.kind === 'arc' ? ['start', 'end', 'center']
@@ -145,7 +154,7 @@ export class SnapManager {
         for (const role of roles) {
           const p = e[role];
           if (p) {
-            pushUnique(p[0], p[1], { ...provenance, role, featureType: e.kind });
+            pushUnique(p[0], p[1], { ...provenance, role, ...owner });
           }
         }
         if (e.kind === 'point' && e.point) {

@@ -145,6 +145,84 @@ describe('solved snap provenance', () => {
     });
   });
 
+  it('a projected circle center snaps as a reference target on its producer statement', () => {
+    // A bare `project(e.startEdges(5));` — the projected circle's center is
+    // a fixed entity registered through the producer's `entities` join. The
+    // snap ref must name the project() callee plus its `.ref(i)` address:
+    // a plain `featureType: 'circle'` target on that line makes the server
+    // refuse with "line N is not a sketch entity statement".
+    nextId = 0;
+    const solver = {
+      entities: [
+        { id: 0, kind: 'circle', fixed: true, paramOffset: 0 },
+        { id: 1, kind: 'line', fixed: true, paramOffset: 3 },
+        { id: 2, kind: 'line', fixed: false, paramOffset: 7 },
+      ],
+      constraints: [],
+      params: [5, 7, 20, 60, 0, 60, 40, 30, -10, 30, 40],
+      outcome: 'solved', dof: 4, conflicting: [], redundant: [], underconstrainedEntities: [],
+    };
+    const sketch = {
+      id: 'sketch-1', type: 'sketch', uniqueType: 'sketch',
+      object: { plane: PLANE, solvedMode: true, solver },
+      sceneShapes: [], ownShapes: [],
+    } as SceneObjectRender;
+    const single = child('projection', {
+      objectIds: [],
+      entities: [{ entityId: 0, kind: 'circle', edgeIndex: 0 }],
+      edgeCount: 1,
+    });
+    const multi = child('intersect', {
+      objectIds: [],
+      entities: [{ entityId: 1, kind: 'line', edgeIndex: 1 }],
+      edgeCount: 2,
+    });
+    // Force the multi-edge address: the model renders `.ref(i)` only when
+    // the producer registered more than one entity.
+    (multi.object as any).entities.unshift({ entityId: 2, kind: 'line', edgeIndex: 0 });
+    const mgr = SnapManager.fromSceneObjects([sketch, single, multi], 'sketch-1', PLANE as any);
+
+    const center = mgr.snap([5.2, 6.8], PLANE as any);
+    expect(center.snapType).toBe('vertex');
+    expect(center.ref).toEqual({
+      line: single.sourceLocation!.line, role: 'center', featureType: 'project', refIndex: null,
+    });
+
+    const end = mgr.snap([60.1, 39.9], PLANE as any);
+    expect(end.ref).toEqual({
+      line: multi.sourceLocation!.line, role: 'end', featureType: 'intersect', refIndex: 1,
+    });
+  });
+
+  it('a 2D copy duplicate vertex snaps as an instance target on the copy() statement', () => {
+    nextId = 0;
+    const solver = {
+      entities: [
+        { id: 0, kind: 'line', fixed: false, paramOffset: 0 },
+        { id: 5, kind: 'line', fixed: false, paramOffset: 4 },
+      ],
+      constraints: [],
+      params: [0, 0, 10, 0, 0, 20, 10, 20],
+      outcome: 'solved', dof: 8, conflicting: [], redundant: [], underconstrainedEntities: [],
+    };
+    const sketch = {
+      id: 'sketch-1', type: 'sketch', uniqueType: 'sketch',
+      object: { plane: PLANE, solvedMode: true, solver },
+      sceneShapes: [], ownShapes: [],
+    } as SceneObjectRender;
+    const original = child('solved-line', { entityId: 0, start: { x: 0, y: 0 }, end: { x: 10, y: 0 } });
+    const copy = child('copy-linear-2d', {
+      sourceEntities: [0],
+      sourcesSolved: true,
+      entities: [{ entityId: 5, kind: 'line', slot: 1, shapeIndex: 0 }],
+    });
+    const mgr = SnapManager.fromSceneObjects([sketch, original, copy], 'sketch-1', PLANE as any);
+    const dup = mgr.snap([9.9, 20.1], PLANE as any);
+    expect(dup.ref).toEqual({
+      line: copy.sourceLocation!.line, role: 'end', featureType: 'copy', instanceIndex: 1,
+    });
+  });
+
   it('grid/none snaps carry no ref', () => {
     const { objects } = scene();
     const mgr = SnapManager.fromSceneObjects(objects, 'sketch-1', PLANE as any);

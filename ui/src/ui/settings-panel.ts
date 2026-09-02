@@ -1,7 +1,7 @@
 import { viewerSettings } from '../scene/viewer-settings';
 import { viewportChrome } from './viewport-chrome';
 import type { EngineClient } from '../engine-client';
-import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_SETTINGS, ICON_CLOSE, ICON_ADJUSTMENTS } from './icons';
+import { ICON_FIT, ICON_VIDEO, ICON_GRID, ICON_EYE, ICON_CLOSE, ICON_ADJUSTMENTS } from './icons';
 
 const FAB_BTN = 'btn btn-ghost btn-circle btn-sm text-base-content/60';
 const FAB_BTN_ACTIVE = 'btn btn-soft btn-primary btn-circle btn-sm';
@@ -69,7 +69,7 @@ export class SettingsPanel {
     const cameraLabel = s.cameraMode === 'orthographic' ? 'Orthographic' : 'Perspective';
 
     return `
-      <div tabindex="0" role="button" class="btn btn-circle btn-sm panel-bg border border-base-content/10 text-base-content/60" title="Scene settings">${ICON_SETTINGS}</div>
+      <div tabindex="0" role="button" class="btn btn-circle btn-sm panel-bg border border-base-content/10 text-base-content/60" title="View">${ICON_EYE}</div>
       <div class="fab-close !top-0 !bottom-auto">
         <span class="btn btn-circle btn-sm panel-bg border border-base-content/10">${ICON_CLOSE}</span>
       </div>

@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { pruneEngines } from './engine/cache';
 import { buildApplicationMenu, refreshApplicationMenu } from './menu';
+import { createNewProject } from './new-project';
 import {
   allProjectWindows,
   findProjectWindow,
@@ -150,7 +151,18 @@ export async function openProject(
   return opened;
 }
 
-const menuActions = { openProject, openStartScreen };
+/**
+ * File › New Project…: the same `fluidcad init` scaffold the start screen
+ * offers, as a sheet on whichever window is in front (a project window or the
+ * start screen), and the result opens like any other project.
+ */
+async function newProject(): Promise<ProjectWindow | null> {
+  const parent = BrowserWindow.getFocusedWindow();
+  const outcome = await createNewProject(parent);
+  return outcome ? openProject(outcome.path, parent) : null;
+}
+
+const menuActions = { openProject, newProject, openStartScreen };
 
 // ---------------------------------------------------------------------------
 // Renderer bridge

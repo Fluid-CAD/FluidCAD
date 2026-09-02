@@ -19,6 +19,8 @@ import { pendingUpdateVersion, restartToUpdate } from './updater';
 
 export type MenuActions = {
   openProject: (target: string | null) => Promise<unknown>;
+  /** Scaffold a project with `fluidcad init` in a folder the user picks, then open it. */
+  newProject: () => Promise<unknown>;
   openStartScreen: () => void;
 };
 
@@ -84,6 +86,11 @@ export function buildApplicationMenu(actions: MenuActions): void {
           label: 'New File',
           accelerator: 'CmdOrCtrl+N',
           click: () => toPage('new-file'),
+        },
+        {
+          label: 'New Project…',
+          accelerator: 'CmdOrCtrl+Shift+N',
+          click: () => void actions.newProject(),
         },
         {
           label: 'Open Project…',

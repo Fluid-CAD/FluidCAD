@@ -472,9 +472,12 @@ export type UITakeScreenshotMessage = {
     showAxes?: boolean;
     transparent?: boolean;
     autoCrop?: boolean;
+    fitToModel?: boolean;
     margin?: number;
     view?: ScreenshotView;
     multi?: boolean;
+    /** Solids alone — no sketches, construction geometry or overlays, no sketch-mode ghost tint. */
+    solidsOnly?: boolean;
   };
 };
 

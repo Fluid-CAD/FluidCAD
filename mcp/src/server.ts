@@ -409,6 +409,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         autoCrop: z.boolean().optional(),
         fitToModel: z.boolean().optional(),
         margin: marginArg,
+        solidsOnly: z.boolean().optional().describe('Render only the model\'s solids: hides sketches, construction planes/axes, connectors and overlays, and lifts sketch-mode ghosting. Fitting frames the solids alone.'),
       },
     },
     async (args) => toMcp(await screenshot(args as any)),

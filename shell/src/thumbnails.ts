@@ -7,15 +7,19 @@ import { thumbnailsDir } from './engine/paths';
  * Start-screen previews, one PNG per project under `~/.fluidcad/thumbnails/`.
  *
  * A thumbnail is taken **only when a project closes** — the window is closed,
- * the app quits, or the engine manager reopens it on another pin. It is what
- * the viewport showed at that moment: the file the user was last looking at,
- * which is also the tab the project reopens to. Nothing here renders on its
- * own; the start screen shows whatever is cached and a project without a
- * preview simply gets a placeholder until it has been closed once.
+ * the app quits, or the engine manager reopens it on another pin. It shows
+ * the file the user was last looking at, which is also the tab the project
+ * reopens to. Nothing here renders on its own; the start screen shows
+ * whatever is cached and a project without a preview simply gets a
+ * placeholder until it has been closed once with a solid up.
  *
  * The picture comes from the engine's own screenshot route, so it is the same
  * transparent, fit-to-model render the MCP `screenshot` tool produces — not a
- * crop of the window with toolbars in it.
+ * crop of the window with toolbars in it. It deliberately ignores what the
+ * viewport looked like: the camera is always the standard iso view (a
+ * project closed mid-sketch would otherwise be pictured flat, looking down
+ * the sketch normal), and only solids are drawn — no sketches, construction
+ * planes, overlays, nor the sketch-mode ghost tint.
  */
 
 /**
@@ -62,13 +66,13 @@ export function deleteThumbnail(workspacePath: string): void {
 }
 
 /**
- * Ask the engine behind `url` for a picture of what its page shows right now
- * and cache it for `workspacePath`. Resolves either way: a project whose
- * engine is gone, or which has nothing rendered, keeps whatever preview it had.
+ * Ask the engine behind `url` for a picture of its current scene's solids and
+ * cache it for `workspacePath`. Resolves either way: a project whose engine is
+ * gone, or which has no solid rendered, keeps whatever preview it had.
  */
 export async function captureThumbnail(url: string, workspacePath: string): Promise<boolean> {
   try {
-    if (!(await hasRenderedScene(url))) {
+    if (!(await hasRenderedSolid(url))) {
       return false;
     }
     const response = await fetch(`${url}/api/screenshot`, {
@@ -83,7 +87,8 @@ export async function captureThumbnail(url: string, workspacePath: string): Prom
         fitToModel: true,
         autoCrop: true,
         margin: CROP_MARGIN_PX,
-        view: { kind: 'current' },
+        solidsOnly: true,
+        view: { kind: 'named', name: 'iso-ftr' },
       }),
       signal: AbortSignal.timeout(CAPTURE_TIMEOUT_MS),
     });
@@ -105,17 +110,18 @@ export async function captureThumbnail(url: string, workspacePath: string): Prom
 }
 
 /**
- * True when the engine has a scene with at least one object in it. An empty
- * workspace, or one whose tabs were all closed, would otherwise overwrite a
- * good preview with a blank one.
+ * True when the engine has a scene with at least one solid in it. An empty
+ * workspace, one whose tabs were all closed, or a file that is still only a
+ * sketch would otherwise overwrite a good preview with a blank one — the
+ * capture draws solids alone.
  */
-async function hasRenderedScene(url: string): Promise<boolean> {
-  const response = await fetch(`${url}/api/scene/summary`, { signal: AbortSignal.timeout(CAPTURE_TIMEOUT_MS) });
+async function hasRenderedSolid(url: string): Promise<boolean> {
+  const response = await fetch(`${url}/api/scene/shapes`, { signal: AbortSignal.timeout(CAPTURE_TIMEOUT_MS) });
   if (!response.ok) {
     return false;
   }
-  const summary: any = await response.json();
-  return Array.isArray(summary?.objects) && summary.objects.length > 0;
+  const list: any = await response.json();
+  return Array.isArray(list?.shapes) && list.shapes.some((s: any) => s?.type === 'solid');
 }
 
 function writeAtomically(file: string, data: Buffer): void {

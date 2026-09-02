@@ -1,6 +1,7 @@
 import {
   ACESFilmicToneMapping,
   Box3,
+  Color,
   Object3D,
   SRGBColorSpace,
   Vector3,
@@ -20,6 +21,15 @@ export interface ScreenshotOptions {
   fitToModel: boolean;
   margin: number;
   view: ScreenshotView;
+  /**
+   * Render the model's solids and nothing else: sketches, construction
+   * planes/axes, connectors, standalone wires, selection and hover overlays
+   * are hidden for the duration, and sketch-mode ghost tinting is lifted so
+   * the solids keep their real colours. Fitting and auto-crop then frame the
+   * solids alone. This is what thumbnails want — a picture of the part, not
+   * of whatever the user was editing.
+   */
+  solidsOnly: boolean;
 }
 
 const DEFAULTS: ScreenshotOptions = {
@@ -32,6 +42,7 @@ const DEFAULTS: ScreenshotOptions = {
   fitToModel: false,
   margin: 0,
   view: { kind: 'current' },
+  solidsOnly: false,
 };
 
 /** Render the current scene to a PNG blob with the given options. */
@@ -94,13 +105,17 @@ export function captureScreenshotMulti(
  * the raw renderer canvas, or an auto-cropped copy).
  */
 function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTMLCanvasElement {
-  const { width, height, showGrid, showAxes, transparent, autoCrop, fitToModel, margin, view } = options;
+  const { width, height, showGrid, showAxes, transparent, autoCrop, fitToModel, margin, view, solidsOnly } = options;
 
   const scene = sceneCtx.scene;
   const camera = sceneCtx.camera;
   const cc = sceneCtx.cameraControls;
 
   // --- Save state ---
+  // Solids-only goes first so the grid/axes toggles below still win over it,
+  // and its restore runs last so everything lands back where it started.
+  const restoreSolidsOnly = solidsOnly ? isolateSolids(scene) : null;
+
   const gridObj = scene.getObjectByName('grid');
   const defaultAxes = scene.getObjectByName('defaultAxesHelper');
   const sketchAxes = scene.getObjectByName('sketchAxesHelper');
@@ -260,10 +275,66 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
     false,
   );
 
+  restoreSolidsOnly?.();
+
   tmpRenderer.dispose();
   sceneCtx.requestRender();
 
   return finalCanvas;
+}
+
+/**
+ * Hide every renderable that is not part of a solid, and lift the sketch-mode
+ * ghost tint off the materials that carry one. Returns the undo.
+ *
+ * A solid is a {@link SolidMesh} subtree (`userData.isSolid`); a select
+ * overlay's copy of one (render order 999) and meta shapes are overlays, not
+ * model, so they go too. Lights, cameras and bare groups are left alone —
+ * only objects that draw something are toggled, which is all the bounds
+ * fitting and the renderer look at.
+ */
+function isolateSolids(scene: Object3D): () => void {
+  const hidden: Object3D[] = [];
+  const tinted: Array<{ material: any; color: Color }> = [];
+
+  const prune = (node: Object3D, insideSolid: boolean): void => {
+    if (!node.visible) {
+      return;
+    }
+    const o = node as any;
+    let inside = insideSolid;
+    if (!inside && node.userData.isSolid) {
+      inside = !node.userData.isMetaShape && node.renderOrder < 999;
+    }
+    const drawsSomething = !!(o.isMesh || o.isLine || o.isPoints || o.isSprite);
+    if (drawsSomething && (!inside || node.userData.isMetaShape || node.renderOrder >= 999)) {
+      node.visible = false;
+      hidden.push(node);
+      return;
+    }
+    if (inside && o.material) {
+      const materials = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of materials) {
+        if (m.userData?.ghostOriginalColor && m.color instanceof Color) {
+          tinted.push({ material: m, color: m.color.clone() });
+          m.color.copy(m.userData.ghostOriginalColor);
+        }
+      }
+    }
+    for (const child of node.children) {
+      prune(child, inside);
+    }
+  };
+  prune(scene, false);
+
+  return () => {
+    for (const node of hidden) {
+      node.visible = true;
+    }
+    for (const { material, color } of tinted) {
+      material.color.copy(color);
+    }
+  };
 }
 
 function canvasToPng(canvas: HTMLCanvasElement): Promise<Blob> {

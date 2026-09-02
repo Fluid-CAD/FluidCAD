@@ -11,6 +11,8 @@ import { EdgeMesh } from './edge-mesh';
 export class SolidMesh extends Group {
   constructor(shape: SceneObjectPart, options?: MeshRenderOptions) {
     super();
+    // What "solids only" screenshots keep (see screenshot.ts isolateSolids).
+    this.userData.isSolid = true;
 
     for (const meshData of shape.meshes) {
       if (meshData.label === 'solid-faces') {

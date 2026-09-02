@@ -315,7 +315,9 @@ export class Viewer {
    * The other shapes are hidden only across the synchronous
    * {@link captureScreenshot} render (bounds fitting skips invisible objects,
    * so the solid fills the frame), which is why the interactive canvas never
-   * sees the toggle.
+   * sees the toggle. `solidsOnly` drops what has no shape id — sketch glyphs,
+   * overlays — and lifts the sketch-mode ghost tint, so the row looks the
+   * same whether or not a sketch is open.
    */
   captureSolidThumbnail(shapeId: string, size = 128): Promise<Blob> {
     const touched: Array<[Object3D, boolean]> = [];
@@ -337,6 +339,7 @@ export class Viewer {
         width: size,
         height: size,
         transparent: true,
+        solidsOnly: true,
         view: { kind: 'named', name: 'iso-ftr' },
       });
     } finally {

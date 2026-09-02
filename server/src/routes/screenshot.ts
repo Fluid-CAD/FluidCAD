@@ -24,6 +24,7 @@ export function createScreenshotRouter(
       margin,
       view,
       multi,
+      solidsOnly,
     } = req.body;
 
     const options: Record<string, unknown> = {};
@@ -98,6 +99,14 @@ export function createScreenshotRouter(
         return;
       }
       options.multi = multi;
+    }
+
+    if (solidsOnly !== undefined) {
+      if (typeof solidsOnly !== 'boolean') {
+        res.status(400).json({ error: 'solidsOnly must be a boolean.' });
+        return;
+      }
+      options.solidsOnly = solidsOnly;
     }
 
     if (view !== undefined) {

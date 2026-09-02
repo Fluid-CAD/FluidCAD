@@ -34,6 +34,7 @@ export type ScreenshotInput = WorkspaceArg & {
   autoCrop?: boolean;
   fitToModel?: boolean;
   margin?: number;
+  solidsOnly?: boolean;
 };
 
 export async function screenshot(input: ScreenshotInput): Promise<ToolResult<ImageResult>> {
@@ -177,6 +178,7 @@ type ValidatedOptions = {
   fitToModel?: boolean;
   margin?: number;
   view?: ScreenshotView;
+  solidsOnly?: boolean;
 };
 
 function validateScreenshotInput(input: ScreenshotInput | ScreenshotMultiInput): ToolResult<ValidatedOptions> {
@@ -196,7 +198,7 @@ function validateScreenshotInput(input: ScreenshotInput | ScreenshotMultiInput):
     }
     opts.height = h;
   }
-  for (const k of ['showGrid', 'showAxes', 'transparent', 'autoCrop', 'fitToModel'] as const) {
+  for (const k of ['showGrid', 'showAxes', 'transparent', 'autoCrop', 'fitToModel', 'solidsOnly'] as const) {
     const v = (input as any)[k];
     if (v !== undefined) {
       if (typeof v !== 'boolean') {

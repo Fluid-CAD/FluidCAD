@@ -62,6 +62,8 @@ function defaultEye(): Vector3 {
 
 /** Factor applied to the bounding sphere radius when fitting to add breathing room. */
 export const FIT_PADDING = 1.1;
+/** Far-plane reach as a multiple of the eye distance / ortho window. */
+const CLIP_REACH = 500;
 
 /**
  * Consecutive no-work frames before the animation loop stops scheduling
@@ -251,6 +253,9 @@ export class SceneContext {
   }
 
   private notifyCameraChange(): void {
+    // Zoom moves the eye (perspective) or widens the window (ortho); the
+    // depth range must follow or the grid and model get clipped.
+    this.setClipRange(this._cc.distance);
     for (const fn of this.cameraChangeListeners) {
       fn();
     }
@@ -296,7 +301,22 @@ export class SceneContext {
    */
   private applyClipPlanes(dist: number, radius: number): void {
     this.lastFitRadius = radius;
-    const far = dist + 10 * radius;
+    this.setClipRange(dist);
+  }
+
+  /**
+   * Depth range for the current eye distance. The far plane reaches well
+   * past the subject (CLIP_REACH × the eye distance, or the orthographic
+   * window when that is wider): with the fit-only `dist + 10r` a dolly out
+   * clipped the grid to a hard-edged band and eventually the model itself.
+   * Perspective depth precision near the subject depends on `near`, not on
+   * how far `far` sits, so the long reach costs nothing there; ortho depth
+   * is linear over ±far, still finer than 1/16000 of the eye distance.
+   * Re-derived on every camera change, not only on fit.
+   */
+  private setClipRange(dist: number): void {
+    const orthoWindow = (this.orthoCamera.top - this.orthoCamera.bottom) / this.orthoCamera.zoom;
+    const far = Math.max(dist + 10 * this.lastFitRadius, CLIP_REACH * Math.max(dist, orthoWindow));
     this.perspCamera.near = Math.max(dist / 1000, worldFromMm(0.01));
     this.perspCamera.far = far;
     this.perspCamera.updateProjectionMatrix();

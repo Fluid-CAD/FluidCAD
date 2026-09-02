@@ -2415,7 +2415,9 @@ function scheduleCameraStatePush(): void {
   }, Math.max(0, wait));
 }
 
-viewer.sceneContext.cameraControls.addEventListener('update', scheduleCameraStatePush);
+// subscribeCameraChange survives projection switches, which rebuild the
+// controls and would orphan a listener attached to the instance.
+viewer.sceneContext.subscribeCameraChange(scheduleCameraStatePush);
 
 /**
  * The scope-sensitive service cascade every scene render runs (and a

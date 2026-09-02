@@ -31,10 +31,10 @@ const SKETCH_CAMERA_DISTANCE_MM = 50;
 /** Initial grid extent / fade radius in mm-equivalent — re-derived from
  * the zoom on every camera change (see updateGridSpacing). */
 const GRID_FADE_DISTANCE_MM = 100000;
-/** Grid extent as a multiple of the visible height: ~100 m at the 120 mm
- * default view (what the fixed 100000 gave), and small enough when zoomed
- * in that the shader's interpolated coordinates keep the precision a
- * sub-millimetre lattice needs. */
+/** Grid extent as a multiple of the visible height, floored at the fixed
+ * fade distance: the grid must read as infinite from a zoomed-out view (the
+ * quad's edge and fade must stay beyond the horizon), and the shader
+ * ray-casts each pixel so a huge quad costs no precision when zoomed in. */
 const GRID_EXTENT_VIEW_HEIGHTS = 800;
 
 /** Eye-to-target distance when looking down a sketch plane. */
@@ -439,7 +439,7 @@ export class SceneModeManager {
     }
     const { wupp, viewHeight } = this.zoom();
     if (Number.isFinite(viewHeight) && viewHeight > 0) {
-      grid.setExtent(viewHeight * GRID_EXTENT_VIEW_HEIGHTS);
+      grid.setExtent(Math.max(worldFromMm(GRID_FADE_DISTANCE_MM), viewHeight * GRID_EXTENT_VIEW_HEIGHTS));
     }
     const spacing = resolveGridSpacing(sceneUnit.current, wupp, currentGridPrefs());
     if (this.gridSpacing && spacing.minor === this.gridSpacing.minor && spacing.major === this.gridSpacing.major) {

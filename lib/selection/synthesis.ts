@@ -123,8 +123,7 @@ export function synthesizeSelectors(
   const globalPools: { edge: PickAttribution[]; face: PickAttribution[] } = { edge: [], face: [] };
 
   for (const attr of attributions) {
-    if (attr.producer && checkBindable(index, attr.producer.bucket.feature) === null
-      && (stmtBindable?.(attr.producer.bucket.feature) ?? true)) {
+    if (attr.producer && canBindProducer(index, attr.producer.bucket.feature, stmtBindable)) {
       const bucket = attr.producer.bucket;
       let list = bucketGroups.get(bucket);
       if (!list) {
@@ -299,6 +298,21 @@ function collectPlaneSources(
     }
   }
   return sources;
+}
+
+/**
+ * Whether the emitted code can reference `feature` through a bound variable:
+ * bindable structurally ({@link checkBindable}) and accepted by the
+ * statement-level probe the server resolves from the live buffer. The one
+ * rule every producer-binding route — bucket routing and the plane/surface
+ * stand-in searches — decides by.
+ */
+export function canBindProducer(
+  index: SelectionIndex,
+  feature: SceneObject,
+  stmtBindable?: (feature: SceneObject) => boolean,
+): boolean {
+  return checkBindable(index, feature) === null && (stmtBindable?.(feature) ?? true);
 }
 
 /** Returns a failure reason when the producer cannot be bound to a variable, null when it can. */

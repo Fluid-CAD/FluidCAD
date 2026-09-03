@@ -44,9 +44,41 @@ export type PickAttribution = {
 const LINEAGE_MAX_DEPTH = 8;
 
 /**
+ * The part() scope a pick belongs to: the part enclosing the statement that
+ * owns the picked solid, or null for unparted geometry. Everything synthesis
+ * emits for the pick — a bucket accessor on a bound variable, a stand-in on
+ * the same plane, a scene-wide `select()` — executes inside that scope, so
+ * only features declared in it can NAME the pick: another part's variable is
+ * out of scope there, and the emitted statement inserts at its producers, so
+ * a foreign producer would land it in the wrong part() body. Provenance
+ * (which feature created a sub-shape) is a different question and stays
+ * unscoped.
+ */
+export function pickPartScope(scene: SelectionScene, solidOwner: SceneObject | null): SceneObject | null {
+  return solidOwner ? scene.findEnclosingPart(solidOwner) : null;
+}
+
+/** True when `feature` is declared in `scope` — see {@link pickPartScope}. */
+export function inPartScope(scene: SelectionScene, feature: SceneObject, scope: SceneObject | null): boolean {
+  return scene.findEnclosingPart(feature) === scope;
+}
+
+/** Bucket memberships of `key` whose feature can name a pick in `scope`, in the index's preference order. */
+function scopedHits(
+  scene: SelectionScene,
+  index: SelectionIndex,
+  key: number,
+  kind: SubShapeKind,
+  scope: SceneObject | null,
+): BucketHit[] {
+  return index.findHits(key, kind).filter(hit => inPartScope(scene, hit.bucket.feature, scope));
+}
+
+/**
  * Resolve a pick to the concrete sub-shape it refers to, using the same
  * exploration order the mesh was baked with (`Explorer.find*Wrapped`), then
- * reverse-look it up in the classified buckets. Pure read over a built scene.
+ * reverse-look it up in the classified buckets of the pick's own part()
+ * scope. Pure read over a built scene.
  */
 export function attributePick(scene: SelectionScene, index: SelectionIndex, ref: PickRef): PickAttribution {
   const none: PickAttribution = {
@@ -58,10 +90,11 @@ export function attributePick(scene: SelectionScene, index: SelectionIndex, ref:
     return { ...none, error: 'pick does not resolve to a sub-shape in the current scene' };
   }
 
+  const scope = pickPartScope(scene, resolved.owner);
   const pickedKey = index.keyOf(resolved.sub);
-  const hits = index.findHits(pickedKey, ref.sub.type);
+  const hits = scopedHits(scene, index, pickedKey, ref.sub.type, scope);
   const producer = hits.length > 0 ? hits[0] : null;
-  const lineage = producer ? null : findLineage(scene, index, pickedKey, ref.sub.type);
+  const lineage = producer ? null : findLineage(scene, index, pickedKey, ref.sub.type, scope);
   // Direct creator claims rank below lineage: a pass-through fusion re-records
   // a surviving (possibly earlier-modified) sub-shape as its own addition, and
   // only the modification walk sees past that.
@@ -102,16 +135,17 @@ export function resolvePickShape(
 
 /**
  * Walk the `modifiedEdges`/`modifiedFaces` records backwards (results →
- * sources) looking for a classified ancestor of the picked sub-shape.
- * Phase-1 consumers use this only to explain *why* a pick is unattributable;
- * an ancestor's accessor would resolve to the pre-modification shape, which
- * no longer exists on the final solid.
+ * sources) looking for a classified ancestor of the picked sub-shape in the
+ * pick's own part() `scope`. Phase-1 consumers use this only to explain
+ * *why* a pick is unattributable; an ancestor's accessor would resolve to
+ * the pre-modification shape, which no longer exists on the final solid.
  */
 function findLineage(
   scene: SelectionScene,
   index: SelectionIndex,
   pickedKey: number,
   kind: SubShapeKind,
+  scope: SceneObject | null,
 ): LineageInfo | null {
   type ModRecord = { resultKeys: Set<number>; sources: Shape[]; modifiedBy: SceneObject };
   const records: ModRecord[] = [];
@@ -150,7 +184,7 @@ function findLineage(
             continue;
           }
           visited.add(sourceKey);
-          const hits = index.findHits(sourceKey, kind);
+          const hits = scopedHits(scene, index, sourceKey, kind, scope);
           if (hits.length > 0) {
             return { classified: hits[0], creator: null, modifiedBy: newChain };
           }

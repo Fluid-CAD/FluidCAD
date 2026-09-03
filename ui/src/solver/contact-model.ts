@@ -463,11 +463,32 @@ export function contactChainsRowCount(chainA: ContactEntity[], chainB: ContactEn
 export function contactResidual(rc: ResolvedContact): number[] {
   const dim = contactRowCount(rc);
   if (dim === 0) return [];
+  const best = activeContactPair(rc);
+  if (!best) return new Array(dim).fill(0);
 
+  const rows = best.rows.slice();
+  while (rows.length < dim) rows.push(0);
+  return rows;
+}
+
+/**
+ * The active pair's primary scalar gap (mm, signed: positive = apart) at
+ * the bodies' current poses — the failed-mates report's "how far open"
+ * for a tangent mate. 0 when no supported pair exists.
+ */
+export function contactGap(rc: ResolvedContact): number {
+  return activeContactPair(rc)?.gap ?? 0;
+}
+
+/**
+ * Transform every chain entity to world and pick the active pair: least
+ * bounds excess first, then smallest gap.
+ */
+function activeContactPair(rc: ResolvedContact): PairEval | null {
   const worldA = rc.chainA.map(e => toWorld(e, rc.a.position, rc.a.quaternion));
   const worldB = rc.chainB.map(e => toWorld(e, rc.b.position, rc.b.quaternion));
 
-  let best: { rows: number[]; excess: number; absGap: number } | null = null;
+  let best: { pair: PairEval; excess: number; absGap: number } | null = null;
   for (const ea of worldA) {
     for (const eb of worldB) {
       const ev = evalPair(ea, eb);
@@ -481,15 +502,11 @@ export function contactResidual(rc: ResolvedContact): number[] {
         || excess < best.excess - 1e-12
         || (Math.abs(excess - best.excess) <= 1e-12 && absGap < best.absGap - GAP_TIE_EPS)
       ) {
-        best = { rows: ev.rows, excess, absGap };
+        best = { pair: ev, excess, absGap };
       }
     }
   }
-  if (!best) return new Array(dim).fill(0);
-
-  const rows = best.rows.slice();
-  while (rows.length < dim) rows.push(0);
-  return rows;
+  return best?.pair ?? null;
 }
 
 /** ∞-norm satisfaction check for the joints-panel dots / failed-mates report. */

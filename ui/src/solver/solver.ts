@@ -20,8 +20,9 @@ import { Vector3 } from 'three';
 import { buildMateGraph, type MateGraph } from './graph.js';
 import { residual } from './joint-model.js';
 import { contactResidualMaxAbs, resolveContact } from './contact-model.js';
+import { connectorMateFailure, contactMateFailure } from './mate-gap.js';
 import { applyLoopRelaxations } from './loop-relaxation.js';
-import type { BodyState, SolverInput, SolverOutput } from './types.js';
+import type { BodyState, MateFailure, SolverInput, SolverOutput } from './types.js';
 import {
   applyTreeFixups,
   applyTreeWarmStarts,
@@ -97,6 +98,7 @@ export class Solver {
       result: 'okay',
       dof,
       failed: [],
+      failures: [],
     };
 
     // Drag target: a dragged body whose position the warm-start didn't
@@ -122,20 +124,22 @@ export class Solver {
     // applied either way — an inconsistent assembly still shows its
     // least-bad configuration; the report drives the DOF pill and the
     // joints-panel red dots.
-    out.failed = collectFailedMates(input, out);
+    out.failures = collectFailedMates(input, out);
+    out.failed = out.failures.map(f => f.mateId);
     out.result = out.failed.length > 0 ? 'inconsistent' : 'okay';
     return out;
   }
 }
 
 /**
- * Mate ids whose residual ∞-norm at the OUTPUT poses exceeds
- * FAILED_MATE_EPS. Mates referencing missing bodies/connectors are
- * skipped (they never reached the solver; an upstream layer reports
- * them). Mate types without a residual implementation are skipped too —
- * they're rejected at parse time.
+ * Every mate whose residual ∞-norm at the OUTPUT poses exceeds
+ * FAILED_MATE_EPS, each with its measured misclosure (mate-gap.ts).
+ * Mates referencing missing bodies/connectors are skipped (they never
+ * reached the solver; an upstream layer reports them). Mate types
+ * without a residual implementation are skipped too — they're rejected
+ * at parse time.
  */
-function collectFailedMates(input: SolverInput, out: SolverOutput): string[] {
+function collectFailedMates(input: SolverInput, out: SolverOutput): MateFailure[] {
   const inputById = new Map(input.bodies.map(b => [b.instanceId, b]));
   const solvedById = new Map(out.bodies.map(b => [b.instanceId, b]));
   // Bodies at the OUTPUT poses, keyed by id — shared by both mate kinds.
@@ -145,7 +149,7 @@ function collectFailedMates(input: SolverInput, out: SolverOutput): string[] {
     if (!bodyIn || !solved) return null;
     return { ...bodyIn, position: solved.position, quaternion: solved.quaternion };
   };
-  const failed: string[] = [];
+  const failed: MateFailure[] = [];
   for (const mate of input.mates) {
     // Tangent: contact rows are mm-scale (translation-like) except the
     // W-scaled orientation rows, so FAILED_MATE_EPS applies unchanged.
@@ -158,7 +162,7 @@ function collectFailedMates(input: SolverInput, out: SolverOutput): string[] {
       const solvedById2 = new Map([[a.instanceId, a], [b.instanceId, b]]);
       const rc = resolveContact(mate, solvedById2);
       if (!rc) continue;
-      if (contactResidualMaxAbs(rc) > FAILED_MATE_EPS) failed.push(mate.mateId);
+      if (contactResidualMaxAbs(rc) > FAILED_MATE_EPS) failed.push(contactMateFailure(mate, rc));
       continue;
     }
     if (!mate.connectorA || !mate.connectorB) continue;
@@ -176,7 +180,7 @@ function collectFailedMates(input: SolverInput, out: SolverOutput): string[] {
     for (const v of r) {
       maxAbs = Math.max(maxAbs, Math.abs(v));
     }
-    if (maxAbs > FAILED_MATE_EPS) failed.push(mate.mateId);
+    if (maxAbs > FAILED_MATE_EPS) failed.push(connectorMateFailure(mate, a, aConn, b, bConn));
   }
   return failed;
 }

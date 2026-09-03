@@ -180,9 +180,28 @@ export type SolvedBody = {
   quaternion: Quaternion;
 };
 
+export type WorldAxis = 'x' | 'y' | 'z';
+
+/**
+ * One failing mate, measured at the solver's OUTPUT poses (see
+ * mate-gap.ts). `gap` is the connector-origin misclosure along the mate's
+ * constrained directions in the document length unit; `gapAxis` names the
+ * world axis it runs along when it is essentially axis-aligned; `tiltDeg`
+ * is the orientation error in degrees.
+ */
+export type MateFailure = {
+  mateId: string;
+  gap: number;
+  gapAxis: WorldAxis | null;
+  tiltDeg: number;
+};
+
 export type SolverOutput = {
   bodies: SolvedBody[];
   result: SolverResult;
   dof: number;
+  /** Ids of every mate whose residual exceeds the consistency threshold. */
   failed: string[];
+  /** The same mates with their measured misclosure, same order as `failed`. */
+  failures: MateFailure[];
 };

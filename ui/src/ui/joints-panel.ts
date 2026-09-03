@@ -46,6 +46,8 @@ export class JointsPanel {
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
   private selectedId: string | null = null;
+  /** Misclosure text per failing mate id (mate-failure-text.ts); patched in place per solve. */
+  private failureDetails = new Map<string, string>();
 
   private onSelectMate: (mateId: string) => void;
   private onShowInSource: (mateId: string) => void;
@@ -117,6 +119,31 @@ export class JointsPanel {
     this.renderRows();
   }
 
+  /**
+   * Refresh the misclosure line under each inconsistent row. Called per
+   * solve (per pointermove during a drag), so it patches the existing text
+   * nodes and only touches the DOM when a value actually changed —
+   * `update()` is the only path that rebuilds the rows.
+   */
+  setFailureDetails(details: Map<string, string>): void {
+    let changed = details.size !== this.failureDetails.size;
+    if (!changed) {
+      for (const [id, text] of details) {
+        if (this.failureDetails.get(id) !== text) {
+          changed = true;
+          break;
+        }
+      }
+    }
+    if (!changed) {
+      return;
+    }
+    this.failureDetails = new Map(details);
+    this.body.querySelectorAll<HTMLElement>('[data-failure-detail]').forEach((el) => {
+      el.textContent = this.failureDetails.get(el.dataset.failureDetail!) ?? '';
+    });
+  }
+
   setSelected(mateId: string | null): void {
     if (this.selectedId === mateId) {
       return;
@@ -163,6 +190,12 @@ export class JointsPanel {
       const limitsLine = limits
         ? `<span class="pl-11 text-[10px] text-base-content/40">${limits[0]} – ${limits[1]}${mate.type === 'revolute' ? '°' : ' mm'}</span>`
         : '';
+      // Inconsistent rows carry a misclosure line ("6.0 mm gap along Y");
+      // the node exists whenever the row is inconsistent so per-solve
+      // updates can patch its text without a re-render.
+      const failureLine = mate.status === 'inconsistent'
+        ? `<span class="pl-11 text-[10px] text-error/80" data-failure-detail="${mate.mateId}">${escapeHtml(this.failureDetails.get(mate.mateId) ?? '')}</span>`
+        : '';
       html += `
         <div class="group flex items-start gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-base-content/80${selectedClass}" data-mate-id="${mate.mateId}">
           <div class="flex-1 min-w-0 flex flex-col leading-tight">
@@ -174,6 +207,7 @@ export class JointsPanel {
             <span class="pl-11 text-[10px] text-base-content/50 truncate">${escapeHtml(aName)}</span>
             <span class="pl-11 text-[10px] text-base-content/50 truncate">${escapeHtml(bName)}</span>
             ${limitsLine}
+            ${failureLine}
           </div>
           ${this.readOnly ? '' : `<button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${mate.mateId}">${DOTS_SVG}</button>`}
         </div>

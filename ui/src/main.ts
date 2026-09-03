@@ -61,6 +61,7 @@ import { TextEditService } from './interactive/create-feature/text-edit-service'
 import type { ConnectorData, SceneObjectRender } from './types';
 import { applyPreferences } from './scene/viewer-settings';
 import { sceneUnit } from './units/scene-unit';
+import { describeMateFailure } from './ui/mate-failure-text';
 import { sceneDocument } from './units/scene-document';
 import type { LengthUnit } from './units/units';
 import { installHostKeyboardBridge } from './keyboard-bridge';
@@ -1996,12 +1997,17 @@ viewer.setSolverUpdateHandler((output) => {
   const newFailed = new Set(output.failed);
   const failedChanged = failedSetsDiffer(lastFailedMateIds, newFailed);
   lastFailedMateIds = newFailed;
+  // Misclosure per failing mate ("6.0 mm gap along Y") — the pill and the
+  // joints panel both show it; the panel patches text in place per frame.
+  const failureDetails = new Map(
+    output.failures.map(f => [f.mateId, describeMateFailure(f, sceneUnit.current)]),
+  );
   if (output.result === 'okay') {
     currentRail.dof.update({ result: 'okay', dof: output.dof });
   } else if (output.result === 'inconsistent') {
     const failed = output.failed.map((mateId) => {
       const mate = findMate(mateId);
-      return { mateId, label: mate ? formatMateLabel(mate) : mateId };
+      return { mateId, label: mate ? formatMateLabel(mate) : mateId, detail: failureDetails.get(mateId) };
     });
     currentRail.dof.update({ result: 'inconsistent', dof: output.dof, failed });
   } else {
@@ -2022,6 +2028,7 @@ viewer.setSolverUpdateHandler((output) => {
       lastAssemblyPayload.connectors ?? [],
     );
   }
+  currentRail.joints.setFailureDetails(failureDetails);
   // A solve moved instances without a re-render (mate drive, animate bar,
   // gizmo nudge): the measurement follows the entities.
   measureController.onPosesChanged();

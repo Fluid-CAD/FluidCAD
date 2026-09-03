@@ -732,6 +732,7 @@ export class AssemblyController {
         result: 'okay',
         dof: 0,
         failed: [],
+        failures: [],
       });
       return;
     }

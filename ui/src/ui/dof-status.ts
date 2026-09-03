@@ -8,7 +8,10 @@ import { ICON_CIRCLE_CHECK, ICON_ALERT_TRIANGLE } from './icons';
 export type DofStatusUpdate =
   | { result: 'placeholder' }
   | { result: 'okay'; dof: number }
-  | { result: 'inconsistent'; dof: number; failed: { mateId: string; label: string }[] };
+  | { result: 'inconsistent'; dof: number; failed: FailingMate[] };
+
+/** One failing mate for the pill: `detail` is its misclosure ("6.0 mm gap along Y"), '' when unknown. */
+export type FailingMate = { mateId: string; label: string; detail?: string };
 
 const DOT_SVG = '<svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6"/></svg>';
 
@@ -97,7 +100,7 @@ export class DofStatus {
       case 'inconsistent':
         this.icon.innerHTML = ICON_ALERT_TRIANGLE;
         this.icon.className = 'shrink-0 [&>svg]:size-3.5 text-error';
-        this.label.textContent = `Inconsistent — ${this.state.failed.length} mate${this.state.failed.length === 1 ? '' : 's'} failing`;
+        this.label.textContent = inconsistentLabel(this.state.failed);
         this.pill.classList.add('cursor-pointer');
         break;
     }
@@ -112,7 +115,10 @@ export class DofStatus {
     this.expandedList.innerHTML = `
       <div class="text-base-content/50 text-[10px] uppercase tracking-wide mb-1">Failing mates</div>
       ${this.state.failed.map(f => `
-        <div class="cursor-pointer hover:bg-base-content/[0.06] rounded px-2 py-1" data-mate-id="${f.mateId}">${escapeHtml(f.label)}</div>
+        <div class="cursor-pointer hover:bg-base-content/[0.06] rounded px-2 py-1" data-mate-id="${f.mateId}">
+          <div>${escapeHtml(f.label)}</div>
+          ${f.detail ? `<div class="text-[10px] text-error/80" data-failure-detail>${escapeHtml(f.detail)}</div>` : ''}
+        </div>
       `).join('')}
     `;
     this.expandedList.querySelectorAll<HTMLElement>('[data-mate-id]').forEach((el) => {
@@ -121,6 +127,17 @@ export class DofStatus {
       });
     });
   }
+}
+
+/**
+ * "Inconsistent — 1 mate failing · 6.0 mm gap along Y" when there is a
+ * single failing mate with a known misclosure; the count alone otherwise
+ * (several gaps don't fit a pill — the expansion lists them).
+ */
+function inconsistentLabel(failed: FailingMate[]): string {
+  const count = `Inconsistent — ${failed.length} mate${failed.length === 1 ? '' : 's'} failing`;
+  const detail = failed.length === 1 ? failed[0].detail : undefined;
+  return detail ? `${count} · ${detail}` : count;
 }
 
 function escapeHtml(text: string): string {

@@ -9,6 +9,7 @@ export {
 } from './world-body.js';
 export type { WorldConnectorFrame } from './world-body.js';
 export { mateReadoutValue } from './warm-start.js';
+export { mateGap, dominantAxis } from './mate-gap.js';
 export type { MateReadout } from './warm-start.js';
 export type { BodyFreedom, TreeEdge } from './graph.js';
 export type {
@@ -23,5 +24,7 @@ export type {
   ContactForm,
   ContactState,
   MateRecord,
+  MateFailure,
+  WorldAxis,
   DrivenJoint,
 } from './types.js';

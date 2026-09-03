@@ -3,6 +3,7 @@ import { ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, Seri
 import { buildObjectMesh } from '../meshes/mesh-factory';
 import { buildConnectorGizmo } from '../meshes/containers/connector-mesh';
 import { onThemeChange } from './theme-colors';
+import { viewerSettings } from './viewer-settings';
 import {
   WORLD_BODY_ID,
   Solver,
@@ -222,6 +223,12 @@ export class AssemblyController {
     // the controller re-meshes its own instance groups. Subscribed for the
     // controller's whole life — the viewer keeps one instance per session.
     onThemeChange(() => this.rebuildInstanceMeshes());
+    // The "Connectors" view toggle covers the assembly's own connectors
+    // too; the viewer's subscriber only walks the compiled part mesh.
+    viewerSettings.subscribe(() => {
+      this.applyWorldConnectorVisibility();
+      this.requestRender();
+    });
   }
 
   /**
@@ -463,13 +470,15 @@ export class AssemblyController {
 
   /**
    * World connectors are the user's own features, so they show by default
-   * — hidden only by the rail's eye toggle. A mate dialog's picking and a
-   * joints-panel mate selection reveal a hidden one again (the pick set
-   * must be complete; a pinned joint's fixed end must be visible).
+   * — hidden by the rail's eye toggle or the "Connectors" view toggle. A
+   * mate dialog's picking and a joints-panel mate selection reveal a hidden
+   * one again (the pick set must be complete; a pinned joint's fixed end
+   * must be visible).
    */
   private applyWorldConnectorVisibility(): void {
+    const show = viewerSettings.current.showConnectors;
     for (const [id, { data, group }] of this.worldConnectors) {
-      group.visible = !this.hiddenWorldConnectorNames.has(data.name)
+      group.visible = (show && !this.hiddenWorldConnectorNames.has(data.name))
         || this.matePicking
         || this.worldPinned.has(id);
       this.applyConnectorOpacity(group, WORLD_BODY_ID);

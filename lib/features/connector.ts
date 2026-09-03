@@ -2,11 +2,33 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Plane } from "../math/plane.js";
 import { Vertex } from "../common/vertex.js";
 import { AnchoredLazyVertex } from "./anchored-vertex.js";
-import { ConnectorInput, ConnectorOptions, frameFromSource } from "./connector-frame.js";
+import { ConnectorInput, ConnectorOptions, frameFromSource, sourceSubShape } from "./connector-frame.js";
+import { Shape } from "../common/shape.js";
+import { TopologyIndex } from "../oc/topology-index.js";
 import { IConnector } from "../core/interfaces.js";
 import { rad } from "../helpers/math-helpers.js";
 
 const FRAME_STATE_KEY = 'connector-frame';
+/** The body the source face/edge/vertex belonged to when the connector built — see {@link Connector.getHostShape}. */
+const HOST_STATE_KEY = 'connector-host';
+
+/**
+ * The scene body carrying `sub` among the objects built before the connector
+ * (its part only). A plane- or point-sourced connector has none.
+ */
+function findHostShape(sub: Shape | null, context: BuildSceneObjectContext | undefined): Shape | null {
+  if (!sub || !context) {
+    return null;
+  }
+  for (const obj of context.getActiveSceneObjects()) {
+    for (const candidate of obj.getShapes()) {
+      if (candidate !== sub && TopologyIndex.containsSubShape(candidate.getShape(), sub.getShape())) {
+        return candidate;
+      }
+    }
+  }
+  return null;
+}
 
 type ConnectorTransform =
   | { kind: "rotate"; axis: "x" | "y" | "z"; angle: number }
@@ -50,12 +72,16 @@ export class Connector extends SceneObject implements IConnector {
     return this;
   }
 
-  build(_context?: BuildSceneObjectContext) {
+  build(context?: BuildSceneObjectContext) {
     let frame = frameFromSource(this.sourceShape, this.options);
     for (const t of this.transforms) {
       frame = applyConnectorTransform(frame, t);
     }
     this.setState(FRAME_STATE_KEY, frame);
+    // Resolved before the source is consumed below — a consumed selection
+    // reads as empty. The as-built host is what the render pass walks forward
+    // (attachConnectorHosts) to the body actually on screen.
+    this.setState(HOST_STATE_KEY, findHostShape(sourceSubShape(this.sourceShape), context));
 
     // The connector consumes its source — the face/edge/vertex selection
     // (or lazy edge) was used purely to derive the frame, and the frame
@@ -78,6 +104,16 @@ export class Connector extends SceneObject implements IConnector {
       throw new Error("Connector: getFrame() called before build().");
     }
     return frame;
+  }
+
+  /**
+   * The body the connector sits on, as it was when the connector built —
+   * later features may have replaced it (a fillet after the connector), so
+   * consumers walk the removal lineage forward from here. Null for a
+   * connector on a plane or a bare point, and before build().
+   */
+  getHostShape(): Shape | null {
+    return (this.getState(HOST_STATE_KEY) as Shape | undefined) ?? null;
   }
 
   override getDependencies(): SceneObject[] {

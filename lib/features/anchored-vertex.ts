@@ -60,6 +60,11 @@ export class AnchoredLazyVertex extends LazyVertex {
     return this.spec;
   }
 
+  /** The face/edge the anchor point is taken from — the connector's host lookup reads it. */
+  getAnchorShape(): Shape {
+    return resolveAnchorShape(this.sourceSelection, this.spec);
+  }
+
   getAnchorFrame(options: FrameOptions = {}): Plane {
     const anchor = anchorFromShape(resolveAnchorShape(this.sourceSelection, this.spec), this.spec);
     return buildOrthonormalFrame(anchor.origin, anchor.zDir, options);

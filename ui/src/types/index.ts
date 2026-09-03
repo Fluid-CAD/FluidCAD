@@ -36,6 +36,13 @@ export type ConnectorData = {
   xDirection: Vec3Data;
   yDirection: Vec3Data;
   normal: Vec3Data;
+  /**
+   * Ids of the rendered body the connector sits on (several after a split),
+   * resolved lib-side through the shape-replacement lineage. Absent for a
+   * connector on a plane or a bare point, or when the host left the scene.
+   * The viewer hides the connector with its host (shapes panel eye toggle).
+   */
+  hostShapeIds?: string[];
 };
 
 /**

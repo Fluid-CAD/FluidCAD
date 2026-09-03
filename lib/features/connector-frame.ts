@@ -3,6 +3,7 @@ import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { AxisLike } from "../math/axis.js";
+import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { Vertex } from "../common/vertex.js";
@@ -45,6 +46,23 @@ export function frameFromSource(source: ConnectorInput, options: ConnectorOption
     return frameFromSelection(source, options);
   }
   throw new Error("connector(): unsupported source type — expected face/edge/vertex selection, LazyVertex, or plane.");
+}
+
+/**
+ * The face/edge/vertex the connector's frame was derived from, or null when
+ * the source is a plane or a bare lazy vertex (nothing on a body to belong
+ * to). The connector's host lookup ({@link Connector.build}) matches it
+ * against the scene's bodies.
+ */
+export function sourceSubShape(source: ConnectorInput): Shape | null {
+  if (source instanceof AnchoredLazyVertex) {
+    return source.getAnchorShape();
+  }
+  if (source instanceof SelectSceneObject || source instanceof LazySelectionSceneObject) {
+    const shapes = source.getShapes({ excludeMeta: false, excludeGuide: false });
+    return shapes.length === 1 ? shapes[0] : null;
+  }
+  return null;
 }
 
 function frameFromSelection(

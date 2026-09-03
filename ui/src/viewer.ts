@@ -14,6 +14,7 @@ import { EdgeMesh } from './meshes/shape-meshes/edge-mesh';
 import { SettingsPanel } from './ui/settings-panel';
 import type { EngineClient } from './engine-client';
 import { CentroidIndicator } from './scene/centroid-indicator';
+import { connectorHostHidden } from './scene/connector-host';
 import { viewerSettings } from './scene/viewer-settings';
 import { themeColors } from './scene/theme-colors';
 import { StandardPlaneId, StandardPlanes } from './scene/standard-planes';
@@ -1280,7 +1281,11 @@ export class Viewer {
       if (child.userData.isConnector !== true) {
         return;
       }
-      child.visible = show || child.userData.connectorId === this.highlightedConnectorId;
+      // A connector goes with its body: hidden from the shapes panel, the
+      // body takes its connectors along (a fillet after the connector still
+      // maps to the rendered solid — the host ids are lineage-resolved).
+      child.visible = child.userData.connectorId === this.highlightedConnectorId
+        || (show && !connectorHostHidden(child.userData.hostShapeIds, this.hiddenShapeIds));
     });
   }
 
@@ -2104,6 +2109,7 @@ export class Viewer {
       this.hiddenShapeIds.add(shapeId);
     }
     this.applyVisibilityForId(shapeId, visible);
+    this.applyConnectorVisibility();
     this.ctx.requestRender();
   }
 

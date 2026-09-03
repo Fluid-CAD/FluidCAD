@@ -176,6 +176,7 @@ export class ConnectorMesh extends Group {
     this.userData.isMetaShape = true;
     this.userData.isConnector = true;
     this.userData.connectorId = sceneObject.id;
+    this.userData.hostShapeIds = data.hostShapeIds ?? [];
 
     this.add(buildConnectorGizmo(data, camera));
   }

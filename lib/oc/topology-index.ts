@@ -1,4 +1,5 @@
 import type {
+  TopAbs_ShapeEnum,
   TopoDS_Shape,
   TopTools_IndexedDataMapOfShapeListOfShape,
   TopTools_MapOfShape,
@@ -25,6 +26,23 @@ export class TopologyIndex {
       map.Add(s);
     }
     return map;
+  }
+
+  /** Whether `sub` (a face/edge/vertex) is a sub-shape of `root`, by TShape identity. */
+  static containsSubShape(root: TopoDS_Shape, sub: TopoDS_Shape): boolean {
+    const oc = getOC();
+    const explorer = new oc.TopExp_Explorer(root, sub.ShapeType(), oc.TopAbs_ShapeEnum.TopAbs_SHAPE as TopAbs_ShapeEnum);
+    try {
+      while (explorer.More()) {
+        if (explorer.Current().IsSame(sub)) {
+          return true;
+        }
+        explorer.Next();
+      }
+      return false;
+    } finally {
+      explorer.delete();
+    }
   }
 
   static seekShapes(index: TopTools_IndexedDataMapOfShapeListOfShape, key: TopoDS_Shape): TopoDS_Shape[] {

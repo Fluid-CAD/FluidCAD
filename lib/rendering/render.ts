@@ -12,6 +12,7 @@ import type { Part } from "../features/part.js";
 import { scaleForeignPart } from "../features/part-scale.js";
 import { transformMeshes } from "./mesh-transform.js";
 import { attachSketchSnapVertices } from "./sketch-snap.js";
+import { attachConnectorHosts } from "./connector-host.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Mesh, bboxDiagonal, bucketDiagonal, meshSizeBucket, resolveMeshConfig } from "../oc/mesh.js";
 import type { MeshQuality, MeshSettings } from "../oc/mesh.js";
@@ -199,6 +200,7 @@ export class SceneRenderer {
     }
 
     attachSketchSnapVertices(scene);
+    attachConnectorHosts(scene, renderScope);
 
     return scene;
   }
@@ -251,6 +253,8 @@ export class SceneRenderer {
         scope,
       });
     }
+
+    attachConnectorHosts(scene, scope);
 
     const result = scene.getRenderedObjects();
     console.table(result);

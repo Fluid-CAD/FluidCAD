@@ -12,6 +12,7 @@ import { ShapeFactory } from "../common/shape-factory.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { Explorer } from "./explorer.js";
+import { OrientedFaces } from "./oriented-faces.js";
 import { VertexOps } from "./vertex-ops.js";
 import { BoundingBox } from "../helpers/types.js";
 import { mmTol } from "../units/tolerance.js";
@@ -188,24 +189,31 @@ export class ShapeOps {
       progress.delete();
 
       const wrapped = ShapeFactory.fromShape(fixed);
+      const fixedFaces = new OrientedFaces(fixed);
       let disposed = false;
       const dispose = () => {
         if (disposed) {
           return;
         }
         disposed = true;
+        fixedFaces.delete();
         knownFaces.delete();
         knownEdges.delete();
       };
       return {
         shape: wrapped,
-        remapFace: (face) => (knownFaces.Contains(face.getShape()) ? [face] : null),
+        remapFace: (face) => (knownFaces.Contains(face.getShape())
+          ? [Face.fromTopoDSFace(Explorer.toFace(fixedFaces.orient(face.getShape())))]
+          : null),
         remapEdge: (edge) => (knownEdges.Contains(edge.getShape()) ? [edge] : null),
         dispose,
       };
     }
 
     const history = unify.History();
+    // Unify's history images carry no in-result orientation — every face it
+    // hands back is canonicalized to its instance in the cleaned shape.
+    const cleanedFaces = new OrientedFaces(cleanedRaw);
 
     let disposed = false;
     const dispose = () => {
@@ -213,6 +221,7 @@ export class ShapeOps {
         return;
       }
       disposed = true;
+      cleanedFaces.delete();
       history.delete();
       unify.delete();
       knownFaces.delete();
@@ -231,10 +240,8 @@ export class ShapeOps {
         }
         const list = ShapeOps.shapeListToArray(history.Modified(raw))
           .filter(s => s.ShapeType() === FACE);
-        if (list.length === 0) {
-          return [face];
-        }
-        return list.map(r => Face.fromTopoDSFace(Explorer.toFace(r)));
+        const images = list.length === 0 ? [raw] : list;
+        return images.map(r => Face.fromTopoDSFace(Explorer.toFace(cleanedFaces.orient(r))));
       },
       remapEdge: (edge) => {
         const raw = edge.getShape();

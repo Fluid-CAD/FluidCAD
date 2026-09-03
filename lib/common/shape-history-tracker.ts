@@ -1,6 +1,7 @@
 import type { BRepBuilderAPI_MakeShape, TopAbs_ShapeEnum, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "../oc/init.js";
 import { Explorer } from "../oc/explorer.js";
+import { OrientedFaces } from "../oc/oriented-faces.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { Face } from "./face.js";
 import { Edge } from "./edge.js";
@@ -69,48 +70,62 @@ export class ShapeHistoryTracker {
    * is set, the added* fields come back empty — callers that compute additions
    * themselves (e.g. `recordFusionHistory` aggregates across all scene shapes)
    * skip the per-call output traversal and per-result claimed-map updates.
+   *
+   * Every face the history returns is canonicalized to its instance in the
+   * output ({@link OrientedFaces}): the maker's image lists carry no
+   * in-result orientation, and the faces recorded here become classified
+   * buckets and lineage whose normals must be the solid's. A caller that
+   * collects several times against one maker passes its own
+   * `opts.resultFaces` so the output is indexed once.
    */
   static collect(
     maker: BRepBuilderAPI_MakeShape,
     inputs: Shape[],
-    opts: { skipAdded?: boolean } = {},
+    opts: { skipAdded?: boolean; resultFaces?: OrientedFaces } = {},
   ): ShapeHistory {
     const oc = getOC();
     const FACE = oc.TopAbs_ShapeEnum.TopAbs_FACE as TopAbs_ShapeEnum;
     const EDGE = oc.TopAbs_ShapeEnum.TopAbs_EDGE as TopAbs_ShapeEnum;
 
     const skipAdded = opts.skipAdded === true;
-    const output = skipAdded ? null : maker.Shape();
-    const outputFaces = output ? Explorer.findShapes(output, FACE) : [];
-    const outputEdges = output ? Explorer.findShapes(output, EDGE) : [];
+    const output = maker.Shape();
+    const outputFaces = skipAdded ? [] : Explorer.findShapes(output, FACE);
+    const outputEdges = skipAdded ? [] : Explorer.findShapes(output, EDGE);
+    const resultFaces = opts.resultFaces ?? new OrientedFaces(output);
 
-    const faces = ShapeHistoryTracker.collectForType(
-      maker,
-      inputs,
-      FACE,
-      outputFaces,
-      (raw) => Face.fromTopoDSFace(Explorer.toFace(raw)),
-      skipAdded,
-    );
-    const edges = ShapeHistoryTracker.collectForType(
-      maker,
-      inputs,
-      EDGE,
-      outputEdges,
-      (raw) => Edge.fromTopoDSEdge(Explorer.toEdge(raw)),
-      skipAdded,
-    );
+    try {
+      const faces = ShapeHistoryTracker.collectForType(
+        maker,
+        inputs,
+        FACE,
+        outputFaces,
+        (raw) => Face.fromTopoDSFace(Explorer.toFace(resultFaces.orient(raw))),
+        skipAdded,
+      );
+      const edges = ShapeHistoryTracker.collectForType(
+        maker,
+        inputs,
+        EDGE,
+        outputEdges,
+        (raw) => Edge.fromTopoDSEdge(Explorer.toEdge(raw)),
+        skipAdded,
+      );
 
-    return {
-      addedFaces: faces.added,
-      modifiedFaces: faces.modified,
-      generatedFaces: faces.generated,
-      removedFaces: faces.removed,
-      addedEdges: edges.added,
-      modifiedEdges: edges.modified,
-      generatedEdges: edges.generated,
-      removedEdges: edges.removed,
-    };
+      return {
+        addedFaces: faces.added,
+        modifiedFaces: faces.modified,
+        generatedFaces: faces.generated,
+        removedFaces: faces.removed,
+        addedEdges: edges.added,
+        modifiedEdges: edges.modified,
+        generatedEdges: edges.generated,
+        removedEdges: edges.removed,
+      };
+    } finally {
+      if (resultFaces !== opts.resultFaces) {
+        resultFaces.delete();
+      }
+    }
   }
 
   private static collectForType<T extends Shape>(

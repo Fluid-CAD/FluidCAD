@@ -6,6 +6,7 @@ import { Plane } from "../math/plane.js";
 import { classifyCutResult } from "./cut-helpers.js";
 import { ShapeHistory, ShapeHistoryTracker } from "../common/shape-history-tracker.js";
 import { Explorer } from "../oc/explorer.js";
+import { OrientedFaces } from "../oc/oriented-faces.js";
 import { Face } from "../common/face.js";
 import { Edge } from "../common/edge.js";
 import { getOC } from "../oc/init.js";
@@ -114,14 +115,23 @@ export function fuseWithSceneObjects(
   let toolHistory: ShapeHistory | undefined;
   if (opts?.recordHistoryFor) {
     const recordHistory = () => {
-      recordFusionHistory(opts.recordHistoryFor!, sceneShapes, objShapeMap, cleanedShapesToAdd, maker, cleanups, p);
-      // Separately track tool-side (extrusion) lineage so callers can remap
-      // pre-fusion categorizations (start/end/side/…) onto the post-fusion
-      // faces. Tool-side history is only consumed by `remapClassifiedFaces`,
-      // which touches modifiedFaces only — skip the added* output traversal.
-      const collectTools = () => ShapeHistoryTracker.collect(maker, extrusions, { skipAdded: true });
-      const rawToolHistory = p ? p.record('Collect tool history', collectTools) : collectTools();
-      toolHistory = remapHistoryThroughCleanups(rawToolHistory, cleanups);
+      // One in-result orientation index over the fuse output, shared by every
+      // history collect below (scene-side per shape, then tool-side).
+      const resultFaces = new OrientedFaces(maker.Shape());
+      try {
+        recordFusionHistory(
+          opts.recordHistoryFor!, sceneShapes, objShapeMap, cleanedShapesToAdd, maker, cleanups, resultFaces, p,
+        );
+        // Separately track tool-side (extrusion) lineage so callers can remap
+        // pre-fusion categorizations (start/end/side/…) onto the post-fusion
+        // faces. Tool-side history is only consumed by `remapClassifiedFaces`,
+        // which touches modifiedFaces only — skip the added* output traversal.
+        const collectTools = () => ShapeHistoryTracker.collect(maker, extrusions, { skipAdded: true, resultFaces });
+        const rawToolHistory = p ? p.record('Collect tool history', collectTools) : collectTools();
+        toolHistory = remapHistoryThroughCleanups(rawToolHistory, cleanups);
+      } finally {
+        resultFaces.delete();
+      }
     };
     p ? p.record('Record fusion history', recordHistory) : recordHistory();
   }
@@ -234,6 +244,7 @@ function recordFusionHistory(
   newShapes: Shape<any>[],
   maker: any,
   cleanups: CleanShapeLineage[],
+  resultFaces: OrientedFaces,
   p?: Profiler,
 ) {
   const oc = getOC();
@@ -292,7 +303,7 @@ function recordFusionHistory(
       // recordFusionHistory aggregates additions across the full result via
       // `claimedFaces`/`claimedEdges` below — each per-shape collect doesn't
       // need to compute its own added* sets.
-      const history = ShapeHistoryTracker.collect(maker, [sceneShape], { skipAdded: true });
+      const history = ShapeHistoryTracker.collect(maker, [sceneShape], { skipAdded: true, resultFaces });
 
       for (const record of history.modifiedFaces) {
         const postCleanResults = remapFaces(record.results);

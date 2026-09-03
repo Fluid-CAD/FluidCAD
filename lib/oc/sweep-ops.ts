@@ -2,6 +2,7 @@ import type { TopoDS_Shape, TopoDS_Wire, gp_Dir } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Explorer } from "./explorer.js";
+import { OrientedFaces } from "./oriented-faces.js";
 import { ShapeOps } from "./shape-ops.js";
 import { Solid } from "../common/solid.js";
 import { Wire } from "../common/wire.js";
@@ -113,15 +114,19 @@ export class SweepOps {
           const newSolid = cut.Shape();
 
           // Track first/last faces through the cut. The outer's start/end
-          // face becomes a hole-bearing face after cutting through it.
+          // face becomes a hole-bearing face after cutting through it. The
+          // cut's images carry no in-result orientation — take the instance
+          // the new solid contains.
+          const resultFaces = new OrientedFaces(newSolid);
           const modFirst = ShapeOps.shapeListToArray(cut.Modified(resultFirst));
           const modLast = ShapeOps.shapeListToArray(cut.Modified(resultLast));
           if (modFirst.length > 0) {
-            resultFirst = modFirst[0];
+            resultFirst = resultFaces.orient(modFirst[0]);
           }
           if (modLast.length > 0) {
-            resultLast = modLast[0];
+            resultLast = resultFaces.orient(modLast[0]);
           }
+          resultFaces.delete();
 
           cut.delete();
           stockList.delete();

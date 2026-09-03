@@ -6,6 +6,7 @@ import { Matrix4 } from "../math/matrix4.js";
 import { Plane } from "../math/plane.js";
 import { Axis } from "../math/axis.js";
 import { Explorer } from "./explorer.js";
+import { OrientedFaces } from "./oriented-faces.js";
 import { Shape } from "../common/shape.js";
 import { Face } from "../common/face.js";
 import { ShapeFactory } from "../common/shape-factory.js";
@@ -282,15 +283,17 @@ export class ExtrudeOps {
       throw new Error("Draft application failed");
     }
 
+    const result = draftMaker.Shape();
+    // The draft maker's images carry no in-result orientation; every face
+    // handed to the caller is the instance the drafted solid contains.
+    const resultFaces = new OrientedFaces(result);
+    const image = (raw: TopoDS_Shape): Shape => ShapeFactory.fromShape(resultFaces.orient(raw));
+
     const modifiedFirst = ShapeOps.shapeListToArray(draftMaker.Modified(firstFaceRaw));
     const modifiedLast = ShapeOps.shapeListToArray(draftMaker.Modified(lastFaceRaw));
 
-    const newFirstFace = modifiedFirst.length > 0
-      ? ShapeFactory.fromShape(modifiedFirst[0])
-      : firstFace;
-    const newLastFace = modifiedLast.length > 0
-      ? ShapeFactory.fromShape(modifiedLast[0])
-      : lastFace;
+    const newFirstFace = modifiedFirst.length > 0 ? image(modifiedFirst[0]) : firstFace;
+    const newLastFace = modifiedLast.length > 0 ? image(modifiedLast[0]) : lastFace;
 
     // Capture the post-draft images of every input face we care about
     // BEFORE deleting the maker. This lets the caller remap pre-draft
@@ -298,9 +301,7 @@ export class ExtrudeOps {
     const remapMap = new Map<TopoDS_Shape, Shape[]>();
     const captureRemap = (raw: TopoDS_Shape) => {
       const list = ShapeOps.shapeListToArray(draftMaker.Modified(raw));
-      remapMap.set(raw, list.length > 0
-        ? list.map(r => ShapeFactory.fromShape(r))
-        : [ShapeFactory.fromShape(raw)]);
+      remapMap.set(raw, (list.length > 0 ? list : [raw]).map(image));
     };
     captureRemap(firstFaceRaw);
     captureRemap(lastFaceRaw);
@@ -311,7 +312,7 @@ export class ExtrudeOps {
       captureRemap(sf);
     }
 
-    const result = draftMaker.Shape();
+    resultFaces.delete();
     draftMaker.delete();
     disposeDir();
     disposePln();

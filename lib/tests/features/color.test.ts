@@ -5,13 +5,16 @@ import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import color from "../../core/color.js";
 import select from "../../core/select.js";
+import fillet from "../../core/fillet.js";
+import part from "../../core/part.js";
+import connector from "../../core/connector.js";
 import { } from "../../core/2d/index.js";
 import { Solid } from "../../common/solid.js";
 import { Color } from "../../features/color.js";
 import { Extrude } from "../../features/extrude.js";
 import { SelectSceneObject } from "../../features/select.js";
 import { countShapes } from "../utils.js";
-import { face } from "../../filters/index.js";
+import { edge, face } from "../../filters/index.js";
 import { testRect } from "../helpers/profiles.js";
 
 describe("color", () => {
@@ -144,6 +147,75 @@ describe("color", () => {
 
       expect(implicitSolid.colorMap).toHaveLength(explicitSolid.colorMap.length);
       expect(implicitSolid.colorMap.every(e => e.color === "#ff0000")).toBe(true);
+    });
+  });
+
+  describe("color after a selection another feature claimed", () => {
+    it("should not fall back to a selection passed to another feature", () => {
+      sketch("xy", () => {
+          testRect(100, 50);
+        });
+      extrude(30);
+
+      // The select belongs to the fillet; a bare color() must not reuse it —
+      // the fillet consumes its shapes at build and color would fail with a
+      // consumed-geometry error.
+      fillet(2, select(edge().verticalTo("xy")));
+      const c = color("red") as Color;
+
+      render();
+
+      expect(c.getError()).toBeFalsy();
+      const solid = c.getShapes()[0] as Solid;
+      // Six box faces plus four fillet faces — every one colored.
+      expect(solid.colorMap).toHaveLength(solid.getFaces().length);
+      expect(solid.colorMap).toHaveLength(10);
+      expect(solid.colorMap.every(e => e.color === "#ff0000")).toBe(true);
+    });
+
+    it("should not fall back to a selection wrapped in a lazy accessor", () => {
+      let c!: Color;
+      part("claimed-through-center", () => {
+        sketch("xy", () => {
+            testRect(100, 50);
+          });
+        extrude(30);
+
+        // `select(...).center()` hands the selection to the connector through
+        // an anchored vertex; the connector consumes it at build.
+        connector("c", select(face().onPlane("xy", 30)).center());
+        c = color("red") as Color;
+      });
+
+      render();
+
+      expect(c.getError()).toBeFalsy();
+      const solid = c.getShapes()[0] as Solid;
+      expect(solid.colorMap).toHaveLength(6);
+      expect(solid.colorMap.every(e => e.color === "#ff0000")).toBe(true);
+    });
+
+    it("should still fall back to a reusable selection another feature used", () => {
+      let c!: Color;
+      part("reusable-stays-eligible", () => {
+        sketch("xy", () => {
+            testRect(100, 50);
+          });
+        extrude(30);
+
+        // A reusable selection keeps its shapes through consumption, so it
+        // remains the implicit selection for the bare color() that follows.
+        const top = select(face().onPlane("xy", 30)).reusable();
+        connector("c", top.center());
+        c = color("red") as Color;
+      });
+
+      render();
+
+      expect(c.getError()).toBeFalsy();
+      const solid = c.getShapes()[0] as Solid;
+      expect(solid.colorMap).toHaveLength(1);
+      expect(solid.colorMap[0].color).toBe("#ff0000");
     });
   });
 

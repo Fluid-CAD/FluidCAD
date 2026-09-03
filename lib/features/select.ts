@@ -21,6 +21,7 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
 
   private type: ShapeType;
   private shapes: Shape[] = [];
+  private _claimed: boolean = false;
 
   constructor(private filters: FilterBuilderBase<Shape>[]) {
     super();
@@ -35,6 +36,46 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
 
   override isSelection(): boolean {
     return true;
+  }
+
+  /**
+   * Parse-time record that a feature call took this selection as an explicit
+   * operand — `fillet(2, select(...))`, `connector('c1', select(...).center())`,
+   * `plane(select(...))`. Its shapes belong to that feature once it builds, so
+   * a later bare `color()` / `fillet(2)` must not fall back to it as the
+   * implicit "last selection": that only fails at build time with a
+   * consumed-geometry error naming the feature. Reusable selections keep
+   * their shapes through consumption and stay eligible.
+   */
+  markClaimed(): void {
+    this._claimed = true;
+  }
+
+  isClaimed(): boolean {
+    return this._claimed && !this.isReusable();
+  }
+
+  /**
+   * Claims every selection a builder call received as an operand — passed
+   * bare, or wrapped in a lazy accessor such as `select(...).center()` whose
+   * dependencies lead back to the selection.
+   */
+  static claimOperands(args: ArrayLike<unknown>): void {
+    const visit = (value: unknown, depth: number) => {
+      if (!(value instanceof SceneObject) || depth > 2) {
+        return;
+      }
+      if (value instanceof SelectSceneObject) {
+        value.markClaimed();
+        return;
+      }
+      for (const dep of value.getDependencies()) {
+        visit(dep, depth + 1);
+      }
+    };
+    for (const arg of Array.from(args)) {
+      visit(arg, 0);
+    }
   }
 
   build(context: BuildSceneObjectContext) {

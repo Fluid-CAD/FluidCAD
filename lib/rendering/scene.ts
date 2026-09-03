@@ -353,12 +353,17 @@ export class Scene {
     return selections;
   }
 
+  /**
+   * The implicit selection a bare `color()` / `fillet(2)` / `shell()` falls
+   * back to: the most recent `select(...)` statement no other feature call has
+   * already taken as an operand.
+   */
   getLastSelection(): SelectSceneObject | null {
     let count = this.sceneObjects.length;
 
     while (count--) {
       const obj = this.sceneObjects[count];
-      if (obj instanceof SelectSceneObject) {
+      if (obj instanceof SelectSceneObject && !obj.isClaimed()) {
         return obj;
       }
     }

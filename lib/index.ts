@@ -147,6 +147,10 @@ export function registerBuilder<T extends Function>(
 
     const originalFn = builder(context) as ReturnType<typeof builder>;
 
+    // A selection handed to this call as an operand is spoken for: it must
+    // not double as the implicit last selection of a later bare call.
+    SelectSceneObject.claimOperands(arguments);
+
     return originalFn(...arguments);
   };
 

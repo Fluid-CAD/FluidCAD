@@ -12,6 +12,8 @@ import type { SerializedAssemblyConnector } from '../types';
 export class ConnectorsPanel {
   private section: AccordionSection;
   private connectors: SerializedAssemblyConnector[] = [];
+  /** True while the mate dialog is picking: a row click is a pick, not an edit. */
+  private pickMode = false;
 
   constructor(
     host: HTMLElement,
@@ -37,6 +39,15 @@ export class ConnectorsPanel {
     this.render();
   }
 
+  /** Flip the rows between "edit this connector" and "pick as mate side". */
+  setPickMode(pickMode: boolean): void {
+    if (this.pickMode === pickMode) {
+      return;
+    }
+    this.pickMode = pickMode;
+    this.render();
+  }
+
   dispose(): void {
     this.section.header.remove();
     this.section.body.remove();
@@ -56,8 +67,10 @@ export class ConnectorsPanel {
       const eyeVisibility = hidden
         ? 'opacity-100 text-base-content/70'
         : 'opacity-0 group-hover:opacity-100 text-base-content/40';
+      const title = this.pickMode ? 'Pick as the mate side' : 'Edit this connector';
+      const pickClass = this.pickMode ? ' text-primary' : '';
       return `
-      <div class="group flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/80" data-connector-id="${escapeHtml(c.connectorId)}" title="Edit this connector">
+      <div class="group flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/80${pickClass}" data-connector-id="${escapeHtml(c.connectorId)}" title="${title}">
         <img src="/icons/mate-connector.png" class="w-4 h-4 object-contain shrink-0 opacity-70" alt="" />
         <span class="truncate">${escapeHtml(c.name)}</span>
         <button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-eye="${escapeHtml(c.name)}" title="Show/hide the connector">${eyeIcon}</button>

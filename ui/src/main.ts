@@ -499,7 +499,15 @@ function buildAssemblyRail(): LeftRail {
   // The assembly's own connectors, between Parts and Joints: a row opens
   // the connector dialog on it; the eye hides its gizmo by name.
   const connectors = new ConnectorsPanel(parts.getConnectorsHost(), {
-    onEdit: (connector) => void assemblyConnectorService.edit(connector),
+    // While the mate dialog is picking, a row is a pick (no gizmo to hunt
+    // for under a coincident part connector); otherwise it opens the dialog.
+    onEdit: (connector) => {
+      if (assemblyMateService.isPicking) {
+        assemblyMateService.pickWorldConnector(connector.connectorId);
+        return;
+      }
+      void assemblyConnectorService.edit(connector);
+    },
     onToggleVisibility: (name, visible) => viewer.getAssemblyController()?.setWorldConnectorHidden(name, !visible),
     isHidden: (name) => viewer.getAssemblyController()?.isWorldConnectorHidden(name) ?? false,
   });
@@ -1937,8 +1945,16 @@ const assemblyMateService = new AssemblyMateService(container, viewer, {
     viewer.clearHighlight();
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
+    if (currentRail?.kind === 'assembly') {
+      currentRail.connectors.setPickMode(true);
+    }
   },
-  onExit: () => connectorPropsEditor.close(),
+  onExit: () => {
+    connectorPropsEditor.close();
+    if (currentRail?.kind === 'assembly') {
+      currentRail.connectors.setPickMode(false);
+    }
+  },
   // The pen on a picked chip: the connector's own property editor, docked
   // beside the mate dialog, editing the connector() statement in its part
   // file.
@@ -2107,7 +2123,7 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
     // The armed mate dialog owns every viewport click: connector picks fill
     // its slots; nothing below (gizmo attach, face highlight) may run.
     if (assemblyMateService.isPicking) {
-      assemblyMateService.handleClick(shapeId, sub, instanceId);
+      assemblyMateService.handleClick(shapeId, sub, instanceId, modifiers);
       return;
     }
     if (shapeId && sub && (sub.type === 'face' || sub.type === 'edge')) {

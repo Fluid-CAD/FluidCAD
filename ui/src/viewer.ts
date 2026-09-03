@@ -83,12 +83,30 @@ const HOVER_EDGE_LINE_WIDTH = 2;
 // width on top of the highlight color to stand out from its neighbors.
 const HIGHLIGHT_SKETCH_WIRE_LINE_WIDTH = 3;
 
-export type SelectionModifiers = { additive: boolean };
+export type SelectionModifiers = {
+  additive: boolean;
+  /** Where the click landed (viewport-relative popovers anchor here). */
+  clientX?: number;
+  clientY?: number;
+  /**
+   * Every connector gizmo the click could have meant, nearest first, when
+   * more than one sits under the cursor (an assembly connector on top of a
+   * part connector) — the mate dialog asks which. Absent on unambiguous
+   * picks.
+   */
+  connectorCandidates?: { instanceId: string; connectorId: string }[];
+};
 
 /** What pickAt() resolves: a sub-shape (with its owning assembly instance,
  *  when the hit landed inside one), or a shown origin plane. */
 type PickResult =
-  | { shapeId: string; sub: SubSelection; instanceId?: string | null }
+  | {
+    shapeId: string;
+    sub: SubSelection;
+    instanceId?: string | null;
+    /** Connector picks: the overlapping candidates when there are several. */
+    connectorCandidates?: { instanceId: string; connectorId: string }[];
+  }
   | { standardPlane: StandardPlaneId };
 
 function isPlanePick(result: PickResult | null): result is { standardPlane: StandardPlaneId } {
@@ -568,13 +586,20 @@ export class Viewer {
       }
 
       this.clearHover();
-      const modifiers: SelectionModifiers = { additive: e.ctrlKey || e.metaKey || e.shiftKey };
+      const modifiers: SelectionModifiers = {
+        additive: e.ctrlKey || e.metaKey || e.shiftKey,
+        clientX: e.clientX,
+        clientY: e.clientY,
+      };
       const result = this.pickAt(e.clientX, e.clientY);
       if (isPlanePick(result)) {
         this.standardPlanePickHandler?.(result.standardPlane);
         return;
       }
       if (result) {
+        if (result.connectorCandidates) {
+          modifiers.connectorCandidates = result.connectorCandidates;
+        }
         this.selectionHandler(result.shapeId, result.sub, result.instanceId ?? null, modifiers);
       } else {
         this.selectionHandler(null, null, null, modifiers);
@@ -715,12 +740,16 @@ export class Viewer {
     // Connector gizmos render on top of everything (depth-test off), so while
     // a mate dialog has them armed a nearby gizmo outranks all raycast hits.
     if (this.pickConnectors && this.assemblyController) {
-      const connectorHit = this.assemblyController.pickConnectorAt(clientX, clientY);
+      const candidates = this.assemblyController.pickConnectorCandidatesAt(clientX, clientY);
+      const connectorHit = candidates[0];
       if (connectorHit) {
         return {
           shapeId: connectorHit.connectorId,
           sub: { type: 'connector', index: 0 },
           instanceId: connectorHit.instanceId,
+          ...(candidates.length > 1
+            ? { connectorCandidates: candidates.map(c => ({ instanceId: c.instanceId, connectorId: c.connectorId })) }
+            : {}),
         };
       }
     }

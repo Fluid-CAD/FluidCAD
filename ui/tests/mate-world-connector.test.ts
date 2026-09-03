@@ -11,6 +11,8 @@ import type { SerializedAssembly } from '../src/types';
 
 const MAIN = '/ws/main.assembly.js';
 
+const highlighted: (string | null)[] = [];
+
 function makeViewer(): Viewer {
   const controller = {
     getConnectorName: (id: string) => (id === 'conn-crank' ? 'shaft' : null),
@@ -19,6 +21,7 @@ function makeViewer(): Viewer {
     setMatePickedConnectors: () => {},
     setProvisionalMate: () => {},
     commitProvisionalMate: () => {},
+    setHighlightedConnector: (id: string | null) => { highlighted.push(id); },
   };
   return { pickConnectors: false, getAssemblyController: () => controller } as unknown as Viewer;
 }
@@ -57,7 +60,17 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
   document.body.innerHTML = '';
+  highlighted.length = 0;
 });
+
+function makeContainer(): HTMLElement {
+  const container = document.createElement('div');
+  container.getBoundingClientRect = () => ({
+    left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON: () => ({}),
+  }) as DOMRect;
+  document.body.appendChild(container);
+  return container;
+}
 
 describe('assembly connector mate sides', () => {
   it('a world-gizmo pick fills the slot, previews the binding, and applies as a frame ref', async () => {
@@ -110,5 +123,74 @@ describe('assembly connector mate sides', () => {
     svc2.enter('fastened');
     svc2.handleClick('w1', { type: 'connector', index: 0 } as any, WORLD_BODY_ID);
     expect(container2.querySelector('[data-role="message"]')?.textContent).toMatch(/Could not resolve the assembly connector/);
+  });
+
+  it('an ambiguous click opens a popover; hovering highlights, clicking picks', () => {
+    const assembly = makeAssembly();
+    const container = makeContainer();
+    const svc = new AssemblyMateService(container, makeViewer(), { getAssembly: () => assembly });
+    svc.enter('fastened');
+    svc.handleClick('conn-crank', { type: 'connector', index: 0 } as any, 'inst-0', {
+      clientX: 100, clientY: 100,
+      connectorCandidates: [
+        { instanceId: 'inst-0', connectorId: 'conn-crank' },
+        { instanceId: WORLD_BODY_ID, connectorId: 'w1' },
+      ],
+    });
+    const menu = container.querySelector<HTMLElement>('[data-role="connector-pick-menu"]')!;
+    expect(menu).not.toBeNull();
+    const rows = menu.querySelectorAll<HTMLButtonElement>('[data-index]');
+    expect([...rows].map(r => r.textContent)).toEqual(['Crank Shaft · shaft', 'Assembly · origin']);
+    // Nothing is picked until a row is chosen.
+    expect(container.querySelector('[data-role="body"]')!.textContent).not.toContain('Assembly · origin');
+    rows[1].dispatchEvent(new MouseEvent('mouseenter'));
+    expect(highlighted).toEqual(['w1']);
+    rows[1].click();
+    expect(container.querySelector('[data-role="connector-pick-menu"]')).toBeNull();
+    expect(container.querySelector('[data-role="body"]')!.textContent).toContain('Assembly · origin');
+    expect(panelText('message')).toBe('');
+  });
+
+  it('a lone candidate never opens the popover, and Escape dismisses an open one', () => {
+    const assembly = makeAssembly();
+    const container = makeContainer();
+    const svc = new AssemblyMateService(container, makeViewer(), { getAssembly: () => assembly });
+    svc.enter('fastened');
+    svc.handleClick('w1', { type: 'connector', index: 0 } as any, WORLD_BODY_ID, {
+      clientX: 100, clientY: 100, connectorCandidates: [{ instanceId: WORLD_BODY_ID, connectorId: 'w1' }],
+    });
+    expect(container.querySelector('[data-role="connector-pick-menu"]')).toBeNull();
+    expect(container.querySelector('[data-role="body"]')!.textContent).toContain('Assembly · origin');
+
+    svc.handleClick('conn-crank', { type: 'connector', index: 0 } as any, 'inst-0', {
+      clientX: 100, clientY: 100,
+      connectorCandidates: [
+        { instanceId: 'inst-0', connectorId: 'conn-crank' },
+        { instanceId: WORLD_BODY_ID, connectorId: 'w1' },
+      ],
+    });
+    expect(container.querySelector('[data-role="connector-pick-menu"]')).not.toBeNull();
+    // Dismiss listeners register after the opening click settles.
+    return new Promise<void>((resolve) => setTimeout(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      expect(container.querySelector('[data-role="connector-pick-menu"]')).toBeNull();
+      expect(highlighted.at(-1)).toBeNull();
+      resolve();
+    }, 0));
+  });
+
+  it('a rail row picks the assembly connector into the armed slot; tangent refuses', () => {
+    const assembly = makeAssembly();
+    const container = makeContainer();
+    const svc = new AssemblyMateService(container, makeViewer(), { getAssembly: () => assembly });
+    svc.pickWorldConnector('w1'); // not armed: ignored
+    expect(container.querySelector('[data-role="body"]')!.textContent).not.toContain('Assembly · origin');
+    svc.enter('revolute');
+    svc.pickWorldConnector('w1');
+    expect(container.querySelector('[data-role="body"]')!.textContent).toContain('Assembly · origin');
+    svc.exit();
+    svc.enter('tangent');
+    svc.pickWorldConnector('w1');
+    expect(panelText('message')).toMatch(/Tangent mates take exposed faces\/edges/);
   });
 });

@@ -19,6 +19,12 @@ import type { BodyFreedom, BodyState, ConnectorState, ContactState, MateReadout,
 const DRAG_THRESHOLD_PX = 4;
 /** Screen radius a click may miss a connector-gizmo origin by and still pick it. */
 const CONNECTOR_PICK_RADIUS_PX = 22;
+/**
+ * Gizmos whose origins project this close to the nearest hit are ambiguous
+ * with it — an assembly connector placed exactly on a part connector, say —
+ * and the click offers them all instead of silently taking the first.
+ */
+const CONNECTOR_AMBIGUITY_PX = 6;
 
 /**
  * Gizmo opacity while the mate dialog's connector picker is armed: every
@@ -1176,18 +1182,46 @@ export class AssemblyController {
 
   /**
    * The visible connector gizmo nearest the cursor within `maxPx` screen
-   * pixels, or null. Distance is measured to the gizmo origin projected
-   * through the live camera.
+   * pixels, or null. Ties and near-ties are listed by
+   * {@link pickConnectorCandidatesAt}; this returns the first of them.
    */
   pickConnectorAt(
     clientX: number,
     clientY: number,
     maxPx = CONNECTOR_PICK_RADIUS_PX,
   ): { instanceId: string; connectorId: string } | null {
+    const [best] = this.pickConnectorCandidatesAt(clientX, clientY, maxPx);
+    return best ? { instanceId: best.instanceId, connectorId: best.connectorId } : null;
+  }
+
+  /**
+   * Every visible connector gizmo whose origin projects within `maxPx` of
+   * the cursor, nearest first, cut down to the ones within
+   * CONNECTOR_AMBIGUITY_PX of the nearest — the set a click must choose
+   * among. Instance connectors are screen-picked by their gizmo origin (the
+   * ConnectorMesh group sits at the part-frame origin; the gizmo child
+   * inside it carries the frame's actual origin); the assembly's own
+   * connectors compete on the same terms, resolving to the world body.
+   */
+  pickConnectorCandidatesAt(
+    clientX: number,
+    clientY: number,
+    maxPx = CONNECTOR_PICK_RADIUS_PX,
+  ): { instanceId: string; connectorId: string; distPx: number }[] {
     const rect = this.renderer.domElement.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0) return null;
+    if (rect.width === 0 || rect.height === 0) return [];
     const world = new Vector3();
-    let best: { instanceId: string; connectorId: string; distPx: number } | null = null;
+    const hits: { instanceId: string; connectorId: string; distPx: number }[] = [];
+    const consider = (instanceId: string, connectorId: string, gizmo: Object3D) => {
+      gizmo.getWorldPosition(world).project(this.camera);
+      if (world.z > 1) return; // behind the camera
+      const px = ((world.x + 1) / 2) * rect.width + rect.left;
+      const py = ((1 - world.y) / 2) * rect.height + rect.top;
+      const distPx = Math.hypot(px - clientX, py - clientY);
+      if (distPx <= maxPx) {
+        hits.push({ instanceId, connectorId, distPx });
+      }
+    };
     for (const [instanceId, state] of this.instances) {
       // A hidden instance renders nothing, so its connectors must not be
       // screen-pickable — the per-child `visible` check below can't see the
@@ -1199,35 +1233,19 @@ export class AssemblyController {
         if (!child.userData?.isConnector || !child.visible) return;
         const connectorId = child.userData.connectorId;
         if (typeof connectorId !== 'string') return;
-        // The ConnectorMesh group sits at the part-frame origin; the gizmo
-        // child inside it carries the connector frame's actual origin.
-        const gizmo = child.children[0] ?? child;
-        gizmo.getWorldPosition(world).project(this.camera);
-        if (world.z > 1) return; // behind the camera
-        const px = ((world.x + 1) / 2) * rect.width + rect.left;
-        const py = ((1 - world.y) / 2) * rect.height + rect.top;
-        const distPx = Math.hypot(px - clientX, py - clientY);
-        if (distPx <= maxPx && (!best || distPx < best.distPx)) {
-          best = { instanceId, connectorId, distPx };
-        }
+        consider(instanceId, connectorId, child.children[0] ?? child);
       });
     }
-    // The assembly's own connectors compete like any instance connector
-    // while visible — picking one fills the slot with that frame (its
-    // binding in the source).
     for (const [connectorId, { group }] of this.worldConnectors) {
       if (!group.visible) continue;
-      const gizmo = group.children[0] ?? group;
-      gizmo.getWorldPosition(world).project(this.camera);
-      if (world.z > 1) continue;
-      const px = ((world.x + 1) / 2) * rect.width + rect.left;
-      const py = ((1 - world.y) / 2) * rect.height + rect.top;
-      const distPx = Math.hypot(px - clientX, py - clientY);
-      if (distPx <= maxPx && (!best || distPx < best.distPx)) {
-        best = { instanceId: WORLD_BODY_ID, connectorId, distPx };
-      }
+      consider(WORLD_BODY_ID, connectorId, group.children[0] ?? group);
     }
-    return best ? { instanceId: best.instanceId, connectorId: best.connectorId } : null;
+    hits.sort((a, b) => a.distPx - b.distPx);
+    if (hits.length === 0) {
+      return [];
+    }
+    const nearest = hits[0].distPx;
+    return hits.filter(h => h.distPx <= nearest + CONNECTOR_AMBIGUITY_PX);
   }
 
   /**

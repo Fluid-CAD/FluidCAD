@@ -120,5 +120,11 @@ describe('ConnectorsPanel', () => {
     expect(edited).toEqual(['hinge']); // the eye click does not open the dialog
     host.querySelector<HTMLButtonElement>('[data-eye="base"]')!.click();
     expect(hidden.has('base')).toBe(false);
+
+    // While the mate dialog is picking the rows read as picks.
+    panel.setPickMode(true);
+    expect(host.querySelector<HTMLElement>('[data-connector-id="w1"]')!.title).toBe('Pick as the mate side');
+    panel.setPickMode(false);
+    expect(host.querySelector<HTMLElement>('[data-connector-id="w1"]')!.title).toBe('Edit this connector');
   });
 });

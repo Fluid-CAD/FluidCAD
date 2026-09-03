@@ -274,6 +274,22 @@ describe('mate-dialog connector picking', () => {
     expect(controller.getWorldConnectorGroup('w2')!.visible).toBe(true);
   });
 
+  it('coincident gizmos are listed as candidates, nearest-first, the instance connector staying the default', () => {
+    const { controller, scene, sceneObjects, assembly } = makeRig();
+    // A second assembly connector exactly on the first; the instance gizmo
+    // at world (1,0,0) is well outside the ambiguity band.
+    controller.update(sceneObjects, { ...assembly, connectors: [worldConnector, { ...worldConnector, connectorId: 'w2', name: 'other' }] });
+    scene.updateMatrixWorld(true);
+    const candidates = controller.pickConnectorCandidatesAt(W / 2, H / 2);
+    expect(candidates.map(c => c.connectorId)).toEqual(['w1', 'w2']);
+    expect(candidates.every(c => c.instanceId === WORLD_BODY_ID)).toBe(true);
+    expect(controller.pickConnectorAt(W / 2, H / 2)).toEqual({ instanceId: WORLD_BODY_ID, connectorId: 'w1' });
+
+    // Hiding one drops it from the candidates; a lone hit is not ambiguous.
+    controller.setWorldConnectorHidden('other', true);
+    expect(controller.pickConnectorCandidatesAt(W / 2, H / 2).map(c => c.connectorId)).toEqual(['w1']);
+  });
+
   it('hover highlight and mate pinning reach assembly connectors', () => {
     const { controller, sceneObjects, assembly } = makeRig();
     controller.update(sceneObjects, { ...assembly, connectors: [worldConnector] });

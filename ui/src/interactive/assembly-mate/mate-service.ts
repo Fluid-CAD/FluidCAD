@@ -1,4 +1,5 @@
 import { MatePanel, MateSlotKey } from './mate-panel';
+import { ConnectorPickMenu } from './connector-pick-menu';
 import {
   applyAssemblyMate,
   classifyContactPick,
@@ -10,6 +11,7 @@ import {
 } from '../../api';
 import type { Viewer } from '../../viewer';
 import type { SerializedAssembly, SerializedAssemblyMate, SubSelection } from '../../types';
+import type { SelectionModifiers } from '../../viewer';
 import type { ContactEntity, MateRecord } from '../../solver';
 import { WORLD_BODY_ID, worldConnectorRef } from '../../solver';
 import { contactChainsRowCount } from '../../solver/contact-model';
@@ -121,6 +123,7 @@ type MateEditTarget = {
  */
 export class AssemblyMateService {
   private panel: MatePanel;
+  private pickMenu: ConnectorPickMenu;
   private armed = false;
   private applying = false;
   private editTarget: MateEditTarget | null = null;
@@ -143,6 +146,7 @@ export class AssemblyMateService {
     },
   ) {
     this.panel = new MatePanel(container);
+    this.pickMenu = new ConnectorPickMenu(container);
     this.panel.onApply = () => void this.apply();
     this.panel.onExit = () => this.exit();
     this.panel.onChange = () => {
@@ -304,6 +308,7 @@ export class AssemblyMateService {
     this.editTarget = null;
     this.slots = { a: null, b: null };
     this.tangentSlots = { a: null, b: null };
+    this.pickMenu.close();
     this.syncViewport();
     this.panel.hide();
     this.hooks.onExit?.();
@@ -312,15 +317,85 @@ export class AssemblyMateService {
   /**
    * Routes viewport clicks while armed. A connector pick fills the armed
    * slot (and hands the armed border to the other slot when it's still
-   * empty); mates reference existing part connectors only, so a bare
-   * face/edge pick just points at the Connector tool.
+   * empty); several gizmos under the cursor open a "which connector?"
+   * popover first. Mates reference existing part connectors only, so a
+   * bare face/edge pick just points at the Connector tool.
    */
-  handleClick(shapeId: string | null, sub: SubSelection, instanceId: string | null): void {
+  handleClick(
+    shapeId: string | null,
+    sub: SubSelection,
+    instanceId: string | null,
+    pick?: Pick<SelectionModifiers, 'clientX' | 'clientY' | 'connectorCandidates'>,
+  ): void {
     if (!this.armed) {
       return;
     }
+    this.pickMenu.close();
     if (!shapeId || !sub) {
       return; // empty-space click keeps the picks (misclicks shouldn't wipe them)
+    }
+    const candidates = pick?.connectorCandidates;
+    if (
+      sub.type === 'connector' && candidates && candidates.length > 1
+      && pick?.clientX !== undefined && pick.clientY !== undefined
+      && this.panel.getType() !== 'tangent'
+    ) {
+      this.openPickMenu(candidates, pick.clientX, pick.clientY);
+      return;
+    }
+    this.pickConnectorSide(shapeId, sub, instanceId);
+  }
+
+  /**
+   * A row click in the rail's Connectors section while picking: the
+   * assembly connector fills the armed slot — no gizmo to hunt for under a
+   * coincident part connector, and hidden connectors stay reachable.
+   */
+  pickWorldConnector(connectorId: string): void {
+    if (!this.armed) {
+      return;
+    }
+    this.pickMenu.close();
+    if (this.panel.getType() === 'tangent') {
+      this.panel.setMessage('Tangent mates take exposed faces/edges — pick geometry in the viewport instead.');
+      return;
+    }
+    this.pickConnectorSide(connectorId, { type: 'connector', index: 0 }, WORLD_BODY_ID);
+  }
+
+  /** The popover listing every connector under an ambiguous click. */
+  private openPickMenu(
+    candidates: { instanceId: string; connectorId: string }[],
+    clientX: number,
+    clientY: number,
+  ): void {
+    const controller = this.viewer.getAssemblyController();
+    const items = candidates.map((candidate) => ({
+      label: this.candidateLabel(candidate),
+      onHover: () => controller?.setHighlightedConnector(candidate.connectorId),
+      onPick: () => this.pickConnectorSide(candidate.connectorId, { type: 'connector', index: 0 }, candidate.instanceId),
+    }));
+    this.pickMenu.show(clientX, clientY, items, () => controller?.setHighlightedConnector(null));
+  }
+
+  /** `Crank Shaft · shaft` / `Assembly · origin` — the chip label the pick would carry. */
+  private candidateLabel(candidate: { instanceId: string; connectorId: string }): string {
+    if (candidate.instanceId === WORLD_BODY_ID) {
+      const state = this.resolveWorldPick(candidate.connectorId);
+      return 'error' in state ? `Assembly · ${candidate.connectorId}` : worldChipLabel(state);
+    }
+    const state = this.resolvePick(candidate.connectorId, candidate.instanceId);
+    if ('error' in state) {
+      const instance = this.hooks.getAssembly()?.instances.find(i => i.instanceId === candidate.instanceId);
+      return `${instance?.name ?? candidate.instanceId} · ${this.viewer.getAssemblyController()?.getConnectorName(candidate.connectorId) ?? '?'}`;
+    }
+    return connectorChipLabel(state);
+  }
+
+  /** One resolved connector (part or assembly) into the armed slot. */
+  private pickConnectorSide(shapeId: string, sub: SubSelection, instanceId: string | null): void {
+    if (!this.armed || !sub) {
+      return;
     }
     if (this.panel.getType() === 'tangent') {
       if (sub.type === 'face' || sub.type === 'edge') {

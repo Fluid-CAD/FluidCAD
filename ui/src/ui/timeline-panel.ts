@@ -222,6 +222,17 @@ export class TimelinePanel {
       this.showHistoryDropdown(historyDotsBtn);
     });
 
+    // The profile popover is anchored to one row and lives only while the
+    // pointer rests on that row. The row's own mouseleave covers the plain
+    // hover-off, but not every way the pointer and the row part company:
+    // a scroll slides a different row under a still pointer, and the
+    // pointer can leave the panel through the popover itself (it hangs off
+    // the panel's right edge). Both are handled here; a re-render, which
+    // discards the row together with its listeners, closes it in
+    // renderTimeline.
+    this.panel.addEventListener('scroll', () => this.closeProfilePopover(), { capture: true, passive: true });
+    this.panel.addEventListener('mouseleave', () => this.closeProfilePopover());
+
     // Shapes accordion section (delegated to ShapesPanel)
     this.shapesPanel = new ShapesPanel(
       this.panel,
@@ -388,7 +399,11 @@ export class TimelinePanel {
   }
 
   private syncVisibility(): void {
-    this.panel.classList.toggle('hidden', !(this.loaded && !this.userHidden));
+    const visible = this.loaded && !this.userHidden;
+    if (!visible) {
+      this.closeProfilePopover();
+    }
+    this.panel.classList.toggle('hidden', !visible);
   }
 
   // ---------------------------------------------------------------------------
@@ -501,6 +516,9 @@ export class TimelinePanel {
       }
     }
 
+    // Rebuilding the rows discards the hovered one along with its mouseleave
+    // listener, so a popover anchored to it would otherwise outlive it.
+    this.closeProfilePopover();
     this.timelineBody.innerHTML = html
       || AccordionSection.emptyState('No features yet — start with <code>sketch(...)</code>.');
 
@@ -975,10 +993,7 @@ export class TimelinePanel {
       this.dropdownCleanup();
       this.dropdownCleanup = null;
     }
-    if (this.hoverPopover) {
-      this.hoverPopover.remove();
-      this.hoverPopover = null;
-    }
+    this.closeProfilePopover();
     this.panel.remove();
   }
 

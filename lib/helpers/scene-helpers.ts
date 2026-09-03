@@ -508,33 +508,37 @@ export function cutWithSceneObjects(
     recordCutHistory(options.recordHistoryFor, stock, shapeObjectMap, cleanedShapes, cutResult.maker, cleanups);
   }
 
-  // The faces the cut created — every result face that is neither a stock
-  // face nor the boolean's Modified() image of one — carried across the
-  // cleanup so the classification points at faces the caller now owns.
-  // See `classifyCutResult` for why this comes from kernel history rather
-  // than from the section edges.
-  const internalFaces = remapCreatedFaces(cutResult.internalFaces, cleanups);
+  // The geometry the cut created — every result face/edge that is neither a
+  // stock sub-shape nor the boolean's Modified() image of one — carried
+  // across the cleanup so the classification points at sub-shapes the caller
+  // now owns. See `classifyCutResult` for why this is kernel history rather
+  // than a geometric comparison against the stock.
+  const internalFaces = remapCreated(cutResult.internalFaces, cleanups, (c, f) => c.remapFace(f));
+  const sectionEdges = remapCreated(cutResult.sectionEdges, cleanups, (c, e) => c.remapEdge(e));
 
   for (const cleanup of cleanups) {
     cleanup.dispose();
   }
   cutResult.dispose();
-  classifyCutResult(caller, stock, cleanedShapes, internalFaces, plane, distance);
+  classifyCutResult(caller, sectionEdges, internalFaces, plane, distance);
 
   return { cleanedShapes, stockShapes: stock };
 }
 
 /**
- * Carry pre-clean faces through whichever cleanup lineage claims them, dropping
- * the ones the cleanup removed and merging duplicates (UnifySameDomain maps
- * several pre-clean faces onto one merged face). A face no cleanup knows is
- * kept as-is.
+ * Carry pre-clean sub-shapes through whichever cleanup lineage claims them,
+ * dropping the ones the cleanup removed and merging duplicates
+ * (UnifySameDomain maps several pre-clean sub-shapes onto one merged one).
+ * A sub-shape no cleanup knows is kept as-is.
  */
-function remapCreatedFaces(faces: Face[], cleanups: CleanShapeLineage[]): Face[] {
-  const out: Face[] = [];
-  for (const face of faces) {
-    const remapped = remapThroughCleanups(face, cleanups, (c, f) => c.remapFace(f));
-    for (const r of remapped) {
+function remapCreated<T extends Shape>(
+  items: T[],
+  cleanups: CleanShapeLineage[],
+  remap: (cleanup: CleanShapeLineage, item: T) => T[] | null,
+): T[] {
+  const out: T[] = [];
+  for (const item of items) {
+    for (const r of remapThroughCleanups(item, cleanups, remap)) {
       if (!out.some(existing => existing.getShape().IsSame(r.getShape()))) {
         out.push(r);
       }

@@ -6,8 +6,11 @@ import cut from "../../core/cut.js";
 import { circle, line } from "../../core/2d/index.js";
 import { Extrude } from "../../features/extrude.js";
 import { Face } from "../../common/face.js";
+import { Edge } from "../../common/edge.js";
+import { EdgeOps } from "../../oc/edge-ops.js";
+import { testRect } from "../helpers/profiles.js";
 
-describe("cut internalFaces excludes trimmed stock faces", () => {
+describe("cut classification excludes trimmed stock geometry", () => {
   setupOC();
 
   it("a bottom ring split by a coplanar-bottom skirt cut stays a stock face", () => {
@@ -43,5 +46,31 @@ describe("cut internalFaces excludes trimmed stock faces", () => {
     }
     expect(faces.length).toBe(6);
     void e;
+  });
+
+  it("a rim edge notched by the cut is not a section edge either", () => {
+    sketch("xy", () => {
+      testRect(100, 50);
+    });
+    extrude(30);
+
+    // Rebate along the x = 0 top edge (testRect is corner-anchored): both
+    // long top-rim edges get trimmed, the top face shrinks to x ∈ [20, 100].
+    sketch("xz", () => {
+      testRect(20, 10, { at: [0, 25] });
+    });
+    const c = cut(100) as Extrude;
+    const section = c.edges();
+    addToScene(section);
+
+    render();
+
+    const edges = section.getShapes() as Edge[];
+    const topEdges = edges.filter(ed => Math.abs(EdgeOps.getEdgeMidPoint(ed).z - 30) < 1e-6);
+    // Only the rebate's rim edge at x = 20 is cut-created at z = 30; the two
+    // trimmed long rim edges descend from the extrude.
+    expect(edges).toHaveLength(7);
+    expect(topEdges).toHaveLength(1);
+    expect(Math.abs(EdgeOps.getEdgeMidPoint(topEdges[0]).x - 20)).toBeLessThan(1e-6);
   });
 });

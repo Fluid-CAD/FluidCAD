@@ -1281,7 +1281,7 @@ describe("bucket expansion (double-click gesture)", () => {
     sketch("xy", () => {
         testRect(100, 50);
       });
-    extrude(30);
+    const e = extrude(30);
 
     // Notch the top: the cut splits two top-rim edges and consumes material,
     // so as-built buckets and the final solid disagree about some members.
@@ -1293,11 +1293,24 @@ describe("bucket expansion (double-click gesture)", () => {
     const scene = render();
     const solid = findSolid(scene);
     const survivors = edgeRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6);
-    expect(survivors.length).toBeGreaterThan(0);
-    const seed = survivors[0];
+    // The rebate along the x = 0 edge leaves 1 untouched rim edge, 1 rim
+    // edge the cut created, and the 2 long rim edges it trimmed.
+    expect(survivors).toHaveLength(4);
+    const survivorPicks = explainSelection(scene, survivors).picks;
+    // The trimmed pieces belong to no bucket — like a side face a fillet
+    // trims, they walk modification lineage back to the extrude — while the
+    // untouched and the cut-created rim edges keep a classified bucket.
+    const extrudeId = (e as unknown as SceneObject).id;
+    const trimmed = survivorPicks.filter(p => !p.attributed);
+    expect(trimmed).toHaveLength(2);
+    for (const pick of trimmed) {
+      expect(pick.creatorId).toBe(extrudeId);
+    }
+    const seedIndex = survivorPicks.findIndex(p => p.attributed && p.producer!.featureType === 'cut');
+    expect(seedIndex).toBeGreaterThanOrEqual(0);
+    const seed = survivors[seedIndex];
 
-    const seedPick = explainSelection(scene, [seed]).picks[0];
-    expect(seedPick.attributed).toBe(true);
+    const seedPick = survivorPicks[seedIndex];
 
     const expansion = expandBucket(scene, seed);
     expect(expansion.ok).toBe(true);

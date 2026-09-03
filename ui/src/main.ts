@@ -2685,6 +2685,7 @@ function connectWebSocket() {
             instances: raw?.instances ?? [],
             mates: raw?.mates ?? [],
             occurrences: raw?.occurrences ?? [],
+            connectors: raw?.connectors ?? [],
           };
           applyAssemblyToRail(rail, assembly);
           // Instance groups were just rebuilt/re-posed — re-anchor the

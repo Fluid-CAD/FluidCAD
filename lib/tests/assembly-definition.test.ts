@@ -345,13 +345,13 @@ describe("dangling definitions", () => {
 });
 
 describe("connectors inside assembly bodies", () => {
-  it("rejects connector() declared in an assembly body — connectors are part-owned", () => {
+  it("rejects connector() declared in an assembly body — assembly connectors are root-scope only", () => {
     const { p } = startAssembly();
     const def = assembly("sub", () => {
       const b = insert(p);
       connector("mount", b.connectors.top as unknown as Parameters<typeof connector>[1]);
       return { b };
     });
-    expect(() => insert(def)).toThrow(/inside a part\(\) block/i);
+    expect(() => insert(def)).toThrow(/root-scope only/i);
   });
 });

@@ -73,6 +73,8 @@ export type ScannedSubAssembly = {
   instances: any[];
   /** SerializedMate[] of the factory's own scene. */
   mates: any[];
+  /** SerializedAssemblyConnector[] of the factory's own scene — absent pre-connector engines. */
+  connectors?: any[];
   /**
    * The referenced parts' rendered subtrees (render order, deduped) — the
    * same wire shape the assembly view's part templates use, connectors
@@ -121,7 +123,7 @@ export type ScanSceneManager = {
   setCurrentFile(filePath: string): void;
   disposeScene?(scene: any): void;
   startAssemblyScene?(): any;
-  getAssemblyData?(scene: any): { instances: any[]; mates: any[] } | null;
+  getAssemblyData?(scene: any): { instances: any[]; mates: any[]; connectors?: any[] } | null;
 };
 
 /**
@@ -491,7 +493,7 @@ function recordSubAssembly(
   result: PartScanResult,
   renderedPools: any[][],
   exportName: string,
-  data: { instances: any[]; mates: any[] },
+  data: { instances: any[]; mates: any[]; connectors?: any[] },
   shape: { exportKind: 'value' | 'factory'; assemblyName?: string; params: CatalogParamDef[] },
 ): void {
   const objects: any[] = [];
@@ -525,6 +527,7 @@ function recordSubAssembly(
     assemblyName: shape.assemblyName,
     instances: data.instances,
     mates: data.mates,
+    connectors: data.connectors ?? [],
     objects,
     params: shape.params,
   });

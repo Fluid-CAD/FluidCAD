@@ -1,19 +1,18 @@
 import { Box3, Camera, Group, Object3D, Plane, Quaternion, Raycaster, Vector2, Vector3, WebGLRenderer } from 'three';
-import { ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyInstance, SerializedAssemblyMate } from '../types';
+import { ConnectorData, ExposedData, SceneObjectRender, SerializedAssembly, SerializedAssemblyConnector, SerializedAssemblyInstance, SerializedAssemblyMate } from '../types';
 import { buildObjectMesh } from '../meshes/mesh-factory';
 import { buildConnectorGizmo } from '../meshes/containers/connector-mesh';
 import { onThemeChange } from './theme-colors';
 import {
-  ORIGIN_BODY_ID,
-  ORIGIN_CONNECTOR_ID,
+  WORLD_BODY_ID,
   Solver,
   bodyFreedom,
   buildMateGraph,
   isInstanceFullyLocked,
-  makeOriginBody,
+  makeWorldBody,
   mateReadoutValue,
-  matesReferenceOrigin,
-  originConnectorRef,
+  matesReferenceWorld,
+  worldConnectorRef,
 } from '../solver';
 import type { BodyFreedom, BodyState, ConnectorState, ContactState, MateReadout, MateRecord, SolverInput, SolverOutput, TreeEdge } from '../solver';
 
@@ -189,14 +188,18 @@ export class AssemblyController {
   } | null = null;
 
   /**
-   * The world-origin triad — a connector-style gizmo at (0,0,0) that mate
-   * dialogs can pick as a side (`origin()` in the source). Lives outside
-   * the instance map: it is scene furniture, not an instance. Visible only
-   * while a mate dialog is picking or a joints-panel selection pinned it.
+   * The assembly's own connectors (`connector('name', [x, y, z])` at
+   * assembly level) — connector-style gizmos at their built frames that
+   * mate dialogs pick as a side. They live outside the instance map: they
+   * are the assembly's frames, not instances. Rebuilt on every update from
+   * the payload's `connectors`, keyed by scene id.
    */
-  private originGizmo: Group;
-  /** An origin-mate joints-panel selection keeps the triad visible. */
-  private originPinned = false;
+  private worldGroup = new Group();
+  private worldConnectors = new Map<string, { data: SerializedAssemblyConnector; group: Group }>();
+  /** Names the user hid from the rail (names survive the per-render id re-mint). */
+  private hiddenWorldConnectorNames = new Set<string>();
+  /** World connectors a joints-panel mate selection keeps visible. */
+  private worldPinned = new Set<string>();
 
   constructor(
     private renderer: WebGLRenderer,
@@ -205,8 +208,8 @@ export class AssemblyController {
     private createPickingRaycaster: (ndcX: number, ndcY: number) => Raycaster,
   ) {
     this.container.name = 'assemblyContainer';
-    this.originGizmo = this.buildOriginGizmo();
-    this.container.add(this.originGizmo);
+    this.worldGroup.name = 'assemblyWorldConnectors';
+    this.container.add(this.worldGroup);
     this.attachPointerHandlers();
     // Face/edge colors are baked into materials at build time and the
     // viewer's theme-change rebuild deliberately skips assembly mode, so
@@ -266,6 +269,7 @@ export class AssemblyController {
       }
     }
     this.mates = assembly.mates.map(toMateRecord);
+    this.rebuildWorldConnectors(assembly.connectors ?? []);
 
     const incomingIds = new Set(assembly.instances.map(i => i.instanceId));
     for (const [id, state] of this.instances) {
@@ -346,8 +350,8 @@ export class AssemblyController {
     this.hoveredInstanceId = null;
     this.externalDrag = null;
     this.provisionalMate = null;
-    this.originPinned = false;
-    this.applyOriginVisibility();
+    this.worldPinned.clear();
+    this.rebuildWorldConnectors([]);
   }
 
   /**
@@ -425,31 +429,75 @@ export class AssemblyController {
     });
   }
 
-  /** The origin triad: a connector-gizmo group at the world identity frame. */
-  private buildOriginGizmo(): Group {
-    const group = new Group();
-    group.name = 'assemblyOriginGizmo';
-    group.userData.isMetaShape = true;
-    group.userData.isConnector = true;
-    group.userData.connectorId = ORIGIN_CONNECTOR_ID.z;
-    group.add(buildConnectorGizmo({
-      origin: { x: 0, y: 0, z: 0 },
-      xDirection: { x: 1, y: 0, z: 0 },
-      yDirection: { x: 0, y: 1, z: 0 },
-      normal: { x: 0, y: 0, z: 1 },
-    }, this.camera));
-    group.visible = false;
-    return group;
+  /** Rebuild the world-connector gizmos from the payload (ids re-mint per render). */
+  private rebuildWorldConnectors(connectors: SerializedAssemblyConnector[]): void {
+    for (const { group } of this.worldConnectors.values()) {
+      this.worldGroup.remove(group);
+      this.disposeGroup(group);
+    }
+    this.worldConnectors.clear();
+    for (const data of connectors) {
+      const group = new Group();
+      group.name = `assemblyConnector:${data.name}`;
+      group.userData.isMetaShape = true;
+      group.userData.isConnector = true;
+      group.userData.connectorId = data.connectorId;
+      group.userData.connectorName = data.name;
+      group.add(buildConnectorGizmo({
+        origin: data.origin,
+        xDirection: data.xDirection,
+        yDirection: data.yDirection,
+        normal: data.normal,
+      }, this.camera));
+      this.worldGroup.add(group);
+      this.worldConnectors.set(data.connectorId, { data, group });
+    }
+    this.applyWorldConnectorVisibility();
   }
 
   /**
-   * The origin triad shows while a mate dialog is picking (any mode — it
-   * is one gizmo, and edit dialogs need it pickable too) or while a
-   * joints-panel selection of an origin mate pins it.
+   * World connectors are the user's own features, so they show by default
+   * — hidden only by the rail's eye toggle. A mate dialog's picking and a
+   * joints-panel mate selection reveal a hidden one again (the pick set
+   * must be complete; a pinned joint's fixed end must be visible).
    */
-  private applyOriginVisibility(): void {
-    this.originGizmo.visible = this.matePicking || this.originPinned;
-    this.applyConnectorOpacity(this.originGizmo, ORIGIN_BODY_ID);
+  private applyWorldConnectorVisibility(): void {
+    for (const [id, { data, group }] of this.worldConnectors) {
+      group.visible = !this.hiddenWorldConnectorNames.has(data.name)
+        || this.matePicking
+        || this.worldPinned.has(id);
+      this.applyConnectorOpacity(group, WORLD_BODY_ID);
+    }
+  }
+
+  /** The rail's eye toggle for one assembly connector, by name. */
+  setWorldConnectorHidden(name: string, hidden: boolean): void {
+    if (hidden) {
+      this.hiddenWorldConnectorNames.add(name);
+    } else {
+      this.hiddenWorldConnectorNames.delete(name);
+    }
+    this.applyWorldConnectorVisibility();
+    this.requestRender();
+  }
+
+  isWorldConnectorHidden(name: string): boolean {
+    return this.hiddenWorldConnectorNames.has(name);
+  }
+
+  /** The current render's scene id of the named assembly connector, or null. */
+  findWorldConnectorId(name: string): string | null {
+    for (const [id, { data }] of this.worldConnectors) {
+      if (data.name === name) {
+        return id;
+      }
+    }
+    return null;
+  }
+
+  /** The named assembly connector's gizmo group (tests and the rail's hover). */
+  getWorldConnectorGroup(connectorId: string): Group | null {
+    return this.worldConnectors.get(connectorId)?.group ?? null;
   }
 
   /**
@@ -549,12 +597,12 @@ export class AssemblyController {
         contacts: state.contacts,
       });
     }
-    // Origin-frame mate sides resolve against a synthetic grounded world
-    // body — appended whenever any committed OR provisional mate references
-    // it, so the provisional preview solve (which also reads collectBodies)
-    // never drops the candidate mate as unresolvable.
-    if (matesReferenceOrigin(this.solverMates())) {
-      bodies.push(makeOriginBody());
+    // Assembly-connector mate sides resolve against a synthetic grounded
+    // world body — appended whenever any committed OR provisional mate
+    // references it, so the provisional preview solve (which also reads
+    // collectBodies) never drops the candidate mate as unresolvable.
+    if (matesReferenceWorld(this.solverMates())) {
+      bodies.push(makeWorldBody([...this.worldConnectors.values()].map(w => w.data)));
     }
     return bodies;
   }
@@ -1101,7 +1149,7 @@ export class AssemblyController {
     for (const state of this.instances.values()) {
       this.applyConnectorVisibility(state);
     }
-    this.applyOriginVisibility();
+    this.applyWorldConnectorVisibility();
     this.requestRender();
   }
 
@@ -1118,7 +1166,7 @@ export class AssemblyController {
     for (const state of this.instances.values()) {
       this.applyConnectorVisibility(state);
     }
-    this.applyOriginVisibility();
+    this.applyWorldConnectorVisibility();
     this.requestRender();
   }
 
@@ -1164,18 +1212,19 @@ export class AssemblyController {
         }
       });
     }
-    // The origin triad competes like any connector while visible — picking
-    // it fills the slot with the world frame (`origin()` in the source).
-    if (this.originGizmo.visible) {
-      const gizmo = this.originGizmo.children[0] ?? this.originGizmo;
+    // The assembly's own connectors compete like any instance connector
+    // while visible — picking one fills the slot with that frame (its
+    // binding in the source).
+    for (const [connectorId, { group }] of this.worldConnectors) {
+      if (!group.visible) continue;
+      const gizmo = group.children[0] ?? group;
       gizmo.getWorldPosition(world).project(this.camera);
-      if (world.z <= 1) {
-        const px = ((world.x + 1) / 2) * rect.width + rect.left;
-        const py = ((1 - world.y) / 2) * rect.height + rect.top;
-        const distPx = Math.hypot(px - clientX, py - clientY);
-        if (distPx <= maxPx && (!best || distPx < best.distPx)) {
-          best = { instanceId: ORIGIN_BODY_ID, connectorId: ORIGIN_CONNECTOR_ID.z, distPx };
-        }
+      if (world.z > 1) continue;
+      const px = ((world.x + 1) / 2) * rect.width + rect.left;
+      const py = ((1 - world.y) / 2) * rect.height + rect.top;
+      const distPx = Math.hypot(px - clientX, py - clientY);
+      if (distPx <= maxPx && (!best || distPx < best.distPx)) {
+        best = { instanceId: WORLD_BODY_ID, connectorId, distPx };
       }
     }
     return best ? { instanceId: best.instanceId, connectorId: best.connectorId } : null;
@@ -1210,13 +1259,14 @@ export class AssemblyController {
           : 1;
       });
     }
-    this.applyConnectorOpacity(this.originGizmo, ORIGIN_BODY_ID);
-    const originInner = this.originGizmo.children[0];
-    if (originInner) {
-      originInner.userData.highlight =
-        this.originGizmo.userData.connectorId === this.highlightedConnectorId
+    for (const [connectorId, { group }] of this.worldConnectors) {
+      this.applyConnectorOpacity(group, WORLD_BODY_ID);
+      const inner = group.children[0];
+      if (inner) {
+        inner.userData.highlight = connectorId === this.highlightedConnectorId
           ? CONNECTOR_HIGHLIGHT_SCALE
           : 1;
+      }
     }
   }
 
@@ -1551,11 +1601,15 @@ export class AssemblyController {
       this.tintInstance(b, color);
       if (mate.connectorB) this.pinConnectorOnInstance(b, mate.connectorB.connectorId);
     }
-    // An origin-frame side pins the world triad so the joint's fixed end
+    // An assembly-connector side pins that gizmo so the joint's fixed end
     // stays visible too.
+    for (const frame of [mate.frameA, mate.frameB]) {
+      if (frame) {
+        this.worldPinned.add(frame.connectorId);
+      }
+    }
     if (mate.frameA || mate.frameB) {
-      this.originPinned = true;
-      this.applyOriginVisibility();
+      this.applyWorldConnectorVisibility();
     }
     this.requestRender();
   }
@@ -1612,9 +1666,9 @@ export class AssemblyController {
         this.applyConnectorVisibility(state);
       }
     }
-    if (this.originPinned) {
-      this.originPinned = false;
-      this.applyOriginVisibility();
+    if (this.worldPinned.size > 0) {
+      this.worldPinned.clear();
+      this.applyWorldConnectorVisibility();
     }
     this.requestRender();
   }
@@ -1657,10 +1711,10 @@ function toMateRecord(m: SerializedAssemblyMate): MateRecord {
   return {
     mateId: m.mateId,
     type: m.type,
-    // Origin-frame sides become ordinary connector refs on the synthetic
-    // grounded world body — the solver stays frame-unaware.
-    connectorA: m.frameA ? originConnectorRef(m.frameA) : m.connectorA,
-    connectorB: m.frameB ? originConnectorRef(m.frameB) : m.connectorB,
+    // Assembly-connector sides become ordinary connector refs on the
+    // synthetic grounded world body — the solver stays frame-unaware.
+    connectorA: m.frameA ? worldConnectorRef(m.frameA) : m.connectorA,
+    connectorB: m.frameB ? worldConnectorRef(m.frameB) : m.connectorB,
     geometryA: m.geometryA,
     geometryB: m.geometryB,
     options: m.options,

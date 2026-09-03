@@ -14,12 +14,13 @@ import {
 import { buildObjectMesh } from '../../meshes/mesh-factory';
 import { computeSceneBounds, eyeTargetForNamedView } from '../../screenshot-view';
 import { FIT_PADDING } from '../../scene/scene-context';
-import { Solver, makeOriginBody, matesReferenceOrigin, originConnectorRef } from '../../solver';
+import { Solver, makeWorldBody, matesReferenceWorld, worldConnectorRef } from '../../solver';
 import type { BodyState, ConnectorState, MateRecord } from '../../solver';
 import type {
   ConnectorData,
   SceneObjectRender,
   SerializedAssemblyInstance,
+  SerializedAssemblyConnector,
   SerializedAssemblyMate,
 } from '../../types';
 
@@ -62,6 +63,7 @@ export class PartThumbnailRenderer {
     objects: SceneObjectRender[],
     instances: SerializedAssemblyInstance[],
     mates: SerializedAssemblyMate[],
+    connectors: SerializedAssemblyConnector[] = [],
   ): string | null {
     const templates = new Map<string, SceneObjectRender>();
     for (const obj of objects) {
@@ -101,8 +103,8 @@ export class PartThumbnailRenderer {
     // warm-start poses, which the source authored to be roughly right.
     try {
       const mateRecords = mates.map(toMateRecord);
-      if (matesReferenceOrigin(mateRecords)) {
-        bodies.push(makeOriginBody());
+      if (matesReferenceWorld(mateRecords)) {
+        bodies.push(makeWorldBody(connectors));
       }
       const out = this.solver.solve({ bodies, mates: mateRecords });
       if (out.result === 'okay') {
@@ -219,10 +221,10 @@ function toMateRecord(m: SerializedAssemblyMate): MateRecord {
   return {
     mateId: m.mateId,
     type: m.type,
-    // Origin-frame sides resolve on the synthetic grounded world body,
-    // same as the assembly controller's conversion.
-    connectorA: m.frameA ? originConnectorRef(m.frameA) : m.connectorA,
-    connectorB: m.frameB ? originConnectorRef(m.frameB) : m.connectorB,
+    // Assembly-connector sides resolve on the synthetic grounded world
+    // body, same as the assembly controller's conversion.
+    connectorA: m.frameA ? worldConnectorRef(m.frameA) : m.connectorA,
+    connectorB: m.frameB ? worldConnectorRef(m.frameB) : m.connectorB,
     options: m.options,
   };
 }

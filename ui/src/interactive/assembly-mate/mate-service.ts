@@ -10,8 +10,8 @@ import {
 } from '../../api';
 import type { Viewer } from '../../viewer';
 import type { SerializedAssembly, SerializedAssemblyMate, SubSelection } from '../../types';
-import type { ContactEntity, MateRecord, OriginAxis } from '../../solver';
-import { ORIGIN_BODY_ID, ORIGIN_CONNECTOR_ID, originConnectorRef } from '../../solver';
+import type { ContactEntity, MateRecord } from '../../solver';
+import { WORLD_BODY_ID, worldConnectorRef } from '../../solver';
 import { contactChainsRowCount } from '../../solver/contact-model';
 
 /**
@@ -55,17 +55,19 @@ type ResolvedSideChain = {
 };
 
 /**
- * The world-origin frame filling a slot (`origin(axis?)` in the source):
- * render-stable by construction — no scene id, no source anchor, nothing
- * to re-resolve. The axis (dialog-editable) aims the frame's Z along a
- * world axis.
+ * An assembly connector filling a slot (`connector('name', [x, y, z])` at
+ * the assembly's top level): addressed by its statement's file and line
+ * for the writer, re-found by name after a render re-mints scene ids.
  */
-type OriginSlotState = {
-  kind: 'origin';
-  axis: OriginAxis;
+type WorldSlotState = {
+  kind: 'world';
+  connectorId: string;
+  connectorName: string;
+  connectorLine: number;
+  filePath: string;
 };
 
-type MateSlotState = ConnectorSlotState | OriginSlotState;
+type MateSlotState = ConnectorSlotState | WorldSlotState;
 
 /**
  * One picked face/edge for a TANGENT mate: the stable instance address
@@ -136,6 +138,8 @@ export class AssemblyMateService {
       onExit?: () => void;
       /** A picked chip's pen — open the connector property editor beside us. */
       onEditConnector?: (state: ConnectorSlotState) => void;
+      /** An assembly-connector chip's pen — open the assembly connector dialog on it. */
+      onEditWorldConnector?: (state: WorldSlotState) => void;
     },
   ) {
     this.panel = new MatePanel(container);
@@ -146,13 +150,9 @@ export class AssemblyMateService {
       this.refreshPreview();
     };
     this.panel.onRemoveConnector = (slot) => {
-      const wasOrigin = this.slots[slot]?.kind === 'origin';
       this.slots[slot] = null;
       this.tangentSlots[slot] = null;
       this.panel.setSlotChip(slot, null);
-      if (wasOrigin) {
-        this.panel.setOriginAxisRow(false);
-      }
       this.panel.armSlot(slot);
       this.panel.setMessage(null);
       this.refreshPreview();
@@ -161,6 +161,8 @@ export class AssemblyMateService {
       const state = this.slots[slot];
       if (state?.kind === 'connector') {
         this.hooks.onEditConnector?.(state);
+      } else if (state?.kind === 'world') {
+        this.hooks.onEditWorldConnector?.(state);
       }
     };
   }
@@ -260,11 +262,13 @@ export class AssemblyMateService {
       for (const key of ['a', 'b'] as const) {
         const frame = key === 'a' ? mate.frameA : mate.frameB;
         if (frame) {
-          // Origin sides are render-stable — nothing to resolve.
-          const state: OriginSlotState = { kind: 'origin', axis: frame.axis };
+          const state = this.resolveWorldPick(frame.connectorId);
+          if ('error' in state) {
+            problem = problem ?? state.error;
+            continue;
+          }
           this.slots[key] = state;
-          this.panel.setSlotChip(key, originChipLabel(state), { pen: false });
-          this.panel.setOriginAxisRow(true, state.axis);
+          this.panel.setSlotChip(key, worldChipLabel(state), { pen: this.hooks.onEditWorldConnector !== undefined });
           continue;
         }
         const side = key === 'a' ? mate.connectorA : mate.connectorB;
@@ -334,17 +338,20 @@ export class AssemblyMateService {
     }
     const slot = this.panel.getArmedSlot();
     const other: MateSlotKey = slot === 'a' ? 'b' : 'a';
-    // The world-origin triad: fills the slot with the origin frame
-    // (`origin()` in the statement); the axis row aims its Z afterwards.
-    if (instanceId === ORIGIN_BODY_ID) {
-      if (this.slots[other]?.kind === 'origin') {
-        this.panel.setMessage('One side must be a part connector — the origin cannot be mated to itself.');
+    // An assembly connector's gizmo: fills the slot with that frame (its
+    // binding in the statement).
+    if (instanceId === WORLD_BODY_ID) {
+      if (this.slots[other]?.kind === 'world') {
+        this.panel.setMessage('One side must be a part connector — two assembly connectors cannot be mated together.');
         return;
       }
-      const state: OriginSlotState = { kind: 'origin', axis: this.panel.getOriginAxis() };
+      const state = this.resolveWorldPick(shapeId);
+      if ('error' in state) {
+        this.panel.setMessage(state.error);
+        return;
+      }
       this.slots[slot] = state;
-      this.panel.setSlotChip(slot, originChipLabel(state), { pen: false });
-      this.panel.setOriginAxisRow(true, state.axis);
+      this.panel.setSlotChip(slot, worldChipLabel(state), { pen: this.hooks.onEditWorldConnector !== undefined });
       this.panel.setMessage(null);
       if (!this.slots[other]) {
         this.panel.armSlot(other);
@@ -626,10 +633,37 @@ export class AssemblyMateService {
     };
   }
 
+  /** A clicked assembly-connector gizmo → the slot state, or why it can't be used. */
+  private resolveWorldPick(connectorId: string): WorldSlotState | { error: string } {
+    const connector = this.hooks.getAssembly()?.connectors?.find(c => c.connectorId === connectorId);
+    if (!connector) {
+      return { error: 'Could not resolve the assembly connector — try re-rendering.' };
+    }
+    if (!connector.sourceLocation) {
+      return { error: `${connector.name} has no source location — its connector() cannot be referenced.` };
+    }
+    return {
+      kind: 'world',
+      connectorId,
+      connectorName: connector.name,
+      connectorLine: connector.sourceLocation.line,
+      filePath: connector.sourceLocation.filePath,
+    };
+  }
+
   /** Re-resolve a pick against the fresh render's ids; null when gone. */
   private reresolve(state: MateSlotState): MateSlotState | null {
-    if (state.kind === 'origin') {
-      return state; // the world frame is render-stable by construction
+    if (state.kind === 'world') {
+      const fresh = this.hooks.getAssembly()?.connectors?.find(c => c.name === state.connectorName);
+      if (!fresh || !fresh.sourceLocation) {
+        return null;
+      }
+      return {
+        ...state,
+        connectorId: fresh.connectorId,
+        connectorLine: fresh.sourceLocation.line,
+        filePath: fresh.sourceLocation.filePath,
+      };
     }
     const assembly = this.hooks.getAssembly();
     const controller = this.viewer.getAssemblyController();
@@ -682,24 +716,6 @@ export class AssemblyMateService {
       this.panel.setSlotChip(key, connectorChipLabel(state));
     }
     this.refreshPreview();
-  }
-
-  /**
-   * The origin-axis dropdown is live state on the panel; the slot is the
-   * record. Pull the dropdown's value into whichever slot holds the origin
-   * (at most one — both-origin is blocked at pick time) and keep the chip
-   * label in step.
-   */
-  private syncOriginAxis(): void {
-    for (const key of ['a', 'b'] as const) {
-      const state = this.slots[key];
-      if (state?.kind !== 'origin') continue;
-      const axis = this.panel.getOriginAxis();
-      if (state.axis !== axis) {
-        state.axis = axis;
-        this.panel.setSlotChip(key, originChipLabel(state), { pen: false });
-      }
-    }
   }
 
   /**
@@ -769,7 +785,7 @@ export class AssemblyMateService {
     const chains: (ResolvedSideChain | null)[] = [];
     for (const state of [this.slots.a, this.slots.b]) {
       if (state?.kind !== 'connector') {
-        chains.push(null); // empty and origin slots constrain nothing
+        chains.push(null); // empty and assembly-connector slots constrain nothing here
         continue;
       }
       const chain = this.resolveSideChain(state);
@@ -784,6 +800,15 @@ export class AssemblyMateService {
     const [a, b] = chains;
     if (a && b && a.filePath !== b.filePath) {
       return { error: 'The two picks are inserted by different files — mate them in the file that inserts both.' };
+    }
+    // An assembly connector anchors on its own statement's file: the other
+    // side (and an edit target) must live there too.
+    for (const state of [this.slots.a, this.slots.b]) {
+      if (state?.kind !== 'world') continue;
+      const otherFile = a?.filePath ?? b?.filePath ?? this.editTarget?.filePath;
+      if (otherFile && otherFile !== state.filePath) {
+        return { error: `${state.connectorName} is declared in a different file than the other side — mate them in the file that declares it.` };
+      }
     }
     return { a, b };
   }
@@ -823,16 +848,15 @@ export class AssemblyMateService {
     if (!this.armed) {
       return;
     }
-    this.syncOriginAxis();
     // Picked connectors render opaque while the rest stay translucent (and
     // pinned per instance in the edit dialog's hover-reveal) — re-sent
-    // every refresh because renders re-mint the scene ids. An origin slot
-    // pins the world triad under its gizmo's own (z) id.
+    // every refresh because renders re-mint the scene ids. An assembly
+    // connector pins under the world body id.
     this.viewer.getAssemblyController()?.setMatePickedConnectors(
       [this.slots.a, this.slots.b]
         .filter((s): s is MateSlotState => s !== null)
-        .map(s => s.kind === 'origin'
-          ? { instanceId: ORIGIN_BODY_ID, connectorId: ORIGIN_CONNECTOR_ID.z }
+        .map(s => s.kind === 'world'
+          ? { instanceId: WORLD_BODY_ID, connectorId: s.connectorId }
           : { instanceId: s.instanceId, connectorId: s.connectorId }),
     );
     const values = this.panel.values();
@@ -848,7 +872,6 @@ export class AssemblyMateService {
     }
     const a = this.slots.a;
     const b = this.slots.b;
-    this.panel.setOriginAxisRow(a?.kind === 'origin' || b?.kind === 'origin');
     // Stand-in refs (display names for bindings, server writes truth); a
     // sub-assembly pick previews its `.parts` export chain, `…` marking a
     // key the server will export on Apply.
@@ -856,8 +879,8 @@ export class AssemblyMateService {
       if (s === null) {
         return '…';
       }
-      if (s.kind === 'origin') {
-        return originExpression(s);
+      if (s.kind === 'world') {
+        return s.connectorName;
       }
       if (!s.owner) {
         return `${s.instanceName}.connectors.${s.connectorName}`;
@@ -885,8 +908,8 @@ export class AssemblyMateService {
 
     const controller = this.viewer.getAssemblyController();
     if (a && b && conflict === null && controller) {
-      const solverSide = (s: MateSlotState) => s.kind === 'origin'
-        ? originConnectorRef(s)
+      const solverSide = (s: MateSlotState) => s.kind === 'world'
+        ? worldConnectorRef(s)
         : { instanceId: s.instanceId, connectorId: s.connectorId };
       const record: MateRecord = {
         // Edit sessions reuse the committed record's id: the controller
@@ -996,15 +1019,15 @@ export class AssemblyMateService {
     };
     // The statement lands where its anchors live: the file whose insert()
     // each side dereferences through — a nested pick anchors on its
-    // occurrence's insert() there. An origin side has no file, and
-    // both-origin is blocked at pick time, so at least one chain carries
-    // the path.
+    // occurrence's insert() there — or the file declaring an assembly
+    // connector side (resolveConnectorSides checked they agree).
     const sides = this.resolveConnectorSides();
     if ('error' in sides) {
       this.panel.setMessage(sides.error);
       return;
     }
-    const anchorFile = sides.a?.filePath ?? sides.b?.filePath;
+    const worldFile = [a, b].find((s): s is WorldSlotState => s.kind === 'world')?.filePath;
+    const anchorFile = sides.a?.filePath ?? sides.b?.filePath ?? worldFile;
     if (!anchorFile) {
       return;
     }
@@ -1016,8 +1039,8 @@ export class AssemblyMateService {
         connectorName: s.connectorName,
         ...(chain.viaParts ? { viaParts: chain.viaParts } : {}),
       });
-      const sideRef = (key: 'A' | 'B', s: MateSlotState, chain: ResolvedSideChain | null) => s.kind === 'origin'
-        ? { [`frame${key}`]: { axis: s.axis } }
+      const sideRef = (key: 'A' | 'B', s: MateSlotState, chain: ResolvedSideChain | null) => s.kind === 'world'
+        ? { [`frame${key}`]: { connectorLine: s.connectorLine, connectorName: s.connectorName } }
         : { [`connector${key}`]: connectorRef(s, chain!) };
       const target = this.editTarget;
       const payload = {
@@ -1115,14 +1138,9 @@ function tangentChipLabel(state: TangentSlotState): string {
   return `${state.instanceName} · ${state.seed.form}${state.exposeName ? '' : ' · new'}`;
 }
 
-/** `Origin` (identity frame) / `Origin · X` (Z re-aimed along an axis). */
-function originChipLabel(state: OriginSlotState): string {
-  return state.axis === 'z' ? 'Origin' : `Origin · ${state.axis.toUpperCase()}`;
+/** `Assembly · hinge` — the assembly's own connector. */
+function worldChipLabel(state: WorldSlotState): string {
+  return `Assembly · ${state.connectorName}`;
 }
 
-/** The statement-preview literal an origin slot renders as. */
-function originExpression(state: OriginSlotState): string {
-  return state.axis === 'z' ? 'origin()' : `origin('${state.axis}')`;
-}
-
-export type { ConnectorSlotState, MateSlotState };
+export type { ConnectorSlotState, MateSlotState, WorldSlotState };

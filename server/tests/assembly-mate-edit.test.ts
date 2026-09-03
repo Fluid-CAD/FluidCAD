@@ -248,94 +248,119 @@ describe('applyAssemblyMateEdit', () => {
     });
   });
 
-  // `origin(axis?)` sides: a literal expression with no source anchor —
-  // placement chases the one instance-anchored side, and the origin import
-  // joins the mate import.
-  describe('origin-frame sides', () => {
-    it('writes origin() for the default axis and imports the symbol', async () => {
-      const code = `${HEADER}\nconst crank1 = insert(crank());\n`;
+  // Assembly-connector sides: `connector('name', [x, y, z])` statements
+  // anchor and dereference exactly like insert() bindings — a bare
+  // statement gets `const <name> = ` hoisted, preferring the connector's
+  // own name.
+  describe('assembly-connector sides', () => {
+    it('writes the connector binding on either side', async () => {
+      const code = `${HEADER}\nconst crank1 = insert(crank());\nconst hinge = connector('hinge', [40, 0, 12]).rotate('x', 90);\n`;
       const result = await applyAssemblyMateEdit(code, {
         create: {
           type: 'revolute',
-          frameA: { axis: 'z' },
+          frameA: { connectorLine: 4, connectorName: 'hinge' },
           connectorB: { instanceLine: 3, connectorName: 'shaft' },
         },
       });
       expect(result.error).toBeUndefined();
-      expect(result.newCode).toMatch(/import \{[^}]*\borigin\b[^}]*\} from "fluidcad\/core";/);
-      expect(result.newCode).toContain(`mate('revolute', origin(), crank1.connectors.shaft);`);
-    });
+      expect(result.newCode).not.toMatch(/\borigin\b/);
+      expect(result.newCode).toContain(`mate('revolute', hinge, crank1.connectors.shaft);`);
 
-    it('writes the axis shorthand on either side', async () => {
-      const code = `${HEADER}\nconst rail1 = insert(rail());\n`;
-      const result = await applyAssemblyMateEdit(code, {
+      const flipped = await applyAssemblyMateEdit(code, {
         create: {
           type: 'slider',
-          connectorA: { instanceLine: 3, connectorName: 'carriage' },
-          frameB: { axis: 'x' },
+          connectorA: { instanceLine: 3, connectorName: 'shaft' },
+          frameB: { connectorLine: 4, connectorName: 'hinge' },
         },
       });
-      expect(result.newCode).toContain(`mate('slider', rail1.connectors.carriage, origin('x'));`);
+      expect(flipped.newCode).toContain(`mate('slider', crank1.connectors.shaft, hinge);`);
     });
 
-    it('places the statement inside the assembly body holding the instance anchor', async () => {
-      const code = `${HEADER}\nexport const sub = assembly('sub', () => {\n`
-        + `  const a1 = insert(a());\n  return { a1 };\n});\n`;
+    it('hoists a const named after the connector onto a bare statement', async () => {
+      const code = `${HEADER}\nconst c1 = insert(c());\nconnector('base', [0, 0, 0]);\n`;
       const result = await applyAssemblyMateEdit(code, {
         create: {
-          type: 'revolute',
-          frameA: { axis: 'z' },
-          connectorB: { instanceLine: 4, connectorName: 'top' },
+          type: 'fastened',
+          frameA: { connectorLine: 4, connectorName: 'base' },
+          connectorB: { instanceLine: 3, connectorName: 'top' },
         },
       });
       expect(result.error).toBeUndefined();
-      expect(result.newCode).toContain(`  mate('revolute', origin(), a1.connectors.top);\n  return { a1 };`);
+      expect(result.newCode).toContain(`const base = connector('base', [0, 0, 0]);`);
+      expect(result.newCode).toContain(`mate('fastened', base, c1.connectors.top);`);
     });
 
-    it('edits an origin mate in place, re-aiming the axis', async () => {
-      const code = `${HEADER}\nconst c1 = insert(c());\n\n`
-        + `mate('revolute', origin(), c1.connectors.shaft);\n`;
+    it('falls back to a derived binding when the connector name is taken', async () => {
+      const code = `${HEADER}\nconst base = insert(base());\nconnector('base', [0, 0, 0]);\n`;
+      const result = await applyAssemblyMateEdit(code, {
+        create: {
+          type: 'fastened',
+          frameA: { connectorLine: 4, connectorName: 'base' },
+          connectorB: { instanceLine: 3, connectorName: 'top' },
+        },
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toContain(`const base1 = connector('base', [0, 0, 0]);`);
+      expect(result.newCode).toContain(`mate('fastened', base1, base.connectors.top);`);
+    });
+
+    it('edits a connector-sided mate in place', async () => {
+      const code = `${HEADER}\nconst c1 = insert(c());\nconst pivot = connector('pivot', [0, 0, 10]);\n\n`
+        + `mate('revolute', pivot, c1.connectors.shaft);\n`;
       const result = await applyAssemblyMateEdit(code, {
         edit: {
-          sourceLine: 5,
+          sourceLine: 6,
           type: 'revolute',
-          frameA: { axis: 'y' },
+          frameA: { connectorLine: 4, connectorName: 'pivot' },
           connectorB: { instanceLine: 3, connectorName: 'shaft' },
           options: { offset: [0, 40, 15] },
         },
       });
       expect(result.error).toBeUndefined();
-      expect(result.newCode).toContain(`mate('revolute', origin('y'), c1.connectors.shaft).offset(0, 40, 15);`);
+      expect(result.newCode).toContain(`mate('revolute', pivot, c1.connectors.shaft).offset(0, 40, 15);`);
     });
 
-    it('refuses both sides as the origin', async () => {
+    it('refuses when the addressed line is not a connector()', async () => {
+      const code = `${HEADER}\nconst c1 = insert(c());\nconst c2 = insert(c());\n`;
+      const result = await applyAssemblyMateEdit(code, {
+        create: {
+          type: 'fastened',
+          frameA: { connectorLine: 4, connectorName: 'base' },
+          connectorB: { instanceLine: 3, connectorName: 'top' },
+        },
+      });
+      expect(result.error).toMatch(/not a connector\(\)/);
+      expect(result.newCode).toBe(code);
+    });
+
+    it('refuses both sides as assembly connectors', async () => {
       const result = await applyAssemblyMateEdit(`${HEADER}\n`, {
         create: {
           type: 'fastened',
-          frameA: { axis: 'z' },
-          frameB: { axis: 'x' },
+          frameA: { connectorLine: 3, connectorName: 'a' },
+          frameB: { connectorLine: 4, connectorName: 'b' },
         },
       });
-      expect(result.error).toMatch(/both sides are the assembly origin/i);
+      expect(result.error).toMatch(/both sides are assembly connectors/i);
     });
 
-    it('refuses an origin side on a tangent mate and a bad axis', async () => {
+    it('refuses a connector side on a tangent mate and a bad ref', async () => {
       const tangent = await applyAssemblyMateEdit(`${HEADER}\n`, {
         create: {
           type: 'tangent',
-          frameA: { axis: 'z' },
+          frameA: { connectorLine: 3, connectorName: 'a' },
           geometryB: { instanceLine: 3, exposeName: 'g1' },
         } as any,
       });
       expect(tangent.error).toMatch(/no surface to touch/i);
-      const badAxis = await applyAssemblyMateEdit(`${HEADER}\nconst a1 = insert(a());\n`, {
+      const badName = await applyAssemblyMateEdit(`${HEADER}\nconst a1 = insert(a());\n`, {
         create: {
           type: 'fastened',
-          frameA: { axis: 'w' } as any,
+          frameA: { connectorLine: 4, connectorName: 'not valid' },
           connectorB: { instanceLine: 3, connectorName: 'top' },
         },
       });
-      expect(badAxis.error).toMatch(/not a valid origin axis/i);
+      expect(badName.error).toMatch(/not a valid connector name/i);
     });
   });
 });

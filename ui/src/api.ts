@@ -4,6 +4,7 @@ import type { ContactEntity } from './solver/types';
 import type {
   SceneObjectMesh,
   SceneObjectRender,
+  SerializedAssemblyConnector,
   SerializedAssemblyInstance,
   SerializedAssemblyMate,
   SourceLocation,
@@ -3978,6 +3979,8 @@ export type CatalogAssembly = {
   /** Warm-start poses; the thumbnail runs the mate solver over them. */
   instances: SerializedAssemblyInstance[];
   mates: SerializedAssemblyMate[];
+  /** The assembly's own connectors (mate frames) — absent on servers predating them. */
+  connectors?: SerializedAssemblyConnector[];
   /** One rendered subtree per distinct referenced part (connectors included). */
   objects: SceneObjectRender[];
   /** The definition's `param()` interface — absent on servers predating parameters. */
@@ -4149,11 +4152,12 @@ export type AssemblyMateGeometryRef = {
 };
 
 /**
- * One origin-frame side (`origin(axis?)`): the world frame with Z along
- * the named axis — no instance anchor.
+ * One assembly-connector side: the `connector('name', [x, y, z])` statement
+ * starting on `connectorLine` — the server dereferences its binding.
  */
 export type AssemblyMateFrameRef = {
-  axis: 'x' | 'y' | 'z';
+  connectorLine: number;
+  connectorName: string;
 };
 
 export type AssemblyMatePayload = {
@@ -4163,7 +4167,7 @@ export type AssemblyMatePayload = {
   /** Tangent sides (the per-type side-kind rule is validated server-side). */
   geometryA?: AssemblyMateGeometryRef;
   geometryB?: AssemblyMateGeometryRef;
-  /** Origin-frame sides — lower-pair mates only, at most one of the two. */
+  /** Assembly-connector sides — lower-pair mates only, at most one of the two. */
   frameA?: AssemblyMateFrameRef;
   frameB?: AssemblyMateFrameRef;
   options?: AssemblyMateOptions;
@@ -4254,7 +4258,7 @@ export async function fetchConnectorProperties(
   sourceLocation: { filePath: string; line: number },
 ): Promise<ConnectorProperties | { error: string }> {
   try {
-    const res = await fetch('/api/assembly-connector-properties', {
+    const res = await fetch('/api/part-connector-properties', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({ filePath: sourceLocation.filePath, sourceLine: sourceLocation.line }),
@@ -4278,7 +4282,7 @@ export async function applyConnectorProperties(
   props: ConnectorProperties,
 ): Promise<{ success: boolean; reason?: string }> {
   try {
-    const res = await fetch('/api/assembly-connector', {
+    const res = await fetch('/api/part-connector-props', {
       method: 'POST',
       headers: JSON_HEADERS,
       body: JSON.stringify({
@@ -4371,6 +4375,81 @@ export async function getInstancePoseExpressions(
     { filePath: sourceLocation.filePath, sourceLine: sourceLocation.line },
   );
   return data?.expressions ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// Assembly connectors — `connector('name', [x, y, z])` at assembly level
+// ---------------------------------------------------------------------------
+
+/**
+ * The assembly-connector dialog's commit: `create` appends a bound
+ * `const <name> = connector('<name>', [x, y, z])<rotates>;` statement,
+ * `edit` rewrites the one at `sourceLine`. `rotateXYZ` is intrinsic XYZ
+ * degrees (chain order x→y→z); `null` commits position only, leaving the
+ * statement's rotate chain untouched. `positionExprs`/`rotateExprs` carry
+ * per-axis source text (typed expressions, or echoed existing text), null
+ * axes falling back to the numerics.
+ */
+export async function applyAssemblyConnector(
+  filePath: string,
+  spec: {
+    create?: { name: string };
+    edit?: { sourceLine: number; name: string };
+    position: [number, number, number];
+    rotateXYZ: [number, number, number] | null;
+    positionExprs?: InstanceAxisExprs | null;
+    rotateExprs?: InstanceAxisExprs | null;
+    newVariables?: NewVariable[];
+  },
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/assembly-connector', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        filePath,
+        create: spec.create,
+        edit: spec.edit,
+        position: spec.position,
+        rotateXYZ: spec.rotateXYZ,
+        positionExprs: spec.positionExprs ?? null,
+        rotateExprs: spec.rotateExprs ?? null,
+        newVariables: spec.newVariables ?? null,
+      }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
+
+export type AssemblyConnectorExpressions = {
+  /** The point tuple's element texts; null unless a three-element array literal. */
+  position: { x: string | null; y: string | null; z: string | null } | null;
+  /** `.rotate()` angle texts per axis; null unless the chain is only
+   *  literal-axis rotates in x→y→z order. A null axis has no call (identity). */
+  rotate: { x: string | null; y: string | null; z: string | null } | null;
+};
+
+/** The exact source texts of an assembly connector's tuple and rotate angles, for the dialog's fields. */
+export async function getAssemblyConnectorExpressions(
+  sourceLocation: { filePath: string; line: number },
+): Promise<AssemblyConnectorExpressions | null> {
+  const data = await postJson<{ expressions: AssemblyConnectorExpressions | null }>(
+    '/api/assembly-connector-expressions',
+    { filePath: sourceLocation.filePath, sourceLine: sourceLocation.line },
+  );
+  return data?.expressions ?? null;
+}
+
+/** Every connector name the open assembly file declares — for the dialog's default name. */
+export async function listAssemblyConnectorNames(filePath: string): Promise<string[]> {
+  const data = await postJson<{ names: string[] }>('/api/assembly-connector-names', { filePath });
+  return data?.names ?? [];
 }
 
 // ---------------------------------------------------------------------------

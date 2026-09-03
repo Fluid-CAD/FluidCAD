@@ -5,6 +5,7 @@ import { SelectionInfoOverlay } from './ui/selection-info-overlay';
 import { TimelinePanel } from './ui/timeline-panel';
 import { PartsPanel } from './ui/parts-panel';
 import { JointsPanel } from './ui/joints-panel';
+import { ConnectorsPanel } from './ui/connectors-panel';
 import { DofStatus } from './ui/dof-status';
 import { DragReadout } from './ui/drag-readout';
 import { AnimateBar } from './ui/animate-bar';
@@ -55,6 +56,7 @@ import { setActivePartLocationProvider, isRollbackViewTruncated } from './helper
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
 import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-props-editor';
+import { AssemblyConnectorService } from './interactive/assembly-connector/connector-service';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { ConnectorData, SceneObjectRender } from './types';
 import { applyPreferences } from './scene/viewer-settings';
@@ -252,7 +254,7 @@ const paramsPanel = new ParamsPanel(null, engineClient, new ParamEditorDialog(co
 
 type LeftRail =
   | { kind: 'part'; timeline: TimelinePanel }
-  | { kind: 'assembly'; parts: PartsPanel; joints: JointsPanel; dof: DofStatus; dragReadout: DragReadout; animateBar: AnimateBar; instanceVisibility: Map<string, boolean> };
+  | { kind: 'assembly'; parts: PartsPanel; connectors: ConnectorsPanel; joints: JointsPanel; dof: DofStatus; dragReadout: DragReadout; animateBar: AnimateBar; instanceVisibility: Map<string, boolean> };
 
 let currentRail: LeftRail | null = null;
 
@@ -284,6 +286,7 @@ function disposeRail(): void {
     currentRail.timeline.dispose();
   } else if (currentRail.kind === 'assembly') {
     currentRail.parts.dispose();
+    currentRail.connectors.dispose();
     currentRail.joints.dispose();
     currentRail.dof.hide();
     currentRail.dragReadout.dispose();
@@ -461,11 +464,13 @@ function buildAssemblyRail(): LeftRail {
         viewer.highlightMate(mate);
         const instName = (instId: string | undefined) =>
           lastAssemblyPayload?.instances.find(i => i.instanceId === instId)?.name ?? '?';
+        const frameName = (frame: { connectorId: string }) =>
+          lastAssemblyPayload?.connectors?.find(c => c.connectorId === frame.connectorId)?.name ?? '?';
         const aName = mate.frameA
-          ? 'Origin'
+          ? frameName(mate.frameA)
           : instName(mate.connectorA?.instanceId ?? mate.geometryA?.instanceId);
         const bName = mate.frameB
-          ? 'Origin'
+          ? frameName(mate.frameB)
           : instName(mate.connectorB?.instanceId ?? mate.geometryB?.instanceId);
         animateBar.open({
           mateId: id,
@@ -491,7 +496,14 @@ function buildAssemblyRail(): LeftRail {
     },
     () => {},
   );
-  return { kind: 'assembly', parts, joints, dof, dragReadout, animateBar, instanceVisibility: visibility };
+  // The assembly's own connectors, between Parts and Joints: a row opens
+  // the connector dialog on it; the eye hides its gizmo by name.
+  const connectors = new ConnectorsPanel(parts.getConnectorsHost(), {
+    onEdit: (connector) => void assemblyConnectorService.edit(connector),
+    onToggleVisibility: (name, visible) => viewer.getAssemblyController()?.setWorldConnectorHidden(name, !visible),
+    isHidden: (name) => viewer.getAssemblyController()?.isWorldConnectorHidden(name) ?? false,
+  });
+  return { kind: 'assembly', parts, connectors, joints, dof, dragReadout, animateBar, instanceVisibility: visibility };
 }
 
 function ensureRailFor(kind: 'part' | 'assembly'): LeftRail {
@@ -573,7 +585,8 @@ function applyAssemblyToRail(rail: LeftRail & { kind: 'assembly' }, assembly: Se
     visible: rail.instanceVisibility.get(i.instanceId) ?? true,
   }));
   rail.parts.update(rendered, assembly.occurrences ?? []);
-  rail.joints.update(matesWithStatus(assembly.mates, lastFailedMateIds), rendered);
+  rail.connectors.update(assembly.connectors ?? []);
+  rail.joints.update(matesWithStatus(assembly.mates, lastFailedMateIds), rendered, assembly.connectors ?? []);
   // The animated mate vanished from the source (deleted / renamed) — the
   // bar would keep driving a ghost.
   const animated = rail.animateBar.mateId();
@@ -724,6 +737,7 @@ const editParamsDialog = new EditParamsDialog(container);
 // toolbar above) to exclude the open assembly from inserting into itself.
 new AssemblyToolbar(navbar, {
   onInsert: () => insertPartDialog.show(currentSceneAbsPath),
+  onConnector: () => void assemblyConnectorService.enter(),
   // The service is constructed later (it needs the gizmo driver); toolbar
   // clicks only ever fire after startup completes.
   onMate: (type) => assemblyMateService.enter(type),
@@ -1929,9 +1943,31 @@ const assemblyMateService = new AssemblyMateService(container, viewer, {
   // beside the mate dialog, editing the connector() statement in its part
   // file.
   onEditConnector: (state) => void connectorPropsEditor.open(state),
+  // The pen on an assembly-connector chip: the connector dialog in edit
+  // mode on that statement.
+  onEditWorldConnector: (state) => {
+    const connector = lastAssemblyPayload?.connectors?.find(c => c.connectorId === state.connectorId);
+    if (connector) {
+      void assemblyConnectorService.edit(connector);
+    }
+  },
 });
 const connectorPropsEditor = new ConnectorPropsEditor(container, viewer, {
   onRenamed: (slot, newName) => assemblyMateService.noteConnectorRenamed(slot, newName),
+});
+
+// The assembly-connector dialog: the toolbar's Connector button opens it in
+// create mode; rail rows and mate-chip pens open it in edit mode. Apply
+// writes the connector() statement via /api/assembly-connector.
+const assemblyConnectorService = new AssemblyConnectorService(container, viewer, {
+  getAssembly: () => lastAssemblyPayload,
+  getCurrentFile: () => currentSceneAbsPath,
+  onEnter: () => {
+    assemblyGizmo.handleSelection(null);
+    viewer.clearHighlight();
+    viewer.clearInstanceHighlight();
+    selectionInfoOverlay.hide();
+  },
 });
 
 viewer.setSolverUpdateHandler((output) => {
@@ -1967,6 +2003,7 @@ viewer.setSolverUpdateHandler((output) => {
     currentRail.joints.update(
       matesWithStatus(lastAssemblyPayload.mates, lastFailedMateIds),
       rendered,
+      lastAssemblyPayload.connectors ?? [],
     );
   }
   // A solve moved instances without a re-render (mate drive, animate bar,
@@ -1988,8 +2025,8 @@ function formatMateLabel(mate: SerializedAssembly['mates'][number]): string {
   }
   const side = (
     conn: { instanceId: string; connectorId: string } | undefined,
-    frame: { axis: 'x' | 'y' | 'z' } | undefined,
-  ) => frame ? `origin(${frame.axis === 'z' ? '' : `'${frame.axis}'`})` : `${conn?.instanceId}.${conn?.connectorId}`;
+    frame: { connectorId: string } | undefined,
+  ) => frame ? `assembly.${frame.connectorId}` : `${conn?.instanceId}.${conn?.connectorId}`;
   return `${mate.type} — ${side(mate.connectorA, mate.frameA)} ↔ ${side(mate.connectorB, mate.frameB)}`;
 }
 
@@ -2660,6 +2697,7 @@ function connectWebSocket() {
         // The mate dialog re-resolves its picks against the re-minted scene
         // ids (or closes, when the render switched to a part scene).
         assemblyMateService.handleSceneRendered(sceneKind);
+        assemblyConnectorService.handleSceneRendered(sceneKind);
         if (msg.params !== undefined) {
           paramsPanel.update(msg.params);
         }

@@ -16,6 +16,7 @@ export async function getInsertChainParser(): Promise<TSParser> {
   return getParser();
 }
 
+
 async function getParser(): Promise<TSParser> {
   if (parser) {
     return parser;
@@ -24,7 +25,7 @@ async function getParser(): Promise<TSParser> {
   return parser;
 }
 
-function* walkTree(node: TSNode): Generator<TSNode> {
+export function* walkTree(node: TSNode): Generator<TSNode> {
   yield node;
   for (const child of node.namedChildren) {
     yield* walkTree(child);
@@ -100,7 +101,7 @@ function spliceCode(code: string, startIndex: number, endIndex: number, replacem
 }
 
 /** Remove a chained method call: drops `.method(...)` from the chain. */
-function removeChainCall(code: string, call: TSNode): string {
+export function removeChainCall(code: string, call: TSNode): string {
   const fn = call.childForFieldName('function');
   if (!fn || fn.type !== 'member_expression') return code;
   const object = fn.childForFieldName('object');
@@ -108,7 +109,7 @@ function removeChainCall(code: string, call: TSNode): string {
   return spliceCode(code, object.endIndex, call.endIndex, '');
 }
 
-function appendChainCall(code: string, chain: TSNode[], invocation: string): string {
+export function appendChainCall(code: string, chain: TSNode[], invocation: string): string {
   if (chain.length === 0) return code;
   const tail = chain[chain.length - 1];
   return spliceCode(code, tail.endIndex, tail.endIndex, invocation);
@@ -250,7 +251,7 @@ function formatTranslateArgs(
   return value.map((n, i) => exprs?.[i] ?? formatTranslateNumber(n)).join(', ');
 }
 
-function formatTranslateNumber(n: number): string {
+export function formatTranslateNumber(n: number): string {
   // Round noisy float drag positions to a stable diff. `+x.toFixed(6)` strips
   // trailing zeros so `1.5` stays `1.5`, not `1.500000`.
   return String(+n.toFixed(TRANSLATE_DECIMALS));
@@ -328,7 +329,7 @@ const ANGLE_IDENTITY_EPSILON_DEG = 1e-4;
 type ChainMember = { call: TSNode; method: string; chainIndex: number };
 
 /** Chained method calls (everything after the base `insert(...)`) in source order. */
-function chainMembers(chain: TSNode[]): ChainMember[] {
+export function chainMembers(chain: TSNode[]): ChainMember[] {
   const out: ChainMember[] = [];
   for (let i = 1; i < chain.length; i++) {
     const fn = chain[i].childForFieldName('function');
@@ -345,7 +346,7 @@ function chainMembers(chain: TSNode[]): ChainMember[] {
 }
 
 /** The call's argument nodes, comments excluded. */
-function callArguments(call: TSNode): TSNode[] | null {
+export function callArguments(call: TSNode): TSNode[] | null {
   const args = call.childForFieldName('arguments');
   if (!args) {
     return null;
@@ -354,7 +355,7 @@ function callArguments(call: TSNode): TSNode[] | null {
 }
 
 /** Numeric literal text of a node, accepting a unary minus. */
-function numericLiteralArg(node: TSNode): string | null {
+export function numericLiteralArg(node: TSNode): string | null {
   if (node.type === 'number') {
     return node.text;
   }
@@ -371,7 +372,7 @@ function numericLiteralArg(node: TSNode): string | null {
  * `Axis.*` expressions and the like — those have unknown geometry and are
  * never rewritable.
  */
-function rotateAxisIndex(call: TSNode): 0 | 1 | 2 | null {
+export function rotateAxisIndex(call: TSNode): 0 | 1 | 2 | null {
   const args = callArguments(call);
   if (!args || args.length !== 2) {
     return null;
@@ -389,7 +390,7 @@ function rotateAxisIndex(call: TSNode): 0 | 1 | 2 | null {
  * conditionally rewritable — only when the commit's `rotateExprs` text covers
  * it on an already-canonical chain (see the rotation branch).
  */
-function isRewritableRotate(call: TSNode): boolean {
+export function isRewritableRotate(call: TSNode): boolean {
   if (rotateAxisIndex(call) === null) {
     return false;
   }
@@ -402,7 +403,7 @@ function isRewritableRotate(call: TSNode): boolean {
  * segment is `(object.endIndex, call.endIndex]` — ordering by descending
  * endIndex splices later segments first, keeping earlier indices valid.
  */
-function removeChainCalls(code: string, calls: TSNode[]): string {
+export function removeChainCalls(code: string, calls: TSNode[]): string {
   const sorted = [...calls].sort((a, b) => b.endIndex - a.endIndex);
   let working = code;
   for (const call of sorted) {
@@ -416,7 +417,7 @@ function removeChainCalls(code: string, calls: TSNode[]): string {
  * given (written even at numeric identity — the expression still binds),
  * otherwise the numeric component, omitted below the identity epsilon.
  */
-function renderRotateCalls(
+export function renderRotateCalls(
   rotateXYZ: [number, number, number],
   exprs?: [string | null, string | null, string | null] | null,
 ): string {
@@ -434,7 +435,7 @@ function renderRotateCalls(
 }
 
 /** A `.rotate(…)` call abbreviated for a refusal message. */
-function rotateSnippet(call: TSNode): string {
+export function rotateSnippet(call: TSNode): string {
   const args = call.childForFieldName('arguments');
   const snippet = `.rotate${args ? args.text : '(…)'}`;
   return snippet.length > 48 ? `${snippet.slice(0, 45)}…` : snippet;

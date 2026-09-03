@@ -59,7 +59,8 @@ function isConnectorRef(v: unknown): v is MateConnectorSideBody {
 
 function isFrameRef(v: unknown): v is MateFrameRef {
   return v !== null && typeof v === 'object'
-    && ['x', 'y', 'z'].includes((v as any).axis);
+    && Number.isInteger((v as any).connectorLine) && (v as any).connectorLine >= 1
+    && typeof (v as any).connectorName === 'string';
 }
 
 type Pick = { shapeId: string; sub: { type: 'edge' | 'face'; index: number } };
@@ -124,7 +125,7 @@ function isMateOptions(v: unknown): v is AssemblyMateOptions {
 
 /**
  * The wire payload: connector sides for the lower pairs (either side may
- * instead be an origin-frame ref, never both), geometry sides for tangent.
+ * instead be an assembly-connector ref, never both), geometry sides for tangent.
  */
 export type MatePayloadBody = {
   type: AssemblyMateType;
@@ -482,7 +483,7 @@ export function createAssemblyMateRouter(
   // editable properties from its part file. The current buffer serves the
   // open file; other files read from disk (an unsaved part buffer can be
   // stale here — the write path's editor round-trip is what verifies).
-  router.post('/assembly-connector-properties', async (req, res) => {
+  router.post('/part-connector-properties', async (req, res) => {
     const { filePath, sourceLine } = req.body ?? {};
     if (
       typeof filePath !== 'string' || filePath.length === 0
@@ -520,7 +521,7 @@ export function createAssemblyMateRouter(
   // file through the shared dispatcher. The spec's filePath is the part
   // file, so the dispatcher's current-file preflight self-skips and the
   // editor host's round-trip applies and verifies the transform.
-  router.post('/assembly-connector', async (req, res) => {
+  router.post('/part-connector-props', async (req, res) => {
     const { filePath, sourceLine, name, rotate, offset } = req.body ?? {};
     const rotateValid = rotate === null
       || (rotate !== undefined && typeof rotate === 'object' && rotate !== null

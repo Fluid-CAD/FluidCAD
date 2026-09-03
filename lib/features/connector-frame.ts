@@ -23,13 +23,36 @@ export type ConnectorOptions = {
   xDirection?: AxisLike;
 };
 
-export type ConnectorInput =
+/**
+ * The source of an assembly connector: a bare world point, no geometry. The
+ * frame starts at the point with world axes (Z up, X along world X) and the
+ * connector's `.rotate()` / `.offset()` chain orients it from there. Only
+ * `connector()` at assembly top level constructs one — inside a part a raw
+ * point is still refused, the frame must re-derive from real geometry.
+ */
+export class FreePoint {
+  constructor(public readonly point: Point) {}
+
+  equals(other: FreePoint): boolean {
+    return this.point.x === other.point.x
+      && this.point.y === other.point.y
+      && this.point.z === other.point.z;
+  }
+}
+
+/** The geometry-attached sources a part connector accepts. */
+export type GeometryConnectorInput =
   | SelectSceneObject
   | LazySelectionSceneObject
   | LazyVertex
   | PlaneObjectBase;
 
+export type ConnectorInput = GeometryConnectorInput | FreePoint;
+
 export function frameFromSource(source: ConnectorInput, options: ConnectorOptions = {}): Plane {
+  if (source instanceof FreePoint) {
+    return frameFromVertexPoint(source.point, options);
+  }
   if (source instanceof PlaneObjectBase) {
     return frameFromPlane(source, options);
   }
@@ -135,7 +158,7 @@ function frameFromPlane(planeObj: PlaneObjectBase, options: ConnectorOptions): P
   return new Plane(plane.origin, plane.xDirection, plane.normal);
 }
 
-export function isConnectorInput(value: unknown): value is ConnectorInput {
+export function isConnectorInput(value: unknown): value is GeometryConnectorInput {
   return (
     value instanceof SelectSceneObject ||
     value instanceof LazySelectionSceneObject ||
@@ -145,5 +168,5 @@ export function isConnectorInput(value: unknown): value is ConnectorInput {
 }
 
 export function connectorInputDependencies(source: ConnectorInput): SceneObject[] {
-  return [source];
+  return source instanceof FreePoint ? [] : [source];
 }

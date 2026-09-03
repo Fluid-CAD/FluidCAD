@@ -6,6 +6,8 @@ import type { AssemblyMateType } from '../api';
 /** The click handlers main.ts wires the implemented assembly tools to. */
 export type AssemblyToolbarHandlers = {
   onInsert?: () => void;
+  /** The Connector button — opens the assembly-connector dialog. */
+  onConnector?: () => void;
   /** A mate button — opens the mate dialog with that type preselected. */
   onMate?: (type: AssemblyMateType) => void;
 };
@@ -16,10 +18,11 @@ export type AssemblyToolbarHandlers = {
  * every part-design group) whenever the scene kind flips to assembly — see
  * `Navbar.setMode`.
  *
- * Insert opens the part-catalog dialog; the remaining buttons are
- * placeholders that render like the real part-design tools but only announce
- * themselves as unimplemented when clicked. The groups mirror the planned
- * assembly features — Insert (bring a part in) and one button per mate type.
+ * Insert opens the part-catalog dialog, Connector the assembly-connector
+ * dialog (a mate frame placed freely in the assembly's space); the mate
+ * buttons open the mate dialog with a type preselected. Buttons without a
+ * handler are placeholders that render like the real tools but only
+ * announce themselves as unimplemented when clicked.
  */
 export class AssemblyToolbar {
   constructor(navbar: Navbar, handlers: AssemblyToolbarHandlers = {}) {
@@ -28,6 +31,14 @@ export class AssemblyToolbar {
       this.addButton(insertGroup, { icon: 'insert', label: 'Insert', tip: 'Insert part' }, handlers.onInsert);
     } else {
       this.addPlaceholder(insertGroup, { icon: 'insert', label: 'Insert', tip: 'Insert part' });
+    }
+
+    const connectorGroup = navbar.addGroup('assembly-connector', { mode: 'assembly' });
+    const connectorOpts = { icon: 'mate-connector', label: 'Connector', tip: 'Assembly connector' };
+    if (handlers.onConnector) {
+      this.addButton(connectorGroup, connectorOpts, handlers.onConnector);
+    } else {
+      this.addPlaceholder(connectorGroup, connectorOpts);
     }
 
     // One button per mate type the solver implements (JOINT_SPECS in

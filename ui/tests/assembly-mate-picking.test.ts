@@ -13,7 +13,7 @@ import {
   type WebGLRenderer,
 } from 'three';
 import { AssemblyController } from '../src/scene/assembly-controller';
-import { ORIGIN_BODY_ID, ORIGIN_CONNECTOR_ID } from '../src/solver';
+import { WORLD_BODY_ID } from '../src/solver';
 import type { SceneObjectRender, SerializedAssembly } from '../src/types';
 
 // The mate dialog's connector picking: arming reveals every connector and
@@ -227,34 +227,76 @@ describe('mate-dialog connector picking', () => {
     expect(controller.pickConnectorAt(W / 2, H / 2)).toBeNull();
   });
 
-  it('arming reveals the origin triad and makes it pickable as the world side', () => {
-    const { controller, scene } = makeRig();
-    const origin = scene.getObjectByName('assemblyOriginGizmo')!;
-    expect(origin.visible).toBe(false);
+  // An assembly connector (`connector('base', [0, 0, 0])` at assembly
+  // level) is the user's own feature: visible by default, hidden by name
+  // from the rail, revealed again while a mate dialog is picking, and
+  // picked as the world side.
+  const worldConnector = {
+    connectorId: 'w1', name: 'base', owner: '',
+    origin: { x: 0, y: 0, z: 0 },
+    xDirection: { x: 1, y: 0, z: 0 },
+    yDirection: { x: 0, y: 1, z: 0 },
+    normal: { x: 0, y: 0, z: 1 },
+    sourceLocation: { filePath: '/ws/m.assembly.js', line: 6, column: 0 },
+  };
+
+  it('assembly connectors show by default and are pickable as the world side', () => {
+    const { controller, scene, sceneObjects, assembly } = makeRig();
+    controller.update(sceneObjects, { ...assembly, connectors: [worldConnector] });
+    scene.updateMatrixWorld(true);
+    const gizmo = controller.getWorldConnectorGroup('w1')!;
+    expect(gizmo.visible).toBe(true);
     // The world origin projects to screen center (camera looks at 0,0,0),
     // safely past the 22px radius of the instance's gizmo at world (1,0,0).
-    expect(controller.pickConnectorAt(W / 2, H / 2)).toBeNull();
-
-    controller.setMatePicking(true);
-    expect(origin.visible).toBe(true);
     expect(controller.pickConnectorAt(W / 2, H / 2)).toEqual({
-      instanceId: ORIGIN_BODY_ID,
-      connectorId: ORIGIN_CONNECTOR_ID.z,
+      instanceId: WORLD_BODY_ID,
+      connectorId: 'w1',
     });
 
-    controller.setMatePicking(false);
-    expect(origin.visible).toBe(false);
+    controller.setWorldConnectorHidden('base', true);
+    expect(gizmo.visible).toBe(false);
+    expect(controller.isWorldConnectorHidden('base')).toBe(true);
     expect(controller.pickConnectorAt(W / 2, H / 2)).toBeNull();
+
+    // Picking needs the complete set — a hidden connector shows again.
+    controller.setMatePicking(true);
+    expect(gizmo.visible).toBe(true);
+    expect(controller.pickConnectorAt(W / 2, H / 2)).toEqual({ instanceId: WORLD_BODY_ID, connectorId: 'w1' });
+    controller.setMatePicking(false);
+    expect(gizmo.visible).toBe(false);
+
+    // A re-render re-mints the id; the hide follows the name.
+    controller.update(sceneObjects, { ...assembly, connectors: [{ ...worldConnector, connectorId: 'w2' }] });
+    expect(controller.getWorldConnectorGroup('w1')).toBeNull();
+    expect(controller.getWorldConnectorGroup('w2')!.visible).toBe(false);
+    expect(controller.findWorldConnectorId('base')).toBe('w2');
+    controller.setWorldConnectorHidden('base', false);
+    expect(controller.getWorldConnectorGroup('w2')!.visible).toBe(true);
   });
 
-  it('hover highlight and slot pinning reach the origin triad', () => {
-    const { controller, scene } = makeRig();
-    const origin = scene.getObjectByName('assemblyOriginGizmo')!;
+  it('hover highlight and mate pinning reach assembly connectors', () => {
+    const { controller, sceneObjects, assembly } = makeRig();
+    controller.update(sceneObjects, { ...assembly, connectors: [worldConnector] });
+    const gizmo = controller.getWorldConnectorGroup('w1')!;
     controller.setMatePicking(true);
-    controller.setHighlightedConnector(ORIGIN_CONNECTOR_ID.z);
-    expect(origin.children[0].userData.highlight).toBeGreaterThan(1);
+    controller.setHighlightedConnector('w1');
+    expect(gizmo.children[0].userData.highlight).toBeGreaterThan(1);
     controller.setHighlightedConnector(null);
-    expect(origin.children[0].userData.highlight).toBe(1);
+    expect(gizmo.children[0].userData.highlight).toBe(1);
+    controller.setMatePicking(false);
+
+    // A joints-panel selection of a mate on this connector keeps it visible
+    // even when hidden from the rail; clearing the highlight re-hides it.
+    controller.setWorldConnectorHidden('base', true);
+    expect(gizmo.visible).toBe(false);
+    controller.highlightMate({
+      mateId: 'mate-0', type: 'fastened', status: 'satisfied',
+      frameA: { connectorId: 'w1' },
+      connectorB: { instanceId: 'i1', connectorId: 'c1' },
+    }, 0xff0000);
+    expect(gizmo.visible).toBe(true);
+    controller.clearHighlight();
+    expect(gizmo.visible).toBe(false);
   });
 
   it('hover highlight rides the gizmo scale multiplier and clears', () => {

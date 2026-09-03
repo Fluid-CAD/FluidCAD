@@ -70,10 +70,21 @@ export type SerializedAssembly = {
     connectorB?: { instanceId: string; connectorId: string };
     geometryA?: { instanceId: string; exposeName: string };
     geometryB?: { instanceId: string; exposeName: string };
-    frameA?: { axis: 'x' | 'y' | 'z' };
-    frameB?: { axis: 'x' | 'y' | 'z' };
+    frameA?: { connectorId: string };
+    frameB?: { connectorId: string };
     status: 'satisfied' | 'redundant' | 'inconsistent';
     options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number]; propagate?: boolean };
+    sourceLocation?: { filePath: string; line: number; column: number };
+  }>;
+  /** Assembly-level connectors — absent on engines predating them. */
+  connectors?: Array<{
+    connectorId: string;
+    name: string;
+    owner: string;
+    origin: { x: number; y: number; z: number };
+    xDirection: { x: number; y: number; z: number };
+    yDirection: { x: number; y: number; z: number };
+    normal: { x: number; y: number; z: number };
     sourceLocation?: { filePath: string; line: number; column: number };
   }>;
 };
@@ -1114,6 +1125,11 @@ export class FluidCadServer {
           for (const occ of assembly.occurrences ?? []) {
             if (occ.sourceLocation) {
               occ.sourceLocation.filePath = occ.sourceLocation.filePath.replace('virtual:live-render:', '');
+            }
+          }
+          for (const connector of assembly.connectors ?? []) {
+            if (connector.sourceLocation) {
+              connector.sourceLocation.filePath = connector.sourceLocation.filePath.replace('virtual:live-render:', '');
             }
           }
         }

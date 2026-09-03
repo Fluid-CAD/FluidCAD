@@ -59,13 +59,15 @@ export type MateGeometryRef = {
 };
 
 /**
- * One origin-frame side (`origin(axis?)`) — no source anchor: the world
- * frame is render-stable by construction, so the side serializes to a
- * literal `origin()` / `origin('x')` expression and contributes nothing
- * to statement placement.
+ * One assembly-connector side: the `connector('name', [x, y, z])` statement
+ * starting on `connectorLine` (1-based, the serialized sourceLocation). It
+ * dereferences as the statement's `const` binding (a bare expression
+ * statement gets `const <connectorName> = ` prepended, like an unbound
+ * `insert()`), and anchors statement placement like an instance side.
  */
 export type MateFrameRef = {
-  axis: 'x' | 'y' | 'z';
+  connectorLine: number;
+  connectorName: string;
 };
 
 /**
@@ -85,7 +87,7 @@ export type AssemblyMateOptions = {
 
 /**
  * A mate payload's two sides: connector-authored (every type but tangent,
- * either side may instead be an origin-frame ref) or geometry-authored
+ * either side may instead be an assembly-connector ref) or geometry-authored
  * (tangent only) — `validateMatePayload` enforces the per-type
  * side-kind rule.
  */
@@ -168,16 +170,22 @@ export async function applyAssemblyMateEdit(
   // `import { mate }` line would shift every row the spec points at.
   let working = code;
 
-  // Frame sides carry no source anchor: they render as a literal
-  // `origin(...)` expression and are skipped for statement placement —
-  // validateMatePayload guaranteed at least one instance-anchored side.
+  // Every side anchors on a statement in this file: an instance's
+  // `insert()` chain, or an assembly connector's `connector()` statement —
+  // validateMatePayload guaranteed each side is exactly one kind.
   const sideA = payload.connectorA ?? payload.geometryA ?? payload.frameA!;
   const sideB = payload.connectorB ?? payload.geometryB ?? payload.frameB!;
   const anchorLines: number[] = [];
   const expressions: string[] = [];
   for (const side of [sideA, sideB]) {
-    if ('axis' in side) {
-      expressions.push(renderOriginExpression(side));
+    if ('connectorLine' in side) {
+      const binding = await resolveStatementBinding(working, side.connectorLine, 'connector', side.connectorName);
+      if ('error' in binding) {
+        return { newCode: code, error: binding.error };
+      }
+      working = binding.newCode;
+      expressions.push(binding.name);
+      anchorLines.push(side.connectorLine);
       continue;
     }
     const ref = await resolveMateSideRef(working, side);
@@ -197,16 +205,8 @@ export async function applyAssemblyMateEdit(
   if (result.error) {
     return { newCode: code, error: result.error };
   }
-  let out = await ensureSymbolImport(result.newCode, 'mate');
-  if (payload.frameA || payload.frameB) {
-    out = await ensureSymbolImport(out, 'origin');
-  }
+  const out = await ensureSymbolImport(result.newCode, 'mate');
   return { newCode: out };
-}
-
-/** The literal a frame side writes: `origin()` for the default Z axis. */
-function renderOriginExpression(ref: MateFrameRef): string {
-  return ref.axis === 'z' ? 'origin()' : `origin('${ref.axis}')`;
 }
 
 export function validateMatePayload(payload: AssemblyMatePayload): string | null {
@@ -217,7 +217,7 @@ export function validateMatePayload(payload: AssemblyMatePayload): string | null
   // every other type on connectors.
   if (payload.type === 'tangent') {
     if (payload.frameA || payload.frameB) {
-      return 'tangent mates take exposed geometry sides — the assembly origin has no surface to touch';
+      return 'tangent mates take exposed geometry sides — an assembly connector has no surface to touch';
     }
     if (!payload.geometryA || !payload.geometryB) {
       return 'tangent mates take exposed geometry sides (instance.features.<name>), not connectors';
@@ -245,13 +245,13 @@ export function validateMatePayload(payload: AssemblyMatePayload): string | null
     return null;
   }
   if (payload.frameA && payload.frameB) {
-    return 'both sides are the assembly origin — one side must be an inserted instance\'s connector';
+    return 'both sides are assembly connectors — one side must be an inserted instance\'s connector';
   }
   if ((payload.connectorA && payload.frameA) || (payload.connectorB && payload.frameB)) {
-    return 'a mate side is either a connector or the origin frame, not both';
+    return 'a mate side is either an instance connector or an assembly connector, not both';
   }
   if (!(payload.connectorA || payload.frameA) || !(payload.connectorB || payload.frameB)) {
-    return `${payload.type} mates take connector sides (instance.connectors.<name>) or the origin frame`;
+    return `${payload.type} mates take connector sides (instance.connectors.<name>) or an assembly connector`;
   }
   if (payload.geometryA || payload.geometryB) {
     return `${payload.type} mates take connector sides only — geometry sides are for tangent mates`;
@@ -260,8 +260,14 @@ export function validateMatePayload(payload: AssemblyMatePayload): string | null
     return 'tangent propagation only applies to tangent mates';
   }
   for (const frame of [payload.frameA, payload.frameB]) {
-    if (frame && !['x', 'y', 'z'].includes(frame.axis)) {
-      return `"${frame.axis}" is not a valid origin axis — expected 'x', 'y', or 'z'`;
+    if (!frame) {
+      continue;
+    }
+    if (!Number.isInteger(frame.connectorLine) || frame.connectorLine < 1) {
+      return 'an assembly connector side needs the line its connector() statement starts on';
+    }
+    if (!CONNECTOR_NAME.test(frame.connectorName)) {
+      return `"${frame.connectorName}" is not a valid connector name`;
     }
   }
   for (const side of [payload.connectorA, payload.connectorB]) {
@@ -377,37 +383,55 @@ async function resolveInstanceBinding(
   code: string,
   instanceLine: number,
 ): Promise<{ newCode: string; name: string } | { error: string }> {
+  return resolveStatementBinding(code, instanceLine, 'insert');
+}
+
+/**
+ * The `const` identifier the statement starting on `line` is bound to,
+ * where the statement's chain must bottom out in a `<expectedBase>(...)`
+ * call. A bare expression statement gets `const <name> = ` prepended:
+ * `preferredName` (an assembly connector's own name) when that word is
+ * free in the file, else the `pickBindingName` derivation.
+ */
+async function resolveStatementBinding(
+  code: string,
+  line: number,
+  expectedBase: 'insert' | 'connector',
+  preferredName?: string,
+): Promise<{ newCode: string; name: string } | { error: string }> {
   const parser = await getJavaScriptParser();
   const tree = parser.parse(code);
-  const tail = findChainAt(tree, instanceLine);
+  const tail = findChainAt(tree, line);
   if (!tail) {
-    return { error: `no insert() statement found on line ${instanceLine}` };
+    return { error: `no ${expectedBase}() statement found on line ${line}` };
   }
   const base = chainBaseCall(tail);
-  if (baseCallName(base) !== 'insert') {
-    return { error: `the statement on line ${instanceLine} is not an insert() — the source may have shifted; re-render and try again` };
+  if (baseCallName(base) !== expectedBase) {
+    return { error: `the statement on line ${line} is not ${expectedBase === 'insert' ? 'an insert()' : 'a connector()'} — the source may have shifted; re-render and try again` };
   }
 
   const statement = enclosingStatement(tail);
   if (!statement) {
-    return { error: `could not resolve the insert() statement on line ${instanceLine}` };
+    return { error: `could not resolve the ${expectedBase}() statement on line ${line}` };
   }
   if (statement.type === 'lexical_declaration' || statement.type === 'variable_declaration') {
     const declarator = statement.namedChildren.find(c => c.type === 'variable_declarator');
     const name = declarator?.childForFieldName('name');
     if (!name || name.type !== 'identifier') {
-      return { error: `the insert() on line ${instanceLine} is not bound to a plain variable` };
+      return { error: `the ${expectedBase}() on line ${line} is not bound to a plain variable` };
     }
     return { newCode: code, name: name.text };
   }
   if (statement.type === 'expression_statement') {
-    const name = pickBindingName(code, base);
+    const name = preferredName !== undefined
+      ? freeBindingName(code, preferredName)
+      : pickBindingName(code, base);
     return {
       newCode: spliceCode(code, statement.startIndex, statement.startIndex, `const ${name} = `),
       name,
     };
   }
-  return { error: `the insert() on line ${instanceLine} sits inside a ${statement.type} — bind it to a top-level const first` };
+  return { error: `the ${expectedBase}() on line ${line} sits inside a ${statement.type} — bind it to a top-level const first` };
 }
 
 /** Outermost call_expression starting on the 1-based source line. */
@@ -489,6 +513,19 @@ function pickBindingName(code: string, base: TSNode): string {
   }
 }
 
+/** `preferred` itself when free in the file, else `preferred1`, `preferred2`, … */
+function freeBindingName(code: string, preferred: string): string {
+  if (!wordUsed(code, preferred)) {
+    return preferred;
+  }
+  for (let n = 1; ; n++) {
+    const candidate = `${preferred}${n}`;
+    if (!wordUsed(code, candidate)) {
+      return candidate;
+    }
+  }
+}
+
 function wordUsed(code: string, word: string): boolean {
   // String literals don't occupy the identifier namespace — without
   // stripping them, a connector named 'pivot' would block the binding
@@ -498,7 +535,7 @@ function wordUsed(code: string, word: string): boolean {
 }
 
 /** Append the statement after the last top-level statement, insert-edit style. */
-function appendStatement(code: string, statement: string): AssemblyMateEditResult {
+export function appendStatement(code: string, statement: string): AssemblyMateEditResult {
   const lines = splitLines(code);
   let lastRow = -1;
   for (let row = lines.length - 1; row >= 0; row--) {

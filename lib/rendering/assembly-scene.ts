@@ -94,12 +94,30 @@ export type MateOptions = {
 export type MateGeometrySide = { instanceId: string; exposeName: string };
 
 /**
- * Wire form of an origin-frame mate side (`origin(axis?)`): the assembly's
- * own frame with Z re-aimed along the named world axis. The UI solver
- * mirrors the axis→frame table (ORIGIN_AXIS_FRAMES) and pins the side on
- * a synthetic grounded world body.
+ * Wire form of an assembly-connector mate side: a `connector('name', [x, y,
+ * z])` declared at assembly level, referenced by its scene id. The UI
+ * solver pins every assembly connector on one synthetic grounded world
+ * body, so the side needs no instance.
  */
-export type MateFrameSide = { axis: 'x' | 'y' | 'z' };
+export type MateFrameSide = { connectorId: string };
+
+/**
+ * One assembly connector as the UI reads it: the built frame in assembly
+ * coordinates (root scope only in v1, so local equals world) plus the
+ * statement to edit. `connectorId` is read live at serialize time — the
+ * same staleness rule as mate sides.
+ */
+export type SerializedAssemblyConnector = {
+  connectorId: string;
+  name: string;
+  /** Scope path the statement ran in; "" for the root assembly (v1: always). */
+  owner: string;
+  origin: Vec3;
+  xDirection: Vec3;
+  yDirection: Vec3;
+  normal: Vec3;
+  sourceLocation?: SourceLocation;
+};
 
 /**
  * Live mate record. `connectorA/B.connector` is a live SceneObject
@@ -111,9 +129,10 @@ export type MateFrameSide = { axis: 'x' | 'y' | 'z' };
  * keeps a live `part: Part` ref and reads `part.id` live.
  *
  * Sides are per-type: lower-pair mates carry two connector sides (either
- * of which may instead be an origin-frame side — `origin(axis?)`); tangent
- * mates carry two geometry sides (live `Exposed` refs, names read at
- * serialize time for the same staleness reason as connector ids).
+ * of which may instead be an assembly-connector side — a live `Connector`
+ * ref, no instance); tangent mates carry two geometry sides (live `Exposed`
+ * refs, names read at serialize time for the same staleness reason as
+ * connector ids).
  */
 export type AssemblyMate = {
   mateId: string;
@@ -122,9 +141,9 @@ export type AssemblyMate = {
   type: MateType;
   options?: MateOptions;
   sourceLocation?: SourceLocation;
-  /** Origin-frame sides — lower-pair mates only, at most one of the two. */
-  frameA?: MateFrameSide;
-  frameB?: MateFrameSide;
+  /** Assembly-connector sides — lower-pair mates only, at most one of the two. */
+  frameA?: { connector: Connector };
+  frameB?: { connector: Connector };
 } & (
   | {
     connectorA?: { instanceId: string; connector: Connector };
@@ -193,7 +212,7 @@ export type SerializedMate = {
   /** Geometry sides — tangent mates only. */
   geometryA?: MateGeometrySide;
   geometryB?: MateGeometrySide;
-  /** Origin-frame sides — lower-pair mates only, at most one of the two. */
+  /** Assembly-connector sides — lower-pair mates only, at most one of the two. */
   frameA?: MateFrameSide;
   frameB?: MateFrameSide;
   status: 'satisfied' | 'redundant' | 'inconsistent';
@@ -228,6 +247,8 @@ export class AssemblyScene extends Scene {
   private _instances: AssemblyInstance[] = [];
   private _mates: AssemblyMate[] = [];
   private _occurrences: AssemblyOccurrence[] = [];
+  /** Connectors declared at assembly level (`connector('name', [x, y, z])`), in statement order. */
+  private _connectors: Connector[] = [];
   /** Occurrence paths currently executing — insert(assembly) runs its callback under its path. */
   private _scopeStack: string[] = [];
 
@@ -279,6 +300,43 @@ export class AssemblyScene extends Scene {
 
   addMate(mate: AssemblyMate): void {
     this._mates.push(mate);
+  }
+
+  registerAssemblyConnector(connector: Connector): void {
+    this._connectors.push(connector);
+  }
+
+  getAssemblyConnectors(): Connector[] {
+    return this._connectors;
+  }
+
+  /**
+   * The assembly's own connectors with their built frames. A connector whose
+   * build failed has no frame and is skipped — the mate referencing it will
+   * report its side as unresolved, and the statement's error shows on the
+   * render object itself.
+   */
+  getSerializedAssemblyConnectors(): SerializedAssemblyConnector[] {
+    const out: SerializedAssemblyConnector[] = [];
+    for (const connector of this._connectors) {
+      let frame;
+      try {
+        frame = connector.getFrame();
+      } catch {
+        continue;
+      }
+      out.push({
+        connectorId: connector.id,
+        name: connector.connectorName,
+        owner: connector.owner ?? "",
+        origin: { x: frame.origin.x, y: frame.origin.y, z: frame.origin.z },
+        xDirection: { x: frame.xDirection.x, y: frame.xDirection.y, z: frame.xDirection.z },
+        yDirection: { x: frame.yDirection.x, y: frame.yDirection.y, z: frame.yDirection.z },
+        normal: { x: frame.normal.x, y: frame.normal.y, z: frame.normal.z },
+        sourceLocation: connector.getSourceLocation() ?? undefined,
+      });
+    }
+    return out;
   }
 
   getInstances(): AssemblyInstance[] {
@@ -446,8 +504,8 @@ export class AssemblyScene extends Scene {
         instanceId: mate.geometryB.instanceId,
         exposeName: mate.geometryB.exposed.exposeName,
       },
-      frameA: mate.frameA && { axis: mate.frameA.axis },
-      frameB: mate.frameB && { axis: mate.frameB.axis },
+      frameA: mate.frameA && { connectorId: mate.frameA.connector.id },
+      frameB: mate.frameB && { connectorId: mate.frameB.connector.id },
       // Parse-time placeholder: the UI solver evaluates real mate
       // health per solve (SolverOutput.failed) and overrides this live
       // via matesWithStatus — the server never re-checks it.

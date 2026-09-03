@@ -32,6 +32,8 @@ const ASSEMBLY_CODE = [
   ``,
   `mate('revolute', arm1.connectors.hinge, base1.connectors.hinge).limits(0, 90);`,
   ``,
+  `const pivot = connector('pivot', [0, 0, 20]).rotate('y', 90);`,
+  ``,
 ].join('\n');
 
 const fakeServer = {
@@ -133,49 +135,62 @@ describe('assembly-mate route', () => {
     expect(relayed).toEqual([]);
   });
 
-  it('accepts an origin-frame side and round-trips the origin() statement', async () => {
+  it('accepts an assembly-connector side and round-trips the binding', async () => {
     const applied = postMate({
       filePath: '/ws/m.assembly.js',
       create: {
         type: 'revolute',
-        frameA: { axis: 'x' },
+        frameA: { connectorLine: 10, connectorName: 'pivot' },
         connectorB: { instanceLine: 5, connectorName: 'tip' },
       },
     });
     const msg = await untilRelayed();
-    expect(msg.spec.assemblyMate.create).toMatchObject({ frameA: { axis: 'x' } });
+    expect(msg.spec.assemblyMate.create).toMatchObject({ frameA: { connectorLine: 10, connectorName: 'pivot' } });
 
     const roundTrip = await postRoundTrip(ASSEMBLY_CODE, msg.spec);
     expect(roundTrip.body.error).toBeUndefined();
-    expect(roundTrip.body.newCode).toContain(`mate('revolute', origin('x'), arm1.connectors.tip);`);
-    expect(roundTrip.body.newCode).toMatch(/import \{[^}]*\borigin\b[^}]*\} from 'fluidcad\/core';/);
+    expect(roundTrip.body.newCode).toContain(`mate('revolute', pivot, arm1.connectors.tip);`);
+    expect(roundTrip.body.newCode).not.toMatch(/\borigin\b/);
 
     const { status, body } = await applied;
     expect(status).toBe(200);
     expect(body).toMatchObject({ success: true });
   });
 
-  it('rejects malformed origin-frame sides at the wire', async () => {
+  it('rejects malformed assembly-connector sides at the wire', async () => {
     const bothFrames = await postMate({
-      filePath: '/ws/m.assembly.js',
-      create: { type: 'fastened', frameA: { axis: 'z' }, frameB: { axis: 'x' } },
-    });
-    expect(bothFrames.status).toBe(400);
-    const badAxis = await postMate({
       filePath: '/ws/m.assembly.js',
       create: {
         type: 'fastened',
-        frameA: { axis: 'w' },
+        frameA: { connectorLine: 10, connectorName: 'pivot' },
+        frameB: { connectorLine: 10, connectorName: 'pivot' },
+      },
+    });
+    expect(bothFrames.status).toBe(400);
+    const badLine = await postMate({
+      filePath: '/ws/m.assembly.js',
+      create: {
+        type: 'fastened',
+        frameA: { connectorLine: 0, connectorName: 'pivot' },
         connectorB: { instanceLine: 5, connectorName: 'tip' },
       },
     });
-    expect(badAxis.status).toBe(400);
+    expect(badLine.status).toBe(400);
+    const legacyAxis = await postMate({
+      filePath: '/ws/m.assembly.js',
+      create: {
+        type: 'fastened',
+        frameA: { axis: 'z' },
+        connectorB: { instanceLine: 5, connectorName: 'tip' },
+      },
+    });
+    expect(legacyAxis.status).toBe(400);
     const frameAndConnector = await postMate({
       filePath: '/ws/m.assembly.js',
       create: {
         type: 'fastened',
         connectorA: { instanceLine: 5, connectorName: 'tip' },
-        frameA: { axis: 'z' },
+        frameA: { connectorLine: 10, connectorName: 'pivot' },
         connectorB: { instanceLine: 6, connectorName: 'slot' },
       },
     });
@@ -591,7 +606,7 @@ describe('assembly-mate route', () => {
 
   // The pen-button endpoints: property read from the part file, write through
   // the dispatcher (cross-file spec — the preflight self-skips).
-  describe('assembly-connector routes', () => {
+  describe('part-connector routes', () => {
   const PART_CODE = [
     `import { part, connector, extrude } from 'fluidcad/core';`,
     ``,
@@ -613,7 +628,7 @@ describe('assembly-mate route', () => {
   it('reads dialog-editable properties from the current buffer', async () => {
     currentFileName = '/ws/arm.part.js';
     currentCode = PART_CODE;
-    const { status, body } = await post('assembly-connector-properties', {
+    const { status, body } = await post('part-connector-properties', {
       filePath: '/ws/arm.part.js',
       sourceLine: 5,
     });
@@ -626,7 +641,7 @@ describe('assembly-mate route', () => {
   });
 
   it('404s an unreadable file and 422s a non-connector line', async () => {
-    const unreadable = await post('assembly-connector-properties', {
+    const unreadable = await post('part-connector-properties', {
       filePath: '/nope/missing.part.js',
       sourceLine: 5,
     });
@@ -634,7 +649,7 @@ describe('assembly-mate route', () => {
 
     currentFileName = '/ws/arm.part.js';
     currentCode = PART_CODE;
-    const wrongLine = await post('assembly-connector-properties', {
+    const wrongLine = await post('part-connector-properties', {
       filePath: '/ws/arm.part.js',
       sourceLine: 4,
     });
@@ -642,7 +657,7 @@ describe('assembly-mate route', () => {
   });
 
   it('round-trips a cross-file property write through the dispatcher', async () => {
-    const applied = post('assembly-connector', {
+    const applied = post('part-connector-props', {
       filePath: '/ws/arm.part.js',
       sourceLine: 5,
       name: 'pivot',
@@ -665,11 +680,11 @@ describe('assembly-mate route', () => {
   });
 
   it('rejects malformed write bodies', async () => {
-    const badRotate = await post('assembly-connector', {
+    const badRotate = await post('part-connector-props', {
       filePath: '/ws/arm.part.js', sourceLine: 5, name: 'x', rotate: { axis: 'q', angle: 1 }, offset: null,
     });
     expect(badRotate.status).toBe(400);
-    const badOffset = await post('assembly-connector', {
+    const badOffset = await post('part-connector-props', {
       filePath: '/ws/arm.part.js', sourceLine: 5, name: 'x', rotate: null, offset: [1, 2],
     });
     expect(badOffset.status).toBe(400);

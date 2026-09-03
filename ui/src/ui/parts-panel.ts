@@ -62,6 +62,7 @@ export class PartsPanel {
   private panel: HTMLDivElement;
   private partsBody: HTMLDivElement;
   private jointsHost: HTMLDivElement;
+  private connectorsHost: HTMLElement;
   private instances: RenderedInstance[] = [];
   private occurrences: SerializedAssemblyOccurrence[] = [];
   private selectedId: string | null = null;
@@ -134,11 +135,19 @@ export class PartsPanel {
       chevron.classList.toggle('rotate-90', this.partsExpanded);
     });
 
-    // Slot where the joints panel mounts itself, so both sections share one
-    // left-rail column under the top bars.
+    // Slots where the connectors and joints panels mount themselves, so the
+    // three sections share one left-rail column under the top bars.
+    this.connectorsHost = document.createElement('div');
+    this.connectorsHost.className = 'flex flex-col gap-1 min-h-0 shrink-0';
+    this.panel.appendChild(this.connectorsHost);
     this.jointsHost = document.createElement('div');
     this.jointsHost.className = 'flex flex-col gap-1 min-h-0 flex-1';
     this.panel.appendChild(this.jointsHost);
+  }
+
+  /** Slot in which the connectors panel appends its header + body (above the joints). */
+  getConnectorsHost(): HTMLElement {
+    return this.connectorsHost;
   }
 
   /**

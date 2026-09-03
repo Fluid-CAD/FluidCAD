@@ -36,7 +36,7 @@ describe("connector scope", () => {
     const a = insert(p);
     expect(() => {
       connector("pivot", a.connectors.top as unknown as Parameters<typeof connector>[1]);
-    }).toThrow(/inside a part\(\) block/i);
+    }).toThrow(/takes a world point \[x, y, z\]/i);
   });
 
   it("throws when nested inside a sketch() callback", () => {

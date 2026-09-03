@@ -25,6 +25,7 @@ import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
 import { MoveToPart, type MoveToPartSpec } from './move-to-part.ts';
 import { applyInsertPartEdit, type InsertPartEditSpec } from './part-catalog/insert-edit.ts';
 import { applyInstancePoseEdit, type InstancePoseEditSpec } from './insert-chain-edit.ts';
+import { applyAssemblyConnectorEdit, type AssemblyConnectorEditSpec } from './assembly-connector-edit.ts';
 import { applyInsertParamsEdit, type InsertParamsEditSpec } from './insert-params-edit.ts';
 import {
   applyAssemblyExportEdit,
@@ -257,6 +258,14 @@ export type ApplyFeatureEditSpec = {
    * spec field is ignored.
    */
   assemblyMate?: AssemblyMateEditSpec;
+  /**
+   * Assembly-connector dialog write: append a `const <name> = connector('<name>',
+   * [x, y, z])<rotates>` statement at the assembly's top level, or rewrite
+   * the one at its source line. Rides the same round trip as
+   * `instancePose` (expression extras land through `newVariables`); every
+   * other spec field is ignored.
+   */
+  assemblyConnector?: AssemblyConnectorEditSpec;
   /**
    * Mate-dialog pen-button edit: rewrite a `connector()` statement's name
    * and adjustment chain in its part file (the spec's `filePath` addresses
@@ -1481,6 +1490,9 @@ export async function applyFeatureEdit(
   if (spec.assemblyMate) {
     return applyAssemblyMateWithExposeCreates(code, spec.assemblyMate);
   }
+  if (spec.assemblyConnector) {
+    return applyAssemblyConnectorWithDecls(code, spec);
+  }
   if (spec.connectorProps) {
     return applyConnectorPropsEdit(code, spec.connectorProps);
   }
@@ -2054,6 +2066,28 @@ async function applyInstancePoseWithDecls(
     return result;
   }
   return landNewVariableDecls(code, result.newCode, pose.sourceLine, spec.newVariables);
+}
+
+/**
+ * The `assemblyConnector` side-channel plus its expression extras, exactly
+ * like the pose gizmo's: validate the per-axis texts, apply the statement
+ * write, then land any declarations before the written statement.
+ */
+async function applyAssemblyConnectorWithDecls(
+  code: string,
+  spec: ApplyFeatureEditSpec,
+): Promise<ApplyFeatureEditResult> {
+  const connector = spec.assemblyConnector!;
+  for (const expr of [...(connector.positionExprs ?? []), ...(connector.rotateExprs ?? [])]) {
+    if (expr !== null && !isExpressionText(expr)) {
+      return { newCode: code, error: 'malformed connector expression' };
+    }
+  }
+  const result = await applyAssemblyConnectorEdit(code, connector);
+  if (result.error !== undefined) {
+    return { newCode: code, error: result.error };
+  }
+  return landNewVariableDecls(code, result.newCode, result.statementLine!, spec.newVariables);
 }
 
 /**

@@ -66,8 +66,6 @@ export class MatePanel extends FeaturePanel {
   private typeSelect: HTMLSelectElement;
   private slots: Record<MateSlotKey, PickSlot>;
   private chips: Record<MateSlotKey, { label: string; pen: boolean } | null> = { a: null, b: null };
-  private originAxisRow: HTMLElement;
-  private originAxisSelect: HTMLSelectElement;
   private armedSlot: MateSlotKey = 'a';
   private flipInput: HTMLInputElement;
   private rotateInput: HTMLInputElement;
@@ -98,15 +96,6 @@ export class MatePanel extends FeaturePanel {
         </label>
         <div data-role="slot-a"></div>
         <div data-role="slot-b"></div>
-        <label data-role="origin-axis-row" class="hidden flex flex-col gap-1.5"
-          title="Which world axis the origin frame's Z points along — the joint's axis for revolute/slider/cylindrical, the plane normal for planar">
-          <span class="text-base-content/70">Origin axis</span>
-          <select data-role="origin-axis" class="select select-sm select-bordered w-full text-xs">
-            <option value="z">Z (up)</option>
-            <option value="x">X</option>
-            <option value="y">Y</option>
-          </select>
-        </label>
         <label data-role="propagate-row" class="hidden flex items-center gap-2 cursor-pointer"
           title="Contact may slide across smoothly connected neighbor faces">
           <input data-role="propagate" type="checkbox" class="checkbox checkbox-xs" checked />
@@ -166,9 +155,6 @@ export class MatePanel extends FeaturePanel {
       this.slots[key].onRemove = () => this.onRemoveConnector?.(key);
     }
 
-    this.originAxisRow = this.role('origin-axis-row');
-    this.originAxisSelect = this.role<HTMLSelectElement>('origin-axis');
-    this.originAxisSelect.addEventListener('change', () => this.onChange?.());
 
     this.flipInput = this.role<HTMLInputElement>('flip');
     this.flipInput.addEventListener('change', () => this.onChange?.());
@@ -224,7 +210,6 @@ export class MatePanel extends FeaturePanel {
     this.shell.setTitle(seed ? 'Edit mate' : `${MATE_TYPE_LABELS[type]} mate`);
     this.typeSelect.value = type;
     this.chips = { a: null, b: null };
-    this.setOriginAxisRow(false, 'z');
     this.renderSlot('a');
     this.renderSlot('b');
     this.armSlot('a');
@@ -263,28 +248,11 @@ export class MatePanel extends FeaturePanel {
   /**
    * The picked chip for one slot (the service owns the pick); null clears
    * back to the pick prompt. `pen: false` drops the chip's property-editor
-   * pen — origin chips have no connector statement to edit.
+   * pen — tangent chips have no connector statement to edit.
    */
   setSlotChip(slot: MateSlotKey, label: string | null, opts: { pen?: boolean } = {}): void {
     this.chips[slot] = label === null ? null : { label, pen: opts.pen ?? true };
     this.renderSlot(slot);
-  }
-
-  /**
-   * Show/hide the origin-axis dropdown (visible while a slot holds the
-   * origin frame). `axis` seeds the dropdown when provided; the service
-   * reads changes back via {@link getOriginAxis} on its onChange refresh.
-   */
-  setOriginAxisRow(visible: boolean, axis?: 'x' | 'y' | 'z'): void {
-    this.originAxisRow.classList.toggle('hidden', !visible);
-    if (axis !== undefined) {
-      this.originAxisSelect.value = axis;
-    }
-  }
-
-  getOriginAxis(): 'x' | 'y' | 'z' {
-    const v = this.originAxisSelect.value;
-    return v === 'x' || v === 'y' ? v : 'z';
   }
 
   /** Aim picks at a slot: the armed border moves, the other slot relaxes. */
@@ -360,9 +328,6 @@ export class MatePanel extends FeaturePanel {
     const tangent = type === 'tangent';
     this.propagateRow.classList.toggle('hidden', !tangent);
     if (tangent) {
-      // Origin sides don't exist for tangent; the service re-shows the row
-      // (refreshPreview) whenever a non-tangent type has an origin slot.
-      this.originAxisRow.classList.add('hidden');
     }
     this.flipRow.classList.toggle('hidden', tangent);
     this.rotateRow.classList.toggle('hidden', tangent);
@@ -394,7 +359,7 @@ export class MatePanel extends FeaturePanel {
         label: chip.label,
         badge: '●',
         removable: true,
-        // Tangent and origin chips carry no pen — a picked face/edge (or
+        // Tangent chips carry no pen — a picked face/edge (or
         // the world frame) has no connector-style properties to edit.
         ...(tangent || !chip.pen ? {} : {
           onEdit: () => this.onEditConnector?.(slot),

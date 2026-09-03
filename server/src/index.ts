@@ -25,6 +25,7 @@ import { createPackRouter } from './routes/pack.ts';
 import { createPartCatalogRouter } from './routes/part-catalog.ts';
 import { createInstancePoseRouter } from './routes/instance-pose.ts';
 import { createAssemblyMateRouter } from './routes/assembly-mate.ts';
+import { createAssemblyConnectorRouter } from './routes/assembly-connector.ts';
 import { createTextRouter } from './routes/text.ts';
 import { createFeatureGhostRouter } from './routes/feature-ghost.ts';
 import { createFilesRouter } from './routes/files.ts';
@@ -177,6 +178,7 @@ app.use('/api', createPackRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION
 app.use('/api', createPartCatalogRouter(fluidCadServer, WORKSPACE_PATH, editDispatcher));
 app.use('/api', createInstancePoseRouter(fluidCadServer, editDispatcher));
 app.use('/api', createAssemblyMateRouter(fluidCadServer, editDispatcher));
+app.use('/api', createAssemblyConnectorRouter(fluidCadServer, editDispatcher));
 
 // Static files — serve UI build, with SPA fallback. index.html goes through
 // sendIndexHtml so the saved theme is on <html> before the first paint — the

@@ -40,6 +40,8 @@ export class JointsPanel {
   private body: HTMLDivElement;
   private mates: SerializedAssemblyMate[] = [];
   private instancesById = new Map<string, RenderedInstance>();
+  /** Assembly connectors by scene id — how a frame side labels itself. */
+  private worldConnectorNames = new Map<string, string>();
   private expanded = true;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
@@ -99,7 +101,12 @@ export class JointsPanel {
     this.renderRows();
   }
 
-  update(mates: SerializedAssemblyMate[], instances: RenderedInstance[]): void {
+  update(
+    mates: SerializedAssemblyMate[],
+    instances: RenderedInstance[],
+    connectors: ReadonlyArray<{ connectorId: string; name: string }> = [],
+  ): void {
+    this.worldConnectorNames = new Map(connectors.map(c => [c.connectorId, c.name]));
     this.mates = mates;
     this.instancesById.clear();
     for (const inst of instances) {
@@ -135,14 +142,14 @@ export class JointsPanel {
     let html = '';
     for (const mate of this.mates) {
       // Tangent mates carry geometry sides instead of connector sides;
-      // origin-frame sides label as the world origin.
+      // assembly-connector sides label with the connector's name.
       const sideName = (
         conn: { instanceId: string } | undefined,
         geo: { instanceId: string } | undefined,
-        frame: { axis: 'x' | 'y' | 'z' } | undefined,
+        frame: { connectorId: string } | undefined,
       ): string => {
         if (frame) {
-          return frame.axis === 'z' ? 'Origin' : `Origin · ${frame.axis.toUpperCase()}`;
+          return this.worldConnectorNames.get(frame.connectorId) ?? '?';
         }
         const id = conn?.instanceId ?? geo?.instanceId;
         return (id !== undefined ? this.instancesById.get(id)?.name : undefined) ?? '?';

@@ -2,7 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../common/scene-object.js"
 import { Plane } from "../math/plane.js";
 import { Vertex } from "../common/vertex.js";
 import { AnchoredLazyVertex } from "./anchored-vertex.js";
-import { ConnectorInput, ConnectorOptions, frameFromSource, sourceSubShape } from "./connector-frame.js";
+import { ConnectorInput, ConnectorOptions, FreePoint, connectorInputDependencies, frameFromSource, sourceSubShape } from "./connector-frame.js";
 import { Shape } from "../common/shape.js";
 import { TopologyIndex } from "../oc/topology-index.js";
 import { IConnector } from "../core/interfaces.js";
@@ -53,13 +53,28 @@ function applyConnectorTransform(frame: Plane, t: ConnectorTransform): Plane {
 export class Connector extends SceneObject implements IConnector {
   private transforms: ConnectorTransform[] = [];
 
+  /**
+   * @param owner - For an assembly connector (a {@link FreePoint} source),
+   *   the assembly scope path the statement ran in ("" for the root
+   *   assembly). Part connectors carry none — their instance decides.
+   */
   constructor(
     public connectorName: string,
     public sourceShape: ConnectorInput,
     public options: ConnectorOptions = {},
+    public readonly owner: string | undefined = undefined,
   ) {
     super();
     this.name(connectorName);
+  }
+
+  /**
+   * True for a connector declared at assembly level on a bare world point —
+   * a mate side in its own right (no instance to bind to), pinned on the
+   * assembly's frame by the UI solver.
+   */
+  isAssemblyConnector(): boolean {
+    return this.sourceShape instanceof FreePoint;
   }
 
   rotate(axis: "x" | "y" | "z", angle: number): this {
@@ -86,7 +101,10 @@ export class Connector extends SceneObject implements IConnector {
     // The connector consumes its source — the face/edge/vertex selection
     // (or lazy edge) was used purely to derive the frame, and the frame
     // now lives on the connector. Mirrors plane-from-object / axis-from-edge.
-    (this.sourceShape as SceneObject).removeShapes(this);
+    // A free point has nothing to consume.
+    if (!(this.sourceShape instanceof FreePoint)) {
+      (this.sourceShape as SceneObject).removeShapes(this);
+    }
     if (this.sourceShape instanceof AnchoredLazyVertex) {
       // Anchored vertices wrap an inline selection (`e.endFaces().center()`)
       // whose highlight shapes would otherwise linger — consume through.
@@ -117,11 +135,11 @@ export class Connector extends SceneObject implements IConnector {
   }
 
   override getDependencies(): SceneObject[] {
-    return [this.sourceShape];
+    return connectorInputDependencies(this.sourceShape);
   }
 
   override createCopy(_remap: Map<SceneObject, SceneObject>): SceneObject {
-    const copy = new Connector(this.connectorName, this.sourceShape, this.options);
+    const copy = new Connector(this.connectorName, this.sourceShape, this.options, this.owner);
     copy.transforms = [...this.transforms];
     return copy;
   }
@@ -136,7 +154,16 @@ export class Connector extends SceneObject implements IConnector {
     if (this.connectorName !== other.connectorName) {
       return false;
     }
-    if (!(this.sourceShape as SceneObject).compareTo(other.sourceShape as SceneObject)) {
+    if (this.sourceShape instanceof FreePoint || other.sourceShape instanceof FreePoint) {
+      if (
+        !(this.sourceShape instanceof FreePoint)
+        || !(other.sourceShape instanceof FreePoint)
+        || !this.sourceShape.equals(other.sourceShape)
+        || this.owner !== other.owner
+      ) {
+        return false;
+      }
+    } else if (!(this.sourceShape as SceneObject).compareTo(other.sourceShape as SceneObject)) {
       return false;
     }
     if (JSON.stringify(this.options) !== JSON.stringify(other.options)) {

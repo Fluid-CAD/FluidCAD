@@ -323,7 +323,7 @@ export class InsertPartDialog {
       const params = sub.params ?? [];
       this.gridEl.appendChild(this.buildTile({
         kind: 'assembly',
-        thumb: this.thumbs.renderAssembly(sub.objects, sub.instances, sub.mates),
+        thumb: this.thumbs.renderAssembly(sub.objects, sub.instances, sub.mates, sub.connectors ?? []),
         title: sub.assemblyName ?? sub.exportName,
         subtitle: `assembly · ${count} instance${count === 1 ? '' : 's'}`,
         file,

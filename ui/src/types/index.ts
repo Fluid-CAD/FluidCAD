@@ -374,11 +374,28 @@ export type SerializedAssemblyMate = {
   /** Geometry sides — tangent mates only (exposure resolved per instance). */
   geometryA?: { instanceId: string; exposeName: string };
   geometryB?: { instanceId: string; exposeName: string };
-  /** Origin-frame sides (`origin(axis?)`) — lower-pair mates only, at most one. */
-  frameA?: { axis: 'x' | 'y' | 'z' };
-  frameB?: { axis: 'x' | 'y' | 'z' };
+  /** Assembly-connector sides — lower-pair mates only, at most one. */
+  frameA?: { connectorId: string };
+  frameB?: { connectorId: string };
   status: 'satisfied' | 'redundant' | 'inconsistent';
   options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number]; propagate?: boolean };
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
+/**
+ * One `connector('name', [x, y, z])` declared at assembly level: a mate
+ * frame attached to no geometry, in assembly coordinates (root scope only,
+ * so local equals world). `connectorId` is the render's scene id — re-minted
+ * per render, so long-lived references re-find by `name`.
+ */
+export type SerializedAssemblyConnector = {
+  connectorId: string;
+  name: string;
+  owner: string;
+  origin: Vec3Data;
+  xDirection: Vec3Data;
+  yDirection: Vec3Data;
+  normal: Vec3Data;
   sourceLocation?: { filePath: string; line: number; column: number };
 };
 
@@ -387,6 +404,8 @@ export type SerializedAssembly = {
   mates: SerializedAssemblyMate[];
   /** Absent on engines predating assembly() definitions. */
   occurrences?: SerializedAssemblyOccurrence[];
+  /** Absent on engines predating assembly connectors. */
+  connectors?: SerializedAssemblyConnector[];
 };
 
 /**

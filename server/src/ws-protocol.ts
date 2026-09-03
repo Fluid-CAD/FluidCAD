@@ -146,17 +146,31 @@ export type SerializedAssemblyMate = {
   /** Geometry sides — tangent mates only (exposure resolved per instance). */
   geometryA?: { instanceId: string; exposeName: string };
   geometryB?: { instanceId: string; exposeName: string };
-  /** Origin-frame sides (`origin(axis?)`) — lower-pair mates only, at most one. */
-  frameA?: { axis: 'x' | 'y' | 'z' };
-  frameB?: { axis: 'x' | 'y' | 'z' };
+  /** Assembly-connector sides — lower-pair mates only, at most one. */
+  frameA?: { connectorId: string };
+  frameB?: { connectorId: string };
   status: 'satisfied' | 'redundant' | 'inconsistent';
   options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number]; propagate?: boolean };
+  sourceLocation?: { filePath: string; line: number; column: number };
+};
+
+/** One `connector('name', [x, y, z])` declared at assembly level, with its built frame. */
+export type SerializedAssemblyConnector = {
+  connectorId: string;
+  name: string;
+  owner: string;
+  origin: { x: number; y: number; z: number };
+  xDirection: { x: number; y: number; z: number };
+  yDirection: { x: number; y: number; z: number };
+  normal: { x: number; y: number; z: number };
   sourceLocation?: { filePath: string; line: number; column: number };
 };
 
 export type SerializedAssembly = {
   instances: SerializedAssemblyInstance[];
   mates: SerializedAssemblyMate[];
+  /** Absent on engines predating assembly connectors. */
+  connectors?: SerializedAssemblyConnector[];
 };
 
 export type SceneRenderedMessage = {

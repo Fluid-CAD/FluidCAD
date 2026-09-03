@@ -21,8 +21,9 @@
 //     End = +10 mm, Single. Authored `.limits(min, max)` seed Start/End
 //     for both.
 //  2. Play → the follower sweeps start→end over `Steps` frames; Single
-//     stops at the end, Loop restarts from Start, Reciprocate bounces
-//     (start→end→start…) — both until Stop.
+//     stops at the end, Loop restarts from Start (a whole-turn sweep skips
+//     the Start frame, which the End frame already showed, so the seam
+//     never holds), Reciprocate bounces (start→end→start…) — both until Stop.
 //  3. Play toggles to Pause mid-sweep; Stop returns the part to where it
 //     was when the bar opened. × closes the bar (stopping first).
 //  4. Edit Start/End while paused → next Play restarts from Start.
@@ -255,8 +256,11 @@ export class AnimateBar {
       }
       this.step += 1;
     } else if (playback === 'loop') {
-      // Restart: snap back to Start after the End frame has shown.
-      this.step = this.step >= steps ? 0 : this.step + 1;
+      // Restart after the End frame has shown. When End is the same pose
+      // as Start (an angle sweep of whole turns) the Start frame would
+      // repeat the End frame — a one-step hold at the seam — so the loop
+      // skips straight to the first step past it and keeps its cadence.
+      this.step = this.step >= steps ? (this.endMeetsStart() ? 1 : 0) : this.step + 1;
     } else {
       // Reciprocate: bounce at both ends so the mechanism never jumps.
       if (this.step >= steps) this.direction = -1;
@@ -278,6 +282,15 @@ export class AnimateBar {
     const end = parseFloat(this.endInput.value) || 0;
     const steps = this.steps();
     return start + (end - start) * (Math.min(step, steps) / steps);
+  }
+
+  /** Loop seam: an angle sweep spanning whole turns ends where it starts. */
+  private endMeetsStart(): boolean {
+    if (this.target?.kind !== 'angle') return false;
+    const start = parseFloat(this.startInput.value) || 0;
+    const end = parseFloat(this.endInput.value) || 0;
+    const turns = (end - start) / 360;
+    return Math.abs(turns - Math.round(turns)) < 1e-9;
   }
 
   private steps(): number {

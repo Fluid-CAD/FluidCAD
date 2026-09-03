@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AnimateBar, type AnimateBarHost } from '../src/ui/animate-bar';
 
 // Playback semantics: Single stops at End; Loop restarts from Start after
-// the End frame; Reciprocate bounces start→end→start. Frames are pumped
+// the End frame (skipping Start when a whole-turn sweep makes it the same
+// pose as End); Reciprocate bounces start→end→start. Frames are pumped
 // through a stubbed rAF with explicit timestamps (one step per 40ms+).
 
 type Harness = {
@@ -114,6 +115,26 @@ describe('animate bar playback', () => {
     pump(8);
     expect(driven).toEqual([0, 30, 60, 90, 0, 30, 60, 90, 0]);
     expect(el('play').title).toBe('Pause'); // still running
+  });
+
+  it('loop: a whole-turn sweep skips the Start frame at the seam (End already showed that pose)', () => {
+    const { driven, pump, el } = mount();
+    (el('end') as HTMLInputElement).value = '360';
+    (el('playback') as HTMLSelectElement).value = 'loop';
+    el('play').click();
+    pump(8);
+    // No 0 after 360: that frame would hold the mechanism still for one step.
+    expect(driven).toEqual([0, 120, 240, 360, 120, 240, 360, 120, 240]);
+  });
+
+  it('loop: a multi-turn sweep and a non-zero start still meet at the seam', () => {
+    const { driven, pump, el } = mount();
+    (el('start') as HTMLInputElement).value = '45';
+    (el('end') as HTMLInputElement).value = '765';
+    (el('playback') as HTMLSelectElement).value = 'loop';
+    el('play').click();
+    pump(5);
+    expect(driven).toEqual([45, 285, 525, 765, 285, 525]);
   });
 
   it('reciprocate: bounces at both ends', () => {

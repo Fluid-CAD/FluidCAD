@@ -10,14 +10,24 @@ import { SceneObject, SourceLocation } from "../common/scene-object.js";
 export type SelectionScene = {
   getAllSceneObjects(): SceneObject[];
   findEnclosingPart(obj: SceneObject): SceneObject | null;
+  /**
+   * The statement the view is truncated before — the one being re-authored
+   * (every boundary comes from an edit session; creation never scopes).
+   * Registries that live outside the object list (a part's connectors)
+   * still hold it, so name-uniqueness checks skip it: an edited connector
+   * keeping its own name is not a clash with itself.
+   */
+  editedStatement?: SceneObject;
 };
 
 /** View of `scene` truncated to objects strictly before `boundaryIndex`. */
 export function scopedSceneBefore(scene: SelectionScene, boundaryIndex: number): SelectionScene {
-  const objects = scene.getAllSceneObjects().slice(0, boundaryIndex);
+  const all = scene.getAllSceneObjects();
+  const objects = all.slice(0, boundaryIndex);
   return {
     getAllSceneObjects: () => objects,
     findEnclosingPart: (obj) => scene.findEnclosingPart(obj),
+    editedStatement: all[boundaryIndex],
   };
 }
 

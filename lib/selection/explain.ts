@@ -294,7 +294,11 @@ export function synthesizeApplyFeature(
         // statement would land in a body the current buffer doesn't hold.
         return { ok: false, reason: 'the enclosing part() lives in a different file than the picked geometry' };
       }
-      if (enclosing instanceof Part && enclosing.getNamedConnectors()[name]) {
+      // An edit re-picking its source keeps its own registration — only a
+      // sibling (before or after the edited statement) is a clash.
+      const clash = enclosing instanceof Part
+        && enclosing.getConnectors().some(c => c.connectorName === name && c !== scene.editedStatement);
+      if (clash) {
         return {
           ok: false,
           reason: `the part already has a connector named "${name}" — pick a different name`,

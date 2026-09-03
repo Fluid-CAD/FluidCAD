@@ -10,6 +10,7 @@ import { coincident } from "../../core/constraints/index.js";
 import { face } from "../../filters/index.js";
 import { Scene } from "../../rendering/scene.js";
 import { synthesizeApplyFeature } from "../../selection/explain.js";
+import { scopedSceneBefore } from "../../selection/types.js";
 import { suggestConnectorAnchors } from "../../selection/connector-anchors.js";
 import { edgeRefsWhere, faceRefsWhere, findSolid, findSolids, setLocation } from "./pick-helpers.js";
 import { Connector } from "../../features/connector.js";
@@ -84,6 +85,38 @@ describe("connector synthesis", () => {
     expect(result.ok).toBe(false);
     if (result.ok === false) {
       expect(result.reason).toContain('part()');
+    }
+  });
+
+  it("edit mode keeps the edited connector's own name and still refuses a sibling's", () => {
+    const p = part("housing", () => {
+      sketch("xy", () => {
+          testRect(100, 50);
+        });
+      const e = extrude(30);
+      setLocation(e, 5);
+      connector("mountTop", select(face().planar().onPlane("xy", 30)));
+      connector("mountBottom", select(face().planar().onPlane("xy", 0)));
+    });
+    setLocation(p, 2);
+    const scene = render();
+    const solid = findSolid(scene);
+    const tops = faceRefsWhere(solid, m => Math.abs(m.z - 30) < 1e-6);
+    expect(tops).toHaveLength(1);
+    const edited = scene.getAllSceneObjects()
+      .findIndex(o => o instanceof Connector && o.connectorName === "mountTop");
+    expect(edited).toBeGreaterThan(0);
+    const scoped = scopedSceneBefore(scene, edited);
+
+    // Re-picking the source under the statement's own name is not a clash.
+    const kept = synthesizeApplyFeature(scoped, tops, 'connector', 'mountTop');
+    expect(kept.ok).toBe(true);
+
+    // A sibling declared AFTER the edited statement still owns its name.
+    const sibling = synthesizeApplyFeature(scoped, tops, 'connector', 'mountBottom');
+    expect(sibling.ok).toBe(false);
+    if (sibling.ok === false) {
+      expect(sibling.reason).toContain('already has a connector named "mountBottom"');
     }
   });
 

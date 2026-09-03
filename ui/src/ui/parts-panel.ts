@@ -26,6 +26,7 @@ import {
   ICON_ADJUSTMENTS,
   ICON_CHEVRON_RIGHT,
   ICON_CODE,
+  ICON_COPY,
   ICON_CUBE,
   ICON_DOTS_VERTICAL,
   ICON_EYE,
@@ -38,6 +39,9 @@ import { AccordionSection } from './accordion-section';
 
 const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
 
+/** The ⧉ marker on a replica row/header — its statement is the replicate() call. */
+const REPLICA_BADGE = '<span class="text-[10px] text-base-content/40 shrink-0" data-replica-badge title="Replica — its statement is the replicate() call; edit or trim it by row">⧉</span>';
+
 /** Statement-editing actions on a top-level occurrence's own insert() chain. */
 export type OccurrenceHandlers = {
   onShowInSource: (occurrenceId: string) => void;
@@ -49,6 +53,19 @@ export type OccurrenceHandlers = {
 
 type RenameTarget = { kind: 'instance' | 'occurrence'; id: string };
 
+/**
+ * The replicate dialog's entry points: "Replicate…" on root-scope rows and
+ * occurrence headers (disabled until the record has a mate), and the
+ * edit/remove actions on the replicas a statement produced.
+ */
+export type ReplicateHandlers = {
+  /** Whether the record has a mate in its scope — Replicate… is disabled otherwise. */
+  canReplicate: (kind: 'instance' | 'occurrence', id: string) => boolean;
+  onReplicate: (kind: 'instance' | 'occurrence', id: string) => void;
+  onEditReplicate: (kind: 'instance' | 'occurrence', id: string) => void;
+  onRemoveReplica: (kind: 'instance' | 'occurrence', id: string) => void;
+};
+
 export interface PartsPanelOptions {
   /**
    * A host that cannot edit source (the browser viewer): rows keep select /
@@ -56,6 +73,8 @@ export interface PartsPanelOptions {
    * every action there rewrites an insert() statement.
    */
   readOnly?: boolean;
+  /** Replicate entry points; absent on hosts without the replicate dialog. */
+  replicate?: ReplicateHandlers;
 }
 
 export class PartsPanel {
@@ -83,6 +102,7 @@ export class PartsPanel {
   private occurrenceHandlers: OccurrenceHandlers | null;
   private onEditParams: ((kind: 'instance' | 'occurrence', id: string) => void) | null;
   private readonly readOnly: boolean;
+  private readonly replicate: ReplicateHandlers | null;
 
   constructor(
     container: HTMLElement,
@@ -98,6 +118,7 @@ export class PartsPanel {
     options: PartsPanelOptions = {},
   ) {
     this.readOnly = options.readOnly === true;
+    this.replicate = options.replicate ?? null;
     this.onSelectInstance = onSelectInstance;
     this.onToggleVisibility = onToggleVisibility;
     this.onShowInSource = onShowInSource;
@@ -289,6 +310,7 @@ export class PartsPanel {
         <span data-ref="chevron" class="flex items-center justify-center w-4 h-4 opacity-50 transition-transform${collapsed ? '' : ' rotate-90'}">${ICON_CHEVRON_RIGHT}</span>
         <span class="relative shrink-0 inline-flex items-center justify-center w-4 h-4 text-base-content/60 [&>svg]:size-4">${ICON_CUBE}${groundOverlay}</span>
         ${nameOrInput}
+        ${occ.replica ? REPLICA_BADGE : ''}
         <span class="text-xs text-base-content/40 tabular-nums shrink-0">${members.length}</span>
         <button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-group-eye="${occurrenceId}">${eyeIcon}</button>
         ${this.dotsButtonHtml('data-group-dots', occurrenceId)}
@@ -319,6 +341,7 @@ export class PartsPanel {
       <div class="group flex items-center gap-2 ${padding} py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/80${selectedClass}" data-instance-id="${inst.instanceId}">
         ${groundSlot}
         ${nameOrInput}
+        ${inst.replica ? REPLICA_BADGE : ''}
         <button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-eye="${inst.instanceId}">${eyeIcon}</button>
         ${this.dotsButtonHtml('data-dots', inst.instanceId)}
       </div>
@@ -501,6 +524,9 @@ export class PartsPanel {
       return;
     }
     const owned = (inst.owner ?? '') !== '';
+    // A replica's statement is the replicate() call: its row edits or trims
+    // that statement instead of an insert() of its own.
+    const replica = inst.replica !== undefined;
     // Presence of resolved values ⇔ the definition declared param()s —
     // parameterless parts keep the item visible but disabled (discoverability
     // over hiding).
@@ -510,8 +536,9 @@ export class PartsPanel {
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
         ${PartsPanel.menuItem('show-in-source', ICON_CODE, 'Show in source')}
-        ${owned ? '' : `
+        ${replica ? this.replicaMenuItems() : owned ? '' : `
         ${PartsPanel.menuItem('edit-params', ICON_ADJUSTMENTS, 'Edit parameters…', '', !hasParams, 'This part has no parameters')}
+        ${this.replicateMenuItem('instance', instanceId)}
         ${PartsPanel.menuItem('set-ground', ICON_GROUND, 'Toggle grounded', inst.grounded ? 'text-warning' : '')}
         ${PartsPanel.menuItem('rename', ICON_PENCIL, 'Rename')}
         ${PartsPanel.menuItem('delete', ICON_TRASH, 'Delete', 'text-error')}`}
@@ -522,6 +549,10 @@ export class PartsPanel {
       this.closeDropdown();
       this.onShowInSource(instanceId);
     });
+    if (replica) {
+      this.bindReplicaActions(dropdown, 'instance', instanceId);
+      return;
+    }
     if (!owned && hasParams) {
       dropdown.querySelector('[data-action="edit-params"]')!.addEventListener('click', () => {
         this.closeDropdown();
@@ -529,6 +560,7 @@ export class PartsPanel {
       });
     }
     if (!owned) {
+      this.bindReplicateAction(dropdown, 'instance', instanceId);
       dropdown.querySelector('[data-action="set-ground"]')!.addEventListener('click', () => {
         this.closeDropdown();
         // Toggle: a grounded instance drops its `.grounded()` again, rather than
@@ -560,28 +592,35 @@ export class PartsPanel {
       return;
     }
 
+    const replica = occ.replica !== undefined;
     const hasParams = (occ.params?.length ?? 0) > 0;
     const dropdown = this.openDropdownShell(position, anchor);
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
         ${PartsPanel.menuItem('show-in-source', ICON_CODE, 'Show in source')}
+        ${replica ? this.replicaMenuItems() : `
         ${PartsPanel.menuItem('edit-params', ICON_ADJUSTMENTS, 'Edit parameters…', '', !hasParams, 'This assembly has no parameters')}
+        ${this.replicateMenuItem('occurrence', occurrenceId)}
         ${PartsPanel.menuItem('set-ground', ICON_GROUND, 'Toggle grounded', occ.grounded ? 'text-warning' : '')}
         ${PartsPanel.menuItem('rename', ICON_PENCIL, 'Rename')}
-        ${PartsPanel.menuItem('delete', ICON_TRASH, 'Delete', 'text-error')}
+        ${PartsPanel.menuItem('delete', ICON_TRASH, 'Delete', 'text-error')}`}
       </ul>
     `;
+    dropdown.querySelector('[data-action="show-in-source"]')!.addEventListener('click', () => {
+      this.closeDropdown();
+      handlers.onShowInSource(occurrenceId);
+    });
+    if (replica) {
+      this.bindReplicaActions(dropdown, 'occurrence', occurrenceId);
+      return;
+    }
     if (hasParams) {
       dropdown.querySelector('[data-action="edit-params"]')!.addEventListener('click', () => {
         this.closeDropdown();
         this.onEditParams?.('occurrence', occurrenceId);
       });
     }
-
-    dropdown.querySelector('[data-action="show-in-source"]')!.addEventListener('click', () => {
-      this.closeDropdown();
-      handlers.onShowInSource(occurrenceId);
-    });
+    this.bindReplicateAction(dropdown, 'occurrence', occurrenceId);
     dropdown.querySelector('[data-action="set-ground"]')!.addEventListener('click', () => {
       this.closeDropdown();
       handlers.onSetGround(occurrenceId, !occ.grounded);
@@ -594,6 +633,50 @@ export class PartsPanel {
     dropdown.querySelector('[data-action="delete"]')!.addEventListener('click', () => {
       this.closeDropdown();
       handlers.onDelete(occurrenceId);
+    });
+  }
+
+  /** "Replicate…" for a root record — visible but disabled (with the reason) until it has a mate. */
+  private replicateMenuItem(kind: 'instance' | 'occurrence', id: string): string {
+    if (!this.replicate) {
+      return '';
+    }
+    const can = this.replicate.canReplicate(kind, id);
+    return PartsPanel.menuItem('replicate', ICON_COPY, 'Replicate…', '', !can, 'Mate it first');
+  }
+
+  private bindReplicateAction(dropdown: HTMLElement, kind: 'instance' | 'occurrence', id: string): void {
+    const handlers = this.replicate;
+    if (!handlers || !handlers.canReplicate(kind, id)) {
+      return;
+    }
+    dropdown.querySelector('[data-action="replicate"]')?.addEventListener('click', () => {
+      this.closeDropdown();
+      handlers.onReplicate(kind, id);
+    });
+  }
+
+  /** A replica's actions: its statement is the replicate() call, edited whole or trimmed by row. */
+  private replicaMenuItems(): string {
+    if (!this.replicate) {
+      return '';
+    }
+    return PartsPanel.menuItem('edit-replicate', ICON_PENCIL, 'Edit replicate…')
+      + PartsPanel.menuItem('remove-replica', ICON_TRASH, 'Remove this replica', 'text-error');
+  }
+
+  private bindReplicaActions(dropdown: HTMLElement, kind: 'instance' | 'occurrence', id: string): void {
+    const handlers = this.replicate;
+    if (!handlers) {
+      return;
+    }
+    dropdown.querySelector('[data-action="edit-replicate"]')?.addEventListener('click', () => {
+      this.closeDropdown();
+      handlers.onEditReplicate(kind, id);
+    });
+    dropdown.querySelector('[data-action="remove-replica"]')?.addEventListener('click', () => {
+      this.closeDropdown();
+      handlers.onRemoveReplica(kind, id);
     });
   }
 

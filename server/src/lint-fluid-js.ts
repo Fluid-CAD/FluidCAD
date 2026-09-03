@@ -37,7 +37,7 @@ const CORE_SYMBOLS = new Set<string>([
   'cut', 'revolve', 'extrude', 'sphere', 'cylinder', 'select', 'shell',
   'chamfer', 'fillet', 'translate', 'rotate', 'mirror', 'copy', 'repeat',
   'load', 'loft', 'sweep', 'rib', 'color', 'draft', 'remove',
-  'part', 'assembly', 'breakpoint', 'connector', 'expose', 'insert', 'mate',
+  'part', 'assembly', 'breakpoint', 'connector', 'expose', 'insert', 'mate', 'replicate',
   'line', 'circle', 'ellipse', 'arc', 'offset', 'project', 'intersect',
   'bezier', 'point',
   // Sketch datum accessors (origin + axes, constraint sketches).

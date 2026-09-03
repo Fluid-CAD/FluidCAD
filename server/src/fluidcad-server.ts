@@ -40,6 +40,8 @@ export type SerializedAssembly = {
     /** Resolved parameter values of the instance's template variant — absent pre-parameters engines. */
     paramValues?: Record<string, string | number | boolean | (string | number)[]>;
     sourceLocation?: { filePath: string; line: number; column: number };
+    /** Present on a replica produced by a `replicate()` statement. */
+    replica?: { of: string; statement: string; row: number };
   }>;
   /** Sub-assembly occurrences — absent on engines predating assembly() definitions. */
   occurrences?: Array<{
@@ -62,6 +64,8 @@ export type SerializedAssembly = {
      */
     exports?: Array<{ path: string[]; instanceId?: string; occurrenceId?: string }>;
     sourceLocation?: { filePath: string; line: number; column: number };
+    /** Present on a replica produced by a `replicate()` statement. */
+    replica?: { of: string; statement: string; row: number };
   }>;
   mates: Array<{
     mateId: string;
@@ -75,6 +79,8 @@ export type SerializedAssembly = {
     status: 'satisfied' | 'redundant' | 'inconsistent';
     options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number]; propagate?: boolean };
     sourceLocation?: { filePath: string; line: number; column: number };
+    /** Present on a replicated mate produced by a `replicate()` statement. */
+    replica?: { of: string; statement: string; row: number };
   }>;
   /** Assembly-level connectors — absent on engines predating them. */
   connectors?: Array<{
@@ -85,6 +91,24 @@ export type SerializedAssembly = {
     xDirection: { x: number; y: number; z: number };
     yDirection: { x: number; y: number; z: number };
     normal: { x: number; y: number; z: number };
+    sourceLocation?: { filePath: string; line: number; column: number };
+  }>;
+  /** `replicate()` statements — absent on engines predating them. */
+  replicates?: Array<{
+    replicateId: string;
+    owner: string;
+    seed: { instanceId?: string; occurrenceId?: string };
+    targets: Array<
+      | { kind: 'connector'; instanceId: string; connectorId: string }
+      | { kind: 'frame'; connectorId: string }
+      | { kind: 'geometry'; instanceId: string; exposeName: string }
+    >;
+    rows: Array<Array<
+      | { kind: 'connector'; instanceId: string; connectorId: string }
+      | { kind: 'frame'; connectorId: string }
+      | { kind: 'geometry'; instanceId: string; exposeName: string }
+    >>;
+    produced: Array<{ instanceId?: string; occurrenceId?: string }>;
     sourceLocation?: { filePath: string; line: number; column: number };
   }>;
 };
@@ -1130,6 +1154,11 @@ export class FluidCadServer {
           for (const connector of assembly.connectors ?? []) {
             if (connector.sourceLocation) {
               connector.sourceLocation.filePath = connector.sourceLocation.filePath.replace('virtual:live-render:', '');
+            }
+          }
+          for (const replicate of assembly.replicates ?? []) {
+            if (replicate.sourceLocation) {
+              replicate.sourceLocation.filePath = replicate.sourceLocation.filePath.replace('virtual:live-render:', '');
             }
           }
         }

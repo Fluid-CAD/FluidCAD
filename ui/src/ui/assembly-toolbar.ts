@@ -8,6 +8,8 @@ export type AssemblyToolbarHandlers = {
   onInsert?: () => void;
   /** The Connector button — opens the assembly-connector dialog. */
   onConnector?: () => void;
+  /** The Replicate button — opens the replicate dialog on the selection, or arms a seed pick. */
+  onReplicate?: () => void;
   /** A mate button — opens the mate dialog with that type preselected. */
   onMate?: (type: AssemblyMateType) => void;
 };
@@ -19,8 +21,9 @@ export type AssemblyToolbarHandlers = {
  * `Navbar.setMode`.
  *
  * Insert opens the part-catalog dialog; the mate buttons open the mate
- * dialog with a type preselected; Connector (last) the assembly-connector
- * dialog (a mate frame placed freely in the assembly's space). Buttons without a
+ * dialog with a type preselected; Replicate the replicate dialog on the
+ * selected seed; Connector (last) the assembly-connector dialog (a mate
+ * frame placed freely in the assembly's space). Buttons without a
  * handler are placeholders that render like the real tools but only
  * announce themselves as unimplemented when clicked.
  */
@@ -32,7 +35,6 @@ export class AssemblyToolbar {
     } else {
       this.addPlaceholder(insertGroup, { icon: 'insert', label: 'Insert', tip: 'Insert part' });
     }
-
     // One button per mate type the solver implements (JOINT_SPECS in
     // ui/src/solver/joint-model.ts). Types the solver doesn't support yet are
     // commented out below — restore each entry when its phase lands.
@@ -58,8 +60,15 @@ export class AssemblyToolbar {
     }
     // this.addPlaceholder(mateGroup, { icon: 'joint-spherical', label: 'Spherical', tip: 'Spherical mate' });
 
-    // Last: the connector is the occasional tool, the mates are the daily ones.
+    // Last group, the occasional tools after the daily mates: Replicate
+    // (copies of a mated seed onto new targets) then Connector.
     const connectorGroup = navbar.addGroup('assembly-connector', { mode: 'assembly' });
+    const replicateOpts = { icon: 'replicate', label: 'Replicate', tip: 'Replicate a mated part or sub-assembly onto new targets' };
+    if (handlers.onReplicate) {
+      this.addButton(connectorGroup, replicateOpts, handlers.onReplicate);
+    } else {
+      this.addPlaceholder(connectorGroup, replicateOpts);
+    }
     const connectorOpts = { icon: 'mate-connector', label: 'Connector', tip: 'Assembly connector' };
     if (handlers.onConnector) {
       this.addButton(connectorGroup, connectorOpts, handlers.onConnector);

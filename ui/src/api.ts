@@ -4128,6 +4128,11 @@ export type AssemblyMateConnectorRef = {
   instanceLine: number;
   connectorName: string;
   viaParts?: AssemblyMateViaEntry[];
+  /**
+   * The anchor is a replica: `instanceLine` is its `replicate()` statement's
+   * line and the side lives on its row-th (0-based) copy.
+   */
+  replicaRow?: number;
 };
 
 /** The mate dialog's option state; no-op values are omitted from the chain. */
@@ -4149,6 +4154,8 @@ export type AssemblyMateGeometryRef = {
   instanceLine: number;
   exposeName?: string;
   pick?: { shapeId: string; sub: { type: 'face' | 'edge'; index: number } };
+  /** The instance is a replica — see AssemblyMateConnectorRef.replicaRow. */
+  replicaRow?: number;
 };
 
 /**
@@ -4380,6 +4387,58 @@ export async function getInstancePoseExpressions(
 // ---------------------------------------------------------------------------
 // Assembly connectors — `connector('name', [x, y, z])` at assembly level
 // ---------------------------------------------------------------------------
+
+/**
+ * One `replicate()` target column or row cell: any mate side kind — a part
+ * connector (optionally through `.parts` levels / on a replica), an
+ * assembly connector, or an exposure addressed by name (no raw picks: the
+ * replicate dialog's tangent columns take existing exposures only).
+ */
+export type AssemblyReplicateSideRef =
+  | AssemblyMateConnectorRef
+  | AssemblyMateFrameRef
+  | (AssemblyMateGeometryRef & { exposeName: string });
+
+/**
+ * The replicate dialog's statement: the seed's anchor `insert()` line, the
+ * outer mate sides that vary per replica (columns), and one row of
+ * replacements per replica (same length as `targets`).
+ */
+export type AssemblyReplicatePayload = {
+  seed: { instanceLine: number };
+  targets: AssemblyReplicateSideRef[];
+  rows: AssemblyReplicateSideRef[][];
+};
+
+/**
+ * Replicate-dialog commit: write a fresh `replicate()` statement after the
+ * seed's last mate (`create`), re-render one in place (`edit`, addressed by
+ * its serialized sourceLocation line), or drop one replica (`removeRow`,
+ * 0-based; the last row removes the statement). Failure bodies surface
+ * their reason like the mate route.
+ */
+export async function applyAssemblyReplicate(
+  filePath: string,
+  spec:
+    | { create: AssemblyReplicatePayload }
+    | { edit: AssemblyReplicatePayload & { sourceLine: number } }
+    | { removeRow: { sourceLine: number; row: number } },
+): Promise<{ success: boolean; reason?: string }> {
+  try {
+    const res = await fetch('/api/assembly-replicate', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ filePath, ...spec }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) {
+      return { success: false, reason: body?.reason ?? body?.error ?? `Request failed (${res.status})` };
+    }
+    return body ?? { success: false, reason: 'Empty server response' };
+  } catch {
+    return { success: false, reason: 'Could not reach the FluidCAD server' };
+  }
+}
 
 /**
  * The assembly-connector dialog's commit: `create` appends a bound

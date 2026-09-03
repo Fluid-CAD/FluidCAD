@@ -4,6 +4,7 @@ import { buildObjectMesh } from '../meshes/mesh-factory';
 import { buildConnectorGizmo } from '../meshes/containers/connector-mesh';
 import { onThemeChange } from './theme-colors';
 import { viewerSettings } from './viewer-settings';
+import { buildGhostClone, type ProvisionalReplicaSpec } from './provisional-replicas';
 import {
   WORLD_BODY_ID,
   Solver,
@@ -163,6 +164,23 @@ export class AssemblyController {
    */
   private provisionalMate: MateRecord | null = null;
 
+  /**
+   * The replicate dialog's live preview: ghost clones of the seed's bodies,
+   * one set per complete row, solved alongside the real ones through the
+   * row's re-targeted mates so each candidate replica lands on its targets
+   * while the dialog is still open. Ghosts live in {@link provisionalGroup}
+   * — never in `instances`, so they are neither pickable nor draggable —
+   * and are disposed on the next render (the service re-sends the spec
+   * after re-resolving its picks). `committed` keeps the ghosts on screen
+   * but out of the solve once Apply has written the statement.
+   */
+  private provisionalReplicas: {
+    rows: { mates: MateRecord[] }[];
+    ghosts: Map<string, { source: InstanceState; group: Group }>;
+    committed: boolean;
+  } | null = null;
+  private provisionalGroup = new Group();
+
   private dragState: {
     instanceId: string;
     plane: Plane;
@@ -217,6 +235,8 @@ export class AssemblyController {
     this.container.name = 'assemblyContainer';
     this.worldGroup.name = 'assemblyWorldConnectors';
     this.container.add(this.worldGroup);
+    this.provisionalGroup.name = 'assemblyProvisionalReplicas';
+    this.container.add(this.provisionalGroup);
     this.attachPointerHandlers();
     // Face/edge colors are baked into materials at build time and the
     // viewer's theme-change rebuild deliberately skips assembly mode, so
@@ -281,8 +301,11 @@ export class AssemblyController {
         this.partTemplates.set(obj.id, obj);
       }
     }
-    this.mates = assembly.mates.map(toMateRecord);
+    this.mates = assembly.mates.map(toSolverMateRecord);
     this.rebuildWorldConnectors(assembly.connectors ?? []);
+    // Ghost clones were built from the previous render's meshes; the
+    // replicate dialog re-sends its spec once its picks re-resolve.
+    this.disposeProvisionalReplicas();
 
     const incomingIds = new Set(assembly.instances.map(i => i.instanceId));
     for (const [id, state] of this.instances) {
@@ -363,6 +386,7 @@ export class AssemblyController {
     this.hoveredInstanceId = null;
     this.externalDrag = null;
     this.provisionalMate = null;
+    this.disposeProvisionalReplicas();
     this.worldPinned.clear();
     this.rebuildWorldConnectors([]);
   }
@@ -612,6 +636,22 @@ export class AssemblyController {
         contacts: state.contacts,
       });
     }
+    // Replica ghosts are bodies of their own while the replicate dialog
+    // previews: the seed's connectors/exposures (shared per part), posed
+    // wherever the last solve put the ghost.
+    const replicas = this.provisionalReplicas;
+    if (replicas && !replicas.committed) {
+      for (const [provisionalId, ghost] of replicas.ghosts) {
+        bodies.push({
+          instanceId: provisionalId,
+          position: ghost.group.position.clone(),
+          quaternion: ghost.group.quaternion.clone(),
+          grounded: false,
+          connectors: ghost.source.connectors,
+          contacts: ghost.source.contacts,
+        });
+      }
+    }
     // Assembly-connector mate sides resolve against a synthetic grounded
     // world body — appended whenever any committed OR provisional mate
     // references it, so the provisional preview solve (which also reads
@@ -655,10 +695,16 @@ export class AssemblyController {
    */
   private solverMates(): MateRecord[] {
     const provisional = this.provisionalMate;
-    if (!provisional) {
-      return this.mates;
+    let mates = provisional
+      ? [...this.mates.filter(m => m.mateId !== provisional.mateId), provisional]
+      : this.mates;
+    // Replica previews append their rows' mates (ids never collide with
+    // scene ids) — the seed's mates stay untouched.
+    const replicas = this.provisionalReplicas;
+    if (replicas && !replicas.committed) {
+      mates = [...mates, ...replicas.rows.flatMap(r => r.mates)];
     }
-    return [...this.mates.filter(m => m.mateId !== provisional.mateId), provisional];
+    return mates;
   }
 
   private applySolverOutput(out: SolverOutput): void {
@@ -669,9 +715,16 @@ export class AssemblyController {
     if (out.result !== 'okay' && out.result !== 'inconsistent') return;
     for (const solved of out.bodies) {
       const state = this.instances.get(solved.instanceId);
-      if (!state) continue;
-      state.group.position.copy(solved.position);
-      state.group.quaternion.copy(solved.quaternion);
+      if (state) {
+        state.group.position.copy(solved.position);
+        state.group.quaternion.copy(solved.quaternion);
+        continue;
+      }
+      const ghost = this.provisionalReplicas?.ghosts.get(solved.instanceId);
+      if (ghost) {
+        ghost.group.position.copy(solved.position);
+        ghost.group.quaternion.copy(solved.quaternion);
+      }
     }
   }
 
@@ -1333,6 +1386,101 @@ export class AssemblyController {
     this.provisionalMate = null;
   }
 
+  /**
+   * Solve the replicate dialog's candidate rows live (or clear them). Each
+   * row's clones start at the seed's serialized pose — its mates pull the
+   * ghost onto the row's targets — and render lightened and translucent
+   * (never hidden). Clearing restores every instance to its serialized
+   * pose before re-solving, exactly as {@link setProvisionalMate} does, so
+   * cancelling the dialog snaps any preview motion back.
+   */
+  setProvisionalReplicas(spec: ProvisionalReplicaSpec | null): void {
+    if (spec === null && this.provisionalReplicas === null) {
+      return;
+    }
+    this.disposeProvisionalReplicas();
+    if (spec === null) {
+      for (const state of this.instances.values()) {
+        const d = state.data;
+        state.group.position.set(d.position.x, d.position.y, d.position.z);
+        state.group.quaternion.set(d.quaternion.x, d.quaternion.y, d.quaternion.z, d.quaternion.w);
+      }
+      this.runSolverRefresh();
+      return;
+    }
+    const ghosts = new Map<string, { source: InstanceState; group: Group }>();
+    for (const row of spec.rows) {
+      for (const clone of row.clones) {
+        const source = this.instances.get(clone.sourceInstanceId);
+        if (!source) {
+          continue;
+        }
+        const group = buildGhostClone(source.group);
+        const d = source.data;
+        group.position.set(d.position.x, d.position.y, d.position.z);
+        group.quaternion.set(d.quaternion.x, d.quaternion.y, d.quaternion.z, d.quaternion.w);
+        this.provisionalGroup.add(group);
+        ghosts.set(clone.provisionalId, { source, group });
+      }
+    }
+    this.provisionalReplicas = {
+      rows: spec.rows.map(r => ({ mates: r.mates })),
+      ghosts,
+      committed: false,
+    };
+    this.runSolverRefresh();
+  }
+
+  /**
+   * The replicate statement was written: keep the ghosts where the preview
+   * solved them (the committed render replaces them with real instances at
+   * the same poses) but drop them from the solve, so nothing double-solves
+   * while that render is in flight.
+   */
+  commitProvisionalReplicas(): void {
+    if (this.provisionalReplicas) {
+      this.provisionalReplicas.committed = true;
+    }
+  }
+
+  /** Whether a replica preview is on screen (solving or committed). */
+  hasProvisionalReplicas(): boolean {
+    return this.provisionalReplicas !== null;
+  }
+
+  private disposeProvisionalReplicas(): void {
+    const replicas = this.provisionalReplicas;
+    if (!replicas) {
+      return;
+    }
+    for (const ghost of replicas.ghosts.values()) {
+      this.provisionalGroup.remove(ghost.group);
+      // Ghosts share the seed's geometry; disposeGroup only releases materials.
+      this.disposeGroup(ghost.group);
+    }
+    this.provisionalReplicas = null;
+  }
+
+  /**
+   * The connectors one instance carries (its part's, shared by every
+   * instance of the part), with their registered names — the replicate
+   * dialog's "fill from siblings" candidates.
+   */
+  listInstanceConnectors(instanceId: string): { connectorId: string; name: string }[] {
+    const state = this.instances.get(instanceId);
+    if (!state) {
+      return [];
+    }
+    const out: { connectorId: string; name: string }[] = [];
+    for (const connector of state.connectors) {
+      const name = this.getConnectorName(connector.connectorId);
+      if (name) {
+        out.push({ connectorId: connector.connectorId, name });
+      }
+    }
+    return out;
+  }
+
   /** The connector's registered name (`connector('name', …)`) — null when unknown. */
   getConnectorName(connectorId: string): string | null {
     for (const obj of this.allObjects) {
@@ -1735,7 +1883,11 @@ function pickedSlotKey(instanceId: string, connectorId: string): string {
   return `${instanceId}\0${connectorId}`;
 }
 
-function toMateRecord(m: SerializedAssemblyMate): MateRecord {
+/**
+ * A serialized mate as the solver reads it. Exported for the replicate
+ * dialog, which builds its provisional rows from the payload's mates.
+ */
+export function toSolverMateRecord(m: SerializedAssemblyMate): MateRecord {
   return {
     mateId: m.mateId,
     type: m.type,

@@ -54,6 +54,9 @@ import { loadPreferences, savePreference, gotoSource, parseFeatureAt, addBreakpo
 import { setActivePartLocationProvider, isRollbackViewTruncated } from './helpers/scene-utils';
 import { AssemblyGizmoDriver } from './interactive/gizmo/assembly-gizmo-driver';
 import { AssemblyMateService } from './interactive/assembly-mate/mate-service';
+import { AssemblyReplicateService } from './interactive/assembly-replicate/replicate-service';
+import { normalizeAssemblyPayload } from './scene/assembly-payload';
+import { seedHasMates } from './interactive/assembly-replicate/replicate-columns';
 import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-props-editor';
 import { AssemblyConnectorService } from './interactive/assembly-connector/connector-service';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
@@ -321,6 +324,7 @@ function buildAssemblyRail(): LeftRail {
     (id) => {
       joints.setSelected(null);
       viewer.highlightInstance(id);
+      toolSelectedInstanceId = id;
     },
     (id, visible) => {
       visibility.set(id, visible);
@@ -339,12 +343,12 @@ function buildAssemblyRail(): LeftRail {
       const inst = findInstance(id);
       // Occurrence-owned instances' statements live in the sub-assembly's
       // file — the panel hides these actions, this is the backstop.
-      if (!inst?.sourceLocation || inst.owner) return;
+      if (!inst?.sourceLocation || inst.owner || inst.replica) return;
       updateInsertChain(inst.sourceLocation, { ground: grounded });
     },
     (id, newName) => {
       const inst = findInstance(id);
-      if (!inst?.sourceLocation || inst.owner) return;
+      if (!inst?.sourceLocation || inst.owner || inst.replica) return;
       updateInsertChain(inst.sourceLocation, {
         name: newName,
         defaultName: defaultNameFor(inst),
@@ -352,7 +356,7 @@ function buildAssemblyRail(): LeftRail {
     },
     (id) => {
       const inst = findInstance(id);
-      if (!inst?.sourceLocation || inst.owner) return;
+      if (!inst?.sourceLocation || inst.owner || inst.replica) return;
       // Drops the whole `insert(...)` statement, its `const` binding included.
       // Mates that still reference the binding are left for the user — the
       // next render reports them, same as the timeline's Remove.
@@ -370,12 +374,12 @@ function buildAssemblyRail(): LeftRail {
       },
       onSetGround: (id, grounded) => {
         const occ = findOccurrence(id);
-        if (!occ?.sourceLocation) return;
+        if (!occ?.sourceLocation || occ.replica) return;
         updateInsertChain(occ.sourceLocation, { ground: grounded });
       },
       onRename: (id, newName) => {
         const occ = findOccurrence(id);
-        if (!occ?.sourceLocation) return;
+        if (!occ?.sourceLocation || occ.replica) return;
         updateInsertChain(occ.sourceLocation, {
           name: newName,
           defaultName: occ.assemblyName,
@@ -383,7 +387,7 @@ function buildAssemblyRail(): LeftRail {
       },
       onDelete: (id) => {
         const occ = findOccurrence(id);
-        if (!occ?.sourceLocation) return;
+        if (!occ?.sourceLocation || occ.replica) return;
         removeFeature(occ.sourceLocation);
       },
     },
@@ -393,7 +397,7 @@ function buildAssemblyRail(): LeftRail {
     (kind, id) => {
       if (kind === 'instance') {
         const inst = findInstance(id);
-        if (!inst?.sourceLocation || inst.owner) return;
+        if (!inst?.sourceLocation || inst.owner || inst.replica) return;
         const defs = lastPartTemplates.get(inst.partId)?.params;
         if (!Array.isArray(defs) || defs.length === 0) return;
         editParamsDialog.show({
@@ -406,7 +410,7 @@ function buildAssemblyRail(): LeftRail {
         });
       } else {
         const occ = findOccurrence(id);
-        if (!occ?.sourceLocation || !occ.params?.length) return;
+        if (!occ?.sourceLocation || occ.replica || !occ.params?.length) return;
         editParamsDialog.show({
           title: `${occ.name} — parameters`,
           subtitle: occ.assemblyName,
@@ -416,6 +420,32 @@ function buildAssemblyRail(): LeftRail {
           line: occ.sourceLocation.line,
         });
       }
+    },
+    {
+      // Replicate — a mated root record onto new targets (its statement is
+      // the seed's file); replica rows edit/trim the replicate() statement.
+      replicate: {
+        canReplicate: (kind, id) => lastAssemblyPayload !== null && seedHasMates(lastAssemblyPayload, { kind, id }),
+        onReplicate: (kind, id) => assemblyReplicateService.begin({ kind, id }),
+        onEditReplicate: (kind, id) => {
+          const record = findReplicateOf(kind, id);
+          if (record) {
+            assemblyReplicateService.beginEdit(record);
+          }
+        },
+        onRemoveReplica: (kind, id) => {
+          const record = findReplicateOf(kind, id);
+          const row = kind === 'instance' ? findInstance(id)?.replica?.row : findOccurrence(id)?.replica?.row;
+          if (!record || row === undefined) {
+            return;
+          }
+          void assemblyReplicateService.removeReplica(record, row).then((result) => {
+            if (!result.success && currentRail?.kind === 'assembly') {
+              currentRail.dragReadout.flashError(result.reason ?? 'Could not remove the replica');
+            }
+          });
+        },
+      },
     },
   );
   joints = new JointsPanel(
@@ -436,7 +466,7 @@ function buildAssemblyRail(): LeftRail {
       const mate = findMate(id);
       // Owned mates' statements live in the sub-assembly's file — the panel
       // hides Edit for these, this is the backstop.
-      if (!mate?.sourceLocation || mate.owner) return;
+      if (!mate?.sourceLocation || mate.owner || mate.replica) return;
       assemblyMateService.beginEdit(mate);
     },
     (_id) => { /* phase 06+ */ },
@@ -444,7 +474,7 @@ function buildAssemblyRail(): LeftRail {
       const mate = findMate(id);
       // Owned mates' statements live in the sub-assembly's file — the panel
       // hides Delete for these, this is the backstop.
-      if (!mate?.sourceLocation || mate.owner) return;
+      if (!mate?.sourceLocation || mate.owner || mate.replica) return;
       // Drops the whole `mate(...)` statement.
       removeFeature(mate.sourceLocation);
     },
@@ -490,6 +520,10 @@ function buildAssemblyRail(): LeftRail {
         assemblyMateService.pickWorldConnector(connector.connectorId);
         return;
       }
+      if (assemblyReplicateService.isPicking) {
+        assemblyReplicateService.pickWorldConnector(connector.connectorId);
+        return;
+      }
       void assemblyConnectorService.edit(connector);
     },
     onToggleVisibility: (name, visible) => viewer.getAssemblyController()?.setWorldConnectorHidden(name, !visible),
@@ -523,6 +557,22 @@ function findOccurrence(occurrenceId: string) {
 function findMate(mateId: string) {
   return lastAssemblyPayload?.mates.find(m => m.mateId === mateId);
 }
+
+/** The replicate statement that produced a replica record (by its tag), or undefined. */
+function findReplicateOf(kind: 'instance' | 'occurrence', id: string) {
+  const tag = kind === 'instance' ? findInstance(id)?.replica : findOccurrence(id)?.replica;
+  if (!tag) {
+    return undefined;
+  }
+  return lastAssemblyPayload?.replicates?.find(r => r.replicateId === tag.statement);
+}
+
+/**
+ * The instance the last viewport/parts-panel click selected — what the
+ * toolbar's Replicate button opens on (its top-level occurrence for a
+ * sub-assembly member); null arms a seed pick instead.
+ */
+let toolSelectedInstanceId: string | null = null;
 
 function instanceHasMate(instanceId: string): boolean {
   if (!lastAssemblyPayload) return false;
@@ -733,6 +783,17 @@ new AssemblyToolbar(navbar, {
   // The service is constructed later (it needs the gizmo driver); toolbar
   // clicks only ever fire after startup completes.
   onMate: (type) => assemblyMateService.enter(type),
+  onReplicate: () => {
+    const inst = toolSelectedInstanceId ? findInstance(toolSelectedInstanceId) : undefined;
+    if (!inst) {
+      assemblyReplicateService.armSeedPick();
+      return;
+    }
+    const owner = inst.owner ?? '';
+    assemblyReplicateService.begin(owner
+      ? { kind: 'occurrence', id: owner.split('/')[0] }
+      : { kind: 'instance', id: inst.instanceId });
+  },
 });
 
 const regionService = new RegionPickService(viewer, navbar);
@@ -1891,6 +1952,11 @@ viewer.setInstanceDragReleaseHandler((instanceId, position) => {
   if (inst.owner) {
     return;
   }
+  // A replica's statement is its replicate() call; its pose comes from the
+  // row's mates. Live-only.
+  if (inst.replica) {
+    return;
+  }
   updateInsertChain(inst.sourceLocation, {
     translate: [position.x, position.y, position.z],
   });
@@ -1929,6 +1995,9 @@ const assemblyMateService = new AssemblyMateService(container, viewer, {
     viewer.clearHighlight();
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
+    // One picking dialog at a time: a replicate session yields to the mate
+    // dialog (and vice versa below).
+    assemblyReplicateService.exit();
     if (currentRail?.kind === 'assembly') {
       currentRail.connectors.setPickMode(true);
     }
@@ -1967,6 +2036,28 @@ const assemblyConnectorService = new AssemblyConnectorService(container, viewer,
     viewer.clearHighlight();
     viewer.clearInstanceHighlight();
     selectionInfoOverlay.hide();
+  },
+});
+
+// The replicate dialog: a parts-panel row, or the toolbar's Replicate
+// button, opens it on a seed (the toolbar without a selection arms a seed
+// pick); apply writes the replicate() statement via /api/assembly-replicate.
+const assemblyReplicateService = new AssemblyReplicateService(container, viewer, {
+  getAssembly: () => lastAssemblyPayload,
+  onEnter: () => {
+    assemblyGizmo.handleSelection(null);
+    viewer.clearHighlight();
+    viewer.clearInstanceHighlight();
+    selectionInfoOverlay.hide();
+    assemblyMateService.exit();
+    if (currentRail?.kind === 'assembly') {
+      currentRail.connectors.setPickMode(true);
+    }
+  },
+  onExit: () => {
+    if (currentRail?.kind === 'assembly') {
+      currentRail.connectors.setPickMode(false);
+    }
   },
 });
 
@@ -2050,7 +2141,7 @@ viewer.setContextMenuHandler((shapeId, sub, clientX, clientY, instanceId) => {
   if (currentRail?.kind === 'assembly') {
     // The multi-select menu over an instance's face/edge; members inherit
     // the seed's instance. Nothing while the mate dialog owns the viewport.
-    if (!assemblyMateService.isPicking) {
+    if (!assemblyMateService.isPicking && !assemblyReplicateService.isPicking) {
       measureController.handleContextMenu(shapeId, sub, clientX, clientY, instanceId);
     }
     return;
@@ -2089,6 +2180,12 @@ viewer.setSelectionHandler((shapeId, sub, instanceId, modifiers) => {
       assemblyMateService.handleClick(shapeId, sub, instanceId, modifiers);
       return;
     }
+    // Likewise the armed replicate dialog (or its seed pick).
+    if (assemblyReplicateService.isPicking) {
+      assemblyReplicateService.handleClick(shapeId, sub, instanceId, modifiers);
+      return;
+    }
+    toolSelectedInstanceId = instanceId ?? null;
     if (shapeId && sub && (sub.type === 'face' || sub.type === 'edge')) {
       // A face/edge pick is a measure click, as in a part file: plain click
       // replaces, ctrl/shift-click accumulates. The controller stamps the
@@ -2659,13 +2756,7 @@ function connectWebSocket() {
           rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null);
           assemblyGizmo.handleModeExit();
         } else {
-          const raw = msg.assembly;
-          const assembly: SerializedAssembly = {
-            instances: raw?.instances ?? [],
-            mates: raw?.mates ?? [],
-            occurrences: raw?.occurrences ?? [],
-            connectors: raw?.connectors ?? [],
-          };
+          const assembly = normalizeAssemblyPayload(msg.assembly);
           applyAssemblyToRail(rail, assembly);
           // Instance groups were just rebuilt/re-posed — re-anchor the
           // gizmo (or dismiss it if its instance is gone or now locked).
@@ -2678,6 +2769,7 @@ function connectWebSocket() {
         // ids (or closes, when the render switched to a part scene).
         assemblyMateService.handleSceneRendered(sceneKind);
         assemblyConnectorService.handleSceneRendered(sceneKind);
+        assemblyReplicateService.handleSceneRendered(sceneKind);
         if (msg.params !== undefined) {
           paramsPanel.update(msg.params);
         }

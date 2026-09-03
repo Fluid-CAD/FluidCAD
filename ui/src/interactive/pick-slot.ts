@@ -95,7 +95,10 @@ export class PickSlot {
   private dragIndex: number | null = null;
   private rows: HTMLElement[] = [];
 
-  constructor(host: HTMLElement, opts: { label: string; multiple: boolean; reorderable?: boolean; boxed?: boolean }) {
+  constructor(
+    host: HTMLElement,
+    opts: { label: string; multiple: boolean; reorderable?: boolean; boxed?: boolean; sublabel?: string },
+  ) {
     this.multiple = opts.multiple;
     this.forceBoxed = opts.boxed;
     this.reorderable = opts.reorderable ?? false;
@@ -109,7 +112,19 @@ export class PickSlot {
     header.className = 'flex items-center gap-1.5';
     header.append(this.labelEl, this.countEl);
     this.listEl = document.createElement('div');
-    host.append(header, this.listEl);
+    if (opts.sublabel !== undefined) {
+      // A muted italic line under the label — what the slot stands in for
+      // ("replaces c1"), kept out of the label so the label stays scannable.
+      const sublabel = document.createElement('span');
+      sublabel.className = 'italic text-[11px] text-base-content/50 leading-snug';
+      sublabel.textContent = opts.sublabel;
+      const head = document.createElement('div');
+      head.className = 'flex flex-col gap-0.5';
+      head.append(header, sublabel);
+      host.append(head, this.listEl);
+    } else {
+      host.append(header, this.listEl);
+    }
     host.addEventListener('click', () => this.onArm?.());
     this.render();
   }

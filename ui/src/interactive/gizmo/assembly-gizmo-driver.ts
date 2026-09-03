@@ -268,6 +268,11 @@ export class AssemblyGizmoDriver {
     if (inst.owner) {
       return undefined;
     }
+    // A replica's statement is its replicate() call — its pose comes from
+    // the row's mates; there is no per-replica translate to write.
+    if (inst.replica) {
+      return undefined;
+    }
     if (!inst.grounded && this.bindings.instanceHasMate(instanceId)) {
       return undefined;
     }

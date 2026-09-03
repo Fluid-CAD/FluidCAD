@@ -36,6 +36,7 @@ import {
   type AssemblyMateEditSpec,
   type ConnectorPropsEditSpec,
 } from './assembly-mate-edit.ts';
+import { applyAssemblyReplicateEdit, type AssemblyReplicateEditSpec } from './assembly-replicate-edit.ts';
 
 /**
  * A dialog numeric slot: a plain number, or verbatim expression text
@@ -282,6 +283,13 @@ export type ApplyFeatureEditSpec = {
    * as `assemblyMate`; every other spec field is ignored.
    */
   assemblyExport?: AssemblyExportEditSpec;
+  /**
+   * Replicate-dialog statement write: append a `replicate(seed, [targets],
+   * [rows])` statement after the seed's last mate, re-render the one at its
+   * source line, or drop one of its rows. Rides the same round trip as
+   * `assemblyMate`; every other spec field is ignored.
+   */
+  assemblyReplicate?: AssemblyReplicateEditSpec;
   /**
    * Part-tool statement write: append `part('<name>', () => {})` at top
    * level, the name auto-allocated past every part name already in the file
@@ -1495,6 +1503,9 @@ export async function applyFeatureEdit(
   }
   if (spec.connectorProps) {
     return applyConnectorPropsEdit(code, spec.connectorProps);
+  }
+  if (spec.assemblyReplicate) {
+    return applyAssemblyReplicateEdit(code, spec.assemblyReplicate);
   }
   if (spec.assemblyExport) {
     return applyAssemblyExportEdit(code, spec.assemblyExport);

@@ -1,12 +1,13 @@
 import { captureSourceLocation } from "../index.js";
 import { getCurrentScene } from "../scene-manager.js";
-import { AssemblyScene, AssemblyInstance, AssemblyOccurrence, OccurrenceExport } from "../rendering/assembly-scene.js";
+import { AssemblyScene } from "../rendering/assembly-scene.js";
 import { Part } from "../features/part.js";
 import { PartDefinition } from "../features/part-definition.js";
 import { Assembly } from "../features/assembly.js";
 import { Instance } from "../features/instance.js";
 import { Occurrence } from "../features/occurrence.js";
-import { collectedParamValues, validateParamOverrides } from "../features/param-overrides.js";
+import { validateParamOverrides } from "../features/param-overrides.js";
+import { createInstance, createOccurrence } from "../features/insert-records.js";
 import type { ParamOverrides } from "../param-registry.js";
 import { IPart } from "./interfaces.js";
 
@@ -33,7 +34,7 @@ function insert(target: unknown, overrides?: ParamOverrides): Instance<unknown> 
     validateParamOverrides("insert()", overrides);
   }
   if (target instanceof Assembly) {
-    return insertOccurrence(scene, target, overrides);
+    return createOccurrence(scene, target, overrides, captureSourceLocation() ?? undefined);
   }
 
   let partObj: Part;
@@ -51,98 +52,10 @@ function insert(target: unknown, overrides?: ParamOverrides): Instance<unknown> 
     throw new Error("insert(): expected a part(...) or assembly(...) definition — got " + typeof target + ".");
   }
 
-  const sourceLocation = captureSourceLocation();
-  // Counter-based id, stable across source edits. Source-line-derived ids
-  // collided when a blank-line insertion shifted later inserts onto a row
-  // already used by an earlier one (e.g. new `right` landing on old `front`'s
-  // `line:col`), and the UI controller's instance map keyed off id would then
-  // reuse the wrong part's mesh. `sourceLocation` is preserved separately on
-  // the record for drag-release `.translate(...)` writeback. Ids are counted
-  // per scope and path-qualified — see AssemblyScene.nextInstanceId.
-  const record: AssemblyInstance = {
-    instanceId: scene.nextInstanceId(),
-    owner: scene.currentScopePath(),
-    part: partObj,
-    position: { x: 0, y: 0, z: 0 },
-    quaternion: { x: 0, y: 0, z: 0, w: 1 },
-    grounded: false,
-    name: partObj.name(),
-    sourceLocation: sourceLocation ?? undefined,
-  };
-  scene.addInstance(record);
-  return new Instance(record);
-}
-
-function insertOccurrence<T>(scene: AssemblyScene, definition: Assembly<T>, overrides?: ParamOverrides): Occurrence<T> {
-  const sourceLocation = captureSourceLocation();
-  const record: AssemblyOccurrence = {
-    occurrenceId: scene.nextOccurrenceId(),
-    assemblyName: definition.assemblyName,
-    name: definition.assemblyName,
-    parentPath: scene.currentScopePath(),
-    position: { x: 0, y: 0, z: 0 },
-    quaternion: { x: 0, y: 0, z: 0, w: 1 },
-    grounded: false,
-    sourceLocation: sourceLocation ?? undefined,
-  };
-  scene.beginOccurrence(record);
-  let parts: T;
-  try {
-    // Always scoped (even with zero overrides): an occurrence's param()
-    // calls are its insertion interface, never the consuming file's panel.
-    const run = definition.runScoped(overrides ?? {});
-    parts = run.parts;
-    if (run.scope.collected.size > 0) {
-      record.params = Array.from(run.scope.collected.values());
-      record.paramValues = collectedParamValues(run.scope);
-    }
-  } finally {
-    scene.endOccurrence();
-  }
-  // The return value is the occurrence's export surface: whatever handles it
-  // chose to expose become addressable from the inserting file as
-  // `occ.parts.<path...>` — recorded here so the serialized scene can tell
-  // the mate writer HOW to spell a reference into this occurrence.
-  record.exports = collectOccurrenceExports(parts);
-  return new Occurrence<T>(record, parts);
-}
-
-/**
- * Walk the callback's return value for Instance/Occurrence handles, flattening
- * plain-object nesting into key paths (`{ left: { p1 } }` → `["left", "p1"]`).
- * Depth-capped and cycle-guarded — a self-referential return must not hang the
- * render; arrays and exotic objects are skipped (they have no stable member
- * path the writer could render).
- */
-function collectOccurrenceExports(parts: unknown): OccurrenceExport[] {
-  const out: OccurrenceExport[] = [];
-  const seen = new Set<object>();
-  const walk = (value: unknown, path: string[]): void => {
-    if (value instanceof Instance) {
-      out.push({ path, instanceId: value.record.instanceId });
-      return;
-    }
-    if (value instanceof Occurrence) {
-      out.push({ path, occurrenceId: value.record.occurrenceId });
-      return;
-    }
-    if (
-      path.length >= 4
-      || value === null
-      || typeof value !== "object"
-      || Array.isArray(value)
-      || Object.getPrototypeOf(value) !== Object.prototype
-      || seen.has(value)
-    ) {
-      return;
-    }
-    seen.add(value);
-    for (const [key, child] of Object.entries(value)) {
-      walk(child, [...path, key]);
-    }
-  };
-  walk(parts, []);
-  return out;
+  // Counter-based ids, stable across source edits — see
+  // AssemblyScene.nextInstanceId; `sourceLocation` is preserved separately
+  // on the record for drag-release `.translate(...)` writeback.
+  return createInstance(scene, partObj, captureSourceLocation() ?? undefined);
 }
 
 export default insert;

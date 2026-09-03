@@ -2,14 +2,38 @@ import {
   ensureSymbolImport,
   getJavaScriptParser,
   indentOf,
-  isBlankRow,
   joinLines,
   spliceCode,
   splitLines,
-  walkTree,
   type TSNode,
-  type TSTree,
 } from './code-editor.ts';
+import {
+  CONNECTOR_NAME,
+  EXPORT_KEY,
+  firstHiddenAnchor,
+  appendStatementInScope,
+  baseCallName,
+  chainBaseCall,
+  enclosingStatement,
+  expressionRoot,
+  findChainAt,
+  formatNumber,
+  insertStatementBefore,
+  resolveInstanceBinding,
+  resolveSideExpression,
+  resolveStatementBinding,
+  scopeOfAnchor,
+  type MateConnectorRef,
+  type MateFrameRef,
+  type MateGeometryRef,
+} from './assembly-chain-tools.ts';
+import { findReplicateStatementForSeeds } from './assembly-replicate-edit.ts';
+
+// The side-ref shapes and the generic placement helpers moved to
+// assembly-chain-tools.ts (shared with the replicate writer); re-exported
+// here so existing import sites keep working.
+export { appendStatement } from './assembly-chain-tools.ts';
+export type { MateConnectorRef, MateFrameRef, MateGeometryRef } from './assembly-chain-tools.ts';
 
 /**
  * Mate types the kernel's `mate()` accepts — restated here (mirroring
@@ -21,54 +45,6 @@ export const ASSEMBLY_MATE_TYPES = [
 ] as const;
 
 export type AssemblyMateType = (typeof ASSEMBLY_MATE_TYPES)[number];
-
-/** Connector names share the identifier pattern the kernel enforces. */
-const CONNECTOR_NAME = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-
-const NUMBER_DECIMALS = 6;
-
-/**
- * One side of a connector-authored mate: the anchor whose `insert()` chain
- * starts on `instanceLine` (1-based, the serialized sourceLocation — the
- * instance itself, or with `viaParts` the top-level OCCURRENCE the instance
- * lives under), and the part-owned connector's name.
- *
- * A direct side dereferences as `<binding>.connectors.<connectorName>`. A
- * `viaParts` side reaches through sub-assembly export chains instead: one
- * key path per occurrence level, each rendered as `.parts.<keys...>` —
- * `[["deep","nested"],["rodCap"]]` →
- * `<occBinding>.parts.deep.nested.parts.rodCap.connectors.<connectorName>`
- * (an empty key path is a callback that returned the handle bare: `.parts`
- * alone). The route resolves missing exports into keys before this module
- * ever sees the payload.
- */
-export type MateConnectorRef = {
-  instanceLine: number;
-  connectorName: string;
-  viaParts?: string[][];
-};
-
-/**
- * One side of a tangent mate: the same stable instance address, but the
- * part-owned exposure's name, dereferenced as
- * `<binding>.features.<exposeName>`.
- */
-export type MateGeometryRef = {
-  instanceLine: number;
-  exposeName: string;
-};
-
-/**
- * One assembly-connector side: the `connector('name', [x, y, z])` statement
- * starting on `connectorLine` (1-based, the serialized sourceLocation). It
- * dereferences as the statement's `const` binding (a bare expression
- * statement gets `const <connectorName> = ` prepended, like an unbound
- * `insert()`), and anchors statement placement like an instance side.
- */
-export type MateFrameRef = {
-  connectorLine: number;
-  connectorName: string;
-};
 
 /**
  * The dialog's option state, rendered as the canonical chain
@@ -201,12 +177,41 @@ export async function applyAssemblyMateEdit(
 
   const result = spec.edit
     ? await replaceMateStatement(working, spec.edit.sourceLine, statement, anchorLines)
-    : await appendStatementInScope(working, statement, anchorLines[0], anchorLines[1]);
+    : await placeCreatedMate(working, statement, anchorLines, expressions);
   if (result.error) {
     return { newCode: code, error: result.error };
   }
   const out = await ensureSymbolImport(result.newCode, 'mate');
   return { newCode: out };
+}
+
+/**
+ * Where a created mate lands: in the first anchor's scope, before its
+ * `return` (see {@link appendStatementInScope}) — unless that scope already
+ * holds a `replicate()` whose seed is one of the mate's root bindings. A
+ * replicate snapshots the seed's mates in statement order, so a mate written
+ * after it would never replicate: the new mate goes directly BEFORE that
+ * statement instead. The mate's outer side is not one of the replicate's
+ * targets yet, so every replica shares it until the user adds the column.
+ */
+async function placeCreatedMate(
+  code: string,
+  statement: string,
+  anchorLines: number[],
+  expressions: string[],
+): Promise<AssemblyMateEditResult> {
+  const parser = await getJavaScriptParser();
+  const tree = parser.parse(code);
+  const scope = scopeOfAnchor(tree, anchorLines[0]);
+  const other = scopeOfAnchor(tree, anchorLines[1]);
+  if (scope && other && scope.startIndex !== other.startIndex) {
+    return appendStatementInScope(code, statement, anchorLines[0], anchorLines[1]);
+  }
+  const replicate = scope ? findReplicateStatementForSeeds(scope, expressions.map(expressionRoot)) : null;
+  if (replicate) {
+    return { newCode: insertStatementBefore(code, replicate, statement) };
+  }
+  return appendStatementInScope(code, statement, anchorLines[0], anchorLines[1]);
 }
 
 export function validateMatePayload(payload: AssemblyMatePayload): string | null {
@@ -275,7 +280,7 @@ export function validateMatePayload(payload: AssemblyMatePayload): string | null
       return `"${side.connectorName}" is not a valid connector name`;
     }
     for (const key of (side?.viaParts ?? []).flat()) {
-      if (!CONNECTOR_NAME.test(key)) {
+      if (!EXPORT_KEY.test(key)) {
         return `"${key}" is not a valid export key`;
       }
     }
@@ -327,19 +332,7 @@ async function resolveMateSideRef(
   code: string,
   ref: MateConnectorRef | MateGeometryRef,
 ): Promise<{ newCode: string; expression: string } | { error: string }> {
-  const instanceBinding = await resolveInstanceBinding(code, ref.instanceLine);
-  if ('error' in instanceBinding) {
-    return { error: instanceBinding.error };
-  }
-  const via = ('viaParts' in ref ? ref.viaParts : undefined) ?? [];
-  const chain = via.map(keys => ['parts', ...keys].join('.'));
-  const member = 'connectorName' in ref
-    ? `connectors.${ref.connectorName}`
-    : `features.${ref.exposeName}`;
-  return {
-    newCode: instanceBinding.newCode,
-    expression: [instanceBinding.name, ...chain, member].join('.'),
-  };
+  return resolveSideExpression(code, ref);
 }
 
 export function renderMateStatement(
@@ -367,271 +360,6 @@ export function renderMateStatement(
     statement += '.noPropagate()';
   }
   return `${statement};`;
-}
-
-function formatNumber(n: number): string {
-  // Strip float noise but keep short literals exact: `1.5` stays `1.5`.
-  return String(+n.toFixed(NUMBER_DECIMALS));
-}
-
-/**
- * The `const` identifier the instance's `insert()` chain is bound to. A bare
- * `insert(...)` expression statement gets `const <name> = ` prepended (named
- * after the inserted export, `sidePlate1` style) so the reference resolves.
- */
-async function resolveInstanceBinding(
-  code: string,
-  instanceLine: number,
-): Promise<{ newCode: string; name: string } | { error: string }> {
-  return resolveStatementBinding(code, instanceLine, 'insert');
-}
-
-/**
- * The `const` identifier the statement starting on `line` is bound to,
- * where the statement's chain must bottom out in a `<expectedBase>(...)`
- * call. A bare expression statement gets `const <name> = ` prepended:
- * `preferredName` (an assembly connector's own name) when that word is
- * free in the file, else the `pickBindingName` derivation.
- */
-async function resolveStatementBinding(
-  code: string,
-  line: number,
-  expectedBase: 'insert' | 'connector',
-  preferredName?: string,
-): Promise<{ newCode: string; name: string } | { error: string }> {
-  const parser = await getJavaScriptParser();
-  const tree = parser.parse(code);
-  const tail = findChainAt(tree, line);
-  if (!tail) {
-    return { error: `no ${expectedBase}() statement found on line ${line}` };
-  }
-  const base = chainBaseCall(tail);
-  if (baseCallName(base) !== expectedBase) {
-    return { error: `the statement on line ${line} is not ${expectedBase === 'insert' ? 'an insert()' : 'a connector()'} — the source may have shifted; re-render and try again` };
-  }
-
-  const statement = enclosingStatement(tail);
-  if (!statement) {
-    return { error: `could not resolve the ${expectedBase}() statement on line ${line}` };
-  }
-  if (statement.type === 'lexical_declaration' || statement.type === 'variable_declaration') {
-    const declarator = statement.namedChildren.find(c => c.type === 'variable_declarator');
-    const name = declarator?.childForFieldName('name');
-    if (!name || name.type !== 'identifier') {
-      return { error: `the ${expectedBase}() on line ${line} is not bound to a plain variable` };
-    }
-    return { newCode: code, name: name.text };
-  }
-  if (statement.type === 'expression_statement') {
-    const name = preferredName !== undefined
-      ? freeBindingName(code, preferredName)
-      : pickBindingName(code, base);
-    return {
-      newCode: spliceCode(code, statement.startIndex, statement.startIndex, `const ${name} = `),
-      name,
-    };
-  }
-  return { error: `the ${expectedBase}() on line ${line} sits inside a ${statement.type} — bind it to a top-level const first` };
-}
-
-/** Outermost call_expression starting on the 1-based source line. */
-function findChainAt(tree: TSTree, sourceLine: number): TSNode | null {
-  const row = sourceLine - 1;
-  if (row < 0) {
-    return null;
-  }
-  let best: TSNode | null = null;
-  for (const node of walkTree(tree.rootNode)) {
-    if (node.type !== 'call_expression' || node.startPosition.row !== row) {
-      continue;
-    }
-    if (!best || node.endIndex > best.endIndex) {
-      best = node;
-    }
-  }
-  return best;
-}
-
-/** Walk `insert(p).grounded().name('x')` down to the base `insert(p)` call. */
-function chainBaseCall(tail: TSNode): TSNode {
-  let cur = tail;
-  for (;;) {
-    const fn = cur.childForFieldName('function');
-    if (fn?.type !== 'member_expression') {
-      return cur;
-    }
-    const object = fn.childForFieldName('object');
-    if (!object || object.type !== 'call_expression') {
-      return cur;
-    }
-    cur = object;
-  }
-}
-
-function baseCallName(base: TSNode): string | null {
-  const fn = base.childForFieldName('function');
-  return fn?.type === 'identifier' ? fn.text : null;
-}
-
-function enclosingStatement(node: TSNode): TSNode | null {
-  let cur: TSNode | null = node;
-  while (cur) {
-    if (
-      cur.type === 'expression_statement'
-      || cur.type === 'lexical_declaration'
-      || cur.type === 'variable_declaration'
-    ) {
-      return cur;
-    }
-    cur = cur.parent;
-  }
-  return null;
-}
-
-/**
- * A fresh binding name for an unbound `insert(...)`: derived from the inserted
- * expression's leading identifier (`insert(sidePlate())` → `sidePlate1`), with
- * the smallest numeric suffix not already used as a word in the file.
- */
-function pickBindingName(code: string, base: TSNode): string {
-  const args = base.childForFieldName('arguments');
-  const firstArg = args?.namedChildren[0] ?? null;
-  let root: TSNode | null = firstArg;
-  while (root && root.type === 'call_expression') {
-    root = root.childForFieldName('function');
-  }
-  let baseName = root?.type === 'identifier' ? root.text : 'instance';
-  baseName = baseName.charAt(0).toLowerCase() + baseName.slice(1);
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(baseName)) {
-    baseName = 'instance';
-  }
-  for (let n = 1; ; n++) {
-    const candidate = `${baseName}${n}`;
-    if (!wordUsed(code, candidate)) {
-      return candidate;
-    }
-  }
-}
-
-/** `preferred` itself when free in the file, else `preferred1`, `preferred2`, … */
-function freeBindingName(code: string, preferred: string): string {
-  if (!wordUsed(code, preferred)) {
-    return preferred;
-  }
-  for (let n = 1; ; n++) {
-    const candidate = `${preferred}${n}`;
-    if (!wordUsed(code, candidate)) {
-      return candidate;
-    }
-  }
-}
-
-function wordUsed(code: string, word: string): boolean {
-  // String literals don't occupy the identifier namespace — without
-  // stripping them, a connector named 'pivot' would block the binding
-  // `pivot` purely because of its own name literal.
-  const withoutStrings = code.replace(/'[^'\n]*'|"[^"\n]*"|`[^`]*`/g, "''");
-  return new RegExp(`\\b${word}\\b`).test(withoutStrings);
-}
-
-/** Append the statement after the last top-level statement, insert-edit style. */
-export function appendStatement(code: string, statement: string): AssemblyMateEditResult {
-  const lines = splitLines(code);
-  let lastRow = -1;
-  for (let row = lines.length - 1; row >= 0; row--) {
-    if (!isBlankRow(lines, row)) {
-      lastRow = row;
-      break;
-    }
-  }
-  const insertRow = lastRow + 1;
-  const separated = insertRow > 0 && !isBlankRow(lines, insertRow - 1)
-    && !isAssemblyStatementRow(lines[insertRow - 1]);
-  lines.splice(insertRow, 0, ...(separated ? ['', statement] : [statement]));
-  return { newCode: joinLines(lines) };
-}
-
-/** Nearest statement_block (or the program root) enclosing `node`. */
-function enclosingBlock(node: TSNode | null): TSNode | null {
-  let cur = node?.parent ?? null;
-  while (cur) {
-    if (cur.type === 'statement_block' || cur.type === 'program') {
-      return cur;
-    }
-    cur = cur.parent;
-  }
-  return null;
-}
-
-/** The scope holding the statement whose chain starts on `anchorLine`. */
-function scopeOfAnchor(tree: TSTree, anchorLine: number): TSNode | null {
-  const chain = findChainAt(tree, anchorLine);
-  const statement = chain ? enclosingStatement(chain) : null;
-  return enclosingBlock(statement);
-}
-
-/**
- * Append the statement into the SCOPE holding the anchor statement — inside
- * the `assembly()` body's statement block when the referenced `insert()`
- * lives in one (`export const xAxis = (w) => assembly('x-axis', () => {...})`
- * — the canonical sub-assembly form), the file's top level otherwise. A
- * file-end append there would reference the insert binding from OUTSIDE its
- * closure: a ReferenceError on the next render.
- *
- * Inside a block the statement lands BEFORE its `return` (statements after
- * it never run, and assembly bodies conventionally end on `return {...}`).
- * `requireSameScopeLine` (the mate's second connector) refuses when the two
- * anchors live in different scopes — no single placement could see both
- * bindings.
- */
-async function appendStatementInScope(
-  code: string,
-  statement: string,
-  anchorLine: number,
-  requireSameScopeLine?: number,
-): Promise<AssemblyMateEditResult> {
-  const parser = await getJavaScriptParser();
-  const tree = parser.parse(code);
-  const scope = scopeOfAnchor(tree, anchorLine);
-  if (requireSameScopeLine !== undefined) {
-    const other = scopeOfAnchor(tree, requireSameScopeLine);
-    if (scope && other && scope.startIndex !== other.startIndex) {
-      return {
-        newCode: code,
-        error: 'the two connectors\' instances live in different assembly bodies — mate them in the file that inserts both',
-      };
-    }
-  }
-  if (!scope || scope.type === 'program') {
-    return appendStatement(code, statement);
-  }
-
-  const lines = splitLines(code);
-  const statements = scope.namedChildren.filter(c => c.type !== 'comment');
-  const returnStmt = statements.find(c => c.type === 'return_statement') ?? null;
-  const lastStmt = statements[statements.length - 1] ?? null;
-  let insertRow: number;
-  let indent: string;
-  if (returnStmt) {
-    insertRow = returnStmt.startPosition.row;
-    indent = indentOf(lines, returnStmt.startPosition.row);
-  } else if (lastStmt) {
-    insertRow = lastStmt.endPosition.row + 1;
-    indent = indentOf(lines, lastStmt.startPosition.row);
-  } else {
-    // Unreachable in practice (the anchor statement lives in this block),
-    // but a defensive fallback beats dropping the edit.
-    return appendStatement(code, statement);
-  }
-  const separated = insertRow > 0 && !isBlankRow(lines, insertRow - 1)
-    && !isAssemblyStatementRow(lines[insertRow - 1]);
-  lines.splice(insertRow, 0, ...(separated ? ['', `${indent}${statement}`] : [`${indent}${statement}`]));
-  return { newCode: joinLines(lines) };
-}
-
-/** Consecutive mate() statements group without blank separators between them. */
-function isAssemblyStatementRow(line: string): boolean {
-  return /^\s*mate\s*\(/.test(line);
 }
 
 /**
@@ -726,22 +454,12 @@ async function replaceMateStatement(
   if (!target) {
     return { newCode: code, error: `could not resolve the mate() statement on line ${sourceLine}` };
   }
-  const visibleScopes = new Set<number>();
-  for (let cur: TSNode | null = target; cur; cur = cur.parent) {
-    if (cur.type === 'statement_block' || cur.type === 'program') {
-      visibleScopes.add(cur.startIndex);
-    }
-  }
-  for (const line of anchorLines) {
-    // A missing anchor scope means the insert() didn't resolve at all —
-    // resolveMateSideRef already refused that before this runs.
-    const anchorScope = scopeOfAnchor(tree, line);
-    if (anchorScope && !visibleScopes.has(anchorScope.startIndex)) {
-      return {
-        newCode: code,
-        error: `the insert() on line ${line} lives in a different assembly body than this mate — pick connectors from the mate's own scope`,
-      };
-    }
+  const hidden = firstHiddenAnchor(tree, target, anchorLines);
+  if (hidden !== null) {
+    return {
+      newCode: code,
+      error: `the insert() on line ${hidden} lives in a different assembly body than this mate — pick connectors from the mate's own scope`,
+    };
   }
   return { newCode: spliceCode(code, target.startIndex, target.endIndex, statement) };
 }

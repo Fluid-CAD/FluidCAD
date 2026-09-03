@@ -333,6 +333,43 @@ export type SerializedAssemblyInstance = {
   /** Resolved parameter values of the instance's template variant. */
   paramValues?: Record<string, InstanceParamValue>;
   sourceLocation?: { filePath: string; line: number; column: number };
+  /**
+   * Present on a replica produced by a `replicate()` statement. Its
+   * statement is that `replicate()` call (sourceLocation points there), so
+   * per-record writebacks (translate/ground/rename/delete) must not target
+   * it — edit the replicate statement's row instead.
+   */
+  replica?: ReplicaTag;
+};
+
+/**
+ * Stamped on every record a `replicate()` statement produced: `of` is the
+ * seed record's id (same kind as the tagged record), `statement` the
+ * replicate record's id, `row` the 0-based row that produced it.
+ */
+export type ReplicaTag = { of: string; statement: string; row: number };
+
+/** One mate side as a `replicate()` statement references it. */
+export type SerializedReplicateSide =
+  | { kind: 'connector'; instanceId: string; connectorId: string }
+  | { kind: 'frame'; connectorId: string }
+  | { kind: 'geometry'; instanceId: string; exposeName: string };
+
+/**
+ * One `replicate(seed, targets, rows)` statement: the seed record, the
+ * outer mate sides that vary per replica (columns), one replacement row per
+ * replica, and the record each row produced. Ids are the render's scene
+ * ids (connector ids re-mint per render, like mate sides).
+ */
+export type SerializedAssemblyReplicate = {
+  replicateId: string;
+  /** Scope the statement ran in: "" for the open file. */
+  owner: string;
+  seed: { instanceId?: string; occurrenceId?: string };
+  targets: SerializedReplicateSide[];
+  rows: SerializedReplicateSide[][];
+  produced: { instanceId?: string; occurrenceId?: string }[];
+  sourceLocation?: { filePath: string; line: number; column: number };
 };
 
 /** One inserted sub-assembly: `insert(assembly('name', cb))` in the open file or nested. */
@@ -361,6 +398,8 @@ export type SerializedAssemblyOccurrence = {
    */
   exports?: { path: string[]; instanceId?: string; occurrenceId?: string }[];
   sourceLocation?: { filePath: string; line: number; column: number };
+  /** Present on a replica produced by a `replicate()` statement — see SerializedAssemblyInstance.replica. */
+  replica?: ReplicaTag;
 };
 
 export type SerializedAssemblyMate = {
@@ -380,6 +419,8 @@ export type SerializedAssemblyMate = {
   status: 'satisfied' | 'redundant' | 'inconsistent';
   options?: { rotate?: number; flip?: boolean; offset?: [number, number, number]; limits?: [number, number]; propagate?: boolean };
   sourceLocation?: { filePath: string; line: number; column: number };
+  /** Present on a replicated mate: its statement is the `replicate()` call; edit the seed mate instead. */
+  replica?: ReplicaTag;
 };
 
 /**
@@ -406,6 +447,8 @@ export type SerializedAssembly = {
   occurrences?: SerializedAssemblyOccurrence[];
   /** Absent on engines predating assembly connectors. */
   connectors?: SerializedAssemblyConnector[];
+  /** Absent on engines predating `replicate()`. */
+  replicates?: SerializedAssemblyReplicate[];
 };
 
 /**

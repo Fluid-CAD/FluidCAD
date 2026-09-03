@@ -25,6 +25,7 @@ import {
   getPointExpression,
   extractVariablesInScope,
 } from '../code-editor.ts';
+import { removeStatementWithReplicateSweep } from '../assembly-replicate-edit.ts';
 import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 
@@ -655,7 +656,8 @@ export function createSketchEditsRouter(
       return;
     }
     try {
-      const result = await removeStatement(code, sourceLine);
+      // Assembly files sweep replicate() statements the removal orphans.
+      const result = await removeStatementWithReplicateSweep(code, sourceLine);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

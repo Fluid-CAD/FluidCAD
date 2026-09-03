@@ -3,13 +3,24 @@ import { Part } from "../features/part.js";
 import { Connector } from "../features/connector.js";
 import { Exposed } from "../features/exposed.js";
 import { SourceLocation } from "../common/scene-object.js";
-import type { ParamDefinition, ParamVal } from "../param-registry.js";
+import type { ParamDefinition, ParamOverrides, ParamVal } from "../param-registry.js";
+import type { Assembly } from "../features/assembly.js";
 import { serializableParamDefs } from "../features/param-overrides.js";
 import { Quaternion } from "../math/quaternion.js";
 import { Vector3d } from "../math/vector3d.js";
 
 export type Vec3 = { x: number; y: number; z: number };
 export type Quat = { x: number; y: number; z: number; w: number };
+
+/**
+ * Stamped on every record a `replicate()` statement produced: `of` is the
+ * SEED record's id (instance, occurrence or mate id — whichever kind this
+ * record is), `statement` the replicate record's id, `row` the 0-based row
+ * that produced it. The UI gates statement writebacks on it the way it
+ * gates occurrence-owned records: the replica's statement is the
+ * `replicate()` call, not an `insert()` of its own.
+ */
+export type ReplicaTag = { of: string; statement: string; row: number };
 
 export type AssemblyInstance = {
   instanceId: string;
@@ -27,6 +38,8 @@ export type AssemblyInstance = {
   grounded: boolean;
   name: string;
   sourceLocation?: SourceLocation;
+  /** Present on a replica: the seed instance, the replicate statement, the row. */
+  replica?: ReplicaTag;
 };
 
 /**
@@ -69,6 +82,15 @@ export type AssemblyOccurrence = {
   /** Handles the callback returned — always set on insert (possibly empty). */
   exports?: OccurrenceExport[];
   sourceLocation?: SourceLocation;
+  /**
+   * The definition this occurrence ran, with the overrides it was inserted
+   * with — live refs, never serialized. `replicate()` re-runs the body from
+   * these so a replica is the same sub-assembly with the same parameters.
+   */
+  definition?: Assembly<unknown>;
+  overrides?: ParamOverrides;
+  /** Present on a replica: the seed occurrence, the replicate statement, the row. */
+  replica?: ReplicaTag;
 };
 
 export type MateType =
@@ -144,6 +166,8 @@ export type AssemblyMate = {
   /** Assembly-connector sides — lower-pair mates only, at most one of the two. */
   frameA?: { connector: Connector };
   frameB?: { connector: Connector };
+  /** Present on a replicated mate: the seed mate, the replicate statement, the row. */
+  replica?: ReplicaTag;
 } & (
   | {
     connectorA?: { instanceId: string; connector: Connector };
@@ -174,6 +198,8 @@ export type SerializedInstance = {
   /** Resolved parameter values of the instance's template variant (insert-path builds only). */
   paramValues?: Record<string, ParamVal>;
   sourceLocation?: SourceLocation;
+  /** Present on a replica produced by a `replicate()` statement. */
+  replica?: ReplicaTag;
 };
 
 export type SerializedOccurrence = {
@@ -200,6 +226,8 @@ export type SerializedOccurrence = {
    */
   exports?: OccurrenceExport[];
   sourceLocation?: SourceLocation;
+  /** Present on a replica produced by a `replicate()` statement. */
+  replica?: ReplicaTag;
 };
 
 export type SerializedMate = {
@@ -218,7 +246,69 @@ export type SerializedMate = {
   status: 'satisfied' | 'redundant' | 'inconsistent';
   options?: MateOptions;
   sourceLocation?: SourceLocation;
+  /** Present on a replicated mate produced by a `replicate()` statement. */
+  replica?: ReplicaTag;
 };
+
+/**
+ * One mate side as `replicate()` holds it: a part connector bound to an
+ * instance, an assembly connector (no instance), or exposed geometry bound
+ * to an instance — the same three side kinds `mate()` accepts, in one
+ * discriminated shape. Live refs; ids are read at serialize time (same
+ * staleness rule as mate sides).
+ */
+export type ReplicateSide =
+  | { kind: 'connector'; instanceId: string; connector: Connector }
+  | { kind: 'frame'; connector: Connector }
+  | { kind: 'geometry'; instanceId: string; exposed: Exposed };
+
+/** Wire form of {@link ReplicateSide}. */
+export type SerializedReplicateSide =
+  | { kind: 'connector'; instanceId: string; connectorId: string }
+  | { kind: 'frame'; connectorId: string }
+  | { kind: 'geometry'; instanceId: string; exposeName: string };
+
+/** The seed of a replicate statement — exactly one of the two ids is set. */
+export type ReplicateSeedRef = { instanceId?: string; occurrenceId?: string };
+
+/**
+ * One `replicate(seed, targets, rows)` statement. `targets` are the seed's
+ * outer mate sides that vary per replica (the columns); `rows[k][j]`
+ * replaces `targets[j]` in replica `k`'s mates. `produced[k]` is the record
+ * replica `k` became — its instances/mates carry a {@link ReplicaTag}
+ * pointing back here.
+ */
+export type AssemblyReplicate = {
+  /** Per-scope counter id, path-qualified like instance ids: `rep-N`, `asm-0/rep-N`. */
+  replicateId: string;
+  /** Scope the statement ran in: "" for root, else an occurrence path. */
+  owner: string;
+  seed: ReplicateSeedRef;
+  targets: ReplicateSide[];
+  rows: ReplicateSide[][];
+  produced: ReplicateSeedRef[];
+  sourceLocation?: SourceLocation;
+};
+
+export type SerializedReplicate = {
+  replicateId: string;
+  owner: string;
+  seed: ReplicateSeedRef;
+  targets: SerializedReplicateSide[];
+  rows: SerializedReplicateSide[][];
+  produced: ReplicateSeedRef[];
+  sourceLocation?: SourceLocation;
+};
+
+function serializeReplicateSide(side: ReplicateSide): SerializedReplicateSide {
+  if (side.kind === 'connector') {
+    return { kind: 'connector', instanceId: side.instanceId, connectorId: side.connector.id };
+  }
+  if (side.kind === 'frame') {
+    return { kind: 'frame', connectorId: side.connector.id };
+  }
+  return { kind: 'geometry', instanceId: side.instanceId, exposeName: side.exposed.exposeName };
+}
 
 type Pose = { position: Vec3; quaternion: Quat };
 
@@ -249,6 +339,8 @@ export class AssemblyScene extends Scene {
   private _occurrences: AssemblyOccurrence[] = [];
   /** Connectors declared at assembly level (`connector('name', [x, y, z])`), in statement order. */
   private _connectors: Connector[] = [];
+  /** `replicate()` statements, in statement order. */
+  private _replicates: AssemblyReplicate[] = [];
   /** Occurrence paths currently executing — insert(assembly) runs its callback under its path. */
   private _scopeStack: string[] = [];
 
@@ -377,6 +469,35 @@ export class AssemblyScene extends Scene {
     return this._mates;
   }
 
+  /** Counter-based, per scope and path-qualified — see nextInstanceId. */
+  nextReplicateId(): string {
+    const owner = this.currentScopePath();
+    const local = `rep-${this._replicates.filter(r => r.owner === owner).length}`;
+    return owner ? `${owner}/${local}` : local;
+  }
+
+  addReplicate(replicate: AssemblyReplicate): void {
+    this._replicates.push(replicate);
+  }
+
+  getReplicates(): AssemblyReplicate[] {
+    return this._replicates;
+  }
+
+  getSerializedReplicates(): SerializedReplicate[] {
+    // Connector ids / exposure names read live at serialize time — same
+    // SceneCompare staleness rule as mate sides.
+    return this._replicates.map(rep => ({
+      replicateId: rep.replicateId,
+      owner: rep.owner,
+      seed: { ...rep.seed },
+      targets: rep.targets.map(serializeReplicateSide),
+      rows: rep.rows.map(row => row.map(serializeReplicateSide)),
+      produced: rep.produced.map(p => ({ ...p })),
+      sourceLocation: rep.sourceLocation,
+    }));
+  }
+
   ground(instanceId: string): void {
     for (const inst of this._instances) {
       if (inst.instanceId === instanceId) {
@@ -458,6 +579,7 @@ export class AssemblyScene extends Scene {
         name: inst.name,
         paramValues: inst.part.paramValues,
         sourceLocation: inst.sourceLocation,
+        replica: inst.replica,
       };
     });
   }
@@ -477,6 +599,7 @@ export class AssemblyScene extends Scene {
       paramValues: occ.paramValues,
       exports: occ.exports ?? [],
       sourceLocation: occ.sourceLocation,
+      replica: occ.replica,
     }));
   }
 
@@ -512,6 +635,7 @@ export class AssemblyScene extends Scene {
       status: 'satisfied',
       options: mate.options,
       sourceLocation: mate.sourceLocation,
+      replica: mate.replica,
     }));
   }
 }

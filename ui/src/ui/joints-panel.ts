@@ -203,6 +203,7 @@ export class JointsPanel {
               <span class="shrink-0 inline-block w-2 h-2 rounded-full ${dotColor}"></span>
               <img src="/icons/joint-${mate.type}.png" ${ICON_IMG_FALLBACK} class="shrink-0 w-5 h-5 object-contain" alt="" />
               ${escapeHtml(mate.type)}
+              ${mate.replica ? `<span class="text-[10px] text-base-content/40" data-replica-badge="${mate.mateId}" title="Replica — its statement is the replicate() call; edit the seed mate or the replicate statement">⧉</span>` : ''}
             </span>
             <span class="pl-11 text-[10px] text-base-content/50 truncate">${escapeHtml(aName)}</span>
             <span class="pl-11 text-[10px] text-base-content/50 truncate">${escapeHtml(bName)}</span>
@@ -267,10 +268,11 @@ export class JointsPanel {
     dropdown.style.top = `${position.top}px`;
     dropdown.style.left = `${position.left}px`;
 
-    // Owned mates' statements live in the sub-assembly's file — offer only
-    // the non-mutating action, same as the parts panel's owned rows.
+    // Owned mates' statements live in the sub-assembly's file, and a
+    // replicated mate's statement is the replicate() call — offer only the
+    // non-mutating actions, same as the parts panel's owned rows.
     const mate = this.mates.find(m => m.mateId === mateId);
-    const owned = (mate?.owner ?? '') !== '';
+    const owned = (mate?.owner ?? '') !== '' || mate?.replica !== undefined;
     const animatable = this.onAnimate !== undefined
       && (mate?.type === 'revolute' || mate?.type === 'slider');
     dropdown.innerHTML = `

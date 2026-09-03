@@ -450,7 +450,12 @@ export function cutWithSceneObjects(
   plane: Plane,
   distance: number,
   caller: SceneObject,
-  options?: { recordHistoryFor?: SceneObject; skipSimplify?: boolean },
+  options?: {
+    recordHistoryFor?: SceneObject;
+    skipSimplify?: boolean;
+    /** The tool sweeps away from `plane` on both sides (symmetric / two-distance); see `classifyCutEdges`. */
+    bidirectional?: boolean;
+  },
 ): { cleanedShapes: Shape[], stockShapes: Shape[] } {
   const sceneObjectMap = new Map<SceneObject, Shape[]>();
   for (const obj of sceneObjects) {
@@ -520,7 +525,7 @@ export function cutWithSceneObjects(
     cleanup.dispose();
   }
   cutResult.dispose();
-  classifyCutResult(caller, sectionEdges, internalFaces, plane, distance);
+  classifyCutResult(caller, cleanedShapes, sectionEdges, internalFaces, plane, distance, options?.bidirectional === true);
 
   return { cleanedShapes, stockShapes: stock };
 }

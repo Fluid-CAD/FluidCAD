@@ -156,6 +156,7 @@ export class ExtrudeTwoDistances extends ExtrudeBase {
       p.record('Cut with scene objects', () => {
         cutWithSceneObjects(scope, extrusions, plane, this.distance1 + this.distance2, this, {
           recordHistoryFor: this,
+          bidirectional: true,
         });
       });
       this.setFinalShapes(this.getShapes());

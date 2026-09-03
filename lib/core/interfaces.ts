@@ -653,19 +653,24 @@ export interface ICut extends ISceneObject {
   endOffset(value: NumberParam): this;
 
   /**
-   * Selects edges at the start of the cut path, classified by signed distance from the cut plane.
+   * Selects the edges at the top of the cut: the rims where the tool entered the
+   * material, on whatever face it entered through (a flat top or a curved wall).
+   * A symmetric cut starts inside the material, so it only has start edges where
+   * the sketch plane lies in a void and the tool meets material further out.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
   startEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
-   * Selects edges at the end of the cut path, classified by signed distance from the cut plane.
+   * Selects the edges at the bottom of the cut: every edge of a floor the tool
+   * stopped at, and the rims where a through cut left the material.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
   endEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;
 
   /**
-   * Selects internal edges created by the cut that are not on the cut plane boundary.
+   * Selects the edges created inside the solid: creases between the cut's own
+   * walls, and rims along faces the cut runs parallel to.
    * @param args - Numeric indices or {@link EdgeFilterBuilder} instances to filter the selection.
    */
   internalEdges(...args: (number | EdgeFilterBuilder)[]): ISelection;

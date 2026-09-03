@@ -373,6 +373,7 @@ export class Extrude extends ExtrudeBase {
 
     cutWithSceneObjects(scope, toolShapes, plane, this.distance, this, {
       recordHistoryFor: this,
+      bidirectional: this._symmetric,
     });
   }
 

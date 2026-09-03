@@ -1,10 +1,12 @@
-import type { gp_Cone, gp_Cylinder, gp_Pln, TopoDS_Face, TopoDS_Wire } from "ocjs-fluidcad";
+import type { gp_Cone, gp_Cylinder, gp_Pln, TopoDS_Edge, TopoDS_Face, TopoDS_Wire } from "ocjs-fluidcad";
 import { getOC } from "./init.js";
 import { Convert } from "./convert.js";
 import { Plane } from "../math/plane.js";
 import { Point } from "../math/point.js";
 import { Vector3d } from "../math/vector3d.js";
 import { Face } from "../common/face.js";
+import { Edge } from "../common/edge.js";
+import { EdgeOps } from "./edge-ops.js";
 import { Wire } from "../common/wire.js";
 import { mmTol } from "../units/tolerance.js";
 
@@ -182,6 +184,62 @@ export class FaceOps {
     normal.delete();
 
     return result;
+  }
+
+  /**
+   * The face's OUTWARD normal where `edge` runs along it — evaluated at the
+   * mid-parameter of the edge's pcurve on the face, so it is exact on curved
+   * faces (a cylinder's normal rotates along the rim; the UV-mid probe would
+   * be off by the angular distance). Orientation-corrected like
+   * `calculateNormalRaw`.
+   *
+   * The binding only exposes the index-based `BRep_Tool::CurveOnSurface`, so
+   * the edge's stored pcurves are walked and the one that belongs to this
+   * face is recognized by geometry: its UV, plugged into THIS face's surface,
+   * lands on the edge midpoint; a pcurve on the neighbouring face's surface
+   * lands elsewhere (and when the two surfaces coincide the normal is the
+   * same either way). Null when no pcurve matches or the normal is undefined
+   * there (a degenerate apex).
+   */
+  static outwardNormalOnEdge(face: Face | TopoDS_Face, edge: Edge | TopoDS_Edge): Vector3d | null {
+    const oc = getOC();
+    const rawFace = oc.TopoDS.Face(face instanceof Face ? face.getShape() : face);
+    const rawEdge = oc.TopoDS.Edge(edge instanceof Edge ? edge.getShape() : edge);
+    const midpoint = EdgeOps.getEdgeMidPointRaw(rawEdge);
+    const tolerance = mmTol(1e-3);
+
+    const location = new oc.TopLoc_Location();
+    const surface = oc.BRep_Tool.Surface(rawFace);
+    try {
+      for (let index = 1; ; index++) {
+        const rep = oc.BRep_Tool.CurveOnSurface(rawEdge, location, 0, 0, index);
+        if (!rep.C || rep.C.isNull()) {
+          return null;
+        }
+        const uv = rep.C.Value((rep.First + rep.Last) / 2);
+        const onFace = surface.Value(uv.X(), uv.Y());
+        const hit = Convert.toPoint(onFace, true).distanceTo(midpoint) < tolerance;
+        if (!hit) {
+          continue;
+        }
+        const props = new oc.GeomLProp_SLProps(surface, uv.X(), uv.Y(), 1, 1e-6);
+        try {
+          if (!props.IsNormalDefined()) {
+            return null;
+          }
+          let normal = props.Normal();
+          if (rawFace.Orientation() === oc.TopAbs_Orientation.TopAbs_REVERSED) {
+            normal = normal.Reversed();
+          }
+          return Convert.toVector3dFromGpDir(normal);
+        } finally {
+          props.delete();
+        }
+      }
+    } finally {
+      surface.delete();
+      location.delete();
+    }
   }
 
   static faceOnPlane(face: TopoDS_Face, plane: gp_Pln): boolean {

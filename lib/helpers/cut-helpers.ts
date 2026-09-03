@@ -9,10 +9,20 @@ import { Plane } from "../math/plane.js";
 import { mmTol } from "../units/tolerance.js";
 
 /**
- * Classifies edges and faces from cleaned result shapes by comparing with
- * original stock shapes. Edges/faces not present in stock are "section" geometry
- * created by the cut. Section edges are further classified by signed distance
+ * Store a cut's classification state on `target`.
+ *
+ * Section edges are the cleaned result's edges not geometrically present in
+ * the stock (compared by midpoint) — that deliberately includes stock edges
+ * the cut trimmed, so a notched rim edge still resolves to `c.startEdges(k)`
+ * rather than to nothing. They are further classified by signed distance
  * from the cut plane into start, end, and internal groups.
+ *
+ * Internal faces are NOT derived from those edges: a stock face the tool only
+ * trims (a bottom rim split by a cut whose profile edge lies on that bottom)
+ * keeps none of its original edges, so an edge-based rule would misfile it as
+ * cut-created. `internalFaces` is the kernel's answer instead — every result
+ * face that is neither a stock face nor the boolean's `Modified()` image of
+ * one (see `BooleanOps.cutMultiShape`), remapped through the cleanup lineage.
  *
  * Sets state keys on target: section-edges, start-edges, end-edges,
  * internal-edges, internal-faces
@@ -21,6 +31,7 @@ export function classifyCutResult(
   target: SceneObject,
   stockShapes: Shape[],
   cleanedShapes: Shape[],
+  internalFaces: Face[],
   plane: Plane,
   cutDistance: number,
 ): void {
@@ -52,19 +63,6 @@ export function classifyCutResult(
     for (const edge of edges) {
       if (!isStockEdge(edge)) {
         sectionEdges.push(edge);
-      }
-    }
-  }
-
-  // Internal faces: faces where ALL edges are section edges (not from stock).
-  const internalFaces: Face[] = [];
-
-  for (const shape of cleanedShapes) {
-    const faces = Explorer.findFacesWrapped(shape);
-    for (const f of faces) {
-      const faceEdges = (f as Face).getEdges();
-      if (faceEdges.length > 0 && faceEdges.every(e => !isStockEdge(e))) {
-        internalFaces.push(f as Face);
       }
     }
   }

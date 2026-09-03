@@ -508,13 +508,53 @@ export function cutWithSceneObjects(
     recordCutHistory(options.recordHistoryFor, stock, shapeObjectMap, cleanedShapes, cutResult.maker, cleanups);
   }
 
+  // The faces the cut created — every result face that is neither a stock
+  // face nor the boolean's Modified() image of one — carried across the
+  // cleanup so the classification points at faces the caller now owns.
+  // See `classifyCutResult` for why this comes from kernel history rather
+  // than from the section edges.
+  const internalFaces = remapCreatedFaces(cutResult.internalFaces, cleanups);
+
   for (const cleanup of cleanups) {
     cleanup.dispose();
   }
   cutResult.dispose();
-  classifyCutResult(caller, stock, cleanedShapes, plane, distance);
+  classifyCutResult(caller, stock, cleanedShapes, internalFaces, plane, distance);
 
   return { cleanedShapes, stockShapes: stock };
+}
+
+/**
+ * Carry pre-clean faces through whichever cleanup lineage claims them, dropping
+ * the ones the cleanup removed and merging duplicates (UnifySameDomain maps
+ * several pre-clean faces onto one merged face). A face no cleanup knows is
+ * kept as-is.
+ */
+function remapCreatedFaces(faces: Face[], cleanups: CleanShapeLineage[]): Face[] {
+  const out: Face[] = [];
+  for (const face of faces) {
+    const remapped = remapThroughCleanups(face, cleanups, (c, f) => c.remapFace(f));
+    for (const r of remapped) {
+      if (!out.some(existing => existing.getShape().IsSame(r.getShape()))) {
+        out.push(r);
+      }
+    }
+  }
+  return out;
+}
+
+function remapThroughCleanups<T>(
+  item: T,
+  cleanups: CleanShapeLineage[],
+  remap: (cleanup: CleanShapeLineage, item: T) => T[] | null,
+): T[] {
+  for (const cleanup of cleanups) {
+    const remapped = remap(cleanup, item);
+    if (remapped !== null) {
+      return remapped;
+    }
+  }
+  return [item];
 }
 
 /**
@@ -540,47 +580,12 @@ function recordCutHistory(
   const claimedFaces = new oc.TopTools_MapOfShape();
   const claimedEdges = new oc.TopTools_MapOfShape();
 
-  // Remap pre-clean faces through the UnifySameDomain history of whichever
-  // cleanup handled them. Returns flattened post-clean faces.
-  const remapPreCleanFaces = (preCleanFaces: Face[]): Face[] => {
-    const out: Face[] = [];
-    for (const face of preCleanFaces) {
-      let matched = false;
-      for (const cleanup of cleanups) {
-        const remapped = cleanup.remapFace(face);
-        if (remapped !== null) {
-          out.push(...remapped);
-          matched = true;
-          break;
-        }
-      }
-      if (!matched) {
-        // No cleanup claimed this face — it's somehow outside the cleaned
-        // solids. Fall through as-is.
-        out.push(face);
-      }
-    }
-    return out;
-  };
-
-  const remapPreCleanEdges = (preCleanEdges: Edge[]): Edge[] => {
-    const out: Edge[] = [];
-    for (const edge of preCleanEdges) {
-      let matched = false;
-      for (const cleanup of cleanups) {
-        const remapped = cleanup.remapEdge(edge);
-        if (remapped !== null) {
-          out.push(...remapped);
-          matched = true;
-          break;
-        }
-      }
-      if (!matched) {
-        out.push(edge);
-      }
-    }
-    return out;
-  };
+  // Remap pre-clean faces/edges through the UnifySameDomain history of
+  // whichever cleanup handled them. Returns flattened post-clean shapes.
+  const remapPreCleanFaces = (preCleanFaces: Face[]): Face[] =>
+    preCleanFaces.flatMap(face => remapThroughCleanups(face, cleanups, (c, f) => c.remapFace(f)));
+  const remapPreCleanEdges = (preCleanEdges: Edge[]): Edge[] =>
+    preCleanEdges.flatMap(edge => remapThroughCleanups(edge, cleanups, (c, e) => c.remapEdge(e)));
 
   for (const stockShape of stock) {
     const owner = owners.get(stockShape);

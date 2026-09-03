@@ -5,6 +5,7 @@ import { lockGridPitch, parseGridPitch, setGridLocked } from '../grid/grid-pitch
 import type { PreferenceSaver } from '../grid/grid-pitch';
 import { sceneUnit } from '../units/scene-unit';
 import { viewerSettings } from '../scene/viewer-settings';
+import { bottomRightRow, BOTTOM_RIGHT_ORDER } from './bottom-right-row';
 
 /** How long the field flashes red after a value it cannot use. */
 const INVALID_FLASH_MS = 600;
@@ -39,13 +40,12 @@ export class GridScaleBar {
 
   constructor(container: HTMLElement, private save: PreferenceSaver = () => {}) {
     this.el = document.createElement('div');
-    // Same chip styling as the document-unit chip in the bottom-right row;
-    // the left inset tracks the editor pane like the bottom-centre pills do.
+    // Same chip styling as the document-unit chip, which it sits beside in
+    // the shared bottom-right row.
     this.el.className =
-      'absolute bottom-6 left-[calc(var(--fluidcad-scene-left,0px)+16px)] z-[100] ' +
       'panel-bg border border-base-content/10 rounded-lg h-8 pl-2.5 pr-1.5 ' +
       'text-xs text-base-content/70 flex items-center gap-1.5 select-none ' +
-      'hidden';
+      `hidden ${BOTTOM_RIGHT_ORDER.gridScale}`;
     this.el.title = 'Grid spacing (minor cell)';
     this.el.dataset.ref = 'grid-scale';
 
@@ -102,7 +102,7 @@ export class GridScaleBar {
     });
 
     this.el.append(icon, this.valueBtn, this.inputEl, this.unitEl, this.lockBtn);
-    container.appendChild(this.el);
+    bottomRightRow(container).appendChild(this.el);
 
     // The dialog's Grid section writes the same store: a lock toggled there
     // shows here, and a pitch typed here shows there.

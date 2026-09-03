@@ -2,6 +2,7 @@ import type { FaceProperties, EdgeProperties } from '../api';
 import type { EngineClient } from '../engine-client';
 import { formatArea, formatLength } from '../units/units';
 import { sceneUnit } from '../units/scene-unit';
+import { bottomRightRow, BOTTOM_RIGHT_ORDER } from './bottom-right-row';
 
 const SURFACE_LABELS: Record<FaceProperties['surfaceType'], string> = {
   plane: 'Plane',
@@ -27,8 +28,9 @@ export class SelectionInfoOverlay {
 
   constructor(container: HTMLElement, private client: EngineClient) {
     this.el = document.createElement('div');
-    this.el.className = 'absolute bottom-6 right-[128px] w-[200px] panel-bg border border-base-content/10 rounded-lg p-3 z-[150] shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-base-content text-xs pointer-events-none select-none hidden';
-    container.appendChild(this.el);
+    // Leftmost member of the shared bottom-right row, beside the chips.
+    this.el.className = `w-[200px] panel-bg border border-base-content/10 rounded-lg p-3 shadow-[0_4px_24px_rgba(0,0,0,0.5)] text-base-content text-xs pointer-events-none select-none hidden ${BOTTOM_RIGHT_ORDER.selectionInfo}`;
+    bottomRightRow(container).appendChild(this.el);
   }
 
   async showForFace(shapeId: string, faceIndex: number): Promise<void> {

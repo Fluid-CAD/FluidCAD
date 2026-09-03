@@ -28,9 +28,10 @@ export class SettingsPanel {
     document.head.appendChild(style);
 
     this.wrapper = document.createElement('div');
-    // top-[196px] clears the viewport gizmo, which occupies the top-right
-    // corner of the scene (~y 102–182) below the toolbar.
-    this.wrapper.className = 'absolute right-7 top-[calc(var(--fluidcad-chrome-top,104px)+92px)] z-[100] flex flex-col items-end select-none';
+    // Sits directly under the viewport gizmo (80px wide, 10px in from the
+    // top-right of the scene): top clears its bottom edge, and right-[34px]
+    // puts the 32px buttons' centre on the gizmo's centre (10 + 40 - 16).
+    this.wrapper.className = 'absolute right-[34px] top-[calc(var(--fluidcad-chrome-top,104px)+92px)] z-[100] flex flex-col items-end select-none';
     container.appendChild(this.wrapper);
     const wrapper = this.wrapper;
 

@@ -6,6 +6,7 @@ import type { LengthUnit } from '../../units/units';
 import { showDropupMenu } from '../dropup-menu';
 import { buildUnitMenuOptions } from './unit-menu-options';
 import type { EngineClient } from '../../engine-client';
+import { bottomRightRow, BOTTOM_RIGHT_ORDER } from '../bottom-right-row';
 
 /**
  * Bottom-right status row of the viewer: a compact pill showing the primary
@@ -33,16 +34,14 @@ export class MeasureStatusBar {
     onClick: () => void,
     private client: EngineClient | null = null,
   ) {
-    // The row anchors where the pill used to; the selection-info overlay
-    // sits to its left (its `right-[128px]` = this offset + chip + gap).
-    this.row = document.createElement('div');
-    this.row.className = 'absolute bottom-6 right-[76px] z-[150] flex items-center gap-2';
+    // Shared with the grid-spacing chip and the selection-info overlay.
+    this.row = bottomRightRow(container);
 
     this.el = document.createElement('div');
     this.el.className =
       'panel-bg border border-base-content/10 rounded-lg h-8 px-3 ' +
       'text-xs text-base-content flex items-center gap-2 ' +
-      'cursor-pointer select-none hover:border-base-content/30 hidden';
+      `cursor-pointer select-none hover:border-base-content/30 hidden ${BOTTOM_RIGHT_ORDER.measure}`;
     this.el.title = 'Show all measurements';
 
     const icon = document.createElement('span');
@@ -67,7 +66,7 @@ export class MeasureStatusBar {
     this.unitChip.className =
       'panel-bg border border-base-content/10 rounded-lg h-8 min-w-[44px] px-2 ' +
       'text-xs font-medium text-base-content/70 flex items-center justify-center select-none ' +
-      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60';
+      `focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 ${BOTTOM_RIGHT_ORDER.unit}`;
     this.unitChip.title = 'Document unit — set with unit(\'in\') in the file or "unit" in fluidcad.json';
     this.unitChip.dataset.ref = 'document-unit';
     this.unitChip.textContent = sceneUnit.current;
@@ -79,7 +78,6 @@ export class MeasureStatusBar {
     this.unitChip.addEventListener('click', () => this.openUnitMenu());
 
     this.row.append(this.el, this.unitChip);
-    container.appendChild(this.row);
   }
 
   show(label: string, value: string): void {

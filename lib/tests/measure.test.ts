@@ -82,6 +82,26 @@ function makeBezierWedge(): void {
 }
 
 // Two non-touching Ø20 cylinders whose axes are 40 apart.
+// A lone r=10 cylinder, 10 tall, on the origin.
+function makeCylinder(): void {
+  sketch("xy", () => {
+    circle([0, 0], 20);
+  });
+  extrude(10);
+  render();
+}
+
+// Two r=10 cylinders 15 apart fuse into one solid whose end faces are bounded
+// by two arcs of different centers: planar, but no single rim.
+function makeFusedCylinders(): void {
+  sketch("xy", () => {
+    circle([0, 0], 20);
+    circle([15, 0], 20);
+  });
+  extrude(10);
+  render();
+}
+
 function makeTwoCylinders(): void {
   sketch("xy", () => {
     circle([0, 0], 20);
@@ -283,15 +303,64 @@ describe("measure", () => {
       expect(result.entities[0].radius).toBeCloseTo(10, 4);
     });
 
-    it("reports the axis-plane angle between a cylinder and its base plane", () => {
-      makeTwoCylinders();
+    it("reports the axis-plane angle between a cylinder and a non-circular plane", () => {
+      makeFusedCylinders();
       const cylinder = findEntities('face', (c) => c.form === 'cylinder')[0];
-      const base = findEntities('face', (c) => c.form === 'plane' && dirAlong(c, 0, 0, 1))[0];
+      const top = findEntities('face', (c) => c.form === 'plane' && dirAlong(c, 0, 0, 1) && Math.abs(c.anchor.z - 10) < 1e-6);
+      expect(top).toHaveLength(1);
+      expect(top[0].info.center).toBeNull();
 
-      const result = measureRefs([cylinder.ref, base.ref]);
+      const result = measureRefs([cylinder.ref, top[0].ref]);
       expect(result.primary).toBe('minDist');
+      expect(result.centerDist).toBeUndefined();
       expect(result.angleDeg).toBeCloseTo(90, 4);
       expect(result.angleLabel).toBe('Axis-plane angle');
+    });
+
+    it("a cylinder's center sits on its axis at mid-height, a disc's at its rim center", () => {
+      makeCylinder();
+      const barrel = findEntities('face', (c) => c.form === 'cylinder')[0].info;
+      expect(barrel.center).toEqual({ x: expect.closeTo(0, 6), y: expect.closeTo(0, 6), z: expect.closeTo(5, 6) });
+      const top = findEntities('face', (c) => c.form === 'plane' && Math.abs(c.anchor.z - 10) < 1e-6)[0].info;
+      expect(top.center).toEqual({ x: expect.closeTo(0, 6), y: expect.closeTo(0, 6), z: expect.closeTo(10, 6) });
+      expect(top.radius).toBeCloseTo(10, 6);
+    });
+
+    it("measures a cylinder to a circular face center to center, not rim to rim", () => {
+      makeCylinder();
+      const barrel = findEntities('face', (c) => c.form === 'cylinder')[0];
+      const top = findEntities('face', (c) => c.form === 'plane' && Math.abs(c.anchor.z - 10) < 1e-6)[0];
+
+      const result = measureRefs([barrel.ref, top.ref]);
+      expect(result.primary).toBe('centerDist');
+      expect(result.primaryLabel).toBe('Center dist');
+      expect(result.centerDist!.value).toBeCloseTo(5, 4);
+      expect(result.centerDist!.from).toEqual({ x: expect.closeTo(0, 6), y: expect.closeTo(0, 6), z: expect.closeTo(5, 6) });
+      expect(result.centerDist!.to).toEqual({ x: expect.closeTo(0, 6), y: expect.closeTo(0, 6), z: expect.closeTo(10, 6) });
+      expect(result.minDist!.value).toBeCloseTo(0, 4);
+      expect(result.angleDeg).toBeCloseTo(90, 4);
+    });
+
+    it("measures two circular faces center to center", () => {
+      makeTwoCylinders();
+      const tops = findEntities('face', (c) => c.form === 'plane' && Math.abs(c.anchor.z - 10) < 1e-6);
+      expect(tops).toHaveLength(2);
+
+      const result = measureRefs(tops.map((f) => f.ref));
+      expect(result.primary).toBe('centerDist');
+      expect(result.centerDist!.value).toBeCloseTo(40, 4);
+      expect(result.parallelDist!.value).toBeCloseTo(0, 4);
+    });
+
+    it("keeps axis distance primary for parallel cylinders and adds their center distance", () => {
+      makeTwoCylinders();
+      const cylinders = findEntities('face', (c) => c.form === 'cylinder');
+      expect(cylinders).toHaveLength(2);
+
+      const result = measureRefs(cylinders.map((f) => f.ref));
+      expect(result.primary).toBe('axisDist');
+      expect(result.axisDist!.value).toBeCloseTo(40, 4);
+      expect(result.centerDist!.value).toBeCloseTo(40, 4);
     });
   });
 

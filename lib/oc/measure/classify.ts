@@ -1,7 +1,8 @@
-import type { BRepAdaptor_Curve, BRepAdaptor_Surface, gp_Ax1, gp_Dir, gp_Pnt, TopoDS_Shape } from "ocjs-fluidcad";
+import type { BRepAdaptor_Curve, BRepAdaptor_Surface, gp_Ax1, gp_Dir, gp_Pnt, TopoDS_Face, TopoDS_Shape } from "ocjs-fluidcad";
 import { getOC } from "../init.js";
+import { Explorer } from "../explorer.js";
 import type { MeasureEntityKind, MeasureVec } from "./measure-types.js";
-import { cross, dot, len, scale, sub } from "./vec.js";
+import { cross, dist, dot, len, projectPointOnLine, scale, sub } from "./vec.js";
 import { mmTol } from "../../units/tolerance.js";
 
 export type FaceForm = 'plane' | 'cylinder' | 'cone' | 'sphere' | 'torus' | 'surface';
@@ -26,7 +27,12 @@ export interface ClassifiedEntity {
   dirKind: 'normal' | 'axis' | null;
   /** A point on the entity's defining element (plane location, axis location). */
   point: MeasureVec | null;
-  /** True geometric center (circle/arc/ellipse/sphere/torus), else null. */
+  /**
+   * The entity's center, else null: circle/arc/ellipse center, sphere/torus
+   * center, a cylinder's centroid projected onto its axis, and for a planar
+   * face bounded by one circle (a disc or annulus) that circle's center — so
+   * a pin's barrel and a bore's end face measure center to center.
+   */
   center: MeasureVec | null;
   /** Representative point on the entity (face area centroid, edge midpoint) used to anchor measurement lines. */
   anchor: MeasureVec;
@@ -150,6 +156,45 @@ function detectStraightCurve(
   return { point: points[0], dir };
 }
 
+/**
+ * The circle bounding a planar face when its outer wire is one circle — a
+ * single closed edge or several arcs sharing center and radius (a revolve
+ * seam or boolean splits a disc's rim without changing what it bounds).
+ */
+function detectCircularBoundary(face: TopoDS_Face): { center: MeasureVec; radius: number } | null {
+  const oc = getOC();
+  const outerWire = oc.BRepTools.OuterWire(face);
+  const edges = Explorer.findShapes(outerWire, oc.TopAbs_ShapeEnum.TopAbs_EDGE);
+  outerWire.delete();
+
+  let found: { center: MeasureVec; radius: number } | null = null;
+  let consistent = true;
+  for (const edgeShape of edges) {
+    if (!consistent) {
+      edgeShape.delete();
+      continue;
+    }
+    const adaptor = new oc.BRepAdaptor_Curve(oc.TopoDS.Edge(edgeShape));
+    let rim: { center: MeasureVec; radius: number } | null = null;
+    if (adaptor.GetType() === oc.GeomAbs_CurveType.GeomAbs_Circle) {
+      const circle = adaptor.Circle();
+      rim = { center: vecFromPnt(circle.Location()), radius: circle.Radius() };
+      circle.delete();
+    }
+    adaptor.delete();
+    edgeShape.delete();
+    if (!rim) {
+      consistent = false;
+    } else if (!found) {
+      found = rim;
+    } else {
+      const tol = CARRIER_FIT_TOL * (mmTol(1) + rim.radius);
+      consistent = dist(rim.center, found.center) <= tol && Math.abs(rim.radius - found.radius) <= tol;
+    }
+  }
+  return consistent ? found : null;
+}
+
 export function classifyFace(shape: TopoDS_Shape): ClassifiedEntity {
   const oc = getOC();
   const face = oc.TopoDS.Face(shape);
@@ -183,6 +228,11 @@ export function classifyFace(shape: TopoDS_Shape): ClassifiedEntity {
     result.point = point;
     result.dir = dir;
     result.dirKind = 'normal';
+    const rim = detectCircularBoundary(face);
+    if (rim) {
+      result.center = rim.center;
+      result.radius = rim.radius;
+    }
   } else if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cylinder) {
     const cylinder = adaptor.Cylinder();
     const { point, dir } = axisData(cylinder.Axis());
@@ -190,6 +240,7 @@ export function classifyFace(shape: TopoDS_Shape): ClassifiedEntity {
     cylinder.delete();
     result.form = 'cylinder';
     result.point = point;
+    result.center = projectPointOnLine(anchor, point, dir);
     result.dir = dir;
     result.dirKind = 'axis';
   } else if (type === oc.GeomAbs_SurfaceType.GeomAbs_Cone) {

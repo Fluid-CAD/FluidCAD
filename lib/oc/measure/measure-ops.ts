@@ -184,14 +184,17 @@ function pickPrimary(a: ClassifiedEntity, b: ClassifiedEntity, result: MeasureRe
   const parallel = isParallelPair(a, b);
   const planeLike = (e: ClassifiedEntity) => e.form === 'plane' || e.form === 'line';
 
-  if (planeLike(a) && planeLike(b)) {
-    return parallel && result.parallelDist ? 'parallelDist' : 'angle';
+  // Parallel cylinders/cones read as their axis spacing; anything else with
+  // two centers (circle rims, discs, cylinder barrels, spheres) reads center
+  // to center — a disc is a plane, but its center beats the plane distance.
+  if (result.axisDist) {
+    return 'axisDist';
   }
   if (result.centerDist) {
     return 'centerDist';
   }
-  if (result.axisDist) {
-    return 'axisDist';
+  if (planeLike(a) && planeLike(b)) {
+    return parallel && result.parallelDist ? 'parallelDist' : 'angle';
   }
   return 'minDist';
 }

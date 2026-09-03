@@ -1,5 +1,5 @@
-// Human-readable misclosure for a failing mate — shared by the DOF pill
-// and the joints panel so both say the same thing.
+// Human-readable misclosure for a failing mate, shown on the joints
+// panel's inconsistent rows.
 
 import type { MateFailure } from '../solver';
 import { formatLength, type LengthUnit } from '../units/units';

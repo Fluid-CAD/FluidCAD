@@ -6,7 +6,6 @@ import { TimelinePanel } from './ui/timeline-panel';
 import { PartsPanel } from './ui/parts-panel';
 import { JointsPanel } from './ui/joints-panel';
 import { ConnectorsPanel } from './ui/connectors-panel';
-import { DofStatus } from './ui/dof-status';
 import { DragReadout } from './ui/drag-readout';
 import { AnimateBar } from './ui/animate-bar';
 import { ParamsPanel } from './ui/params-panel';
@@ -249,13 +248,13 @@ const paramsPanel = new ParamsPanel(null, engineClient, new ParamEditorDialog(co
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design
 // rail (TimelinePanel, History + Shapes + Parameters) or the assembly rail
-// (PartsPanel + JointsPanel + DofStatus). `ensureRailFor(kind)` swaps them
+// (PartsPanel + JointsPanel + AnimateBar). `ensureRailFor(kind)` swaps them
 // when the current scene's `sceneKind` changes.
 // ---------------------------------------------------------------------------
 
 type LeftRail =
   | { kind: 'part'; timeline: TimelinePanel }
-  | { kind: 'assembly'; parts: PartsPanel; connectors: ConnectorsPanel; joints: JointsPanel; dof: DofStatus; dragReadout: DragReadout; animateBar: AnimateBar; instanceVisibility: Map<string, boolean> };
+  | { kind: 'assembly'; parts: PartsPanel; connectors: ConnectorsPanel; joints: JointsPanel; dragReadout: DragReadout; animateBar: AnimateBar; instanceVisibility: Map<string, boolean> };
 
 let currentRail: LeftRail | null = null;
 
@@ -289,7 +288,6 @@ function disposeRail(): void {
     currentRail.parts.dispose();
     currentRail.connectors.dispose();
     currentRail.joints.dispose();
-    currentRail.dof.hide();
     currentRail.dragReadout.dispose();
     currentRail.animateBar.dispose();
   }
@@ -461,29 +459,14 @@ function buildAssemblyRail(): LeftRail {
           dragReadout.flashError('Mate closes a loop — animate one of its neighbours instead');
           return;
         }
+        // The selected joints row + mate highlight say which mate is
+        // animating; the bar itself carries no label.
         joints.setSelected(id);
         viewer.highlightMate(mate);
-        const instName = (instId: string | undefined) =>
-          lastAssemblyPayload?.instances.find(i => i.instanceId === instId)?.name ?? '?';
-        const frameName = (frame: { connectorId: string }) =>
-          lastAssemblyPayload?.connectors?.find(c => c.connectorId === frame.connectorId)?.name ?? '?';
-        const aName = mate.frameA
-          ? frameName(mate.frameA)
-          : instName(mate.connectorA?.instanceId ?? mate.geometryA?.instanceId);
-        const bName = mate.frameB
-          ? frameName(mate.frameB)
-          : instName(mate.connectorB?.instanceId ?? mate.geometryB?.instanceId);
-        animateBar.open({
-          mateId: id,
-          label: `${mate.type} · ${aName} ↔ ${bName}`,
-          kind: state.kind,
-          limits: mate.options?.limits,
-        });
+        animateBar.open({ mateId: id, kind: state.kind, limits: mate.options?.limits });
       },
     },
   );
-  const dof = new DofStatus(container, (_mateId) => { /* phase 05+ */ });
-  dof.show();
   const dragReadout = new DragReadout(container);
   const animateBar = new AnimateBar(
     container,
@@ -512,7 +495,7 @@ function buildAssemblyRail(): LeftRail {
     onToggleVisibility: (name, visible) => viewer.getAssemblyController()?.setWorldConnectorHidden(name, !visible),
     isHidden: (name) => viewer.getAssemblyController()?.isWorldConnectorHidden(name) ?? false,
   });
-  return { kind: 'assembly', parts, connectors, joints, dof, dragReadout, animateBar, instanceVisibility: visibility };
+  return { kind: 'assembly', parts, connectors, joints, dragReadout, animateBar, instanceVisibility: visibility };
 }
 
 function ensureRailFor(kind: 'part' | 'assembly'): LeftRail {
@@ -1992,29 +1975,15 @@ viewer.setSolverUpdateHandler((output) => {
   // Diff the failed set against the previous frame BEFORE replacing it.
   // The joints panel only re-renders when this set changes, and during a
   // drag the solver fires per pointermove (1000+ Hz on modern mice) — a
-  // full panel re-render every event pegs the CPU. The DOF readout still
-  // updates every frame since it's a single text node.
+  // full panel re-render every event pegs the CPU.
   const newFailed = new Set(output.failed);
   const failedChanged = failedSetsDiffer(lastFailedMateIds, newFailed);
   lastFailedMateIds = newFailed;
-  // Misclosure per failing mate ("6.0 mm gap along Y") — the pill and the
-  // joints panel both show it; the panel patches text in place per frame.
+  // Misclosure per failing mate ("6.0 mm gap along Y") — the joints panel
+  // shows it on the inconsistent rows, patching text in place per frame.
   const failureDetails = new Map(
     output.failures.map(f => [f.mateId, describeMateFailure(f, sceneUnit.current)]),
   );
-  if (output.result === 'okay') {
-    currentRail.dof.update({ result: 'okay', dof: output.dof });
-  } else if (output.result === 'inconsistent') {
-    const failed = output.failed.map((mateId) => {
-      const mate = findMate(mateId);
-      return { mateId, label: mate ? formatMateLabel(mate) : mateId, detail: failureDetails.get(mateId) };
-    });
-    currentRail.dof.update({ result: 'inconsistent', dof: output.dof, failed });
-  } else {
-    // didnt-converge / too-many-unknowns — surface as inconsistent so the
-    // user sees the assembly is unhealthy. No mate-specific failure list.
-    currentRail.dof.update({ result: 'inconsistent', dof: output.dof, failed: [] });
-  }
   if (failedChanged && lastAssemblyPayload) {
     const rendered: RenderedInstance[] = lastAssemblyPayload.instances.map(i => ({
       ...i,
@@ -2038,19 +2007,6 @@ function failedSetsDiffer(a: Set<string>, b: Set<string>): boolean {
   if (a.size !== b.size) return true;
   for (const v of a) if (!b.has(v)) return true;
   return false;
-}
-
-function formatMateLabel(mate: SerializedAssembly['mates'][number]): string {
-  if (mate.geometryA && mate.geometryB) {
-    const a = mate.geometryA;
-    const b = mate.geometryB;
-    return `${mate.type} — ${a.instanceId}.${a.exposeName} ↔ ${b.instanceId}.${b.exposeName}`;
-  }
-  const side = (
-    conn: { instanceId: string; connectorId: string } | undefined,
-    frame: { connectorId: string } | undefined,
-  ) => frame ? `assembly.${frame.connectorId}` : `${conn?.instanceId}.${conn?.connectorId}`;
-  return `${mate.type} — ${side(mate.connectorA, mate.frameA)} ↔ ${side(mate.connectorB, mate.frameB)}`;
 }
 
 // An armed modify mode (fillet/chamfer) owns hover (teach-mode tooltip) and

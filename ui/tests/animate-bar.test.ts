@@ -31,11 +31,12 @@ function mount(): Harness {
     settle,
   };
   const bar = new AnimateBar(container, host, () => {});
-  bar.open({ mateId: 'm1', label: 'revolute · A ↔ B', kind: 'angle' });
+  bar.open({ mateId: 'm1', kind: 'angle' });
   const el = (ref: string) => container.querySelector<HTMLElement>(`[data-ref="${ref}"]`)!;
   (el('start') as HTMLInputElement).value = '0';
   (el('end') as HTMLInputElement).value = '90';
   (el('steps') as HTMLInputElement).value = '3';
+  (el('playback') as HTMLSelectElement).value = 'single';
   // Advance time past the step interval, then deliver one animation frame.
   const pump = (frames: number) => {
     for (let i = 0; i < frames; i += 1) {
@@ -62,6 +63,38 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
   document.body.innerHTML = '';
+});
+
+describe('animate bar defaults', () => {
+  const values = (el: Harness['el']) => ({
+    start: (el('start') as HTMLInputElement).value,
+    end: (el('end') as HTMLInputElement).value,
+    playback: (el('playback') as HTMLSelectElement).value,
+    units: Array.from(document.querySelectorAll('[data-ref="unit"]')).map(u => u.textContent),
+  });
+
+  it('revolute: one full turn from 0, looping, in degrees', () => {
+    const { bar, el } = mount();
+    bar.open({ mateId: 'm1', kind: 'angle' });
+    expect(values(el)).toEqual({ start: '0', end: '360', playback: 'loop', units: ['°', '°'] });
+  });
+
+  it('slider: a short travel from the current value, once', () => {
+    const { bar, el } = mount();
+    bar.open({ mateId: 'm1', kind: 'slide' });
+    expect(values(el)).toMatchObject({ start: '0', end: '10', playback: 'single' });
+  });
+
+  it('authored limits seed Start/End for a revolute', () => {
+    const { bar, el } = mount();
+    bar.open({ mateId: 'm1', kind: 'angle', limits: [-45, 45] });
+    expect(values(el)).toMatchObject({ start: '-45', end: '45', playback: 'loop' });
+  });
+
+  it('carries no mate label', () => {
+    const { el } = mount();
+    expect(el('start').closest('.absolute')!.textContent).not.toContain('revolute');
+  });
 });
 
 describe('animate bar playback', () => {

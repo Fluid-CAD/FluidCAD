@@ -1,7 +1,7 @@
 import { ICON_PAUSE } from './icons';
 import { clearBreakpoints } from '../api';
 
-/** Bottom-center resting spot, shared with the DOF pills. */
+/** Bottom-center resting spot, shared with the sketch DOF pill and the animate bar. */
 const BOTTOM_RESTING = 'bottom-6';
 /** One pill-height up, so the sketch DOF chip keeps the resting spot. */
 const BOTTOM_RAISED = 'bottom-[68px]';

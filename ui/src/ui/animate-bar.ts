@@ -1,16 +1,25 @@
 // Animate bar — drives a 1-DOF mate (revolute angle / slider travel)
 // from a start value to an end value in N steps, once or looping.
 //
-// Opened from a joint row's "Animate…" menu entry. A horizontal pill
-// sitting just above the DOF status chip (where the drag readout shows
-// during a pointer drag — the two never show together: driving a mate
-// refuses while a drag owns the assembly, and a drag can't start from the
-// bar's inputs). Values are in the readout's units — degrees / mm, the
-// same numbers `.limits()` takes.
+// Opened from a joint row's "Animate…" menu entry. Two stacked chips at
+// the bottom-center of the scene — the fields card over the transport
+// pill. The drag readout sits one row above them during a pointer drag;
+// the two never show together: driving a mate refuses while a drag owns
+// the assembly, and a drag can't start from the bar's inputs. The bar carries no mate label: the selected joints row
+// and the mate highlight already say which mate is animating. Values are
+// in the readout's units — degrees / mm, the same numbers `.limits()`
+// takes — and the unit suffixes the Start and End captions.
+//
+// Narrow screens (under Tailwind's `lg`): the chips sit one row above the
+// scale bar and unit chips that own the bottom edge, and the fields wrap
+// onto a second row inside a card that never exceeds the scene's width.
+// Each caption sits above its field at every width, so a row stays short.
 //
 // Manual test plan:
-//  1. Right-click a revolute/slider row → Animate… → bar appears with
-//     Start = current value, End = upper limit (or +90° / +10 mm).
+//  1. Right-click a revolute row → Animate… → bar appears with Start 0°,
+//     End 360°, Playback Loop; a slider row seeds Start = current value,
+//     End = +10 mm, Single. Authored `.limits(min, max)` seed Start/End
+//     for both.
 //  2. Play → the follower sweeps start→end over `Steps` frames; Single
 //     stops at the end, Loop restarts from Start, Reciprocate bounces
 //     (start→end→start…) — both until Stop.
@@ -24,6 +33,16 @@ import type { MateReadout } from '../solver';
 
 const STEP_INTERVAL_MS = 40;
 const DEFAULT_STEPS = 30;
+/** A revolute with no authored limits animates one full turn. */
+const DEFAULT_ANGLE_SWEEP = 360;
+/** A slider with no authored limits travels this far (document units) from where it is. */
+const DEFAULT_TRAVEL = 10;
+
+/** The shared chip surface: the fields card and the transport pill. */
+const CHIP = 'panel-bg border border-base-content/10';
+/** A captioned field: a small caption stacked above its input. */
+const FIELD = 'flex flex-col gap-0.5 whitespace-nowrap';
+const CAPTION = 'text-base-content/50 text-[10px] leading-none';
 
 export interface AnimateBarHost {
   /** Current value of the mate, or null when it can't be driven. */
@@ -36,7 +55,6 @@ export interface AnimateBarHost {
 
 export interface AnimateTarget {
   mateId: string;
-  label: string;
   kind: MateReadout['kind'];
   /** Authored `.limits(min, max)`, used to seed Start/End. */
   limits?: [number, number];
@@ -46,7 +64,7 @@ type Playback = 'single' | 'loop' | 'reciprocate';
 
 export class AnimateBar {
   private bar: HTMLDivElement;
-  private title: HTMLSpanElement;
+  private unitSuffixes: HTMLSpanElement[];
   private startInput: HTMLInputElement;
   private endInput: HTMLInputElement;
   private stepsInput: HTMLInputElement;
@@ -70,30 +88,38 @@ export class AnimateBar {
     private readonly onClose: () => void,
   ) {
     this.bar = document.createElement('div');
-    // Centered on the scene rather than the window (see dof-status.ts).
-    this.bar.className = 'absolute bottom-16 left-[calc(50%+var(--fluidcad-editor-width,0px)/2)] -translate-x-1/2 z-[115] panel-bg border border-base-content/10 rounded-full pl-4 pr-2 py-1.5 text-xs text-base-content/80 select-none flex items-center gap-3 cursor-default hidden';
+    // Two stacked chips — the fields card, then the transport pill — in a
+    // column centered on the scene rather than the window (the panel rail
+    // and the editor pane take real width off the left) and capped to the
+    // scene's width so a narrow screen wraps the fields instead of clipping
+    // them. Under `lg` the scale bar and unit chips would meet the column
+    // in the bottom row, so it sits one row up there.
+    this.bar.className = 'absolute bottom-6 max-lg:bottom-[68px] left-[calc(50%+var(--fluidcad-scene-left,0px)/2)] -translate-x-1/2 z-[115] '
+      + 'w-max max-w-[calc(100%-var(--fluidcad-scene-left,0px)-1rem)] '
+      + 'flex flex-col items-center gap-1.5 text-xs text-base-content/80 select-none cursor-default hidden';
     this.bar.innerHTML = `
-      <span data-ref="title" class="font-medium whitespace-nowrap"></span>
-      <label class="flex items-center gap-1.5 whitespace-nowrap"><span class="text-base-content/50">Start</span><input data-ref="start" type="number" step="any" class="input input-xs input-bordered w-20 tabular-nums" /></label>
-      <label class="flex items-center gap-1.5 whitespace-nowrap"><span class="text-base-content/50">End</span><input data-ref="end" type="number" step="any" class="input input-xs input-bordered w-20 tabular-nums" /></label>
-      <label class="flex items-center gap-1.5 whitespace-nowrap"><span class="text-base-content/50">Steps</span><input data-ref="steps" type="number" min="1" step="1" class="input input-xs input-bordered w-16 tabular-nums" /></label>
-      <label class="flex items-center gap-1.5 whitespace-nowrap"><span class="text-base-content/50">Playback</span>
-        <select data-ref="playback" class="select select-xs select-bordered w-28">
-          <option value="single">Single</option>
-          <option value="loop">Loop</option>
-          <option value="reciprocate">Reciprocate</option>
-        </select>
-      </label>
-      <span class="flex items-center gap-0.5">
-        <button data-ref="play" class="btn btn-ghost btn-square btn-xs [&>svg]:size-4" title="Play"></button>
-        <button data-ref="stop" class="btn btn-ghost btn-square btn-xs [&>svg]:size-4" title="Stop"></button>
-        <button data-ref="close" class="btn btn-ghost btn-square btn-xs text-base-content/50 [&>svg]:size-4" title="Close"></button>
+      <span class="${CHIP} rounded-2xl px-3 py-1.5 flex items-end flex-wrap justify-center gap-x-3 gap-y-1.5">
+        <label class="${FIELD}"><span class="${CAPTION}">Start <span data-ref="unit"></span></span><input data-ref="start" type="number" step="any" class="input input-xs input-bordered w-[4.5rem] sm:w-20 tabular-nums" /></label>
+        <label class="${FIELD}"><span class="${CAPTION}">End <span data-ref="unit"></span></span><input data-ref="end" type="number" step="any" class="input input-xs input-bordered w-[4.5rem] sm:w-20 tabular-nums" /></label>
+        <label class="${FIELD}"><span class="${CAPTION}">Steps</span><input data-ref="steps" type="number" min="1" step="1" class="input input-xs input-bordered w-14 sm:w-16 tabular-nums" /></label>
+        <label class="${FIELD}"><span class="${CAPTION}">Playback</span>
+          <select data-ref="playback" class="select select-xs select-bordered w-28">
+            <option value="single">Single</option>
+            <option value="loop">Loop</option>
+            <option value="reciprocate">Reciprocate</option>
+          </select>
+        </label>
+      </span>
+      <span class="${CHIP} rounded-full px-2 py-1 flex items-center gap-1.5">
+        <button data-ref="play" class="btn btn-ghost btn-square btn-sm [&>svg]:size-5" title="Play"></button>
+        <button data-ref="stop" class="btn btn-ghost btn-square btn-sm [&>svg]:size-5" title="Stop"></button>
+        <button data-ref="close" class="btn btn-ghost btn-square btn-sm text-base-content/50 [&>svg]:size-5" title="Close"></button>
       </span>
     `;
     container.appendChild(this.bar);
 
     const ref = <T extends HTMLElement>(name: string) => this.bar.querySelector<T>(`[data-ref="${name}"]`)!;
-    this.title = ref('title');
+    this.unitSuffixes = Array.from(this.bar.querySelectorAll<HTMLSpanElement>('[data-ref="unit"]'));
     this.startInput = ref('start');
     this.endInput = ref('end');
     this.stepsInput = ref('steps');
@@ -127,13 +153,22 @@ export class AnimateBar {
     this.restValue = current?.value ?? 0;
     this.step = 0;
     this.direction = 1;
-    const unit = target.kind === 'angle' ? '°' : sceneUnit.current;
-    this.title.textContent = `${target.label} (${unit})`;
-    const start = current?.value ?? target.limits?.[0] ?? 0;
-    const end = target.limits?.[1] ?? start + (target.kind === 'angle' ? 90 : 10);
+    const isAngle = target.kind === 'angle';
+    const unit = isAngle ? '°' : sceneUnit.current;
+    for (const suffix of this.unitSuffixes) {
+      suffix.textContent = unit;
+    }
+    // Authored limits win. Otherwise a revolute sweeps a full turn from 0,
+    // looping; a slider steps a short travel from where it is, once.
+    const { start, end } = target.limits
+      ? { start: target.limits[0], end: target.limits[1] }
+      : isAngle
+        ? { start: 0, end: DEFAULT_ANGLE_SWEEP }
+        : { start: current?.value ?? 0, end: (current?.value ?? 0) + DEFAULT_TRAVEL };
     this.startInput.value = fmt(start);
     this.endInput.value = fmt(end);
     this.stepsInput.value = String(DEFAULT_STEPS);
+    this.playbackSelect.value = isAngle ? 'loop' : 'single';
     this.bar.classList.remove('hidden');
     this.renderPlayButton();
   }

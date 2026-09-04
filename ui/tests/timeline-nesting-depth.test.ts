@@ -131,3 +131,67 @@ describe('timeline nesting depth', () => {
     expect(h.rowOf(4)!.dataset.picked).toBe('true');
   });
 });
+
+// Toggle state is keyed by scene-object id, and ids are minted per build:
+// an edit inside a sketch (deleting a constraint) hands the sketch a fresh
+// id. The open/closed state must be re-adopted by source identity, or the
+// constraint group the user is working in snaps shut on every deletion.
+describe('timeline toggle state across rebuilds', () => {
+  const loc = (line: number) => ({ filePath: '/a.fluid.js', line, column: 1 });
+
+  function sketchScene(sketchId: string, constraintCount: number, sketchLine = 2): SceneObjectRender[] {
+    const items: SceneObjectRender[] = [
+      { ...row(0, { type: 'part', isContainer: true }), id: 'part-1', sourceLocation: loc(1) },
+      { ...row(1, { type: 'sketch', isContainer: true, parentId: 'part-1' }), id: sketchId, sourceLocation: loc(sketchLine) },
+      { ...row(2, { uniqueType: 'solved-line', parentId: sketchId }), id: `${sketchId}-l` },
+    ];
+    for (let k = 0; k < constraintCount; k++) {
+      items.push({ ...row(3 + k, { uniqueType: 'constraint-distance', parentId: sketchId }), id: `${sketchId}-c${k}` });
+    }
+    return items;
+  }
+
+  it('keeps the constraint group open when the sketch is rebuilt with a new id', () => {
+    const h = mount();
+    h.timeline.update(sketchScene('sk-a', 2), 4);
+    h.constraintToggle('sk-a')!.click();
+    expect(h.rowOf(3)).not.toBeNull();
+
+    // Same sketch statement, one constraint fewer, fresh id.
+    h.timeline.update(sketchScene('sk-b', 1), 3);
+    expect(h.constraintToggle('sk-b')).not.toBeNull();
+    expect(h.rowOf(3)).not.toBeNull();
+    expect(h.rowOf(3)!.dataset.index).toBe('3');
+  });
+
+  it('re-adopts by name when the sketch line shifts', () => {
+    const h = mount();
+    const before = sketchScene('sk-a', 1, 2);
+    before[1].name = 'profile';
+    h.timeline.update(before, 3);
+    h.constraintToggle('sk-a')!.click();
+    h.chevronOf('part-1')!.click();
+    expect(h.rowOf(1)).toBeNull();
+
+    const after = sketchScene('sk-b', 1, 5);
+    after[1].name = 'profile';
+    h.timeline.update(after, 3);
+    // Both the part's collapse and the sketch's open group carried over.
+    expect(h.rowOf(1)).toBeNull();
+    h.chevronOf('part-1')!.click();
+    expect(h.rowOf(3)).not.toBeNull();
+  });
+
+  it('carries an open connectors group across a part rebuild', () => {
+    const h = mount();
+    const scene = (partId: string) => [
+      { ...row(0, { type: 'part', isContainer: true }), id: partId, sourceLocation: loc(1) },
+      { ...row(1, { type: 'connector', parentId: partId }), id: `${partId}-c` },
+    ];
+    h.timeline.update(scene('p-a'), 1);
+    h.container.querySelector<HTMLElement>('[data-group-toggle="p-a:connectors"]')!.click();
+    expect(h.rowOf(1)).not.toBeNull();
+    h.timeline.update(scene('p-b'), 1);
+    expect(h.rowOf(1)).not.toBeNull();
+  });
+});

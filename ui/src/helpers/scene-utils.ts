@@ -32,6 +32,30 @@ export function findActivePart(sceneObjects: SceneObjectRender[]): SceneObjectRe
 }
 
 /**
+ * The row in `next` that stands for `prev` after a rebuild. Scene object
+ * ids are minted per build and survive only when the scene compare matches
+ * the object unchanged, so any UI state keyed by id (the active part, a
+ * collapsed timeline group) has to be re-adopted from the row's identity in
+ * the source: same file + line + type first — an edit inside a container
+ * keeps its own line — then same file + name + type, which survives a
+ * shifted line (an insert above the statement). Rows without a source
+ * location have no identity to carry over.
+ */
+export function findMatchingRow(
+  prev: SceneObjectRender,
+  next: SceneObjectRender[],
+): SceneObjectRender | undefined {
+  const loc = prev.sourceLocation;
+  if (!loc) {
+    return undefined;
+  }
+  const sameKind = (o: SceneObjectRender) => o.type === prev.type
+    && o.sourceLocation?.filePath === loc.filePath;
+  return next.find(o => sameKind(o) && o.sourceLocation!.line === loc.line)
+    ?? (prev.name ? next.find(o => sameKind(o) && o.name === prev.name) : undefined);
+}
+
+/**
  * The part() row an object belongs to — the nearest `type === 'part'`
  * ancestor of its parentId chain — or undefined for a top-level object (or
  * one nested only in non-part containers).

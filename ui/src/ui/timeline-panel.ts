@@ -1,6 +1,6 @@
 import type { SceneObjectRender } from '../types';
 import { setDistanceTangency } from '../api';
-import { findActiveObject, findEnclosingPartRow, rollbackScopeIds, isRollbackViewTruncated } from '../helpers/scene-utils';
+import { findActiveObject, findEnclosingPartRow, findMatchingRow, rollbackScopeIds, isRollbackViewTruncated } from '../helpers/scene-utils';
 import type { EngineClient } from '../engine-client';
 import { ICON_CIRCLE_CHECK, ICON_REFRESH, ICON_CHEVRON_RIGHT, ICON_DOTS_VERTICAL, ICON_CHECK, ICON_ALERT_DOT, ICON_PAUSE, ICON_PENCIL, ICON_ADJUSTMENTS, ICON_TRASH } from './icons';
 import { resolveIconName, ICON_IMG_FALLBACK, CONSTRAINT_KIND_ICONS } from './object-icons';
@@ -312,6 +312,7 @@ export class TimelinePanel {
     this.selectedIndices.clear();
     this.selectionAnchor = null;
     this.dragIndices = null;
+    this.carryRowStateOver(sceneObjects);
     this.sceneObjects = sceneObjects;
     this.rollbackStop = rollbackStop;
     this.rollbackScopePartId = rollbackScopePartId;
@@ -320,6 +321,62 @@ export class TimelinePanel {
     this.renderTimeline(true);
     this.shapesPanel.update(sceneObjects);
     this.updateHistoryTotal();
+  }
+
+  /**
+   * Re-key the collapse / "N constraints" / "N connectors" toggle state onto
+   * the incoming scene. Ids are minted per build and only survive an
+   * unchanged object, so a sketch that just lost a constraint (or a part
+   * whose body changed) arrives with a fresh id — and its open constraint
+   * group would snap shut. Each remembered row is re-adopted by source
+   * identity (findMatchingRow); rows that no longer resolve are dropped.
+   */
+  private carryRowStateOver(next: SceneObjectRender[]): void {
+    if (this.collapsedIds.size === 0 && this.expandedConstraintIds.size === 0 && this.expandedGroupKeys.size === 0) {
+      return;
+    }
+    const nextIds = new Set<string>();
+    for (const obj of next) {
+      if (obj.id != null) {
+        nextIds.add(obj.id);
+      }
+    }
+    const resolved = new Map<string, string | null>();
+    const resolve = (id: string): string | null => {
+      if (nextIds.has(id)) {
+        return id;
+      }
+      if (resolved.has(id)) {
+        return resolved.get(id)!;
+      }
+      const prev = this.sceneObjects.find((o) => o.id === id);
+      const match = prev ? findMatchingRow(prev, next) : undefined;
+      const out = match?.id ?? null;
+      resolved.set(id, out);
+      return out;
+    };
+    const remapIds = (ids: Set<string>): Set<string> => {
+      const out = new Set<string>();
+      for (const id of ids) {
+        const to = resolve(id);
+        if (to !== null) {
+          out.add(to);
+        }
+      }
+      return out;
+    };
+    this.collapsedIds = remapIds(this.collapsedIds);
+    this.expandedConstraintIds = remapIds(this.expandedConstraintIds);
+    const groupKeys = new Set<string>();
+    for (const key of this.expandedGroupKeys) {
+      // `<partId>:<groupKey>` — ids are UUIDs, so the first colon splits.
+      const sep = key.indexOf(':');
+      const to = sep < 0 ? null : resolve(key.slice(0, sep));
+      if (to !== null) {
+        groupKeys.add(`${to}${key.slice(sep)}`);
+      }
+    }
+    this.expandedGroupKeys = groupKeys;
   }
 
   /**

@@ -25,6 +25,9 @@ import {
   readUnitStatement,
   setDocumentUnit,
   ensureSymbolImport,
+  importLocalName,
+  collectBoundNames,
+  getJavaScriptParser,
 } from '../src/code-editor.ts';
 
 describe('addBreakpoint', () => {
@@ -1289,6 +1292,92 @@ describe('declareTopLevelVariable', () => {
     const code = `import { unit } from 'fluidcad/core';\nunit('in');\nface();\n`;
     expect(await ensureSymbolImport(code, 'face', 'fluidcad/filters')).toBe(
       `import { unit } from 'fluidcad/core';\nimport { face } from 'fluidcad/filters';\nunit('in');\nface();\n`,
+    );
+  });
+});
+
+describe('collectBoundNames', () => {
+  it('collects import bindings and declarations at every depth', async () => {
+    const parser = await getJavaScriptParser();
+    const code = [
+      `import def, { a, b as c } from './x.js';`,
+      `import * as ns from './y.js';`,
+      `const d = 1, { e, f: g } = obj, [h] = arr;`,
+      `function fn() { let inner = 2; }`,
+      `class K {}`,
+    ].join('\n');
+    const names = collectBoundNames(parser.parse(code));
+    for (const expected of ['def', 'a', 'c', 'ns', 'd', 'e', 'g', 'h', 'fn', 'inner', 'K']) {
+      expect(names.has(expected), expected).toBe(true);
+    }
+    // `b` is the imported export name, not the local binding; `f` is a key.
+    expect(names.has('b')).toBe(false);
+    expect(names.has('f')).toBe(false);
+  });
+});
+
+describe('importLocalName', () => {
+  it('keeps the export name when nothing binds it', async () => {
+    const code = `import { insert } from 'fluidcad/core';\n`;
+    expect(await importLocalName(code, 'plate', './plate.fluid.js')).toBe('plate');
+  });
+
+  it('returns an existing specifier\'s alias for the same module', async () => {
+    const code = `import { part as platePart } from './plate.fluid.js';\n`;
+    expect(await importLocalName(code, 'part', './plate.fluid.js')).toBe('platePart');
+  });
+
+  it('aliases by file stem when another module already binds the name', async () => {
+    const code = `import { part } from './plate.fluid.js';\n`;
+    expect(await importLocalName(code, 'part', './bracket.fluid.js')).toBe('bracket');
+    expect(await importLocalName(code, 'part', './side-plate.part.js')).toBe('sidePlate');
+  });
+
+  it('aliases when a local declaration or a core symbol takes the name', async () => {
+    const local = `import { insert } from 'fluidcad/core';\nconst plate = 1;\n`;
+    // The stem equals the export name here, so the numbered form is next.
+    expect(await importLocalName(local, 'plate', './plate.fluid.js')).toBe('plate2');
+    expect(await importLocalName(local, 'plate', './plate-v2.fluid.js')).toBe('plateV2');
+    const core = `import { insert, part } from 'fluidcad/core';\n`;
+    expect(await importLocalName(core, 'part', './plate.fluid.js')).toBe('plate');
+  });
+
+  it('falls back to a numbered alias when the stem forms are taken too', async () => {
+    const code = [
+      `import { part } from './bracket.fluid.js';`,
+      `const bracket = 1;`,
+      `const bracketPart = 2;`,
+    ].join('\n');
+    expect(await importLocalName(code, 'part', './bracket.fluid.js')).toBe('part');
+    expect(await importLocalName(code, 'part', '../lib/bracket.fluid.js')).toBe('part2');
+  });
+});
+
+describe('ensureSymbolImport with an alias', () => {
+  it('renders `symbol as alias` in a new import statement', async () => {
+    const code = `import { part } from './plate.fluid.js';\n`;
+    expect(await ensureSymbolImport(code, 'part', './bracket.fluid.js', 'bracket')).toBe(
+      `import { part } from './plate.fluid.js';\nimport { part as bracket } from './bracket.fluid.js';\n`,
+    );
+  });
+
+  it('merges an aliased specifier into an existing import of the module', async () => {
+    const code = `import { other } from './parts.fluid.js';\nconst part = 1;\n`;
+    expect(await ensureSymbolImport(code, 'part', './parts.fluid.js', 'parts')).toBe(
+      `import { part as parts, other } from './parts.fluid.js';\nconst part = 1;\n`,
+    );
+  });
+
+  it('leaves an existing specifier alone, aliased or not', async () => {
+    const code = `import { part as platePart } from './plate.fluid.js';\n`;
+    expect(await ensureSymbolImport(code, 'part', './plate.fluid.js', 'platePart')).toBe(code);
+    expect(await ensureSymbolImport(code, 'part', './plate.fluid.js')).toBe(code);
+  });
+
+  it('ignores an alias equal to the symbol', async () => {
+    const code = `import { insert } from 'fluidcad/core';\n`;
+    expect(await ensureSymbolImport(code, 'plate', './plate.fluid.js', 'plate')).toBe(
+      `import { insert } from 'fluidcad/core';\nimport { plate } from './plate.fluid.js';\n`,
     );
   });
 });

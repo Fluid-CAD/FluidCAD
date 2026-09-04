@@ -178,6 +178,66 @@ describe('applyInsertPartEdit', () => {
     expect(importLines).toHaveLength(3);
   });
 
+  it('aliases the same export name coming from two different files', async () => {
+    const code = `import { insert } from 'fluidcad/core';\n`;
+    const result = await applyInsertPartEdit(code, {
+      inserts: [
+        { importFrom: './plate.fluid.js', exportName: 'part', kind: 'value' },
+        { importFrom: './bracket.fluid.js', exportName: 'part', kind: 'value' },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`import { part } from './plate.fluid.js';`);
+    expect(result.newCode).toContain(`import { part as bracket } from './bracket.fluid.js';`);
+    expect(result.newCode).toContain(`const part1 = insert(part);`);
+    expect(result.newCode).toContain(`const bracket1 = insert(bracket);`);
+  });
+
+  it('aliases an export whose name a local declaration already takes', async () => {
+    const code = [
+      `import { insert, part } from 'fluidcad/core';`,
+      `const plate = part('plate', () => {});`,
+    ].join('\n');
+    const result = await applyInsertPartEdit(code, one({
+      importFrom: './plate-v2.fluid.js',
+      exportName: 'plate',
+      kind: 'value',
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`import { plate as plateV2 } from './plate-v2.fluid.js';`);
+    expect(result.newCode).toContain(`const plateV21 = insert(plateV2);`);
+    expect(result.newCode.split('\n').filter(l => /^import .*\bplate\b/.test(l))).toHaveLength(1);
+  });
+
+  it('aliases an export that shadows a fluidcad/core symbol', async () => {
+    const code = `import { insert, part, sketch } from 'fluidcad/core';\n`;
+    const result = await applyInsertPartEdit(code, one({
+      importFrom: './side-plate.part.js',
+      exportName: 'part',
+      kind: 'factory',
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`import { part as sidePlate } from './side-plate.part.js';`);
+    expect(result.newCode).toContain(`const sidePlate1 = insert(sidePlate());`);
+  });
+
+  it('references the existing alias when the export is already imported under one', async () => {
+    const code = [
+      `import { insert } from 'fluidcad/core';`,
+      `import { part as platePart } from './plate.fluid.js';`,
+      `const platePart1 = insert(platePart);`,
+    ].join('\n');
+    const result = await applyInsertPartEdit(code, one({
+      importFrom: './plate.fluid.js',
+      exportName: 'part',
+      kind: 'value',
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode.split('\n').filter(l => l.startsWith('import'))).toHaveLength(2);
+    expect(result.newCode).toContain(`const platePart2 = insert(platePart);`);
+    expect(result.newCode).not.toContain(`insert(part)`);
+  });
+
   it('places the insert inside a definition-style file\'s assembly() body', async () => {
     const code = [
       `import { assembly, insert } from "fluidcad/core";`,

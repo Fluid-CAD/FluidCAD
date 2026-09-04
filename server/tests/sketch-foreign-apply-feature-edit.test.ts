@@ -182,6 +182,27 @@ describe('applyFeatureEdit — foreign sketch (cross file)', () => {
     expect(result.newCode).toContain(`sketch(donor.features.profile, () => {`);
     expect(result.newCode).toContain(`import { donor } from './donor.fluid.js';`);
   });
+
+  it('aliases the donor import when its export name is already bound in the file', async () => {
+    const code = [
+      `import { sketch, circle, extrude, part } from 'fluidcad/core'`,
+      ``,
+      `export const part1 = part('Consumer', () => {`,
+      `  sketch('xy', () => { circle([0, 0], 10) })`,
+      `  extrude(5)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, foreignSpec({
+      activePart: { line: 3, column: 20 },
+      sketchForeign: { exposeName: 'profile', ident: 'part', importFrom: './donor.fluid.js' },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`import { part as donor } from './donor.fluid.js';`);
+    expect(result.newCode).toContain(`sketch(donor.features.profile, () => {`);
+    expect(result.newCode).not.toContain(`import { part } from './donor.fluid.js'`);
+  });
 });
 
 describe('resolvePartBindingIdent', () => {

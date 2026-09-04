@@ -1328,24 +1328,178 @@ export function findSketchBody(call: TSNode): TSNode | null {
 }
 
 /**
- * Ensure a symbol is present in the named imports for `module`. The default
- * module accepts both the `'fluidcad'` and `'fluidcad/core'` spellings; other
- * modules (e.g. `'fluidcad/filters'`) are matched exactly, and a missing
- * import statement is added after the last existing import.
- * Returns modified code if the symbol was added.
+ * Every identifier the file binds at any depth: import bindings (named,
+ * aliased, default, namespace) plus `const`/`let`/`var` declarators
+ * (destructuring included), function and class declarations. Conservative
+ * on purpose — a name bound anywhere is treated as taken, so a generated
+ * top-level binding never shadows or collides with one the author wrote.
  */
-export async function ensureSymbolImport(
+export function collectBoundNames(tree: TSTree): Set<string> {
+  const names = new Set<string>();
+  for (const node of tree.rootNode.namedChildren) {
+    if (node.type === 'import_statement') {
+      for (const spec of walkTree(node)) {
+        if (spec.type === 'import_specifier') {
+          const local = spec.childForFieldName('alias') ?? spec.childForFieldName('name') ?? spec.namedChild(0);
+          if (local) {
+            names.add(local.text);
+          }
+        } else if (spec.type === 'namespace_import') {
+          const id = spec.namedChildren.find(c => c.type === 'identifier');
+          if (id) {
+            names.add(id.text);
+          }
+        } else if (spec.type === 'import_clause') {
+          for (const child of spec.namedChildren) {
+            if (child.type === 'identifier') {
+              names.add(child.text);
+            }
+          }
+        }
+      }
+    }
+  }
+  for (const node of walkTree(tree.rootNode)) {
+    if (node.type === 'function_declaration' || node.type === 'class_declaration') {
+      const name = node.childForFieldName('name');
+      if (name) {
+        names.add(name.text);
+      }
+      continue;
+    }
+    if (node.type !== 'variable_declarator') {
+      continue;
+    }
+    const pattern = node.childForFieldName('name');
+    if (!pattern) {
+      continue;
+    }
+    if (pattern.type === 'identifier') {
+      names.add(pattern.text);
+      continue;
+    }
+    // Destructuring: `const { a, b: c } = …` binds a and c; `[x, y]` binds
+    // both. Property keys parse as property_identifier, so every plain
+    // identifier inside the pattern is a binding.
+    for (const n of walkTree(pattern)) {
+      if (n.type === 'shorthand_property_identifier_pattern' || n.type === 'identifier') {
+        names.add(n.text);
+      }
+    }
+  }
+  return names;
+}
+
+/** The specifier of `module`'s import that brings in `symbol`, if any. */
+function findImportSpecifier(tree: TSTree, symbol: string, module: string): TSNode | null {
+  const importNode = module === 'fluidcad/core'
+    ? findFluidCadImport(tree)
+    : findImportForModule(tree, module);
+  const namedImports = importNode ? findNamedImports(importNode) : null;
+  if (!namedImports) {
+    return null;
+  }
+  for (const spec of namedImports.namedChildren) {
+    if (spec.type !== 'import_specifier') {
+      continue;
+    }
+    const name = spec.childForFieldName('name') ?? spec.namedChild(0);
+    if (name && name.text === symbol) {
+      return spec;
+    }
+  }
+  return null;
+}
+
+/**
+ * `./side-plate.fluid.js` → `sidePlate`: the module's file stem, camel-cased,
+ * with the `.fluid`/`.part`/`.assembly` kind suffix dropped. Empty when the
+ * stem holds no identifier characters.
+ */
+function moduleStemIdentifier(module: string): string {
+  const base = module.split(/[\\/]/).pop() ?? '';
+  const stem = base.replace(/\.[A-Za-z0-9]+$/, '').replace(/\.(fluid|part|assembly)$/, '');
+  const words = stem.split(/[^A-Za-z0-9_$]+/).filter(w => w.length > 0);
+  const ident = words
+    .map((word, i) => (i === 0 ? word.charAt(0).toLowerCase() : word.charAt(0).toUpperCase()) + word.slice(1))
+    .join('');
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(ident) ? ident : '';
+}
+
+/**
+ * The local name that importing `symbol` from `module` binds — or would
+ * bind — in this file. An existing specifier wins, aliased or not
+ * (`{ part as platePart }` → `platePart`). Otherwise the export's own name
+ * when nothing in the file binds it yet; else a fresh alias: the module's
+ * file stem (`part` from `./bracket.fluid.js` → `bracket`), then stem +
+ * Symbol (`bracketPart`), then `symbol2`, `symbol3`, … — whichever is free
+ * first. Pass the result to `ensureSymbolImport` as `alias` so the emitted
+ * import binds exactly the name the generated statement references.
+ *
+ * Two files exporting the same name (`part`, `main`) or an export that
+ * shares a name with a local declaration or a `fluidcad/core` symbol would
+ * otherwise render a duplicate binding and break the whole module.
+ */
+export async function importLocalName(
   code: string,
   symbol: string,
   module = 'fluidcad/core',
 ): Promise<string> {
   const p = await getParser();
   const tree = p.parse(code);
+  const existing = findImportSpecifier(tree, symbol, module);
+  if (existing) {
+    const local = existing.childForFieldName('alias') ?? existing.childForFieldName('name') ?? existing.namedChild(0);
+    return local?.text ?? symbol;
+  }
+  const bound = collectBoundNames(tree);
+  if (!bound.has(symbol)) {
+    return symbol;
+  }
+  const stem = moduleStemIdentifier(module);
+  const candidates: string[] = [];
+  if (stem && stem !== symbol) {
+    candidates.push(stem, `${stem}${symbol.charAt(0).toUpperCase()}${symbol.slice(1)}`);
+  }
+  for (const candidate of candidates) {
+    if (!bound.has(candidate)) {
+      return candidate;
+    }
+  }
+  for (let n = 2; ; n++) {
+    const candidate = `${symbol}${n}`;
+    if (!bound.has(candidate)) {
+      return candidate;
+    }
+  }
+}
+
+/**
+ * Ensure a symbol is present in the named imports for `module`. The default
+ * module accepts both the `'fluidcad'` and `'fluidcad/core'` spellings; other
+ * modules (e.g. `'fluidcad/filters'`) are matched exactly, and a missing
+ * import statement is added after the last existing import.
+ * Returns modified code if the symbol was added.
+ *
+ * `alias` (from `importLocalName`) renders the specifier as `symbol as
+ * alias` when it differs from the symbol, so a name already bound elsewhere
+ * in the file is never re-declared. An existing specifier for the symbol
+ * is left as it is, whatever it binds.
+ */
+export async function ensureSymbolImport(
+  code: string,
+  symbol: string,
+  module = 'fluidcad/core',
+  alias?: string,
+): Promise<string> {
+  const p = await getParser();
+  const tree = p.parse(code);
+  const specifier = alias && alias !== symbol ? `${symbol} as ${alias}` : symbol;
   const importNode = module === 'fluidcad/core'
     ? findFluidCadImport(tree)
     : findImportForModule(tree, module);
   if (!importNode) {
-    const statement = `import { ${symbol} } from '${module}';`;
+    const statement = `import { ${specifier} } from '${module}';`;
     const lastImport = findLastImport(tree);
     if (lastImport) {
       return spliceCode(code, lastImport.endIndex, lastImport.endIndex, `\n${statement}`);
@@ -1356,14 +1510,8 @@ export async function ensureSymbolImport(
   if (!namedImports) {
     return code;
   }
-  for (const spec of namedImports.namedChildren) {
-    if (spec.type !== 'import_specifier') {
-      continue;
-    }
-    const name = spec.childForFieldName('name') ?? spec.namedChild(0);
-    if (name && name.text === symbol) {
-      return code;
-    }
+  if (findImportSpecifier(tree, symbol, module)) {
+    return code;
   }
   // Match the import's own spacing: `{ a }` → `{ unit, a }`, `{a}` →
   // `{unit, a}`, and a multi-line list gets its own indented line.
@@ -1373,11 +1521,11 @@ export async function ensureSymbolImport(
   if (after === '\n' || after === '\r') {
     const nextLineStart = code.indexOf('\n', openBraceOffset) + 1;
     const indent = code.slice(nextLineStart).match(/^[ \t]*/)?.[0] ?? '';
-    insertText = `\n${indent}${symbol},`;
+    insertText = `\n${indent}${specifier},`;
   } else if (after === ' ' || after === '\t') {
-    insertText = ` ${symbol},`;
+    insertText = ` ${specifier},`;
   } else {
-    insertText = `${symbol}, `;
+    insertText = `${specifier}, `;
   }
   return code.slice(0, openBraceOffset) + insertText + code.slice(openBraceOffset);
 }

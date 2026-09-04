@@ -4,6 +4,7 @@ import {
   findEditableCallAt,
   findSketchBody,
   findTopLevelDeclarationAnchor,
+  importLocalName,
   indentOf,
   isBreakpointStatement,
   isExpressionText,
@@ -2244,7 +2245,10 @@ async function applySketchForeign(
     }
     ident = resolved.ident;
   } else {
-    ident = sf.ident!;
+    // The donor's export may already be bound here under another name, or
+    // its name may be taken by a local declaration — the statement must
+    // reference what the import actually binds.
+    ident = sf.importFrom ? await importLocalName(working, sf.ident!, sf.importFrom) : sf.ident!;
   }
 
   const result = await appendTopLevelStatement(
@@ -2259,7 +2263,7 @@ async function applySketchForeign(
   }
   let out = result.newCode;
   if (sf.importFrom) {
-    out = await ensureSymbolImport(out, ident, sf.importFrom);
+    out = await ensureSymbolImport(out, sf.ident!, sf.importFrom, ident);
   }
   return { newCode: out };
 }

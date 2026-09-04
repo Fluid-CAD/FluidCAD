@@ -1,6 +1,7 @@
 import {
   ensureSymbolImport,
   getJavaScriptParser,
+  importLocalName,
   indentOf,
   isBlankRow,
   isExpressionText,
@@ -70,6 +71,11 @@ export type InsertPartEditSpec = {
  * Every entry is bound to a fresh `const` so the follow-up flows (translate
  * chains, mates, sub-assembly part paths) have a name to reference; names
  * number against the evolving code, so one batch never collides with itself.
+ * Import bindings dodge collisions too: an export whose name is already
+ * bound (by another file's import, a local declaration, or a fluidcad/core
+ * symbol) is imported under an alias derived from its file
+ * (`import { part as bracket } from './bracket.fluid.js'`) and the insert()
+ * references that alias — see `importLocalName`.
  *
  * All-or-nothing: entries validate up front and the transform refuses the
  * whole batch on the first bad one — a half-applied basket would be worse
@@ -102,16 +108,23 @@ export async function applyInsertPartEdit(
 
   let out = code;
   for (const entry of entries) {
+    // The name the insert() references is whatever the import BINDS, not
+    // the export's name: two files exporting `part`, or an export sharing
+    // its name with a local const or a fluidcad/core symbol, get an alias
+    // (`import { part as bracket } from './bracket.fluid.js'`) instead of
+    // a duplicate binding that would break the whole module.
+    let localName = entry.exportName;
     if (entry.importFrom) {
-      out = await ensureSymbolImport(out, entry.exportName, entry.importFrom);
+      localName = await importLocalName(out, entry.exportName, entry.importFrom);
+      out = await ensureSymbolImport(out, entry.exportName, entry.importFrom, localName);
     }
     out = await ensureSymbolImport(out, 'insert');
 
-    const varName = pickInstanceName(out, entry.exportName);
+    const varName = pickInstanceName(out, localName);
     const callSuffix = entry.kind === 'value' ? '' : '()';
     const paramsLiteral = renderParamsLiteral(entry.params);
     const statement =
-      `const ${varName} = insert(${entry.exportName}${callSuffix}${paramsLiteral ? `, ${paramsLiteral}` : ''});`;
+      `const ${varName} = insert(${localName}${callSuffix}${paramsLiteral ? `, ${paramsLiteral}` : ''});`;
 
     const parser = await getJavaScriptParser();
     const tree = parser.parse(out);

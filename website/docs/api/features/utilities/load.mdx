@@ -1,12 +1,17 @@
 ---
 sidebar_position: 4
 title: "load"
-description: "Loads a 3D model file (STEP, STL, etc.) by filename."
+description: "Loads an imported model (the cached STEP import in `imports/`) by name.  Imports are cached in mm and scaled into this document's unit automatically, so a unit is normally unnecessary. `options.unit` asserts the unit the asset's cached geometry is in, for assets without trustworthy metadata; it overrides the import sidecar."
 ---
 
 # load()
 
-Loads a 3D model file (STEP, STL, etc.) by filename.
+Loads an imported model (the cached STEP import in `imports/`) by name.
+
+Imports are cached in mm and scaled into this document's unit
+automatically, so a unit is normally unnecessary. `options.unit` asserts
+the unit the asset's cached geometry is in, for assets without
+trustworthy metadata; it overrides the import sidecar.
 
 **Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
 
@@ -17,11 +22,17 @@ See the [guide](/docs/guides/import) for detailed usage examples.
 ## Signatures
 
 ```ts
-load(fileName: string): ILoadFile
+load(fileName: string, options?: LoadOptions): ILoadFile
 ```
 
-Loads a 3D model file (STEP, STL, etc.) by filename.
+Loads an imported model (the cached STEP import in `imports/`) by name.
+
+Imports are cached in mm and scaled into this document's unit
+automatically, so a unit is normally unnecessary. `options.unit` asserts
+the unit the asset's cached geometry is in, for assets without
+trustworthy metadata; it overrides the import sidecar.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `fileName` | string | The path to the model file |
+| `fileName` | string | The asset name (the STEP file name without extension) |
+| `options` | LoadOptions | Optional `{ unit }` assertion of the asset's unit *(optional)* |

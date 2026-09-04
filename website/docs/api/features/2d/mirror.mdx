@@ -17,14 +17,14 @@ See the [guide](/docs/guides/transforms) for detailed usage examples.
 ## Signatures
 
 ```ts
-mirror(line: SceneObject): IMirror2D
+mirror(line: Geometry | Reference): IMirror2D
 ```
 
 [2D] Mirror all sketch geometries across a given line.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `line` | [SceneObject](/docs/api/types/scene-object) | The line to mirror across |
+| `line` | [Geometry](/docs/api/types/geometry) \| [Reference](/docs/api/types/reference) | The line to mirror across |
 
 ---
 
@@ -41,14 +41,14 @@ mirror(axis: AxisLike): IMirror2D
 ---
 
 ```ts
-mirror(line: SceneObject, ...geometries: SceneObject[]): IMirror2D
+mirror(line: Geometry | Reference, ...geometries: SceneObject[]): IMirror2D
 ```
 
 [2D] Mirror given sketch geometries across a given line.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `line` | [SceneObject](/docs/api/types/scene-object) | The line to mirror across |
+| `line` | [Geometry](/docs/api/types/geometry) \| [Reference](/docs/api/types/reference) | The line to mirror across |
 | `...geometries` | [SceneObject](/docs/api/types/scene-object)[] | The geometries to mirror *(optional)* |
 
 ---

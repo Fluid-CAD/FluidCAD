@@ -12,15 +12,21 @@ import { MirrorShape2D } from "../features/mirror-shape2d.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { AxisObject } from "../features/axis.js";
 import { AxisFromEdge } from "../features/axis-from-edge.js";
-import { IMirror, IMirror2D, ISceneObject } from "./interfaces.js";
+import { IGeometry, IMirror, IMirror2D, IReference, ISceneObject } from "./interfaces.js";
 
+/**
+ * The 2D `line` parameters are typed as sketch geometry, not `ISceneObject`:
+ * a plane datum is also an `ISceneObject`, and with the wider type
+ * `mirror(plane, shape)` resolved to the 2D overload and lost `IMirror`'s
+ * boolean methods (`.new()` …) in the editor.
+ */
 interface MirrorFunction {
 
   /**
   * [2D] Mirror all sketch geometries across a given line.
   * @param line The line to mirror across
   */
-  (line: ISceneObject): IMirror2D;
+  (line: IGeometry | IReference): IMirror2D;
 
   /**
   * [2D] Mirror all sketch geometries across a given axis.
@@ -33,7 +39,7 @@ interface MirrorFunction {
   * @param line The line to mirror across
   * @param geometries The geometries to mirror
   */
-  (line: ISceneObject, ...geometries: ISceneObject[]): IMirror2D;
+  (line: IGeometry | IReference, ...geometries: ISceneObject[]): IMirror2D;
 
   /**
   * [2D] Mirror given sketch geometries across a given axis.

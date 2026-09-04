@@ -89,7 +89,10 @@ describe("fuse edge cleanup", () => {
       const p = plane(plane(e.startFaces()), plane(e2.endFaces()));
       const f2 = mirror(p, f);
       const p2 = plane(plane(select(face().onPlane('xz', -61))), plane(select(face().onPlane('xz', -99))));
-      const f3 = (mirror(p2, f2) as any).new();
+      // No cast: `mirror(plane, shape)` must type as IMirror (with `.new()`),
+      // not the 2D overload — regression for the editor's
+      // "Property 'new' does not exist on type 'IMirror2D'".
+      const f3 = mirror(p2, f2).new();
       const f4 = rotate('y', 180, f3);
       fuse(f4, f2);
     });

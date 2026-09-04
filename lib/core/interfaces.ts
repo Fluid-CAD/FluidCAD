@@ -3,8 +3,8 @@ import type { Point2DLike, PointLike } from "../math/point.js";
 import type { FaceFilterBuilder } from "../filters/face/face-filter.js";
 import type { EdgeFilterBuilder } from "../filters/edge/edge-filter.js";
 import type { Matrix4 } from "../math/matrix4.js";
-import type { AxisLike } from "../math/axis.js";
-import type { PlaneLike } from "../math/plane.js";
+import type { Axis, AxisLike } from "../math/axis.js";
+import type { Plane, PlaneLike } from "../math/plane.js";
 import type { NumberParam } from "./param.js";
 
 export interface ISceneObject {
@@ -140,9 +140,26 @@ export interface ITransformable extends ISceneObject {
   mirror(axis: AxisLike): this;
 }
 
-export interface IPlane extends ISceneObject {}
+/**
+ * A plane datum in the scene — what `plane()` returns. `getPlane()` is the
+ * one member every plane object shares; it is declared here (rather than
+ * leaving the interface empty) so a plane is structurally distinct from a
+ * bare `ISceneObject` and overloaded functions such as `mirror()` resolve
+ * their `PlaneLike` forms instead of a 2D `line` form.
+ */
+export interface IPlane extends ISceneObject {
+  /** The resolved plane (origin, normal, x-direction) this datum stands for. */
+  getPlane(): Plane;
+}
 
-export interface IAxis extends ISceneObject {}
+/**
+ * An axis datum in the scene — what `axis()` and `local()` return. `getAxis()`
+ * plays the same structural role here as `getPlane()` does on `IPlane`.
+ */
+export interface IAxis extends ISceneObject {
+  /** The resolved axis (origin, direction) this datum stands for. */
+  getAxis(): Axis;
+}
 
 /**
  * A face/edge selection — the result of `select(...)` or of lazy accessors

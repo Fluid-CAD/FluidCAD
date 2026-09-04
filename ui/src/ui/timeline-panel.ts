@@ -61,7 +61,34 @@ function partGroupOf(obj: SceneObjectRender): PartGroupKind | undefined {
   return PART_GROUP_KINDS.find((kind) => obj.type === kind.type);
 }
 
+/** Per-render inputs shared by every renderSubtree call. */
+interface RenderContext {
+  items: SceneObjectRender[];
+  rollbackStop: number;
+  /** Ids of every non-hidden object that has at least one non-hidden child. */
+  parentIds: Set<string>;
+  /** Ids of every container with an errored descendant at any depth. */
+  erroredIds: Set<string>;
+  scopedIds: Set<string> | null;
+  pickedRowId: string | null;
+}
+
 export class TimelinePanel {
+  /**
+   * Nesting levels the timeline renders: top-level features, their children
+   * and grandchildren — enough for a sketch's curves and constraints to show
+   * inside a part() container. Deeper rows fold into the nearest rendered
+   * ancestor (see renderedDepth).
+   */
+  static readonly MAX_RENDER_DEPTH = 3;
+
+  /** Left padding per depth; one level of indent per nesting step. */
+  private static readonly INDENT_CLASSES = ['', 'pl-7', 'pl-11'];
+
+  private static indentClass(depth: number): string {
+    return TimelinePanel.INDENT_CLASSES[Math.min(depth, TimelinePanel.INDENT_CLASSES.length - 1)];
+  }
+
   /**
    * Pre-empts a timeline row's default click (rollback preview + go to
    * source). An armed pick dialog consumes clicks on rows it can use —
@@ -318,7 +345,11 @@ export class TimelinePanel {
     if (rowId !== null) {
       const row = this.sceneObjects.find((o) => o.id === rowId);
       if (row?.parentId != null) {
-        this.collapsedIds.delete(row.parentId);
+        for (const ancestor of this.ancestorsOf(row)) {
+          if (ancestor.id != null) {
+            this.collapsedIds.delete(ancestor.id);
+          }
+        }
         if (isConstraintRow(row)) {
           this.expandedConstraintIds.add(row.parentId);
         }
@@ -336,9 +367,9 @@ export class TimelinePanel {
 
   /**
    * The rendered row standing in for pickedFeatureId: the feature's own row,
-   * or the nearest ancestor that has one — grandchildren (only two depths
-   * render), descendants of hide-children containers, and hidden rows have
-   * no row of their own.
+   * or the nearest ancestor that has one — rows nested deeper than
+   * MAX_RENDER_DEPTH, descendants of hide-children containers, and hidden
+   * rows have no row of their own.
    */
   private resolvePickedRowId(): string | null {
     if (this.pickedFeatureId === null) {
@@ -349,7 +380,7 @@ export class TimelinePanel {
     let obj = byId(this.pickedFeatureId);
     while (obj && obj.id != null && !visited.has(obj.id)) {
       visited.add(obj.id);
-      if (this.hasRenderedRow(obj)) {
+      if (this.renderedDepth(obj) !== null) {
         return obj.id;
       }
       obj = obj.parentId != null ? byId(obj.parentId) : undefined;
@@ -357,16 +388,52 @@ export class TimelinePanel {
     return null;
   }
 
-  /** Whether renderTimeline emits a row for this object (collapse aside). */
-  private hasRenderedRow(obj: SceneObjectRender): boolean {
+  /**
+   * Nesting depth at which renderTimeline emits a row for this object
+   * (0 = top level), or null when it never gets one: hidden rows, rows under
+   * a hidden or hide-children ancestor, and rows nested deeper than
+   * MAX_RENDER_DEPTH. Collapse state is not considered.
+   */
+  private renderedDepth(obj: SceneObjectRender): number | null {
     if (isHiddenRow(obj)) {
-      return false;
+      return null;
     }
-    if (obj.parentId == null) {
-      return true;
+    const visited = new Set<string>();
+    let depth = 0;
+    let cur = obj;
+    while (cur.parentId != null) {
+      if (visited.has(cur.parentId)) {
+        return null;
+      }
+      visited.add(cur.parentId);
+      const parent = this.sceneObjects.find((o) => o.id === cur.parentId);
+      if (!parent || isHiddenRow(parent) || parent.hideChildren === true) {
+        return null;
+      }
+      depth++;
+      if (depth >= TimelinePanel.MAX_RENDER_DEPTH) {
+        return null;
+      }
+      cur = parent;
     }
-    const parent = this.sceneObjects.find((o) => o.id === obj.parentId);
-    return parent != null && parent.parentId == null && !isHiddenRow(parent) && parent.hideChildren !== true;
+    return depth;
+  }
+
+  /** Every ancestor of `obj` in the scene list, nearest first. */
+  private ancestorsOf(obj: SceneObjectRender): SceneObjectRender[] {
+    const out: SceneObjectRender[] = [];
+    const visited = new Set<string>();
+    let cur = obj;
+    while (cur.parentId != null && !visited.has(cur.parentId)) {
+      visited.add(cur.parentId);
+      const parent = this.sceneObjects.find((o) => o.id === cur.parentId);
+      if (!parent) {
+        break;
+      }
+      out.push(parent);
+      cur = parent;
+    }
+    return out;
   }
 
   private scrollPickedIntoView(): void {
@@ -424,96 +491,27 @@ export class TimelinePanel {
       && findActiveObject(items)?.type === 'sketch';
 
     const parentIds = new Set<string>();
-    const childErrorByParent = new Map<string, boolean>();
     for (const obj of items) {
-      if (isHiddenRow(obj)) {
-        continue;
-      }
-      if (obj.parentId) {
+      if (!isHiddenRow(obj) && obj.parentId) {
         parentIds.add(obj.parentId);
-        if (obj.hasError) {
-          childErrorByParent.set(obj.parentId, true);
-        }
       }
     }
 
-    const scopedIds = rollbackScopeIds(items, this.rollbackScopePartId);
-    const pickedRowId = this.resolvePickedRowId();
+    const ctx: RenderContext = {
+      items,
+      rollbackStop,
+      parentIds,
+      erroredIds: this.erroredAncestorIds(items),
+      scopedIds: rollbackScopeIds(items, this.rollbackScopePartId),
+      pickedRowId: this.resolvePickedRowId(),
+    };
 
     let html = '';
-
     for (let i = 0; i < items.length; i++) {
-      const obj = items[i];
-      if (obj.parentId) {
+      if (items[i].parentId || isHiddenRow(items[i])) {
         continue;
       }
-      if (isHiddenRow(obj)) {
-        continue;
-      }
-
-      // A hide-children container (e.g. a repeat) shows as a single leaf row.
-      // Its rollback target is its last descendant, so clicking it previews
-      // the scene after the whole feature has executed.
-      const hidesChildren = obj.hideChildren === true;
-      const hasChildren = !hidesChildren && obj.id != null && parentIds.has(obj.id);
-      const isCollapsed = obj.id != null && this.collapsedIds.has(obj.id);
-      const childHasError = obj.id != null && childErrorByParent.get(obj.id) === true;
-      const effectiveError = obj.hasError === true || childHasError;
-      const rollbackIndex = TimelinePanel.rollsBackToLastDescendant(obj) ? this.lastDescendantIndex(items, i) : i;
-
-      html += this.renderTimelineItem(obj, i, rollbackStop, false, hasChildren, isCollapsed, effectiveError, rollbackIndex, scopedIds, pickedRowId !== null && obj.id === pickedRowId);
-
-      if (hasChildren && !isCollapsed) {
-        const constraintRows: number[] = [];
-        const grouped = new Map<string, number[]>();
-        for (let j = 0; j < items.length; j++) {
-          if (isHiddenRow(items[j])) {
-            continue;
-          }
-          if (items[j].parentId === obj.id) {
-            if (isConstraintRow(items[j])) {
-              constraintRows.push(j);
-              continue;
-            }
-            const group = obj.type === 'part' ? partGroupOf(items[j]) : undefined;
-            if (group) {
-              const list = grouped.get(group.key) ?? [];
-              list.push(j);
-              grouped.set(group.key, list);
-              continue;
-            }
-            const childRollbackIndex = TimelinePanel.rollsBackToLastDescendant(items[j]) ? this.lastDescendantIndex(items, j) : j;
-            html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true, childRollbackIndex, scopedIds, pickedRowId !== null && items[j].id === pickedRowId);
-          }
-        }
-        if (constraintRows.length > 0 && obj.id != null) {
-          const shown = this.expandedConstraintIds.has(obj.id);
-          const anyError = constraintRows.some((j) => items[j].hasError === true);
-          html += this.renderConstraintSummaryRow(obj.id, constraintRows.length, shown, anyError);
-          if (shown) {
-            for (const j of constraintRows) {
-              html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true, j, scopedIds, pickedRowId !== null && items[j].id === pickedRowId);
-            }
-          }
-        }
-        if (obj.id != null) {
-          for (const kind of PART_GROUP_KINDS) {
-            const rows = grouped.get(kind.key);
-            if (!rows || rows.length === 0) {
-              continue;
-            }
-            const groupKey = `${obj.id}:${kind.key}`;
-            const shown = this.expandedGroupKeys.has(groupKey);
-            const anyError = rows.some((j) => items[j].hasError === true);
-            html += this.renderGroupSummaryRow(groupKey, kind, rows.length, shown, anyError);
-            if (shown) {
-              for (const j of rows) {
-                html += this.renderTimelineItem(items[j], j, rollbackStop, true, false, false, items[j].hasError === true, j, scopedIds, pickedRowId !== null && items[j].id === pickedRowId);
-              }
-            }
-          }
-        }
-      }
+      html += this.renderSubtree(ctx, i, 0);
     }
 
     // Rebuilding the rows discards the hovered one along with its mouseleave
@@ -761,6 +759,95 @@ export class TimelinePanel {
   }
 
   /**
+   * Ids of every container with an errored descendant (own error excluded,
+   * any depth). A failing constraint marks its sketch AND the part around
+   * it, so a collapsed ancestor still flags the failure.
+   */
+  private erroredAncestorIds(items: SceneObjectRender[]): Set<string> {
+    const out = new Set<string>();
+    for (const obj of items) {
+      if (isHiddenRow(obj) || obj.hasError !== true) {
+        continue;
+      }
+      for (const ancestor of this.ancestorsOf(obj)) {
+        if (ancestor.id != null) {
+          out.add(ancestor.id);
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * The row for the object at `index` plus, when it is an expanded container
+   * above the depth cap, its children — constraints and part sub-groups
+   * behind their summary rows, everything else recursing one level deeper.
+   * A hide-children container (e.g. a repeat) always shows as a single leaf
+   * row; a container at the last rendered depth does too, with no chevron.
+   */
+  private renderSubtree(ctx: RenderContext, index: number, depth: number): string {
+    const { items, rollbackStop, scopedIds, pickedRowId } = ctx;
+    const obj = items[index];
+    const canExpand = depth < TimelinePanel.MAX_RENDER_DEPTH - 1 && obj.hideChildren !== true;
+    const hasChildren = canExpand && obj.id != null && ctx.parentIds.has(obj.id);
+    const isCollapsed = obj.id != null && this.collapsedIds.has(obj.id);
+    const effectiveError = obj.hasError === true || (obj.id != null && ctx.erroredIds.has(obj.id));
+    const rollbackIndex = TimelinePanel.rollsBackToLastDescendant(obj) ? this.lastDescendantIndex(items, index) : index;
+
+    let html = this.renderTimelineItem(obj, index, rollbackStop, depth, hasChildren, isCollapsed, effectiveError, rollbackIndex, scopedIds, pickedRowId !== null && obj.id === pickedRowId);
+    if (!hasChildren || isCollapsed || obj.id == null) {
+      return html;
+    }
+
+    const childDepth = depth + 1;
+    const constraintRows: number[] = [];
+    const grouped = new Map<string, number[]>();
+    for (let j = 0; j < items.length; j++) {
+      if (isHiddenRow(items[j]) || items[j].parentId !== obj.id) {
+        continue;
+      }
+      if (isConstraintRow(items[j])) {
+        constraintRows.push(j);
+        continue;
+      }
+      const group = obj.type === 'part' ? partGroupOf(items[j]) : undefined;
+      if (group) {
+        const list = grouped.get(group.key) ?? [];
+        list.push(j);
+        grouped.set(group.key, list);
+        continue;
+      }
+      html += this.renderSubtree(ctx, j, childDepth);
+    }
+    if (constraintRows.length > 0) {
+      const shown = this.expandedConstraintIds.has(obj.id);
+      const anyError = constraintRows.some((j) => items[j].hasError === true);
+      html += this.renderConstraintSummaryRow(obj.id, constraintRows.length, shown, anyError, childDepth);
+      if (shown) {
+        for (const j of constraintRows) {
+          html += this.renderSubtree(ctx, j, childDepth);
+        }
+      }
+    }
+    for (const kind of PART_GROUP_KINDS) {
+      const rows = grouped.get(kind.key);
+      if (!rows || rows.length === 0) {
+        continue;
+      }
+      const groupKey = `${obj.id}:${kind.key}`;
+      const shown = this.expandedGroupKeys.has(groupKey);
+      const anyError = rows.some((j) => items[j].hasError === true);
+      html += this.renderGroupSummaryRow(groupKey, kind, rows.length, shown, anyError, childDepth);
+      if (shown) {
+        for (const j of rows) {
+          html += this.renderSubtree(ctx, j, childDepth);
+        }
+      }
+    }
+    return html;
+  }
+
+  /**
    * Rows whose one-click rollback targets their last descendant instead of
    * themselves: hide-children containers (a repeat stands in for its hidden
    * clones) and sketches — a sketch's geometry lives in its element children,
@@ -801,14 +888,14 @@ export class TimelinePanel {
    * on purpose: it is not a statement — no rollback, rename or context menu —
    * only the show/hide toggle for the grouped constraint rows below it.
    */
-  private renderConstraintSummaryRow(sketchId: string, count: number, shown: boolean, anyError: boolean): string {
+  private renderConstraintSummaryRow(sketchId: string, count: number, shown: boolean, anyError: boolean, depth: number): string {
     const rotation = shown ? 'rotate-90' : '';
     const textClass = anyError ? 'text-error' : 'text-base-content/60';
     const errorDot = anyError
       ? `<span class="text-error shrink-0 [&>svg]:w-2.5 [&>svg]:h-2.5">${ICON_ALERT_DOT}</span>`
       : '';
     return `
-      <div class="flex items-center gap-1 px-3 py-1.5 pl-7 cursor-pointer hover:bg-base-content/[0.06] text-sm ${textClass}" data-constraints-toggle="${sketchId}">
+      <div class="flex items-center gap-1 px-3 py-1.5 ${TimelinePanel.indentClass(depth)} cursor-pointer hover:bg-base-content/[0.06] text-sm ${textClass}" data-constraints-toggle="${sketchId}">
         <span class="flex items-center justify-center w-5 h-5 opacity-50 hover:opacity-100 transition-transform ${rotation}">
           ${ICON_CHEVRON_RIGHT}
         </span>
@@ -825,14 +912,14 @@ export class TimelinePanel {
    * rename or context menu — only the show/hide toggle for the grouped rows
    * below it.
    */
-  private renderGroupSummaryRow(groupKey: string, kind: PartGroupKind, count: number, shown: boolean, anyError: boolean): string {
+  private renderGroupSummaryRow(groupKey: string, kind: PartGroupKind, count: number, shown: boolean, anyError: boolean, depth: number): string {
     const rotation = shown ? 'rotate-90' : '';
     const textClass = anyError ? 'text-error' : 'text-base-content/60';
     const errorDot = anyError
       ? `<span class="text-error shrink-0 [&>svg]:w-2.5 [&>svg]:h-2.5">${ICON_ALERT_DOT}</span>`
       : '';
     return `
-      <div class="flex items-center gap-1 px-3 py-1.5 pl-7 cursor-pointer hover:bg-base-content/[0.06] text-sm ${textClass}" data-group-toggle="${groupKey}">
+      <div class="flex items-center gap-1 px-3 py-1.5 ${TimelinePanel.indentClass(depth)} cursor-pointer hover:bg-base-content/[0.06] text-sm ${textClass}" data-group-toggle="${groupKey}">
         <span class="flex items-center justify-center w-5 h-5 opacity-50 hover:opacity-100 transition-transform ${rotation}">
           ${ICON_CHEVRON_RIGHT}
         </span>
@@ -843,7 +930,7 @@ export class TimelinePanel {
     `;
   }
 
-  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, isChild: boolean, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean, rollbackIndex: number, scopedIds: Set<string> | null, isPicked: boolean): string {
+  private renderTimelineItem(obj: SceneObjectRender, index: number, rollbackStop: number, depth: number, hasChildren: boolean, isCollapsed: boolean, effectiveError: boolean, rollbackIndex: number, scopedIds: Set<string> | null, isPicked: boolean): string {
     // Rows outside a part-scoped rollback's part are fully rendered — they
     // never read as past or current, whatever their flat index.
     const inRollbackScope = scopedIds === null || (obj.id != null && scopedIds.has(obj.id));
@@ -858,18 +945,19 @@ export class TimelinePanel {
     // is likewise a reference, not geometry — dimming it would read as
     // "consumed" about something nothing can consume.
     const isInvisible = obj.visible === false && !isConstraintRow(obj) && obj.type !== 'exposed';
-    const isActivePart = !isChild && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
+    const isTopLevel = depth === 0;
+    const isActivePart = isTopLevel && obj.type === 'part' && this.isPartRowActive?.(obj) === true;
     const isSelected = this.selectedIndices.has(index);
     const isDraggable = !this.sketchActive && this.isMovableRow(obj);
-    const isDropTarget = this.onMoveToPart != null && !this.sketchActive && !isChild
+    const isDropTarget = this.onMoveToPart != null && !this.sketchActive && isTopLevel
       && obj.type === 'part' && obj.sourceLocation != null;
     const name = obj.name || 'Unknown';
     const iconSrc = obj.type === 'part' ? '/icons/box.png' : `/icons/${resolveIconName(obj.uniqueType, obj.type)}.png`;
 
     let itemClass = 'flex items-center gap-1 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm';
-
-    if (isChild) {
-      itemClass += ' pl-7';
+    const indent = TimelinePanel.indentClass(depth);
+    if (indent) {
+      itemClass += ` ${indent}`;
     }
 
     // Part rows opt out of the "current" navigation highlight: with part

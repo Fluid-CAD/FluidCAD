@@ -60,9 +60,9 @@ describe('timeline rollback targets', () => {
       row(5, { type: 'extrude', parentId: 'id-0' }),
     ], 5);
 
-    // The timeline lists one level under a part — the sketch's own element
-    // rows aren't rendered there, so the sketch row is the only way to
-    // preview the sketch, and it must carry the whole thing.
+    // The sketch row previews the whole sketch wherever it is nested: its
+    // element rows list under it, but clicking the sketch itself must show
+    // every curve, not an empty sketch with constraint glyphs.
     expect(h.rollbackIndexOf(1)).toBe('4');
     expect(h.rollbackIndexOf(5)).toBe('5');
   });

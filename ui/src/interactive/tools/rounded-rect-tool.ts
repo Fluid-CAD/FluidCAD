@@ -4,7 +4,7 @@ import { SceneContext } from '../../scene/scene-context';
 import { PlaneData, SceneObjectRender } from '../../types';
 import { SnapController } from '../../snapping/snap-controller';
 import { SnapManager } from '../../snapping/snap-manager';
-import { SnapType } from '../../snapping/types';
+import { SnapType, SolvedVertexRef } from '../../snapping/types';
 import {
   projectToSketch,
   roundPoint,
@@ -33,6 +33,12 @@ export class RoundedRectTool extends SketchTool {
   private startPoint: [number, number] | null = null;
   /** The start corner as picked: same position, plus any typed axis expressions. */
   private startPick: PickedPoint | null = null;
+  /** Solved sketches: the anchor click's snap provenance, centered mode
+   * only — the centered anchor is the shape's centre, pinned at commit as
+   * the midpoint between two diagonal corner-arc centres. The non-centered
+   * anchor is a sharp corner the rounding cuts away: no vertex sits on it,
+   * so nothing can be constrained to the snap. */
+  private startSnapRef: SolvedVertexRef | null = null;
   private mousePoint: [number, number] | null = null;
   private lastSnapType: SnapType = 'none';
   private readonly centered: boolean;
@@ -111,10 +117,13 @@ export class RoundedRectTool extends SketchTool {
   }
 
   /** Single writer for both halves of the anchor, so the position the preview
-   * draws and the expressions the statement emits cannot drift. */
+   * draws and the expressions the statement emits cannot drift. Clears the
+   * anchor's snap ref — the mouse pick path re-captures it right after
+   * (typed picks never carry one). */
   private consumeStart(start: PickedPoint): void {
     this.startPick = start;
     this.startPoint = start.value;
+    this.startSnapRef = null;
     this.syncPointInput();
     this.rebuildPreview();
   }
@@ -122,6 +131,7 @@ export class RoundedRectTool extends SketchTool {
   private resetState(): void {
     this.startPoint = null;
     this.startPick = null;
+    this.startSnapRef = null;
     this.mousePoint = null;
     this.expressionPhase = 'width';
     this.widthExpression = null;
@@ -154,7 +164,12 @@ export class RoundedRectTool extends SketchTool {
     const point = roundPoint(result.point2d);
 
     if (!this.startPoint) {
-      this.consumeStart(this.applyPointInput(result.point2d));
+      const picked = this.applyPointInput(result.point2d);
+      this.consumeStart(picked);
+      // A snapped centered anchor becomes the midpoint pin at commit; typed
+      // picks and Ctrl-clicks carry none (see startSnapRef).
+      this.startSnapRef = this.centered && !picked.typed && !(e.ctrlKey || e.metaKey)
+        ? result.ref ?? null : null;
       return;
     }
 
@@ -552,6 +567,9 @@ export class RoundedRectTool extends SketchTool {
       const corner: [number, number] = this.centered
         ? [start.value[0] - w / 2, start.value[1] - h / 2]
         : [start.value[0], start.value[1]];
+      // Snap provenance → the centre's midpoint pin (the Auto-constraints
+      // toggle gates the inference; only the centered anchor carries one).
+      const centerSnap = this.autoConstraintsEnabled() ? this.startSnapRef : null;
       const emission = roundedRectEmission({
         corner,
         w,
@@ -560,6 +578,7 @@ export class RoundedRectTool extends SketchTool {
         ...(this.widthTyped ? { widthDim: dimMagnitude(widthResult.expression) } : {}),
         ...(this.heightTyped ? { heightDim: dimMagnitude(heightResult.expression) } : {}),
         ...(radiusTyped ? { radiusDim: dimMagnitude(radiusResult.expression) } : {}),
+        ...(centerSnap ? { centerSnap } : {}),
       });
       const variables = [...start.newVariables, ...newVariables];
       void this.solvedCtx.emit({

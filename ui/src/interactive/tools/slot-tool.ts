@@ -43,9 +43,10 @@ export class SlotTool extends SketchTool {
   private startPoint: [number, number] | null = null;
   /** The anchor as picked, carrying any typed axis expressions. */
   private startPick: PickedPoint | null = null;
-  /** Solved sketches: the anchor click's snap provenance. Non-centered mode
-   * only — the anchor IS the first cap centre there; the centered anchor is
-   * the slot's midpoint, which no slot vertex sits on. */
+  /** Solved sketches: the anchor click's snap provenance. The anchor IS the
+   * first cap centre in non-centered mode (→ coincident); the centered
+   * anchor is the slot's midpoint, which no slot vertex sits on (→ midpoint
+   * of the two cap centres). */
   private startSnapRef: SolvedVertexRef | null = null;
   /** The cursor's latest snap (mousemove or the commit click). */
   private lastSnap: SnapResult | null = null;
@@ -205,10 +206,11 @@ export class SlotTool extends SketchTool {
     if (!this.startPoint) {
       const picked = this.applyPointInput(result.point2d);
       this.consumeStart(picked);
-      // Non-centered slots anchor at the first cap centre — a snapped anchor
-      // becomes its coincident. The centered anchor is the slot midpoint,
-      // which no slot vertex sits on.
-      this.startSnapRef = !this.centered && !picked.typed && !(e.ctrlKey || e.metaKey)
+      // A snapped anchor becomes a constraint at commit: the first cap
+      // centre's coincident (non-centered) or the midpoint between the two
+      // cap centres (centered — the anchor is the slot midpoint, which no
+      // slot vertex sits on). Typed picks and Ctrl-clicks carry none.
+      this.startSnapRef = !picked.typed && !(e.ctrlKey || e.metaKey)
         ? result.ref ?? null : null;
       return;
     }
@@ -496,15 +498,19 @@ export class SlotTool extends SketchTool {
         ? [anchor[0] - dir[0] * dist / 2, anchor[1] - dir[1] * dist / 2]
         : [anchor[0], anchor[1]];
       const p1: [number, number] = [p0[0] + dir[0] * dist, p0[1] + dir[1] * dist];
-      // Snap provenance → cap-centre coincidents (the Auto-constraints toggle
-      // gates the inference). The anchor IS p0 in non-centered mode; the
-      // distance click's snap holds only when the committed p1 still sits on
-      // the snapped vertex (an ortho or typed distance may have moved it).
+      // Snap provenance → constraints (the Auto-constraints toggle gates the
+      // inference). The anchor IS p0 in non-centered mode (coincident) and
+      // the slot midpoint in centered mode (midpoint of the cap centres);
+      // the distance click's snap holds only when the committed p1 still
+      // sits on the snapped vertex (an ortho or typed distance may have
+      // moved it).
       const infer = this.autoConstraintsEnabled();
-      const p0Snap = infer ? this.startSnapRef : null;
+      const anchorSnap = infer ? this.startSnapRef : null;
+      const p0Snap = this.centered ? null : anchorSnap;
+      const centerSnap = this.centered ? anchorSnap : null;
       const p1Snap = infer && this.distSnap?.ref
         && emittedPointOnSnap(p1, this.distSnap.point2d, this.distSnap.ref)
-        && !(p0Snap && sameVertexRef(this.distSnap.ref, p0Snap))
+        && !(anchorSnap && sameVertexRef(this.distSnap.ref, anchorSnap))
         ? this.distSnap.ref : null;
       const emission = slotEmission({
         p0,
@@ -514,6 +520,7 @@ export class SlotTool extends SketchTool {
         ...(radiusTyped ? { radiusDim: dimMagnitude(radiusResult.expression) } : {}),
         ...(p0Snap ? { p0Snap } : {}),
         ...(p1Snap ? { p1Snap } : {}),
+        ...(centerSnap ? { centerSnap } : {}),
       });
       const variables = [...start.newVariables, ...newVariables];
       void this.solvedCtx.emit({

@@ -139,6 +139,36 @@ export function inferred(c: SolvedConstraintParam): SolvedConstraintParam {
   return { ...c, inferred: true };
 }
 
+/**
+ * Whether a snap ref addresses a POINT the emission can constrain a vertex
+ * to. The axis datums are infinite lines: a point can be coincident with
+ * one, but no point-pair constraint (midpoint) accepts them.
+ */
+export function isPointSnapRef(ref: SolvedVertexRef): boolean {
+  return ref.datum === undefined || ref.datum === 'origin';
+}
+
+/**
+ * The centered-gesture pin: the anchor click of a centered rect / rounded
+ * rect / slot lands on the shape's CENTRE, which no vertex of the shape sits
+ * on — so a snapped anchor cannot become a coincident. What the gesture
+ * implied is `midpoint(snapped, a, b)` over a diagonal vertex pair (the
+ * corner-arc centres of a rounded rect, the cap centres of a slot), which
+ * pins the centre with the same 2 dims a coincident would. Inferred, like
+ * every snap-derived row. Null for an axis-datum snap (see isPointSnapRef):
+ * a centre-on-axis has no point-pair form, so it keeps baking the literal.
+ */
+export function centerMidpoint(
+  centerSnap: SolvedVertexRef,
+  a: SolvedEmissionTargetParam,
+  b: SolvedEmissionTargetParam,
+): SolvedConstraintParam | null {
+  if (!isPointSnapRef(centerSnap)) {
+    return null;
+  }
+  return inferred({ kind: 'midpoint', targets: [refTarget(centerSnap), a, b] });
+}
+
 /** The inferred auto-ortho constraint on a new line at `newIndex`. */
 export function inferredOrtho(kind: 'horizontal' | 'vertical', newIndex = 0): SolvedConstraintParam {
   return inferred({ kind, targets: [newTarget(newIndex)] });
@@ -222,6 +252,9 @@ export function rectEmission(opts: {
   cornerSnap?: SolvedVertexRef;
   /** Snapped opposite corner (p2) — coincident onto the snapped vertex. */
   oppositeSnap?: SolvedVertexRef;
+  /** Snapped CENTRE (the centered gesture's anchor) — the snapped vertex
+   * becomes the midpoint of the p0–p2 diagonal (see centerMidpoint). */
+  centerSnap?: SolvedVertexRef;
 }): SolvedEmissionRequest {
   const [x, y] = opts.corner;
   const p0: [number, number] = [round2(x), round2(y)];
@@ -258,6 +291,12 @@ export function rectEmission(opts: {
   if (opts.oppositeSnap !== undefined) {
     constraints.push(inferred(coincident(newTarget(2, 'start'), refTarget(opts.oppositeSnap))));
   }
+  if (opts.centerSnap !== undefined) {
+    const pin = centerMidpoint(opts.centerSnap, newTarget(0, 'start'), newTarget(2, 'start'));
+    if (pin) {
+      constraints.push(pin);
+    }
+  }
   return {
     geometry: [
       { kind: 'line', text: lineText(p0, p1) },
@@ -283,6 +322,10 @@ export function roundedRectEmission(opts: {
   widthDim?: string;
   heightDim?: string;
   radiusDim?: string;
+  /** Snapped CENTRE (the centered gesture's anchor) — the snapped vertex
+   * becomes the midpoint between two diagonal corner-arc centres (the
+   * corner is cut away, so no line vertex sits on it; see centerMidpoint). */
+  centerSnap?: SolvedVertexRef;
 }): SolvedEmissionRequest {
   const xMin = round2(Math.min(opts.corner[0], opts.corner[0] + opts.w));
   const xMax = round2(Math.max(opts.corner[0], opts.corner[0] + opts.w));
@@ -330,6 +373,13 @@ export function roundedRectEmission(opts: {
   if (opts.radiusDim !== undefined) {
     constraints.push({ kind: 'radius', targets: [newTarget(1)], valueExpr: opts.radiusDim });
   }
+  if (opts.centerSnap !== undefined) {
+    // Arcs 7 (the xMin/yMin corner) and 3 (the xMax/yMax corner) are diagonal.
+    const pin = centerMidpoint(opts.centerSnap, newTarget(7, 'center'), newTarget(3, 'center'));
+    if (pin) {
+      constraints.push(pin);
+    }
+  }
   return { geometry, constraints };
 }
 
@@ -348,6 +398,9 @@ export function slotEmission(opts: {
    * cap arc at geometry index 3, p1 the one at index 1. */
   p0Snap?: SolvedVertexRef;
   p1Snap?: SolvedVertexRef;
+  /** Snapped CENTRE (the centered gesture's anchor) — the snapped vertex
+   * becomes the midpoint between the two cap centres (see centerMidpoint). */
+  centerSnap?: SolvedVertexRef;
 }): SolvedEmissionRequest {
   const dx = opts.p1[0] - opts.p0[0];
   const dy = opts.p1[1] - opts.p0[1];
@@ -388,6 +441,12 @@ export function slotEmission(opts: {
   }
   if (opts.p1Snap !== undefined) {
     constraints.push(inferred(coincident(newTarget(1, 'center'), refTarget(opts.p1Snap))));
+  }
+  if (opts.centerSnap !== undefined) {
+    const pin = centerMidpoint(opts.centerSnap, newTarget(3, 'center'), newTarget(1, 'center'));
+    if (pin) {
+      constraints.push(pin);
+    }
   }
   return { geometry, constraints };
 }

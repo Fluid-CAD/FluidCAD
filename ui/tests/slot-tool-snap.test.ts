@@ -119,6 +119,30 @@ describe('slot tool snap coincidents', () => {
   });
 });
 
+describe('centered slot tool snap', () => {
+  it('a snapped centre pins the midpoint between the two cap centres', async () => {
+    const emitted: Emitted[] = [];
+    const tool = makeTool(emitted);
+    tool.centered = true;
+    tool.startSnapRef = { datum: 'origin' };
+
+    tool.commitSlot(tool.startPick, { expression: '40' }, { expression: '5' });
+    await flushMicrotasks();
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].constraints).toContainEqual({
+      kind: 'midpoint',
+      targets: [{ datum: 'origin' }, { newIndex: 3, role: 'center' }, { newIndex: 1, role: 'center' }],
+      inferred: true,
+    });
+    // No cap centre pretends to sit on the anchor.
+    const pins = emitted[0].constraints.filter(
+      (c: any) => c.kind === 'coincident' && c.targets.some((t: any) => t.datum !== undefined),
+    );
+    expect(pins).toHaveLength(0);
+  });
+});
+
 describe('slot tool axis-datum snaps', () => {
   it('both cap centres on the x axis get two distinct coincidents', async () => {
     const emitted: Emitted[] = [];

@@ -14,6 +14,8 @@ import {
   roundedRectEmission,
   slotEmission,
   polygonEmission,
+  centerMidpoint,
+  isPointSnapRef,
 } from '../src/interactive/tools/solved-emission';
 
 // The shared solved-sketch emission formatters (sketch-rewrite P5): tools
@@ -309,6 +311,68 @@ describe('rectEmission snap coincidents', () => {
     // The recipe's own rows (chain junctions, H/V) are explicit.
     expect(coincidents.filter(c => c.inferred)).toHaveLength(2);
     expect(e.constraints.filter(c => c.kind !== 'coincident').some(c => c.inferred)).toBe(false);
+  });
+});
+
+describe('centered-gesture centre snaps (midpoint pins)', () => {
+  it('rect: the snapped centre is the midpoint of the p0–p2 diagonal', () => {
+    const e = rectEmission({
+      corner: [-20, -15], w: 40, h: 30,
+      centerSnap: { line: 5, role: 'start', featureType: 'line' },
+    });
+    expect(e.constraints.filter(c => c.kind === 'midpoint')).toEqual([{
+      kind: 'midpoint',
+      targets: [
+        { line: 5, role: 'start', featureType: 'line' },
+        { newIndex: 0, role: 'start' },
+        { newIndex: 2, role: 'start' },
+      ],
+      inferred: true,
+    }]);
+    // The chain junctions and H/V stay explicit; nothing else is inferred.
+    expect(e.constraints.filter(c => c.inferred)).toHaveLength(1);
+  });
+
+  it('rounded rect: the snapped centre is the midpoint of two diagonal arc centres', () => {
+    const e = roundedRectEmission({
+      corner: [-20, -15], w: 40, h: 30, radius: 5, centerSnap: { datum: 'origin' },
+    });
+    expect(e.constraints.filter(c => c.kind === 'midpoint')).toEqual([{
+      kind: 'midpoint',
+      targets: [{ datum: 'origin' }, { newIndex: 7, role: 'center' }, { newIndex: 3, role: 'center' }],
+      inferred: true,
+    }]);
+    // Arc 7 centres at (xMin + r, yMin + r), arc 3 at (xMax − r, yMax − r):
+    // their midpoint is the rect centre.
+    expect(e.geometry[7].text).toBe('arc([-20, -10], [-15, -15], [-15, -10])');
+    expect(e.geometry[3].text).toBe('arc([20, 10], [15, 15], [15, 10])');
+  });
+
+  it('slot: the snapped centre is the midpoint of the two cap centres', () => {
+    const e = slotEmission({
+      p0: [-20, 0], p1: [20, 0], radius: 5, centerSnap: { datum: 'origin' },
+    });
+    expect(e.constraints.filter(c => c.kind === 'midpoint')).toEqual([{
+      kind: 'midpoint',
+      targets: [{ datum: 'origin' }, { newIndex: 3, role: 'center' }, { newIndex: 1, role: 'center' }],
+      inferred: true,
+    }]);
+  });
+
+  it('axis datums are not points: no midpoint row for a centre-on-axis snap', () => {
+    expect(isPointSnapRef({ datum: 'x-axis' })).toBe(false);
+    expect(isPointSnapRef({ datum: 'y-axis' })).toBe(false);
+    expect(isPointSnapRef({ datum: 'origin' })).toBe(true);
+    expect(isPointSnapRef({ line: 5, role: 'end', featureType: 'line' })).toBe(true);
+    expect(centerMidpoint({ datum: 'y-axis' }, { newIndex: 0, role: 'start' }, { newIndex: 2, role: 'start' })).toBeNull();
+    for (const e of [
+      rectEmission({ corner: [0, 0], w: 40, h: 30, centerSnap: { datum: 'x-axis' } }),
+      roundedRectEmission({ corner: [0, 0], w: 40, h: 30, radius: 5, centerSnap: { datum: 'y-axis' } }),
+      slotEmission({ p0: [0, 0], p1: [40, 0], radius: 5, centerSnap: { datum: 'x-axis' } }),
+    ]) {
+      expect(e.constraints.filter(c => c.kind === 'midpoint')).toHaveLength(0);
+      expect(e.constraints.some(c => c.inferred)).toBe(false);
+    }
   });
 });
 

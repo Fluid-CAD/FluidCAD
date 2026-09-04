@@ -31,9 +31,10 @@ export class RectTool extends SketchTool {
   private startPoint: [number, number] | null = null;
   /** The start corner as picked: same position, plus any typed axis expressions. */
   private startPick: PickedPoint | null = null;
-  /** Solved sketches: the anchor click's snap provenance. Non-centered mode
-   * only — the anchor IS corner p0 there; the centered anchor is the rect's
-   * centre, which no rect vertex sits on. */
+  /** Solved sketches: the anchor click's snap provenance. The anchor IS
+   * corner p0 in non-centered mode (→ coincident); the centered anchor is
+   * the rect's centre, which no rect vertex sits on (→ midpoint of the
+   * diagonal). */
   private startSnapRef: SolvedVertexRef | null = null;
   /** The cursor's latest snap (mousemove or the commit click) — the opposite
    * corner's provenance, validated against p2 at emission. */
@@ -159,10 +160,10 @@ export class RectTool extends SketchTool {
     if (!this.startPoint) {
       const picked = this.applyPointInput(result.point2d);
       this.consumeStart(picked);
-      // Non-centered rects anchor at corner p0 — a snapped anchor becomes
-      // its coincident. The centered anchor is the rect's centre, which no
-      // rect vertex sits on.
-      this.startSnapRef = !this.centered && !picked.typed && !(e.ctrlKey || e.metaKey)
+      // A snapped anchor becomes a constraint at commit: corner p0's
+      // coincident (non-centered) or the diagonal's midpoint (centered).
+      // Typed picks and Ctrl-clicks carry none.
+      this.startSnapRef = !picked.typed && !(e.ctrlKey || e.metaKey)
         ? result.ref ?? null : null;
       return;
     }
@@ -439,16 +440,19 @@ export class RectTool extends SketchTool {
       const corner: [number, number] = this.centered
         ? [start.value[0] - w / 2, start.value[1] - h / 2]
         : [start.value[0], start.value[1]];
-      // Snap provenance → corner coincidents (the Auto-constraints toggle
-      // gates the inference). The anchor IS p0 in non-centered mode; the
+      // Snap provenance → constraints (the Auto-constraints toggle gates the
+      // inference). The anchor IS p0 in non-centered mode (coincident) and
+      // the centre in centered mode (midpoint of the p0–p2 diagonal); the
       // size click's snap holds only when the committed opposite corner p2
       // still sits on the snapped vertex (a typed size may have moved it).
       const infer = this.autoConstraintsEnabled();
-      const cornerSnap = infer ? this.startSnapRef : null;
+      const anchorSnap = infer ? this.startSnapRef : null;
+      const cornerSnap = this.centered ? null : anchorSnap;
+      const centerSnap = this.centered ? anchorSnap : null;
       const p2: [number, number] = [corner[0] + w, corner[1] + h];
       const oppositeSnap = infer && this.lastSnap?.ref
         && emittedPointOnSnap(p2, this.lastSnap.point2d, this.lastSnap.ref)
-        && !(cornerSnap && sameVertexRef(this.lastSnap.ref, cornerSnap))
+        && !(anchorSnap && sameVertexRef(this.lastSnap.ref, anchorSnap))
         ? this.lastSnap.ref : null;
       const emission = rectEmission({
         corner,
@@ -458,6 +462,7 @@ export class RectTool extends SketchTool {
         ...(this.heightTyped ? { heightDim: dimMagnitude(heightResult.expression) } : {}),
         ...(cornerSnap ? { cornerSnap } : {}),
         ...(oppositeSnap ? { oppositeSnap } : {}),
+        ...(centerSnap ? { centerSnap } : {}),
       });
       const variables = [...start.newVariables, ...newVariables];
       void this.solvedCtx.emit({

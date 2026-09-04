@@ -41,20 +41,20 @@ function runFluid(source: string): Scene {
   return render();
 }
 
-async function emitAndSolve(request: SolvedEmissionRequest) {
+async function emitAndSolve(request: SolvedEmissionRequest, source = BASE) {
   const spec: SolvedEmissionSpec = {
     sketchLine: 3,
     geometry: request.geometry,
     constraints: request.constraints,
   };
-  const edited = await applySolvedEmission(BASE, spec);
+  const edited = await applySolvedEmission(source, spec);
   expect(edited.error).toBeUndefined();
   const scene = runFluid(edited.newCode);
   const errors = scene.getAllSceneObjects().map(o => o.getError()).filter(Boolean);
   expect(errors).toEqual([]);
   const payload = scene.getRenderedObjects().find(r => r.type === 'sketch')!.object;
   expect(payload.solvedMode).toBe(true);
-  return payload.solver;
+  return Object.assign(payload.solver, { newCode: edited.newCode as string });
 }
 
 describe('shape-gesture emissions solve clean', () => {
@@ -199,6 +199,78 @@ describe('shape-gesture emissions solve clean', () => {
   it('hexagon with a typed ⌀: DOF 3', async () => {
     const solver = await emitAndSolve(polygonEmission({
       center: [0, 0], diameter: 20, sides: 6, mode: 'circumscribed', diameterDim: '20',
+    }));
+    expect(solver.outcome).toBe('solved');
+    expect(solver.conflicting).toEqual([]);
+    expect(solver.redundant).toEqual([]);
+    expect(solver.dof).toBe(3);
+  });
+});
+
+// A centered gesture whose anchor snapped onto a vertex: the centre pin is a
+// midpoint(snapped, a, b) row over a diagonal vertex pair — it must render
+// through the emission rail, solve clean, and cost exactly the 2 dims a
+// coincident would (position gone, size free).
+describe('centered-gesture centre snaps solve clean', () => {
+  setupOC();
+
+  it('centered rect on the origin: DOF 2 (w + h), rendered as midpoint(origin(), …)', async () => {
+    const solver = await emitAndSolve(rectEmission({
+      corner: [-20, -15], w: 40, h: 30, centerSnap: { datum: 'origin' },
+    }));
+    expect(solver.outcome).toBe('solved');
+    expect(solver.conflicting).toEqual([]);
+    expect(solver.redundant).toEqual([]);
+    expect(solver.dof).toBe(2);
+    expect(solver.newCode).toMatch(/midpoint\(origin\(\), (\w+)\.start\(\), (\w+)\.start\(\)\);/);
+    expect(solver.newCode).toMatch(/import \{[^}]*\bmidpoint\b[^}]*\} from ['"]fluidcad\/constraints['"]/);
+  });
+
+  it('centered rect on an existing vertex: the target is hoisted and the sketch keeps its DOF', async () => {
+    const withPoint = [
+      `import { sketch, point } from "fluidcad/core";`,
+      ``,
+      `sketch('xy', () => {`,
+      `  point([5, 5]);`,
+      `});`,
+    ].join('\n');
+    const solver = await emitAndSolve(rectEmission({
+      corner: [-15, -10], w: 40, h: 30, centerSnap: { line: 4, featureType: 'point' },
+    }), withPoint);
+    expect(solver.outcome).toBe('solved');
+    expect(solver.conflicting).toEqual([]);
+    expect(solver.redundant).toEqual([]);
+    // The free point keeps its 2 dims; the rect keeps w + h.
+    expect(solver.dof).toBe(4);
+    expect(solver.newCode).toMatch(/const (\w+) = point\(\[5, 5\]\);/);
+    expect(solver.newCode).toMatch(/midpoint\((\w+), (\w+)\.start\(\), (\w+)\.start\(\)\);/);
+  });
+
+  it('centered rect with typed dims on the origin: fully constrained (DOF 0)', async () => {
+    const solver = await emitAndSolve(rectEmission({
+      corner: [-20, -15], w: 40, h: 30, widthDim: '40', heightDim: '30',
+      centerSnap: { datum: 'origin' },
+    }));
+    expect(solver.outcome).toBe('solved');
+    expect(solver.conflicting).toEqual([]);
+    expect(solver.redundant).toEqual([]);
+    expect(solver.dof).toBe(0);
+  });
+
+  it('centered rounded rect on the origin: DOF 3 (w + h + r)', async () => {
+    const solver = await emitAndSolve(roundedRectEmission({
+      corner: [-20, -15], w: 40, h: 30, radius: 5, centerSnap: { datum: 'origin' },
+    }));
+    expect(solver.outcome).toBe('solved');
+    expect(solver.conflicting).toEqual([]);
+    expect(solver.redundant).toEqual([]);
+    expect(solver.dof).toBe(3);
+    expect(solver.newCode).toMatch(/midpoint\(origin\(\), (\w+)\.center\(\), (\w+)\.center\(\)\);/);
+  });
+
+  it('centered slot on the origin: DOF 3 (angle + length + r)', async () => {
+    const solver = await emitAndSolve(slotEmission({
+      p0: [-25, 0], p1: [25, 0], radius: 10, centerSnap: { datum: 'origin' },
     }));
     expect(solver.outcome).toBe('solved');
     expect(solver.conflicting).toEqual([]);

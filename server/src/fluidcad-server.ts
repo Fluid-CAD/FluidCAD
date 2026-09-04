@@ -1,5 +1,5 @@
 import { createHash } from 'crypto';
-import { join } from 'path';
+import { basename, join } from 'path';
 import { existsSync } from 'fs';
 import type { SceneHost } from './host/scene-host.ts';
 import { LocalSceneHost } from './host/local-scene-host.ts';
@@ -11,7 +11,7 @@ import { BreakpointHit } from '../../lib/dist/common/breakpoint-hit.js';
 import { createParamRegistry, getParamRegistry } from '../../lib/dist/index.js';
 import { scanFileForParts } from './part-catalog/scan.ts';
 import type { PartScanResult } from './part-catalog/scan.ts';
-import type { ImportReport, ParamDefinition, ParamRegistry, ParamVal } from '../../lib/dist/index.js';
+import type { AssemblyExportOutcome, AssemblyExportPose, ImportReport, ParamDefinition, ParamRegistry, ParamVal } from '../../lib/dist/index.js';
 import type { CompileError } from './ws-protocol.ts';
 import { readProjectConfig } from './project-config.ts';
 import type { LengthUnit } from './project-config.ts';
@@ -259,6 +259,19 @@ type SceneManager = {
       customAngularDeflectionDeg?: number;
     },
   ): { data: string | Uint8Array; fileName: string };
+  exportAssembly(
+    scene: any,
+    options: {
+      format: 'step' | 'stl';
+      name: string;
+      livePoses?: AssemblyExportPose[];
+      includeColors?: boolean;
+      resolution?: string;
+      customLinearDeflection?: number;
+      customAngularDeflectionDeg?: number;
+      scaleTo?: 'mm' | 'document';
+    },
+  ): AssemblyExportOutcome;
 };
 
 /**
@@ -1809,43 +1822,32 @@ export class FluidCadServer {
   }
 
   /**
-   * Export every solid of a hub session's latest render. The session-keyed twin
-   * of `exportShapes` (which reads the desktop `currentFileName`): hub mode keys
-   * each render's scene by `sessionId`, so exporting/downloading from a hub
-   * session must look it up the same way — exactly why `hitTestForSession`
-   * exists. Gathers all solids itself ("download the whole model"); returns null
-   * when the session has no rendered scene or it holds no solids (the caller maps
-   * that to a "nothing to export" response).
+   * Export the current assembly — every instance where it sits. `livePoses`
+   * are the browser's solved placements (the engine only knows the statement
+   * poses); absent, the statement configuration is written and the outcome
+   * says so. Null when nothing is rendered; a refusal (`reason`) when the
+   * current scene is not an assembly or the poses do not cover it.
    */
-  exportShapesForSession(
-    sessionId: string,
+  exportAssembly(
     options: {
       format: 'step' | 'stl';
       includeColors?: boolean;
       resolution?: string;
       customLinearDeflection?: number;
       customAngularDeflectionDeg?: number;
+      scaleTo?: 'mm' | 'document';
     },
-  ): { data: string | Uint8Array; fileName: string } | null {
+    livePoses?: AssemblyExportPose[],
+  ): AssemblyExportOutcome | null {
     if (!this.sceneManager) {
       return null;
     }
-    const scene = this.previousScenes.get(sessionId);
+    const scene = this.previousScenes.get(this.currentFileName);
     if (!scene) {
       return null;
     }
-    const shapeIds: string[] = [];
-    for (const obj of scene.getAllSceneObjects()) {
-      for (const shape of obj.getAddedShapes()) {
-        if (shape.isSolid()) {
-          shapeIds.push(shape.id);
-        }
-      }
-    }
-    if (shapeIds.length === 0) {
-      return null;
-    }
-    return this.sceneManager.exportShapes(scene, shapeIds, options);
+    const name = basename(this.currentFileName).replace(/\.(assembly|part|fluid)?\.?js$/, '');
+    return this.sceneManager.exportAssembly(scene, { ...options, name, livePoses });
   }
 
   hitTest(

@@ -6,11 +6,10 @@ import { SourceLocation } from "../common/scene-object.js";
 import type { ParamDefinition, ParamOverrides, ParamVal } from "../param-registry.js";
 import type { Assembly } from "../features/assembly.js";
 import { serializableParamDefs } from "../features/param-overrides.js";
-import { Quaternion } from "../math/quaternion.js";
-import { Vector3d } from "../math/vector3d.js";
+import { composePose, IDENTITY_POSE } from "../math/pose.js";
+import type { Pose, Quat, Vec3 } from "../math/pose.js";
 
-export type Vec3 = { x: number; y: number; z: number };
-export type Quat = { x: number; y: number; z: number; w: number };
+export type { Vec3, Quat };
 
 /**
  * Stamped on every record a `replicate()` statement produced: `of` is the
@@ -310,29 +309,6 @@ function serializeReplicateSide(side: ReplicateSide): SerializedReplicateSide {
   return { kind: 'geometry', instanceId: side.instanceId, exposeName: side.exposed.exposeName };
 }
 
-type Pose = { position: Vec3; quaternion: Quat };
-
-const IDENTITY_POSE: Pose = {
-  position: { x: 0, y: 0, z: 0 },
-  quaternion: { x: 0, y: 0, z: 0, w: 1 },
-};
-
-/** parent ∘ local — rotate the local offset into the parent frame, chain the rotations. */
-function composePose(parent: Pose, localPosition: Vec3, localQuaternion: Quat): Pose {
-  const pq = new Quaternion(parent.quaternion.x, parent.quaternion.y, parent.quaternion.z, parent.quaternion.w);
-  const lq = new Quaternion(localQuaternion.x, localQuaternion.y, localQuaternion.z, localQuaternion.w);
-  const q = pq.multiply(lq);
-  const rotated = pq.rotateVector(new Vector3d(localPosition.x, localPosition.y, localPosition.z));
-  return {
-    position: {
-      x: parent.position.x + rotated.x,
-      y: parent.position.y + rotated.y,
-      z: parent.position.z + rotated.z,
-    },
-    quaternion: { x: q.x, y: q.y, z: q.z, w: q.w },
-  };
-}
-
 export class AssemblyScene extends Scene {
   private _instances: AssemblyInstance[] = [];
   private _mates: AssemblyMate[] = [];
@@ -527,13 +503,18 @@ export class AssemblyScene extends Scene {
     return connected;
   }
 
-  /** World pose of each occurrence frame — parent-chain composition, one forward pass. */
-  private occurrenceWorldPoses(): Map<string, Pose> {
+  /**
+   * World pose of each occurrence frame — parent-chain composition, one
+   * forward pass. Keyed by occurrence id; the root scope "" is the identity.
+   * Occurrence frames are statement poses only: the solver moves instances,
+   * never the frames they hang off.
+   */
+  occurrenceWorldPoses(): Map<string, Pose> {
     const world = new Map<string, Pose>([["", IDENTITY_POSE]]);
     for (const occ of this._occurrences) {
       world.set(
         occ.occurrenceId,
-        composePose(world.get(occ.parentPath) ?? IDENTITY_POSE, occ.position, occ.quaternion),
+        composePose(world.get(occ.parentPath) ?? IDENTITY_POSE, { position: occ.position, quaternion: occ.quaternion }),
       );
     }
     return world;
@@ -564,7 +545,7 @@ export class AssemblyScene extends Scene {
     const world = this.occurrenceWorldPoses();
     const anchors = this.fallbackAnchors(connected);
     return this._instances.map(inst => {
-      const pose = composePose(world.get(inst.owner) ?? IDENTITY_POSE, inst.position, inst.quaternion);
+      const pose = composePose(world.get(inst.owner) ?? IDENTITY_POSE, { position: inst.position, quaternion: inst.quaternion });
       return {
         instanceId: inst.instanceId,
         // Read live from inst.part — SceneCompare.inheritIdentityFrom may

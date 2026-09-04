@@ -1,6 +1,6 @@
 import { FileTabs, type FileTab, type FileTabsHandlers } from '../editor/tabs';
 import { TopBarActions, type TopBarAction, type TopBarActionHandlers } from './top-bar-actions';
-import type { SceneObjectRender } from '../types';
+import type { SceneObjectRender, SerializedAssembly } from '../types';
 
 export interface TopBarHandlers extends TopBarActionHandlers {
   /** Tab interactions. Absent on a viewport-only host — see {@link TopBar.setFileName}. */
@@ -77,9 +77,9 @@ export class TopBar {
     return this.actions.addAction(action);
   }
 
-  /** New scene: refresh what the Export dropdown lists. */
-  updateSolids(objects: SceneObjectRender[]): void {
-    this.actions.updateSolids(objects);
+  /** New scene: refresh what the Export dropdown lists — see {@link TopBarActions.updateSolids}. */
+  updateSolids(objects: SceneObjectRender[], assembly?: SerializedAssembly): void {
+    this.actions.updateSolids(objects, assembly);
   }
 
   /** Where a menu-invoked quick-open should hang from. */

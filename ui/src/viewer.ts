@@ -23,43 +23,7 @@ import { collectPickCandidates } from './interactive/pick-candidates';
 import { captureScreenshot } from './screenshot';
 import { findActiveObject, isSceneEmpty } from './helpers/scene-utils';
 import { expandBoxExcludingMeta, sceneGeometryBounds } from './scene/scene-geometry-bounds';
-
-/**
- * Keep only parts referenced by some `inst.partId` and the entire subtree
- * under each kept part. An assembly file declares every part it might use
- * (typically via factory functions like `getExtrusion(...)`), but only the
- * ones passed to `insert(...)` should appear in the viewport. Filtering
- * here means a `rebuildSceneMesh()` triggered by theme/region-pick can't
- * materialize an un-inserted part at world origin.
- */
-function filterToReferencedParts(
-  sceneObjects: SceneObjectRender[],
-  instances: SerializedAssembly['instances'],
-): SceneObjectRender[] {
-  const referencedPartIds = new Set(instances.map(i => i.partId));
-  const childrenByParent = new Map<string, SceneObjectRender[]>();
-  for (const obj of sceneObjects) {
-    if (!obj.parentId) continue;
-    const list = childrenByParent.get(obj.parentId);
-    if (list) list.push(obj);
-    else childrenByParent.set(obj.parentId, [obj]);
-  }
-  const keep = new Set<string>();
-  const stack: SceneObjectRender[] = [];
-  for (const obj of sceneObjects) {
-    if (obj.type === 'part' && obj.id && referencedPartIds.has(obj.id)) {
-      stack.push(obj);
-    }
-  }
-  while (stack.length > 0) {
-    const obj = stack.pop()!;
-    if (!obj.id || keep.has(obj.id)) continue;
-    keep.add(obj.id);
-    const children = childrenByParent.get(obj.id);
-    if (children) stack.push(...children);
-  }
-  return sceneObjects.filter(obj => obj.id && keep.has(obj.id));
-}
+import { filterToReferencedParts } from './scene/referenced-parts';
 
 const HIGHLIGHT_EDGE_LINE_WIDTH = 2;
 /** Gizmo enlargement for a timeline "show connector" — bigger than the assembly hover feedback (1.35) so it reads at a glance. */
@@ -342,18 +306,28 @@ export class Viewer {
       }
     });
     try {
-      return captureScreenshot(this.ctx, {
-        width: size,
-        height: size,
-        transparent: true,
-        solidsOnly: true,
-        view: { kind: 'named', name: 'iso-ftr' },
-      });
+      return this.captureSceneThumbnail(size);
     } finally {
       for (const [child, visible] of touched) {
         child.visible = visible;
       }
     }
+  }
+
+  /**
+   * Every solid on screen, framed together in the same transparent iso view
+   * the per-solid thumbnails use — the top bar's "Whole assembly" Export
+   * row previews itself with this. Hidden instances stay hidden: the picture
+   * is of what the viewport shows.
+   */
+  captureSceneThumbnail(size = 128): Promise<Blob> {
+    return captureScreenshot(this.ctx, {
+      width: size,
+      height: size,
+      transparent: true,
+      solidsOnly: true,
+      view: { kind: 'named', name: 'iso-ftr' },
+    });
   }
 
   /**

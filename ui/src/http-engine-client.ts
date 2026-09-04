@@ -19,7 +19,7 @@ import {
   setDocumentUnit,
   setProjectUnit,
 } from './api';
-import type { EdgeProperties, EditorHistoryResult, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
+import type { EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 import type { LengthUnit } from './units/units';
 
@@ -115,7 +115,7 @@ export class HttpEngineClient implements EngineClient {
     return measureEntities(entities, signal);
   }
 
-  exportShapes(body: Record<string, unknown>): Promise<Blob> {
+  exportShapes(body: ExportRequestBody): Promise<Blob> {
     return exportShapes(body);
   }
 

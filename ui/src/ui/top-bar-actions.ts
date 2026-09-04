@@ -1,7 +1,9 @@
 import { onThemeChange } from '../scene/theme-colors';
-import type { SceneObjectRender } from '../types';
+import { filterToReferencedParts } from '../scene/referenced-parts';
+import type { SceneObjectRender, SerializedAssembly } from '../types';
 import {
   ICON_CHEVRON_DOWN,
+  ICON_CUBE,
   ICON_DOWNLOAD,
   ICON_FILE_IMPORT,
   ICON_MENU,
@@ -17,7 +19,19 @@ export interface TopBarExportHandlers {
   onExport(shapeId: string): void;
   /** A small transparent PNG of that solid alone — the row's thumbnail. */
   captureThumbnail(shapeId: string): Promise<Blob>;
+  /**
+   * Open the export flow on the whole assembly — every instance where it
+   * sits. Absent: the list never offers the "Whole assembly" row, even for
+   * an assembly scene.
+   */
+  onExportAssembly?(): void;
+  /** A small transparent PNG of the whole scene — that row's thumbnail. Absent: an icon stands in. */
+  captureAssemblyThumbnail?(): Promise<Blob>;
 }
+
+/** The thumbnail key of the "Whole assembly" row — never a shape id. */
+const WHOLE_ASSEMBLY_THUMB = 'whole-assembly';
+const WHOLE_ASSEMBLY_LABEL = 'Whole assembly';
 
 /** A button a host adds to the bar of its own — see {@link TopBarActions.addAction}. */
 export interface TopBarAction {
@@ -97,7 +111,9 @@ export class TopBarActions {
   /** What the host added through {@link addAction}, so the menu can list it too. */
   private readonly hostActions: TopBarAction[] = [];
   private solids: ExportableSolid[] = [];
-  /** shapeId → object URL, for the current scene only. */
+  /** An assembly scene with at least one inserted part: the list leads with "Whole assembly". */
+  private wholeAssembly = false;
+  /** shapeId (or {@link WHOLE_ASSEMBLY_THUMB}) → object URL, for the current scene only. */
   private thumbs = new Map<string, string>();
   private panel: HTMLDivElement | null = null;
   private panelCleanup: (() => void) | null = null;
@@ -166,18 +182,29 @@ export class TopBarActions {
     return button;
   }
 
-  /** New scene: refresh the Export list and drop thumbnails of what is gone. */
-  updateSolids(objects: SceneObjectRender[]): void {
+  /**
+   * New scene: refresh the Export list and drop thumbnails of what is gone.
+   * With `assembly` (an assembly scene) the list leads with the whole
+   * assembly and the per-part rows keep only parts that are inserted — the
+   * render carries every part the file declares, the way the viewport does.
+   */
+  updateSolids(objects: SceneObjectRender[], assembly?: SerializedAssembly): void {
     if (!this.handlers.export) {
       return;
     }
-    const solids = TopBarActions.collectSolids(objects);
+    const solids = TopBarActions.collectSolids(
+      assembly ? filterToReferencedParts(objects, assembly.instances) : objects,
+    );
+    const wholeAssembly =
+      assembly !== undefined && assembly.instances.length > 0 && this.handlers.export.onExportAssembly !== undefined;
     // Re-renders with the same solids (a parameter tweak, a preference) keep
     // the open list and its cached thumbnails.
     const unchanged =
+      wholeAssembly === this.wholeAssembly &&
       solids.length === this.solids.length &&
       solids.every((s, i) => s.shapeId === this.solids[i].shapeId && s.name === this.solids[i].name);
     this.solids = solids;
+    this.wholeAssembly = wholeAssembly;
     if (unchanged) {
       return;
     }
@@ -322,13 +349,7 @@ export class TopBarActions {
     const section = document.createElement('div');
     section.dataset.exportSection = '';
     section.className = 'pl-4';
-    if (this.solids.length === 0) {
-      section.appendChild(this.buildEmpty());
-    } else {
-      for (const solid of this.solids) {
-        section.appendChild(this.buildSolidRow(solid));
-      }
-    }
+    this.fillExportRows(section);
     row.after(section);
     this.fillThumbs(menu);
     return true;
@@ -338,14 +359,31 @@ export class TopBarActions {
   private buildSolidList(): HTMLDivElement {
     const list = document.createElement('div');
     list.className = PANEL;
-    if (this.solids.length === 0) {
-      list.appendChild(this.buildEmpty());
-      return list;
+    this.fillExportRows(list);
+    return list;
+  }
+
+  /**
+   * The rows both panels share: the whole assembly first when there is one,
+   * a divider, then a row per solid — or the empty notice when there is
+   * nothing at all.
+   */
+  private fillExportRows(host: HTMLElement): void {
+    if (!this.wholeAssembly && this.solids.length === 0) {
+      host.appendChild(this.buildEmpty());
+      return;
+    }
+    if (this.wholeAssembly) {
+      host.appendChild(this.buildAssemblyRow());
+      if (this.solids.length > 0) {
+        const divider = document.createElement('div');
+        divider.className = 'my-1 border-t border-base-content/10';
+        host.appendChild(divider);
+      }
     }
     for (const solid of this.solids) {
-      list.appendChild(this.buildSolidRow(solid));
+      host.appendChild(this.buildSolidRow(solid));
     }
-    return list;
   }
 
   private buildEmpty(): HTMLDivElement {
@@ -370,22 +408,33 @@ export class TopBarActions {
   }
 
   private buildSolidRow(solid: ExportableSolid): HTMLButtonElement {
+    return this.buildThumbRow(solid.shapeId, solid.name, () => this.handlers.export?.onExport(solid.shapeId));
+  }
+
+  /** The "Whole assembly" row: every instance where it sits, previewed by the full scene. */
+  private buildAssemblyRow(): HTMLButtonElement {
+    const row = this.buildThumbRow(WHOLE_ASSEMBLY_THUMB, WHOLE_ASSEMBLY_LABEL, () => this.handlers.export?.onExportAssembly?.());
+    row.dataset.wholeAssembly = '';
+    return row;
+  }
+
+  private buildThumbRow(thumbKey: string, name: string, onClick: () => void): HTMLButtonElement {
     const row = document.createElement('button');
     row.className = PANEL_ROW;
 
     const thumb = document.createElement('span');
-    thumb.dataset.thumb = solid.shapeId;
+    thumb.dataset.thumb = thumbKey;
     thumb.className = ROW_THUMB;
     thumb.innerHTML = '<span class="loading loading-spinner loading-xs opacity-40"></span>';
 
     const label = document.createElement('span');
     label.className = 'truncate';
-    label.textContent = solid.name;
+    label.textContent = name;
 
     row.append(thumb, label);
     row.addEventListener('click', () => {
       this.closePanel();
-      this.handlers.export?.onExport(solid.shapeId);
+      onClick();
     });
     return row;
   }
@@ -409,17 +458,28 @@ export class TopBarActions {
     }, 0);
   }
 
-  private async loadThumb(shapeId: string, host: HTMLElement): Promise<void> {
+  private async loadThumb(key: string, host: HTMLElement): Promise<void> {
+    const whole = key === WHOLE_ASSEMBLY_THUMB;
+    const handlers = this.handlers.export!;
+    const capture: (() => Promise<Blob>) | undefined = whole
+      ? handlers.captureAssemblyThumbnail?.bind(handlers)
+      : () => handlers.captureThumbnail(key);
+    if (capture === undefined) {
+      // No scene capture on offer for the whole assembly: an icon stands in.
+      host.innerHTML = `<span class="${ROW_ICON}">${ICON_CUBE}</span>`;
+      return;
+    }
     try {
-      let url = this.thumbs.get(shapeId);
+      let url = this.thumbs.get(key);
       if (url === undefined) {
-        const blob = await this.handlers.export!.captureThumbnail(shapeId);
+        const blob = await capture();
         // A scene update may have raced the capture; don't cache stale pixels.
-        if (!this.solids.some((s) => s.shapeId === shapeId)) {
+        const stillListed = whole ? this.wholeAssembly : this.solids.some((s) => s.shapeId === key);
+        if (!stillListed) {
           return;
         }
         url = URL.createObjectURL(blob);
-        this.thumbs.set(shapeId, url);
+        this.thumbs.set(key, url);
       }
       if (host.isConnected) {
         const img = document.createElement('img');

@@ -156,7 +156,13 @@ export type ExportScaleTo = 'mm' | 'document';
 
 export type ExportInput = WorkspaceArg & {
   format: ExportFormat;
-  shapeIds: string[];
+  /** Solids to export. Exactly one of `shapeIds` / `assembly`. */
+  shapeIds?: string[];
+  /**
+   * Export the whole current assembly — every instance where it sits, as
+   * one STEP assembly or one STL mesh. Exactly one of `shapeIds` / `assembly`.
+   */
+  assembly?: boolean;
   saveAsPath?: string;
   resolution?: ExportResolution;
   includeColors?: boolean;
@@ -164,12 +170,19 @@ export type ExportInput = WorkspaceArg & {
   scaleTo?: ExportScaleTo;
 };
 
-export type ExportSavedOutput = { savedTo: string; bytesWritten: number };
+/**
+ * Assembly exports only: `statement` means the parts sit where the source
+ * places them — mates are solved in the viewer, which the server never sees.
+ */
+export type ExportPosesSource = 'live' | 'statement';
+
+export type ExportSavedOutput = { savedTo: string; bytesWritten: number; posesSource?: ExportPosesSource };
 export type ExportBase64Output = {
   format: ExportFormat;
   mimeType: string;
   base64: string;
   bytes: number;
+  posesSource?: ExportPosesSource;
 };
 export type ExportOutput = ExportSavedOutput | ExportBase64Output;
 
@@ -234,11 +247,20 @@ export async function exportShapes(input: ExportInput): Promise<ToolResult<Expor
   if (input?.format !== 'step' && input?.format !== 'stl') {
     return err('invalid-input', '`format` is required and must be "step" or "stl".');
   }
-  if (!Array.isArray(input?.shapeIds) || input.shapeIds.length === 0) {
-    return err('invalid-input', '`shapeIds` is required and must be a non-empty array.');
+  const wholeAssembly = input?.assembly === true;
+  if (input?.assembly !== undefined && typeof input.assembly !== 'boolean') {
+    return err('invalid-input', '`assembly` must be a boolean when provided.');
   }
-  if (input.shapeIds.some((id) => typeof id !== 'string' || id.length === 0)) {
-    return err('invalid-input', '`shapeIds` entries must be non-empty strings.');
+  if (wholeAssembly === (input?.shapeIds !== undefined)) {
+    return err('invalid-input', 'Pass exactly one of `shapeIds` (solids to export) or `assembly: true` (the whole assembly).');
+  }
+  if (!wholeAssembly) {
+    if (!Array.isArray(input.shapeIds) || input.shapeIds.length === 0) {
+      return err('invalid-input', '`shapeIds` must be a non-empty array.');
+    }
+    if (input.shapeIds.some((id) => typeof id !== 'string' || id.length === 0)) {
+      return err('invalid-input', '`shapeIds` entries must be non-empty strings.');
+    }
   }
   if (
     input.resolution !== undefined &&
@@ -257,7 +279,7 @@ export async function exportShapes(input: ExportInput): Promise<ToolResult<Expor
 
   const body: Record<string, unknown> = {
     format: input.format,
-    shapeIds: input.shapeIds,
+    ...(wholeAssembly ? { assembly: {} } : { shapeIds: input.shapeIds }),
     resolution: input.resolution ?? 'medium',
   };
   if (input.includeColors !== undefined) {
@@ -283,6 +305,9 @@ export async function exportShapes(input: ExportInput): Promise<ToolResult<Expor
         statusCode: raw.statusCode,
       });
     }
+    const posesHeader = raw.headers['x-fluidcad-assembly-poses'];
+    const posesSource: ExportPosesSource | undefined =
+      posesHeader === 'live' || posesHeader === 'statement' ? posesHeader : undefined;
     if (raw.contentType.includes('application/json')) {
       const parsed = JSON.parse(raw.data.toString('utf8')) as ExportSavedOutput;
       // Mirror the server's `savedTo` so the agent always returns absolute
@@ -290,13 +315,14 @@ export async function exportShapes(input: ExportInput): Promise<ToolResult<Expor
       if (parsed?.savedTo && !fs.existsSync(parsed.savedTo)) {
         return err('internal', `Server reported savedTo=${parsed.savedTo} but the file is missing.`);
       }
-      return ok(parsed);
+      return ok(posesSource ? { ...parsed, posesSource } : parsed);
     }
     return ok({
       format: input.format,
       mimeType: raw.contentType,
       base64: raw.data.toString('base64'),
       bytes: raw.data.length,
+      ...(posesSource ? { posesSource } : {}),
     });
   } catch (e: any) {
     if (e instanceof HttpError) {

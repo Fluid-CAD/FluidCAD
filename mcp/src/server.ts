@@ -696,16 +696,21 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   server.registerTool(
     'export',
     {
-      title: 'Export shapes to STEP or STL',
+      title: 'Export shapes or the whole assembly to STEP or STL',
       description:
-        'Exports the listed shapes to a STEP or STL file. Prefer `saveAsPath` (must resolve inside the workspace root) — the encoded bytes can be multi-MB and shouldn\'t round-trip through the agent\'s context. Returns `{ savedTo, bytesWritten }` when saved, or `{ format, mimeType, base64, bytes }` otherwise. STEP files are physically correct whatever the document\'s unit. STL carries no unit: by default the mesh is scaled into mm (what slicers expect); `scaleTo: "document"` keeps the document\'s numbers. For STL, `resolution: "fine"` produces the cleanest mesh but is slow; default to `"medium"` unless the user asks for higher fidelity.',
+        'Exports the listed shapes — or, with `assembly: true`, the whole current assembly (every inserted part where it sits: one STEP assembly with shared part prototypes, or one STL mesh) — to a STEP or STL file. Pass exactly one of `shapeIds` / `assembly`. Prefer `saveAsPath` (must resolve inside the workspace root) — the encoded bytes can be multi-MB and shouldn\'t round-trip through the agent\'s context. Returns `{ savedTo, bytesWritten }` when saved, or `{ format, mimeType, base64, bytes }` otherwise; assembly exports add `posesSource`: "statement" means parts sit where the source places them (mates are solved in the viewer, which the server never sees). STEP files are physically correct whatever the document\'s unit. STL carries no unit: by default the mesh is scaled into mm (what slicers expect); `scaleTo: "document"` keeps the document\'s numbers. For STL, `resolution: "fine"` produces the cleanest mesh but is slow; default to `"medium"` unless the user asks for higher fidelity.',
       inputSchema: {
         ...workspaceArg,
         format: z.enum(['step', 'stl']).describe('Output format.'),
         shapeIds: z
           .array(z.string().min(1))
           .min(1)
-          .describe('Shape ids to export (from `list_shapes` or `get_scene_summary`).'),
+          .optional()
+          .describe('Shape ids to export (from `list_shapes` or `get_scene_summary`). Omit when passing `assembly: true`.'),
+        assembly: z
+          .boolean()
+          .optional()
+          .describe('Export the whole current assembly instead of listed shapes. Requires an open *.assembly.js file.'),
         saveAsPath: z
           .string()
           .optional()
@@ -724,12 +729,13 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
           .describe('STL only. "mm" (default) scales the mesh into millimetres for slicers; "document" keeps the document\'s units.'),
       },
     },
-    async ({ workspace, format, shapeIds, saveAsPath, resolution, includeColors, scaleTo }) =>
+    async ({ workspace, format, shapeIds, assembly, saveAsPath, resolution, includeColors, scaleTo }) =>
       toMcp(
         await exportShapes({
           workspace,
           format,
           shapeIds,
+          assembly,
           saveAsPath,
           resolution,
           includeColors,

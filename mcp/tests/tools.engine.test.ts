@@ -311,6 +311,22 @@ describe('export', () => {
     expect(result.code).toBe('invalid-input');
   });
 
+  it('exports the whole assembly instead of listed shapes', async () => {
+    const result = await exportShapes({ format: 'step', assembly: true });
+    expect(result.ok).toBe(true);
+    expect(exportConfig.lastBody.assembly).toEqual({});
+    expect('shapeIds' in exportConfig.lastBody).toBe(false);
+  });
+
+  it('needs exactly one of shapeIds and assembly', async () => {
+    const neither = await exportShapes({ format: 'step' });
+    expect(neither.ok).toBe(false);
+    if (!neither.ok) { expect(neither.code).toBe('invalid-input'); }
+    const both = await exportShapes({ format: 'step', shapeIds: ['sh-1'], assembly: true });
+    expect(both.ok).toBe(false);
+    if (!both.ok) { expect(both.code).toBe('invalid-input'); }
+  });
+
   it('rejects an invalid format', async () => {
     const result = await exportShapes({ format: 'obj' as any, shapeIds: ['sh-1'] });
     expect(result.ok).toBe(false);

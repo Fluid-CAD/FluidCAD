@@ -47,15 +47,15 @@ export function registerExportCommand(program) {
     .description('Export the model to a STEP, STL, or PNG file');
 
   withCommonOptions(exportCommand.command('step'))
-    .description('Export the model as a STEP file')
-    .option('--shapes <ids...>', 'shapes to export by position, feature name, or id (defaults to all)')
+    .description('Export the model as a STEP file (an assembly exports as one STEP assembly)')
+    .option('--shapes <ids...>', 'shapes to export by position, feature name, or id (defaults to all; on an assembly, to the whole assembly)')
     .option('--list-shapes', 'print the scene\'s shapes and exit without exporting')
     .option('--no-colors', 'write plain geometry instead of per-shape colors')
     .action(runner(runStepExport));
 
   withCommonOptions(exportCommand.command('stl'))
-    .description('Export the model as an STL mesh')
-    .option('--shapes <ids...>', 'shapes to export by position, feature name, or id (defaults to all)')
+    .description('Export the model as an STL mesh (an assembly exports as one mesh of every placed part)')
+    .option('--shapes <ids...>', 'shapes to export by position, feature name, or id (defaults to all; on an assembly, to the whole assembly)')
     .option('--list-shapes', 'print the scene\'s shapes and exit without exporting')
     .option('--resolution <r>', `mesh resolution: ${STL_RESOLUTIONS.join(', ')} (default: medium)`)
     .option('--linear-deflection <length>', 'custom linear deflection in document units (implies --resolution custom)')
@@ -117,6 +117,25 @@ async function runShapeExport(format, opts, formatBody) {
   const requested = parseShapeIds(opts.shapes);
 
   await withServer(opts, async (ctx) => {
+    const extension = format === 'step' ? '.step' : '.stl';
+    // An assembly file exports as a whole — every instance where it sits —
+    // unless the caller picked shapes, which are the part templates.
+    if (isAssemblyFile(ctx.file) && requested === null && !opts.listShapes) {
+      const result = await postForBuffer(ctx.port, '/api/export', { format, assembly: {}, ...formatBody });
+      if (!result.ok) {
+        throw new Error(`Export failed: ${responseError(result)}`);
+      }
+      const outPath = resolveOut(opts.out, ctx.modelName, extension);
+      writeOutput(outPath, result.buffer, 'whole assembly');
+      if (result.headers.get('x-fluidcad-assembly-poses') === 'statement') {
+        process.stderr.write(
+          'Note: parts sit where the source places them. Mates are solved in the viewer, ' +
+            'so export from the viewer for the mated layout.\n',
+        );
+      }
+      return;
+    }
+
     const shapes = await fetchShapes(ctx);
     const owners = await fetchOwners(ctx, shapes);
     if (opts.listShapes) {
@@ -130,9 +149,13 @@ async function runShapeExport(format, opts, formatBody) {
       throw new Error(`Export failed: ${responseError(result)}`);
     }
 
-    const outPath = resolveOut(opts.out, ctx.modelName, format === 'step' ? '.step' : '.stl');
+    const outPath = resolveOut(opts.out, ctx.modelName, extension);
     writeOutput(outPath, result.buffer, `${shapeIds.length} shape${shapeIds.length === 1 ? '' : 's'}`);
   });
+}
+
+function isAssemblyFile(filePath) {
+  return typeof filePath === 'string' && /\.assembly\.js$/i.test(filePath);
 }
 
 function stlBody(opts) {
@@ -388,8 +411,8 @@ async function withServer(opts, run) {
 
   const attachedPort = await resolveAttachedPort(workspace, opts.port);
   if (attachedPort !== null) {
-    const modelName = await attachedModelName(attachedPort, workspace, opts.entry);
-    return run({ mode: 'attached', port: attachedPort, workspace, timeoutMs, modelName });
+    const served = await attachedModel(attachedPort, workspace, opts.entry);
+    return run({ mode: 'attached', port: attachedPort, workspace, timeoutMs, file: served.file, modelName: served.modelName });
   }
 
   const entry = findEntry(workspace, opts.entry);
@@ -409,6 +432,7 @@ async function withServer(opts, run) {
       workspace,
       timeoutMs,
       entry,
+      file: entry,
       modelName: modelName(entry),
     });
   } finally {
@@ -432,10 +456,10 @@ async function resolveAttachedPort(workspace, portOption) {
 }
 
 /**
- * Name the output after whatever the running server is serving — that scene is
- * what gets exported, whether or not `--entry` agrees.
+ * The file the running server is serving and the output name derived from it
+ * — that scene is what gets exported, whether or not `--entry` agrees.
  */
-async function attachedModelName(port, workspace, entryOption) {
+async function attachedModel(port, workspace, entryOption) {
   const summary = await getJson(port, '/api/scene/summary');
   const served = summary.ok && typeof summary.body?.file === 'string' ? summary.body.file : null;
 
@@ -447,13 +471,14 @@ async function attachedModelName(port, workspace, entryOption) {
           `not ${basename(entry)}. Stop that server to export a different file.\n`,
       );
     }
-    return modelName(served ?? entry);
+    const file = served ?? entry;
+    return { file, modelName: modelName(file) };
   }
   if (served) {
-    return modelName(served);
+    return { file: served, modelName: modelName(served) };
   }
   const entry = tryFindEntry(workspace);
-  return entry ? modelName(entry) : 'model';
+  return { file: entry, modelName: entry ? modelName(entry) : 'model' };
 }
 
 function tryFindEntry(workspace) {
@@ -469,7 +494,7 @@ function tryFindEntry(workspace) {
 // ─── Output ─────────────────────────────────────────────────────────────
 
 function modelName(filePath) {
-  const base = basename(filePath).replace(/\.fluid\.js$/i, '').replace(/\.js$/i, '');
+  const base = basename(filePath).replace(/\.(fluid|assembly|part)\.js$/i, '').replace(/\.js$/i, '');
   return base || 'model';
 }
 

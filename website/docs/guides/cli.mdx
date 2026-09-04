@@ -141,7 +141,7 @@ If the workspace holds more than one `.fluid.js` file, `--entry` is required —
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--shapes <ids...>` | Export a subset of the scene's shapes | All shapes |
+| `--shapes <ids...>` | Export a subset of the scene's shapes | All shapes (an assembly: the [whole assembly](#assemblies)) |
 | `--list-shapes` | Print the scene's shapes and exit without exporting | — |
 | `--no-colors` | Write plain geometry instead of per-shape colors | _colors on_ |
 
@@ -153,7 +153,7 @@ npx fluidcad export step --no-colors -o build/housing.step
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--shapes <ids...>` | Export a subset of the scene's shapes | All shapes |
+| `--shapes <ids...>` | Export a subset of the scene's shapes | All shapes (an assembly: the [whole assembly](#assemblies)) |
 | `--list-shapes` | Print the scene's shapes and exit without exporting | — |
 | `--resolution <r>` | Mesh resolution: `coarse`, `medium`, `fine`, or `custom` | `medium` |
 | `--linear-deflection <length>` | Custom linear deflection, in document units | — |
@@ -192,6 +192,18 @@ npx fluidcad export step --list-shapes
 npx fluidcad export step --shapes 1,3 -o build/plates.step
 npx fluidcad export stl --shapes Housing --resolution fine
 ```
+
+### Assemblies
+
+When the scene is a `*.assembly.js` file, `export step` and `export stl` write the **whole assembly** by default: every inserted part where it sits. STEP keeps the structure — one product per part, one component per instance, sub-assemblies nested — so it opens as an assembly tree elsewhere. STL flattens every placed part into one mesh.
+
+```bash
+npx fluidcad export step                 # robot.assembly.js → robot.step, the full tree
+npx fluidcad export stl --resolution fine
+npx fluidcad export step --shapes 1      # a single part template instead, in its own frame
+```
+
+Mates are solved in the viewer, and the CLI has no viewer, so parts land where the source places them (`insert().translate()` / `.rotate()`). The CLI prints a note when that is the case; for the mated layout, export from the viewer's Export menu.
 
 ### `fluidcad export png`
 

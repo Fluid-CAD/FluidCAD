@@ -42,9 +42,22 @@ export type ShowShapePropertiesMessage = {
   shapeId: string;
 };
 
+/** A live instance pose from the editor's viewer — world frame, assembly unit. */
+export type ExportInstancePose = {
+  instanceId: string;
+  position: { x: number; y: number; z: number };
+  quaternion: { x: number; y: number; z: number; w: number };
+};
+
 export type ExportSceneMessage = {
   type: 'export-scene';
-  shapeIds: string[];
+  /** Solids to export — or omit it and pass `assembly` for the whole assembly. */
+  shapeIds?: string[];
+  /**
+   * Export the whole assembly. `poses` are optional live placements (one per
+   * instance); without them the statement poses are written.
+   */
+  assembly?: { poses?: ExportInstancePose[] };
   options: {
     format: 'step' | 'stl';
     includeColors?: boolean;
@@ -266,6 +279,8 @@ export type ExportCompleteMessage = {
   data?: string;
   fileName?: string;
   error?: string;
+  /** Assembly exports: whether live or statement poses were written. */
+  posesSource?: 'live' | 'statement';
 };
 
 export type AddPickMessage = {

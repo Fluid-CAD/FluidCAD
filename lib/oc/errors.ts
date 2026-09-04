@@ -22,7 +22,14 @@ export function describeOcException(e: unknown): string {
   return String(e);
 }
 
-function isWasmException(e: unknown): e is object {
+/**
+ * Whatever the binding's decoder takes — `WebAssembly.Exception` where the
+ * compiler can see that type, `any` where it cannot (it is not in this
+ * project's lib set; only the binding's own declarations name it).
+ */
+type OcException = Parameters<ReturnType<typeof getOC>["getExceptionMessage"]>[0];
+
+function isWasmException(e: unknown): e is OcException {
   const ctor = (globalThis as { WebAssembly?: { Exception?: Function } }).WebAssembly?.Exception;
   return typeof ctor === "function" && e instanceof ctor;
 }

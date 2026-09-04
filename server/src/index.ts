@@ -528,7 +528,23 @@ async function handleExtensionMessage(msg: any) {
 
       case 'export-scene': {
         try {
-          const result = fluidCadServer.exportShapes(msg.shapeIds, msg.options);
+          // `assembly` (optionally with live poses) exports the whole
+          // assembly; otherwise `shapeIds` picks solids, as the UI's route does.
+          let result: { data: string | Uint8Array; fileName: string } | null = null;
+          let posesSource: 'live' | 'statement' | undefined;
+          if (msg.assembly !== undefined) {
+            const outcome = fluidCadServer.exportAssembly(msg.options, msg.assembly.poses);
+            if (outcome) {
+              if ('reason' in outcome) {
+                sendToExtension({ type: 'export-complete', success: false, error: outcome.reason });
+                break;
+              }
+              result = outcome;
+              posesSource = outcome.posesSource;
+            }
+          } else {
+            result = fluidCadServer.exportShapes(msg.shapeIds ?? [], msg.options);
+          }
           if (result) {
             const data = typeof result.data === 'string'
               ? Buffer.from(result.data, 'utf-8').toString('base64')
@@ -538,6 +554,7 @@ async function handleExtensionMessage(msg: any) {
               success: true,
               data,
               fileName: result.fileName,
+              ...(posesSource ? { posesSource } : {}),
             });
           } else {
             sendToExtension({ type: 'export-complete', success: false, error: 'No active scene to export.' });

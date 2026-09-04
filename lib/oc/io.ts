@@ -494,7 +494,7 @@ export class OcIO {
     return file;
   }
 
-  private static hexToRgb(hex: string): [number, number, number] {
+  static hexToRgb(hex: string): [number, number, number] {
     const h = hex.replace('#', '');
     return [
       parseInt(h.substring(0, 2), 16) / 255,

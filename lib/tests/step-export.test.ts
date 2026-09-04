@@ -5,6 +5,7 @@ import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import revolve from "../core/revolve.js";
 import fillet from "../core/fillet.js";
+import chamfer from "../core/chamfer.js";
 import select from "../core/select.js";
 import repeat from "../core/repeat.js";
 import color from "../core/color.js";
@@ -218,4 +219,35 @@ describe("STEP export", () => {
     // Whole-body color: one STYLED_ITEM per face, the rebuilt cone included.
     expect(countOccurrences(step, "STYLED_ITEM(")).toBe(faceCount);
   });
+
+  // A chamfer on both ends of a cylinder (the engine sample's pin) makes two
+  // cones, one of them with a negative semi-angle, and the chamfer's seam
+  // pcurves are Geom2d_TrimmedCurves. The cone rebuild copies those pcurves
+  // through the binding, which used to hand back a bare Geom2d_Geometry for
+  // any class it did not know and failed UpdateEdge with "Expected null or
+  // instance of Poly_Polygon2D".
+  for (const includeColors of [true, false]) {
+    it(`rebuilds a chamfered cylinder's cones whose seams carry trimmed pcurves (colors ${includeColors ? "on" : "off"})`, () => {
+      sketch("xy", () => {
+        circle([0, 0], 20);
+      });
+      const pin = extrude(82);
+      chamfer(2, pin.endEdges(), pin.startEdges());
+      render();
+
+      // The chamfer's body is the last solid added; the extrude's stays on
+      // its own object as the consumed input.
+      const body = sceneSolids().at(-1)!;
+      expect(body.getFaces().length).toBe(5);
+      const step = FileExport.exportShapes([body], { format: "step", includeColors }).data as string;
+
+      // Two planar ends, the barrel and two cones — every face survives.
+      expect(countOccurrences(step, "CONICAL_SURFACE(")).toBe(2);
+      const back = readBack(step);
+      expect(back.solids).toBe(1);
+      expect(back.faces).toBe(5);
+      expect(back.valid).toBe(true);
+      expect(back.volume).toBeCloseTo(volumeOf(body), 3);
+    });
+  }
 });

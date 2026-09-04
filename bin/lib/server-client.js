@@ -286,6 +286,7 @@ export async function postForBuffer(port, apiPath, body) {
     status: res.status,
     ok: res.ok,
     contentType: res.headers.get('content-type') ?? '',
+    headers: res.headers,
     buffer: Buffer.from(await res.arrayBuffer()),
   };
 }

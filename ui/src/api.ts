@@ -94,6 +94,35 @@ export type MeasurePose = {
   quaternion: { x: number; y: number; z: number; w: number };
 };
 
+/** One assembly instance's live world pose, as the whole-assembly export ships it. */
+export type ExportInstancePose = { instanceId: string } & MeasurePose;
+
+export type ExportFormat = 'step' | 'stl';
+
+/** The per-format knobs of `POST /api/export` — the same for either selector. */
+export type ExportFormatOptions = {
+  /** STEP: write face colours (XCAF) or plain geometry. */
+  includeColors?: boolean;
+  /** STL: meshing preset, `custom` reads the two deflections. */
+  resolution?: 'coarse' | 'medium' | 'fine' | 'custom';
+  /** STL: write millimetres (slicers assume them) or the document's own unit. */
+  scaleTo?: 'mm' | 'document';
+  customAngularDeflectionDeg?: number;
+  customLinearDeflection?: number;
+};
+
+/**
+ * The body of `POST /api/export`. Exactly one selector: `shapeIds` exports
+ * the listed solids each in its own frame (a part template, a solid of a
+ * part scene); `assembly` exports every instance of the current assembly
+ * where it sits. `poses` must cover every instance — they are the browser
+ * solver's live world poses, which the server cannot compute itself; a
+ * headless client omits them and gets the statement poses instead.
+ */
+export type ExportRequestBody =
+  | ({ format: ExportFormat; shapeIds: string[]; assembly?: undefined } & ExportFormatOptions)
+  | ({ format: ExportFormat; assembly: { poses: ExportInstancePose[] }; shapeIds?: undefined } & ExportFormatOptions);
+
 export type MeasureEntityRef = {
   shapeId: string;
   kind: 'face' | 'edge';
@@ -3776,7 +3805,7 @@ export async function importFile(fileName: string, data: string): Promise<Import
   );
 }
 
-export async function exportShapes(body: Record<string, unknown>): Promise<Blob> {
+export async function exportShapes(body: ExportRequestBody): Promise<Blob> {
   const res = await fetch('/api/export', {
     method: 'POST',
     headers: JSON_HEADERS,

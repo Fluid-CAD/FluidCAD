@@ -294,10 +294,23 @@ export async function exportFile(client: Client) {
     return;
   }
 
+  // An assembly file exports as a whole — every inserted part where it
+  // sits. The command has no viewer to ask for solved poses, so the server
+  // writes the statement poses and says so in export-complete.
+  if (/\.assembly\.js$/i.test(client.currentFileName)) {
+    client.pendingExportUri = uri;
+    sendToServer(client, {
+      type: 'export-scene',
+      assembly: {},
+      options,
+    });
+    return;
+  }
+
   const shapeIds: string[] = [];
   for (const obj of client.currentSceneObjects) {
     for (const shape of (obj.sceneShapes || [])) {
-      if (shape.shapeType === 'solid' && !shape.isMetaShape) {
+      if (shape.shapeType === 'solid' && !shape.isMetaShape && !shape.isGuide) {
         shapeIds.push(shape.shapeId);
       }
     }

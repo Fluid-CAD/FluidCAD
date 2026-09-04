@@ -18,9 +18,16 @@ import { createProjectUnitLookup, resolveProjectUnit } from "./project-unit.js";
 import { FileImport } from "./io/file-import.js";
 import { FileExport } from "./io/file-export.js";
 import type { ExportOptions } from "./io/file-export.js";
+import { collectAssemblyExportTree, exportAssemblyTree } from "./io/assembly-export/index.js";
+import type { AssemblyExportOptions, AssemblyExportPose } from "./io/assembly-export/index.js";
 import type { StepFileUnits } from "./oc/step-units.js";
 
 /** What an import produced, for the "N solids, file unit INCH" report. */
+/** What an assembly export produced, or why it was refused (`'reason' in outcome`). */
+export type AssemblyExportOutcome =
+  | { ok: true; data: string | Uint8Array; fileName: string; posesSource: 'live' | 'statement' }
+  | { ok: false; reason: string };
+
 export type ImportReport = {
   solidCount: number;
   /** The unit the cached geometry is in (always mm). */
@@ -293,6 +300,28 @@ class SceneManager {
 
     // The shapes' numbers are in the scene's unit unless the caller asserts otherwise.
     return FileExport.exportShapes(solids, { ...options, unit: options.unit ?? scene.unit });
+  }
+
+  /**
+   * Export the whole assembly — every instance where it sits. `livePoses`
+   * are the browser-side solver's placements (the engine only knows the
+   * statement poses); without them the statement configuration is written,
+   * and `posesSource` says which happened. A part scene is refused: it has
+   * no instances to place.
+   */
+  exportAssembly(
+    scene: Scene,
+    options: AssemblyExportOptions & { name: string; livePoses?: AssemblyExportPose[] },
+  ): AssemblyExportOutcome {
+    if (!(scene instanceof AssemblyScene)) {
+      return { ok: false, reason: 'Exporting an assembly targets an assembly — open a *.assembly.js file first.' };
+    }
+    const collected = collectAssemblyExportTree(scene, { name: options.name, livePoses: options.livePoses });
+    if ('reason' in collected) {
+      return { ok: false, reason: collected.reason };
+    }
+    const { data, fileName } = exportAssemblyTree(collected.tree, options);
+    return { ok: true, data, fileName, posesSource: collected.tree.posesSource };
   }
 
   explainSelection(scene: Scene, refs: PickRef[], before?: SelectionBoundary): ExplainResult | BoundaryFailure {

@@ -10,7 +10,7 @@ import { DragReadout } from './ui/drag-readout';
 import { AnimateBar } from './ui/animate-bar';
 import { ParamsPanel } from './ui/params-panel';
 import { ParamEditorDialog } from './ui/param-editor-dialog';
-import { ExportDialog } from './ui/export-dialog';
+import { ExportDialog, exportBaseName } from './ui/export-dialog';
 import { BreakpointIndicator } from './ui/breakpoint-indicator';
 import { ErrorBanner } from './ui/error-banner';
 import { LoadingOverlay } from './ui/loading-overlay';
@@ -239,7 +239,22 @@ const measureController = new MeasureController(
   },
 );
 measureController.onNotice = (message) => showToast(message);
-const exportDialog = new ExportDialog(container, engineClient, viewer.sceneContext);
+// The whole-assembly export ships the same live poses measure does — the
+// browser-side solver owns them, the server only knows the statement pose.
+const exportDialog = new ExportDialog(container, engineClient, viewer.sceneContext, {
+  instances: () => (lastAssemblyPayload?.instances ?? []).map(i => ({ instanceId: i.instanceId, name: i.name })),
+  poseOf: (instanceId) => {
+    const pose = viewer.getAssemblyController()?.getInstancePose(instanceId);
+    if (!pose) {
+      return null;
+    }
+    return {
+      position: { x: pose.position.x, y: pose.position.y, z: pose.position.z },
+      quaternion: { x: pose.quaternion.x, y: pose.quaternion.y, z: pose.quaternion.z, w: pose.quaternion.w },
+    };
+  },
+  fileBaseName: () => exportBaseName(sceneDocument.current?.absPath ?? ''),
+});
 
 // Built detached: it is a section of the part rail's docked column, and that
 // column is torn down and rebuilt on every part/assembly swap. Owning the
@@ -302,7 +317,7 @@ function buildPartRail(): Extract<LeftRail, { kind: 'part' }> {
     container,
     engineClient,
     (shapeId) => viewer.highlightShape(shapeId),
-    (shapeIds) => exportDialog.show(shapeIds),
+    (shapeIds) => exportDialog.show({ kind: 'shapes', shapeIds }),
     (shapeId, visible) => viewer.setShapeVisibility(shapeId, visible),
     (shapeId) => viewer.isShapeHidden(shapeId),
     (shapeId, opacity) => viewer.setShapeTransparency(shapeId, opacity),
@@ -669,10 +684,13 @@ const topBar = new TopBar(container, {
   } : undefined,
   saveTheme: (theme) => savePreference('theme', theme),
   // The bar's Export dropdown picks ONE solid — its thumbnail is what makes
-  // the choice; File ▸ Export stays the whole-scene path.
+  // the choice — or, in an assembly, the whole assembly where it sits;
+  // File ▸ Export stays the whole-scene path.
   export: {
-    onExport: (shapeId) => exportDialog.show([shapeId]),
+    onExport: (shapeId) => exportDialog.show({ kind: 'shapes', shapeIds: [shapeId] }),
     captureThumbnail: (shapeId) => viewer.captureSolidThumbnail(shapeId),
+    onExportAssembly: () => exportDialog.show({ kind: 'assembly' }),
+    captureAssemblyThumbnail: () => viewer.captureSceneThumbnail(),
   },
   onImport: () => fileImporter.openPicker(),
 });
@@ -751,10 +769,14 @@ installDesktopMenu({
   undo: () => runEditorHistory('undo'),
   redo: () => runEditorHistory('redo'),
   import: () => fileImporter.openPicker(),
-  export: () => exportDialog.show(exportableShapeIds()),
+  // An assembly exports whole, where its parts sit; a part scene offers
+  // every solid in it.
+  export: () => exportDialog.show(
+    currentRail?.kind === 'assembly' ? { kind: 'assembly' } : { kind: 'shapes', shapeIds: exportableShapeIds() },
+  ),
 });
 
-/** Every solid in the current scene — what File ▸ Export offers by default. */
+/** Every solid in the current part scene — what File ▸ Export offers by default. */
 function exportableShapeIds(): string[] {
   const ids: string[] = [];
   for (const object of viewer.currentSceneObjects) {
@@ -2752,11 +2774,15 @@ function connectWebSocket() {
         // part-design groups hide and the assembly groups show (or back).
         navbar.setMode(sceneKind);
         const rail = ensureRailFor(sceneKind);
+        // The normalized assembly payload when this is an assembly scene —
+        // the Export list filters its parts by it.
+        let renderedAssembly: SerializedAssembly | undefined;
         if (rail.kind === 'part') {
           rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null);
           assemblyGizmo.handleModeExit();
         } else {
           const assembly = normalizeAssemblyPayload(msg.assembly);
+          renderedAssembly = assembly;
           applyAssemblyToRail(rail, assembly);
           // Instance groups were just rebuilt/re-posed — re-anchor the
           // gizmo (or dismiss it if its instance is gone or now locked).
@@ -2774,7 +2800,7 @@ function connectWebSocket() {
           paramsPanel.update(msg.params);
         }
         errorBanner.update(msg.result, msg.compileError ?? null);
-        topBar.updateSolids(msg.result);
+        topBar.updateSolids(msg.result, renderedAssembly);
         const compileError = msg.compileError ?? null;
         activeCompileError = compileError !== null;
         if (compileError === null) {

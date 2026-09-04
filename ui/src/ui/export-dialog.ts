@@ -3,10 +3,49 @@ import { sceneUnit } from '../units/scene-unit';
 import { captureScreenshot } from '../screenshot';
 import { deliverFile } from '../desktop';
 import type { EngineClient } from '../engine-client';
+import type { ExportFormat, ExportFormatOptions, ExportInstancePose, ExportRequestBody, MeasurePose } from '../api';
 import { ICON_CLOSE } from './icons';
+
+/**
+ * What the dialog exports: the listed solids, each in its own frame (a
+ * part-scene solid, an assembly's part template), or the whole assembly —
+ * every instance where it sits.
+ */
+export type ExportTarget =
+  | { kind: 'shapes'; shapeIds: string[] }
+  | { kind: 'assembly' };
+
+/**
+ * Where the whole-assembly export reads the scene from. Injected rather than
+ * imported so the dialog never reaches into the viewer: the poses are the
+ * browser solver's, which only the host holds.
+ */
+export interface ExportAssemblyProvider {
+  /** Every instance of the current assembly, as the payload lists them. */
+  instances(): { instanceId: string; name: string }[];
+  /** The instance's live world pose from the solver; null while the scene is mid-update. */
+  poseOf(instanceId: string): MeasurePose | null;
+  /** The download's base name — the assembly file without its directory and `.assembly.js`. */
+  fileBaseName(): string;
+}
+
+/** The per-solid download name; the assembly download is named after its file. */
+const SHAPES_FILE_BASE = 'export';
+
+/**
+ * The download's base name for a document: the file name without its
+ * directory and without the `.assembly.js` / `.js` suffix —
+ * `/work/robot.assembly.js` → `robot`, so the export lands as `robot.step`.
+ */
+export function exportBaseName(absPath: string): string {
+  const file = absPath.split(/[\\/]/).pop() ?? '';
+  return file.replace(/\.assembly\.js$/, '').replace(/\.js$/, '');
+}
 
 export class ExportDialog {
   private overlay: HTMLDivElement;
+  private titleEl: HTMLHeadingElement;
+  private purposeEl: HTMLParagraphElement;
   private pillsContainer: HTMLDivElement;
   private stepSection: HTMLDivElement;
   private stlSection: HTMLDivElement;
@@ -27,15 +66,27 @@ export class ExportDialog {
   private heightInput: HTMLInputElement;
   private exportBtn: HTMLButtonElement;
   private statusEl: HTMLDivElement;
-  private shapeIds: string[] = [];
+  private target: ExportTarget = { kind: 'shapes', shapeIds: [] };
   private selectedFormat: string = 'step';
 
-  constructor(container: HTMLElement, private client: EngineClient, private sceneCtx: SceneContext) {
+  /**
+   * `assembly` is the host's window onto the live assembly; a host that never
+   * shows one (a part-only viewer) passes nothing and the assembly target
+   * reports that it has nothing to export.
+   */
+  constructor(
+    container: HTMLElement,
+    private client: EngineClient,
+    private sceneCtx: SceneContext,
+    private assembly: ExportAssemblyProvider | null = null,
+  ) {
     this.overlay = document.createElement('div');
     this.overlay.className = 'fixed inset-0 z-[300] bg-black/50 flex items-center justify-center hidden';
     this.overlay.innerHTML = this.buildHTML();
     container.appendChild(this.overlay);
 
+    this.titleEl = this.overlay.querySelector('[data-ref="title"]')!;
+    this.purposeEl = this.overlay.querySelector('[data-ref="purpose"]')!;
     this.pillsContainer = this.overlay.querySelector('[data-ref="format-pills"]')!;
     this.stepSection = this.overlay.querySelector('[data-ref="step-section"]')!;
     this.stlSection = this.overlay.querySelector('[data-ref="stl-section"]')!;
@@ -66,8 +117,14 @@ export class ExportDialog {
     this.bindEvents();
   }
 
-  show(shapeIds: string[]): void {
-    this.shapeIds = shapeIds;
+  show(target: ExportTarget): void {
+    this.target = target;
+    const whole = target.kind === 'assembly';
+    this.titleEl.textContent = whole ? 'Export assembly' : 'Export';
+    this.purposeEl.textContent = whole
+      ? 'Every part where it sits, as one STEP assembly or one STL mesh. Pick a format, then press Export.'
+      : '';
+    this.purposeEl.classList.toggle('hidden', !whole);
     this.statusEl.classList.add('hidden');
     this.exportBtn.disabled = false;
     this.overlay.classList.remove('hidden');
@@ -81,11 +138,12 @@ export class ExportDialog {
     return `
       <div class="w-[380px] bg-base-100 border border-base-content/10 rounded-lg p-5 shadow-[0_4px_24px_rgba(0,0,0,0.5)]">
         <div class="flex items-center justify-between mb-4">
-          <h3 class="text-sm font-medium text-base-content/90">Export</h3>
+          <h3 data-ref="title" class="text-sm font-medium text-base-content/90">Export</h3>
           <button data-ref="close-btn" class="btn btn-ghost btn-square btn-xs text-base-content/60">
             <span class="[&>svg]:size-4">${ICON_CLOSE}</span>
           </button>
         </div>
+        <p data-ref="purpose" class="hidden text-xs text-base-content/60 -mt-2 mb-4"></p>
 
         <div class="flex flex-col gap-3">
           <div>
@@ -213,19 +271,22 @@ export class ExportDialog {
       return this.exportPng();
     }
 
-    const format = this.selectedFormat;
-    const body: Record<string, any> = { format, shapeIds: this.shapeIds };
+    const format: ExportFormat = this.selectedFormat === 'stl' ? 'stl' : 'step';
+    const options = this.formatOptions(format);
 
-    if (format === 'step') {
-      body.includeColors = this.includeColorsToggle.checked;
-    } else {
-      body.resolution = this.resolutionSelect.value;
-      // STL has no unit; an mm document is unaffected either way.
-      body.scaleTo = this.scaleToMmToggle.checked ? 'mm' : 'document';
-      if (body.resolution === 'custom') {
-        body.customAngularDeflectionDeg = parseFloat(this.angularInput.value);
-        body.customLinearDeflection = parseFloat(this.linearInput.value);
+    let body: ExportRequestBody;
+    let fileBase: string;
+    if (this.target.kind === 'assembly') {
+      const poses = this.collectAssemblyPoses();
+      if ('reason' in poses) {
+        this.showError(poses.reason);
+        return;
       }
+      body = { format, assembly: { poses: poses.poses }, ...options };
+      fileBase = this.assembly?.fileBaseName() || 'assembly';
+    } else {
+      body = { format, shapeIds: this.target.shapeIds, ...options };
+      fileBase = SHAPES_FILE_BASE;
     }
 
     this.exportBtn.disabled = true;
@@ -236,7 +297,7 @@ export class ExportDialog {
       const blob = await this.client.exportShapes(body);
       const ext = format === 'step' ? '.step' : '.stl';
       // Desktop: a native Save dialog. Browser: the usual download.
-      const outcome = await deliverFile(blob, `export${ext}`, [
+      const outcome = await deliverFile(blob, `${fileBase}${ext}`, [
         format === 'step'
           ? { name: 'STEP Files', extensions: ['step', 'stp'] }
           : { name: 'STL Files', extensions: ['stl'] },
@@ -248,10 +309,63 @@ export class ExportDialog {
         this.hide();
       }
     } catch (err: any) {
-      this.statusEl.innerHTML = `<span class="text-error text-xs">${err.message}</span>`;
+      this.showError(err.message);
     } finally {
       this.exportBtn.disabled = false;
     }
+  }
+
+  private formatOptions(format: ExportFormat): ExportFormatOptions {
+    if (format === 'step') {
+      return { includeColors: this.includeColorsToggle.checked };
+    }
+    const resolution = this.resolutionSelect.value as ExportFormatOptions['resolution'];
+    // STL has no unit; an mm document is unaffected either way.
+    const options: ExportFormatOptions = {
+      resolution,
+      scaleTo: this.scaleToMmToggle.checked ? 'mm' : 'document',
+    };
+    if (resolution === 'custom') {
+      options.customAngularDeflectionDeg = parseFloat(this.angularInput.value);
+      options.customLinearDeflection = parseFloat(this.linearInput.value);
+    }
+    return options;
+  }
+
+  /**
+   * One live pose per instance of the current assembly. The server refuses a
+   * partial list (it would silently mix solved and unsolved placement), so a
+   * missing pose — the solver has not placed a just-inserted instance yet —
+   * stops the export here with a reason instead of a round trip.
+   */
+  private collectAssemblyPoses(): { poses: ExportInstancePose[] } | { reason: string } {
+    if (!this.assembly) {
+      return { reason: 'No assembly is open.' };
+    }
+    const instances = this.assembly.instances();
+    if (instances.length === 0) {
+      return { reason: 'The assembly has no parts to export — insert one first.' };
+    }
+    const poses: ExportInstancePose[] = [];
+    for (const { instanceId, name } of instances) {
+      const pose = this.assembly.poseOf(instanceId);
+      if (!pose) {
+        return {
+          reason: `"${name}" has no position yet — the scene is still updating. Try again in a moment.`,
+        };
+      }
+      poses.push({ instanceId, position: pose.position, quaternion: pose.quaternion });
+    }
+    return { poses };
+  }
+
+  private showError(message: string): void {
+    this.statusEl.classList.remove('hidden');
+    this.statusEl.replaceChildren();
+    const text = document.createElement('span');
+    text.className = 'text-error text-xs';
+    text.textContent = message;
+    this.statusEl.appendChild(text);
   }
 
   private async exportPng(): Promise<void> {
@@ -268,7 +382,10 @@ export class ExportDialog {
         margin: this.autoCropToggle.checked ? Math.max(0, parseInt(this.marginInput.value) || 0) : 0,
       });
 
-      const outcome = await deliverFile(blob, 'export.png', [
+      const fileBase = this.target.kind === 'assembly'
+        ? this.assembly?.fileBaseName() || 'assembly'
+        : SHAPES_FILE_BASE;
+      const outcome = await deliverFile(blob, `${fileBase}.png`, [
         { name: 'PNG Images', extensions: ['png'] },
       ]);
       if (outcome === 'failed') {
@@ -278,8 +395,7 @@ export class ExportDialog {
         this.hide();
       }
     } catch (err: any) {
-      this.statusEl.classList.remove('hidden');
-      this.statusEl.innerHTML = `<span class="text-error text-xs">${err.message}</span>`;
+      this.showError(err.message);
     } finally {
       this.exportBtn.disabled = false;
     }

@@ -354,7 +354,7 @@ If a FluidCAD server is already running for the project (started by `serve` or a
 | `-p, --port <port>` | Export from the running server on this port | Auto-discovered |
 | `--timeout <sec>` | Seconds to wait for the server (and, for `png`, for a browser) | `60` |
 
-`step` and `stl` add `--shapes` (a subset, by position, feature name, or id) and `--list-shapes`. `step` adds `--no-colors`. `stl` adds `--resolution coarse|medium|fine|custom` plus `--linear-deflection <mm>` / `--angular-deflection <deg>`. `png` adds `--view`, `--width`, `--height`, `--transparent`, `--show-axes`, `--no-grid`, `--no-auto-crop`, `--no-fit`, `--margin`, and `--open`.
+`step` and `stl` add `--shapes` (a subset, by position, feature name, or id) and `--list-shapes`; on a `*.assembly.js` entry they write the whole assembly by default (STEP keeps the assembly tree, STL flattens it). `step` adds `--no-colors`. `stl` adds `--resolution coarse|medium|fine|custom` plus `--linear-deflection <mm>` / `--angular-deflection <deg>`. `png` adds `--view`, `--width`, `--height`, `--transparent`, `--show-axes`, `--no-grid`, `--no-auto-crop`, `--no-fit`, `--margin`, and `--open`.
 
 > **PNG needs a browser.** Screenshots are rendered by the FluidCAD viewport itself, so a browser has to be connected to the server. Pass `--open` and the CLI launches one for you.
 

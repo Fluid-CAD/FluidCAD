@@ -242,7 +242,10 @@ export class Client {
         if (msg.success && msg.data && this.pendingExportUri) {
           const buffer = Buffer.from(msg.data, 'base64');
           await vscode.workspace.fs.writeFile(this.pendingExportUri, buffer);
-          vscode.window.showInformationMessage(`Exported to ${this.pendingExportUri.fsPath}`);
+          const note = msg.posesSource === 'statement'
+            ? ' Parts sit where the source places them — mates are solved in the viewer, so export from the viewer for the mated layout.'
+            : '';
+          vscode.window.showInformationMessage(`Exported to ${this.pendingExportUri.fsPath}.${note}`);
         } else {
           vscode.window.showErrorMessage(`Export failed: ${msg.error || 'Unknown error'}`);
         }

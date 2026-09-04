@@ -21,8 +21,15 @@ export type RailOpenState = Record<RailSection, boolean>;
 /** The class string for each section's host, in the column's order. */
 export type RailSplit = Record<RailSection, string>;
 
-/** Every host is a nested column of header + scrolling body, capped at its rows. */
-const HOST_BASE = 'flex flex-col gap-1 min-h-0 max-h-max';
+/**
+ * Every host is a nested column of header + scrolling body, capped at its
+ * rows — and the positioning context for its section's row menus, which
+ * are measured against the host's rect. The split rewrites the host's whole
+ * class list, so `relative` has to live here rather than be patched on by
+ * the section (it would go with the first re-split, and the menu would then
+ * resolve against the column and open over Parts).
+ */
+const HOST_BASE = 'relative flex flex-col gap-1 min-h-0 max-h-max';
 
 /** A closed section is exactly its header: no claim on the column, never crushed. */
 const CLOSED = 'grow-0 shrink-0 basis-auto';

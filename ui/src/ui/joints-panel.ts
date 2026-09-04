@@ -75,6 +75,9 @@ export class JointsPanel {
     // the host's rect — the host must BE the positioning context, or they
     // resolve against some higher positioned ancestor and land offset by
     // whatever sits above this section (the parts panel, in the left rail).
+    // The assembly rail's slots are `relative` by their own layout policy
+    // (assembly-rail-split.ts, which rewrites their class lists); this
+    // covers any other host.
     host.classList.add('relative');
 
     const section = new AccordionSection('Joints', {

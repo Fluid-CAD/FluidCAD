@@ -152,6 +152,22 @@ describe('assembly rail column', () => {
     expect(shares(rail)).toEqual({ parts: 'closed', connectors: 'closed', joints: 'basis-full' });
   });
 
+  it('keeps every slot the positioning context for its section\'s row menus', () => {
+    // The joints panel's ⋮ / context menu is appended to its host and placed
+    // from the host's rect; a re-split used to rewrite the host's classes
+    // and drop the `relative` the panel had added, so the menu resolved
+    // against the column and opened over Parts.
+    const rail = mount();
+    for (const host of Object.values(rail.hosts)) {
+      expect(host.classList.contains('relative')).toBe(true);
+    }
+    rail.header('Parts').click();
+    rail.header('Connectors').click();
+    for (const host of Object.values(rail.hosts)) {
+      expect(host.classList.contains('relative')).toBe(true);
+    }
+  });
+
   it('keeps each section body scrolling inside its host', () => {
     const rail = mount();
     for (const title of ['Parts', 'Connectors', 'Joints']) {

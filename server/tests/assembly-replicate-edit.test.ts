@@ -2,12 +2,10 @@ import { describe, it, expect } from 'vitest';
 import {
   applyAssemblyReplicateEdit,
   removeReplicateRow,
-  removeStatementWithReplicateSweep,
   renderReplicateStatement,
   validateReplicatePayload,
 } from '../src/assembly-replicate-edit.ts';
 import { applyAssemblyMateEdit } from '../src/assembly-mate-edit.ts';
-import { removeStatement } from '../src/code-editor.ts';
 
 const HEADER = `import { insert, mate, connector } from "fluidcad/core";\n`;
 /** The header after a replicate write added its import. */
@@ -387,48 +385,6 @@ describe('mate writer — replicas and ordering', () => {
   });
 });
 
-describe('removeStatementWithReplicateSweep', () => {
-  it('deleting the seed insert also deletes every replicate of it', async () => {
-    const code = `${REPLICATED}replicate(cyl1, [bore1], [\n  [bore2],\n]);\nconst other = insert(bracket);\n`;
-    const result = await removeStatementWithReplicateSweep(code, lineOf(code, 'const cyl1'));
-    expect(result.newCode).toBe(
-      `${HEADER}\nconst crank = insert(crankShaft);\nconst bore1 = connector('bore1', [0, 159, 157.2]);\nconst bore2 = connector('bore2', [0, 273, 157.2]);\n`
-      + `mate('slider', bore1, cyl1.parts.piston1.connectors.c2);\nmate('revolute', cyl1.parts.connectingRodCap1.connectors.c2, crank.connectors.c2);\n`
-      + `const other = insert(bracket);\n`,
-    );
-  });
-
-  it('deleting a seed mate drops its column from targets and every row', async () => {
-    const result = await removeStatementWithReplicateSweep(REPLICATED, lineOf(REPLICATED, "mate('slider'"));
-    expect(result.newCode).toBe(
-      `${HEADER}\nconst crank = insert(crankShaft);\nconst bore1 = connector('bore1', [0, 159, 157.2]);\nconst bore2 = connector('bore2', [0, 273, 157.2]);\n`
-      + `const cyl1 = insert(pistonAssembly);\nmate('revolute', cyl1.parts.connectingRodCap1.connectors.c2, crank.connectors.c2);\n`
-      + `replicate(cyl1, [crank.connectors.c2], [\n  [crank.connectors.c3],\n]);\n`,
-    );
-  });
-
-  it('removes a replicate whose only column was the deleted mate\'s target', async () => {
-    const code = `${ENGINE}replicate(cyl1, [crank.connectors.c2], [\n  [crank.connectors.c3],\n]);\n`;
-    const result = await removeStatementWithReplicateSweep(code, lineOf(code, "mate('revolute'"));
-    expect(result.newCode).toBe(
-      `${HEADER}\nconst crank = insert(crankShaft);\nconst bore1 = connector('bore1', [0, 159, 157.2]);\nconst bore2 = connector('bore2', [0, 273, 157.2]);\n`
-      + `const cyl1 = insert(pistonAssembly);\nmate('slider', bore1, cyl1.parts.piston1.connectors.c2);\n`,
-    );
-  });
-
-  it('leaves replicates alone when the deleted mate did not target a column', async () => {
-    const code = `${REPLICATED}mate('fastened', cyl1.parts.piston1.connectors.top, crank.connectors.c1);\n`;
-    const result = await removeStatementWithReplicateSweep(code, lineOf(code, "mate('fastened'"));
-    expect(result.newCode).toBe(REPLICATED);
-  });
-
-  it('is plain removeStatement for files without replicate()', async () => {
-    const swept = await removeStatementWithReplicateSweep(ENGINE, lineOf(ENGINE, 'const cyl1'));
-    const plain = await removeStatement(ENGINE, lineOf(ENGINE, 'const cyl1'));
-    expect(swept.newCode).toBe(plain.newCode);
-  });
-});
-
 describe('viaParts numeric keys (array exports)', () => {
   it('renders numeric export keys as index access on mate and replicate sides', async () => {
     const code = `${HEADER}\nconst bank = insert(cylinderBank());\nconst sensor = insert(sensorBracket);\n`
@@ -463,14 +419,6 @@ describe('viaParts numeric keys (array exports)', () => {
     expect(replicated.newCode).toContain(
       `replicate(sensor, [bank.parts.copies[0].parts.piston1.connectors.top], [\n  [bank.parts.copies[1].parts.piston1.connectors.top],\n]);`,
     );
-  });
-
-  it('matches a deleted mate\'s target across both index spellings', async () => {
-    const code = `${HEADER}\nconst bank = insert(cylinderBank());\nconst sensor = insert(sensorBracket);\n`
-      + `mate('fastened', sensor.connectors.foot, bank.parts.copies.0.connectors.top);\n`
-      + `replicate(sensor, [bank.parts.copies[0].connectors.top], [\n  [bank.parts.copies[1].connectors.top],\n]);\n`;
-    const result = await removeStatementWithReplicateSweep(code, lineOf(code, "mate('fastened'"));
-    expect(result.newCode).toBe(`${HEADER}\nconst bank = insert(cylinderBank());\nconst sensor = insert(sensorBracket);\n`);
   });
 });
 

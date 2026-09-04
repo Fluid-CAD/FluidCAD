@@ -14,7 +14,6 @@ import {
   CONNECTOR_NAME,
   EXPORT_KEY,
   arrayPatternNames,
-  canonicalChainText,
   firstHiddenAnchor,
   baseCallName,
   chainBaseCall,
@@ -215,7 +214,7 @@ function elementTexts(code: string, array: TSNode): string[] {
     .map(c => code.slice(c.startIndex, c.endIndex));
 }
 
-function parseReplicateAt(
+export function parseReplicateAt(
   code: string,
   tree: TSTree,
   line: number,
@@ -265,28 +264,6 @@ function parseReplicateStatement(
     arrayBinding,
     names,
   };
-}
-
-/** Every `replicate()` statement in the tree (any scope), in document order. */
-function allReplicateStatements(tree: TSTree): { statement: TSNode; base: TSNode; tail: TSNode }[] {
-  const out: { statement: TSNode; base: TSNode; tail: TSNode }[] = [];
-  const seen = new Set<number>();
-  for (const node of walkTree(tree.rootNode)) {
-    if (node.type !== 'call_expression' || baseCallName(node) !== 'replicate') {
-      continue;
-    }
-    const statement = enclosingStatement(node);
-    if (!statement || seen.has(statement.startIndex)) {
-      continue;
-    }
-    const tail = findChainAt(tree, statement.startPosition.row + 1);
-    if (!tail || chainBaseCall(tail).startIndex !== node.startIndex) {
-      continue;
-    }
-    seen.add(statement.startIndex);
-    out.push({ statement, base: node, tail });
-  }
-  return out;
 }
 
 /**
@@ -545,130 +522,6 @@ export async function removeReplicateRow(
   const indent = indentOf(splitLines(code), parsed.statement.startPosition.row);
   const statement = prefix + renderReplicateStatement(parsed.seed, parsed.targets, rows, indent);
   return { newCode: spliceCode(code, parsed.statement.startIndex, parsed.statement.endIndex, statement) };
-}
-
-/** Targets compare spelling-insensitively: `.parts.copies[1]` and `.parts.copies.1` name one export. */
-const squash = canonicalChainText;
-
-/**
- * The timeline / parts-panel / joints-panel "Delete" for assembly files:
- * {@link removeStatement} plus the replicate sweep the removed statement
- * implies —
- *
- * - deleting a seed's `insert()` also deletes every `replicate()` whose seed
- *   is that binding (the next render would otherwise throw a ReferenceError);
- * - deleting a seed's `mate()` drops the column its outer side occupied from
- *   every replicate of that seed (targets and rows); a replicate left with no
- *   column would only stack coincident copies on the seed, so it is removed.
- *
- * Bindings a removed replicate hoisted (`cyl1Replicas`) stay the user's to
- * resolve, exactly like a removed insert's binding.
- */
-export async function removeStatementWithReplicateSweep(
-  code: string,
-  sourceLine: number,
-): Promise<CodeEditResult> {
-  if (!/\breplicate\s*\(/.test(code)) {
-    return removeStatement(code, sourceLine);
-  }
-  const parser = await getJavaScriptParser();
-  const tree = parser.parse(code);
-  const call = findChainAt(tree, sourceLine);
-  const statement = call ? enclosingStatement(call) : null;
-  if (!call || !statement) {
-    return removeStatement(code, sourceLine);
-  }
-  const base = chainBaseCall(call);
-  const kind = baseCallName(base);
-  let seedBinding: string | null = null;
-  let mateSides: [string, string] | null = null;
-  if (kind === 'insert' && (statement.type === 'lexical_declaration' || statement.type === 'variable_declaration')) {
-    const declarator = statement.namedChildren.find(c => c.type === 'variable_declarator');
-    const name = declarator?.childForFieldName('name');
-    seedBinding = name?.type === 'identifier' ? name.text : null;
-  } else if (kind === 'mate') {
-    const args = base.childForFieldName('arguments')?.namedChildren.filter(c => c.type !== 'comment') ?? [];
-    if (args.length === 3) {
-      mateSides = [code.slice(args[1].startIndex, args[1].endIndex), code.slice(args[2].startIndex, args[2].endIndex)];
-    }
-  }
-  const removed = await removeStatement(code, sourceLine);
-  if (seedBinding !== null) {
-    return { newCode: await sweepReplicatesOfSeed(removed.newCode, seedBinding) };
-  }
-  if (mateSides !== null) {
-    return { newCode: await dropReplicateColumns(removed.newCode, mateSides) };
-  }
-  return removed;
-}
-
-/** Remove every `replicate()` whose seed argument is `seedBinding`, last first so earlier lines stay valid. */
-async function sweepReplicatesOfSeed(code: string, seedBinding: string): Promise<string> {
-  const parser = await getJavaScriptParser();
-  let working = code;
-  for (;;) {
-    const tree = parser.parse(working);
-    const doomed = allReplicateStatements(tree)
-      .filter(r => replicateSeedName(r.base) === seedBinding)
-      .pop();
-    if (!doomed) {
-      return working;
-    }
-    const line = doomed.statement.startPosition.row + 1;
-    const result = await removeStatement(working, line);
-    if (result.newCode === working) {
-      return working;
-    }
-    working = result.newCode;
-  }
-}
-
-/**
- * For a deleted mate with sides `[a, b]`: in every replicate whose seed is
- * the root binding of one side, the OTHER side is an outer target — drop
- * its column when the statement lists it. Processed last-statement-first
- * so each rewrite leaves earlier statements' positions intact.
- */
-async function dropReplicateColumns(code: string, sides: [string, string]): Promise<string> {
-  const parser = await getJavaScriptParser();
-  const roots = sides.map(s => /^[A-Za-z_$][A-Za-z0-9_$]*/.exec(s)?.[0] ?? '');
-  let working = code;
-  const tree = parser.parse(working);
-  const statements = allReplicateStatements(tree).reverse();
-  for (const entry of statements) {
-    const seed = replicateSeedName(entry.base);
-    if (seed === null) {
-      continue;
-    }
-    const outer = roots[0] === seed && roots[1] !== seed ? sides[1]
-      : roots[1] === seed && roots[0] !== seed ? sides[0]
-      : null;
-    if (outer === null) {
-      continue;
-    }
-    // Re-parse per statement: an earlier (later-in-file) rewrite changed
-    // byte offsets, but this statement's start line is untouched.
-    const current = parser.parse(working);
-    const parsed = parseReplicateAt(working, current, entry.statement.startPosition.row + 1);
-    if ('error' in parsed) {
-      continue;
-    }
-    const column = parsed.targets.findIndex(t => squash(t) === squash(outer));
-    if (column < 0) {
-      continue;
-    }
-    const targets = parsed.targets.filter((_, j) => j !== column);
-    if (targets.length === 0) {
-      const removed = await removeStatement(working, parsed.statement.startPosition.row + 1);
-      working = removed.newCode;
-      continue;
-    }
-    const rows = parsed.rows.map(r => r.filter((_, j) => j !== column));
-    const indent = indentOf(splitLines(working), parsed.statement.startPosition.row);
-    const statement = parsed.prefix + renderReplicateStatement(parsed.seed, targets, rows, indent);
-    working = spliceCode(working, parsed.statement.startIndex, parsed.statement.endIndex, statement);
-  }
-  return working;
 }
 
 /** Whether the file references `name` anywhere outside string literals — exported for route preflights. */

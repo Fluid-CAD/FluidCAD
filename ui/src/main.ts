@@ -372,9 +372,9 @@ function buildAssemblyRail(): LeftRail {
     (id) => {
       const inst = findInstance(id);
       if (!inst?.sourceLocation || inst.owner || inst.replica) return;
-      // Drops the whole `insert(...)` statement, its `const` binding included.
-      // Mates that still reference the binding are left for the user — the
-      // next render reports them, same as the timeline's Remove.
+      // Drops the whole `insert(...)` statement, its `const` binding included;
+      // the server sweeps every mate() and replicate() that referenced the
+      // binding along with it (same path as the timeline's Remove).
       removeFeature(inst.sourceLocation);
     },
     // Occurrence header actions — the occurrence's own `insert(subAsm())`

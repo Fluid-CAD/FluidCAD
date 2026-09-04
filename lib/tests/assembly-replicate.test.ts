@@ -209,6 +209,24 @@ describe("replicate()", () => {
       expect(scene.getReplicates()[0].rows).toEqual([[{ kind: "frame", connector: bore2 }]]);
     });
 
+    it("type-checks the public connector() handle as a target (no cast)", () => {
+      // `connector(name, [x, y, z])` returns `IConnector` to user code — the
+      // shape the editor's type checker sees. Passing it (and a `.rotate()`
+      // chain) straight into replicate() must compile: this test is covered
+      // by `tsc -b`, so a narrowed ReplicateTarget fails the build, not just
+      // the editor. Regression for "No overload matches this call".
+      const { block, scene } = startAssembly();
+      const bore1 = connector("bore1", [0, 0, 0]).rotate("x", -90);
+      const bore2 = connector("bore2", [0, 50, 0]);
+      const b1 = insert(block);
+      mate("slider", bore1, b1.connectors.top);
+
+      const [b2] = replicate(b1, [bore1], [[bore2]]);
+
+      expect(b2).toBeInstanceOf(Instance);
+      expect(scene.getMates()[1].frameA).toEqual({ connector: bore2 });
+    });
+
     it("returns handles that later statements can mate and name", () => {
       const { block, rail, scene } = startAssembly();
       const base = insert(rail).grounded();

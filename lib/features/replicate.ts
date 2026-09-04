@@ -9,6 +9,7 @@ import {
 import { SourceLocation } from "../common/scene-object.js";
 import { BoundConnector, Connector } from "./connector.js";
 import { BoundExposure } from "./exposed.js";
+import { IConnector } from "../core/interfaces.js";
 import { Instance } from "./instance.js";
 import { Occurrence } from "./occurrence.js";
 import { createInstance, createOccurrence } from "./insert-records.js";
@@ -21,8 +22,13 @@ export type ReplicateSeed = Instance<unknown> | Occurrence<unknown>;
  * What a target column or a row cell may be: the same three side kinds
  * `mate()` accepts — `instance.connectors.<name>`, an assembly connector, or
  * `instance.features.<name>` (exposed geometry, tangent mates).
+ *
+ * `IConnector` is what the public `connector(name, [x, y, z])` returns to
+ * user code, so it must be accepted here or the editor's type checker flags
+ * every assembly connector passed to `replicate()` ("No overload matches
+ * this call"); the runtime still narrows to the concrete classes.
  */
-export type ReplicateTarget = BoundConnector | Connector | BoundExposure;
+export type ReplicateTarget = BoundConnector | Connector | IConnector | BoundExposure;
 
 type SeedInfo =
   | { kind: "instance"; handle: Instance<unknown>; id: string; name: string }

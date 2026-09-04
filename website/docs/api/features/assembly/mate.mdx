@@ -1,0 +1,97 @@
+---
+sidebar_position: 7
+title: "mate"
+description: "Joins two inserted parts in an assembly. The first side is the driver: the mate's options are read in its connector frame, and by default the second connector is placed face-to-face on it — origins coincide, the second Z points against the first."
+---
+
+# mate()
+
+Joins two inserted parts in an assembly. The first side is the driver:
+the mate's options are read in its connector frame, and by default the
+second connector is placed face-to-face on it — origins coincide, the
+second Z points against the first.
+
+Types and the motion each leaves free:
+
+| type | free |
+|------|------|
+| `'fastened'` | nothing |
+| `'revolute'` | rotation about Z |
+| `'slider'` | travel along Z |
+| `'cylindrical'` | rotation about Z and travel along Z |
+| `'planar'` | slide in X and Y, rotation about Z |
+| `'tangent'` | anything that keeps the two surfaces in contact |
+
+The lower-pair types take connectors — `instance.connectors.<name>` from
+an `insert()` handle, or an assembly connector; `'tangent'` takes two
+exposures instead, `instance.features.<name>`, published in the part
+with `expose()`.
+
+```js
+const base = insert(plate).grounded();
+const arm = insert(lever);
+mate('revolute', base.connectors.bore, arm.connectors.pivot).limits(-45, 45);
+
+```
+The returned builder chains the options: `.flip()` (second Z along the
+first instead of against it), `.rotate(deg)` (spin about the shared Z),
+`.offset(x, y, z)` (shift in the driver's frame; slider, cylindrical and
+planar accept Z only), `.limits(min, max)` (revolute in degrees, slider
+in document units) and `.noPropagate()` (tangent: contact on the picked
+face only, not its tangent-continuous chain).
+
+Only allowed in `*.assembly.js` files.
+
+**Returns**: **`MateBuilder`**
+
+:::tip
+See the [guide](/docs/assembly/introduction) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+mate(type: MateType, a: MateSide, b: MateSide): MateBuilder
+```
+
+Joins two inserted parts in an assembly. The first side is the driver:
+the mate's options are read in its connector frame, and by default the
+second connector is placed face-to-face on it — origins coincide, the
+second Z points against the first.
+
+Types and the motion each leaves free:
+
+| type | free |
+|------|------|
+| `'fastened'` | nothing |
+| `'revolute'` | rotation about Z |
+| `'slider'` | travel along Z |
+| `'cylindrical'` | rotation about Z and travel along Z |
+| `'planar'` | slide in X and Y, rotation about Z |
+| `'tangent'` | anything that keeps the two surfaces in contact |
+
+The lower-pair types take connectors — `instance.connectors.<name>` from
+an `insert()` handle, or an assembly connector; `'tangent'` takes two
+exposures instead, `instance.features.<name>`, published in the part
+with `expose()`.
+
+```js
+const base = insert(plate).grounded();
+const arm = insert(lever);
+mate('revolute', base.connectors.bore, arm.connectors.pivot).limits(-45, 45);
+
+```
+The returned builder chains the options: `.flip()` (second Z along the
+first instead of against it), `.rotate(deg)` (spin about the shared Z),
+`.offset(x, y, z)` (shift in the driver's frame; slider, cylindrical and
+planar accept Z only), `.limits(min, max)` (revolute in degrees, slider
+in document units) and `.noPropagate()` (tangent: contact on the picked
+face only, not its tangent-continuous chain).
+
+Only allowed in `*.assembly.js` files.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `type` | MateType | The mate type. |
+| `a` | MateSide | The driving side. |
+| `b` | MateSide | The side placed relative to it. |

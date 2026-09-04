@@ -1,0 +1,70 @@
+---
+sidebar_position: 5
+title: "assembly"
+description: "Declares a sub-assembly: a named body of `insert()` / `mate()` statements that can itself be inserted into another assembly. Returns a LAZY definition — nothing runs until `insert(def)` executes the callback under a fresh occurrence scope (or the entry render runs an exported one):"
+---
+
+# assembly()
+
+Declares a sub-assembly: a named body of `insert()` / `mate()` statements
+that can itself be inserted into another assembly. Returns a LAZY
+definition — nothing runs until `insert(def)` executes the callback under
+a fresh occurrence scope (or the entry render runs an exported one):
+
+```js
+export const gantry = (width = 700) => assembly('gantry', () => {
+  const beam = insert(beamPart).grounded();   // anchor of THIS frame
+  ...
+  return { beam };                            // exposed as occurrence.parts
+});
+
+// parent file
+const g = insert(gantry(700)).translate(0, 50).grounded();
+mate('fastened', g.parts.beam.connectors.mount, base.connectors.top);
+
+```
+`.grounded()` inside the body means "fixed in this assembly's frame" —
+standalone editing grounds it for real, while a parent only grounds it by
+grounding the occurrence. Parameterize with `param()` inside the body:
+`insert(def, { Width: 900 })` resolves them per occurrence, and the
+defining file's entry render shows them in the params panel.
+
+**Returns**: **`Assembly`**
+
+:::tip
+See the [guide](/docs/assembly/introduction) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+assembly(name: string, callback: () => T): Assembly<T>
+```
+
+Declares a sub-assembly: a named body of `insert()` / `mate()` statements
+that can itself be inserted into another assembly. Returns a LAZY
+definition — nothing runs until `insert(def)` executes the callback under
+a fresh occurrence scope (or the entry render runs an exported one):
+
+```js
+export const gantry = (width = 700) => assembly('gantry', () => {
+  const beam = insert(beamPart).grounded();   // anchor of THIS frame
+  ...
+  return { beam };                            // exposed as occurrence.parts
+});
+
+// parent file
+const g = insert(gantry(700)).translate(0, 50).grounded();
+mate('fastened', g.parts.beam.connectors.mount, base.connectors.top);
+
+```
+`.grounded()` inside the body means "fixed in this assembly's frame" —
+standalone editing grounds it for real, while a parent only grounds it by
+grounding the occurrence. Parameterize with `param()` inside the body:
+`insert(def, { Width: 900 })` resolves them per occurrence, and the
+defining file's entry render shows them in the params panel.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | string | The assembly's display name. |
+| `callback` | () =&gt; T | The body; its return value is exposed per-occurrence as `occurrence.parts`. |

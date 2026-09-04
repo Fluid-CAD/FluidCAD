@@ -1,0 +1,41 @@
+---
+sidebar_position: 2
+title: "Coincident"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import constraintCoincident from '!!raw-loader!../../_examples/constraint-coincident.js';
+
+# Coincident
+
+`coincident` makes two points the same point, or holds a point on an entity. It is the constraint that closes profiles: consecutive lines and arcs are separate entities until their ends are made coincident.
+
+## In the viewport
+
+1. Click two points (the end of one line and the start of the next), or a point and a line / arc / circle.
+2. Click **Coincident**. Two points snap together and share one dot; a point on an entity shows the `⊙` badge and slides along it.
+
+With **Auto-constraints → Infer while drawing** on, snapping a new segment's end onto an existing vertex writes this statement for you — most corners never need the button.
+
+![L-bracket outline closed, with a hole held on its centreline](/img/docs/sketching/constraint-coincident.png)
+
+<ExplainedCode code={constraintCoincident} fileName="bracket.part.js">
+Six `coincident` statements close the bracket's corners (2 DOF each); without them the outline is six loose segments. The last one holds the fixing hole's center on a guide centreline — the point-on-entity form removes 1 DOF, so the hole can still slide up and down the upright.
+</ExplainedCode>
+
+## In code
+
+```js
+coincident(l1.end(), l2.start())   // point ↔ point: 2 DOF
+coincident(c.center(), l)          // point on a line's infinite extension: 1 DOF
+coincident(p, c)                   // point on a circle / arc's circumference: 1 DOF
+coincident(p, l.mid())             // point at a line's midpoint (lowers to midpoint())
+coincident(c.center(), origin())   // point on a datum
+```
+
+The point-on-line form uses the **infinite** line, not just the segment. `l.mid()` is accepted only by `coincident`; it is written out as a [`midpoint`](/docs/sketching/constraints/positional/midpoint) constraint.
+
+## See also
+
+- [Tangent](/docs/sketching/constraints/positional/tangent) — pair with `coincident` at a junction for a kink-free profile
+- [Fixed](/docs/sketching/constraints/positional/fixed) — pinning to the plane rather than to geometry

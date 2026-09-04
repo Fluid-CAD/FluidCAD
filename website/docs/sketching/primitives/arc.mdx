@@ -1,0 +1,53 @@
+---
+sidebar_position: 4
+title: "Arc"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import primitiveArc from '!!raw-loader!../_examples/primitive-arc.js';
+import primitiveArcSweep from '!!raw-loader!../_examples/primitive-arc-sweep.js';
+
+# Arc
+
+A circular arc between two endpoints. Arcs round the corners of profiles, blend into lines with tangency, and close the ends of slots.
+
+## In the viewport
+
+Two tools draw arcs; both write the same `arc()` statement.
+
+- **3-Point Arc** — click the start, click the end, then click a point the arc passes through (the third click sets the bulge).
+- **Center Arc** — click the centre, click the start, then sweep to the end. The sweep stops just short of a full turn.
+
+An endpoint that snaps onto an existing vertex gets a coincident; an arc drawn at the end of a line with **Polyline** in **T-Arc** mode also gets the tangent.
+
+![A hook: shank, tangent bend and return](/img/docs/sketching/primitive-arc.png)
+
+<ExplainedCode code={primitiveArc} fileName="plate.part.js" />
+
+## By hand
+
+```js
+arc(start, end, center)
+```
+
+All three points are guesses. The solver keeps the arc consistent — the centre stays equidistant from both ends — so a rough centre is fine. Pair the arc with [`radius()`](/docs/sketching/constraints/dimensional/radius) or [`tangent()`](/docs/sketching/constraints/positional/tangent) to pin it down.
+
+## Sweep direction
+
+The arc sweeps **counter-clockwise** from start to end by default. Chain `.cw()` to take the other side of the chord:
+
+![A lens: the same chord swept both ways](/img/docs/sketching/primitive-arc-sweep.png)
+
+<ExplainedCode code={primitiveArcSweep} fileName="plate.part.js" />
+
+The sweep side is a display and topology choice only — the solver treats both the same.
+
+## Accessors
+
+| Accessor | Meaning |
+|---|---|
+| `a.start()` | The start point |
+| `a.end()` | The end point |
+| `a.center()` | The centre point |
+
+The arc itself is a target for `tangent`, `equal`, `concentric`, `radius`, `distance` and `coincident(p, a)`.

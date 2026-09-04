@@ -1,0 +1,123 @@
+---
+sidebar_position: 4
+title: "Text"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import compoundText from '!!raw-loader!../_examples/compound-text.js';
+import compoundTextFonts from '!!raw-loader!../_examples/compound-text-fonts.js';
+import compoundTextExtruded from '!!raw-loader!../_examples/compound-text-extruded.js';
+import compoundTextPath from '!!raw-loader!../_examples/compound-text-path.js';
+import compoundTextPathAlignStart from '!!raw-loader!../_examples/compound-text-path-align-start.js';
+import compoundTextPathFlip from '!!raw-loader!../_examples/compound-text-path-flip.js';
+import compoundTextPathOffset from '!!raw-loader!../_examples/compound-text-path-offset.js';
+
+# Text
+
+Text turns a string into outline geometry: each letter becomes a closed profile, counters included, that extrudes, cuts or [wraps](/docs/3d-operations/wrap) like any other sketch shape.
+
+## In the viewport
+
+1. Click **Text** on the sketch toolbar. The Text dialog opens with the string, font, size, weight, italic, alignment and spacing fields, and the laid-out glyph outlines preview in the viewport — the exact geometry the statement will build, refreshed on every edit.
+2. Click in the viewport to move the anchor (it snaps like any other point), or leave it on the sketch origin.
+3. **Apply** writes the `text(…)` statement and the render replaces the preview with the real outlines.
+
+![Text outline](/img/docs/sketching/compound-text.png)
+
+<ExplainedCode code={compoundText} fileName="label.part.js" />
+
+## By hand
+
+```js
+text("Hello")                       // anchored at the sketch origin
+text("Hello").at([0, 20])           // anchored at explicit coordinates
+text("Hello").size(12)              // cap height in model units (default 10)
+text("Hello", path)                 // laid along a curve — see below
+```
+
+The size is the cap height in the file's unit; thickness comes from the operation that consumes the text.
+
+## Constraints and text
+
+:::note
+The glyph outlines are not constraint targets — you cannot make a letter's edge coincident, tangent or dimensioned. The one solver entity a text registers is its **anchor point**, `t.anchor()`: constrain that to position the whole text. The anchor exists only for text that is not following a path; path text is placed by the path.
+:::
+
+```js
+const t = text("A1").size(8);
+coincident(t.anchor(), bore.center());   // the label rides the bore
+```
+
+## Fonts and weight
+
+By default `text()` uses a system font. Pass a **system font name** to `.font()`, or a **workspace-relative font file** ending in `.ttf` / `.otf` (`.font("fonts/Brand.ttf")`). `.weight()` takes `"regular"`, `"bold"` or a number 100–900; `.italic()` slants it:
+
+![Bold serif text from a named system font](/img/docs/sketching/compound-text-fonts.png)
+
+<ExplainedCode code={compoundTextFonts} fileName="label.part.js" />
+
+If the named font is not installed, the closest match is substituted (`"Arial"` → a system sans-serif), and ultimately a default font.
+
+## Extruding text
+
+Text is ordinary sketch geometry, so the follow-up feature is the usual one — the counters (the holes in `o`, `e`, `A`) are kept automatically:
+
+![Extruded 3D text](/img/docs/sketching/compound-text-extruded.png)
+
+<ExplainedCode code={compoundTextExtruded} fileName="label.part.js" />
+
+For multi-line strings (`\n`), set `.align("left" | "center" | "right")`; fine-tune spacing with `.lineSpacing()` and `.letterSpacing()`.
+
+## Text along a path
+
+The dialog's **Path** slot switches to the path form: arming it turns viewport clicks into whole-curve picks, and the anchor stands down because the path owns placement. In code, `text(string, path)` lays the glyphs along the curve. The path can be a curve in the same sketch, a whole sketch (`sketch("xy", () => circle([0, 0], 80))`), or edges selected from existing geometry (`select(edge().circle())` for a cylinder rim). It must be planar; the text lies in its plane.
+
+![Text along an arc](/img/docs/sketching/compound-text-path.png)
+
+<ExplainedCode code={compoundTextPath} fileName="label.part.js" />
+
+The path stays in the scene, so several texts can share it. When it lives in the same sketch, mark it `.guide()` so the curve stays out of the extruded profile.
+
+Glyph spacing is measured as arc length, so kerning and `.letterSpacing()` behave as they do on a straight baseline. `.startAt(d)` slides the start of the text along the path by an arc-length distance.
+
+### Aligning on a path
+
+`.align()` positions the run against the path (`"left"` / `"right"` are synonyms of `"start"` / `"end"`):
+
+<ExplainedCode code={compoundTextPathAlignStart} fileName="label.part.js" />
+
+`"start"` (the default) begins the text at the path's start:
+
+![Path text aligned to the start](/img/docs/sketching/compound-text-path-align-start.png)
+
+`"center"` centres it on the path's midpoint:
+
+![Path text centred on the path](/img/docs/sketching/compound-text-path-align-center.png)
+
+`"end"` finishes at the path's end:
+
+![Path text aligned to the end](/img/docs/sketching/compound-text-path-align-end.png)
+
+`"space-between"` justifies the glyphs across the whole path, first glyph at the start and last at the end:
+
+![Path text justified with space-between](/img/docs/sketching/compound-text-path-align-space-between.png)
+
+`"space-around"` distributes them evenly too, with half a gap before the first glyph and after the last:
+
+![Path text distributed with space-around](/img/docs/sketching/compound-text-path-align-space-around.png)
+
+### Outside or inside: flip
+
+On a closed path the text wraps around and sits on the **outside** by default. `.flip()` mirrors it to the other side and reverses the reading direction: inside on a circle, below the curve on an open path:
+
+![Text outside and inside a circle](/img/docs/sketching/compound-text-path-flip.png)
+
+<ExplainedCode code={compoundTextPathFlip} fileName="label.part.js" />
+
+### Floating off the path: offset
+
+`.offset(d)` shifts the baseline perpendicular to the path — positive floats the text above the curve, negative tucks it below:
+
+![Text offset above and below an arc](/img/docs/sketching/compound-text-path-offset.png)
+
+<ExplainedCode code={compoundTextPathOffset} fileName="label.part.js" />

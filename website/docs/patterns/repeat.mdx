@@ -1,0 +1,114 @@
+---
+sidebar_position: 2
+title: "Repeat"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import patternLinear from '!!raw-loader!./_examples/pattern-linear.js';
+import patternCircular from '!!raw-loader!./_examples/pattern-circular.js';
+import patternIceTray from '!!raw-loader!./_examples/pattern-ice-tray.js';
+import patternMirror from '!!raw-loader!./_examples/pattern-mirror.js';
+
+# Repeat
+
+`repeat()` re-applies a **feature** at several positions. The feature — a cut, an extrude, a fillet, a rib — runs again at each new location and interacts with the solid there, exactly as if you had modelled it there by hand. A repeated cut gives one solid with many pockets; a [copy](/docs/patterns/copy) of the same cut would give many solids.
+
+```js
+// copy() clones the whole shape: separate solids with one pocket each
+cut(15)
+copy("linear", "x", { count: 4, offset: 40 })
+
+// repeat() re-applies the cut: one solid with 4 pockets
+const c = cut(15)
+repeat("linear", "x", { count: 4, offset: 40 }, c)
+```
+
+## In the viewport
+
+1. Click **Repeat** on the toolbar. The Repeat dialog docks on the right.
+2. Pick the kind: **Linear**, **Circular**, **Mirror** or **Rotate**.
+3. Click the features to repeat — their rows in the timeline, or their geometry in the viewport. They fill the **Features** slot as chips; several features repeat together.
+4. **Linear**: fill the **Direction 1** axis (an edge, or the **X / Y / Z** buttons), the **Total Count** and the spacing (**Offset** between neighbours, or **Total** span). **Add second direction** makes a grid. **Circular** and **Rotate** take one **Axis** (empty defaults to world Z) and an **Angle**; **Mirror** swaps the axis for a **Plane** slot (an origin-plane quad, a plane feature, or a face).
+5. **Centered** and **Skip** as in the Copy dialog.
+6. Click **Apply**. The timeline gains a Repeat row after the repeated features.
+
+## Linear repeat
+
+![A grid of cuts](/img/docs/patterns/pattern-linear.png)
+
+<ExplainedCode code={patternLinear} fileName="tray.part.js">
+The last argument is the feature to repeat — the value `cut()` returned. Two axes and two counts make a 7 × 2 grid; `length` spreads the instances evenly over the given span.
+</ExplainedCode>
+
+Options:
+
+| Option | Meaning |
+|--------|---------|
+| `count` | repetitions per axis, the original included |
+| `length` | total span per axis, instances spread evenly |
+| `offset` | explicit spacing per axis, instead of `length` |
+| `centered` | centre the pattern on the original — `count: 3` puts one instance each side |
+| `skip` | index tuples to leave out: `[[1], [3]]` on one axis, `[[1, 2]]` for a grid cell |
+
+Use `length` when the overall size is known, `offset` when the pitch is.
+
+## Circular repeat
+
+![A pipe flange with a bolt circle of six holes](/img/docs/patterns/pattern-circular.png)
+
+<ExplainedCode code={patternCircular} fileName="flange.part.js" />
+
+Options: `count`, `angle` (the whole sweep), `offset` (degrees between neighbours, instead of `angle`), `centered`, `skip` (a flat list of indices, `[2, 4]`).
+
+## Mirror repeat
+
+Re-applies the feature reflected across a plane — for symmetric parts you only model one half of:
+
+![Extrude, cut and fillet mirrored across the front plane; the chamfer is not](/img/docs/patterns/pattern-mirror.png)
+
+<ExplainedCode code={patternMirror} fileName="bracket.part.js">
+Only the features passed are mirrored. The chamfer is left out of the call, so it exists on one side only.
+</ExplainedCode>
+
+```js
+const e = extrude(20)
+repeat("mirror", "front", e)          // one feature
+repeat("mirror", "front", e, c1, f2)  // several at once
+```
+
+## Rotate repeat
+
+A single rotated clone of a feature around an axis:
+
+```js
+const e = extrude(10)
+repeat("rotate", "z", 45, e)   // 45° around Z
+repeat("rotate", "z", e)       // the angle defaults to 90°
+```
+
+## Matrix repeat
+
+Any other transform is passed as a `Matrix4`:
+
+```js
+import { Matrix4 } from 'fluidcad/math';
+
+const m = Matrix4.fromTranslation(10, 0, 5).multiply(
+    Matrix4.fromRotationZ(Math.PI / 6)
+)
+repeat(m, e)                   // translation + rotation in one step
+```
+
+## Example: ice cube tray
+
+Cut one pocket, then repeat it across the tray:
+
+<ExplainedCode code={patternIceTray} fileName="ice-tray.part.js" open />
+
+Each repetition cuts into the same tray — one solid with 14 pockets.
+
+![Ice cube tray with repeated pockets](/img/docs/patterns/pattern-ice-tray.png)
+
+## Ribs and other features
+
+Anything a create feature returns can be repeated, including a [rib](/docs/3d-operations/rib#patterning-ribs) fanned around an axis, a fillet, or a set of features together. Repeating a feature that was applied to a selection re-maps the selection to the cloned geometry automatically.

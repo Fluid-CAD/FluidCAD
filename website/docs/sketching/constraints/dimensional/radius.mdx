@@ -1,0 +1,43 @@
+---
+sidebar_position: 3
+title: "Radius"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import dimensionRadius from '!!raw-loader!../../_examples/dimension-radius.js';
+import dimensionRadial from '!!raw-loader!../../_examples/dimension-radial.js';
+
+# Radius
+
+`radius` sizes an arc — a rounded corner, a fillet in the profile, a cam lobe. It is the dimension that completes a [tangent](/docs/sketching/constraints/positional/tangent) arc.
+
+## In the viewport
+
+1. Click one arc.
+2. Click **Dimension**. A leader from the center to the rim appears with an R prefix; type the value and press <kbd>Enter</kbd>.
+
+Double-clicking an arc opens its radius directly.
+
+![A plate corner rounded and sized by radius](/img/docs/sketching/dimension-radius.png)
+
+<ExplainedCode code={dimensionRadius} fileName="corner.part.js">
+Two `coincident` statements attach the arc to its neighbours and two `tangent` statements remove the kinks; `radius(corner, 25)` is the one number left to choose (1 DOF).
+</ExplainedCode>
+
+Circles are normally dimensioned by [diameter](/docs/sketching/constraints/dimensional/diameter), arcs by radius — matching how each is annotated on a drawing:
+
+![Radius and diameter dimensions](/img/docs/sketching/dimension-radial.png)
+
+<ExplainedCode code={dimensionRadial} fileName="radial.part.js" />
+
+## In code
+
+```js
+radius(a, 25)                    // 1 DOF
+radius(c, 30)                    // a circle can take a radius too
+```
+
+## See also
+
+- [Tangent](/docs/sketching/constraints/positional/tangent)
+- [Sketch tools → Fillet](/docs/sketching/tools/fillet) — writes the arc, the tangents and the radius in one click

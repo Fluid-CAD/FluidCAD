@@ -1,0 +1,66 @@
+---
+sidebar_position: 1
+title: "Offset"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import toolOffsetBasic from '!!raw-loader!../_examples/tool-offset-basic.js';
+import toolOffsetRemove from '!!raw-loader!../_examples/tool-offset-remove.js';
+import toolOffsetClose from '!!raw-loader!../_examples/tool-offset-close.js';
+
+# Offset
+
+Offset copies sketch geometry inward or outward by a distance: walls, clearances, margins and the inset pockets that follow an existing outline.
+
+## In the viewport
+
+1. Click **Offset** on the sketch toolbar. The Offset dialog opens with a **Distance** field (positive = outward, negative = inward) and a **Close ends** toggle.
+2. Click the sketch edges to offset; each pick shows as a chip. A translucent preview follows the value.
+3. **Apply** writes the `offset()` statement after the geometry and constraints, at the end of the sketch body.
+
+![A pocket outline offset outward into a wall](/img/docs/sketching/tool-offset-basic.png)
+
+<ExplainedCode code={toolOffsetBasic} fileName="plate.part.js">
+Offset is a **derived operation**: it consumes the solved geometry, so its statement always comes after the geometry and constraint statements.
+</ExplainedCode>
+
+## By hand
+
+```js
+offset(distance)                // every non-guide edge in the sketch
+offset(distance, g1, g2, ...)   // only the listed geometry
+```
+
+A target-less `offset()` skips [guide](/docs/sketching/tools/guides) geometry; to offset a guide, pass it explicitly.
+
+## Keeping only the offset
+
+To use only the offset curve in the profile, make the sources guides with `.guide()` — guides are left out of the face-building step, so the offset alone survives. Pass the guides to `offset()` explicitly:
+
+![A pocket floor inset from the plate outline](/img/docs/sketching/tool-offset-remove.png)
+
+<ExplainedCode code={toolOffsetRemove} fileName="plate.part.js" />
+
+## Closing an open offset
+
+**Close ends** (`.close()` in code) connects an open offset back to its original with two straight cap edges, producing a closed loop that can be extruded:
+
+![An arched handle: an arc offset and closed](/img/docs/sketching/tool-offset-close.png)
+
+<ExplainedCode code={toolOffsetClose} fileName="plate.part.js" />
+
+On a profile that is already closed, `.close()` does nothing.
+
+## Combining with other shapes
+
+Offsets and fresh geometry share one profile:
+
+```js
+sketch("xy", () => {
+    const outer = circle([0, 0], 60)
+    offset(5, outer)           // a clearance ring around the circle
+    circle([0, 0], 14)         // a separate bore in the same profile
+})
+```
+
+Outside a sketch, the toolbar's **Offset** pick tool offsets the outline of picked faces instead — see [Selection and filters](/docs/3d-operations/selection-and-filters).

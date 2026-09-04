@@ -1,0 +1,152 @@
+---
+sidebar_position: 6
+title: "Loft"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import loftTwo from '!!raw-loader!./_examples/loft-two-profiles.js';
+import loftThree from '!!raw-loader!./_examples/loft-three-profiles.js';
+import loftThin from '!!raw-loader!./_examples/loft-thin.js';
+import loftGuides from '!!raw-loader!./_examples/loft-guides.js';
+import loftConditions from '!!raw-loader!./_examples/loft-conditions.js';
+import loftScopeAdd from '!!raw-loader!./_examples/loft-scope-add.js';
+import loftThinAdd from '!!raw-loader!./_examples/loft-thin-add.js';
+
+# Loft
+
+Loft blends two or more sketch profiles on different planes into one smooth solid. Reach for it when the cross-section changes along the length — a funnel, a bottle neck, a duct from round to square.
+
+## In the viewport
+
+1. Sketch each profile on its own plane (a standard plane, an [offset plane](/docs/datums/planes), or a face). Click **Loft** on the toolbar.
+2. The Loft dialog:
+   - **Add / Remove / New** tabs (see [Add, New and Remove](#add-new-and-remove)).
+   - **Sketches — in loft order**: click each profile in the timeline or the viewport; the chips can be dragged into the order the surface should pass through them.
+   - **Guides — optional, up to 2**: open curves the surface must follow (see [Guide curves](#guide-curves)).
+   - Start and end **condition** (none / normal / tangent) with a magnitude.
+   - **Thin** with a wall thickness.
+3. Click **Apply**.
+
+![Loft from circle to square](/img/docs/3d-operations/loft-two-profiles.png)
+
+<ExplainedCode code={loftTwo} fileName="funnel.part.js" />
+
+## Multiple profiles
+
+Add more sketches to the list to loft through them in order:
+
+![Three-profile loft](/img/docs/3d-operations/loft-three-profiles.png)
+
+<ExplainedCode code={loftThree} />
+
+The profiles must be on different planes, typically parallel planes at different offsets.
+
+## Guide curves
+
+Guides are side rails the transition surface must follow. Pass one or two open curves; each guide has to pass through every profile. A single sketch may carry several guide curves (for example a curve and its `mirror()`) — each connected curve counts as one guide:
+
+![Loft riding two guide rails](/img/docs/3d-operations/loft-guides.png)
+
+<ExplainedCode code={loftGuides} />
+
+Here the bezier and its mirror form two rails; the square's corners ride them all the way up to the circle. Guides can also be passed as separate arguments:
+
+```js
+loft(p1, p2).guides(rightRail, leftRail)
+```
+
+Guides compose with start/end conditions: the condition fades out around each guide's contact point, so the rails keep their sides of the surface while the condition shapes the rest. Guides cannot be combined with thin walls.
+
+```js
+loft(p1, p2).guides(g1).startCondition('normal')
+```
+
+## Start and end conditions
+
+The **condition** rows control how the surface leaves the first profile and arrives at the last one:
+
+- `'none'` — no constraint (default)
+- `'normal'` — the surface takes off perpendicular to the profile plane
+- `'tangent'` — the surface takes off inside the profile plane, bulging outward
+
+![Loft with normal end conditions](/img/docs/3d-operations/loft-conditions.png)
+
+<ExplainedCode code={loftConditions} />
+
+The magnitude scales the takeoff strength (default `1`). Negative values flip the direction — a `'tangent'` condition with a negative magnitude pinches inward instead of bulging:
+
+```js
+loft(p1, p2).startCondition('normal', 2)     // stronger perpendicular takeoff
+loft(p1, p2).endCondition('tangent', -0.5)   // gentle inward pinch at the top
+loft(p1, p2).startCondition('normal')        // conditions can differ per end
+          .endCondition('tangent')
+```
+
+Conditions require closed profiles and work with thin walls (both walls follow the condition).
+
+## Add, New and Remove
+
+A tank lid, and one loft from a Ø44 circle on a plane halfway through the lid to a 16 × 16 square 50 up. Only the tab changes:
+
+<ModeTable columns={[
+  {title: 'Add', code: 'loft(s1, s2)', image: '/img/docs/3d-operations/loft-scope-add.png', description: 'The loft fuses with the lid — a round-to-square nozzle grows out of it.'},
+  {title: 'New', code: 'loft(s1, s2).new()', image: '/img/docs/3d-operations/loft-scope-new.png', description: 'The nozzle is a separate solid seated in the lid.'},
+  {title: 'Remove', code: 'loft(s1, s2).remove()', image: '/img/docs/3d-operations/loft-scope-remove.png', description: 'The nozzle\'s volume is cut out — a funnel-shaped recess down to the first profile.'},
+]} />
+
+<ExplainedCode code={loftScopeAdd} title="The Add column's code">
+The New and Remove columns only change the highlighted line.
+</ExplainedCode>
+
+## Thin walls
+
+Turn on **Thin** to offset every profile's edges by the thickness and loft the bands — a shell instead of a filled loft:
+
+![Thin loft](/img/docs/3d-operations/loft-thin.png)
+
+<ExplainedCode code={loftThin} />
+
+```js
+loft(s1, s2).thin(5)     // 5 units outward
+loft(s1, s2).thin(-5)    // 5 units inward
+loft(s1, s2).thin(5, -3) // dual offset
+```
+
+All profiles must be sketches with matching topology (same number of wires).
+
+### Thin in the three modes
+
+The same loft with **Thin** on and a wall of 2:
+
+<ModeTable columns={[
+  {title: 'Add', code: 'loft(s1, s2).thin(2)', image: '/img/docs/3d-operations/loft-thin-add.png', description: 'A 2-thick hopper wall fused with the lid.'},
+  {title: 'New', code: 'loft(s1, s2).thin(2).new()', image: '/img/docs/3d-operations/loft-thin-new.png', description: 'The hopper wall as a separate body.'},
+  {title: 'Remove', code: 'loft(s1, s2).thin(2).remove()', image: '/img/docs/3d-operations/loft-thin-remove.png', description: 'Only the wall is cut — a tapered ring slot in the lid.'},
+]} />
+
+<ExplainedCode code={loftThinAdd} title="The Add column's code" />
+
+## Accessing geometry
+
+```js
+const l = loft(s1, s2)
+
+l.endFaces()       // face at the last profile
+l.startFaces()     // face at the first profile
+l.sideFaces()      // the transition surface(s)
+l.endEdges()       // edges at the last profile
+l.startEdges()     // edges at the first profile
+l.sideEdges()      // edges along the sides
+l.internalFaces()  // inner wall face(s) of a thin loft (closed profiles)
+l.capFaces()       // cap face(s) of a thin loft (open profiles)
+```
+
+## Fusion scope
+
+```js
+loft(s1, s2).new()                // create a separate solid
+loft(s1, s2).add()                // fuse with touching solids (default)
+loft(s1, s2).remove()             // subtract from all intersecting solids
+loft(s1, s2).remove().scope(box)  // subtract only from the box
+```

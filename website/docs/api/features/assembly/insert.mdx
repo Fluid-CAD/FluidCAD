@@ -1,0 +1,66 @@
+---
+sidebar_position: 6
+title: "insert"
+description: "Place a part or sub-assembly definition in the current assembly."
+---
+
+# insert()
+
+Place a part or sub-assembly definition in the current assembly.
+
+Units: a part built from a file with a different `unit()` than the
+project is rescaled into the assembly's unit at render time — an inch
+part inserted into an mm project renders 25.4× larger, connectors and all,
+with the instance pose untouched. Parameter overrides are NOT converted:
+`insert(def, { width: 10 })` reads `10` in the PART's unit (10 in for an
+inch part), whatever the assembly runs in — the values feed the part's
+own `param()` calls, whose numbers are the part file's numbers.
+
+**Returns**: **`Instance`** \| **`Occurrence`**
+
+:::tip
+See the [guide](/docs/assembly/introduction) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+insert(definition: PartDefinition<T>, overrides?: ParamOverrides): Instance<T>
+```
+
+Place a part or sub-assembly definition in the current assembly.
+
+Units: a part built from a file with a different `unit()` than the
+project is rescaled into the assembly's unit at render time — an inch
+part inserted into an mm project renders 25.4× larger, connectors and all,
+with the instance pose untouched. Parameter overrides are NOT converted:
+`insert(def, { width: 10 })` reads `10` in the PART's unit (10 in for an
+inch part), whatever the assembly runs in — the values feed the part's
+own `param()` calls, whose numbers are the part file's numbers.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `definition` | PartDefinition&lt;T&gt; |  |
+| `overrides` | ParamOverrides |  *(optional)* |
+
+---
+
+```ts
+insert(definition: Assembly<T>, overrides?: ParamOverrides): Occurrence<T>
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `definition` | Assembly&lt;T&gt; |  |
+| `overrides` | ParamOverrides |  *(optional)* |
+
+---
+
+```ts
+insert(part: P, overrides?: ParamOverrides): Instance<P>
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `part` | P |  |
+| `overrides` | ParamOverrides |  *(optional)* |

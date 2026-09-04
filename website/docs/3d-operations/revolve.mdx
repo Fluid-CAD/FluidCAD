@@ -1,0 +1,131 @@
+---
+sidebar_position: 4
+title: "Revolve"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import revolvePartial from '!!raw-loader!./_examples/revolve-partial.js';
+import revolveFull from '!!raw-loader!./_examples/revolve-full.js';
+import revolveThin from '!!raw-loader!./_examples/revolve-thin.js';
+import revolveThinOpen from '!!raw-loader!./_examples/revolve-thin-open.js';
+import revolveScopeAdd from '!!raw-loader!./_examples/revolve-scope-add.js';
+import revolveThinAdd from '!!raw-loader!./_examples/revolve-thin-add.js';
+
+# Revolve
+
+Revolve turns a sketch profile around an axis into a solid of revolution — a shaft, a knob, a rim, anything you would make on a lathe. The profile must lie in a plane that contains the axis, and it should not cross it.
+
+## In the viewport
+
+1. Finish a sketch on a plane that contains the axis you want to turn around (the front or right plane for a vertical axis) and click **Revolve** on the toolbar.
+2. The Revolve dialog:
+   - **Add / Remove / New** tabs — how the revolved solid meets the model (see [Add, New and Remove](#add-new-and-remove)).
+   - **Profile** — the sketch to revolve, filled with the last sketch.
+   - **Axis** — click an axis or a straight edge in the viewport, or press one of the **X / Y / Z** quick buttons under the slot. One slot is armed at a time (the highlighted border); viewport picks go to the armed slot.
+   - **Angle** in degrees; 360 is a full turn.
+   - **Thin** with a wall thickness.
+3. Click **Apply**.
+
+![275° revolve](/img/docs/3d-operations/revolve-partial.png)
+
+<ExplainedCode code={revolvePartial} fileName="ring.part.js" />
+
+## Full revolution
+
+Leave the **Angle** at 360, or omit it in code:
+
+![Full revolution](/img/docs/3d-operations/revolve-full.png)
+
+<ExplainedCode code={revolveFull} />
+
+A half turn is `revolve("z", 180)`. The profile should be offset from the axis; a profile touching the axis along an edge is fine, one crossing it is not.
+
+## Add, New and Remove
+
+The tabs decide how the revolved solid meets what is already there. The base part is a flanged bushing (itself a revolve); the feature is a Ø6 circle on the bushing's outer surface, turned a full 360°. Only the tab changes:
+
+<ModeTable columns={[
+  {title: 'Add', code: 'revolve("z")', image: '/img/docs/3d-operations/revolve-scope-add.png', description: 'The ring fuses with the bushing — a raised half-round bead.'},
+  {title: 'New', code: 'revolve("z").new()', image: '/img/docs/3d-operations/revolve-scope-new.png', description: 'The ring is a second solid — an O-ring seated on the bushing.'},
+  {title: 'Remove', code: 'revolve("z").remove()', image: '/img/docs/3d-operations/revolve-scope-remove.png', description: 'The ring\'s volume is cut out — a half-round O-ring groove.'},
+]} />
+
+<ExplainedCode code={revolveScopeAdd} title="The Add column's code">
+The New and Remove columns only change the highlighted line, to `.new()` and `.remove()`.
+</ExplainedCode>
+
+## Thin walls
+
+Turn on **Thin** and type a thickness. The profile's edges are offset by the thickness and the band between them is revolved, so a closed profile becomes a hollow body and an open profile becomes a shell.
+
+![Thin revolve](/img/docs/3d-operations/revolve-thin.png)
+
+<ExplainedCode code={revolveThin} />
+
+Positive values offset outward, negative values offset inward:
+
+```js
+revolve("z").thin(5)     // 5 units outward
+revolve("z").thin(-5)    // 5 units inward
+revolve("z").thin(5, -3) // dual offset in opposite directions
+```
+
+### Thin in the three modes
+
+Same bushing, and an **open** profile this time — a slanted line from inside the wall outward, the cross-section of a conical lip. Thin mode does not need a closed profile, and an open one shows the wall clearly. Only the tab changes between the columns:
+
+<ModeTable columns={[
+  {title: 'Add', code: 'revolve("z").thin(2)', image: '/img/docs/3d-operations/revolve-thin-add.png', description: 'A 2-thick conical dust lip fused with the bushing.'},
+  {title: 'New', code: 'revolve("z").thin(2).new()', image: '/img/docs/3d-operations/revolve-thin-new.png', description: 'The same cone as a body of its own — a dust shield.'},
+  {title: 'Remove', code: 'revolve("z").thin(2).remove()', image: '/img/docs/3d-operations/revolve-thin-remove.png', description: 'Only the wall is cut: a 2-wide conical slit into the outer wall.'},
+]} />
+
+<ExplainedCode code={revolveThinAdd} title="The Add column's code" />
+
+### Open profiles
+
+The ends of a thin revolve from an open profile are capped; select the caps with `capFaces()` / `capEdges()`:
+
+![Thin revolve — open profile](/img/docs/3d-operations/revolve-thin-open.png)
+
+<ExplainedCode code={revolveThinOpen} />
+
+Thin revolve works with partial revolutions and every tab.
+
+## Region picking
+
+When a sketch has multiple regions, use `.pick()` to select which one to revolve:
+
+```js
+revolve("z").pick([80, 0])
+```
+
+:::tip[Interactive mode]
+Call `.pick()` with no arguments and click regions in the viewport.
+:::
+
+:::caution[Region picking can be fragile]
+The pick point is saved in your code. If the sketch dimensions change later, the point may fall outside the resized region and the model breaks. Prefer sketches that contain only the regions you need for parametric models.
+:::
+
+## Accessing geometry
+
+```js
+const r = revolve("z", 180)
+
+r.endFaces()       // face(s) at the end of the revolution
+r.startFaces()     // face(s) at the start
+r.sideFaces()      // outer surface(s)
+r.internalFaces()  // inner wall face(s) of a thin revolve (closed profile)
+r.capFaces()       // cap face(s) of a thin revolve (open profile)
+```
+
+## Fusion scope
+
+```js
+revolve("z").new()                // create a separate solid
+revolve("z").add()                // fuse with touching solids (default)
+revolve("z").remove()             // subtract from all intersecting solids
+revolve("z").remove().scope(box)  // subtract only from the box
+```

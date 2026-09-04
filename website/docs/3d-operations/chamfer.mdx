@@ -1,0 +1,52 @@
+---
+sidebar_position: 9
+title: "Chamfer"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import chamferBasic from '!!raw-loader!./_examples/chamfer-basic.js';
+import chamferAsymmetric from '!!raw-loader!./_examples/chamfer-asymmetric.js';
+
+# Chamfer
+
+Chamfer bevels edges with a flat cut — the angled transition machinists put on every edge a hand or a part will meet.
+
+## In the viewport
+
+1. Click **Chamfer** on the toolbar. A small panel opens with one field, **Distance** (default 1).
+2. Click the edges in the viewport. <kbd>Ctrl</kbd> / <kbd>Shift</kbd> adds edges; right-click a pick for the multi-select menu (tangent chain, same-type edges, the feature's buckets such as *Extrude End Edges*, *Select other*).
+3. Type the distance. The statement is written with the resolved selection.
+
+![Basic chamfer](/img/docs/3d-operations/chamfer-basic.png)
+
+<ExplainedCode code={chamferBasic} fileName="box.part.js" />
+
+## Asymmetric chamfer
+
+Two distances give an uneven bevel — the first is measured on one face, the second on the other:
+
+![Asymmetric chamfer](/img/docs/3d-operations/chamfer-asymmetric.png)
+
+<ExplainedCode code={chamferAsymmetric} />
+
+## Targeting edges in code
+
+Same conventions as [fillet](/docs/3d-operations/fillet): pass edges after the distance, or chamfer the last selection:
+
+```js
+// Direct
+chamfer(2, e.sideEdges())
+
+// With select
+import { select } from 'fluidcad/core';
+import { edge } from 'fluidcad/filters';
+
+select(edge().onPlane("xy", 30))
+chamfer(4)
+```
+
+Several edge selections at once:
+
+```js
+chamfer(2, e.endEdges(), e.sideEdges())
+```

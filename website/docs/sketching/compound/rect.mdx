@@ -1,0 +1,19 @@
+---
+sidebar_position: 1
+title: "Rectangle"
+---
+
+# Rectangle
+
+:::caution[Work in progress]
+The Rectangle tool is being finished. This page will be completed once it lands; the notes below describe what is in place today.
+:::
+
+The **Rectangle** tool draws a rectangle in one gesture and writes it out as primitives and constraints — there is no `rect()` statement in a sketch. The tool's menu holds two toggles:
+
+- **Rounded** — the corners become tangent arcs (the Rounded Rectangle variant).
+- **Centered** — the first click is the centre instead of a corner; the gesture grows outward.
+
+What lands in the file is four [lines](/docs/sketching/primitives/line) (plus four [arcs](/docs/sketching/primitives/arc) for the rounded variant) and the constraints that hold the shape: `coincident` at every corner, `horizontal` / `vertical` on the sides, `equal` and `tangent` on the corner arcs with one `radius` dimension, and — when the anchor snapped onto a vertex or the origin — a `midpoint` that pins the centre across a diagonal so it stays put when the sketch re-solves. Width and height arrive as `distance` dimensions when typed in the pill.
+
+Because the result is ordinary geometry, every side and corner can be constrained, dimensioned and dragged like anything drawn by hand.

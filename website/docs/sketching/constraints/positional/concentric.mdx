@@ -1,0 +1,36 @@
+---
+sidebar_position: 11
+title: "Concentric"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import constraintConcentric from '!!raw-loader!../../_examples/constraint-concentric.js';
+
+# Concentric
+
+`concentric` gives two circles or arcs the same center — a bore and its counterbore, a rim around a hub, a washer.
+
+## In the viewport
+
+1. Click two circles / arcs.
+2. Click **Concentric**. Both get a `◎` badge at the shared center.
+
+![A washer: outer circle centred on the bore](/img/docs/sketching/constraint-concentric.png)
+
+<ExplainedCode code={constraintConcentric} fileName="washer.part.js">
+The bore sits on the origin; the outer circle is drawn off-center. `concentric(outer, bore)` moves its center onto the bore's (2 DOF), and the two `diameter` dimensions do the rest.
+</ExplainedCode>
+
+## In code
+
+```js
+concentric(a, b)                 // shared center: 2 DOF
+concentric(c, rim)               // against a projected circular edge
+```
+
+Equivalent to `coincident(a.center(), b.center())` — `concentric` reads better and gets its own badge.
+
+## See also
+
+- [Diameter](/docs/sketching/constraints/dimensional/diameter), [Radius](/docs/sketching/constraints/dimensional/radius)
+- [Sketch tools → Project](/docs/sketching/tools/project) — bringing an existing hole's rim into the sketch as the reference

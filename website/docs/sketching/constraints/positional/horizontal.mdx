@@ -1,0 +1,39 @@
+---
+sidebar_position: 3
+title: "Horizontal"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import constraintHorizontal from '!!raw-loader!../../_examples/constraint-horizontal.js';
+
+# Horizontal
+
+`horizontal` aligns with the sketch's X axis: a line becomes horizontal, or two or more points are brought to the same height.
+
+## In the viewport
+
+1. Click one line — or click two or more points.
+2. Click **Horizontal**. A line gets an `H` badge; in the point form every point after the first moves to the first one's y and each pair gets a badge.
+
+Drawing a line close to horizontal with **Infer while drawing** on writes this constraint automatically.
+
+![A plate squared up, with a row of holes aligned](/img/docs/sketching/constraint-horizontal.png)
+
+<ExplainedCode code={constraintHorizontal} fileName="plate.part.js">
+`horizontal(bottom)` and `horizontal(top)` are the line form — with `vertical` on the sides they square the plate. `horizontal(h1.center(), h2.center(), h3.center())` is the point form: the second and third centers take the first one's y (1 DOF per follower), so positioning the first hole positions the whole row.
+</ExplainedCode>
+
+## In code
+
+```js
+horizontal(l)                    // the line is horizontal: 1 DOF
+horizontal(p1, p2)               // p2 takes p1's y: 1 DOF
+horizontal(p1, p2, p3, ...)      // every point after the first: 1 DOF each
+```
+
+The statement is disabled for a datum axis, which is already exactly horizontal or vertical.
+
+## See also
+
+- [Vertical](/docs/sketching/constraints/positional/vertical)
+- [Collinear](/docs/sketching/constraints/positional/collinear) — `collinear(xAxis(), l)` puts a line *on* the X axis, not merely parallel to it

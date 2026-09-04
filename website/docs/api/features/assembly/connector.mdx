@@ -1,0 +1,73 @@
+---
+sidebar_position: 3
+title: "connector"
+description: "Creates a named mate connector — a coordinate frame attached to real geometry. Declared inside a `part(...)` block, the connector registers on the part and appears on EVERY instance of it: assemblies reference it as `instance.connectors.&lt;name&gt;` in `mate()` calls."
+---
+
+# connector()
+
+Creates a named mate connector — a coordinate frame attached to real
+geometry. Declared inside a `part(...)` block, the connector registers
+on the part and appears on EVERY instance of it: assemblies reference it
+as `instance.connectors.<name>` in `mate()` calls.
+
+Accepts a face/edge/vertex selection (`select(...)`), a sketch lazy
+selection (e.g., `rect.edge('top')`), a `LazyVertex`, or a plane object.
+Raw points are intentionally not allowed — the frame must be tied to
+real geometry so it re-derives correctly on every render.
+
+**Returns**: **`IConnector`**
+
+:::tip
+See the [guide](/docs/part/connector) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+connector(name: string, source: SceneObject, options?: ConnectorOptions): IConnector
+```
+
+Creates a named mate connector — a coordinate frame attached to real
+geometry. Declared inside a `part(...)` block, the connector registers
+on the part and appears on EVERY instance of it: assemblies reference it
+as `instance.connectors.<name>` in `mate()` calls.
+
+Accepts a face/edge/vertex selection (`select(...)`), a sketch lazy
+selection (e.g., `rect.edge('top')`), a `LazyVertex`, or a plane object.
+Raw points are intentionally not allowed — the frame must be tied to
+real geometry so it re-derives correctly on every render.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | string | Identifier the connector is registered under. |
+| `source` | [SceneObject](/docs/api/types/scene-object) | The geometry the connector is attached to. |
+| `options` | ConnectorOptions | Optional `xDirection` override (re-orthogonalized against Z). *(optional)* |
+
+---
+
+```ts
+connector(name: string, position: AssemblyConnectorPoint): IConnector
+```
+
+Creates an assembly connector — a mate frame placed freely in the
+assembly's space, attached to no geometry. Declared at the top level of
+an *.assembly.js file, it is a `mate()` side in its own right, so a base
+part can keep degrees of freedom relative to the assembly instead of
+being fully pinned by `.grounded()`:
+
+```js
+const hinge = connector('hinge', [40, 0, 12]).rotate('x', 90);
+mate('revolute', hinge, crank.connectors.shaft);
+
+```
+The frame starts at the point with world axes (Z up); `.rotate(axis,
+degrees)` turns it about its own axis, in chain order, and
+`.offset(x, y, z)` moves it along its own axes. Mate options
+(`.offset()`, `.rotate()`) on a mate to this connector read in its
+frame — the assembly side is always the grounded driver.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | string | Identifier the connector is registered under (unique among the assembly's connectors). |
+| `position` | AssemblyConnectorPoint | World position `[x, y, z]`. |

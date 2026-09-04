@@ -1,0 +1,35 @@
+---
+sidebar_position: 8
+title: "8. Applying animation to a joint"
+---
+
+# Applying animation to a joint
+
+Revolute and slider joints can be driven through their range from the Joints panel. Nothing is written to the file: the animation is a viewport tool.
+
+## In the viewport
+
+1. In the **Joints** panel, right-click the *revolute* row and choose **Animate…**.
+
+   ![Joint row menu](/img/docs/ui/joints-context-menu.png)
+
+2. The animate bar appears at the bottom of the viewport: **Start** and **End** angles, **Steps**, and a **Playback** mode. The start and end are seeded from the joint's `.limits()`, 0° and 180° here; a joint without limits animates one full turn (a slider travels 10 units from where it is).
+
+   ![Animate bar](/img/docs/ui/animate-bar.png)
+
+3. Set **Playback** to *Reciprocate* and click **Play**. The swing leaf closes onto the fixed leaf and opens again; *Loop* restarts from Start each time, *Single* stops at End.
+
+   ![The hinge closing](/img/docs/ui/animate-bar-playing.png)
+
+4. **Play** toggles to **Pause** while running. **Stop** returns the leaf to where it was when the bar opened, and **✕** closes the bar.
+
+The same drive is available on slider joints, in document units of travel along the joint's Z axis. Editing Start or End while paused restarts the sweep from Start on the next Play.
+
+## Where to go next
+
+You have built parts with constrained sketches and 3D features, given them connectors, exported one, assembled them and driven a joint. The reference sections go deeper on each:
+
+- [Sketching](/docs/sketching/introduction) for every sketch tool and constraint.
+- [3D Operations](/docs/3d-operations/introduction) for the Add / Remove / New modes of every feature, thin walls, and the selection filters.
+- [Part](/docs/part/introduction) for parameters and exposed geometry, and [Assembly](/docs/assembly/introduction) for the other joint types and sub-assemblies.
+- [User Interface](/docs/user-interface) for a map of the workspace.

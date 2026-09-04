@@ -1,0 +1,61 @@
+---
+sidebar_position: 9
+title: "Tangent"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import constraintTangentJunction from '!!raw-loader!../../_examples/constraint-tangent-junction.js';
+import constraintBranch from '!!raw-loader!../../_examples/constraint-branch.js';
+import constraintBelt from '!!raw-loader!../../_examples/constraint-belt.js';
+
+# Tangent
+
+`tangent` makes a line and a circle/arc, or two circles/arcs, touch smoothly — no corner where they meet. Together with `coincident` at the junction it produces the kink-free outlines of rounded profiles, belts and cams.
+
+## In the viewport
+
+1. Click a line and an arc / circle, or two arcs / circles.
+2. Click **Tangent**. The pair gets a `T` badge at the touching point.
+
+The 2D [Fillet](/docs/sketching/tools/fillet) tool writes `coincident` + `tangent` pairs for you when it rounds a corner.
+
+## At a junction
+
+A line running into an arc: `coincident` joins them, `tangent` removes the kink.
+
+![Line–arc junction tangency](/img/docs/sketching/constraint-tangent-junction.png)
+
+<ExplainedCode code={constraintTangentJunction} fileName="hook.part.js">
+`coincident(l.end(), a.start())` joins the profile; `tangent(l, a)` forces the arc to leave the line without a corner (1 DOF). The `radius` then sizes the arc.
+</ExplainedCode>
+
+## Touching somewhere along the line
+
+For a line that touches a circle *somewhere* rather than at a shared end, pair `tangent(l, c)` with `coincident(l.end(), c)` — the point-on-circle form — so the line's end sits exactly at the tangency point. A belt around two pulleys is four of those:
+
+![Belt tangents around two pulleys](/img/docs/sketching/constraint-belt.png)
+
+<ExplainedCode code={constraintBelt} fileName="belt.part.js" />
+
+## Which side? The guess decides
+
+A circle tangent to a line can rest above or below it. Both circles here carry identical constraints; only the guessed centers differ, and the solver settles each on the side its guess was drawn.
+
+![Same constraints, two branches](/img/docs/sketching/constraint-branch.png)
+
+<ExplainedCode code={constraintBranch} fileName="branches.part.js" />
+
+## In code
+
+```js
+tangent(l, a)                    // line ↔ arc or circle: 1 DOF
+tangent(c1, c2)                  // circle/arc ↔ circle/arc: 1 DOF
+tangent(l, ref)                  // against a projected reference edge
+```
+
+Order does not matter. Two lines cannot be tangent — use [`collinear`](/docs/sketching/constraints/positional/collinear).
+
+## See also
+
+- [Radius](/docs/sketching/constraints/dimensional/radius) — the dimension that usually completes a tangent arc
+- [Sketch tools → Fillet](/docs/sketching/tools/fillet)

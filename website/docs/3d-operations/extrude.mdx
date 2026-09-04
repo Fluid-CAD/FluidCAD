@@ -1,0 +1,247 @@
+---
+sidebar_position: 3
+title: "Extrude"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import extrudeBasic from '!!raw-loader!./_examples/extrude-basic.js';
+import extrudeSymmetric from '!!raw-loader!./_examples/extrude-symmetric.js';
+import extrudeDraft from '!!raw-loader!./_examples/extrude-draft.js';
+import extrudeRegionPick from '!!raw-loader!./_examples/extrude-region-pick.js';
+import extrudeToFace from '!!raw-loader!./_examples/extrude-to-face.js';
+import extrudeToFaceBlend from '!!raw-loader!./_examples/extrude-to-face-blend.js';
+import extrudeToFirstFace from '!!raw-loader!./_examples/extrude-to-first-face.js';
+import extrudeToFirstFaceCylindrical from '!!raw-loader!./_examples/extrude-to-first-face-cylindrical.js';
+import extrudeThin from '!!raw-loader!./_examples/extrude-thin.js';
+import extrudeThinDual from '!!raw-loader!./_examples/extrude-thin-dual.js';
+import extrudeThinOpen from '!!raw-loader!./_examples/extrude-thin-open.js';
+import extrudeThinOpenDual from '!!raw-loader!./_examples/extrude-thin-open-dual.js';
+import cutBasic from '!!raw-loader!./_examples/cut-basic.js';
+import cutThrough from '!!raw-loader!./_examples/cut-through.js';
+import extrudeScopeAdd from '!!raw-loader!./_examples/extrude-scope-add.js';
+import extrudeThinAdd from '!!raw-loader!./_examples/extrude-thin-add.js';
+
+# Extrude
+
+Extrude pulls a closed sketch profile along the sketch plane's normal into a solid. It is the operation behind most parts: a plate, a boss on a plate, a pocket in the plate. The same dialog adds material, removes it, or keeps the result as a body of its own.
+
+## In the viewport
+
+1. Finish a sketch (or select an existing sketch row in the timeline) and click **Extrude** on the toolbar. Finishing a sketch also offers Extrude directly from the green **Finish sketch** button.
+2. The Extrude dialog docks on the right:
+   - **Add / Remove / New** tabs choose what the new material does to the model (see [Add, New and Remove](#add-new-and-remove)).
+   - **Profile** is the sketch being extruded. It is filled with the last sketch; click another sketch in the timeline, or its wires in the viewport, to change it.
+   - **Direction**: **One direction**, **Symmetric**, **Two distances**, or **Up to face** (a picked face, the *first face* or the *last face* the extrusion meets).
+   - **Distance** (or **Depth** on the Remove tab, where **Through all** is also offered) takes a number, an expression, or a parameter name. You can also drag the ghost in the viewport to set it.
+   - **Draft** angle, end **Offset**, the **Drill holes** toggle (nested profiles become holes), and **Thin** with its wall thickness.
+3. A translucent ghost previews the result while you edit. Click **Apply**: the timeline gains an Extrude row and the statement is written to the file.
+
+![Basic extrude](/img/docs/3d-operations/extrude-basic.png)
+
+<ExplainedCode code={extrudeBasic} fileName="box.part.js" />
+
+Everything the dialog can do is a chained method on the statement it writes. The sections below go through the dialog controls one by one and show the code each one produces.
+
+## Symmetric
+
+Choose **Symmetric** under **Direction**. The profile grows the given distance on both sides of the sketch plane, so the sketch plane ends up in the middle of the solid.
+
+![Symmetric extrude](/img/docs/3d-operations/extrude-symmetric.png)
+
+<ExplainedCode code={extrudeSymmetric} />
+
+Two different distances per side are the **Two distances** direction: `extrude(20, 5)`.
+
+## Draft angle
+
+Type an angle in the **Draft** field. Positive angles taper the walls inward as the extrusion rises, negative angles flare them outward.
+
+![Extrude with draft angle](/img/docs/3d-operations/extrude-draft.png)
+
+<ExplainedCode code={extrudeDraft} />
+
+## Up to face
+
+Choose **Up to face** under **Direction** and click the face the extrusion should stop at. The **Distance** field is replaced by a face pick slot.
+
+![Extrude to face](/img/docs/3d-operations/extrude-to-face.png)
+
+<ExplainedCode code={extrudeToFace}>
+The face is written as a `select()` with a face filter, so the reference survives re-renders. The extrusion stops exactly where it meets that face.
+</ExplainedCode>
+
+### Blending with non-planar faces
+
+When the target face is angled or curved (a drafted wall, a cylinder), the end of the extrusion takes the shape of the face:
+
+![Extrude to face with blending](/img/docs/3d-operations/extrude-to-face-blend.png)
+
+<ExplainedCode code={extrudeToFaceBlend} />
+
+### First and last face
+
+**Up to face** also offers **first face** and **last face**: the nearest or the farthest face the extrusion runs into along its direction, without picking anything.
+
+![Extrude to first face](/img/docs/3d-operations/extrude-to-first-face.png)
+
+<ExplainedCode code={extrudeToFirstFace} />
+
+With a cylindrical target the end blends to the curved surface:
+
+![Extrude to first face — cylindrical](/img/docs/3d-operations/extrude-to-first-face-cylindrical.png)
+
+<ExplainedCode code={extrudeToFirstFaceCylindrical} />
+
+:::note
+Up to face, first face and last face currently work with **planar and cylindrical** target faces only.
+:::
+
+## Add, New and Remove
+
+The three tabs at the top of the dialog decide how the extrusion meets the solids already in the scene. The pictures below use the same mounting plate and the same Ø30 circle on its top face; only the tab changes.
+
+<ModeTable columns={[
+  {title: 'Add', code: 'extrude(8)', image: '/img/docs/3d-operations/extrude-scope-add.png', description: 'The default. A locating boss fused with the plate — one body.'},
+  {title: 'New', code: 'extrude(8).new()', image: '/img/docs/3d-operations/extrude-scope-new.png', description: 'A spacer resting on the plate as a separate body. It looks the same, but the Shapes panel lists two solids and later features on the plate leave it alone.'},
+  {title: 'Remove', code: 'cut(8)', image: '/img/docs/3d-operations/extrude-scope-remove.png', description: 'A round pocket cut into the plate. The Distance field becomes a Depth, and the extrusion goes into the solid rather than away from it.'},
+]} />
+
+<ExplainedCode code={extrudeScopeAdd} title="The Add column's code">
+The New column ends the highlighted line with `.new()`; the Remove column replaces it with `cut(8)`. Everything above the highlighted line is identical in the three files.
+</ExplainedCode>
+
+Two things to know about the Remove tab:
+
+- The dialog writes `cut()`. It is the same feature as `extrude().remove()`, and both accept every modifier on this page (symmetric, draft, thin, up to face, region picking).
+- **Through all** replaces the depth with "as far as the solid goes" — `cut()` with no argument.
+
+To limit an Add or Remove to particular solids, chain `.scope(a, b)` after `.add()` or `.remove()`; the dialog exposes this as the **Scope** slot.
+
+### Cutting a pocket
+
+A pocket is a sketch on a face plus an extrude on the Remove tab:
+
+![Basic cut](/img/docs/3d-operations/cut-basic.png)
+
+<ExplainedCode code={cutBasic} />
+
+### Through all
+
+**Through all** on the Remove tab, or `cut()` with no distance, removes the profile through the whole solid:
+
+![Through-all cut](/img/docs/3d-operations/cut-through.png)
+
+<ExplainedCode code={cutThrough} />
+
+A cut also accepts a target face, `'first-face'` or `'last-face'`, exactly like [Up to face](#up-to-face) above: `cut(targetFace)`, `cut('first-face')`.
+
+## Thin walls
+
+Turn on **Thin** and type a thickness. Instead of filling the profile, the extrusion offsets the profile's edges by the thickness and extrudes the band between them — a wall.
+
+![Thin extrude](/img/docs/3d-operations/extrude-thin.png)
+
+<ExplainedCode code={extrudeThin} />
+
+A positive thickness offsets outward, a negative one inward:
+
+```js
+extrude(30).thin(5)    // 5 units outward
+extrude(30).thin(-5)   // 5 units inward
+```
+
+### Thin in the three modes
+
+Thin combines with every tab. Same plate, same circle, **Thin** on with a thickness of 3:
+
+<ModeTable columns={[
+  {title: 'Add', code: 'extrude(8).thin(3)', image: '/img/docs/3d-operations/extrude-thin-add.png', description: 'A ring wall — a locating collar — rises from the circle and fuses with the plate.'},
+  {title: 'New', code: 'extrude(8).thin(3).new()', image: '/img/docs/3d-operations/extrude-thin-new.png', description: 'The same ring as a body of its own — a spacer ring.'},
+  {title: 'Remove', code: 'cut(8).thin(3)', image: '/img/docs/3d-operations/extrude-thin-remove.png', description: 'A seal groove, 3 wide and 8 deep, along the circle.'},
+]} />
+
+<ExplainedCode code={extrudeThinAdd} title="The Add column's code" />
+
+### Two-direction offset
+
+Pass two values to offset in both directions. The second offset automatically goes in the opposite direction of the first:
+
+![Thin extrude — dual offset](/img/docs/3d-operations/extrude-thin-dual.png)
+
+<ExplainedCode code={extrudeThinDual} />
+
+### Open profiles
+
+Thin extrude also works with open profiles (unclosed curves). The ends are capped with straight lines:
+
+![Thin extrude — open profile](/img/docs/3d-operations/extrude-thin-open.png)
+
+<ExplainedCode code={extrudeThinOpen} />
+
+Two-direction offset works with open profiles as well — the original curve is not used, only the two offset curves:
+
+![Thin extrude — open profile dual offset](/img/docs/3d-operations/extrude-thin-open-dual.png)
+
+<ExplainedCode code={extrudeThinOpenDual} />
+
+Thin extrude works with all extrude modes — symmetric, draft, remove, two distances, and face targets.
+
+## Region picking
+
+A sketch with overlapping shapes contains several closed regions. By default the extrusion takes all of them, with nested shapes as holes (the **Drill holes** toggle). To extrude a particular region, use `.pick()` with a point inside it:
+
+![Region picking — ring extrusion](/img/docs/3d-operations/extrude-region-pick.png)
+
+<ExplainedCode code={extrudeRegionPick} />
+
+:::tip[Interactive mode]
+Call `.pick()` with no arguments and click regions in the viewport to select them; the click points are written into the statement.
+:::
+
+:::caution[Region picking can be fragile]
+The pick point is saved in your code. If the sketch dimensions change later, the point may fall outside the resized region and the model breaks.
+
+This makes `.pick()` fine for fast prototyping or fixed dimensions. For parametric models, prefer sketches that contain only the regions you need, so no pick is required.
+:::
+
+## No-argument extrude
+
+```js
+extrude()                      // uses a default distance of 25
+```
+
+With no argument the extrusion takes a default distance, and the ghost in the viewport can be dragged to set it.
+
+## Accessing geometry
+
+```js
+const e = extrude(30)
+
+e.endFaces()       // top face(s)
+e.startFaces()     // bottom face(s)
+e.sideFaces()      // side face(s)
+e.endEdges()       // edges on the top
+e.startEdges()     // edges on the bottom
+e.sideEdges()      // edges on the sides
+e.internalEdges()  // edges created inside (from fusion)
+e.internalFaces()  // faces created inside (from fusion)
+e.capFaces()       // cap faces of a thin extrude from an open profile
+e.capEdges()       // edges on those caps
+
+const c = cut(15)
+
+c.startEdges()         // edges at the top of the cut
+c.endEdges()           // edges at the bottom of the cut
+c.internalEdges()      // edges created inside the solid
+c.internalFaces()      // faces inside the cut pocket
+```
+
+## Fusion scope
+
+```js
+extrude(30).add()              // fuse with all touching solids (default)
+extrude(30).new()              // create a separate solid, don't fuse
+extrude(30).remove()           // subtract from all intersecting solids — same as cut(30)
+cut(30).scope(box)             // subtract only from `box`
+```

@@ -1,0 +1,54 @@
+---
+sidebar_position: 8
+title: "Fillet"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import filletBasic from '!!raw-loader!./_examples/fillet-basic.js';
+import fillet2d from '!!raw-loader!./_examples/fillet-2d.js';
+
+# Fillet
+
+Fillet rounds edges with a given radius, replacing the sharp edge with a smooth transition between its two faces.
+
+## In the viewport
+
+1. Click **Fillet** on the toolbar. A small panel opens with one field, **Radius** (default 1).
+2. Click the edges to round in the viewport. Hold <kbd>Ctrl</kbd> or <kbd>Shift</kbd> to add edges one by one, or right-click a pick for the multi-select menu: the **tangent chain** the edge belongs to, edges of the **same type** or equal length, the producing feature's buckets (*Extrude End Edges*, *Side Edges* …) and *Select other*. Hovering a menu item previews what it would select.
+3. Type the radius. The statement is written with the selection the picks resolved to — an accessor like `e.endEdges()` when the picks match a whole bucket, a `select()` with an edge filter otherwise.
+
+![Filleted box edges](/img/docs/3d-operations/fillet-basic.png)
+
+<ExplainedCode code={filletBasic} fileName="box.part.js" />
+
+## Targeting edges in code
+
+Pass the edges after the radius:
+
+```js
+fillet(5, e.endEdges())        // top edges of the extrude
+fillet(3, e.sideEdges())       // side edges
+fillet(2, c.internalEdges())   // internal edges from a cut
+```
+
+Or leave them out and fillet the last `select()` result:
+
+```js
+import { select } from 'fluidcad/core';
+import { edge } from 'fluidcad/filters';
+
+select(edge().verticalTo("xy"))
+fillet(5)                      // fillets the selected vertical edges
+```
+
+See [Selection and filters](/docs/3d-operations/selection-and-filters) for the filters.
+
+## 2D fillet
+
+Inside a sketch, the sketch toolbar's **Fillet** tool rounds the corner between two lines: click the two lines (or the corner) and type the radius. It trims both lines and inserts a tangent arc, with the constraints that keep it tangent:
+
+![2D fillet on a pentagon](/img/docs/3d-operations/fillet-2d.png)
+
+<ExplainedCode code={fillet2d} />
+
+The [sketch Fillet tool](/docs/sketching/tools/fillet) page covers the 2D form in detail.

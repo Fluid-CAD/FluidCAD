@@ -8,7 +8,8 @@ import {
   WebGLRenderer,
 } from 'three';
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
-import { computeSceneBounds, resolveView, type ScreenshotView } from './screenshot-view';
+import { resolveView, type ScreenshotView } from './screenshot-view';
+import { findGeometryRoot } from './scene/scene-geometry-bounds';
 
 export interface ScreenshotOptions {
   width: number;
@@ -182,10 +183,11 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
     }
   } else if (autoCrop || fitToModel) {
     // Original behavior: keep the user's viewing direction, just refit.
-    const compiled = scene.getObjectByName('compiledMesh');
-    if (compiled) {
+    const root = geometryRoot(sceneCtx);
+    if (root) {
+      root.updateWorldMatrix(true, true);
       const box = new Box3();
-      expandBounds(box, compiled);
+      expandBounds(box, root);
       if (!box.isEmpty()) {
         const center = box.getCenter(new Vector3());
         const diameter = box.getSize(new Vector3()).length() * FIT_PADDING;
@@ -366,9 +368,12 @@ function detachCanvas(src: HTMLCanvasElement, w: number, h: number): HTMLCanvasE
 }
 
 function resolveSceneViewport(sceneCtx: SceneContext): { center: Vector3; diameter: number } {
-  const compiled = sceneCtx.scene.getObjectByName('compiledMesh');
-  const root: Object3D = compiled ?? sceneCtx.scene;
-  const box = computeSceneBounds(root);
+  const box = new Box3();
+  const root = geometryRoot(sceneCtx);
+  if (root) {
+    root.updateWorldMatrix(true, true);
+    expandBounds(box, root);
+  }
   if (box.isEmpty()) {
     return { center: new Vector3(), diameter: 100 };
   }
@@ -377,6 +382,17 @@ function resolveSceneViewport(sceneCtx: SceneContext): { center: Vector3; diamet
   return { center, diameter };
 }
 
+/**
+ * The group holding the modelled geometry for the current mode: the assembly
+ * container (instances posed by the solver) while an assembly is mounted,
+ * otherwise the compiled part mesh. Measuring only `compiledMesh` here left
+ * every assembly screenshot un-fitted and un-cropped — the container is what
+ * the assembly render mounts in its place.
+ */
+function geometryRoot(sceneCtx: SceneContext): Object3D | null {
+  const container = sceneCtx.scene.getObjectByName('assemblyContainer') ?? null;
+  return findGeometryRoot(sceneCtx.scene, container);
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -388,11 +404,12 @@ function computeCropRect(
   canvasH: number,
   margin: number,
 ): { x: number; y: number; w: number; h: number } | null {
-  const compiled = sceneCtx.scene.getObjectByName('compiledMesh');
-  if (!compiled) { return null; }
+  const root = geometryRoot(sceneCtx);
+  if (!root) { return null; }
 
+  root.updateWorldMatrix(true, true);
   const box = new Box3();
-  expandBounds(box, compiled);
+  expandBounds(box, root);
   if (box.isEmpty()) { return null; }
 
   const camera = sceneCtx.camera;

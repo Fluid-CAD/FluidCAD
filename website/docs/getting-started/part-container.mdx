@@ -1,0 +1,38 @@
+---
+sidebar_position: 1
+title: "1. Creating a part container"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import step1 from '!!raw-loader!./_examples/hinge-step1-part.js';
+
+# Creating a part container
+
+Over the next eight pages you build a butt hinge: two leaves with interleaving knuckles, a pin through them, and a joint that swings the hinge open and shut.
+
+![The finished hinge](/img/docs/getting-started/hinge-assembly.png)
+
+This page creates the file for the first leaf and puts a **part container** in it.
+
+## Do you need a part container?
+
+A `.part.js` file can hold bare modelling statements. Sketch, extrude, fillet at the top level and the file renders. The `part()` container is optional for a part you only ever look at on its own.
+
+It is required as soon as the part is going to be **inserted into an assembly**. An assembly imports the file and inserts an *exported part definition*, so the leaf needs `export const fixedLeaf = part('Fixed leaf', () => { … })` around its features. The container is also what parameters, connectors and exposed geometry attach to. Since this leaf ends up in a hinge, start with the container.
+
+## In the viewport
+
+1. Click **+** at the end of the tab strip. A box opens with every file in the workspace; type a name that does not exist yet, `hinge-leaf-fixed.part.js`, and press <kbd>Enter</kbd>. The file is created and opens as a tab. (Any editor works too: the server watches the folder.)
+2. Click **Part** on the toolbar. It appends an empty part to the file and the History panel shows a **Part 1** row.
+3. Right-click the row and choose **Rename**. Type `Fixed leaf`. The name is written into the `part('…')` statement and becomes the part's display name everywhere: the History panel, the assembly's Parts list, the STEP export.
+4. Open the code editor (the `</>` button on the left rail, or <kbd>Ctrl</kbd>+<kbd>B</kbd>) and add `export const fixedLeaf =` in front of the statement. The export is the one thing the toolbar does not write for you, and it is what the assembly will import later.
+
+Nothing renders yet: the part is empty. The History panel shows the part row, and every feature you add from now on lands inside it.
+
+<ExplainedCode code={step1} fileName="hinge-leaf-fixed.part.js" open />
+
+:::note
+Statements you add while a part row is active go inside that part. The active part is the highlighted row in the History panel; click a part row to make it active.
+:::
+
+Next: [Creating a basic sketch](/docs/getting-started/basic-sketch).

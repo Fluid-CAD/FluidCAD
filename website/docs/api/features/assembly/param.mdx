@@ -1,0 +1,88 @@
+---
+sidebar_position: 2
+title: "param"
+description: "Declares a named parameter and returns its current value. The control is inferred from the default: a boolean becomes a checkbox, a number a number field, a string a text field."
+---
+
+# param()
+
+Declares a named parameter and returns its current value. The control is
+inferred from the default: a boolean becomes a checkbox, a number a
+number field, a string a text field.
+
+In a part file the parameter appears in the Parameters panel, and a
+value edited there is written back as the new default. Inside a
+`part(...)` or `assembly(...)` body it is instead the definition's
+parameter interface: `insert(def, { Length: 380 })` supplies the value
+per instance, and the Insert dialog builds that object from these
+declarations.
+
+**Returns**: **`number`** \| **`string`** \| **`boolean`**
+
+:::tip
+See the [guide](/docs/part/param) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+param(label: string, defaultValue: T): T
+```
+
+Declares a named parameter and returns its current value. The control is
+inferred from the default: a boolean becomes a checkbox, a number a
+number field, a string a text field.
+
+In a part file the parameter appears in the Parameters panel, and a
+value edited there is written back as the new default. Inside a
+`part(...)` or `assembly(...)` body it is instead the definition's
+parameter interface: `insert(def, { Length: 380 })` supplies the value
+per instance, and the Insert dialog builds that object from these
+declarations.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `label` | string | The parameter's name — what the panel shows and the key an override uses. Unique within a file or part. |
+| `defaultValue` | T | The value used when nothing overrides it. |
+
+---
+
+```ts
+param(label: string, defaultValue: T, type: K, options?: ParamOptionsMap[K]): T
+```
+
+Declares a named parameter with an explicit control and its options.
+
+```js
+const length = param('Length', 150, 'number', { min: 20, max: 2000, step: 10 });
+const bore = param('Bore', 4.2, 'slider', { min: 3, max: 8, step: 0.1 });
+const finish = param('Finish', 'anodised', 'select', {
+  options: [{ label: 'Anodised', value: 'anodised' }, { label: 'Raw', value: 'raw' }],
+});
+const rounded = param('Rounded corners', true, 'checkbox');
+const tint = param('Body colour', '#4a90d9', 'color');
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `label` | string | The parameter's name and override key. |
+| `defaultValue` | T | The value used when nothing overrides it. |
+| `type` | K | The control: `'number'`, `'slider'`, `'text'`, `'select'`, `'checkbox'` or `'color'`. |
+| `options` | ParamOptionsMap[K] | Per-type options: `min` / `max` / `step` for number and slider, `options` (plus `multi`, `multiControlType`) for select; every type takes `group` and `description`. *(optional)* |
+
+---
+
+```ts
+param(label: string, defaultValue: (string | number)[], type: 'select', options: SelectParamOptions & { multi: true }): (string | number)[]
+```
+
+Declares a multi-select parameter: the value is the array of chosen option
+values. `multiControlType` picks how it is shown — `'select'`,
+`'checkboxes'` or `'chips'`.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `label` | string | The parameter's name and override key. |
+| `defaultValue` | (string \| number)[] | The option values selected by default. |
+| `type` | 'select' | Always `'select'`. |
+| `options` | `SelectParamOptions & { multi: true }` | `options` to choose from, with `multi: true`. |

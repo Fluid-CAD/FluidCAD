@@ -1,0 +1,64 @@
+---
+sidebar_position: 4
+title: "expose"
+description: "Publishes a named piece of the part's geometry — the part's geometry interface, the outbound counterpart of `param()` (values in) and `connector()` (mate frames out). Declared inside a `part(...)` block, the exposure registers on the part and other parts consume the SOURCE through `def.features.&lt;name&gt;`:"
+---
+
+# expose()
+
+Publishes a named piece of the part's geometry — the part's geometry
+interface, the outbound counterpart of `param()` (values in) and
+`connector()` (mate frames out). Declared inside a `part(...)` block,
+the exposure registers on the part and other parts consume the SOURCE
+through `def.features.<name>`:
+
+```js
+export const p1 = part('Part1', () => {
+  const s = sketch('xz', () => { ... }).reusable();
+  expose('profile', s);
+});
+
+// consumer part:
+extrude(15, p1.features.profile);
+
+```
+Accepts any scene object — a sketch, a face/edge selection, a plane,
+an axis, or a feature. Raw values are not allowed: an exposure must be
+tied to real geometry so it re-derives correctly on every render.
+
+**Returns**: [**`SceneObject`**](/docs/api/types/scene-object)
+
+:::tip
+See the [guide](/docs/part/expose) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+expose(name: string, source: SceneObject): SceneObject
+```
+
+Publishes a named piece of the part's geometry — the part's geometry
+interface, the outbound counterpart of `param()` (values in) and
+`connector()` (mate frames out). Declared inside a `part(...)` block,
+the exposure registers on the part and other parts consume the SOURCE
+through `def.features.<name>`:
+
+```js
+export const p1 = part('Part1', () => {
+  const s = sketch('xz', () => { ... }).reusable();
+  expose('profile', s);
+});
+
+// consumer part:
+extrude(15, p1.features.profile);
+
+```
+Accepts any scene object — a sketch, a face/edge selection, a plane,
+an axis, or a feature. Raw values are not allowed: an exposure must be
+tied to real geometry so it re-derives correctly on every render.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | string | Identifier the exposure is registered under. |
+| `source` | [SceneObject](/docs/api/types/scene-object) | The scene object published under `def.features.&lt;name&gt;`. |

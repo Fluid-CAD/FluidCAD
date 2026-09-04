@@ -1,0 +1,67 @@
+---
+sidebar_position: 1
+title: "Distance"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import dimensionLinear from '!!raw-loader!../../_examples/dimension-linear.js';
+import dimensionFarSide from '!!raw-loader!../../_examples/dimension-far-side.js';
+
+# Distance
+
+`distance` is the general linear dimension: point to point, point to line, line to line, or anything to a circumference. Dimensions are constraints with a **value** — they do not just relate two entities, they hold the relationship at a number, and that number is what you edit later.
+
+## In the viewport
+
+1. Click the entities to measure: two points, a point and a line, a line and a circle, two parallel lines, two circles — or a single line for its own length.
+2. Click **Dimension**. For a pair of points that is not axis-aligned, move the cursor to choose the measure — above or below the pair gives the **horizontal** distance, beside it the **vertical** one, inside or diagonal the **aligned** (straight-line) one — and click to place the label.
+3. Type the value and press <kbd>Enter</kbd>. The statement is written after the geometry, the solver applies it, and the label stays on screen.
+
+Shortcuts: double-click a line to dimension its length; double-click a dimension label to edit its value in place. Dimension labels can be hidden with the sketch dialog's **Show constraints → Dimensional** toggle.
+
+![Dimensioned L-profile](/img/docs/sketching/dimension-linear.png)
+
+<ExplainedCode code={dimensionLinear} fileName="l-profile.part.js">
+The guesses draw the base 90 long and the rise 40 tall; the two `distance` statements stretch them to 100 and 45. Combined with `horizontal` / `vertical`, a point-pair distance acts as a width or height.
+</ExplainedCode>
+
+## In code
+
+```js
+distance(p1, p2, 100)            // point ↔ point, straight-line
+distance(p1, p2, 100, 'x')       // point ↔ point, measured along X only
+distance(p1, p2, 45, 'y')        // ... along Y only
+distance(p, l, 20)               // point ↔ line, perpendicular
+distance(l1, l2, 30)             // line ↔ line (pair it with parallel)
+distance(l, c, 130)              // line ↔ circle/arc, to the near side of the circumference
+distance(l, c, 170).max()        // ... to the far side
+distance(c1, c2, 5)              // circle ↔ circle, gap between circumferences
+distance(origin(), p, 40)        // from a datum
+```
+
+Each form removes 1 DOF. The value may be a number or a `param()` so the [Parameters panel](/docs/part/param) can drive it.
+
+## Near side and far side
+
+A distance from a line or point to a circle or arc measures to the **circumference**, not the center — the near side by default. Chain `.max()` for the far side. In the viewport the side you touch on the circle decides: a click on the side facing the other entity measures near, a click on the opposite side measures far; the timeline row's menu offers *Use min/max tangent* to flip a committed one.
+
+![Near-side and far-side circumference distances](/img/docs/sketching/dimension-far-side.png)
+
+<ExplainedCode code={dimensionFarSide} fileName="gauge.part.js" />
+
+To measure to the center instead, dimension the center point: `distance(wall, c.center(), 150)`.
+
+## Degrees of freedom
+
+Every sketch entity carries parameters — a line has 4 (two endpoints), a circle 3 (center and radius), an arc 5, a point 2. Each constraint removes some; the tables on each page say how many. The sketch status readout shows the balance:
+
+- **Under-constrained** — degrees of freedom remain. The geometry rests at its guesses and can still be dragged; the solver re-solves live while you drag, honouring every constraint. This is a fine working state.
+- **Fully constrained** — zero DOF. Every entity is locked and renders **green**. This is the goal for production parts: the sketch is completely determined by its dimensions, so an edit anywhere has one predictable outcome.
+- **Over-constrained / conflicting** — the diagnostics name the conflicting or redundant statements by file and line, and the affected geometry renders **red**. Remove the surplus statement.
+
+Constrain the *shape* first (coincident, horizontal, tangent, …), then the *size* (dimensions), then the *position* (`fix` or a datum), and watch the counter fall to zero.
+
+## See also
+
+- [Diameter](/docs/sketching/constraints/dimensional/diameter), [Radius](/docs/sketching/constraints/dimensional/radius), [Angle](/docs/sketching/constraints/dimensional/angle)
+- [Parameters](/docs/part/param) — driving a dimension from the Parameters panel

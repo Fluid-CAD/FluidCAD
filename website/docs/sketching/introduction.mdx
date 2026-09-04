@@ -1,0 +1,176 @@
+---
+sidebar_position: 1
+title: "Introduction"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import primitiveLineBasic from '!!raw-loader!./_examples/primitive-line-basic.js';
+
+# Sketching
+
+Every solid starts as a flat drawing on a plane. A sketch holds that drawing: lines, arcs, circles and the other [primitives](/docs/sketching/primitives/line), plus the [constraints](/docs/sketching/constraints/introduction) that say how they relate. A solver reads both and moves the geometry until every relationship holds. The solved profile is what [Extrude](/docs/3d-operations/extrude), [Revolve](/docs/3d-operations/revolve) and the other 3D operations consume.
+
+## Starting a sketch
+
+1. Click **Sketch** on the toolbar. The Sketch dialog docks on the right with one **Face / Plane** slot.
+2. Click where the drawing should go: one of the three origin plane quads shown in the viewport, a planar face of an existing solid, or a plane row in the timeline. The first pick is the action — the `sketch()` statement is written and the sketch opens, with the camera looking straight at the plane.
+3. Draw with the sketch toolbar that appears above the viewport, then click the green **Finish sketch** button. It offers the follow-up feature (Extrude, Revolve, …) so the next dialog opens with this sketch already in its profile slot.
+
+The chip in the dialog names the picked target. Its ✕ leaves the sketch view so a different face or plane can be picked; the statement moves onto the new target in place. **Cancel** deletes the sketch statement — only if this dialog wrote it.
+
+![An L-bracket outline drawn on the XY plane](/img/docs/sketching/primitive-line-basic.png)
+
+<ExplainedCode code={primitiveLineBasic} fileName="plate.part.js">
+Picking the XY plane wrote `sketch("xy", () => { … })`. Everything drawn while the sketch is open lands inside the callback: geometry statements first, then constraint statements.
+</ExplainedCode>
+
+### Standard planes
+
+Picking an origin plane writes its name. Each plane has an alias and a negative version whose normal points the other way:
+
+| String | Alias | Negative | Negative alias |
+|--------|-------|----------|----------------|
+| `"xy"` | `"top"` | `"-xy"` | `"bottom"` |
+| `"xz"` | `"front"` | `"-xz"` | `"back"` |
+| `"yz"` | `"right"` | `"-yz"` | `"left"` |
+
+```js
+sketch("xy", () => { ... })    // horizontal, looking down — same as "top"
+sketch("xz", () => { ... })    // vertical, seen from the front — same as "front"
+sketch("yz", () => { ... })    // vertical, seen from the right — same as "right"
+```
+
+### Custom planes
+
+A plane made with the **Plane** tool (offset, mid plane, or from an edge — see [Planes](/docs/datums/planes)) is a pick target like any origin plane. In code it is a `plane()` object:
+
+```js
+import { plane } from 'fluidcad/core';
+
+const p = plane("xy", { offset: 50 })                 // XY shifted 50 up
+const p2 = plane("xz", { rotateX: 45 })               // XZ tilted 45° about X
+sketch(p, () => { ... })
+```
+
+### Sketching on a face
+
+Clicking a planar face of a solid sketches on that face. The statement references the face through the feature that made it:
+
+```js
+const e = extrude(30)
+
+sketch(e.endFaces(), () => {
+    circle([0, 0], 30)
+})
+```
+
+Coordinates inside a face sketch are the face's own 2D coordinates, with the origin at the face's centre. To place geometry against the existing shape, [project](/docs/sketching/tools/project) its edges into the sketch and constrain against them — a projected outline is fixed reference geometry the solver never moves.
+
+The face keeps working as a sketch plane even if a later feature reshapes or removes it: the plane's position and orientation are remembered.
+
+### Planes from an edge
+
+A plane can also sit on an edge, normal to it — the setup for a profile that will be swept along that edge:
+
+```js
+const e = extrude(30)
+
+plane(e.sideEdges(0), 'start')   // at the edge start, facing outward
+plane(e.sideEdges(0), 0.5)       // halfway along (same as 'middle')
+plane(e.sideEdges(0), 1)         // at the end
+```
+
+## The sketch dialog
+
+While a sketch is open the dialog shows its options. None of these change the model — they change how you draw and what you see:
+
+![The sketch dialog while a sketch is open](/img/docs/ui/sketch-dialog.png)
+
+| Toggle | What it does |
+|---|---|
+| **Section view** | Clips away everything in front of the sketch plane, so a sketch on an inner face is not hidden by the walls around it. |
+| **Lock camera** | Keeps the view flat on the plane: pan and zoom only, no orbit. On by default. |
+| **Snap to vertices** | Clicks and drags snap to existing sketch vertices. |
+| **Snap to grid** | Clicks and drags snap to the grid. |
+| **Show constraints → Dimensional** | Shows or hides the distance, angle, radius and diameter labels. |
+| **Show constraints → Positional** | Shows or hides the coincident, tangent, horizontal/vertical and other relation glyphs. |
+
+The **Auto-constraints** group belongs to the constraints story — what gets inferred while you draw is explained in the [constraints introduction](/docs/sketching/constraints/introduction).
+
+## Drawing
+
+![The sketch toolbar](/img/docs/ui/sketch-toolbar.png)
+
+The sketch toolbar holds the drawing tools ([Line, Polyline, Bezier, Circle, Polygon, Rectangle, arcs, Slot, Text](/docs/sketching/primitives/line)) and the [tools that work on drawn geometry](/docs/sketching/tools/offset) (Fillet, Offset, Project, Copy, Rotate). A few conventions apply to all of them:
+
+- **Coordinate pill.** Every tool's anchor point shows an **X / Y** pill. Type a value to place the point exactly, <kbd>Tab</kbd> between the fields; expressions and `param()` names are accepted. A body point carries the shape's own dimension instead (a circle's diameter, a line's length). Double-click a placed point to reposition it in place.
+- **Guide latch.** With the **Guide** button latched, everything you draw gets `.guide()` — construction geometry that is excluded from the profile. See [Guides](/docs/sketching/tools/guides).
+- <kbd>Esc</kbd> leaves the active tool. Typed coordinates clear first, then the tool.
+- **Dragging.** Geometry that still has freedom can be dragged; the solver re-solves live while you drag, honouring every constraint.
+
+## Reading the viewport
+
+- **Green** geometry is fully constrained — the solver has locked it.
+- **Default-coloured** geometry still has degrees of freedom. It rests at the coordinates you drew and can be dragged.
+- **Red** geometry is in conflict: the constraints cannot all hold.
+- Constraints show as small glyphs on their geometry; dimensions render as labels you can double-click to edit.
+
+The status readout gives the remaining degrees of freedom. "Fully constrained" means zero. The [constraints introduction](/docs/sketching/constraints/introduction) covers what to do with the number.
+
+## How a sketch becomes a face
+
+When an operation consumes the sketch, the 2D geometry is turned into faces:
+
+- **Overlapping closed shapes fuse.** Two closed shapes that cross each other become one combined outline.
+- **Closed shapes inside closed shapes are holes.** This is how rings, bores and pockets are drawn: an inner loop is subtracted from the outer region.
+- **Open or loose geometry is ignored.** Lines and arcs that do not close a loop contribute nothing to the face — but they can still serve as [guides](/docs/sketching/tools/guides) or constraint targets.
+
+```js
+sketch("xy", () => {
+    circle([0, 0], 60)         // outer circle
+    circle([0, 0], 30)         // inner circle → a hole
+})
+
+extrude(20)                    // the ring between the two circles
+```
+
+To keep an inner shape solid instead of drilling it, chain `.drill(false)` on the operation:
+
+```js
+extrude(20).drill(false)       // the inner circle is NOT treated as a hole
+```
+
+When a sketch produces several separate regions, the operation dialogs let you pick the ones you want — see [region picking](/docs/3d-operations/extrude#region-picking).
+
+## Writing a sketch by hand
+
+Everything the toolbar writes can be typed. The layout convention that keeps a sketch readable, and that the tools follow:
+
+1. Geometry statements — `line`, `arc`, `circle`, … drawn at rough guess coordinates.
+2. Constraint statements — `coincident`, `horizontal`, `distance`, … imported from `fluidcad/constraints`.
+3. Derived operations last — `offset`, `fillet`, `mirror`, `copy` — because they consume solved geometry.
+
+```js
+import { sketch, line } from 'fluidcad/core';
+import { coincident, horizontal, vertical, fix, distance } from 'fluidcad/constraints';
+
+sketch("xy", () => {
+    const b = line([0, 0], [100, 0]);          // guesses
+    const r = line([100, 0], [100, 60]);
+    const t = line([100, 60], [0, 60]);
+    const l = line([0, 60], [0, 0]);
+    coincident(b.end(), r.start());            // relationships
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+    horizontal(b);
+    vertical(r);
+    horizontal(t);
+    vertical(l);
+    fix(b.start(), [0, 0]);
+    distance(b.start(), b.end(), 100);         // sizes
+    distance(r.start(), r.end(), 60);
+})
+```
+
+Where no constraint applies, geometry stays exactly where you drew it. Where one does, the guess only chooses which of several valid solutions the solver lands on.

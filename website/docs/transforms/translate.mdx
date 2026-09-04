@@ -1,0 +1,44 @@
+---
+sidebar_position: 2
+title: "Translate"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import transformTranslate from '!!raw-loader!./_examples/transform-translate.js';
+
+# Translate
+
+`translate()` moves solids by a distance along the world axes, or adds a moved copy.
+
+There is no Translate dialog in part mode: the statement is written in the editor. In an [assembly](/docs/assembly/introduction), instances are moved by dragging the transform gizmo, and the pose is written back as `.translate()` on the `insert()` statement.
+
+![A spacer slid along the plate onto its stud](/img/docs/transforms/transform-translate.png)
+
+<ExplainedCode code={transformTranslate} fileName="spacer.part.js" />
+
+## Code forms
+
+```js
+import { translate } from 'fluidcad/core';
+
+translate(x)                       // along X only
+translate(x, y)                    // along X and Y
+translate(x, y, z)                 // all three
+translate([x, y, z])               // the same, as a point
+
+translate(x, y, z, a, b)           // move specific solids
+translate(x, y, z, true)           // COPY: keep the original, add a moved duplicate
+translate([x, y, z], true, target) // copy a specific solid
+```
+
+The trailing targets are optional; without them `translate()` moves the object built last. The boolean before the targets switches from moving to copying. Distances are in the file's [unit](/docs/extra/units).
+
+## Positioning parts
+
+Translating a part inside its own file is rarely what you want: a part is authored around its own origin and placed when it is [inserted into an assembly](/docs/assembly/introduction). Use `translate()` for placing bodies relative to each other within one part — a second body kept separate with `.new()`, an imported STEP file (`load()`), a primitive.
+
+```js
+const l = load("bracket")
+rotate("x", 90)
+translate(0, -50, 25)
+```

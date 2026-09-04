@@ -1,0 +1,297 @@
+---
+sidebar_position: 16
+title: "CLI Reference"
+---
+
+# CLI Reference
+
+FluidCAD ships a command-line tool alongside the library. It scaffolds a project, opens FluidCAD in your browser, writes STEP/STL/PNG files without opening the UI, and exposes the MCP server that lets AI agents drive your workspace.
+
+FluidCAD is installed per-project, so the CLI is run through `npx` from inside the project:
+
+```bash
+npm i fluidcad
+npx fluidcad --help
+```
+
+:::note
+A global install (`npm install -g fluidcad`) is not supported — the engine and your editor's type hints both resolve from the project's `node_modules`. If you see `Cannot find module 'fluidcad' imported from …`, run `npm i fluidcad` inside the project.
+:::
+
+| Command | What it does |
+|---------|--------------|
+| [`fluidcad init`](#fluidcad-init) | Scaffold a new project in the current directory |
+| [`fluidcad serve`](#fluidcad-serve) | Open FluidCAD in the browser and watch the workspace |
+| [`fluidcad export step`](#fluidcad-export-step) | Write a STEP file |
+| [`fluidcad export stl`](#fluidcad-export-stl) | Write an STL mesh |
+| [`fluidcad export png`](#fluidcad-export-png) | Capture a PNG of the viewport |
+| [`fluidcad mcp`](#fluidcad-mcp) | Run the MCP server over stdio |
+
+Every command accepts `--help`, and `npx fluidcad --version` prints the installed version.
+
+---
+
+## `fluidcad init`
+
+```bash
+npx fluidcad init
+```
+
+Scaffolds a project in the **current directory**:
+
+```
+my-app/
+├── init.js             ← required project entry point
+├── box.part.js         ← starter model
+├── jsconfig.json       ← enables editor type hints
+└── fluidcad.json       ← project configuration: engine pin, unit
+```
+
+`init.js` is required — the viewer cannot run a `.part.js` file without it. Don't edit it.
+
+The command refuses to run if `init.js` already exists, so it can't clobber a project. `box.part.js`, `jsconfig.json` and `fluidcad.json` are only written when they're missing, so re-running it in a half-set-up folder fills in the gaps.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--unit <unit>` | Project length unit written to `fluidcad.json`: `mm`, `cm`, `m`, `in` or `ft` | `mm` |
+
+```bash
+npx fluidcad init --unit in        # an inch project
+```
+
+See [Project configuration](/docs/extra/project-configuration) for what `fluidcad.json` holds.
+
+---
+
+## `fluidcad serve`
+
+```bash
+npx fluidcad serve
+```
+
+Opens FluidCAD in your browser: the 3D viewport, every interactive modelling
+tool, and a code editor. It renders the model you had open last (or the first
+`.fluid.js` it finds in a new project) and watches the workspace, so an edit
+made anywhere — the in-page editor, your own editor, an AI agent through MCP —
+rebuilds the model. Press `Ctrl+C` to stop.
+
+This is the primary way to run FluidCAD. The [VS Code and Neovim
+extensions](/docs/extra/editor-setup) drive the same server if you'd
+rather stay in your own editor.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-w, --workspace <path>` | Path to your project | Current directory |
+| `-p, --port <port>` | Server port — if it's taken, the first free port above it is used | `3100` |
+| `--no-open` | Don't launch a browser — for CI and remote sessions | _opens by default_ |
+
+```bash
+npx fluidcad serve                     # open FluidCAD in your browser
+npx fluidcad serve --no-open           # start the server only (CI, SSH)
+npx fluidcad serve -w ./my-app         # serve a project in another directory
+npx fluidcad serve -p 4000             # start at port 4000 (4001, 4002, … if busy)
+```
+
+The startup banner names the engine version that is actually running, so a
+project whose `fluidcad.json` pin disagrees with it says so before anything is
+rebuilt.
+
+:::note
+The code editor is hidden until you open it, from the ☰ menu or with
+<kbd>Ctrl</kbd>+<kbd>B</kbd>. It docks to the left and takes width from the
+scene rather than covering it, so the model stays fully visible.
+:::
+
+---
+
+## `fluidcad export`
+
+```bash
+npx fluidcad export step                          # every shape → <entry>.step
+npx fluidcad export stl --resolution fine -o parts/bracket.stl
+npx fluidcad export png --view front --open
+```
+
+Writes a STEP, STL, or PNG file straight from the terminal — the same exports the [Export dialog](/docs/import-export/export) produces, without opening the UI.
+
+### How the model gets rendered
+
+The CLI works in one of two modes, chosen automatically:
+
+- **Attached** — a FluidCAD server is already running for the workspace (started by `fluidcad serve` or an editor extension). The CLI finds it through `.fluidcad/instance.json` and exports **the scene that server is currently showing**. Nothing is re-rendered, and no second server is started.
+- **Ephemeral** — nothing is running. The CLI forks its own server on a free port, renders your entry file, exports, and shuts the server down again.
+
+Because an attached server's scene wins, passing `--entry` while one is running only prints a warning — what the server shows is what gets exported. Stop the server to export a different file.
+
+### Common flags
+
+These apply to all three formats:
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-w, --workspace <path>` | Path to your project | Current directory |
+| `-e, --entry <file>` | Which `.fluid.js` to render | The workspace's only one |
+| `-o, --out <path>` | Output file | `<entry>.<ext>` in the current directory |
+| `-p, --port <port>` | Export from the running server on this port instead of discovering one | Auto-discovered |
+| `--timeout <sec>` | Seconds to wait for the server (and, for `png`, for a browser) | `60` |
+
+If the workspace holds more than one `.fluid.js` file, `--entry` is required — the CLI won't guess.
+
+### `fluidcad export step`
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--shapes <ids...>` | Export a subset of the scene's shapes | All shapes (an assembly: the [whole assembly](#assemblies)) |
+| `--list-shapes` | Print the scene's shapes and exit without exporting | — |
+| `--no-colors` | Write plain geometry instead of per-shape colors | _colors on_ |
+
+```bash
+npx fluidcad export step --no-colors -o build/housing.step
+```
+
+### `fluidcad export stl`
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--shapes <ids...>` | Export a subset of the scene's shapes | All shapes (an assembly: the [whole assembly](#assemblies)) |
+| `--list-shapes` | Print the scene's shapes and exit without exporting | — |
+| `--resolution <r>` | Mesh resolution: `coarse`, `medium`, `fine`, or `custom` | `medium` |
+| `--linear-deflection <length>` | Custom linear deflection, in document units | — |
+| `--angular-deflection <deg>` | Custom angular deflection, in degrees | — |
+| `--scale-to <mm\|document>` | Write the STL in millimetres (what slicers expect) or keep the document's unit | `mm` |
+
+The two deflection flags imply `--resolution custom`, and `custom` needs both of them:
+
+```bash
+npx fluidcad export stl --linear-deflection 0.01 --angular-deflection 0.1
+```
+
+Passing a deflection alongside `--resolution fine` is an error rather than a silent override.
+
+### Picking shapes
+
+`--list-shapes` prints what the scene contains, numbered:
+
+```
+3 shapes:
+  1  a1f2…  SOLID  Extrude
+  2  b7c4…  SOLID  Fillet
+  3  c9e0…  SOLID  Housing
+```
+
+`--shapes` then takes any mix of:
+
+- a **position** from that listing — `--shapes 1 2`
+- a **feature name** — `--shapes Housing` (case-insensitive; exports every shape that feature produced)
+- a **shape id** — `--shapes a1f2…`
+
+Positions and names survive a re-render; **shape ids are minted fresh every time the model rebuilds**, so don't hard-code them in a script.
+
+```bash
+npx fluidcad export step --list-shapes
+npx fluidcad export step --shapes 1,3 -o build/plates.step
+npx fluidcad export stl --shapes Housing --resolution fine
+```
+
+### Assemblies
+
+When the scene is a `*.assembly.js` file, `export step` and `export stl` write the **whole assembly** by default: every inserted part where it sits. STEP keeps the structure — one product per part, one component per instance, sub-assemblies nested — so it opens as an assembly tree elsewhere. STL flattens every placed part into one mesh.
+
+```bash
+npx fluidcad export step                 # robot.assembly.js → robot.step, the full tree
+npx fluidcad export stl --resolution fine
+npx fluidcad export step --shapes 1      # a single part template instead, in its own frame
+```
+
+Mates are solved in the viewer, and the CLI has no viewer, so parts land where the source places them (`insert().translate()` / `.rotate()`). The CLI prints a note when that is the case; for the mated layout, export from the viewer's Export menu.
+
+### `fluidcad export png`
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--width <px>` | Image width | `800` |
+| `--height <px>` | Image height | `800` |
+| `--view <name>` | Camera view (see below) | `iso-ftr` |
+| `--margin <px>` | Crop/fit margin | `20` |
+| `--transparent` | Transparent background | _off_ |
+| `--show-axes` | Show the origin axes | _off_ |
+| `--no-grid` | Hide the ground grid | _grid shown_ |
+| `--no-auto-crop` | Keep the full frame instead of cropping to the model | _crop on_ |
+| `--no-fit` | Don't fit the camera to the model | _fit on_ |
+| `--open` | Open the viewport in a browser to render the capture | _off_ |
+
+`--view` takes `current` (whatever the connected browser is looking at) or a named view:
+
+| | |
+|---|---|
+| Orthographic | `front`, `back`, `left`, `right`, `top`, `bottom` |
+| Isometric | `iso-ftr`, `iso-fbr`, `iso-ftl`, `iso-fbl`, `iso-btr`, `iso-bbr`, `iso-btl`, `iso-bbl` |
+
+Isometric names read as _front/back_, _top/bottom_, _left/right_ — `iso-fbl` is the front-bottom-left corner.
+
+```bash
+npx fluidcad export png --view top --width 1600 --height 1200
+npx fluidcad export png --transparent --no-grid -o docs/hero.png
+```
+
+:::warning
+**PNG capture needs a browser.** Screenshots are rendered by the FluidCAD viewport itself, so a browser has to be connected to the server. Pass `--open` and the CLI launches one and waits for it; otherwise open the server URL yourself before the `--timeout` runs out.
+
+If a server is already attached and no browser is on it, the command fails immediately and tells you the URL to open — re-run with `--open`, or stop that server so the CLI can spawn its own.
+:::
+
+---
+
+## `fluidcad mcp`
+
+```bash
+npx fluidcad mcp
+```
+
+Runs the FluidCAD [MCP](https://modelcontextprotocol.io) server over stdio, so an LLM agent can drive your workspace: take screenshots, inspect geometry, measure, edit source, and look up the API. It's bundled with the `fluidcad` package — there's nothing extra to install.
+
+You don't normally run this by hand; you register it with an MCP client.
+
+**Claude Code** — register at user scope so it's available in every project:
+
+```bash
+claude mcp add --scope user FluidCAD -- npx -y fluidcad mcp
+```
+
+**Claude Desktop / Cursor** — add to `claude_desktop_config.json` or `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "FluidCAD": {
+      "command": "npx",
+      "args": ["-y", "fluidcad", "mcp"]
+    }
+  }
+}
+```
+
+**opencode** — run `opencode mcp add`, or add to `~/.config/opencode/opencode.json`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "FluidCAD": {
+      "type": "local",
+      "command": ["npx", "-y", "fluidcad", "mcp"],
+      "enabled": true
+    }
+  }
+}
+```
+
+Then install the companion skill so agents follow the FluidCAD workflow:
+
+```bash
+npx skills add Fluid-CAD/FluidCAD
+```
+
+The agent drives a **running** workspace, so start one first — with `fluidcad serve` or an editor extension — and the MCP server attaches to it.
+
+See the [MCP README](https://github.com/Fluid-CAD/FluidCAD/blob/main/mcp/README.md) for the full tool surface and transport details.

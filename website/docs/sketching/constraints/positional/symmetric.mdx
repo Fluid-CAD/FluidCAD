@@ -1,0 +1,36 @@
+---
+sidebar_position: 7
+title: "Symmetric"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import constraintSymmetric from '!!raw-loader!../../_examples/constraint-symmetric.js';
+
+# Symmetric
+
+`symmetric` mirrors two points across a line: they end up the same distance from it on opposite sides, on a line perpendicular to it. It is how one dimension drives both halves of a symmetric profile.
+
+## In the viewport
+
+1. Click the two points, then the mirror line — a datum axis, or any sketched line (a `.guide()` centreline is the usual choice).
+2. Click **Symmetric**. Both points get an `S` badge.
+
+![A keyway centred on a bore by two symmetric pairs](/img/docs/sketching/constraint-symmetric.png)
+
+<ExplainedCode code={constraintSymmetric} fileName="hub.part.js">
+The keyway's walls are drawn at unequal distances from the bore's centreline. Two `symmetric` statements mirror the right wall's endpoints from the left wall's across `yAxis()` (2 DOF each), so the keyway is centred on the bore whatever width the `distance` sets. Only the left wall needs `vertical`; the right one follows.
+</ExplainedCode>
+
+## In code
+
+```js
+symmetric(a, b, l)               // points a and b mirror across line l: 2 DOF
+symmetric(a, b, yAxis())         // ... across a datum axis
+```
+
+`a` and `b` are points (line ends, centers, `point()`s); `l` is a line or an axis datum. To mirror whole shapes rather than two points, draw one half and use the sketch [mirror](/docs/sketching/tools/mirror) tool instead.
+
+## See also
+
+- [Midpoint](/docs/sketching/constraints/positional/midpoint) — a point held halfway between two others
+- [Sketch tools → Mirror](/docs/sketching/tools/mirror)

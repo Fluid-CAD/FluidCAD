@@ -1,0 +1,37 @@
+---
+sidebar_position: 4
+title: "Vertical"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import constraintVertical from '!!raw-loader!../../_examples/constraint-vertical.js';
+
+# Vertical
+
+`vertical` aligns with the sketch's Y axis: a line becomes vertical, or two or more points are stacked on the same x.
+
+## In the viewport
+
+1. Click one line — or click two or more points.
+2. Click **Vertical**. A line gets a `V` badge; in the point form every point after the first moves to the first one's x.
+
+Drawing a line close to vertical with **Infer while drawing** on writes this constraint automatically.
+
+![A tall plate stood upright, with a column of holes](/img/docs/sketching/constraint-vertical.png)
+
+<ExplainedCode code={constraintVertical} fileName="plate.part.js">
+`vertical(left)` and `vertical(right)` are the line form — the leaning sides stand up. `vertical(h1.center(), h2.center(), h3.center())` stacks the hole centers on one x, 1 DOF per follower.
+</ExplainedCode>
+
+## In code
+
+```js
+vertical(l)                      // the line is vertical: 1 DOF
+vertical(p1, p2)                 // p2 takes p1's x: 1 DOF
+vertical(p1, p2, p3, ...)        // every point after the first: 1 DOF each
+```
+
+## See also
+
+- [Horizontal](/docs/sketching/constraints/positional/horizontal)
+- [Symmetric](/docs/sketching/constraints/positional/symmetric) — mirror pairs across `yAxis()`

@@ -1,0 +1,77 @@
+---
+sidebar_position: 5
+title: "Expose"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import partExpose from '!!raw-loader!./_examples/part-expose.js';
+
+# expose()
+
+`expose(name, source)` publishes a piece of the part's geometry under a name. It is the outbound half of the part's interface: [`param()`](./param) takes values in, [`connector()`](./connector) hands mate frames out, `expose()` hands geometry out.
+
+Two consumers read it:
+
+- **Another part** builds on it as `def.features.<name>` — extrude a donor's profile, sketch on its face, project its edges.
+- **A tangent mate** touches it as `instance.features.<name>` — the contact surface of a [tangent](/docs/assembly/tangent) joint.
+
+## In the viewport
+
+`expose()` is written in code. In the timeline, a part row folds its exposures behind an *N exposed* toggle; clicking one highlights the published geometry.
+
+![Flange and the gasket cut from its hole pattern](/img/docs/part/part-expose.png)
+
+<ExplainedCode code={partExpose} fileName="flange.part.js" />
+
+The hole sketch is marked `.reusable()` because the cut that follows would otherwise consume it, leaving nothing to publish. The gasket never redraws the bolt circle: it cuts the flange's own pattern, so moving a bolt hole on the flange moves it on the gasket.
+
+## Signature
+
+```ts
+expose(name, source)
+```
+
+| Argument | Meaning |
+|----------|---------|
+| `name` | A plain identifier, unique within the part. |
+| `source` | Any scene object: a sketch, a `select()` of faces or edges, a plane, an axis, or a feature. |
+
+The exposure is a pass-through: it consumes nothing and adds no shape of its own. Consumers read the **source** object, so a change to the donor flows through on the next render. A published `select()` stops rendering its highlight once the statement has run — publishing is not selecting.
+
+## Consuming across files
+
+```js
+// gasket.part.js
+import { part, sketch, circle, extrude, cut, plane } from 'fluidcad/core';
+import { flange } from './flange.part.js';
+
+export const gasket = part('Gasket', () => {
+    sketch(plane('xy', { offset: -6 }), () => {
+        circle([0, 0], 60);
+    });
+    extrude(-2);
+    cut(8, flange.features.holes);   // the published sketch is on the flange's plane, 6 above
+});
+```
+
+Reading `flange.features` materialises the flange if it has not been built yet, in the consumer's unit.
+
+## Contact geometry for tangent mates
+
+A tangent mate needs a surface to touch. Expose the face (planar, cylindrical, conical, spherical) and pass the bound exposure to the mate:
+
+```js
+// roller.part.js
+expose('tread', select(face().cylinder(20)));
+
+// roller-stand.assembly.js
+mate('tangent', wheel.features.tread, deck.features.deck);
+```
+
+Raw values cannot be exposed — every exposure must be real geometry, so that it re-derives on every render.
+
+## Rules
+
+- Declare exposures **directly in the part body**, not inside a nested callback.
+- Names are unique within a part.
+- The callback's return value no longer feeds `def.features`; use `expose()`.

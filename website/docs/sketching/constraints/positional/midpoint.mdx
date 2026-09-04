@@ -1,0 +1,37 @@
+---
+sidebar_position: 8
+title: "Midpoint"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import constraintMidpoint from '!!raw-loader!../../_examples/constraint-midpoint.js';
+
+# Midpoint
+
+`midpoint` holds a point at the middle of a line, or halfway between two other points. A hole that must stay centred on a bar however long the bar becomes is a midpoint, not a distance.
+
+## In the viewport
+
+1. Click a point and a line — or click three points.
+2. Click **Midpoint**. The constrained point gets an `M` badge. With three points, the one nearest the middle of the other two becomes the midpoint; pick order does not matter.
+
+![A tab with its hole held at the center and an anchor at the top edge's middle](/img/docs/sketching/constraint-midpoint.png)
+
+<ExplainedCode code={constraintMidpoint} fileName="tab.part.js">
+`midpoint(hole.center(), bottom.start(), top.start())` is the three-point form: halfway between two diagonal corners is the tab's center, so the hole stays centred when the tab is resized — no numbers involved. `midpoint(anchor, top)` is the point–line form. Both remove 2 DOF.
+</ExplainedCode>
+
+## In code
+
+```js
+midpoint(p, l)                   // p at the midpoint of line l: 2 DOF
+midpoint(p, a, b)                // p halfway between points a and b: 2 DOF
+coincident(p, l.mid())           // same as midpoint(p, l)
+```
+
+A datum axis has no midpoint, so it is refused in the line slot.
+
+## See also
+
+- [Symmetric](/docs/sketching/constraints/positional/symmetric) — the same idea from the other side: two points placed around a line
+- [Coincident](/docs/sketching/constraints/positional/coincident)

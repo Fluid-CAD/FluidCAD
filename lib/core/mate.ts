@@ -4,6 +4,16 @@ import { AssemblyScene, MateType } from "../rendering/assembly-scene.js";
 import { BoundConnector, Connector } from "../features/connector.js";
 import { BoundExposure } from "../features/exposed.js";
 import { MateBuilder, makeAssemblyMate, makeTangentAssemblyMate } from "../features/mate.js";
+import type { IConnector } from "./interfaces.js";
+
+/**
+ * One side of a `mate()`: a part connector bound to an inserted instance
+ * (`instance.connectors.<name>`), an assembly connector
+ * (`connector('name', [x, y, z])` at the file's top level), or — for
+ * tangent mates only — exposed geometry bound to an instance
+ * (`instance.features.<name>`).
+ */
+export type MateSide = BoundConnector | IConnector | BoundExposure;
 
 const VALID_TYPES: ReadonlyArray<MateType> = [
   "fastened", "revolute", "slider", "cylindrical", "planar", "parallel", "pin-slot", "tangent",
@@ -18,7 +28,46 @@ const IMPLEMENTED_TYPES: ReadonlyArray<MateType> = [
   "fastened", "revolute", "slider", "cylindrical", "planar", "tangent",
 ];
 
-function mate(type: MateType, a: unknown, b: unknown): MateBuilder {
+/**
+ * Joins two inserted parts in an assembly. The first side is the driver:
+ * the mate's options are read in its connector frame, and by default the
+ * second connector is placed face-to-face on it — origins coincide, the
+ * second Z points against the first.
+ *
+ * Types and the motion each leaves free:
+ *
+ * | type | free |
+ * |------|------|
+ * | `'fastened'` | nothing |
+ * | `'revolute'` | rotation about Z |
+ * | `'slider'` | travel along Z |
+ * | `'cylindrical'` | rotation about Z and travel along Z |
+ * | `'planar'` | slide in X and Y, rotation about Z |
+ * | `'tangent'` | anything that keeps the two surfaces in contact |
+ *
+ * The lower-pair types take connectors — `instance.connectors.<name>` from
+ * an `insert()` handle, or an assembly connector; `'tangent'` takes two
+ * exposures instead, `instance.features.<name>`, published in the part
+ * with `expose()`.
+ *
+ *     const base = insert(plate).grounded();
+ *     const arm = insert(lever);
+ *     mate('revolute', base.connectors.bore, arm.connectors.pivot).limits(-45, 45);
+ *
+ * The returned builder chains the options: `.flip()` (second Z along the
+ * first instead of against it), `.rotate(deg)` (spin about the shared Z),
+ * `.offset(x, y, z)` (shift in the driver's frame; slider, cylindrical and
+ * planar accept Z only), `.limits(min, max)` (revolute in degrees, slider
+ * in document units) and `.noPropagate()` (tangent: contact on the picked
+ * face only, not its tangent-continuous chain).
+ *
+ * Only allowed in `*.assembly.js` files.
+ *
+ * @param type - The mate type.
+ * @param a - The driving side.
+ * @param b - The side placed relative to it.
+ */
+function mate(type: MateType, a: MateSide, b: MateSide): MateBuilder {
   const scene = getCurrentScene();
   if (!(scene instanceof AssemblyScene)) {
     throw new Error("mate() can only be used in *.assembly.js files.");

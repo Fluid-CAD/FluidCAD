@@ -1,0 +1,118 @@
+---
+sidebar_position: 2
+title: "Planes"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import planeOffset from '!!raw-loader!./_examples/datums-plane-offset.js';
+import planeFromEdge from '!!raw-loader!./_examples/datums-plane-from-edge.js';
+import planeMid from '!!raw-loader!./_examples/datums-plane-mid.js';
+
+# Planes
+
+A plane is a flat reference: the surface a sketch is drawn on, the mirror of a mirror feature, the halfway mark between two faces. Every model starts with the three origin planes, and the **Plane** tool derives new ones from them or from existing geometry.
+
+## The origin planes
+
+Three planes exist in every file without any statement. They are named by the world axes they contain and have an alias each, plus a flipped version whose normal points the other way:
+
+| Name | Alias | Normal | Flipped | Flipped alias |
+|------|-------|--------|---------|---------------|
+| `"xy"` | `"top"` | +Z | `"-xy"` | `"bottom"` |
+| `"xz"` | `"front"` | −Y | `"-xz"` | `"back"` |
+| `"yz"` | `"right"` | +X | `"-yz"` | `"left"` |
+
+In the viewport they show as three small quads at the origin. Clicking a quad while a dialog's plane slot is armed picks that plane; the **Sketch** tool's **Face / Plane** slot accepts them the same way.
+
+```js
+sketch("xy", () => { ... })      // draw on the ground plane
+sketch("front", () => { ... })   // same as "xz"
+mirror("yz")                     // mirror the model across the YZ plane
+```
+
+## In the viewport
+
+1. Click **Plane** on the toolbar. The Plane dialog docks on the right.
+2. Pick the **type** at the top: **Offset**, **Mid plane** or **From edge**.
+3. Fill the **Base** slot from the scene: click a face in the viewport, an origin-plane quad, or a plane row in the timeline. **Mid plane** takes two bases; **From edge** takes an edge.
+4. Enter the **Distance** (Offset type) or the **position** along the edge from 0 to 1 (From edge type). Offset and Mid planes also take a rotation per axis — around the plane's own X, Y, or its normal, in degrees.
+5. Click **Apply**. The plane appears as a translucent quad in the viewport and as a row in the timeline, and a `plane()` statement is written to the file. Clicking that quad later picks the plane for a sketch or a mirror.
+
+A translucent ghost of the plane follows the fields while the dialog is open. Double-click the plane's timeline row to reopen the dialog and edit it.
+
+## Offset planes
+
+The most common plane: an origin plane or a face, shifted along its normal.
+
+![A two-tier shelf: the upper plate sketched on a plane 40 above the lower one](/img/docs/datums/datums-plane-offset.png)
+
+<ExplainedCode code={planeOffset} fileName="shelf.part.js" />
+
+The offset is one of the transform options. The others rotate the plane around its own axes, and they compose — the offset is applied first, then the rotations around the offset origin:
+
+```js
+plane("xy", 50)                                  // shorthand: offset only
+plane("xy", { offset: 50 })                      // same
+plane("xz", { rotateX: 45 })                     // tilted 45° around the plane's X
+plane("xy", { offset: 30, rotateZ: 90 })         // shifted, then spun around its normal
+```
+
+### From a face
+
+A face is a plane too. Pass the face and the plane takes its position and orientation; a number or an options object offsets and rotates it from there:
+
+```js
+const e = extrude(30)
+
+plane(e.endFaces())                  // the top face's plane
+plane(e.endFaces(), 10)              // 10 above the top face
+plane(e.endFaces(), { rotateY: 15 }) // tilted around the face's Y
+```
+
+Sketching directly on a face (`sketch(e.endFaces(), …)`) is the same thing without the separate statement; a `plane()` feature is worth it when several features share the plane, or when it needs an offset or a tilt.
+
+## Mid planes
+
+A plane halfway between two others, oriented like them. Pick two faces (or an origin plane and a face, or two plane features) as the bases. A shaft clamp is split into its two halves on exactly such a plane:
+
+![A shaft clamp sawn in two on the mid plane between its bottom and top faces](/img/docs/datums/datums-plane-mid.png)
+
+<ExplainedCode code={planeMid} fileName="clamp.part.js" />
+
+Both arguments must be planes: pass plane names, plane features, or wrap a face selection in `plane(…)` as above. A mid plane keeps tracking its bases — make the block taller and the split stays centred on the bore.
+
+```js
+plane("xy", plane("xy", { offset: 60 }))   // 30 above the ground
+plane(p1, p2, { rotateX: 10 })             // options apply to the result
+```
+
+## Planes from an edge
+
+A plane can also stand **normal to an edge** at a point along it: the edge's tangent becomes the plane normal. This is how a profile is positioned for a sweep along a curve or a helix, and how a feature is placed at the end of, or part-way along, an edge — a flange on a pipe end, for instance, using the pipe's seam edge:
+
+![A flange drawn on the plane at the end of a pipe's seam edge](/img/docs/datums/datums-plane-from-edge.png)
+
+<ExplainedCode code={planeFromEdge} fileName="pipe.part.js" />
+
+The position is a name or a normalised value:
+
+```js
+plane(e.sideEdges(0), 'start')   // at the edge start — normal faces outward, like a cap
+plane(e.sideEdges(0), 'middle')  // halfway; same as 0.5
+plane(e.sideEdges(0), 'end')     // at the end
+plane(e.sideEdges(0), 0.25)      // a quarter of the way along
+```
+
+At `'start'` (0) the normal faces away from the edge body so both ends read like end caps; `'middle'` and `'end'` follow the edge's forward direction. On a curved edge the plane turns with the tangent.
+
+## Using a plane
+
+| Use | Statement |
+|-----|-----------|
+| Sketch on it | `sketch(p, () => { ... })` |
+| Mirror across it | `mirror(p)` or `repeat("mirror", p, feature)` |
+| Wrap onto a face | the sketch plane's origin and orientation place the decal — see [Wrap](/docs/3d-operations/wrap) |
+| Loft or sweep profiles | each profile is a sketch on its own plane — see [Loft](/docs/3d-operations/loft) |
+| Filter by it | `face().onPlane("xy", 30)`, `edge().parallelTo("xz")` — see [Selection & Filters](/docs/3d-operations/selection-and-filters) |
+
+A sketch plane's coordinates are the plane's own 2D frame: `[0, 0]` is the plane origin, X and Y its in-plane axes. Inside the sketch, `local("x")` / `local("y")` name those axes for the 2D transforms — see [Axes](/docs/datums/axes).

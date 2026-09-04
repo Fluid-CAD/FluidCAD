@@ -1,0 +1,65 @@
+---
+sidebar_position: 6
+title: "Mirror"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import toolMirror from '!!raw-loader!../_examples/tool-mirror.js';
+import toolMirrorLocal from '!!raw-loader!../_examples/tool-mirror-local.js';
+
+# Mirror
+
+Mirror reflects sketch geometry across a line or an axis. Draw one half of a symmetric profile, mirror it, and the two halves join into one region.
+
+There is no Mirror button on the sketch toolbar; the 2D mirror is written in the code editor. (The toolbar's **Mirror** is the 3D one, for solids.)
+
+## By hand
+
+```js
+mirror(line)                            // mirror everything across a sketched line
+mirror(line, g1, g2, ...)               // mirror specific geometry across a line
+mirror("x")                             // mirror across a world axis
+mirror("y", g1, g2, ...)                // mirror specific geometry across an axis
+```
+
+Any sketched line can be the mirror line, including a [guide](/docs/sketching/tools/guides) you do not want in the profile. Write the statement after the constraints — mirror consumes solved geometry.
+
+![A latch plate: the right half mirrored across Y](/img/docs/sketching/tool-mirror.png)
+
+<ExplainedCode code={toolMirror} fileName="plate.part.js" />
+
+## Sketch axes and world axes
+
+Bare axis strings like `"x"` and `"y"` always mean **world** axes. On the XY plane that is also the sketch's own X and Y, but on other planes it is not:
+
+```js
+// ✗ collapses: world Y is the front plane's normal
+sketch("front", () => {
+    const b = bezier([200, 200], [-120, 380], [200, 450], [0, 600])
+    mirror("y", b)
+})
+```
+
+`local()` resolves an axis name against the active sketch instead:
+
+![The same latch on the front plane, mirrored across local Y](/img/docs/sketching/tool-mirror-local.png)
+
+<ExplainedCode code={toolMirrorLocal} fileName="plate.part.js" />
+
+| Sketch plane | `local("x")` | `local("y")` |
+|---|---|---|
+| `"xy"` / `"top"` | world +X | world +Y |
+| `"xz"` / `"front"` | world +X | world +Z |
+| `"yz"` / `"right"` | world +Y | world +Z |
+
+`local()` also works with face sketches and custom `plane()` objects, and it is per argument — bare strings in the same call stay world-relative:
+
+```js
+sketch("front", () => {
+    copy("linear", [local("y"), "x"], { count: 2, offset: 30 }, shape)
+})
+```
+
+You do not need it when the mirror line is a sketched line (it already lies on the plane), or on `sketch("xy")`, where world and local axes agree.
+
+For mirroring a **feature** rather than sketch geometry, see [Patterns → Repeat](/docs/patterns/repeat#mirror-repeat); for solids, [Transforms → Mirror](/docs/transforms/mirror).

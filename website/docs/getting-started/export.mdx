@@ -1,0 +1,33 @@
+---
+sidebar_position: 5
+title: "5. Exporting the part"
+---
+
+# Exporting the part
+
+A part is exported from the top bar. The fixed leaf goes out as STEP for other CAD tools and as STL for printing.
+
+## In the viewport
+
+1. With `hinge-leaf-fixed.part.js` open, click **Export** (the download icon at the right end of the top bar). The menu lists the scene's solids with a thumbnail; a part has one.
+
+   ![Export menu](/img/docs/ui/export-menu.png)
+
+2. Click the solid. The export dialog opens.
+3. Choose **STEP** to keep exact geometry and the part's name, **STL** for a mesh (pick a **Resolution**; STL is written in millimetres by default since slicers expect that), or **PNG** for a picture from a chosen view. Tick **Colors** to keep any `color()` you applied.
+4. Click **Export**. The file downloads through the browser.
+
+The same dialog is reachable from the **Shapes** panel: hover the solid's row and choose **Export** from its menu.
+
+## From the terminal
+
+The export commands need no browser for STEP and STL:
+
+```bash
+npx fluidcad export step -e hinge-leaf-fixed.part.js -o out/fixed-leaf.step
+npx fluidcad export stl  -e hinge-leaf-fixed.part.js --resolution fine
+```
+
+See [Export](/docs/import-export/export) for the assembly export and the [CLI Reference](/docs/cli#fluidcad-export) for every flag.
+
+Next: [Inserting the part into an assembly](/docs/getting-started/insert-into-assembly).

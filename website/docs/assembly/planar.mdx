@@ -1,0 +1,42 @@
+---
+sidebar_position: 7
+title: "Planar"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import asmPlanar from '!!raw-loader!./_examples/asm-planar.assembly.js';
+import asmClamp from '!!raw-loader!./_examples/asm-clamp.part.js';
+
+# Planar
+
+A planar mate keeps two faces in contact and lets the second part move freely across the first: slide in X, slide in Y, spin about Z. It is the joint of a block on a table, a tile on a floor, a workpiece on a machine bed.
+
+| Free motion | slide in X and Y, rotation about Z |
+|---|---|
+
+## In the viewport
+
+1. Click **Planar** on the assembly toolbar and pick the two face connectors — the surface first, then the part that rests on it.
+2. The part drops onto the surface. Drag it around: it stays flat.
+3. **Offset** takes a Z value only, to hold the part a fixed distance above the face. **Flip** turns the part over.
+4. Click **Apply**.
+
+![Clamp block resting on the base plate, turned 20° and off-centre](/img/docs/assembly/asm-planar.png)
+
+<ExplainedCode code={asmPlanar} fileName="work-table.assembly.js">
+  <ExplainedCode code={asmClamp} fileName="clamp.part.js" title="clamp.part.js" />
+</ExplainedCode>
+
+## Options
+
+```js
+mate('planar', table.connectors.top, block.connectors.bottom)
+    .offset(0, 0, 1)      // hover 1 above the face (Z only)
+    .flip()
+```
+
+The in-plane X and Y are the mate's free directions, so `.offset()` refuses to pin them; where the block starts on the plate is the instance's own `.translate()`, and dragging it writes that back. `.rotate()` sets the rest spin; `.limits()` is not available.
+
+## Contact, not fastening
+
+A planar mate does not hold the part down — the solver keeps the faces coplanar, and the part slides where you drag it. To fix a part on a surface, use [fastened](./fastened); to let it slide in one direction only, a [slider](./slider).

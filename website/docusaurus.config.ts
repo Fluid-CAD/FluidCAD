@@ -151,8 +151,12 @@ const config: Config = {
               to: '/docs/getting-started',
             },
             {
-              label: 'Guides',
-              to: '/docs/guides',
+              label: 'Sketching',
+              to: '/docs/sketching',
+            },
+            {
+              label: 'Assembly',
+              to: '/docs/assembly',
             },
             {
               label: 'Tutorials',

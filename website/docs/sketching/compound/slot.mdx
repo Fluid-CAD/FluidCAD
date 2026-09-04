@@ -1,0 +1,14 @@
+---
+sidebar_position: 3
+title: "Slot"
+---
+
+# Slot
+
+:::caution[Work in progress]
+The Slot tool is being finished. This page will be completed once it lands; the notes below describe what is in place today.
+:::
+
+The **Slot** tool draws a stadium — two parallel lines closed by two semicircular caps — in one gesture: click the start point, then set the length and the cap radius (typed or dragged). Near-horizontal and near-vertical slots snap to the axis; hold <kbd>Ctrl</kbd> for a free angle. The **Centered** toggle anchors the slot at its centre instead of its first cap.
+
+The file receives two [lines](/docs/sketching/primitives/line) and two [arcs](/docs/sketching/primitives/arc) with the constraints of a slot: `coincident` where the lines meet the caps, `tangent` at each junction, `parallel` and `equal` lines, `equal` cap arcs with one `radius` dimension, and a `midpoint` pinning the centre when the anchor snapped. The length is a `distance` between the two cap centres.

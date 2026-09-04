@@ -1,0 +1,34 @@
+---
+sidebar_position: 12
+title: "Collinear"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import constraintCollinear from '!!raw-loader!../../_examples/constraint-collinear.js';
+
+# Collinear
+
+`collinear` puts one line on the infinite extension of another. The two segments stay separate entities — they can have a gap, or overlap — but they share one line.
+
+## In the viewport
+
+1. Click two lines. A datum axis counts as a line.
+2. Click **Collinear**. The second line gets a `≡` badge.
+
+![A stepped shaft profile: lands on one line, bottom edge on the revolve axis](/img/docs/sketching/constraint-collinear.png)
+
+<ExplainedCode code={constraintCollinear} fileName="shaft.part.js">
+A half-profile to be revolved. `collinear(leftLand, rightLand)` removes 2 DOF from the right land so both lands share one surface across the snap-ring groove — one shaft diameter, dimensioned once. `collinear(xAxis(), bottom)` puts the profile's bottom edge exactly on the revolve axis: `horizontal` alone would only make it parallel.
+</ExplainedCode>
+
+## In code
+
+```js
+collinear(a, b)                  // b lies on a's infinite line: 2 DOF
+collinear(xAxis(), l)            // l lies on the X axis
+```
+
+## See also
+
+- [Horizontal](/docs/sketching/constraints/positional/horizontal), [Vertical](/docs/sketching/constraints/positional/vertical) — direction only, no position
+- [Parallel](/docs/sketching/constraints/positional/parallel)

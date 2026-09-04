@@ -1,0 +1,5 @@
+{
+  "label": "Sketch Tools",
+  "position": 4,
+  "link": { "type": "generated-index", "description": "Operations on geometry you have already drawn: offset, fillet, project, copy, rotate, mirror and guides." }
+}

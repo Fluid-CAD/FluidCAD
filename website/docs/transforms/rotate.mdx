@@ -1,0 +1,55 @@
+---
+sidebar_position: 3
+title: "Rotate"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import transformRotate from '!!raw-loader!./_examples/transform-rotate.js';
+import transformRotateCopy from '!!raw-loader!./_examples/transform-rotate-copy.js';
+
+# Rotate
+
+`rotate()` turns solids around an axis, in place or as copies.
+
+## In the viewport
+
+1. Click **Rotate** on the toolbar. The Rotate dialog docks on the right.
+2. Pick the tab: **Move** turns the solids in place; **Copy** keeps the originals and adds turned copies.
+3. Click the solids to rotate — any face or edge click in the viewport selects the whole solid, or click their timeline rows. They fill the **Solids** slot as numbered chips.
+4. Fill the **Axis** slot: click an edge in the viewport, or press one of the **X / Y / Z** buttons for a world axis. A circular edge gives its centre line.
+5. Enter the **Angle** in degrees and click **Apply**.
+
+![Copies of a plate turned around an offset axis](/img/docs/transforms/transform-rotate.png)
+
+<ExplainedCode code={transformRotate} fileName="turn.part.js">
+Here the axis is an `axis()` feature offset from the origin — written in code, since the dialog's Axis slot takes world axes and picked edges. Two rotate-copies at 90° and 180° leave three plates.
+</ExplainedCode>
+
+## Copies
+
+On the **Copy** tab the original stays and a turned duplicate is added — the copy flag is the `true` before the targets:
+
+![A wheel: one spoke and three rotate-copies of it around the hub](/img/docs/transforms/transform-rotate-copy.png)
+
+<ExplainedCode code={transformRotateCopy} fileName="wheel.part.js">
+The spoke is kept separate with `.new()` so each copy is a clone of the spoke alone, not of a spoke already fused into the hub. A final `fuse()` with no arguments merges every solid in the file into one wheel.
+</ExplainedCode>
+
+For more than a couple of copies use a circular [copy](/docs/patterns/copy) or [repeat](/docs/patterns/repeat) pattern.
+
+## Code forms
+
+```js
+import { rotate } from 'fluidcad/core';
+
+rotate("z", 45)                    // turn the last object 45° around world Z
+rotate("z", 45, body)              // turn a specific solid
+rotate("z", 45, true, body)        // copy instead of move
+rotate(a, 90, p1, p2)              // around an axis() feature, several targets
+```
+
+The axis is anything axis-like: `"x"` / `"y"` / `"z"`, an `axis()` feature (offset or tilted from a world axis, read from an edge, or midway between two — see [Axes](/docs/datums/axes)), or an edge selection. Angles are in degrees.
+
+## Inside a sketch
+
+Called inside `sketch(...)`, `rotate()` turns **sketch geometry** in the plane about an explicit centre point: `rotate(30, [0, 0], c)`. See [Rotate](/docs/sketching/tools/rotate) in the sketch tools.

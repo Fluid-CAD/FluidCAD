@@ -1,0 +1,36 @@
+---
+sidebar_position: 2
+title: "Grounded"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import asmGrounded from '!!raw-loader!./_examples/asm-grounded.assembly.js';
+
+# Grounded
+
+A grounded instance does not move. It is the reference frame the solver places everything else against — the part you would bolt to the bench. Ground exactly one instance per mechanism; the joints carry the rest.
+
+## In the viewport
+
+- Right-click an instance's row in the **Parts** panel and choose **Toggle grounded**. A ground glyph appears on the row and `.grounded()` is chained onto its `insert()` statement. Toggling another row moves the glyph — and the chain — there.
+- A grounded instance ignores the transform gizmo and every mate: it stays where its `.translate()` / `.rotate()` put it.
+
+![Grounded base plate with a standoff fastened to one hole](/img/docs/assembly/asm-grounded.png)
+
+<ExplainedCode code={asmGrounded} fileName="grounded-example.assembly.js" />
+
+## Why one
+
+Mates are relative. With no grounded instance the whole cluster is free and the solver leaves it where the inserts placed it; with two grounded instances joined by a mate the mate has nothing to move and reports a conflict. A base with a hinged lever grounds the base; a lever hinged to a free frame grounds nothing and hinges to an [assembly connector](./introduction#assembly-connectors) instead.
+
+## Sub-assemblies
+
+Inside an `assembly()` body, `.grounded()` marks the anchor **of that body's frame**. Whether the anchor is fixed in the world depends on the parent:
+
+| Parent statement | Result |
+|------------------|--------|
+| `insert(sub)` | The occurrence is free; nothing inside it is world-grounded. |
+| `insert(sub).grounded()` | The occurrence's frame is pinned; the instances it declared grounded are pinned with it. |
+| A body with no declared anchor, inserted grounded | Its first instance is pinned as a fallback. |
+
+Grounding therefore reads top-down: a sub-assembly says "this is my base", and each parent says whether that base stands still.

@@ -1,0 +1,5 @@
+{
+  "label": "Dimensional Constraints",
+  "position": 3,
+  "link": { "type": "generated-index", "description": "Constraints with a value: distance, diameter, radius and angle." }
+}

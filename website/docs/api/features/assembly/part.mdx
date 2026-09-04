@@ -1,0 +1,62 @@
+---
+sidebar_position: 1
+title: "part"
+description: "Declares a reusable part: a named body of part-design statements with an optional `param()` interface. Returns a LAZY definition — geometry builds per variant when the definition is inserted (`insert(def, { Length: 380 })`) or when the defining file renders standalone:"
+---
+
+# part()
+
+Declares a reusable part: a named body of part-design statements with an
+optional `param()` interface. Returns a LAZY definition — geometry builds
+per variant when the definition is inserted (`insert(def, { Length: 380 })`)
+or when the defining file renders standalone:
+
+```js
+export const bushing = part('Bushing', () => {
+  const bore = param('Bore', 10, 'number', { min: 4 });
+  const s = sketch("xy", () => { circle([0, 0], 30); circle([0, 0], bore); });
+  const e = extrude(20);
+  connector('top', e.endFaces());
+  expose('profile', s);
+});
+
+```
+Equal override values share one template per scene (repeat inserts are
+cheap); geometry published with `expose('name', source)` is read back as
+`def.features.<name>` (the callback's return value is ignored).
+
+**Returns**: **`PartDefinition`**
+
+:::tip
+See the [guide](/docs/part/part-definition) for detailed usage examples.
+:::
+
+## Signatures
+
+```ts
+part(name: string, callback: () => T): PartDefinition<T>
+```
+
+Declares a reusable part: a named body of part-design statements with an
+optional `param()` interface. Returns a LAZY definition — geometry builds
+per variant when the definition is inserted (`insert(def, { Length: 380 })`)
+or when the defining file renders standalone:
+
+```js
+export const bushing = part('Bushing', () => {
+  const bore = param('Bore', 10, 'number', { min: 4 });
+  const s = sketch("xy", () => { circle([0, 0], 30); circle([0, 0], bore); });
+  const e = extrude(20);
+  connector('top', e.endFaces());
+  expose('profile', s);
+});
+
+```
+Equal override values share one template per scene (repeat inserts are
+cheap); geometry published with `expose('name', source)` is read back as
+`def.features.<name>` (the callback's return value is ignored).
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `name` | string |  |
+| `callback` | () =&gt; T |  |

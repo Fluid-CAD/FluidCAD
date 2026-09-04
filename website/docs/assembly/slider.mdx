@@ -1,0 +1,46 @@
+---
+sidebar_position: 4
+title: "Slider"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import asmSlider from '!!raw-loader!./_examples/asm-slider.assembly.js';
+import asmRail from '!!raw-loader!./_examples/asm-rail.part.js';
+import asmCarriage from '!!raw-loader!./_examples/asm-carriage.part.js';
+
+# Slider
+
+A slider mate leaves one degree of freedom: translation along the shared Z axis. Everything else — the other two translations and all three rotations — is locked. It is the joint of a carriage on a rail, a drawer in a cabinet, a key in a keyway.
+
+| Free motion | travel along Z |
+|---|---|
+
+## In the viewport
+
+1. Click **Slider** on the assembly toolbar and pick the two connectors — the rail's first, then the carriage's.
+2. The carriage snaps onto the rail. Drag it in the viewport: it moves along the rail and nowhere else.
+3. **Offset** takes a Z value only (the two frames share their axis, so an X or Y offset would contradict the joint); it sets where the carriage rests. **Limits** bound the travel in document units.
+4. Click **Apply**. Right-click the joint's row in the **Joints** panel and choose **Animate…** to drive it back and forth.
+
+![Carriage part-way along its rail](/img/docs/assembly/asm-slider.png)
+
+<ExplainedCode code={asmSlider} fileName="linear-stage.assembly.js">
+  Both connectors point Z along the direction of travel — the rail's top-face frame and the carriage's groove-ceiling frame, each turned 90° about its own Y:
+  <ExplainedCode code={asmRail} fileName="rail.part.js" title="rail.part.js" />
+  <ExplainedCode code={asmCarriage} fileName="carriage.part.js" title="carriage.part.js" />
+</ExplainedCode>
+
+## Options
+
+```js
+mate('slider', track.connectors.track, slide.connectors.slide)
+    .offset(0, 0, 25)     // rest 25 along the rail (Z only)
+    .limits(-45, 45)      // travel bounds, in document units
+    .flip()               // reverse which way the carriage faces along the rail
+```
+
+`.offset(x, y, z)` with a non-zero `x` or `y` is refused on a slider.
+
+## Choosing the connectors
+
+The free axis is the connectors' Z, so the connectors must point along the direction of travel. A face connector points out of its face; turn it with `.rotate('y', 90)` on the connector (as the rail and carriage do) or pick a straight edge, whose frame already has Z along the edge.

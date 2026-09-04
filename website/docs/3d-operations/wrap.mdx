@@ -1,0 +1,119 @@
+---
+sidebar_position: 10
+title: "Wrap"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import wrapBasic from '!!raw-loader!./_examples/wrap-basic.js';
+import wrapText from '!!raw-loader!./_examples/wrap-text.js';
+import wrapEngrave from '!!raw-loader!./_examples/wrap-engrave.js';
+import wrapRing from '!!raw-loader!./_examples/wrap-ring.js';
+import wrapCone from '!!raw-loader!./_examples/wrap-cone.js';
+
+# Wrap
+
+Wrap takes a flat sketch and bends it onto a cylindrical or conical face — like a label on a bottle — then raises it from the surface by a thickness. It is the tool for embossed logos, engraved text, and any feature that has to follow a curved wall.
+
+## In the viewport
+
+1. Sketch the decal on a plane tangent to (or parallel to) the target face, then click **Wrap** on the toolbar.
+2. The Wrap dialog:
+   - **Add / Remove / New** tabs — emboss, engrave, or keep the pad as its own body.
+   - The sketch slot, filled with the last sketch.
+   - **Cylindrical face** — click the face to wrap onto (a cylinder or a cone).
+   - The pad **thickness**, measured along the surface normal.
+3. Click **Apply**.
+
+![Basic wrap](/img/docs/3d-operations/wrap-basic.png)
+
+<ExplainedCode code={wrapBasic} fileName="label.part.js" />
+
+In code the arguments are the thickness, the sketch and the target face:
+
+```js
+wrap(2, decal, target)      // wrap the sketch `decal` onto the face `target`
+```
+
+## True wrap, not a projection
+
+A projection would squash the sketch as the surface curves away. Wrap instead unrolls the surface flat, places the sketch on it, and rolls it back up — a 30 mm wide rectangle becomes exactly 30 mm of arc. Text stays readable at any width, and a sketch wide enough goes all the way around the target (up to one full turn).
+
+The placement follows the sketch plane:
+
+- The sketch plane's origin "touches down" on the nearest point of the surface — sketch coordinates are measured from there along the unrolled surface.
+- The direction of the surface axis maps to the sketch plane's matching in-plane direction, so for the usual setup — a plane tangent to (or offset from) the cylinder — the sketch wraps exactly as drawn.
+
+The sketch plane does not need to touch the surface: its offset is ignored, only its origin and orientation matter.
+
+## Text decals
+
+Text wraps glyph by glyph with no distortion:
+
+![Wrapped text](/img/docs/3d-operations/wrap-text.png)
+
+<ExplainedCode code={wrapText} />
+
+## Engraving
+
+The **Remove** tab sinks the sketch into the surface instead of raising it — the thickness becomes the engraving depth:
+
+![Engraved text](/img/docs/3d-operations/wrap-engrave.png)
+
+<ExplainedCode code={wrapEngrave} />
+
+## Holes
+
+Sketch regions keep their holes: nest a profile inside another and the inner region is subtracted, walls and all. A frame with a window:
+
+![Wrapped frame with a window](/img/docs/3d-operations/wrap-ring.png)
+
+<ExplainedCode code={wrapRing} />
+
+## Conical faces
+
+Cones unroll into a fan rather than a flat strip, and wrap accounts for that — features curve with the cone's development, staying true to their sketched dimensions along the surface:
+
+![Slot wrapped onto a cone](/img/docs/3d-operations/wrap-cone.png)
+
+<ExplainedCode code={wrapCone} />
+
+## Fusion scope
+
+Wrap is a boolean operation with the usual scope controls — the dialog's three tabs plus `.scope()` in code:
+
+```js
+wrap(2, decal, target)                  // fuse with all touching solids (default)
+wrap(2, decal, target).remove()         // engrave instead of emboss
+wrap(2, decal, target).new()            // keep the pad as a separate solid
+wrap(2, decal, target).add().scope(c)   // fuse only with `c`
+```
+
+## Region picking
+
+Like extrude, the sketch is partitioned into regions first. Use `.pick()` to wrap only the regions containing the given points, or `.drill(false)` to disable hole drilling:
+
+```js
+wrap(2, decal, target).pick([5, 25])    // only the region containing this point
+wrap(2, decal, target).drill(false)     // treat nested profiles as separate regions
+```
+
+## Accessing geometry
+
+```js
+const w = wrap(2, decal, target)
+
+w.startFaces()      // faces lying on the target surface (the pad's base)
+w.endFaces()        // raised (or engraved) faces offset by the thickness
+w.sideFaces()       // walls around each region's outer boundary
+w.internalFaces()   // walls of holes inside a region
+w.startEdges()      // edges on the base faces
+w.endEdges()        // edges on the offset faces
+w.sideEdges()       // edges along the outer walls
+w.internalEdges()   // edges along the hole walls
+```
+
+## Limitations
+
+- The target must be a **cylindrical or conical** face — the only surfaces a sketch can wrap onto without distortion. For other faces, consider [extrude up to a face](/docs/3d-operations/extrude#up-to-face) instead.
+- The sketch cannot be wider than one full turn around the target.
+- The sketch plane must not be perpendicular to the target's axis (there would be no direction to wrap around), and its origin must not lie on the axis.

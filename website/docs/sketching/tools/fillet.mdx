@@ -1,0 +1,34 @@
+---
+sidebar_position: 2
+title: "Fillet"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import toolFillet from '!!raw-loader!../_examples/tool-fillet.js';
+
+# Fillet
+
+A 2D fillet rounds the corner where two sketch edges meet: the edges are trimmed back and a tangent arc fills the gap.
+
+## In the viewport
+
+1. Click **Fillet** on the sketch toolbar. The Fillet dialog opens with a **Radius** field.
+2. Click the two edges that share the corner — or several edges to round every corner they share. Each pick shows as a chip.
+3. **Apply**.
+
+The tool does not write a `fillet()` call. For each corner it writes a real [`arc()`](/docs/sketching/primitives/arc) plus the constraints that make it a fillet: two `coincident` (the arc's ends onto the trimmed edges), two `tangent`, one `radius` dimension on the first arc and `equal` across the rest. The corner's old coincident is removed in the same edit, and the solver pulls the edge endpoints back to the tangent points. Everything about the fillet is therefore editable afterwards: drag the arc, change the radius label, or delete the arc and the corner closes again.
+
+![A mounting plate with rounded corners](/img/docs/sketching/tool-fillet.png)
+
+<ExplainedCode code={toolFillet} fileName="plate.part.js">
+By hand the derived form is shorter: one `fillet(radius, ...lines)` call rounds every corner the listed lines share. It is written after the constraints, like every derived operation.
+</ExplainedCode>
+
+## By hand
+
+```js
+fillet(radius, l1, l2)             // one corner
+fillet(radius, l1, l2, l3, l4)     // every corner the lines share
+```
+
+Outside a sketch, `fillet()` rounds the edges of solids — the 3D counterpart on the [Fillet](/docs/3d-operations/fillet) page.

@@ -1,0 +1,45 @@
+---
+sidebar_position: 4
+title: "Subtract"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import booleanSubtract from '!!raw-loader!./_examples/boolean-subtract.js';
+
+# Subtract
+
+Subtract removes one solid's volume from another: the **base** keeps everything the **tool** does not occupy. It is the boolean behind cavities shaped by a second body — a mould around a part, a clearance pocket the size of a mating component.
+
+## In the viewport
+
+1. Click **Boolean** on the toolbar and choose the **Subtract** tab.
+2. Click the solid to keep; it fills the **Base** slot. Click the solid to remove; it fills the **Tool** slot. Arm either slot by clicking it to change the pick.
+3. Click **Apply**. The tool is consumed and the base loses its volume.
+
+![A hub with its bore subtracted](/img/docs/booleans/boolean-subtract.png)
+
+<ExplainedCode code={booleanSubtract} fileName="hub.part.js">
+The bore body is extruded with `.new()` so it stays a separate solid until the boolean runs; without it the two would fuse and there would be nothing to subtract.
+</ExplainedCode>
+
+## Code forms
+
+```js
+import { subtract } from 'fluidcad/core';
+
+subtract(base, tool)     // keep base, remove tool's volume
+```
+
+Both arguments are required and the order matters. The result's new faces are the tool's surfaces where they crossed the base:
+
+```js
+const s = subtract(box, cyl)
+s.internalFaces()        // the cavity walls
+s.internalEdges()
+```
+
+## Subtract versus cut
+
+For a pocket or a hole whose shape you can sketch, use the extrude dialog's **Remove** tab (`cut()`): it sketches and removes in one step and stays parametric with the sketch. `subtract()` is for removing a body that already exists as a solid — an imported part, a revolved or lofted shape, another feature's result.
+
+Inside a sketch, holes need no boolean at all: a closed profile drawn inside another becomes a hole when the sketch is extruded.

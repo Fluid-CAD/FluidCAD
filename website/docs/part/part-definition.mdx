@@ -1,0 +1,64 @@
+---
+sidebar_position: 2
+title: "Part"
+---
+
+# part()
+
+`part(name, callback)` declares a named part. Everything the callback does — sketches, features, connectors, exposures, parameters — belongs to that part.
+
+```js
+import { part, sketch, circle, extrude } from 'fluidcad/core';
+
+export const disc = part('Disc', () => {
+    sketch('xy', () => {
+        circle([0, 0], 40);
+    });
+    extrude(5);
+});
+```
+
+## In the viewport
+
+Click **Part** on the toolbar. FluidCAD appends `part('Part N', () => {})` to the file, activates it, and routes the next features into its body. Rename it from the timeline row's right-click menu. There is no Apply: the statement is written the moment you click.
+
+## The definition is lazy
+
+`part()` returns a **definition**, not built geometry. The callback runs:
+
+- when the file renders on its own — the open part file stays what-you-see-is-what-you-get, so a part nothing exports or inserts still shows in the viewport;
+- once per **variant** when an assembly inserts it: `insert(def)` and `insert(def, { Width: 120 })` are two builds, while two `insert(def, { Width: 120 })` share one.
+
+Because the body runs later, it must be self-contained: read parameters with [`param()`](./param) inside the callback, not from variables computed outside it.
+
+## Arguments
+
+| Argument | Meaning |
+|----------|---------|
+| `name` | The part's display name — in the timeline, the Parts panel, and the STEP product tree on export. |
+| `callback` | The body. Its return value is ignored; publish geometry with [`expose()`](./expose). |
+
+## What the definition gives you
+
+| Member | Meaning |
+|--------|---------|
+| `def.features.<name>` | The source object an [`expose()`](./expose) published, for another part to build on: `extrude(15, donor.features.profile)`. |
+| `insert(def)` | In an assembly: an instance of the part with `instance.connectors.<name>` and `instance.features.<name>` bound to it. |
+
+## Export it
+
+An assembly can only insert what the part file exports:
+
+```js
+export const bracket = part('Bracket', () => { /* … */ });
+```
+
+The Insert dialog scans the workspace for exported definitions and lists each with a thumbnail and the file it came from. Two files may each export a `part` — the assembly's import gets a local alias automatically when the dialog writes it.
+
+## Fusion boundary
+
+Solids inside a part fuse with each other and with nothing outside it. That is the older reason for `part()`, and it still holds: put a bolt and the bracket it sits in into two parts and they stay two solids. Inside one part, `.new()` still keeps a feature as a separate body.
+
+## Units
+
+The part's numbers are in its file's unit. Inserted into a project with a different unit it is rescaled on the way in — a 2 in boss is 50.8 mm in a millimetre assembly. `insert(def, { Length: 10 })` means 10 in the **part's** unit. See [Units](/docs/extra/units).

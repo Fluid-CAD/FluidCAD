@@ -1,0 +1,65 @@
+---
+sidebar_position: 4
+title: "Connector"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import partConnector from '!!raw-loader!./_examples/part-connector.js';
+
+# connector()
+
+A connector is a named coordinate frame attached to the part's geometry — an origin, an X direction and a Z normal. Mates in an assembly join connectors to connectors, so the connectors a part declares are its mating interface. Every instance of the part carries the same set.
+
+## In the viewport
+
+1. Click **Connector** on the toolbar. The Connector dialog docks on the right with its **Source** slot armed.
+2. Hover the model. Faces and edges float their anchor candidates — the centre of a face, the centre, start or end of an edge — as a translucent frame. Click the one you want; the chip shows it.
+3. Fill in the **Name** (a free `c1`-style default is prefilled). Adjust the frame-local **Offset** x / y / z and click the rotation stepper to turn the frame 90° about its own Z per click.
+4. Click **Apply**. The statement is written directly in the part body and the timeline's part row gains a connector under its *N connectors* toggle. In the viewport the connector renders as a small axis triad.
+
+![Angle bracket with its mating frames](/img/docs/part/part-connector.png)
+
+<ExplainedCode code={partConnector} fileName="bracket.part.js" />
+
+The bracket names the faces a neighbour will touch — `foot` for the surface it stands on, `back` for the beam it hangs from — and the two holes a fastener seats in. In an assembly, `mate('fastened', beam.connectors.side, bracket.connectors.back)` hangs it on the beam.
+
+## Signature
+
+```ts
+connector(name, source, options?)
+```
+
+| Argument | Meaning |
+|----------|---------|
+| `name` | Identifier, unique within the part. Reached as `instance.connectors.<name>`. |
+| `source` | The geometry the frame is derived from — see below. |
+| `options.xDirection` | Optional X direction (an axis name or vector), re-orthogonalised against the frame's Z. |
+
+Two chained modifiers move the frame after it is derived, in call order:
+
+| Modifier | Effect |
+|----------|--------|
+| `.offset(x, y?, z?)` | Translate the origin along the frame's own axes. |
+| `.rotate('x' \| 'y' \| 'z', degrees)` | Rotate the frame about one of its own axes, pivoting at its origin. |
+
+## Where the frame comes from
+
+| Source | Origin | Z |
+|--------|--------|---|
+| A planar face — `select(face().onPlane('xy', 10))` | Face centre | Face normal, pointing out of the solid |
+| A circular edge — `select(edge().circle())` | Circle centre | Circle axis |
+| A straight edge — `select(edge().line())` | Edge midpoint | Edge tangent |
+| A vertex | The point | World Z |
+| An anchored vertex — `e.endFaces().center()`, `sel.start()`, `sel.end()` | The anchor point | The anchored face or edge's own direction |
+| A plane — `plane('xy', { offset: 20 })` | Plane origin | Plane normal |
+
+The source must resolve to exactly one face, edge or vertex. A raw point is refused on purpose: a frame tied to geometry re-derives correctly when the part changes; a hard-coded point would drift.
+
+Face frames follow the outward normal, so two parts mated **face-to-face** end up with their connector Zs pointing at each other — that is the default a [mate](/docs/assembly/introduction) assumes, and `.flip()` on the mate is how you get the other way round.
+
+## Rules
+
+- Declare connectors **directly in the part body**, not inside a `sketch()` or other callback — nested, the connector would register nowhere and the statement is refused.
+- Names are unique within a part; a part connector and an assembly connector may share a name.
+- Connectors are part-owned. There is no way to add one to a single instance from the assembly; edit the part, or use an assembly-level free frame (`connector('name', [x, y, z])`, see the [assembly introduction](/docs/assembly/introduction#assembly-connectors)).
+- The pen button on a connector chip in the mate dialog edits a part connector's name, offset and rotation from the assembly — the edit is written into the part file.

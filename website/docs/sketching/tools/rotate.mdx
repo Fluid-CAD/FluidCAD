@@ -1,0 +1,33 @@
+---
+sidebar_position: 5
+title: "Rotate"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import toolRotate from '!!raw-loader!../_examples/tool-rotate.js';
+
+# Rotate
+
+Rotate turns sketch geometry by an angle about a point in the sketch plane — in place, or as rotated copies.
+
+## In the viewport
+
+1. Click **Rotate** on the sketch toolbar. The Rotate dialog opens with an **Angle** field (degrees), a **Center** slot and a **Copy** toggle.
+2. Click the edges of the geometry to rotate; they collect as chips.
+3. Click the **Center** slot, then a sketch point — an endpoint, a circle centre, or the origin.
+4. Turn **Copy** on to keep the originals and add rotated copies. **Apply**.
+
+![A hub with its mounting tab rotated 30°](/img/docs/sketching/tool-rotate.png)
+
+<ExplainedCode code={toolRotate} fileName="plate.part.js" />
+
+## By hand
+
+```js
+rotate(angle, center, ...targets)          // rotate in place
+rotate(angle, center, true, ...targets)    // keep the originals, add copies
+```
+
+The centre is **required** in a sketch. Rotation happens in the sketch plane about the plane normal through that point, so no axis argument is needed and `local()` does not apply. With no targets, all of the sketch's geometry rotates.
+
+`rotate()` outside a sketch turns solids about an axis — see [Transforms → Rotate](/docs/transforms/rotate).

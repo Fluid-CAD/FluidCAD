@@ -1,0 +1,35 @@
+---
+sidebar_position: 6
+title: "Perpendicular"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import constraintPerpendicular from '!!raw-loader!../../_examples/constraint-perpendicular.js';
+
+# Perpendicular
+
+`perpendicular` holds two lines at 90° to each other. Unlike `horizontal` + `vertical`, it says nothing about the sketch axes — tilt one line and the other follows, still square.
+
+## In the viewport
+
+1. Click two lines.
+2. Click **Perpendicular**. The pair gets a `⊥` badge at their junction (or on the second line when they do not meet).
+
+![An L-bracket on a 20° incline with square corners](/img/docs/sketching/constraint-perpendicular.png)
+
+<ExplainedCode code={constraintPerpendicular} fileName="bracket.part.js">
+The foot is held at 20° by an `angle` against the X axis. Five `perpendicular` statements (1 DOF each) square every corner of the bracket to the foot and the upright rather than to the sketch axes; two line–line `distance` dimensions set the leg thickness. Change the incline and the whole bracket rotates, still square.
+</ExplainedCode>
+
+## In code
+
+```js
+perpendicular(a, b)              // 1 DOF
+```
+
+Both arguments are lines; the segments do not need to touch. For a fixed 90° that should *also* follow the sketch axes, use `horizontal` and `vertical` instead — they are cheaper for the solver and read better in the timeline.
+
+## See also
+
+- [Parallel](/docs/sketching/constraints/positional/parallel)
+- [Angle](/docs/sketching/constraints/dimensional/angle) — any angle other than 90°

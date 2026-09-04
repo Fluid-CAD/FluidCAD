@@ -1,0 +1,82 @@
+---
+sidebar_position: 1
+title: "Introduction"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import partsExample from '!!raw-loader!./_examples/parts-example.js';
+
+# Parts
+
+A part is a named container for modelling statements. Inside it, sketches, extrudes and cuts fuse and interact the way they do anywhere else; across its boundary, nothing fuses. A part is also the unit an assembly works with: only an exported `part()` definition can be inserted, mated and animated.
+
+## When you need one
+
+- **A standalone model does not need a part.** A `.part.js` file with bare statements renders as it always has.
+- **A model that will be inserted into an assembly must be a part**, and the file must `export` it. The Insert dialog lists the exported definitions it finds in the workspace.
+- **Several components in one file** each get their own part so they stay separate solids.
+
+The convention is one part per `.part.js` file, named after the thing it is: `bracket.part.js` exports `bracket`. `npx fluidcad init` writes the starter this way.
+
+## In the viewport
+
+1. Click **Part** on the toolbar. The statement `part('Part N', () => {})` is appended to the file and the new part becomes the active container — every feature you create next lands inside its callback.
+2. The timeline shows the part as a row that groups its features. Its connectors and exposed geometry fold behind *N connectors* and *N exposed* toggle rows, so a part with a dozen of them keeps a readable modelling history.
+3. Right-click the row to **Rename** it; the name is what an assembly's Parts panel shows.
+
+## Two parts in one file
+
+Two solids that touch but must stay separate:
+
+![Base and pillar parts](/img/docs/part/parts-example.png)
+
+<ExplainedCode code={partsExample} fileName="pedestal.part.js" />
+
+Shapes inside `"base"` fuse with each other, shapes inside `"pillar"` fuse with each other, and the pillar never merges into the base even though it sits on it.
+
+## What a part carries
+
+| Statement | Role | Read back as |
+|-----------|------|--------------|
+| [`part()`](/docs/part/part-definition) | The container and its name; exported, it is a lazy definition an assembly inserts | `insert(def)` |
+| [`param()`](./param) | The part's parameter interface — every value an assembly can override per instance | `insert(def, { Width: 120 })` |
+| [`connector()`](./connector) | A mate frame attached to real geometry; the part's mating interface | `instance.connectors.name` |
+| [`expose()`](./expose) | Published geometry another part builds on, or a tangent mate touches | `def.features.name`, `instance.features.name` |
+
+## Reusable, parametric parts
+
+A part definition is lazy: its callback does not run until the part is rendered on its own or inserted. Declare `param()` values inside it and every `insert(def, { … })` builds its own variant — equal override values share one build, so repeated inserts are cheap.
+
+```js
+// extrusion.part.js
+import { part, param, sketch, circle, extrude, connector } from 'fluidcad/core';
+
+export const extrusion = part('Extrusion', () => {
+    const length = param('Length', 150, 'number', { min: 20 });
+    sketch('xy', () => {
+        circle([0, 0], 20);
+    });
+    const e = extrude(length);
+    connector('start', e.startFaces());
+    connector('end', e.endFaces());
+});
+```
+
+```js
+// frame.assembly.js
+import { assembly, insert } from 'fluidcad/core';
+import { extrusion } from './extrusion.part.js';
+
+export const frame = assembly('frame', () => {
+    insert(extrusion, { Length: 380 }).grounded();
+    insert(extrusion, { Length: 220 }).translate(100, 0, 0);
+});
+```
+
+(The [Param](./param) page builds the real profile.)
+
+The wrap-in-a-function pattern from older FluidCAD versions (`export function createPart(diameter) { return part(...) }`) still works, but `param()` is what the Insert dialog and the Parameters panel understand.
+
+## Units
+
+A part is built in the unit of its own file (`unit('in')` at the top, or the project default). An assembly inserts it scaled into the project unit, connectors included; parameter overrides stay in the part's unit. See [Units](/docs/extra/units).

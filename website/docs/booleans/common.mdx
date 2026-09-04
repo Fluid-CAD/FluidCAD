@@ -1,0 +1,33 @@
+---
+sidebar_position: 3
+title: "Common"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import booleanCommon from '!!raw-loader!./_examples/boolean-common.js';
+
+# Common
+
+Common keeps only the volume that lies inside **every** input solid — the intersection. It is the boolean for rounding a box off with a cylinder, trimming a body to an envelope, or reading the overlap of two parts.
+
+## In the viewport
+
+1. Click **Boolean** on the toolbar and choose the **Common** tab.
+2. Click the solids to intersect; each becomes a chip in the **Solids** slot.
+3. Click **Apply**. Everything outside the overlap is gone.
+
+![A drive peg: the volume a square bar and a round shaft share](/img/docs/booleans/boolean-common.png)
+
+<ExplainedCode code={booleanCommon} fileName="peg.part.js" />
+
+## Code forms
+
+```js
+import { common } from 'fluidcad/core';
+
+common(a, b)        // the overlap of two solids
+common(a, b, c)     // the volume inside all three
+common()            // every solid in the current context
+```
+
+Solids that do not overlap produce an empty result, which the feature reports as an error rather than a silent empty body. The inputs are consumed; the surviving faces keep their colours.

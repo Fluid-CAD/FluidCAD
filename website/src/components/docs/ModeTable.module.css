@@ -1,0 +1,43 @@
+.wrap {
+  overflow-x: auto;
+  margin-bottom: var(--ifm-leading);
+}
+
+.grid {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 36rem;
+}
+
+.cell {
+  border: 1px solid var(--ifm-color-emphasis-200);
+  border-radius: var(--ifm-global-radius);
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--ifm-background-surface-color);
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.head code {
+  font-size: 0.8rem;
+  align-self: flex-start;
+}
+
+.cell img {
+  width: 100%;
+  border-radius: calc(var(--ifm-global-radius) / 2);
+  background: var(--ifm-color-emphasis-100);
+}
+
+.desc {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--ifm-color-emphasis-800);
+}

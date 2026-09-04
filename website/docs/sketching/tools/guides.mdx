@@ -1,0 +1,56 @@
+---
+sidebar_position: 7
+title: "Guides"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import toolGuideBasic from '!!raw-loader!../_examples/tool-guide-basic.js';
+import toolGuideAlignment from '!!raw-loader!../_examples/tool-guide-alignment.js';
+
+# Guides
+
+Guides are construction geometry: drawn and constrained like everything else, visible in the viewport, but left out of the profile when the sketch becomes a face. Use them for layout circles, centre lines, mirror lines and anything you constrain against but do not want extruded.
+
+## In the viewport
+
+1. Latch the **Guide** button on the sketch toolbar.
+2. Draw as usual — every shape committed while the latch is on is written with a `.guide()` suffix and renders in the construction style.
+3. Unlatch to go back to profile geometry. The latch also releases when the toolbar hides.
+
+An existing shape can be turned into a guide by adding `.guide()` to its statement in the editor.
+
+![A hex nut outline laid out on a guide circle](/img/docs/sketching/tool-guide-basic.png)
+
+<ExplainedCode code={toolGuideBasic} fileName="plate.part.js" />
+
+## By hand
+
+```js
+circle([0, 0], 100).guide()
+line([0, 0], [100, 100]).guide()
+```
+
+## Constraining against guides
+
+A guide is a full solver entity. The hexagon above rides its guide circle through `coincident(s1.start(), layout)`; a centre held somewhere along a construction line is:
+
+```js
+sketch("xy", () => {
+    const diag = line([0, 0], [100, 100]).guide()   // construction line
+    const c = circle([30, 30], 20)                  // real geometry
+    coincident(c.center(), diag)                    // centred somewhere on the diagonal
+})
+```
+
+## Alignment reference
+
+![A three-bolt flange: holes on a guide pitch circle](/img/docs/sketching/tool-guide-alignment.png)
+
+<ExplainedCode code={toolGuideAlignment} fileName="plate.part.js" />
+
+## Guides and the other tools
+
+- A target-less [`offset()`](/docs/sketching/tools/offset) skips guides; pass them explicitly to offset them.
+- [Text along a path](/docs/sketching/compound/text#text-along-a-path) usually follows a guide, so the path does not end up in the extrusion.
+- A guide line is the natural [mirror](/docs/sketching/tools/mirror) line.
+- Projections are marked `.guide()` for the same reason: the reference outline stays out of the profile.

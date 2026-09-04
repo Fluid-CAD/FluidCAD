@@ -1,0 +1,74 @@
+---
+sidebar_position: 3
+title: "Param"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import partParam from '!!raw-loader!./_examples/part-param.js';
+
+# param()
+
+`param()` declares a named value with a control. In a part file it shows up in the **Parameters** panel; in an assembly it is the interface `insert(def, { … })` overrides per instance.
+
+## In the viewport
+
+1. Open the **Parameters** panel from the left rail. Every `param()` in the file is one control: a number field, a slider, a text field, a select, a checkbox or a colour swatch.
+2. Change a value. The model re-renders and the new value is written back to the `param()` statement's default.
+3. Click **+** to add a parameter. The dialog asks for **Label**, **Type**, and, per type, **Min / Max / Step**, the select **options** and how they are **Shown as**, plus a **Group** and **Description**. It writes the `param()` call at the top of the part body. Edit or delete a parameter from its row's menu.
+4. Reset restores every parameter to its default.
+
+Every numeric field in a feature dialog accepts an expression, and an expression can name a parameter: type `Length / 2` in an Extrude's Distance field and the statement is written with that expression.
+
+![Parametric extrusion](/img/docs/part/part-param.png)
+
+<ExplainedCode code={partParam} fileName="extrusion.part.js" />
+
+## Signature
+
+```ts
+param(label, defaultValue)                    // control inferred from the default
+param(label, defaultValue, type, options?)    // explicit control
+```
+
+The return value is the resolved value — a plain number, string, boolean or array — so the rest of the body uses it like any variable. The **label** is the key: what the panel shows and what an assembly override names.
+
+## Types and options
+
+| `type` | Default value | Options |
+|--------|---------------|---------|
+| `'number'` | number | `min`, `max`, `step` |
+| `'slider'` | number | `min`, `max`, `step` |
+| `'text'` | string | — |
+| `'select'` | one option's `value` (or an array with `multi: true`) | `options: [{ label, value }]`, `multi`, `multiControlType: 'select' \| 'checkboxes' \| 'chips'` |
+| `'checkbox'` | boolean | — |
+| `'color'` | CSS colour string | — |
+
+Every type also takes `group` (parameters with the same group fold together in the panel) and `description` (shown as the control's help text).
+
+Without a `type`, the control follows the default value: a boolean is a checkbox, a number a number field, a string a text field.
+
+```js
+const teeth = param('Teeth', 24, 'number', { min: 8, max: 120, step: 1, group: 'Gear' });
+const tint = param('Body colour', '#4a90d9', 'color');
+const finish = param('Finish', ['deburr'], 'select', {
+    options: [{ label: 'Deburr', value: 'deburr' }, { label: 'Anodise', value: 'anodise' }],
+    multi: true,
+    multiControlType: 'chips',
+});
+```
+
+## Overrides from an assembly
+
+Inside a `part()` body the declaration is collected as the definition's parameter interface instead of registering in the file's panel. An assembly then supplies values per instance:
+
+```js
+insert(extrusion, { Length: 380, Series: 30 });
+```
+
+The Insert dialog builds this object for you — one page of controls per queued instance — and the Parts panel's **Edit parameters…** re-opens it on an existing instance. Only the labels you change travel into the statement; an override the part never reads is reported as a warning. Values are read in the **part file's unit**.
+
+## Rules
+
+- Declare parameters at the top of the part body, before the geometry that uses them.
+- Labels are unique within a part.
+- A parameter used in a sketch dimension re-solves the sketch on every change: `distance(a, b, width)` is the parametric form of a dimension.

@@ -1,0 +1,79 @@
+---
+sidebar_position: 4
+title: "Editor Setup"
+---
+
+# Editor Setup
+
+FluidCAD runs in a browser tab on its own — no editor required. If you'd rather
+keep modelling in the editor you already use, it also ships official extensions
+for VS Code and Neovim. Every option drives the same engine and the same live 3D
+viewport; pick whichever fits your workflow.
+
+## FluidCAD on its own (recommended)
+
+From your project directory:
+
+```bash
+npx fluidcad serve
+```
+
+Your browser opens on the whole product: the 3D viewport, every interactive
+modelling tool, and a code editor with completion driven by the engine's own
+type declarations — so `extrude(` shows its signature and `edge().onPlane(`
+completes, always matching the version you're running.
+
+The code editor stays hidden until you ask for it. Open it from the ☰ menu or
+with <kbd>Ctrl</kbd>+<kbd>B</kbd>; it takes width from the left, so the model
+narrows rather than being covered. Files are tabs in the top bar, added with
+`+` — there's no file tree, because the editor already knows about every file
+in the workspace.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-w, --workspace <path>` | Path to your project | Current directory |
+| `-p, --port <port>` | Server port — if it's already taken, the next free one is used | `3100` |
+| `--no-open` | Don't launch a browser — for CI and remote sessions | _opens by default_ |
+
+To run from elsewhere, point `-w` at your project: `npx fluidcad serve -w ./my-app`.
+
+## VS Code
+
+1. Install the **FluidCAD** extension from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=FluidCAD.fluidcad).
+2. Open your project folder in VS Code.
+3. Open the Command Palette (`Ctrl+Shift+P` on Windows/Linux, `Cmd+Shift+P` on macOS) and run **Show FluidCAD Scene**.
+
+A 3D viewport opens in a side panel. It updates live as you edit any `.part.js` file.
+
+## Neovim
+
+Add the plugin with [lazy.nvim](https://github.com/folke/lazy.nvim):
+
+```lua
+{
+  "Fluid-CAD/FluidCAD",
+  config = function()
+    require("fluidcad").setup()
+  end,
+  ft = { "javascript" },
+}
+```
+
+Open a `.part.js` file — the server starts automatically. Run `:FluidCadOpenBrowser` to open the 3D viewport in your browser.
+
+## Any other editor
+
+`npx fluidcad serve` works alongside any editor too: leave the browser tab on
+the viewport and edit `.part.js` in whatever you prefer — the model rebuilds on
+save. Opening the same file in two editors at once is the one thing to avoid.
+
+## Beyond `serve`
+
+The same CLI writes STEP, STL, and PNG files without opening the UI, and runs the MCP server that lets AI agents drive your workspace:
+
+```bash
+npx fluidcad export step                     # every shape → <entry>.step
+npx fluidcad export png --view front --open
+```
+
+See the [CLI Reference](/docs/cli) for every command and flag, or run `npx fluidcad --help`.

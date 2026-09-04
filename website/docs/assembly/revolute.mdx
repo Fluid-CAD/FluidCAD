@@ -1,0 +1,45 @@
+---
+sidebar_position: 5
+title: "Revolute"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import asmRevolute from '!!raw-loader!./_examples/asm-revolute.assembly.js';
+import asmLever from '!!raw-loader!./_examples/asm-lever.part.js';
+import asmPin from '!!raw-loader!./_examples/asm-pin.part.js';
+
+# Revolute
+
+A revolute mate is a hinge: the two connectors share an origin and a Z axis, and the second part is free to rotate about it. It is the joint of a lever on a pivot, a door on its hinge, a wheel on an axle.
+
+| Free motion | rotation about Z |
+|---|---|
+
+## In the viewport
+
+1. Click **Revolute** on the assembly toolbar and pick the two connectors — the fixed part's pivot first, then the swinging part's.
+2. The part snaps onto the pivot. Drag it in the viewport and it swings about the axis.
+3. **Rotate** sets the rest angle in degrees (30° in the picture); **Limits** bound the swing (degrees); **Offset** shifts the hinge point in the driver's frame — any axis, so a lever can hinge beside a connector rather than on it.
+4. Click **Apply**. The joint's row in the **Joints** panel offers **Animate…**, which sweeps the angle between the limits — see [Animating a joint](/docs/getting-started/animate-joint).
+
+![Lever hinged on the base plate at 30°, held by its pin](/img/docs/assembly/asm-revolute.png)
+
+<ExplainedCode code={asmRevolute} fileName="lever-assembly.assembly.js">
+  The lever's `pivot` frame is a plane connector at its pivot hole, facing down like the underside it lies in, so it meets the plate's upward `bore` frame face-to-face and the lever sits flat on the plate. The pin is a second, fastened mate:
+  <ExplainedCode code={asmLever} fileName="lever.part.js" title="lever.part.js" />
+  <ExplainedCode code={asmPin} fileName="pin.part.js" title="pin.part.js" />
+</ExplainedCode>
+
+## Options
+
+```js
+mate('revolute', base.connectors.bore, arm.connectors.pivot)
+    .rotate(30)           // rest angle, degrees about the shared Z
+    .limits(-45, 45)      // swing bounds, degrees
+    .offset(0, 0, 2)      // lift the hinge 2 along the driver's Z
+    .flip()               // hinge from the other side
+```
+
+## The pivot axis
+
+The axis is the connectors' Z. A face connector on the face the part rests on gives a hinge perpendicular to that face — the usual case. For a hinge along an edge, put the connector on the edge itself: a straight-edge frame has Z along the edge, a circular-edge frame has Z along the circle's axis.

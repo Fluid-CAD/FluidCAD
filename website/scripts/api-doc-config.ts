@@ -1,4 +1,4 @@
-export type FeatureCategory = '2d' | '3d' | 'transforms' | 'utilities';
+export type FeatureCategory = '2d' | '3d' | 'transforms' | 'utilities' | 'assembly';
 
 export interface FeatureEntry {
   name: string;
@@ -10,6 +10,9 @@ export interface FeatureEntry {
    * extract the JSDoc from this exported variable instead of a call-signature
    * interface. */
   constName?: string;
+  /** For commands exported as a plain function (with or without overloads):
+   * extract the JSDoc and parameters from this function declaration. */
+  functionName?: string;
   returnType: string;
   relatedGuide?: string;
   sidebarPosition: number;
@@ -59,6 +62,7 @@ export const categoryLabels: Record<FeatureCategory, string> = {
   '3d': '3D Operations',
   'transforms': 'Transforms',
   'utilities': 'Utilities',
+  'assembly': 'Parts & Assemblies',
 };
 
 export const categoryPositions: Record<FeatureCategory, number> = {
@@ -66,63 +70,73 @@ export const categoryPositions: Record<FeatureCategory, number> = {
   '3d': 2,
   'transforms': 3,
   'utilities': 4,
+  'assembly': 5,
 };
 
 export const features: FeatureEntry[] = [
   // 2D Sketching — Basic Geometry
-  { name: 'line', displayName: 'line', category: '2d', sourceFile: 'core/2d/line.ts', interfaceName: 'LineFunction', returnType: 'ISolvedLine', relatedGuide: '/docs/guides/sketching/introduction', sidebarPosition: 1 },
+  { name: 'line', displayName: 'line', category: '2d', sourceFile: 'core/2d/line.ts', interfaceName: 'LineFunction', returnType: 'ISolvedLine', relatedGuide: '/docs/sketching/introduction', sidebarPosition: 1 },
   { name: 'arc', displayName: 'arc', category: '2d', sourceFile: 'core/2d/arc.ts', interfaceName: 'ArcFunction', returnType: 'ISolvedArc', sidebarPosition: 2 },
-  { name: 'circle', displayName: 'circle', category: '2d', sourceFile: 'core/2d/circle.ts', interfaceName: 'CircleFunction', returnType: 'ISolvedCircle', relatedGuide: '/docs/guides/sketching/primitives', sidebarPosition: 3 },
-  { name: 'ellipse', displayName: 'ellipse', category: '2d', sourceFile: 'core/2d/ellipse.ts', interfaceName: 'EllipseFunction', returnType: 'IEllipse', relatedGuide: '/docs/guides/sketching/primitives', sidebarPosition: 4 },
+  { name: 'circle', displayName: 'circle', category: '2d', sourceFile: 'core/2d/circle.ts', interfaceName: 'CircleFunction', returnType: 'ISolvedCircle', relatedGuide: '/docs/sketching/primitives/line', sidebarPosition: 3 },
+  { name: 'ellipse', displayName: 'ellipse', category: '2d', sourceFile: 'core/2d/ellipse.ts', interfaceName: 'EllipseFunction', returnType: 'IEllipse', relatedGuide: '/docs/sketching/primitives/line', sidebarPosition: 4 },
   { name: 'point', displayName: 'point', category: '2d', sourceFile: 'core/2d/point.ts', interfaceName: 'PointFunction', returnType: 'IGeometry', sidebarPosition: 5 },
   { name: 'bezier', displayName: 'bezier', category: '2d', sourceFile: 'core/2d/bezier.ts', interfaceName: 'BezierFunction', returnType: 'IBezier', sidebarPosition: 8 },
-  { name: 'text', displayName: 'text', category: '2d', sourceFile: 'core/2d/text.ts', interfaceName: 'TextFunction', returnType: 'IText', relatedGuide: '/docs/guides/sketching/text', sidebarPosition: 9 },
+  { name: 'text', displayName: 'text', category: '2d', sourceFile: 'core/2d/text.ts', interfaceName: 'TextFunction', returnType: 'IText', relatedGuide: '/docs/sketching/compound/text', sidebarPosition: 9 },
   // 2D Sketching — Datums (fixed constraint targets)
   { name: 'origin', displayName: 'origin', category: '2d', sourceFile: 'core/2d/datum.ts', interfaceName: null, constName: 'origin', returnType: 'SketchDatum', sidebarPosition: 10 },
   { name: 'xAxis', displayName: 'xAxis', category: '2d', sourceFile: 'core/2d/datum.ts', interfaceName: null, constName: 'xAxis', returnType: 'SketchDatum', sidebarPosition: 11 },
   { name: 'yAxis', displayName: 'yAxis', category: '2d', sourceFile: 'core/2d/datum.ts', interfaceName: null, constName: 'yAxis', returnType: 'SketchDatum', sidebarPosition: 12 },
   // 2D Sketching — Advanced Operations
-  { name: 'offset', displayName: 'offset', category: '2d', sourceFile: 'core/2d/offset.ts', interfaceName: 'OffsetFunction', returnType: 'IOffset', relatedGuide: '/docs/guides/sketching/offset', sidebarPosition: 23 },
+  { name: 'offset', displayName: 'offset', category: '2d', sourceFile: 'core/2d/offset.ts', interfaceName: 'OffsetFunction', returnType: 'IOffset', relatedGuide: '/docs/sketching/tools/offset', sidebarPosition: 23 },
 
   // 3D Operations
-  { name: 'sketch', displayName: 'sketch', category: '3d', sourceFile: 'core/sketch.ts', interfaceName: 'SketchFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/sketching/introduction', sidebarPosition: 1 },
-  { name: 'extrude', displayName: 'extrude', category: '3d', sourceFile: 'core/extrude.ts', interfaceName: 'ExtrudeFunction', returnType: 'IExtrude', relatedGuide: '/docs/guides/3d-operations/extrude', sidebarPosition: 2 },
-  { name: 'cut', displayName: 'cut', category: '3d', sourceFile: 'core/cut.ts', interfaceName: 'CutFunction', returnType: 'ICut', relatedGuide: '/docs/guides/3d-operations/cut', sidebarPosition: 3 },
-  { name: 'revolve', displayName: 'revolve', category: '3d', sourceFile: 'core/revolve.ts', interfaceName: 'RevolveFunction', returnType: 'IRevolve', relatedGuide: '/docs/guides/3d-operations/revolve', sidebarPosition: 4 },
-  { name: 'loft', displayName: 'loft', category: '3d', sourceFile: 'core/loft.ts', interfaceName: 'LoftFunction', returnType: 'ILoft', relatedGuide: '/docs/guides/3d-operations/loft', sidebarPosition: 5 },
-  { name: 'sweep', displayName: 'sweep', category: '3d', sourceFile: 'core/sweep.ts', interfaceName: 'SweepFunction', returnType: 'ISweep', relatedGuide: '/docs/guides/3d-operations/sweep', sidebarPosition: 6 },
+  { name: 'sketch', displayName: 'sketch', category: '3d', sourceFile: 'core/sketch.ts', interfaceName: 'SketchFunction', returnType: 'ISceneObject', relatedGuide: '/docs/sketching/introduction', sidebarPosition: 1 },
+  { name: 'extrude', displayName: 'extrude', category: '3d', sourceFile: 'core/extrude.ts', interfaceName: 'ExtrudeFunction', returnType: 'IExtrude', relatedGuide: '/docs/3d-operations/extrude', sidebarPosition: 2 },
+  { name: 'cut', displayName: 'cut', category: '3d', sourceFile: 'core/cut.ts', interfaceName: 'CutFunction', returnType: 'ICut', relatedGuide: '/docs/3d-operations/extrude#add-new-and-remove', sidebarPosition: 3 },
+  { name: 'revolve', displayName: 'revolve', category: '3d', sourceFile: 'core/revolve.ts', interfaceName: 'RevolveFunction', returnType: 'IRevolve', relatedGuide: '/docs/3d-operations/revolve', sidebarPosition: 4 },
+  { name: 'loft', displayName: 'loft', category: '3d', sourceFile: 'core/loft.ts', interfaceName: 'LoftFunction', returnType: 'ILoft', relatedGuide: '/docs/3d-operations/loft', sidebarPosition: 5 },
+  { name: 'sweep', displayName: 'sweep', category: '3d', sourceFile: 'core/sweep.ts', interfaceName: 'SweepFunction', returnType: 'ISweep', relatedGuide: '/docs/3d-operations/sweep', sidebarPosition: 6 },
   { name: 'sphere', displayName: 'sphere', category: '3d', sourceFile: 'core/sphere.ts', interfaceName: 'SphereFunction', returnType: 'ITransformable', sidebarPosition: 7 },
   { name: 'cylinder', displayName: 'cylinder', category: '3d', sourceFile: 'core/cylinder.ts', interfaceName: 'CylinderFunction', returnType: 'ITransformable', sidebarPosition: 8 },
-  { name: 'fuse', displayName: 'fuse', category: ['2d', '3d'], sourceFile: 'core/fuse.ts', interfaceName: 'FuseFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/booleans-and-fusion', sidebarPosition: 9, sidebarPositions: { '2d': 30 } },
-  { name: 'subtract', displayName: 'subtract', category: ['2d', '3d'], sourceFile: 'core/subtract.ts', interfaceName: 'SubtractFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/booleans-and-fusion', sidebarPosition: 10, sidebarPositions: { '2d': 31 } },
-  { name: 'common', displayName: 'common', category: ['2d', '3d'], sourceFile: 'core/common.ts', interfaceName: 'CommonFunction', returnType: 'ICommon', relatedGuide: '/docs/guides/booleans-and-fusion', sidebarPosition: 11, sidebarPositions: { '2d': 32 } },
-  { name: 'shell', displayName: 'shell', category: '3d', sourceFile: 'core/shell.ts', interfaceName: 'ShellFunction', returnType: 'IShell', relatedGuide: '/docs/guides/3d-operations/shell', sidebarPosition: 12 },
-  { name: 'fillet', displayName: 'fillet', category: '3d', sourceFile: 'core/fillet.ts', interfaceName: 'FilletFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/fillet', sidebarPosition: 13 },
-  { name: 'chamfer', displayName: 'chamfer', category: '3d', sourceFile: 'core/chamfer.ts', interfaceName: 'ChamferFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/chamfer', sidebarPosition: 14 },
+  { name: 'fuse', displayName: 'fuse', category: ['2d', '3d'], sourceFile: 'core/fuse.ts', interfaceName: 'FuseFunction', returnType: 'ISceneObject', relatedGuide: '/docs/booleans/introduction', sidebarPosition: 9, sidebarPositions: { '2d': 30 } },
+  { name: 'subtract', displayName: 'subtract', category: ['2d', '3d'], sourceFile: 'core/subtract.ts', interfaceName: 'SubtractFunction', returnType: 'ISceneObject', relatedGuide: '/docs/booleans/introduction', sidebarPosition: 10, sidebarPositions: { '2d': 31 } },
+  { name: 'common', displayName: 'common', category: ['2d', '3d'], sourceFile: 'core/common.ts', interfaceName: 'CommonFunction', returnType: 'ICommon', relatedGuide: '/docs/booleans/introduction', sidebarPosition: 11, sidebarPositions: { '2d': 32 } },
+  { name: 'shell', displayName: 'shell', category: '3d', sourceFile: 'core/shell.ts', interfaceName: 'ShellFunction', returnType: 'IShell', relatedGuide: '/docs/3d-operations/shell', sidebarPosition: 12 },
+  { name: 'fillet', displayName: 'fillet', category: '3d', sourceFile: 'core/fillet.ts', interfaceName: 'FilletFunction', returnType: 'ISceneObject', relatedGuide: '/docs/3d-operations/fillet', sidebarPosition: 13 },
+  { name: 'chamfer', displayName: 'chamfer', category: '3d', sourceFile: 'core/chamfer.ts', interfaceName: 'ChamferFunction', returnType: 'ISceneObject', relatedGuide: '/docs/3d-operations/chamfer', sidebarPosition: 14 },
   { name: 'draft', displayName: 'draft', category: '3d', sourceFile: 'core/draft.ts', interfaceName: 'DraftFunction', returnType: 'IDraft', sidebarPosition: 15 },
-  { name: 'rib', displayName: 'rib', category: '3d', sourceFile: 'core/rib.ts', interfaceName: 'RibFunction', returnType: 'IRib', relatedGuide: '/docs/guides/3d-operations/rib', sidebarPosition: 16 },
-  { name: 'wrap', displayName: 'wrap', category: '3d', sourceFile: 'core/wrap.ts', interfaceName: 'WrapFunction', returnType: 'IWrap', relatedGuide: '/docs/guides/3d-operations/wrap', sidebarPosition: 17 },
-  { name: 'helix', displayName: 'helix', category: '3d', sourceFile: 'core/helix.ts', interfaceName: 'HelixFunction', returnType: 'IHelix', relatedGuide: '/docs/guides/3d-operations/helix', sidebarPosition: 18 },
+  { name: 'rib', displayName: 'rib', category: '3d', sourceFile: 'core/rib.ts', interfaceName: 'RibFunction', returnType: 'IRib', relatedGuide: '/docs/3d-operations/rib', sidebarPosition: 16 },
+  { name: 'wrap', displayName: 'wrap', category: '3d', sourceFile: 'core/wrap.ts', interfaceName: 'WrapFunction', returnType: 'IWrap', relatedGuide: '/docs/3d-operations/wrap', sidebarPosition: 17 },
+  { name: 'helix', displayName: 'helix', category: '3d', sourceFile: 'core/helix.ts', interfaceName: 'HelixFunction', returnType: 'IHelix', relatedGuide: '/docs/3d-operations/helix', sidebarPosition: 18 },
 
   // Transforms
-  { name: 'translate', displayName: 'translate', category: 'transforms', sourceFile: 'core/translate.ts', interfaceName: 'TranslateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/transforms', sidebarPosition: 1 },
-  { name: 'rotate', displayName: 'rotate', category: ['2d', 'transforms'], sourceFile: 'core/rotate.ts', interfaceName: 'RotateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/transforms', sidebarPosition: 2, sidebarPositions: { '2d': 27 } },
-  { name: 'mirror', displayName: 'mirror', category: ['2d', 'transforms'], sourceFile: 'core/mirror.ts', interfaceName: 'MirrorFunction', returnType: 'IMirror', relatedGuide: '/docs/guides/transforms', sidebarPosition: 3, sidebarPositions: { '2d': 28 } },
-  { name: 'copy', displayName: 'copy', category: ['2d', 'transforms'], sourceFile: 'core/copy.ts', interfaceName: 'CopyFunction', returnType: 'ICopy', relatedGuide: '/docs/guides/copying', sidebarPosition: 4, sidebarPositions: { '2d': 29 } },
-  { name: 'repeat', displayName: 'repeat', category: 'transforms', sourceFile: 'core/repeat.ts', interfaceName: 'RepeatFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/patterns', sidebarPosition: 5 },
+  { name: 'translate', displayName: 'translate', category: 'transforms', sourceFile: 'core/translate.ts', interfaceName: 'TranslateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/transforms/introduction', sidebarPosition: 1 },
+  { name: 'rotate', displayName: 'rotate', category: ['2d', 'transforms'], sourceFile: 'core/rotate.ts', interfaceName: 'RotateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/transforms/introduction', sidebarPosition: 2, sidebarPositions: { '2d': 27 } },
+  { name: 'mirror', displayName: 'mirror', category: ['2d', 'transforms'], sourceFile: 'core/mirror.ts', interfaceName: 'MirrorFunction', returnType: 'IMirror', relatedGuide: '/docs/transforms/introduction', sidebarPosition: 3, sidebarPositions: { '2d': 28 } },
+  { name: 'copy', displayName: 'copy', category: ['2d', 'transforms'], sourceFile: 'core/copy.ts', interfaceName: 'CopyFunction', returnType: 'ICopy', relatedGuide: '/docs/patterns/copy', sidebarPosition: 4, sidebarPositions: { '2d': 29 } },
+  { name: 'repeat', displayName: 'repeat', category: 'transforms', sourceFile: 'core/repeat.ts', interfaceName: 'RepeatFunction', returnType: 'ISceneObject', relatedGuide: '/docs/patterns/repeat', sidebarPosition: 5 },
 
   // Utilities
-  { name: 'select', displayName: 'select', category: 'utilities', sourceFile: 'core/select.ts', interfaceName: 'SelectFunction', returnType: 'ISelect', relatedGuide: '/docs/guides/selections-and-filters', sidebarPosition: 1 },
-  { name: 'color', displayName: 'color', category: 'utilities', sourceFile: 'core/color.ts', interfaceName: 'ColorFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/color', sidebarPosition: 2 },
+  { name: 'select', displayName: 'select', category: 'utilities', sourceFile: 'core/select.ts', interfaceName: 'SelectFunction', returnType: 'ISelect', relatedGuide: '/docs/3d-operations/selection-and-filters', sidebarPosition: 1 },
+  { name: 'color', displayName: 'color', category: 'utilities', sourceFile: 'core/color.ts', interfaceName: 'ColorFunction', returnType: 'ISceneObject', relatedGuide: '/docs/appearance/color', sidebarPosition: 2 },
   { name: 'remove', displayName: 'remove', category: 'utilities', sourceFile: 'core/remove.ts', interfaceName: 'RemoveFunction', returnType: 'ISceneObject', sidebarPosition: 3 },
-  { name: 'load', displayName: 'load', category: 'utilities', sourceFile: 'core/load.ts', interfaceName: 'LoadFunction', returnType: 'ISceneObject', relatedGuide: '/docs/guides/import', sidebarPosition: 4 },
+  { name: 'load', displayName: 'load', category: 'utilities', sourceFile: 'core/load.ts', interfaceName: 'LoadFunction', returnType: 'ISceneObject', relatedGuide: '/docs/import-export/import', sidebarPosition: 4 },
   { name: 'axis', displayName: 'axis', category: 'utilities', sourceFile: 'core/axis.ts', interfaceName: 'AxisFunction', returnType: 'IAxis', sidebarPosition: 5 },
   { name: 'plane', displayName: 'plane', category: 'utilities', sourceFile: 'core/plane.ts', interfaceName: 'PlaneFunction', returnType: 'IPlane', sidebarPosition: 6 },
-  { name: 'local', displayName: 'local', category: 'utilities', sourceFile: 'core/local.ts', interfaceName: 'LocalFunction', returnType: 'IAxis', relatedGuide: '/docs/guides/sketching/transforms', sidebarPosition: 7 },
-  { name: 'project', displayName: 'project', category: '2d', sourceFile: 'core/2d/project.ts', interfaceName: 'ProjectFunction', returnType: 'IReference', relatedGuide: '/docs/guides/sketching/projection', sidebarPosition: 25 },
+  { name: 'local', displayName: 'local', category: 'utilities', sourceFile: 'core/local.ts', interfaceName: 'LocalFunction', returnType: 'IAxis', relatedGuide: '/docs/sketching/tools/copy', sidebarPosition: 7 },
+  { name: 'project', displayName: 'project', category: '2d', sourceFile: 'core/2d/project.ts', interfaceName: 'ProjectFunction', returnType: 'IReference', relatedGuide: '/docs/sketching/tools/project', sidebarPosition: 25 },
   { name: 'intersect', displayName: 'intersect', category: '2d', sourceFile: 'core/2d/intersect.ts', interfaceName: 'IntersectFunction', returnType: 'IReference', sidebarPosition: 26 },
-  { name: 'part', displayName: 'part', category: 'utilities', sourceFile: 'core/part.ts', interfaceName: null, returnType: 'ISceneObject', relatedGuide: '/docs/guides/3d-operations/parts', sidebarPosition: 9 },
-  { name: 'unit', displayName: 'unit', category: 'utilities', sourceFile: 'core/unit.ts', interfaceName: null, returnType: 'void', relatedGuide: '/docs/guides/units', sidebarPosition: 10 },
+
+  // Parts & Assemblies
+  { name: 'part', displayName: 'part', category: 'assembly', sourceFile: 'core/part.ts', interfaceName: null, functionName: 'part', returnType: 'PartDefinition', relatedGuide: '/docs/part/part-definition', sidebarPosition: 1 },
+  { name: 'param', displayName: 'param', category: 'assembly', sourceFile: 'core/param.ts', interfaceName: null, functionName: 'param', returnType: 'number | string | boolean', relatedGuide: '/docs/part/param', sidebarPosition: 2 },
+  { name: 'connector', displayName: 'connector', category: 'assembly', sourceFile: 'core/connector.ts', interfaceName: 'ConnectorFunction', returnType: 'IConnector', relatedGuide: '/docs/part/connector', sidebarPosition: 3 },
+  { name: 'expose', displayName: 'expose', category: 'assembly', sourceFile: 'core/expose.ts', interfaceName: 'ExposeFunction', returnType: 'ISceneObject', relatedGuide: '/docs/part/expose', sidebarPosition: 4 },
+  { name: 'assembly', displayName: 'assembly', category: 'assembly', sourceFile: 'core/assembly.ts', interfaceName: null, functionName: 'assembly', returnType: 'Assembly', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 5 },
+  { name: 'insert', displayName: 'insert', category: 'assembly', sourceFile: 'core/insert.ts', interfaceName: null, functionName: 'insert', returnType: 'Instance | Occurrence', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 6 },
+  { name: 'mate', displayName: 'mate', category: 'assembly', sourceFile: 'core/mate.ts', interfaceName: null, functionName: 'mate', returnType: 'MateBuilder', relatedGuide: '/docs/assembly/introduction', sidebarPosition: 7 },
+  { name: 'replicate', displayName: 'replicate', category: 'assembly', sourceFile: 'core/replicate.ts', interfaceName: null, functionName: 'replicate', returnType: 'Instance[] | Occurrence[]', relatedGuide: '/docs/assembly/replicate', sidebarPosition: 8 },
+  { name: 'unit', displayName: 'unit', category: 'utilities', sourceFile: 'core/unit.ts', interfaceName: null, returnType: 'void', relatedGuide: '/docs/extra/units', sidebarPosition: 10 },
 ];
 
 export const types: TypeEntry[] = [

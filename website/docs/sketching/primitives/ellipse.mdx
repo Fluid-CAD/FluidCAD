@@ -1,0 +1,40 @@
+---
+sidebar_position: 3
+title: "Ellipse"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import primitiveEllipse from '!!raw-loader!../_examples/primitive-ellipse.js';
+
+# Ellipse
+
+An ellipse with its axes aligned to the sketch plane.
+
+There is no Ellipse button on the sketch toolbar: an ellipse is written in the code editor. Once it is in the file it behaves like any other sketch entity — its centre shows as a draggable point and takes constraints.
+
+## By hand
+
+```js
+ellipse(center, rx, ry)
+```
+
+`rx` and `ry` are the **semi-radii** (half the width and half the height) along the plane's X and Y axes.
+
+![An elliptical cam with its shaft bore](/img/docs/sketching/primitive-ellipse.png)
+
+<ExplainedCode code={primitiveEllipse} fileName="plate.part.js" />
+
+## Accessors
+
+| Accessor | Meaning |
+|---|---|
+| `e.center()` | The centre point — the only solver entity an ellipse registers |
+
+The radii stay fixed literals: the solver positions the ellipse through its centre but never resizes it. To change the size, change the numbers or bind them to a [`param()`](/docs/part/param).
+
+## Modifiers
+
+```js
+ellipse([0, 0], 50, 25).guide()
+ellipse([0, 0], 50, 25).name('cam')
+```

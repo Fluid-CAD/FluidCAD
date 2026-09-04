@@ -1,0 +1,46 @@
+---
+sidebar_position: 9
+title: "Replicate"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import asmReplicate from '!!raw-loader!./_examples/asm-replicate.assembly.js';
+import asmStandoff from '!!raw-loader!./_examples/asm-standoff.part.js';
+
+# Replicate
+
+`replicate()` copies a mated part — or a mated sub-assembly — onto new mate targets. It is the "copy with mates" of other CAD systems, not a geometric pattern: every replica gets the seed's mates re-targeted to its own references, so the four standoffs on a plate each sit in their own hole and move on their own.
+
+## In the viewport
+
+1. Mate the first instance the way every copy should be mated — the seed.
+2. Click **Replicate** on the assembly toolbar and pick the seed.
+3. The dialog lists the seed's outer mate sides — the connectors or faces on *other* parts its mates reference. For each replica, pick the replacement for each one.
+4. Click **Apply**. The replicas appear as ordinary rows in the **Parts** panel, named after the seed with a suffix, marked as replicas.
+
+![Four standoffs replicated onto the plate's mounting holes](/img/docs/assembly/asm-replicate.png)
+
+<ExplainedCode code={asmReplicate} fileName="standoffs.assembly.js">
+  <ExplainedCode code={asmStandoff} fileName="standoff.part.js" title="standoff.part.js" />
+</ExplainedCode>
+
+## Signature
+
+```ts
+replicate(seed, targets, rows)
+```
+
+| Argument | Meaning |
+|----------|---------|
+| `seed` | The handle `insert()` returned for the instance or sub-assembly to copy. |
+| `targets` | The seed's **outer** mate sides that change per replica — one column each. Any outer side not listed stays shared by every replica (a planar mate onto one common base). |
+| `rows` | One array per replica, one entry per target: `rows[k][j]` replaces `targets[j]` in replica `k`'s mates. At least one row. |
+
+It returns the replica handles in row order, so `const [b, c, d] = replicate(...)` lets you name or mate them further.
+
+## Rules
+
+- Only mates written **before** the statement replicate. Mate options (flip, rotate, offset, limits) are copied verbatim.
+- Replicas start at the seed's pose and are never grounded — their mates place them.
+- A target can be any mate side: `instance.connectors.<name>`, an assembly connector, or `instance.features.<name>` for a tangent mate.
+- Replicating a sub-assembly re-runs its body with the same parameters; its inner mates come along.

@@ -1,0 +1,38 @@
+---
+sidebar_position: 2
+title: "Diameter"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import dimensionDiameter from '!!raw-loader!../../_examples/dimension-diameter.js';
+
+# Diameter
+
+`diameter` sizes a circle — the number a drawing carries for a hole or a shaft.
+
+## In the viewport
+
+1. Click one circle.
+2. Click **Dimension**. The label appears across the circle with a ⌀ prefix; type the value and press <kbd>Enter</kbd>.
+
+Double-clicking a circle's edge opens its diameter directly. Double-click the label later to change it.
+
+![A flange bore and a bolt hole sized by diameter](/img/docs/sketching/dimension-diameter.png)
+
+<ExplainedCode code={dimensionDiameter} fileName="flange.part.js">
+Two `diameter` statements size the bore and the bolt hole (1 DOF each); the bolt hole's position on the pitch circle comes from `horizontal` and a center-to-center `distance`.
+</ExplainedCode>
+
+## In code
+
+```js
+diameter(c, 60)                  // 1 DOF
+diameter(a, 20)                  // an arc can be dimensioned by diameter too
+```
+
+`circle(center, diameter)` already takes a diameter as its guess; the dimension is what makes the size hold when other constraints pull on the circle. Pair several holes with [`equal`](/docs/sketching/constraints/positional/equal) and dimension only one.
+
+## See also
+
+- [Radius](/docs/sketching/constraints/dimensional/radius) — the same measurement for arcs
+- [Concentric](/docs/sketching/constraints/positional/concentric)

@@ -1,0 +1,52 @@
+---
+sidebar_position: 4
+title: "4. Defining connectors"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import fixedLeaf from '!!raw-loader!./_examples/hinge-leaf-fixed.part.js';
+import swingLeaf from '!!raw-loader!./_examples/hinge-leaf-swing.part.js';
+import pin from '!!raw-loader!./_examples/hinge-pin.part.js';
+
+# Defining connectors
+
+A **connector** is a named coordinate frame attached to a part's geometry. Joints are built between connectors, so a part declares them where other parts will attach: on the pin axis, for a hinge leaf. The frame's Z axis is the axis a revolute joint turns about and a slider travels along.
+
+## In the viewport
+
+1. Click **Connector** on the toolbar. The dialog shows an empty **Source** slot.
+2. Hover the round edge at the end of the first knuckle. A translucent frame appears at the edge's centre, Z along the tube: the suggested anchor. Hovering a face suggests its centre instead; hovering a straight edge offers its centre, start and end.
+3. Click to take the anchor. Type `pin` in **Name**. **Offset** and **Rotation** stay at zero: the frame is exactly where the anchor put it. Click **Apply**.
+4. Repeat for the far edge of the first knuckle (12 mm in, where the other leaf's first knuckle will start), and name it `knuckle`.
+
+![Connector dialog](/img/docs/ui/connector-dialog.png)
+
+The History panel folds the two under a *2 connectors* row at the bottom of the part. The frames stay visible as small triads in the viewport.
+
+![The fixed leaf with its connectors](/img/docs/getting-started/hinge-leaf-fixed.part.png)
+
+<ExplainedCode code={fixedLeaf} fileName="hinge-leaf-fixed.part.js" />
+
+Each `connector()` statement names its anchor by the geometry it came from: the knuckle extrude's start or end edges, filtered to the round one, then `.center()`. Because the anchor is derived from geometry, it moves with the part when a dimension changes.
+
+:::note
+`connector()` must be called directly in the `part()` body, and a connector's name must be unique within its part. Connectors are the part's mating interface: an assembly refers to them as `instance.connectors.pin`.
+:::
+
+## The swing leaf and the pin
+
+The hinge needs two more parts. Create `hinge-leaf-swing.part.js` and `hinge-pin.part.js` with the **+** tab button and build them the same way. Both files are below in full.
+
+The swing leaf mirrors the fixed one: it extends to the other side of the pin axis, and its two knuckles start 12 mm in so they fall into the fixed leaf's gaps. Its ring is sketched on a plane offset 12 mm from the front plane (the **Plane** dialog, type *Offset*), and its one connector sits at the start of that first knuckle, the same point as the fixed leaf's `knuckle` connector.
+
+![The swing leaf](/img/docs/getting-started/hinge-leaf-swing.part.png)
+
+<ExplainedCode code={swingLeaf} fileName="hinge-leaf-swing.part.js" />
+
+The pin is a 4 mm shaft with a head, drawn on the same axis, with a connector where the head meets the shaft.
+
+![The pin](/img/docs/getting-started/hinge-pin.part.png)
+
+<ExplainedCode code={pin} fileName="hinge-pin.part.js" />
+
+Next: [Showing how to export the part](/docs/getting-started/export).

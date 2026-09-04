@@ -75,7 +75,7 @@ The lantern's main body is a hexagonal prism with a slight taper and hollow wall
 
 ### Extrude with draft
 
-Sketch a hexagon on a plane that's offset 24 units above the origin (to leave room for the base below), then extrude it upward with a draft angle. Units are millimetres unless a file says otherwise — see the [Units guide](/docs/guides/units). The `true` argument after the callback makes this a constraint sketch — the mode every sketch in this tutorial uses. The `.new()` keeps the extrusion as a separate solid — we'll need to reference its faces later without interference from other parts.
+Sketch a hexagon on a plane that's offset 24 units above the origin (to leave room for the base below), then extrude it upward with a draft angle. Units are millimetres unless a file says otherwise — see the [Units guide](/docs/extra/units). The `true` argument after the callback makes this a constraint sketch — the mode every sketch in this tutorial uses. The `.new()` keeps the extrusion as a separate solid — we'll need to reference its faces later without interference from other parts.
 
 ```js
 sketch(plane("xy", { offset: 24 }), () => {

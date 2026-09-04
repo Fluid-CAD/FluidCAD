@@ -1,0 +1,40 @@
+---
+sidebar_position: 7
+title: "7. Adding joints"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import assembly from '!!raw-loader!./_examples/hinge-assembly.assembly.js';
+
+# Adding joints
+
+A joint (a **mate** in the code) connects two connectors and leaves some motion free. The hinge needs two: a **revolute** joint between the leaves' knuckle connectors, which leaves rotation about the pin axis free, and a **fastened** joint that locks the pin into the fixed leaf.
+
+## The revolute joint
+
+1. Click **Revolute** on the toolbar. The mate dialog opens with **Type** set to Revolute and two empty slots, **Connector A** and **Connector B**. While a slot is armed, every part's connectors show in the viewport as small triads.
+
+   ![Revolute mate dialog](/img/docs/ui/mate-dialog.png)
+
+2. Click the fixed leaf's `knuckle` triad (at the far end of its first knuckle). The slot fills with the connector's name and the dialog arms Connector B.
+3. Click the swing leaf's `knuckle` triad. The joint is solved immediately as a preview: the swing leaf jumps onto the pin axis.
+4. The preview shows the leaf folded flat over the fixed leaf. By default a joint places the two frames face to face, Z against Z, like two faces pressed together; that is the closed hinge. Tick **Flip** to align the frames instead, and the leaf swings out flat beside the fixed one.
+5. Tick **Limits** and enter `0` and `180`: the hinge swings from open flat to fully closed.
+6. Click **Apply**. The joint appears in the **Joints** panel as *revolute · Fixed leaf · Swing leaf · 0 – 180°*.
+
+## The fastened joint
+
+1. Click **Fastened**. Pick the fixed leaf's `pin` connector (the end of the tube) as A and the pin's `shaft` connector as B.
+2. The preview shows the pin pointing out of the hinge; tick **Flip** so the shaft runs into the knuckles. **Apply**.
+
+![The assembled hinge](/img/docs/getting-started/hinge-assembly.png)
+
+<ExplainedCode code={assembly} fileName="hinge.assembly.js" open />
+
+Each dialog wrote one `mate()` statement. The first argument names the joint type, the next two are the connectors, and the chained methods are the dialog's options: `.flip()`, `.limits(min, max)`, and (unused here) `.rotate(deg)` and `.offset(x, y, z)`. The first connector is the *driver*: options are read in its frame.
+
+## Trying the joint
+
+Drag the swing leaf in the viewport. It rotates about the pin and stops at the limits; the fixed leaf and the pin stay put. Click the joint's row in the Joints panel to highlight both connectors. The row's menu (right-click) offers **Edit mate…**, **Suppress**, **Delete**, **Show in source** and **Animate…**, which is the next step.
+
+Next: [Applying animation to a joint](/docs/getting-started/animate-joint).

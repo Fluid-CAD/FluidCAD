@@ -1,4 +1,4 @@
-import { Project, SyntaxKind, InterfaceDeclaration, ClassDeclaration, SourceFile } from 'ts-morph';
+import { Project, SyntaxKind, InterfaceDeclaration, ClassDeclaration, SourceFile, FunctionDeclaration } from 'ts-morph';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -71,12 +71,35 @@ function stripJsDocLinks(text: string): string {
   );
 }
 
+// JSDoc examples are written as indented blocks (four spaces). MDX has no
+// indented code, so braces in them (`{ min: 20 }`) would be parsed as JSX
+// expressions and fail the build; fence them as JavaScript instead.
+function fenceIndentedCode(text: string): string {
+  const out: string[] = [];
+  let inBlock = false;
+  for (const line of text.split('\n')) {
+    const indented = /^ {4}/.test(line);
+    if (indented && !inBlock) {
+      out.push('```js');
+      inBlock = true;
+    } else if (!indented && inBlock && line.trim() !== '') {
+      out.push('```');
+      inBlock = false;
+    }
+    out.push(inBlock ? line.replace(/^ {4}/, '') : line);
+  }
+  if (inBlock) {
+    out.push('```');
+  }
+  return out.join('\n');
+}
+
 function getJsDocDescription(node: any): string {
   const jsDocs = node.getJsDocs?.();
   if (!jsDocs || jsDocs.length === 0) {
     return '';
   }
-  return stripJsDocLinks(jsDocs[0].getDescription?.()?.trim() || '');
+  return fenceIndentedCode(stripJsDocLinks(jsDocs[0].getDescription?.()?.trim() || ''));
 }
 
 function hasInternalTag(node: any): boolean {
@@ -365,18 +388,39 @@ function extractDatumSignatures(sf: SourceFile, constName: string, returnType: s
   }];
 }
 
-function extractPartSignatures(): SignatureInfo[] {
-  return [
-    {
-      description: 'Creates an isolation boundary so shapes inside the part stay separate from the rest of the scene.',
-      params: [
-        { name: 'name', type: 'string', description: 'The part name.', optional: false },
-        { name: 'callback', type: '() => void', description: 'Callback containing the part geometry.', optional: false },
-      ],
-      returnType: 'ISceneObject',
-      isPlaneVariant: false,
-    },
-  ];
+// Commands exported as plain functions (`part`, `param`, `insert`, `mate`, …)
+// have no call-signature interface: read each overload declaration (or the
+// implementation when there are none) the way call signatures are read.
+function extractFunctionSignatures(sf: SourceFile, functionName: string): SignatureInfo[] {
+  const fn = sf.getFunction(functionName);
+  if (!fn) {
+    console.warn(`  Warning: Function ${functionName} not found in ${sf.getBaseName()}`);
+    return [];
+  }
+  const overloads: FunctionDeclaration[] = fn.getOverloads();
+  const decls = overloads.length > 0 ? overloads : [fn];
+  const results: SignatureInfo[] = [];
+
+  for (const decl of decls) {
+    const description = getJsDocDescription(decl);
+    const jsDocParams = getJsDocParams(decl);
+    const params: ParamInfo[] = [];
+    for (const param of decl.getParameters()) {
+      const paramName = param.getName();
+      const isRest = param.isRestParameter();
+      const cleanType = simplifyType(param.getTypeNode()?.getText() ?? param.getType().getText(param));
+      params.push({
+        name: isRest ? `...${paramName}` : paramName,
+        type: cleanType,
+        description: jsDocParams.get(paramName) || '',
+        optional: param.isOptional(),
+      });
+    }
+    const returnType = simplifyType(decl.getReturnTypeNode()?.getText() ?? decl.getReturnType().getText(decl));
+    results.push({ description, params, returnType, isPlaneVariant: false });
+  }
+
+  return results;
 }
 
 // `unit()` is a plain exported function with no call-signature interface
@@ -467,6 +511,7 @@ function generate() {
     '3d': path.join(featuresDir, '3d'),
     'transforms': path.join(featuresDir, 'transforms'),
     'utilities': path.join(featuresDir, 'utilities'),
+    'assembly': path.join(featuresDir, 'assembly'),
   };
 
   for (const [cat, dir] of Object.entries(categoryDirs)) {
@@ -506,8 +551,8 @@ function generate() {
       }
     } else if (feature.constName) {
       sigs = extractDatumSignatures(sf, feature.constName, feature.returnType);
-    } else if (feature.name === 'part') {
-      sigs = extractPartSignatures();
+    } else if (feature.functionName) {
+      sigs = extractFunctionSignatures(sf, feature.functionName);
     } else if (feature.name === 'unit') {
       sigs = extractUnitSignatures();
     }

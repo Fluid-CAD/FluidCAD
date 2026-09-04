@@ -1,0 +1,112 @@
+---
+sidebar_position: 12
+title: "Helix"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import helixBasic from '!!raw-loader!./_examples/helix-basic.js';
+import helixSpring from '!!raw-loader!./_examples/helix-spring.js';
+import helixFace from '!!raw-loader!./_examples/helix-face.js';
+import helixThread from '!!raw-loader!./_examples/helix-thread.js';
+import helixGroove from '!!raw-loader!./_examples/helix-groove.js';
+import helixTapered from '!!raw-loader!./_examples/helix-tapered.js';
+
+# Helix
+
+Helix creates a helical wire — the curve that springs, threads and coils are built from. On its own it renders as a wire; [sweep](/docs/3d-operations/sweep) a profile along it to make material.
+
+## In the viewport
+
+1. Click **Helix** on the toolbar.
+2. The Helix dialog:
+   - Source: **From axis** (the world X / Y / Z or a picked edge) or **From face** (click a cylindrical or conical face — its axis, radius and height are read from the geometry).
+   - **Radius**, **Pitch**, **Turns** and **height** — any two of pitch, turns and height determine the third.
+   - **end radius** for a tapered helix, **start offset / end offset** to run the ends past the source.
+3. Click **Apply**. The wire appears in the viewport and the timeline; a sweep can pick it as its path.
+
+![Basic helix](/img/docs/3d-operations/helix-basic.png)
+
+<ExplainedCode code={helixBasic} fileName="coil.part.js" />
+
+The argument is the axis to coil around — a named axis like `"z"`, anything axis-like, or an existing scene object (see [deriving from geometry](#deriving-from-geometry)).
+
+## Sizing
+
+Three chained methods control the proportions, and any two determine the third:
+
+```js
+helix("z").pitch(10).turns(4)       // height = 40
+helix("z").pitch(10).height(40)     // turns = 4
+helix("z").turns(4).height(40)      // pitch = 10
+```
+
+| Method | Meaning | Default |
+|--------|---------|---------|
+| `.pitch(p)` | Axial rise per full revolution | `height / turns` |
+| `.turns(n)` | Number of revolutions; fractions are fine | 1 |
+| `.height(h)` | Total axial extent | 50, or `pitch × turns` |
+| `.radius(r)` | Radius of the coil | 20 |
+
+Winding is clockwise (left-handed) by default; `.ccw()` gives a right-handed helix.
+
+## Springs
+
+Sweep a small profile along the helix to get a spring. The profile is positioned at the path start automatically:
+
+![Helical spring](/img/docs/3d-operations/helix-spring.png)
+
+<ExplainedCode code={helixSpring} />
+
+## Deriving from geometry
+
+With **From face** in the dialog — or a scene object as the argument in code — the helix takes its frame from the geometry:
+
+- **Cylindrical face** — axis, radius and height come from the face.
+- **Conical face** — the helix follows the cone's taper; radii are derived from the face (`.radius()` / `.endRadius()` are ignored).
+- **Line edge** — the line becomes the axis, its length the height.
+- **Circular edge** — the circle's normal becomes the axis, its radius the helix radius.
+
+![Helix from a cylindrical face](/img/docs/3d-operations/helix-face.png)
+
+<ExplainedCode code={helixFace} />
+
+Use `select(...)` to narrow a body down to the single face or edge the helix should read from.
+
+## Threads and grooves
+
+A helix at the surface of a cylinder is the spine of a thread. Sweep a profile along it and the result fuses with the cylinder (the Add tab):
+
+![Helical thread](/img/docs/3d-operations/helix-thread.png)
+
+<ExplainedCode code={helixThread} />
+
+The sweep's **Remove** tab carves a groove instead:
+
+![Helical groove](/img/docs/3d-operations/helix-groove.png)
+
+<ExplainedCode code={helixGroove} />
+
+### Running past the ends
+
+Real threads run off the ends of the stock rather than stopping flush. **start offset** and **end offset** shift the helix ends along the axis, in axial units:
+
+```js
+helix("z").height(50).startOffset(-5).endOffset(5)   // 5 units overshoot each side
+```
+
+A negative start offset extends the start; a positive end offset extends the end (and vice versa to trim). On a conical face the extension follows the cone's natural taper.
+
+## Tapered helixes
+
+When **end radius** differs from **Radius**, the radius blends linearly along the height — a conical helix:
+
+![Tapered helix spring](/img/docs/3d-operations/helix-tapered.png)
+
+<ExplainedCode code={helixTapered} />
+
+The same shape falls out automatically when the source is a conical face. `.endRadius()` is ignored for face and circular-edge sources, where the radii come from the geometry.
+
+## Limitations
+
+- Turns must be positive and the pitch non-zero; a tapered helix must keep its end radius above zero.
+- A face source must be cylindrical or conical; an edge source must be a line or a circle. Multi-shape sources need a `select(...)` to single out one face or edge.

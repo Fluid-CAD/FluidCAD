@@ -1,0 +1,137 @@
+---
+sidebar_position: 11
+title: "Rib"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import ribBasic from '!!raw-loader!./_examples/rib-basic.js';
+import ribExtend from '!!raw-loader!./_examples/rib-extend.js';
+import ribParallel from '!!raw-loader!./_examples/rib-parallel.js';
+import ribParallelExtend from '!!raw-loader!./_examples/rib-parallel-extend.js';
+import ribScope from '!!raw-loader!./_examples/rib-scope.js';
+import ribCircularBase from '!!raw-loader!./_examples/rib-circular-base.js';
+import ribPattern from '!!raw-loader!./_examples/rib-pattern.js';
+import ribRotatedPlane from '!!raw-loader!./_examples/rib-rotated-plane.js';
+
+# Rib
+
+Rib turns an open sketch line (the spine) into a wall of a given thickness that grows until it meets the surrounding solid. It is the tool for stiffening webs inside shelled parts: draw one line where the web goes, and the rib finds the walls by itself.
+
+## In the viewport
+
+1. Sketch the spine — an open line or chain, usually on the face the rib should stand on, or on a plane through the cavity — and click **Rib** on the toolbar.
+2. The Rib dialog:
+   - **Spine sketch**, filled with the last sketch.
+   - The wall **thickness**, centred on the spine.
+   - **Parallel** (grow in the sketch plane instead of normal to it), **Extend** (push the spine's ends out to the surrounding walls) and **Draft** angle.
+   - **Scope** — which solids the rib conforms to and fuses with.
+3. Click **Apply**.
+
+![Basic rib](/img/docs/3d-operations/rib-basic.png)
+
+<ExplainedCode code={ribBasic} fileName="tray.part.js" />
+
+The first argument is the wall thickness. The rib is centred on the spine, extruded perpendicular to the sketch plane, and trimmed to the surrounding cavity.
+
+## Thickness direction
+
+| Sign | Result |
+|------|--------|
+| Positive, e.g. `5` | Grows opposite the sketch normal — into the cavity when the sketch sits on a top face |
+| Negative, e.g. `-5` | Grows along the sketch normal |
+
+## Extending the spine
+
+By default the rib's length matches the sketch line exactly. **Extend** pushes both ends outward until they blend into the surrounding walls:
+
+![Rib with .extend()](/img/docs/3d-operations/rib-extend.png)
+
+<ExplainedCode code={ribExtend} />
+
+Draw a short spine, and the rib still terminates cleanly against the cavity wall.
+
+## Parallel mode
+
+**Parallel** flips the growth direction from "perpendicular to the sketch plane" to "in the plane, perpendicular to the spine". The sketch line itself becomes one face of the wall. This is the natural way to draw a rib from its side profile — a slanted line on the front plane, growing down to meet the shell:
+
+![Parallel rib](/img/docs/3d-operations/rib-parallel.png)
+
+<ExplainedCode code={ribParallel} />
+
+Combine **Parallel** with **Extend** to reach the cavity walls at both ends:
+
+![Parallel rib with extend and draft](/img/docs/3d-operations/rib-parallel-extend.png)
+
+<ExplainedCode code={ribParallelExtend} />
+
+## Draft
+
+A **Draft** angle tapers the rib. Positive angles narrow it toward its tip, negative angles widen it:
+
+```js
+rib(5).draft(2)        // 2° taper, narrowing
+rib(5).draft(-3)       // 3° taper, widening
+```
+
+Only the long wall faces taper — the small cap faces at the spine endpoints stay vertical.
+
+## Scoping the rib
+
+By default a rib considers every solid in the scene. **Scope** limits which solids it conforms to and fuses with — it works on its own, without New:
+
+```js
+rib(5).scope(target)           // only consider `target` when conforming and fusing
+```
+
+The **New** tab keeps the rib as a separate solid. Pair it with a scope so the rib still has a cavity to conform to:
+
+![Rib scoped to a different solid](/img/docs/3d-operations/rib-scope.png)
+
+<ExplainedCode code={ribScope} />
+
+Here the rib is attached to a tapered cylinder rather than the outer box — the scope tells the rib which walls to conform to.
+
+## Curved enclosures
+
+The rib conforms to whatever cavity surrounds it, so it works inside curved shells as well as rectangular ones:
+
+![Rib inside a circular cavity](/img/docs/3d-operations/rib-circular-base.png)
+
+<ExplainedCode code={ribCircularBase} />
+
+## Patterning ribs
+
+Pass the rib to [Repeat](/docs/patterns/repeat) to pattern it around an axis:
+
+![Circular pattern of ribs](/img/docs/3d-operations/rib-pattern.png)
+
+<ExplainedCode code={ribPattern} />
+
+The sketch plane can be tilted too — a rotated [plane](/docs/datums/planes) with a circular pattern fans the ribs out at an angle:
+
+![Pattern of ribs on a rotated plane](/img/docs/3d-operations/rib-rotated-plane.png)
+
+<ExplainedCode code={ribRotatedPlane} />
+
+## Accessing geometry
+
+```js
+const r = rib(5).extend()
+
+r.startFaces()     // profile face at the sketch plane
+r.endFaces()       // face where the rib meets the cavity wall
+r.sideFaces()      // long wall faces of the rib
+r.capFaces()       // small cap faces at the spine endpoints
+r.startEdges()     // edges on the start faces
+r.endEdges()       // edges on the end faces
+r.sideEdges()      // edges along the side walls
+r.capEdges()       // edges on the cap faces
+```
+
+## Fusion scope
+
+```js
+rib(5).add()                  // fuse with all touching solids (default)
+rib(5).scope(target)          // limit conform + fuse to `target`
+rib(5).new().scope(target)    // keep as separate solid, conform to `target`
+```

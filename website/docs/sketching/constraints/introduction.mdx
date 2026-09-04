@@ -1,0 +1,115 @@
+---
+sidebar_position: 1
+title: "Introduction"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import constraintRectangle from '!!raw-loader!../_examples/constraint-rectangle.js';
+import constraintDatums from '!!raw-loader!../_examples/constraint-datums.js';
+
+# Constraints
+
+A sketch is two things: the geometry you draw and the relationships it has to satisfy. The geometry — every line, arc and circle — is a **guess**: a rough placement that gets the drawing started. Constraints state what must be true ("these ends touch", "this line is horizontal", "this arc is 20 wide"), and the solver moves the geometry until every statement holds. Change one number later and the whole sketch follows.
+
+There are two kinds:
+
+- **Positional constraints** relate entities without a number: coincident, horizontal, tangent, symmetric, … They shape the drawing.
+- **Dimensional constraints** carry a value: distance, diameter, radius, angle. They size it.
+
+## In the viewport
+
+1. Open a sketch and click the entities to constrain — a line, an endpoint, an arc, a circle's center. <kbd>Ctrl</kbd>/<kbd>Shift</kbd>-click adds to the selection.
+2. The **constraint toolbar** appears under the sketch toolbar: **Coincident**, **Horizontal**, **Vertical**, **Parallel**, **Perpendicular**, **Tangent**, **Equal**, **Concentric**, **Collinear**, **Midpoint**, **Symmetric**, **Fix**, **Dimension**, **Angle**. Only the buttons that make sense for the selection are enabled; hovering a disabled one says what it needs ("pick two lines", "pick a point and a line, or three points").
+3. Hover a button to preview the solve as a ghost; click it to apply. The statement is written into the sketch body after the geometry, the solver re-solves, and a **badge** appears on the constrained entity — `H` for horizontal, `V` vertical, `T` tangent, `∥` parallel, `⊥` perpendicular, `=` equal, `◎` concentric, `≡` collinear, `M` midpoint, `S` symmetric, `F` fix. Coincident points share one dot; a point held on a line or circle shows `⊙`.
+4. Drag any geometry that is still free. The solver re-solves live, keeping every constraint.
+
+Right-click a badge or a dimension label for its row menu; a constraint row in the timeline (the sketch's *N constraints* group) can be removed there.
+
+### Constraints while you draw
+
+The sketch dialog has an **Auto-constraints → Infer while drawing** toggle (on by default). With it on, the drawing tools write constraints as you go: snapping a new endpoint onto an existing vertex emits `coincident`, and a line drawn close to an axis emits `horizontal` or `vertical`. Hold <kbd>Ctrl</kbd> while committing a point to skip the inference once. The **Show constraints** toggles — **Dimensional** and **Positional** — hide either family of badges when a dense sketch gets busy.
+
+## The canonical rectangle
+
+Four sloppy lines become an exact 100 × 50 rectangle. Select two line ends and click **Coincident** for each corner; select a side and click **Horizontal** or **Vertical**; select the bottom-left end and click **Fix**; then **Dimension** the bottom and the right side.
+
+![Rectangle solved from rough guesses](/img/docs/sketching/constraint-rectangle.png)
+
+<ExplainedCode code={constraintRectangle} fileName="plate.part.js">
+Geometry first, then constraints — the layout the UI writes. Each `coincident` pins a corner, `horizontal` / `vertical` square the sides, `fix` anchors the profile on the plane, and the two `distance` dimensions set the size.
+</ExplainedCode>
+
+The result is **fully constrained** — zero degrees of freedom — and renders green.
+
+## The catalog
+
+| Statement | Meaning | Removes |
+|---|---|---|
+| [`fix(p [, [x, y]])`](/docs/sketching/constraints/positional/fixed) | Pins a point, optionally at explicit coordinates | 2 DOF |
+| [`coincident(a, b)`](/docs/sketching/constraints/positional/coincident) | Two points coincide, or a point lies on a line / arc / circle | 2 / 1 |
+| [`horizontal(l)` · `horizontal(p1, p2, …)`](/docs/sketching/constraints/positional/horizontal) | The line is horizontal, or the points share a y | 1 per pair |
+| [`vertical(l)` · `vertical(p1, p2, …)`](/docs/sketching/constraints/positional/vertical) | The line is vertical, or the points share an x | 1 per pair |
+| [`parallel(a, b, …)`](/docs/sketching/constraints/positional/parallel) | Two or more lines are parallel | 1 per pair |
+| [`perpendicular(a, b)`](/docs/sketching/constraints/positional/perpendicular) | Two lines meet at 90° | 1 |
+| [`symmetric(a, b, l)`](/docs/sketching/constraints/positional/symmetric) | Two points mirror across a line or axis | 2 |
+| [`midpoint(p, l)` · `midpoint(p, a, b)`](/docs/sketching/constraints/positional/midpoint) | A point at a line's midpoint, or halfway between two points | 2 |
+| [`tangent(a, b)`](/docs/sketching/constraints/positional/tangent) | A line and a circle/arc, or two circles/arcs, touch smoothly | 1 |
+| [`equal(a, b, …)`](/docs/sketching/constraints/positional/equal) | Equal lengths (lines) or equal radii (arcs / circles) | 1 per pair |
+| [`concentric(a, b)`](/docs/sketching/constraints/positional/concentric) | Two arcs / circles share a center | 2 |
+| [`collinear(a, b)`](/docs/sketching/constraints/positional/collinear) | A line lies on another line's infinite extension (or on an axis) | 2 |
+| [`distance(a, b, value [, axis])`](/docs/sketching/constraints/dimensional/distance) | Distance between points, a point and a line, two lines, or to a circumference | 1 |
+| [`diameter(c, value)`](/docs/sketching/constraints/dimensional/diameter) | Diameter of a circle or arc | 1 |
+| [`radius(a, value)`](/docs/sketching/constraints/dimensional/radius) | Radius of an arc or circle | 1 |
+| [`angle(a, b, degrees)`](/docs/sketching/constraints/dimensional/angle) | Counter-clockwise angle from one line to another | 1 |
+
+All sixteen come from one module:
+
+```js
+import { coincident, horizontal, vertical, parallel, perpendicular,
+         tangent, equal, concentric, collinear, midpoint, symmetric,
+         fix, distance, angle, radius, diameter } from 'fluidcad/constraints';
+```
+
+A statement targets geometry either as a whole (`horizontal(l)`) or through a point accessor: `l.start()`, `l.end()`, `l.mid()` (coincident only), `a.center()`, `c.center()`, or a `point()` statement itself.
+
+## Sketch datums
+
+Every sketch carries three fixed entities that cost nothing and never move: `origin()`, `xAxis()` and `yAxis()`, importable from `fluidcad/core`. In the viewport they are the origin dot and the two axis lines; click them like any entity. Constrain against them instead of fixing arbitrary points — a profile centred on the origin stays centred when its size changes.
+
+![Datum-anchored circles](/img/docs/sketching/constraint-datums.png)
+
+<ExplainedCode code={constraintDatums} fileName="hub.part.js" />
+
+Common uses:
+
+```js
+coincident(c.center(), origin())      // center on the sketch origin
+coincident(p, xAxis())                // point on the X axis
+collinear(xAxis(), l)                 // line along the X axis
+symmetric(a, b, yAxis())              // mirror pair across the Y axis
+distance(origin(), c.center(), 40)    // dimension from the origin
+angle(xAxis(), ramp, 30)              // angle against the horizontal
+```
+
+A constraint whose every target is fixed (two datums, say) has nothing to solve and is refused.
+
+## Fixed references
+
+[`project()`](/docs/sketching/tools/project) brings existing 3D edges and faces into the sketch as **fixed reference geometry**: the solver never moves it, it renders locked, and your geometry constrains against it — `tangent(bore, l)`, `concentric(c, rim)`, `coincident(p, outline.ref(2).start())`. That is how a feature follows the shape it sits on.
+
+## Reading the solver's verdict
+
+The viewport tells you the state of the solve at all times:
+
+- **Green** geometry is fully constrained — the solver has locked it.
+- **Default-coloured** geometry still has freedom. It rests at the guess and can be dragged; the solver re-solves live, honouring every constraint.
+- **Red** geometry is in conflict: the constraints cannot all hold. The status readout names the conflicting statements by file and line — remove or change one.
+- **Redundant** constraints (satisfied, but adding nothing) are named too. A tidy sketch keeps zero.
+
+The status readout also counts the remaining **degrees of freedom**; "Fully constrained" means zero. See [Distance → Degrees of freedom](/docs/sketching/constraints/dimensional/distance#degrees-of-freedom) for how the count works.
+
+A habit that keeps sketches predictable: constrain the **shape** first (coincident, horizontal, tangent, …), then the **size** (dimensions), then the **position** (`fix` or a datum), and watch the DOF counter fall to zero.
+
+## Multiple solutions: the guess picks the branch
+
+Many constraint systems have more than one valid answer — a circle tangent to a line can sit on either side of it. The solver converges to the solution nearest the guesses, so **the guess coordinates choose the branch**. Draw roughly on the side you mean; exactness does not matter, the side does. The [Tangent](/docs/sketching/constraints/positional/tangent) page shows both branches from identical constraints.

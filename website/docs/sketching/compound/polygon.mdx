@@ -1,0 +1,17 @@
+---
+sidebar_position: 2
+title: "Polygon"
+---
+
+# Polygon
+
+:::caution[Work in progress]
+The Polygon tool is being finished. This page will be completed once it lands; the notes below describe what is in place today.
+:::
+
+The **Polygon** tool draws a regular polygon in one gesture: click the centre, set the size, then the number of sides (both can be typed in the pill). The tool's menu picks how the size is read against the guide circle:
+
+- **Circumscribed** — the sides are tangent to the circle (the circle is the inscribed circle: across-flats sizing).
+- **Inscribed** — the vertices lie on the circle (across-corners sizing).
+
+The statement written is not a polygon: it is one [line](/docs/sketching/primitives/line) per side, a guide [circle](/docs/sketching/primitives/circle), and the constraints that keep it regular — `coincident` at every corner, `equal` across the sides, and the vertices (or sides) held on the guide circle, whose centre is pinned by a coincident when the anchor snapped. The guide circle's diameter is what you dimension to resize the whole polygon.

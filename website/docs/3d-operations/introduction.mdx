@@ -1,0 +1,91 @@
+---
+sidebar_position: 1
+title: "Introduction"
+---
+
+# 3D Operations
+
+A sketch is flat. The operations in this section turn it into a solid and then reshape that solid. Each one is a button on the toolbar with a docked dialog (or, for the pick tools, a small value panel), and each one writes a statement to the part file that you can read, edit and chain methods on.
+
+## The operations
+
+| Operation | Toolbar | What it does |
+|-----------|---------|--------------|
+| [Extrude](/docs/3d-operations/extrude) | **Extrude** | Pulls a sketch along its plane's normal — a plate, a boss, or (on the Remove tab) a pocket |
+| [Revolve](/docs/3d-operations/revolve) | **Revolve** | Turns a sketch around an axis |
+| [Sweep](/docs/3d-operations/sweep) | **Sweep** | Moves a profile along a path |
+| [Loft](/docs/3d-operations/loft) | **Loft** | Blends between two or more profiles |
+| [Shell](/docs/3d-operations/shell) | **Shell** | Hollows a solid, opening the picked faces |
+| [Fillet](/docs/3d-operations/fillet) | **Fillet** | Rounds edges |
+| [Chamfer](/docs/3d-operations/chamfer) | **Chamfer** | Bevels edges |
+| [Wrap](/docs/3d-operations/wrap) | **Wrap** | Bends a sketch onto a cylinder or cone and embosses or engraves it |
+| [Rib](/docs/3d-operations/rib) | **Rib** | Grows a wall from a spine line until it meets the surrounding solid |
+| [Helix](/docs/3d-operations/helix) | **Helix** | Makes the helical wire that springs and threads are swept along |
+
+Extrude, Revolve, Sweep, Loft, Wrap and Rib *make* material and have the Add / New / Remove tabs described below. Fillet, Chamfer and Shell *modify* a solid you point at: they are pick tools — click the button, click edges or faces in the viewport, type the value — and they need the [selection](/docs/3d-operations/selection-and-filters) to say which edges or faces.
+
+## Add, New and Remove
+
+Every material-making dialog starts with the same three tabs. They decide how the new geometry meets the solids already in the scene:
+
+| Tab | Code | Result |
+|-----|------|--------|
+| **Add** | `extrude(30)` (default, or `.add()`) | Fuses with every solid it touches. A boss on a plate becomes one body. |
+| **New** | `extrude(30).new()` | Stays a separate body, even where it overlaps another. The Shapes panel lists it on its own row. |
+| **Remove** | `cut(30)` / `revolve(...).remove()` | Subtracts its volume from every solid it intersects — pockets, grooves, tunnels. |
+
+A fourth control, **Scope**, narrows Add or Remove to particular solids: `cut().remove().scope(box)` cuts only from `box`. For extrude the Remove tab writes `cut()`, which is the same feature as `extrude().remove()`.
+
+Each operation's page shows one base part in the three tabs side by side, and again with thin walls on: [extrude](/docs/3d-operations/extrude#add-new-and-remove), [revolve](/docs/3d-operations/revolve#add-new-and-remove), [sweep](/docs/3d-operations/sweep#add-new-and-remove), [loft](/docs/3d-operations/loft#add-new-and-remove).
+
+Auto-fusion is the Add tab: touching solids merge unless you say otherwise. The [Boolean operations](/docs/booleans/introduction) section covers fusing, subtracting and intersecting solids that already exist, and [Part](/docs/part/introduction) covers the isolation boundary that keeps separate components from fusing.
+
+## Accessing geometry
+
+Most operations return an object with accessors for the faces and edges they created:
+
+```js
+const e = extrude(30)
+
+e.endFaces()       // top face(s)
+e.startFaces()     // bottom face(s)
+e.sideFaces()      // side face(s)
+e.endEdges()       // edges on the top
+e.startEdges()     // edges on the bottom
+e.sideEdges()      // edges on the sides
+```
+
+These are what the pick tools write when your clicks match a whole bucket, and what you pass by hand to sketch on a face, fillet edges, colour faces, or place a connector. The accessors available depend on the operation — each page lists its own.
+
+:::warning[Geometry references can become stale]
+When a later operation modifies or removes a face or edge, references to it may no longer be valid. For example, if you fillet an edge, the original edge is replaced by the fillet surface — so a reference to that edge won't work for subsequent operations.
+
+**Exception for faces as planes:** even if a face is modified or destroyed by a later feature, you can still use it as a sketch plane. FluidCAD remembers the plane's position and orientation regardless of what happens to the face geometry.
+
+```js
+const e = extrude(30)
+
+fillet(5, e.endEdges())        // ✅ works — edges exist at this point
+
+// After fillet, the original end edges are gone (replaced by fillet surfaces).
+// But sketching on the end face still works:
+sketch(e.endFaces(), () => {   // ✅ works — face reference is valid as a plane
+    circle([0, 0], 20)
+  })
+```
+
+As a rule of thumb: reference geometry as close to its creation as possible, before later features reshape it.
+:::
+
+## Primitives
+
+Two solids need no sketch at all:
+
+```js
+import { sphere, cylinder } from 'fluidcad/core';
+
+sphere(50)                     // sphere with diameter 50
+cylinder(50, 100)              // cylinder: diameter 50, height 100
+```
+
+Both accept chained `.translate()`, `.rotate()` and `.mirror()` — see [Transforms](/docs/transforms/introduction).

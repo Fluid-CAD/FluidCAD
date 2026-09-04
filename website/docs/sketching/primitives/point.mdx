@@ -1,0 +1,29 @@
+---
+sidebar_position: 6
+title: "Point"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import primitivePoint from '!!raw-loader!../_examples/primitive-point.js';
+
+# Point
+
+A standalone point. It draws no edge and adds nothing to the profile; it exists to be constrained against — a pivot hole held at the middle of a link, a probe location, the centre of a circular copy.
+
+Points are written in the code editor; there is no Point button on the sketch toolbar.
+
+## By hand
+
+```js
+point([x, y])
+```
+
+![A pivot hole centred on a link bar through a point](/img/docs/sketching/primitive-point.png)
+
+<ExplainedCode code={primitivePoint} fileName="plate.part.js" />
+
+## Accessors
+
+The statement is the point: pass it straight into a constraint (`coincident(p, l.mid())`, `distance(p, origin(), 40)`, `fix(p)`).
+
+For the three points every sketch already has — the origin and the two axes — see [sketch datums](/docs/sketching/constraints/introduction#sketch-datums).

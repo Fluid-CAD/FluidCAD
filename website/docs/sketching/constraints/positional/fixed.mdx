@@ -1,0 +1,40 @@
+---
+sidebar_position: 1
+title: "Fixed"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import constraintFixed from '!!raw-loader!../../_examples/constraint-fixed.js';
+
+# Fixed
+
+`fix` pins a point to the plane. A profile whose shape and size are fully constrained can still slide and spin as a rigid body; anchoring one point removes those last degrees of freedom. It is the constraint that turns "the right shape somewhere" into "the right shape here".
+
+## In the viewport
+
+1. Click one point — a line end, an arc end, a circle or arc center, or a `point()`.
+2. Click **Fix**. The point gets an `F` badge and stops moving; dragging the geometry now pivots around it.
+
+The button takes exactly one point. It is disabled for a datum (the origin is already fixed).
+
+![Mounting plate pinned at its datum corner](/img/docs/sketching/constraint-fixed.png)
+
+<ExplainedCode code={constraintFixed} fileName="plate.part.js">
+The shape (`coincident`, `horizontal`, `vertical`) and the size (two `distance` dimensions) leave two degrees of freedom — the whole plate could still translate. `fix` on the bottom-left corner takes them away, and the mounting hole is then dimensioned from that corner.
+</ExplainedCode>
+
+## In code
+
+```js
+fix(p)              // pin p where its guess put it
+fix(p, [x, y])      // pin p at explicit coordinates
+```
+
+Without coordinates, the point's current guess is captured when the statement runs — the UI writes this form when you click **Fix**. With coordinates the anchor is explicit, and editing the numbers later moves the whole profile. Either way `fix` removes 2 DOF.
+
+Prefer a [sketch datum](/docs/sketching/constraints/introduction#sketch-datums) when the design intent is "at the origin" or "on this axis": `coincident(p, origin())` says why the point is there, and re-centres automatically when the shape changes.
+
+## See also
+
+- [Coincident](/docs/sketching/constraints/positional/coincident) — pinning a point to another point or entity instead of to the plane
+- [Introduction → Reading the solver's verdict](/docs/sketching/constraints/introduction#reading-the-solvers-verdict)

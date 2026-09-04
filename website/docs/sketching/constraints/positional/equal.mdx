@@ -1,0 +1,37 @@
+---
+sidebar_position: 10
+title: "Equal"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import constraintEqual from '!!raw-loader!../../_examples/constraint-equal.js';
+
+# Equal
+
+`equal` gives two or more lines the same length, or two or more circles/arcs the same radius. One dimension on the first entity then sizes all of them.
+
+## In the viewport
+
+1. Click two or more lines, or two or more circles / arcs (all one kind, all distinct).
+2. Click **Equal**. Every entity gets an `=` badge.
+
+![A cover plate: four equal corner rounds and two equal holes](/img/docs/sketching/constraint-equal.png)
+
+<ExplainedCode code={constraintEqual} fileName="cover.part.js">
+The four corner arcs are drawn with four different radii. `equal(c1, c2, c3, c4)` equates each later arc to the first (1 DOF each), so the single `radius(c1, 8)` sizes all four corners. `equal(h1, h2)` does the same for the holes: one `diameter` for both.
+</ExplainedCode>
+
+## In code
+
+```js
+equal(l1, l2)                    // same length: 1 DOF
+equal(c1, c2)                    // same radius: 1 DOF
+equal(a, b, c, ...)              // every entity after the first: 1 DOF each
+```
+
+Lines and round entities cannot be mixed in one statement, and a datum axis has no length to equate.
+
+## See also
+
+- [Distance](/docs/sketching/constraints/dimensional/distance), [Diameter](/docs/sketching/constraints/dimensional/diameter) — the one dimension that drives an equal group
+- [Symmetric](/docs/sketching/constraints/positional/symmetric)

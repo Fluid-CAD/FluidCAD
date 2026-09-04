@@ -1,0 +1,100 @@
+---
+sidebar_position: 15
+title: "User Interface"
+---
+
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+
+# User Interface
+
+The workspace is one browser tab: a top bar with the open files, a toolbar, a panel column on the left, and the viewport. The same layout serves parts and assemblies; the toolbar and the panels change with the kind of file that is open.
+
+## The part workspace
+
+<UiFigure
+  src="/img/docs/ui/overview.png"
+  alt="FluidCAD with a hinge leaf open: top bar, toolbar, panels and viewport"
+  markers={[
+    {n: 1, x: 20, y: 2.6, label: 'File tabs', description: 'Every open file is a tab. The current model tab owns the viewport; drag to reorder, right-click to rename.'},
+    {n: 2, x: 35, y: 2.6, label: '+ (Open a file)', description: 'Opens a box listing every file in the workspace. Pick one to open it as a tab, or type a name that does not exist to create it.'},
+    {n: 3, x: 91, y: 2.6, label: 'Import', description: 'Imports a STEP file into imports/ and appends a load() statement.'},
+    {n: 4, x: 94, y: 2.6, label: 'Export', description: 'Lists the scene’s solids; pick one for the STEP / STL / PNG dialog. In an assembly the list leads with Whole assembly.'},
+    {n: 5, x: 35, y: 8.3, label: 'Toolbar', description: 'Sketch, the create features (Extrude … Rib), the pick tools (Fillet, Chamfer, Shell, Offset), datums and transforms, Boolean, and the structure tools Part and Connector. Undo / Redo sit at the left end.'},
+    {n: 6, x: 1.7, y: 14.2, label: 'Feature tree', description: 'Shows or hides the panel column.'},
+    {n: 7, x: 1.7, y: 18.2, label: 'Code editor', description: 'Docks the source editor on the left (Ctrl+B). The editor takes width from the viewport rather than covering it.'},
+    {n: 8, x: 12, y: 15.2, label: 'History', description: 'One row per feature, in file order. See below for what clicks do.'},
+    {n: 9, x: 17.7, y: 15.2, label: 'History menu', description: 'Recompute scene (clears the cache and rebuilds everything) and Show execution time.'},
+    {n: 10, x: 12, y: 81.7, label: 'Shapes', description: 'One row per solid. Click to select it; the row menu hides it, sets transparency, or exports it.'},
+    {n: 11, x: 12, y: 95, label: 'Parameters', description: 'One control per param(). + adds a parameter, the arrow resets all to their defaults.'},
+    {n: 12, x: 96.5, y: 95.5, label: 'Shape properties', description: 'Volume and mass of the selected solid, for a chosen material.'},
+    {n: 13, x: 93, y: 95.5, label: 'Unit', description: 'The document unit. Readouts and dialogs use it; the menu switches the display to mm / in / same as project.'},
+    {n: 14, x: 96.5, y: 16.5, label: 'View cube', description: 'Click a face or an axis dot for that view. Below it: fit to view, and the grid / projection toggles.'},
+  ]}
+/>
+
+With the code editor open, the file sits between the rail and the panels. Edits in the editor re-render on save, and features applied from the dialogs appear in the editor as they are written:
+
+![The workspace with the code editor open](/img/docs/ui/overview-editor.png)
+
+## The History panel
+
+The History panel is the feature timeline. Every statement in the file is a row: sketches fold their geometry and an *N constraints* group, parts fold their features plus *N connectors* and *N exposed* groups. The glyph on the right of a row says whether the feature was served from cache (check) or rebuilt (refresh arrows).
+
+- **Single click** a row to roll the model back to that feature. The viewport shows the model as it was right after that row, and the toolbar shrinks to what makes sense there. Click the last row, or edit the file, to come back.
+- **Double-click** a row to edit the feature: a breakpoint is placed after it, so the model rolls back to that point, and the feature's dialog opens with its current values. Apply writes the change into the existing statement.
+- **Right-click** a row for its menu:
+
+  ![Row context menu](/img/docs/ui/history-context-menu.png)
+
+  **Rename** edits the feature's `.name('…')` in place. **Edit feature** is the double-click action. **Breakpoint here** puts a `breakpoint()` after the row without opening a dialog, so features you add next land after that row instead of at the end of the file. **Remove** deletes the statement; if later features depend on it, a dialog lists them and deletes the closure on confirm.
+- The **⋮** menu on the panel header:
+
+  ![History menu](/img/docs/ui/history-menu.png)
+
+  **Recompute scene** clears the geometry cache and rebuilds every feature from scratch. Use it when a cached result looks stale. **Show execution time** annotates each row with its build time.
+
+### Breakpoints
+
+A `breakpoint()` statement stops evaluation at that line. The viewport shows the model up to that point, and anything the toolbar writes is inserted before the breakpoint rather than at the end of the file. Remove the statement to resume the full model. Besides the History menu, VS Code inserts one from the gutter and Neovim with `:FluidCadToggleBreakpoint`.
+
+## Shapes and shape properties
+
+The **Shapes** panel lists the solids the model produced, grouped by type. Clicking a row selects the solid in the viewport; the row menu toggles visibility, sets transparency, and opens the export dialog for that solid.
+
+The scale icon at the bottom right opens **Shape properties**. Select a solid, pick a material (or type a density), and **Calculate** reports its volume and mass in the chosen units.
+
+![Shape properties](/img/docs/ui/shape-properties.png)
+
+## Parameters
+
+The **Parameters** panel shows one control per `param()` in the file: a number field, slider, text box, dropdown, checkbox or color swatch, according to the declared type. Changing a control writes the new value into the source and re-renders. **+** declares a new parameter through a dialog, and the arrow resets every value to its default. See [Param](/docs/part/param).
+
+## Measuring
+
+There is no measure tool to arm. Click a face, edge or vertex in the viewport and a status bar appears with its type and its measurement (area for a face, length for an edge). <kbd>Ctrl</kbd>+click or <kbd>Shift</kbd>+click adds entities: two faces give the minimum and maximum distance between them, two parallel faces the parallel distance, two cylinders the axis distance, two edges an angle.
+
+![Measuring a face](/img/docs/ui/measure-status.png)
+
+Click **Show all measurements** on the status bar for the full panel, with one card per selected entity and the pairwise results.
+
+![The measure panel](/img/docs/ui/measure-panel.png)
+
+Measuring works the same in an assembly: click any part's face or edge, and the live pose of the instance is taken into account.
+
+## The assembly workspace
+
+Opening a `.assembly.js` file swaps the toolbar for the assembly tools and the panels for the assembly rail.
+
+![The assembly workspace](/img/docs/ui/assembly-overview.png)
+
+- **Toolbar**: **Insert** (a dialog listing every part and sub-assembly in the workspace), the joints **Fastened**, **Revolute**, **Slider**, **Cylindrical**, **Planar**, **Tangent**, then **Replicate** and **Connector** (a free frame in assembly space).
+- **Parts**: one row per inserted instance; the eye hides it, the menu offers **Show in source**, **Toggle grounded**, **Rename** and **Delete**. Sub-assemblies group their members under a header.
+- **Connectors**: the assembly-level connectors declared in this file.
+- **Joints**: one row per `mate()`, with the two parts and the limits. Click a row to highlight both connectors; the menu offers **Animate…** (revolute and slider), **Edit mate…**, **Suppress**, **Delete** and **Show in source**.
+- Instances are moved by dragging them, or with the gizmo's arrows and rings; the new pose is written back to the `insert()` statement. Dragging a jointed part moves it within the joint's freedom.
+
+See [Assembly](/docs/assembly/introduction) for the joints and the [Getting started](/docs/getting-started) chain for the full flow.
+
+## Editors
+
+The in-page editor is enough for most work: it completes against the engine's own type declarations and shows diagnostics inline. The VS Code and Neovim extensions drive the same server from your editor; see [Editor setup](/docs/extra/editor-setup).

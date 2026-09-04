@@ -1,0 +1,19 @@
+.details {
+  --docusaurus-details-decoration-color: var(--ifm-color-primary);
+  margin-bottom: var(--ifm-leading);
+}
+
+.summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-weight: 600;
+}
+
+.details :global(.theme-code-block) {
+  margin-bottom: 0;
+}
+
+.details > div > div:last-child > p:last-child {
+  margin-bottom: 0;
+}

@@ -1,0 +1,58 @@
+---
+sidebar_position: 1
+title: "Introduction"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import booleanAutofusion from '!!raw-loader!./_examples/boolean-autofusion.js';
+import booleanSeparate from '!!raw-loader!./_examples/boolean-separate.js';
+
+# Boolean Operations
+
+Solids that touch merge into one. That rule — auto-fusion — covers most modelling: a boss extruded onto a plate becomes part of the plate, a cut removes material from whatever it crosses. The three explicit booleans, **Fuse**, **Subtract** and **Common**, are for the cases where you want to say exactly which solids combine, and how.
+
+## Auto-fusion
+
+Extrude a sketch that lands on an existing solid and the two become one body — no boolean statement, no dialog:
+
+![Cylinder fused onto a box](/img/docs/booleans/boolean-autofusion.png)
+
+<ExplainedCode code={booleanAutofusion} fileName="boss.part.js">
+Nothing in the second extrude mentions the box: the new solid touches it, so the two fuse. The Shapes panel lists one solid.
+</ExplainedCode>
+
+Every create feature that adds material (extrude, revolve, sweep, loft, rib, wrap, mirror) behaves this way. The dialog's **Add / Remove / New** tabs choose between fusing, cutting and keeping the result separate; the code forms are `.add()` (the default), `.remove()` and `.new()`, plus `.scope(...solids)` to narrow which bodies take part. Each feature page shows the three modes side by side — start with [Extrude](/docs/3d-operations/extrude#add-new-and-remove).
+
+## Keeping solids separate
+
+Choose the **New** tab in the dialog — or chain `.new()` — and the solid stays its own body even when it touches another:
+
+![Two separate solids](/img/docs/booleans/boolean-separate.png)
+
+<ExplainedCode code={booleanSeparate} fileName="two-bodies.part.js" />
+
+Separate bodies are what the explicit booleans and the [Part](/docs/part/introduction) container work with. A `part()` is the stronger tool when the bodies are different components: inside a part, shapes fuse with each other but never with a sibling part.
+
+## The Boolean dialog
+
+1. Click **Boolean** on the toolbar. The Boolean dialog docks on the right.
+2. Pick the operation tab: **Fuse**, **Subtract** or **Common**.
+3. Fill the slots by clicking solids in the viewport (any face or edge click selects the whole solid) or their rows in the timeline. Fuse and Common show one **Solids** slot that takes several chips, numbered in argument order; Subtract shows a **Base** slot and a **Tool** slot with one solid each.
+4. Click **Apply**. A `fuse(…)`, `subtract(base, tool)` or `common(…)` statement is written and the timeline gains a row.
+
+Exactly one slot is armed at a time (the primary border); picks land there. Every boolean consumes its inputs — the result is one new solid and the inputs leave the Shapes panel.
+
+## When to use what
+
+| Scenario | Approach |
+|----------|----------|
+| Adding a boss to an existing solid | Extrude on the **Add** tab — auto-fusion does it |
+| Cutting a hole | Sketch on a face, extrude on the **Remove** tab (`cut()`) |
+| Merging two bodies that were kept separate | [Fuse](/docs/booleans/fuse) |
+| Removing one body's volume from another | [Subtract](/docs/booleans/subtract) |
+| Keeping only the overlap of two bodies | [Common](/docs/booleans/common) |
+| Modelling several components in one file | `.new()` or, better, [`part()`](/docs/part/part-definition) |
+
+## Colours
+
+Booleans carry colours forward. For `fuse()` the **first input is dominant**: its colours propagate to the result and bleed onto the faces the other inputs contributed; an uncoloured first input leaves the result uncoloured. Subtract and Common keep the colours of the faces that survive. See [Color](/docs/appearance/color#explicit-fuse-color-rule).

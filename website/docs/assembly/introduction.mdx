@@ -1,0 +1,123 @@
+---
+sidebar_position: 1
+title: "Introduction"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import asmIntro from '!!raw-loader!./_examples/asm-intro.assembly.js';
+import asmPlate from '!!raw-loader!./_examples/asm-plate.part.js';
+
+# Assemblies
+
+An assembly places instances of parts in one space and connects them with joints. It lives in a `.assembly.js` file, imports the parts it uses, and writes three kinds of statement: `insert()` to place a part, `.grounded()` to anchor one, and `mate()` to join connectors. The viewport solves the mates live, so you can drag a part and watch the mechanism move.
+
+```js
+import { assembly, insert, mate } from 'fluidcad/core';
+import { plate } from './plate.part.js';
+import { lever } from './lever.part.js';
+
+export const leverAssembly = assembly('lever-assembly', () => {
+    const base = insert(plate).grounded();
+    const arm = insert(lever);
+    mate('revolute', base.connectors.bore, arm.connectors.pivot);
+});
+```
+
+## The assembly file
+
+Click **+** in the top bar and type a name ending in `.assembly.js`. The file is created as an exported `assembly()` definition:
+
+```js
+import { assembly } from 'fluidcad/core';
+
+export const leverAssembly = assembly('lever-assembly', () => {
+});
+```
+
+Everything the Insert wizard and the mate dialog write goes inside that callback, and the export is what lets another assembly insert this one as a sub-assembly. A hand-written file with top-level `insert()` / `mate()` statements works too; the exported shape is what the UI produces.
+
+## Inserting parts
+
+1. Open the `.assembly.js` file — the toolbar switches to the assembly tools and the left rail shows **Parts**, **Connectors** and **Joints**.
+2. Click **Insert**. The dialog lists every exported part and sub-assembly in the workspace, one tile each with a thumbnail and its file name. Click a tile to queue one instance; click again for another; hover a tile to remove one.
+3. If a queued part declares [parameters](/docs/part/param), the next page shows one form per instance — two queued extrusions can get two lengths.
+4. Click **Insert N**. Every instance is written as one `insert()` statement and the import line is added for you; the new parts appear in the viewport.
+
+Each `insert()` returns a handle. Chain a starting pose and a name on it:
+
+| Chain | Effect |
+|-------|--------|
+| `.translate(x, y, z)` | Where the instance starts. Mates move it from here. |
+| `.rotate(axis, degrees)` | Turn it about a world axis (`'x'`, `'y'`, `'z'`, or an axis object). |
+| `.grounded()` | Pin it. See [Grounded](./grounded). |
+| `.name('…')` | The label in the Parts panel and the STEP export. |
+
+Parameter overrides go in the second argument: `insert(plate, { Width: 120 })`.
+
+## Moving instances
+
+Click an instance and drag the transform gizmo — arrows translate, rings rotate. When you release, the pose is written back onto the `insert()` statement as `.translate()` / `.rotate()`. A mated part only moves within the freedom its joints leave: dragging a hinged lever swings it about the hinge.
+
+## Joints
+
+1. Click a mate button on the toolbar: **Fastened**, **Revolute**, **Slider**, **Cylindrical**, **Planar** or **Tangent**. The mate dialog docks on the right with its first connector slot armed; every part connector in the scene is shown as a small triad.
+2. Click a connector triad in the viewport for the first side, then one for the second. The mate is solved as a preview while you adjust it.
+3. Set the options — **Flip**, **Rotate**, **Offset**, **Limits** — and click **Apply**. A `mate()` statement is written and the Joints panel gains a row.
+
+| Type | Free motion | Page |
+|------|-------------|------|
+| `fastened` | none | [Fastened](./fastened) |
+| `revolute` | rotation about Z | [Revolute](./revolute) |
+| `slider` | travel along Z | [Slider](./slider) |
+| `cylindrical` | rotation about Z and travel along Z | [Cylindrical](./cylindrical) |
+| `planar` | slide in X and Y, rotation about Z | [Planar](./planar) |
+| `tangent` | the two surfaces stay in contact | [Tangent](./tangent) |
+
+`mate(type, a, b)` takes two connectors, `instance.connectors.<name>` on each side (a tangent mate takes two exposures, `instance.features.<name>`). The first side is the **driver**: the mate's options are read in its frame.
+
+### Face-to-face
+
+By default a mate aligns the two frames **face-to-face**: origins coincide and the second connector's Z points against the first's. Two parts whose connectors sit on their touching faces therefore land on each other. `.flip()` turns the second part over so both Zs point the same way.
+
+### Options
+
+| Chain | Meaning | Allowed on |
+|-------|---------|------------|
+| `.flip()` | Second Z along the first instead of against it | all lower-pair mates |
+| `.rotate(deg)` | Spin the second frame about the shared Z | all lower-pair mates |
+| `.offset(x, y, z)` | Shift the second origin in the driver's frame | fastened, revolute (any axis); slider, cylindrical, planar (Z only) |
+| `.limits(min, max)` | Bound the free motion — degrees for revolute, document units for slider | revolute, slider |
+| `.noPropagate()` | Contact only on the picked face, not its tangent chain | tangent |
+
+## The rail
+
+- **Parts** — one row per instance. The eye hides it, the menu offers *Show in source*, *Toggle grounded*, *Rename*, *Delete* and, for parametric parts, *Edit parameters…*. Sub-assemblies group under a collapsible header.
+- **Connectors** — the assembly's own free frames (below).
+- **Joints** — one row per `mate()`. Clicking a row highlights both connectors; a revolute or slider row offers **Animate…** in its menu, which opens the [animate bar](/docs/getting-started/animate-joint).
+
+## Sub-assemblies
+
+`assembly(name, () => { … })` declares a sub-assembly: a body of inserts and mates that can itself be inserted. The body's return value is what the parent reaches through `occurrence.parts`, so deep references like `stack.parts.cube.connectors.bottom` bind to that occurrence only.
+
+Inside the body, `.grounded()` anchors an instance **in the sub-assembly's own frame**. The parent decides whether the whole occurrence is grounded; only a chain of grounded frames all the way to the root pins anything to the world.
+
+## Assembly connectors
+
+`connector('name', [x, y, z])` at the top level of an assembly file creates a free frame in the assembly's space, attached to no geometry. It starts with world axes at the point; chain `.rotate(axis, degrees)` and `.offset(x, y, z)` to orient it. It is a mate side in its own right — a base part can be fastened or hinged to it and keep freedom relative to the assembly instead of being fully grounded. The **Connector** button on the assembly toolbar writes one; the **Connectors** rail section lists them.
+
+Assembly connectors are root-scope only: declare them in the file that inserts a sub-assembly, not inside its body.
+
+![A lever-and-pin sub-assembly hinged on a plate that stands on an assembly connector](/img/docs/assembly/asm-intro.png)
+
+<ExplainedCode code={asmIntro} fileName="mechanism.assembly.js" title="A sub-assembly and an assembly connector">
+  The parts this file imports are the ones the rest of this section uses: the base plate below, and the [lever and pin](./revolute) on the revolute page.
+  <ExplainedCode code={asmPlate} fileName="plate.part.js" title="plate.part.js — the base plate" />
+</ExplainedCode>
+
+## Units
+
+Assemblies never declare a unit. Their own lengths — `.translate()`, mate offsets and limits — are in the **project unit**; inserted parts are scaled from their file's unit into it, connectors included; parameter overrides are read in the **part's** unit. See [Units](/docs/extra/units).
+
+## Exporting
+
+The top bar's **Export** menu leads with **Whole assembly**: STEP keeps the tree (one product per part, one component per instance, sub-assemblies nested), STL flattens every placed part into one mesh. Both write the parts where the mates solved them. See [Export](/docs/import-export/export).

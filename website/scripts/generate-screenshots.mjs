@@ -14,13 +14,17 @@
 //
 // How it works:
 //   1. Globs all _examples/*.js files under website/docs/
-//   2. Each .js file is a complete, runnable FluidCAD script
+//   2. Each .js file is a complete, runnable FluidCAD script; a file named
+//      *.assembly.js renders as an assembly, with every *.part.js sibling
+//      staged into the workspace so its relative imports resolve
 //   3. Starts a FluidCAD server, sends each file's code, and captures a screenshot
 //   4. Saves screenshots to website/static/img/docs/<section>/<name>.png
+//      (the section is the first directory under docs/)
 //
 // Screenshot options:
 //   Add "// @screenshot showAxes" as the first line of a .js file to enable axes.
 //   Add "// @screenshot hideGrid" to hide the ground grid in the screenshot.
+//   Add "// @screenshot noAxes" to suppress the automatic axes for rotate()/mirror() code.
 //   Add "// @screenshot skip" to skip screenshot generation for that file.
 //
 // Prerequisites:
@@ -46,9 +50,11 @@ const DEFAULT_SCREENSHOT_OPTIONS = {
   showGrid: true,
   showAxes: false,
   autoCrop: true,
-  margin: 20,
-  width: 800,
-  height: 800,
+  margin: 40,
+  // Rendered at 2x the display size so the docs' images are crisp on
+  // high-DPI screens (pages show them at ~800 px wide).
+  width: 1600,
+  height: 1600,
 };
 
 const PORT = 3200;
@@ -84,8 +90,11 @@ function discoverExamples(docsDir) {
     }
 
     // Determine showAxes from annotation or code content
-    const showAxes = firstLines.includes('// @screenshot showAxes') ||
-      SHOW_AXES_MARKERS.some(marker => code.includes(marker));
+    // `noAxes` overrides the automatic axes for code that merely mentions
+    // rotate()/mirror() (an inserted instance's warm-start pose, say).
+    const showAxes = !firstLines.includes('noAxes') && (
+      firstLines.includes('// @screenshot showAxes') ||
+      SHOW_AXES_MARKERS.some(marker => code.includes(marker)));
 
     // Determine noAutoCrop from annotation
     const noAutoCrop = firstLines.includes('noAutoCrop');
@@ -119,13 +128,16 @@ function discoverExamples(docsDir) {
 
     // Compute output path
     const outputPath = examplePathToImagePath(filePath, docsDir);
-    const name = basename(filePath, '.js');
+    const name = basename(filePath).replace(/(\.part|\.assembly)?\.js$/, '');
     const relPath = relative(docsDir, filePath);
     const section = outputPath.replace(OUTPUT_ROOT + '/', '').replace(`/${name}.png`, '');
 
     examples.push({
       id: `${section}-${name}`.replace(/\//g, '-'),
       code,
+      // An `.assembly.js` example renders as an assembly scene: the server
+      // reads the scene kind off the entry file's extension.
+      isAssembly: filePath.endsWith('.assembly.js'),
       outputPath,
       showAxes,
       noAutoCrop,
@@ -143,32 +155,45 @@ function discoverExamples(docsDir) {
 }
 
 function examplePathToImagePath(filePath, docsDir) {
-  // Convert: docs/guides/3d-operations/_examples/extrude-basic.js
-  //      to: static/img/docs/3d-operations/extrude-basic.png
+  // Convert: docs/<section>/.../_examples/<name>.js
+  //      to: static/img/docs/<section>/<name>.png
   //
-  // Rules:
-  //   - Strip "guides/" prefix when followed by a subdirectory (3d-operations/, sketching/)
-  //   - Keep "guides/" when _examples/ is directly under guides/
-  //   - getting-started/ and tutorials/ pass through as-is
+  // The section is the first directory under docs/ (sketching, 3d-operations,
+  // assembly, getting-started, tutorials, api, …). Sub-sections share their
+  // section's image folder, so a sketching example lives in
+  // docs/sketching/_examples/ whichever sub-page shows it.
   const relPath = relative(docsDir, filePath);
   const parts = relPath.split('/');
+  const section = parts[0];
+  // `asm-lever.part.js` → asm-lever.png, `asm-revolute.assembly.js` → asm-revolute.png
+  const fileName = parts[parts.length - 1].replace(/(\.part|\.assembly)?\.js$/, '.png');
+  return join(OUTPUT_ROOT, section, fileName);
+}
 
-  // Remove the _examples segment
-  const examplesIdx = parts.indexOf('_examples');
-  parts.splice(examplesIdx, 1);
-
-  // Strip "guides/" prefix if it's followed by a subdirectory
-  // e.g., guides/3d-operations/foo.js -> 3d-operations/foo.js
-  // but guides/foo.js stays as guides/foo.js
-  if (parts[0] === 'guides' && parts.length > 2) {
-    parts.shift();
+// Assembly examples import their parts relatively (`./hinge-bracket.part.js`),
+// so every `*.part.js` under docs/**/_examples/ is copied into the workspace
+// root before rendering starts. Names must be unique across sections.
+function stagePartFiles(docsDir, workspaceDir) {
+  const seen = new Map();
+  function walk(dir) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(fullPath);
+      } else if (entry.name.endsWith('.part.js') && dir.includes('_examples')) {
+        const prev = seen.get(entry.name);
+        if (prev) {
+          console.warn(`Warning: two part files named ${entry.name} (${relative(docsDir, prev)} and ${relative(docsDir, fullPath)}) — the later one wins.`);
+        }
+        seen.set(entry.name, fullPath);
+        writeFileSync(join(workspaceDir, entry.name), readFileSync(fullPath, 'utf-8'));
+      }
+    }
   }
-
-  // Change extension
-  const fileName = parts[parts.length - 1].replace('.js', '.png');
-  parts[parts.length - 1] = fileName;
-
-  return join(OUTPUT_ROOT, ...parts);
+  walk(docsDir);
+  if (seen.size > 0) {
+    console.log(`Staged ${seen.size} part file(s) for assembly examples.`);
+  }
 }
 
 // ─── Server helpers ─────────────────────────────────────────────────────
@@ -203,15 +228,26 @@ function waitForIPC(server, type, timeoutMs = 30000) {
   });
 }
 
-let optipngWarned = false;
+let optimizerWarned = false;
+// Flat-shaded CAD renders quantize to a palette with no visible loss, and
+// pngquant cuts them to roughly a fifth of their size; optipng then squeezes
+// the result losslessly. Either tool may be missing — the screenshot is kept
+// unoptimized and a single warning is printed.
 function optimizePng(filePath) {
-  const result = spawnSync('optipng', ['-o2', '-quiet', '-strip', 'all', filePath]);
-  if (result.error || result.status !== 0) {
-    if (!optipngWarned) {
-      console.warn('\n(optipng unavailable — skipping PNG optimization)');
-      optipngWarned = true;
+  const quant = spawnSync('pngquant', ['--quality=80-98', '--speed', '1', '--force', '--skip-if-larger', '--ext', '.png', filePath]);
+  // Exit 98/99 = skipped because the result would not be smaller / quality unmet.
+  const quantOk = !quant.error && (quant.status === 0 || quant.status === 98 || quant.status === 99);
+  const opti = spawnSync('optipng', ['-o2', '-quiet', '-strip', 'all', filePath]);
+  const optiOk = !opti.error && opti.status === 0;
+  if (!quantOk || !optiOk) {
+    if (!optimizerWarned) {
+      const missing = [!quantOk ? 'pngquant' : null, !optiOk ? 'optipng' : null].filter(Boolean).join(' and ');
+      console.warn(`\n(${missing} unavailable — PNGs are only partly optimized; brew install optipng pngquant)`);
+      optimizerWarned = true;
     }
-    return null;
+    if (!quantOk && !optiOk) {
+      return null;
+    }
   }
   return statSync(filePath).size;
 }
@@ -268,6 +304,8 @@ async function main() {
   mkdirSync(WORKSPACE_DIR, { recursive: true });
   writeFileSync(join(WORKSPACE_DIR, 'init.js'), INIT_JS);
   writeFileSync(join(WORKSPACE_DIR, 'test.fluid.js'), '');
+  writeFileSync(join(WORKSPACE_DIR, 'test.assembly.js'), '');
+  stagePartFiles(DOCS_DIR, WORKSPACE_DIR);
 
   console.log(`Starting server on port ${PORT}...`);
 
@@ -326,7 +364,7 @@ async function main() {
     let done = 0;
     let failed = 0;
     for (const config of allScreenshots) {
-      const { id, outputPath, code, showAxes, noAutoCrop, hideGrid, waitForInput, emptyScene, aspectRatio, size, view } = config;
+      const { id, outputPath, code, isAssembly, showAxes, noAutoCrop, hideGrid, waitForInput, emptyScene, aspectRatio, size, view } = config;
 
       mkdirSync(dirname(outputPath), { recursive: true });
 
@@ -340,7 +378,7 @@ async function main() {
         const sceneRendered = waitForIPC(server, 'scene-rendered', 30000);
         server.send({
           type: 'live-update',
-          fileName: join(WORKSPACE_DIR, 'test.fluid.js'),
+          fileName: join(WORKSPACE_DIR, isAssembly ? 'test.assembly.js' : 'test.fluid.js'),
           code: code.trim(),
         });
 
@@ -364,7 +402,7 @@ async function main() {
 
       // Capture screenshot
       try {
-        const arSize = size ?? (aspectRatio ? { width: Math.round(800 * aspectRatio), height: 800 } : {});
+        const arSize = size ?? (aspectRatio ? { width: Math.round(1600 * aspectRatio), height: 1600 } : {});
         const options = {
           ...DEFAULT_SCREENSHOT_OPTIONS,
           ...(showAxes ? { showAxes: true } : {}),

@@ -1,0 +1,49 @@
+---
+sidebar_position: 2
+title: "Fuse"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import booleanFuse from '!!raw-loader!./_examples/boolean-fuse.js';
+
+# Fuse
+
+Fuse merges two or more solids into one body. Reach for it when solids were deliberately kept separate — with the **New** tab or `.new()` — and now have to become one, or when bodies from different features overlap and you want the overlap merged away.
+
+## In the viewport
+
+1. Click **Boolean** on the toolbar and choose the **Fuse** tab.
+2. Click each solid to merge, in the viewport or in the timeline. Each becomes a numbered chip in the **Solids** slot; the chip order is the argument order, which decides whose colours win.
+3. Click **Apply**.
+
+![A boss fused onto a mounting plate, then bored as one body](/img/docs/booleans/boolean-fuse.png)
+
+<ExplainedCode code={booleanFuse} fileName="boss-plate.part.js">
+After the fuse the bore is one cut through one body. The sketch still uses the boss's top face as its plane: a face reference stays valid as a sketch plane even after a boolean has consumed the body it came from.
+</ExplainedCode>
+
+## Code forms
+
+```js
+import { fuse } from 'fluidcad/core';
+
+fuse(a, b)          // merge two solids
+fuse(a, b, c)       // any number
+fuse()              // every solid in the current context
+```
+
+The inputs are consumed; the result is a single new solid that later features see as one body. Its faces and edges are reachable through the feature's accessors:
+
+```js
+const f = fuse(a, b)
+f.internalEdges()    // edges created where the inputs met
+f.internalFaces()
+```
+
+## Colours
+
+The first input dominates: if it carries colours they propagate to the result and bleed onto the faces the other inputs contributed; if it is uncoloured, the result is uncoloured even when later inputs were painted. Put the solid whose colouring you want to keep first. Details and pictures in [Color](/docs/appearance/color#explicit-fuse-color-rule).
+
+## Fuse versus auto-fusion
+
+You rarely need `fuse()` for a solid you are creating: the create dialogs' **Add** tab fuses the new material as it is made. `fuse()` is for solids that already exist separately.

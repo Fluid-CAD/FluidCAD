@@ -1,0 +1,45 @@
+---
+sidebar_position: 2
+title: "Circle"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import primitiveCircle from '!!raw-loader!../_examples/primitive-circle.js';
+
+# Circle
+
+A full circle: bores, bosses, pins, and the guide circles other geometry is laid out on.
+
+## In the viewport
+
+1. Click **Circle** on the sketch toolbar.
+2. Click the centre. The **X / Y** pill places it exactly; a centre that snaps onto a vertex or the origin gets a coincident written for it.
+3. Move out and click the rim — or type the **diameter** in the pill.
+
+![A washer: outer circle and bore](/img/docs/sketching/primitive-circle.png)
+
+<ExplainedCode code={primitiveCircle} fileName="plate.part.js" />
+
+## By hand
+
+```js
+circle(center, diameter)
+```
+
+The number is the **diameter**, not the radius. The centre is a solver point; the diameter is a plain value until a [`diameter()`](/docs/sketching/constraints/dimensional/diameter) or [`equal()`](/docs/sketching/constraints/positional/equal) constraint takes it over.
+
+## Accessors
+
+| Accessor | Meaning |
+|---|---|
+| `c.center()` | The centre point |
+
+The circle itself is a target for `tangent`, `equal`, `concentric`, `diameter`, `radius`, `distance` (measured to the circumference) and `coincident(p, c)` (a point on the circle).
+
+## Modifiers
+
+```js
+circle([0, 0], 100).guide()        // construction circle — see Guides
+circle([0, 0], 40).name('bore')    // name it for the timeline
+circle([0, 0], 40).reusable()      // keep it after the sketch is consumed
+```

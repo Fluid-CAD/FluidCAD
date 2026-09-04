@@ -1,0 +1,47 @@
+---
+sidebar_position: 8
+title: "Tangent"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import asmTangent from '!!raw-loader!./_examples/asm-tangent.assembly.js';
+import asmRoller from '!!raw-loader!./_examples/asm-roller.part.js';
+
+# Tangent
+
+A tangent mate keeps two surfaces touching. Unlike the other joints it is not written on connectors but on **exposed geometry**: a cylindrical or spherical face against a plane, a cam against a follower, a roller on a track. The parts keep every freedom that does not break the contact.
+
+| Free motion | anything that keeps the surfaces in contact |
+|---|---|
+
+## In the viewport
+
+1. Click **Tangent** on the assembly toolbar. Instead of connector triads, the exposed faces of the inserted parts are offered as pick targets.
+2. Click the roller's tread, then the plate's top face. The roller drops until it touches.
+3. Click **Apply**. Drag the roller and it rolls across the surface.
+
+![Roller resting on the base plate](/img/docs/assembly/asm-tangent.png)
+
+<ExplainedCode code={asmTangent} fileName="roller-stand.assembly.js">
+  Each part publishes the surface with `expose()`; the mate reads them as `instance.features.<name>`:
+  <ExplainedCode code={asmRoller} fileName="roller.part.js" title="roller.part.js" />
+</ExplainedCode>
+
+## Options
+
+```js
+mate('tangent', wheel.features.tread, deck.features.deck)
+    .noPropagate()        // touch only the picked face, not its tangent chain
+```
+
+The contact side comes from the faces themselves (which way each surface faces in the B-rep), so there is nothing to flip, and a tangent mate has no joint frame — `.rotate()`, `.offset()` and `.limits()` are refused.
+
+By default the contact **propagates** along a tangent-continuous chain: a filleted edge blending into a face counts as one surface, so a follower rides over the blend without a jump. `.noPropagate()` restricts the contact to the one face you picked.
+
+## Supported surfaces
+
+Planes, cylinders, cones and spheres. A torus or a free-form face cannot be a tangent side; the mate fails with a message naming the face.
+
+## Both sides are exposures
+
+`mate('tangent', …)` refuses connectors, and the other mate types refuse exposures — the two kinds of side are not interchangeable. Publish the faces inside the parts with [`expose()`](/docs/part/expose).

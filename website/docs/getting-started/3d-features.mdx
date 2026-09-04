@@ -1,0 +1,91 @@
+---
+sidebar_position: 3
+title: "3. Applying 3D features"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import stepExtrude from '!!raw-loader!./_examples/hinge-step3a-extrude.js';
+import stepHole from '!!raw-loader!./_examples/hinge-step3b-hole.js';
+import stepHoles from '!!raw-loader!./_examples/hinge-step3c-holes.js';
+import stepFillet from '!!raw-loader!./_examples/hinge-step3d-fillet.js';
+import stepKnuckle from '!!raw-loader!./_examples/hinge-step3e-knuckle.js';
+import stepKnuckles from '!!raw-loader!./_examples/hinge-step3f-knuckles.js';
+
+# Applying 3D features
+
+The outline becomes a leaf in six features: the plate, one screw hole, the hole repeated into a row, rounded corners, one knuckle, and the knuckle repeated along the pin axis. Every feature is a dialog or a pick tool on the toolbar, and every one adds a row to the History panel and a statement to the file.
+
+## Extrude the plate
+
+1. Click **Extrude**. The dialog docks on the right; the **Sketch** slot is already filled with the outline because it is the last sketch in the file (click a sketch row in the History panel to pick a different one).
+2. Leave the **Add** tab selected, **Direction** on *One direction*, and type `3` in **Distance**. A translucent ghost shows the plate while you type.
+3. Click **Apply**.
+
+![Extrude dialog](/img/docs/ui/extrude-dialog.png)
+
+![The plate](/img/docs/getting-started/hinge-step3a-extrude.png)
+
+<ExplainedCode code={stepExtrude} fileName="hinge-leaf-fixed.part.js" />
+
+## Cut a screw hole
+
+Holes are a sketch on the top face and an extrude in **Remove** mode.
+
+1. Click **Sketch**, then click the plate's top face in the viewport. The sketch opens on that face.
+2. Click **Circle**. Click a centre 18 mm from the pin edge and 10 mm from the end (type `18`, <kbd>Tab</kbd>, `10` in the coordinate pill), then type `4` for the diameter. **Finish sketch**.
+3. Click **Extrude**, choose the **Remove** tab, and tick **Through all**. Click **Apply**.
+
+![One screw hole](/img/docs/getting-started/hinge-step3b-hole.png)
+
+<ExplainedCode code={stepHole} fileName="hinge-leaf-fixed.part.js" />
+
+In the file, Remove mode is the `cut()` statement, and calling it with no distance is *Through all*.
+
+## Repeat the hole
+
+1. Click **Repeat**. Pick the **Cut** row in the History panel as the feature to repeat.
+2. Kind *Linear*, **Axis** Y, **Count** `3`, **Offset** `20`. Click **Apply**.
+
+![The row of holes](/img/docs/getting-started/hinge-step3c-holes.png)
+
+<ExplainedCode code={stepHoles} fileName="hinge-leaf-fixed.part.js" />
+
+`repeat()` re-applies the cut at each position, so the result is one solid with three holes. (`copy()` would have cloned the whole plate instead; see [Patterns](/docs/patterns/repeat).)
+
+## Round the outer corners
+
+1. Click **Fillet**. A small panel shows the **Radius**; set it to `4`.
+2. Click the two vertical edges on the side away from the pin. Each click adds the edge; right-clicking an edge opens a menu with related edges (the tangent chain, edges of the same type, the feature's other edge groups) if you want several at once.
+3. Click **Apply**.
+
+![Rounded corners](/img/docs/getting-started/hinge-step3d-fillet.png)
+
+<ExplainedCode code={stepFillet} fileName="hinge-leaf-fixed.part.js" />
+
+The tool picked the edges by where they are: the vertical edges of the plate that lie on the plane x = 30. That reference survives changes to the plate's size, which a stored edge index would not.
+
+## One knuckle
+
+The knuckle is a tube along the pin axis. It is sketched on the **front** plane (XZ) as two concentric circles and extruded along Y.
+
+1. Click **Sketch**, then click the **XZ** origin plane.
+2. **Circle**: centre `0`, `4` (the axis sits 4 mm above the leaf, so the tube rests on the plate's edge), diameter `8`. **Circle** again at the same centre, diameter `4`, for the pin bore. The second circle snaps to the first's centre and the tool writes a `concentric` constraint. **Finish sketch**.
+3. **Extrude**, Add tab, **Distance** `-12`. The sign picks the side of the sketch plane, and the ghost shows which way the tube grows; the front plane's normal points towards you, so the knuckle needs the negative direction to run along +Y. **Apply**.
+
+![The first knuckle](/img/docs/getting-started/hinge-step3e-knuckle.png)
+
+<ExplainedCode code={stepKnuckle} fileName="hinge-leaf-fixed.part.js" />
+
+A circle drawn inside another closed profile is a hole, so the tube comes out with its bore drilled. The extrude fuses with the plate where they touch.
+
+## Repeat the knuckle
+
+1. **Repeat** again: pick the knuckle's **Extrude** row, Linear along **Y**, **Count** `3`, **Offset** `24`. **Apply**.
+
+![Three knuckles](/img/docs/getting-started/hinge-step3f-knuckles.png)
+
+<ExplainedCode code={stepKnuckles} fileName="hinge-leaf-fixed.part.js" />
+
+The 12 mm gaps between the knuckles are where the other leaf's two knuckles go.
+
+Next: [Defining connectors](/docs/getting-started/connectors).

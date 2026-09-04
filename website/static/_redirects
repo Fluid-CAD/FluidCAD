@@ -1,0 +1,37 @@
+# Old documentation URLs (pre docs-rewrite) → new locations.
+# Specific rules first; Cloudflare Pages applies the first match.
+
+/docs/getting-started/installation            /docs/installation                              301
+/docs/getting-started/editor-setup            /docs/extra/editor-setup                        301
+/docs/getting-started/project-configuration   /docs/extra/project-configuration               301
+/docs/getting-started/user-interface          /docs/user-interface                            301
+/docs/getting-started/your-first-model        /docs/getting-started                           301
+
+/docs/guides/cli                              /docs/cli                                       301
+/docs/guides/import                           /docs/import-export/import                      301
+/docs/guides/export                           /docs/import-export/export                      301
+/docs/guides/units                            /docs/extra/units                               301
+/docs/guides/reusable-objects                 /docs/extra/reusable-objects                    301
+/docs/guides/booleans-and-fusion              /docs/booleans/introduction                     301
+/docs/guides/transforms                       /docs/transforms/introduction                   301
+/docs/guides/chained-transforms               /docs/transforms/introduction                   301
+/docs/guides/patterns                         /docs/patterns/repeat                           301
+/docs/guides/copying                          /docs/patterns/copy                             301
+/docs/guides/selections-and-filters           /docs/3d-operations/selection-and-filters       301
+
+/docs/guides/3d-operations/color              /docs/appearance/color                          301
+/docs/guides/3d-operations/parts              /docs/part/introduction                         301
+/docs/guides/3d-operations/cut                /docs/3d-operations/extrude                     301
+/docs/guides/3d-operations/*                  /docs/3d-operations/:splat                      301
+
+/docs/guides/sketching/introduction           /docs/sketching/introduction                    301
+/docs/guides/sketching/primitives             /docs/sketching/primitives/line                 301
+/docs/guides/sketching/constraints            /docs/sketching/constraints/introduction        301
+/docs/guides/sketching/dimensions             /docs/sketching/constraints/dimensional/distance 301
+/docs/guides/sketching/text                   /docs/sketching/compound/text                   301
+/docs/guides/sketching/offset                 /docs/sketching/tools/offset                    301
+/docs/guides/sketching/projection             /docs/sketching/tools/project                   301
+/docs/guides/sketching/guides                 /docs/sketching/tools/guides                    301
+/docs/guides/sketching/transforms             /docs/sketching/tools/copy                      301
+
+/docs/guides                                  /docs/introduction                              301

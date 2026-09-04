@@ -1,0 +1,44 @@
+---
+sidebar_position: 2
+title: "2. Creating a basic sketch"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import step2 from '!!raw-loader!./_examples/hinge-step2-sketch.js';
+
+# Creating a basic sketch
+
+The leaf starts as a rectangle: 30 mm wide, 60 mm along the pin axis. You draw it with the Rectangle tool; the constraints that make it exactly that size are written for you.
+
+## In the viewport
+
+1. Click **Sketch** on the toolbar. The Sketch dialog docks on the right with one **Face / Plane** slot and the three origin planes appear in the viewport as pickable quads.
+2. Click the **XY** plane (the horizontal one). The pick writes a `sketch('xy', …)` statement, the camera locks flat onto the plane, and the sketch toolbar appears: **Line, Polyline, Bezier, Circle, Polygon, Rectangle, 3-Point Arc, Center Arc, Slot, Text**, then the sketch tools.
+3. Click **Rectangle**. Click on the origin for the first corner (the cursor snaps to it), then move to the opposite corner. The coordinate pill next to the cursor takes typed values: type `30`, <kbd>Tab</kbd>, `60`, <kbd>Enter</kbd>.
+4. The rectangle turns **green**: every line is fully constrained. The sketch's status readout says *Fully constrained*.
+5. Click the green **Finish sketch** button. It leaves the sketch and offers the feature you most likely want next; ignore that for now.
+
+![The leaf outline, fully constrained](/img/docs/getting-started/hinge-step2-sketch.png)
+
+## What the tool wrote
+
+One gesture produced four lines and eleven constraints. In the History panel the sketch row lists the four **Line** rows and folds the rest behind an *11 constraints* row. The constraints are the point of the exercise: the coordinates in the `line()` calls are only where you clicked, and the solver would move them if a constraint asked it to. Change the `30` in the `distance()` statement (or double-click the dimension label in the viewport) and the whole outline follows.
+
+<ExplainedCode code={step2} fileName="hinge-leaf-fixed.part.js" open />
+
+The constraints break down as:
+
+| Constraints | Purpose |
+|---|---|
+| 4 × `coincident` | Corners: each line ends where the next begins |
+| 2 × `horizontal`, 2 × `vertical` | Square sides |
+| `fix` | Anchors one corner on the origin |
+| 2 × `distance` | The 30 and 60 dimensions |
+
+The Rectangle tool's **Centered** option (in the button's menu) would have centred the rectangle on the first click instead and written a `midpoint()` constraint in place of the `fix()`.
+
+:::tip
+Sketch options live in the Sketch dialog while a sketch is open: **Snap to vertices**, **Snap to grid**, **Auto-constraints → Infer while drawing** (what added the coincident, horizontal and vertical constraints), and **Show constraints** toggles for the dimensional and positional markers. See [Sketching](/docs/sketching/introduction).
+:::
+
+Next: [Applying 3D features](/docs/getting-started/3d-features).

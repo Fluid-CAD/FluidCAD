@@ -1,0 +1,90 @@
+---
+sidebar_position: 1
+title: "Color"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import colorExample from '!!raw-loader!./_examples/color-example.js';
+import colorSurvivesFillet from '!!raw-loader!./_examples/color-survives-fillet.js';
+import colorBleeding from '!!raw-loader!./_examples/color-bleeding.js';
+import colorFuseFirstInput from '!!raw-loader!./_examples/color-fuse-first-input.js';
+import colorFuseFirstUncolored from '!!raw-loader!./_examples/color-fuse-first-uncolored.js';
+
+# Color
+
+`color()` paints faces or whole solids. Colours are part of the model: they survive later features, follow the geometry through fillets and booleans, and are written into STEP exports.
+
+Colour has no dialog — the statement is written in the editor. Select the faces first (a `select()` with a [filter](/docs/3d-operations/selection-and-filters), or a feature accessor such as `e.endFaces()`), then call `color()` with a CSS colour: a name (`"red"`, `"steelblue"`), a hex value (`"#e74c3c"`) or an `rgb(...)` string.
+
+![Colored faces](/img/docs/appearance/color-example.png)
+
+<ExplainedCode code={colorExample} fileName="painted.part.js" />
+
+## Colouring a selection
+
+`color()` with one argument paints the last selection. With no selection at all it paints every face in the current context:
+
+```js
+select(face().parallelTo("xy"))
+color("#3498db")               // every horizontal face
+
+select(face().cylinder())
+color("silver")                // every cylindrical face
+```
+
+## Colouring a whole object
+
+Pass a scene object instead of faces and every face of its solids is painted — the quickest way to give a part a base colour, which single faces can then override:
+
+```js
+const body = extrude(30)
+color("steelblue", body)       // base colour for every face
+
+select(face().onPlane("xy", 30))
+color("tomato")                // repaint just the top face
+```
+
+## Colours survive later features
+
+Paint a face, then keep modelling: fillet, chamfer, fuse, cut and the rest carry colours forward onto the faces they produce.
+
+![Color preserved through fillet](/img/docs/appearance/color-survives-fillet.png)
+
+<ExplainedCode code={colorSurvivesFillet} fileName="fillet-color.part.js">
+The top face is painted before the fillet. After it, the trimmed top face is still orange, and so is the fillet's arc face — colours transfer onto modified faces and bleed onto the new geometry next to them.
+</ExplainedCode>
+
+When a coloured face is split — by a cut across it, say — every surviving piece keeps the colour. When a coloured face is removed entirely, its colour goes with it.
+
+## Colour bleeding
+
+New geometry fused into a coloured shape inherits the colour of the faces around it:
+
+![Color bleeding onto fused geometry](/img/docs/appearance/color-bleeding.png)
+
+<ExplainedCode code={colorBleeding} fileName="bleed.part.js" />
+
+Bleeding only reaches faces that came from **new** geometry. Faces that already existed and were left uncoloured stay uncoloured. The same rule covers fillet arcs, chamfer surfaces and the section faces of a cut.
+
+## Explicit `fuse()` color rule
+
+In a [fuse](/docs/booleans/fuse) the **first input is dominant**:
+
+- if the first input carries colours, they propagate to the result and bleed onto the other inputs;
+- if the first input has no colours, the result is uncoloured even when other inputs were painted.
+
+![fuse() first input dominates](/img/docs/appearance/color-fuse-first-input.png)
+
+<ExplainedCode code={colorFuseFirstInput} fileName="fuse-first.part.js" />
+
+With an uncoloured first input nothing propagates — painting later inputs has no effect on the result:
+
+![fuse() first input uncolored — result stays uncolored](/img/docs/appearance/color-fuse-first-uncolored.png)
+
+<ExplainedCode code={colorFuseFirstUncolored} fileName="fuse-uncolored.part.js" />
+
+So the order of the Boolean dialog's **Solids** chips — the argument order — chooses whose colouring wins: put the solid whose colours you want to keep first.
+
+## Export
+
+Colours go into STEP files (the export dialog's colour toggle and the CLI's `--no-colors` flag turn that off) and are shown for imported STEP files that carry them. See [Export](/docs/import-export/export).

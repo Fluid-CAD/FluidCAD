@@ -1,0 +1,50 @@
+---
+sidebar_position: 1
+title: "Line"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import primitiveLineBasic from '!!raw-loader!../_examples/primitive-line-basic.js';
+
+# Line
+
+A straight segment between two points. Lines are the sides of almost every profile, and the entities most constraints act on.
+
+## In the viewport
+
+1. Click **Line** on the sketch toolbar.
+2. Click the start point, then the end point. Each click can be typed instead: the **X / Y** pill takes exact coordinates, and the body pill takes the length.
+3. Near-horizontal and near-vertical lines snap to the axis and get a horizontal / vertical constraint; a start that snaps onto an existing vertex gets a coincident (both under **Auto-constraints**; hold <kbd>Ctrl</kbd> to skip one).
+
+**Polyline** chains segments: each new segment starts where the previous one ended, with the junction coincident written for you. Press <kbd>Space</kbd> to cycle the segment mode — **Line**, **A-Line** (a line at a typed angle to the previous segment), **Arc**, **T-Arc** (tangent to the previous segment) and **T-Line** (a line tangent to the previous arc). <kbd>Esc</kbd> ends the chain.
+
+![An L-bracket outline built from six lines](/img/docs/sketching/primitive-line-basic.png)
+
+<ExplainedCode code={primitiveLineBasic} fileName="plate.part.js" />
+
+## By hand
+
+```js
+line(start, end)
+```
+
+`line([0, 0], [100, 0])` draws from the first point to the second. The coordinates are guesses: where no constraint applies they stay put; where one does, the solver moves the endpoints.
+
+Nothing joins consecutive lines by itself. Without the `coincident` statements above, dragging one line would tear the corner open.
+
+## Accessors
+
+| Accessor | Meaning |
+|---|---|
+| `l.start()` | The start point |
+| `l.end()` | The end point |
+| `l.mid()` | The midpoint — accepted by `coincident()` only, where it lowers to a [midpoint](/docs/sketching/constraints/positional/midpoint) constraint |
+
+The line itself is a target for `horizontal`, `vertical`, `parallel`, `perpendicular`, `tangent`, `equal`, `collinear`, `distance` and `angle`.
+
+## Modifiers
+
+```js
+line([0, 0], [100, 100]).guide()    // construction geometry — see Guides
+line([0, 0], [100, 0]).name('base') // name the statement for the timeline
+```

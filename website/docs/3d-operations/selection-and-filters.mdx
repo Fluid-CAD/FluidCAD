@@ -1,0 +1,255 @@
+---
+sidebar_position: 2
+title: "Selection & Filters"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import selectionExample from '!!raw-loader!./_examples/selection-example.js';
+
+# Selection & Filters
+
+Fillet, chamfer, shell, color, connectors and sketches on faces all need to be told *which* faces or edges. In the viewport you click them. In the file that click becomes one of three things: an accessor on the feature that made the geometry, a `select()` with a filter, or a filter passed straight to the operation. This page covers how picking works and what it writes.
+
+## Picking in the viewport
+
+- **Click** a face, edge or vertex to select it. The selection info overlay names what you picked and the feature that produced it.
+- <kbd>Ctrl</kbd> / <kbd>Shift</kbd> + click adds to the selection.
+- **Right-click** a picked entity for the multi-select menu, fetched from the model:
+  - the **tangent chain** the edge belongs to (a filleted outline in one go),
+  - edges or faces of the **same type**, or of **equal measure** (all Ø6 holes),
+  - the producing feature's **buckets** — *Extrude End Edges*, *Side Faces* … — and **Select other**, which lists the feature's remaining buckets when your pick was, say, a start edge.
+  - Hovering a menu item previews exactly what clicking it would select.
+- With a pick tool armed (**Fillet**, **Chamfer**, **Shell**, **Sketch**, **Offset**), the picks go straight into that tool's statement.
+
+A plain click with no tool armed is also the [measure](/docs/user-interface#measuring) gesture.
+
+### What the pick writes
+
+The pick tools resolve your clicks to the most stable reference they can:
+
+| Your picks | Written as |
+|------------|------------|
+| A whole bucket of one feature (all end edges of an extrude) | `fillet(5, e.endEdges())` |
+| A subset of a bucket | `fillet(5, e.endEdges(0, 2))` — by index |
+| Entities a filter describes better | `select(edge().onPlane("xy", 30))` then the operation |
+| A face for a sketch or connector | `sketch(e.endFaces(), …)`, `connector('top', e.endFaces())` |
+
+Feature variables (`const e = extrude(30)`) are introduced by the writer when a statement needs one.
+
+## Direct selection
+
+Every operation returns an object whose accessors pick its own faces and edges:
+
+```js
+const e = extrude(30)
+
+fillet(5, e.endEdges())        // top edges
+fillet(3, e.startEdges())      // bottom edges
+shell(-4, e.endFaces())        // remove top face and hollow
+color("blue", e.sideFaces())   // color the sides
+```
+
+By index when there are several:
+
+```js
+e.sideFaces(0)                 // the first side face
+e.sideFaces(2)                 // the third side face
+```
+
+## The select function
+
+For more control, use `select()` with filters from `fluidcad/filters`:
+
+```js
+import { select } from 'fluidcad/core';
+import { edge, face } from 'fluidcad/filters';
+
+select(edge().verticalTo("xy"))
+fillet(3)
+```
+
+`select()` finds all matching geometry in the scene and stores it as the **last selection**. The next operation that needs a selection (fillet, chamfer, shell, color …) uses it and consumes it.
+
+## Edge filters
+
+Import `edge` (and `face` if using `belongsToFace`) from `fluidcad/filters` and chain filter methods. Chained calls AND together:
+
+```js
+import { edge, face } from 'fluidcad/filters';
+```
+
+### By direction
+
+```js
+edge().verticalTo("xy")        // edges perpendicular to the XY plane
+edge().parallelTo("xz")        // edges parallel to the XZ plane
+```
+
+### By position
+
+```js
+edge().onPlane("xy", 30)                   // edges that lie on the XY plane at height 30
+edge().onPlane("yz", { offset: 50, bothDirections: true }) // edges on YZ plane at offset ±50
+```
+
+### By shape
+
+```js
+edge().circle()                // circular edges
+edge().arc()                   // arc-shaped edges
+edge().line()                  // straight edges
+edge().line(10)                // straight edges with length 10
+```
+
+### By parent face
+
+```js
+edge().belongsToFace(face().circle())         // edges on circular faces
+edge().belongsToFace(face().parallelTo("xy")) // edges on faces parallel to XY
+
+// or pass a scene object directly
+const topFaces = select(face().onPlane("xy", 30));
+edge().belongsToFace(topFaces)                // edges belonging to those faces
+```
+
+### By source object
+
+Restrict the selection to edges that come from one or more specific scene objects — useful when several solids share the scene:
+
+```js
+const sa = sketch("xy", () => {
+    const b = line([0, 0], [20, 0]);
+    const r = line([20, 0], [20, 20]);
+    const t = line([20, 20], [0, 20]);
+    const l = line([0, 20], [0, 0]);
+    coincident(b.end(), r.start());
+    coincident(r.end(), t.start());
+    coincident(t.end(), l.start());
+    coincident(l.end(), b.start());
+  })
+const a = extrude(40, sa)
+const sb = sketch("xy", () => circle([0, 0], 15))
+const b = extrude(40, sb)
+
+select(edge().from(a).line())                 // only line edges from `a`
+select(edge().from(a, b).circle())            // circle edges from either `a` or `b`
+```
+
+`from()` composes with the rest of the chain (AND), so `edge().from(a).onPlane("xy", 0)` returns edges from `a` that also lie on the XY plane.
+
+### Negation
+
+```js
+edge().notOnPlane("xy")        // edges NOT on the ground plane
+edge().notCircle()             // edges that aren't circular
+edge().notBelongsToFace(face().cylinder())  // edges NOT on cylindrical faces
+```
+
+## Face filters
+
+Import `face` (and `edge` if using `hasEdge`) from `fluidcad/filters`:
+
+```js
+import { face, edge } from 'fluidcad/filters';
+```
+
+### By direction
+
+```js
+face().parallelTo("xy")        // faces parallel to the XY plane (top/bottom faces)
+face().parallelTo("xz")        // faces parallel to the XZ plane (front/back faces)
+```
+
+### By position
+
+```js
+face().onPlane("xy", 30)       // faces on the XY plane at height 30
+```
+
+### By shape
+
+```js
+face().circle()                // circular (flat round) faces
+face().cylinder()              // cylindrical faces
+face().cone()                  // conical faces
+```
+
+### By edge properties
+
+```js
+face().edgeCount(4)            // faces with exactly 4 edges (rectangular faces)
+face().hasEdge(edge().line())  // faces that have at least one straight edge
+face().hasEdge(edge().circle(10))  // faces with a circular edge of diameter 10
+
+// or pass a scene object directly
+const circularEdges = select(edge().circle());
+face().hasEdge(circularEdges)  // faces that share an edge with the selection
+```
+
+### By source object
+
+```js
+select(face().from(a).parallelTo("xy"))       // top/bottom faces of `a`
+select(face().from(a, b).cylinder())          // cylindrical faces from either object
+```
+
+`from()` composes with other filters as AND. When the surrounding `select()` is cloned by `repeat()` or `mirror()`, the references are remapped to the cloned objects automatically.
+
+### Negation
+
+```js
+face().notOnPlane("xy", 0)     // faces NOT on the ground plane
+face().notCircle()             // non-circular faces
+face().notEdgeCount(4)         // faces that don't have exactly 4 edges
+face().notHasEdge(edge().arc())  // faces without any arc edges
+```
+
+## Using selections
+
+### With fillet and chamfer
+
+```js
+select(edge().onPlane("xy", 30))
+fillet(5)                      // fillets the selected edges
+
+select(edge().verticalTo("xy"))
+chamfer(2)                     // chamfers vertical edges
+```
+
+### With shell
+
+```js
+select(face().onPlane("xy", 30))
+shell(-3)                      // removes selected face and hollows the solid
+```
+
+### With color
+
+```js
+select(face().circle())
+color("red")                   // colors all circular faces red
+
+select(face().parallelTo("xy"))
+color("#3498db")               // hex colors work too
+```
+
+### Passing directly
+
+Filters can also go straight into an operation, or narrow a direct selection:
+
+```js
+fillet(5, e.endEdges())                    // direct from operation
+fillet(5, e.sideFaces(face().cylinder()))   // filter within direct selection
+```
+
+## Example: selective filleting
+
+Fillet only the vertical edges of a box, then color the top:
+
+![Selective filleting and coloring](/img/docs/3d-operations/selection-example.png)
+
+<ExplainedCode code={selectionExample} fileName="box.part.js" />
+
+## Selections that must survive
+
+A selection is consumed by the operation that uses it. To feed the same selection to two features, mark it `.reusable()` — see [Reusable objects](/docs/extra/reusable-objects).

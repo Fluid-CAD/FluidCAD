@@ -1,0 +1,111 @@
+---
+sidebar_position: 1
+title: "Axes"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import axisOffset from '!!raw-loader!./_examples/datums-axis-offset.js';
+import axisEdge from '!!raw-loader!./_examples/datums-axis-edge.js';
+
+# Axes
+
+An axis is a line with a direction: what a profile revolves around, what a circular pattern turns about, what a rotation pivots on, what a helix coils around. The three world axes are always there; `axis()` builds any other one from an offset, from an edge, or between two axes.
+
+## The world axes
+
+`"x"`, `"y"` and `"z"` name the world axes through the origin. They are accepted wherever an axis is expected, and they always mean the **world** axes — even inside a sketch on a tilted plane (see [sketch-local axes](#sketch-local-axes) below for the other case).
+
+```js
+revolve("z")                                       // turn the profile around world Z
+repeat("circular", "z", { count: 6, angle: 360 }, hole)
+rotate("x", 90, body)
+helix("z").pitch(10).turns(4)
+```
+
+## In the viewport
+
+There is no separate Axis tool: axes are picked inside the dialogs that need one. The **Revolve**, **Repeat**, **Copy** and **Rotate** dialogs each carry an **Axis** slot:
+
+1. Click the slot to arm it (it takes the primary border).
+2. Click a **straight edge** in the viewport, or press one of the **X / Y / Z** quick buttons under the slot for a world axis. Existing `axis()` features in the timeline can be clicked too.
+3. The dialog writes the reference into the statement: a world axis as `"z"`, a picked edge as a selector such as `select(edge().…)` or the producing feature's accessor.
+
+Circular and Rotate patterns default their empty slot to world Z. Offset axes and mid-axes are written in code.
+
+## Offset axes
+
+`axis()` with a world axis and transform options moves the axis away from the origin. A crank is the classic case: the shaft turns on the world Z axis, and the crank pin is revolved around a second axis parallel to it, one throw away:
+
+![A crank: the pin revolved around Z shifted 25 along X](/img/docs/datums/datums-axis-offset.png)
+
+<ExplainedCode code={axisOffset} fileName="crank.part.js" />
+
+The options translate first, then rotate around the world axes:
+
+| Option | Meaning |
+|--------|---------|
+| `offsetX`, `offsetY`, `offsetZ` | move the axis origin along the world axes |
+| `rotateX`, `rotateY`, `rotateZ` | tilt the direction around the world axes, in degrees |
+
+```js
+axis("z", { offsetX: 50, offsetY: 30 })   // vertical axis through (50, 30)
+axis("y", { rotateZ: 30 })                // Y tilted 30° in the ground plane
+axis(a, { offsetZ: 10 })                  // an existing axis, shifted
+```
+
+An axis can also be given as a direction vector or as a point-and-direction record: `axis([1, 1, 0])`, `axis({ point: [0, 0, 20], direction: [0, 0, 1] })`.
+
+## Axes from geometry
+
+Pass a straight edge and the axis is read off it. Nothing is typed, so the axis follows the geometry when dimensions change — a door hinged on the cabinet's own corner stays hinged there whatever the cabinet's size:
+
+![A cabinet door swung open around the cabinet's front edge](/img/docs/datums/datums-axis-edge.png)
+
+<ExplainedCode code={axisEdge} fileName="cabinet.part.js" />
+
+```js
+axis(e.sideEdges(0))                     // the first side edge of an extrude
+axis(select(edge().line().onPlane("yz", -30)))   // a filtered straight edge
+axis(e.sideEdges(0), { offsetZ: 5 })     // read from the edge, then shifted
+```
+
+The edge must be a **line**: a circular edge is refused (`Edge does not represent a line`). For the centre line of a bore, revolve or pattern around the world axis or an offset axis instead. A selection has to resolve to one edge; narrow it with a [filter](/docs/3d-operations/selection-and-filters) when a body has several candidates.
+
+## Mid-axes
+
+Two axes give the axis halfway between them, useful for symmetric layouts:
+
+```js
+axis("x", "y")                         // the diagonal in the ground plane
+axis(a1, a2, { offsetZ: 20 })          // between two axis features, then shifted
+```
+
+## Sketch-local axes
+
+Inside a sketch, `"x"` and `"y"` still mean the world axes. On the ground plane that matches the sketch's own axes; on a front-plane sketch, world Y is the plane's normal, so `mirror("y", …)` would fold the geometry through the plane. `local("x" | "y" | "z")` resolves the name against the **active sketch plane** instead:
+
+| Sketch plane | `local("x")` | `local("y")` |
+|---|---|---|
+| `"xy"` / `"top"` | world +X | world +Y |
+| `"xz"` / `"front"` | world +X | world +Z |
+| `"yz"` / `"right"` | world +Y | world +Z |
+
+```js
+sketch("front", () => {
+    const b = bezier([0, 0], [-40, 60], [0, 90]);
+    mirror(local("y"), b);        // across the sketch's vertical — world Z here
+});
+```
+
+`local()` works on face sketches and `plane()` targets too. It is opt-in per argument: `copy("linear", [local("y"), "x"], …)` mixes a sketch-local direction with a world one. See [Mirror](/docs/sketching/tools/mirror) and [Copy](/docs/sketching/tools/copy) in the sketch tools.
+
+## Where axes are consumed
+
+| Feature | Axis argument |
+|---------|---------------|
+| [Revolve](/docs/3d-operations/revolve) | `revolve(axis, angle?)` — the sketch plane must contain the axis |
+| [Repeat](/docs/patterns/repeat) circular / rotate | `repeat("circular", axis, options, feature)` |
+| [Copy](/docs/patterns/copy) circular | `copy("circular", axis, options)` |
+| [Rotate](/docs/transforms/rotate) | `rotate(axis, degrees, ...targets)` |
+| [Helix](/docs/3d-operations/helix) | `helix(axis)` |
+| Rotate a plane or an instance | `plane(p, { rotateX })`, `insert(def).rotate(axis, deg)` |

@@ -1,0 +1,56 @@
+---
+sidebar_position: 3
+title: "Project"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import toolProjectBasic from '!!raw-loader!../_examples/tool-project-basic.js';
+
+# Project
+
+Project flattens 3D edges and faces onto the sketch plane. The projected curves are **fixed reference geometry**: the solver never moves them, they render as locked (green) geometry, and your sketch geometry can be constrained against them. It is how a feature follows the shape of what is already there.
+
+## In the viewport
+
+1. Click **Project** on the sketch toolbar. The Project dialog opens with one **Selection** slot.
+2. Click the 3D edges and faces to bring in — a face projects its outline, an edge projects itself. Picks accumulate as chips.
+3. **Apply** writes the `project(…)` statement at the top of the sketch body, where the references it creates are available to every constraint after it.
+
+![A gasket drawn from the projected lid outline](/img/docs/sketching/tool-project-basic.png)
+
+<ExplainedCode code={toolProjectBasic} fileName="plate.part.js" />
+
+## By hand
+
+```js
+project(e.endFaces())              // a face → its outline
+project(e.endEdges())              // just the edges
+project(face1, face2, edge1)       // several sources at once
+```
+
+Projections usually carry `.guide()` so the outline stays out of the profile and only the geometry built against it is extruded or cut.
+
+## Constraining against a projection
+
+A projection is a first-class constraint target:
+
+```js
+sketch(e.endFaces(), () => {
+    const rim = project(e.endEdges()).guide()   // a single edge: use it directly
+    const c = circle([10, 0], 12)
+    concentric(c, rim)                          // a bore concentric with the rim
+})
+```
+
+When a projection produces **several edges**, address one with `.ref(i)` and its points with the usual accessors:
+
+```js
+const outline = project(e.endFaces()).guide()   // four edges, say
+coincident(p, outline.ref(0).start())
+distance(outline.ref(2), c.center(), 25)
+tangent(outline.ref(1), l)
+```
+
+Because references are fixed, a sketch made only of projections reports **Fully constrained** by itself — the geometry you add is what brings degrees of freedom.
+
+`intersect()` is the companion statement: instead of flattening along the sketch normal, it cuts the sketch plane through 3D objects and brings the section curves in, with the same fixed-reference behaviour.

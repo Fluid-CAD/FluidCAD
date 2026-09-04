@@ -1,0 +1,68 @@
+---
+sidebar_position: 1
+title: "Introduction"
+---
+
+# Transforms
+
+Transforms move, rotate and mirror geometry that already exists. Each one is a step in the timeline: it takes the solids you name (or the last one built) and places them somewhere else, or adds moved copies.
+
+| Transform | Viewport | Code |
+|-----------|----------|------|
+| [Translate](/docs/transforms/translate) | code only in part mode (instances in an assembly are dragged with the gizmo) | `translate(x, y, z, ...targets)` |
+| [Rotate](/docs/transforms/rotate) | **Rotate** dialog: Move / Copy, Solids, Axis, Angle | `rotate(axis, degrees, ...targets)` |
+| [Mirror](/docs/transforms/mirror) | **Mirror** dialog: Add / Remove / New, Solids, Plane | `mirror(plane, ...targets)` |
+
+All three take an optional list of targets at the end. Without one they act on the object built last, which keeps the common case short:
+
+```js
+extrude(20)
+translate(50)          // moves the extrude
+rotate("z", 45)        // turns the moved extrude
+```
+
+Patterns — several copies at once — are their own section: [Copy](/docs/patterns/copy) and [Repeat](/docs/patterns/repeat). Inside a sketch, `mirror`, `copy` and `rotate` have 2D forms that act on sketch geometry: see the [sketch tools](/docs/sketching/tools/mirror).
+
+## Chaining on primitives
+
+The sketch-free primitives `cylinder()` and `sphere()` expose `.translate()`, `.rotate()`, `.mirror()` and `.transform()` as methods, so a primitive can be placed in one expression:
+
+```js
+cylinder(5, 10).translate(20, 0, 0);
+sphere(1).translate(5, 0, 0).rotate("z", 90);
+```
+
+Chained calls compose **left to right** — the first call runs first, each later call is applied on top:
+
+```js
+// translate by (5, 0, 0), then rotate 90° around Z → centre ends at (0, 5, 0)
+sphere(1).translate(5, 0, 0).rotate("z", 90);
+
+// rotate first (a no-op for a sphere at the origin), then translate → (5, 0, 0)
+sphere(1).rotate("z", 90).translate(5, 0, 0);
+```
+
+The method signatures:
+
+```ts
+transform(matrix: Matrix4): this
+
+translate(x: number): this
+translate(x: number, y: number): this
+translate(x: number, y: number, z: number): this
+translate(offset: PointLike): this
+
+rotate(angle: number): this                   // around world Z through the origin
+rotate(axis: AxisLike, angle: number): this   // around any axis
+
+mirror(plane: PlaneLike): this
+mirror(axis: AxisLike): this
+```
+
+Every other builder — extrude, cut, fuse, fillet, loft, a loaded STEP file — uses the free functions, which wrap the target and add their own timeline step:
+
+```js
+translate(100, extrude(10));
+```
+
+Chained transforms apply to a primitive's finished shape and bypass the history; that is fine for a standalone cylinder but would interact badly with features that take part in fusion, history and interactive picking. Keeping the chain API to primitives avoids those cases.

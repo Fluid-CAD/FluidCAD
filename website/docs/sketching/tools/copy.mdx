@@ -1,0 +1,54 @@
+---
+sidebar_position: 4
+title: "Copy"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import toolCopyLinear from '!!raw-loader!../_examples/tool-copy-linear.js';
+import toolCopyCircular from '!!raw-loader!../_examples/tool-copy-circular.js';
+
+# Copy
+
+Copy duplicates sketch geometry along one or two directions or around a centre point. The copies take part in the same face-building step as the rest of the sketch, so a copied circle is a hole like the original.
+
+## In the viewport
+
+1. Click **Copy** on the sketch toolbar. The Copy dialog opens with a **Geometry** slot and a kind dropdown, **Linear** or **Circular**.
+2. Click the sketch edges to copy; they show as chips.
+3. For **Linear**: pick **Direction** (a sketch line, or the sketch's X / Y through the `local('x')` / `local('y')` buttons), set **Offset** between copies and **Total Count**. **+ Add second direction** turns it into a grid. For **Circular**: pick the **Center** point, set **Angle (°)** and **Total Count**; the **Center the copies on the original instance** toggle spreads them symmetrically about the source.
+4. **Apply**.
+
+### Linear
+
+![A vent plate with a rack of five slots](/img/docs/sketching/tool-copy-linear.png)
+
+<ExplainedCode code={toolCopyLinear} fileName="plate.part.js" />
+
+### Circular
+
+![A flange with six bolt holes](/img/docs/sketching/tool-copy-circular.png)
+
+<ExplainedCode code={toolCopyCircular} fileName="plate.part.js" />
+
+## By hand
+
+```js
+copy("linear", "x", { count: 4, offset: 40 }, g)           // along X
+copy("linear", ["x", "y"], { count: 3, offset: 30 }, g)    // a grid
+copy("circular", [0, 0], { count: 8, angle: 360 }, g)      // around a 2D point
+```
+
+Options: `count` (instances including the original), `offset` (linear spacing) or `angle` (circular spread), `skip` (indices to leave out), `centered`.
+
+Bare axis strings are **world** axes. On any plane other than XY, use `local("x")` / `local("y")` for the sketch's own directions — see [Mirror](/docs/sketching/tools/mirror#sketch-axes-and-world-axes).
+
+## Copies and constraints
+
+The copies register as solver entities tied rigidly to their source: they move when the source moves, and constraining a copy drives the source. Address one with `cp.instance(k)`:
+
+```js
+const cp = copy("linear", "x", { count: 3, offset: 40 }, c)
+coincident(cp.instance(2).center(), p)      // pins the whole row through the third copy
+```
+
+The 3D `copy()` outside a sketch duplicates finished solids — see [Patterns → Copy](/docs/patterns/copy).

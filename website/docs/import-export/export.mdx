@@ -1,0 +1,49 @@
+---
+sidebar_position: 2
+title: "Export"
+---
+
+# Export
+
+FluidCAD writes STEP, STL and PNG files. Export from the top bar, from a shape's row in the Shapes panel, or from the command line.
+
+## From the top bar
+
+1. Click **Export** (the download icon at the right end of the top bar). The menu lists every solid in the scene with a thumbnail. In an assembly it leads with **Whole assembly**.
+
+   ![Export menu in a part](/img/docs/ui/export-menu.png)
+
+2. Choose a solid. The export dialog opens: pick **STEP**, **STL** or **PNG**, keep or drop colors, set the STL resolution or the PNG view, and click **Export**. The file downloads through the browser.
+
+The exported file includes geometry and color information and opens in any standard CAD tool (Fusion 360, SolidWorks, FreeCAD, etc.).
+
+## From the Shapes panel
+
+Open the **Shapes** panel, hover the solid's row, and choose **Export** from its menu. It opens the same dialog with that solid preselected.
+
+## Assemblies
+
+In an assembly the Export menu leads with **Whole assembly**, followed by each inserted part:
+
+![Export menu in an assembly](/img/docs/ui/export-menu-assembly.png)
+
+Choosing a part writes that part on its own, in its own frame. Choosing the whole assembly writes every inserted part where it sits, at the positions the joints solved to, exactly as the viewport shows them:
+
+- **STEP** keeps the structure: one product per part (repeated inserts share it), one component per instance, sub-assemblies nested under their own product, and the assembly, parts and instances carry their FluidCAD names. It opens as an assembly tree in other CAD tools.
+- **STL** flattens every placed part into one mesh, with the same resolution and unit options as a part export.
+
+## Units
+
+STEP files carry their unit, so a STEP export is physically correct whatever the document's [unit](/docs/extra/units): a 2 in boss opens as 2 in elsewhere. STL is unitless and slicers assume millimetres, so STL exports are scaled to mm by default; an export option keeps document units instead when the consumer expects them. BRep is written as-is.
+
+## From the command line
+
+The same exports run from a terminal, which is what you want for build scripts and CI:
+
+```bash
+npx fluidcad export step                     # every shape → <entry>.step
+npx fluidcad export stl --resolution fine -o parts/bracket.stl
+npx fluidcad export png --view front --open
+```
+
+If a FluidCAD server is already running for the project, the CLI exports the scene it is showing; otherwise it starts one, renders your model, exports, and shuts down again. An assembly file exports as a whole by default. Joints are solved in the viewer, so a CLI export places parts where the source puts them and says so; export from the viewer for the mated layout. See the [CLI Reference](/docs/cli#fluidcad-export) for shape selection, mesh resolution, and screenshot options.

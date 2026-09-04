@@ -1,0 +1,38 @@
+---
+sidebar_position: 4
+title: "Angle"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import dimensionAngle from '!!raw-loader!../../_examples/dimension-angle.js';
+
+# Angle
+
+`angle` holds the angle between two lines, in degrees. Against a sketch axis it sets a line's absolute slope; between two sketched lines it sets their relative opening.
+
+## In the viewport
+
+1. Click two lines.
+2. Click **Angle**. An arc appears in the sector between the lines; move the cursor to choose which of the four sectors to dimension, then click.
+3. Type the value in degrees and press <kbd>Enter</kbd>.
+
+![30° ramp dimension](/img/docs/sketching/dimension-angle.png)
+
+<ExplainedCode code={dimensionAngle} fileName="ramp.part.js">
+`angle(flat, ramp, 30)` measures counter-clockwise from `flat` to `ramp` (1 DOF). The `distance` on the ramp sets its length; the two share a start through `coincident`.
+</ExplainedCode>
+
+## In code
+
+```js
+angle(a, b, 30)                  // counter-clockwise from a to b, 0 ≤ deg < 360: 1 DOF
+angle(xAxis(), ramp, 30)         // against the horizontal
+angle(l1, l2.start(), 45)        // orient l2 toward its start instead of its end
+```
+
+Each argument is a line, optionally pointed at one of its ends with `.start()` / `.end()`; a bare line points at its end. There are no negative angles — a clockwise angle is the counter-clockwise angle of the swapped pair, `angle(b, a, 30)`. The UI picks the arguments and their orientation from the sector you clicked, so the written statement always carries a positive value.
+
+## See also
+
+- [Perpendicular](/docs/sketching/constraints/positional/perpendicular) — 90° without a number
+- [Parallel](/docs/sketching/constraints/positional/parallel)

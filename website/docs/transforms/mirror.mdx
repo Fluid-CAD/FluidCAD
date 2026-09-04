@@ -1,0 +1,47 @@
+---
+sidebar_position: 4
+title: "Mirror"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import transformMirror from '!!raw-loader!./_examples/transform-mirror.js';
+
+# Mirror
+
+`mirror()` reflects solids across a plane. The mirrored body is a new solid that fuses with, cuts from, or stays separate from the model, like any create feature.
+
+## In the viewport
+
+1. Click **Mirror** on the toolbar. The Mirror dialog docks on the right.
+2. Pick the tab: **Add** fuses the mirrored bodies with what they touch, **Remove** cuts them out of the model, **New** keeps them as separate solids.
+3. Click the solids to mirror; each becomes a chip in the **Solids** slot.
+4. Click the **Plane** slot to arm it, then pick the mirror plane: an origin-plane quad at the origin, a plane feature's quad, or a planar face.
+5. Click **Apply**.
+
+![A block mirrored across the YZ plane](/img/docs/transforms/transform-mirror.png)
+
+<ExplainedCode code={transformMirror} fileName="mirror.part.js">
+The block starts at x = 10, so its mirror image starts at x = −10 and the two do not touch — two solids. Move the block to x = 0 and the pair fuses into one.
+</ExplainedCode>
+
+## Code forms
+
+```js
+import { mirror } from 'fluidcad/core';
+
+mirror("yz")                     // mirror every solid across the YZ plane
+mirror("front", body)            // mirror specific solids
+mirror(p, a, b)                  // across a plane() feature — offset, tilted, from a face
+mirror("yz").new()               // keep the image as a separate solid
+mirror("yz").remove()            // cut the image out of the model
+```
+
+The plane is any plane-like value: a name or alias (`"xy"`, `"top"`, `"-xz"` …), a `plane()` feature, or a face selection wrapped in `plane(…)` — see [Planes](/docs/datums/planes).
+
+## Mirror versus mirror repeat
+
+`mirror()` reflects **finished solids**. `repeat("mirror", plane, feature)` re-applies a **feature** on the other side — a cut mirrored this way cuts the far side too. For symmetric parts modelled as one half, the repeat is usually the right tool: see [Repeat](/docs/patterns/repeat#mirror-repeat).
+
+## Inside a sketch
+
+Called inside `sketch(...)`, `mirror()` reflects sketch geometry across a sketched line or an axis: `mirror(l, g1, g2)`, `mirror(local("y"))`. See [Mirror](/docs/sketching/tools/mirror) in the sketch tools.

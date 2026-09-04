@@ -1,0 +1,5 @@
+{
+  "label": "Constraints",
+  "position": 5,
+  "link": { "type": "generated-index", "description": "The relationships that pin a sketch down: positional constraints and dimensions." }
+}

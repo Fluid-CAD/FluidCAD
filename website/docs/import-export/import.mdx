@@ -1,0 +1,52 @@
+---
+sidebar_position: 1
+title: "Import"
+---
+
+# Import
+
+FluidCAD imports STEP files. An import becomes a cached `.brep` in the project's `imports/` folder and a `load()` statement in your file, which places the geometry in the scene like any other feature.
+
+## In the viewport
+
+1. Click **Import** (the file icon at the right end of the top bar, next to Export). On a narrow window it sits in the **Actions** menu.
+2. Pick a `.step` or `.stp` file. FluidCAD converts it and saves it as `imports/<filename>.brep` in your project folder.
+3. A `load()` statement is appended to the current file and the imported solid appears in the viewport with a **Load** row in the History panel. Colors stored in the STEP file are kept.
+
+The project structure looks like this after importing:
+
+```
+my-hinge/
+├── imports/
+│   └── bracket.brep           ← created by the import button
+├── box.part.js
+└── package.json
+```
+
+## The code behind it
+
+```js
+import { load } from 'fluidcad/core';
+
+const bracket = load("bracket");   // loads imports/bracket.brep
+```
+
+`load()` takes the file name without its extension and returns a scene object you can transform, select from, and mate against like a modelled solid.
+
+## Placing the imported geometry
+
+After loading, move and rotate the geometry with the transform statements:
+
+```js
+import { load, rotate, translate } from 'fluidcad/core';
+
+const rail = load("EGH20CA1R350Z0H_FILE_1")
+rotate("x", 90)
+translate(0, -50, 25)
+```
+
+See [Transforms](/docs/transforms/introduction).
+
+## Units
+
+`load()` needs no unit. STEP files carry theirs, the import is cached in millimetres, and `load()` scales it into the loading file's [unit](/docs/extra/units): a factor of 1 in a millimetre file, so existing projects are untouched. `load("bracket", { unit: 'in' })` is an assertion for assets with no trustworthy metadata (a `.brep` copied into `imports/` by hand, a STEP whose header is wrong); it overrides what the import recorded, and you should leave it out otherwise.

@@ -1,0 +1,35 @@
+---
+sidebar_position: 6
+title: "6. Inserting the part into an assembly"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import step6 from '!!raw-loader!./_examples/hinge-step6.assembly.js';
+
+# Inserting the part into an assembly
+
+An assembly is a `.assembly.js` file. It holds no geometry of its own: it inserts parts from other files, grounds one of them, and joins the rest with joints. This page inserts the three hinge parts.
+
+## In the viewport
+
+1. Click **+** on the tab strip and create `hinge.assembly.js`. The toolbar switches to the assembly tools (**Insert**, the six mates, **Replicate**, **Connector**) and the left rail shows **Parts**, **Connectors** and **Joints** instead of the History panel.
+2. Click **Insert**. The dialog scans the workspace and shows a tile for every exported part and sub-assembly, with a thumbnail and the file it comes from.
+
+   ![Insert dialog](/img/docs/ui/insert-dialog.png)
+
+3. Click **Fixed leaf**, **Swing leaf** and **Pin** once each (clicking a tile again queues a second instance; hover a tile for the − to remove one). Click **Insert 3**. A part that declares `param()`s would show a parameter page first.
+4. The three instances appear in the **Parts** panel and in the viewport, each where its own file drew it. Since all three were drawn around the same pin axis, they already overlap in the right place; that is a coincidence of how they were modelled, not a joint.
+5. Ground the fixed leaf: open the row's menu (**⋮**, or right-click) and choose **Toggle grounded**. A grounded instance stays where it is; everything else is placed relative to it by the joints.
+6. Drag the swing leaf and the pin out of the way with the gizmo (click an instance, then pull the arrows), so that the next step has something to pull back in.
+
+![Three parts inserted, not yet joined](/img/docs/getting-started/hinge-step6.png)
+
+<ExplainedCode code={step6} fileName="hinge.assembly.js" open />
+
+Each tile you inserted became an `import` of the part's file and an `insert()` statement. The gizmo writes its moves as a `.translate()` chain on the statement, `.grounded()` is the Toggle grounded menu entry, and the `const` bindings are how the joints will refer to each instance.
+
+:::note
+`insert()` places a *part definition*: the same definition inserted twice gives two instances that share one geometry template. Only exported definitions appear in the Insert dialog, which is why step 1 exported the leaf.
+:::
+
+Next: [Adding joints](/docs/getting-started/joints).

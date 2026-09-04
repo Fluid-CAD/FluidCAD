@@ -1,0 +1,51 @@
+---
+sidebar_position: 5
+title: "Bezier Curve"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import primitiveBezier from '!!raw-loader!../_examples/primitive-bezier.js';
+
+# Bezier Curve
+
+A free-form curve shaped by control points — for organic outlines, cams and anything a circular arc cannot follow.
+
+## In the viewport
+
+1. Click **Bezier** on the sketch toolbar.
+2. Click the poles in order: the start, the control points, then the end. Each click adds one point to the statement, and the curve preview updates as you go.
+3. <kbd>Esc</kbd> ends the curve.
+
+A pole that snaps onto an existing vertex gets a coincident written for it.
+
+![Half a vase silhouette, its side a cubic bezier](/img/docs/sketching/primitive-bezier.png)
+
+<ExplainedCode code={primitiveBezier} fileName="plate.part.js" />
+
+## By hand
+
+```js
+bezier(p0, p1, ..., pn)
+```
+
+The first point is the start and the last the end; the points between are control points. The number of points sets the degree:
+
+| Points | Curve |
+|---|---|
+| 2 | A straight line |
+| 3 | Quadratic (one control point) |
+| 4 | Cubic (two control points) |
+
+A control point can also be another entity's accessor (`l.end()`), in which case the curve rides that point.
+
+## Accessors
+
+| Accessor | Meaning |
+|---|---|
+| `b.point(i)` | The i-th pole, 0-based — `point(0)` is the start |
+| `b.start()` | Same as `point(0)` |
+| `b.end()` | The last pole |
+
+:::note
+The curve itself is not a solver entity. Its poles are: constrain `b.point(i)`, `b.start()` and `b.end()` and the solve reshapes the curve. `tangent`, `distance` and the other entity-level constraints do not accept a bezier.
+:::

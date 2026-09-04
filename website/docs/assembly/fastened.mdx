@@ -1,0 +1,44 @@
+---
+sidebar_position: 3
+title: "Fastened (fixed)"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import asmFastened from '!!raw-loader!./_examples/asm-fastened.assembly.js';
+import asmCover from '!!raw-loader!./_examples/asm-cover.part.js';
+
+# Fastened
+
+A fastened mate locks two parts together: the second connector is placed onto the first and no motion remains. It is the joint for anything bolted, glued or pressed on — a cover on its housing, a bracket on a beam.
+
+| Free motion | none |
+|---|---|
+
+## In the viewport
+
+1. Click **Fastened** on the assembly toolbar. The mate dialog opens with its first connector slot armed and every part connector shown as a triad.
+2. Click the connector on the part that stays put (the driver), then the connector on the part being fastened. The preview snaps the second part into place.
+3. If it landed upside down, tick **Flip**. Use **Rotate** to spin it about the joint's Z and **Offset** to shift it in the driver's frame.
+4. Click **Apply**.
+
+![Cover fastened onto the base plate](/img/docs/assembly/asm-fastened.png)
+
+<ExplainedCode code={asmFastened} fileName="cover-assembly.assembly.js">
+  The cover's only connector is the face that lands on the plate:
+  <ExplainedCode code={asmCover} fileName="cover.part.js" title="cover.part.js" />
+</ExplainedCode>
+
+## Options
+
+```js
+mate('fastened', a, b)
+    .flip()               // second Z along the first instead of against it
+    .rotate(45)           // spin the second part 45° about the shared Z
+    .offset(20, 0, 5)     // shift it 20 along X and 5 along Z of the driver's frame
+```
+
+A fastened mate accepts offsets on every axis. Use them to fasten a part beside a connector rather than on it — a standoff 25 mm from a face centre — without adding a connector for every position.
+
+## Face-to-face
+
+Both connectors here sit on the faces that touch: the plate's top and the cover's underside. Face frames point their Z out of the solid, and a mate aligns the two Zs against each other by default, so the two faces meet. The cover's holes land over the plate's holes because both parts drew them at the same sketch coordinates and both frames sit at their face's centre.

@@ -1,0 +1,36 @@
+---
+sidebar_position: 5
+title: "Parallel"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import constraintParallel from '!!raw-loader!../../_examples/constraint-parallel.js';
+
+# Parallel
+
+`parallel` gives two or more lines the same direction. The first line is the reference; every other line turns to match it, and turns again whenever the reference turns.
+
+## In the viewport
+
+1. Click two or more distinct lines. The first click is the reference.
+2. Click **Parallel**. Each following line gets a `∥` badge.
+
+![A tilted channel whose two flanks stay parallel](/img/docs/sketching/constraint-parallel.png)
+
+<ExplainedCode code={constraintParallel} fileName="channel.part.js">
+The left flank's lean comes from `angle(xAxis(), leftFlank, 110)`; `parallel(leftFlank, rightFlank)` removes 1 DOF from the right flank so it follows. Change the angle and the channel leans as one, keeping its width.
+</ExplainedCode>
+
+## In code
+
+```js
+parallel(a, b)                   // b parallel to a: 1 DOF
+parallel(a, b, c, ...)           // every line after the first: 1 DOF each
+```
+
+A datum axis can be the reference: `parallel(xAxis(), l)` is equivalent to `horizontal(l)`.
+
+## See also
+
+- [Perpendicular](/docs/sketching/constraints/positional/perpendicular)
+- [Distance](/docs/sketching/constraints/dimensional/distance) — the gap between two parallel lines is a line–line distance

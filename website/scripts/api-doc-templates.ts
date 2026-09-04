@@ -170,7 +170,10 @@ export function renderFeaturePage(
   lines.push(`sidebar_position: ${sidebarPositionOverride ?? feature.sidebarPosition}`);
   lines.push(`title: "${feature.displayName}"`);
   if (introDesc) {
-    lines.push(`description: "${escapeForTable(introDesc)}"`);
+    // The meta description is the first paragraph only — a long JSDoc with
+    // tables and examples would otherwise land in the page's <meta>.
+    const firstParagraph = introDesc.split(/\n\s*\n/)[0].replace(/\s*\n\s*/g, ' ');
+    lines.push(`description: "${escapeForTable(firstParagraph)}"`);
   }
   lines.push('---');
   lines.push('');

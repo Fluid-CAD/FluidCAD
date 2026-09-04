@@ -8,11 +8,11 @@ import { PartDefinition } from "../features/part-definition.js";
  * per variant when the definition is inserted (`insert(def, { Length: 380 })`)
  * or when the defining file renders standalone:
  *
- *     export const extrusion = part('Extrusion', () => {
- *       const length = param('Length', 150, 'number', { min: 20 });
- *       const s = sketch("front", () => { rect(80, 80).centered(); });
- *       const e = extrude(-length);
- *       connector('start', e.startFaces());
+ *     export const bushing = part('Bushing', () => {
+ *       const bore = param('Bore', 10, 'number', { min: 4 });
+ *       const s = sketch("xy", () => { circle([0, 0], 30); circle([0, 0], bore); });
+ *       const e = extrude(20);
+ *       connector('top', e.endFaces());
  *       expose('profile', s);
  *     });
  *

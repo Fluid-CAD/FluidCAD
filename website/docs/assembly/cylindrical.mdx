@@ -1,0 +1,42 @@
+---
+sidebar_position: 6
+title: "Cylindrical"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import asmCylindrical from '!!raw-loader!./_examples/asm-cylindrical.assembly.js';
+import asmCylinder from '!!raw-loader!./_examples/asm-cylinder.part.js';
+import asmPiston from '!!raw-loader!./_examples/asm-piston.part.js';
+
+# Cylindrical
+
+A cylindrical mate is a revolute and a slider in one: the two connectors share their Z axis, and the second part may both rotate about it and travel along it. It is the joint of a piston in a bore, a shaft in a plain bearing, a pin in a slot.
+
+| Free motion | rotation about Z, travel along Z |
+|---|---|
+
+## In the viewport
+
+1. Click **Cylindrical** on the assembly toolbar and pick the two connectors — the bore's frame first, then the piston's.
+2. The piston snaps onto the bore axis. Drag it to slide it in and out, or spin it.
+3. **Offset** takes a Z value only and sets the rest position along the axis — negative here, down into the bore; **Rotate** sets the rest angle. There are no limits on a cylindrical mate.
+4. Click **Apply**.
+
+![Piston half-way down its cylinder bore](/img/docs/assembly/asm-cylindrical.png)
+
+<ExplainedCode code={asmCylindrical} fileName="actuator.assembly.js">
+  The cylinder's connector is the top face's frame, centred on the bore mouth with Z pointing up the axis; the piston's sits on its skirt with Z pointing down, so face-to-face puts the piston upright on the axis and the negative Z offset sends it down the bore:
+  <ExplainedCode code={asmCylinder} fileName="cylinder.part.js" title="cylinder.part.js" />
+  <ExplainedCode code={asmPiston} fileName="piston.part.js" title="piston.part.js" />
+</ExplainedCode>
+
+## Options
+
+```js
+mate('cylindrical', body.connectors.bore, ram.connectors.skirt)
+    .offset(0, 0, -20)    // rest 20 down the bore (Z only)
+    .rotate(90)           // rest angle about the axis
+    .flip()
+```
+
+`.offset()` with a non-zero X or Y and `.limits()` are refused on a cylindrical mate. When you need travel bounds, use a [slider](./slider); when you need the rotation locked, a slider too; when you need the travel locked, a [revolute](./revolute).

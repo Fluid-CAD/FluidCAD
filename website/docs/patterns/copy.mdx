@@ -1,0 +1,91 @@
+---
+sidebar_position: 1
+title: "Copy"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import copyLinear from '!!raw-loader!./_examples/copy-linear.js';
+import copyCircular from '!!raw-loader!./_examples/copy-circular.js';
+
+# Copy
+
+`copy()` duplicates a **finished solid** at several positions, in a row or around an axis. The copies are clones of the shape as it is — no modelling operation is re-run. To re-apply a feature (a cut, an extrude) at each position instead, use [Repeat](/docs/patterns/repeat).
+
+## In the viewport
+
+1. Click **Copy** on the toolbar. The Copy dialog docks on the right.
+2. Pick the kind at the top: **Linear** copies along one or two axes, **Circular** around an axis.
+3. Click the solid to copy — any face or edge click in the viewport, or its timeline row. It fills the **Solids** slot.
+4. **Linear**: in **Direction 1**, fill the **Axis** slot (click an edge, or the **X / Y / Z** buttons), enter the **Total Count** (the original included) and the spacing — the **Offset / Total** switch decides whether the value is the gap between neighbours or the whole span, spread evenly. **Add second direction** opens a second axis and count for a grid.
+5. **Circular**: fill the **Axis** slot (empty defaults to world Z), the **Total Count**, and the **Angle** — **Total** for the whole sweep, **Offset** for the degrees between neighbours.
+6. **Centered** spreads the pattern around the original instead of away from it. **Skip** lists instance indices to leave out (`1, 3`).
+7. Click **Apply**.
+
+## Linear copy
+
+![Four cylinders in a row](/img/docs/patterns/copy-linear.png)
+
+<ExplainedCode code={copyLinear} fileName="row.part.js">
+The Copy dialog's Linear kind with world X as the direction, a count of 4 and an offset of 150 writes this statement. No target is passed, so it copies the object built last.
+</ExplainedCode>
+
+Options:
+
+| Option | Meaning |
+|--------|---------|
+| `count` | total number of instances, the original included |
+| `offset` | spacing between neighbours |
+| `length` | the whole span instead of `offset`; instances are spread evenly across it |
+| `centered` | centre the pattern on the original |
+| `skip` | 0-based indices to leave out |
+
+### Two directions
+
+Pass two axes for a grid. `count`, `offset` and `skip` then take one value per axis:
+
+```js
+copy("linear", ["x", "y"], {
+    count: [4, 3],
+    offset: [150, 100],
+    skip: [[2], [1]]          // skip index 2 along X, index 1 along Y
+})
+```
+
+## Circular copy
+
+![Six cylinders around Z](/img/docs/patterns/copy-circular.png)
+
+<ExplainedCode code={copyCircular} fileName="ring.part.js" />
+
+Options:
+
+| Option | Meaning |
+|--------|---------|
+| `count` | total number of instances, the original included |
+| `angle` | the whole sweep, spread evenly (default 360) |
+| `offset` | degrees between neighbours instead of `angle` |
+| `centered` | centre the sweep on the original |
+| `skip` | indices to leave out |
+
+The axis is anything axis-like — a world axis name, an `axis()` feature, an edge — see [Axes](/docs/datums/axes).
+
+## Code forms
+
+```js
+import { copy } from 'fluidcad/core';
+
+copy("linear", "x", { count: 4, offset: 150 })            // the last solid
+copy("linear", "x", { count: 4, offset: 150 }, a, b)      // specific solids
+copy("circular", "z", { count: 6, angle: 360 })
+copy("circular", axis(e.sideEdges(0)), { count: 6, angle: 180, centered: true })
+```
+
+Each copy is an independent solid; the result's `.instance(i)` accessor addresses one of them for later features.
+
+:::info[Copy versus repeat]
+`copy()` stamps the finished shape. `repeat()` re-applies a feature so that it interacts with the solid at every position — one solid with four pockets rather than four solids with one pocket each. See [Repeat](/docs/patterns/repeat).
+:::
+
+## Inside a sketch
+
+Called inside `sketch(...)`, `copy()` duplicates **sketch geometry**, and the circular form takes a 2D centre point instead of an axis. See [Copy](/docs/sketching/tools/copy) in the sketch tools.

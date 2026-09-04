@@ -1,0 +1,54 @@
+---
+sidebar_position: 7
+title: "Shell"
+---
+
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import shellBasic from '!!raw-loader!./_examples/shell-basic.js';
+
+# Shell
+
+Shell hollows a solid into walls of a given thickness. You pick the faces to remove; they become the openings. A box becomes a tray, a cylinder becomes a cup.
+
+## In the viewport
+
+1. Click **Shell** on the toolbar. A small panel opens with one field, **Thickness** (default -2).
+2. Click the face (or faces) to open in the viewport. Right-click a pick for the multi-select menu — same-type faces, the producing feature's other buckets (*Extrude End Faces* …), *Select other*.
+3. Type the thickness. A negative value shells inward and keeps the outer shape; a positive value shells outward and keeps the inner cavity. The statement is written as soon as the pick is complete.
+
+![Shelled cylinder](/img/docs/3d-operations/shell-basic.png)
+
+<ExplainedCode code={shellBasic} fileName="cup.part.js" />
+
+## Thickness direction
+
+| Sign | Result |
+|------|--------|
+| Negative, e.g. `-5` | Walls grow inward — the outer shape stays the same |
+| Positive, e.g. `5` | Walls grow outward — the inner cavity stays the same |
+
+## Passing faces directly
+
+In code, the faces to remove can come from an operation's accessors instead of a `select()`:
+
+```js
+const e = extrude(30)
+shell(-3, e.endFaces())        // remove the top face, hollow the rest
+```
+
+Several faces at once:
+
+```js
+shell(-3, e.endFaces(), e.startFaces())   // open on top and bottom
+```
+
+With no faces at all, `shell()` takes the last selection — the [Selection and filters](/docs/3d-operations/selection-and-filters) page covers how those are written.
+
+## Accessing geometry
+
+```js
+const s = shell(-3, e.endFaces())
+
+s.internalFaces()      // the inner wall faces
+s.internalEdges()      // edges on the inner walls
+```

@@ -22,21 +22,7 @@ import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates } from './interactive/pick-candidates';
 import { captureScreenshot } from './screenshot';
 import { findActiveObject, isSceneEmpty } from './helpers/scene-utils';
-
-/** Recursively expand `box` to include `object`, skipping meta-shape subtrees. */
-function expandBoxExcludingMeta(box: Box3, object: Object3D): void {
-  if (object.userData.isMetaShape) return;
-  const o = object as any;
-  if ((o.isMesh || o.isLine || o.isPoints) && o.geometry) {
-    o.geometry.computeBoundingBox();
-    if (o.geometry.boundingBox) {
-      box.union(o.geometry.boundingBox.clone().applyMatrix4(o.matrixWorld));
-    }
-  }
-  for (const child of object.children) {
-    expandBoxExcludingMeta(box, child);
-  }
-}
+import { expandBoxExcludingMeta, sceneGeometryBounds } from './scene/scene-geometry-bounds';
 
 /**
  * Keep only parts referenced by some `inst.partId` and the entire subtree
@@ -916,13 +902,18 @@ export class Viewer {
   }
 
   private sceneBoundsForPlanes(): Box3 | null {
-    const mesh = this.ctx.scene.getObjectByName('compiledMesh');
-    if (!mesh) {
-      return null;
-    }
-    const box = new Box3();
-    expandBoxExcludingMeta(box, mesh);
-    return box.isEmpty() ? null : box;
+    return this.sceneGeometryBounds();
+  }
+
+  /**
+   * Bounds of whatever geometry is mounted right now — the assembly
+   * container in assembly mode, the compiled part mesh otherwise. Every
+   * "measure the scene" path goes through here so none of them can go
+   * blind in one mode (fit-to-view used to read only `compiledMesh`, which
+   * the assembly render removes, so the button was a no-op on assemblies).
+   */
+  private sceneGeometryBounds(): Box3 | null {
+    return sceneGeometryBounds(this.ctx.scene, this.assemblyController?.getContainer() ?? null);
   }
 
   /**
@@ -2018,24 +2009,17 @@ export class Viewer {
 
   /** Compute centroid sphere radius as ~1.5 % of the scene diagonal, with a fallback. */
   private computeCentroidRadius(): number {
-    const compiled = this.ctx.scene.getObjectByName('compiledMesh');
-    if (compiled) {
-      const box = new Box3();
-      expandBoxExcludingMeta(box, compiled);
-      if (!box.isEmpty()) {
-        return box.getSize(new Vector3()).length() * 0.015;
-      }
+    const box = this.sceneGeometryBounds();
+    if (box) {
+      return box.getSize(new Vector3()).length() * 0.015;
     }
     return worldFromMm(2);
   }
 
-  /** Fit the camera to all scene geometry, excluding meta shapes. */
+  /** Fit the camera to all scene geometry (part mesh or assembly), excluding meta shapes. */
   private fitViewToScene(): void {
-    const compiled = this.ctx.scene.getObjectByName('compiledMesh');
-    if (!compiled) return;
-    const box = new Box3();
-    expandBoxExcludingMeta(box, compiled);
-    if (!box.isEmpty()) {
+    const box = this.sceneGeometryBounds();
+    if (box) {
       this.ctx.fitToBox(box, true);
     }
   }

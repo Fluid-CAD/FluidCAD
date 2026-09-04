@@ -61,6 +61,8 @@ import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-prop
 import { AssemblyConnectorService } from './interactive/assembly-connector/connector-service';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { ConnectorData, SceneObjectRender } from './types';
+import { ICON_LIST_TREE, ICON_TRASH } from './ui/icons';
+import { escapeHtml } from './ui/expression-core';
 import { applyPreferences } from './scene/viewer-settings';
 import { sceneUnit } from './units/scene-unit';
 import { describeMateFailure } from './ui/mate-failure-text';
@@ -1179,6 +1181,12 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   panel.onMoveToPart = (filePath, lines, partLoc) => {
     void handleMoveToPart(filePath, lines, partLoc);
   };
+  // The row's Remove: a feature no later statement references goes at
+  // once; one that is referenced warns with the list of features the
+  // removal takes along and deletes the whole closure on confirm.
+  panel.onRemoveFeature = (obj) => {
+    void handleRemoveFeature(obj, (line) => panel.visibleRowAt(obj.sourceLocation?.filePath, line)?.name ?? null);
+  };
   // Double-clicking an editable feature row (the enter-breakpoint gesture)
   // also opens that feature's dialog prefilled from its statement.
   panel.onFeatureEdit = (obj, index) => {
@@ -1533,9 +1541,9 @@ async function handleMoveToPart(
       showToast(`Can't move: ${probe.reason ?? 'unknown error'}`);
       return;
     }
-    const listed = probe.needs.map((n) => `${n.name} (line ${n.line})`).join(', ');
     const confirmed = await confirmMoveDialog(
-      `These features depend on others that must move with them. Also moves: ${listed}.`,
+      'These features depend on others that must move with them. Also moves:',
+      probe.needs.map((n) => `${n.name} (line ${n.line})`),
     );
     if (!confirmed) {
       return;
@@ -1553,33 +1561,94 @@ async function handleMoveToPart(
 }
 
 /**
- * Minimal confirm for the move-to-part drop: the dependency closure the
- * server computed, one accept, one cancel. Escape / Enter / backdrop all
- * settle it; the promise resolves exactly once.
+ * The timeline row's Remove. Sketch geometry and features nothing later
+ * references are removed at once, exactly as before; a feature that later
+ * statements reference (an extrude's sketch, a fillet's extrude, …) first
+ * shows what the removal takes along — the timeline's own names for those
+ * rows where it has them — and deletes the whole closure on "Delete".
  */
-function confirmMoveDialog(message: string): Promise<boolean> {
+async function handleRemoveFeature(obj: SceneObjectRender, rowNameAt: (line: number) => string | null): Promise<void> {
+  const editor = engineClient.editor;
+  const loc = obj.sourceLocation;
+  if (!editor || !loc) {
+    return;
+  }
+  const probe = await editor.previewRemoveFeature(loc);
+  if (!probe.success || !probe.dependents || probe.dependents.length === 0) {
+    // Nothing else goes — or nothing to analyze against (an imported file,
+    // a stale render): the plain host-side removal, as before.
+    editor.removeFeature(loc);
+    return;
+  }
+  const nameFor = (dep: { name: string; line: number }): string =>
+    rowNameAt(dep.line) ?? `${dep.name} (line ${dep.line})`;
+  const confirmed = await confirmDialog({
+    title: 'Delete feature',
+    icon: ICON_TRASH,
+    message: `${obj.name} is used by later features. Deleting it also deletes:`,
+    items: probe.dependents.map(nameFor),
+    confirmLabel: 'Delete',
+    danger: true,
+  });
+  if (!confirmed) {
+    return;
+  }
+  const result = await editor.removeFeatureCascade(loc);
+  if (!result.success) {
+    showToast(`Can't delete: ${result.reason ?? 'unknown error'}`);
+  }
+}
+
+/**
+ * The move-to-part drop's confirm: the dependency closure the server
+ * computed, one accept, one cancel.
+ */
+function confirmMoveDialog(message: string, items: string[]): Promise<boolean> {
+  return confirmDialog({ title: 'Move to part', icon: ICON_LIST_TREE, message, items, confirmLabel: 'Move all' });
+}
+
+/**
+ * A confirm in the feature dialogs' own chrome — the same body box, the
+ * icon-and-title header, the primary-plus-ghost footer — centered over the
+ * scene. `items` render as a short list under the message. Escape / Enter /
+ * backdrop all settle it; the promise resolves exactly once. `danger`
+ * styles the accept as a destructive action.
+ */
+function confirmDialog(opts: {
+  title: string;
+  icon: string;
+  message: string;
+  items?: string[];
+  confirmLabel: string;
+  danger?: boolean;
+}): Promise<boolean> {
   return new Promise((resolve) => {
     const backdrop = document.createElement('div');
-    backdrop.className = 'absolute inset-0 z-[1004] bg-black/30 flex items-center justify-center';
+    backdrop.className = 'absolute inset-0 z-[1004] flex items-end sm:items-center justify-center';
     const card = document.createElement('div');
-    card.className = 'bg-base-100 border border-base-300 rounded-lg shadow-lg px-4 py-3 max-w-[420px] flex flex-col gap-3';
-    const text = document.createElement('div');
-    text.className = 'text-sm text-base-content/80 leading-snug';
-    text.textContent = message;
-    const row = document.createElement('div');
-    row.className = 'flex justify-end gap-2';
-    const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'btn btn-ghost btn-xs';
-    cancelBtn.textContent = 'Cancel';
-    const okBtn = document.createElement('button');
-    okBtn.className = 'btn btn-primary btn-xs';
-    okBtn.textContent = 'Move all';
-    row.appendChild(cancelBtn);
-    row.appendChild(okBtn);
-    card.appendChild(text);
-    card.appendChild(row);
+    card.className = 'flex flex-col items-stretch gap-3.5 bg-base-100 text-base-content text-xs select-none shadow-md '
+      + 'w-full border-t border-base-300 rounded-t-xl px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] '
+      + 'max-sm:animate-[dialog-slide-up_0.25s_ease-out] motion-reduce:animate-none '
+      + 'sm:w-[340px] sm:border sm:rounded-lg sm:pb-4';
+    const items = (opts.items ?? []).map((item) => `<li class="truncate">${escapeHtml(item)}</li>`).join('');
+    card.innerHTML = `
+      <div class="flex items-center gap-2.5">
+        <span class="flex items-center justify-center w-4 h-4 shrink-0 [&>svg]:size-4 ${opts.danger ? 'text-error' : 'text-base-content/70'}">${opts.icon}</span>
+        <span class="font-medium text-sm">${escapeHtml(opts.title)}</span>
+      </div>
+      <div class="flex flex-col gap-1.5">
+        <p class="text-base-content/70 leading-snug">${escapeHtml(opts.message)}</p>
+        ${items ? `<ul class="flex flex-col gap-0.5 pl-3 border-l-2 border-base-300 text-base-content">${items}</ul>` : ''}
+      </div>
+      <div class="flex items-center justify-end gap-2 pt-1">
+        <button data-role="cancel" class="btn btn-ghost btn-sm">Cancel</button>
+        <button data-role="ok" class="btn ${opts.danger ? 'btn-error' : 'btn-primary'} btn-sm min-w-20">${escapeHtml(opts.confirmLabel)}</button>
+      </div>
+    `;
     backdrop.appendChild(card);
     container.appendChild(backdrop);
+    const okBtn = card.querySelector<HTMLButtonElement>('[data-role="ok"]')!;
+    const cancelBtn = card.querySelector<HTMLButtonElement>('[data-role="cancel"]')!;
     let settled = false;
     const finish = (value: boolean) => {
       if (settled) {
@@ -1607,9 +1676,9 @@ function confirmMoveDialog(message: string): Promise<boolean> {
     });
     okBtn.addEventListener('click', () => finish(true));
     cancelBtn.addEventListener('click', () => finish(false));
-    okBtn.focus();
   });
 }
+
 const sketchService = new SketchToolbarService(container, viewer, projectionService, navbar);
 sketchService.onConstraintPick = (pick) => {
   if (currentRail?.kind === 'part' && pick.objId) {

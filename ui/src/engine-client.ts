@@ -7,6 +7,8 @@ import type {
   MeasureEntityRef,
   MeasureResult,
   MoveToPartResult,
+  RemoveFeaturePreview,
+  RemoveFeatureResult,
   SetUnitResult,
   ShapeProperties,
   SourceLocationParam,
@@ -27,6 +29,13 @@ export interface EngineEditorClient {
    */
   gotoSource(sourceLocation: SourceLocationParam, opts?: { revealEditor?: boolean }): void;
   removeFeature(sourceLocation: SourceLocationParam): void;
+  /**
+   * What removing the feature would take along: every later statement that
+   * references it, recursively. Analysis only — nothing is edited.
+   */
+  previewRemoveFeature(sourceLocation: SourceLocationParam): Promise<RemoveFeaturePreview>;
+  /** Remove the feature and that whole dependant closure in one acked edit. */
+  removeFeatureCascade(sourceLocation: SourceLocationParam): Promise<RemoveFeatureResult>;
   renameFeature(sourceLocation: SourceLocationParam, name: string | null): void;
   /** Step the editor's native undo history for the file at `filePath`. */
   undo(filePath: string): Promise<EditorHistoryResult>;

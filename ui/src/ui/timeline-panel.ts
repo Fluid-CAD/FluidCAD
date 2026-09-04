@@ -150,6 +150,13 @@ export class TimelinePanel {
     partLoc: { filePath: string; line: number; column: number },
   ) => void;
 
+  /**
+   * The row's "Remove" action. Set, the host owns the removal (the
+   * dependant warning and the cascade); unset, the row's statement is
+   * removed on its own through the editor client.
+   */
+  onRemoveFeature?: (obj: SceneObjectRender) => void;
+
   private panel: HTMLDivElement;
   private timelineBody: HTMLDivElement;
   private contentWrapper: HTMLDivElement;
@@ -166,6 +173,18 @@ export class TimelinePanel {
   private loaded = false;
   private userHidden = false;
   private sceneObjects: SceneObjectRender[] = [];
+
+  /**
+   * The feature row the timeline shows for a source line, or null. A
+   * statement can own several rows — `chamfer(1, e.endEdges())` is a
+   * chamfer plus a lazy "Select" — and only the visible feature row is a
+   * name a user would recognize.
+   */
+  visibleRowAt(filePath: string | undefined, line: number): SceneObjectRender | null {
+    return this.sceneObjects.find((obj) => obj.sourceLocation?.line === line
+      && (filePath === undefined || obj.sourceLocation.filePath === undefined || obj.sourceLocation.filePath === filePath)
+      && !isHiddenRow(obj) && !isConstraintRow(obj)) ?? null;
+  }
   private rollbackStop = -1;
   /**
    * Set while the displayed render is a part-scoped rollback (the server
@@ -1317,7 +1336,11 @@ export class TimelinePanel {
 
     dropdown.querySelector('[data-action="remove"]')!.addEventListener('click', () => {
       this.closeDropdown();
-      this.client.editor?.removeFeature(obj.sourceLocation!);
+      if (this.onRemoveFeature) {
+        this.onRemoveFeature(obj);
+      } else {
+        this.client.editor?.removeFeature(obj.sourceLocation!);
+      }
     });
 
     const onClickOutside = (ev: MouseEvent) => {

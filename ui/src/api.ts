@@ -3663,6 +3663,56 @@ export function removeFeature(sourceLocation: SourceLocationParam): void {
   postFireAndForget('/api/remove-feature', { sourceLocation });
 }
 
+export type RemoveFeatureDependent = { name: string; line: number };
+
+export type RemoveFeaturePreview = {
+  success: boolean;
+  reason?: string;
+  /** Statements the removal would also delete, in source order. */
+  dependents?: RemoveFeatureDependent[];
+};
+
+export type RemoveFeatureResult = { success: boolean; reason?: string };
+
+/**
+ * Analyze what removing the feature at `sourceLocation` would take along —
+ * every later statement that references it, recursively. Nothing is edited.
+ */
+export async function previewRemoveFeature(sourceLocation: SourceLocationParam): Promise<RemoveFeaturePreview> {
+  try {
+    const res = await fetch('/api/remove-feature', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ sourceLocation, dryRun: true }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || body?.success !== true) {
+      return { success: false, reason: body?.reason ?? `HTTP ${res.status}` };
+    }
+    return { success: true, dependents: Array.isArray(body.dependents) ? body.dependents : [] };
+  } catch (err: any) {
+    return { success: false, reason: err?.message || String(err) };
+  }
+}
+
+/** Remove the feature at `sourceLocation` together with everything that references it. */
+export async function removeFeatureCascade(sourceLocation: SourceLocationParam): Promise<RemoveFeatureResult> {
+  try {
+    const res = await fetch('/api/remove-feature', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ sourceLocation, cascade: true }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok || body?.success !== true) {
+      return { success: false, reason: body?.reason ?? `HTTP ${res.status}` };
+    }
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, reason: err?.message || String(err) };
+  }
+}
+
 /** Set (or, with null/empty, clear) the feature's chained `.name('…')`. */
 export function renameFeature(sourceLocation: SourceLocationParam, name: string | null): void {
   postFireAndForget('/api/rename-feature', { sourceLocation, name });

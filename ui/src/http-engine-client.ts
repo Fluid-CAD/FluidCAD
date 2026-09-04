@@ -11,15 +11,17 @@ import {
   loadPreferences,
   measureEntities,
   moveToPart,
+  previewRemoveFeature,
   recompute,
   removeFeature,
+  removeFeatureCascade,
   renameFeature,
   rollback,
   savePreference,
   setDocumentUnit,
   setProjectUnit,
 } from './api';
-import type { EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
+import type { EdgeProperties, EditorHistoryResult, ExportRequestBody, FaceProperties, Material, MeasureEntityRef, MeasureResult, MoveToPartResult, RemoveFeaturePreview, RemoveFeatureResult, SetUnitResult, ShapeProperties, SourceLocationParam, UserPreferences } from './api';
 import type { EngineClient, EngineEditorClient } from './engine-client';
 import type { LengthUnit } from './units/units';
 
@@ -34,6 +36,14 @@ class HttpEngineEditorClient implements EngineEditorClient {
 
   removeFeature(sourceLocation: SourceLocationParam): void {
     removeFeature(sourceLocation);
+  }
+
+  previewRemoveFeature(sourceLocation: SourceLocationParam): Promise<RemoveFeaturePreview> {
+    return previewRemoveFeature(sourceLocation);
+  }
+
+  removeFeatureCascade(sourceLocation: SourceLocationParam): Promise<RemoveFeatureResult> {
+    return removeFeatureCascade(sourceLocation);
   }
 
   renameFeature(sourceLocation: SourceLocationParam, name: string | null): void {

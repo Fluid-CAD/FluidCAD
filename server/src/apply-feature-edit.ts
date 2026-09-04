@@ -24,6 +24,7 @@ import {
 } from './sketch-solved-edit.ts';
 import { ParamEditor, type ParamEditSpec } from './param-edit.ts';
 import { MoveToPart, type MoveToPartSpec } from './move-to-part.ts';
+import { RemoveFeature, type RemoveFeatureSpec } from './remove-feature.ts';
 import { applyInsertPartEdit, type InsertPartEditSpec } from './part-catalog/insert-edit.ts';
 import { applyInstancePoseEdit, type InstancePoseEditSpec } from './insert-chain-edit.ts';
 import { applyAssemblyConnectorEdit, type AssemblyConnectorEditSpec } from './assembly-connector-edit.ts';
@@ -305,6 +306,12 @@ export type ApplyFeatureEditSpec = {
    * ignored.
    */
   moveToPart?: MoveToPartSpec;
+  /**
+   * Timeline "Remove" with cascade: delete the feature statement and every
+   * statement that references what it bound, recursively. Rides the same
+   * round trip as `moveToPart`; every other spec field is ignored.
+   */
+  removeFeature?: RemoveFeatureSpec;
   /**
    * The `part(...)` call site whose callback body receives the created
    * statement — the timeline's active part. Only the producer-less appends
@@ -1489,6 +1496,9 @@ export async function applyFeatureEdit(
   }
   if (spec.moveToPart) {
     return MoveToPart.apply(code, spec.moveToPart);
+  }
+  if (spec.removeFeature) {
+    return RemoveFeature.apply(code, spec.removeFeature);
   }
   if (spec.instancePose) {
     return applyInstancePoseWithDecls(code, spec);

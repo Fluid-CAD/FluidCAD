@@ -4,6 +4,7 @@ import type { FluidCadServer } from '../fluidcad-server.ts';
 import type { FeatureEditDispatcher } from '../edit-dispatch.ts';
 import type { ApplyFeatureEditSpec } from '../apply-feature-edit.ts';
 import { MoveToPart } from '../move-to-part.ts';
+import { RemoveFeature } from '../remove-feature.ts';
 
 export function createTimelineRouter(
   fluidCadServer: FluidCadServer,
@@ -63,14 +64,60 @@ export function createTimelineRouter(
     });
   });
 
-  router.post('/remove-feature', (req, res) => {
-    const { sourceLocation } = req.body;
+  // Timeline "Remove". Three forms: `dryRun` analyzes the server's copy of
+  // the file and answers the dependants the removal would take along (the
+  // UI's "Delete / Cancel" warning) without touching the buffer; `cascade`
+  // deletes the statement and that whole closure through the acked edit
+  // dispatcher; the plain form is the legacy host-side single-statement
+  // removal (sketch geometry and assembly sweeps happen there).
+  router.post('/remove-feature', async (req, res) => {
+    const { sourceLocation, dryRun, cascade } = req.body;
     if (
       !sourceLocation ||
       typeof sourceLocation.filePath !== 'string' ||
       typeof sourceLocation.line !== 'number'
     ) {
       res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    if (dryRun || cascade) {
+      if (sourceLocation.filePath !== fluidCadServer.getCurrentFileName()) {
+        res.status(422).json({ success: false, reason: 'dependants can only be analyzed for the currently rendered file' });
+        return;
+      }
+      const code = fluidCadServer.getCurrentCode();
+      if (code === null) {
+        res.status(422).json({ success: false, reason: 'no rendered code to analyze — is the file in sync with the last render?' });
+        return;
+      }
+      const captured = await RemoveFeature.capture(code, sourceLocation.line);
+      if ('error' in captured) {
+        res.status(422).json({ success: false, reason: captured.error });
+        return;
+      }
+      const removeFeature = { statement: captured.statement };
+      if (dryRun) {
+        const analysis = await RemoveFeature.analyze(code, removeFeature);
+        if (analysis.ok === false) {
+          res.status(422).json({ success: false, reason: analysis.reason });
+        } else {
+          res.json({ success: true, dependents: analysis.dependents });
+        }
+        return;
+      }
+      if (!options.dispatcher) {
+        res.status(503).json({ success: false, reason: 'this server has no edit dispatcher to apply the removal' });
+        return;
+      }
+      const spec: ApplyFeatureEditSpec = {
+        feature: 'sketch',
+        filePath: sourceLocation.filePath,
+        producers: [],
+        parts: [],
+        imports: [],
+        removeFeature,
+      };
+      await options.dispatcher.dispatch(res, spec, { success: true });
       return;
     }
     sendToExtension({

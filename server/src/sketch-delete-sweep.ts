@@ -12,6 +12,7 @@ import {
   type TSTree,
 } from './code-editor.ts';
 import { removeStatementWithAssemblySweep } from './assembly-delete-sweep.ts';
+import { StatementAnalysis } from './statement-analysis.ts';
 
 /**
  * The timeline "Remove" for a statement inside a `sketch()` body:
@@ -26,7 +27,7 @@ import { removeStatementWithAssemblySweep } from './assembly-delete-sweep.ts';
  * Statements outside every sketch body go through the assembly sweep, which
  * is the plain removal for a part file.
  */
-export class SketchDeleteSweep {
+export class SketchDeleteSweep extends StatementAnalysis {
   /** The remove-statement route's entry: sketch sweep, else assembly sweep. */
   static async removeStatement(code: string, sourceLine: number): Promise<CodeEditResult> {
     const swept = await SketchDeleteSweep.sweep(code, sourceLine);
@@ -70,21 +71,6 @@ export class SketchDeleteSweep {
       }
     }
     return { newCode: working };
-  }
-
-  /** The `sketch(…)` call whose callback body contains `node`, or null outside every sketch. */
-  private static enclosingSketchCall(node: TSNode): TSNode | null {
-    for (let cur = node.parent; cur; cur = cur.parent) {
-      if (cur.type === 'call_expression' && SketchDeleteSweep.isSketchCall(cur)) {
-        return cur;
-      }
-    }
-    return null;
-  }
-
-  private static isSketchCall(call: TSNode): boolean {
-    const fn = call.childForFieldName('function');
-    return fn?.type === 'identifier' && fn.text === 'sketch';
   }
 
   /** The callback body of the `sketch(…)` call starting on `row`. */

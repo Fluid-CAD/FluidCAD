@@ -1217,7 +1217,9 @@ export function enclosingStatementOf(node: TSNode): TSNode | null {
  * timeline "Remove" action) — including a `const x = …` binding, chained
  * calls, and every line a multi-line statement spans. A doubled blank line
  * left by the deletion is collapsed. References to a removed binding are
- * the user's to resolve; the next render surfaces them as a compile error.
+ * the user's to resolve — except inside a sketch body and in assembly
+ * files, where the route's sweeps (`SketchDeleteSweep`,
+ * `removeStatementWithAssemblySweep`) take the dependants along.
  */
 export function removeStatement(code: string, sourceLine: number): Promise<CodeEditResult> {
   return withParsedCode(code, (tree, lines) => {
@@ -1229,21 +1231,30 @@ export function removeStatement(code: string, sourceLine: number): Promise<CodeE
     if (!statement) {
       return null;
     }
-    const startRow = statement.startPosition.row;
-    const endRow = statement.endPosition.row;
-    const aloneOnItsLines =
-      lines[startRow].slice(0, statement.startPosition.column).trim() === '' &&
-      lines[endRow].slice(statement.endPosition.column).trim() === '';
-    if (!aloneOnItsLines) {
-      // Sharing a line with other code: excise just the statement's range.
-      return spliceCode(code, statement.startIndex, statement.endIndex, '');
-    }
-    const remaining = lines.slice(0, startRow).concat(lines.slice(endRow + 1));
-    if (startRow > 0 && isBlankRow(remaining, startRow - 1) && isBlankRow(remaining, startRow)) {
-      remaining.splice(startRow, 1);
-    }
-    return joinLines(remaining);
+    return removeStatementNode(code, lines, statement);
   });
+}
+
+/**
+ * The splice behind {@link removeStatement} for an already-resolved
+ * statement node: `lines` must be `splitLines(code)` of the same `code` the
+ * node was parsed from.
+ */
+export function removeStatementNode(code: string, lines: string[], statement: TSNode): string {
+  const startRow = statement.startPosition.row;
+  const endRow = statement.endPosition.row;
+  const aloneOnItsLines =
+    lines[startRow].slice(0, statement.startPosition.column).trim() === '' &&
+    lines[endRow].slice(statement.endPosition.column).trim() === '';
+  if (!aloneOnItsLines) {
+    // Sharing a line with other code: excise just the statement's range.
+    return spliceCode(code, statement.startIndex, statement.endIndex, '');
+  }
+  const remaining = lines.slice(0, startRow).concat(lines.slice(endRow + 1));
+  if (startRow > 0 && isBlankRow(remaining, startRow - 1) && isBlankRow(remaining, startRow)) {
+    remaining.splice(startRow, 1);
+  }
+  return joinLines(remaining);
 }
 
 // ---------------------------------------------------------------------------

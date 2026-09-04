@@ -69,8 +69,8 @@ export interface PanelRailHandlers {
 
 /**
  * The panel rail: a full-height vertical bar pinned to the window's left edge,
- * holding one latch button per surface it opens — the code-editor pane and the
- * feature tree. It replaces the top bar's hamburger menu, which hid both
+ * holding one latch button per surface it opens — the feature tree (timeline)
+ * on top, the code-editor pane beneath it. It replaces the top bar's hamburger menu, which hid both
  * toggles behind a click and gave no sign of what was open.
  *
  * It is chrome, not an overlay: it takes width off the left the way the top
@@ -108,10 +108,11 @@ export class PanelRail {
     container.appendChild(this.el);
     document.documentElement.style.setProperty(RAIL_WIDTH_VARIABLE, RAIL_WIDTH);
 
+    // Tree (timeline) first, editor beneath it.
+    this.treeBtn = this.addButton(ICON_LIST_TREE, handlers.onToggleTree);
     this.editorBtn = handlers.onToggleEditor
       ? this.addButton(ICON_CODE, handlers.onToggleEditor)
       : null;
-    this.treeBtn = this.addButton(ICON_LIST_TREE, handlers.onToggleTree);
 
     this.floatQuery = window.matchMedia?.(FLOAT_QUERY) ?? null;
     this.floatQuery?.addEventListener('change', () => this.applyMode());

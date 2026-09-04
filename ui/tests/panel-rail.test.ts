@@ -55,10 +55,10 @@ function mount(handlers: Partial<PanelRailHandlers> = {}) {
 }
 
 describe('panel rail', () => {
-  it('offers one button per surface, editor first', () => {
+  it('offers one button per surface, timeline above the editor', () => {
     const h = mount();
     expect(h.buttons().map((b) => b.getAttribute('aria-label')))
-      .toEqual(['Code editor', 'Feature tree']);
+      .toEqual(['Feature tree', 'Code editor']);
   });
 
   it('drops the editor button on a host that has no editor', () => {

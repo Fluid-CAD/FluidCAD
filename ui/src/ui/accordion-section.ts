@@ -77,6 +77,15 @@ export interface AccordionSectionOptions {
  * (Parameters).
  */
 export class AccordionSection {
+  /**
+   * Bubbling DOM event a section fires from its header on mount and after
+   * every real expand/collapse, `detail` the section itself. For a column
+   * laying out sections it did not construct — the assembly rail hosts a
+   * Connectors and a Joints section that its callers build against its
+   * slots — where {@link onToggle} would need every caller to wire it.
+   */
+  static readonly CHANGE_EVENT = 'accordion-section-change';
+
   /** The clickable header card. Mount it directly above {@link body}. */
   readonly header: HTMLDivElement;
   /** The section's scrolling content. */
@@ -129,6 +138,7 @@ export class AccordionSection {
   mount(host: HTMLElement): void {
     host.appendChild(this.header);
     host.appendChild(this.body);
+    this.announce();
   }
 
   get isExpanded(): boolean {
@@ -143,6 +153,14 @@ export class AccordionSection {
     this.expanded = expanded;
     this.apply();
     this.onToggle?.(this);
+    this.announce();
+  }
+
+  private announce(): void {
+    this.header.dispatchEvent(new CustomEvent<AccordionSection>(AccordionSection.CHANGE_EVENT, {
+      bubbles: true,
+      detail: this,
+    }));
   }
 
   get isVisible(): boolean {

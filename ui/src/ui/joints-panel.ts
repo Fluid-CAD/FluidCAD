@@ -15,8 +15,6 @@ import type { SerializedAssemblyMate, RenderedInstance } from '../types';
 import { ICON_IMG_FALLBACK } from './object-icons';
 import { AccordionSection } from './accordion-section';
 
-const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
-const CHEVRON_SVG = '<svg width="14" height="14" viewBox="0 0 10 10" fill="currentColor"><path d="M3 1l5 4-5 4z"/></svg>';
 const DOTS_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
 
 const STATUS_COLORS: Record<SerializedAssemblyMate['status'], string> = {
@@ -42,7 +40,6 @@ export class JointsPanel {
   private instancesById = new Map<string, RenderedInstance>();
   /** Assembly connectors by scene id — how a frame side labels itself. */
   private worldConnectorNames = new Map<string, string>();
-  private expanded = true;
   private activeDropdown: HTMLDivElement | null = null;
   private dropdownCleanup: (() => void) | null = null;
   private selectedId: string | null = null;
@@ -80,27 +77,13 @@ export class JointsPanel {
     // whatever sits above this section (the parts panel, in the left rail).
     host.classList.add('relative');
 
-    this.header = document.createElement('div');
-    this.header.className = SECTION_HEADER;
-    this.header.innerHTML = `
-      <span data-ref="chevron" class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${CHEVRON_SVG}</span>
-      <span class="text-sm font-medium text-base-content/70">Joints</span>
-      <span data-ref="joints-count" class="text-xs text-base-content/40 tabular-nums"></span>
-    `;
-    host.appendChild(this.header);
-
-    this.body = document.createElement('div');
-    this.body.className = 'py-1 overflow-y-auto min-h-0 flex-1';
-    host.appendChild(this.body);
-
-    this.header.addEventListener('click', () => {
-      this.expanded = !this.expanded;
-      this.body.classList.toggle('hidden', !this.expanded);
-      const chevron = this.header.querySelector('[data-ref="chevron"]')!;
-      chevron.classList.toggle('rotate-90', this.expanded);
+    const section = new AccordionSection('Joints', {
+      trailing: '<span data-ref="joints-count" class="text-xs text-base-content/40 tabular-nums"></span>',
     });
-
+    this.header = section.header;
+    this.body = section.body;
     this.renderRows();
+    section.mount(host);
   }
 
   update(

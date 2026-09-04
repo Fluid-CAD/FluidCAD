@@ -36,8 +36,7 @@ import {
   ICON_TRASH,
 } from './icons';
 import { AccordionSection } from './accordion-section';
-
-const SECTION_HEADER = 'flex items-center gap-2 px-3 py-2 panel-bg border border-base-content/10 rounded-md cursor-pointer select-none shrink-0';
+import { railSplit, type RailSection } from './assembly-rail-split';
 
 /** The ⧉ marker on a replica row/header — its statement is the replicate() call. */
 const REPLICA_BADGE = '<span class="text-[10px] text-base-content/40 shrink-0" data-replica-badge title="Replica — its statement is the replicate() call; edit or trim it by row">⧉</span>';
@@ -79,13 +78,19 @@ export interface PartsPanelOptions {
 
 export class PartsPanel {
   private panel: HTMLDivElement;
+  private partsSection: AccordionSection;
   private partsBody: HTMLDivElement;
-  private jointsHost: HTMLDivElement;
-  private connectorsHost: HTMLElement;
+  /** The column's three slots, in order; each holds one section's header + body. */
+  private hosts: Record<RailSection, HTMLDivElement>;
+  /**
+   * The section mounted in each slot, learned from the sections' own
+   * change events — Connectors and Joints are built by the caller against
+   * the slots, so the column never sees them constructed.
+   */
+  private sections = new Map<HTMLElement, AccordionSection>();
   private instances: RenderedInstance[] = [];
   private occurrences: SerializedAssemblyOccurrence[] = [];
   private selectedId: string | null = null;
-  private partsExpanded = true;
   private loaded = false;
   private userHidden = false;
   private activeDropdown: HTMLDivElement | null = null;
@@ -136,39 +141,37 @@ export class PartsPanel {
     this.panel.className = 'absolute left-[calc(var(--fluidcad-panel-left,0px)+var(--fluidcad-panel-gap))] top-[calc(var(--fluidcad-chrome-top,104px)+var(--fluidcad-panel-gap))] bottom-6 w-[220px] z-[99] flex flex-col gap-1 select-none hidden';
     container.appendChild(this.panel);
 
-    const partsHeader = document.createElement('div');
-    partsHeader.className = SECTION_HEADER;
-    partsHeader.innerHTML = `
-      <span data-ref="chevron" class="flex items-center justify-center w-5 h-5 opacity-50 transition-transform rotate-90">${ICON_CHEVRON_RIGHT}</span>
-      <span class="text-sm font-medium text-base-content/70">Parts</span>
-      <span data-ref="parts-count" class="text-xs text-base-content/40 tabular-nums"></span>
-    `;
-    this.panel.appendChild(partsHeader);
-
-    this.partsBody = document.createElement('div');
-    this.partsBody.className = 'py-1 overflow-y-auto min-h-0';
-    this.panel.appendChild(this.partsBody);
-
-    partsHeader.addEventListener('click', () => {
-      this.partsExpanded = !this.partsExpanded;
-      this.partsBody.classList.toggle('hidden', !this.partsExpanded);
-      const chevron = partsHeader.querySelector('[data-ref="chevron"]')!;
-      chevron.classList.toggle('rotate-90', this.partsExpanded);
+    // One slot per section, so the three share one left-rail column under
+    // the top bars: Parts mounts in its own here, the connectors and joints
+    // panels mount themselves in theirs. How the column divides between the
+    // slots is the split policy (assembly-rail-split.ts), re-applied whenever
+    // any section — this one or a caller-built one — mounts or toggles, which
+    // every section announces up the DOM from its header.
+    this.hosts = {
+      parts: document.createElement('div'),
+      connectors: document.createElement('div'),
+      joints: document.createElement('div'),
+    };
+    this.panel.append(this.hosts.parts, this.hosts.connectors, this.hosts.joints);
+    this.panel.addEventListener(AccordionSection.CHANGE_EVENT, (event) => {
+      const section = (event as CustomEvent<AccordionSection>).detail;
+      const host = section.header.parentElement;
+      if (host) {
+        this.sections.set(host, section);
+      }
+      this.applySplit();
     });
 
-    // Slots where the connectors and joints panels mount themselves, so the
-    // three sections share one left-rail column under the top bars.
-    this.connectorsHost = document.createElement('div');
-    this.connectorsHost.className = 'flex flex-col gap-1 min-h-0 shrink-0';
-    this.panel.appendChild(this.connectorsHost);
-    this.jointsHost = document.createElement('div');
-    this.jointsHost.className = 'flex flex-col gap-1 min-h-0 flex-1';
-    this.panel.appendChild(this.jointsHost);
+    this.partsSection = new AccordionSection('Parts', {
+      trailing: '<span data-ref="parts-count" class="text-xs text-base-content/40 tabular-nums"></span>',
+    });
+    this.partsSection.mount(this.hosts.parts);
+    this.partsBody = this.partsSection.body;
   }
 
   /** Slot in which the connectors panel appends its header + body (above the joints). */
   getConnectorsHost(): HTMLElement {
-    return this.connectorsHost;
+    return this.hosts.connectors;
   }
 
   /**
@@ -176,7 +179,20 @@ export class PartsPanel {
    * Returned so PartsPanel can own the overall left-rail layout.
    */
   getJointsHost(): HTMLElement {
-    return this.jointsHost;
+    return this.hosts.joints;
+  }
+
+  /** Re-divide the column between whichever sections are mounted and open. */
+  private applySplit(): void {
+    const isOpen = (host: HTMLElement): boolean => this.sections.get(host)?.isExpanded ?? false;
+    const split = railSplit({
+      parts: isOpen(this.hosts.parts),
+      connectors: isOpen(this.hosts.connectors),
+      joints: isOpen(this.hosts.joints),
+    });
+    for (const section of ['parts', 'connectors', 'joints'] as const) {
+      this.hosts[section].className = split[section];
+    }
   }
 
   update(instances: RenderedInstance[], occurrences: SerializedAssemblyOccurrence[] = []): void {
@@ -191,7 +207,7 @@ export class PartsPanel {
       this.loaded = true;
       this.syncVisibility();
     }
-    const countLabel = this.panel.querySelector<HTMLSpanElement>('[data-ref="parts-count"]')!;
+    const countLabel = this.partsSection.header.querySelector<HTMLSpanElement>('[data-ref="parts-count"]')!;
     countLabel.textContent = instances.length > 0 ? String(instances.length) : '';
     this.renderRows();
   }

@@ -11,6 +11,9 @@ const fluidcadVersion: string = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 ).version;
 
+// `docusaurus build` is the only command that should carry analytics.
+const isBuild = process.argv.includes('build');
+
 const config: Config = {
   title: 'FluidCAD',
   tagline: 'Parametric CAD for everyone',
@@ -52,13 +55,19 @@ const config: Config = {
         theme: {
           customCss: './src/css/custom.css',
         },
-        googleTagManager: {
-          containerId: 'GTM-TB3P23FS',
-        },
-        gtag: {
-          trackingID: 'G-0R7TSFFQTC',
-          anonymizeIP: true,
-        },
+        // Analytics only ship in the production build: gating on the command
+        // (not NODE_ENV) keeps `npm start` free of gtag/GTM even when the shell
+        // has NODE_ENV=production, which otherwise registers the gtag client
+        // module without its script tag ("window.gtag is not a function").
+        ...(isBuild && {
+          googleTagManager: {
+            containerId: 'GTM-TB3P23FS',
+          },
+          gtag: {
+            trackingID: 'G-0R7TSFFQTC',
+            anonymizeIP: true,
+          },
+        }),
       } satisfies Preset.Options,
     ],
   ],

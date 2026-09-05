@@ -3,6 +3,11 @@ import { ICON_EYE, ICON_EYE_OFF } from './icons';
 import { escapeHtml } from './expression-core';
 import type { SerializedAssemblyConnector } from '../types';
 
+export interface ConnectorsPanelOptions {
+  /** A host that cannot edit source: rows are inert labels; the eye toggle stays. */
+  readOnly?: boolean;
+}
+
 /**
  * The assembly rail's Connectors section: one row per assembly connector
  * (`connector('name', [x, y, z])` at the file's top level) with an eye
@@ -14,6 +19,7 @@ export class ConnectorsPanel {
   private connectors: SerializedAssemblyConnector[] = [];
   /** True while the mate dialog is picking: a row click is a pick, not an edit. */
   private pickMode = false;
+  private readonly readOnly: boolean;
 
   constructor(
     host: HTMLElement,
@@ -22,7 +28,9 @@ export class ConnectorsPanel {
       onToggleVisibility: (name: string, visible: boolean) => void;
       isHidden: (name: string) => boolean;
     },
+    options: ConnectorsPanelOptions = {},
   ) {
+    this.readOnly = options.readOnly === true;
     this.section = new AccordionSection('Connectors', {
       trailing: '<span data-ref="count" class="text-xs text-base-content/40 tabular-nums"></span>',
     });
@@ -56,8 +64,9 @@ export class ConnectorsPanel {
   private render(): void {
     const body = this.section.body;
     if (this.connectors.length === 0) {
+      // A read-only host has no Connector tool to point at.
       body.innerHTML = AccordionSection.emptyState(
-        'No assembly connectors — add one with the Connector tool.',
+        this.readOnly ? 'No assembly connectors.' : 'No assembly connectors — add one with the Connector tool.',
       );
       return;
     }
@@ -67,23 +76,26 @@ export class ConnectorsPanel {
       const eyeVisibility = hidden
         ? 'opacity-100 text-base-content/70'
         : 'opacity-0 group-hover:opacity-100 text-base-content/40';
-      const title = this.pickMode ? 'Pick as the mate side' : 'Edit this connector';
+      const title = this.readOnly ? '' : this.pickMode ? 'Pick as the mate side' : 'Edit this connector';
       const pickClass = this.pickMode ? ' text-primary' : '';
+      const rowCursor = this.readOnly ? 'cursor-default' : 'cursor-pointer';
       return `
-      <div class="group flex items-center gap-2 px-3 py-1.5 cursor-pointer hover:bg-base-content/[0.06] text-sm text-base-content/80${pickClass}" data-connector-id="${escapeHtml(c.connectorId)}" title="${title}">
+      <div class="group flex items-center gap-2 px-3 py-1.5 ${rowCursor} hover:bg-base-content/[0.06] text-sm text-base-content/80${pickClass}" data-connector-id="${escapeHtml(c.connectorId)}" title="${title}">
         <img src="/icons/mate-connector.png" class="w-4 h-4 object-contain shrink-0 opacity-70" alt="" />
         <span class="truncate">${escapeHtml(c.name)}</span>
         <button class="ml-auto btn btn-ghost btn-square btn-xs ${eyeVisibility} hover:text-base-content/70 shrink-0 [&>svg]:size-3.5" data-eye="${escapeHtml(c.name)}" title="Show/hide the connector">${eyeIcon}</button>
       </div>`;
     }).join('');
-    body.querySelectorAll<HTMLElement>('[data-connector-id]').forEach((row) => {
-      row.addEventListener('click', () => {
-        const connector = this.connectors.find(c => c.connectorId === row.dataset.connectorId);
-        if (connector) {
-          this.hooks.onEdit(connector);
-        }
+    if (!this.readOnly) {
+      body.querySelectorAll<HTMLElement>('[data-connector-id]').forEach((row) => {
+        row.addEventListener('click', () => {
+          const connector = this.connectors.find(c => c.connectorId === row.dataset.connectorId);
+          if (connector) {
+            this.hooks.onEdit(connector);
+          }
+        });
       });
-    });
+    }
     body.querySelectorAll<HTMLButtonElement>('[data-eye]').forEach((button) => {
       button.addEventListener('click', (event) => {
         event.stopPropagation();

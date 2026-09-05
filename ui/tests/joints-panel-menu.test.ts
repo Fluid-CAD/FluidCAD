@@ -92,6 +92,36 @@ describe('joints panel row menu', () => {
     expect(host.querySelector('[data-action="animate"]')).toBeNull(); // menu closed
   });
 
+  it('read-only host: a play button and an Animate-only menu on animatable rows, nothing else', () => {
+    const animate = vi.fn();
+    const fastened: SerializedAssemblyMate = { ...mate('mate-1'), type: 'fastened' };
+    const host = document.createElement('div');
+    document.body.appendChild(host);
+    const panel = new JointsPanel(host, () => {}, () => {}, () => {}, () => {}, () => {}, { readOnly: true, onAnimate: animate });
+    panel.update([mate('mate-0'), fastened], [instance('inst-0'), instance('inst-1')]);
+
+    // No ⋮ anywhere; the play button only on the revolute row.
+    expect(host.querySelector('[data-dots]')).toBeNull();
+    expect(host.querySelector('[data-animate="mate-0"]')).not.toBeNull();
+    expect(host.querySelector('[data-animate="mate-1"]')).toBeNull();
+    host.querySelector<HTMLElement>('[data-animate="mate-0"]')!.click();
+    expect(animate).toHaveBeenCalledWith('mate-0');
+
+    // Right-click: Animate… alone on the revolute row, no menu at all on the fastened one.
+    rightClickRow(host, 'mate-0');
+    expect(host.querySelectorAll('[data-action]').length).toBe(1);
+    expect(host.querySelector('[data-action="animate"]')).not.toBeNull();
+    rightClickRow(host, 'mate-1');
+    expect(host.querySelector('[data-action]')).toBeNull();
+
+    // Without a handler the read-only panel stays inert.
+    const inert = new JointsPanel(host, () => {}, () => {}, () => {}, () => {}, () => {}, { readOnly: true });
+    inert.update([mate('mate-9')], [instance('inst-0'), instance('inst-1')]);
+    expect(host.querySelector('[data-animate="mate-9"]')).toBeNull();
+    rightClickRow(host, 'mate-9');
+    expect(host.querySelector('[data-action]')).toBeNull();
+  });
+
   it('routes Edit mate to the row it was opened on', () => {
     const { host, editMate } = mount([mate('mate-0'), mate('mate-1')]);
     rightClickRow(host, 'mate-1');

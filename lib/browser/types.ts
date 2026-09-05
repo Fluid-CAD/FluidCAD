@@ -6,7 +6,7 @@ import type { LengthUnit } from "../units/units.js";
 /** What kind of model file an entry is — mirrors the server's FluidScriptKind. */
 export type BrowserSceneKind = "part" | "assembly";
 
-/** The assembly payload the desktop's scene-rendered message carries (instances, mates, occurrences). */
+/** The assembly payload the desktop's scene-rendered message carries (instances, mates, occurrences, connectors, replicates). */
 export type BrowserSerializedAssembly = NonNullable<ReturnType<ReturnType<typeof createManager>["getAssemblyData"]>>;
 
 export const VIEWER_PROTOCOL_VERSION = 1;
@@ -36,7 +36,7 @@ export interface BrowserRenderResult {
   /** Derived from the entry's suffix (`.assembly.js` → assembly); absent on a compile error. */
   sceneKind?: BrowserSceneKind;
   result: unknown[];
-  /** Assembly scenes only: the instances/mates/occurrences the rail and the viewer's assembly controller consume. */
+  /** Assembly scenes only: the whole payload (instances, mates, occurrences, connectors, replicates) the rail and the viewer's assembly controller consume. */
   assembly?: BrowserSerializedAssembly;
   rollbackStop: number;
   /** The root document's unit (unit() statement, else the project unit); `mm` when undeclared. */

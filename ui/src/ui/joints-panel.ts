@@ -13,6 +13,7 @@
 
 import type { SerializedAssemblyMate, RenderedInstance } from '../types';
 import { ICON_IMG_FALLBACK } from './object-icons';
+import { ICON_PLAY } from './icons';
 import { AccordionSection } from './accordion-section';
 
 const DOTS_SVG = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg>';
@@ -24,7 +25,12 @@ const STATUS_COLORS: Record<SerializedAssemblyMate['status'], string> = {
 };
 
 export interface JointsPanelOptions {
-  /** A host that cannot edit source: rows select/highlight only, no ⋮ or context menu. */
+  /**
+   * A host that cannot edit source: rows select/highlight only, no ⋮ or
+   * context menu. With `onAnimate` wired, slider/revolute rows still carry
+   * a play button (and an Animate-only context menu): driving a mate never
+   * touches the source.
+   */
   readOnly?: boolean;
   /**
    * Offer "Animate" on slider/revolute rows (opens the animate bar). A
@@ -196,7 +202,7 @@ export class JointsPanel {
             ${limitsLine}
             ${failureLine}
           </div>
-          ${this.readOnly ? '' : `<button class="opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0" data-dots="${mate.mateId}">${DOTS_SVG}</button>`}
+          ${this.rowButton(mate)}
         </div>
       `;
     }
@@ -205,7 +211,7 @@ export class JointsPanel {
     this.body.querySelectorAll<HTMLElement>('[data-mate-id]').forEach((row) => {
       row.addEventListener('click', (e) => {
         const target = e.target as HTMLElement;
-        if (target.closest('[data-dots]')) return;
+        if (target.closest('[data-dots], [data-animate]')) return;
         const id = row.dataset.mateId!;
         this.selectedId = id;
         this.renderRows();
@@ -232,6 +238,34 @@ export class JointsPanel {
         }, btn);
       });
     });
+    this.body.querySelectorAll<HTMLElement>('[data-animate]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.closeDropdown();
+        this.onAnimate!(btn.dataset.animate!);
+      });
+    });
+  }
+
+  /** Slider and revolute mates can be driven by the animate bar. */
+  private isAnimatable(mate: SerializedAssemblyMate | undefined): boolean {
+    return this.onAnimate !== undefined && (mate?.type === 'revolute' || mate?.type === 'slider');
+  }
+
+  /**
+   * The row's trailing hover button: the ⋮ menu for an editing host; for
+   * a read-only host, a play button on animatable rows (their only action)
+   * and nothing otherwise.
+   */
+  private rowButton(mate: SerializedAssemblyMate): string {
+    const base = 'opacity-0 group-hover:opacity-100 btn btn-ghost btn-square btn-xs text-base-content/40 hover:text-base-content/70 shrink-0';
+    if (!this.readOnly) {
+      return `<button class="${base}" data-dots="${mate.mateId}">${DOTS_SVG}</button>`;
+    }
+    if (this.isAnimatable(mate)) {
+      return `<button class="${base} [&>svg]:size-4" data-animate="${mate.mateId}" title="Animate…">${ICON_PLAY}</button>`;
+    }
+    return '';
   }
 
   /** The panel element dropdowns are positioned in (the section's host). */
@@ -245,7 +279,14 @@ export class JointsPanel {
     anchor?: HTMLElement,
   ): void {
     this.closeDropdown();
-    if (this.readOnly) {
+    // Owned mates' statements live in the sub-assembly's file, and a
+    // replicated mate's statement is the replicate() call — offer only the
+    // non-mutating actions, same as the parts panel's owned rows. A
+    // read-only host has no source at all: Animate is its whole menu.
+    const mate = this.mates.find(m => m.mateId === mateId);
+    const owned = (mate?.owner ?? '') !== '' || mate?.replica !== undefined;
+    const animatable = this.isAnimatable(mate);
+    if (this.readOnly && !animatable) {
       return;
     }
 
@@ -254,18 +295,11 @@ export class JointsPanel {
     dropdown.style.top = `${position.top}px`;
     dropdown.style.left = `${position.left}px`;
 
-    // Owned mates' statements live in the sub-assembly's file, and a
-    // replicated mate's statement is the replicate() call — offer only the
-    // non-mutating actions, same as the parts panel's owned rows.
-    const mate = this.mates.find(m => m.mateId === mateId);
-    const owned = (mate?.owner ?? '') !== '' || mate?.replica !== undefined;
-    const animatable = this.onAnimate !== undefined
-      && (mate?.type === 'revolute' || mate?.type === 'slider');
     dropdown.innerHTML = `
       <ul class="menu menu-xs p-1 min-w-[160px]">
-        <li><button data-action="show-in-source">Show in source</button></li>
+        ${this.readOnly ? '' : '<li><button data-action="show-in-source">Show in source</button></li>'}
         ${animatable ? '<li><button data-action="animate">Animate…</button></li>' : ''}
-        ${owned ? '' : `
+        ${owned || this.readOnly ? '' : `
         <li><button data-action="edit-mate">Edit mate…</button></li>
         <li><button data-action="suppress">Suppress</button></li>
         <li><button data-action="delete" class="text-error">Delete</button></li>`}
@@ -275,7 +309,7 @@ export class JointsPanel {
     this.host().appendChild(dropdown);
     this.activeDropdown = dropdown;
 
-    dropdown.querySelector('[data-action="show-in-source"]')!.addEventListener('click', () => {
+    dropdown.querySelector('[data-action="show-in-source"]')?.addEventListener('click', () => {
       this.closeDropdown();
       this.onShowInSource(mateId);
     });
@@ -285,7 +319,7 @@ export class JointsPanel {
         this.onAnimate!(mateId);
       });
     }
-    if (!owned) {
+    if (!owned && !this.readOnly) {
       dropdown.querySelector('[data-action="edit-mate"]')!.addEventListener('click', () => {
         this.closeDropdown();
         this.onEditMate(mateId);

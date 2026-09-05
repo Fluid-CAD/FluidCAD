@@ -35,9 +35,12 @@ export { PartsPanel } from './ui/parts-panel';
 export type { PartsPanelOptions } from './ui/parts-panel';
 export { JointsPanel } from './ui/joints-panel';
 export type { JointsPanelOptions } from './ui/joints-panel';
+export { ConnectorsPanel } from './ui/connectors-panel';
+export type { ConnectorsPanelOptions } from './ui/connectors-panel';
 export { DragReadout } from './ui/drag-readout';
 export { AnimateBar } from './ui/animate-bar';
 export type { AnimateBarHost, AnimateTarget } from './ui/animate-bar';
+export { describeMateFailure } from './ui/mate-failure-text';
 export { SelectionInfoOverlay } from './ui/selection-info-overlay';
 export { MeasureController } from './ui/measure/measure-controller';
 export { captureScreenshot, captureScreenshotMulti } from './screenshot';
@@ -60,5 +63,6 @@ export type {
   SerializedAssemblyInstance,
   SerializedAssemblyMate,
   SerializedAssemblyOccurrence,
+  SerializedAssemblyConnector,
   RenderedInstance,
 } from './types';

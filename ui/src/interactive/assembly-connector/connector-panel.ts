@@ -34,7 +34,7 @@ export class AssemblyConnectorPanel extends FeaturePanel {
     super(container, {
       id: 'fluidcad-assembly-connector-panel',
       title: 'Assembly connector',
-      icon: '/icons/mate-connector.png',
+      icon: '/icons/assembly-connector.png',
       bodyHtml: `
         <label class="flex flex-col gap-1.5"
           title="The identifier the connector registers under — mates reference its binding">

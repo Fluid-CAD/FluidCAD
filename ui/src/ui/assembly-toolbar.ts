@@ -68,7 +68,7 @@ export class AssemblyToolbar {
     } else {
       this.addPlaceholder(connectorGroup, replicateOpts);
     }
-    const connectorOpts = { icon: 'mate-connector', label: 'Connector', tip: 'Assembly connector' };
+    const connectorOpts = { icon: 'assembly-connector', label: 'Connector', tip: 'Assembly connector' };
     if (handlers.onConnector) {
       this.addButton(connectorGroup, connectorOpts, handlers.onConnector);
     } else {

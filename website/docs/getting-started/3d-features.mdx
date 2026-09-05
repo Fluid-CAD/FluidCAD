@@ -4,6 +4,8 @@ title: "3. Applying 3D features"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
+import viewerPackages from './_examples/viewer-packages.json';
 import stepExtrude from '!!raw-loader!./_examples/hinge-step3a-extrude.js';
 import stepHole from '!!raw-loader!./_examples/hinge-step3b-hole.js';
 import stepHoles from '!!raw-loader!./_examples/hinge-step3c-holes.js';
@@ -24,7 +26,7 @@ The outline becomes a leaf in seven features: the plate, one screw hole, the hol
 
 ![Extrude dialog](/img/docs/ui/extrude-dialog.png)
 
-![The plate](/img/docs/getting-started/hinge-step3a-extrude.png)
+<ViewerEmbed packageId={viewerPackages["step3a-extrude"].id} poster="/img/docs/getting-started/hinge-step3a-extrude.png" alt="The plate" />
 
 <ExplainedCode code={stepExtrude} fileName="hinge-leaf-fixed.part.js" />
 
@@ -37,7 +39,7 @@ Holes are a sketch on the top face and an extrude in **Remove** mode. The first 
 3. Dimension the centre to the sketch axes: click the circle's centre and the X axis, then **Dimension** on the constraint toolbar, and type `20`. Click the centre and the Y axis, **Dimension**, `20`. The circle turns green. **Finish sketch**.
 4. Click **Extrude**, choose the **Remove** tab, and tick **Through all**. Click **Apply**.
 
-![One screw hole](/img/docs/getting-started/hinge-step3b-hole.png)
+<ViewerEmbed packageId={viewerPackages["step3b-hole"].id} poster="/img/docs/getting-started/hinge-step3b-hole.png" alt="One screw hole" />
 
 <ExplainedCode code={stepHole} fileName="hinge-leaf-fixed.part.js" />
 
@@ -48,7 +50,7 @@ In the file, Remove mode is the `cut()` statement, and calling it with no distan
 1. Click **Repeat**. Pick the **Cut** row in the History panel as the feature to repeat.
 2. Kind *Linear*, **Axis** Y, **Count** `3`, **Offset** `20`. Click **Apply**. The two copies land at 0 and 20 mm along Y, so the row is centred on the plate.
 
-![The row of holes](/img/docs/getting-started/hinge-step3c-holes.png)
+<ViewerEmbed packageId={viewerPackages["step3c-holes"].id} poster="/img/docs/getting-started/hinge-step3c-holes.png" alt="The row of holes" />
 
 <ExplainedCode code={stepHoles} fileName="hinge-leaf-fixed.part.js" />
 
@@ -60,7 +62,7 @@ In the file, Remove mode is the `cut()` statement, and calling it with no distan
 2. Click the two vertical edges on the side away from the pin. Each click adds the edge; right-clicking an edge opens a menu with related edges (the tangent chain, edges of the same type, the feature's other edge groups) if you want several at once.
 3. Click **Apply**.
 
-![Rounded corners](/img/docs/getting-started/hinge-step3d-fillet.png)
+<ViewerEmbed packageId={viewerPackages["step3d-fillet"].id} poster="/img/docs/getting-started/hinge-step3d-fillet.png" alt="Rounded corners" />
 
 <ExplainedCode code={stepFillet} fileName="hinge-leaf-fixed.part.js" />
 
@@ -74,7 +76,7 @@ The knuckle is a tube along the pin axis. It is sketched on the **front** plane 
 2. **Circle**: centre `0`, `4` (the axis sits 4 mm above the leaf, so the tube rests on the plate's edge), diameter `8`. Typing the centre in the coordinate pill writes a `fix` on it. **Finish sketch**.
 3. **Extrude**, Add tab, **Direction** *Symmetric*, **Distance** `12`. The ghost shows the tube growing 6 mm to each side of the front plane. **Apply**.
 
-![The first knuckle](/img/docs/getting-started/hinge-step3e-knuckle.png)
+<ViewerEmbed packageId={viewerPackages["step3e-knuckle"].id} poster="/img/docs/getting-started/hinge-step3e-knuckle.png" alt="The first knuckle" />
 
 <ExplainedCode code={stepKnuckle} fileName="hinge-leaf-fixed.part.js" />
 
@@ -84,7 +86,7 @@ The tube is solid for now; the bore comes last, once all three knuckles are in p
 
 1. **Repeat** again: pick the knuckle's **Extrude** row, Linear along **Y**, **Count** `3`, **Offset** `24`, and tick **Centered**. **Apply**.
 
-![Three knuckles](/img/docs/getting-started/hinge-step3f-knuckles.png)
+<ViewerEmbed packageId={viewerPackages["step3f-knuckles"].id} poster="/img/docs/getting-started/hinge-step3f-knuckles.png" alt="Three knuckles" />
 
 <ExplainedCode code={stepKnuckles} fileName="hinge-leaf-fixed.part.js" />
 
@@ -97,7 +99,7 @@ One more Remove extrude drills the 4 mm bore through all three knuckles at once.
 1. **Sketch** on the **XZ** plane again. **Circle**: centre `0`, `4`, diameter `4`. **Finish sketch**.
 2. **Extrude**, **Remove** tab, **Direction** *Symmetric*, tick **Through all**. **Apply**.
 
-![The bore through the knuckles](/img/docs/getting-started/hinge-step3g-bore.png)
+<ViewerEmbed packageId={viewerPackages["step3g-bore"].id} poster="/img/docs/getting-started/hinge-step3g-bore.png" alt="The bore through the knuckles" />
 
 <ExplainedCode code={stepBore} fileName="hinge-leaf-fixed.part.js" />
 

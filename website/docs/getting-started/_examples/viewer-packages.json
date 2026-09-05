@@ -1,0 +1,77 @@
+{
+  "step2-sketch": {
+    "entry": "hinge-step2-sketch.js",
+    "as": "hinge-leaf-fixed.part.js",
+    "name": "Hinge · fixed leaf · outline",
+    "id": "5f69e469788bd959"
+  },
+  "step3a-extrude": {
+    "entry": "hinge-step3a-extrude.js",
+    "as": "hinge-leaf-fixed.part.js",
+    "name": "Hinge · fixed leaf · plate",
+    "id": "6a4834e6b3c99a33"
+  },
+  "step3b-hole": {
+    "entry": "hinge-step3b-hole.js",
+    "as": "hinge-leaf-fixed.part.js",
+    "name": "Hinge · fixed leaf · screw hole",
+    "id": "b76a83450a496efc"
+  },
+  "step3c-holes": {
+    "entry": "hinge-step3c-holes.js",
+    "as": "hinge-leaf-fixed.part.js",
+    "name": "Hinge · fixed leaf · row of holes",
+    "id": "6fb5676dc6009a22"
+  },
+  "step3d-fillet": {
+    "entry": "hinge-step3d-fillet.js",
+    "as": "hinge-leaf-fixed.part.js",
+    "name": "Hinge · fixed leaf · rounded corners",
+    "id": "4969a7ae7aba95f5"
+  },
+  "step3e-knuckle": {
+    "entry": "hinge-step3e-knuckle.js",
+    "as": "hinge-leaf-fixed.part.js",
+    "name": "Hinge · fixed leaf · knuckle",
+    "id": "37f7925d41dfbc50"
+  },
+  "step3f-knuckles": {
+    "entry": "hinge-step3f-knuckles.js",
+    "as": "hinge-leaf-fixed.part.js",
+    "name": "Hinge · fixed leaf · three knuckles",
+    "id": "75da790299b1a6b3"
+  },
+  "step3g-bore": {
+    "entry": "hinge-step3g-bore.js",
+    "as": "hinge-leaf-fixed.part.js",
+    "name": "Hinge · fixed leaf · bore",
+    "id": "e9e4fa40e6e10c9b"
+  },
+  "leaf-fixed": {
+    "entry": "hinge-leaf-fixed.part.js",
+    "name": "Hinge · fixed leaf",
+    "id": "21579fee767e2ce5"
+  },
+  "leaf-swing": {
+    "entry": "hinge-leaf-swing.part.js",
+    "name": "Hinge · swing leaf",
+    "id": "16f56b41d8a17191"
+  },
+  "pin": {
+    "entry": "hinge-pin.part.js",
+    "name": "Hinge · pin",
+    "id": "97c5772a1b3aeb0f"
+  },
+  "step6-inserted": {
+    "entry": "hinge-step6.assembly.js",
+    "as": "hinge.assembly.js",
+    "name": "Hinge · parts inserted",
+    "id": "7a5284991b43ab4f"
+  },
+  "assembly": {
+    "entry": "hinge-assembly.assembly.js",
+    "as": "hinge.assembly.js",
+    "name": "Hinge · assembled",
+    "id": "70e40cb2156f7f5c"
+  }
+}

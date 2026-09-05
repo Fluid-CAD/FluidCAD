@@ -114,8 +114,20 @@ Rules:
   callouts, `markers={[{n: 1, x: 12, y: 8, label: 'Tabs', description: '…'}]}`
   (x/y in percent of the image). Use it for UI screenshots.
 - `ViewerEmbed` / `OpenInViewer` (existing): click-to-render viewer for a
-  complete single-file model. Use at the top of getting-started pages and
-  under "Full code" — not on every example.
+  complete single-file model (`code={src}` — the source travels in the URL).
+  Use at the top of tutorial pages and under "Full code" — not on every
+  example. For multi-file models (assemblies) or a per-step walkthrough, use a
+  **published package** instead: `<ViewerEmbed packageId={pkgs["step"].id}
+  poster="/img/docs/<section>/<name>.png" alt="…" />`. With a `poster` the
+  step's screenshot stands in for the idle viewer and nothing loads until the
+  reader presses play, so a page can carry one embed per step. Packages are
+  declared in the section's `_examples/viewer-packages.json` (key →
+  `{ entry, as?, name }`; `as` renames the entry to the file name the tutorial
+  uses, relative imports are packed along) and published with
+  `node website/scripts/publish-viewer-packages.mjs <section>` — it packs each
+  entry, uploads new ones to the viewer's R2 package store through wrangler
+  (needs the `../FluidCAD-Viewer` checkout and a wrangler login), and writes
+  the content-derived `id` back into the JSON, which the page imports.
 - Docusaurus `<details>` is also fine for any other collapsed content.
 
 ## Example files
@@ -164,7 +176,7 @@ before the assembly. Multi-file assembly imports resolve relative to the
 workspace root, so the part files in the scratch workspace must carry the
 same names the assembly imports.
 
-Do not run `generate-screenshots.mjs` or `npm run build` yourself — both are
+Do not run `generate-screenshots.mjs`, `publish-viewer-packages.mjs` or `npm run build` yourself — both are
 run once at the end for the whole site (they need a browser, and concurrent
 builds collide). Do not edit `sidebars.ts`, `docusaurus.config.ts`, or
 `scripts/generate-screenshots.mjs`.

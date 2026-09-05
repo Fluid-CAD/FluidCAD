@@ -4,6 +4,8 @@ title: "4. Defining connectors"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
+import viewerPackages from './_examples/viewer-packages.json';
 import fixedLeaf from '!!raw-loader!./_examples/hinge-leaf-fixed.part.js';
 import swingLeaf from '!!raw-loader!./_examples/hinge-leaf-swing.part.js';
 import pin from '!!raw-loader!./_examples/hinge-pin.part.js';
@@ -23,7 +25,7 @@ A **connector** is a named coordinate frame attached to a part's geometry. Joint
 
 The History panel folds the two under a *2 connectors* row at the bottom of the part. The frames stay visible as small triads in the viewport.
 
-![The fixed leaf with its connectors](/img/docs/getting-started/hinge-leaf-fixed.png)
+<ViewerEmbed packageId={viewerPackages["leaf-fixed"].id} poster="/img/docs/getting-started/hinge-leaf-fixed.png" alt="The fixed leaf with its connectors" />
 
 <ExplainedCode code={fixedLeaf} fileName="hinge-leaf-fixed.part.js" />
 
@@ -39,13 +41,13 @@ The hinge needs two more parts. Create `hinge-leaf-swing.part.js` and `hinge-pin
 
 The swing leaf mirrors the fixed one: it extends to the other side of the pin axis, and its two knuckles fall into the fixed leaf's gaps. Its ring is sketched on a plane 18 mm in front of the front plane (the **Plane** dialog, type *Offset*), extruded 12 mm and repeated once, 24 mm along; the bore is the same symmetric *Through all* cut. Its one connector sits at the far end of that first knuckle, the same point on the pin axis as the fixed leaf's `knuckle` connector.
 
-![The swing leaf](/img/docs/getting-started/hinge-leaf-swing.png)
+<ViewerEmbed packageId={viewerPackages["leaf-swing"].id} poster="/img/docs/getting-started/hinge-leaf-swing.png" alt="The swing leaf" />
 
 <ExplainedCode code={swingLeaf} fileName="hinge-leaf-swing.part.js" />
 
 The pin is a 4 mm shaft with a head, drawn on the same axis and starting from a plane 30 mm in front of the front plane, where the fixed leaf's tube ends. Its connector sits where the head meets the shaft.
 
-![The pin](/img/docs/getting-started/hinge-pin.png)
+<ViewerEmbed packageId={viewerPackages["pin"].id} poster="/img/docs/getting-started/hinge-pin.png" alt="The pin" />
 
 <ExplainedCode code={pin} fileName="hinge-pin.part.js" />
 

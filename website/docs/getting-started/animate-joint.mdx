@@ -3,6 +3,9 @@ sidebar_position: 8
 title: "8. Applying animation to a joint"
 ---
 
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
+import viewerPackages from './_examples/viewer-packages.json';
+
 # Applying animation to a joint
 
 Revolute and slider joints can be driven through their range from the Joints panel. Nothing is written to the file: the animation is a viewport tool.
@@ -22,6 +25,10 @@ Revolute and slider joints can be driven through their range from the Joints pan
    ![The hinge closing](/img/docs/ui/animate-bar-playing.png)
 
 4. **Play** toggles to **Pause** while running. **Stop** returns the leaf to where it was when the bar opened, and **✕** closes the bar.
+
+The same controls work in the embedded viewer: render the hinge below, then hover the *revolute* row in its **Joints** panel and press its play button.
+
+<ViewerEmbed packageId={viewerPackages["assembly"].id} poster="/img/docs/getting-started/hinge-assembly.png" alt="The assembled hinge, ready to animate" />
 
 The same drive is available on slider joints, in document units of travel along the joint's Z axis. Editing Start or End while paused restarts the sweep from Start on the next Play.
 

@@ -72,3 +72,12 @@
   border-radius: 6px;
   box-shadow: 0 1px 6px rgba(0, 0, 0, 0.12);
 }
+
+/* Poster: the step's screenshot stands in for the idle viewer until play. */
+.poster {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background-color: var(--ifm-background-surface-color);
+}

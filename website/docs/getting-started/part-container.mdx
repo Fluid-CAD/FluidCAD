@@ -5,12 +5,16 @@ title: "1. Creating a part container"
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
 import step1 from '!!raw-loader!./_examples/hinge-step1-part.js';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
+import viewerPackages from './_examples/viewer-packages.json';
 
 # Creating a part container
 
 Over the next eight pages you build a butt hinge: two leaves with interleaving knuckles, a pin through them, and a joint that swings the hinge open and shut.
 
-![The finished hinge](/img/docs/getting-started/hinge-assembly.png)
+<ViewerEmbed packageId={viewerPackages["assembly"].id} poster="/img/docs/getting-started/hinge-assembly.png" alt="The finished hinge" />
+
+Every page ends with a picture like this one; press play on it to load that step into the browser viewer, spin it around, and open its files.
 
 This page creates the file for the first leaf and puts a **part container** in it.
 

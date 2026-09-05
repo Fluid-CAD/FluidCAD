@@ -4,6 +4,8 @@ title: "7. Adding joints"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
+import viewerPackages from './_examples/viewer-packages.json';
 import assembly from '!!raw-loader!./_examples/hinge-assembly.assembly.js';
 
 # Adding joints
@@ -27,7 +29,7 @@ A joint (a **mate** in the code) connects two connectors and leaves some motion 
 1. Click **Fastened**. Pick the fixed leaf's `pin` connector (the front end of the tube) as A and the pin's `shaft` connector as B.
 2. The preview shows the pin pointing out of the hinge; tick **Flip** so the shaft runs into the knuckles. **Apply**.
 
-![The assembled hinge](/img/docs/getting-started/hinge-assembly.png)
+<ViewerEmbed packageId={viewerPackages["assembly"].id} poster="/img/docs/getting-started/hinge-assembly.png" alt="The assembled hinge" />
 
 <ExplainedCode code={assembly} fileName="hinge.assembly.js" open />
 
@@ -35,6 +37,6 @@ Each dialog wrote one `mate()` statement. The first argument names the joint typ
 
 ## Trying the joint
 
-Drag the swing leaf in the viewport. It rotates about the pin and stops at the limits; the fixed leaf and the pin stay put. Click the joint's row in the Joints panel to highlight both connectors. The row's menu (right-click) offers **Edit mate…**, **Suppress**, **Delete**, **Show in source** and **Animate…**, which is the next step.
+Drag the swing leaf in the viewport (this works in the embedded viewer above too). It rotates about the pin and stops at the limits; the fixed leaf and the pin stay put. Click the joint's row in the Joints panel to highlight both connectors. The row's menu (right-click) offers **Edit mate…**, **Suppress**, **Delete**, **Show in source** and **Animate…**, which is the next step.
 
 Next: [Applying animation to a joint](/docs/getting-started/animate-joint).

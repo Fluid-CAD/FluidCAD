@@ -4,6 +4,8 @@ title: "2. Creating a basic sketch"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
+import viewerPackages from './_examples/viewer-packages.json';
 import step2 from '!!raw-loader!./_examples/hinge-step2-sketch.js';
 
 # Creating a basic sketch
@@ -19,7 +21,7 @@ The leaf starts as a rectangle: 30 mm wide, 60 mm along the pin axis, centred on
 5. The rectangle turns **green**: every line is fully constrained. The sketch's status readout says *Fully constrained*.
 6. Click the green **Finish sketch** button. It leaves the sketch and offers the feature you most likely want next; ignore that for now.
 
-![The leaf outline, fully constrained](/img/docs/getting-started/hinge-step2-sketch.png)
+<ViewerEmbed packageId={viewerPackages["step2-sketch"].id} poster="/img/docs/getting-started/hinge-step2-sketch.png" alt="The leaf outline, fully constrained" />
 
 ## What the tool wrote
 

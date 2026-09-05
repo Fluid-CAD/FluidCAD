@@ -1,18 +1,26 @@
 import {IconCube} from '@tabler/icons-react';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import {useViewerLink} from './viewer-link';
 import styles from './OpenInViewer.module.css';
 
 type OpenInViewerProps = {
   /** Raw .fluid.js source, typically imported via `!!raw-loader!`. */
-  code: string;
+  code?: string;
   /** Filename shown in the viewer's timeline; the tutorial's suggested name. */
   entry?: string;
+  /** Id of a package in the viewer's package store (`/m/<id>`); wins over `code`. */
+  packageId?: string;
   /** Button label override. */
   label?: string;
 };
 
-export function OpenInViewer({code, entry, label}: OpenInViewerProps) {
-  const href = useViewerLink(code, entry);
+export function OpenInViewer({code, entry, packageId, label}: OpenInViewerProps) {
+  const {siteConfig} = useDocusaurusContext();
+  const {fluidcadViewerUrl} = siteConfig.customFields as {
+    fluidcadViewerUrl: string;
+  };
+  const codeHref = useViewerLink(code ?? '', entry);
+  const href = packageId ? `${fluidcadViewerUrl}/m/${packageId}` : code ? codeHref : null;
 
   return (
     <a

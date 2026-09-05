@@ -4,6 +4,8 @@ title: "6. Inserting the part into an assembly"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
+import viewerPackages from './_examples/viewer-packages.json';
 import step6 from '!!raw-loader!./_examples/hinge-step6.assembly.js';
 
 # Inserting the part into an assembly
@@ -22,7 +24,7 @@ An assembly is a `.assembly.js` file. It holds no geometry of its own: it insert
 5. Ground the fixed leaf: open the row's menu (**⋮**, or right-click) and choose **Toggle grounded**. A grounded instance stays where it is; everything else is placed relative to it by the joints.
 6. Drag the swing leaf and the pin out of the way with the gizmo (click an instance, then pull the arrows), so that the next step has something to pull back in.
 
-![Three parts inserted, not yet joined](/img/docs/getting-started/hinge-step6.png)
+<ViewerEmbed packageId={viewerPackages["step6-inserted"].id} poster="/img/docs/getting-started/hinge-step6.png" alt="Three parts inserted, not yet joined" />
 
 <ExplainedCode code={step6} fileName="hinge.assembly.js" open />
 

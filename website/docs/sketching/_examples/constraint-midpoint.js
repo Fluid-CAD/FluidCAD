@@ -1,4 +1,4 @@
-// @screenshot view top
+// @screenshot view top hideDimensions
 import { sketch, line, circle, point } from 'fluidcad/core';
 import { midpoint, coincident, horizontal, vertical, fix, distance, diameter } from "fluidcad/constraints";
 

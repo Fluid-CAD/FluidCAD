@@ -10,6 +10,8 @@ import {
 import { FIT_PADDING, SceneContext } from './scene/scene-context';
 import { resolveView, type ScreenshotView } from './screenshot-view';
 import { findGeometryRoot } from './scene/scene-geometry-bounds';
+import { runFrameHooks } from './meshes/frame-hooks';
+import { withSketchConstraintVisibility } from './meshes/containers/sketch-constraint-visibility';
 
 export interface ScreenshotOptions {
   width: number;
@@ -31,6 +33,24 @@ export interface ScreenshotOptions {
    * of whatever the user was editing.
    */
   solidsOnly: boolean;
+  /**
+   * Sketch constraint annotations, mirroring the sketch dialog's "Show
+   * constraints" toggles: `showDimensions` covers distance/angle/radius/
+   * diameter readouts, `showPositional` the relation badges and
+   * coincidence dots. Both default to on; a capture that turns one off
+   * rebuilds the sketch glyphs for the shot and restores them afterwards.
+   */
+  showDimensions: boolean;
+  showPositional: boolean;
+  /**
+   * Device-pixel ratio of the export: the drawing buffer stays `width` ×
+   * `height`, but screen-space overlays (constraint badges, dimension
+   * readouts, vertex dots) are sized as if the canvas were `width /
+   * pixelRatio` CSS pixels wide. A 2× export of a docs image that is shown
+   * at half size then carries annotations at their on-screen size, like a
+   * high-DPI screen would.
+   */
+  pixelRatio: number;
 }
 
 const DEFAULTS: ScreenshotOptions = {
@@ -44,6 +64,9 @@ const DEFAULTS: ScreenshotOptions = {
   margin: 0,
   view: { kind: 'current' },
   solidsOnly: false,
+  showDimensions: true,
+  showPositional: true,
+  pixelRatio: 1,
 };
 
 /** Render the current scene to a PNG blob with the given options. */
@@ -106,7 +129,10 @@ export function captureScreenshotMulti(
  * the raw renderer canvas, or an auto-cropped copy).
  */
 function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTMLCanvasElement {
-  const { width, height, showGrid, showAxes, transparent, autoCrop, fitToModel, margin, view, solidsOnly } = options;
+  const {
+    width, height, showGrid, showAxes, transparent, autoCrop, fitToModel, margin, view, solidsOnly,
+    showDimensions, showPositional, pixelRatio,
+  } = options;
 
   const scene = sceneCtx.scene;
   const camera = sceneCtx.camera;
@@ -116,6 +142,10 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   // Solids-only goes first so the grid/axes toggles below still win over it,
   // and its restore runs last so everything lands back where it started.
   const restoreSolidsOnly = solidsOnly ? isolateSolids(scene) : null;
+  const restoreConstraintVisibility = withSketchConstraintVisibility(scene, {
+    dimensions: showDimensions,
+    positional: showPositional,
+  });
 
   const gridObj = scene.getObjectByName('grid');
   const defaultAxes = scene.getObjectByName('defaultAxesHelper');
@@ -215,8 +245,12 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
     alpha: true,
     preserveDrawingBuffer: true,
   });
-  tmpRenderer.setSize(width, height);
-  tmpRenderer.setPixelRatio(1);
+  // Pixel ratio first: setSize multiplies the drawing buffer by it, so the
+  // buffer lands on width × height while getSize() — what the overlay
+  // layout sizes glyphs against — reports the CSS-pixel canvas.
+  const ratio = pixelRatio > 0 && Number.isFinite(pixelRatio) ? pixelRatio : 1;
+  tmpRenderer.setPixelRatio(ratio);
+  tmpRenderer.setSize(width / ratio, height / ratio, false);
   tmpRenderer.toneMapping = ACESFilmicToneMapping;
   tmpRenderer.outputColorSpace = SRGBColorSpace;
 
@@ -228,6 +262,14 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
     }
   });
 
+  // Screen-space layout passes (sketch annotation declutter, glyph sizing)
+  // size and place their sprites against a renderer + camera, and a freshly
+  // rebuilt glyph set is invisible until one has run. Lay out against the
+  // export renderer so annotations come out at their intended pixel size in
+  // the capture (scaled by pixelRatio) rather than at whatever the live
+  // viewport's zoom made them; the next live frame lays them out again for
+  // the screen.
+  runFrameHooks(tmpRenderer, camera);
   tmpRenderer.render(scene, camera);
 
   // --- Optional auto-crop ---
@@ -277,9 +319,14 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
     false,
   );
 
+  restoreConstraintVisibility();
   restoreSolidsOnly?.();
 
+  // dispose() alone leaves the WebGL context alive until GC; a page that
+  // captures repeatedly (docs generation, an agent's MCP screenshots) then
+  // hits the browser's per-page context cap and loses the live viewport's.
   tmpRenderer.dispose();
+  tmpRenderer.forceContextLoss();
   sceneCtx.requestRender();
 
   return finalCanvas;

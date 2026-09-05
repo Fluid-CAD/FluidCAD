@@ -35,6 +35,9 @@ export type ScreenshotInput = WorkspaceArg & {
   fitToModel?: boolean;
   margin?: number;
   solidsOnly?: boolean;
+  showDimensions?: boolean;
+  showPositional?: boolean;
+  pixelRatio?: number;
 };
 
 export async function screenshot(input: ScreenshotInput): Promise<ToolResult<ImageResult>> {
@@ -179,6 +182,9 @@ type ValidatedOptions = {
   margin?: number;
   view?: ScreenshotView;
   solidsOnly?: boolean;
+  showDimensions?: boolean;
+  showPositional?: boolean;
+  pixelRatio?: number;
 };
 
 function validateScreenshotInput(input: ScreenshotInput | ScreenshotMultiInput): ToolResult<ValidatedOptions> {
@@ -198,7 +204,7 @@ function validateScreenshotInput(input: ScreenshotInput | ScreenshotMultiInput):
     }
     opts.height = h;
   }
-  for (const k of ['showGrid', 'showAxes', 'transparent', 'autoCrop', 'fitToModel', 'solidsOnly'] as const) {
+  for (const k of ['showGrid', 'showAxes', 'transparent', 'autoCrop', 'fitToModel', 'solidsOnly', 'showDimensions', 'showPositional'] as const) {
     const v = (input as any)[k];
     if (v !== undefined) {
       if (typeof v !== 'boolean') {
@@ -206,6 +212,13 @@ function validateScreenshotInput(input: ScreenshotInput | ScreenshotMultiInput):
       }
       (opts as any)[k] = v;
     }
+  }
+  if ((input as ScreenshotInput).pixelRatio !== undefined) {
+    const r = (input as ScreenshotInput).pixelRatio!;
+    if (typeof r !== 'number' || !(r >= 1 && r <= 4)) {
+      return err('invalid-input', '`pixelRatio` must be a number between 1 and 4.');
+    }
+    opts.pixelRatio = r;
   }
   if ((input as ScreenshotInput).margin !== undefined) {
     const m = (input as ScreenshotInput).margin!;

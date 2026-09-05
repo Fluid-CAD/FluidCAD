@@ -1,4 +1,4 @@
-// @screenshot view top
+// @screenshot view top hideDimensions
 import { sketch, line, xAxis } from 'fluidcad/core';
 import { perpendicular, coincident, fix, distance, angle } from "fluidcad/constraints";
 

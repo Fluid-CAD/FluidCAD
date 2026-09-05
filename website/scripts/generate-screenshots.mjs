@@ -24,6 +24,8 @@
 // Screenshot options:
 //   Add "// @screenshot showAxes" as the first line of a .js file to enable axes.
 //   Add "// @screenshot hideGrid" to hide the ground grid in the screenshot.
+//   Add "// @screenshot hideDimensions" to hide a sketch's dimensional constraints
+//   (distance/angle/radius/diameter readouts); "hidePositional" hides the badges.
 //   Add "// @screenshot noAxes" to suppress the automatic axes for rotate()/mirror() code.
 //   Add "// @screenshot skip" to skip screenshot generation for that file.
 //   Add "// @screenshot crop 0,0,100,16" to keep a percent region (x,y,w,h) of the capture.
@@ -55,9 +57,13 @@ const DEFAULT_SCREENSHOT_OPTIONS = {
   autoCrop: true,
   margin: 40,
   // Rendered at 2x the display size so the docs' images are crisp on
-  // high-DPI screens (pages show them at ~800 px wide).
+  // high-DPI screens (pages show them at ~800 px wide). pixelRatio tells the
+  // UI so: screen-space overlays (constraint badges, dimension readouts) are
+  // sized for an 800 px canvas and come out at their on-screen size once the
+  // page halves the image.
   width: 1600,
   height: 1600,
+  pixelRatio: 2,
 };
 
 const PORT = 3200;
@@ -105,6 +111,11 @@ function discoverExamples(docsDir) {
 
     // Determine hideGrid from annotation
     const hideGrid = firstLines.includes('hideGrid');
+
+    // The sketch dialog's "Show constraints" toggles: a page about positional
+    // constraints hides the dimension readouts so the badges stand out.
+    const hideDimensions = firstLines.includes('hideDimensions');
+    const hidePositional = firstLines.includes('hidePositional');
 
     // Determine waitForInput from annotation (pause before screenshot for manual camera adjustment)
     const waitForInput = firstLines.includes('waitForInput');
@@ -162,6 +173,8 @@ function discoverExamples(docsDir) {
       showAxes,
       noAutoCrop,
       hideGrid,
+      hideDimensions,
+      hidePositional,
       waitForInput,
       emptyScene,
       aspectRatio,
@@ -417,7 +430,7 @@ async function main() {
     let done = 0;
     let failed = 0;
     for (const config of allScreenshots) {
-      const { id, outputPath, code, isAssembly, showAxes, noAutoCrop, hideGrid, waitForInput, emptyScene, aspectRatio, size, view, crop, renderDelayMs } = config;
+      const { id, outputPath, code, isAssembly, showAxes, noAutoCrop, hideGrid, hideDimensions, hidePositional, waitForInput, emptyScene, aspectRatio, size, view, crop, renderDelayMs } = config;
 
       mkdirSync(dirname(outputPath), { recursive: true });
 
@@ -466,6 +479,8 @@ async function main() {
           ...DEFAULT_SCREENSHOT_OPTIONS,
           ...(showAxes ? { showAxes: true } : {}),
           ...(hideGrid ? { showGrid: false } : {}),
+          ...(hideDimensions ? { showDimensions: false } : {}),
+          ...(hidePositional ? { showPositional: false } : {}),
           ...(noAutoCrop ? { autoCrop: false, fitToModel: false, transparent: false } : {}),
           ...(view ? { view: { kind: 'named', name: view } } : {}),
           ...arSize,

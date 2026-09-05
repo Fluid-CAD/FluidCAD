@@ -25,6 +25,9 @@ export function createScreenshotRouter(
       view,
       multi,
       solidsOnly,
+      showDimensions,
+      showPositional,
+      pixelRatio,
     } = req.body;
 
     const options: Record<string, unknown> = {};
@@ -107,6 +110,24 @@ export function createScreenshotRouter(
         return;
       }
       options.solidsOnly = solidsOnly;
+    }
+
+    for (const [key, value] of [['showDimensions', showDimensions], ['showPositional', showPositional]] as const) {
+      if (value !== undefined) {
+        if (typeof value !== 'boolean') {
+          res.status(400).json({ error: `${key} must be a boolean.` });
+          return;
+        }
+        options[key] = value;
+      }
+    }
+
+    if (pixelRatio !== undefined) {
+      if (typeof pixelRatio !== 'number' || !(pixelRatio >= 1 && pixelRatio <= 4)) {
+        res.status(400).json({ error: 'pixelRatio must be a number between 1 and 4.' });
+        return;
+      }
+      options.pixelRatio = pixelRatio;
     }
 
     if (view !== undefined) {

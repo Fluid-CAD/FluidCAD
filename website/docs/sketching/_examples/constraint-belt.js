@@ -1,3 +1,4 @@
+// @screenshot hideDimensions
 import { sketch, line, circle } from 'fluidcad/core';
 import { tangent, coincident, fix, diameter } from "fluidcad/constraints";
 

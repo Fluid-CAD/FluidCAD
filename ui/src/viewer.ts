@@ -7,6 +7,7 @@ import { sceneUnit } from './units/scene-unit';
 import { GridScaleBar } from './ui/grid-scale-bar';
 import { buildSceneMesh } from './meshes/mesh-factory';
 import type { SketchMesh } from './meshes/containers/sketch-mesh';
+import { refreshSketchConstraintGlyphs } from './meshes/containers/sketch-constraint-visibility';
 import { PlaneData, SceneObjectPart, SceneObjectRender, SerializedAssembly, SerializedAssemblyMate, SubSelection } from './types';
 import { AssemblyController, DragValueHandler, InstanceDragReleaseHandler, SolverUpdateHandler } from './scene/assembly-controller';
 import { FaceMesh } from './meshes/shape-meshes/face-mesh';
@@ -459,17 +460,7 @@ export class Viewer {
   }
 
   private refreshSketchConstraintGlyphs(): void {
-    // Collect before refreshing: the rebuild swaps the mesh's own children,
-    // which must not happen under scene.traverse's child iteration.
-    const meshes: SketchMesh[] = [];
-    this.ctx.scene.traverse(node => {
-      if (node.userData.isSketchRoot) {
-        meshes.push(node as SketchMesh);
-      }
-    });
-    for (const mesh of meshes) {
-      mesh.refreshConstraintGlyphs();
-    }
+    refreshSketchConstraintGlyphs(this.ctx.scene);
     this.ctx.requestRender();
   }
 

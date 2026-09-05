@@ -4,7 +4,7 @@ title: copy(kind, axis | plane, options, ...objects)
 summary: Duplicates a finished shape at multiple positions. Each copy is independent of the original. Use `repeat()` when you instead want the modeling feature itself re-applied.
 tags: [api, transform, pattern]
 symbols: [copy]
-seeAlso: [api/repeat, api/translate, api/mirror]
+seeAlso: [api/repeat, api/translate, api/mirror, concepts/coordinate-system]
 ---
 
 # copy
@@ -20,6 +20,10 @@ copy("linear", axes: AxisLike[], options, ...objects)
 copy("circular", axis: AxisLike, options, ...objects)        // 3D
 copy("circular", center: Point2D, options, ...objects)       // inside a sketch
 ```
+
+Inside a sketch, the linear axis is the sketch's own `xAxis()` /
+`yAxis()` datum or a sketched line wrapped as `axis(l)`; a bare `"x"`
+is the WORLD axis even there (see [[concepts/coordinate-system]]).
 
 ## Linear options (`LinearCopyOptions` / `LinearRepeatOptions`)
 

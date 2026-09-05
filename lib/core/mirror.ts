@@ -31,7 +31,7 @@ interface MirrorFunction {
 
   /**
   * [2D] Mirror all sketch geometries across a given axis.
-  * @param axis The local axis to mirror across
+  * @param axis The axis to mirror across — `xAxis()` / `yAxis()` for the sketch's own axes; a bare `'x'` is the WORLD axis
   */
   (axis: AxisLike): IMirror2D;
 
@@ -44,7 +44,7 @@ interface MirrorFunction {
 
   /**
   * [2D] Mirror given sketch geometries across a given axis.
-  * @param axis The local axis to mirror across
+  * @param axis The axis to mirror across — `xAxis()` / `yAxis()` for the sketch's own axes; a bare `'x'` is the WORLD axis
   * @param geometries The geometries to mirror
   */
   (axis: AxisLike, ...geometries: ISceneObject[]): IMirror2D;

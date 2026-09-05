@@ -39,7 +39,7 @@ interface CopyFunction {
   /**
    * [2D] Creates linear copies along an axis inside a sketch.
    * @param type - Must be `'linear'`
-   * @param axis - The axis to copy along
+   * @param axis - The axis to copy along — `xAxis()` / `yAxis()` for the sketch's own axes, a sketched line via `axis(l)`; a bare `'x'` is the WORLD axis
    * @param options - Copy count, spacing, etc.
    * @param objects - The objects to copy (defaults to last object)
    */
@@ -47,7 +47,7 @@ interface CopyFunction {
   /**
    * [2D] Creates linear copies along multiple axes inside a sketch.
    * @param type - Must be `'linear'`
-   * @param axis - The axes to copy along
+   * @param axis - The axes to copy along — `xAxis()` / `yAxis()` for the sketch's own axes, a sketched line via `axis(l)`; a bare `'x'` is the WORLD axis
    * @param options - Copy count, spacing, etc.
    * @param objects - The objects to copy (defaults to last object)
    */

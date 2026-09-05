@@ -25,7 +25,7 @@ copy(type: "linear", axis: AxisLike, options: LinearCopyOptions, ...objects: Sce
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `type` | "linear" | Must be `'linear'` |
-| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to copy along |
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to copy along — `xAxis()` / `yAxis()` for the sketch's own axes, a sketched line via `axis(l)`; a bare `'x'` is the WORLD axis |
 | `options` | LinearCopyOptions | Copy count, spacing, etc. |
 | `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to copy (defaults to last object) *(optional)* |
 
@@ -40,7 +40,7 @@ copy(type: "linear", axis: AxisLike[], options: LinearCopyOptions, ...objects: S
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `type` | "linear" | Must be `'linear'` |
-| `axis` | [AxisLike](/docs/api/types/axis-like)[] | The axes to copy along |
+| `axis` | [AxisLike](/docs/api/types/axis-like)[] | The axes to copy along — `xAxis()` / `yAxis()` for the sketch's own axes, a sketched line via `axis(l)`; a bare `'x'` is the WORLD axis |
 | `options` | LinearCopyOptions | Copy count, spacing, etc. |
 | `...objects` | [SceneObject](/docs/api/types/scene-object)[] | The objects to copy (defaults to last object) *(optional)* |
 

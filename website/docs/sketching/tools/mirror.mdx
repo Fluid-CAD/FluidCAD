@@ -18,8 +18,9 @@ There is no Mirror button on the sketch toolbar; the 2D mirror is written in the
 ```js
 mirror(line)                            // mirror everything across a sketched line
 mirror(line, g1, g2, ...)               // mirror specific geometry across a line
-mirror("x")                             // mirror across a world axis
-mirror("y", g1, g2, ...)                // mirror specific geometry across an axis
+mirror(yAxis())                         // mirror across the sketch's own Y axis
+mirror(xAxis(), g1, g2, ...)            // mirror specific geometry across the sketch's X axis
+mirror("y", g1, g2, ...)                // across a WORLD axis — see below
 ```
 
 Any sketched line can be the mirror line, including a [guide](/docs/sketching/tools/guides) you do not want in the profile. Write the statement after the constraints — mirror consumes solved geometry.
@@ -60,6 +61,6 @@ sketch("front", () => {
 })
 ```
 
-You do not need it when the mirror line is a sketched line (it already lies on the plane), or on `sketch("xy")`, where world and local axes agree.
+You do not need the datums when the mirror line is a sketched line (it already lies on the plane), or on `sketch("xy")`, where world and sketch axes agree.
 
 For mirroring a **feature** rather than sketch geometry, see [Patterns → Repeat](/docs/patterns/repeat#mirror-repeat); for solids, [Transforms → Mirror](/docs/transforms/mirror).

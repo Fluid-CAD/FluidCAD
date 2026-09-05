@@ -33,8 +33,9 @@ Copy duplicates sketch geometry along one or two directions or around a centre p
 ## By hand
 
 ```js
-copy("linear", "x", { count: 4, offset: 40 }, g)           // along X
-copy("linear", ["x", "y"], { count: 3, offset: 30 }, g)    // a grid
+copy("linear", xAxis(), { count: 4, offset: 40 }, g)       // along the sketch's X
+copy("linear", [xAxis(), yAxis()], { count: 3, offset: 30 }, g)  // a grid
+copy("linear", axis(l), { count: 4, offset: 40 }, g)       // along a sketched line
 copy("circular", [0, 0], { count: 8, angle: 360 }, g)      // around a 2D point
 ```
 

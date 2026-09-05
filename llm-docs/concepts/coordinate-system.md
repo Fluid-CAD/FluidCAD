@@ -15,7 +15,7 @@ seeAlso: [api/sketch, api/constraints, api/mirror, api/copy]
 - Standard planes: `"xy"`, `"xz"`, `"yz"`. Aliases like `"front"` are
   also recognized — `"front"` is the XZ plane.
 
-## Sketch-local axes
+## Sketch axes
 
 `"x"`, `"y"`, `"z"` **always refer to world axes**, including inside a
 `sketch(...)` callback. The sketch plane's own axes are the datums

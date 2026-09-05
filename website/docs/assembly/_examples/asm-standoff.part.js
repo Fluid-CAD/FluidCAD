@@ -1,3 +1,4 @@
+// @screenshot skip
 import { part, sketch, circle, extrude, chamfer, color, connector } from 'fluidcad/core';
 
 // A Ø8 × 15 standoff with a Ø4 through hole, chamfered on top.

@@ -1,3 +1,4 @@
+// @screenshot skip
 import { sketch, circle, extrude } from 'fluidcad/core';
 
 sketch("xy", () => {

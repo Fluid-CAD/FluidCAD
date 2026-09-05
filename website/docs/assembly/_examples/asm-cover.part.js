@@ -1,3 +1,4 @@
+// @screenshot skip
 import { part, sketch, line, circle, extrude, fillet, chamfer, color, select, connector } from 'fluidcad/core';
 import { face } from 'fluidcad/filters';
 import { coincident, distance, fix, horizontal, vertical } from 'fluidcad/constraints';

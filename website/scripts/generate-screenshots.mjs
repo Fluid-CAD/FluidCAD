@@ -26,6 +26,9 @@
 //   Add "// @screenshot hideGrid" to hide the ground grid in the screenshot.
 //   Add "// @screenshot noAxes" to suppress the automatic axes for rotate()/mirror() code.
 //   Add "// @screenshot skip" to skip screenshot generation for that file.
+//   Add "// @screenshot crop 0,0,100,16" to keep a percent region (x,y,w,h) of the capture.
+//   Add "// @screenshot delay 8000" to wait longer for the UI to mesh the scene
+//   (examples calling text() wait 10 s by default).
 //
 // Prerequisites:
 //   - Run `npm run build` first (server + UI must be built)
@@ -59,6 +62,7 @@ const DEFAULT_SCREENSHOT_OPTIONS = {
 
 const PORT = 3200;
 const RENDER_DELAY_MS = 2000;
+const TEXT_RENDER_DELAY_MS = 10000;
 
 // Functions that indicate axes should be visible
 const SHOW_AXES_MARKERS = ['revolve(', 'mirror(', 'rotate('];
@@ -120,6 +124,22 @@ function discoverExamples(docsDir) {
       ? { width: parseInt(sizeMatch[1], 10), height: parseInt(sizeMatch[2], 10) }
       : null;
 
+    // Parse delay annotation, e.g. "// @screenshot delay 8000" — extra time
+    // for the UI to mesh the scene before the capture. Text glyphs are slow
+    // to tessellate in the browser, so text examples get a long wait by
+    // default; without it the capture shows the PREVIOUS example's scene.
+    const delayMatch = firstLines.match(/\/\/ @screenshot.*delay\s+(\d+)/);
+    const renderDelayMs = delayMatch
+      ? parseInt(delayMatch[1], 10)
+      : (code.includes('text(') ? TEXT_RENDER_DELAY_MS : RENDER_DELAY_MS);
+
+    // Parse crop annotation, e.g. "// @screenshot crop 0,0,100,16" — keep only
+    // that region (x, y, width, height in percent of the captured image),
+    // applied after auto-crop. For scenes where a far-away construction
+    // point (an arc's centre) would otherwise stretch the frame.
+    const cropMatch = firstLines.match(/\/\/ @screenshot.*crop\s+([\d.]+),([\d.]+),([\d.]+),([\d.]+)/);
+    const crop = cropMatch ? cropMatch.slice(1, 5).map(Number) : null;
+
     // Parse view annotation, e.g. "// @screenshot view iso-ftr". Captures from
     // a fixed named view (front, top, iso-ftr, ...) instead of the UI client's
     // current camera, making the shot reproducible without manual framing.
@@ -147,6 +167,8 @@ function discoverExamples(docsDir) {
       aspectRatio,
       size,
       view,
+      crop,
+      renderDelayMs,
       source: relPath,
     });
   }
@@ -226,6 +248,25 @@ function waitForIPC(server, type, timeoutMs = 30000) {
     };
     server.on('message', handler);
   });
+}
+
+// Crops a PNG in place to a percent region [x, y, w, h] with ImageMagick.
+let magickWarned = false;
+function cropPng(filePath, [x, y, w, h]) {
+  const probe = spawnSync('magick', ['identify', '-format', '%w %h', filePath]);
+  if (probe.error || probe.status !== 0) {
+    if (!magickWarned) {
+      console.warn('\n(ImageMagick `magick` unavailable — crop directives ignored)');
+      magickWarned = true;
+    }
+    return;
+  }
+  const [width, height] = probe.stdout.toString().trim().split(' ').map(Number);
+  const geometry = `${Math.round(width * w / 100)}x${Math.round(height * h / 100)}+${Math.round(width * x / 100)}+${Math.round(height * y / 100)}`;
+  const result = spawnSync('magick', [filePath, '-crop', geometry, '+repage', filePath]);
+  if (result.status !== 0) {
+    console.warn(`\n(crop failed for ${filePath}: ${result.stderr})`);
+  }
 }
 
 let optimizerWarned = false;
@@ -322,8 +363,20 @@ async function main() {
     stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
   });
 
-  server.stdout.on('data', (d) => process.stdout.write(d));
-  server.stderr.on('data', (d) => process.stderr.write(d));
+  // A file that fails to compile or build leaves the PREVIOUS scene on
+  // screen; the server still reports the render, so the capture would be a
+  // silent duplicate of the last example. Watch the server log for the error
+  // line and fail the example instead.
+  let renderError = null;
+  const watchForErrors = (chunk) => {
+    const text = chunk.toString();
+    const m = text.match(/Error processing file: ([^\n]*)/);
+    if (m) {
+      renderError = m[1];
+    }
+  };
+  server.stdout.on('data', (d) => { watchForErrors(d); process.stdout.write(d); });
+  server.stderr.on('data', (d) => { watchForErrors(d); process.stderr.write(d); });
 
   const cleanup = () => {
     try { server.kill(); } catch {}
@@ -364,7 +417,7 @@ async function main() {
     let done = 0;
     let failed = 0;
     for (const config of allScreenshots) {
-      const { id, outputPath, code, isAssembly, showAxes, noAutoCrop, hideGrid, waitForInput, emptyScene, aspectRatio, size, view } = config;
+      const { id, outputPath, code, isAssembly, showAxes, noAutoCrop, hideGrid, waitForInput, emptyScene, aspectRatio, size, view, crop, renderDelayMs } = config;
 
       mkdirSync(dirname(outputPath), { recursive: true });
 
@@ -375,6 +428,7 @@ async function main() {
         await sleep(RENDER_DELAY_MS);
       } else {
         // Send code to server via live-update
+        renderError = null;
         const sceneRendered = waitForIPC(server, 'scene-rendered', 30000);
         server.send({
           type: 'live-update',
@@ -392,7 +446,12 @@ async function main() {
         }
 
         // Wait for the UI to fully render the scene
-        await sleep(RENDER_DELAY_MS);
+        await sleep(renderDelayMs);
+        if (renderError) {
+          console.log(`FAILED (render error) - ${renderError.slice(0, 160)}`);
+          failed++;
+          continue;
+        }
       }
 
       // Pause for manual camera adjustment if requested
@@ -413,6 +472,9 @@ async function main() {
         };
         const png = await takeScreenshot(PORT, options);
         writeFileSync(outputPath, png);
+        if (crop) {
+          cropPng(outputPath, crop);
+        }
         const optimizedSize = optimizePng(outputPath);
         if (optimizedSize !== null) {
           const saved = png.length - optimizedSize;

@@ -145,8 +145,14 @@ Every example is a complete runnable file in the section's `_examples/`:
   to emphasise the lines the page is about.
 - Optional first line `// @screenshot …` with any of: `showAxes`, `hideGrid`,
   `view iso-ftr` (any named view: front, top, right, iso-ftr …), `size 1200x800`,
-  `aspectRatio 1.5`, `noAutoCrop`, `skip`. Axes show automatically when the
-  code contains `revolve(`, `mirror(` or `rotate(`.
+  `aspectRatio 1.5`, `noAutoCrop`, `crop 0,0,100,16` (keep a percent region x,y,w,h after
+  auto-crop — for scenes where a far construction point stretches the frame), `delay 8000` (ms to wait for the browser to
+  mesh the scene; `text()` examples wait 10 s automatically), `skip`. Do not
+  use `waitForInput` — it blocks an unattended run. Axes show automatically
+  when the code contains `revolve(`, `mirror(` or `rotate(`. An example that
+  fails to compile is reported as FAILED (the previous scene would otherwise
+  be captured as a silent duplicate), so every existing example must stay on
+  the current API.
 - Mode tables (Add / New / Remove, thin in the same three) use one base part
   and change ONLY the mode between the three files, so the pictures compare.
 - Assembly examples need their part files next to them. Put the parts in the

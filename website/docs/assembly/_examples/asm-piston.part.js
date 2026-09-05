@@ -1,3 +1,4 @@
+// @screenshot skip
 import { part, sketch, circle, extrude, chamfer, color, select, connector } from 'fluidcad/core';
 import { face } from 'fluidcad/filters';
 

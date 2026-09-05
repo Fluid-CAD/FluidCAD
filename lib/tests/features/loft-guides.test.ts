@@ -3,9 +3,8 @@ import { setupOC, render, addToScene } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import plane from "../../core/plane.js";
 import loft from "../../core/loft.js";
-import local from "../../core/local.js";
 import mirror from "../../core/mirror.js";
-import { circle, bezier, line } from "../../core/2d/index.js";
+import { circle, bezier, line, yAxis } from "../../core/2d/index.js";
 import { Loft } from "../../features/loft.js";
 import { Sketch } from "../../features/2d/sketch.js";
 import { ShapeOps } from "../../oc/shape-ops.js";
@@ -137,7 +136,7 @@ describe("loft guides", () => {
         });
       const g1 = sketch("right", () => {
         bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80]);
-        mirror(local("y"));
+        mirror(yAxis());
       }).reusable();
 
       const l = loft(p1, p2).guides(g1) as Loft;
@@ -180,7 +179,7 @@ describe("loft guides", () => {
         });
       const g1 = sketch("right", () => {
         bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80]);
-        mirror(local("y"));
+        mirror(yAxis());
       }).reusable();
 
       const l = loft(p1, p2).guides(g1) as Loft;
@@ -282,7 +281,7 @@ describe("loft guides", () => {
         });
       const g1 = sketch("right", () => {
         bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80]);
-        mirror(local("y"));
+        mirror(yAxis());
       }).reusable();
 
       // `.new()` — the two variants overlap almost everywhere; fusing two

@@ -9,10 +9,9 @@ import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import mirror from "../../../core/mirror.js";
 import copy from "../../../core/copy.js";
-import local from "../../../core/local.js";
 import rotate from "../../../core/rotate.js";
 import fillet from "../../../core/fillet.js";
-import { line, circle, offset, text, ellipse } from "../../../core/2d/index.js";
+import { line, circle, offset, text, ellipse, xAxis } from "../../../core/2d/index.js";
 import { coincident, horizontal, vertical, fix, distance, radius } from "../../../core/constraints/index.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { ExtrudeBase } from "../../../features/extrude-base.js";
@@ -210,15 +209,15 @@ describe("derived ops on solved sketches (P6 audit)", () => {
       expect(cp.sourceEntities).toEqual([circleId]);
     });
 
-    it("a local('x') sketch-plane axis is a constant, not an unknown", () => {
-      // Regression (2026-08-25): local('x') resolves to AxisFromSketch and
+    it("an xAxis() sketch-plane axis is a constant, not an unknown", () => {
+      // Regression (2026-08-25): xAxis() resolves to AxisFromSketch and
       // the unknown-axis fallback dropped the verdict — copies of a green
       // circle stayed blue.
       sketch('xy', () => {
         const c = circle([0, 0], 20);
         fix(c.center(), [0, 0]);
         radius(c, 10);
-        copy('linear', local('x'), { count: 3, length: 100, centered: true }, c);
+        copy('linear', xAxis(), { count: 3, length: 100, centered: true }, c);
       });
       const scene = render();
 

@@ -3905,7 +3905,7 @@ describe('apply-feature route validation', () => {
         },
       });
       expect(status).toBe(200);
-      expect(body.preview).toBe("copy('linear', local('x'), { count: 3, offset: 20 }, r)");
+      expect(body.preview).toBe("copy('linear', xAxis(), { count: 3, offset: 20 }, r)");
       expect(sketchSynthesizeCalls).toEqual([{
         picks: [{ shapeId: 'e1' }], feature: 'copy', value: undefined,
         offset: undefined, slot: undefined, axisRefs: [],
@@ -3918,7 +3918,7 @@ describe('apply-feature route validation', () => {
           targets: [{ producer: 0 }],
         },
       });
-      expect(relayed[0].spec.imports).toContain('local');
+      expect(relayed[0].spec.imports).toContain('xAxis');
     });
 
     it('renders an edge-picked direction as axis(<var>) and imports axis', async () => {
@@ -4009,7 +4009,7 @@ describe('apply-feature route validation', () => {
       '',
       "sketch('xy', () => {",
       '  const r = circle([0, 0], 20)',
-      "  copy('linear', local('x'), { count: 3, offset: 20 }, r)",
+      "  copy('linear', xAxis(), { count: 3, offset: 20 }, r)",
       '})',
       '',
     ].join('\n');
@@ -4023,7 +4023,7 @@ describe('apply-feature route validation', () => {
         directions: [{ count: 4, value: 25 }],
       });
       expect(status).toBe(200);
-      expect(body.preview).toBe("copy('linear', local('x'), { count: 4, offset: 25 }, r)");
+      expect(body.preview).toBe("copy('linear', xAxis(), { count: 4, offset: 25 }, r)");
       expect(sketchSynthesizeCalls).toEqual([]);
       expect(relayed[0].spec).toMatchObject({
         edit: {
@@ -4043,8 +4043,8 @@ describe('apply-feature route validation', () => {
         directions: [{ axis: { kind: 'local', axis: 'y' }, count: 3, value: 20 }],
       });
       expect(status).toBe(200);
-      expect(body.preview).toBe("copy('linear', local('y'), { count: 3, offset: 20 }, r)");
-      expect(relayed[0].spec.imports).toContain('local');
+      expect(body.preview).toBe("copy('linear', yAxis(), { count: 3, offset: 20 }, r)");
+      expect(relayed[0].spec.imports).toContain('yAxis');
     });
 
     it('re-picks the targets through the sketch kernel (no boundary needed)', async () => {
@@ -4066,7 +4066,7 @@ describe('apply-feature route validation', () => {
         sketchTargets: [{ shapeId: 'e1' }],
       });
       expect(status).toBe(200);
-      expect(body.preview).toBe("copy('linear', local('x'), { count: 3, offset: 20 }, r)");
+      expect(body.preview).toBe("copy('linear', xAxis(), { count: 3, offset: 20 }, r)");
       expect(sketchSynthesizeCalls[0]).toMatchObject({
         picks: [{ shapeId: 'e1' }], feature: 'copy', axisRefs: [],
       });

@@ -15,7 +15,7 @@ Copy duplicates sketch geometry along one or two directions or around a centre p
 
 1. Click **Copy** on the sketch toolbar. The Copy dialog opens with a **Geometry** slot and a kind dropdown, **Linear** or **Circular**.
 2. Click the sketch edges to copy; they show as chips.
-3. For **Linear**: pick **Direction** (a sketch line, or the sketch's X / Y through the `local('x')` / `local('y')` buttons), set **Offset** between copies and **Total Count**. **+ Add second direction** turns it into a grid. For **Circular**: pick the **Center** point, set **Angle (°)** and **Total Count**; the **Center the copies on the original instance** toggle spreads them symmetrically about the source.
+3. For **Linear**: pick **Direction** (a sketch line, or the sketch's X / Y through the **Sketch X** / **Sketch Y** buttons, written as `xAxis()` / `yAxis()`), set **Offset** between copies and **Total Count**. **+ Add second direction** turns it into a grid. For **Circular**: pick the **Center** point, set **Angle (°)** and **Total Count**; the **Center the copies on the original instance** toggle spreads them symmetrically about the source.
 4. **Apply**.
 
 ### Linear
@@ -40,7 +40,7 @@ copy("circular", [0, 0], { count: 8, angle: 360 }, g)      // around a 2D point
 
 Options: `count` (instances including the original), `offset` (linear spacing) or `angle` (circular spread), `skip` (indices to leave out), `centered`.
 
-Bare axis strings are **world** axes. On any plane other than XY, use `local("x")` / `local("y")` for the sketch's own directions — see [Mirror](/docs/sketching/tools/mirror#sketch-axes-and-world-axes).
+Bare axis strings are **world** axes. On any plane other than XY, use the sketch datums `xAxis()` / `yAxis()` for the sketch's own directions — see [Mirror](/docs/sketching/tools/mirror#sketch-axes-and-world-axes).
 
 ## Copies and constraints
 

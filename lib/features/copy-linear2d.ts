@@ -54,7 +54,7 @@ export class CopyLinear2D extends Copy2DBase {
   protected slotTransforms(): SlotLayout {
     // resolveAxis, not getAxis: at statement time (duplicate-entity
     // registration) an AxisFromSketch has no build state yet — getAxis()
-    // returns undefined and local('x') copies would silently register
+    // returns undefined and xAxis() copies would silently register
     // nothing.
     const resolvedAxes: Axis[] = this.axes.map(a =>
       a instanceof AxisObjectBase ? a.resolveAxis() : a

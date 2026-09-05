@@ -4,7 +4,7 @@ title: plane(reference, options?)
 summary: Builds a reference plane from a standard name, an existing plane, a face, or the midpoint between two planes. Optional offset/rotation parametrize it.
 tags: [api, reference, geometry]
 symbols: [plane]
-seeAlso: [api/axis, api/local, api/sketch]
+seeAlso: [api/axis, api/sketch, concepts/coordinate-system]
 ---
 
 # plane
@@ -45,5 +45,6 @@ sketch(top, () => circle([0, 0], 20));
 extrude(10);
 ```
 
-See [[api/axis]] for the axis counterpart and [[api/local]] for the
-sketch-relative axes.
+See [[api/axis]] for the axis counterpart and
+[[concepts/coordinate-system]] for the sketch's own axes (`xAxis()` /
+`yAxis()`).

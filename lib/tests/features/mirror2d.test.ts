@@ -3,8 +3,9 @@ import { setupOC, render } from "../setup.js";
 import sketch from "../../core/sketch.js";
 import extrude from "../../core/extrude.js";
 import mirror from "../../core/mirror.js";
-import local from "../../core/local.js";
-import { circle } from "../../core/2d/index.js";
+import { circle, line, origin, xAxis, yAxis } from "../../core/2d/index.js";
+import { collinear } from "../../core/constraints/index.js";
+import { AxisFromSketch } from "../../features/axis-from-sketch.js";
 import { testRect } from "../helpers/profiles.js";
 import { ExtrudeBase } from "../../features/extrude-base.js";
 import { MirrorShape2D } from "../../features/mirror-shape2d.js";
@@ -91,7 +92,7 @@ describe("mirror (2D)", () => {
     });
   });
 
-  describe("local() axis wrapper", () => {
+  describe("sketch axis datums (xAxis()/yAxis()) as mirror axes", () => {
     it("should fail when mirroring across a world axis parallel to the sketch plane normal", () => {
       let mirrorRef: MirrorShape2D;
 
@@ -105,10 +106,10 @@ describe("mirror (2D)", () => {
       expect(mirrorRef.getError()).toBeTruthy();
     });
 
-    it("should mirror across sketch-local Y on a non-XY plane via local()", () => {
+    it("should mirror across sketch-local Y on a non-XY plane via yAxis()", () => {
       sketch("front", () => {
           const c = circle([30, 0], 20);
-          mirror(local("y"), c);
+          mirror(yAxis(), c);
         });
 
       const e = extrude(10) as ExtrudeBase;
@@ -127,8 +128,48 @@ describe("mirror (2D)", () => {
       expect(maxX).toBeGreaterThan(0);
     });
 
-    it("should throw when local() is called outside a sketch", () => {
-      expect(() => local("y")).toThrow();
+    it("should throw when a sketch axis datum reaches mirror() outside a sketch", () => {
+      const outside = yAxis();
+      expect(() => mirror(outside)).toThrow(/outside a sketch/);
+    });
+
+    it("promotes the datum to one AxisFromSketch in the scene and leaves constraints untouched", () => {
+      let l: ReturnType<typeof line>;
+      let m: MirrorShape2D;
+      const s = sketch("front", () => {
+          l = line([10, 5], [40, 5]);
+          collinear(xAxis(), l);
+          m = mirror(yAxis(), l) as MirrorShape2D;
+        });
+
+      render();
+
+      expect(m!.getError()).toBeFalsy();
+      const promoted = (s as unknown as { getChildren(): unknown[] }).getChildren()
+        .filter(c => c instanceof AxisFromSketch);
+      expect(promoted).toHaveLength(1);
+    });
+
+    it("refuses origin() as a mirror axis in mirror's voice", () => {
+      expect(() => {
+        sketch("xy", () => {
+          const c = circle([30, 0], 20);
+          mirror(origin(), c);
+        });
+      }).toThrow(/mirror: origin\(\) is a point, not an axis/);
+    });
+
+    it("refuses another sketch's axis datum", () => {
+      let foreign: ReturnType<typeof yAxis>;
+      sketch("xy", () => {
+        foreign = yAxis();
+      });
+      expect(() => {
+        sketch("front", () => {
+          const c = circle([30, 0], 20);
+          mirror(foreign, c);
+        });
+      }).toThrow(/belongs to another sketch/);
     });
   });
 

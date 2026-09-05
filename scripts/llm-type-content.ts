@@ -91,6 +91,11 @@ extrude(5);
         description: 'An axis object created with `axis()`.',
         link: 'api/types/axis',
       },
+      {
+        format: 'Sketch axis datum',
+        example: '`xAxis()`, `yAxis()`',
+        description: "The sketch's own X / Y axis (see `api/constraints`) — for `mirror()` and `copy(\"linear\", …)` inside a sketch, where a bare string means the world axis.",
+      },
     ],
     example: `import { sketch, circle, revolve, axis } from "fluidcad/core";
 

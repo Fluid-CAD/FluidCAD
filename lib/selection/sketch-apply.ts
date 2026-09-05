@@ -571,7 +571,7 @@ function synthesizeSketchRotate(
  * The 2D copy is owner-level: its targets are whole
  * geometries (CopyLinear2D/CopyCircular2D filter their previous siblings by
  * identity), so any picked edge stands for its producing primitive and the
- * emitted target args are bare variables — `copy('linear', local('x'),
+ * emitted target args are bare variables — `copy('linear', xAxis(),
  * {…}, r, c)`. An edge-picked direction resolves the same way, but its owner
  * must be a single straight line (the direction the copy walks), referenced
  * as `axis(<var>)`. The route owns the statement's option payload; this

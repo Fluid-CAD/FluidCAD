@@ -492,7 +492,7 @@ export type Copy2DGhostRequest = {
 
 /**
  * The 2D copy dialog's direction slot on the wire: a sketch-local axis from
- * the Local X / Local Y quick buttons (`local('x')`), or a picked sketch line
+ * the Sketch X / Sketch Y quick buttons (`xAxis()`), or a picked sketch line
  * the apply writes as `axis(<var>)`. A top-level `axis()` statement never
  * appears here — it cannot bind into a sketch body — and "keep the current
  * axis" only travels once the client reads it back as a local form; a kept
@@ -1045,7 +1045,7 @@ function expandToOwnerEdges(sketch: Sketch, picked: Edge[]): Edge[] {
 
 /**
  * Where a 2D copy's clones land. The axes come from the sketch rather than
- * the scene: `local('x')` / `local('y')` are the sketch plane's own axes
+ * the scene: `xAxis()` / `yAxis()` are the sketch plane's own axes
  * (`plane.normalizeAxis`, exactly what `AxisFromSketch` resolves), a picked
  * direction line contributes its axis the way `axis(v)` extracts it
  * (`EdgeOps.edgeToAxis`), and a circular center is a sketch-plane point spun

@@ -123,7 +123,6 @@ export const features: FeatureEntry[] = [
   { name: 'load', displayName: 'load', category: 'utilities', sourceFile: 'core/load.ts', interfaceName: 'LoadFunction', returnType: 'ISceneObject', relatedGuide: '/docs/import-export/import', sidebarPosition: 4 },
   { name: 'axis', displayName: 'axis', category: 'utilities', sourceFile: 'core/axis.ts', interfaceName: 'AxisFunction', returnType: 'IAxis', sidebarPosition: 5 },
   { name: 'plane', displayName: 'plane', category: 'utilities', sourceFile: 'core/plane.ts', interfaceName: 'PlaneFunction', returnType: 'IPlane', sidebarPosition: 6 },
-  { name: 'local', displayName: 'local', category: 'utilities', sourceFile: 'core/local.ts', interfaceName: 'LocalFunction', returnType: 'IAxis', relatedGuide: '/docs/sketching/tools/copy', sidebarPosition: 7 },
   { name: 'project', displayName: 'project', category: '2d', sourceFile: 'core/2d/project.ts', interfaceName: 'ProjectFunction', returnType: 'IReference', relatedGuide: '/docs/sketching/tools/project', sidebarPosition: 25 },
   { name: 'intersect', displayName: 'intersect', category: '2d', sourceFile: 'core/2d/intersect.ts', interfaceName: 'IntersectFunction', returnType: 'IReference', sidebarPosition: 26 },
 

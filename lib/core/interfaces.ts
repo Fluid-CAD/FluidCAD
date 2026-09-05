@@ -125,7 +125,7 @@ export interface ITransformable extends ISceneObject {
   rotate(angle: NumberParam): this;
   /**
    * Rotate around an axis by an angle.
-   * @param axis - The axis to rotate around. Use `local(...)` to reference a sketch-local axis.
+   * @param axis - The axis to rotate around.
    * @param angle - Rotation in degrees.
    */
   rotate(axis: AxisLike, angle: NumberParam): this;
@@ -153,7 +153,7 @@ export interface IPlane extends ISceneObject {
 }
 
 /**
- * An axis datum in the scene — what `axis()` and `local()` return. `getAxis()`
+ * An axis datum in the scene — what `axis()` returns. `getAxis()`
  * plays the same structural role here as `getPlane()` does on `IPlane`.
  */
 export interface IAxis extends ISceneObject {

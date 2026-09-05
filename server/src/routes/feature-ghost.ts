@@ -750,7 +750,7 @@ function parseCopy2D(body: GhostBody): RawCopy2D | string {
 }
 
 /**
- * The 2D copy's direction slots: sketch-local axes (the Local X / Local Y
+ * The 2D copy's direction slots: sketch-plane axes (the Sketch X / Sketch Y
  * quick buttons) and picked sketch lines by shapeId. The 3D family's
  * axis-statement and standard-axis forms never appear here.
  */

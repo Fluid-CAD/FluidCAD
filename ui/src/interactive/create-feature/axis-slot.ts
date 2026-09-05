@@ -58,7 +58,7 @@ export class AxisSlotControl {
       /**
        * How a kept statement axis reads back as a standard selection — the
        * capture group is the axis letter. Default matches the world-axis
-       * string literals (`'z'`); the 2D copy passes a `local('x')` matcher.
+       * string literals (`'z'`); the 2D copy passes an `xAxis()` matcher.
        */
       keepMatcher?: RegExp;
       /** The empty slot's pick prompt. */

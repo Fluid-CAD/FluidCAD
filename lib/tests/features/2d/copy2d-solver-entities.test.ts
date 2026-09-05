@@ -10,11 +10,10 @@ import { getSceneManager } from "../../../scene-manager.js";
 import { SceneCompare } from "../../../rendering/scene-compare.js";
 import sketch from "../../../core/sketch.js";
 import copy from "../../../core/copy.js";
-import { line, circle, point, offset, origin } from "../../../core/2d/index.js";
+import { line, circle, point, offset, origin, xAxis } from "../../../core/2d/index.js";
 import {
   parallel, perpendicular, horizontal, vertical, fix, distance, tangent,
 } from "../../../core/constraints/index.js";
-import local from "../../../core/local.js";
 import { Sketch } from "../../../features/2d/sketch.js";
 import { Copy2DBase } from "../../../features/copy2d-base.js";
 import { Offset } from "../../../features/2d/offset.js";
@@ -174,10 +173,10 @@ describe("copy 2D solver instances (constraint targeting)", () => {
       expect(dupParams[3]).toBeCloseTo(srcParams[3], 6);
     });
 
-    it("REGRESSION: a local('x') + length copy registers duplicates at statement time (tangent on an instance)", () => {
+    it("REGRESSION: an xAxis() + length copy registers duplicates at statement time (tangent on an instance)", () => {
       // AxisFromSketch resolves its axis in build(), but duplicate
       // registration runs at statement time — reading getAxis() there
-      // returned undefined, the throw was swallowed, and local('x') copies
+      // returned undefined, the throw was swallowed, and xAxis() copies
       // silently registered no duplicate entities (dead picks in the UI).
       let sk: unknown;
       let src: ISceneObject;
@@ -185,7 +184,7 @@ describe("copy 2D solver instances (constraint targeting)", () => {
       sk = sketch('xy', () => {
         src = circle([-166.23, 0], 74.61);
         const l = line([95.09, 191.29], [223.37, 72.11]);
-        cp = copy('linear', local('x'), { count: 3, length: 200 }, src);
+        cp = copy('linear', xAxis(), { count: 3, length: 200 }, src);
         tangent(l, cp.instance(1));
       });
       const scene = render();

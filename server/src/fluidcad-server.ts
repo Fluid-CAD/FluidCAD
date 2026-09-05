@@ -702,11 +702,11 @@ export type Copy2DGhostRequest = {
 };
 
 /**
- * The 2D copy dialog's direction slot on the wire: a sketch-local axis from
- * the Local X / Local Y quick buttons (`local('x')`), or a picked sketch line
+ * The 2D copy dialog's direction slot on the wire: a sketch-plane axis from
+ * the Sketch X / Sketch Y quick buttons (`xAxis()`), or a picked sketch line
  * the apply writes as `axis(<var>)`. A top-level `axis()` statement never
  * appears here, and "keep the current axis" only travels once it reads back
- * as a local form.
+ * as a datum form.
  */
 export type GhostSketchAxisRef =
   | { kind: 'local'; axis: 'x' | 'y' }

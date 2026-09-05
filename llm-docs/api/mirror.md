@@ -1,7 +1,7 @@
 ---
 id: api/mirror
 title: mirror(plane | axis | line, ...targets?)
-summary: Reflects sketch geometry across a line/axis or 3D solids across a plane. World-axis strings stay world-axis even inside a sketch — use `local("x")` for the sketch's local X.
+summary: Reflects sketch geometry across a line/axis or 3D solids across a plane. World-axis strings stay world-axis even inside a sketch — use the datum `xAxis()` / `yAxis()` for the sketch's own axes.
 tags: [api, 2d, 3d, transform]
 symbols: [mirror]
 seeAlso: [api/translate, api/rotate, concepts/coordinate-system]
@@ -28,8 +28,8 @@ sketch, reflects solids across a plane. The 3D form returns `Mirror`
 skip specific objects.
 
 **`"x"` is the world X axis, even inside a sketch.** To mirror across
-the sketch plane's local X, use `mirror(local("x"))`. See
-[[concepts/coordinate-system]] for the full convention.
+the sketch plane's own X, use the sketch datum: `mirror(xAxis(), g)`.
+See [[concepts/coordinate-system]] for the full convention.
 
 ## Example
 

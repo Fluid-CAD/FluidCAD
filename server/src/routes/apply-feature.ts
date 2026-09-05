@@ -4192,7 +4192,8 @@ export function createApplyFeatureRouter(
           }
           let sketchAxisIndex = 0;
           // One copy axis input as its edit spec form; null after refusing.
-          // Keeps, standard and local axes pass through; an axis statement
+          // Keeps, standard and sketch-plane (xAxis()/yAxis()) axes pass
+          // through; an axis statement
           // binds a producer; a picked 3D edge synthesizes its own selector
           // part against the pre-statement boundary; a picked sketch edge
           // claims the next kernel-synthesized part. Both render wrapped in
@@ -4205,7 +4206,7 @@ export function createApplyFeatureRouter(
               return { kind: 'standard', axis: input.axis };
             }
             if (input.kind === 'local') {
-              importSet.add('local');
+              importSet.add(`${input.axis}Axis`);
               return { kind: 'local', axis: input.axis };
             }
             if (input.kind === 'sketch-edge') {
@@ -6298,8 +6299,10 @@ export function createApplyFeatureRouter(
             targets: slots.targets.map((producer: number) => ({ producer })),
           };
           const imports = new Set<string>(synthesis.spec.imports);
-          if (copyOptions.directions?.some(d => d.axis.kind === 'local')) {
-            imports.add('local');
+          for (const d of copyOptions.directions ?? []) {
+            if (d.axis.kind === 'local') {
+              imports.add(`${d.axis.axis}Axis`);
+            }
           }
           if (copyOptions.directions?.some(d => d.axis.kind === 'selector')) {
             imports.add('axis');

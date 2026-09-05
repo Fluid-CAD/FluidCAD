@@ -91,7 +91,7 @@ export function collectSourceEntities(
 
   const addAxis = (axis: Axis | AxisObjectBase): void => {
     if (axis instanceof Axis || axis instanceof AxisObject || axis instanceof AxisFromSketch) {
-      // Literal axes and the sketch-plane axes (local('x')) are constants.
+      // Literal axes and the sketch-plane axes (xAxis()/yAxis()) are constants.
       return;
     }
     if (axis instanceof AxisMiddle) {

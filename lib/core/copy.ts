@@ -7,6 +7,7 @@ import { CopyLinear, LinearCopyOptions } from "../features/copy-linear.js";
 import { CopyCircular, CircularCopyOptions } from "../features/copy-circular.js";
 import { CopyLinear2D, CopyLinear2DAxis } from "../features/copy-linear2d.js";
 import { CopyCircular2D } from "../features/copy-circular2d.js";
+import { SketchDatum } from "../features/2d/solved/datum.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { CopyAxisSource } from "../features/copy-base.js";
 import { Axis } from "../math/axis.js";
@@ -109,9 +110,18 @@ function build(context: SceneParserContext): CopyFunction {
       const axisList = Array.isArray(axisArg) ? axisArg : [axisArg];
 
       if (activeSketch) {
-        const sketchAxes: CopyLinear2DAxis[] = axisList.map(a =>
-          a instanceof AxisObjectBase ? a : normalizeAxis(a)
-        );
+        const sketchAxes: CopyLinear2DAxis[] = axisList.map(a => {
+          if (a instanceof AxisObjectBase) {
+            return a;
+          }
+          if (a instanceof SketchDatum) {
+            // xAxis()/yAxis(): the sketch plane's own axis, promoted on demand.
+            const axis = a.toAxisObject('copy', activeSketch);
+            context.addSceneObject(axis);
+            return axis;
+          }
+          return normalizeAxis(a);
+        });
         const copy = new CopyLinear2D(sketchAxes, options as LinearCopyOptions, restObjects.length > 0 ? restObjects : null);
         context.addSceneObject(copy);
         // Statement time, before any constraint can name an instance —

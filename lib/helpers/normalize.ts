@@ -6,6 +6,7 @@ import { Vector3d, Vector3dLike } from "../math/vector3d.js";
 
 import { Face, Vertex } from "../common/shapes.js";
 import { LazyVertex } from "../features/lazy-vertex.js";
+import { SketchDatum } from "../features/2d/solved/datum.js";
 
 export function normalizePoint(p: PointLike): LazyVertex {
   if (p instanceof LazyVertex) {
@@ -110,6 +111,9 @@ export function normalizeAxisSafe(a: AxisLike) {
 }
 
 export function normalizeAxis(a: AxisLike) {
+  if (a instanceof SketchDatum) {
+    throw new Error(`${a.commandName} is a sketch axis — it only applies to mirror() and copy() inside the sketch`);
+  }
   const world = CoordinateSystem.World();
   if (typeof a === 'string') {
     if (a === 'x') {

@@ -428,7 +428,7 @@ describe('applyFeatureEdit — sketch-body copy (2D)', () => {
     value: undefined,
     producers: [{ line: 4, column: 0, featureType: 'circle', nameHint: 'r', bind: true }],
     parts: [],
-    imports: ['local'],
+    imports: ['xAxis'],
     copy: {
       kind: 'linear',
       directions: [{ axis: { kind: 'local', axis: 'x' }, count: 3, value: 20 }],
@@ -452,9 +452,9 @@ describe('applyFeatureEdit — sketch-body copy (2D)', () => {
     const result = await applyFeatureEdit(code, copySpec());
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  const r = circle([0, 0], 20)`);
-    expect(result.newCode).toContain(`  copy('linear', local('x'), { count: 3, offset: 20 }, r)\n})`);
+    expect(result.newCode).toContain(`  copy('linear', xAxis(), { count: 3, offset: 20 }, r)\n})`);
     expect(result.newCode).toMatch(/import \{[^}]*copy[^}]*\} from 'fluidcad\/core'/);
-    expect(result.newCode).toMatch(/import \{[^}]*local[^}]*\} from 'fluidcad\/core'/);
+    expect(result.newCode).toMatch(/import \{[^}]*xAxis[^}]*\} from 'fluidcad\/core'/);
   });
 
   it('renders an edge-picked direction as axis(<var>)', async () => {

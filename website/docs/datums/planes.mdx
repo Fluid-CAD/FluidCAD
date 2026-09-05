@@ -115,4 +115,4 @@ At `'start'` (0) the normal faces away from the edge body so both ends read like
 | Loft or sweep profiles | each profile is a sketch on its own plane — see [Loft](/docs/3d-operations/loft) |
 | Filter by it | `face().onPlane("xy", 30)`, `edge().parallelTo("xz")` — see [Selection & Filters](/docs/3d-operations/selection-and-filters) |
 
-A sketch plane's coordinates are the plane's own 2D frame: `[0, 0]` is the plane origin, X and Y its in-plane axes. Inside the sketch, `local("x")` / `local("y")` name those axes for the 2D transforms — see [Axes](/docs/datums/axes).
+A sketch plane's coordinates are the plane's own 2D frame: `[0, 0]` is the plane origin, X and Y its in-plane axes. Inside the sketch, `xAxis()` / `yAxis()` name those axes — as constraint targets and as directions for the 2D transforms — see [Axes](/docs/datums/axes).

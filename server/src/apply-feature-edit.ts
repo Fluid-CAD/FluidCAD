@@ -1041,8 +1041,8 @@ export type RepeatAxisSpec =
   | { kind: 'standard'; axis: 'x' | 'y' | 'z' }
   | { kind: 'axis'; producer: number }
   | { kind: 'selector'; part: number }
-  /** Sketch-local axis (2D copy only) — renders `local('x')`. */
-  | { kind: 'local'; axis: 'x' | 'y' | 'z' };
+  /** Sketch-plane axis datum (2D copy only) — renders `xAxis()` / `yAxis()`. */
+  | { kind: 'local'; axis: 'x' | 'y' };
 
 /**
  * The mirror plane of a `repeat('mirror', …)`: a standard origin plane
@@ -1785,8 +1785,10 @@ export async function applyFeatureEdit(
     const validAxis = (axis: RepeatAxisSpec | undefined): boolean =>
       axis !== undefined && (axis.kind === 'selector'
         ? validPart(axis.part)
-        : axis.kind === 'standard' || axis.kind === 'local'
+        : axis.kind === 'standard'
           ? axis.axis === 'x' || axis.axis === 'y' || axis.axis === 'z'
+          : axis.kind === 'local'
+            ? axis.axis === 'x' || axis.axis === 'y'
           : axis.kind === 'axis' && isAxisProducer(spec, axis.producer));
     const validSweep = cp?.sweep !== undefined
       && (cp.sweep.mode === 'angle' || cp.sweep.mode === 'offset')
@@ -3521,7 +3523,7 @@ export function renderRepeatAxisExpr(
     return `'${axis.axis}'`;
   }
   if (axis.kind === 'local') {
-    return `local('${axis.axis}')`;
+    return `${axis.axis}Axis()`;
   }
   if (axis.kind === 'axis') {
     return varFor(axis.producer) ?? 'a';
@@ -7441,7 +7443,11 @@ function renderEditedCopy(
       if (!isAxisProducer(spec as ApplyFeatureEditSpec, axis.producer)) {
         return { error: 'malformed copy edit spec: the axis references a non-axis producer' };
       }
-    } else if ((axis?.kind !== 'standard' && axis?.kind !== 'local')
+    } else if (axis?.kind === 'local') {
+      if (axis.axis !== 'x' && axis.axis !== 'y') {
+        return { error: 'malformed copy edit spec' };
+      }
+    } else if (axis?.kind !== 'standard'
       || (axis.axis !== 'x' && axis.axis !== 'y' && axis.axis !== 'z')) {
       return { error: 'malformed copy edit spec' };
     }

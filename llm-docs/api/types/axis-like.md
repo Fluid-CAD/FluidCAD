@@ -9,7 +9,7 @@ seeAlso: [api/revolve, api/axis, api/types/axis]
 # AxisLike
 
 ```ts
-type AxisLike = StandardAxis | Axis | IAxis | AxisObjectBase;
+type AxisLike = StandardAxis | Axis | IAxis | AxisObjectBase | SketchDatum;
 ```
 
 An axis reference used by `revolve()` and other axis-based operations. Any of the following formats are accepted:
@@ -18,6 +18,7 @@ An axis reference used by `revolve()` and other axis-based operations. Any of th
 | --- | --- | --- |
 | Standard axis string | `"x"`, `"y"`, `"z"` | The three principal axes. |
 | [[api/types/axis]] | `axis("x", [0, 10])` | An axis object created with `axis()`. |
+| Sketch axis datum | `xAxis()`, `yAxis()` | The sketch's own X / Y axis (see `api/constraints`) — for `mirror()` and `copy("linear", …)` inside a sketch, where a bare string means the world axis. |
 
 ## Example
 

@@ -46,15 +46,15 @@ export type SketchCopyValues =
     }
   | { error: string };
 
-/** How a kept `local('x')` / `local("y")` axis text reads back as its button. */
-const LOCAL_KEEP_MATCHER = /^local\(\s*['"]([xy])['"]\s*\)$/;
+/** How a kept `xAxis()` / `yAxis()` axis text reads back as its button. */
+const LOCAL_KEEP_MATCHER = /^([xy])Axis\(\s*\)$/;
 
 /**
  * The in-sketch copy dialog: a Linear / Circular type dropdown, the geometry
  * slot — filled from the sketch selection, one chip per picked edge, any
  * pick standing for its whole producing primitive — plus the kind's inputs.
- * Linear shows a Direction 1 group (axis slot + Local X / Local Y quick
- * buttons emitting `local('x')` / `local('y')`, Total Count, the shared
+ * Linear shows a Direction 1 group (axis slot + Sketch X / Sketch Y quick
+ * buttons emitting `xAxis()` / `yAxis()`, Total Count, the shared
  * Offset/Total spacing mode with its value) and an "Add second direction"
  * button revealing a Direction 2 group. Circular swaps the axis slot for a
  * Center X/Y pair with a count and a Total/Offset angle. Both kinds end on
@@ -220,9 +220,9 @@ export class SketchCopyPanel extends FeaturePanel {
         {
           label: 'Direction',
           axes: ['x', 'y'],
-          buttonLabel: (axis) => `Local ${axis.toUpperCase()}`,
+          buttonLabel: (axis) => `Sketch ${axis.toUpperCase()}`,
           chipLabel: (axis) => `Sketch ${axis.toUpperCase()} axis`,
-          buttonTitle: (axis) => `Copy along the sketch's local ${axis} axis — local('${axis.toLowerCase()}')`,
+          buttonTitle: (axis) => `Copy along the sketch's ${axis.toUpperCase()} axis — ${axis.toLowerCase()}Axis()`,
           keepMatcher: LOCAL_KEEP_MATCHER,
           prompt: 'Pick a sketch line',
         },
@@ -366,7 +366,7 @@ export class SketchCopyPanel extends FeaturePanel {
   /**
    * Open prefilled from an existing statement (edit mode). The axis slots
    * start on "Current: …" chips keeping the statement's own expressions
-   * verbatim (a `local('x')` reads as its quick button); fields the
+   * verbatim (an `xAxis()` reads as its quick button); fields the
    * statement doesn't carry seed with the create defaults. The targets slot
    * is seeded by the service.
    */

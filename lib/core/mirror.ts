@@ -10,6 +10,7 @@ import { isPlaneLike } from "../math/plane.js";
 import { GeometrySceneObject } from "../features/2d/geometry.js";
 import { MirrorShape2D } from "../features/mirror-shape2d.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
+import { SketchDatum } from "../features/2d/solved/datum.js";
 import { AxisObject } from "../features/axis.js";
 import { AxisFromEdge } from "../features/axis-from-edge.js";
 import { IGeometry, IMirror, IMirror2D, IReference, ISceneObject } from "./interfaces.js";
@@ -72,6 +73,12 @@ function resolveAxis(arg: any, context: SceneParserContext): AxisObjectBase {
   if (arg instanceof AxisObjectBase) {
     return arg;
   }
+  if (arg instanceof SketchDatum) {
+    // xAxis()/yAxis(): the sketch plane's own axis, promoted on demand.
+    const axis = arg.toAxisObject('mirror', context.getActiveSketch());
+    context.addSceneObject(axis);
+    return axis;
+  }
   if (arg instanceof SceneObject) {
     const axis = new AxisFromEdge(arg);
     context.addSceneObject(axis);
@@ -96,12 +103,12 @@ function build(context: SceneParserContext): MirrorFunction {
       }
     } else if (firstArg instanceof SceneObject && !(firstArg instanceof PlaneObjectBase)) {
       throw new Error("mirror(line) is only valid inside a sketch. For 3D mirroring, specify a plane: mirror(plane).");
-    } else if (isStandardAxis(firstArg)) {
+    } else if (isStandardAxis(firstArg) || firstArg instanceof SketchDatum) {
       throw new Error("Cannot specify an axis for mirror outside a sketch. For 3D mirroring, specify a plane: mirror(plane).");
     }
 
     if (arguments.length === 1) {
-      if (activeSketch && (isAxisLike(arguments[0]) || arguments[0] instanceof SceneObject)) {
+      if (activeSketch && (isAxisLike(arguments[0]) || arguments[0] instanceof SceneObject || arguments[0] instanceof SketchDatum)) {
         const axis = resolveAxis(arguments[0], context);
         const mirror = new MirrorShape2D(axis);
         context.addSceneObject(mirror);
@@ -117,7 +124,7 @@ function build(context: SceneParserContext): MirrorFunction {
     if (arguments.length >= 2) {
       const args = Array.from(arguments);
 
-      if (activeSketch && (isAxisLike(args[0]) || args[0] instanceof SceneObject)) {
+      if (activeSketch && (isAxisLike(args[0]) || args[0] instanceof SceneObject || args[0] instanceof SketchDatum)) {
         const axis = resolveAxis(args[0], context);
         const targetObjects = args.slice(1) as GeometrySceneObject[];
         const mirror = new MirrorShape2D(axis, targetObjects);

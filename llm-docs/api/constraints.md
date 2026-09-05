@@ -32,7 +32,10 @@ A constraint argument can be:
   `c.center()`;
 - a **point statement** — `const p = point([x, y])`;
 - a **sketch datum** — `origin()`, `xAxis()`, `yAxis()` (from
-  `fluidcad/core`) — implicit fixed entities every sketch carries;
+  `fluidcad/core`) — implicit fixed entities every sketch carries. The
+  two axis datums double as the sketch's own directions for `mirror()`
+  and `copy('linear', …)` inside the sketch (a bare `'x'` there is
+  WORLD x);
 - a **fixed reference** — geometry brought in by `project()` /
   `intersect()`. References never move; your sketch geometry solves
   against them (`tangent(bore, l)`, `coincident(p, outline.ref(2))`).

@@ -72,7 +72,7 @@ Rotate by an angle around world Z through the origin.
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `axis` | [[api/types/axis-like]] | The axis to rotate around. Use `local(...)` to reference a sketch-local axis. |
+| `axis` | [[api/types/axis-like]] | The axis to rotate around. |
 | `angle` | `NumberParam` | Rotation in degrees. |
 
 ### `mirror()`

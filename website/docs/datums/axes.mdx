@@ -82,9 +82,9 @@ axis(a1, a2, { offsetZ: 20 })          // between two axis features, then shifte
 
 ## Sketch-local axes
 
-Inside a sketch, `"x"` and `"y"` still mean the world axes. On the ground plane that matches the sketch's own axes; on a front-plane sketch, world Y is the plane's normal, so `mirror("y", …)` would fold the geometry through the plane. `local("x" | "y" | "z")` resolves the name against the **active sketch plane** instead:
+Inside a sketch, `"x"` and `"y"` still mean the world axes. On the ground plane that matches the sketch's own axes; on a front-plane sketch, world Y is the plane's normal, so `mirror("y", …)` would fold the geometry through the plane. The sketch's own axes are the datums `xAxis()` and `yAxis()` — the same fixed lines constraints target — and the 2D transforms take them as directions:
 
-| Sketch plane | `local("x")` | `local("y")` |
+| Sketch plane | `xAxis()` | `yAxis()` |
 |---|---|---|
 | `"xy"` / `"top"` | world +X | world +Y |
 | `"xz"` / `"front"` | world +X | world +Z |
@@ -93,11 +93,11 @@ Inside a sketch, `"x"` and `"y"` still mean the world axes. On the ground plane 
 ```js
 sketch("front", () => {
     const b = bezier([0, 0], [-40, 60], [0, 90]);
-    mirror(local("y"), b);        // across the sketch's vertical — world Z here
+    mirror(yAxis(), b);           // across the sketch's vertical — world Z here
 });
 ```
 
-`local()` works on face sketches and `plane()` targets too. It is opt-in per argument: `copy("linear", [local("y"), "x"], …)` mixes a sketch-local direction with a world one. See [Mirror](/docs/sketching/tools/mirror) and [Copy](/docs/sketching/tools/copy) in the sketch tools.
+The datums work on face sketches and `plane()` targets too, and they are per argument: `copy("linear", [yAxis(), "x"], …)` mixes a sketch direction with a world one. See [Mirror](/docs/sketching/tools/mirror) and [Copy](/docs/sketching/tools/copy) in the sketch tools.
 
 ## Where axes are consumed
 

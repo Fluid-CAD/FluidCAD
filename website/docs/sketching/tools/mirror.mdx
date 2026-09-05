@@ -40,23 +40,23 @@ sketch("front", () => {
 })
 ```
 
-`local()` resolves an axis name against the active sketch instead:
+The sketch's own axes are the datums `xAxis()` and `yAxis()` — the same fixed lines constraints target (`collinear(xAxis(), l)`), accepted here as the mirror axis:
 
 ![The same latch on the front plane, mirrored across local Y](/img/docs/sketching/tool-mirror-local.png)
 
 <ExplainedCode code={toolMirrorLocal} fileName="plate.part.js" />
 
-| Sketch plane | `local("x")` | `local("y")` |
+| Sketch plane | `xAxis()` | `yAxis()` |
 |---|---|---|
 | `"xy"` / `"top"` | world +X | world +Y |
 | `"xz"` / `"front"` | world +X | world +Z |
 | `"yz"` / `"right"` | world +Y | world +Z |
 
-`local()` also works with face sketches and custom `plane()` objects, and it is per argument — bare strings in the same call stay world-relative:
+The datums work with face sketches and custom `plane()` objects, and they are per argument — bare strings in the same call stay world-relative:
 
 ```js
 sketch("front", () => {
-    copy("linear", [local("y"), "x"], { count: 2, offset: 30 }, shape)
+    copy("linear", [yAxis(), "x"], { count: 2, offset: 30 }, shape)
 })
 ```
 

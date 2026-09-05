@@ -790,10 +790,10 @@ export type Copy2DGhostRequest = {
 };
 
 /**
- * The 2D copy dialog's direction slot on the ghost wire: a sketch-local axis
- * from the Local X / Local Y quick buttons (`local('x')`), or a picked sketch
+ * The 2D copy dialog's direction slot on the ghost wire: a sketch-plane axis
+ * from the Sketch X / Sketch Y quick buttons (`xAxis()`), or a picked sketch
  * line's shapeId — the pick the apply writes as `axis(<var>)`. A kept
- * statement axis only travels once it reads back as a local form; a kept
+ * statement axis only travels once it reads back as a datum form; a kept
  * `axis(v)` text is unaddressable and draws no ghost.
  */
 export type GhostSketchAxisRef =
@@ -1329,12 +1329,12 @@ export async function applySketchOp(
   }, options.signal);
 }
 
-/** One 2D copy direction's axis: a sketch-local axis or a picked sketch edge. */
+/** One 2D copy direction's axis: a sketch-plane axis datum (xAxis()/yAxis()) or a picked sketch edge. */
 export type SketchCopyAxis = { kind: 'local'; axis: 'x' | 'y' } | { kind: 'edge' };
 
 /**
  * The in-sketch copy dialog's option payload: the kind plus its inputs —
- * linear directions (each a sketch-local axis or an edge pick, with its own
+ * linear directions (each a sketch-plane axis or an edge pick, with its own
  * count and value, sharing one offset/length spacing mode) or a center
  * point with count and sweep for circular. Target picks travel separately
  * as sketch entities; each edge-kind direction consumes one axis pick, in
@@ -1353,7 +1353,7 @@ export type SketchCopyOptions = {
 
 /**
  * Ask the server to synthesize (and, unless `preview` is set, apply) a 2D
- * copy for the picked sketch geometry: `copy('linear', local('x'), { count:
+ * copy for the picked sketch geometry: `copy('linear', xAxis(), { count:
  * 3, offset: 20 }, r)` inside the sketch body — targets rendered as bare
  * variables, an edge-picked direction as `axis(<var>)`, a circular kind
  * around its `[x, y]` center.

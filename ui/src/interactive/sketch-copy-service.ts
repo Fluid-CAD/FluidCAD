@@ -21,12 +21,12 @@ type ParsedSketchCopy = Extract<ParsedFeatureStatement, { feature: 'copy' }>;
  * toolbar, it reads the hover handler's selected edges — any pick stands for
  * its whole producing primitive — previews the synthesized statement through
  * `/api/apply-feature` (sketch branch), and applies it, writing
- * `copy('linear', local('x'), { count: 3, offset: 20 }, r)` /
+ * `copy('linear', xAxis(), { count: 3, offset: 20 }, r)` /
  * `copy('circular', [0, 0], { count: 6, angle: 360 }, c)` into the sketch
  * body. Exactly one panel slot is armed at a time and the picks land in it:
  * the Geometry slot collects the targets; an armed Direction slot consumes
  * ONE pick as its sketch-line axis, emitted as `axis(<var>)` — the quick
- * buttons emit the sketch-local `local('x')` / `local('y')` instead.
+ * buttons emit the sketch-plane datums `xAxis()` / `yAxis()` instead.
  *
  * The same dialog edits an existing statement in place ({@link enterEdit}):
  * the timeline double-click's breakpoint pauses the build just BEFORE the
@@ -384,7 +384,7 @@ export class SketchCopyService {
     const which = named ? ` for direction ${direction}` : '';
     const selection = this.panel.axisSelection(direction);
     if (!selection) {
-      return { error: `Choose the direction to copy along${which} — Local X, Local Y, or a sketch line.` };
+      return { error: `Choose the direction to copy along${which} — Sketch X, Sketch Y, or a sketch line.` };
     }
     if (selection.kind === 'keep') {
       return { kind: 'keep', sourceIndex: selection.sourceIndex };
@@ -521,7 +521,7 @@ export class SketchCopyService {
    * or was cleared. A direction slot resolves like the 3D dialogs' axis
    * slots: the quick buttons are the sketch-local axes, a picked line ships
    * its shapeId, and a kept `axis(v)` text is unaddressable — no ghost until
-   * it is re-chosen (a kept `local('x')` already reads back as its button).
+   * it is re-chosen (a kept `xAxis()` already reads back as its button).
    */
   private ghostRequest(): Copy2DGhostRequest | null {
     const values = this.panel.values();

@@ -15,19 +15,19 @@ A **connector** is a named coordinate frame attached to a part's geometry. Joint
 ## In the viewport
 
 1. Click **Connector** on the toolbar. The dialog shows an empty **Source** slot.
-2. Hover the round edge at the end of the first knuckle. A translucent frame appears at the edge's centre, Z along the tube: the suggested anchor. Hovering a face suggests its centre instead; hovering a straight edge offers its centre, start and end.
-3. Click to take the anchor. Type `pin` in **Name**. **Offset** and **Rotation** stay at zero: the frame is exactly where the anchor put it. Click **Apply**.
-4. Repeat for the far edge of the first knuckle (12 mm in, where the other leaf's first knuckle will start), and name it `knuckle`.
+2. Hover the round edge at the front end of the middle knuckle (the one the Extrude made; the outer two are its repeats). A translucent frame appears at the edge's centre, Z along the tube: the suggested anchor. Hovering a face suggests its centre instead; hovering a straight edge offers its centre, start and end.
+3. Click to take the anchor. Type `knuckle` in **Name**. **Offset** and **Rotation** stay at zero: the frame is exactly where the anchor put it, which is where the other leaf's first knuckle will end. Click **Apply**.
+4. Repeat with the same edge, name it `pin`, and type `24` in the **Offset** Z field. The frame's Z axis is the pin axis, so the offset slides the frame 24 mm along the tube, past the gap and the front knuckle, to the very end where the pin's head will sit.
 
 ![Connector dialog](/img/docs/ui/connector-dialog.png)
 
 The History panel folds the two under a *2 connectors* row at the bottom of the part. The frames stay visible as small triads in the viewport.
 
-![The fixed leaf with its connectors](/img/docs/getting-started/hinge-leaf-fixed.part.png)
+![The fixed leaf with its connectors](/img/docs/getting-started/hinge-leaf-fixed.png)
 
 <ExplainedCode code={fixedLeaf} fileName="hinge-leaf-fixed.part.js" />
 
-Each `connector()` statement names its anchor by the geometry it came from: the knuckle extrude's start or end edges, filtered to the round one, then `.center()`. Because the anchor is derived from geometry, it moves with the part when a dimension changes.
+Each `connector()` statement names its anchor by the geometry it came from: the knuckle extrude's start edges, filtered to the round ones, then `.center()`. The `pin` connector adds `.offset(0, 0, 24)`, which is the dialog's Offset field, measured along the frame's own axes. Because the anchor is derived from geometry, both frames move with the part when a dimension changes; the repeated knuckles cannot be anchored directly, which is why the tube's end is reached with an offset from the original.
 
 :::note
 `connector()` must be called directly in the `part()` body, and a connector's name must be unique within its part. Connectors are the part's mating interface: an assembly refers to them as `instance.connectors.pin`.
@@ -37,15 +37,15 @@ Each `connector()` statement names its anchor by the geometry it came from: the 
 
 The hinge needs two more parts. Create `hinge-leaf-swing.part.js` and `hinge-pin.part.js` with the **+** tab button and build them the same way. Both files are below in full.
 
-The swing leaf mirrors the fixed one: it extends to the other side of the pin axis, and its two knuckles start 12 mm in so they fall into the fixed leaf's gaps. Its ring is sketched on a plane offset 12 mm from the front plane (the **Plane** dialog, type *Offset*), and its one connector sits at the start of that first knuckle, the same point as the fixed leaf's `knuckle` connector.
+The swing leaf mirrors the fixed one: it extends to the other side of the pin axis, and its two knuckles fall into the fixed leaf's gaps. Its ring is sketched on a plane 18 mm in front of the front plane (the **Plane** dialog, type *Offset*), extruded 12 mm and repeated once, 24 mm along; the bore is the same symmetric *Through all* cut. Its one connector sits at the far end of that first knuckle, the same point on the pin axis as the fixed leaf's `knuckle` connector.
 
-![The swing leaf](/img/docs/getting-started/hinge-leaf-swing.part.png)
+![The swing leaf](/img/docs/getting-started/hinge-leaf-swing.png)
 
 <ExplainedCode code={swingLeaf} fileName="hinge-leaf-swing.part.js" />
 
-The pin is a 4 mm shaft with a head, drawn on the same axis, with a connector where the head meets the shaft.
+The pin is a 4 mm shaft with a head, drawn on the same axis and starting from a plane 30 mm in front of the front plane, where the fixed leaf's tube ends. Its connector sits where the head meets the shaft.
 
-![The pin](/img/docs/getting-started/hinge-pin.part.png)
+![The pin](/img/docs/getting-started/hinge-pin.png)
 
 <ExplainedCode code={pin} fileName="hinge-pin.part.js" />
 

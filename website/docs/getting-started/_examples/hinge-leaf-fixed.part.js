@@ -1,6 +1,6 @@
 // @screenshot view iso-ftr
-import { part, sketch, line, circle, extrude, cut, repeat, fillet, connector } from 'fluidcad/core';
-import { coincident, horizontal, vertical, distance, diameter, fix, concentric } from 'fluidcad/constraints';
+import { origin, xAxis, yAxis, part, sketch, line, circle, extrude, cut, repeat, fillet, connector } from 'fluidcad/core';
+import { coincident, horizontal, vertical, midpoint, distance, diameter, fix } from 'fluidcad/constraints';
 import { edge } from 'fluidcad/filters';
 
 // The part container: everything inside the callback belongs to the
@@ -10,10 +10,10 @@ export const fixedLeaf = part('Fixed leaf', () => {
   // 60 mm along the pin axis (Y). The four lines are guesses; the constraints
   // below are what the tool wrote to pin the rectangle down.
   sketch('xy', () => {
-    const b = line([0, 0], [30, 0]);
-    const r = line([30, 0], [30, 60]);
-    const t = line([30, 60], [0, 60]);
-    const l = line([0, 60], [0, 0]);
+    const b = line([0, -28.96], [30, -28.96]);
+    const r = line([30, -28.96], [30, 31.04]);
+    const t = line([30, 31.04], [0, 31.04]);
+    const l = line([0, 31.04], [0, -28.96]);
     // corners: each line ends where the next one starts
     coincident(b.end(), r.start());
     coincident(r.end(), t.start());
@@ -24,20 +24,24 @@ export const fixedLeaf = part('Fixed leaf', () => {
     vertical(r);
     horizontal(t);
     vertical(l);
-    // anchor one corner on the origin so the outline cannot slide
-    fix(b.start(), [0, 0]);
     // the two dimensions (double-click a label in the viewport to change them)
     distance(b.start(), b.end(), 30);
     distance(r.start(), r.end(), 60);
+    // centre the left edge on the origin: the pin axis runs through the
+    // middle of the leaf, and the outline cannot slide
+    midpoint(origin(), t.end(), b.start());
   });
   // Extrude dialog, Add tab, Distance 3: the leaf plate.
   const leaf = extrude(3);
   // One screw hole: a circle sketched on the plate's top face, then the
-  // Extrude dialog's Remove tab (a cut) with Through all.
+  // Extrude dialog's Remove tab (a cut) with Through all. The circle is a
+  // guess; the two dimensions to the sketch axes place it 20 mm from the
+  // pin edge and 10 mm from the end of the plate.
   sketch(leaf.endFaces(), () => {
-    const hole = circle([18, 10], 4);
+    const hole = circle([22.92, -25.08], 4);
     diameter(hole, 4);
-    fix(hole.center(), [18, 10]);
+    distance(hole.center(), xAxis(), 20);
+    distance(hole.center(), yAxis(), 20);
   });
   const hole = cut();
   // Repeat dialog: the same cut two more times, 20 mm apart along Y.
@@ -45,26 +49,32 @@ export const fixedLeaf = part('Fixed leaf', () => {
   // Fillet tool, radius 4, on the two corners away from the pin — the
   // vertical edges that lie on the plane x = 30.
   fillet(4, leaf.sideEdges(edge().onPlane('yz', 30)));
-  // One knuckle: a ring (8 mm outside, 4 mm bore for the pin) sketched on
-  // the front plane, centred 4 mm above the leaf so the tube sits on the
-  // plate's edge, extruded 12 mm along the pin axis.
+  // One knuckle: an 8 mm ring sketched on the front plane, centred 4 mm
+  // above the leaf so the tube sits on the plate's edge, then extruded 12 mm
+  // along the pin axis, symmetric about the sketch plane (6 mm each way).
   sketch('xz', () => {
     const outer = circle([0, 4], 8);
-    const bore = circle([0, 4], 4);
     diameter(outer, 8);
-    diameter(bore, 4);
-    concentric(outer, bore);
     fix(outer.center(), [0, 4]);
   });
-  const knuckle = extrude(-12);
-  // Three knuckles on this leaf, 24 mm apart: the other leaf's two knuckles
-  // fill the gaps between them.
-  repeat('linear', 'y', { count: 3, offset: 24 }, knuckle);
+  const knuckle = extrude(12).symmetric();
+  // Three knuckles on this leaf, 24 mm apart and centred on the first one:
+  // the other leaf's two knuckles fill the gaps between them.
+  repeat('linear', 'y', { count: 3, offset: 24, centered: true }, knuckle);
+  // The 4 mm bore for the pin: a circle on the front plane, cut Through all
+  // in both directions so one cut drills all three knuckles.
+  sketch('xz', () => {
+    const bore = circle([0, 4], 4);
+    diameter(bore, 4);
+    fix(bore.center(), [0, 4]);
+  });
+  cut().symmetric();
 
-  // Connector tool: two mate frames on the pin axis. Both sit at the centre
-  // of a knuckle's round edge, so their Z axis is the pin axis. 'pin' is at
-  // the very end of the tube (where the pin's head lands), 'knuckle' at the
-  // end of the first knuckle (where the other leaf's first knuckle starts).
-  connector('pin', knuckle.startEdges(edge().notLine()).center());
-  connector('knuckle', knuckle.endEdges(edge().notLine()).center());
+  // Connector tool: two mate frames on the pin axis, both anchored on the
+  // round edge at the front end of the middle knuckle, so their Z axis is
+  // the pin axis. 'knuckle' is where the other leaf's first knuckle ends;
+  // 'pin' is slid 24 mm along that Z axis, past the gap and the end knuckle,
+  // to the very end of the tube where the pin's head lands.
+  connector('knuckle', knuckle.startEdges(edge().notLine()).center());
+  connector('pin', knuckle.startEdges(edge().notLine()).center()).offset(0, 0, 24);
 });

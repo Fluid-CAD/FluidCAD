@@ -61,4 +61,12 @@ export const fixedLeaf = part('Fixed leaf', () => {
   // Three knuckles on this leaf, 24 mm apart and centred on the first one:
   // the other leaf's two knuckles fill the gaps between them.
   repeat('linear', 'y', { count: 3, offset: 24, centered: true }, knuckle);
+  // The 4 mm bore for the pin: a circle on the front plane, cut Through all
+  // in both directions so one cut drills all three knuckles.
+  sketch('xz', () => {
+    const bore = circle([0, 4], 4);
+    diameter(bore, 4);
+    fix(bore.center(), [0, 4]);
+  });
+  cut().symmetric();
 });

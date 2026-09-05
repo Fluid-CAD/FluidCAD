@@ -1,6 +1,6 @@
 // @screenshot skip
-import { part, sketch, line, circle, extrude, cut, repeat, fillet, connector } from 'fluidcad/core';
-import { coincident, horizontal, vertical, distance, diameter, fix, concentric } from 'fluidcad/constraints';
+import { origin, xAxis, yAxis, part, sketch, line, circle, extrude, cut, repeat, fillet, connector } from 'fluidcad/core';
+import { coincident, horizontal, vertical, midpoint, distance, diameter, fix } from 'fluidcad/constraints';
 import { edge } from 'fluidcad/filters';
 
 // The part container: everything inside the callback belongs to the

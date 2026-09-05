@@ -1,11 +1,13 @@
 // @screenshot view iso-ftr
-import { part, sketch, circle, extrude, chamfer, connector } from 'fluidcad/core';
+import { part, sketch, circle, extrude, chamfer, plane, connector } from 'fluidcad/core';
 import { diameter, fix } from 'fluidcad/constraints';
 
 // A 4 mm pin, 60 mm long, with a small head. Drawn on the same axis as the
-// knuckles (x = 0, z = 4) so it drops straight into the hinge.
+// knuckles (x = 0, z = 4), starting at the front end of the fixed leaf's
+// tube (30 mm in front of the front plane) so it drops straight into the
+// hinge.
 export const pin = part('Pin', () => {
-  sketch('xz', () => {
+  sketch(plane('xz', { offset: 30 }), () => {
     const c = circle([0, 4], 4);
     diameter(c, 4);
     fix(c.center(), [0, 4]);
@@ -14,7 +16,7 @@ export const pin = part('Pin', () => {
   // a lead-in chamfer on the far end
   chamfer(0.5, shaft.endEdges());
 
-  sketch('xz', () => {
+  sketch(plane('xz', { offset: 30 }), () => {
     const c = circle([0, 4], 7);
     diameter(c, 7);
     fix(c.center(), [0, 4]);

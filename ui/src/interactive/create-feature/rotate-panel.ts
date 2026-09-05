@@ -28,8 +28,8 @@ export type RotateValues =
  * statement's `true` third argument), the solids slot — filled from
  * whole-solid viewport picks (any face or edge click selects the owning
  * solid) or timeline rows, one numbered chip per solid being rotated — the
- * axis slot with its X/Y/Z quick buttons (a world axis, an `axis()`
- * statement, or a picked straight edge — the revolve axis's exact picker),
+ * axis slot (a world axis clicked in the viewport, an `axis()` statement,
+ * or a picked straight edge — the revolve axis's exact picker),
  * and the angle field. Exactly one slot is ARMED at a time — clicked to
  * activate, marked by the primary border — and the viewer's pick channels
  * follow it: the armed Solids slot takes whole-shape picks, the armed Axis
@@ -60,10 +60,7 @@ export class RotatePanel extends FeaturePanel {
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="targets-slot"></div>
-        <div class="flex flex-col gap-1.5">
-          <div data-role="axis-slot"></div>
-          <div data-role="axis-buttons" class="join w-full"></div>
-        </div>
+        <div data-role="axis-slot"></div>
         <label class="flex flex-col gap-1.5" title="How far the solids turn around the axis, in degrees">
           <span class="text-base-content/70">Angle (°)</span>
           <input data-role="angle" type="number" step="5" value="90"
@@ -82,11 +79,7 @@ export class RotatePanel extends FeaturePanel {
     this.targetsSlot.onArm = () => this.armSlot('targets');
     this.targetsSlot.onRemove = (index) => this.onRemoveTarget?.(index);
 
-    this.axisSlot = new AxisSlotControl(
-      this.role('axis-slot'),
-      this.role('axis-buttons'),
-      { buttonTitle: (axis) => `Rotate around the world ${axis} axis` },
-    );
+    this.axisSlot = new AxisSlotControl(this.role('axis-slot'));
     this.axisSlot.onArm = () => this.armSlot('axis');
     this.axisSlot.onModeChange = () => this.onAxisModeChange?.();
     this.axisSlot.onChange = () => this.onChange?.();
@@ -170,6 +163,12 @@ export class RotatePanel extends FeaturePanel {
    */
   selectAxis(option: AxisOption): void {
     this.axisSlot.selectOption(option);
+    this.armSlot('axis');
+  }
+
+  /** A world axis clicked in the viewport; arms the axis slot. No change event fires. */
+  selectStandardAxis(axis: 'x' | 'y' | 'z'): void {
+    this.axisSlot.selectStandard(axis);
     this.armSlot('axis');
   }
 

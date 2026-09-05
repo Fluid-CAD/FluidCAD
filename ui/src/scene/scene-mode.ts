@@ -85,6 +85,8 @@ export class SceneModeManager {
   private _sectionPlane: Plane | null = null;
   private gridSpacing: GridSpacing | null = null;
   private gridListeners = new Set<GridSpacingListener>();
+  /** The default axes helper steps aside while the pickable world axes are shown. */
+  private defaultAxesSuppressed = false;
 
   constructor(private ctx: SceneContext) {
     this.setupDefaultAxes();
@@ -286,7 +288,24 @@ export class SceneModeManager {
   private showDefaultAxes(): void {
     this.removeByName('sketchAxesHelper');
     const axes = this.ctx.scene.getObjectByName('defaultAxesHelper');
-    if (axes) axes.visible = true;
+    if (axes) {
+      axes.visible = !this.defaultAxesSuppressed;
+    }
+  }
+
+  /**
+   * Hide the default axes helper while the viewer shows the world axes as
+   * pick targets (they draw over the same lines), and bring it back after.
+   * Sketch mode keeps its own datum visuals either way.
+   */
+  setDefaultAxesSuppressed(suppressed: boolean): void {
+    this.defaultAxesSuppressed = suppressed;
+    if (this.mode === 'default') {
+      const axes = this.ctx.scene.getObjectByName('defaultAxesHelper');
+      if (axes) {
+        axes.visible = !suppressed;
+      }
+    }
   }
 
   /**

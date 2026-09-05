@@ -1,3 +1,4 @@
+import { StandardAxisId } from '../../scene/standard-axes';
 import {
   applyRepeat, applyRepeatEdit, fetchFeatureGhostResult, fetchFeatureSources, FeatureEditTarget,
   GhostAxisRef, GhostPlaneRef, GhostSolid, ParsedFeatureStatement, RepeatApplyOptions,
@@ -60,7 +61,7 @@ type RepeatTargetChoice =
  * The Repeat dialog on the create rails: replay one or more timeline
  * features linearly, circularly, mirrored across a plane, or rotated. The
  * features are picked ONLY in the timeline (each row click toggles a
- * numbered chip); the axis comes from the X/Y/Z quick buttons, an axis
+ * numbered chip); the axis comes from a world axis clicked in 3D, an axis
  * statement (its dashed line in 3D or its timeline row), or a picked solid
  * edge; the mirror plane from an origin-plane quad, a plane feature (its
  * quad or timeline row), or a picked face. Arming with a selection already
@@ -565,6 +566,7 @@ export class RepeatFeatureService {
     this.ghost.clear();
     this.viewer.clearHighlight();
     this.viewer.hideStandardPlanes();
+    this.viewer.hideStandardAxes();
     this.viewer.pickFilter = 'all';
     this.viewer.pickAxes = false;
     // pickPlanes is left alone: syncButton's onActiveChange runs the modify
@@ -631,6 +633,18 @@ export class RepeatFeatureService {
     }
     this.pickPlane(option);
   }
+
+  /** A shown world axis was clicked — it lands in the armed direction's slot. */
+  private readonly onStandardAxisPick = (axis: StandardAxisId): void => {
+    if (!this.isAxisPicking) {
+      return;
+    }
+    this.axisEdgeEntities.set(this.panel.armedAxis, null);
+    this.panel.selectStandardAxis(axis);
+    this.panel.setMessage(null);
+    this.refreshHighlight();
+    this.runner.schedulePreview();
+  };
 
   /** A shown origin plane was clicked while the Mirror type is up. */
   private readonly onStandardPlanePick = (plane: StandardPlaneId): void => {
@@ -1189,9 +1203,10 @@ export class RepeatFeatureService {
   /**
    * The viewer's pick channels follow the panel's armed slot, so the slot
    * border says exactly where the next 3D click lands: an armed axis slot
-   * takes solid edges and axis lines; the armed plane slot takes faces,
-   * plane quads and the origin planes shown as pick targets; the armed
-   * Features slot turns scene picking off — features come from the timeline.
+   * takes solid edges, axis lines and the world axes shown as pick targets;
+   * the armed plane slot takes faces, plane quads and the origin planes
+   * shown as pick targets; the armed Features slot turns scene picking off —
+   * features come from the timeline.
    */
   private syncViewport(): void {
     if (!this.armed) {
@@ -1203,6 +1218,11 @@ export class RepeatFeatureService {
     this.viewer.pickAxes = axisArmed;
     this.viewer.pickPlanes = planeArmed;
     this.viewer.pickFilter = axisArmed ? 'edge' : planeArmed ? 'face' : 'none';
+    if (axisArmed) {
+      this.viewer.showStandardAxes(this.onStandardAxisPick);
+    } else {
+      this.viewer.hideStandardAxes();
+    }
     if (planeArmed) {
       this.viewer.showStandardPlanes(this.onStandardPlanePick);
     } else {
@@ -1232,10 +1252,13 @@ export class RepeatFeatureService {
     }
     const wireIds: string[] = [];
     const entities: SelectedEntity[] = [];
+    const standardAxes: StandardAxisId[] = [];
     if (this.panel.usesAxis) {
       for (const direction of this.panel.directions) {
         const selection = this.panel.axisSelection(direction);
-        if (selection?.kind === 'axis') {
+        if (selection?.kind === 'standard') {
+          standardAxes.push(selection.axis);
+        } else if (selection?.kind === 'axis') {
           wireIds.push(...axisLineShapeIds(selection.option, this.sceneObjects));
         } else if (selection?.kind === 'edge') {
           const entity = this.axisEdgeEntities.get(direction);
@@ -1244,7 +1267,9 @@ export class RepeatFeatureService {
           }
         }
       }
-    } else {
+    }
+    this.viewer.setSelectedStandardAxes(standardAxes);
+    if (!this.panel.usesAxis) {
       const selection = this.panel.planeSelection();
       if (selection?.kind === 'plane') {
         const plane = this.sceneObjects.find(o => o.type === 'plane'

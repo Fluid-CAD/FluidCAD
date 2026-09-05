@@ -19,9 +19,9 @@ export type RevolveAxisSelection = AxisSelection;
 /**
  * The revolve dialog: an Add / Remove / New tab row (the boolean operation),
  * the profile pick slot (a single chip — filled by clicking a sketch in the
- * timeline or its wires in 3D), the axis pick slot (a single chip — an axis
- * or edge picked in 3D, or one of the X/Y/Z quick buttons under it), the
- * sweep angle in degrees, and a thin() toggle with its thickness. Exactly
+ * timeline or its wires in 3D), the axis pick slot (a single chip — a world
+ * axis, an axis statement or an edge picked in 3D), the sweep angle in
+ * degrees, and a thin() toggle with its thickness. Exactly
  * one slot is ARMED at a time — clicked to activate, marked by the primary
  * border — and 3D picks land only there (the sweep/loft idiom); timeline
  * rows are typed and always route, re-arming their slot. Pure DOM + form
@@ -55,10 +55,7 @@ export class RevolvePanel extends FeaturePanel {
       bodyHtml: `
         <div data-role="tabs" class="join w-full"></div>
         <div data-role="profile-slot"></div>
-        <div class="flex flex-col gap-1.5">
-          <div data-role="axis-slot"></div>
-          <div data-role="axis-buttons" class="join w-full"></div>
-        </div>
+        <div data-role="axis-slot"></div>
         <label class="flex flex-col gap-1.5" title="Sweep angle in degrees — 360 is a full revolution">
           <span class="text-base-content/70">Angle (°)</span>
           <input data-role="angle" type="number" step="5" value="360"
@@ -91,9 +88,7 @@ export class RevolvePanel extends FeaturePanel {
     this.profileSlot.onArm = () => this.armSlot('profile');
     this.profileSlot.onChange = () => this.onChange?.();
 
-    this.axisSlot = new AxisSlotControl(this.role('axis-slot'), this.role('axis-buttons'), {
-      buttonTitle: (axis) => `Revolve around the world ${axis} axis`,
-    });
+    this.axisSlot = new AxisSlotControl(this.role('axis-slot'));
     this.axisSlot.onArm = () => this.armSlot('axis');
     this.axisSlot.onChange = () => this.onChange?.();
     this.axisSlot.onModeChange = () => this.onAxisModeChange?.();
@@ -137,9 +132,9 @@ export class RevolvePanel extends FeaturePanel {
   /**
    * Open prefilled from an existing statement (edit mode). Both slots start
    * on a "Current: …" chip that keeps the statement's own expression
-   * verbatim; picking another sketch (or an axis/edge/standard axis) re-
-   * sources that slot, and its ✕ reverts to the kept expression. The op
-   * tabs, angle and thin controls edit in place.
+   * verbatim; picking another sketch (or a world axis/axis/edge) re-sources
+   * that slot, and its ✕ reverts to the kept expression. The op tabs, angle
+   * and thin controls edit in place.
    */
   showEdit(state: RevolveOptionValues & {
     thin: [ValueExpr] | [ValueExpr, ValueExpr] | null;
@@ -199,6 +194,12 @@ export class RevolvePanel extends FeaturePanel {
    */
   selectAxis(option: AxisOption): void {
     this.axisSlot.selectOption(option);
+    this.armSlot('axis');
+  }
+
+  /** A world axis clicked in the viewport; arms the axis slot. No change event fires. */
+  selectStandardAxis(axis: 'x' | 'y' | 'z'): void {
+    this.axisSlot.selectStandard(axis);
     this.armSlot('axis');
   }
 

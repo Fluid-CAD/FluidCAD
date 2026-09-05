@@ -19,6 +19,7 @@ import { connectorHostHidden } from './scene/connector-host';
 import { viewerSettings } from './scene/viewer-settings';
 import { themeColors } from './scene/theme-colors';
 import { StandardPlaneId, StandardPlanes } from './scene/standard-planes';
+import { StandardAxes, StandardAxisId } from './scene/standard-axes';
 import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates } from './interactive/pick-candidates';
 import { captureScreenshot } from './screenshot';
@@ -49,7 +50,8 @@ export type SelectionModifiers = {
 };
 
 /** What pickAt() resolves: a sub-shape (with its owning assembly instance,
- *  when the hit landed inside one), or a shown origin plane. */
+ *  when the hit landed inside one), a shown origin plane, or a shown world
+ *  axis. */
 type PickResult =
   | {
     shapeId: string;
@@ -58,10 +60,22 @@ type PickResult =
     /** Connector picks: the overlapping candidates when there are several. */
     connectorCandidates?: { instanceId: string; connectorId: string }[];
   }
-  | { standardPlane: StandardPlaneId };
+  | { standardPlane: StandardPlaneId }
+  | { standardAxis: StandardAxisId };
 
 function isPlanePick(result: PickResult | null): result is { standardPlane: StandardPlaneId } {
   return result !== null && 'standardPlane' in result;
+}
+
+function isAxisPick(result: PickResult | null): result is { standardAxis: StandardAxisId } {
+  return result !== null && 'standardAxis' in result;
+}
+
+/** An origin-plane or world-axis pick — routed to its dialog, never a selection. */
+function isDatumPick(
+  result: PickResult | null,
+): result is { standardPlane: StandardPlaneId } | { standardAxis: StandardAxisId } {
+  return isPlanePick(result) || isAxisPick(result);
 }
 
 // Sketch-wire, axis, plane and connector picks route a dialog action and are
@@ -195,6 +209,8 @@ export class Viewer {
   private hoverSuppressForInstance: string | null = null;
   private standardPlanes = new StandardPlanes();
   private standardPlanePickHandler: ((plane: StandardPlaneId) => void) | null = null;
+  private standardAxes = new StandardAxes();
+  private standardAxisPickHandler: ((axis: StandardAxisId) => void) | null = null;
   private highlightedEntities: SelectedEntity[] = [];
   private activeSketchId: string | null = null;
   private sectionViewControl: SectionViewControl | null = null;
@@ -547,6 +563,10 @@ export class Viewer {
         this.standardPlanePickHandler?.(result.standardPlane);
         return;
       }
+      if (isAxisPick(result)) {
+        this.standardAxisPickHandler?.(result.standardAxis);
+        return;
+      }
       if (result) {
         if (result.connectorCandidates) {
           modifiers.connectorCandidates = result.connectorCandidates;
@@ -570,7 +590,7 @@ export class Viewer {
         return; // was a drag (> 8px)
       }
       const result = this.pickAt(e.clientX, e.clientY);
-      if (isPlanePick(result)) {
+      if (isDatumPick(result)) {
         return;
       }
       this.doubleClickHandler(result?.shapeId ?? null, result?.sub ?? null);
@@ -589,10 +609,10 @@ export class Viewer {
       }
       e.preventDefault();
       const result = this.pickAt(e.clientX, e.clientY);
-      if (isPlanePick(result)) {
+      if (isDatumPick(result)) {
         return;
       }
-      const instanceId = result && !isPlanePick(result) ? result.instanceId ?? null : null;
+      const instanceId = result?.instanceId ?? null;
       this.contextMenuHandler(result?.shapeId ?? null, result?.sub ?? null, e.clientX, e.clientY, instanceId);
     });
   }
@@ -633,6 +653,7 @@ export class Viewer {
     axisHits: Intersection[];
     planeHits: Intersection[];
     planeQuadHits: Intersection[];
+    standardAxisHits: Intersection[];
   } {
     const rect = this.ctx.renderer.domElement.getBoundingClientRect();
     const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
@@ -661,8 +682,16 @@ export class Viewer {
     const planeQuadHits = candidates.planeQuads.length > 0
       ? raycaster.intersectObjects(candidates.planeQuads, false)
       : [];
+    // World-axis lines participate only while shown (an armed axis slot).
+    const standardAxisTargets = this.standardAxes.pickTargets;
+    const standardAxisHits = standardAxisTargets.length > 0
+      ? raycaster.intersectObjects(standardAxisTargets, false)
+      : [];
 
-    return { raycaster, faceTargets: candidates.faces, faceHits, edgeHits, sketchWireHits, axisHits, planeHits, planeQuadHits };
+    return {
+      raycaster, faceTargets: candidates.faces, faceHits, edgeHits, sketchWireHits, axisHits, planeHits,
+      planeQuadHits, standardAxisHits,
+    };
   }
 
   /**
@@ -705,10 +734,13 @@ export class Viewer {
       }
     }
     const camera = this.ctx.camera;
-    const { faceTargets, faceHits, edgeHits, sketchWireHits, axisHits, planeHits, planeQuadHits } = this.castPick(clientX, clientY);
+    const {
+      faceTargets, faceHits, edgeHits, sketchWireHits, axisHits, planeHits, planeQuadHits, standardAxisHits,
+    } = this.castPick(clientX, clientY);
 
     if (faceHits.length === 0 && edgeHits.length === 0 && sketchWireHits.length === 0
-      && axisHits.length === 0 && planeHits.length === 0 && planeQuadHits.length === 0) {
+      && axisHits.length === 0 && planeHits.length === 0 && planeQuadHits.length === 0
+      && standardAxisHits.length === 0) {
       return null;
     }
 
@@ -760,12 +792,12 @@ export class Viewer {
     const faceDist = bestFace != null ? bestFace.distance : Infinity;
     const planeDist = planeHits.length > 0 ? planeHits[0].distance : Infinity;
     const planeQuadDist = planeQuadHits.length > 0 ? planeQuadHits[0].distance : Infinity;
+    const occluders: Object3D[] = [...faceTargets, ...this.standardPlanes.pickTargets];
+    // ~2px worth of world units: forgiving of tessellation putting an
+    // adjacent face marginally in front of the edge polyline, while a real
+    // occluder (a wall between camera and edge) still rejects the edge.
+    const tolerance = this.computeEdgePickThreshold() / 4;
     if (this.pickFilter === 'all' || this.pickFilter === 'edge') {
-      const occluders: Object3D[] = [...faceTargets, ...this.standardPlanes.pickTargets];
-      // ~2px worth of world units: forgiving of tessellation putting an
-      // adjacent face marginally in front of the edge polyline, while a real
-      // occluder (a wall between camera and edge) still rejects the edge.
-      const tolerance = this.computeEdgePickThreshold() / 4;
       for (const edgeHit of edgeHits) {
         // LineSegments2 hits expose `pointOnLine` (closest point on the
         // segment in world space); legacy Line hits carry it as `point`.
@@ -781,6 +813,18 @@ export class Viewer {
             };
           }
         }
+      }
+    }
+
+    // A shown world axis is a thin target like an edge: it outranks faces
+    // wherever its closest point is visible (an axis running through a solid
+    // is hidden inside it, and stays unpickable there). A visible solid edge
+    // under the cursor has already won above — an edge lying on the axis
+    // picks as the edge, which the dialogs resolve to the same line.
+    for (const axisHit of standardAxisHits) {
+      const axisId = this.standardAxes.axisIdFor(axisHit.object);
+      if (axisId && this.isPointVisible(axisHit.point, occluders, tolerance)) {
+        return { standardAxis: axisId };
       }
     }
 
@@ -868,6 +912,37 @@ export class Viewer {
 
   private sceneBoundsForPlanes(): Box3 | null {
     return this.sceneGeometryBounds();
+  }
+
+  /**
+   * Show the world axes (x/y/z) as pick targets — the armed axis slot of a
+   * feature dialog offers them for a standard axis. A click on one calls
+   * `onPick` instead of the selection handler; solid edges in front keep
+   * their picks. Re-showing while visible re-sizes the axes to the current
+   * scene. The default axes helper steps aside while they are shown.
+   */
+  showStandardAxes(onPick: (axis: StandardAxisId) => void): void {
+    this.standardAxisPickHandler = onPick;
+    this.standardAxes.show(this.ctx.scene, this.sceneGeometryBounds());
+    this.modeManager.setDefaultAxesSuppressed(true);
+    this.ctx.requestRender();
+  }
+
+  hideStandardAxes(): void {
+    if (!this.standardAxes.visible) {
+      return;
+    }
+    this.standardAxisPickHandler = null;
+    this.standardAxes.hide();
+    this.modeManager.setDefaultAxesSuppressed(false);
+    this.ctx.requestRender();
+  }
+
+  /** Tint the dialog's chosen world axes at full strength (no-op while hidden). */
+  setSelectedStandardAxes(axes: readonly StandardAxisId[]): void {
+    if (this.standardAxes.setSelected(axes)) {
+      this.ctx.requestRender();
+    }
   }
 
   /**
@@ -1675,6 +1750,21 @@ export class Viewer {
       this.ctx.renderer.domElement.style.cursor = '';
       this.ctx.requestRender();
     }
+    // World-axis hover: tint the line; anything else clears it.
+    if (isAxisPick(result)) {
+      if (this.hoverState) {
+        this.clearHover();
+      }
+      if (this.standardAxes.setHover(result.standardAxis)) {
+        this.ctx.requestRender();
+      }
+      this.ctx.renderer.domElement.style.cursor = 'pointer';
+      return;
+    }
+    if (this.standardAxes.setHover(null)) {
+      this.ctx.renderer.domElement.style.cursor = '';
+      this.ctx.requestRender();
+    }
 
     // Track which instance the cursor is on. The controller reveals its
     // connectors only while a mate dialog has picking armed, and otherwise
@@ -1780,6 +1870,7 @@ export class Viewer {
     }
     this.hoverState = null;
     this.standardPlanes.setHover(null);
+    this.standardAxes.setHover(null);
     this.ctx.renderer.domElement.style.cursor = '';
     this.ctx.requestRender();
   }

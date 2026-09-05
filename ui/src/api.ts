@@ -792,8 +792,8 @@ export type Copy2DGhostRequest = {
 
 /**
  * The 2D copy dialog's direction slot on the ghost wire: a sketch-plane axis
- * from the Sketch X / Sketch Y quick buttons (`xAxis()`), or a picked sketch
- * line's shapeId — the pick the apply writes as `axis(<var>)`. A kept
+ * from a click on the sketch's X or Y datum axis (`xAxis()`), or a picked
+ * sketch line's shapeId — the pick the apply writes as `axis(<var>)`. A kept
  * statement axis only travels once it reads back as a datum form; a kept
  * `axis(v)` text is unaddressable and draws no ghost.
  */

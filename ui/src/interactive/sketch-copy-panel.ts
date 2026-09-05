@@ -53,9 +53,10 @@ const LOCAL_KEEP_MATCHER = /^([xy])Axis\(\s*\)$/;
  * The in-sketch copy dialog: a Linear / Circular type dropdown, the geometry
  * slot — filled from the sketch selection, one chip per picked edge, any
  * pick standing for its whole producing primitive — plus the kind's inputs.
- * Linear shows a Direction 1 group (axis slot + Sketch X / Sketch Y quick
- * buttons emitting `xAxis()` / `yAxis()`, Total Count, the shared
- * Offset/Total spacing mode with its value) and an "Add second direction"
+ * Linear shows a Direction 1 group (axis slot — a sketch line, or the
+ * sketch's X / Y datum axis clicked in the viewport, emitting `xAxis()` /
+ * `yAxis()` — Total Count, the shared Offset/Total spacing mode with its
+ * value) and an "Add second direction"
  * button revealing a Direction 2 group. Circular swaps the axis slot for a
  * Center X/Y pair with a count and a Total/Offset angle. Both kinds end on
  * the shared Skip field. Exactly one slot is ARMED at a time — clicked to
@@ -123,7 +124,6 @@ export class SketchCopyPanel extends FeaturePanel {
         <div data-role="axis-wrap" class="flex flex-col gap-1.5">
           <span data-role="dir1-header" class="text-base-content/70 font-medium">Direction 1</span>
           <div data-role="axis-slot-1"></div>
-          <div data-role="axis-buttons-1" class="join w-full"></div>
         </div>
         <div data-role="center-row" class="hidden flex-col gap-1.5">
           <span class="text-base-content/70">Center</span>
@@ -170,7 +170,6 @@ export class SketchCopyPanel extends FeaturePanel {
               title="Remove the second direction">✕</button>
           </div>
           <div data-role="axis-slot-2"></div>
-          <div data-role="axis-buttons-2" class="join w-full"></div>
           <label class="flex flex-col gap-1.5" title="Number of instances along the second direction, the original included">
             <span class="text-base-content/70">Total Count</span>
             <input data-role="count2" type="number" step="1" min="2" value="2"
@@ -214,19 +213,15 @@ export class SketchCopyPanel extends FeaturePanel {
     this.dir1Header = this.role('dir1-header');
     this.axisWrap = this.role('axis-wrap');
     for (const direction of [1, 2] as const) {
-      const control = new AxisSlotControl(
-        this.role(`axis-slot-${direction}`),
-        this.role(`axis-buttons-${direction}`),
-        {
-          label: 'Direction',
-          axes: ['x', 'y'],
-          buttonLabel: (axis) => `Sketch ${axis.toUpperCase()}`,
-          chipLabel: (axis) => `Sketch ${axis.toUpperCase()} axis`,
-          buttonTitle: (axis) => `Copy along the sketch's ${axis.toUpperCase()} axis — ${axis.toLowerCase()}Axis()`,
-          keepMatcher: LOCAL_KEEP_MATCHER,
-          prompt: 'Pick a sketch line',
-        },
-      );
+      // The sketch's own axes are picked in the viewport like any line, and
+      // land on the slot's standard chip (written as xAxis() / yAxis()).
+      const control = new AxisSlotControl(this.role(`axis-slot-${direction}`), {
+        label: 'Direction',
+        keepAxes: ['x', 'y'],
+        chipLabel: (axis) => `Sketch ${axis.toUpperCase()} axis`,
+        keepMatcher: LOCAL_KEEP_MATCHER,
+        prompt: 'Pick a sketch line or axis',
+      });
       control.onArm = () => this.armSlot(direction === 2 ? 'axis2' : 'axis1');
       control.onModeChange = () => this.onAxisModeChange?.(direction);
       control.onChange = () => this.onChange?.();
@@ -366,7 +361,7 @@ export class SketchCopyPanel extends FeaturePanel {
   /**
    * Open prefilled from an existing statement (edit mode). The axis slots
    * start on "Current: …" chips keeping the statement's own expressions
-   * verbatim (an `xAxis()` reads as its quick button); fields the
+   * verbatim (an `xAxis()` reads as its standard chip); fields the
    * statement doesn't carry seed with the create defaults. The targets slot
    * is seeded by the service.
    */
@@ -435,6 +430,11 @@ export class SketchCopyPanel extends FeaturePanel {
    */
   setAxisEdgeChip(direction: SketchCopyDirection, label: string | null): void {
     this.axisSlots.get(direction)!.setEdgeChip(label);
+  }
+
+  /** A viewport click on the sketch's X or Y datum axis; no events fire. */
+  selectDatumAxis(direction: SketchCopyDirection, axis: 'x' | 'y'): void {
+    this.axisSlots.get(direction)!.selectStandard(axis);
   }
 
   values(): SketchCopyValues {

@@ -53,7 +53,6 @@ export class SketchMirrorPanel extends FeaturePanel {
       bodyHtml: `
         <div data-role="targets-slot"></div>
         <div data-role="axis-slot"></div>
-        <div data-role="axis-buttons"></div>
       `,
     });
 
@@ -61,21 +60,15 @@ export class SketchMirrorPanel extends FeaturePanel {
     this.targetsSlot.onArm = () => this.armSlot('targets');
     this.targetsSlot.onRemove = (index) => this.onRemoveTarget?.(index);
 
-    // No quick buttons: the sketch's own axes are picked in the viewport
-    // like any line, and land on the slot's standard chip.
-    this.axisSlot = new AxisSlotControl(
-      this.role('axis-slot'),
-      this.role('axis-buttons'),
-      {
-        label: 'Mirror line',
-        axes: [],
-        keepAxes: ['x', 'y'],
-        chipLabel: (axis) => `Sketch ${axis.toUpperCase()} axis`,
-        buttonTitle: () => '',
-        keepMatcher: LOCAL_KEEP_MATCHER,
-        prompt: 'Pick a sketch line or axis to mirror across',
-      },
-    );
+    // The sketch's own axes are picked in the viewport like any line, and
+    // land on the slot's standard chip.
+    this.axisSlot = new AxisSlotControl(this.role('axis-slot'), {
+      label: 'Mirror line',
+      keepAxes: ['x', 'y'],
+      chipLabel: (axis) => `Sketch ${axis.toUpperCase()} axis`,
+      keepMatcher: LOCAL_KEEP_MATCHER,
+      prompt: 'Pick a sketch line or axis to mirror across',
+    });
     this.axisSlot.onArm = () => this.armSlot('axis');
     this.axisSlot.onModeChange = () => this.onAxisModeChange?.();
     this.axisSlot.onChange = () => this.onChange?.();
@@ -95,7 +88,7 @@ export class SketchMirrorPanel extends FeaturePanel {
   /**
    * Open prefilled from an existing statement (edit mode). The line slot
    * starts on a "Current: …" chip keeping the statement's own expression
-   * verbatim (an `xAxis()` reads as its Sketch X chip). The targets slot is
+   * verbatim (an `xAxis()` reads as its Sketch X axis chip). The targets slot is
    * seeded by the service.
    */
   showEdit(state: {

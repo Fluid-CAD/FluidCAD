@@ -27,7 +27,7 @@ helix("z").pitch(10).turns(4)
 There is no separate Axis tool: axes are picked inside the dialogs that need one. The **Revolve**, **Repeat**, **Copy** and **Rotate** dialogs each carry an **Axis** slot:
 
 1. Click the slot to arm it (it takes the primary border).
-2. Click a **straight edge** in the viewport, or press one of the **X / Y / Z** quick buttons under the slot for a world axis. Existing `axis()` features in the timeline can be clicked too.
+2. Click a **straight edge** in the viewport, or one of the **world axes** the viewport shows while the slot is armed (X red, Y green, Z blue). Existing `axis()` features can be clicked too, in the viewport or the timeline.
 3. The dialog writes the reference into the statement: a world axis as `"z"`, a picked edge as a selector such as `select(edge().…)` or the producing feature's accessor.
 
 Circular and Rotate patterns default their empty slot to world Z. Offset axes and mid-axes are written in code.

@@ -26,7 +26,9 @@ import { findActiveObject } from '../helpers/scene-utils';
 import { SceneObjectRender, PlaneData, SourceLocation } from '../types';
 import { Viewer } from '../viewer';
 import { ProjectionPickService } from './projection-pick-service';
-import { SketchOpDialog, SketchOpService, SketchOpSelection, SketchPickDescription, SolvedFilletRail } from './sketch-op-service';
+import {
+  SketchOpDialog, SketchOpService, SketchOpSelection, SketchPickDescription, SolvedFilletRail, SolvedPickRail,
+} from './sketch-op-service';
 import { SketchCopyService } from './sketch-copy-service';
 import { SketchMirrorService } from './sketch-mirror-service';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
@@ -203,14 +205,15 @@ export class SketchToolbarService {
       feature: 'fillet', title: 'Fillet', pickHint: 'Pick sketch edges to fillet',
       value: { label: 'Radius', defaultValue: '2', sign: 'positive' },
     }, opSelection, opVars, opDone, opGhost, filletRail);
-    this.copyOp = new SketchCopyService(container, opSelection, opVars, opDone, opGhost);
-    // The mirror line may be one of the sketch's datum axes — a solved pick,
-    // not an edge id — so the dialog reads the solved rail like rotate's
-    // Center slot does.
-    this.mirrorOp = new SketchMirrorService(container, opSelection, opDone, opGhost, {
+    // A copy direction or the mirror line may be one of the sketch's datum
+    // axes — a solved pick, not an edge id — so both dialogs read the solved
+    // rail like rotate's Center slot does.
+    const datumRail: SolvedPickRail = {
       picks: () => this.activeHoverSelectHandler?.getSolvedPicks() ?? [],
       deselect: (pick) => this.activeHoverSelectHandler?.deselectSolvedPick(pick),
-    });
+    };
+    this.copyOp = new SketchCopyService(container, opSelection, opVars, opDone, opGhost, datumRail);
+    this.mirrorOp = new SketchMirrorService(container, opSelection, opDone, opGhost, datumRail);
     this.offsetOp = opService({
       feature: 'offset', title: 'Offset', pickHint: 'Pick sketch edges to offset',
       value: { label: 'Distance', defaultValue: '2', sign: 'nonzero' },

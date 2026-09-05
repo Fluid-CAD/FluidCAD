@@ -1,3 +1,4 @@
+import { StandardAxisId } from '../../scene/standard-axes';
 import {
   applyRevolve, applyRevolveEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
   GhostAxisRef, GhostSolid, ParsedFeatureStatement, RevolveApplyOptions, RevolveAxisRef,
@@ -28,10 +29,11 @@ import {
 /**
  * The Revolve dialog on the create rails: a profile sketch swept around an
  * axis. The profile slot takes sketches (timeline or wire clicks); the axis
- * slot takes the X/Y/Z quick buttons, an axis statement's dashed line
- * clicked in 3D (the first axis-picking dialog — the viewer's opt-in
- * `pickAxes` channel), an axis row in the timeline, or a single solid edge
- * picked in 3D — written as `axis(<edge selector>)`. Exactly one slot is
+ * slot takes a world axis clicked in 3D (the viewer shows the three as pick
+ * targets while the slot is armed), an axis statement's dashed line clicked
+ * in 3D (the first axis-picking dialog — the viewer's opt-in `pickAxes`
+ * channel), an axis row in the timeline, or a single solid edge picked in
+ * 3D — written as `axis(<edge selector>)`. Exactly one slot is
  * armed at a time (clicked to activate — the sweep/loft idiom) and the
  * viewer's pick channels follow it, so the slot border says where the next
  * 3D click lands. Apply writes `revolve(<axis>[, <angle>][, <profile>])`
@@ -298,9 +300,8 @@ export class RevolveFeatureService {
    * double-click). The session rolls the viewport back to just before the
    * statement; both slots start on "Current: …" entries that keep the
    * statement's own expressions, and re-sourcing is live — other sketches
-   * via the timeline/wire clicks, the axis via the X/Y/Z buttons, an axis
-   * line or a solid edge picked in 3D. Apply rewrites the statement in
-   * place.
+   * via the timeline/wire clicks, the axis via a world axis, an axis line
+   * or a solid edge picked in 3D. Apply rewrites the statement in place.
    */
   enterEdit(
     target: FeatureEditTarget,
@@ -420,6 +421,7 @@ export class RevolveFeatureService {
     this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
     this.viewer.pickAxes = false;
+    this.viewer.hideStandardAxes();
     this.panel.hide();
     this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
@@ -517,6 +519,18 @@ export class RevolveFeatureService {
     this.refreshHighlight();
     this.runner.schedulePreview();
   }
+
+  /** A shown world axis was clicked while the axis slot is armed. */
+  private readonly onStandardAxisPick = (axis: StandardAxisId): void => {
+    if (!this.armed || this.panel.armedSlot !== 'axis') {
+      return;
+    }
+    this.axisEdgeEntity = null;
+    this.panel.selectStandardAxis(axis);
+    this.panel.setMessage(null);
+    this.refreshHighlight();
+    this.runner.schedulePreview();
+  };
 
   private pickSketch(sketch: SceneObjectRender): void {
     const loc = sketch.sourceLocation!;
@@ -715,9 +729,9 @@ export class RevolveFeatureService {
   /**
    * The viewer's pick channels follow the panel's armed slot, so the slot
    * border says exactly where the next 3D click lands: profile armed →
-   * sketch wires only; axis armed → solid edges and axis lines only; scope
-   * armed → everything, resolved to whole solids. Timeline rows are typed
-   * and always route (re-arming their slot).
+   * sketch wires only; axis armed → solid edges, axis lines and the world
+   * axes shown as pick targets; scope armed → everything, resolved to whole
+   * solids. Timeline rows are typed and always route (re-arming their slot).
    */
   private syncPickChannels(): void {
     if (!this.armed) {
@@ -728,6 +742,11 @@ export class RevolveFeatureService {
     this.viewer.pickSketchWires = !axisArmed;
     this.viewer.pickAxes = axisArmed;
     this.viewer.pickFilter = scopeArmed ? 'all' : axisArmed ? 'edge' : 'none';
+    if (axisArmed) {
+      this.viewer.showStandardAxes(this.onStandardAxisPick);
+    } else {
+      this.viewer.hideStandardAxes();
+    }
   }
 
   /**
@@ -797,6 +816,7 @@ export class RevolveFeatureService {
     }
 
     const axisSel = this.panel.axisSelection();
+    this.viewer.setSelectedStandardAxes(axisSel?.kind === 'standard' ? [axisSel.axis] : []);
     if (axisSel?.kind === 'axis') {
       wireIds.push(...axisLineShapeIds(axisSel.option, this.sceneObjects));
     } else if (axisSel?.kind === 'edge' && this.axisEdgeEntity) {

@@ -41,9 +41,9 @@ type OptionalRead =
 
 /**
  * The helix dialog on the create rails: a From-axis / From-face tab row (the
- * source mode), the matching source pick slot — the axis slot (a single chip,
- * plus X/Y/Z quick buttons, an axis line or a solid edge picked in 3D — the
- * revolve axis idiom) or the face slot (a single cylindrical/conical face
+ * source mode), the matching source pick slot — the axis slot (a single chip:
+ * a world axis, an axis line or a solid edge picked in 3D — the revolve axis
+ * idiom) or the face slot (a single cylindrical/conical face
  * picked in 3D — the wrap idiom) — and the shared geometry fields (radius, end
  * radius, pitch, turns, height, start/end offset), each an expression input.
  * A helix is a wire, not a solid, so there is no add/remove/new operation.
@@ -90,7 +90,6 @@ export class HelixPanel extends FeaturePanel {
         <div data-role="mode-tabs" class="join w-full"></div>
         <div data-role="axis-group" class="flex flex-col gap-1.5">
           <div data-role="axis-slot"></div>
-          <div data-role="axis-buttons" class="join w-full"></div>
         </div>
         <div data-role="face-group" class="flex flex-col gap-1.5">
           <div data-role="face-slot"></div>
@@ -169,9 +168,7 @@ export class HelixPanel extends FeaturePanel {
     this.turnsRow = this.role('turns-row');
     this.pitchRow = this.role('pitch-row');
 
-    this.axisSlot = new AxisSlotControl(this.role('axis-slot'), this.role('axis-buttons'), {
-      buttonTitle: (axis) => `Build the helix around the world ${axis} axis`,
-    });
+    this.axisSlot = new AxisSlotControl(this.role('axis-slot'));
     // A single-slot dialog: the armed border always sits on the active mode's
     // slot, so pin it on (the mode tab, not a slot click, switches targets).
     this.axisSlot.setArmed(true);
@@ -295,6 +292,11 @@ export class HelixPanel extends FeaturePanel {
    */
   selectAxis(option: AxisOption): void {
     this.axisSlot.selectOption(option);
+  }
+
+  /** A world axis clicked in the viewport (axis mode). No change event fires. */
+  selectStandardAxis(axis: 'x' | 'y' | 'z'): void {
+    this.axisSlot.selectStandard(axis);
   }
 
   /**

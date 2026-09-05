@@ -739,11 +739,16 @@ export type FeatureStatementEditTarget = {
    * statement's own plane text at apply time; a re-sourced plane renders
    * from producers/parts like create mode. The target list mixes `verbatim`
    * keeps with re-picked feature statements; an absent list keeps every
-   * statement target. The op rewrites the trailing chain wholesale.
+   * statement target. The op rewrites the trailing chain wholesale. The 2D
+   * in-sketch form carries an `axis` slot where the plane was (mutually
+   * exclusive): its keep entry re-reads the statement's first argument —
+   * the axis text — and its op is always `add`.
    */
   mirror?: {
     /** The mirror plane; `keep` re-emits the statement's own expression. */
-    plane: RepeatEditPlane;
+    plane?: RepeatEditPlane;
+    /** The 2D mirror line; `keep` re-emits the statement's own expression. */
+    axis?: { kind: 'keep' } | MirrorAxisSpec;
     /** How the reflected bodies land: fused (the default), cut, or standalone. */
     op: 'add' | 'remove' | 'new';
     /** Full replacement target list; absent keeps the statement's targets. */
@@ -1167,6 +1172,16 @@ export function renderCopyCenterExpr(center: [ValueExpr, ValueExpr]): string {
 }
 
 /**
+ * The 2D in-sketch mirror's axis: a sketch-plane datum (`xAxis()` /
+ * `yAxis()`), or a picked sketch line — its selector part rendered BARE
+ * (`mirror(l, …)`), the documented form the kernel lifts through
+ * AxisFromEdge itself; unlike a copy direction it never wraps in `axis()`.
+ */
+export type MirrorAxisSpec =
+  | { kind: 'local'; axis: 'x' | 'y' }
+  | { kind: 'selector'; part: number };
+
+/**
  * How a mirror statement is rendered and placed:
  * `mirror(<plane>, …targets)[.remove()|.new()]` — the default fuse renders no
  * chain. Targets are the solid-bearing feature statements being reflected,
@@ -1175,10 +1190,18 @@ export function renderCopyCenterExpr(center: [ValueExpr, ValueExpr]): string {
  * picked face as `plane(<selector>)`). The statement always inserts at end
  * of scope: a mirror reflects its targets over the finished model, and a
  * picked selector must resolve there.
+ *
+ * The 2D in-sketch form — `mirror(<axis>, …targets)` inside a sketch body —
+ * carries an `axis` where the plane was (the two are mutually exclusive):
+ * its targets are sketch-geometry producers (rect, circle, …) and it takes
+ * no operation chain, so `op` is always `add`. It lands at the end of its
+ * producers' scope like every sketch-body statement.
  */
 export type MirrorEditOptions = {
-  /** The plane to mirror across. */
-  plane: RepeatPlaneSpec;
+  /** The plane to mirror across (3D). Mutually exclusive with `axis`. */
+  plane?: RepeatPlaneSpec;
+  /** The line to mirror across (2D, inside a sketch). Mutually exclusive with `plane`. */
+  axis?: MirrorAxisSpec;
   /** How the reflected bodies land: fused (the default), cut, or standalone. */
   op: 'add' | 'remove' | 'new';
   /** The features being mirrored, in argument order — bound producers. */
@@ -1821,10 +1844,11 @@ export async function applyFeatureEdit(
       return { newCode: code, error: 'malformed copy edit spec' };
     }
   } else if (spec.feature === 'mirror') {
-    // Every target is a bound feature producer (solids, like a copy's); a
-    // picked mirror face references its own selector part, and every part
-    // must belong to exactly one input — for a mirror that input can only be
-    // the plane.
+    // Every target is a bound feature producer (solids, like a copy's — or
+    // sketch geometry for the 2D form); a picked mirror face or line
+    // references its own selector part, and every part must belong to
+    // exactly one input — for a mirror that input can only be the plane
+    // (3D) or the axis (2D), never both.
     const mo = spec.mirror;
     const targets = mo?.targets ?? [];
     const selectorParts: number[] = [];
@@ -1841,13 +1865,18 @@ export async function applyFeatureEdit(
         : plane.kind === 'standard'
           ? plane.plane === 'xy' || plane.plane === 'xz' || plane.plane === 'yz'
           : isPlaneProducer(spec, plane.producer));
+    const validAxis = (axis: MirrorAxisSpec | undefined): boolean =>
+      axis !== undefined && (axis.kind === 'selector'
+        ? validPart(axis.part)
+        : axis.kind === 'local' && (axis.axis === 'x' || axis.axis === 'y'));
     const valid = mo !== undefined
       && targets.length >= 1
       && targets.every(t => isCopyTargetProducer(spec, t.producer))
       && new Set(targets.map(t => t.producer)).size === targets.length
-      && validPlane(mo.plane)
-      && (mo.op === 'add' || mo.op === 'remove' || mo.op === 'new')
-      // Every selector part belongs to exactly one input (the plane).
+      && (mo.axis !== undefined
+        ? mo.plane === undefined && validAxis(mo.axis) && mo.op === 'add'
+        : validPlane(mo.plane) && (mo.op === 'add' || mo.op === 'remove' || mo.op === 'new'))
+      // Every selector part belongs to exactly one input (the plane or axis).
       && selectorParts.length === spec.parts.length
       && new Set(selectorParts).size === selectorParts.length;
     if (!valid) {
@@ -3556,6 +3585,25 @@ export function renderRepeatPlaneExpr(
 }
 
 /**
+ * Render a 2D mirror's axis argument: `xAxis()` / `yAxis()` for a
+ * sketch-plane datum, or the picked line's selector part BARE — the kernel's
+ * `mirror(line, …)` form takes the line itself, not `axis(line)`. Shared with
+ * the route, which passes its namer's variables; the transform passes its
+ * bindings'.
+ */
+export function renderMirrorAxisExpr(
+  axis: MirrorAxisSpec,
+  parts: ApplyFeatureEditSpec['parts'],
+  varFor: (producer: number) => string | null,
+): string {
+  if (axis.kind === 'local') {
+    return `${axis.axis}Axis()`;
+  }
+  const part = parts[axis.part];
+  return renderSelectorPartExpr(part, part.producer === null ? null : varFor(part.producer), varFor);
+}
+
+/**
  * Render a copy statement from its rendered axis input and target
  * expressions: `copy('linear', 'x', { count: 3, offset: 40 }, e)` — or the
  * array forms with several directions, `copy('linear', ['x', a], { count:
@@ -3630,17 +3678,18 @@ export function renderBooleanStatement(kind: BooleanKind, targetExprs: string[])
 }
 
 /**
- * Render a mirror statement from its rendered plane input and target
- * expressions: `mirror('yz', e)` / `mirror(p, e, f).new()` — the default fuse
+ * Render a mirror statement from its rendered plane (or, for the 2D form,
+ * axis) input and target expressions: `mirror('yz', e)` /
+ * `mirror(p, e, f).new()` / `mirror(yAxis(), r, c)` — the default fuse
  * renders no chain. Shared with the route's preview so the previewed text is
  * exactly what the transform writes.
  */
 export function renderMirrorStatement(
   mo: Pick<MirrorEditOptions, 'op'>,
-  planeExpr: string,
+  inputExpr: string,
   targetExprs: string[],
 ): string {
-  return `mirror(${[planeExpr, ...targetExprs].join(', ')})`
+  return `mirror(${[inputExpr, ...targetExprs].join(', ')})`
     + renderOpChains({ op: mo.op, thin: null });
 }
 
@@ -3973,8 +4022,11 @@ function buildStatement(spec: ApplyFeatureEditSpec, bindings: ProducerBinding[],
   }
   if (spec.feature === 'mirror') {
     const mo = spec.mirror!;
-    const planeExpr = renderRepeatPlaneExpr(mo.plane, spec.parts, i => bindings[i].varName);
-    return renderMirrorStatement(mo, planeExpr, mo.targets.map(t => bindings[t.producer].varName!));
+    const varFor = (i: number): string | null => bindings[i].varName;
+    const inputExpr = mo.axis
+      ? renderMirrorAxisExpr(mo.axis, spec.parts, varFor)
+      : renderRepeatPlaneExpr(mo.plane!, spec.parts, varFor);
+    return renderMirrorStatement(mo, inputExpr, mo.targets.map(t => bindings[t.producer].varName!));
   }
   if (spec.feature === 'rotate') {
     const ro = spec.rotate!;
@@ -6962,7 +7014,7 @@ export type SketchTargetDescriptor =
   | { kind: 'filter'; calls: { name: string; dim: number | null }[] };
 
 /**
- * Parse the 2D statement (offset, slot-from-edge or fillet) at `line` into
+ * Parse the 2D statement (offset, fillet, text, copy or mirror) at `line` into
  * target descriptors for the edit dialog's edge seeding: bare producer
  * variables, `r.edge(…)` accessor calls with literal arguments, and
  * `edge().<kind>(…)` filter chains — the forms selector synthesis emits.
@@ -6983,8 +7035,8 @@ export async function parseOffsetTargetDescriptors(
   }
   const chain = decomposeChain(call);
   if (!chain || (chain.root.name !== 'offset' && chain.root.name !== 'fillet'
-    && chain.root.name !== 'text' && chain.root.name !== 'copy')) {
-    return { ok: false, reason: 'the statement at that line is not an offset, fillet, text or copy' };
+    && chain.root.name !== 'text' && chain.root.name !== 'copy' && chain.root.name !== 'mirror')) {
+    return { ok: false, reason: 'the statement at that line is not an offset, fillet, text, copy or mirror' };
   }
   const args = chain.root.args;
   const numericVars = numericVarNames(tree);
@@ -6994,6 +7046,10 @@ export async function parseOffsetTargetDescriptors(
     // `copy('<kind>', <axis|center>, {…}, …targets)` — only the trailing
     // targets seed; a target-less copy seeds nothing (the whole-sketch form).
     selectorsFrom = Math.min(args.length, 3);
+  } else if (chain.root.name === 'mirror') {
+    // `mirror(<axis>, …targets)` — the axis line is a slot of its own, never
+    // a target; a target-less mirror seeds nothing (the whole-sketch form).
+    selectorsFrom = Math.min(args.length, 1);
   } else if (chain.root.name === 'text') {
     // `text("…"[, <path>])` — only the path argument seeds; a plain anchored
     // text has nothing nameable (descriptors: [], like a whole-sketch offset).
@@ -7626,9 +7682,28 @@ function renderEditedMirror(
   };
 
   const plane = opts.plane;
-  let planeExpr: string;
-  if (plane?.kind === 'keep') {
-    planeExpr = parsed.planeText;
+  const axis = opts.axis;
+  let inputExpr: string;
+  if (axis !== undefined) {
+    // The 2D form: the statement's first argument is its axis, and the
+    // chain-less kernel form takes no op.
+    if (plane !== undefined || opts.op !== 'add') {
+      return { error: 'malformed mirror edit spec' };
+    }
+    if (axis.kind === 'keep') {
+      inputExpr = parsed.planeText;
+    } else {
+      if (axis.kind === 'selector') {
+        if (!claimPart(axis.part)) {
+          return { error: 'malformed mirror edit spec: bad selector axis' };
+        }
+      } else if (axis.kind !== 'local' || (axis.axis !== 'x' && axis.axis !== 'y')) {
+        return { error: 'malformed mirror edit spec' };
+      }
+      inputExpr = renderMirrorAxisExpr(axis, spec.parts, varFor);
+    }
+  } else if (plane?.kind === 'keep') {
+    inputExpr = parsed.planeText;
   } else {
     if (plane?.kind === 'selector') {
       if (!claimPart(plane.part)) {
@@ -7642,7 +7717,7 @@ function renderEditedMirror(
       || (plane.plane !== 'xy' && plane.plane !== 'xz' && plane.plane !== 'yz')) {
       return { error: 'malformed mirror edit spec' };
     }
-    planeExpr = renderRepeatPlaneExpr(plane, spec.parts, varFor);
+    inputExpr = renderRepeatPlaneExpr(plane, spec.parts, varFor);
   }
 
   let targetExprs = parsed.targetTexts;
@@ -7661,7 +7736,9 @@ function renderEditedMirror(
         usedVerbatim.add(target.sourceIndex);
         exprs.push(parsed.targetTexts[target.sourceIndex]);
       } else if (target?.kind === 'feature') {
-        if (!isFeatureProducer(spec as ApplyFeatureEditSpec, target.producer)) {
+        // A 3D mirror's targets are feature producers; the 2D form's are
+        // sketch-geometry producers — the copy target rule covers both.
+        if (!isCopyTargetProducer(spec as ApplyFeatureEditSpec, target.producer)) {
           return { error: 'malformed mirror edit spec: a target references a non-feature producer' };
         }
         exprs.push(varFor(target.producer) ?? spec.producers[target.producer].nameHint ?? 'f');
@@ -7675,7 +7752,7 @@ function renderEditedMirror(
     return { error: 'malformed mirror edit spec: a selector part belongs to no input' };
   }
 
-  return { statement: renderMirrorStatement(opts, planeExpr, targetExprs) };
+  return { statement: renderMirrorStatement(opts, inputExpr, targetExprs) };
 }
 
 /**

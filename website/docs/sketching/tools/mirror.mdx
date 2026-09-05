@@ -11,7 +11,14 @@ import toolMirrorLocal from '!!raw-loader!../_examples/tool-mirror-local.js';
 
 Mirror reflects sketch geometry across a line or an axis. Draw one half of a symmetric profile, mirror it, and the two halves join into one region.
 
-There is no Mirror button on the sketch toolbar; the 2D mirror is written in the code editor. (The toolbar's **Mirror** is the 3D one, for solids.)
+## In the viewport
+
+1. Click **Mirror** on the sketch toolbar (shortcut **M**). The Mirror dialog opens with a **Geometry** slot and a **Mirror line** slot.
+2. Click the sketch edges to mirror; they show as chips. Any edge stands for its whole primitive — one side of a rectangle picks the rectangle.
+3. Pick the **Mirror line**: click the slot, then click a sketched line in the viewport (a [guide](/docs/sketching/tools/guides) works too), or click the sketch's own X or Y axis line, written as `xAxis()` / `yAxis()`. The reflection previews in the viewport as you go.
+4. **Apply**.
+
+Double-click the mirror's row in the timeline to reopen the dialog and re-pick the geometry or the line.
 
 ## By hand
 

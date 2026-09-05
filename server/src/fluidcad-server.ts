@@ -199,13 +199,13 @@ type SceneManager = {
   synthesizeSketchApplyFeature?(
     scene: any,
     refs: { shapeId: string }[],
-    feature: 'fillet' | 'offset' | 'text' | 'copy' | 'rotate2d',
+    feature: 'fillet' | 'offset' | 'text' | 'copy' | 'mirror' | 'rotate2d',
     value: number | string | undefined,
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       bindable?: (producer: { line: number; featureType?: string }) => boolean;
       params?: { name: string; value: number }[];
-      /** Copy only: one pick per edge-picked direction, in direction order. */
+      /** Copy: one pick per edge-picked direction, in direction order. Mirror: the single line pick. */
       axisRefs?: { shapeId: string }[];
       /**
        * Offset only: the dialog's `.close()` chain. A workspace kernel
@@ -347,7 +347,8 @@ export type FeatureGhostRequest =
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
-  | Copy2DGhostRequest;
+  | Copy2DGhostRequest
+  | Mirror2DGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -712,6 +713,22 @@ export type Copy2DGhostRequest = {
 export type GhostSketchAxisRef =
   | { kind: 'local'; axis: 'x' | 'y' }
   | { kind: 'edge'; shapeId: string };
+
+/**
+ * The in-sketch mirror — keyed `mirror2d` on the wire because plain `mirror`
+ * already names the 3D body-reflecting ghost. Like the 2D copy it builds
+ * nothing: the reflection is its targets' own curves through one mirror
+ * matrix, stamped once. Targets travel as on every sketch-op path (1 shapeId
+ * = 1 sketch edge), each pick standing for its whole producing primitive; an
+ * empty list is the target-less form, which mirrors the whole active sketch.
+ */
+export type Mirror2DGhostRequest = {
+  feature: 'mirror2d';
+  /** The picked sketch edges; empty mirrors the whole active sketch. */
+  entities: { shapeId: string }[];
+  /** The line to reflect across. */
+  axis: GhostSketchAxisRef;
+};
 
 /**
  * One ghost body's meshes, in the same wire format a rendered solid uses.
@@ -1701,13 +1718,13 @@ export class FluidCadServer {
   /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */
   synthesizeSketchApplyFeature(
     refs: { shapeId: string }[],
-    feature: 'fillet' | 'offset' | 'text' | 'copy' | 'rotate2d',
+    feature: 'fillet' | 'offset' | 'text' | 'copy' | 'mirror' | 'rotate2d',
     value: number | string | undefined,
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       bindable?: (producer: { line: number; featureType?: string }) => boolean;
       params?: { name: string; value: number }[];
-      /** Copy only: one pick per edge-picked direction, in direction order. */
+      /** Copy: one pick per edge-picked direction, in direction order. Mirror: the single line pick. */
       axisRefs?: { shapeId: string }[];
       /** Offset only: the dialog's `.close()` chain. */
       offset?: { close: boolean };

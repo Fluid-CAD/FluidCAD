@@ -1201,16 +1201,15 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   panel.isFeatureEditable = (obj) =>
     obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null
     && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects))
-    // The in-sketch mirror shares `type: 'mirror'` with the 3D forms but has
-    // no edit dialog yet — the parse would misread its axis as a plane.
-    && obj.uniqueType !== 'mirror-shape-2d'
-    // The in-sketch rotate shares `type: 'rotate'` the same way — its leading
-    // angle would be misread as the 3D form's axis.
+    // The in-sketch rotate shares `type: 'rotate'` with the 3D form but has
+    // no edit dialog — its leading angle would be misread as the 3D axis.
+    // (The in-sketch mirror shares `type: 'mirror'` the same way but edits
+    // on the sketch rails — see openFeatureEditor.)
     && obj.uniqueType !== 'rotate-shape-2d';
   // A 2D offset row's edit pauses the build BEFORE its statement (see
   // openFeatureEditor), so its double-click defers the generic breakpoint.
   panel.managesOwnBreakpoint = (obj) =>
-    (obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type)) || isCopy2DRow(obj);
+    (obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type)) || isCopy2DRow(obj) || isMirror2DRow(obj);
 }
 
 /** Rows whose edit dialog pauses the build before its own statement. */
@@ -1223,6 +1222,16 @@ const PAUSE_BEFORE_ROW_TYPES = new Set(['offset', 'fillet2d']);
  */
 function isCopy2DRow(obj: SceneObjectRender): boolean {
   return obj.uniqueType === 'copy-linear-2d' || obj.uniqueType === 'copy-circular-2d';
+}
+
+/**
+ * A mirror statement parses identically in 2D and 3D — the row's unique type
+ * tells them apart. The 2D one lives inside a sketch body (its first argument
+ * is an axis, not a plane) and follows the offset edit's pause-before
+ * contract.
+ */
+function isMirror2DRow(obj: SceneObjectRender): boolean {
+  return obj.uniqueType === 'mirror-shape-2d';
 }
 
 
@@ -1283,12 +1292,12 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     return;
   }
   const target = obj.sourceLocation;
-  // A pause-before row (offset, 2D fillet, 2D copy) deferred the double-click's
-  // breakpoint so the parse above reads the unshifted buffer; every outcome
-  // except that row's own dialog owes the gesture its classic
+  // A pause-before row (offset, 2D fillet, 2D copy, 2D mirror) deferred the
+  // double-click's breakpoint so the parse above reads the unshifted buffer;
+  // every outcome except that row's own dialog owes the gesture its classic
   // after-the-statement pause.
   const deferredBreakpoint = (obj.type != null && PAUSE_BEFORE_ROW_TYPES.has(obj.type))
-    || isCopy2DRow(obj);
+    || isCopy2DRow(obj) || isMirror2DRow(obj);
   const result = await parseFeatureAt(target);
   if (result.ok === false) {
     if (deferredBreakpoint) {
@@ -1298,7 +1307,8 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
     return;
   }
   if (deferredBreakpoint && result.parsed.feature !== 'offset'
-    && result.parsed.feature !== 'fillet' && !(result.parsed.feature === 'copy' && isCopy2DRow(obj))) {
+    && result.parsed.feature !== 'fillet' && !(result.parsed.feature === 'copy' && isCopy2DRow(obj))
+    && !(result.parsed.feature === 'mirror' && isMirror2DRow(obj))) {
     addBreakpoint(target);
   }
   if (result.parsed.feature === 'sketch') {
@@ -1342,10 +1352,18 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
       copyService.enterEdit(target, parsed, info);
     }
   } else if (parsed.feature === 'mirror') {
-    // Only 3D `mirror()` rows reach here — isFeatureEditable filters the
-    // in-sketch form (mirror-shape-2d) out, and `repeat('mirror', …)` rows
-    // parse as feature 'repeat' above.
-    mirrorService.enterEdit(target, parsed, info);
+    if (isMirror2DRow(obj)) {
+      // A 2D mirror lives inside a sketch body and edits on the sketch rails
+      // — the copy edit's pause-before contract, its originals visible and
+      // re-pickable in the paused sketch. The parse's plane text is its axis.
+      closeFeatureDialogs();
+      pauseBeforeSketchStatement(obj, index);
+      sketchService.enterMirrorEdit(target, parsed, result.statement);
+    } else {
+      // The 3D `mirror()` rows; `repeat('mirror', …)` rows parse as feature
+      // 'repeat' above.
+      mirrorService.enterEdit(target, parsed, info);
+    }
   } else if (parsed.feature === 'rotate') {
     // Only 3D `rotate()` rows reach here — isFeatureEditable filters the
     // in-sketch form (rotate-shape-2d) out, and `repeat('rotate', …)` rows

@@ -68,14 +68,21 @@ export type SolvedFilletRail = {
 };
 
 /**
+ * A dialog's window onto the solved picks the hover handler owns beyond
+ * plain edge ids: the ordered picks (vertices, datums, references) and the
+ * eviction hook that drops one of them from the viewport selection.
+ */
+export type SolvedPickRail = {
+  picks(): SolvedPick[];
+  deselect(pick: SolvedPick): void;
+};
+
+/**
  * The rotate dialog's window onto the solved picks (P8): the picked points
  * its Center slot consumes, and the eviction hook that keeps exactly one
  * of them selected in the viewport.
  */
-export type SolvedCenterRail = {
-  picks(): SolvedPick[];
-  deselect(pick: SolvedPick): void;
-};
+export type SolvedCenterRail = SolvedPickRail;
 
 /** Whether a solved pick can anchor a rotation center: a vertex click (a
  * point role, a point entity, an anchor point) or the origin datum — never

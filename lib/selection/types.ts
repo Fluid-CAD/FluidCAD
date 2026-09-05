@@ -140,7 +140,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'text' | 'copy' | 'rotate2d' | 'connector' | 'expose';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'text' | 'copy' | 'mirror' | 'rotate2d' | 'connector' | 'expose';
 
 /**
  * A tangent chain from the "Select with tangents" gesture: the pick the user
@@ -305,10 +305,12 @@ export type ApplyFeatureSynthesis =
     /** Up to three verified alternative renderings of the argument list. */
     alternatives: string[];
     /**
-     * 2D copy only: which producers are the copy's targets (in pick order)
-     * and which parts are its per-direction axis edges (in direction order).
-     * The route assembles the statement's option payload around these; its
-     * absence on a 'copy' synthesis marks a kernel predating the kind.
+     * 2D copy and 2D mirror only: which producers are the statement's
+     * targets (in pick order) and which parts are its picked axis lines (a
+     * copy's per-direction edges in direction order; a mirror's single
+     * mirror line). The route assembles the statement's option payload
+     * around these; its absence on a 'copy' / 'mirror' synthesis marks a
+     * kernel predating the kind.
      */
     copySlots?: { targets: number[]; axisParts: number[] };
     /**

@@ -22,7 +22,7 @@ import {
 /** A sketch edge pick: 1 shapeId = 1 edge (the Stage 0 emission invariant). */
 export type SketchPickRef = { shapeId: string };
 
-export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'text' | 'copy' | 'rotate2d';
+export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'text' | 'copy' | 'mirror' | 'rotate2d';
 
 /**
  * The rotate dialog's payload as the route hands it in: the center is a
@@ -46,10 +46,12 @@ export type SketchSynthesizeOptions = SynthesizeOptions & {
   /** In-sketch rotate only: the dialog's center point and copy toggle. */
   rotate2d?: SketchRotate2DOptions;
   /**
-   * 2D copy only: one pick per edge-picked direction, in direction order.
-   * Each resolves to its producing single-line geometry, referenced as
-   * `axis(<var>)` in the emitted statement. `refs` is the target pick set —
-   * it may be empty for an edit that re-picks only the axis.
+   * 2D copy: one pick per edge-picked direction, in direction order. 2D
+   * mirror: the single mirror-line pick. Each resolves to its producing
+   * single-line geometry — a copy references it as `axis(<var>)`, a mirror
+   * as the bare `<var>` (the kernel lifts a line to its axis itself). `refs`
+   * is the target pick set — it may be empty for an edit that re-picks only
+   * the axis.
    */
   axisRefs?: SketchPickRef[];
 };
@@ -92,14 +94,16 @@ export function synthesizeSketchApplyFeature(
   value?: number | string,
   options: SketchSynthesizeOptions = {},
 ): ApplyFeatureSynthesis {
-  // Copy alone tolerates an empty target set: an edit may re-pick only its
-  // axis edge while the statement's own targets stand verbatim.
-  if (refs.length === 0 && !(feature === 'copy' && (options.axisRefs?.length ?? 0) > 0)) {
+  // The axis-taking transforms (copy, mirror) tolerate an empty target set:
+  // an edit may re-pick only its axis line while the statement's own targets
+  // stand verbatim.
+  const axisTransform = feature === 'copy' || feature === 'mirror';
+  if (refs.length === 0 && !(axisTransform && (options.axisRefs?.length ?? 0) > 0)) {
     return { ok: false, reason: 'nothing selected' };
   }
 
-  if (feature === 'copy') {
-    return synthesizeSketchCopy(scene, refs, options);
+  if (feature === 'copy' || feature === 'mirror') {
+    return synthesizeSketchTransformOperands(scene, refs, feature, options);
   }
 
   if (feature === 'rotate2d') {
@@ -568,33 +572,58 @@ function synthesizeSketchRotate(
 }
 
 /**
- * The 2D copy is owner-level: its targets are whole
- * geometries (CopyLinear2D/CopyCircular2D filter their previous siblings by
- * identity), so any picked edge stands for its producing primitive and the
- * emitted target args are bare variables — `copy('linear', xAxis(),
- * {…}, r, c)`. An edge-picked direction resolves the same way, but its owner
- * must be a single straight line (the direction the copy walks), referenced
- * as `axis(<var>)`. The route owns the statement's option payload; this
- * synthesis owns the operands, reporting them through `copySlots` — whose
- * absence tells the route the workspace kernel predates the kind.
+ * The 2D copy and mirror are owner-level: their targets are whole
+ * geometries (CopyLinear2D/CopyCircular2D/MirrorShape2D filter their previous
+ * siblings by identity), so any picked edge stands for its producing
+ * primitive and the emitted target args are bare variables —
+ * `copy('linear', xAxis(), {…}, r, c)`, `mirror(yAxis(), r, c)`. An
+ * edge-picked axis resolves the same way, but its owner must be a single
+ * straight line (the direction a copy walks, the line a mirror reflects
+ * across); a copy references it as `axis(<var>)`, a mirror as the bare
+ * `<var>`. The route owns the statement's option payload; this synthesis
+ * owns the operands, reporting them through `copySlots` — whose absence
+ * tells the route the workspace kernel predates the kind.
  */
-function synthesizeSketchCopy(
+function synthesizeSketchTransformOperands(
   scene: SelectionScene,
   refs: SketchPickRef[],
+  feature: 'copy' | 'mirror',
   options: SketchSynthesizeOptions,
 ): ApplyFeatureSynthesis {
   const axisRefs = options.axisRefs ?? [];
-
-  // One resolution over both slots keeps the same-sketch rule airtight.
-  const resolution = resolvePicks(scene, [...refs, ...axisRefs]);
-  if ('reason' in resolution) {
-    return { ok: false, reason: resolution.reason };
+  if (feature === 'mirror' && axisRefs.length > 1) {
+    return { ok: false, reason: 'a mirror reflects across exactly one line' };
   }
 
-  const targetIds = new Set(refs.map(r => r.shapeId));
+  // Targets resolve through the profile index (the build's own view of the
+  // sketch); an axis line may be a `.guide()` — construction geometry is
+  // the classic mirror line — so its picks widen to guides. Both must land
+  // in ONE sketch.
+  let targetPicks: ResolvedSketchPick[] = [];
+  let pickedSketch: Sketch | null = null;
+  if (refs.length > 0) {
+    const resolution = resolvePicks(scene, refs);
+    if ('reason' in resolution) {
+      return { ok: false, reason: resolution.reason };
+    }
+    targetPicks = resolution.picks;
+    pickedSketch = resolution.sketch;
+  }
+  let axisPicks: ResolvedSketchPick[] = [];
+  if (axisRefs.length > 0) {
+    const resolution = resolvePicks(scene, axisRefs, { includeGuides: true });
+    if ('reason' in resolution) {
+      return { ok: false, reason: resolution.reason };
+    }
+    if (pickedSketch && resolution.sketch !== pickedSketch) {
+      return { ok: false, reason: 'the picked edges live in different sketches — apply the operation per sketch' };
+    }
+    axisPicks = resolution.picks;
+  }
+
   const targetOwners: SceneObject[] = [];
-  for (const pick of resolution.picks) {
-    if (targetIds.has(pick.ref.shapeId) && !targetOwners.includes(pick.owner)) {
+  for (const pick of targetPicks) {
+    if (!targetOwners.includes(pick.owner)) {
       targetOwners.push(pick.owner);
     }
   }
@@ -603,19 +632,22 @@ function synthesizeSketchCopy(
   // the same line, and a target may double as an axis.
   const axisOwners: SceneObject[] = [];
   for (const ref of axisRefs) {
-    const pick = resolution.picks.find(p => p.ref.shapeId === ref.shapeId);
+    const pick = axisPicks.find(p => p.ref.shapeId === ref.shapeId);
     if (!pick) {
       return { ok: false, reason: 'an axis pick does not resolve to a sketch edge in the current scene' };
     }
-    // The direction is the picked line's own: the kernel resolves
-    // `axis(<var>)` through the owner's edge, so it must be exactly one
-    // straight segment — an arc or a multi-edge owner has no single direction.
+    // The axis is the picked line's own: the kernel resolves `axis(<var>)`
+    // (copy) or lifts the bare `<var>` (mirror) through the owner's edge, so
+    // it must be exactly one straight segment — an arc or a multi-edge owner
+    // has no single direction.
     const shapes = pick.owner.getShapes({ excludeGuide: false });
     const edges = shapes.filter((s): s is Edge => s instanceof Edge);
     if (edges.length !== 1 || shapes[0] !== edges[0] || classifyEdge(edges[0]) !== 'line') {
       return {
         ok: false,
-        reason: `a copy direction follows a single straight line — not a ${pick.owner.getType()}()`,
+        reason: feature === 'copy'
+          ? `a copy direction follows a single straight line — not a ${pick.owner.getType()}()`
+          : `a mirror line is a single straight line — not a ${pick.owner.getType()}()`,
       };
     }
     axisOwners.push(pick.owner);
@@ -645,7 +677,7 @@ function synthesizeSketchCopy(
   const args = targetParts.map(p => renderPartArgs(p, names)).join(', ');
 
   const spec: ApplyFeatureEditSpec = {
-    feature: 'copy',
+    feature,
     filePath: filePaths.values().next().value!,
     producers: owners.map(owner => {
       const loc = owner.getSourceLocation()!;
@@ -658,8 +690,8 @@ function synthesizeSketchCopy(
       };
     }),
     // Only the axis parts ride the spec — the route addresses the targets by
-    // producer, matching the copy renderer's contract (every part must be
-    // claimed by an axis input).
+    // producer, matching the copy/mirror renderers' contract (every part
+    // must be claimed by an axis input).
     parts: axisParts.map(p => ({
       producer: owners.indexOf(p.producer!),
       accessor: p.accessor,
@@ -674,7 +706,7 @@ function synthesizeSketchCopy(
     spec,
     // The route re-renders the full statement around these operands; this
     // preview never reaches a dialog.
-    preview: `copy(…, ${args})`,
+    preview: `${feature}(…, ${args})`,
     args,
     alternatives: [],
     copySlots: {

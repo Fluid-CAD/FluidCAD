@@ -71,7 +71,7 @@ type GhostBody = {
 
 const FEATURES = [
   'extrude', 'revolve', 'sweep', 'loft', 'fillet', 'chamfer', 'helix', 'repeat', 'copy', 'mirror',
-  'rotate', 'plane', 'rib', 'offset', 'fillet2d', 'copy2d',
+  'rotate', 'plane', 'rib', 'offset', 'fillet2d', 'copy2d', 'mirror2d',
 ];
 
 /** The features that modify edges of an existing solid rather than sweep a profile. */
@@ -749,6 +749,30 @@ function parseCopy2D(body: GhostBody): RawCopy2D | string {
   };
 }
 
+/** A 2D mirror request's slots: the targets and the line to reflect across. */
+type RawMirror2D = {
+  entities: { shapeId: string }[];
+  axis: GhostSketchAxisRef;
+};
+
+/**
+ * The in-sketch mirror dialog's slots: sketch-edge targets (an empty list is
+ * the whole-sketch form) and exactly one axis — a sketch-plane datum or a
+ * picked line, the 2D copy's direction slot shape. Hand-written rather than
+ * shared with {@link parseCopy2D}, which validates a different purpose.
+ */
+function parseMirror2D(body: GhostBody): RawMirror2D | string {
+  const entities = parseSketchEntityRefs(body.entities);
+  if (!entities) {
+    return 'Invalid mirror targets';
+  }
+  const axes = parseSketchAxes(body.axis === undefined ? [] : [body.axis]);
+  if (!axes || axes.length !== 1) {
+    return 'Invalid axis reference';
+  }
+  return { entities, axis: axes[0] };
+}
+
 /**
  * The 2D copy's direction slots: sketch-plane axes (the Sketch X / Sketch Y
  * quick buttons) and picked sketch lines by shapeId. The 3D family's
@@ -1027,8 +1051,9 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
     const isOffset = body.feature === 'offset';
     const isFillet2D = body.feature === 'fillet2d';
     const isCopy2D = body.feature === 'copy2d';
+    const isMirror2D = body.feature === 'mirror2d';
     if (!isBand && !isHelix && !isRepeat && !isCopy && !isRotate && !isPlane && !isOffset
-      && !isFillet2D && !isCopy2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
+      && !isFillet2D && !isCopy2D && !isMirror2D && (typeof body.op !== 'string' || !OPS.includes(body.op))) {
       res.status(400).json({ success: false, reason: 'Invalid op' });
       return;
     }
@@ -1162,6 +1187,15 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         return;
       }
       copy2d = parsed;
+    }
+    let mirror2d: RawMirror2D | null = null;
+    if (isMirror2D) {
+      const parsed = parseMirror2D(body);
+      if (typeof parsed === 'string') {
+        res.status(400).json({ success: false, reason: parsed });
+        return;
+      }
+      mirror2d = parsed;
     }
     let planeType: 'offset' | 'mid' | 'edge' | null = null;
     let planeBases: GhostPlaneBaseRef[] = [];
@@ -1330,6 +1364,12 @@ export function createFeatureGhostRouter(fluidCadServer: FluidCadServer): Router
         targets: rotate!.targets,
         axis: rotate!.axis,
         angle,
+      };
+    } else if (isMirror2D) {
+      request = {
+        feature: 'mirror2d',
+        entities: mirror2d!.entities,
+        axis: mirror2d!.axis,
       };
     } else if (isCopy2D) {
       request = {

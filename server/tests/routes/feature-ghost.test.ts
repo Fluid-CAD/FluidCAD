@@ -912,3 +912,56 @@ describe('feature-ghost route — rotate', () => {
     expect(received).toBeUndefined();
   });
 });
+
+/** An in-sketch mirror exactly as the dialog sends it. */
+function mirror2dBody(overrides: Record<string, unknown> = {}) {
+  return {
+    feature: 'mirror2d',
+    entities: [{ shapeId: 'e1' }],
+    axis: { kind: 'local', axis: 'y' },
+    ...overrides,
+  };
+}
+
+describe('feature-ghost route — mirror2d', () => {
+  useGhostRoute();
+
+  it('passes an in-sketch mirror through with its axis slot', async () => {
+    const { status, body } = await postGhost(mirror2dBody());
+    expect(status).toBe(200);
+    expect(body.success).toBe(true);
+    expect(received).toEqual({
+      feature: 'mirror2d',
+      entities: [{ shapeId: 'e1' }],
+      axis: { kind: 'local', axis: 'y' },
+    });
+
+    await postGhost(mirror2dBody({ entities: [], axis: { kind: 'edge', shapeId: 'line1' } }));
+    expect(received).toEqual({
+      feature: 'mirror2d',
+      entities: [],
+      axis: { kind: 'edge', shapeId: 'line1' },
+    });
+  });
+
+  it('refuses a body the mirror does not accept', async () => {
+    const bodies: Record<string, unknown>[] = [
+      // Malformed targets.
+      mirror2dBody({ entities: undefined }),
+      mirror2dBody({ entities: [{ index: 1 }] }),
+      // The 3D family's axis forms, and no axis at all.
+      mirror2dBody({ axis: { kind: 'standard', axis: 'x' } }),
+      mirror2dBody({ axis: { kind: 'axis', filePath: FILE, line: 3 } }),
+      mirror2dBody({ axis: { kind: 'keep' } }),
+      mirror2dBody({ axis: undefined }),
+      mirror2dBody({ axis: null }),
+    ];
+
+    for (const body of bodies) {
+      const result = await postGhost(body);
+      expect(result.status, JSON.stringify(body)).toBe(400);
+      expect(result.body.success).toBe(false);
+    }
+    expect(received).toBeUndefined();
+  });
+});

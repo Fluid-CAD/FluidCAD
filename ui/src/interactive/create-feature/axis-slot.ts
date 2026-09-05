@@ -61,6 +61,13 @@ export class AxisSlotControl {
        * string literals (`'z'`); the 2D copy passes an `xAxis()` matcher.
        */
       keepMatcher?: RegExp;
+      /**
+       * The axes a kept text may read back as; default the quick-button
+       * axes. A slot with no quick buttons (the 2D mirror, whose axes are
+       * picked in the viewport) names them here so a kept `xAxis()` still
+       * lands on its standard chip.
+       */
+      keepAxes?: readonly StandardAxis[];
       /** The empty slot's pick prompt. */
       prompt?: string;
     },
@@ -187,7 +194,8 @@ export class AxisSlotControl {
     }
     const matcher = this.opts.keepMatcher ?? /^['"]([xyz])['"]$/;
     const standard = this.keepLabel.trim().match(matcher);
-    if (standard && this.buttons.has(standard[1] as StandardAxis)) {
+    const keepAxes = this.opts.keepAxes ?? [...this.buttons.keys()];
+    if (standard && keepAxes.includes(standard[1] as StandardAxis)) {
       return { kind: 'standard', axis: standard[1] as StandardAxis };
     }
     return { kind: 'keep' };

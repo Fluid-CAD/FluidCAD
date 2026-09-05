@@ -28,6 +28,7 @@ import { Viewer } from '../viewer';
 import { ProjectionPickService } from './projection-pick-service';
 import { SketchOpDialog, SketchOpService, SketchOpSelection, SketchPickDescription, SolvedFilletRail } from './sketch-op-service';
 import { SketchCopyService } from './sketch-copy-service';
+import { SketchMirrorService } from './sketch-mirror-service';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { VariableInfo } from '../ui/expression-input';
 import { ShortcutManager } from '../ui/shortcut-manager';
@@ -80,6 +81,7 @@ export class SketchToolbarService {
   private rotateOp!: SketchOpService;
   private slotOp!: SketchOpService;
   private copyOp!: SketchCopyService;
+  private mirrorOp!: SketchMirrorService;
   private toolbar: SketchToolbar;
   /** The solved-sketch constraint bar (P4). */
   private solvedToolbar: SolvedConstraintToolbarService;
@@ -202,6 +204,13 @@ export class SketchToolbarService {
       value: { label: 'Radius', defaultValue: '2', sign: 'positive' },
     }, opSelection, opVars, opDone, opGhost, filletRail);
     this.copyOp = new SketchCopyService(container, opSelection, opVars, opDone, opGhost);
+    // The mirror line may be one of the sketch's datum axes — a solved pick,
+    // not an edge id — so the dialog reads the solved rail like rotate's
+    // Center slot does.
+    this.mirrorOp = new SketchMirrorService(container, opSelection, opDone, opGhost, {
+      picks: () => this.activeHoverSelectHandler?.getSolvedPicks() ?? [],
+      deselect: (pick) => this.activeHoverSelectHandler?.deselectSolvedPick(pick),
+    });
     this.offsetOp = opService({
       feature: 'offset', title: 'Offset', pickHint: 'Pick sketch edges to offset',
       value: { label: 'Distance', defaultValue: '2', sign: 'nonzero' },
@@ -248,6 +257,7 @@ export class SketchToolbarService {
     this.opServices = {
       fillet: this.filletOp,
       copy: this.copyOp,
+      mirror: this.mirrorOp,
       offset: this.offsetOp,
       rotate: this.rotateOp,
       slot: this.slotOp,
@@ -283,7 +293,7 @@ export class SketchToolbarService {
     return this.activeDrawingTool !== null;
   }
 
-  /** The op dialog (fillet, offset, copy) of the currently armed toolbar tool. */
+  /** The op dialog (fillet, offset, copy, mirror) of the currently armed toolbar tool. */
   private activeOpService(): SketchOpDialog | undefined {
     const tool = this.toolbar.activeTool;
     return tool ? this.opServices[tool] : undefined;
@@ -374,6 +384,31 @@ export class SketchToolbarService {
       this.handleToolSelect(null);
     }
     this.toolbar.setActiveTool('copy');
+    service.enterEdit(target, parsed, expectedStatement);
+    if (this.activeSketchInfo) {
+      service.noteSketchActive();
+      this.activateDragHandler();
+    }
+  }
+
+  /**
+   * Open the mirror dialog over the 2D `mirror()` statement at `target`
+   * (timeline double-click) — the same pause-before contract as the copy
+   * edit: the sketch on screen is the one the mirror's arguments see, the
+   * originals visible and re-pickable, their reflections absent.
+   */
+  enterMirrorEdit(
+    target: FeatureEditTarget,
+    parsed: Extract<ParsedFeatureStatement, { feature: 'mirror' }>,
+    expectedStatement: string,
+  ): void {
+    const service = this.mirrorOp;
+    // Same contract as the offset edit: never disarm an already-editing
+    // dialog here — that would cancel it and clear the fresh breakpoint.
+    if (!service.isEditing) {
+      this.handleToolSelect(null);
+    }
+    this.toolbar.setActiveTool('mirror');
     service.enterEdit(target, parsed, expectedStatement);
     if (this.activeSketchInfo) {
       service.noteSketchActive();
@@ -798,16 +833,16 @@ export class SketchToolbarService {
       this.viewer.sceneContext,
       this.activeSketchInfo.plane,
       () => this.activeSolvedDragHandler?.isResizing ?? false,
-      // The copy, fillet and rotate dialogs' picks accumulate like the 3D
-      // dialogs': every click toggles a target in or out and an empty-space
-      // click keeps the list — a multi-pick dialog's set must not vanish
-      // under a stray click (a fillet routinely wants several edges, and
-      // rotate's center vertex click must not clear its targets). The armed
-      // two-pick dimension tool accumulates the same way (its second plain
-      // click must not replace the first pick). The remaining single-value
-      // ops keep the classic replace-and-clear rails.
-      () => (this.toolbar.activeTool === 'copy' || this.toolbar.activeTool === 'fillet'
-        || this.toolbar.activeTool === 'rotate'
+      // The copy, mirror, fillet and rotate dialogs' picks accumulate like
+      // the 3D dialogs': every click toggles a target in or out and an
+      // empty-space click keeps the list — a multi-pick dialog's set must not
+      // vanish under a stray click (a fillet routinely wants several edges,
+      // and rotate's center vertex click must not clear its targets). The
+      // armed two-pick dimension tool accumulates the same way (its second
+      // plain click must not replace the first pick). The remaining
+      // single-value ops keep the classic replace-and-clear rails.
+      () => (this.toolbar.activeTool === 'copy' || this.toolbar.activeTool === 'mirror'
+        || this.toolbar.activeTool === 'fillet' || this.toolbar.activeTool === 'rotate'
         || this.solvedToolbar.isDimensionArmed
         ? 'toggle' : 'replace'),
     );

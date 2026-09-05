@@ -397,7 +397,8 @@ export type FeatureGhostRequest =
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
-  | Copy2DGhostRequest;
+  | Copy2DGhostRequest
+  | Mirror2DGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -799,6 +800,25 @@ export type Copy2DGhostRequest = {
 export type GhostSketchAxisRef =
   | { kind: 'local'; axis: 'x' | 'y' }
   | { kind: 'edge'; shapeId: string };
+
+/**
+ * The in-sketch mirror dialog on the ghost wire — keyed `mirror2d` because
+ * plain `mirror` already names the 3D body-reflecting ghost. Like the 2D
+ * copy it builds nothing: the reflection a `mirror()` places inside a sketch
+ * is its targets' own curves through one mirror matrix, so what comes back
+ * is those curves stamped once, reflected, in the ghost wire's blue. Targets
+ * travel as on the apply path (1 shapeId = 1 edge), each pick standing for
+ * its whole producing primitive; an empty list is the target-less (whole
+ * sketch) statement form, which only an edit dialog produces. The axis is
+ * the copy dialog's direction slot: a sketch-plane datum, or a picked line.
+ */
+export type Mirror2DGhostRequest = {
+  feature: 'mirror2d';
+  /** The picked sketch edges; empty mirrors the whole active sketch. */
+  entities: SketchApplyEntity[];
+  /** The line to reflect across. */
+  axis: GhostSketchAxisRef;
+};
 
 /**
  * One ghost body, in the mesh wire format the scene's solids already use.
@@ -1425,6 +1445,66 @@ export async function applySketchCopyEdit(
     sketchTargets: options.entities,
     sketchAxisEntities: options.axisEntities,
     newVariables: options.newVariables,
+    preview: options.preview,
+  }, options.signal);
+}
+
+/** The 2D mirror's line: a sketch-plane axis datum (xAxis()/yAxis()) or a picked sketch line. */
+export type SketchMirrorAxis = SketchCopyAxis;
+
+/**
+ * Ask the server to synthesize (and, unless `preview` is set, apply) a 2D
+ * mirror for the picked sketch geometry: `mirror(yAxis(), r, c)` inside the
+ * sketch body — targets rendered as bare variables, an edge-picked line as
+ * its own bare variable (`mirror(l, r)`), the documented kernel form.
+ */
+export async function applySketchMirror(
+  entities: SketchApplyEntity[],
+  options: {
+    axis: SketchMirrorAxis;
+    /** The single line pick of an edge-kind axis. */
+    axisEntities?: SketchApplyEntity[];
+    preview?: boolean;
+    signal?: AbortSignal;
+  },
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'mirror',
+    sketchEntities: entities,
+    sketchAxisEntities: options.axisEntities,
+    mirror2d: { axis: options.axis },
+    preview: options.preview,
+  }, options.signal);
+}
+
+/** The axis slot of an edited 2D mirror: keep the statement's own line, or re-source. */
+export type SketchMirrorEditAxis = { kind: 'keep' } | SketchMirrorAxis;
+
+export type SketchMirrorEditOptions = EditSessionFields & {
+  axis: SketchMirrorEditAxis;
+  /** Re-picked targets replacing the whole list; omitted keeps the statement's. */
+  entities?: SketchApplyEntity[];
+  /** The single line pick of an edge-kind axis. */
+  axisEntities?: SketchApplyEntity[];
+  preview?: boolean;
+  signal?: AbortSignal;
+};
+
+/** Rewrite the 2D `mirror()` statement (inside a sketch body) at `edit` in place. */
+export async function applySketchMirrorEdit(
+  edit: FeatureEditTarget,
+  options: SketchMirrorEditOptions,
+): Promise<ApplyFeatureResponse> {
+  return postApplyFeature({
+    feature: 'mirror',
+    edit,
+    expectedStatement: options.expectedStatement,
+    // The 2D form's chain-less op; the picked-line kind travels as
+    // 'sketch-edge' like the copy edit's, keeping 'edge' for 3D picks.
+    op: 'add',
+    axis: options.axis.kind === 'edge' ? { kind: 'sketch-edge' } : options.axis,
+    sketchTargets: options.entities,
+    sketchAxisEntities: options.axisEntities,
     preview: options.preview,
   }, options.signal);
 }

@@ -27,6 +27,7 @@ export function createScreenshotRouter(
       solidsOnly,
       showDimensions,
       showPositional,
+      framePlanes,
       pixelRatio,
     } = req.body;
 
@@ -112,7 +113,7 @@ export function createScreenshotRouter(
       options.solidsOnly = solidsOnly;
     }
 
-    for (const [key, value] of [['showDimensions', showDimensions], ['showPositional', showPositional]] as const) {
+    for (const [key, value] of [['showDimensions', showDimensions], ['showPositional', showPositional], ['framePlanes', framePlanes]] as const) {
       if (value !== undefined) {
         if (typeof value !== 'boolean') {
           res.status(400).json({ error: `${key} must be a boolean.` });

@@ -5,8 +5,10 @@ title: "Planes"
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
 import planeOffset from '!!raw-loader!./_examples/datums-plane-offset.js';
-import planeFromEdge from '!!raw-loader!./_examples/datums-plane-from-edge.js';
+import planeOffsetFace from '!!raw-loader!./_examples/datums-plane-offset-face.js';
 import planeMid from '!!raw-loader!./_examples/datums-plane-mid.js';
+import planeMidFaces from '!!raw-loader!./_examples/datums-plane-mid-faces.js';
+import planeFromEdge from '!!raw-loader!./_examples/datums-plane-from-edge.js';
 
 # Planes
 
@@ -42,11 +44,11 @@ A translucent ghost of the plane follows the fields while the dialog is open. Do
 
 ## Offset planes
 
-The most common plane: an origin plane or a face, shifted along its normal.
+The most common plane: an origin plane or a face, shifted along its normal. In the viewport a plane is a translucent square with an arrow at its centre pointing along the normal — the side a sketch on it faces, and the direction a positive offset moves it.
 
-![A two-tier shelf: the upper plate sketched on a plane 40 above the lower one](/img/docs/datums/datums-plane-offset.png)
+![The XY origin plane offset 40: a plane quad floating 40 above the grid](/img/docs/datums/datums-plane-offset.png)
 
-<ExplainedCode code={planeOffset} fileName="shelf.part.js" />
+<ExplainedCode code={planeOffset} fileName="offset.part.js" />
 
 The offset is one of the transform options. The others rotate the plane around its own axes, and they compose — the offset is applied first, then the rotations around the offset origin:
 
@@ -59,49 +61,66 @@ plane("xy", { offset: 30, rotateZ: 90 })         // shifted, then spun around it
 
 ### From a face
 
-A face is a plane too. Pass the face and the plane takes its position and orientation; a number or an options object offsets and rotates it from there:
+A face is a plane too. Pick the face as the **Base** and the plane takes its position and orientation, centred on the face; the **Distance** offsets it from there:
+
+![A block with a plane 20 above its top face](/img/docs/datums/datums-plane-offset-face.png)
+
+<ExplainedCode code={planeOffsetFace} fileName="block.part.js" />
+
+In code, a number or an options object offsets and rotates the face's plane:
 
 ```js
-const e = extrude(30)
-
-plane(e.endFaces())                  // the top face's plane
-plane(e.endFaces(), 10)              // 10 above the top face
-plane(e.endFaces(), { rotateY: 15 }) // tilted around the face's Y
+plane(block.endFaces())                  // the top face's plane
+plane(block.endFaces(), 20)              // 20 above the top face
+plane(block.endFaces(), { rotateY: 15 }) // tilted around the face's Y
 ```
 
 Sketching directly on a face (`sketch(e.endFaces(), …)`) is the same thing without the separate statement; a `plane()` feature is worth it when several features share the plane, or when it needs an offset or a tilt.
 
 ## Mid planes
 
-A plane halfway between two others, oriented like them. Pick two faces (or an origin plane and a face, or two plane features) as the bases. A shaft clamp is split into its two halves on exactly such a plane:
+A plane halfway between two others, oriented like them. Pick two plane rows in the timeline (or two origin-plane quads) as the **Bases**:
 
-![A shaft clamp sawn in two on the mid plane between its bottom and top faces](/img/docs/datums/datums-plane-mid.png)
+![The mid plane between the YZ origin plane and the same plane shifted 60 along X](/img/docs/datums/datums-plane-mid.png)
 
-<ExplainedCode code={planeMid} fileName="clamp.part.js" />
+<ExplainedCode code={planeMid} fileName="mid.part.js" />
 
-Both arguments must be planes: pass plane names, plane features, or wrap a face selection in `plane(…)` as above. A mid plane keeps tracking its bases — make the block taller and the split stays centred on the bore.
+The two source planes are folded into the result: after **Apply** only the mid plane shows in the viewport. It keeps tracking its bases — move either one and the mid plane re-centres.
+
+### Between two faces
+
+The bases can be faces: click the block's bottom face and its top face and the plane lands at mid-height.
+
+![A block with the mid plane between its bottom and top faces](/img/docs/datums/datums-plane-mid-faces.png)
+
+<ExplainedCode code={planeMidFaces} fileName="block.part.js" />
+
+Both arguments must be planes, so a face selection is wrapped in `plane(…)` as above. Options apply to the result:
 
 ```js
-plane("xy", plane("xy", { offset: 60 }))   // 30 above the ground
-plane(p1, p2, { rotateX: 10 })             // options apply to the result
+plane("yz", plane("yz", 60))       // same as the first example, inline
+plane(p1, p2, { rotateX: 10 })     // the mid plane, then tilted 10°
 ```
 
 ## Planes from an edge
 
-A plane can also stand **normal to an edge** at a point along it: the edge's tangent becomes the plane normal. This is how a profile is positioned for a sweep along a curve or a helix, and how a feature is placed at the end of, or part-way along, an edge — a flange on a pipe end, for instance, using the pipe's seam edge:
+A plane can also stand **normal to an edge** at a point along it: the edge's tangent becomes the plane normal, so on a curved edge the plane turns with the curve. This is how a profile is positioned for a sweep along a path. The edge can be a solid's edge or an open sketch curve. Pick it as the **Base** and set the **position** along it:
 
-![A flange drawn on the plane at the end of a pipe's seam edge](/img/docs/datums/datums-plane-from-edge.png)
+![An arc drawn on the front plane with a plane standing across its midpoint](/img/docs/datums/datums-plane-from-edge.png)
 
-<ExplainedCode code={planeFromEdge} fileName="pipe.part.js" />
+<ExplainedCode code={planeFromEdge} fileName="path.part.js" />
 
 The position is a name or a normalised value:
 
 ```js
-plane(e.sideEdges(0), 'start')   // at the edge start — normal faces outward, like a cap
-plane(e.sideEdges(0), 'middle')  // halfway; same as 0.5
-plane(e.sideEdges(0), 'end')     // at the end
-plane(e.sideEdges(0), 0.25)      // a quarter of the way along
+plane(path, 'start')             // at the edge start — normal faces outward, like a cap
+plane(path, 'middle')            // halfway; same as 0.5
+plane(path, 'end')               // at the end
+plane(path, 0.25)                // a quarter of the way along
+plane(solid.endEdges(0), 'end')  // a solid's edge works the same way
 ```
+
+A sketch that draws a single curve reads as that curve, which is what the dialog writes when a bare sketch curve is picked. A sketch with several curves is picked by edge instead.
 
 At `'start'` (0) the normal faces away from the edge body so both ends read like end caps; `'middle'` and `'end'` follow the edge's forward direction. On a curved edge the plane turns with the tangent.
 

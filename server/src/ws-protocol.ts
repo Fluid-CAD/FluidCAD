@@ -545,6 +545,8 @@ export type UITakeScreenshotMessage = {
     showDimensions?: boolean;
     /** Sketch positional-constraint badges and coincidence dots; default on. */
     showPositional?: boolean;
+    /** Include construction-plane quads in the fitted / auto-cropped bounds; default off. */
+    framePlanes?: boolean;
     /** Device-pixel ratio of the export (default 1): overlays are sized for a
      * `width / pixelRatio` CSS-pixel canvas, so a 2× export shown at half
      * size carries on-screen-sized annotations. */

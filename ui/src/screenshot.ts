@@ -43,6 +43,14 @@ export interface ScreenshotOptions {
   showDimensions: boolean;
   showPositional: boolean;
   /**
+   * Include construction planes (the translucent `plane(…)` quads) in the
+   * bounds that fitting and auto-crop frame. Off by default — a plane quad is
+   * 200 mm square whatever the model's size, so it would swamp the framing of
+   * a picture that is about the solids. A picture that is about the planes
+   * turns it on and gets the quads, outline and arrow in frame.
+   */
+  framePlanes: boolean;
+  /**
    * Device-pixel ratio of the export: the drawing buffer stays `width` ×
    * `height`, but screen-space overlays (constraint badges, dimension
    * readouts, vertex dots) are sized as if the canvas were `width /
@@ -66,6 +74,7 @@ const DEFAULTS: ScreenshotOptions = {
   solidsOnly: false,
   showDimensions: true,
   showPositional: true,
+  framePlanes: false,
   pixelRatio: 1,
 };
 
@@ -131,7 +140,7 @@ export function captureScreenshotMulti(
 function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTMLCanvasElement {
   const {
     width, height, showGrid, showAxes, transparent, autoCrop, fitToModel, margin, view, solidsOnly,
-    showDimensions, showPositional, pixelRatio,
+    showDimensions, showPositional, framePlanes, pixelRatio,
   } = options;
 
   const scene = sceneCtx.scene;
@@ -188,7 +197,7 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   // --- Apply requested view (if any) ---
   // Stateless: we mutate the camera directly and restore it below. The user's
   // CameraControls are never moved, so the interactive view is preserved.
-  const resolved = resolveSceneViewport(sceneCtx);
+  const resolved = resolveSceneViewport(sceneCtx, framePlanes);
   if (view.kind !== 'current') {
     const target = resolveView(view, resolved.center, resolved.diameter, savedCamPos, savedCamTarget);
     if (target) {
@@ -217,7 +226,7 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
     if (root) {
       root.updateWorldMatrix(true, true);
       const box = new Box3();
-      expandBounds(box, root);
+      expandBounds(box, root, framePlanes);
       if (!box.isEmpty()) {
         const center = box.getCenter(new Vector3());
         const diameter = box.getSize(new Vector3()).length() * FIT_PADDING;
@@ -276,7 +285,7 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   let exportCanvas: HTMLCanvasElement = tmpRenderer.domElement;
 
   if (autoCrop) {
-    const cropRect = computeCropRect(sceneCtx, width, height, margin);
+    const cropRect = computeCropRect(sceneCtx, width, height, margin, framePlanes);
     if (cropRect) {
       const cropped = document.createElement('canvas');
       cropped.width = cropRect.w;
@@ -414,12 +423,12 @@ function detachCanvas(src: HTMLCanvasElement, w: number, h: number): HTMLCanvasE
   return out;
 }
 
-function resolveSceneViewport(sceneCtx: SceneContext): { center: Vector3; diameter: number } {
+function resolveSceneViewport(sceneCtx: SceneContext, framePlanes: boolean): { center: Vector3; diameter: number } {
   const box = new Box3();
   const root = geometryRoot(sceneCtx);
   if (root) {
     root.updateWorldMatrix(true, true);
-    expandBounds(box, root);
+    expandBounds(box, root, framePlanes);
   }
   if (box.isEmpty()) {
     return { center: new Vector3(), diameter: 100 };
@@ -450,13 +459,14 @@ function computeCropRect(
   canvasW: number,
   canvasH: number,
   margin: number,
+  framePlanes: boolean,
 ): { x: number; y: number; w: number; h: number } | null {
   const root = geometryRoot(sceneCtx);
   if (!root) { return null; }
 
   root.updateWorldMatrix(true, true);
   const box = new Box3();
-  expandBounds(box, root);
+  expandBounds(box, root, framePlanes);
   if (box.isEmpty()) { return null; }
 
   const camera = sceneCtx.camera;
@@ -500,9 +510,10 @@ function computeCropRect(
 /** Recursively expand a Box3 to include all visible geometry.
  *  Unlike the viewer's expandBoxExcludingMeta, this includes guide/construction
  *  edges so that screenshots frame everything the user can see. Construction
- *  planes are still skipped because their geometry extends far beyond the model. */
-function expandBounds(box: Box3, object: Object3D): void {
-  if (object.userData.isConstructionPlane) { return; }
+ *  planes are skipped because their geometry extends far beyond the model,
+ *  unless the capture asks for them (`framePlanes`). */
+function expandBounds(box: Box3, object: Object3D, framePlanes = false): void {
+  if (object.userData.isConstructionPlane && !framePlanes) { return; }
   if (!object.visible) { return; }
   const o = object as any;
   if ((o.isMesh || o.isLine || o.isPoints) && o.geometry) {
@@ -512,6 +523,6 @@ function expandBounds(box: Box3, object: Object3D): void {
     }
   }
   for (const child of object.children) {
-    expandBounds(box, child);
+    expandBounds(box, child, framePlanes);
   }
 }

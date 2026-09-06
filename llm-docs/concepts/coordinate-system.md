@@ -1,9 +1,9 @@
 ---
 id: concepts/coordinate-system
 title: Coordinate systems and sketch axes
-summary: World axes are x, y, z. Standard planes are xy, xz, yz. "x"/"y"/"z" always mean world axes — even inside a sketch. Use local("x" | "y" | "z") for the sketch plane's local axes.
+summary: World axes are x, y, z. Standard planes are xy, xz, yz. "x"/"y"/"z" always mean world axes — even inside a sketch. Use the sketch datums xAxis() / yAxis() for the sketch plane's own axes.
 tags: [concept, geometry]
-seeAlso: [api/sketch]
+seeAlso: [api/sketch, api/constraints, api/mirror, api/copy]
 ---
 
 # Coordinate systems
@@ -15,25 +15,27 @@ seeAlso: [api/sketch]
 - Standard planes: `"xy"`, `"xz"`, `"yz"`. Aliases like `"front"` are
   also recognized — `"front"` is the XZ plane.
 
-## Sketch-local axes
+## Sketch axes
 
 `"x"`, `"y"`, `"z"` **always refer to world axes**, including inside a
-`sketch(...)` callback. To refer to the active sketch plane's local
-axes, use `local("x" | "y" | "z")`:
+`sketch(...)` callback. The sketch plane's own axes are the datums
+`xAxis()` and `yAxis()` (from `fluidcad/core`) — the same fixed lines
+constraints target (`collinear(xAxis(), l)`), and the direction
+`mirror()` and `copy("linear", …)` take inside the sketch:
 
 ```js
 sketch(tiltedPlane, () => {
     // "x" here is still the WORLD x axis
-    mirror("x");
+    mirror("x", g);
 
-    // use local(...) for the sketch plane's local X
-    mirror(local("x"));
+    // the sketch plane's own X
+    mirror(xAxis(), g);
+    copy("linear", yAxis(), { count: 3, offset: 20 }, g);
 });
-
-// local(...) also works outside the sketch callback,
-// resolved against the currently active sketch plane:
-mirror(local("x"));
 ```
+
+The datums belong to the sketch whose callback calls them — call them
+inside the callback; there is no sketch-normal datum.
 
 ## Axes of a face's plane
 

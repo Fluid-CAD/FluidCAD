@@ -7,6 +7,7 @@ import {
   resolveEditedStatementLine,
   renderCopyCenterExpr,
   renderCopyStatement,
+  renderMirrorAxisExpr,
   renderMirrorStatement,
   renderRotateStatement,
   renderEditedStatement,
@@ -24,8 +25,8 @@ import {
   type ExtrudeEditOptions, type ExtrudeFaceTarget, type ExtrudeTargetKind, type FeatureStatementEditTarget,
   type HelixEditOptions,
   type HelixSourceSpec, type LoftEditOptions,
-  type MirrorEditOptions,
-  type PlaneEditOptions, type RepeatAxisSpec, type RepeatEditAxis, type RepeatEditOptions,
+  type MirrorAxisSpec, type MirrorEditOptions,
+  type PlaneEditOptions, type RepeatAxisSpec, type RepeatEditAxis, type RepeatEditOptions, type RepeatPlaneSpec,
   type RotateEditAxis, type RotateEditOptions,
   type RevolveEditOptions, type RibEditOptions, type ShellJoinKind, type SweepEditOptions, type ValueExpr,
   type WrapEditOptions,
@@ -1660,6 +1661,31 @@ function validateSketchCopy(body: any): SketchCopyRequest | { error: string } {
   };
 }
 
+/**
+ * The in-sketch mirror request's option payload (`mirror2d`): the line to
+ * reflect across — a sketch-local axis (the Sketch X / Sketch Y quick
+ * buttons) or a picked sketch line whose single `{shapeId}` rides
+ * `sketchAxisEntities`. The target picks ride `sketchEntities`; both are
+ * resolved by the sketch synthesis kernel. No op, no numbers — a 2D mirror
+ * is its line and its targets.
+ */
+type SketchMirrorRequest = {
+  axis: SketchCopyAxisInput;
+};
+
+function validateSketchMirror(body: any): SketchMirrorRequest | { error: string } {
+  const raw = body?.mirror2d;
+  if (!raw || typeof raw !== 'object') {
+    return { error: 'mirror2d must carry the mirror options' };
+  }
+  const axis = raw.axis;
+  const isLocal = axis?.kind === 'local' && (axis.axis === 'x' || axis.axis === 'y');
+  if (!isLocal && axis?.kind !== 'edge') {
+    return { error: 'mirror2d.axis must be {kind: "local", axis: "x"|"y"} or {kind: "edge"}' };
+  }
+  return { axis: isLocal ? { kind: 'local', axis: axis.axis } : { kind: 'edge' } };
+}
+
 type BooleanRequest = {
   kind: BooleanKind;
   /** The feature statements being combined, in argument order. */
@@ -2128,6 +2154,20 @@ type StatementEditRequest = {
   mirrorPlane?: { kind: 'keep' } | RepeatPlaneInput;
   /** Full replacement mirror target list; absent keeps the statement's. */
   mirrorTargets?: ({ kind: 'verbatim'; sourceIndex: number } | { kind: 'feature'; loc: SketchLoc })[];
+  /**
+   * Edited 2D mirror's line (the in-sketch form, where the plane slot would
+   * be); keep stays the statement's own text, a picked sketch line rides
+   * `mirrorAxisPicks`.
+   */
+  mirrorAxis?: { kind: 'keep' } | { kind: 'local'; axis: 'x' | 'y' } | { kind: 'sketch-edge' };
+  /**
+   * Full replacement 2D mirror target list — sketch-edge picks in argument
+   * order, resolved to whole geometries by the sketch synthesis kernel.
+   * The pause-before contract applies: no boundary rides along.
+   */
+  mirrorSketchTargets?: { shapeId: string }[];
+  /** The 2D mirror's line pick — exactly one for a sketch-edge axis. */
+  mirrorAxisPicks?: { shapeId: string }[];
   /** Edited rotate's axis; keep stays the statement's own text. */
   rotateAxis?: { kind: 'keep' } | RevolveAxisInput;
   /** Full replacement rotate target list; absent keeps the statement's. */
@@ -3224,6 +3264,62 @@ function validateMirrorEdit(
     return { error: 'op must be "add", "remove" or "new"' };
   }
   const result: StatementEditRequest = base;
+
+  // The 2D in-sketch form: an `axis` field where the plane would be. Its
+  // keep re-reads the statement's own line text; a sketch-local axis or a
+  // picked line re-sources it, and the targets re-pick as sketch edges. The
+  // chain-less kernel form takes no op.
+  if (body?.axis !== undefined && body?.axis !== null) {
+    if (body?.plane !== undefined && body?.plane !== null) {
+      return { error: 'a mirror edit carries a plane (3D) or an axis (2D), not both' };
+    }
+    if (op !== 'add') {
+      return { error: 'an in-sketch mirror takes no operation chain — op must be "add"' };
+    }
+    if (body?.targets !== undefined && body?.targets !== null) {
+      return { error: 'an in-sketch mirror re-picks its targets as sketchTargets' };
+    }
+    const axis = body.axis;
+    if (axis?.kind === 'keep') {
+      result.mirrorAxis = { kind: 'keep' };
+    } else if (axis?.kind === 'local') {
+      if (axis.axis !== 'x' && axis.axis !== 'y') {
+        return { error: 'a local axis must be {kind: "local", axis: "x" | "y"}' };
+      }
+      result.mirrorAxis = { kind: 'local', axis: axis.axis };
+    } else if (axis?.kind === 'sketch-edge') {
+      result.mirrorAxis = { kind: 'sketch-edge' };
+    } else {
+      return { error: 'axis must be {kind: "keep"|"local"|"sketch-edge", …}' };
+    }
+    if (body?.sketchAxisEntities !== undefined && body?.sketchAxisEntities !== null) {
+      const picks = validateSketchPicks(body.sketchAxisEntities);
+      if (!picks) {
+        return { error: 'sketchAxisEntities must be a non-empty array of {shapeId} picks' };
+      }
+      result.mirrorAxisPicks = picks;
+    }
+    if ((result.mirrorAxisPicks?.length ?? 0) !== (result.mirrorAxis.kind === 'sketch-edge' ? 1 : 0)) {
+      return { error: 'sketchAxisEntities must carry exactly one pick for a sketch-edge axis' };
+    }
+    if (body?.sketchTargets !== undefined && body?.sketchTargets !== null) {
+      const picks = validateSketchPicks(body.sketchTargets);
+      if (!picks) {
+        return { error: 'sketchTargets must be a non-empty array of {shapeId} picks' };
+      }
+      if (picks.length > MAX_MIRROR_TARGETS) {
+        return { error: `sketchTargets must be 1-${MAX_MIRROR_TARGETS} picks` };
+      }
+      result.mirrorSketchTargets = picks;
+    }
+    // The axis defaults to keep; the resolution pass rewrites it (and fills
+    // the targets) from the request fields once producers exist.
+    edit.mirror = { axis: { kind: 'keep' }, op };
+    return result;
+  }
+  if (body?.sketchTargets !== undefined || body?.sketchAxisEntities !== undefined) {
+    return { error: 'sketchTargets and sketchAxisEntities only apply to an in-sketch mirror (axis)' };
+  }
   // The plane defaults to keep; the resolution pass rewrites it (and fills
   // the targets) from the request fields below once producers exist.
   edit.mirror = { plane: { kind: 'keep' }, op };
@@ -4192,7 +4288,8 @@ export function createApplyFeatureRouter(
           }
           let sketchAxisIndex = 0;
           // One copy axis input as its edit spec form; null after refusing.
-          // Keeps, standard and local axes pass through; an axis statement
+          // Keeps, standard and sketch-plane (xAxis()/yAxis()) axes pass
+          // through; an axis statement
           // binds a producer; a picked 3D edge synthesizes its own selector
           // part against the pre-statement boundary; a picked sketch edge
           // claims the next kernel-synthesized part. Both render wrapped in
@@ -4205,7 +4302,7 @@ export function createApplyFeatureRouter(
               return { kind: 'standard', axis: input.axis };
             }
             if (input.kind === 'local') {
-              importSet.add('local');
+              importSet.add(`${input.axis}Axis`);
               return { kind: 'local', axis: input.axis };
             }
             if (input.kind === 'sketch-edge') {
@@ -4270,6 +4367,66 @@ export function createApplyFeatureRouter(
         }
         if (request.feature === 'mirror') {
           const mo = edit.mirror!;
+          // The 2D in-sketch form: re-picked targets and/or the mirror line
+          // resolve through the sketch synthesis kernel against the CURRENT
+          // scene — the double-click paused the build just before the
+          // statement, so the rendered sketch already is the world the
+          // arguments see. A picked line claims the kernel-synthesized part,
+          // rendered bare; a datum axis renders `xAxis()` / `yAxis()`.
+          if (request.mirrorAxis) {
+            let sketchTargetProducers: number[] | null = null;
+            let sketchAxisPart: number | null = null;
+            if (request.mirrorSketchTargets || (request.mirrorAxisPicks?.length ?? 0) > 0) {
+              const synthesis = fluidCadServer.synthesizeSketchApplyFeature(
+                request.mirrorSketchTargets ?? [], 'mirror', undefined,
+                { ...synthOptions, axisRefs: request.mirrorAxisPicks ?? [] },
+              );
+              if (!synthesis) {
+                res.status(404).json({ success: false, reason: 'No rendered scene' });
+                return;
+              }
+              if (!synthesis.ok) {
+                res.status(422).json({ success: false, reason: synthesis.reason });
+                return;
+              }
+              if (!synthesis.copySlots) {
+                res.status(422).json({
+                  success: false,
+                  reason: "the workspace's FluidCAD version does not support the 2D mirror dialog — update its fluidcad dependency",
+                });
+                return;
+              }
+              const remap = synthesis.spec.producers.map(mergeProducer);
+              for (const part of synthesis.spec.parts) {
+                parts.push({
+                  ...part,
+                  producer: part.producer === null ? null : remap[part.producer],
+                  refs: part.refs ? part.refs.map((i: number) => remap[i]) : part.refs,
+                });
+                sketchAxisPart = parts.length - 1;
+              }
+              if (request.mirrorSketchTargets) {
+                sketchTargetProducers = synthesis.copySlots.targets.map((i: number) => remap[i]);
+              }
+            }
+            const input = request.mirrorAxis;
+            if (input.kind === 'keep') {
+              mo.axis = { kind: 'keep' };
+            } else if (input.kind === 'local') {
+              importSet.add(`${input.axis}Axis`);
+              mo.axis = { kind: 'local', axis: input.axis };
+            } else {
+              if (sketchAxisPart === null) {
+                res.status(422).json({ success: false, reason: 'the mirror line pick did not resolve to a sketch line' });
+                return;
+              }
+              mo.axis = { kind: 'selector', part: sketchAxisPart };
+            }
+            if (sketchTargetProducers) {
+              // The 2D re-pick replaces the whole target list, in pick order.
+              mo.targets = sketchTargetProducers.map(producer => ({ kind: 'feature' as const, producer }));
+            }
+          }
           if (request.mirrorPlane) {
             const input = request.mirrorPlane;
             if (input.kind === 'keep') {
@@ -5690,7 +5847,8 @@ export function createApplyFeatureRouter(
       return;
     }
 
-    if (feature === 'mirror') {
+    // The 3D mirror; the in-sketch form rides the sketchEntities branch below.
+    if (feature === 'mirror' && req.body?.sketchEntities === undefined) {
       const request = validateMirror(req.body);
       if ('error' in request) {
         res.status(400).json({ error: request.error });
@@ -5722,7 +5880,7 @@ export function createApplyFeatureRouter(
             crossFile: 'the mirror face and the targets come from different files',
           });
 
-        let plane: MirrorEditOptions['plane'];
+        let plane: RepeatPlaneSpec;
         const input = request.plane;
         if (input.kind === 'standard') {
           plane = { kind: 'standard', plane: input.plane };
@@ -6214,8 +6372,8 @@ export function createApplyFeatureRouter(
         return;
       }
       if (feature !== 'fillet' && feature !== 'offset'
-        && feature !== 'text' && feature !== 'copy' && feature !== 'rotate2d') {
-        res.status(400).json({ error: 'feature must be "fillet", "offset", "text", "copy" or "rotate2d" for sketch-edge selections' });
+        && feature !== 'text' && feature !== 'copy' && feature !== 'mirror' && feature !== 'rotate2d') {
+        res.status(400).json({ error: 'feature must be "fillet", "offset", "text", "copy", "mirror" or "rotate2d" for sketch-edge selections' });
         return;
       }
       // The 2D copy: whole-geometry targets rendered as bare variables plus
@@ -6298,8 +6456,10 @@ export function createApplyFeatureRouter(
             targets: slots.targets.map((producer: number) => ({ producer })),
           };
           const imports = new Set<string>(synthesis.spec.imports);
-          if (copyOptions.directions?.some(d => d.axis.kind === 'local')) {
-            imports.add('local');
+          for (const d of copyOptions.directions ?? []) {
+            if (d.axis.kind === 'local') {
+              imports.add(`${d.axis.axis}Axis`);
+            }
           }
           if (copyOptions.directions?.some(d => d.axis.kind === 'selector')) {
             imports.add('axis');
@@ -6330,8 +6490,99 @@ export function createApplyFeatureRouter(
         }
         return;
       }
-      if (req.body?.copy2d !== undefined || req.body?.sketchAxisEntities !== undefined) {
-        res.status(400).json({ error: 'copy2d and sketchAxisEntities only apply to copy' });
+      // The 2D mirror: the copy's sibling — whole-geometry targets as bare
+      // variables plus the line to reflect across, a sketch-plane datum or
+      // a picked line riding its own single pick. Self-contained too.
+      if (feature === 'mirror') {
+        const request = validateSketchMirror(req.body);
+        if ('error' in request) {
+          res.status(400).json({ error: request.error });
+          return;
+        }
+        let axisPicks: { shapeId: string }[] = [];
+        if (req.body?.sketchAxisEntities !== undefined) {
+          const picks = validateSketchPicks(req.body.sketchAxisEntities);
+          if (!picks) {
+            res.status(400).json({ error: 'sketchAxisEntities must be a non-empty array of {shapeId} picks' });
+            return;
+          }
+          axisPicks = picks;
+        }
+        if (axisPicks.length !== (request.axis.kind === 'edge' ? 1 : 0)) {
+          res.status(400).json({ error: 'sketchAxisEntities must carry exactly one pick for an edge-picked mirror line' });
+          return;
+        }
+        try {
+          const code = fluidCadServer.getCurrentCode();
+          const options = {
+            ...(code
+              ? {
+                namer: await makeProducerNamer(code),
+                params: resolveParamValues(
+                  await extractNumericParams(code),
+                  fluidCadServer.getParamDefinitions(),
+                ),
+              }
+              : {}),
+            axisRefs: axisPicks,
+          };
+          const synthesis = fluidCadServer.synthesizeSketchApplyFeature(sketchPicks, 'mirror', undefined, options);
+          if (!synthesis) {
+            res.status(404).json({ success: false, reason: 'No rendered scene' });
+            return;
+          }
+          if (!synthesis.ok) {
+            res.status(422).json({ success: false, reason: synthesis.reason });
+            return;
+          }
+          // A workspace kernel predating the 'mirror' kind falls through to
+          // the accessor synthesis, which reports no operand slots.
+          const slots = synthesis.copySlots;
+          if (!slots) {
+            res.status(422).json({
+              success: false,
+              reason: "the workspace's FluidCAD version does not support the 2D mirror dialog — update its fluidcad dependency",
+            });
+            return;
+          }
+          const axis: MirrorAxisSpec = request.axis.kind === 'edge'
+            ? { kind: 'selector', part: slots.axisParts[0] }
+            : { kind: 'local', axis: request.axis.axis };
+          const mirrorOptions: MirrorEditOptions = {
+            axis,
+            op: 'add',
+            targets: slots.targets.map((producer: number) => ({ producer })),
+          };
+          const imports = new Set<string>(synthesis.spec.imports);
+          if (axis.kind === 'local') {
+            imports.add(`${axis.axis}Axis`);
+          }
+          const spec: ApplyFeatureEditSpec = {
+            ...synthesis.spec,
+            mirror: mirrorOptions,
+            imports: [...imports],
+          };
+          // Truthful preview: the same allocation walk the transform runs.
+          const producerVars = await allocateProducerVars(spec.producers, code);
+          const varFor = (i: number): string | null => producerVars[i];
+          const statement = renderMirrorStatement(
+            mirrorOptions,
+            renderMirrorAxisExpr(axis, spec.parts, varFor),
+            mirrorOptions.targets.map(t => producerVars[t.producer] ?? spec.producers[t.producer].nameHint ?? 'g'),
+          );
+          if (preview === true) {
+            res.json({ success: true, preview: statement });
+            return;
+          }
+          await dispatcher.dispatch(res, spec, { success: true, preview: statement });
+        } catch (err: any) {
+          res.status(500).json({ success: false, reason: err?.message ?? String(err) });
+        }
+        return;
+      }
+      if (req.body?.copy2d !== undefined || req.body?.mirror2d !== undefined
+        || req.body?.sketchAxisEntities !== undefined) {
+        res.status(400).json({ error: 'copy2d, mirror2d and sketchAxisEntities only apply to copy and mirror' });
         return;
       }
       // Text carries no numeric parameter (it rides its full option payload

@@ -23,6 +23,7 @@ import { FaceQuery } from "../oc/face-query.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import {
   buildFeatureGhost, Copy2DGhostRequest, CopyGhostRequest, ExtrudeGhostRequest, FeatureGhostResult,
+  Mirror2DGhostRequest,
   Fillet2DGhostRequest, GhostPathRef, GhostSectionRef, LoftGhostRequest, MirrorGhostRequest,
   OffsetGhostRequest, RepeatGhostRequest, RevolveGhostRequest, RibGhostRequest, RotateGhostRequest,
   SweepGhostRequest,
@@ -2304,6 +2305,158 @@ describe("copy2d ghost", () => {
     expect(copy2dGhost(scene, [{ shapeId: edge.id }], {
       axes: [{ kind: 'edge', shapeId: 'not-a-shape' }],
     }).ok).toBe(false);
+  });
+});
+
+function mirror2dGhost(
+  scene: Scene,
+  entities: { shapeId: string }[],
+  axis: Mirror2DGhostRequest['axis'] = { kind: 'local', axis: 'y' },
+) {
+  return buildFeatureGhost(scene, { feature: 'mirror2d', entities, axis }, DEFAULT_MESH_CONFIG);
+}
+
+describe("mirror2d ghost", () => {
+  setupOC();
+
+  /** Every edge of the sketch as picks — testRect is four line statements. */
+  const allPicks = (s: Sketch) => [...s.getEdgesWithOwner().keys()].map(e => ({ shapeId: e.id }));
+
+  it("reflects the picked geometry across the sketch's Y axis", () => {
+    // A rect standing entirely in +x: its reflection lands entirely in -x.
+    const s = locatedSketch(5, () => { testRect(100, 50, { at: [20, 0] }); });
+    const scene = render();
+
+    const result = mirror2dGhost(scene, allPicks(s));
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    expect(result.solids).toHaveLength(1);
+    const box = instanceBounds(result, 0);
+    expect(box.maxX).toBeCloseTo(-20, 3);
+    expect(box.minX).toBeCloseTo(-120, 3);
+    // Y is untouched by a reflection across Y.
+    expect(box.minY).toBeCloseTo(0, 3);
+    expect(box.maxY).toBeCloseTo(50, 3);
+  });
+
+  it("reflects across the sketch's X axis", () => {
+    const s = locatedSketch(5, () => { testRect(100, 50, { at: [0, 10] }); });
+    const scene = render();
+
+    const result = mirror2dGhost(scene, allPicks(s), { kind: 'local', axis: 'x' });
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    const box = instanceBounds(result, 0);
+    expect(box.maxY).toBeCloseTo(-10, 3);
+    expect(box.minY).toBeCloseTo(-60, 3);
+    expect(box.minX).toBeCloseTo(0, 3);
+  });
+
+  it("a pick stands for its whole producing primitive", () => {
+    // A rect line and a circle: picking the circle's edge alone reflects
+    // the circle (its owner), never the rect's lines.
+    const s = locatedSketch(5, () => { testRect(100, 50, { at: [20, 0] }); circle([200, 25], 10); });
+    const scene = render();
+    const arc = [...s.getEdgesWithOwner().keys()].find(e => ShapeOps.getBoundingBox(e).minX > 150)!;
+
+    const result = mirror2dGhost(scene, [{ shapeId: arc.id }]);
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    // The reflected circle is centered on (-200, 25) — the wire's coarse
+    // tessellation need not touch the exact extremes, so the box's center
+    // and its side of the axis are what to read. Nothing of the rect rides
+    // along.
+    const box = instanceBounds(result, 0);
+    expect((box.minX + box.maxX) / 2).toBeCloseTo(-200, 1);
+    expect((box.minY + box.maxY) / 2).toBeCloseTo(25, 1);
+    expect(box.maxX).toBeLessThan(-185);
+    expect(box.maxX - box.minX).toBeLessThan(21);
+  });
+
+  it("reflects across a picked sketch line", () => {
+    // A vertical line at x = 150 as the mirror: the rect at [20, 120] lands
+    // at [180, 280].
+    const s = locatedSketch(5, () => { testRect(100, 50, { at: [20, 0] }); line([150, -20], [150, 80]); });
+    const scene = render();
+    const edges = [...s.getEdgesWithOwner().keys()];
+    const vline = edges.find(e => {
+      const box = ShapeOps.getBoundingBox(e);
+      return box.maxX - box.minX < 0.3 && box.maxY - box.minY > 60;
+    })!;
+    const rectEdges = edges.filter(e => e !== vline).map(e => ({ shapeId: e.id }));
+
+    const result = mirror2dGhost(scene, rectEdges, { kind: 'edge', shapeId: vline.id });
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    const box = instanceBounds(result, 0);
+    expect(box.minX).toBeCloseTo(180, 3);
+    expect(box.maxX).toBeCloseTo(280, 3);
+    expect(box.minY).toBeCloseTo(0, 3);
+  });
+
+  it("reflects across a picked .guide() line", () => {
+    const s = locatedSketch(5, () => { testRect(100, 50, { at: [20, 0] }); line([150, -20], [150, 80]).guide(); });
+    const scene = render();
+    const guide = [...s.getEdgesWithOwner({ excludeGuide: false }).keys()].find(e => {
+      const box = ShapeOps.getBoundingBox(e);
+      return box.maxX - box.minX < 0.3 && box.maxY - box.minY > 60;
+    })!;
+    // The profile index never holds the guide — the targets are the rect alone.
+    expect([...s.getEdgesWithOwner().keys()]).not.toContain(guide);
+
+    const result = mirror2dGhost(scene, allPicks(s), { kind: 'edge', shapeId: guide.id });
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    const box = instanceBounds(result, 0);
+    expect(box.minX).toBeCloseTo(180, 3);
+    expect(box.maxX).toBeCloseTo(280, 3);
+  });
+
+  it("an empty pick list mirrors the whole active (last) sketch", () => {
+    locatedSketch(5, () => { testRect(10, 10); });
+    const active = locatedSketch(8, () => { testRect(100, 50, { at: [20, 0] }); line([250, 50], [250, 80]); });
+    const scene = render();
+    const boxes = [...active.getEdgesWithOwner().keys()].map(e => ShapeOps.getBoundingBox(e));
+    const width = Math.max(...boxes.map(b => b.maxX)) - Math.min(...boxes.map(b => b.minX)) - 0.2;
+
+    const result = mirror2dGhost(scene, []);
+
+    expect(refusal(result)).toBe('');
+    if (!result.ok) {
+      return;
+    }
+    const box = instanceBounds(result, 0);
+    // The whole active sketch, reflected into -x.
+    expect(box.maxX - box.minX).toBeCloseTo(width, 0);
+    expect(box.maxX).toBeLessThan(0);
+  });
+
+  it("refuses a curved mirror line and picks the scene doesn't hold", () => {
+    const s = locatedSketch(5, () => { testRect(100, 50); circle([200, 0], 10); });
+    const scene = render();
+    const edges = [...s.getEdgesWithOwner().keys()];
+    const arc = edges.find(e => ShapeOps.getBoundingBox(e).minX > 150)!;
+    const rectEdge = edges.find(e => ShapeOps.getBoundingBox(e).maxX < 150)!;
+
+    expect(refusal(mirror2dGhost(scene, [{ shapeId: rectEdge.id }], { kind: 'edge', shapeId: arc.id })))
+      .toMatch(/not a straight line/);
+    expect(mirror2dGhost(scene, [{ shapeId: 'not-a-shape' }]).ok).toBe(false);
+    expect(mirror2dGhost(scene, [{ shapeId: rectEdge.id }], { kind: 'edge', shapeId: 'not-a-shape' }).ok).toBe(false);
   });
 });
 

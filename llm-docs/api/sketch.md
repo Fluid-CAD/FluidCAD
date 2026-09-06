@@ -44,7 +44,9 @@ Every sketch carries three implicit fixed entities — `origin()`,
 `xAxis()`, and `yAxis()` (imported from `fluidcad/core`). They never
 move; constrain against them instead of fixing arbitrary points:
 `coincident(c.center(), origin())`, `collinear(xAxis(), l)`,
-`symmetric(a, b, yAxis())`.
+`symmetric(a, b, yAxis())`. The two axis datums are also the sketch's
+own directions for `mirror()` and `copy("linear", …)` inside the sketch
+— a bare `"x"` there is the WORLD axis (see [[concepts/coordinate-system]]).
 
 ## Implicit consumption
 

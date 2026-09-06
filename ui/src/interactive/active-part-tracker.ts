@@ -1,5 +1,8 @@
 import type { SceneObjectRender, SourceLocation } from '../types';
 
+/** One of the scene's top-level parts, as a chooser lists it. */
+export type PartChoice = { name: string; sourceLocation: SourceLocation };
+
 /**
  * The timeline's active part: the `part()` statement whose callback body
  * receives newly created statements. Invariant: whenever the scene contains
@@ -18,10 +21,21 @@ import type { SceneObjectRender, SourceLocation } from '../types';
 export class ActivePartTracker {
   private active: { name: string; sourceLocation: SourceLocation } | null = null;
   private pendingActivateLast = false;
+  /** Every top-level part the last render carried, in timeline order. */
+  private known: PartChoice[] = [];
 
   /** The active part's statement location — what apply-feature payloads carry. */
   get location(): SourceLocation | null {
     return this.active?.sourceLocation ?? null;
+  }
+
+  /**
+   * The scene's parts as the last render listed them — what a chooser that
+   * lets the user pick a part other than the active one (the Add-parameter
+   * dialog's Part dropdown) offers. Empty when there is no active part.
+   */
+  get parts(): PartChoice[] {
+    return this.known.slice();
   }
 
   /** Whether this part row is the active part (drives its timeline highlight). */
@@ -43,6 +57,7 @@ export class ActivePartTracker {
   /** Assembly scenes have no active part. */
   clear(): void {
     this.active = null;
+    this.known = [];
     this.pendingActivateLast = false;
   }
 
@@ -63,6 +78,7 @@ export class ActivePartTracker {
       this.clear();
       return;
     }
+    this.known = parts.map(o => ({ name: o.name ?? '', sourceLocation: o.sourceLocation! }));
     const last = parts[parts.length - 1];
     if (this.pendingActivateLast) {
       this.pendingActivateLast = false;
@@ -80,7 +96,26 @@ export class ActivePartTracker {
   }
 
   private sameLine(loc: SourceLocation): boolean {
-    const active = this.active!.sourceLocation;
-    return loc.filePath === active.filePath && loc.line === active.line;
+    return ActivePartTracker.sameStatement(loc, this.active!.sourceLocation);
+  }
+
+  /** Whether two locations address the same statement — file and line, as `sync` resolves parts. */
+  static sameStatement(a: SourceLocation, b: SourceLocation): boolean {
+    return a.filePath === b.filePath && a.line === b.line;
+  }
+
+  /**
+   * One display label per part for a chooser, in the same order. A name two
+   * parts share, or an empty one, is told apart by the statement's line.
+   */
+  static choiceLabels(parts: PartChoice[]): string[] {
+    const nameCount = new Map<string, number>();
+    for (const part of parts) {
+      nameCount.set(part.name, (nameCount.get(part.name) ?? 0) + 1);
+    }
+    return parts.map((part) => {
+      const ambiguous = part.name === '' || (nameCount.get(part.name) ?? 0) > 1;
+      return ambiguous ? `${part.name || 'part'} (line ${part.sourceLocation.line})` : part.name;
+    });
   }
 }

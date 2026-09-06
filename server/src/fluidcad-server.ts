@@ -1,6 +1,7 @@
 import { createHash } from 'crypto';
 import { basename, join } from 'path';
 import { existsSync } from 'fs';
+import { readFile } from 'fs/promises';
 import type { SceneHost } from './host/scene-host.ts';
 import { LocalSceneHost } from './host/local-scene-host.ts';
 import { normalizePath } from './normalize-path.ts';
@@ -198,13 +199,13 @@ type SceneManager = {
   synthesizeSketchApplyFeature?(
     scene: any,
     refs: { shapeId: string }[],
-    feature: 'fillet' | 'offset' | 'text' | 'copy' | 'rotate2d',
+    feature: 'fillet' | 'offset' | 'text' | 'copy' | 'mirror' | 'rotate2d',
     value: number | string | undefined,
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       bindable?: (producer: { line: number; featureType?: string }) => boolean;
       params?: { name: string; value: number }[];
-      /** Copy only: one pick per edge-picked direction, in direction order. */
+      /** Copy: one pick per edge-picked direction, in direction order. Mirror: the single line pick. */
       axisRefs?: { shapeId: string }[];
       /**
        * Offset only: the dialog's `.close()` chain. A workspace kernel
@@ -346,7 +347,8 @@ export type FeatureGhostRequest =
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
-  | Copy2DGhostRequest;
+  | Copy2DGhostRequest
+  | Mirror2DGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -702,15 +704,31 @@ export type Copy2DGhostRequest = {
 };
 
 /**
- * The 2D copy dialog's direction slot on the wire: a sketch-local axis from
- * the Local X / Local Y quick buttons (`local('x')`), or a picked sketch line
+ * The 2D copy dialog's direction slot on the wire: a sketch-plane axis from
+ * the Sketch X / Sketch Y quick buttons (`xAxis()`), or a picked sketch line
  * the apply writes as `axis(<var>)`. A top-level `axis()` statement never
  * appears here, and "keep the current axis" only travels once it reads back
- * as a local form.
+ * as a datum form.
  */
 export type GhostSketchAxisRef =
   | { kind: 'local'; axis: 'x' | 'y' }
   | { kind: 'edge'; shapeId: string };
+
+/**
+ * The in-sketch mirror — keyed `mirror2d` on the wire because plain `mirror`
+ * already names the 3D body-reflecting ghost. Like the 2D copy it builds
+ * nothing: the reflection is its targets' own curves through one mirror
+ * matrix, stamped once. Targets travel as on every sketch-op path (1 shapeId
+ * = 1 sketch edge), each pick standing for its whole producing primitive; an
+ * empty list is the target-less form, which mirrors the whole active sketch.
+ */
+export type Mirror2DGhostRequest = {
+  feature: 'mirror2d';
+  /** The picked sketch edges; empty mirrors the whole active sketch. */
+  entities: { shapeId: string }[];
+  /** The line to reflect across. */
+  axis: GhostSketchAxisRef;
+};
 
 /**
  * One ghost body's meshes, in the same wire format a rendered solid uses.
@@ -1282,7 +1300,34 @@ export class FluidCadServer {
     filePath = normalizePath(filePath);
     const sessionId = filePath.replace('virtual:live-render:', '');
     this.sessionFiles.set(sessionId, sessionId);
+    await this.seedLiveBufferFromDisk(sessionId);
     return this.processFileInternal(sessionId, filePath, ignoreCache);
+  }
+
+  /**
+   * A raw-path render (the save-triggered `process-file`, the in-page host's
+   * file open) runs the file from disk, but every reader of "the current
+   * code" — `getCurrentCode`: feature/parse, the edit preflight, the side-ref
+   * resolvers — only knows the live-render overlay. Until the editor's first
+   * live-update for the file the current code was null, so the timeline's
+   * double-click refused with "No live code buffer" and only worked on the
+   * second try (the breakpoint the first gesture inserted pushed a
+   * live-update). Seed the overlay with the disk content this render is
+   * about to run; a buffer the editor already sent stays — the module loader
+   * serves it for the raw path too, so disk never masks it.
+   */
+  private async seedLiveBufferFromDisk(fileName: string): Promise<void> {
+    if (this.host.getBuffer(fileName) !== null) {
+      return;
+    }
+    let code: string;
+    try {
+      code = await readFile(fileName, 'utf8');
+    } catch {
+      // Unreadable: the render reports that itself.
+      return;
+    }
+    this.host.setBuffer(`virtual:live-render:${fileName}`, code);
   }
 
   async updateLiveCode(fileName: string, code: string): Promise<SceneRenderedData | null> {
@@ -1673,13 +1718,13 @@ export class FluidCadServer {
   /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */
   synthesizeSketchApplyFeature(
     refs: { shapeId: string }[],
-    feature: 'fillet' | 'offset' | 'text' | 'copy' | 'rotate2d',
+    feature: 'fillet' | 'offset' | 'text' | 'copy' | 'mirror' | 'rotate2d',
     value: number | string | undefined,
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
       bindable?: (producer: { line: number; featureType?: string }) => boolean;
       params?: { name: string; value: number }[];
-      /** Copy only: one pick per edge-picked direction, in direction order. */
+      /** Copy: one pick per edge-picked direction, in direction order. Mirror: the single line pick. */
       axisRefs?: { shapeId: string }[];
       /** Offset only: the dialog's `.close()` chain. */
       offset?: { close: boolean };

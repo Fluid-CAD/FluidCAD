@@ -1,4 +1,4 @@
-import { sketch, plane, loft, line, circle, bezier, mirror, local } from 'fluidcad/core';
+import { sketch, plane, loft, line, circle, bezier, mirror, yAxis } from 'fluidcad/core';
 import { coincident, equal, perpendicular, fix } from 'fluidcad/constraints';
 
 const p1 = sketch("top", () => {
@@ -25,7 +25,7 @@ const p2 = sketch(plane("top", 80), () => {
 // One sketch, two rails: the bezier and its mirror each count as one guide
 const g1 = sketch("right", () => {
     bezier([Math.sqrt(2) * 25, 0], [50, 40], [15, 80])
-    mirror(local("y"))
+    mirror(yAxis())
 }).reusable()
 
 // highlight-next-line

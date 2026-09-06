@@ -428,7 +428,7 @@ describe('applyFeatureEdit — sketch-body copy (2D)', () => {
     value: undefined,
     producers: [{ line: 4, column: 0, featureType: 'circle', nameHint: 'r', bind: true }],
     parts: [],
-    imports: ['local'],
+    imports: ['xAxis'],
     copy: {
       kind: 'linear',
       directions: [{ axis: { kind: 'local', axis: 'x' }, count: 3, value: 20 }],
@@ -452,9 +452,9 @@ describe('applyFeatureEdit — sketch-body copy (2D)', () => {
     const result = await applyFeatureEdit(code, copySpec());
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  const r = circle([0, 0], 20)`);
-    expect(result.newCode).toContain(`  copy('linear', local('x'), { count: 3, offset: 20 }, r)\n})`);
+    expect(result.newCode).toContain(`  copy('linear', xAxis(), { count: 3, offset: 20 }, r)\n})`);
     expect(result.newCode).toMatch(/import \{[^}]*copy[^}]*\} from 'fluidcad\/core'/);
-    expect(result.newCode).toMatch(/import \{[^}]*local[^}]*\} from 'fluidcad\/core'/);
+    expect(result.newCode).toMatch(/import \{[^}]*xAxis[^}]*\} from 'fluidcad\/core'/);
   });
 
   it('renders an edge-picked direction as axis(<var>)', async () => {
@@ -513,5 +513,101 @@ describe('applyFeatureEdit — sketch-body copy (2D)', () => {
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`  const c = circle([30, 0], 5)`);
     expect(result.newCode).toContain(`  copy('circular', [0, 0], { count: 6, angle: 360 }, c)\n})`);
+  });
+});
+
+describe('applyFeatureEdit — sketch-body mirror (2D)', () => {
+  const mirrorSpec = (overrides: Partial<ApplyFeatureEditSpec> = {}): ApplyFeatureEditSpec => sketchSpec({
+    feature: 'mirror',
+    value: undefined,
+    producers: [{ line: 4, column: 0, featureType: 'circle', nameHint: 'r', bind: true }],
+    parts: [],
+    imports: ['yAxis'],
+    mirror: {
+      axis: { kind: 'local', axis: 'y' },
+      op: 'add',
+      targets: [{ producer: 0 }],
+    },
+    ...overrides,
+  });
+
+  it('binds the target and appends the mirror at end of the sketch body', async () => {
+    const code = [
+      `import { sketch, circle } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  circle([30, 0], 20)`,
+      `  circle([40, 0], 5)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, mirrorSpec());
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const r = circle([30, 0], 20)`);
+    expect(result.newCode).toContain(`  mirror(yAxis(), r)\n})`);
+    expect(result.newCode).toMatch(/import \{[^}]*\bmirror\b[^}]*\} from 'fluidcad\/core'/);
+    expect(result.newCode).toMatch(/import \{[^}]*\byAxis\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('renders a picked mirror line as its bare variable (no axis() wrapper)', async () => {
+    const code = [
+      `import { sketch, circle, line, point } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  circle([0, 0], 20)`,
+      `  point([0, 40])`,
+      `  line([60, -50], [60, 50])`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const result = await applyFeatureEdit(code, mirrorSpec({
+      producers: [
+        { line: 4, column: 0, featureType: 'circle', nameHint: 'r', bind: true },
+        { line: 6, column: 0, featureType: 'line', nameHint: 'l', bind: true },
+      ],
+      parts: [{ producer: 1, accessor: '', indices: null, filterArgs: null }],
+      imports: [],
+      mirror: {
+        axis: { kind: 'selector', part: 0 },
+        op: 'add',
+        targets: [{ producer: 0 }],
+      },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const l = line([60, -50], [60, 50])`);
+    expect(result.newCode).toContain(`  mirror(l, r)\n})`);
+    expect(result.newCode).not.toContain('axis(');
+  });
+
+  it('refuses a 2D mirror carrying both an axis and a plane, or an op chain', async () => {
+    const code = [
+      `import { sketch, circle } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  circle([30, 0], 20)`,
+      `})`,
+      ``,
+    ].join('\n');
+
+    const both = await applyFeatureEdit(code, mirrorSpec({
+      mirror: {
+        axis: { kind: 'local', axis: 'y' },
+        plane: { kind: 'standard', plane: 'yz' },
+        op: 'add',
+        targets: [{ producer: 0 }],
+      },
+    }));
+    expect(both.error).toContain('malformed mirror edit spec');
+
+    const chained = await applyFeatureEdit(code, mirrorSpec({
+      mirror: {
+        axis: { kind: 'local', axis: 'y' },
+        op: 'new',
+        targets: [{ producer: 0 }],
+      },
+    }));
+    expect(chained.error).toContain('malformed mirror edit spec');
   });
 });

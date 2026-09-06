@@ -1,3 +1,4 @@
+import { StandardAxisId } from '../../scene/standard-axes';
 import {
   applyRotate, applyRotateEdit, FeatureEditTarget, fetchFeatureGhostResult, fetchFeatureSources,
   GhostAxisRef, GhostSolid, ParsedFeatureStatement, RotateApplyOptions, RotateEditAxisRef,
@@ -54,8 +55,8 @@ function sourceStatement(slot: SourceSlotRef | undefined | null): { filePath: st
  * leaving copies behind. The solids are picked in the viewport — any face or
  * edge click while the Solids slot is armed selects the owning solid whole
  * (the shape-properties picker's idiom, shared via {@link SolidPickSelection})
- * — or by their timeline rows; the axis comes from the X/Y/Z quick buttons,
- * an axis statement (its dashed line in 3D or its timeline row), or a picked
+ * — or by their timeline rows; the axis comes from a world axis clicked in
+ * 3D, an axis statement (its dashed line in 3D or its timeline row), or a picked
  * straight solid edge — the revolve axis's exact picker. Arming with a
  * selection already highlighted seeds the dialog: the selected entities'
  * solids open as target chips. A translucent ghost draws the turned bodies as
@@ -452,6 +453,7 @@ export class RotateFeatureService {
     this.viewer.clearHighlight();
     this.viewer.pickFilter = 'all';
     this.viewer.pickAxes = false;
+    this.viewer.hideStandardAxes();
     this.syncButton();
     this.panel.hide();
     this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
@@ -778,7 +780,8 @@ export class RotateFeatureService {
    * The viewer's pick channels follow the panel's armed slot, so the slot
    * border says exactly where the next 3D click lands: the armed Solids slot
    * takes any face or edge (the pick selects the owning solid whole); the
-   * armed axis slot takes solid edges and axis lines.
+   * armed axis slot takes solid edges, axis lines and the world axes shown
+   * as pick targets.
    */
   private syncViewport(): void {
     if (!this.armed) {
@@ -789,7 +792,24 @@ export class RotateFeatureService {
     this.viewer.pickAxes = axisArmed;
     this.viewer.pickPlanes = false;
     this.viewer.pickFilter = axisArmed ? 'edge' : 'all';
+    if (axisArmed) {
+      this.viewer.showStandardAxes(this.onStandardAxisPick);
+    } else {
+      this.viewer.hideStandardAxes();
+    }
   }
+
+  /** A shown world axis was clicked while the axis slot is armed. */
+  private readonly onStandardAxisPick = (axis: StandardAxisId): void => {
+    if (!this.isAxisPicking) {
+      return;
+    }
+    this.axisEdgeEntity = null;
+    this.panel.selectStandardAxis(axis);
+    this.panel.setMessage(null);
+    this.refreshHighlight();
+    this.runner.schedulePreview();
+  };
 
   /** Repaint the target chips and the picked-entity highlights. */
   private refresh(): void {
@@ -814,6 +834,7 @@ export class RotateFeatureService {
     const wireIds: string[] = [];
     const entities: SelectedEntity[] = [];
     const selection = this.panel.axisSelection();
+    this.viewer.setSelectedStandardAxes(selection?.kind === 'standard' ? [selection.axis] : []);
     if (selection?.kind === 'axis') {
       wireIds.push(...axisLineShapeIds(selection.option, this.sceneObjects));
     } else if (selection?.kind === 'edge' && this.axisEdgeEntity) {

@@ -1,3 +1,4 @@
+import { StandardAxisId } from '../../scene/standard-axes';
 import {
   applyHelix, applyHelixEdit, fetchFeatureGhost, fetchFeatureSources, FeatureEditTarget,
   GhostHelixSourceRef, GhostSolid, HelixApplyOptions, HelixEditOptions, HelixSourceRef,
@@ -23,7 +24,7 @@ import {
 /**
  * The Helix dialog on the create rails: a helical wire built around an axis or
  * on a cylindrical/conical face, chosen by the From-axis / From-face tabs. In
- * axis mode the axis slot takes the X/Y/Z quick buttons, an axis statement's
+ * axis mode the axis slot takes a world axis clicked in 3D, an axis statement's
  * dashed line clicked in 3D (the viewer's `pickAxes` channel), an axis row in
  * the timeline, or a single solid edge — written `axis(<edge>)` (the revolve
  * axis idiom). In face mode the face slot takes a single cylindrical face
@@ -284,8 +285,8 @@ export class HelixFeatureService {
    * Open the dialog over an existing helix statement (timeline double-click).
    * The session rolls the viewport back to just before the statement; the
    * source slot starts on a "Current: …" entry that keeps the statement's own
-   * expression, and re-sourcing is live — the axis via the X/Y/Z buttons, an
-   * axis line or an edge in axis mode, a face in face mode. Apply rewrites the
+   * expression, and re-sourcing is live — the axis via a world axis, an axis
+   * line or an edge in axis mode, a face in face mode. Apply rewrites the
    * statement in place.
    */
   enterEdit(
@@ -397,6 +398,7 @@ export class HelixFeatureService {
     this.viewer.pickFilter = 'all';
     this.viewer.pickSketchWires = false;
     this.viewer.pickAxes = false;
+    this.viewer.hideStandardAxes();
     this.panel.hide();
     this.sketchUI.resume((opts.resume ?? 'immediate') === 'immediate');
   }
@@ -621,8 +623,8 @@ export class HelixFeatureService {
     };
   }
 
-  /** The viewer's pick channels follow the source mode: axis → axis lines and
-   * solid edges; face → faces. */
+  /** The viewer's pick channels follow the source mode: axis → the world
+   * axes shown as pick targets, axis lines and solid edges; face → faces. */
   private syncPickChannels(): void {
     if (!this.armed) {
       return;
@@ -631,7 +633,24 @@ export class HelixFeatureService {
     this.viewer.pickSketchWires = false;
     this.viewer.pickAxes = axisMode;
     this.viewer.pickFilter = axisMode ? 'edge' : 'face';
+    if (axisMode) {
+      this.viewer.showStandardAxes(this.onStandardAxisPick);
+    } else {
+      this.viewer.hideStandardAxes();
+    }
   }
+
+  /** A shown world axis was clicked while the axis mode is up. */
+  private readonly onStandardAxisPick = (axis: StandardAxisId): void => {
+    if (!this.armed || this.panel.sourceMode !== 'axis') {
+      return;
+    }
+    this.sourceEdgeEntity = null;
+    this.panel.selectStandardAxis(axis);
+    this.panel.setMessage(null);
+    this.refreshHighlight();
+    this.runner.schedulePreview();
+  };
 
   /**
    * Repaint the viewport selection: the chosen axis statement's dashed line,
@@ -647,6 +666,7 @@ export class HelixFeatureService {
 
     if (this.panel.sourceMode === 'axis') {
       const axisSel = this.panel.axisSelection();
+      this.viewer.setSelectedStandardAxes(axisSel?.kind === 'standard' ? [axisSel.axis] : []);
       if (axisSel?.kind === 'axis') {
         wireIds.push(...axisLineShapeIds(axisSel.option, this.sceneObjects));
       } else if (axisSel?.kind === 'edge' && this.sourceEdgeEntity) {

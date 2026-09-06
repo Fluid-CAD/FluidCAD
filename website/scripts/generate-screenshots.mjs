@@ -27,6 +27,8 @@
 //   Add "// @screenshot hideDimensions" to hide a sketch's dimensional constraints
 //   (distance/angle/radius/diameter readouts); "hidePositional" hides the badges.
 //   Add "// @screenshot noAxes" to suppress the automatic axes for rotate()/mirror() code.
+//   Add "// @screenshot framePlanes" to fit and crop around construction-plane
+//   quads too (they are left out of the framing by default).
 //   Add "// @screenshot skip" to skip screenshot generation for that file.
 //   Add "// @screenshot crop 0,0,100,16" to keep a percent region (x,y,w,h) of the capture.
 //   Add "// @screenshot delay 8000" to wait longer for the UI to mesh the scene
@@ -117,6 +119,10 @@ function discoverExamples(docsDir) {
     const hideDimensions = firstLines.includes('hideDimensions');
     const hidePositional = firstLines.includes('hidePositional');
 
+    // Plane quads are 200 mm square whatever the model, so the capture leaves
+    // them out of the framing unless the picture is about them.
+    const framePlanes = firstLines.includes('framePlanes');
+
     // Determine waitForInput from annotation (pause before screenshot for manual camera adjustment)
     const waitForInput = firstLines.includes('waitForInput');
 
@@ -175,6 +181,7 @@ function discoverExamples(docsDir) {
       hideGrid,
       hideDimensions,
       hidePositional,
+      framePlanes,
       waitForInput,
       emptyScene,
       aspectRatio,
@@ -430,7 +437,7 @@ async function main() {
     let done = 0;
     let failed = 0;
     for (const config of allScreenshots) {
-      const { id, outputPath, code, isAssembly, showAxes, noAutoCrop, hideGrid, hideDimensions, hidePositional, waitForInput, emptyScene, aspectRatio, size, view, crop, renderDelayMs } = config;
+      const { id, outputPath, code, isAssembly, showAxes, noAutoCrop, hideGrid, hideDimensions, hidePositional, framePlanes, waitForInput, emptyScene, aspectRatio, size, view, crop, renderDelayMs } = config;
 
       mkdirSync(dirname(outputPath), { recursive: true });
 
@@ -481,6 +488,7 @@ async function main() {
           ...(hideGrid ? { showGrid: false } : {}),
           ...(hideDimensions ? { showDimensions: false } : {}),
           ...(hidePositional ? { showPositional: false } : {}),
+          ...(framePlanes ? { framePlanes: true } : {}),
           ...(noAutoCrop ? { autoCrop: false, fitToModel: false, transparent: false } : {}),
           ...(view ? { view: { kind: 'named', name: view } } : {}),
           ...arSize,

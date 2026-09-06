@@ -7458,6 +7458,30 @@ describe('parseFeatureStatement — mirror', () => {
     });
   });
 
+  it('reads an in-sketch mirror with its axis as the first-argument text', async () => {
+    const code = [
+      `import { sketch, circle, line, mirror, yAxis } from 'fluidcad/core'`,
+      ``,
+      `sketch('xy', () => {`,
+      `  const c = circle([30, 0], 5)`,
+      `  const l = line([60, -50], [60, 50])`,
+      `  mirror(yAxis(), c)`,
+      `  mirror(l, c)`,
+      `})`,
+    ].join('\n');
+    const datum = await parseFeatureStatement(code, 6);
+    expect(datum).toMatchObject({
+      ok: true,
+      parsed: { feature: 'mirror', op: 'add', planeText: 'yAxis()', targetTexts: ['c'] },
+      statement: 'mirror(yAxis(), c)',
+    });
+    const line = await parseFeatureStatement(code, 7);
+    expect(line).toMatchObject({
+      ok: true,
+      parsed: { feature: 'mirror', op: 'add', planeText: 'l', targetTexts: ['c'] },
+    });
+  });
+
   it('reads the operation chains as the op', async () => {
     const removed = await parseFeatureStatement(`${mirrorEditBase}\nmirror('yz', e).remove()\n`, 7);
     expect(removed).toMatchObject({ ok: true, parsed: { feature: 'mirror', op: 'remove' } });
@@ -7496,6 +7520,83 @@ describe('parseFeatureStatement — mirror', () => {
     if (result.ok === false) {
       expect(result.reason).toContain('more than one operation');
     }
+  });
+});
+
+const mirror2dEditBase = [
+  `import { sketch, circle, line, mirror, yAxis } from 'fluidcad/core'`,
+  ``,
+  `sketch('xy', () => {`,
+  `  const c = circle([30, 0], 5)`,
+  `  const l = line([60, -50], [60, 50])`,
+].join('\n');
+
+describe('applyFeatureEdit (in-sketch mirror statement edit)', () => {
+  it('keeps the axis text and targets verbatim', async () => {
+    const code = `${mirror2dEditBase}\n  mirror(yAxis(), c)\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 6, column: 2,
+      mirror: { axis: { kind: 'keep' }, op: 'add' },
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  mirror(yAxis(), c)\n})`);
+  });
+
+  it('re-sources the axis with the other sketch datum', async () => {
+    const code = `${mirror2dEditBase}\n  mirror(yAxis(), c)\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 6, column: 2,
+      mirror: { axis: { kind: 'local', axis: 'x' }, op: 'add' },
+    }, { imports: ['xAxis'] }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  mirror(xAxis(), c)\n})`);
+    expect(result.newCode).toMatch(/import \{[^}]*\bxAxis\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('renders a re-picked mirror line from its part, bare', async () => {
+    const code = `${mirror2dEditBase}\n  mirror(yAxis(), c)\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 6, column: 2,
+      mirror: { axis: { kind: 'selector', part: 0 }, op: 'add' },
+    }, {
+      producers: [{ line: 5, column: 8, featureType: 'line', nameHint: 'l', bind: true }],
+      parts: [{ producer: 0, accessor: '', indices: null, filterArgs: null }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  mirror(l, c)\n})`);
+  });
+
+  it('replaces the target list with re-picked sketch geometry', async () => {
+    const code = `${mirror2dEditBase}\n  mirror(yAxis(), c)\n})\n`;
+    const result = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 6, column: 2,
+      mirror: {
+        axis: { kind: 'keep' },
+        op: 'add',
+        targets: [{ kind: 'feature', producer: 0 }, { kind: 'feature', producer: 1 }],
+      },
+    }, {
+      producers: [
+        { line: 4, column: 8, featureType: 'circle', nameHint: 'c', bind: true },
+        { line: 5, column: 8, featureType: 'line', nameHint: 'l', bind: true },
+      ],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  mirror(yAxis(), c, l)\n})`);
+  });
+
+  it('refuses an axis edit that also carries a plane or an op chain', async () => {
+    const code = `${mirror2dEditBase}\n  mirror(yAxis(), c)\n})\n`;
+    const both = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 6, column: 2,
+      mirror: { axis: { kind: 'keep' }, plane: { kind: 'keep' }, op: 'add' },
+    }));
+    expect(both.error).toContain('malformed mirror edit spec');
+    const chained = await applyFeatureEdit(code, editSpec('mirror', {
+      line: 6, column: 2,
+      mirror: { axis: { kind: 'keep' }, op: 'new' },
+    }));
+    expect(chained.error).toContain('malformed mirror edit spec');
   });
 });
 

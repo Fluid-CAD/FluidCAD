@@ -33,7 +33,7 @@ type TSNode = {
 // is added there, add it here too — the import lint is the wall the LLM
 // hits, so keep it accurate.
 const CORE_SYMBOLS = new Set<string>([
-  'axis', 'local', 'plane', 'sketch', 'fuse', 'subtract', 'common',
+  'axis', 'plane', 'sketch', 'fuse', 'subtract', 'common',
   'cut', 'revolve', 'extrude', 'sphere', 'cylinder', 'select', 'shell',
   'chamfer', 'fillet', 'translate', 'rotate', 'mirror', 'copy', 'repeat',
   'load', 'loft', 'sweep', 'rib', 'color', 'draft', 'remove',

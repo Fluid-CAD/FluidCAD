@@ -14,7 +14,7 @@ import partParam from '!!raw-loader!./_examples/part-param.js';
 
 1. Open the **Parameters** panel from the left rail. Every `param()` in the file is one control: a number field, a slider, a text field, a select, a checkbox or a colour swatch.
 2. Change a value. The model re-renders and the new value is written back to the `param()` statement's default.
-3. Click **+** to add a parameter. The dialog asks for **Label**, **Type**, and, per type, **Min / Max / Step**, the select **options** and how they are **Shown as**, plus a **Group** and **Description**. It writes the `param()` call at the top of the part body. Edit or delete a parameter from its row's menu.
+3. The **Part** dropdown at the top of the panel names the part a new parameter is declared in: the timeline's active part by default, any other part of the file, or the file's top level. Click **+** to add a parameter. The dialog opens on that part (its own **Part** field can still change it) and asks for **Label**, **Type**, and, per type, **Min / Max / Step**, the select **options** and how they are **Shown as**, plus a **Group** and **Description**. It writes the `param()` call at the top of that part's body, below any `param()` calls already there. Edit or delete a parameter from its row's menu.
 4. Reset restores every parameter to its default.
 
 Every numeric field in a feature dialog accepts an expression, and an expression can name a parameter: type `Length / 2` in an Extrude's Distance field and the statement is written with that expression.

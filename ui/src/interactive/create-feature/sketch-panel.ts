@@ -95,17 +95,17 @@ export class SketchStartPanel {
           </label>
         </div>
       </div>
-      <div class="flex items-center pt-1">
-        <button data-role="cancel" class="btn btn-ghost btn-sm flex-1"
-          title="Remove the sketch from the code and close">Cancel</button>
-      </div>
+    `);
+    this.shell.footer.insertAdjacentHTML('beforeend', `
+      <button data-role="cancel" class="btn btn-ghost btn-sm flex-1"
+        title="Remove the sketch from the code and close">Cancel</button>
     `);
     this.slot = new PickSlot(
       this.shell.body.querySelector('[data-role="target-slot"]')!,
       { label: 'Face / Plane', multiple: false },
     );
     this.slot.onRemove = () => this.onClear?.();
-    this.closeBtn = this.shell.body.querySelector('[data-role="cancel"]')!;
+    this.closeBtn = this.shell.footer.querySelector('[data-role="cancel"]')!;
     this.closeBtn.addEventListener('click', () => this.onCancel?.());
     this.sketchOptionsWrap = this.shell.body.querySelector('[data-role="sketch-options"]')!;
     this.sectionViewInput = this.shell.body.querySelector('[data-role="section-view"]')!;

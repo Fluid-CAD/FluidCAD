@@ -323,6 +323,173 @@ describe("sketch apply-feature synthesis", () => {
     });
   });
 
+  // The 2D mirror shares the copy's operand synthesis: whole geometries as
+  // bare variables, the mirror line's single-line owner as a bare selector
+  // part — the route renders it BARE (`mirror(l, r)`), never `axis(l)`.
+  describe("2D mirror operands", () => {
+    it("resolves targets to bare-variable producers and reports copySlots", () => {
+      let l: SceneObject;
+      let c: SceneObject;
+      sketch("xy", () => {
+        l = line([0, 60], [80, 60]) as unknown as SceneObject;
+        c = circle([100, 0], 10) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(l!, 3);
+      setLocation(c!, 5);
+
+      const result = synthesizeSketchApplyFeature(
+        scene,
+        [refFor(edgesOf(l!)[0]), refFor(edgesOf(c!)[0])],
+        'mirror',
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('l, c');
+      expect(result.spec.feature).toBe('mirror');
+      expect(result.spec.producers).toEqual([
+        { line: 3, column: 0, featureType: 'line', nameHint: 'l', bind: true },
+        { line: 5, column: 0, featureType: 'circle', nameHint: 'c', bind: true },
+      ]);
+      expect(result.spec.parts).toEqual([]);
+      expect(result.copySlots).toEqual({ targets: [0, 1], axisParts: [] });
+    });
+
+    it("resolves the mirror-line pick to its single-line owner as a bare selector part", () => {
+      let c: SceneObject;
+      let l: SceneObject;
+      sketch("xy", () => {
+        c = circle([40, 30], 20) as unknown as SceneObject;
+        l = line([0, 80], [50 * Math.cos(Math.PI / 6), 80 + 50 * Math.sin(Math.PI / 6)]) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(c!, 3);
+      setLocation(l!, 5);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, edgesOf(c!).map(refFor), 'mirror', undefined,
+        { axisRefs: [refFor(edgesOf(l!)[0])] },
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('c');
+      expect(result.spec.producers).toEqual([
+        { line: 3, column: 0, featureType: 'circle', nameHint: 'c', bind: true },
+        { line: 5, column: 0, featureType: 'line', nameHint: 'l', bind: true },
+      ]);
+      expect(result.spec.parts).toEqual([
+        { producer: 1, accessor: '', indices: null, filterArgs: null },
+      ]);
+      expect(result.copySlots).toEqual({ targets: [0], axisParts: [0] });
+    });
+
+    it("accepts an axis-only resolution (an edit re-picking just the line)", () => {
+      let l: SceneObject;
+      sketch("xy", () => {
+        testRect(80, 60);
+        l = line([0, 80], [50, 105]) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(l!, 5);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [], 'mirror', undefined, { axisRefs: [refFor(edgesOf(l!)[0])] },
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.copySlots).toEqual({ targets: [], axisParts: [0] });
+    });
+
+    it("accepts a .guide() line as the mirror line while targets stay profile geometry", () => {
+      let c: SceneObject;
+      let g: SceneObject;
+      sketch("xy", () => {
+        c = circle([40, 30], 20) as unknown as SceneObject;
+        g = line([0, -50], [0, 80]).guide() as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(c!, 3);
+      setLocation(g!, 5);
+      const guideEdge = (g! as SceneObject).getShapes({ excludeGuide: false })
+        .find((s): s is Edge => s instanceof Edge)!;
+
+      const result = synthesizeSketchApplyFeature(
+        scene, edgesOf(c!).map(refFor), 'mirror', undefined,
+        { axisRefs: [refFor(guideEdge)] },
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.spec.producers).toEqual([
+        { line: 3, column: 0, featureType: 'circle', nameHint: 'c', bind: true },
+        { line: 5, column: 0, featureType: 'line', nameHint: 'l', bind: true },
+      ]);
+      expect(result.copySlots).toEqual({ targets: [0], axisParts: [0] });
+
+      // The guide is construction geometry: as a TARGET it does not resolve.
+      const asTarget = synthesizeSketchApplyFeature(scene, [refFor(guideEdge)], 'mirror');
+      expect(asTarget.ok).toBe(false);
+    });
+
+    it("refuses a curved edge as the mirror line", () => {
+      let l: SceneObject;
+      let c: SceneObject;
+      sketch("xy", () => {
+        l = line([0, 60], [80, 60]) as unknown as SceneObject;
+        c = circle([100, 0], 10) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(l!, 3);
+      setLocation(c!, 5);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(edgesOf(l!)[0])], 'mirror', undefined,
+        { axisRefs: [refFor(edgesOf(c!)[0])] },
+      );
+
+      expect(result).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/mirror line is a single straight line/),
+      });
+    });
+
+    it("refuses more than one mirror line", () => {
+      let l1: SceneObject;
+      let l2: SceneObject;
+      let c: SceneObject;
+      sketch("xy", () => {
+        l1 = line([0, 60], [80, 60]) as unknown as SceneObject;
+        l2 = line([0, 70], [80, 70]) as unknown as SceneObject;
+        c = circle([100, 0], 10) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(l1!, 3);
+      setLocation(l2!, 4);
+      setLocation(c!, 5);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(edgesOf(c!)[0])], 'mirror', undefined,
+        { axisRefs: [refFor(edgesOf(l1!)[0]), refFor(edgesOf(l2!)[0])] },
+      );
+
+      expect(result).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/exactly one line/),
+      });
+    });
+  });
+
   describe("rotate2d center references", () => {
     it("resolves a picked line endpoint to a bound accessor center", () => {
       let l: SceneObject;

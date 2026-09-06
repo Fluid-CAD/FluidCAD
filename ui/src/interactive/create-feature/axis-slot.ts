@@ -7,10 +7,11 @@ export type StandardAxis = 'x' | 'y' | 'z';
 const STANDARD_AXES: readonly StandardAxis[] = ['x', 'y', 'z'];
 
 /**
- * An axis slot's state, shared by every axis-picking dialog: a standard world
- * axis (the X/Y/Z quick buttons), an existing axis statement, a picked edge
- * (the service owns the entity), or — edit mode only — the statement's own
- * axis expression kept verbatim.
+ * An axis slot's state, shared by every axis-picking dialog: a standard axis
+ * (a world axis clicked in the viewport, or a sketch datum axis in the 2D
+ * dialogs), an existing axis statement, a picked edge (the service owns the
+ * entity), or — edit mode only — the statement's own axis expression kept
+ * verbatim.
  */
 export type AxisSelection =
   | { kind: 'standard'; axis: StandardAxis }
@@ -20,23 +21,24 @@ export type AxisSelection =
 
 /**
  * The axis picker every axis-consuming dialog shares: a single-chip PickSlot
- * with the X/Y/Z quick-button row under it, owning the {@link AxisSelection}
- * state machine — rendering the chip per state, re-matching an axis-statement
- * choice after re-renders, seeding/reverting to the edited statement's own
- * axis (a standard literal like `'z'` reads as the standard selection itself,
- * lighting its quick button), and tracking the picked-edge chip. The panel
- * owns arming policy and the service owns scene data and the edge entity.
+ * owning the {@link AxisSelection} state machine — rendering the chip per
+ * state, re-matching an axis-statement choice after re-renders,
+ * seeding/reverting to the edited statement's own axis (a standard literal
+ * like `'z'` reads as the standard selection itself), and tracking the
+ * picked-edge chip. Every pick comes from the viewport or the timeline: the
+ * world axes shown while the slot is armed, an axis statement's line, or a
+ * solid edge. The panel owns arming policy and the service owns scene data
+ * and the edge entity.
  */
 export class AxisSlotControl {
-  /** The slot or a quick button was clicked — the panel arms this slot. */
+  /** The slot was clicked — the panel arms this slot. */
   onArm?: () => void;
-  /** A gesture changed the selection (a quick button, the chip's ✕). */
+  /** A gesture changed the selection (the chip's ✕). */
   onChange?: () => void;
   /** The selection left edge mode via a gesture — the service drops the entity. */
   onModeChange?: () => void;
 
   private readonly slot: PickSlot;
-  private readonly buttons = new Map<StandardAxis, HTMLButtonElement>();
   private state: AxisSelection | null = null;
   /** The edited statement's own axis text; null in create mode. */
   private keepLabel: string | null = null;
@@ -45,25 +47,25 @@ export class AxisSlotControl {
 
   constructor(
     slotHost: HTMLElement,
-    buttonsHost: HTMLElement,
     private readonly opts: {
-      buttonTitle: (axis: string) => string;
       label?: string;
-      /** The quick buttons to offer; default the three world axes. */
-      axes?: readonly StandardAxis[];
-      /** Quick-button caption; default the axis letter (`X`). */
-      buttonLabel?: (axis: StandardAxis) => string;
       /** The chosen-standard chip's label; default `World X axis`. */
       chipLabel?: (axis: StandardAxis) => string;
       /**
        * How a kept statement axis reads back as a standard selection — the
        * capture group is the axis letter. Default matches the world-axis
-       * string literals (`'z'`); the 2D copy passes a `local('x')` matcher.
+       * string literals (`'z'`); the 2D dialogs pass an `xAxis()` matcher.
        */
       keepMatcher?: RegExp;
+      /**
+       * The axes a kept text may read back as; default the three world
+       * axes. The 2D dialogs, whose datums are the sketch's X and Y, name
+       * those two so a kept `xAxis()` lands on its standard chip.
+       */
+      keepAxes?: readonly StandardAxis[];
       /** The empty slot's pick prompt. */
       prompt?: string;
-    },
+    } = {},
   ) {
     this.slot = new PickSlot(slotHost, { label: opts.label ?? 'Axis', multiple: false });
     this.slot.onArm = () => this.onArm?.();
@@ -75,23 +77,6 @@ export class AxisSlotControl {
       this.onModeChange?.();
       this.onChange?.();
     };
-
-    // The standard-axis quick row: one click sets the slot without a 3D pick.
-    for (const axis of opts.axes ?? STANDARD_AXES) {
-      const btn = document.createElement('button');
-      btn.className = 'btn btn-sm join-item flex-1 font-normal';
-      btn.textContent = opts.buttonLabel?.(axis) ?? axis.toUpperCase();
-      btn.title = opts.buttonTitle(axis.toUpperCase());
-      btn.addEventListener('click', () => {
-        this.state = { kind: 'standard', axis };
-        this.onArm?.();
-        this.render();
-        this.onModeChange?.();
-        this.onChange?.();
-      });
-      buttonsHost.appendChild(btn);
-      this.buttons.set(axis, btn);
-    }
     this.render();
   }
 
@@ -109,8 +94,8 @@ export class AxisSlotControl {
 
   /**
    * Seed the edited statement's own axis (edit mode): a standard world-axis
-   * literal (`'z'`) reads as the standard selection itself, so its quick
-   * button lights up and the chip reads "World Z axis"; anything else (a
+   * literal (`'z'`) reads as the standard selection itself, so the chip
+   * reads "World Z axis" and the viewport axis lights up; anything else (a
    * variable, an axis() call) stays a verbatim "Current: …" keep.
    */
   seedKeep(label: string | null): void {
@@ -155,7 +140,11 @@ export class AxisSlotControl {
     this.render();
   }
 
-  /** A programmatic standard-axis choice (a create-mode default); no events fire. */
+  /**
+   * A standard axis: a world axis clicked in the viewport, a sketch datum
+   * pick, or a create-mode default. No events fire — the service drops any
+   * picked edge and schedules the preview itself.
+   */
   selectStandard(axis: StandardAxis): void {
     this.state = { kind: 'standard', axis };
     this.render();
@@ -187,7 +176,8 @@ export class AxisSlotControl {
     }
     const matcher = this.opts.keepMatcher ?? /^['"]([xyz])['"]$/;
     const standard = this.keepLabel.trim().match(matcher);
-    if (standard && this.buttons.has(standard[1] as StandardAxis)) {
+    const keepAxes = this.opts.keepAxes ?? STANDARD_AXES;
+    if (standard && keepAxes.includes(standard[1] as StandardAxis)) {
       return { kind: 'standard', axis: standard[1] as StandardAxis };
     }
     return { kind: 'keep' };
@@ -214,12 +204,7 @@ export class AxisSlotControl {
       this.slot.setPrompt(null);
     } else {
       this.slot.setChips([]);
-      this.slot.setPrompt(this.opts.prompt ?? 'Pick an axis or edge');
-    }
-    for (const [axis, btn] of this.buttons) {
-      const active = state?.kind === 'standard' && state.axis === axis;
-      btn.classList.toggle('btn-soft', active);
-      btn.classList.toggle('btn-primary', active);
+      this.slot.setPrompt(this.opts.prompt ?? 'Pick a world axis, an axis or an edge');
     }
   }
 }

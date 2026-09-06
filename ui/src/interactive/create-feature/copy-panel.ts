@@ -51,7 +51,7 @@ export type CopyValues =
  * solids slot — filled from whole-solid viewport picks (any face or edge
  * click selects the owning solid) or timeline rows, one numbered chip per
  * solid being copied — plus the kind's inputs. Linear shows a Direction 1
- * group (axis slot + X/Y/Z quick buttons, Total Count, the shared
+ * group (axis slot, Total Count, the shared
  * Offset/Total spacing mode with its value) and an "Add second direction"
  * button revealing a Direction 2 group with its own axis, count and value
  * (its ✕ removes it); more axes stay a hand-written-code affair. Circular
@@ -118,7 +118,6 @@ export class CopyPanel extends FeaturePanel {
         <div data-role="axis-wrap" class="flex flex-col gap-1.5">
           <span data-role="dir1-header" class="text-base-content/70 font-medium">Direction 1</span>
           <div data-role="axis-slot-1"></div>
-          <div data-role="axis-buttons-1" class="join w-full"></div>
         </div>
         <label data-role="count-row" class="flex flex-col gap-1.5" title="Number of instances, the original included">
           <span class="text-base-content/70">Total Count</span>
@@ -156,7 +155,6 @@ export class CopyPanel extends FeaturePanel {
               title="Remove the second direction">✕</button>
           </div>
           <div data-role="axis-slot-2"></div>
-          <div data-role="axis-buttons-2" class="join w-full"></div>
           <label class="flex flex-col gap-1.5" title="Number of instances along the second direction, the original included">
             <span class="text-base-content/70">Total Count</span>
             <input data-role="count2" type="number" step="1" min="2" value="2"
@@ -199,11 +197,7 @@ export class CopyPanel extends FeaturePanel {
 
     this.dir1Header = this.role('dir1-header');
     for (const direction of [1, 2] as const) {
-      const control = new AxisSlotControl(
-        this.role(`axis-slot-${direction}`),
-        this.role(`axis-buttons-${direction}`),
-        { buttonTitle: (axis) => `Copy along the world ${axis} axis` },
-      );
+      const control = new AxisSlotControl(this.role(`axis-slot-${direction}`));
       control.onArm = () => this.armSlot(direction === 2 ? 'axis2' : 'axis1');
       control.onModeChange = () => this.onAxisModeChange?.(direction);
       control.onChange = () => this.onChange?.();
@@ -428,6 +422,16 @@ export class CopyPanel extends FeaturePanel {
   selectAxis(option: AxisOption): void {
     const direction = this.armedAxis;
     this.axisSlots.get(direction)!.selectOption(option);
+    this.armSlot(direction === 2 ? 'axis2' : 'axis1');
+  }
+
+  /**
+   * A world axis clicked in the viewport — it lands in the armed direction's
+   * slot. No change event fires.
+   */
+  selectStandardAxis(axis: 'x' | 'y' | 'z'): void {
+    const direction = this.armedAxis;
+    this.axisSlots.get(direction)!.selectStandard(axis);
     this.armSlot(direction === 2 ? 'axis2' : 'axis1');
   }
 

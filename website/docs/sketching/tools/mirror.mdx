@@ -11,15 +11,23 @@ import toolMirrorLocal from '!!raw-loader!../_examples/tool-mirror-local.js';
 
 Mirror reflects sketch geometry across a line or an axis. Draw one half of a symmetric profile, mirror it, and the two halves join into one region.
 
-There is no Mirror button on the sketch toolbar; the 2D mirror is written in the code editor. (The toolbar's **Mirror** is the 3D one, for solids.)
+## In the viewport
+
+1. Click **Mirror** on the sketch toolbar (shortcut **M**). The Mirror dialog opens with a **Geometry** slot and a **Mirror line** slot.
+2. Click the sketch edges to mirror; they show as chips. Any edge stands for its whole primitive — one side of a rectangle picks the rectangle.
+3. Pick the **Mirror line**: click the slot, then click a sketched line in the viewport (a [guide](/docs/sketching/tools/guides) works too), or click the sketch's own X or Y axis line, written as `xAxis()` / `yAxis()`. The reflection previews in the viewport as you go.
+4. **Apply**.
+
+Double-click the mirror's row in the timeline to reopen the dialog and re-pick the geometry or the line.
 
 ## By hand
 
 ```js
 mirror(line)                            // mirror everything across a sketched line
 mirror(line, g1, g2, ...)               // mirror specific geometry across a line
-mirror("x")                             // mirror across a world axis
-mirror("y", g1, g2, ...)                // mirror specific geometry across an axis
+mirror(yAxis())                         // mirror across the sketch's own Y axis
+mirror(xAxis(), g1, g2, ...)            // mirror specific geometry across the sketch's X axis
+mirror("y", g1, g2, ...)                // across a WORLD axis — see below
 ```
 
 Any sketched line can be the mirror line, including a [guide](/docs/sketching/tools/guides) you do not want in the profile. Write the statement after the constraints — mirror consumes solved geometry.
@@ -40,26 +48,26 @@ sketch("front", () => {
 })
 ```
 
-`local()` resolves an axis name against the active sketch instead:
+The sketch's own axes are the datums `xAxis()` and `yAxis()` — the same fixed lines constraints target (`collinear(xAxis(), l)`), accepted here as the mirror axis:
 
 ![The same latch on the front plane, mirrored across local Y](/img/docs/sketching/tool-mirror-local.png)
 
 <ExplainedCode code={toolMirrorLocal} fileName="plate.part.js" />
 
-| Sketch plane | `local("x")` | `local("y")` |
+| Sketch plane | `xAxis()` | `yAxis()` |
 |---|---|---|
 | `"xy"` / `"top"` | world +X | world +Y |
 | `"xz"` / `"front"` | world +X | world +Z |
 | `"yz"` / `"right"` | world +Y | world +Z |
 
-`local()` also works with face sketches and custom `plane()` objects, and it is per argument — bare strings in the same call stay world-relative:
+The datums work with face sketches and custom `plane()` objects, and they are per argument — bare strings in the same call stay world-relative:
 
 ```js
 sketch("front", () => {
-    copy("linear", [local("y"), "x"], { count: 2, offset: 30 }, shape)
+    copy("linear", [yAxis(), "x"], { count: 2, offset: 30 }, shape)
 })
 ```
 
-You do not need it when the mirror line is a sketched line (it already lies on the plane), or on `sketch("xy")`, where world and local axes agree.
+You do not need the datums when the mirror line is a sketched line (it already lies on the plane), or on `sketch("xy")`, where world and sketch axes agree.
 
 For mirroring a **feature** rather than sketch geometry, see [Patterns → Repeat](/docs/patterns/repeat#mirror-repeat); for solids, [Transforms → Mirror](/docs/transforms/mirror).

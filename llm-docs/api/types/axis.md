@@ -1,7 +1,7 @@
 ---
 id: api/types/axis
 title: Axis
-summary: "An axis datum in the scene — what `axis()` and `local()` return."
+summary: "An axis datum in the scene — what `axis()` returns."
 tags: [api, type, interface]
 symbols: [Axis, IAxis]
 seeAlso: [api/axis, api/types/axis-like, api/types/scene-object]
@@ -14,7 +14,7 @@ interface Axis extends SceneObject {
 }
 ```
 
-An axis datum in the scene — what `axis()` and `local()` return. `getAxis()`
+An axis datum in the scene — what `axis()` returns. `getAxis()`
 plays the same structural role here as `getPlane()` does on `IPlane`.
 
 Extends [[api/types/scene-object]].

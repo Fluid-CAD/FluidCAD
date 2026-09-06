@@ -148,7 +148,8 @@ Every example is a complete runnable file in the section's `_examples/`:
   positional-constraint pages hide the dimension readouts so the badges stand out),
   `view iso-ftr` (any named view: front, top, right, iso-ftr …), `size 1200x800`,
   `aspectRatio 1.5`, `noAutoCrop`, `crop 0,0,100,16` (keep a percent region x,y,w,h after
-  auto-crop — for scenes where a far construction point stretches the frame), `delay 8000` (ms to wait for the browser to
+  auto-crop — for scenes where a far construction point stretches the frame), `framePlanes` (fit and crop around the
+  `plane()` quads too — they are left out of the framing by default, so a page about planes needs it), `delay 8000` (ms to wait for the browser to
   mesh the scene; `text()` examples wait 10 s automatically), `skip`. Do not
   use `waitForInput` — it blocks an unattended run. Axes show automatically
   when the code contains `revolve(`, `mirror(` or `rotate(`. An example that

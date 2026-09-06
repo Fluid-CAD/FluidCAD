@@ -37,6 +37,7 @@ export type ScreenshotInput = WorkspaceArg & {
   solidsOnly?: boolean;
   showDimensions?: boolean;
   showPositional?: boolean;
+  framePlanes?: boolean;
   pixelRatio?: number;
 };
 
@@ -184,6 +185,7 @@ type ValidatedOptions = {
   solidsOnly?: boolean;
   showDimensions?: boolean;
   showPositional?: boolean;
+  framePlanes?: boolean;
   pixelRatio?: number;
 };
 
@@ -204,7 +206,7 @@ function validateScreenshotInput(input: ScreenshotInput | ScreenshotMultiInput):
     }
     opts.height = h;
   }
-  for (const k of ['showGrid', 'showAxes', 'transparent', 'autoCrop', 'fitToModel', 'solidsOnly', 'showDimensions', 'showPositional'] as const) {
+  for (const k of ['showGrid', 'showAxes', 'transparent', 'autoCrop', 'fitToModel', 'solidsOnly', 'showDimensions', 'showPositional', 'framePlanes'] as const) {
     const v = (input as any)[k];
     if (v !== undefined) {
       if (typeof v !== 'boolean') {

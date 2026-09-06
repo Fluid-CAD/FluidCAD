@@ -3905,7 +3905,7 @@ describe('apply-feature route validation', () => {
         },
       });
       expect(status).toBe(200);
-      expect(body.preview).toBe("copy('linear', local('x'), { count: 3, offset: 20 }, r)");
+      expect(body.preview).toBe("copy('linear', xAxis(), { count: 3, offset: 20 }, r)");
       expect(sketchSynthesizeCalls).toEqual([{
         picks: [{ shapeId: 'e1' }], feature: 'copy', value: undefined,
         offset: undefined, slot: undefined, axisRefs: [],
@@ -3918,7 +3918,7 @@ describe('apply-feature route validation', () => {
           targets: [{ producer: 0 }],
         },
       });
-      expect(relayed[0].spec.imports).toContain('local');
+      expect(relayed[0].spec.imports).toContain('xAxis');
     });
 
     it('renders an edge-picked direction as axis(<var>) and imports axis', async () => {
@@ -4009,7 +4009,7 @@ describe('apply-feature route validation', () => {
       '',
       "sketch('xy', () => {",
       '  const r = circle([0, 0], 20)',
-      "  copy('linear', local('x'), { count: 3, offset: 20 }, r)",
+      "  copy('linear', xAxis(), { count: 3, offset: 20 }, r)",
       '})',
       '',
     ].join('\n');
@@ -4023,7 +4023,7 @@ describe('apply-feature route validation', () => {
         directions: [{ count: 4, value: 25 }],
       });
       expect(status).toBe(200);
-      expect(body.preview).toBe("copy('linear', local('x'), { count: 4, offset: 25 }, r)");
+      expect(body.preview).toBe("copy('linear', xAxis(), { count: 4, offset: 25 }, r)");
       expect(sketchSynthesizeCalls).toEqual([]);
       expect(relayed[0].spec).toMatchObject({
         edit: {
@@ -4043,8 +4043,8 @@ describe('apply-feature route validation', () => {
         directions: [{ axis: { kind: 'local', axis: 'y' }, count: 3, value: 20 }],
       });
       expect(status).toBe(200);
-      expect(body.preview).toBe("copy('linear', local('y'), { count: 3, offset: 20 }, r)");
-      expect(relayed[0].spec.imports).toContain('local');
+      expect(body.preview).toBe("copy('linear', yAxis(), { count: 3, offset: 20 }, r)");
+      expect(relayed[0].spec.imports).toContain('yAxis');
     });
 
     it('re-picks the targets through the sketch kernel (no boundary needed)', async () => {
@@ -4066,7 +4066,7 @@ describe('apply-feature route validation', () => {
         sketchTargets: [{ shapeId: 'e1' }],
       });
       expect(status).toBe(200);
-      expect(body.preview).toBe("copy('linear', local('x'), { count: 3, offset: 20 }, r)");
+      expect(body.preview).toBe("copy('linear', xAxis(), { count: 3, offset: 20 }, r)");
       expect(sketchSynthesizeCalls[0]).toMatchObject({
         picks: [{ shapeId: 'e1' }], feature: 'copy', axisRefs: [],
       });
@@ -4106,6 +4106,213 @@ describe('apply-feature route validation', () => {
       });
       expect(status).toBe(400);
       expect(body.error).toContain('linear copy carries');
+    });
+  });
+
+  // The in-sketch mirror (sketchEntities branch): the copy's sibling —
+  // targets are whole geometries as bare variables, the quick buttons emit
+  // sketch-local axes, and a picked mirror line renders as its BARE variable
+  // (`mirror(l, r)`, the documented kernel form — never `axis(l)`). The
+  // kernel resolution is mocked; the statement rendering and spec assembly
+  // are the real route's.
+  describe('2D mirror (sketch branch)', () => {
+    const CODE = [
+      "import { sketch, circle, line, point } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => {",
+      '  circle([30, 0], 20)',
+      '  point([0, 40])',
+      '  line([60, -50], [60, 50])',
+      '})',
+      '',
+    ].join('\n');
+
+    const mirrorSynthesis = (opts: {
+      producers: any[]; parts?: any[]; targets: number[]; axisParts?: number[]; args?: string;
+    }) => ({
+      ok: true,
+      spec: {
+        feature: 'mirror', filePath: '/ws/m.fluid.js',
+        producers: opts.producers, parts: opts.parts ?? [], imports: [],
+      },
+      preview: '', args: opts.args ?? 'r', alternatives: [],
+      copySlots: { targets: opts.targets, axisParts: opts.axisParts ?? [] },
+    });
+
+    it('renders a mirror across a sketch-local axis and imports the datum', async () => {
+      currentCode = CODE;
+      currentSynthesis = mirrorSynthesis({
+        producers: [{ line: 4, column: 2, featureType: 'circle', nameHint: 'r', bind: true }],
+        targets: [0],
+      });
+      const { status, body } = await post({
+        feature: 'mirror', sketchEntities: [{ shapeId: 'e1' }],
+        mirror2d: { axis: { kind: 'local', axis: 'y' } },
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('mirror(yAxis(), r)');
+      expect(sketchSynthesizeCalls).toEqual([{
+        picks: [{ shapeId: 'e1' }], feature: 'mirror', value: undefined,
+        offset: undefined, slot: undefined, axisRefs: [],
+      }]);
+      expect(relayed[0].spec).toMatchObject({
+        feature: 'mirror',
+        mirror: { axis: { kind: 'local', axis: 'y' }, op: 'add', targets: [{ producer: 0 }] },
+      });
+      expect(relayed[0].spec.imports).toContain('yAxis');
+      expect(relayed[0].spec.mirror.plane).toBeUndefined();
+    });
+
+    it('renders a picked mirror line as its bare variable', async () => {
+      currentCode = CODE;
+      currentSynthesis = mirrorSynthesis({
+        producers: [
+          { line: 4, column: 2, featureType: 'circle', nameHint: 'r', bind: true },
+          { line: 6, column: 2, featureType: 'line', nameHint: 'l', bind: true },
+        ],
+        parts: [{ producer: 1, accessor: '', indices: null, filterArgs: null }],
+        targets: [0],
+        axisParts: [0],
+      });
+      const { status, body } = await post({
+        feature: 'mirror', sketchEntities: [{ shapeId: 'e1' }],
+        sketchAxisEntities: [{ shapeId: 'l1' }],
+        mirror2d: { axis: { kind: 'edge' } },
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('mirror(l, r)');
+      expect(sketchSynthesizeCalls[0]).toMatchObject({ feature: 'mirror', axisRefs: [{ shapeId: 'l1' }] });
+      expect(relayed[0].spec).toMatchObject({
+        mirror: { axis: { kind: 'selector', part: 0 } },
+        parts: [{ producer: 1, accessor: '' }],
+      });
+      expect(relayed[0].spec.imports).not.toContain('axis');
+    });
+
+    it('rejects a line pick count that does not match the axis kind', async () => {
+      const withPick = await post({
+        feature: 'mirror', sketchEntities: [{ shapeId: 'e1' }],
+        sketchAxisEntities: [{ shapeId: 'l1' }],
+        mirror2d: { axis: { kind: 'local', axis: 'x' } },
+      });
+      expect(withPick.status).toBe(400);
+      expect(withPick.body.error).toContain('exactly one pick');
+      const withoutPick = await post({
+        feature: 'mirror', sketchEntities: [{ shapeId: 'e1' }],
+        mirror2d: { axis: { kind: 'edge' } },
+      });
+      expect(withoutPick.status).toBe(400);
+      expect(sketchSynthesizeCalls).toHaveLength(0);
+    });
+
+    it('rejects a malformed axis', async () => {
+      const { status, body } = await post({
+        feature: 'mirror', sketchEntities: [{ shapeId: 'e1' }],
+        mirror2d: { axis: { kind: 'standard', axis: 'z' } },
+      });
+      expect(status).toBe(400);
+      expect(body.error).toContain('mirror2d.axis');
+    });
+
+    it('422s a kernel that predates the mirror kind (no copySlots)', async () => {
+      currentCode = CODE;
+      currentSynthesis = {
+        ok: true,
+        spec: { feature: 'mirror', filePath: '/ws/m.fluid.js', producers: [], parts: [], imports: [] },
+        preview: '', args: 'edge().line(20)', alternatives: [],
+      };
+      const { status, body } = await post({
+        feature: 'mirror', sketchEntities: [{ shapeId: 'e1' }],
+        mirror2d: { axis: { kind: 'local', axis: 'y' } },
+      });
+      expect(status).toBe(422);
+      expect(body.reason).toContain('update its fluidcad dependency');
+    });
+  });
+
+  describe('2D mirror edit (sketch branch)', () => {
+    const EDIT_CODE = [
+      "import { sketch, circle, line, mirror, yAxis } from 'fluidcad/core'",
+      '',
+      "sketch('xy', () => {",
+      '  const r = circle([30, 0], 20)',
+      '  const l = line([60, -50], [60, 50])',
+      '  mirror(yAxis(), r)',
+      '})',
+      '',
+    ].join('\n');
+    const EDIT = { filePath: '/ws/m.fluid.js', line: 6, column: 2 };
+
+    it('keeps the axis and targets verbatim', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'mirror', edit: EDIT, op: 'add', axis: { kind: 'keep' },
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('mirror(yAxis(), r)');
+      expect(sketchSynthesizeCalls).toEqual([]);
+      expect(relayed[0].spec).toMatchObject({
+        edit: { mirror: { axis: { kind: 'keep' }, op: 'add' } },
+      });
+    });
+
+    it('re-sources the axis to the other sketch datum', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      const { status, body } = await post({
+        feature: 'mirror', edit: EDIT, op: 'add', axis: { kind: 'local', axis: 'x' },
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('mirror(xAxis(), r)');
+      expect(relayed[0].spec.imports).toContain('xAxis');
+    });
+
+    it('re-picks the mirror line and targets through the sketch kernel', async () => {
+      currentCode = EDIT_CODE;
+      currentFileName = '/ws/m.fluid.js';
+      currentSynthesis = {
+        ok: true,
+        spec: {
+          feature: 'mirror', filePath: '/ws/m.fluid.js',
+          producers: [
+            { line: 4, column: 12, featureType: 'circle', nameHint: 'r', bind: true },
+            { line: 5, column: 12, featureType: 'line', nameHint: 'l', bind: true },
+          ],
+          parts: [{ producer: 1, accessor: '', indices: null, filterArgs: null }],
+          imports: [],
+        },
+        preview: '', args: 'r', alternatives: [],
+        copySlots: { targets: [0], axisParts: [0] },
+      };
+      const { status, body } = await post({
+        feature: 'mirror', edit: EDIT, op: 'add', axis: { kind: 'sketch-edge' },
+        sketchTargets: [{ shapeId: 'e1' }],
+        sketchAxisEntities: [{ shapeId: 'l1' }],
+      });
+      expect(status).toBe(200);
+      expect(body.preview).toBe('mirror(l, r)');
+      expect(sketchSynthesizeCalls[0]).toMatchObject({
+        picks: [{ shapeId: 'e1' }], feature: 'mirror', axisRefs: [{ shapeId: 'l1' }],
+      });
+      expect(relayed[0].spec).toMatchObject({
+        edit: { mirror: { axis: { kind: 'selector', part: 0 }, targets: [{ kind: 'feature', producer: 0 }] } },
+      });
+    });
+
+    it('rejects an axis edit mixed with a plane, an op chain, or 3D targets', async () => {
+      const cases = [
+        { feature: 'mirror', edit: EDIT, op: 'add', axis: { kind: 'keep' }, plane: { kind: 'keep' } },
+        { feature: 'mirror', edit: EDIT, op: 'new', axis: { kind: 'keep' } },
+        { feature: 'mirror', edit: EDIT, op: 'add', axis: { kind: 'keep' }, targets: [{ kind: 'verbatim', sourceIndex: 0 }] },
+        { feature: 'mirror', edit: EDIT, op: 'add', axis: { kind: 'sketch-edge' } },
+        { feature: 'mirror', edit: EDIT, op: 'add', plane: { kind: 'keep' }, sketchTargets: [{ shapeId: 'e1' }] },
+      ];
+      for (const body of cases) {
+        const { status } = await post(body);
+        expect(status, JSON.stringify(body)).toBe(400);
+      }
+      expect(relayed).toHaveLength(0);
     });
   });
 

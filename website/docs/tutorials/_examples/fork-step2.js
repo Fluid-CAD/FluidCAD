@@ -1,5 +1,5 @@
 // @screenshot waitForInput hideGrid
-import { arc, circle, cut, extrude, line, local, mirror, plane, sketch } from "fluidcad/core";
+import { arc, circle, cut, extrude, line, mirror, plane, sketch, yAxis } from "fluidcad/core";
 import { coincident, concentric, distance, fix, horizontal, radius, vertical } from "fluidcad/constraints";
 
 sketch("front", () => {
@@ -56,7 +56,7 @@ sketch("front", () => {
     distance(colB.start(), colB.end(), 36);
     distance(colR.start(), colR.end(), 129 - 18);
 
-    mirror(local("y"), legB, legR, legT, legL);
+    mirror(yAxis(), legB, legR, legT, legL);
 });
 
 extrude(36).symmetric();

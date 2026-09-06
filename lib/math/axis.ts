@@ -4,6 +4,7 @@ import { Matrix4 } from "./matrix4.js";
 import { Quaternion } from "./quaternion.js";
 import { AxisObjectBase } from "../features/axis-renderable-base.js";
 import { IAxis } from "../core/interfaces.js";
+import type { SketchDatum } from "../features/2d/solved/datum.js";
 
 export interface AxisTransformOptions {
   offsetX?: number;
@@ -195,7 +196,13 @@ export class Axis {
 }
 
 export type StandardAxis = "x" | "y" | "z";
-export type AxisLike = StandardAxis | Axis | IAxis | AxisObjectBase;
+/**
+ * Anything a command accepts as an axis: a world axis name, a resolved
+ * Axis, an axis datum statement (`axis(...)`), or — inside a sketch — the
+ * sketch's own x/y axis datum (`xAxis()` / `yAxis()`), which mirror() and
+ * copy() promote to a sketch-plane axis on demand.
+ */
+export type AxisLike = StandardAxis | Axis | IAxis | AxisObjectBase | SketchDatum;
 
 export function isAxisLike(value: unknown): value is AxisLike {
   return value instanceof AxisObjectBase || value instanceof Axis || isStandardAxis(value);

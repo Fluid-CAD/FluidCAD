@@ -93,6 +93,8 @@ angle(xAxis(), ramp, 30)              // angle against the horizontal
 
 A constraint whose every target is fixed (two datums, say) has nothing to solve and is refused.
 
+The two axis datums are also the directions the in-sketch transforms take — `mirror(yAxis(), …)`, `copy("linear", xAxis(), …)` — where a bare `"x"` would mean the **world** axis. See [Mirror](/docs/sketching/tools/mirror#sketch-axes-and-world-axes).
+
 ## Fixed references
 
 [`project()`](/docs/sketching/tools/project) brings existing 3D edges and faces into the sketch as **fixed reference geometry**: the solver never moves it, it renders locked, and your geometry constrains against it — `tangent(bore, l)`, `concentric(c, rim)`, `coincident(p, outline.ref(2).start())`. That is how a feature follows the shape it sits on.

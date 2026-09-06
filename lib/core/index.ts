@@ -5,7 +5,6 @@ export type {
   IExtrude, ICut, ICommon, ISweep, ILoft, LoftConditionType, IRevolve, IDraft, IRib, IHelix, IWrap
 } from "./interfaces.js";
 export { default as axis } from "./axis.js";
-export { default as local } from "./local.js";
 export { default as plane } from "./plane.js";
 export { default as sketch } from "./sketch.js";
 export { default as fuse } from "./fuse.js";

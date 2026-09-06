@@ -88,7 +88,7 @@ sketch("front", () => {
     distance(colB.start(), colB.end(), 36);
     distance(colR.start(), colR.end(), 129 - 18);
 
-    mirror(local("y"), legB, legR, legT, legL);
+    mirror(yAxis(), legB, legR, legT, legL);
 });
 ```
 
@@ -96,7 +96,7 @@ sketch("front", () => {
 
 Each rectangle follows the same pattern: four lines, four `coincident` corner junctions, `horizontal`/`vertical` on the sides, a `fix` to anchor one corner, and two `distance` dimensions for width and height.
 
-Finally `mirror(local("y"), ...)` reflects the four leg lines across the sketch's local Y-axis to produce the matching left leg — mirror is a derived operation, so it comes after the geometry and constraints.
+Finally `mirror(yAxis(), ...)` reflects the four leg lines across the sketch's Y axis to produce the matching left leg — mirror is a derived operation, so it comes after the geometry and constraints.
 
 ![Fork silhouette sketch](/img/docs/tutorials/fork-step1-sketch.png)
 
@@ -231,7 +231,7 @@ Same pattern as the post: a 20-thick annular ring around the square, extruded do
 
 - **`arc(start, end, center)` + `concentric` + `radius`** — building a U-shaped wall from two concentric semicircles closed with cap lines
 - **Rectangles from primitives** — four `line`s pinned with `coincident`, `horizontal`/`vertical`, `fix`, and `distance` dimensions
-- **`local("y")`** — mirroring sketch geometry across the sketch's local axes
+- **`yAxis()`** — mirroring sketch geometry across the sketch's own axes
 - **`plane("right", n)` / `plane("top", n)`** — creating offset reference planes for side and top features
 - **`extrude(d)` then `mirror("right")`** — modeling a single side feature and reflecting it
 - **`.endFaces()`** — selecting the outer face of an extrusion to sketch on

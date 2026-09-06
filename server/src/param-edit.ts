@@ -2,10 +2,14 @@ import {
   getJavaScriptParser,
   walkTree,
   spliceCode,
+  splitLines,
+  indentOf,
   stringLiteralValue,
   quoteForSingleQuotes,
   declareTopLevelVariable,
   ensureSymbolImport,
+  findEditableCallAt,
+  findSketchBody,
   removeStatement,
   type TSNode,
   type TSTree,
@@ -42,14 +46,24 @@ export type ParamSpec = {
 };
 
 /**
+ * The `part()` statement whose callback body receives a new declaration —
+ * the timeline's active part by default, or whichever one the Add dialog's
+ * Part dropdown chose. 1-indexed line of the statement, as the render
+ * captured it; the column rides along for symmetry with every other
+ * statement address but the line is what locates the call.
+ */
+export type ParamPartTarget = { line: number; column: number };
+
+/**
  * A source edit to the file's `param()` declarations. `expectedLabel` is what
  * addresses the declaration — it is the registry key, so the panel always has
  * it and the file can only spell it in one place. `line` (1-indexed, from the
  * definition's captured source location) only disambiguates a label declared
- * more than once, and is omitted when the render carried no location.
+ * more than once, and is omitted when the render carried no location. An
+ * `add` without a `part` lands at the file's top level.
  */
 export type ParamEditSpec =
-  | { kind: 'add'; param: ParamSpec }
+  | { kind: 'add'; param: ParamSpec; part?: ParamPartTarget }
   | { kind: 'update'; line?: number; expectedLabel: string; param: ParamSpec }
   | { kind: 'remove'; line?: number; expectedLabel: string };
 
@@ -110,7 +124,7 @@ export class ParamEditor {
   static async apply(code: string, spec: ParamEditSpec): Promise<ParamEditResult> {
     switch (spec?.kind) {
       case 'add':
-        return ParamEditor.add(code, spec.param);
+        return ParamEditor.add(code, spec.param, spec.part);
       case 'update':
         return ParamEditor.update(code, spec.line, spec.expectedLabel, spec.param);
       case 'remove':
@@ -149,13 +163,19 @@ export class ParamEditor {
   // -------------------------------------------------------------------------
 
   /**
-   * Declare a new parameter at top level, right below the imports — the one
-   * shared spot param declarations land in (`declareTopLevelVariable`), so the
-   * panel's additions read the same as the ones an expression field writes.
-   * The variable it binds is derived here rather than asked for: only this
-   * side can see what the file already declares.
+   * Declare a new parameter. Without a part it goes at top level, right below
+   * the imports — the one shared spot param declarations land in
+   * (`declareTopLevelVariable`), so the panel's additions read the same as
+   * the ones an expression field writes. With a part it goes at the top of
+   * that part's callback body ({@link declareInPart}), where the features
+   * below it can read it. The variable it binds is derived here rather than
+   * asked for: only this side can see what the file already declares.
    */
-  private static async add(code: string, param: ParamSpec): Promise<ParamEditResult> {
+  private static async add(
+    code: string,
+    param: ParamSpec,
+    part?: ParamPartTarget,
+  ): Promise<ParamEditResult> {
     const invalid = ParamEditor.validate(param);
     if (invalid) {
       return { newCode: code, error: invalid };
@@ -165,8 +185,112 @@ export class ParamEditor {
       return { newCode: code, error: `this model already has a parameter labelled "${param.label}"` };
     }
     const variable = ParamEditor.variableNameFor(param.label, tree);
-    const declared = await declareTopLevelVariable(code, variable, ParamEditor.renderCall(param));
+    const statement = `const ${variable} = ${ParamEditor.renderCall(param)};`;
+    let declared: string;
+    if (part) {
+      const inPart = ParamEditor.declareInPart(code, tree, part, statement);
+      if ('error' in inPart) {
+        return { newCode: code, error: inPart.error };
+      }
+      declared = inPart.newCode;
+    } else {
+      declared = await declareTopLevelVariable(code, variable, ParamEditor.renderCall(param));
+    }
     return { newCode: await ensureSymbolImport(declared, 'param') };
+  }
+
+  /**
+   * Put `statement` into the callback body of the `part()` at `part.line`.
+   * Declarations read as a block at the top of the body, so the new one goes
+   * after the last of the body's leading `param()` declarations when it has
+   * any, and above the first statement otherwise — never at the end, where
+   * the features that should read it have already run. An empty body opens
+   * up around it, a one-line `{}` included.
+   */
+  private static declareInPart(
+    code: string,
+    tree: TSTree,
+    part: ParamPartTarget,
+    statement: string,
+  ): { newCode: string } | { error: string } {
+    if (!Number.isInteger(part.line) || part.line < 1) {
+      return { error: 'malformed param edit spec: bad part line' };
+    }
+    const lines = splitLines(code);
+    const call = findEditableCallAt(tree, lines, part.line);
+    if (!call || ParamEditor.chainRootCallee(call) !== 'part') {
+      return {
+        error: `no part() call found at line ${part.line} — is the file in sync with the last render?`,
+      };
+    }
+    const body = findSketchBody(call);
+    if (!body) {
+      return { error: 'the part at that line has no callback body to declare the parameter in' };
+    }
+    const statements = body.namedChildren.filter((c) => c.type !== 'comment');
+    if (statements.length === 0) {
+      const baseIndent = indentOf(lines, body.startPosition.row);
+      const indent = baseIndent + '  ';
+      const singleLine = body.startPosition.row === body.endPosition.row;
+      const opened = singleLine
+        ? `\n${indent}${statement}\n${baseIndent}`
+        : `\n${indent}${statement}`;
+      return { newCode: spliceCode(code, body.startIndex + 1, body.startIndex + 1, opened) };
+    }
+    let lastParam: TSNode | null = null;
+    for (const node of statements) {
+      if (!ParamEditor.isParamDeclarationStatement(node)) {
+        break;
+      }
+      lastParam = node;
+    }
+    if (lastParam) {
+      const indent = indentOf(lines, lastParam.startPosition.row);
+      return {
+        newCode: spliceCode(code, lastParam.endIndex, lastParam.endIndex, `\n${indent}${statement}`),
+      };
+    }
+    const first = statements[0];
+    const indent = indentOf(lines, first.startPosition.row);
+    return { newCode: spliceCode(code, first.startIndex, first.startIndex, `${statement}\n${indent}`) };
+  }
+
+  /** A `const x = param(…)` / `param(…);` statement — one of the body's declaration block. */
+  private static isParamDeclarationStatement(node: TSNode): boolean {
+    if (node.type !== 'lexical_declaration' && node.type !== 'variable_declaration'
+      && node.type !== 'expression_statement') {
+      return false;
+    }
+    for (const inner of walkTree(node)) {
+      if (inner.type !== 'call_expression') {
+        continue;
+      }
+      const fn = inner.childForFieldName('function');
+      if (fn?.type === 'identifier' && fn.text === 'param') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Root identifier of a call chain: `part('A', () => {}).hidden()` → `part`. */
+  private static chainRootCallee(call: TSNode): string | null {
+    let current: TSNode | null = call;
+    while (current && current.type === 'call_expression') {
+      const fn = current.childForFieldName('function');
+      if (!fn) {
+        return null;
+      }
+      if (fn.type === 'identifier') {
+        return fn.text;
+      }
+      if (fn.type === 'member_expression') {
+        current = fn.childForFieldName('object');
+        continue;
+      }
+      return null;
+    }
+    return null;
   }
 
   /**

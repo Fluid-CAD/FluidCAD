@@ -36,7 +36,7 @@ mirror(axis: AxisLike): IMirror2D
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `axis` | [AxisLike](/docs/api/types/axis-like) | The local axis to mirror across |
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to mirror across — `xAxis()` / `yAxis()` for the sketch's own axes; a bare `'x'` is the WORLD axis |
 
 ---
 
@@ -61,7 +61,7 @@ mirror(axis: AxisLike, ...geometries: SceneObject[]): IMirror2D
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `axis` | [AxisLike](/docs/api/types/axis-like) | The local axis to mirror across |
+| `axis` | [AxisLike](/docs/api/types/axis-like) | The axis to mirror across — `xAxis()` / `yAxis()` for the sketch's own axes; a bare `'x'` is the WORLD axis |
 | `...geometries` | [SceneObject](/docs/api/types/scene-object)[] | The geometries to mirror *(optional)* |
 
 ---

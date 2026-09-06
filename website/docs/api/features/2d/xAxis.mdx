@@ -1,16 +1,17 @@
 ---
 sidebar_position: 11
 title: "xAxis"
-description: "The sketch x axis — the infinite line through the origin along the plane's x direction — as a constraint target. A fixed reference line: `collinear(xAxis(), l)`, `coincident(p, xAxis())`, `symmetric(a, b, xAxis())`, `distance(xAxis(), c, 25)`. Constraint sketches only."
+description: "The sketch x axis — the infinite line through the origin along the plane's x direction. A fixed constraint target: `collinear(xAxis(), l)`, `coincident(p, xAxis())`, `symmetric(a, b, xAxis())`, `distance(xAxis(), c, 25)`. Also the sketch's own X direction for the in-sketch transforms — `mirror(xAxis(), g)`, `copy('linear', xAxis(), …)` — where a bare `'x'` would mean WORLD x."
 ---
 
 # xAxis()
 
 The sketch x axis — the infinite line through the origin along the
-plane's x direction — as a constraint target. A fixed reference line:
-`collinear(xAxis(), l)`, `coincident(p, xAxis())`,
-`symmetric(a, b, xAxis())`, `distance(xAxis(), c, 25)`.
-Constraint sketches only.
+plane's x direction. A fixed constraint target: `collinear(xAxis(), l)`,
+`coincident(p, xAxis())`, `symmetric(a, b, xAxis())`,
+`distance(xAxis(), c, 25)`. Also the sketch's own X direction for the
+in-sketch transforms — `mirror(xAxis(), g)`, `copy('linear', xAxis(),
+…)` — where a bare `'x'` would mean WORLD x.
 
 **Returns**: **`SketchDatum`**
 
@@ -21,7 +22,8 @@ xAxis(): SketchDatum
 ```
 
 The sketch x axis — the infinite line through the origin along the
-plane's x direction — as a constraint target. A fixed reference line:
-`collinear(xAxis(), l)`, `coincident(p, xAxis())`,
-`symmetric(a, b, xAxis())`, `distance(xAxis(), c, 25)`.
-Constraint sketches only.
+plane's x direction. A fixed constraint target: `collinear(xAxis(), l)`,
+`coincident(p, xAxis())`, `symmetric(a, b, xAxis())`,
+`distance(xAxis(), c, 25)`. Also the sketch's own X direction for the
+in-sketch transforms — `mirror(xAxis(), g)`, `copy('linear', xAxis(),
+…)` — where a bare `'x'` would mean WORLD x.

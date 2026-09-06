@@ -68,7 +68,8 @@ export type FeatureGhostRequest =
   | PlaneGhostRequest
   | OffsetGhostRequest
   | Fillet2DGhostRequest
-  | Copy2DGhostRequest;
+  | Copy2DGhostRequest
+  | Mirror2DGhostRequest;
 
 export type ExtrudeGhostRequest = {
   feature: 'extrude';
@@ -492,7 +493,7 @@ export type Copy2DGhostRequest = {
 
 /**
  * The 2D copy dialog's direction slot on the wire: a sketch-local axis from
- * the Local X / Local Y quick buttons (`local('x')`), or a picked sketch line
+ * the Sketch X / Sketch Y quick buttons (`xAxis()`), or a picked sketch line
  * the apply writes as `axis(<var>)`. A top-level `axis()` statement never
  * appears here — it cannot bind into a sketch body — and "keep the current
  * axis" only travels once the client reads it back as a local form; a kept
@@ -501,6 +502,25 @@ export type Copy2DGhostRequest = {
 export type GhostSketchAxisRef =
   | { kind: 'local'; axis: 'x' | 'y' }
   | { kind: 'edge'; shapeId: string };
+
+/**
+ * The in-sketch mirror — keyed `mirror2d` on the wire because plain `mirror`
+ * names the 3D body-reflecting ghost. Like the 2D copy it builds nothing:
+ * the reflection a `mirror()` places inside a sketch is its targets' own
+ * curves through one mirror matrix (mirror-shape2d.ts), so the ghost stamps
+ * those curves' meshes once, reflected, in the blue every curve ghost wears.
+ * Targets are addressed like every sketch-op apply's (1 shapeId = 1 edge,
+ * each pick standing for its whole producing primitive); the empty list is
+ * the target-less form, which mirrors the whole active sketch. The axis is
+ * the 2D copy's direction slot: a sketch-plane datum, or a picked line.
+ */
+export type Mirror2DGhostRequest = {
+  feature: 'mirror2d';
+  /** The picked sketch edges; empty mirrors the whole active sketch. */
+  entities: { shapeId: string }[];
+  /** The line to reflect across. */
+  axis: GhostSketchAxisRef;
+};
 
 /**
  * One ghost body, in the same mesh wire format a rendered solid uses. `kind`
@@ -610,6 +630,9 @@ function buildFeatureGhostInUnit(
   }
   if (request.feature === 'copy2d') {
     return buildCopy2DGhost(scene, request, meshConfig);
+  }
+  if (request.feature === 'mirror2d') {
+    return buildMirror2DGhost(scene, request, meshConfig);
   }
   return buildBandGhost(scene, request, meshConfig);
 }
@@ -1018,6 +1041,39 @@ function buildCopy2DGhost(
 }
 
 /**
+ * The in-sketch mirror: the 2D copy's stamping under a single reflection
+ * matrix. `mirror()` reflects its targets' shapes across the plane through
+ * the mirror line and normal to the sketch (mirror-shape2d.ts:
+ * `Matrix4.mirrorPlane(axis.direction × plane.normal, axis.origin)`), so
+ * the ghost reads the targets' meshes once and stamps them through that
+ * exact matrix — `transformMeshes` flips the winding the reflection
+ * inverts, as the applied mirror's mesh path does. The mirror line's own
+ * curve is never a target (a copy of it would land on itself anyway).
+ */
+function buildMirror2DGhost(
+  scene: Scene,
+  request: Mirror2DGhostRequest,
+  meshConfig: MeshSettings,
+): FeatureGhostResult {
+  const resolved = resolveSketchOpTargets(scene, request.entities);
+  if ('reason' in resolved) {
+    return { ok: false, reason: resolved.reason };
+  }
+  const axis = resolveSketchAxis(resolved.sketch, resolved.plane, request.axis);
+  if ('reason' in axis) {
+    return { ok: false, reason: axis.reason };
+  }
+  const edges = expandToOwnerEdges(resolved.sketch, resolved.edges);
+  const meshes = stampMeshes(edges, new MeshBuilder(meshConfig));
+  if (meshes.length === 0) {
+    return { ok: false, reason: 'That selection has no curves to mirror.' };
+  }
+  const normal = axis.axis.direction.cross(resolved.plane.normal);
+  const matrix = Matrix4.mirrorPlane(normal, axis.axis.origin);
+  return { ok: true, solids: [{ meshes: transformMeshes(meshes, matrix) }] };
+}
+
+/**
  * Every edge the picked edges' producing primitives drew. A 2D copy target is
  * a *statement*, not an edge: the apply synthesizes each pick's owner as a
  * bare variable, and the copy's build clones all of that object's shapes
@@ -1045,7 +1101,7 @@ function expandToOwnerEdges(sketch: Sketch, picked: Edge[]): Edge[] {
 
 /**
  * Where a 2D copy's clones land. The axes come from the sketch rather than
- * the scene: `local('x')` / `local('y')` are the sketch plane's own axes
+ * the scene: `xAxis()` / `yAxis()` are the sketch plane's own axes
  * (`plane.normalizeAxis`, exactly what `AxisFromSketch` resolves), a picked
  * direction line contributes its axis the way `axis(v)` extracts it
  * (`EdgeOps.edgeToAxis`), and a circular center is a sketch-plane point spun
@@ -1088,9 +1144,11 @@ function copy2DGhostMatrices(
 }
 
 /**
- * One direction slot of the 2D copy, resolved against its sketch. Anything
- * but a straight line refuses the edge form: an arc has no single direction,
- * and the apply refuses to write it too.
+ * One direction slot of the 2D copy (or the mirror's line), resolved against
+ * its sketch. Anything but a straight line refuses the edge form: an arc has
+ * no single direction, and the apply refuses to write it too. The lookup
+ * includes `.guide()` lines — construction geometry is the classic mirror
+ * line, and the apply resolves the axis pick the same way.
  */
 function resolveSketchAxis(
   sketch: Sketch,
@@ -1101,7 +1159,7 @@ function resolveSketchAxis(
     const axis = plane.normalizeAxis(ref.axis);
     return axis ? { axis } : { reason: 'That direction is not on the sketch plane.' };
   }
-  for (const edge of sketch.getEdgesWithOwner().keys()) {
+  for (const edge of sketch.getEdgesWithOwner({ excludeGuide: false }).keys()) {
     if (edge.id === ref.shapeId) {
       if (EdgeQuery.getEdgeCurveType(edge) !== 'line') {
         return { reason: 'The direction pick is not a straight line.' };

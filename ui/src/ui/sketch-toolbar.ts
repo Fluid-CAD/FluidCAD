@@ -49,6 +49,7 @@ const TOOL_LAYOUT: ToolEntry[] = [
   ]},
   { tools: [
     { id: 'copy', label: 'Copy', iconPng: 'copy-linear2d' },
+    { id: 'mirror', label: 'Mirror', iconPng: 'mirror2d' },
     { id: 'rotate', label: 'Rotate', iconPng: 'rotate2d' },
   ]},
 ];
@@ -65,6 +66,7 @@ const TOOL_SHORTCUTS: Partial<Record<ToolId, string>> = {
   fillet: 'f',
   offset: 'o',
   copy: 'cp',
+  mirror: 'm',
   rotate: 'ro',
   text: 'x',
   project: 'pj',

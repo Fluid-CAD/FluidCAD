@@ -4,7 +4,7 @@ import {
   GhostSketchAxisRef, GhostSolid, ParsedFeatureStatement,
   SketchApplyEntity, SketchCopyAxis, SketchCopyEditAxis, ValueExpr,
 } from '../api';
-import { SketchOpSelection } from './sketch-op-service';
+import { SketchOpSelection, SolvedPickRail } from './sketch-op-service';
 import { keepChip } from './create-feature/sketch-profiles';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { PickSlotChip } from './pick-slot';
@@ -21,12 +21,13 @@ type ParsedSketchCopy = Extract<ParsedFeatureStatement, { feature: 'copy' }>;
  * toolbar, it reads the hover handler's selected edges — any pick stands for
  * its whole producing primitive — previews the synthesized statement through
  * `/api/apply-feature` (sketch branch), and applies it, writing
- * `copy('linear', local('x'), { count: 3, offset: 20 }, r)` /
+ * `copy('linear', xAxis(), { count: 3, offset: 20 }, r)` /
  * `copy('circular', [0, 0], { count: 6, angle: 360 }, c)` into the sketch
  * body. Exactly one panel slot is armed at a time and the picks land in it:
  * the Geometry slot collects the targets; an armed Direction slot consumes
- * ONE pick as its sketch-line axis, emitted as `axis(<var>)` — the quick
- * buttons emit the sketch-local `local('x')` / `local('y')` instead.
+ * ONE pick as its axis — a sketch line, emitted as `axis(<var>)`, or a click
+ * on the sketch's X or Y datum axis (a solved pick, never an edge id),
+ * emitted as `xAxis()` / `yAxis()`.
  *
  * The same dialog edits an existing statement in place ({@link enterEdit}):
  * the timeline double-click's breakpoint pauses the build just BEFORE the
@@ -70,6 +71,8 @@ export class SketchCopyService {
   private frozenTargets: string[] = [];
   /** Per-direction picked axis edges (the axis slots' `edge` mode). */
   private axisEntities = new Map<SketchCopyDirection, string | null>([[1, null], [2, null]]);
+  /** A datum pick is being evicted from the viewport — its own change is not a new pick. */
+  private consumingDatum = false;
 
   constructor(
     container: HTMLElement,
@@ -78,6 +81,11 @@ export class SketchCopyService {
     private onDone: () => void,
     /** The live viewport geometry overlay, shared with the other 2D op dialogs. */
     private readonly ghost?: FeatureGhostOverlay,
+    /**
+     * The solved picks beyond edge ids — where a click on the sketch's X or
+     * Y datum axis shows up (solved sketches only).
+     */
+    private readonly solvedPicks?: SolvedPickRail,
   ) {
     this.panel = new SketchCopyPanel(container);
     this.panel.onApply = () => void this.apply();
@@ -267,24 +275,45 @@ export class SketchCopyService {
   }
 
   /**
-   * While an axis slot is armed, the newest selected edge IS the direction
-   * pick: consume it into the slot's chip and clear the live selection, so
-   * the next click replaces it.
+   * While an axis slot is armed, the newest pick IS the direction: consume
+   * it into the slot's chip and clear it from the viewport, so the next
+   * click replaces it. An edge pick becomes the direction entity; a click on
+   * the sketch's X or Y datum axis (a solved-pick datum, never an edge id)
+   * becomes the standard chip the apply writes as `xAxis()` / `yAxis()`.
    */
   private consumeAxisPick(): void {
-    if (this.panel.armedSlot !== 'axis1' && this.panel.armedSlot !== 'axis2') {
-      return;
-    }
-    const ids = this.selection.ids();
-    if (ids.length === 0) {
+    if ((this.panel.armedSlot !== 'axis1' && this.panel.armedSlot !== 'axis2') || this.consumingDatum) {
       return;
     }
     const direction = this.panel.armedAxis;
-    const shapeId = ids[ids.length - 1];
-    this.axisEntities.set(direction, shapeId);
-    this.panel.setAxisEdgeChip(direction, this.selection.describe(shapeId).label);
+    const ids = this.selection.ids();
+    if (ids.length > 0) {
+      const shapeId = ids[ids.length - 1];
+      this.axisEntities.set(direction, shapeId);
+      this.panel.setAxisEdgeChip(direction, this.selection.describe(shapeId).label);
+      this.panel.setMessage(null);
+      this.selection.clear();
+      return;
+    }
+    const datums = (this.solvedPicks?.picks() ?? [])
+      .filter(pick => pick.datum === 'x-axis' || pick.datum === 'y-axis');
+    if (datums.length === 0) {
+      return;
+    }
+    const pick = datums[datums.length - 1];
+    this.axisEntities.set(direction, null);
+    this.panel.selectDatumAxis(direction, pick.datum === 'x-axis' ? 'x' : 'y');
     this.panel.setMessage(null);
-    this.selection.clear();
+    // Evicting the datum re-enters through refresh — the flag keeps that
+    // echo from reading as a fresh pick.
+    this.consumingDatum = true;
+    try {
+      for (const datum of datums) {
+        this.solvedPicks!.deselect(datum);
+      }
+    } finally {
+      this.consumingDatum = false;
+    }
   }
 
   /** The target picks: the live selection, or the frozen set while an axis slot is armed. */
@@ -384,13 +413,13 @@ export class SketchCopyService {
     const which = named ? ` for direction ${direction}` : '';
     const selection = this.panel.axisSelection(direction);
     if (!selection) {
-      return { error: `Choose the direction to copy along${which} — Local X, Local Y, or a sketch line.` };
+      return { error: `Choose the direction to copy along${which} — a sketch line, or the sketch's X or Y axis.` };
     }
     if (selection.kind === 'keep') {
       return { kind: 'keep', sourceIndex: selection.sourceIndex };
     }
     if (selection.kind === 'standard') {
-      // The quick buttons are the sketch-local axes in this dialog.
+      // A picked datum axis is a sketch-local axis in this dialog.
       return { kind: 'local', axis: selection.axis as 'x' | 'y' };
     }
     if (selection.kind === 'edge') {
@@ -519,9 +548,9 @@ export class SketchCopyService {
    * the whole-sketch form (entities: []), while one standing over real
    * target args has nothing addressable to preview — its seed either failed
    * or was cleared. A direction slot resolves like the 3D dialogs' axis
-   * slots: the quick buttons are the sketch-local axes, a picked line ships
+   * slots: a picked datum axis is a sketch-local axis, a picked line ships
    * its shapeId, and a kept `axis(v)` text is unaddressable — no ghost until
-   * it is re-chosen (a kept `local('x')` already reads back as its button).
+   * it is re-chosen (a kept `xAxis()` already reads back as its standard chip).
    */
   private ghostRequest(): Copy2DGhostRequest | null {
     const values = this.panel.values();
@@ -559,7 +588,7 @@ export class SketchCopyService {
         return null;
       }
       if (selection.kind === 'standard') {
-        // The quick buttons are the sketch-local axes in this dialog.
+        // A picked datum axis is a sketch-local axis in this dialog.
         axes.push({ kind: 'local', axis: selection.axis as 'x' | 'y' });
       } else {
         const shapeId = this.axisEntities.get(direction);

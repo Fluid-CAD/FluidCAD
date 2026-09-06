@@ -13,7 +13,7 @@ An axis is a line with a direction: what a profile revolves around, what a circu
 
 ## The world axes
 
-`"x"`, `"y"` and `"z"` name the world axes through the origin. They are accepted wherever an axis is expected, and they always mean the **world** axes — even inside a sketch on a tilted plane (see [sketch-local axes](#sketch-local-axes) below for the other case).
+`"x"`, `"y"` and `"z"` name the world axes through the origin. They are accepted wherever an axis is expected, and they always mean the **world** axes — even inside a sketch on a tilted plane (see [sketch axes](#sketch-axes) below for the other case).
 
 ```js
 revolve("z")                                       // turn the profile around world Z
@@ -27,7 +27,7 @@ helix("z").pitch(10).turns(4)
 There is no separate Axis tool: axes are picked inside the dialogs that need one. The **Revolve**, **Repeat**, **Copy** and **Rotate** dialogs each carry an **Axis** slot:
 
 1. Click the slot to arm it (it takes the primary border).
-2. Click a **straight edge** in the viewport, or press one of the **X / Y / Z** quick buttons under the slot for a world axis. Existing `axis()` features in the timeline can be clicked too.
+2. Click a **straight edge** in the viewport, or one of the **world axes** the viewport shows while the slot is armed (X red, Y green, Z blue). Existing `axis()` features can be clicked too, in the viewport or the timeline.
 3. The dialog writes the reference into the statement: a world axis as `"z"`, a picked edge as a selector such as `select(edge().…)` or the producing feature's accessor.
 
 Circular and Rotate patterns default their empty slot to world Z. Offset axes and mid-axes are written in code.
@@ -80,11 +80,11 @@ axis("x", "y")                         // the diagonal in the ground plane
 axis(a1, a2, { offsetZ: 20 })          // between two axis features, then shifted
 ```
 
-## Sketch-local axes
+## Sketch axes
 
-Inside a sketch, `"x"` and `"y"` still mean the world axes. On the ground plane that matches the sketch's own axes; on a front-plane sketch, world Y is the plane's normal, so `mirror("y", …)` would fold the geometry through the plane. `local("x" | "y" | "z")` resolves the name against the **active sketch plane** instead:
+Inside a sketch, `"x"` and `"y"` still mean the world axes. On the ground plane that matches the sketch's own axes; on a front-plane sketch, world Y is the plane's normal, so `mirror("y", …)` would fold the geometry through the plane. The sketch's own axes are the datums `xAxis()` and `yAxis()` — the same fixed lines constraints target — and the 2D transforms take them as directions:
 
-| Sketch plane | `local("x")` | `local("y")` |
+| Sketch plane | `xAxis()` | `yAxis()` |
 |---|---|---|
 | `"xy"` / `"top"` | world +X | world +Y |
 | `"xz"` / `"front"` | world +X | world +Z |
@@ -93,11 +93,11 @@ Inside a sketch, `"x"` and `"y"` still mean the world axes. On the ground plane 
 ```js
 sketch("front", () => {
     const b = bezier([0, 0], [-40, 60], [0, 90]);
-    mirror(local("y"), b);        // across the sketch's vertical — world Z here
+    mirror(yAxis(), b);           // across the sketch's vertical — world Z here
 });
 ```
 
-`local()` works on face sketches and `plane()` targets too. It is opt-in per argument: `copy("linear", [local("y"), "x"], …)` mixes a sketch-local direction with a world one. See [Mirror](/docs/sketching/tools/mirror) and [Copy](/docs/sketching/tools/copy) in the sketch tools.
+The datums work on face sketches and `plane()` targets too, and they are per argument: `copy("linear", [yAxis(), "x"], …)` mixes a sketch direction with a world one. See [Mirror](/docs/sketching/tools/mirror) and [Copy](/docs/sketching/tools/copy) in the sketch tools.
 
 ## Where axes are consumed
 
@@ -107,5 +107,6 @@ sketch("front", () => {
 | [Repeat](/docs/patterns/repeat) circular / rotate | `repeat("circular", axis, options, feature)` |
 | [Copy](/docs/patterns/copy) circular | `copy("circular", axis, options)` |
 | [Rotate](/docs/transforms/rotate) | `rotate(axis, degrees, ...targets)` |
+| Sketch [Mirror](/docs/sketching/tools/mirror) / [Copy](/docs/sketching/tools/copy) linear | `mirror(yAxis(), …)`, `copy("linear", xAxis(), …)` — the sketch datums or `axis(l)` over a sketched line |
 | [Helix](/docs/3d-operations/helix) | `helix(axis)` |
 | Rotate a plane or an instance | `plane(p, { rotateX })`, `insert(def).rotate(axis, deg)` |

@@ -4,7 +4,7 @@ import { PickSlot, PickSlotChip } from '../pick-slot';
 import { ExpressionField } from '../../ui/expression-field';
 import { ShellJoinType } from '../../api';
 import { viewportChrome } from '../../ui/viewport-chrome';
-import { DIALOG_DOCK_CLASS, DIALOG_COLUMN_CLASS, DIALOG_BODY_CLASS } from '../create-feature/panel-controls';
+import { DIALOG_DOCK_CLASS, DIALOG_COLUMN_CLASS, PanelShell } from '../create-feature/panel-controls';
 
 /**
  * The fillet/chamfer/shell dialog: the title row, the multi-pick selection
@@ -57,11 +57,11 @@ export class ModifyPanel {
     this.root.className = `${DIALOG_DOCK_CLASS} hidden`;
     this.root.innerHTML = `
       <div data-role="column" class="${DIALOG_COLUMN_CLASS}">
-        <div class="${DIALOG_BODY_CLASS}">
-          <div class="flex items-center gap-2.5">
+        ${PanelShell.frameHtml({
+          header: `
             <span class="flex items-center [&>svg]:size-4" data-role="icon"></span>
-            <span data-role="title" class="font-medium text-sm">Fillet</span>
-          </div>
+            <span data-role="title" class="font-medium text-sm">Fillet</span>`,
+          body: `
           <div data-role="selection-slot"></div>
           <label data-role="chamfer-type-wrap" class="flex flex-col gap-1.5 hidden">
             <span class="text-base-content/70">Chamfer type</span>
@@ -88,17 +88,17 @@ export class ModifyPanel {
               <option value="intersection">Intersection</option>
               <option value="tangent">Tangent</option>
             </select>
-          </label>
-          <div class="flex items-center gap-2 pt-1">
+          </label>`,
+          footer: `
             <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
-            <button data-role="exit" class="btn btn-ghost btn-sm">Exit</button>
-          </div>
-        </div>
+            <button data-role="exit" class="btn btn-ghost btn-sm">Exit</button>`,
+        })}
       </div>
     `;
     container.appendChild(this.root);
 
     const column = this.root.querySelector<HTMLElement>('[data-role="column"]')!;
+    PanelShell.watchScroll(this.root.querySelector('[data-role="box"]')!);
     this.titleIcon = this.root.querySelector('[data-role="icon"]')!;
     this.titleText = this.root.querySelector('[data-role="title"]')!;
     this.valueWrap = this.root.querySelector('[data-role="value-wrap"]')!;

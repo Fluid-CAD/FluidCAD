@@ -20,6 +20,7 @@ import {
   updateDimensionExpression,
   getDimensionExpression,
   getPointExpression,
+  extractVariablesInPart,
   extractVariablesInScope,
   declareTopLevelVariable,
   readUnitStatement,
@@ -993,6 +994,52 @@ describe('insertGeometryCallWithVariable', () => {
     expect(result.newCode).toContain(`line([0, 0], [depth, 0])`);
   });
 
+  it('declares a param() variable at the top of the part body the sketch lives in', async () => {
+    const code = [
+      `import { part, param, sketch, line } from 'fluidcad/core';`,
+      ``,
+      `export const plate = part('Plate', () => {`,
+      `  const width = param('Width', 100);`,
+      `  sketch('xy', () => {`,
+      `    line([0, 0], [10, 0]);`,
+      `  });`,
+      `});`,
+    ].join('\n');
+    const result = await insertGeometryCallWithVariable(
+      code, 5, 'line([0, 0], [depth, 0])',
+      { name: 'depth', initializer: 'param("depth", 25)' },
+    );
+    // Below the part's own declarations, above the sketch that reads it —
+    // never at the file's top level, where param() is refused.
+    expect(result.newCode).toContain([
+      `export const plate = part('Plate', () => {`,
+      `  const width = param('Width', 100);`,
+      `  const depth = param("depth", 25);`,
+      `  sketch('xy', () => {`,
+    ].join('\n'));
+    expect(result.newCode).not.toMatch(/^const depth/m);
+    expect(result.newCode).toContain(`line([0, 0], [depth, 0])`);
+  });
+
+  it('opens the declaration block of a part that has none yet', async () => {
+    const code = [
+      `import { part, sketch, line } from 'fluidcad/core';`,
+      ``,
+      `export const plate = part('Plate', () => {`,
+      `  sketch('xy', () => {`,
+      `    line([0, 0], [10, 0]);`,
+      `  });`,
+      `});`,
+    ].join('\n');
+    const result = await insertGeometryCallWithVariable(
+      code, 4, 'line([0, 0], [depth, 0])',
+      { name: 'depth', initializer: 'param("depth", 25)' },
+    );
+    expect(result.newCode).toContain(
+      `import { param, part, sketch, line } from 'fluidcad/core';\n\nexport const plate = part('Plate', () => {\n  const depth = param("depth", 25);\n  sketch('xy', () => {`,
+    );
+  });
+
   it('declares every variable of a multi-dimension commit, in order', async () => {
     const code = [
       `import { sketch, ellipse } from 'fluidcad/core';`,
@@ -1122,6 +1169,44 @@ describe('extractVariablesInScope numeric classification', () => {
     const width = vars.find(v => v.name === 'width')!;
     expect(width.initializer).toBe("param('Width', 700)");
     expect(width.numeric).toBe(true);
+  });
+});
+
+describe('extractVariablesInPart', () => {
+  const code = [
+    "import { part, param, sketch, extrude } from 'fluidcad/core';",
+    'const shared = 5;',
+    '',
+    "export const bracket = part('Bracket', () => {",
+    "  const width = param('Width', 100);",
+    "  const s = sketch('xy', () => { const inner = 2; });",
+    '  extrude(width);',
+    '});',
+    '',
+    "export const lid = part('Lid', () => {",
+    "  const bore = param('Bore', 4);",
+    '  extrude(bore);',
+    '});',
+  ].join('\n');
+
+  it("sees the part's own declarations and the top level above it, never another part's", async () => {
+    const bracket = await extractVariablesInPart(code, 4);
+    const bracketNames = bracket.map(v => v.name);
+    expect(bracketNames).toEqual(expect.arrayContaining(['shared', 'width', 's']));
+    expect(bracketNames).not.toContain('bore');
+    expect(bracketNames).not.toContain('inner');
+    const width = bracket.find(v => v.name === 'width')!;
+    expect(width.initializer).toBe("param('Width', 100)");
+    expect(width.numeric).toBe(true);
+
+    const lidNames = (await extractVariablesInPart(code, 10)).map(v => v.name);
+    expect(lidNames).toEqual(expect.arrayContaining(['shared', 'bore']));
+    expect(lidNames).not.toContain('width');
+  });
+
+  it('is empty when no part() starts on the line', async () => {
+    expect(await extractVariablesInPart(code, 2)).toEqual([]);
+    expect(await extractVariablesInPart(code, 6)).toEqual([]);
   });
 });
 

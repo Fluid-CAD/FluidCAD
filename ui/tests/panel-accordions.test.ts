@@ -157,11 +157,19 @@ describe('docked panel column', () => {
     expect(body('Parameters')).toContain('param(...)');
   });
 
-  it('points an editor-backed host at its own Add button first', () => {
+  it('points an editor-backed host at its own Add button once there is a part to add to', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const editor = { openForCreate: vi.fn() } as never;
     const params = new ParamsPanel(container, stubClient(), editor);
+    // A parameter lives inside a part body: with no part there is no + to
+    // offer, only the call to write.
+    expect(params.body.textContent).not.toContain('use +');
+    expect(params.body.textContent).toContain('inside a part() body');
+    params.setPartProvider(() => ({
+      parts: [{ name: 'Plate', sourceLocation: { filePath: '/ws/m.fluid.js', line: 3, column: 0 } }],
+      active: { filePath: '/ws/m.fluid.js', line: 3, column: 0 },
+    }));
     expect(params.body.textContent).toContain('use +');
   });
 

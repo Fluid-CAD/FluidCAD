@@ -9,35 +9,49 @@ import { describe, it, expect } from 'vitest';
 import { ParamEditor, type ParamSpec } from '../src/param-edit.ts';
 
 const CODE = [
-  `import { param, sketch, circle, extrude } from 'fluidcad/core';`,
+  `import { part, param, sketch, circle, extrude } from 'fluidcad/core';`,
   ``,
-  `const width = param('Width', 100);`,
-  `const rounded = param('Rounded', true);`,
+  `export const plate = part('Plate', () => {`,
+  `  const width = param('Width', 100);`,
+  `  const rounded = param('Rounded', true);`,
   ``,
-  `sketch('xy', () => {`,
-  `  circle(width / 2);`,
+  `  sketch('xy', () => {`,
+  `    circle(width / 2);`,
+  `  });`,
+  ``,
+  `  extrude(width);`,
   `});`,
-  ``,
-  `extrude(width);`,
   ``,
 ].join('\n');
 
-/** Line numbers of the two declarations in CODE, 1-indexed. */
-const WIDTH_LINE = 3;
-const ROUNDED_LINE = 4;
+/** Line numbers of the part statement and its two declarations in CODE, 1-indexed. */
+const PLATE_LINE = 3;
+const WIDTH_LINE = 4;
+const ROUNDED_LINE = 5;
+/** The part a new declaration goes into — every add names one. */
+const PLATE = { line: PLATE_LINE, column: 0 };
 
 function spec(overrides: Partial<ParamSpec> = {}): ParamSpec {
   return { label: 'Width', defaultValue: 100, type: 'number', ...overrides };
 }
 
 describe('ParamEditor.add', () => {
-  it('declares the param after the imports and pulls the import in', async () => {
-    const bare = `import { sketch } from 'fluidcad/core';\n\nsketch('xy', () => {});\n`;
+  it('declares the param at the top of the part body and pulls the import in', async () => {
+    const bare = `import { part, sketch } from 'fluidcad/core';\n\nexport const p = part('P', () => {\n  sketch('xy', () => {});\n});\n`;
     const result = await ParamEditor.apply(bare, {
-      kind: 'add', param: spec({ label: 'Depth', defaultValue: 25 }),
+      kind: 'add', param: spec({ label: 'Depth', defaultValue: 25 }), part: PLATE,
     });
     expect(result.error).toBeUndefined();
-    expect(result.newCode).toContain(`import { param, sketch } from 'fluidcad/core';\nconst depth = param('Depth', 25);`);
+    expect(result.newCode).toContain(`import { param, part, sketch } from 'fluidcad/core';`);
+    expect(result.newCode).toContain(`part('P', () => {\n  const depth = param('Depth', 25);\n  sketch('xy', () => {});\n});`);
+  });
+
+  it('refuses an add that names no part — a parameter only lives inside a part body', async () => {
+    const result = await ParamEditor.apply(CODE, {
+      kind: 'add', param: spec({ label: 'Depth', defaultValue: 25 }),
+    } as any);
+    expect(result.error).toContain('needs the part it goes in');
+    expect(result.newCode).toBe(CODE);
   });
 
   it('omits the type argument when param() would infer it anyway', async () => {
@@ -47,7 +61,7 @@ describe('ParamEditor.add', () => {
       [spec({ label: 'C', defaultValue: 'hi', type: 'text' }), `param('C', 'hi')`],
     ];
     for (const [input, expected] of cases) {
-      const result = await ParamEditor.apply(CODE, { kind: 'add', param: input });
+      const result = await ParamEditor.apply(CODE, { kind: 'add', param: input, part: PLATE });
       expect(result.error).toBeUndefined();
       expect(result.newCode).toContain(`= ${expected};`);
     }
@@ -56,6 +70,7 @@ describe('ParamEditor.add', () => {
   it('writes the type and options object for a slider', async () => {
     const result = await ParamEditor.apply(CODE, {
       kind: 'add', param: spec({ label: 'Depth', defaultValue: 25, type: 'slider', min: 0, max: 50, step: 5 }),
+      part: PLATE,
     });
     expect(result.newCode).toContain(`const depth = param('Depth', 25, 'slider', { min: 0, max: 50, step: 5 });`);
   });
@@ -63,6 +78,7 @@ describe('ParamEditor.add', () => {
   it('emits the type even when inferred, once an options object rides along', async () => {
     const result = await ParamEditor.apply(CODE, {
       kind: 'add', param: spec({ label: 'Depth', defaultValue: 25, type: 'number', group: 'Body' }),
+      part: PLATE,
     });
     expect(result.newCode).toContain(`param('Depth', 25, 'number', { group: 'Body' })`);
   });
@@ -77,6 +93,7 @@ describe('ParamEditor.add', () => {
         multiControlType: 'chips',
         options: [{ label: 'Matte', value: 'matte' }, { label: 'Gloss', value: 'gloss' }],
       },
+      part: PLATE,
     });
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(
@@ -89,12 +106,13 @@ describe('ParamEditor.add', () => {
   it('escapes quotes in a label', async () => {
     const result = await ParamEditor.apply(CODE, {
       kind: 'add', param: spec({ label: "Bob's width", defaultValue: 1 }),
+      part: PLATE,
     });
     expect(result.newCode).toContain(`param('Bob\\'s width', 1)`);
   });
 
   it('refuses a label the model already uses', async () => {
-    const result = await ParamEditor.apply(CODE, { kind: 'add', param: spec() });
+    const result = await ParamEditor.apply(CODE, { kind: 'add', param: spec(), part: PLATE });
     expect(result.error).toContain('already has a parameter labelled "Width"');
     expect(result.newCode).toBe(CODE);
   });
@@ -102,6 +120,7 @@ describe('ParamEditor.add', () => {
   it('camel-cases the label into the variable it binds', async () => {
     const result = await ParamEditor.apply(CODE, {
       kind: 'add', param: spec({ label: 'Wall thickness', defaultValue: 2 }),
+      part: PLATE,
     });
     expect(result.newCode).toContain(`const wallThickness = param('Wall thickness', 2);`);
   });
@@ -111,6 +130,7 @@ describe('ParamEditor.add', () => {
     // name rather than shadowing a variable the model is reading.
     const result = await ParamEditor.apply(CODE, {
       kind: 'add', param: spec({ label: 'width', defaultValue: 7 }),
+      part: PLATE,
     });
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`const width2 = param('width', 7);`);
@@ -124,6 +144,7 @@ describe('ParamEditor.add', () => {
     );
     const result = await ParamEditor.apply(crowded, {
       kind: 'add', param: spec({ label: 'width', defaultValue: 7 }),
+      part: PLATE,
     });
     expect(result.newCode).toContain(`const width3 = param('width', 7);`);
   });
@@ -135,6 +156,7 @@ describe('ParamEditor.add', () => {
   ])('turns the label %s into a legal name', async (label, variable) => {
     const result = await ParamEditor.apply(CODE, {
       kind: 'add', param: spec({ label, defaultValue: 1 }),
+      part: PLATE,
     });
     expect(result.error).toBeUndefined();
     expect(result.newCode).toContain(`const ${variable} = param(`);
@@ -439,7 +461,7 @@ describe('ParamEditor.inspect', () => {
     expect(usage.variable).toBe('width');
     expect(usage.editable).toBe(true);
     expect(usage.references).toBe(2);
-    expect(usage.referenceLines).toEqual([7, 10]);
+    expect(usage.referenceLines).toEqual([8, 11]);
   });
 
   it('reports an unused param as safe to delete', async () => {

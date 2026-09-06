@@ -5919,6 +5919,31 @@ describe('expression values in dialog slots', () => {
     expect(result.newCode.indexOf(`unit('in')`)).toBeLessThan(result.newCode.indexOf('const depth'));
   });
 
+  it("declares a param() newVariable at the top of the edited statement's part body", async () => {
+    const code = [
+      `import { part, param, sketch, ellipse, extrude } from 'fluidcad/core'`,
+      ``,
+      `export const plate = part('Plate', () => {`,
+      `  const width = param('Width', 100)`,
+      `  const s = sketch('xy', () => { ellipse(width, 50) })`,
+      `  extrude(25)`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, editSpec('extrude', {
+      line: 6, column: 2,
+      extrude: extrudeEditOptions({ distance: 'depth' }),
+    }, {
+      newVariables: [{ name: 'depth', initializer: 'param("depth", 25)' }],
+    }));
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `  const width = param('Width', 100)\n  const depth = param("depth", 25)\n  const s = sketch`,
+    );
+    expect(result.newCode).toContain(`extrude(depth)`);
+    expect(result.newCode).not.toMatch(/^const depth/m);
+  });
+
   it('skips declaring a newVariable the file already declares', async () => {
     const code = `${exprBase}\nextrude(25, s)\n`;
     const result = await applyFeatureEdit(code, editSpec('extrude', {
@@ -5981,6 +6006,41 @@ describe('expression values in dialog slots', () => {
     expect(result.newCode).toContain(`from 'fluidcad/core'\nconst depth = param("depth", 25)\n`);
     expect(result.newCode).toContain(`const taper = 5\nextrude(depth`);
     expect(result.newCode).toMatch(/import \{[^}]*\bparam\b[^}]*\} from 'fluidcad\/core'/);
+  });
+
+  it('splits param() newVariables to the top of the part body on a created statement', async () => {
+    const code = [
+      `import { part, param, sketch, ellipse } from 'fluidcad/core'`,
+      ``,
+      `export const plate = part('Plate', () => {`,
+      `  const width = param('Width', 100)`,
+      `  sketch('xy', () => { ellipse(width, 50) })`,
+      `})`,
+      ``,
+    ].join('\n');
+    const result = await applyFeatureEdit(code, {
+      feature: 'extrude',
+      filePath: '/ws/model.fluid.js',
+      extrude: {
+        op: 'add', distance: 'depth', distance2: 'taper', symmetric: false, draft: null,
+        endOffset: null, drill: true, thin: null, profile: 'implicit',
+      },
+      producers: [{ line: 5, column: 2, featureType: 'sketch', nameHint: 's', bind: false }],
+      parts: [],
+      imports: [],
+      newVariables: [
+        { name: 'depth', initializer: 'param("depth", 25)' },
+        { name: 'taper', initializer: '5' },
+      ],
+    });
+    expect(result.error).toBeUndefined();
+    // The param() joins the part's declaration block; the plain const stays
+    // with the statement it was typed for.
+    expect(result.newCode).toContain(
+      `  const width = param('Width', 100)\n  const depth = param("depth", 25)\n  sketch('xy'`,
+    );
+    expect(result.newCode).toContain(`  const taper = 5\n  extrude(depth`);
+    expect(result.newCode).not.toMatch(/^const depth/m);
   });
 
   it('refuses a malformed newVariable declaration', async () => {

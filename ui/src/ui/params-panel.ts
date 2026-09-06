@@ -17,9 +17,6 @@ import { AccordionSection } from './accordion-section';
  */
 const FIELD_SURFACE = 'bg-base-content/[0.06]';
 
-/** The Part dropdown's "no part" entry — a new declaration goes at the file's top level. */
-const FILE_LEVEL = 'file';
-
 /**
  * The band the Part dropdown sits in: scope chrome, not a parameter row. It
  * answers the header's + ("add to which part?"), so it hangs directly off
@@ -89,17 +86,19 @@ export class ParamsPanel extends AccordionSection {
   private partBar: HTMLDivElement;
   /** Where the parameter controls are drawn. */
   private list: HTMLDivElement;
+  /** The header's +, or null on a host without an editor to open. */
+  private addButton: HTMLElement | null = null;
   /** Where the Part dropdown reads the scene's parts and the active one from. */
   private partProvider: (() => PartChoices) | null = null;
   /** The parts the dropdown currently lists, by option index. */
   private partChoices: PartChoice[] = [];
   /**
-   * What the user chose in the dropdown: a part, null for the file's top
-   * level, or undefined while nothing was chosen — the dropdown then follows
-   * the active part. A choice lasts until the active part changes (a timeline
-   * click, a new part), which resets it to that default.
+   * What the user chose in the dropdown: a part, or undefined while nothing
+   * was chosen — the dropdown then follows the active part. A choice lasts
+   * until the active part changes (a timeline click, a new part), which
+   * resets it to that default.
    */
-  private pick: PartChoice | null | undefined = undefined;
+  private pick: PartChoice | undefined = undefined;
   /** True while update() runs syncParts — it decides the redraw itself. */
   private syncing = false;
   /** File and name of the active part at the last sync — the identity a line shift keeps. */
@@ -121,8 +120,9 @@ export class ParamsPanel extends AccordionSection {
     });
     // Declaration edits rewrite source; without an editor-backed host the
     // panel is a pure value surface.
-    const addButton = this.header.querySelector('[data-add-param]')!;
+    const addButton = this.header.querySelector<HTMLElement>('[data-add-param]')!;
     if (this.editor) {
+      this.addButton = addButton;
       addButton.addEventListener('click', (e) => {
         e.stopPropagation();
         this.editor!.openForCreate(this.selectedPart);
@@ -169,16 +169,14 @@ export class ParamsPanel extends AccordionSection {
 
   /**
    * The rows the list shows: with the dropdown on a part, that part's own
-   * declarations; on the file level, the ones declared outside every part;
-   * everything when the scene has no parts to filter by.
+   * declarations — a parameter only lives inside a part body, so one stamped
+   * with no part (an assembly body's) never shows under a part; everything
+   * when the scene has no parts to filter by.
    */
   private visibleParams(): UIParamDefinition[] {
-    if (this.partChoices.length === 0) {
-      return this.currentParams;
-    }
-    const selected = this.selectedPart;
+    const selected = this.partChoices.length === 0 ? null : this.selectedPart;
     if (selected === null) {
-      return this.currentParams.filter((p) => !p.part);
+      return this.currentParams;
     }
     return this.currentParams.filter((p) =>
       p.part !== undefined && ActivePartTracker.sameStatement(p.part, selected));
@@ -187,8 +185,8 @@ export class ParamsPanel extends AccordionSection {
   /**
    * Where the Part dropdown reads the scene's parts and the active one from —
    * the timeline's part tracker. Without a provider (a host with no timeline)
-   * the dropdown never shows and a new declaration lands at the file's top
-   * level, as it does in a scene with no parts.
+   * the dropdown never shows and, with no part to declare in, neither does
+   * the +, as in a scene with no parts.
    */
   setPartProvider(provider: () => PartChoices): void {
     this.partProvider = provider;
@@ -197,15 +195,13 @@ export class ParamsPanel extends AccordionSection {
 
   /**
    * The part a new parameter goes into: the dropdown's choice, or the active
-   * part while nothing was chosen. Null for the file's top level.
+   * part while nothing was chosen. Null only in a scene with no parts, which
+   * has nowhere to declare one.
    */
   get selectedPart(): SourceLocation | null {
     const choices = this.partProvider?.() ?? { parts: [], active: null };
     if (this.pick === undefined) {
       return choices.active;
-    }
-    if (this.pick === null) {
-      return null;
     }
     return ParamsPanel.resolve(this.pick, choices.parts)?.sourceLocation ?? choices.active;
   }
@@ -230,7 +226,7 @@ export class ParamsPanel extends AccordionSection {
    * Redraw the Part dropdown from the provider. Every render calls this
    * through {@link update}; the timeline calls it when a part-row click moves
    * the active part without a render. The row hides when the scene has no
-   * parts; the file's top level is always the last entry.
+   * parts, and so does the +: there is no part to declare a parameter in.
    */
   syncParts(): void {
     const choices = this.partProvider?.() ?? { parts: [], active: null };
@@ -252,6 +248,9 @@ export class ParamsPanel extends AccordionSection {
     }
 
     this.partBar.hidden = choices.parts.length === 0;
+    if (this.addButton) {
+      this.addButton.hidden = choices.parts.length === 0;
+    }
     if (choices.parts.length === 0) {
       this.partBar.replaceChildren();
       return;
@@ -264,14 +263,15 @@ export class ParamsPanel extends AccordionSection {
     ActivePartTracker.choiceLabels(choices.parts).forEach((text, index) => {
       select.appendChild(ParamsPanel.option(String(index), text));
     });
-    select.appendChild(ParamsPanel.option(FILE_LEVEL, 'File (top level)'));
     const selected = this.selectedPart;
     const index = selected === null
       ? -1
       : choices.parts.findIndex((part) => ActivePartTracker.sameStatement(part.sourceLocation, selected));
-    select.value = index === -1 ? FILE_LEVEL : String(index);
+    // A scene with parts always has an active one among them; the first
+    // entry only stands in for a tracker mid-resolution.
+    select.value = String(Math.max(index, 0));
     select.addEventListener('change', () => {
-      this.pick = select.value === FILE_LEVEL ? null : this.partChoices[Number(select.value)] ?? null;
+      this.pick = this.partChoices[Number(select.value)];
       this.renderParams();
     });
 
@@ -412,20 +412,17 @@ export class ParamsPanel extends AccordionSection {
   }
 
   private emptyMessage(): string {
-    const how = this.editor ? 'use + above, or <code>param(...)</code>' : 'declare one with <code>param(...)</code>';
+    // A parameter only lives inside a part body: without a part there is no
+    // + to offer, only the call to write.
     if (this.partChoices.length === 0) {
-      return this.editor
-        ? `No parameters yet — ${how} in the file.`
-        : `No parameters yet — ${how}.`;
+      return 'No parameters yet — declare one with <code>param(...)</code> inside a <code>part()</code> body.';
     }
+    const how = this.editor ? 'use + above, or <code>param(...)</code>' : 'declare one with <code>param(...)</code>';
     const selected = this.selectedPart;
     const part = selected === null
       ? null
       : this.partChoices.find((c) => ActivePartTracker.sameStatement(c.sourceLocation, selected)) ?? null;
-    const where = part === null
-      ? 'at the file level'
-      : `in ${this.escapeHtml(part.name || 'this part')}`;
-    return `No parameters ${where} yet — ${how} in its body.`;
+    return `No parameters in ${this.escapeHtml(part?.name || 'this part')} yet — ${how} in its body.`;
   }
 
   private renderParamControl(p: UIParamDefinition): string {

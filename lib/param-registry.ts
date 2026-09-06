@@ -37,7 +37,7 @@ export type ParamDefinition = {
    * The `part()` statement whose body declared this parameter — the part
    * that was building when `param()` ran. The params panel filters its rows
    * by this against the part its dropdown names. Absent for a declaration
-   * at the file's top level (or in a scene without parts).
+   * in an assembly body, the one home a parameter has outside a part.
    */
   part?: SourceLocation;
 };

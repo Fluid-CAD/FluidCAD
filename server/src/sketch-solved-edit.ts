@@ -17,8 +17,8 @@
 // `lines.push(line(…));`) and each target renders as `lines[occurrence]`.
 
 import {
+  declareParamStatementsFor,
   declareSketchVariable,
-  declareTopLevelVariable,
   ensureSymbolImport,
   findEditableCallAt,
   findSketchBody,
@@ -873,6 +873,15 @@ export async function applySolvedEmission(
   result = joinLines(resultLines);
   const rowsBeforeImports = resultLines.length;
 
+  // A `param()` declaration goes at the top of the part body the sketch
+  // lives in — anchored on the sketch's post-emission line, before any
+  // import can shift it.
+  if (paramVars.length > 0) {
+    const emittedSketchLine = shiftRow(enclosingStatement(sketchCall).startPosition.row) + 1;
+    result = await declareParamStatementsFor(
+      result, emittedSketchLine, paramVars.map(v => `const ${v.name} = ${v.initializer};`),
+    );
+  }
   for (const kind of new Set(spec.geometry.map(g => g.kind))) {
     result = await ensureSymbolImport(result, kind, 'fluidcad/core');
   }
@@ -881,9 +890,6 @@ export async function applySolvedEmission(
   }
   for (const kind of new Set(spec.constraints.map(c => c.kind))) {
     result = await ensureSymbolImport(result, kind, 'fluidcad/constraints');
-  }
-  for (const v of [...paramVars].reverse()) {
-    result = await declareTopLevelVariable(result, v.name, v.initializer);
   }
   if (paramVars.length > 0) {
     result = await ensureSymbolImport(result, 'param');

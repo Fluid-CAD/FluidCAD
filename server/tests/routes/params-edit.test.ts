@@ -22,11 +22,13 @@ let bookkeeping: string[];
 const FILE = '/ws/m.fluid.js';
 
 const CODE = [
-  `import { param, extrude } from 'fluidcad/core';`,
+  `import { part, param, extrude } from 'fluidcad/core';`,
   ``,
-  `const width = param('Width', 100);`,
+  `export const plate = part('Plate', () => {`,
+  `  const width = param('Width', 100);`,
   ``,
-  `extrude(width);`,
+  `  extrude(width);`,
+  `});`,
   ``,
 ].join('\n');
 
@@ -103,26 +105,38 @@ describe('parameter declaration routes', () => {
   });
 
   it('reports the variable a parameter binds and what reads it', async () => {
-    const res = await fetch(`${baseUrl}/api/params/usage?label=Width&line=3`);
+    const res = await fetch(`${baseUrl}/api/params/usage?label=Width&line=4`);
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
       variable: 'width',
       references: 1,
-      referenceLines: [5],
+      referenceLines: [6],
       editable: true,
     });
   });
 
-  it('adds a declaration, naming its variable from the label', async () => {
+  it('adds a declaration to the named part, naming its variable from the label', async () => {
     const pending = post('/params/add', {
       param: { label: 'Depth', defaultValue: 25, type: 'slider', min: 0, max: 50 },
+      part: { filePath: FILE, line: 3, column: 0 },
     });
     const newCode = await actAsEditor();
     const { status, body } = await pending;
 
     expect(status).toBe(200);
     expect(body.success).toBe(true);
-    expect(newCode).toContain(`const depth = param('Depth', 25, 'slider', { min: 0, max: 50 });`);
+    expect(newCode).toContain(
+      `  const width = param('Width', 100);\n  const depth = param('Depth', 25, 'slider', { min: 0, max: 50 });`,
+    );
+  });
+
+  it('refuses an add that names no part, before it reaches the editor', async () => {
+    const { status, body } = await post('/params/add', {
+      param: { label: 'Depth', defaultValue: 25, type: 'number' },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('part must be');
+    expect(relayed).toEqual([]);
   });
 
   it('sends a new declaration into the chosen part, in the file that declares it', async () => {
@@ -173,7 +187,7 @@ describe('parameter declaration routes', () => {
   it('renames the label, leaves the variable, and moves the override with it', async () => {
     const pending = post('/params/update', {
       label: 'Width',
-      line: 3,
+      line: 4,
       param: { label: 'Overall width', defaultValue: 100, type: 'number' },
     });
     const newCode = await actAsEditor();
@@ -188,7 +202,7 @@ describe('parameter declaration routes', () => {
   it('leaves the override alone when only the control changed', async () => {
     const pending = post('/params/update', {
       label: 'Width',
-      line: 3,
+      line: 4,
       param: { label: 'Width', defaultValue: 100, type: 'slider', min: 0, max: 500 },
     });
     const newCode = await actAsEditor();
@@ -199,7 +213,7 @@ describe('parameter declaration routes', () => {
   });
 
   it('removes a declaration and forgets its override', async () => {
-    const pending = post('/params/remove', { label: 'Width', line: 3 });
+    const pending = post('/params/remove', { label: 'Width', line: 4 });
     const newCode = await actAsEditor();
     const { body } = await pending;
 
@@ -260,7 +274,7 @@ describe('parameter declaration routes', () => {
   it('leaves the bookkeeping untouched when the editor refuses the edit', async () => {
     // The preflight passes (the label exists) but the host's buffer has moved
     // on, so the round trip is where the refusal comes from.
-    const pending = post('/params/remove', { label: 'Width', line: 3 });
+    const pending = post('/params/remove', { label: 'Width', line: 4 });
     const msg = await (async () => {
       for (let i = 0; i < 200; i++) {
         const found = relayed.find((m) => m.type === 'apply-feature-edit');

@@ -41,7 +41,7 @@ export class Assembly<T = unknown> {
    */
   run(): T {
     this.hasRun = true;
-    return this.callback();
+    return Assembly.runBody(this.callback);
   }
 
   /**
@@ -59,7 +59,7 @@ export class Assembly<T = unknown> {
     this.hasRun = true;
     const scope = pushParamScope(overrides);
     try {
-      return { parts: this.callback(), scope };
+      return { parts: Assembly.runBody(this.callback), scope };
     } finally {
       popParamScope();
       warnUnknownOverrides('assembly', this.assemblyName, scope);
@@ -68,5 +68,27 @@ export class Assembly<T = unknown> {
 
   wasRun(): boolean {
     return this.hasRun;
+  }
+
+  /** How many assembly bodies are executing right now — nested sub-assemblies stack. */
+  private static bodyDepth = 0;
+
+  /**
+   * Whether an `assembly()` body is running. `param()` is legal inside one —
+   * the body's parameter interface, scoped or at root — and nowhere outside
+   * a part or assembly body; there is no scene container to ask, so the
+   * definition keeps count itself.
+   */
+  static isBodyRunning(): boolean {
+    return Assembly.bodyDepth > 0;
+  }
+
+  private static runBody<R>(callback: () => R): R {
+    Assembly.bodyDepth++;
+    try {
+      return callback();
+    } finally {
+      Assembly.bodyDepth--;
+    }
   }
 }

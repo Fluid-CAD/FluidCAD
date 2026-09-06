@@ -302,15 +302,14 @@ export function createParamsRouter(
       return;
     }
     // The Part dropdown's choice: the declaration goes into that part's
-    // callback body, in the file that declares the part — absent, it lands at
-    // the top level of the file on screen.
-    let part: (ParamPartTarget & { filePath: string }) | null = null;
-    if (req.body?.part !== undefined && req.body?.part !== null) {
-      part = validPartLocation(req.body.part);
-      if (!part) {
-        res.status(400).json({ error: 'part must be {filePath, line, column} of the part statement' });
-        return;
-      }
+    // callback body, in the file that declares the part. A parameter only
+    // lives inside a part body, so there is no add without one.
+    const part = validPartLocation(req.body?.part);
+    if (!part) {
+      res.status(400).json({
+        error: 'part must be {filePath, line, column} of the part() statement the parameter is declared in',
+      });
+      return;
     }
     // No variable name on the wire: the editor derives one from the label
     // against the file it is about to write, which is the only place that can
@@ -318,8 +317,8 @@ export function createParamsRouter(
     await dispatchParamEdit(res, {
       kind: 'add',
       param: spec,
-      ...(part ? { part: { line: part.line, column: part.column } } : {}),
-    }, part?.filePath);
+      part: { line: part.line, column: part.column },
+    }, part.filePath);
   });
 
   router.post('/params/update', async (req, res) => {

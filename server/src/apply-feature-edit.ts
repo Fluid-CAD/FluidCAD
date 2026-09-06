@@ -1,9 +1,12 @@
 import {
   getJavaScriptParser,
+  chainRootCallee,
+  declareParamStatements,
+  declareParamStatementsFor,
   ensureSymbolImport,
   findEditableCallAt,
+  findEnclosingPart,
   findSketchBody,
-  findTopLevelDeclarationAnchor,
   importLocalName,
   indentOf,
   isBreakpointStatement,
@@ -2054,13 +2057,17 @@ export async function applyFeatureEdit(
   }
 
   // Declarations a dialog expression field committed land directly before
-  // the statement, at its indent.
+  // the statement, at its indent; its `param()` ones at the top of the part
+  // body the statement goes into. That part is read off the insertion point
+  // now — every edit below lands inside its body, so its own line holds.
   const declsResult = renderNewVariableDecls(code, spec.newVariables, useSemicolon);
   if ('error' in declsResult) {
     return { newCode: code, error: declsResult.error };
   }
   const block = [...declsResult.decls, statementText + (useSemicolon ? ';' : '')]
     .join(`\n${insertion.indent}`);
+  const enclosingPart = findEnclosingPart(tree, rowOfIndex(code, insertion.index));
+  const partLine = enclosingPart ? enclosingPart.call.startPosition.row + 1 : null;
 
   const edits: Edit[] = [
     { index: insertion.index, text: insertion.wrap(block) },
@@ -2078,6 +2085,11 @@ export async function applyFeatureEdit(
     result = spliceCode(result, edit.index, edit.index, edit.text);
   }
 
+  const landed = await declareParamStatements(result, partLine, declsResult.paramDecls);
+  if ('error' in landed) {
+    return { newCode: code, error: landed.error };
+  }
+  result = landed.newCode;
   result = await ensureSymbolImport(result, statementCallee(spec));
   const imports = new Set(spec.imports ?? []);
   if (spec.rawArgs?.trim()) {
@@ -2091,8 +2103,18 @@ export async function applyFeatureEdit(
   for (const symbol of imports) {
     result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
   }
-  result = await insertDeclsAfterImports(result, declsResult.paramDecls);
   return { newCode: result };
+}
+
+/** The 0-based row the character at `index` sits on. */
+function rowOfIndex(code: string, index: number): number {
+  let row = 0;
+  for (let i = 0; i < index && i < code.length; i++) {
+    if (code.charCodeAt(i) === 10) {
+      row++;
+    }
+  }
+  return row;
 }
 
 /**
@@ -2100,9 +2122,10 @@ export async function applyFeatureEdit(
  * per-axis translate texts as safe single-argument expressions, apply the
  * chain rewrite, then land any declarations the gizmo's absolute-value input
  * committed — plain `const`s directly before the insert statement at its
- * indent, `param()` declarations after the imports (import ensured) —
- * mirroring the dialog expression fields. Declarations splice after the pose
- * edit so the spec's source line stays valid throughout.
+ * indent, `param()` declarations in the enclosing part body or after the
+ * imports (import ensured) — mirroring the dialog expression fields.
+ * Declarations splice after the pose edit so the spec's source line stays
+ * valid throughout.
  */
 async function applyInstancePoseWithDecls(
   code: string,
@@ -2164,7 +2187,8 @@ async function applyInsertParamsWithDecls(
 /**
  * Land `newVariables` declarations around an already-edited statement:
  * plain `const`s directly before line `sourceLine` at its indent, `param()`
- * declarations after the imports (import ensured). Splices AFTER the main
+ * declarations at the top of the part body enclosing the statement — after
+ * the imports when no part does (import ensured). Splices AFTER the main
  * edit so the spec's source line stays valid throughout; errors return the
  * ORIGINAL code, keeping the transform all-or-nothing.
  */
@@ -2200,8 +2224,11 @@ async function landNewVariableDecls(
     working = spliceCode(working, lineStart, lineStart, block);
   }
   if (declsResult.paramDecls.length > 0) {
+    // The statement's line still points into its part after the local
+    // declarations went in above it; the import comes last so it cannot
+    // shift that line first.
+    working = await declareParamStatementsFor(working, sourceLine, declsResult.paramDecls);
     working = await ensureSymbolImport(working, 'param');
-    working = await insertDeclsAfterImports(working, declsResult.paramDecls);
   }
   return { newCode: working };
 }
@@ -2615,10 +2642,16 @@ async function appendTopLevelStatement(
       ? spliceCode(code, before.startIndex, before.startIndex, `${block(indent)}\n${indent}`)
       : spliceCode(code, last.endIndex, last.endIndex, `\n${indent}${block(indent)}`);
   }
-  result = await ensureSymbolImport(result, callee);
+  // A `param()` declaration goes at the top of the part the statement was
+  // appended to — the part's line holds through an append inside its body —
+  // and after the imports in a file without one.
+  const landed = await declareParamStatements(result, partLoc?.line ?? null, declsResult.paramDecls);
+  if ('error' in landed) {
+    return { newCode: code, error: landed.error };
+  }
+  result = await ensureSymbolImport(landed.newCode, callee);
   if (declsResult.paramDecls.length > 0) {
     result = await ensureSymbolImport(result, 'param');
-    result = await insertDeclsAfterImports(result, declsResult.paramDecls);
   }
   return { newCode: result };
 }
@@ -2955,26 +2988,6 @@ function requiredChainRoots(featureType: string): string[] | null {
  */
 function sameNode(a: TSNode, b: TSNode): boolean {
   return a.type === b.type && a.startIndex === b.startIndex && a.endIndex === b.endIndex;
-}
-
-/** Root identifier of a call chain: `extrude(10).drill()` → `extrude`. */
-function chainRootCallee(call: TSNode): string | null {
-  let current: TSNode | null = call;
-  while (current && current.type === 'call_expression') {
-    const fn = current.childForFieldName('function');
-    if (!fn) {
-      return null;
-    }
-    if (fn.type === 'identifier') {
-      return fn.text;
-    }
-    if (fn.type === 'member_expression') {
-      current = fn.childForFieldName('object');
-      continue;
-    }
-    return null;
-  }
-  return null;
 }
 
 /**
@@ -4229,7 +4242,7 @@ export function renderChamferValueArgs(value: ValueExpr | undefined, chamfer: Ch
  * validated to safe shapes, deduplicated, and filtered against names the
  * file already declares so a re-apply stays idempotent. Declarations whose
  * initializer calls `param()` come back separately in `paramDecls` — those
- * land at top level after the imports, not before the statement.
+ * land at the top of the part body, not before the statement.
  */
 function renderNewVariableDecls(
   code: string,
@@ -4259,22 +4272,6 @@ function renderNewVariableDecls(
     target.push(`const ${nv.name} = ${nv.initializer.trim()}${semicolon ? ';' : ''}`);
   }
   return { decls, paramDecls };
-}
-
-/** Splice top-level declarations directly after the file's last import (or
- * its `unit()` statement, which stays first — or as the file's first lines)
- * — where `param()` declarations live. */
-async function insertDeclsAfterImports(code: string, decls: string[]): Promise<string> {
-  if (decls.length === 0) {
-    return code;
-  }
-  const parser = await getJavaScriptParser();
-  const tree = parser.parse(code);
-  const anchor = findTopLevelDeclarationAnchor(tree);
-  const text = decls.join('\n');
-  return anchor
-    ? spliceCode(code, anchor.endIndex, anchor.endIndex, `\n${text}`)
-    : `${text}\n${code}`;
 }
 
 /**
@@ -8552,6 +8549,10 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
       text: declsResult.decls.map(d => `${d}\n${indent}`).join(''),
     });
   }
+  // The edited statement's part takes its `param()` declarations; every
+  // edit below lands inside that part's body, so its own line holds.
+  const enclosingPart = findEnclosingPart(tree, (stmtNode ?? call).startPosition.row);
+  const partLine = enclosingPart ? enclosingPart.call.startPosition.row + 1 : null;
   // Ties (a pure insertion at the statement's own start) must splice after
   // the replacement, so the inserted text never lands inside the replaced
   // span — hence the end tie-break.
@@ -8560,6 +8561,11 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
   for (const e of edits) {
     result = spliceCode(result, e.start, e.end, e.text);
   }
+  const landed = await declareParamStatements(result, partLine, declsResult.paramDecls);
+  if ('error' in landed) {
+    return { newCode: code, error: landed.error };
+  }
+  result = landed.newCode;
 
   const callee = spec.feature === 'extrude'
     ? (edit.extrude!.op === 'remove' ? 'cut' : 'extrude')
@@ -8579,7 +8585,6 @@ async function applyStatementEdit(code: string, spec: ApplyFeatureEditSpec): Pro
   for (const symbol of imports) {
     result = await ensureSymbolImport(result, symbol, MODULE_FOR_IMPORT[symbol] ?? 'fluidcad/core');
   }
-  result = await insertDeclsAfterImports(result, declsResult.paramDecls);
   // Clearing the edit's breakpoint here — one transform, one write — keeps
   // the rewrite and the clear from racing had the UI cleared it separately.
   if (spec.clearBreakpoints) {

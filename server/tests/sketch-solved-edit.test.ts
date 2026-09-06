@@ -315,6 +315,31 @@ describe('applySolvedEmission', () => {
     expect(lines[result.geometryLines![0] - 1]).toContain('circle([10, 10], d);');
   });
 
+  it('declares param() newVariables at the top of the enclosing part body and keeps geometryLines honest', async () => {
+    const inPart = [
+      `import { part, sketch, line } from "fluidcad/core";`,
+      ``,
+      `export const plate = part('Plate', () => {`,
+      `  sketch('xy', () => {`,
+      `    line([0, 0], [100, 0]);`,
+      `  });`,
+      `});`,
+    ].join('\n');
+    const result = await applySolvedEmission(inPart, {
+      sketchLine: 4,
+      geometry: [{ kind: 'circle', text: 'circle([10, 10], d)' }],
+      constraints: [],
+      newVariables: [{ name: 'd', initializer: 'param("d", 20)' }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`part('Plate', () => {\n  const d = param("d", 20);\n  sketch('xy', () => {`);
+    expect(result.newCode).not.toMatch(/^const d/m);
+    expect(result.newCode).toMatch(/import \{[^}]*\bparam\b[^}]*\} from "fluidcad\/core"/);
+    const lines = result.newCode.split('\n');
+    expect(lines[result.geometryLines![0] - 1]).toContain('circle([10, 10], d);');
+    expect(lines[result.sketchLine! - 1]).toContain(`sketch('xy'`);
+  });
+
   it('refuses malformed geometry text and out-of-range newIndex', async () => {
     const badText = await applySolvedEmission(SKETCH, {
       sketchLine: 4,

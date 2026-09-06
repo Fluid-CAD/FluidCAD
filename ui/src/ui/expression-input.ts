@@ -242,7 +242,7 @@ export class ExpressionInput {
    * resolves behind a double-click. Text only: the seed keeps the numeric
    * value the field opened with, so naming this dimension declares the number
    * rather than a copy of the expression — a `param()` lands at the top of the
-   * file, above anything the expression could reference.
+   * part body, above anything the expression could reference.
    */
   seedExpression(expression: string): void {
     if (!this.visible || this.userIsTyping) {

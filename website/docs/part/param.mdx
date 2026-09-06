@@ -8,16 +8,16 @@ import partParam from '!!raw-loader!./_examples/part-param.js';
 
 # param()
 
-`param()` declares a named value with a control. In a part file it shows up in the **Parameters** panel; in an assembly it is the interface `insert(def, { … })` overrides per instance.
+`param()` declares a named value with a control, at the top of a `part()` body. When the part's file is open it shows up in the **Parameters** panel under that part; inserted into an assembly it is the interface `insert(def, { … })` overrides per instance.
 
 ## In the viewport
 
-1. Open the **Parameters** panel from the left rail. Every `param()` in the file is one control: a number field, a slider, a text field, a select, a checkbox or a colour swatch.
+1. Open the **Parameters** panel from the left rail. Every `param()` of the part is one control: a number field, a slider, a text field, a select, a checkbox or a colour swatch.
 2. Change a value. The model re-renders and the new value is written back to the `param()` statement's default.
-3. The **Add to** dropdown at the top of the panel names a part (the timeline's active part by default), any other part of the file, or the file's top level. The panel lists that part's parameters, and a new parameter is declared in its body. Click **+** to add a parameter. The dialog opens on that part (its own **Part** field can still change it) and asks for **Label**, **Type**, and, per type, **Min / Max / Step**, the select **options** and how they are **Shown as**, plus a **Group** and **Description**. It writes the `param()` call at the top of that part's body, below any `param()` calls already there. Edit or delete a parameter from its row's menu.
+3. The **Add to** dropdown at the top of the panel names a part: the timeline's active part by default, or any other part of the file. The panel lists that part's parameters, and a new parameter is declared in its body. Click **+** to add a parameter. The dialog opens on that part (its own **Part** field can still change it) and asks for **Label**, **Type**, and, per type, **Min / Max / Step**, the select **options** and how they are **Shown as**, plus a **Group** and **Description**. It writes the `param()` call at the top of that part's body, below any `param()` calls already there. Edit or delete a parameter from its row's menu.
 4. Reset restores every parameter to its default.
 
-Every numeric field in a feature dialog accepts an expression, and an expression can name a parameter: type `Length / 2` in an Extrude's Distance field and the statement is written with that expression.
+Every numeric field in a feature dialog accepts an expression, and an expression can name a parameter: type `Length / 2` in an Extrude's Distance field and the statement is written with that expression. The dropdown under the field offers the parameters of the part the statement is in, never another part's. Type `wall = 3` in a field, or in the sketcher's dimension input, and press the **P** toggle: the field's value becomes a new `param('wall', 3)`, written at the top of the part's body below the parameters already there.
 
 ![Parametric extrusion](/img/docs/part/part-param.png)
 
@@ -69,6 +69,7 @@ The Insert dialog builds this object for you — one page of controls per queued
 
 ## Rules
 
+- A `param()` is only valid inside a `part()` (or `assembly()`) body. Called at the file's top level it is an error — a file has no parameters of its own.
 - Declare parameters at the top of the part body, before the geometry that uses them.
 - Labels are unique within a part.
 - A parameter used in a sketch dimension re-solves the sketch on every change: `distance(a, b, width)` is the parametric form of a dimension.

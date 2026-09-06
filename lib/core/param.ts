@@ -1,5 +1,6 @@
 import { captureSourceLocation } from "../index.js";
 import { getCurrentScene } from "../scene-manager.js";
+import { Assembly } from "../features/assembly.js";
 import {
   activeParamScope, coerceParamOverride, getParamRegistry,
   type ControlType, type MultiControlType, type SelectOption, type ParamDefinition,
@@ -166,15 +167,18 @@ export function resolveParam(v: NumberParam | StringParam | BooleanParam): numbe
  * inferred from the default: a boolean becomes a checkbox, a number a
  * number field, a string a text field.
  *
- * In a part file the parameter appears in the Parameters panel, and a
- * value edited there is written back as the new default. Inside a
- * `part(...)` or `assembly(...)` body it is instead the definition's
- * parameter interface: `insert(def, { Length: 380 })` supplies the value
- * per instance, and the Insert dialog builds that object from these
+ * A parameter belongs to a `part(...)` (or `assembly(...)`) body — declare it
+ * at the top of the callback, before the geometry that reads it. Called
+ * outside every body it is an error: a file has no parameters of its own.
+ * When the defining file renders, the parameter appears in the Parameters
+ * panel under its part, and a value edited there is written back as the new
+ * default. Inserted elsewhere, the same declaration is the definition's
+ * parameter interface: `insert(def, { Length: 380 })` supplies the value per
+ * instance, and the Insert dialog builds that object from these
  * declarations.
  *
  * @param label - The parameter's name — what the panel shows and the key an
- *   override uses. Unique within a file or part.
+ *   override uses. Unique within a part.
  * @param defaultValue - The value used when nothing overrides it.
  */
 export default function param<T extends string | number | boolean>(label: string, defaultValue: T): T;
@@ -215,6 +219,18 @@ export default function param(
   type?: ParamType,
   options?: ParamOptionsMap[ParamType],
 ): string | number | boolean | (string | number)[] {
+  // The part whose callback is running owns this declaration: the panel
+  // shows a part's parameters under that part, and a declaration lands at
+  // the top of the part's body. An assembly body (its own parameter
+  // interface) is the one other legal home. Outside both there is nothing to
+  // own the parameter — a file has no parameters of its own — so the call is
+  // refused where it stands rather than registering a stray control.
+  const declaringPart = getCurrentScene()?.getActivePart() ?? null;
+  if (!declaringPart && !Assembly.isBodyRunning()) {
+    throw new Error(
+      `param('${label}') must be declared inside a part() body — move it to the top of the part's callback.`,
+    );
+  }
   // A definition build in flight (a part variant materializing, an assembly
   // occurrence's body running) resolves against ITS scope only: the insert's
   // override map is the value source, and the declaration is collected as
@@ -245,12 +261,9 @@ export default function param(
   if (sourceLocation) {
     definition.sourceLocation = sourceLocation;
   }
-  // The part whose callback is running owns this declaration: the panel
-  // shows a part's parameters under that part, and its top-level ones
-  // (declared outside every body) under the file.
-  const declaringPart = getCurrentScene()?.getActivePart()?.getSourceLocation();
-  if (declaringPart) {
-    definition.part = declaringPart;
+  const partLocation = declaringPart?.getSourceLocation();
+  if (partLocation) {
+    definition.part = partLocation;
   }
 
   if (options) {

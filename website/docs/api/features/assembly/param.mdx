@@ -10,11 +10,14 @@ Declares a named parameter and returns its current value. The control is
 inferred from the default: a boolean becomes a checkbox, a number a
 number field, a string a text field.
 
-In a part file the parameter appears in the Parameters panel, and a
-value edited there is written back as the new default. Inside a
-`part(...)` or `assembly(...)` body it is instead the definition's
-parameter interface: `insert(def, { Length: 380 })` supplies the value
-per instance, and the Insert dialog builds that object from these
+A parameter belongs to a `part(...)` (or `assembly(...)`) body — declare it
+at the top of the callback, before the geometry that reads it. Called
+outside every body it is an error: a file has no parameters of its own.
+When the defining file renders, the parameter appears in the Parameters
+panel under its part, and a value edited there is written back as the new
+default. Inserted elsewhere, the same declaration is the definition's
+parameter interface: `insert(def, { Length: 380 })` supplies the value per
+instance, and the Insert dialog builds that object from these
 declarations.
 
 **Returns**: **`number`** \| **`string`** \| **`boolean`**
@@ -33,16 +36,19 @@ Declares a named parameter and returns its current value. The control is
 inferred from the default: a boolean becomes a checkbox, a number a
 number field, a string a text field.
 
-In a part file the parameter appears in the Parameters panel, and a
-value edited there is written back as the new default. Inside a
-`part(...)` or `assembly(...)` body it is instead the definition's
-parameter interface: `insert(def, { Length: 380 })` supplies the value
-per instance, and the Insert dialog builds that object from these
+A parameter belongs to a `part(...)` (or `assembly(...)`) body — declare it
+at the top of the callback, before the geometry that reads it. Called
+outside every body it is an error: a file has no parameters of its own.
+When the defining file renders, the parameter appears in the Parameters
+panel under its part, and a value edited there is written back as the new
+default. Inserted elsewhere, the same declaration is the definition's
+parameter interface: `insert(def, { Length: 380 })` supplies the value per
+instance, and the Insert dialog builds that object from these
 declarations.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `label` | string | The parameter's name — what the panel shows and the key an override uses. Unique within a file or part. |
+| `label` | string | The parameter's name — what the panel shows and the key an override uses. Unique within a part. |
 | `defaultValue` | T | The value used when nothing overrides it. |
 
 ---

@@ -1,7 +1,7 @@
 ---
 id: api/param
 title: "param(label, default, type?, options?)"
-summary: "Declares a named parameter with a UI control (number, slider, text, select, checkbox, color) and returns its value. In a part file it is a Parameters-panel control; inside part()/assembly() it is the definition's parameter interface that insert(def, { Label: value }) overrides per instance."
+summary: "Declares a named parameter with a UI control (number, slider, text, select, checkbox, color) and returns its value. Only valid inside a part()/assembly() body: when that file is open it is a Parameters-panel control under its part, and it is the definition's parameter interface that insert(def, { Label: value }) overrides per instance."
 tags: [api, part, assembly, parameters]
 symbols: [param]
 seeAlso: [api/part, api/insert, concepts/assemblies]
@@ -34,11 +34,16 @@ Every type also takes `group` (parameters with the same group fold together)
 and `description` (help text). Without a `type` the control follows the
 default: boolean → checkbox, number → number field, string → text field.
 
-Where the value comes from:
+`param()` is only valid inside a `part()` or `assembly()` body — at the
+file's top level it throws (`param('Width') must be declared inside a
+part() body`): a file has no parameters of its own. Where the value comes
+from:
 
-- **Top level of a part file** — the Parameters panel. Editing a control
-  re-renders and writes the new value back as the statement's default.
-- **Inside `part()` / `assembly()`** — the definition's parameter interface.
+- **The defining file, open in the editor** — the Parameters panel, which
+  lists the parameters of one part at a time (the active part by default).
+  Editing a control re-renders and writes the new value back as the
+  statement's default.
+- **Inserted into an assembly** — the definition's parameter interface.
   `insert(def, { Length: 380 })` supplies values per instance; unknown keys
   are warned about; values are read in the **part file's unit**.
 

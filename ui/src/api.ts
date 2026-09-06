@@ -972,14 +972,20 @@ export async function getDimensionExpression(
   })) ?? { expression: null };
 }
 
-/** Variables in scope at `sketchSourceLine`; null means whole-file scope
- * (the feature dialogs' create mode — statements append at the end). */
+/**
+ * Variables in scope at `sketchSourceLine`. A null line is the feature
+ * dialogs' create mode: the statement lands in the timeline's active part
+ * (attached here from the provider the apply payloads read), so the scope is
+ * that part's body — its `param()`s included, never another part's — or the
+ * whole file when no part is active.
+ */
 export async function getScopeVariables(
   sketchSourceLine: number | null,
 ): Promise<VariableInfo[]> {
+  const part = sketchSourceLine === null ? activePartProvider?.() ?? null : null;
   const data = await postJson<{ variables: VariableInfo[] }>(
     '/api/scope-variables',
-    { sketchSourceLine },
+    part ? { sketchSourceLine, part } : { sketchSourceLine },
   );
   return data?.variables ?? [];
 }
@@ -4040,13 +4046,14 @@ export function getParamUsage(target: ParamTarget): Promise<ParamUsage | null> {
 }
 
 /**
- * Declare a new parameter: at the top of `part`'s callback body when one is
- * given (the Add dialog's Part choice — the file the part lives in takes the
- * edit), else below the file's imports. The variable it binds is derived from
- * the label server-side — only the file knows what names are free, so a
- * clashing one gets a numeric suffix rather than a refusal.
+ * Declare a new parameter at the top of `part`'s callback body (the Add
+ * dialog's Part choice — the file the part lives in takes the edit). A
+ * parameter only lives inside a part body, so without one the server refuses
+ * and says so. The variable it binds is derived from the label server-side —
+ * only the file knows what names are free, so a clashing one gets a numeric
+ * suffix rather than a refusal.
  */
-export function addParam(param: ParamSpec, part?: SourceLocation | null): Promise<ParamEditResponse> {
+export function addParam(param: ParamSpec, part: SourceLocation | null): Promise<ParamEditResponse> {
   const body = part
     ? { param, part: { filePath: part.filePath, line: part.line, column: part.column } }
     : { param };

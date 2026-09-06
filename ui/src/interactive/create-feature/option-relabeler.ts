@@ -31,9 +31,10 @@ export class OptionRelabeler<T> {
 
 /**
  * Push the variables in scope at the statement (edit mode) or at the end of
- * the file (create mode) to the dialog's expression fields. A response
- * landing after the dialog closed or re-targeted is dropped — `stillCurrent`
- * re-checks armed state and the edit target's line.
+ * the active part's body (create mode — the file's end when no part is
+ * active) to the dialog's expression fields. A response landing after the
+ * dialog closed or re-targeted is dropped — `stillCurrent` re-checks armed
+ * state and the edit target's line.
  */
 export async function refreshScopeVariables(
   line: number | null,

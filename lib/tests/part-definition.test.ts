@@ -136,7 +136,6 @@ describe("param() inside part definitions", () => {
     // module body attributed to one, the way the entry file is.
     const file = "/ws/model.fluid.js";
     const body = [
-      `param("Shared", 1);`,
       `part("A", () => { param("Width", 10); });`,
       `part("B", () => { param("Depth", 5); });`,
       `//# sourceURL=${file}`,
@@ -145,15 +144,37 @@ describe("param() inside part definitions", () => {
     render();
     const defs = getParamRegistry().getDefinitions();
     const byLabel = (label: string) => defs.find(d => d.label === label)!;
-    // A top-level declaration belongs to no part; each part's own carries
-    // that part's statement location, which is what the panel filters on.
-    expect(byLabel("Shared").part).toBeUndefined();
+    // Each part's declaration carries that part's statement location, which
+    // is what the panel filters on.
     // Lines are relative: `new Function` prepends its own header rows.
     const width = byLabel("Width").part!;
     const depth = byLabel("Depth").part!;
     expect(width.filePath).toBe(file);
     expect(depth).toMatchObject({ filePath: file, line: width.line + 1 });
     expect(byLabel("Width").sourceLocation!.line).toBe(width.line);
+  });
+
+  it("refuses a declaration outside every part body", () => {
+    createParamRegistry();
+    // A file has no parameters of its own: the call is refused where it
+    // stands, naming the label, and nothing registers.
+    expect(() => param("Shared", 1)).toThrow(/param\('Shared'\) must be declared inside a part\(\) body/);
+    expect(getParamRegistry().getDefinitions()).toHaveLength(0);
+    // A part body declared after the failed call is unaffected.
+    part("A", () => { param("Width", 10); });
+    render();
+    expect(getParamRegistry().getDefinitions().map(d => d.label)).toEqual(["Width"]);
+  });
+
+  it("still accepts a declaration inside a sketch body of the part", () => {
+    createParamRegistry();
+    let seen = 0;
+    part("p", () => {
+      sketch("xy", () => { seen = param("Size", 20) as number; testRect(seen, seen); });
+    });
+    render();
+    expect(seen).toBe(20);
+    expect(getParamRegistry().getDefinitions().map(d => d.label)).toEqual(["Size"]);
   });
 });
 

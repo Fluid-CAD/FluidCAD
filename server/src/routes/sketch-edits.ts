@@ -23,7 +23,9 @@ import {
   updateDimensionExpressionWithVariable,
   getDimensionExpression,
   getPointExpression,
+  extractVariablesInPart,
   extractVariablesInScope,
+  type VariableInfo,
 } from '../code-editor.ts';
 import { SketchDeleteSweep } from '../sketch-delete-sweep.ts';
 import { updateInsertChain, type InsertChainEdit } from '../insert-chain-edit.ts';
@@ -397,12 +399,20 @@ export function createSketchEditsRouter(
   // ---------------------------------------------------------------------------
 
   router.post('/scope-variables', async (req, res) => {
-    // null/absent means whole-file scope — the feature dialogs' create mode,
-    // where the statement is appended after the last line.
-    const { sketchSourceLine } = req.body;
+    // A null/absent line is the feature dialogs' create mode: the statement
+    // is appended to the active part's body when `part` names one (its
+    // statement line) — the scope is then that body, `param()`s included —
+    // and after the file's last line otherwise.
+    const { sketchSourceLine, part } = req.body;
     if (sketchSourceLine !== undefined && sketchSourceLine !== null
       && typeof sketchSourceLine !== 'number') {
       res.status(400).json({ error: 'Invalid request body' });
+      return;
+    }
+    const partLine = part?.line;
+    if (part !== undefined && part !== null
+      && (typeof part !== 'object' || !Number.isInteger(partLine) || partLine < 1)) {
+      res.status(400).json({ error: 'part must be {line} of the part() statement' });
       return;
     }
     const code = fluidCadServer.getCurrentCode();
@@ -411,9 +421,14 @@ export function createSketchEditsRouter(
       return;
     }
     try {
-      const variables = await extractVariablesInScope(
-        code, typeof sketchSourceLine === 'number' ? sketchSourceLine : Number.MAX_SAFE_INTEGER,
-      );
+      let variables: VariableInfo[];
+      if (typeof sketchSourceLine === 'number') {
+        variables = await extractVariablesInScope(code, sketchSourceLine);
+      } else if (typeof partLine === 'number') {
+        variables = await extractVariablesInPart(code, partLine);
+      } else {
+        variables = await extractVariablesInScope(code, Number.MAX_SAFE_INTEGER);
+      }
       res.json({ variables });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });

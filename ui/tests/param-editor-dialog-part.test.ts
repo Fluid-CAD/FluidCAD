@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 // The Add-parameter dialog's Part dropdown: a new declaration goes into a
 // part's callback body, the timeline's active part by default. The dropdown
-// only shows when the scene has parts, keeps the file's top level reachable
-// as its last entry, and never shows while editing an existing declaration.
+// lists parts only — a parameter lives inside a part body — shows only when
+// the scene has parts, and never while editing an existing declaration.
 
 vi.mock('../src/api', () => ({
   addParam: vi.fn(async () => ({ success: true })),
@@ -50,14 +50,14 @@ afterEach(() => {
 });
 
 describe('ParamEditorDialog part dropdown', () => {
-  it('lists the parts plus the file level and opens on the active part', () => {
+  it('lists the parts and opens on the active part', () => {
     const { dialog, root } = mount();
     dialog.setPartProvider(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
     dialog.openForCreate();
 
     expect(partRow(root).classList.contains('hidden')).toBe(false);
     const options = Array.from(partSelect(root).options, (o) => o.textContent);
-    expect(options).toEqual(['Bracket', 'Lid', 'File (top level)']);
+    expect(options).toEqual(['Bracket', 'Lid']);
     expect(partSelect(root).selectedOptions[0].textContent).toBe('Lid');
   });
 
@@ -74,7 +74,7 @@ describe('ParamEditorDialog part dropdown', () => {
     );
   });
 
-  it('sends whichever part the user picks instead, or none for the file level', async () => {
+  it('sends whichever part the user picks instead', async () => {
     const { dialog, root } = mount();
     dialog.setPartProvider(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
 
@@ -83,15 +83,16 @@ describe('ParamEditorDialog part dropdown', () => {
     partSelect(root).value = '0';
     await save(root);
     expect(vi.mocked(addParam)).toHaveBeenLastCalledWith(expect.anything(), bracket.sourceLocation);
-
-    dialog.openForCreate();
-    labelInput(root).value = 'Depth';
-    partSelect(root).value = 'file';
-    await save(root);
-    expect(vi.mocked(addParam)).toHaveBeenLastCalledWith(expect.anything(), null);
   });
 
-  it('hides the dropdown when the scene has no parts and declares at top level', async () => {
+  it('opens on the part the panel hands it', () => {
+    const { dialog, root } = mount();
+    dialog.setPartProvider(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    dialog.openForCreate(bracket.sourceLocation);
+    expect(partSelect(root).selectedOptions[0].textContent).toBe('Bracket');
+  });
+
+  it('hides the dropdown when the scene has no parts and sends no part, which the server refuses', async () => {
     const { dialog, root } = mount();
     dialog.setPartProvider(() => ({ parts: [], active: null }));
     dialog.openForCreate();
@@ -106,11 +107,11 @@ describe('ParamEditorDialog part dropdown', () => {
     let choices = { parts: [bracket], active: bracket.sourceLocation };
     dialog.setPartProvider(() => choices);
     dialog.openForCreate();
-    expect(Array.from(partSelect(root).options, (o) => o.textContent)).toEqual(['Bracket', 'File (top level)']);
+    expect(Array.from(partSelect(root).options, (o) => o.textContent)).toEqual(['Bracket']);
 
     choices = { parts: [bracket, lid], active: lid.sourceLocation };
     dialog.openForCreate();
-    expect(Array.from(partSelect(root).options, (o) => o.textContent)).toEqual(['Bracket', 'Lid', 'File (top level)']);
+    expect(Array.from(partSelect(root).options, (o) => o.textContent)).toEqual(['Bracket', 'Lid']);
     expect(partSelect(root).selectedOptions[0].textContent).toBe('Lid');
   });
 
@@ -120,7 +121,7 @@ describe('ParamEditorDialog part dropdown', () => {
     dialog.setPartProvider(() => ({ parts: [bracket, twin], active: bracket.sourceLocation }));
     dialog.openForCreate();
     expect(Array.from(partSelect(root).options, (o) => o.textContent))
-      .toEqual(['Bracket (line 3)', 'Bracket (line 20)', 'File (top level)']);
+      .toEqual(['Bracket (line 3)', 'Bracket (line 20)']);
   });
 
   it('never shows the dropdown while editing an existing declaration', () => {

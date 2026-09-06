@@ -43,34 +43,37 @@ function totalMeshes(result: unknown[]): number {
 }
 
 // The evaluator plays the role of an in-browser compiled model module: its
-// body is what a .fluid.js top-level would do, using the same lib instance.
+// body is what a .fluid.js top-level would do, using the same lib instance —
+// a part whose body declares the parameter and builds the geometry.
 const modelEvaluator = async () => {
-  const width = param("Width", 100) as number;
-  sketch("xy", () => {
-    // Legacy rect(width, 50).radius(10).centered(): rounded rectangle centered
-    // on the origin, corner radius 10 — four lines + four corner arcs.
-    const W = width / 2;
-    const H = 25;
-    const r = 10;
-    const b = line([-W + r, -H], [W - r, -H]);
-    const br = arc([W - r, -H], [W, -H + r], [W - r, -H + r]);
-    const rt = line([W, -H + r], [W, H - r]);
-    const tr = arc([W, H - r], [W - r, H], [W - r, H - r]);
-    const t = line([W - r, H], [-W + r, H]);
-    const tl = arc([-W + r, H], [-W, H - r], [-W + r, H - r]);
-    const l = line([-W, H - r], [-W, -H + r]);
-    const bl = arc([-W, -H + r], [-W + r, -H], [-W + r, -H + r]);
-    coincident(b.end(), br.start());
-    coincident(br.end(), rt.start());
-    coincident(rt.end(), tr.start());
-    coincident(tr.end(), t.start());
-    coincident(t.end(), tl.start());
-    coincident(tl.end(), l.start());
-    coincident(l.end(), bl.start());
-    coincident(bl.end(), b.start());
+  part("Plate", () => {
+    const width = param("Width", 100) as number;
+    sketch("xy", () => {
+      // Legacy rect(width, 50).radius(10).centered(): rounded rectangle centered
+      // on the origin, corner radius 10 — four lines + four corner arcs.
+      const W = width / 2;
+      const H = 25;
+      const r = 10;
+      const b = line([-W + r, -H], [W - r, -H]);
+      const br = arc([W - r, -H], [W, -H + r], [W - r, -H + r]);
+      const rt = line([W, -H + r], [W, H - r]);
+      const tr = arc([W, H - r], [W - r, H], [W - r, H - r]);
+      const t = line([W - r, H], [-W + r, H]);
+      const tl = arc([-W + r, H], [-W, H - r], [-W + r, H - r]);
+      const l = line([-W, H - r], [-W, -H + r]);
+      const bl = arc([-W, -H + r], [-W + r, -H], [-W + r, -H + r]);
+      coincident(b.end(), br.start());
+      coincident(br.end(), rt.start());
+      coincident(rt.end(), tr.start());
+      coincident(tr.end(), t.start());
+      coincident(t.end(), tl.start());
+      coincident(tl.end(), l.start());
+      coincident(l.end(), bl.start());
+      coincident(bl.end(), b.start());
+    });
+    const e = extrude(30);
+    fillet(4, e.startEdges());
   });
-  const e = extrude(30);
-  fillet(4, e.startEdges());
   return {};
 };
 

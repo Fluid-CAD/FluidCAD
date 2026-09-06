@@ -7,15 +7,23 @@
 
 import { describe, it, expect } from "vitest";
 import param from "../core/param.js";
+import part from "../core/part.js";
 import { createParamRegistry, type ParamDefinition } from "../param-registry.js";
+import { setupOC, render } from "./setup.js";
 
 const FILE = "/ws/model.fluid.js";
 
-/** Run `code` as a module body attributed to FILE, returning what it declared. */
+/**
+ * Run `code` as the body of a part in a module attributed to FILE, returning
+ * what it declared. A parameter only lives inside a part body, so the
+ * snippet is wrapped the way an authored file wraps it — on one line, so the
+ * declarations' own rows are the ones the test counts.
+ */
 function runFluid(code: string): ParamDefinition[] {
   const registry = createParamRegistry();
-  const wrapped = `"use strict";\n${code}\n//# sourceURL=${FILE}`;
-  new Function("param", wrapped)(param);
+  const wrapped = `"use strict";\npart("P", () => {\n${code}\n});\n//# sourceURL=${FILE}`;
+  new Function("part", "param", wrapped)(part, param);
+  render();
   return registry.getDefinitions();
 }
 
@@ -26,6 +34,8 @@ function byLabel(definitions: ParamDefinition[], label: string): ParamDefinition
 }
 
 describe("param() source locations", () => {
+  setupOC();
+
   it("stamps the file and line each declaration was authored on", () => {
     const definitions = runFluid([
       `const width = param("Width", 100);`,

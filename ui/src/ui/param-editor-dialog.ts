@@ -26,9 +26,6 @@ import {
  */
 export type PartChoices = { parts: PartChoice[]; active: SourceLocation | null };
 
-/** The dropdown's "no part" entry — the declaration goes at the file's top level. */
-const FILE_LEVEL = 'file';
-
 /**
  * The parameters panel's add / edit / delete dialog. Values the panel sets are
  * runtime overrides; everything this dialog changes is the `param()` call
@@ -123,8 +120,9 @@ export class ParamEditorDialog {
 
   /**
    * Where the Part dropdown reads the scene's parts and the active one from.
-   * Without a provider the dropdown never shows and a new declaration lands at
-   * the file's top level, as it does in a scene with no parts.
+   * Without a provider the dropdown never shows and the declaration goes out
+   * with no part — which the server refuses, a parameter living only inside a
+   * part body — as in a scene with no parts.
    */
   setPartProvider(provider: () => PartChoices): void {
     this.partProvider = provider;
@@ -132,8 +130,8 @@ export class ParamEditorDialog {
 
   /**
    * Open on a blank declaration. The Part dropdown opens on `preferredPart`
-   * when the caller has one (the panel's own Part dropdown — null there means
-   * the file's top level), else on the timeline's active part.
+   * when the caller has one (the panel's own Part dropdown), else on the
+   * timeline's active part.
    */
   openForCreate(preferredPart?: SourceLocation | null): void {
     this.target = null;
@@ -464,9 +462,8 @@ export class ParamEditorDialog {
   /**
    * Fill the Part dropdown from the provider and open it on the preferred
    * part — the active part when the caller states no preference. The row only
-   * shows when the scene has parts to choose between; the file's top level is
-   * always the last entry, so a shared parameter (one several parts read)
-   * stays reachable.
+   * shows when the scene has parts to choose between: a parameter lives in a
+   * part body, so those are the only places it can go.
    */
   private populateParts(preferredPart?: SourceLocation | null): void {
     const choices = this.partProvider?.() ?? { parts: [], active: null };
@@ -480,17 +477,16 @@ export class ParamEditorDialog {
     ActivePartTracker.choiceLabels(choices.parts).forEach((text, index) => {
       this.partSelect.appendChild(ParamEditorDialog.option(String(index), text));
     });
-    this.partSelect.appendChild(ParamEditorDialog.option(FILE_LEVEL, 'File (top level)'));
-    const wanted = preferredPart === undefined ? choices.active : preferredPart;
+    const wanted = preferredPart ?? choices.active;
     const index = wanted === null
       ? -1
       : choices.parts.findIndex((part) => ActivePartTracker.sameStatement(part.sourceLocation, wanted));
-    this.partSelect.value = index === -1 ? FILE_LEVEL : String(index);
+    this.partSelect.value = String(Math.max(index, 0));
   }
 
-  /** The part the dropdown names, or null for the file's top level. */
+  /** The part the dropdown names — null only when the scene has none to name. */
   private chosenPart(): SourceLocation | null {
-    if (this.partRow.classList.contains('hidden') || this.partSelect.value === FILE_LEVEL) {
+    if (this.partRow.classList.contains('hidden')) {
       return null;
     }
     return this.partChoices[Number(this.partSelect.value)]?.sourceLocation ?? null;

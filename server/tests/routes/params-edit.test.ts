@@ -125,6 +125,51 @@ describe('parameter declaration routes', () => {
     expect(newCode).toContain(`const depth = param('Depth', 25, 'slider', { min: 0, max: 50 });`);
   });
 
+  it('sends a new declaration into the chosen part, in the file that declares it', async () => {
+    const other = '/ws/bracket.fluid.js';
+    const pending = post('/params/add', {
+      param: { label: 'Depth', defaultValue: 25, type: 'number' },
+      part: { filePath: other, line: 3, column: 0 },
+    });
+    const msg = await (async () => {
+      for (let i = 0; i < 200; i++) {
+        const found = relayed.find((m) => m.type === 'apply-feature-edit');
+        if (found) {
+          return found;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+      throw new Error('nothing was relayed');
+    })();
+    expect(msg.spec.filePath).toBe(other);
+    expect(msg.spec.paramEdit).toEqual({
+      kind: 'add',
+      param: { label: 'Depth', defaultValue: 25, type: 'number' },
+      part: { line: 3, column: 0 },
+    });
+
+    const res = await fetch(`${baseUrl}/api/code/apply-feature`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        code: `import { part, extrude } from 'fluidcad/core';\n\nexport const b = part('B', () => {\n  extrude(1);\n});\n`,
+        spec: msg.spec,
+      }),
+    });
+    expect((await res.json()).newCode).toContain(`part('B', () => {\n  const depth = param('Depth', 25);\n  extrude(1);\n});`);
+    expect((await pending).body.success).toBe(true);
+  });
+
+  it('refuses a part that is not a statement location', async () => {
+    const { status, body } = await post('/params/add', {
+      param: { label: 'Depth', defaultValue: 25, type: 'number' },
+      part: { line: 3 },
+    });
+    expect(status).toBe(400);
+    expect(body.error).toContain('part must be');
+    expect(relayed).toEqual([]);
+  });
+
   it('renames the label, leaves the variable, and moves the override with it', async () => {
     const pending = post('/params/update', {
       label: 'Width',

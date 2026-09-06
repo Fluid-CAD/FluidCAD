@@ -141,6 +141,131 @@ describe('ParamEditor.add', () => {
   });
 });
 
+const PART_CODE = [
+  `import { part, param, sketch, circle, extrude } from 'fluidcad/core';`,
+  ``,
+  `export const bracket = part('Bracket', () => {`,
+  `  const width = param('Width', 100);`,
+  `  // the bore`,
+  `  const bore = param('Bore', 4, 'slider', { min: 2, max: 8 });`,
+  `  sketch('xy', () => {`,
+  `    circle(width / 2);`,
+  `  });`,
+  `  extrude(bore);`,
+  `});`,
+  ``,
+  `export const lid = part('Lid', () => {`,
+  `  sketch('xy', () => {`,
+  `    circle(10);`,
+  `  });`,
+  `  extrude(2);`,
+  `});`,
+  ``,
+].join('\n');
+
+/** Line numbers of the two part() statements in PART_CODE, 1-indexed. */
+const BRACKET_LINE = 3;
+const LID_LINE = 13;
+
+describe('ParamEditor.add into a part body', () => {
+  it('appends after the leading param() declarations of the chosen part', async () => {
+    const result = await ParamEditor.apply(PART_CODE, {
+      kind: 'add',
+      param: spec({ label: 'Depth', defaultValue: 25 }),
+      part: { line: BRACKET_LINE, column: 0 },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `  const bore = param('Bore', 4, 'slider', { min: 2, max: 8 });`,
+      `  const depth = param('Depth', 25);`,
+      `  sketch('xy', () => {`,
+    ].join('\n'));
+    // The other part and the top level stay untouched.
+    expect(result.newCode).not.toMatch(/^const depth/m);
+    expect(result.newCode.split(`param('Depth'`).length).toBe(2);
+  });
+
+  it('opens the body with the declaration when the part has no params yet', async () => {
+    const result = await ParamEditor.apply(PART_CODE, {
+      kind: 'add',
+      param: spec({ label: 'Depth', defaultValue: 25 }),
+      part: { line: LID_LINE, column: 0 },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain([
+      `export const lid = part('Lid', () => {`,
+      `  const depth = param('Depth', 25);`,
+      `  sketch('xy', () => {`,
+    ].join('\n'));
+  });
+
+  it('fills an empty body, a one-line {} included', async () => {
+    const multiLine = `import { part } from 'fluidcad/core';\n\nconst a = part('A', () => {\n});\n`;
+    const opened = await ParamEditor.apply(multiLine, {
+      kind: 'add', param: spec({ label: 'Depth', defaultValue: 25 }), part: { line: 3, column: 0 },
+    });
+    expect(opened.error).toBeUndefined();
+    expect(opened.newCode).toContain(`const a = part('A', () => {\n  const depth = param('Depth', 25);\n});`);
+    expect(opened.newCode).toContain(`import { param, part } from 'fluidcad/core';`);
+
+    const oneLine = `import { part } from 'fluidcad/core';\n\nconst a = part('A', () => {});\n`;
+    const split = await ParamEditor.apply(oneLine, {
+      kind: 'add', param: spec({ label: 'Depth', defaultValue: 25 }), part: { line: 3, column: 0 },
+    });
+    expect(split.error).toBeUndefined();
+    expect(split.newCode).toContain(`const a = part('A', () => {\n  const depth = param('Depth', 25);\n});`);
+  });
+
+  it('finds the part through a chained modifier', async () => {
+    const chained = `import { part, extrude } from 'fluidcad/core';\n\nconst a = part('A', () => {\n  extrude(1);\n}).hidden();\n`;
+    const result = await ParamEditor.apply(chained, {
+      kind: 'add', param: spec({ label: 'Depth', defaultValue: 25 }), part: { line: 3, column: 0 },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`part('A', () => {\n  const depth = param('Depth', 25);\n  extrude(1);\n}).hidden();`);
+  });
+
+  it('refuses a label another part already declares — the registry is keyed by label', async () => {
+    const result = await ParamEditor.apply(PART_CODE, {
+      kind: 'add',
+      param: spec({ label: 'Bore', defaultValue: 5 }),
+      part: { line: LID_LINE, column: 0 },
+    });
+    expect(result.error).toContain('already has a parameter labelled "Bore"');
+    expect(result.newCode).toBe(PART_CODE);
+  });
+
+  it('steps the variable past a name declared anywhere in the file', async () => {
+    const result = await ParamEditor.apply(PART_CODE, {
+      kind: 'add',
+      param: spec({ label: 'width', defaultValue: 5 }),
+      part: { line: LID_LINE, column: 0 },
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(`  const width2 = param('width', 5);`);
+  });
+
+  it('refuses a line that is not a part() statement', async () => {
+    const result = await ParamEditor.apply(PART_CODE, {
+      kind: 'add',
+      param: spec({ label: 'Depth', defaultValue: 25 }),
+      part: { line: 7, column: 0 },
+    });
+    expect(result.error).toContain('no part() call found at line 7');
+    expect(result.newCode).toBe(PART_CODE);
+  });
+
+  it('refuses a part line the file no longer has', async () => {
+    const result = await ParamEditor.apply(PART_CODE, {
+      kind: 'add',
+      param: spec({ label: 'Depth', defaultValue: 25 }),
+      part: { line: 99, column: 0 },
+    });
+    expect(result.error).toContain('no part() call found at line 99');
+    expect(result.newCode).toBe(PART_CODE);
+  });
+});
+
 describe('ParamEditor.update', () => {
   it('renames the label and leaves the variable alone', async () => {
     const result = await ParamEditor.apply(CODE, {

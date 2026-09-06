@@ -4040,12 +4040,17 @@ export function getParamUsage(target: ParamTarget): Promise<ParamUsage | null> {
 }
 
 /**
- * Declare a new parameter below the file's imports. The variable it binds is
- * derived from the label server-side — only the file knows what names are
- * free, so a clashing one gets a numeric suffix rather than a refusal.
+ * Declare a new parameter: at the top of `part`'s callback body when one is
+ * given (the Add dialog's Part choice — the file the part lives in takes the
+ * edit), else below the file's imports. The variable it binds is derived from
+ * the label server-side — only the file knows what names are free, so a
+ * clashing one gets a numeric suffix rather than a refusal.
  */
-export function addParam(param: ParamSpec): Promise<ParamEditResponse> {
-  return postParamEdit('/api/params/add', { param });
+export function addParam(param: ParamSpec, part?: SourceLocation | null): Promise<ParamEditResponse> {
+  const body = part
+    ? { param, part: { filePath: part.filePath, line: part.line, column: part.column } }
+    : { param };
+  return postParamEdit('/api/params/add', body);
 }
 
 /**

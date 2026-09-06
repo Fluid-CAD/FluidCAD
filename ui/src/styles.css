@@ -268,3 +268,12 @@ html.fluidcad-editor-animating {
     background-color: color-mix(in oklab, var(--color-base-content) 10%, transparent);
   }
 }
+
+/* The Parameters panel's "Add to" picker is a ghost select: transparent at
+   rest. Chrome derives the popup list's surface from the select and its
+   options, so the options carry the solid base surface themselves — the
+   list must never be see-through over the scene. */
+[data-param-part] option {
+  background-color: var(--color-base-100);
+  color: var(--color-base-content);
+}

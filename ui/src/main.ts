@@ -263,7 +263,8 @@ const exportDialog = new ExportDialog(container, engineClient, viewer.sceneConte
 // panel here is what carries the parameter values, their groups' collapse
 // state and the section's own across those rebuilds — buildPartRail() mounts
 // this same instance into whichever column is current.
-const paramsPanel = new ParamsPanel(null, engineClient, new ParamEditorDialog(container));
+const paramEditorDialog = new ParamEditorDialog(container);
+const paramsPanel = new ParamsPanel(null, engineClient, paramEditorDialog);
 
 // ---------------------------------------------------------------------------
 // Left-rail abstraction. The same DOM container hosts either the part-design
@@ -294,6 +295,12 @@ let timelinePanel: TimelinePanel;
 // payload carries its location through the provider below.
 const activePartTracker = new ActivePartTracker();
 setActivePartProvider(() => activePartTracker.location);
+// The Parameters panel's Part dropdown (and the Add dialog's, which opens on
+// the panel's choice) list the same parts and default to the active one — a
+// new param() lands in the chosen part's callback body.
+const partChoices = () => ({ parts: activePartTracker.parts, active: activePartTracker.location });
+paramsPanel.setPartProvider(partChoices);
+paramEditorDialog.setPartProvider(partChoices);
 // The scene-utils scope helpers (findActiveObject & co.) read the same
 // tracker: the "active" feature is the active part's last child, so the
 // viewer, sketch toolbar, timeline and pick services all follow the part a
@@ -1162,6 +1169,7 @@ function wireTimelinePanel(panel: TimelinePanel): void {
       return;
     }
     activePartTracker.activate(obj);
+    paramsPanel.syncParts();
     refreshActivePartScope();
   };
   panel.isPartRowActive = (obj) => activePartTracker.isActive(obj);

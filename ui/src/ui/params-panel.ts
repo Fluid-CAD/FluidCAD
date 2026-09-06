@@ -1,6 +1,7 @@
-import type { UIParamDefinition } from '../types';
-import type { ParamEditorDialog } from './param-editor-dialog';
+import type { SourceLocation, UIParamDefinition } from '../types';
+import type { ParamEditorDialog, PartChoices } from './param-editor-dialog';
 import type { EngineClient } from '../engine-client';
+import { ActivePartTracker, type PartChoice } from '../interactive/active-part-tracker';
 import { ICON_PENCIL } from './icons';
 import { AccordionSection } from './accordion-section';
 
@@ -15,6 +16,39 @@ import { AccordionSection } from './accordion-section';
  * either way, without the two themes needing separate colours.
  */
 const FIELD_SURFACE = 'bg-base-content/[0.06]';
+
+/** The Part dropdown's "no part" entry — a new declaration goes at the file's top level. */
+const FILE_LEVEL = 'file';
+
+/**
+ * The band the Part dropdown sits in: scope chrome, not a parameter row. It
+ * answers the header's + ("add to which part?"), so it hangs directly off
+ * the header — `-mt-1` swallows the sheet's top padding so the band meets
+ * the header's edge — and closes with the hairline the column's other chrome
+ * draws, which is what parts it from the values below. Its tint is half the
+ * fields' ({@link FIELD_SURFACE}): recessed enough to read as a different
+ * kind of surface, not so much that it competes with a field.
+ */
+const PART_BAND_CLASS =
+  '-mt-1 mb-1 flex items-center gap-2 px-3 h-10 bg-base-content/[0.03] border-b border-base-content/10';
+
+/**
+ * The dropdown itself: a picker, so it takes the ghost form — no field
+ * surface, no border at rest, a surface on hover and the focus ring on
+ * interaction — rather than the bordered box a value field has. Same height
+ * as the band's text row so the caption and the chosen name sit on one
+ * baseline.
+ *
+ * The hover/focus surface is the SOLID base colour, not a translucent wash,
+ * and it arrives with no transition: Chrome paints the popup list it opens
+ * in the select's own background, sampled on the mousedown that opens it —
+ * a wash, or daisyUI's 200 ms fade still on its first frame, came out as a
+ * see-through menu over the scene.
+ */
+const PART_SELECT_CLASS =
+  'select select-sm select-ghost flex-1 min-w-0 h-8 min-h-0 pl-2 pr-7 text-sm font-medium transition-none '
+  + 'text-base-content/85 hover:bg-base-100 focus:bg-base-100 '
+  + 'focus:outline-none focus-visible:ring-1 focus-visible:ring-primary/60';
 
 /**
  * Add and reset sit in the header card rather than above the first row, so
@@ -51,6 +85,24 @@ export class ParamsPanel extends AccordionSection {
   private debounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private collapsedGroups = new Set<string>();
 
+  /** The Part dropdown's row, above the controls; its own element so a re-render of the list leaves it be. */
+  private partBar: HTMLDivElement;
+  /** Where the parameter controls are drawn. */
+  private list: HTMLDivElement;
+  /** Where the Part dropdown reads the scene's parts and the active one from. */
+  private partProvider: (() => PartChoices) | null = null;
+  /** The parts the dropdown currently lists, by option index. */
+  private partChoices: PartChoice[] = [];
+  /**
+   * What the user chose in the dropdown: a part, null for the file's top
+   * level, or undefined while nothing was chosen — the dropdown then follows
+   * the active part. A choice lasts until the active part changes (a timeline
+   * click, a new part), which resets it to that default.
+   */
+  private pick: PartChoice | null | undefined = undefined;
+  /** File and name of the active part at the last sync — the identity a line shift keeps. */
+  private lastActiveKey: string | null = null;
+
   constructor(container: HTMLElement | null, private client: EngineClient, private editor?: ParamEditorDialog) {
     // Hidden until a host shows it — the floating hosts toggle it from a
     // button, and the docked column turns it on for good when it mounts it.
@@ -71,11 +123,21 @@ export class ParamsPanel extends AccordionSection {
     if (this.editor) {
       addButton.addEventListener('click', (e) => {
         e.stopPropagation();
-        this.editor!.openForCreate();
+        this.editor!.openForCreate(this.selectedPart);
       });
     } else {
       addButton.remove();
     }
+
+    // The Part band and the controls are two rows of the body: the band
+    // survives a re-render of the list, and the list's in-place value
+    // updates never touch it.
+    this.partBar = document.createElement('div');
+    this.partBar.className = PART_BAND_CLASS;
+    this.partBar.hidden = true;
+    this.list = document.createElement('div');
+    this.body.appendChild(this.partBar);
+    this.body.appendChild(this.list);
 
     // The empty state is part of the section, not something the first render
     // brings: a model with no parameters at all never sends an update.
@@ -87,6 +149,7 @@ export class ParamsPanel extends AccordionSection {
   }
 
   update(params: UIParamDefinition[]): void {
+    this.syncParts();
     const prev = this.currentParams;
     this.currentParams = params;
     if (this.canUpdateInPlace(prev, params)) {
@@ -94,6 +157,104 @@ export class ParamsPanel extends AccordionSection {
     } else {
       this.renderParams();
     }
+  }
+
+  /**
+   * Where the Part dropdown reads the scene's parts and the active one from —
+   * the timeline's part tracker. Without a provider (a host with no timeline)
+   * the dropdown never shows and a new declaration lands at the file's top
+   * level, as it does in a scene with no parts.
+   */
+  setPartProvider(provider: () => PartChoices): void {
+    this.partProvider = provider;
+    this.syncParts();
+  }
+
+  /**
+   * The part a new parameter goes into: the dropdown's choice, or the active
+   * part while nothing was chosen. Null for the file's top level.
+   */
+  get selectedPart(): SourceLocation | null {
+    const choices = this.partProvider?.() ?? { parts: [], active: null };
+    if (this.pick === undefined) {
+      return choices.active;
+    }
+    if (this.pick === null) {
+      return null;
+    }
+    return ParamsPanel.resolve(this.pick, choices.parts)?.sourceLocation ?? choices.active;
+  }
+
+  /**
+   * The chosen part as the current render lists it — by statement line, else
+   * by file and name: an insert above the statement shifts its line, a rename
+   * keeps the line. Same rule the tracker re-resolves the active part by.
+   */
+  private static resolve(wanted: PartChoice, parts: PartChoice[]): PartChoice | null {
+    return parts.find((part) => ActivePartTracker.sameStatement(part.sourceLocation, wanted.sourceLocation))
+      ?? parts.find((part) =>
+        part.sourceLocation.filePath === wanted.sourceLocation.filePath && part.name === wanted.name)
+      ?? null;
+  }
+
+  private static keyOf(part: PartChoice | null): string | null {
+    return part === null ? null : `${part.sourceLocation.filePath}\n${part.name}`;
+  }
+
+  /**
+   * Redraw the Part dropdown from the provider. Every render calls this
+   * through {@link update}; the timeline calls it when a part-row click moves
+   * the active part without a render. The row hides when the scene has no
+   * parts; the file's top level is always the last entry.
+   */
+  syncParts(): void {
+    const choices = this.partProvider?.() ?? { parts: [], active: null };
+    const active = choices.active === null
+      ? null
+      : choices.parts.find((part) => ActivePartTracker.sameStatement(part.sourceLocation, choices.active!)) ?? null;
+    const activeKey = ParamsPanel.keyOf(active);
+    if (activeKey !== this.lastActiveKey) {
+      this.pick = undefined;
+    }
+    this.lastActiveKey = activeKey;
+    this.partChoices = choices.parts;
+
+    this.partBar.hidden = choices.parts.length === 0;
+    if (choices.parts.length === 0) {
+      this.partBar.replaceChildren();
+      return;
+    }
+    const select = document.createElement('select');
+    select.className = PART_SELECT_CLASS;
+    select.title = 'The part a new parameter is added to';
+    select.setAttribute('aria-label', 'Part a new parameter is added to');
+    select.dataset.paramPart = '';
+    ActivePartTracker.choiceLabels(choices.parts).forEach((text, index) => {
+      select.appendChild(ParamsPanel.option(String(index), text));
+    });
+    select.appendChild(ParamsPanel.option(FILE_LEVEL, 'File (top level)'));
+    const selected = this.selectedPart;
+    const index = selected === null
+      ? -1
+      : choices.parts.findIndex((part) => ActivePartTracker.sameStatement(part.sourceLocation, selected));
+    select.value = index === -1 ? FILE_LEVEL : String(index);
+    select.addEventListener('change', () => {
+      this.pick = select.value === FILE_LEVEL ? null : this.partChoices[Number(select.value)] ?? null;
+    });
+
+    // "Add to <part>" — the caption names what the dropdown decides, since the
+    // + it answers sits in the header above rather than beside it.
+    const caption = document.createElement('span');
+    caption.className = 'shrink-0 text-sm text-base-content/60';
+    caption.textContent = 'Add to';
+    this.partBar.replaceChildren(caption, select);
+  }
+
+  private static option(value: string, label: string): HTMLOptionElement {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    return option;
   }
 
   /** Show the section if it is hidden, hide it if it is not. */
@@ -158,7 +319,7 @@ export class ParamsPanel extends AccordionSection {
     // The panel is reachable with nothing in it — adding the model's first
     // parameter is one of the things it is for.
     if (params.length === 0) {
-      this.body.innerHTML = AccordionSection.emptyState(
+      this.list.innerHTML = AccordionSection.emptyState(
         this.editor
           ? 'No parameters yet — use + above, or <code>param(...)</code> in the file.'
           : 'No parameters yet — declare one with <code>param(...)</code>.',
@@ -204,10 +365,10 @@ export class ParamsPanel extends AccordionSection {
       `;
     }
 
-    this.body.innerHTML = html;
+    this.list.innerHTML = html;
     this.bindParamHandlers();
 
-    this.body.querySelectorAll<HTMLElement>('[data-param-group]').forEach((el) => {
+    this.list.querySelectorAll<HTMLElement>('[data-param-group]').forEach((el) => {
       const checkbox = el.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
       checkbox.addEventListener('change', () => {
         const name = el.dataset.paramGroup!;
@@ -225,10 +386,10 @@ export class ParamsPanel extends AccordionSection {
       ? (typeof p.defaultValue === 'boolean' ? 'checkbox' : typeof p.defaultValue === 'number' ? 'number' : 'text')
       : p.controlType;
 
-    // /65 rather than the /40 a dimmed note would take: at 11px this is body
+    // /65 rather than the /40 a dimmed note would take: at 12px this is body
     // text on a surface, and /40 measures 2.3:1 against the light sheet.
     const descHtml = p.description
-      ? `<div class="text-[11px] text-base-content/65 mt-0.5">${this.escapeHtml(p.description)}</div>`
+      ? `<div class="text-xs text-base-content/65 mt-0.5">${this.escapeHtml(p.description)}</div>`
       : '';
 
     const escapedLabel = this.escapeHtml(p.label);
@@ -241,11 +402,11 @@ export class ParamsPanel extends AccordionSection {
         const step = p.step ?? 1;
         controlHtml = `
           <div class="flex items-center gap-2 mt-1">
-            <input type="range" class="range range-xs range-primary flex-1"
+            <input type="range" class="range range-sm range-primary flex-1"
               min="${min}" max="${max}" step="${step}"
               value="${p.currentValue}"
               data-param-label="${escapedLabel}" data-param-type="slider" />
-            <span class="text-xs text-base-content/80 tabular-nums w-8 text-right" data-param-display="${escapedLabel}">${p.currentValue}</span>
+            <span class="text-sm text-base-content/80 tabular-nums w-10 text-right" data-param-display="${escapedLabel}">${p.currentValue}</span>
           </div>
         `;
         break;
@@ -257,7 +418,7 @@ export class ParamsPanel extends AccordionSection {
         if (p.step != null) { attrs.push(`step="${p.step}"`); }
         controlHtml = `
           <div class="mt-1">
-            <input type="number" class="input input-xs input-bordered w-full ${FIELD_SURFACE}"
+            <input type="number" class="input input-sm input-bordered w-full ${FIELD_SURFACE}"
               value="${p.currentValue}" ${attrs.join(' ')}
               data-param-label="${escapedLabel}" data-param-type="number" />
           </div>
@@ -267,7 +428,7 @@ export class ParamsPanel extends AccordionSection {
       case 'text':
         controlHtml = `
           <div class="mt-1">
-            <input type="text" class="input input-xs input-bordered w-full ${FIELD_SURFACE}"
+            <input type="text" class="input input-sm input-bordered w-full ${FIELD_SURFACE}"
               value="${this.escapeHtml(String(p.currentValue))}"
               data-param-label="${escapedLabel}" data-param-type="text" />
           </div>
@@ -276,7 +437,7 @@ export class ParamsPanel extends AccordionSection {
       case 'checkbox': {
         const checked = p.currentValue ? ' checked' : '';
         const toggle = `
-          <input type="checkbox" class="toggle toggle-xs toggle-primary"
+          <input type="checkbox" class="toggle toggle-sm toggle-primary"
             ${checked}
             data-param-label="${escapedLabel}" data-param-type="checkbox" />`;
         return `
@@ -298,9 +459,9 @@ export class ParamsPanel extends AccordionSection {
               const checked = selected.has(String(o.value)) ? ' checked' : '';
               return `
                 <label class="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" class="checkbox checkbox-xs checkbox-primary"
+                  <input type="checkbox" class="checkbox checkbox-sm checkbox-primary"
                     value="${this.escapeHtml(String(o.value))}"${checked} />
-                  <span class="text-xs text-base-content/80">${this.escapeHtml(o.label)}</span>
+                  <span class="text-sm text-base-content/80">${this.escapeHtml(o.label)}</span>
                 </label>`;
             }).join('');
             controlHtml = `
@@ -328,7 +489,7 @@ export class ParamsPanel extends AccordionSection {
             }).join('');
             controlHtml = `
               <div class="mt-1">
-                <select multiple class="select select-xs select-bordered w-full ${FIELD_SURFACE}"
+                <select multiple class="select select-sm select-bordered w-full ${FIELD_SURFACE}"
                   size="${Math.min(opts.length, 5)}"
                   data-param-label="${escapedLabel}" data-param-type="multi-select">
                   ${optionHtml}
@@ -343,7 +504,7 @@ export class ParamsPanel extends AccordionSection {
           }).join('');
           controlHtml = `
             <div class="mt-1">
-              <select class="select select-xs select-bordered w-full ${FIELD_SURFACE}"
+              <select class="select select-sm select-bordered w-full ${FIELD_SURFACE}"
                 data-param-label="${escapedLabel}" data-param-type="select">
                 ${optionHtml}
               </select>
@@ -355,7 +516,7 @@ export class ParamsPanel extends AccordionSection {
       case 'color':
         controlHtml = `
           <div class="mt-1">
-            <input type="color" class="w-full h-7 cursor-pointer bg-transparent border border-base-content/20 rounded"
+            <input type="color" class="w-full h-8 cursor-pointer bg-transparent border border-base-content/20 rounded"
               value="${this.escapeHtml(String(p.currentValue))}"
               data-param-label="${escapedLabel}" data-param-type="color" />
           </div>
@@ -386,14 +547,14 @@ export class ParamsPanel extends AccordionSection {
         </button>`;
     return `
       <div class="flex items-center gap-1">
-        <label class="text-xs text-base-content/80 flex-1 truncate">${escapedLabel}</label>
+        <label class="text-sm text-base-content/80 flex-1 truncate">${escapedLabel}</label>
         ${trailing}${editButton}
       </div>
     `;
   }
 
   private bindParamHandlers(): void {
-    this.body.querySelectorAll<HTMLElement>('[data-param-edit]').forEach((el) => {
+    this.list.querySelectorAll<HTMLElement>('[data-param-edit]').forEach((el) => {
       el.addEventListener('click', () => {
         const def = this.currentParams.find(p => p.label === el.dataset.paramEdit);
         if (def) {
@@ -402,7 +563,7 @@ export class ParamsPanel extends AccordionSection {
       });
     });
 
-    this.body.querySelectorAll<HTMLElement>('[data-param-label]').forEach((el) => {
+    this.list.querySelectorAll<HTMLElement>('[data-param-label]').forEach((el) => {
       const label = el.dataset.paramLabel!;
       const type = el.dataset.paramType!;
 

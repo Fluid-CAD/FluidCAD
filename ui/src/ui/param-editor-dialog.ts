@@ -9,7 +9,8 @@ import {
   type ParamType,
   type ParamUsage,
 } from '../api';
-import type { UIParamDefinition } from '../types';
+import type { SourceLocation, UIParamDefinition } from '../types';
+import { ActivePartTracker, type PartChoice } from '../interactive/active-part-tracker';
 import { ICON_CLOSE, ICON_TRASH } from './icons';
 import {
   MULTI_CONTROL_CHOICES,
@@ -18,6 +19,15 @@ import {
   describeDeletion,
   specFromDefinition,
 } from './param-spec';
+
+/**
+ * What the Add dialog's Part dropdown lists: the scene's parts and the one
+ * the timeline has active, which the dropdown opens on.
+ */
+export type PartChoices = { parts: PartChoice[]; active: SourceLocation | null };
+
+/** The dropdown's "no part" entry — the declaration goes at the file's top level. */
+const FILE_LEVEL = 'file';
 
 /**
  * The parameters panel's add / edit / delete dialog. Values the panel sets are
@@ -34,6 +44,8 @@ export class ParamEditorDialog {
   private title: HTMLElement;
   private labelInput: HTMLInputElement;
   private bindingNote: HTMLElement;
+  private partRow: HTMLElement;
+  private partSelect: HTMLSelectElement;
   private typeSelect: HTMLSelectElement;
   private defaultRow: HTMLElement;
   private rangeRow: HTMLElement;
@@ -59,6 +71,10 @@ export class ParamEditorDialog {
   private target: ParamTarget | null = null;
   private usage: ParamUsage | null = null;
   private busy = false;
+  /** Where the Part dropdown's entries come from — the timeline's part tracker. */
+  private partProvider: (() => PartChoices) | null = null;
+  /** The parts the dropdown currently lists, by option index. */
+  private partChoices: PartChoice[] = [];
 
   constructor(container: HTMLElement) {
     this.overlay = document.createElement('div');
@@ -72,6 +88,8 @@ export class ParamEditorDialog {
     this.title = ref('title');
     this.labelInput = ref('label');
     this.bindingNote = ref('binding-note');
+    this.partRow = ref('part-row');
+    this.partSelect = ref('part');
     this.typeSelect = ref('type');
     this.defaultRow = ref('default-row');
     this.rangeRow = ref('range-row');
@@ -103,13 +121,27 @@ export class ParamEditorDialog {
     this.bindEvents();
   }
 
-  /** Open on a blank declaration. */
-  openForCreate(): void {
+  /**
+   * Where the Part dropdown reads the scene's parts and the active one from.
+   * Without a provider the dropdown never shows and a new declaration lands at
+   * the file's top level, as it does in a scene with no parts.
+   */
+  setPartProvider(provider: () => PartChoices): void {
+    this.partProvider = provider;
+  }
+
+  /**
+   * Open on a blank declaration. The Part dropdown opens on `preferredPart`
+   * when the caller has one (the panel's own Part dropdown — null there means
+   * the file's top level), else on the timeline's active part.
+   */
+  openForCreate(preferredPart?: SourceLocation | null): void {
     this.target = null;
     this.usage = null;
     this.title.textContent = 'Add parameter';
     this.seed({ label: '', defaultValue: 0, type: 'number' });
     this.bindingNote.classList.add('hidden');
+    this.populateParts(preferredPart);
     this.editActions.classList.add('hidden');
     this.show();
     this.labelInput.focus();
@@ -130,6 +162,9 @@ export class ParamEditorDialog {
     this.title.textContent = 'Edit parameter';
     this.seed(specFromDefinition(def));
     this.bindingNote.classList.add('hidden');
+    // A declaration stays in the part it was written in — moving it is a
+    // code edit, not a dropdown change.
+    this.partRow.classList.add('hidden');
     this.editActions.classList.remove('hidden');
     this.show();
     this.labelInput.focus();
@@ -171,6 +206,10 @@ export class ParamEditorDialog {
           ${field('Label', '<input data-ref="label" type="text" class="input input-sm input-bordered w-full" placeholder="Wall thickness" />')}
 
           <span data-ref="binding-note" class="hidden text-[11px] text-base-content/40 -mt-1"></span>
+
+          <div data-ref="part-row" class="hidden flex-col gap-1">
+            ${field('Part', '<select data-ref="part" class="select select-sm select-bordered w-full"></select>')}
+          </div>
 
           ${field('Type', '<select data-ref="type" class="select select-sm select-bordered w-full"></select>')}
 
@@ -422,6 +461,41 @@ export class ParamEditorDialog {
     this.optionsList.appendChild(row);
   }
 
+  /**
+   * Fill the Part dropdown from the provider and open it on the preferred
+   * part — the active part when the caller states no preference. The row only
+   * shows when the scene has parts to choose between; the file's top level is
+   * always the last entry, so a shared parameter (one several parts read)
+   * stays reachable.
+   */
+  private populateParts(preferredPart?: SourceLocation | null): void {
+    const choices = this.partProvider?.() ?? { parts: [], active: null };
+    this.partChoices = choices.parts;
+    this.partSelect.replaceChildren();
+    this.partRow.classList.toggle('hidden', choices.parts.length === 0);
+    this.partRow.classList.toggle('flex', choices.parts.length > 0);
+    if (choices.parts.length === 0) {
+      return;
+    }
+    ActivePartTracker.choiceLabels(choices.parts).forEach((text, index) => {
+      this.partSelect.appendChild(ParamEditorDialog.option(String(index), text));
+    });
+    this.partSelect.appendChild(ParamEditorDialog.option(FILE_LEVEL, 'File (top level)'));
+    const wanted = preferredPart === undefined ? choices.active : preferredPart;
+    const index = wanted === null
+      ? -1
+      : choices.parts.findIndex((part) => ActivePartTracker.sameStatement(part.sourceLocation, wanted));
+    this.partSelect.value = index === -1 ? FILE_LEVEL : String(index);
+  }
+
+  /** The part the dropdown names, or null for the file's top level. */
+  private chosenPart(): SourceLocation | null {
+    if (this.partRow.classList.contains('hidden') || this.partSelect.value === FILE_LEVEL) {
+      return null;
+    }
+    return this.partChoices[Number(this.partSelect.value)]?.sourceLocation ?? null;
+  }
+
   private readOptions(): ParamSelectOption[] {
     const options: ParamSelectOption[] = [];
     for (const row of this.optionsList.children) {
@@ -534,7 +608,8 @@ export class ParamEditorDialog {
     }
     const target = this.target;
     if (!target) {
-      await this.commit(() => addParam(spec));
+      const part = this.chosenPart();
+      await this.commit(() => addParam(spec, part));
       return;
     }
     await this.commit(() => updateParam(target, spec));

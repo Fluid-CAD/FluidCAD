@@ -35,6 +35,27 @@ describe('ActivePartTracker', () => {
     expect(tracker.location).toEqual({ filePath: FILE, line: 8, column: 0 });
   });
 
+  it('lists every top-level part of the render, in order, for a chooser', () => {
+    const tracker = new ActivePartTracker();
+    const a = partRow('A', 3);
+    const b = partRow('B', 8);
+    const nested = partRow('Inner', 5, { parentId: a.id });
+    tracker.sync([a, featureRow('E', 4, a.id), nested, b]);
+    expect(tracker.parts).toEqual([
+      { name: 'A', sourceLocation: { filePath: FILE, line: 3, column: 0 } },
+      { name: 'B', sourceLocation: { filePath: FILE, line: 8, column: 0 } },
+    ]);
+    // The list is a copy: a caller mutating it does not touch the tracker.
+    tracker.parts.pop();
+    expect(tracker.parts).toHaveLength(2);
+
+    tracker.sync([featureRow('E', 2)]);
+    expect(tracker.parts).toEqual([]);
+    tracker.sync([a, b]);
+    tracker.clear();
+    expect(tracker.parts).toEqual([]);
+  });
+
   it('has no active part when the scene has none', () => {
     const tracker = new ActivePartTracker();
     tracker.sync([featureRow('E', 2)]);

@@ -10,6 +10,7 @@ import {
   type MultiControlType,
   type ParamEditSpec,
   type ParamLiteral,
+  type ParamPartTarget,
   type ParamSpec,
   type ParamType,
   type SelectOption,
@@ -109,6 +110,25 @@ function validParamSpec(input: unknown): ParamSpec | null {
     assign('multiControlType', raw.multiControlType as MultiControlType | undefined);
   }
   return spec;
+}
+
+/**
+ * The `part()` statement a new declaration goes into — the Add dialog's Part
+ * choice, as `{filePath, line, column}` of the statement the render captured.
+ * Null when the body does not describe one.
+ */
+function validPartLocation(input: unknown): (ParamPartTarget & { filePath: string }) | null {
+  if (!input || typeof input !== 'object') {
+    return null;
+  }
+  const { filePath, line, column } = input as Record<string, unknown>;
+  if (typeof filePath !== 'string' || filePath === '') {
+    return null;
+  }
+  if (!Number.isInteger(line) || (line as number) < 1 || !Number.isInteger(column) || (column as number) < 0) {
+    return null;
+  }
+  return { filePath, line: line as number, column: column as number };
 }
 
 export function createParamsRouter(
@@ -281,10 +301,25 @@ export function createParamsRouter(
       res.status(400).json({ error: 'a well-formed param is required' });
       return;
     }
+    // The Part dropdown's choice: the declaration goes into that part's
+    // callback body, in the file that declares the part — absent, it lands at
+    // the top level of the file on screen.
+    let part: (ParamPartTarget & { filePath: string }) | null = null;
+    if (req.body?.part !== undefined && req.body?.part !== null) {
+      part = validPartLocation(req.body.part);
+      if (!part) {
+        res.status(400).json({ error: 'part must be {filePath, line, column} of the part statement' });
+        return;
+      }
+    }
     // No variable name on the wire: the editor derives one from the label
     // against the file it is about to write, which is the only place that can
     // see what the name would collide with.
-    await dispatchParamEdit(res, { kind: 'add', param: spec });
+    await dispatchParamEdit(res, {
+      kind: 'add',
+      param: spec,
+      ...(part ? { part: { line: part.line, column: part.column } } : {}),
+    }, part?.filePath);
   });
 
   router.post('/params/update', async (req, res) => {

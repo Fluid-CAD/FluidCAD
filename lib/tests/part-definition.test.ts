@@ -129,6 +129,32 @@ describe("param() inside part definitions", () => {
     render();
     expect(seen).toBe(40);
   });
+
+  it("stamps each declaration with the part whose body declared it", () => {
+    createParamRegistry();
+    // Locations only resolve from .fluid.js frames — run the statements as a
+    // module body attributed to one, the way the entry file is.
+    const file = "/ws/model.fluid.js";
+    const body = [
+      `param("Shared", 1);`,
+      `part("A", () => { param("Width", 10); });`,
+      `part("B", () => { param("Depth", 5); });`,
+      `//# sourceURL=${file}`,
+    ].join("\n");
+    new Function("part", "param", body)(part, param);
+    render();
+    const defs = getParamRegistry().getDefinitions();
+    const byLabel = (label: string) => defs.find(d => d.label === label)!;
+    // A top-level declaration belongs to no part; each part's own carries
+    // that part's statement location, which is what the panel filters on.
+    expect(byLabel("Shared").part).toBeUndefined();
+    // Lines are relative: `new Function` prepends its own header rows.
+    const width = byLabel("Width").part!;
+    const depth = byLabel("Depth").part!;
+    expect(width.filePath).toBe(file);
+    expect(depth).toMatchObject({ filePath: file, line: width.line + 1 });
+    expect(byLabel("Width").sourceLocation!.line).toBe(width.line);
+  });
 });
 
 describe("insert(def, overrides)", () => {

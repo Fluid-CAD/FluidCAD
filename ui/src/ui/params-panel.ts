@@ -100,6 +100,8 @@ export class ParamsPanel extends AccordionSection {
    * click, a new part), which resets it to that default.
    */
   private pick: PartChoice | null | undefined = undefined;
+  /** True while update() runs syncParts — it decides the redraw itself. */
+  private syncing = false;
   /** File and name of the active part at the last sync — the identity a line shift keeps. */
   private lastActiveKey: string | null = null;
 
@@ -149,14 +151,37 @@ export class ParamsPanel extends AccordionSection {
   }
 
   update(params: UIParamDefinition[]): void {
-    this.syncParts();
-    const prev = this.currentParams;
+    const prev = this.visibleParams();
     this.currentParams = params;
-    if (this.canUpdateInPlace(prev, params)) {
-      this.updateValuesInPlace(params);
+    this.syncing = true;
+    try {
+      this.syncParts();
+    } finally {
+      this.syncing = false;
+    }
+    const next = this.visibleParams();
+    if (this.canUpdateInPlace(prev, next)) {
+      this.updateValuesInPlace(next);
     } else {
       this.renderParams();
     }
+  }
+
+  /**
+   * The rows the list shows: with the dropdown on a part, that part's own
+   * declarations; on the file level, the ones declared outside every part;
+   * everything when the scene has no parts to filter by.
+   */
+  private visibleParams(): UIParamDefinition[] {
+    if (this.partChoices.length === 0) {
+      return this.currentParams;
+    }
+    const selected = this.selectedPart;
+    if (selected === null) {
+      return this.currentParams.filter((p) => !p.part);
+    }
+    return this.currentParams.filter((p) =>
+      p.part !== undefined && ActivePartTracker.sameStatement(p.part, selected));
   }
 
   /**
@@ -213,11 +238,18 @@ export class ParamsPanel extends AccordionSection {
       ? null
       : choices.parts.find((part) => ActivePartTracker.sameStatement(part.sourceLocation, choices.active!)) ?? null;
     const activeKey = ParamsPanel.keyOf(active);
-    if (activeKey !== this.lastActiveKey) {
+    const activeMoved = activeKey !== this.lastActiveKey;
+    if (activeMoved) {
       this.pick = undefined;
     }
     this.lastActiveKey = activeKey;
+    const hadParts = this.partChoices.length > 0;
     this.partChoices = choices.parts;
+    // Called outside update() (a timeline click), a moved selection changes
+    // which rows show — redraw the list to match.
+    if (!this.syncing && (activeMoved || hadParts !== choices.parts.length > 0)) {
+      this.renderParams();
+    }
 
     this.partBar.hidden = choices.parts.length === 0;
     if (choices.parts.length === 0) {
@@ -240,6 +272,7 @@ export class ParamsPanel extends AccordionSection {
     select.value = index === -1 ? FILE_LEVEL : String(index);
     select.addEventListener('change', () => {
       this.pick = select.value === FILE_LEVEL ? null : this.partChoices[Number(select.value)] ?? null;
+      this.renderParams();
     });
 
     // "Add to <part>" — the caption names what the dropdown decides, since the
@@ -314,16 +347,13 @@ export class ParamsPanel extends AccordionSection {
   }
 
   private renderParams(): void {
-    const params = this.currentParams;
+    const params = this.visibleParams();
 
     // The panel is reachable with nothing in it — adding the model's first
-    // parameter is one of the things it is for.
+    // parameter is one of the things it is for. With the dropdown filtering,
+    // "nothing" is nothing IN THAT PART, and the wording says so.
     if (params.length === 0) {
-      this.list.innerHTML = AccordionSection.emptyState(
-        this.editor
-          ? 'No parameters yet — use + above, or <code>param(...)</code> in the file.'
-          : 'No parameters yet — declare one with <code>param(...)</code>.',
-      );
+      this.list.innerHTML = AccordionSection.emptyState(this.emptyMessage());
       return;
     }
 
@@ -379,6 +409,23 @@ export class ParamsPanel extends AccordionSection {
         }
       });
     });
+  }
+
+  private emptyMessage(): string {
+    const how = this.editor ? 'use + above, or <code>param(...)</code>' : 'declare one with <code>param(...)</code>';
+    if (this.partChoices.length === 0) {
+      return this.editor
+        ? `No parameters yet — ${how} in the file.`
+        : `No parameters yet — ${how}.`;
+    }
+    const selected = this.selectedPart;
+    const part = selected === null
+      ? null
+      : this.partChoices.find((c) => ActivePartTracker.sameStatement(c.sourceLocation, selected)) ?? null;
+    const where = part === null
+      ? 'at the file level'
+      : `in ${this.escapeHtml(part.name || 'this part')}`;
+    return `No parameters ${where} yet — ${how} in its body.`;
   }
 
   private renderParamControl(p: UIParamDefinition): string {

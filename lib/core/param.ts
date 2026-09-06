@@ -1,4 +1,5 @@
 import { captureSourceLocation } from "../index.js";
+import { getCurrentScene } from "../scene-manager.js";
 import {
   activeParamScope, coerceParamOverride, getParamRegistry,
   type ControlType, type MultiControlType, type SelectOption, type ParamDefinition,
@@ -243,6 +244,13 @@ export default function param(
   const sourceLocation = captureSourceLocation();
   if (sourceLocation) {
     definition.sourceLocation = sourceLocation;
+  }
+  // The part whose callback is running owns this declaration: the panel
+  // shows a part's parameters under that part, and its top-level ones
+  // (declared outside every body) under the file.
+  const declaringPart = getCurrentScene()?.getActivePart()?.getSourceLocation();
+  if (declaringPart) {
+    definition.part = declaringPart;
   }
 
   if (options) {

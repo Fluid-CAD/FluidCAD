@@ -266,6 +266,11 @@ export type UIParamDefinition = {
    * twice; absent for a param whose call the engine could not attribute.
    */
   sourceLocation?: SourceLocation;
+  /**
+   * The `part()` statement whose body declared it — what the panel's Part
+   * dropdown filters on. Absent for a top-level declaration.
+   */
+  part?: SourceLocation;
 };
 
 // ---------------------------------------------------------------------------

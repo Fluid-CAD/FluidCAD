@@ -19,8 +19,11 @@ const FILE = '/ws/model.fluid.js';
 const bracket = { name: 'Bracket', sourceLocation: { filePath: FILE, line: 3, column: 0 } };
 const lid = { name: 'Lid', sourceLocation: { filePath: FILE, line: 13, column: 0 } };
 
-function param(label: string): UIParamDefinition {
-  return { label, defaultValue: 10, currentValue: 10, controlType: 'number' };
+function param(label: string, part?: { sourceLocation: { filePath: string; line: number; column: number } }): UIParamDefinition {
+  return {
+    label, defaultValue: 10, currentValue: 10, controlType: 'number',
+    ...(part ? { part: part.sourceLocation } : {}),
+  };
 }
 
 function mount(choices: () => PartChoices) {
@@ -121,6 +124,58 @@ describe('ParamsPanel part dropdown', () => {
     choices = { parts: [bracket], active: bracket.sourceLocation };
     panel.update([]);
     expect(select()).not.toBeNull();
-    expect(host.textContent).toContain('No parameters yet');
+    expect(host.textContent).toContain('No parameters in Bracket yet');
+  });
+
+  it('lists only the selected part\'s parameters, and the file-level ones under File', () => {
+    const { panel, host, select } = mount(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    const labels = () => Array.from(host.querySelectorAll('[data-param-label]'), (el) => (el as HTMLElement).dataset.paramLabel);
+    panel.update([param('Shared'), param('Width', bracket), param('Height', bracket), param('Bore', lid)]);
+    expect(labels()).toEqual(['Bore']);
+
+    select()!.value = '0';
+    select()!.dispatchEvent(new Event('change'));
+    expect(labels()).toEqual(['Width', 'Height']);
+
+    select()!.value = 'file';
+    select()!.dispatchEvent(new Event('change'));
+    expect(labels()).toEqual(['Shared']);
+  });
+
+  it('shows everything when the scene has no parts', () => {
+    const { panel, host } = mount(() => ({ parts: [], active: null }));
+    panel.update([param('Shared'), param('Width', bracket)]);
+    expect(host.querySelectorAll('[data-param-label]')).toHaveLength(2);
+  });
+
+  it('re-filters when a timeline click moves the active part', () => {
+    let choices: PartChoices = { parts: [bracket, lid], active: lid.sourceLocation };
+    const { panel, host } = mount(() => choices);
+    const labels = () => Array.from(host.querySelectorAll('[data-param-label]'), (el) => (el as HTMLElement).dataset.paramLabel);
+    panel.update([param('Width', bracket), param('Bore', lid)]);
+    expect(labels()).toEqual(['Bore']);
+
+    choices = { parts: [bracket, lid], active: bracket.sourceLocation };
+    panel.syncParts();
+    expect(labels()).toEqual(['Width']);
+  });
+
+  it('names the part in the empty state when it has no parameters', () => {
+    const { panel, host, select } = mount(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    panel.update([param('Width', bracket)]);
+    expect(host.textContent).toContain('No parameters in Lid yet');
+    select()!.value = 'file';
+    select()!.dispatchEvent(new Event('change'));
+    expect(host.textContent).toContain('No parameters at the file level yet');
+  });
+
+  it('updates values in place within the filtered view', () => {
+    const { panel, host } = mount(() => ({ parts: [bracket, lid], active: lid.sourceLocation }));
+    panel.update([param('Width', bracket), param('Bore', lid)]);
+    const input = host.querySelector<HTMLInputElement>('[data-param-label="Bore"]')!;
+    panel.update([param('Width', bracket), { ...param('Bore', lid), currentValue: 42 }]);
+    // Same element, new value: the list was not rebuilt under the user.
+    expect(host.querySelector('[data-param-label="Bore"]')).toBe(input);
+    expect(input.value).toBe('42');
   });
 });

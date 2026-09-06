@@ -33,6 +33,13 @@ export type ParamDefinition = {
    * the panel reads as "not editable from here".
    */
   sourceLocation?: SourceLocation;
+  /**
+   * The `part()` statement whose body declared this parameter — the part
+   * that was building when `param()` ran. The params panel filters its rows
+   * by this against the part its dropdown names. Absent for a declaration
+   * at the file's top level (or in a scene without parts).
+   */
+  part?: SourceLocation;
 };
 
 export class ParamRegistry {

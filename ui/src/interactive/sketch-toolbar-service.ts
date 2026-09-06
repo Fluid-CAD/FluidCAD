@@ -809,7 +809,6 @@ export class SketchToolbarService {
     const model = buildSolvedSketchModel(this.activeSketchInfo.sketchObj, this.viewer.currentSceneObjects);
     const constraint = model?.constraints.find(c => c.obj.id === pick.objId);
     if (constraint && SolvedDimensionEditor.isDimensional(constraint)) {
-      this.solvedDimensionEditor.refreshVariables();
       this.solvedDimensionEditor.show(constraint, pick.clientX, pick.clientY);
     }
   }

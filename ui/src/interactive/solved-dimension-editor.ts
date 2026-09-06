@@ -23,6 +23,8 @@ export class SolvedDimensionEditor {
   private expressionInput: ExpressionInput;
   private cachedVariables: VariableInfo[] = [];
   private boundOutsidePointerDown: (e: PointerEvent) => void;
+  /** Bumped per open; a scope read landing for an earlier open is dropped. */
+  private openToken = 0;
 
   constructor(
     container: HTMLElement,
@@ -46,9 +48,18 @@ export class SolvedDimensionEditor {
     return DIM_LABELS[c.kind] !== undefined && typeof c.value === 'number';
   }
 
+  /**
+   * Re-read the sketch's scope. The input on screen takes the list the
+   * moment it lands — the dimension may name a parameter declared since the
+   * last read, and an unknown name would commit as a fresh declaration.
+   */
   refreshVariables(): void {
+    const token = this.openToken;
     void this.fetchVariables().then((variables) => {
       this.cachedVariables = variables;
+      if (token === this.openToken && this.expressionInput.isVisible) {
+        this.expressionInput.setVariables(variables);
+      }
     });
   }
 
@@ -64,6 +75,8 @@ export class SolvedDimensionEditor {
     // argument, so the scalar sits one earlier.
     const dimOffset = c.spec.kind === 'distance' && c.spec.axis !== undefined ? 1 : 0;
     const dimCall = c.kind;
+    this.openToken++;
+    const token = this.openToken;
 
     this.expressionInput.show({
       label,
@@ -92,10 +105,12 @@ export class SolvedDimensionEditor {
     // Upgrade the numeric opening value to the source expression once the
     // code read lands (`w / 2` instead of 12.5) — unless the user typed.
     void getDimensionExpression(loc.line, dimOffset, dimCall).then(({ expression }) => {
-      if (expression && this.expressionInput.isVisible) {
+      if (expression && token === this.openToken && this.expressionInput.isVisible) {
         this.expressionInput.seedExpression(expression);
       }
     });
+    // The opening list is last read's; the fresh one replaces it in place.
+    this.refreshVariables();
     return true;
   }
 

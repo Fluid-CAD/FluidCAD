@@ -86,6 +86,17 @@ describe('the declare-as-param toggle', () => {
     expect(commits[1].newVariable).toEqual({ name: 'lip', initializer: '2' });
   });
 
+  it('never declares a prefilled source expression read back unchanged from a dialog field', () => {
+    const { field, el } = mountField();
+    // Edit-mode prefill: the statement already reads `wall`, whether or not
+    // the scope read has landed with it.
+    field.setValue('wall');
+    expect(field.read()).toEqual({ value: 'wall' });
+    el.value = 'wall / 2';
+    el.dispatchEvent(new Event('input'));
+    expect(field.read()).toEqual({ value: 'wall / 2' });
+  });
+
   it('flips back on from a dialog field and the sketcher input follows', () => {
     ParamDeclareMode.set(false);
     const { field, el, button } = mountField();

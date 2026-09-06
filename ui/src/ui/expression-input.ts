@@ -59,6 +59,9 @@ export class ExpressionInput {
   /** The last plain-number text the field held — a new variable's initializer.
    * Never an expression: see `seedExpression`. */
   private seedValue = '';
+  /** The statement's existing source expression, once seeded — committed
+   * unchanged it is what the file already says, never a declaration. */
+  private seededExpression: string | null = null;
   private errorVisible = false;
   private numericOnly = false;
   private arithmeticOnly = false;
@@ -179,6 +182,7 @@ export class ExpressionInput {
     this.userIsTyping = false;
     this.selectedIndex = -1;
     this.seedValue = opts.value;
+    this.seededExpression = null;
     this.el.classList.remove('hidden');
     this.updatePosition(opts.clientX, opts.clientY);
     this.input.value = opts.value;
@@ -249,9 +253,30 @@ export class ExpressionInput {
     if (!this.visible || this.userIsTyping) {
       return;
     }
+    this.seededExpression = expression;
     this.input.value = expression;
     this.input.select();
     this.updateParamAvailability();
+  }
+
+  /**
+   * The variables the dropdown offers, refreshed while the input is open —
+   * the host's scope read lands after the double-click that opened it, and
+   * a name declared moments ago has to count as known before a commit
+   * classifies it.
+   */
+  setVariables(variables: VariableInfo[]): void {
+    this.variables = variables;
+    if (!this.visible) {
+      return;
+    }
+    this.updateParamAvailability();
+    this.filterAndRender(true);
+  }
+
+  /** Whether `raw` is the seeded source expression, committed as it stands. */
+  private isUnchangedSource(raw: string): boolean {
+    return this.seededExpression !== null && raw === this.seededExpression.trim();
   }
 
   updatePosition(clientX: number, clientY: number): void {
@@ -285,10 +310,16 @@ export class ExpressionInput {
     if (!this.onCommit) {
       return false;
     }
+    // The expression the statement already carries, committed untouched,
+    // is not a declaration whatever the variable list knows: the name it
+    // uses is declared somewhere the file compiles with, or it would not be
+    // there — re-declaring it would double the param().
     const asParam = ParamDeclareMode.enabled && this.paramAvailable;
-    const classified = classifyCommit(
-      raw, this.variables, this.seedValue, this.numericOnly, asParam, this.arithmeticOnly,
-    );
+    const classified = this.isUnchangedSource(raw)
+      ? { kind: 'expression' as const, expression: raw }
+      : classifyCommit(
+        raw, this.variables, this.seedValue, this.numericOnly, asParam, this.arithmeticOnly,
+      );
     if (classified.kind === 'error') {
       this.showInlineError(classified.message);
       return false;
@@ -316,8 +347,9 @@ export class ExpressionInput {
   /** The P toggle rides any input that would declare a new variable — an
    * explicit `name = value`, or a fresh name with no dropdown match. */
   private updateParamAvailability(): void {
-    this.paramAvailable = !this.numericOnly && !this.arithmeticOnly
-      && declaredVariableName(this.input.value.trim(), this.variables, this.seedValue) !== null;
+    const raw = this.input.value.trim();
+    this.paramAvailable = !this.numericOnly && !this.arithmeticOnly && !this.isUnchangedSource(raw)
+      && declaredVariableName(raw, this.variables, this.seedValue) !== null;
     this.renderParamButton();
   }
 

@@ -61,6 +61,9 @@ export class ExpressionField {
   private open = false;
   /** The last plain-number text the field held — a new variable's initializer. */
   private seedValue = '';
+  /** A source expression the host set (edit-mode prefill) — read back
+   * unchanged it is what the statement already says, never a declaration. */
+  private seededExpression: string | null = null;
   private suppressFilter = false;
   private readonly onDocMousedown = (e: MouseEvent) => {
     if (e.target !== this.input && !this.dropdown.contains(e.target as Node)) {
@@ -134,9 +137,17 @@ export class ExpressionField {
     this.input.value = str;
     if (this.isPlainNumber(str)) {
       this.seedValue = str.trim();
+      this.seededExpression = null;
+    } else {
+      this.seededExpression = str.trim() || null;
     }
     this.closeDropdown();
     this.hideParamBtn();
+  }
+
+  /** Whether `raw` is the host-set source expression, read back as it stands. */
+  private isUnchangedSource(raw: string): boolean {
+    return this.seededExpression !== null && raw === this.seededExpression;
   }
 
   get element(): HTMLInputElement {
@@ -156,6 +167,12 @@ export class ExpressionField {
     }
     if (this.isPlainNumber(raw)) {
       return { value: Number(raw) };
+    }
+    // The statement's own expression, untouched, is not a declaration
+    // whatever the variable list knows (it may not have landed yet): the
+    // name is declared wherever the file compiles with it.
+    if (this.isUnchangedSource(raw)) {
+      return { value: raw };
     }
     const asParam = ParamDeclareMode.enabled
       && declaredVariableName(raw, this.variables, this.seedValue) !== null;
@@ -240,7 +257,7 @@ export class ExpressionField {
 
   private updateParamBtn(): void {
     const raw = this.input.value.trim();
-    if (declaredVariableName(raw, this.variables, this.seedValue) === null) {
+    if (this.isUnchangedSource(raw) || declaredVariableName(raw, this.variables, this.seedValue) === null) {
       this.hideParamBtn();
       return;
     }

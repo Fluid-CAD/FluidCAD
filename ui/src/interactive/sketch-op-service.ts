@@ -15,7 +15,7 @@ import { ExpressionRow } from './modify-pick/expression-row';
 import { PickSlot, PickSlotChip } from './pick-slot';
 import { FeatureGhostOverlay } from './create-feature/feature-ghost';
 import { keepChip } from './create-feature/sketch-profiles';
-import { DIALOG_DOCK_CLASS, DIALOG_COLUMN_CLASS, DIALOG_BODY_CLASS } from './create-feature/panel-controls';
+import { DIALOG_DOCK_CLASS, DIALOG_COLUMN_CLASS, PanelShell } from './create-feature/panel-controls';
 import { ExpressionField } from '../ui/expression-field';
 import { VariableInfo } from '../ui/expression-core';
 import { viewportChrome } from '../ui/viewport-chrome';
@@ -285,19 +285,18 @@ export class SketchOpService {
           <div data-role="draw-hint" class="text-base-content/50">${config.draw.hint}</div>${drawToggleRow}` : '';
     this.panel.innerHTML = `
       <div data-role="column" class="${DIALOG_COLUMN_CLASS}">
-        <div class="${DIALOG_BODY_CLASS}">
-          <div class="flex items-center gap-2.5">
-            <span data-role="title" class="font-medium text-sm">${config.title}</span>
-          </div>${drawRow}
-          <div data-role="pick-body" class="flex flex-col items-stretch gap-3.5">${pickSlotHost}${centerSlotHost}${hintRow}${valueRow}${toggleRows}</div>
-          <div class="flex items-center gap-2 pt-1">
+        ${PanelShell.frameHtml({
+          header: `<span data-role="title" class="font-medium text-sm">${config.title}</span>`,
+          body: `${drawRow}
+          <div data-role="pick-body" class="flex flex-col items-stretch gap-3.5">${pickSlotHost}${centerSlotHost}${hintRow}${valueRow}${toggleRows}</div>`,
+          footer: `
             <button data-role="apply" class="btn btn-primary btn-sm flex-1" disabled>Apply</button>
-            <button data-role="cancel" class="btn btn-ghost btn-sm">Cancel</button>
-          </div>
-        </div>
+            <button data-role="cancel" class="btn btn-ghost btn-sm">Cancel</button>`,
+        })}
       </div>
     `;
     container.appendChild(this.panel);
+    PanelShell.watchScroll(this.panel.querySelector('[data-role="box"]')!);
 
     this.valueInput = this.panel.querySelector('[data-role="value"]');
     this.title = this.panel.querySelector('[data-role="title"]')!;

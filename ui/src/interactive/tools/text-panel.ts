@@ -136,10 +136,10 @@ export class TextPanel {
             class="input input-sm input-bordered w-full min-w-0 text-xs" />
         </label>
       </div>
-      <div class="flex items-center gap-2 pt-1">
-        <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
-        <button data-role="exit" class="btn btn-ghost btn-sm">Exit</button>
-      </div>
+    `);
+    this.shell.footer.insertAdjacentHTML('beforeend', `
+      <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
+      <button data-role="exit" class="btn btn-ghost btn-sm">Exit</button>
     `);
 
     this.pathSlot = new EntitySlotControl(
@@ -153,7 +153,7 @@ export class TextPanel {
     this.italicToggle = this.shell.body.querySelector('[data-role="italic"]')!;
     this.lineSpacingInput = this.shell.body.querySelector('[data-role="line-spacing"]')!;
     this.letterSpacingInput = this.shell.body.querySelector('[data-role="letter-spacing"]')!;
-    this.applyBtn = this.shell.body.querySelector('[data-role="apply"]')!;
+    this.applyBtn = this.shell.footer.querySelector('[data-role="apply"]')!;
     this.pathOptions = this.shell.body.querySelector('[data-role="path-options"]')!;
     this.pathOffsetInput = this.shell.body.querySelector('[data-role="path-offset"]')!;
     this.startAtInput = this.shell.body.querySelector('[data-role="path-start-at"]')!;
@@ -229,7 +229,7 @@ export class TextPanel {
     }
 
     this.applyBtn.addEventListener('click', () => this.onApply?.());
-    this.shell.body.querySelector('[data-role="exit"]')!
+    this.shell.footer.querySelector('[data-role="exit"]')!
       .addEventListener('click', () => this.onExit?.());
   }
 

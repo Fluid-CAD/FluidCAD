@@ -5,10 +5,11 @@ import { sceneUnit } from '../../units/scene-unit';
 
 /**
  * The base every create/edit feature dialog panel shares: the PanelShell with
- * its Escape wiring, the Apply / Exit footer, the preview/message/enable
- * delegates, and the ExpressionField wiring (Enter applies, typing fires
- * change). Subclasses pass their body HTML — it renders between the title and
- * the footer — and wire their controls off `this.body`.
+ * its Escape wiring, the Apply / Exit buttons in the shell's pinned footer,
+ * the preview/message/enable delegates, and the ExpressionField wiring (Enter
+ * applies, typing fires change). Subclasses pass their body HTML — it renders
+ * in the scrolling body under the title — and wire their controls off
+ * `this.body`.
  */
 export abstract class FeaturePanel {
   onChange?: () => void;
@@ -30,12 +31,10 @@ export abstract class FeaturePanel {
     this.shell = new PanelShell(container, opts.id, opts.title, opts.icon);
     this.shell.onEscape = () => this.onExit?.();
     this.body = this.shell.body;
-    this.body.insertAdjacentHTML('beforeend', `
-      ${opts.bodyHtml}
-      <div class="flex items-center gap-2 pt-1">
-        <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
-        <button data-role="exit" class="btn btn-ghost btn-sm">${opts.exitLabel ?? 'Exit'}</button>
-      </div>
+    this.body.insertAdjacentHTML('beforeend', opts.bodyHtml);
+    this.shell.footer.insertAdjacentHTML('beforeend', `
+      <button data-role="apply" class="btn btn-primary btn-sm flex-1">Apply</button>
+      <button data-role="exit" class="btn btn-ghost btn-sm">${opts.exitLabel ?? 'Exit'}</button>
     `);
     // Length defaults are authored in mm; rewrite them for the document
     // unit now and whenever it changes — but never under an open dialog,
@@ -46,9 +45,9 @@ export abstract class FeaturePanel {
         applyUnitDefaults(this.body);
       }
     });
-    this.applyBtn = this.role('apply');
+    this.applyBtn = this.shell.footer.querySelector('[data-role="apply"]')!;
     this.applyBtn.addEventListener('click', () => this.onApply?.());
-    this.role('exit').addEventListener('click', () => this.onExit?.());
+    this.shell.footer.querySelector('[data-role="exit"]')!.addEventListener('click', () => this.onExit?.());
   }
 
   get isVisible(): boolean {

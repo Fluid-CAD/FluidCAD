@@ -246,30 +246,65 @@ export const DIALOG_COLUMN_CLASS =
   'flex flex-col-reverse items-stretch gap-1.5 sm:flex-col sm:items-end';
 
 /**
- * The dialog body box. The sheet spans the full width, caps at half the
- * screen and scrolls (the bottom padding rides above a phone's home
- * indicator); the float keeps the fixed w-60 column capped just above the
- * screen bottom.
+ * The dialog box: the chrome (surface, border, radius, shadow) and the height
+ * cap, split into three rows — a pinned header, the scrolling body and a
+ * pinned footer — so the title and the Apply / Exit actions stay put while a
+ * long dialog scrolls. The box itself never scrolls; only the body does. The
+ * sheet spans the full width and caps at half the screen; the float keeps the
+ * fixed w-60 column capped just above the screen bottom. Wears `group` so the
+ * header and footer can read the scroll cues {@link PanelShell.watchScroll}
+ * stamps on it.
+ */
+export const DIALOG_BOX_CLASS =
+  'group flex flex-col items-stretch overflow-hidden bg-base-100 text-base-content text-xs select-none shadow-md '
+  + 'border-t border-base-300 rounded-t-xl max-h-[50dvh] '
+  + 'sm:w-60 sm:border sm:rounded-lg sm:max-h-[calc(100vh-260px)]';
+
+/**
+ * The pinned title row. A hairline appears along its bottom edge once the
+ * body has scrolled under it — drawn as a shadow so nothing shifts.
+ */
+export const DIALOG_HEADER_CLASS =
+  'flex items-center gap-2.5 shrink-0 px-4 pt-4 pb-3.5 transition-shadow duration-150 '
+  + 'group-data-scrolled:shadow-[0_1px_0_0_color-mix(in_oklab,var(--color-base-content)_18%,transparent)]';
+
+/**
+ * The scrolling body the panels append their controls to. `min-h-0` lets it
+ * shrink under the box cap; `overscroll-contain` keeps a scroll at either end
+ * from chaining to the page.
  */
 export const DIALOG_BODY_CLASS =
-  'flex flex-col items-stretch gap-3.5 overflow-y-auto bg-base-100 text-base-content text-xs select-none shadow-md '
-  + 'border-t border-base-300 rounded-t-xl px-4 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] max-h-[50dvh] '
-  + 'sm:w-60 sm:border sm:rounded-lg sm:pb-4 sm:max-h-[calc(100vh-260px)]';
+  'flex flex-col items-stretch gap-3.5 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4';
+
+/**
+ * The pinned action row: a raised band under the body (second neutral, top
+ * border), with a soft shade along its top edge while more body is hidden
+ * beneath it. The bottom padding rides above a phone's home indicator.
+ */
+export const DIALOG_FOOTER_CLASS =
+  'flex items-center gap-2 shrink-0 border-t border-base-300 bg-base-200 px-4 py-3 '
+  + 'pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pb-3 transition-shadow duration-150 '
+  + 'group-data-overflow:shadow-[0_-6px_8px_-6px_rgba(0,0,0,0.35)]';
 
 /**
  * The floating dialog chrome the create-feature panels share: the docked
- * container, title row, and the statement-preview and error rows below the
- * body. Panels append their controls to `body`.
+ * container, the box with its pinned title row and pinned footer, and the
+ * statement-preview and error rows below the box. Panels append their
+ * controls to `body` and their actions to `footer`.
  */
 export class PanelShell {
+  /** The scrolling body between the title and the footer; panels append their controls here. */
   readonly body: HTMLDivElement;
+  /** The pinned action row under the body; panels put their Apply / Exit buttons here. */
+  readonly footer: HTMLDivElement;
   /**
-   * The right-aligned stack holding the body, the preview and the message —
+   * The right-aligned stack holding the box, the preview and the message —
    * panels dock extra full-width rows here (the expression-transparency row).
    */
   readonly column: HTMLDivElement;
 
   private root: HTMLDivElement;
+  private box: HTMLDivElement;
   private preview: HTMLDivElement;
   private message: HTMLDivElement;
   private titleText: HTMLSpanElement;
@@ -282,19 +317,20 @@ export class PanelShell {
     this.root.className = `${DIALOG_DOCK_CLASS} hidden`;
     this.root.innerHTML = `
       <div data-role="column" class="${DIALOG_COLUMN_CLASS}">
-        <div data-role="body" class="${DIALOG_BODY_CLASS}">
-          <div class="flex items-center gap-2.5">
-            <img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
-            <span data-role="title" class="font-medium text-sm">${title}</span>
-          </div>
-        </div>
+        ${PanelShell.frameHtml({
+          header: `<img src="${iconSrc}" ${ICON_IMG_FALLBACK} class="w-4 h-4 object-contain" alt="" />
+            <span data-role="title" class="font-medium text-sm">${title}</span>`,
+        })}
         <div data-role="preview" class="hidden max-sm:hidden sm:max-w-[380px] bg-base-100 border border-base-300 rounded-lg px-3 py-1.5 font-mono text-[11px] text-base-content shadow-md"></div>
         <div data-role="message" class="hidden sm:max-w-[380px] bg-error text-error-content rounded-lg px-3 py-2 text-xs leading-snug shadow-md"></div>
       </div>
     `;
     container.appendChild(this.root);
     this.column = this.root.querySelector('[data-role="column"]')!;
+    this.box = this.root.querySelector('[data-role="box"]')!;
     this.body = this.root.querySelector('[data-role="body"]')!;
+    this.footer = this.root.querySelector('[data-role="footer"]')!;
+    PanelShell.watchScroll(this.box);
     this.preview = this.root.querySelector('[data-role="preview"]')!;
     this.message = this.root.querySelector('[data-role="message"]')!;
     this.titleText = this.root.querySelector('[data-role="title"]')!;
@@ -311,6 +347,52 @@ export class PanelShell {
   }
 
   onEscape?: () => void;
+
+  /**
+   * The dialog box markup — header, body, footer — for panels that build
+   * their chrome from an HTML string instead of through a PanelShell. The
+   * roles (`box`, `header`, `body`, `footer`) are how they find the rows
+   * afterwards; pair it with {@link watchScroll} on the `box` element.
+   */
+  static frameHtml(parts: { header: string; body?: string; footer?: string }): string {
+    return `
+        <div data-role="box" class="${DIALOG_BOX_CLASS}">
+          <div data-role="header" class="${DIALOG_HEADER_CLASS}">${parts.header}</div>
+          <div data-role="body" class="${DIALOG_BODY_CLASS}">${parts.body ?? ''}</div>
+          <div data-role="footer" class="${DIALOG_FOOTER_CLASS}">${parts.footer ?? ''}</div>
+        </div>`;
+  }
+
+  /**
+   * Keep the box's scroll cues current: `data-scrolled` while the body has
+   * scrolled under the header, `data-overflow` while more body hides under
+   * the footer. Re-measured on scroll, on the body resizing (the float grows
+   * with its rows until the cap bites) and on rows appearing, hiding or
+   * being swapped — a capped body's scroll height moves without its box
+   * changing size, which a resize observer alone would miss.
+   */
+  static watchScroll(box: HTMLElement): void {
+    const body = box.querySelector<HTMLElement>(':scope > [data-role="body"]');
+    if (!body) {
+      return;
+    }
+    const sync = (): void => {
+      const scrolled = body.scrollTop > 0;
+      const overflow = body.scrollTop + body.clientHeight < body.scrollHeight - 1;
+      box.toggleAttribute('data-scrolled', scrolled);
+      box.toggleAttribute('data-overflow', overflow);
+    };
+    body.addEventListener('scroll', sync, { passive: true });
+    if (typeof ResizeObserver !== 'undefined') {
+      new ResizeObserver(sync).observe(body);
+    }
+    if (typeof MutationObserver !== 'undefined') {
+      new MutationObserver(sync).observe(body, {
+        subtree: true, childList: true, attributes: true, attributeFilter: ['class', 'hidden', 'style'],
+      });
+    }
+    sync();
+  }
 
   get isVisible(): boolean {
     return !this.root.classList.contains('hidden');

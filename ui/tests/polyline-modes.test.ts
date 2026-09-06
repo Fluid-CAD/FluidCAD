@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
-import { resolveExpressionValue, type VariableInfo } from '../src/ui/expression-core';
+import { describe, it, expect, beforeEach } from 'vitest';
+import { ParamDeclareMode, resolveExpressionValue, type VariableInfo } from '../src/ui/expression-core';
 import { LineMode } from '../src/interactive/tools/polyline/mode-line';
 import { ALineMode } from '../src/interactive/tools/polyline/mode-aline';
 import { ArcMode } from '../src/interactive/tools/polyline/mode-arc';
@@ -101,6 +101,12 @@ function makeCtx(opts: CtxOptions = {}) {
   const input = container.querySelector('.expression-input') as HTMLInputElement;
   return { ctx, expr, input, emitted, committed, hints, state };
 }
+
+// These pin the declaration plumbing as a plain `const`; the session's P
+// toggle (on by default) wraps it as a param() and has its own test.
+beforeEach(() => {
+  ParamDeclareMode.set(false);
+});
 
 describe('LineMode H/V auto-snap', () => {
   it('emits a free line for a clearly diagonal click', () => {

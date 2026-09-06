@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { RectTool } from '../src/interactive/tools/rect-tool';
 import { ExpressionInput } from '../src/ui/expression-input';
+import { ParamDeclareMode } from '../src/ui/expression-core';
 
 Element.prototype.scrollIntoView = () => {};
 
@@ -66,6 +67,12 @@ async function flushMicrotasks(): Promise<void> {
   await Promise.resolve();
   await Promise.resolve();
 }
+
+// These pin the declaration plumbing as a plain `const`; the session's P
+// toggle (on by default) wraps it as a param() and has its own test.
+beforeEach(() => {
+  ParamDeclareMode.set(false);
+});
 
 describe('rect tool variable declarations', () => {
   it('declaring on height only carries the declaration', async () => {

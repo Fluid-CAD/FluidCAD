@@ -55,6 +55,29 @@ export function paramInitializer(name: string, initializer: string): string {
 }
 
 /**
+ * The "declare as param()" toggle's state, shared by every expression input
+ * of the session — the sketcher's floating input and the dialogs' fields
+ * alike. On by default: naming a value is, more often than not, making it a
+ * parameter. A flip in one input is what the next one opens with, so the
+ * user sets it once rather than per field; it lasts the page session.
+ */
+export class ParamDeclareMode {
+  private static on = true;
+
+  static get enabled(): boolean {
+    return ParamDeclareMode.on;
+  }
+
+  static toggle(): void {
+    ParamDeclareMode.on = !ParamDeclareMode.on;
+  }
+
+  static set(enabled: boolean): void {
+    ParamDeclareMode.on = enabled;
+  }
+}
+
+/**
  * Read a committed input into what it writes: `name = value` declares a new
  * variable, a bare unknown identifier declares one from the seed value (the
  * field's last plain number), anything else passes through as the expression.

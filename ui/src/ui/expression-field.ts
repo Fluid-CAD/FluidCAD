@@ -1,6 +1,6 @@
 import {
   applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
-  suggestionItemHtml, trailingIdentifier, Suggestion, VariableInfo,
+  suggestionItemHtml, trailingIdentifier, ParamDeclareMode, Suggestion, VariableInfo,
 } from './expression-core';
 
 /** A read field value: a plain number, or an expression (with an optional
@@ -54,8 +54,8 @@ export class ExpressionField {
 
   private variables: VariableInfo[] = [];
   private dropdown: HTMLDivElement;
+  /** The "declare as param()" toggle; its on/off state is the session's ({@link ParamDeclareMode}). */
   private paramBtn: HTMLButtonElement;
-  private paramMode = false;
   private filtered: Suggestion[] = [];
   private selectedIndex = -1;
   private open = false;
@@ -114,10 +114,11 @@ export class ExpressionField {
       e.stopPropagation();
     });
     this.paramBtn.addEventListener('mousedown', (e) => {
-      // mousedown would blur the input; toggle without stealing focus.
+      // mousedown would blur the input; toggle without stealing focus. The
+      // flip is remembered for every expression input that opens after.
       e.preventDefault();
       e.stopPropagation();
-      this.paramMode = !this.paramMode;
+      ParamDeclareMode.toggle();
       this.renderParamBtn();
     });
   }
@@ -135,7 +136,6 @@ export class ExpressionField {
       this.seedValue = str.trim();
     }
     this.closeDropdown();
-    this.paramMode = false;
     this.hideParamBtn();
   }
 
@@ -157,7 +157,7 @@ export class ExpressionField {
     if (this.isPlainNumber(raw)) {
       return { value: Number(raw) };
     }
-    const asParam = this.paramMode
+    const asParam = ParamDeclareMode.enabled
       && declaredVariableName(raw, this.variables, this.seedValue) !== null;
     const classified = classifyCommit(raw, this.variables, this.seedValue, false, asParam);
     if (classified.kind === 'error') {
@@ -249,6 +249,8 @@ export class ExpressionField {
       window.addEventListener('scroll', this.onParamViewportChange, true);
       window.addEventListener('resize', this.onParamViewportChange);
     }
+    // Another input may have flipped the session's state since this one drew.
+    this.renderParamBtn();
     this.positionParamBtn();
   }
 
@@ -268,7 +270,7 @@ export class ExpressionField {
   }
 
   private renderParamBtn(): void {
-    const active = this.paramMode;
+    const active = ParamDeclareMode.enabled;
     this.paramBtn.classList.toggle('bg-primary/20', active);
     this.paramBtn.classList.toggle('text-primary', active);
     this.paramBtn.classList.toggle('border-primary/40', active);

@@ -1,6 +1,6 @@
 import {
   applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
-  suggestionItemHtml, trailingIdentifier, Suggestion, VariableInfo,
+  suggestionItemHtml, trailingIdentifier, ParamDeclareMode, Suggestion, VariableInfo,
 } from './expression-core';
 
 export type { VariableInfo };
@@ -46,7 +46,8 @@ export class ExpressionInput {
   private dropdown: HTMLDivElement;
   private errorEl: HTMLDivElement;
   private paramBtn: HTMLButtonElement;
-  private paramMode = false;
+  /** Whether the P toggle shows — the value would declare a variable. Its
+   * on/off state is the session's ({@link ParamDeclareMode}), not the input's. */
   private paramAvailable = false;
   private onCommit: ((result: CommitResult) => void) | null = null;
   private onHide: (() => void) | null = null;
@@ -89,11 +90,12 @@ export class ExpressionInput {
     this.paramBtn.textContent = 'P';
     this.renderParamButton();
 
-    // mousedown would blur the input; toggle without stealing focus.
+    // mousedown would blur the input; toggle without stealing focus. The flip
+    // is remembered for every expression input that opens after this one.
     this.paramBtn.addEventListener('mousedown', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      this.paramMode = !this.paramMode;
+      ParamDeclareMode.toggle();
       this.renderParamButton();
     });
 
@@ -176,7 +178,6 @@ export class ExpressionInput {
     this.visible = true;
     this.userIsTyping = false;
     this.selectedIndex = -1;
-    this.paramMode = false;
     this.seedValue = opts.value;
     this.el.classList.remove('hidden');
     this.updatePosition(opts.clientX, opts.clientY);
@@ -284,7 +285,7 @@ export class ExpressionInput {
     if (!this.onCommit) {
       return false;
     }
-    const asParam = this.paramMode && this.paramAvailable;
+    const asParam = ParamDeclareMode.enabled && this.paramAvailable;
     const classified = classifyCommit(
       raw, this.variables, this.seedValue, this.numericOnly, asParam, this.arithmeticOnly,
     );
@@ -322,7 +323,7 @@ export class ExpressionInput {
 
   private renderParamButton(): void {
     this.paramBtn.classList.toggle('hidden', !this.paramAvailable);
-    const active = this.paramMode;
+    const active = ParamDeclareMode.enabled;
     this.paramBtn.classList.toggle('bg-primary/20', active);
     this.paramBtn.classList.toggle('text-primary', active);
     this.paramBtn.classList.toggle('border-primary/40', active);

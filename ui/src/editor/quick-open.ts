@@ -171,7 +171,7 @@ export class QuickOpen {
     if (this.files.some((file) => file.path === name)) {
       return null;
     }
-    return /\.[a-z0-9]+$/i.test(name) ? name : `${name}.fluid.js`;
+    return /\.[a-z0-9]+$/i.test(name) ? name : `${name}.part.js`;
   }
 
   private activate(index: number): void {

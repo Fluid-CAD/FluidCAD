@@ -527,6 +527,7 @@ function buildAssemblyRail(): LeftRail {
     },
     () => {},
   );
+  dragReadout.setObstacle(() => animateBar.openElement());
   // The assembly's own connectors, between Parts and Joints: a row opens
   // the connector dialog on it; the eye hides its gizmo by name.
   const connectors = new ConnectorsPanel(parts.getConnectorsHost(), {

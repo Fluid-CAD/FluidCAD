@@ -178,6 +178,11 @@ export class AnimateBar {
     return !this.bar.classList.contains('hidden');
   }
 
+  /** The bar's root while open (for overlays that must clear it), else null. */
+  openElement(): HTMLElement | null {
+    return this.isOpen() ? this.bar : null;
+  }
+
   /** The mate the bar is driving, or null. */
   mateId(): string | null {
     return this.target?.mateId ?? null;

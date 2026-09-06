@@ -18,7 +18,7 @@ import { CentroidIndicator } from './scene/centroid-indicator';
 import { connectorHostHidden } from './scene/connector-host';
 import { viewerSettings } from './scene/viewer-settings';
 import { themeColors } from './scene/theme-colors';
-import { StandardPlaneId, StandardPlanes } from './scene/standard-planes';
+import { STANDARD_PLANE_IDS, StandardPlaneId, StandardPlanes } from './scene/standard-planes';
 import { StandardAxes, StandardAxisId } from './scene/standard-axes';
 import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates } from './interactive/pick-candidates';
@@ -894,10 +894,23 @@ export class Viewer {
    * offers them for a plane sketch. A click on one calls `onPick` instead of
    * the selection handler; scene faces in front of a plane keep their picks.
    * Re-showing while visible re-sizes the planes to the current scene.
+   * `only` narrows the set to the planes named (the plane dialog keeps just
+   * its chosen bases once its list is full): the others leave the scene and
+   * stop picking, and naming none is a hide.
    */
-  showStandardPlanes(onPick: (plane: StandardPlaneId) => void): void {
+  showStandardPlanes(
+    onPick: (plane: StandardPlaneId) => void,
+    opts: { only?: readonly StandardPlaneId[] } = {},
+  ): void {
+    const planes = opts.only ?? STANDARD_PLANE_IDS;
+    if (planes.length === 0) {
+      this.hideStandardPlanes();
+      return;
+    }
+    const hovered = this.standardPlanes.hoveredPlane;
     this.standardPlanePickHandler = onPick;
-    this.standardPlanes.show(this.ctx.scene, this.sceneBoundsForPlanes());
+    this.standardPlanes.show(this.ctx.scene, this.sceneBoundsForPlanes(), planes);
+    this.releaseStandardPlaneCursor(hovered);
     this.ctx.requestRender();
   }
 
@@ -905,9 +918,23 @@ export class Viewer {
     if (!this.standardPlanes.visible) {
       return;
     }
+    const hovered = this.standardPlanes.hoveredPlane;
     this.standardPlanePickHandler = null;
     this.standardPlanes.hide();
+    this.releaseStandardPlaneCursor(hovered);
     this.ctx.requestRender();
+  }
+
+  /**
+   * A hovered quad that just left the scene (hidden, or narrowed out of the
+   * shown subset) takes the pointer cursor it owned with it. The hover
+   * handler resets the cursor only on a hover *change* it sees itself, and
+   * this one happened under it.
+   */
+  private releaseStandardPlaneCursor(hoveredBefore: StandardPlaneId | null): void {
+    if (hoveredBefore !== null && this.standardPlanes.hoveredPlane === null) {
+      this.ctx.renderer.domElement.style.cursor = '';
+    }
   }
 
   private sceneBoundsForPlanes(): Box3 | null {

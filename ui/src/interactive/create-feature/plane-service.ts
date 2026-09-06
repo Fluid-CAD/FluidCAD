@@ -6,7 +6,7 @@ import {
 import { sameEntity } from '../../helpers/entities';
 import { SceneObjectRender, SubSelection } from '../../types';
 import { SelectedEntity, Viewer } from '../../viewer';
-import { StandardPlaneId } from '../../scene/standard-planes';
+import { STANDARD_PLANE_IDS, StandardPlaneId } from '../../scene/standard-planes';
 import { Navbar } from '../../ui/navbar';
 import { EditSession, EditSessionInfo } from '../edit-session';
 import { PlanePanel, PlaneValues } from './plane-panel';
@@ -58,8 +58,10 @@ type PlaneBaseItem =
  * only for the edge type — a helix's wire counts and lands as the named
  * helix source; clicking a picked entity removes it), the standard
  * origin planes are shown in the viewport as pick targets (the
- * sketch-on-plane mechanism), and existing plane features are picked on
- * their rendered quads or from timeline clicks. Arming with a selection already highlighted seeds the dialog: one
+ * sketch-on-plane mechanism — once the base list is full only the chosen
+ * ones stay, as the ghost's reference; see {@link shownStandardPlanes}),
+ * and existing plane features are picked on their rendered quads or from
+ * timeline clicks. Arming with a selection already highlighted seeds the dialog: one
  * edge opens the edge type, one face the offset type, two faces the mid
  * type — each with the selection as base(s). Apply writes `plane(…)` — the
  * re-render is the preview, editor undo the rollback.
@@ -577,13 +579,19 @@ export class PlaneFeatureService {
     this.addBase(item);
   }
 
-  /** A shown origin plane was clicked — it joins the base list. */
+  /**
+   * A shown origin plane was clicked — it joins the base list, and clicking
+   * a plane that is already a base removes it, like every other pick
+   * channel. That second click is what a full list leaves open: the base
+   * quads stay shown, so swapping one origin plane for another starts by
+   * clicking the chosen one off.
+   */
   private readonly onStandardPlanePick = (plane: StandardPlaneId): void => {
     if (!this.armed || this.panel.planeType === 'edge') {
       return;
     }
     this.panel.setMessage(null);
-    this.addBase({ kind: 'standard', plane });
+    this.toggleBase({ kind: 'standard', plane });
   };
 
   /**
@@ -875,11 +883,13 @@ export class PlaneFeatureService {
   /**
    * Align the viewport with the type and the base list: the origin planes show
    * as pick targets while armed (re-shown on every pass to re-size to the
-   * scene) and the pick filter narrows scene picks to faces (offset/mid) or
-   * edges (edge type). The edge type also opens the sketch-wire channel, so a
-   * bare sketch curve — which renders as a wire, outside the solid-edge bucket
-   * — can be picked. The face types open the plane-quad channel instead, so
-   * an existing plane() feature can be picked as a base right on its quad.
+   * scene, narrowed to the chosen ones once the list is full — see
+   * {@link shownStandardPlanes}) and the pick filter narrows scene picks to
+   * faces (offset/mid) or edges (edge type). The edge type also opens the
+   * sketch-wire channel, so a bare sketch curve — which renders as a wire,
+   * outside the solid-edge bucket — can be picked. The face types open the
+   * plane-quad channel instead, so an existing plane() feature can be picked
+   * as a base right on its quad.
    *
    * Called from {@link refresh}, so the quads always follow the chips.
    */
@@ -894,28 +904,32 @@ export class PlaneFeatureService {
     // neutral-mode restore (via syncButton's onActiveChange), which owns
     // the plane-quad channel from there.
     this.viewer.pickPlanes = !edgeType;
-    // The edge type's only base is a curve, so its quads never help.
-    if (edgeType || this.standardBaseFills()) {
-      this.viewer.hideStandardPlanes();
-    } else {
-      this.viewer.showStandardPlanes(this.onStandardPlanePick);
-    }
+    this.viewer.showStandardPlanes(this.onStandardPlanePick, { only: this.shownStandardPlanes() });
   }
 
   /**
-   * An origin plane is chosen and the base list is full. The quads are pick
-   * targets and nothing else — once no further pick can land on one, they only
-   * sit across the ghost they were picked for, in the exact place the user is
-   * trying to look. Removing the chip (✕) empties the slot and brings them
-   * back, which is the only way to swap one origin plane for another.
-   *
-   * Waiting for the list to be *full* is what keeps a mid plane between two
-   * origin planes possible: hiding on the first pick would take the second
-   * base's own target off the screen.
+   * Which origin planes the viewport shows. While the base list has room,
+   * all three: every quad is a live pick target, and waiting for the list to
+   * be *full* is what keeps a mid plane between two origin planes possible —
+   * narrowing on the first pick would take the second base's own target off
+   * the screen. Once the list is full, only the quads that are bases stay,
+   * as the preview's reference (the plane the ghost is offset from, or the
+   * two it sits between); the rest step aside. They are pick targets and
+   * nothing else, and with the list full they only cut across the ghost in
+   * the exact place the user is trying to look — a mid plane refuses a third
+   * base outright, and though a single-base type would swap on a quad click,
+   * the swap goes through the chip (✕ empties the slot and brings every quad
+   * back) or through the shown base quad itself, which clicks off. The edge
+   * type's only base is a curve, so its quads never help.
    */
-  private standardBaseFills(): boolean {
-    return this.bases.length >= this.panel.capacity
-      && this.bases.some(base => base.kind === 'standard');
+  private shownStandardPlanes(): readonly StandardPlaneId[] {
+    if (this.panel.planeType === 'edge') {
+      return [];
+    }
+    if (this.bases.length < this.panel.capacity) {
+      return STANDARD_PLANE_IDS;
+    }
+    return this.bases.flatMap(base => base.kind === 'standard' ? [base.plane] : []);
   }
 
   /**

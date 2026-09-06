@@ -36,7 +36,7 @@ mirror("yz")                     // mirror the model across the YZ plane
 
 1. Click **Plane** on the toolbar. The Plane dialog docks on the right.
 2. Pick the **type** at the top: **Offset**, **Mid plane** or **From edge**.
-3. Fill the **Base** slot from the scene: click a face in the viewport, an origin-plane quad, or a plane row in the timeline. **Mid plane** takes two bases; **From edge** takes an edge.
+3. Fill the **Base** slot from the scene: click a face in the viewport, an origin-plane quad, or a plane row in the timeline. **Mid plane** takes two bases; **From edge** takes an edge. Once the slot is full, only the origin planes you chose stay in the viewport, so the ghost reads clearly against them; clicking a chosen quad again, or the chip's ✕, frees the slot and brings the others back.
 4. Enter the **Distance** (Offset type) or the **position** along the edge from 0 to 1 (From edge type). Offset and Mid planes also take a rotation per axis — around the plane's own X, Y, or its normal, in degrees.
 5. Click **Apply**. The plane appears as a translucent quad in the viewport and as a row in the timeline, and a `plane()` statement is written to the file. Clicking that quad later picks the plane for a sketch or a mirror.
 

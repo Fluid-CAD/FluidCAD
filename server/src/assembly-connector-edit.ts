@@ -4,7 +4,7 @@ import {
   getChainCalls, getInsertChainParser, isRewritableRotate, removeChainCalls, renderRotateCalls,
   rotateAxisIndex, rotateSnippet, walkTree,
 } from './insert-chain-edit.ts';
-import { appendStatement } from './assembly-mate-edit.ts';
+import { appendInsideBody, appendStatement, assemblyBodies } from './assembly-chain-tools.ts';
 
 /** Connector names share the identifier pattern the kernel enforces. */
 const CONNECTOR_NAME = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
@@ -97,10 +97,15 @@ function normalizeAngles(rotateXYZ: [number, number, number]): [number, number, 
 }
 
 /**
- * A fresh `const <name> = connector('<name>', [x, y, z])<rotates>;` at the
- * file's top level — before the first top-level `mate()` statement when
- * there is one (connectors read as setup, mates as the joints that use
- * them), else appended at the end. The binding takes the connector's own
+ * A fresh `const <name> = connector('<name>', [x, y, z])<rotates>;` in the
+ * assembly's statement scope. A definition-style file (one
+ * `assembly('name', () => {...})` body) gets it INSIDE that body, placed
+ * like an insert() — grouped under the last insert(), else before the
+ * `return` — since `connector()` at module scope runs outside the assembly
+ * being built. An entry-style file (no body) gets it at the top level,
+ * before the first `mate()` when there is one (connectors read as setup,
+ * mates as the joints that use them), else appended at the end. Several
+ * bodies are ambiguous and refused. The binding takes the connector's own
  * name when that word is free in the file, else a numeric suffix.
  */
 async function createStatement(code: string, spec: AssemblyConnectorEditSpec): Promise<AssemblyConnectorEditResult> {
@@ -116,34 +121,41 @@ async function createStatement(code: string, spec: AssemblyConnectorEditSpec): P
 
   const parser = await getInsertChainParser();
   const tree = parser.parse(code);
-  let firstMateRow: number | null = null;
-  for (const node of tree.rootNode.namedChildren) {
-    if (node.type !== 'expression_statement') {
-      continue;
-    }
-    const call = node.namedChildren[0];
-    if (call?.type === 'call_expression' && getBaseCallName(getChainCalls(call)) === 'mate') {
-      firstMateRow = node.startPosition.row;
-      break;
-    }
+  const bodies = assemblyBodies(tree.rootNode);
+  if (bodies.length > 1) {
+    return {
+      newCode: code,
+      error: 'the file defines several assembly() bodies — add the connector inside the one it belongs to in the source',
+    };
   }
   let placed: string;
-  let statementLine: number;
-  if (firstMateRow === null) {
-    placed = appendStatement(code, statement).newCode;
-    const lines = splitLines(placed);
-    statementLine = lines.findIndex(l => l === statement) + 1;
+  if (bodies.length === 1) {
+    placed = appendInsideBody(code, bodies[0], statement);
   } else {
-    const lines = splitLines(code);
-    const separated = firstMateRow > 0 && lines[firstMateRow - 1].trim() !== '';
-    lines.splice(firstMateRow, 0, ...(separated ? ['', statement, ''] : [statement, '']));
-    placed = lines.join('\n');
-    statementLine = firstMateRow + (separated ? 2 : 1);
+    let firstMateRow: number | null = null;
+    for (const node of tree.rootNode.namedChildren) {
+      if (node.type !== 'expression_statement') {
+        continue;
+      }
+      const call = node.namedChildren[0];
+      if (call?.type === 'call_expression' && getBaseCallName(getChainCalls(call)) === 'mate') {
+        firstMateRow = node.startPosition.row;
+        break;
+      }
+    }
+    if (firstMateRow === null) {
+      placed = appendStatement(code, statement).newCode;
+    } else {
+      const lines = splitLines(code);
+      const separated = firstMateRow > 0 && lines[firstMateRow - 1].trim() !== '';
+      lines.splice(firstMateRow, 0, ...(separated ? ['', statement, ''] : [statement, '']));
+      placed = lines.join('\n');
+    }
   }
   const withImport = await ensureSymbolImport(placed, 'connector');
-  // The import ensure may add a line above the statement.
-  const delta = splitLines(withImport).length - splitLines(placed).length;
-  return { newCode: withImport, statementLine: statementLine + delta };
+  // The statement text is unique in the file (the name is fresh), so its row is its line.
+  const statementLine = splitLines(withImport).findIndex(l => l.trim() === statement) + 1;
+  return { newCode: withImport, statementLine };
 }
 
 async function editStatement(code: string, spec: AssemblyConnectorEditSpec): Promise<AssemblyConnectorEditResult> {

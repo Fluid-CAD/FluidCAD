@@ -2,15 +2,13 @@ import {
   ensureSymbolImport,
   getJavaScriptParser,
   importLocalName,
-  indentOf,
   isBlankRow,
   isExpressionText,
   joinLines,
-  spliceCode,
   splitLines,
-  walkTree,
   type TSNode,
 } from '../code-editor.ts';
+import { appendInsideBody, assemblyBodies } from '../assembly-chain-tools.ts';
 
 /** What the chosen catalog export is, deciding the statement rendered for it. */
 export type InsertPartKind = 'value' | 'factory' | 'assembly';
@@ -211,67 +209,6 @@ export function renderValue(value: InsertParamValue): string {
 
 function renderString(value: string): string {
   return `'${value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}'`;
-}
-
-/** Statement blocks of every `assembly(name, () => {...})` call in the file. */
-function assemblyBodies(root: TSNode): TSNode[] {
-  const bodies: TSNode[] = [];
-  for (const node of walkTree(root)) {
-    if (node.type !== 'call_expression') {
-      continue;
-    }
-    const fn = node.childForFieldName('function');
-    if (fn?.type !== 'identifier' || fn.text !== 'assembly') {
-      continue;
-    }
-    const args = node.childForFieldName('arguments')?.namedChildren ?? [];
-    const callback = args.find(a => a.type === 'arrow_function' || a.type === 'function_expression');
-    const body = callback?.childForFieldName('body');
-    if (body?.type === 'statement_block') {
-      bodies.push(body);
-    }
-  }
-  return bodies;
-}
-
-/**
- * Insert the statement inside an assembly body's statement block: grouped
- * directly under the last existing `insert()` chain, else before the
- * trailing `return`, else as the block's first statement (an empty
- * `() => {}` body is spliced open).
- */
-function appendInsideBody(code: string, body: TSNode, statement: string): string {
-  const lines = splitLines(code);
-  const statements = body.namedChildren.filter(c => c.type !== 'comment');
-  const insertStmts = statements.filter(s =>
-    /^(const\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*)?insert\s*\(/.test(s.text));
-  const lastInsert = insertStmts[insertStmts.length - 1] ?? null;
-  const returnStmt = statements.find(c => c.type === 'return_statement') ?? null;
-  const lastStmt = statements[statements.length - 1] ?? null;
-
-  if (lastInsert) {
-    const row = lastInsert.endPosition.row + 1;
-    lines.splice(row, 0, `${indentOf(lines, lastInsert.startPosition.row)}${statement}`);
-    return joinLines(lines);
-  }
-  if (returnStmt) {
-    const row = returnStmt.startPosition.row;
-    lines.splice(row, 0, `${indentOf(lines, row)}${statement}`);
-    return joinLines(lines);
-  }
-  if (lastStmt) {
-    const row = lastStmt.endPosition.row + 1;
-    lines.splice(row, 0, `${indentOf(lines, lastStmt.startPosition.row)}${statement}`);
-    return joinLines(lines);
-  }
-  // Empty body — `() => {}` possibly on one line: splice the braces open.
-  const baseIndent = indentOf(lines, body.startPosition.row);
-  return spliceCode(
-    code,
-    body.startIndex + 1,
-    body.endIndex - 1,
-    `\n${baseIndent}    ${statement}\n${baseIndent}`,
-  );
 }
 
 /**

@@ -39,6 +39,58 @@ describe('applyAssemblyConnectorEdit', () => {
       expect(result.newCode.split('\n')[result.statementLine! - 1]).toBe(`const frame = connector('frame', [0, 0, 0]);`);
     });
 
+    it('lands inside a definition-style assembly() body, grouped under its last insert()', async () => {
+      const code = `${HEADER}import { assembly } from "fluidcad/core";\n\n`
+        + `export const rig = assembly('rig', () => {\n`
+        + `  const arm1 = insert(arm());\n`
+        + `  const base1 = insert(base());\n`
+        + `  const j = mate('revolute', arm1.connectors.hinge, base1.connectors.hinge);\n`
+        + `  return { arm1, base1 };\n`
+        + `});\n`;
+      const result = await applyAssemblyConnectorEdit(code, {
+        create: { name: 'frame' },
+        position: [0, 0, 0],
+        rotateXYZ: null,
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toContain(
+        `  const base1 = insert(base());\n  const frame = connector('frame', [0, 0, 0]);\n  const j = mate('revolute'`,
+      );
+      expect(result.newCode).not.toMatch(/^const frame/m);
+      expect(result.newCode.split('\n')[result.statementLine! - 1]).toBe(`  const frame = connector('frame', [0, 0, 0]);`);
+    });
+
+    it('lands before the body\'s return when the assembly() body has no insert() yet', async () => {
+      const code = `${HEADER}import { assembly } from "fluidcad/core";\n\n`
+        + `export const rig = assembly('rig', () => {\n`
+        + `  const w = 10;\n`
+        + `  return {};\n`
+        + `});\n`;
+      const result = await applyAssemblyConnectorEdit(code, {
+        create: { name: 'c1' },
+        position: [1, 2, 3],
+        rotateXYZ: [0, 0, 45],
+      });
+      expect(result.error).toBeUndefined();
+      expect(result.newCode).toContain(
+        `  const w = 10;\n  const c1 = connector('c1', [1, 2, 3]).rotate('z', 45);\n  return {};\n});\n`,
+      );
+      expect(result.newCode.split('\n')[result.statementLine! - 1]).toBe(`  const c1 = connector('c1', [1, 2, 3]).rotate('z', 45);`);
+    });
+
+    it('refuses a file with several assembly() bodies', async () => {
+      const code = `${HEADER}import { assembly } from "fluidcad/core";\n`
+        + `export const a = assembly('a', () => { return {}; });\n`
+        + `export const b = assembly('b', () => { return {}; });\n`;
+      const result = await applyAssemblyConnectorEdit(code, {
+        create: { name: 'c1' },
+        position: [0, 0, 0],
+        rotateXYZ: null,
+      });
+      expect(result.error).toMatch(/several assembly\(\) bodies/);
+      expect(result.newCode).toBe(code);
+    });
+
     it('suffixes the binding when the name is taken and refuses a declared connector name', async () => {
       const code = `${HEADER}\nconst base = insert(base());\n`;
       const result = await applyAssemblyConnectorEdit(code, {

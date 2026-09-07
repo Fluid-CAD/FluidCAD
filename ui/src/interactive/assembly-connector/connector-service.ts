@@ -25,7 +25,7 @@ type EditTarget = {
  * dialog in create mode (name prefilled with the first free `c1`-style
  * default, a translucent triad ghost at the origin tracking every edit);
  * Apply writes `const <name> = connector('<name>', [x, y, z])<rotates>;`
- * at the assembly's top level. The rail's connector rows and the mate
+ * inside the file's assembly() body (top level for an entry-style file). The rail's connector rows and the mate
  * dialog's chip pen open the same dialog in edit mode, seeded from the
  * rendered frame and the statement's exact expression texts, and Apply
  * rewrites the statement in place.

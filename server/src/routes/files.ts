@@ -158,8 +158,9 @@ export function createFilesRouter(deps: FilesRouterDeps): Router {
         res.status(409).json({ error: `${file.relPath} already exists.` });
         return;
       }
-      // A file created with no content still starts useful: an assembly
-      // file gets its assembly() wrapper so inserts land inside the body.
+      // A file created with no content still starts useful: a part file gets
+      // an empty part() and an assembly file its assembly() wrapper, so what
+      // the tools emit lands inside the body.
       const initial = content || newFileContent(file.relPath);
       fs.mkdirSync(path.dirname(file.absPath), { recursive: true });
       fs.writeFileSync(file.absPath, initial, 'utf8');

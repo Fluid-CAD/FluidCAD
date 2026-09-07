@@ -45,9 +45,24 @@ describe('newFileContent', () => {
     expect(newFileContent('assembly.assembly.js')).toContain(`export const mainAssembly = assembly('assembly', () => {`);
   });
 
-  it('leaves part files and non-fluid files blank', () => {
-    expect(newFileContent('bracket.part.js')).toBe('');
-    expect(newFileContent('legacy.fluid.js')).toBe('');
+  it('prefills a part file with an exported empty part() named after the file', () => {
+    expect(newFileContent('bracket.part.js')).toBe([
+      `import { part } from 'fluidcad/core';`,
+      ``,
+      `export const bracket = part('bracket', () => {`,
+      `});`,
+      ``,
+    ].join('\n'));
+    expect(newFileContent('parts/base-plate.fluid.js')).toContain(`export const basePlate = part('base-plate', () => {`);
+  });
+
+  it('falls back when a part name is not a usable identifier', () => {
+    expect(newFileContent('3d.part.js')).toContain(`export const mainPart = part('3d', () => {`);
+    // `part` itself would shadow the import.
+    expect(newFileContent('part.part.js')).toContain(`export const mainPart = part('part', () => {`);
+  });
+
+  it('leaves non-fluid files blank', () => {
     expect(newFileContent('helper.js')).toBe('');
   });
 });

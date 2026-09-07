@@ -7,6 +7,7 @@ import type { FileTab } from './tabs';
 import {
   createWorkspaceFile,
   fetchWorkspaceEditorState,
+  closeWorkspaceFile,
   openWorkspaceFile,
   readWorkspaceFile,
   renameWorkspaceFile,
@@ -222,6 +223,18 @@ export class EditorSurface {
     }
     this.openTabs.splice(index, 1);
     this.persistTabs();
+
+    // The scene shows an open model tab, or nothing. Closing the file it was
+    // rendered from, with no other model tab to fall back on, empties it —
+    // a viewport still showing a file nobody has open would be a lie.
+    const entry = this.models.get(absPath);
+    const modelTabRemains = this.openTabs.some((path) => this.models.get(path)?.kind === 'model');
+    if (entry && absPath === this.currentModelPath && !modelTabRemains) {
+      this.currentModelPath = null;
+      void closeWorkspaceFile(entry.relPath).catch((err) => {
+        console.warn(`FluidCAD: could not close ${entry.relPath}:`, err);
+      });
+    }
 
     if (this.activePath === absPath) {
       // Never orphan the scene: prefer another model tab, then anything.
@@ -444,6 +457,15 @@ export class EditorSurface {
   // ---------------------------------------------------------------------------
   // Following the scene
   // ---------------------------------------------------------------------------
+
+  /** The scene was emptied (this page's close, or another page's): no tab owns it now. */
+  clearSceneFile(): void {
+    if (this.currentModelPath === null) {
+      return;
+    }
+    this.currentModelPath = null;
+    this.renderTabs();
+  }
 
   /** The file the scene was last rendered from — the editor follows it. */
   setSceneFile(absPath: string): void {

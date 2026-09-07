@@ -23,6 +23,12 @@ export interface FilesRouterDeps {
    */
   openFile(absPath: string): Promise<void>;
   /**
+   * The page closed `absPath`'s tab with no model tab left: if the scene was
+   * rendered from it, empty the scene. Optional for hosts whose scene is not
+   * the page's to close.
+   */
+  closeFile?(absPath: string): void;
+  /**
    * The page just put `content` on disk at `absPath` (write or create). The
    * server keeps a short ledger of these so the `fluidcad serve` disk
    * watcher's echo of the same bytes is recognised as one, not as an edit.
@@ -143,6 +149,24 @@ export function createFilesRouter(deps: FilesRouterDeps): Router {
     // The render itself reports through the WS scene-rendered / compile-error
     // channel, exactly as the IPC path does — the route only confirms it started.
     await deps.openFile(file.absPath);
+    res.json({ success: true, path: file.relPath, absPath: file.absPath });
+  });
+
+  router.post('/files/close', (req, res) => {
+    let file: WorkspaceFile;
+    try {
+      file = resolveWorkspaceFile(workspacePath, req.body?.path);
+    } catch (err) {
+      respondToError(res, err);
+      return;
+    }
+    if (!deps.closeFile) {
+      res.status(501).json({ error: 'This host does not close scenes.' });
+      return;
+    }
+    // Whether the scene actually empties is the server's call (it may show
+    // another file by now); the page hears about it over the WebSocket.
+    deps.closeFile(file.absPath);
     res.json({ success: true, path: file.relPath, absPath: file.absPath });
   });
 

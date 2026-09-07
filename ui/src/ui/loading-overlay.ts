@@ -1,6 +1,7 @@
 export class LoadingOverlay {
   private element: HTMLDivElement;
   private textEl: Element;
+  private spinnerEl: HTMLElement;
 
   constructor(container: HTMLElement) {
     this.element = document.createElement('div');
@@ -14,10 +15,19 @@ export class LoadingOverlay {
     `;
     container.appendChild(this.element);
     this.textEl = this.element.querySelector('.loading-text')!;
+    this.spinnerEl = this.element.querySelector('.loading-spinner')!;
   }
 
   show(text: string): void {
     this.textEl.textContent = text;
+    this.spinnerEl.classList.remove('hidden');
+    this.element.classList.remove('hidden');
+  }
+
+  /** Something went wrong and nothing further is coming: say so, no spinner. */
+  fail(text: string): void {
+    this.textEl.textContent = text;
+    this.spinnerEl.classList.add('hidden');
     this.element.classList.remove('hidden');
   }
 

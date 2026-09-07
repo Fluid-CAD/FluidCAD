@@ -165,6 +165,7 @@ app.use('/api', createFeatureGhostRouter(fluidCadServer));
 app.use('/api', createFilesRouter({
   workspacePath: WORKSPACE_PATH,
   openFile: (absPath) => processFile(absPath),
+  closeFile: (absPath) => closeFile(absPath),
   onWrite: (absPath, content) => pageWrites.record(absPath, content),
 }));
 app.use('/api', createEngineTypesRouter(PACKAGE_VERSION));
@@ -445,6 +446,24 @@ async function processFile(filePath: string): Promise<void> {
     if (myVersion !== renderVersion) { return; }
     emitCompileError(myVersion, filePath, err);
   }
+}
+
+/**
+ * The page closed the tab the scene was rendered from, with no model tab left
+ * to take over. The scene goes with it: the server forgets its current file,
+ * an in-flight render of it is superseded, and the page (every page — a
+ * second browser included) is told to show an empty scene. A close for a
+ * file that is NOT the one on screen is stale — the user already moved on to
+ * another model — and leaves that scene alone.
+ */
+function closeFile(absPath: string): void {
+  if (currentFile !== null && normalizePath(currentFile) !== normalizePath(absPath)) {
+    return;
+  }
+  renderVersion++;
+  currentFile = null;
+  fluidCadServer.closeCurrentFile();
+  broadcastToUI({ type: 'scene-closed' });
 }
 
 async function handleExtensionMessage(msg: any) {

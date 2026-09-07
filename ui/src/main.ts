@@ -2763,6 +2763,152 @@ function refreshActivePartScope(): void {
   runSceneServices(result, rollbackStop ?? result.length - 1, false);
 }
 
+/**
+ * Apply a scene to the page — the viewer, every scene service, the rail, the
+ * top bar, the banners. Shared by a real render and by the scene closing:
+ * an empty scene goes through exactly the path an empty file's render would,
+ * so nothing is left standing that a render would have replaced.
+ */
+function applySceneRendered(msg: any): void {
+    // The document's unit — every readout suffixes with it. Missing on
+    // older servers, which means mm.
+    sceneUnit.set((msg as { unit?: LengthUnit }).unit ?? 'mm');
+    // "Rolled back" means something is actually hidden. A part-scoped
+    // stop on that part's LAST feature hides nothing — the view is the
+    // full render and must stay fully interactive (sketch-mode entry,
+    // service triggers), with only the timeline marking the clicked row.
+    const isRollback = msg.rollbackStop != null
+      && isRollbackViewTruncated(msg.result, msg.rollbackStop, msg.rollbackScopePartId ?? null);
+    const sceneKind: 'part' | 'assembly' = msg.sceneKind === 'assembly' ? 'assembly' : 'part';
+    // The unit chip's dropup routes a pick by this: a part rewrites its
+    // own file, an assembly the project config — and checks either the
+    // declared unit or "Same as project". A server predating the field
+    // can't tell the two apart; its unit is taken as declared so the
+    // menu still checks what the chip shows.
+    const units = msg as { unit?: LengthUnit; declaredUnit?: LengthUnit | null; projectUnit?: LengthUnit };
+    const declaredUnit = units.declaredUnit === undefined ? sceneUnit.current : units.declaredUnit;
+    sceneDocument.set(msg.absPath, sceneKind, declaredUnit, units.projectUnit ?? 'mm');
+    // Re-resolve the active part BEFORE the viewer or any service reads
+    // this render — the scope helpers (findActiveObject & co.) consult the
+    // tracker, so a stale activation would derive the sketch-mode entry
+    // (and the timeline highlight) from the wrong part. Assembly scenes
+    // have no parts timeline — a stale activation must not survive the
+    // flip.
+    if (sceneKind === 'part') {
+      activePartTracker.sync(msg.result);
+    } else {
+      activePartTracker.clear();
+    }
+    viewer.isDrawing = !isRollback && sketchService.hasActiveDrawingTool;
+    if (sceneKind === 'assembly') {
+      const assembly: SerializedAssembly = msg.assembly ?? { instances: [], mates: [] };
+      // Template serialize payloads (name, params, paramValues) keyed by
+      // partId — the Edit-parameters dialog reads control metadata here.
+      lastPartTemplates.clear();
+      for (const o of msg.result as SceneObjectRender[]) {
+        if (o.type === 'part') {
+          lastPartTemplates.set(o.id, o.object);
+        }
+      }
+      viewer.updateAssemblyView(msg.result, assembly);
+      lastPartRender = null;
+    } else {
+      lastPartRender = { result: msg.result, isRollback, rollbackStop: msg.rollbackStop };
+      viewer.updateView(msg.result, isRollback, msg.rollbackStop);
+      // Snapshot every sketch's consumed state from complete builds only —
+      // rollbacks (and breakpoint truncations) make a tip sketch look
+      // unconsumed. The Finish Sketch edit flow reads this snapshot.
+      if (!isRollback && msg.breakpointHit !== true) {
+        sketchConsumedByKey.clear();
+        for (const o of msg.result as SceneObjectRender[]) {
+          if (o.type === 'sketch' && o.sourceLocation) {
+            sketchConsumedByKey.set(sketchLocKey(o.sourceLocation), o.visible === false || o.reusable === true);
+          }
+        }
+      }
+    }
+    // The render wipes the viewer selection and the timeline clears its
+    // pick highlight in update() below — a pre-render explain response
+    // must not repaint it.
+    timelinePickAbort?.abort();
+    timelinePickAbort = null;
+    measureController.onSceneRendered();
+    if (msg.absPath) {
+      topBar.setFileName(msg.absPath);
+      currentSceneAbsPath = msg.absPath;
+      editorSceneFile = msg.absPath;
+      editorSurface?.setSceneFile(msg.absPath);
+      startEditorSurface();
+    }
+    // Build failures become editor markers, and the breakpoint dots are
+    // re-derived — the source may have been rewritten by the very
+    // transform that triggered this render.
+    if (editorSurface) {
+      editorSurface.onSceneRendered(msg.result as SceneObjectRender[], msg.compileError ?? null);
+    }
+    const renderStop = msg.rollbackStop ?? msg.result.length - 1;
+    runSceneServices(msg.result, renderStop, isRollback);
+    // Swap the toolbar to the matching workbench alongside the left rail —
+    // part-design groups hide and the assembly groups show (or back).
+    navbar.setMode(sceneKind);
+    const rail = ensureRailFor(sceneKind);
+    // The normalized assembly payload when this is an assembly scene —
+    // the Export list filters its parts by it.
+    let renderedAssembly: SerializedAssembly | undefined;
+    if (rail.kind === 'part') {
+      rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null);
+      assemblyGizmo.handleModeExit();
+    } else {
+      const assembly = normalizeAssemblyPayload(msg.assembly);
+      renderedAssembly = assembly;
+      applyAssemblyToRail(rail, assembly);
+      // Instance groups were just rebuilt/re-posed — re-anchor the
+      // gizmo (or dismiss it if its instance is gone or now locked).
+      assemblyGizmo.handleSceneRendered();
+    }
+    // The panel column becomes visible on its first update, and a
+    // part/assembly swap renames the button it hangs off.
+    panelRail.sync();
+    // The mate dialog re-resolves its picks against the re-minted scene
+    // ids (or closes, when the render switched to a part scene).
+    assemblyMateService.handleSceneRendered(sceneKind);
+    assemblyConnectorService.handleSceneRendered(sceneKind);
+    assemblyReplicateService.handleSceneRendered(sceneKind);
+    if (msg.params !== undefined) {
+      paramsPanel.update(msg.params);
+    }
+    errorBanner.update(msg.result, msg.compileError ?? null);
+    topBar.updateSolids(msg.result, renderedAssembly);
+    const compileError = msg.compileError ?? null;
+    activeCompileError = compileError !== null;
+    if (compileError === null) {
+      moveRevertGuard = null;
+    } else if (moveRevertGuard !== null) {
+      const guard = moveRevertGuard;
+      moveRevertGuard = null;
+      if (Date.now() <= guard.expiresAt && engineClient.editor) {
+        // The render right after a timeline move failed to compile:
+        // step the editor's history once (the move applied as one undo
+        // entry) so the buffer and the served scene reconverge.
+        void engineClient.editor.undo(guard.filePath).then((result) => {
+          if (result.success) {
+            showToast(`Move undone — the file failed to compile: ${compileError.message ?? 'compile error'}`);
+          } else {
+            showToast(`The move broke the compile — undo it in the editor (${result.reason ?? 'undo unavailable'})`);
+          }
+        });
+      }
+    }
+    // Only update the breakpoint indicator when the server sends an
+    // authoritative value. Rollback responses don't re-run the module but
+    // carry the last full render's state (so a refresh whose replayed
+    // scene is a rollback still restores the indicator); compile-error
+    // responses omit the flag and the last known state persists.
+    if (msg.breakpointHit !== undefined) {
+      breakpointIndicator.setActive(msg.breakpointHit);
+    }
+}
+
 function connectWebSocket() {
   // Protocol-relative: plain ws:// is blocked from an https page.
   const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}`;
@@ -2781,150 +2927,44 @@ function connectWebSocket() {
 
     switch (msg.type) {
       case 'init-complete':
-        loadingOverlay.show('Loading model...');
+        // The engine is up; nothing is rendering yet. A model that is about to
+        // open announces itself with `processing-file` (replayed on connect
+        // while it is in flight), so a workspace with nothing to open — an
+        // empty folder — lands on an empty scene instead of a spinner that
+        // waits for a render that never comes.
+        if (msg.success === false) {
+          loadingOverlay.fail(`FluidCAD failed to start: ${msg.error ?? 'unknown error'}`);
+        } else {
+          loadingOverlay.hide();
+        }
         break;
       case 'processing-file':
         loadingOverlay.show('Loading model...');
         break;
       case 'scene-rendered': {
         loadingOverlay.hide();
-        // The document's unit — every readout suffixes with it. Missing on
-        // older servers, which means mm.
-        sceneUnit.set((msg as { unit?: LengthUnit }).unit ?? 'mm');
-        // "Rolled back" means something is actually hidden. A part-scoped
-        // stop on that part's LAST feature hides nothing — the view is the
-        // full render and must stay fully interactive (sketch-mode entry,
-        // service triggers), with only the timeline marking the clicked row.
-        const isRollback = msg.rollbackStop != null
-          && isRollbackViewTruncated(msg.result, msg.rollbackStop, msg.rollbackScopePartId ?? null);
-        const sceneKind: 'part' | 'assembly' = msg.sceneKind === 'assembly' ? 'assembly' : 'part';
-        // The unit chip's dropup routes a pick by this: a part rewrites its
-        // own file, an assembly the project config — and checks either the
-        // declared unit or "Same as project". A server predating the field
-        // can't tell the two apart; its unit is taken as declared so the
-        // menu still checks what the chip shows.
-        const units = msg as { unit?: LengthUnit; declaredUnit?: LengthUnit | null; projectUnit?: LengthUnit };
-        const declaredUnit = units.declaredUnit === undefined ? sceneUnit.current : units.declaredUnit;
-        sceneDocument.set(msg.absPath, sceneKind, declaredUnit, units.projectUnit ?? 'mm');
-        // Re-resolve the active part BEFORE the viewer or any service reads
-        // this render — the scope helpers (findActiveObject & co.) consult the
-        // tracker, so a stale activation would derive the sketch-mode entry
-        // (and the timeline highlight) from the wrong part. Assembly scenes
-        // have no parts timeline — a stale activation must not survive the
-        // flip.
-        if (sceneKind === 'part') {
-          activePartTracker.sync(msg.result);
-        } else {
-          activePartTracker.clear();
-        }
-        viewer.isDrawing = !isRollback && sketchService.hasActiveDrawingTool;
-        if (sceneKind === 'assembly') {
-          const assembly: SerializedAssembly = msg.assembly ?? { instances: [], mates: [] };
-          // Template serialize payloads (name, params, paramValues) keyed by
-          // partId — the Edit-parameters dialog reads control metadata here.
-          lastPartTemplates.clear();
-          for (const o of msg.result as SceneObjectRender[]) {
-            if (o.type === 'part') {
-              lastPartTemplates.set(o.id, o.object);
-            }
-          }
-          viewer.updateAssemblyView(msg.result, assembly);
-          lastPartRender = null;
-        } else {
-          lastPartRender = { result: msg.result, isRollback, rollbackStop: msg.rollbackStop };
-          viewer.updateView(msg.result, isRollback, msg.rollbackStop);
-          // Snapshot every sketch's consumed state from complete builds only —
-          // rollbacks (and breakpoint truncations) make a tip sketch look
-          // unconsumed. The Finish Sketch edit flow reads this snapshot.
-          if (!isRollback && msg.breakpointHit !== true) {
-            sketchConsumedByKey.clear();
-            for (const o of msg.result as SceneObjectRender[]) {
-              if (o.type === 'sketch' && o.sourceLocation) {
-                sketchConsumedByKey.set(sketchLocKey(o.sourceLocation), o.visible === false || o.reusable === true);
-              }
-            }
-          }
-        }
-        // The render wipes the viewer selection and the timeline clears its
-        // pick highlight in update() below — a pre-render explain response
-        // must not repaint it.
-        timelinePickAbort?.abort();
-        timelinePickAbort = null;
-        measureController.onSceneRendered();
-        if (msg.absPath) {
-          topBar.setFileName(msg.absPath);
-          currentSceneAbsPath = msg.absPath;
-          editorSceneFile = msg.absPath;
-          editorSurface?.setSceneFile(msg.absPath);
-          startEditorSurface();
-        }
-        // Build failures become editor markers, and the breakpoint dots are
-        // re-derived — the source may have been rewritten by the very
-        // transform that triggered this render.
-        if (editorSurface) {
-          editorSurface.onSceneRendered(msg.result as SceneObjectRender[], msg.compileError ?? null);
-        }
-        const renderStop = msg.rollbackStop ?? msg.result.length - 1;
-        runSceneServices(msg.result, renderStop, isRollback);
-        // Swap the toolbar to the matching workbench alongside the left rail —
-        // part-design groups hide and the assembly groups show (or back).
-        navbar.setMode(sceneKind);
-        const rail = ensureRailFor(sceneKind);
-        // The normalized assembly payload when this is an assembly scene —
-        // the Export list filters its parts by it.
-        let renderedAssembly: SerializedAssembly | undefined;
-        if (rail.kind === 'part') {
-          rail.timeline.update(msg.result, renderStop, msg.rollbackScopePartId ?? null);
-          assemblyGizmo.handleModeExit();
-        } else {
-          const assembly = normalizeAssemblyPayload(msg.assembly);
-          renderedAssembly = assembly;
-          applyAssemblyToRail(rail, assembly);
-          // Instance groups were just rebuilt/re-posed — re-anchor the
-          // gizmo (or dismiss it if its instance is gone or now locked).
-          assemblyGizmo.handleSceneRendered();
-        }
-        // The panel column becomes visible on its first update, and a
-        // part/assembly swap renames the button it hangs off.
-        panelRail.sync();
-        // The mate dialog re-resolves its picks against the re-minted scene
-        // ids (or closes, when the render switched to a part scene).
-        assemblyMateService.handleSceneRendered(sceneKind);
-        assemblyConnectorService.handleSceneRendered(sceneKind);
-        assemblyReplicateService.handleSceneRendered(sceneKind);
-        if (msg.params !== undefined) {
-          paramsPanel.update(msg.params);
-        }
-        errorBanner.update(msg.result, msg.compileError ?? null);
-        topBar.updateSolids(msg.result, renderedAssembly);
-        const compileError = msg.compileError ?? null;
-        activeCompileError = compileError !== null;
-        if (compileError === null) {
-          moveRevertGuard = null;
-        } else if (moveRevertGuard !== null) {
-          const guard = moveRevertGuard;
-          moveRevertGuard = null;
-          if (Date.now() <= guard.expiresAt && engineClient.editor) {
-            // The render right after a timeline move failed to compile:
-            // step the editor's history once (the move applied as one undo
-            // entry) so the buffer and the served scene reconverge.
-            void engineClient.editor.undo(guard.filePath).then((result) => {
-              if (result.success) {
-                showToast(`Move undone — the file failed to compile: ${compileError.message ?? 'compile error'}`);
-              } else {
-                showToast(`The move broke the compile — undo it in the editor (${result.reason ?? 'undo unavailable'})`);
-              }
-            });
-          }
-        }
-        // Only update the breakpoint indicator when the server sends an
-        // authoritative value. Rollback responses don't re-run the module but
-        // carry the last full render's state (so a refresh whose replayed
-        // scene is a rollback still restores the indicator); compile-error
-        // responses omit the flag and the last known state persists.
-        if (msg.breakpointHit !== undefined) {
-          breakpointIndicator.setActive(msg.breakpointHit);
-        }
+        applySceneRendered(msg);
+        break;
+      }
+      case 'scene-closed': {
+        // The file the scene came from was closed with no model tab left.
+        // Same path as a render of nothing, then the file identity goes too.
+        loadingOverlay.hide();
+        applySceneRendered({
+          type: 'scene-rendered',
+          result: [],
+          absPath: '',
+          sceneKind: 'part',
+          unit: sceneUnit.current,
+          declaredUnit: null,
+          projectUnit: sceneDocument.current?.projectUnit ?? 'mm',
+          rollbackStop: -1,
+          breakpointHit: false,
+        });
+        topBar.setFileName('');
+        currentSceneAbsPath = null;
+        editorSceneFile = null;
+        editorSurface?.clearSceneFile();
         break;
       }
       case 'highlight-shape':

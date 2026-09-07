@@ -502,6 +502,14 @@ export type UIProcessingFileMessage = {
   type: 'processing-file';
 };
 
+/**
+ * The scene's file was closed and nothing replaced it: the page shows an
+ * empty scene, and a page connecting later is not replayed the old one.
+ */
+export type UISceneClosedMessage = {
+  type: 'scene-closed';
+};
+
 export type NamedView =
   | 'front'
   | 'back'
@@ -615,6 +623,7 @@ export type UIHostMessage = {
 export type ServerToUIMessage =
   | UIInitCompleteMessage
   | UIProcessingFileMessage
+  | UISceneClosedMessage
   | UISceneRenderedMessage
   | UIHighlightShapeMessage
   | UIClearHighlightMessage

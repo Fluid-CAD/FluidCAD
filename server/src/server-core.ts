@@ -65,6 +65,14 @@ export function createServerCore(httpServer: import('http').Server): ServerCore 
 
   let lastSceneMessage: string | null = null;
   let initCompleteMessage: string | null = null;
+  /**
+   * A render was announced (`processing-file`) and has not landed yet. A page
+   * that connects in that window is told so it can show its spinner; one that
+   * connects to a workspace with nothing rendering — an empty folder — is
+   * not, and lands on an empty scene instead of waiting for a model that will
+   * never come.
+   */
+  let renderInFlight = false;
   let lastCameraState: CameraStateMessage | null = null;
   let messageHandler: ((sessionId: string, msg: any, ws: WebSocket) => void | Promise<void>) | null = null;
   let connectionHandler: ((sessionId: string, ws: WebSocket) => void | Promise<void>) | null = null;
@@ -79,6 +87,14 @@ export function createServerCore(httpServer: import('http').Server): ServerCore 
     const data = JSON.stringify(msg);
     if (msg.type === 'scene-rendered') {
       lastSceneMessage = data;
+      renderInFlight = false;
+    }
+    if (msg.type === 'processing-file') {
+      renderInFlight = true;
+    }
+    if (msg.type === 'scene-closed') {
+      lastSceneMessage = null;
+      renderInFlight = false;
     }
     if (msg.type === 'init-complete') {
       initCompleteMessage = data;
@@ -166,6 +182,9 @@ export function createServerCore(httpServer: import('http').Server): ServerCore 
     }
     if (lastSceneMessage) {
       ws.send(lastSceneMessage);
+    }
+    if (renderInFlight) {
+      ws.send(JSON.stringify({ type: 'processing-file' } satisfies ServerToUIMessage));
     }
 
     if (connectionHandler) {

@@ -81,6 +81,11 @@ export function openWorkspaceFile(path: string): Promise<{ success: boolean; abs
   return post('/api/files/open', { path });
 }
 
+/** The tab for `path` closed with no model tab left; the scene empties if it was showing it. */
+export function closeWorkspaceFile(path: string): Promise<{ success: boolean; absPath: string }> {
+  return post('/api/files/close', { path });
+}
+
 export function createWorkspaceFile(path: string, content = ''): Promise<WorkspaceFileEntry> {
   return post('/api/files/create', { path, content });
 }

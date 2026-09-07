@@ -15,6 +15,7 @@ let server: http.Server;
 let baseUrl: string;
 let workspace: string;
 let opened: string[];
+let closed: string[];
 let written: { absPath: string; content: string }[];
 
 async function get(route: string): Promise<{ status: number; body: any }> {
@@ -40,6 +41,7 @@ describe('workspace file routes', () => {
     app.use('/api', createFilesRouter({
       workspacePath: workspace,
       openFile: async (absPath) => { opened.push(absPath); },
+      closeFile: (absPath) => { closed.push(absPath); },
       onWrite: (absPath, content) => { written.push({ absPath, content }); },
     }));
 
@@ -56,6 +58,7 @@ describe('workspace file routes', () => {
 
   beforeEach(() => {
     opened = [];
+    closed = [];
     written = [];
     for (const entry of fs.readdirSync(workspace)) {
       fs.rmSync(path.join(workspace, entry), { recursive: true, force: true });
@@ -285,6 +288,16 @@ describe('workspace file routes', () => {
       const { status } = await post('/files/open', { path: 'ghost.fluid.js' });
       expect(status).toBe(404);
       expect(opened).toEqual([]);
+    });
+  });
+
+  describe('close', () => {
+    it('asks the server to drop the scene the file produced', async () => {
+      const { status, body } = await post('/files/close', { path: 'gone.part.js' });
+      expect(status).toBe(200);
+      expect(body.success).toBe(true);
+      // Not gated on existence: the tab may be closing because the file was deleted.
+      expect(closed).toEqual([path.join(workspace, 'gone.part.js')]);
     });
   });
 

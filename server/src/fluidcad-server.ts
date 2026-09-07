@@ -1998,6 +1998,17 @@ export class FluidCadServer {
   }
 
   /**
+   * Forget the current file: the scene it produced was closed and nothing
+   * took its place. Every "current code" reader answers null afterwards, and
+   * a recompute has nothing to re-run until a file is opened again.
+   */
+  closeCurrentFile(): void {
+    this.currentFileName = '';
+    this.currentFilePath = '';
+    this.compileError = null;
+  }
+
+  /**
    * Test-only seam: stage a scene under the given file name so the inspection
    * accessors can read it without running the vite pipeline. Production code
    * never calls this — `processFile` populates the same map.

@@ -65,14 +65,12 @@ export class Ellipse extends ExtrudableGeometryBase {
 
     const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
     // The center is a solver point entity when the ellipse lives in a
-    // sketch — read the solved position. The literal-center and targetPlane
-    // fallbacks survive for ellipses built outside a sketch.
+    // sketch — read the solved position. The literal-center fallback
+    // survives for ellipses built outside a sketch; with neither, the
+    // ellipse sits at the plane origin.
     const center = this.anchors.registered
       ? this.anchors.solvedValues(this)[0]
-      : this.centerOverride
-        ?? (this.targetPlane
-          ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
-          : new Point2D(0, 0));
+      : this.centerOverride ?? new Point2D(0, 0);
 
     // OCC requires majorRadius >= minorRadius. Pick which plane axis carries the major.
     const rxIsMajor = this.rx >= this.ry;
@@ -93,10 +91,6 @@ export class Ellipse extends ExtrudableGeometryBase {
     const centerVertex = Vertex.fromPoint(plane.localToWorld(center));
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
-    // Pen state stays a legacy concept — never written in a solved sketch.
-    if (this.sketch && !this.sketch.isSolvedMode()) {
-      this.setCurrentPosition(center);
-    }
 
     if (this.targetPlane) {
       this.targetPlane.removeShapes(this);

@@ -130,7 +130,6 @@ export class BezierCurve extends GeometrySceneObject {
       // 0 args: interactive placeholder. 1 arg: start placed, no curve yet.
       if (points.length === 1) {
         this.setState('start', Vertex.fromPoint2D(points[0]));
-        this.setCurrentPosition(points[0]);
       }
       return;
     }
@@ -163,7 +162,6 @@ export class BezierCurve extends GeometrySceneObject {
     this.setState('end', Vertex.fromPoint2D(endPoint));
     this.addShape(edge);
     this.setTangent(tangent2D);
-    this.setCurrentPosition(endPoint);
   }
 
   compareTo(other: BezierCurve): boolean {

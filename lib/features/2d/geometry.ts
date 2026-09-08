@@ -48,10 +48,6 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
     return parent instanceof Sketch ? parent : null;
   }
 
-  protected setCurrentPosition(point: Point2D) {
-    this.setState('current-position', point);
-  }
-
   protected setTangent(point: Point2D) {
     this.setState('tangent', point);
   }
@@ -302,7 +298,6 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
       this.setState('end', Vertex.fromPoint2D(localEnd));
 
       this.setTangent(localEnd.subtract(localStart).normalize());
-      this.setCurrentPosition(localEnd);
     }
 
     this.addShapes(edges);

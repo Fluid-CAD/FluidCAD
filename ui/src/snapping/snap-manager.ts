@@ -173,8 +173,8 @@ export class SnapManager {
       }
     }
 
-    // The plane center is the sketch's default start position (the face
-    // center when sketching on a face) — make it snappable like any vertex.
+    // The plane center (the face center when sketching on a face) is a
+    // natural landmark — make it snappable like any vertex.
     if (plane.center) {
       const [u, v] = SnapManager.worldToPlane2d(plane.center.x, plane.center.y, plane.center.z, plane);
       pushUnique(u, v);

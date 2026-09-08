@@ -42,11 +42,6 @@ export class CopyCircular2D extends Copy2DBase {
       }
     }
     this.stampDuplicates(objects, layout.duplicates);
-
-    // Pen state stays a legacy concept — never written in a solved sketch.
-    if (!this.sketch.isSolvedMode()) {
-      this.setCurrentPosition(this.center.asPoint2D())
-    }
   }
 
   /**

@@ -20,10 +20,10 @@ const XY_PLANE_CENTERED_AT = (cx: number, cy: number, cz: number): PlaneData => 
 });
 
 describe('SnapManager.fromSceneObjects', () => {
-  // The bug this guards: sketching on a face defaults the start position to
-  // the face center, but the interactive tools' snapping only knew sketch
-  // child vertices and the grid — the default position itself was unsnappable.
-  it('snaps to the plane center (the sketch default position)', () => {
+  // The bug this guards: the interactive tools' snapping only knew sketch
+  // child vertices and the grid — the face center a sketch opened on was
+  // itself unsnappable.
+  it('snaps to the plane center (the face center of a face sketch)', () => {
     const plane = XY_PLANE_CENTERED_AT(12.5, 7.25, 0);
     const manager = SnapManager.fromSceneObjects([], 'sketch-1', plane);
 

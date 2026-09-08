@@ -267,15 +267,12 @@ export class Text extends ExtrudableGeometryBase implements IText {
       ? this.targetPlane.getPlane()
       : (this.getParent() as Sketch).getPlane();
     // No pen exists since P7 — the anchored form draws at the plane origin
-    // (what the legacy cursor defaulted to) unless `.at([x, y])` places it.
-    // Inside a sketch the anchor is a solver point entity: read the solved
-    // position (constraints may have moved it off the literal).
+    // unless `.at([x, y])` places it. Inside a sketch the anchor is a solver
+    // point entity: read the solved position (constraints may have moved it
+    // off the literal).
     const origin = this.anchors.registered
       ? this.anchors.solvedValues(this)[0]
-      : this._anchor
-        ?? (this.targetPlane
-          ? plane.worldToLocal(this.targetPlane.getPlaneCenter())
-          : new Point2D(0, 0));
+      : this._anchor ?? new Point2D(0, 0);
 
     const font = FontRegistry.resolve({ font: this._font, weight: this._weight, italic: this._italic });
 

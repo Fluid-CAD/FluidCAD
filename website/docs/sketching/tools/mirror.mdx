@@ -13,10 +13,14 @@ Mirror reflects sketch geometry across a line or an axis. Draw one half of a sym
 
 ## In the viewport
 
-1. Click **Mirror** on the sketch toolbar (shortcut **M**). The Mirror dialog opens with a **Geometry** slot and a **Mirror line** slot.
-2. Click the sketch edges to mirror; they show as chips. Any edge stands for its whole primitive — one side of a rectangle picks the rectangle.
-3. Pick the **Mirror line**: click the slot, then click a sketched line in the viewport (a [guide](/docs/sketching/tools/guides) works too), or click the sketch's own X or Y axis line, written as `xAxis()` / `yAxis()`. The reflection previews in the viewport as you go.
-4. **Apply**.
+<img src="/img/docs/ui/sketch-mirror-dialog.png" alt="The Mirror dialog with a latch plate's three edges picked and the sketch Y axis as the mirror line" width="240" style={{float: 'right', marginLeft: '1.5rem'}} />
+
+1. Click **Mirror** on the sketch toolbar (shortcut **M**). The Mirror dialog opens docked on the right with a **Geometry** slot and a **Mirror line** slot.
+2. Click the sketch edges to mirror. Picks accumulate as chips; click a picked edge again, or a chip's **✕**, to drop it. Any edge stands for its whole primitive — one side of a rectangle picks the rectangle.
+3. Click the **Mirror line** slot, then click a sketched line in the viewport (a [guide](/docs/sketching/tools/guides) works too), or the sketch's own X or Y axis line. An axis pick shows as the chip *Sketch Y axis* and is written as `xAxis()` / `yAxis()`. The reflection previews in blue, and the statement about to be written shows under the dialog.
+4. Click **Apply**.
+
+<div style={{clear: 'both'}} />
 
 Double-click the mirror's row in the timeline to reopen the dialog and re-pick the geometry or the line.
 
@@ -34,7 +38,9 @@ Any sketched line can be the mirror line, including a [guide](/docs/sketching/to
 
 ![A latch plate: the right half mirrored across Y](/img/docs/sketching/tool-mirror.png)
 
-<ExplainedCode code={toolMirror} fileName="plate.part.js" />
+<ExplainedCode code={toolMirror} fileName="plate.part.js">
+The tool writes the datum form, `mirror(yAxis(), base, side, top)`. On the XY plane the world axis `"y"` is the same line, which is what this hand-written example uses.
+</ExplainedCode>
 
 ## Sketch axes and world axes
 

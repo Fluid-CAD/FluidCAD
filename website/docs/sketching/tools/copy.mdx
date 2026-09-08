@@ -13,18 +13,38 @@ Copy duplicates sketch geometry along one or two directions or around a centre p
 
 ## In the viewport
 
-1. Click **Copy** on the sketch toolbar. The Copy dialog opens with a **Geometry** slot and a kind dropdown, **Linear** or **Circular**.
-2. Click the sketch edges to copy; they show as chips.
-3. For **Linear**: pick **Direction** (a sketch line, or click the sketch's X or Y axis line in the viewport, written as `xAxis()` / `yAxis()`), set **Offset** between copies and **Total Count**. **+ Add second direction** turns it into a grid. For **Circular**: pick the **Center** point, set **Angle (°)** and **Total Count**; the **Center the copies on the original instance** toggle spreads them symmetrically about the source.
-4. **Apply**.
+1. Click **Copy** on the sketch toolbar. The Copy dialog opens docked on the right with a **Type** dropdown, **Linear** or **Circular**, and a **Geometry** slot.
+2. Click the sketch edges to copy. Picks accumulate as chips; click a picked edge again, or a chip's **✕**, to drop it.
+3. Fill in the direction or the centre and the counts — the fields differ per type, see below. The copies preview in blue as you go, and the statement about to be written shows under the dialog.
+4. Click **Apply**.
 
 ### Linear
+
+<img src="/img/docs/ui/sketch-copy-linear-dialog.png" alt="The linear Copy dialog: a slot's four edges picked, Direction set to the sketch X axis, Total Count 5, Offset 20" width="240" style={{float: 'right', marginLeft: '1.5rem'}} />
+
+- **Direction** (under **Direction 1**): click the slot, then a sketched line in the viewport, or the sketch's own X or Y axis line. An axis pick shows as the chip *Sketch X axis* and is written as `xAxis()` / `yAxis()`.
+- **Total Count**: the number of instances, the original included.
+- **Spacing**: **Offset** is the distance between neighbours; **Total** is the whole span, distributed evenly. The mode is shared by both directions.
+- **+ Add second direction** adds a **Direction 2** group with its own direction, count and spacing, which turns the row into a grid.
+- **Centered** spreads the copies symmetrically about the source instead of running off to one side.
+- **Skip** lists the instances to leave out, by index (`1, 3`); in a grid, by cell (`[1, 0], [2, 1]`).
+
+<div style={{clear: 'both'}} />
 
 ![A vent plate with a rack of five slots](/img/docs/sketching/tool-copy-linear.png)
 
 <ExplainedCode code={toolCopyLinear} fileName="plate.part.js" />
 
 ### Circular
+
+<img src="/img/docs/ui/sketch-copy-circular-dialog.png" alt="The circular Copy dialog: a bolt hole picked, Center 0, 0, Total Count 6, Angle Total 360" width="240" style={{float: 'right', marginLeft: '1.5rem'}} />
+
+- **Center**: the X and Y of the centre point, in sketch coordinates.
+- **Total Count**: the number of instances, the original included.
+- **Angle (°)**: **Total** is the whole sweep, distributed evenly — `360` closes the ring; **Offset** is the angle between neighbours.
+- **Skip** lists the instances to leave out, by index.
+
+<div style={{clear: 'both'}} />
 
 ![A flange with six bolt holes](/img/docs/sketching/tool-copy-circular.png)
 

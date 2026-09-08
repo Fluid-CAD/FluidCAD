@@ -12,9 +12,13 @@ A 2D fillet rounds the corner where two sketch edges meet: the edges are trimmed
 
 ## In the viewport
 
-1. Click **Fillet** on the sketch toolbar. The Fillet dialog opens with a **Radius** field.
-2. Click the two edges that share the corner — or several edges to round every corner they share. Each pick shows as a chip.
-3. **Apply**.
+<img src="/img/docs/ui/sketch-fillet-dialog.png" alt="The Fillet dialog with the four sides of a plate picked, reporting four corners and a radius of 12" width="240" style={{float: 'right', marginLeft: '1.5rem'}} />
+
+1. Click **Fillet** on the sketch toolbar. The Fillet dialog opens docked on the right with a **Selection** slot and a **Radius** field.
+2. Click the two edges that share the corner — or every edge whose corners you want rounded. Picks accumulate as chips; click a picked edge again, or a chip's **✕**, to drop it. The dialog counts what it found (*4 corners will be filleted*) and previews the arcs in blue.
+3. Type the **Radius** and click **Apply**.
+
+<div style={{clear: 'both'}} />
 
 The tool does not write a `fillet()` call. For each corner it writes a real [`arc()`](/docs/sketching/primitives/arc) plus the constraints that make it a fillet: two `coincident` (the arc's ends onto the trimmed edges), two `tangent`, one `radius` dimension on the first arc and `equal` across the rest. The corner's old coincident is removed in the same edit, and the solver pulls the edge endpoints back to the tangent points. Everything about the fillet is therefore editable afterwards: drag the arc, change the radius label, or delete the arc and the corner closes again.
 

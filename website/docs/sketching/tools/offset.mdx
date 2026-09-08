@@ -14,14 +14,18 @@ Offset copies sketch geometry inward or outward by a distance: walls, clearances
 
 ## In the viewport
 
-1. Click **Offset** on the sketch toolbar. The Offset dialog opens with a **Distance** field (positive = outward, negative = inward) and a **Close ends** toggle.
-2. Click the sketch edges to offset; each pick shows as a chip. A translucent preview follows the value.
+<img src="/img/docs/ui/sketch-offset-dialog.png" alt="The Offset dialog with the four edges of a stadium picked and a distance of 5" width="240" style={{float: 'right', marginLeft: '1.5rem'}} />
+
+1. Click **Offset** on the sketch toolbar. The Offset dialog opens docked on the right with a **Selection** slot, a **Distance** field (positive = outward, negative = inward) and a **Close ends** toggle.
+2. Click a sketch edge. It lands in **Selection** as a chip that names the primitive and its source line. A plain click replaces the pick; hold <kbd>Ctrl</kbd> (<kbd>⌘</kbd> on a Mac) to add more edges, and click a chip's **✕** to drop one. A blue preview of the offset follows the picks and the value, and the statement about to be written shows under the dialog.
 3. **Apply** writes the `offset()` statement after the geometry and constraints, at the end of the sketch body.
+
+<div style={{clear: 'both'}} />
 
 ![A pocket outline offset outward into a wall](/img/docs/sketching/tool-offset-basic.png)
 
 <ExplainedCode code={toolOffsetBasic} fileName="plate.part.js">
-Offset is a **derived operation**: it consumes the solved geometry, so its statement always comes after the geometry and constraint statements.
+Offset is a **derived operation**: it consumes the solved geometry, so its statement always comes after the geometry and constraint statements. The tool lists the edges you picked, `offset(5, top, right, bottom, left)`; with every edge picked, `offset(5)` on its own means the same thing.
 </ExplainedCode>
 
 ## By hand

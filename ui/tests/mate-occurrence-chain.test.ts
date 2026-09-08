@@ -76,16 +76,19 @@ function makeAssembly(opts: {
   };
 }
 
+/** The container of the service makeService built last — what panelText reads. */
+let panel: HTMLElement;
+
 function makeService(assembly: SerializedAssembly): AssemblyMateService {
-  const container = document.createElement('div');
-  document.body.appendChild(container);
-  return new AssemblyMateService(container, makeViewer(), {
+  panel = document.createElement('div');
+  document.body.appendChild(panel);
+  return new AssemblyMateService(panel, makeViewer(), {
     getAssembly: () => assembly,
   });
 }
 
 function panelText(role: 'preview' | 'message'): string {
-  return document.querySelector(`[data-role="${role}"]`)?.textContent ?? '';
+  return panel.querySelector(`[data-role="${role}"]`)?.textContent ?? '';
 }
 
 function pickConnector(svc: AssemblyMateService, connectorId: string, instanceId: string): void {

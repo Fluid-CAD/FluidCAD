@@ -23,6 +23,6 @@ export default defineConfig({
     hookTimeout: 30_000,
     fileParallelism: false,
     isolate: false,
-    setupFiles: ["lib/tests/global-setup.ts"],
+    setupFiles: ["lib/tests/global-setup.ts", "ui/tests/dom-reset.ts"],
   },
 });

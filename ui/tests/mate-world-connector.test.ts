@@ -48,8 +48,8 @@ function makeAssembly(connectorId = 'w1'): SerializedAssembly {
   };
 }
 
-function panelText(role: 'preview' | 'message'): string {
-  return document.querySelector(`[data-role="${role}"]`)?.textContent ?? '';
+function panelText(container: HTMLElement, role: 'preview' | 'message'): string {
+  return container.querySelector(`[data-role="${role}"]`)?.textContent ?? '';
 }
 
 let fetchSpy: ReturnType<typeof vi.fn>;
@@ -80,15 +80,15 @@ describe('assembly connector mate sides', () => {
     const svc = new AssemblyMateService(container, makeViewer(), { getAssembly: () => assembly });
     svc.enter('revolute');
     svc.handleClick('w1', { type: 'connector', index: 0 } as any, WORLD_BODY_ID);
-    expect(panelText('message')).toBe('');
+    expect(panelText(container, 'message')).toBe('');
     expect(container.textContent).toContain('Assembly · origin');
     svc.handleClick('conn-crank', { type: 'connector', index: 0 } as any, 'inst-0');
-    expect(panelText('preview')).toBe("mate('revolute', origin, Crank Shaft.connectors.shaft);");
+    expect(panelText(container, 'preview')).toBe("mate('revolute', origin, Crank Shaft.connectors.shaft);");
 
     // A render re-mints the connector id; the slot re-finds it by name.
     assembly = makeAssembly('w9');
     svc.handleSceneRendered('assembly');
-    expect(panelText('preview')).toBe("mate('revolute', origin, Crank Shaft.connectors.shaft);");
+    expect(panelText(container, 'preview')).toBe("mate('revolute', origin, Crank Shaft.connectors.shaft);");
 
     await (svc as any).apply();
     expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -112,7 +112,7 @@ describe('assembly connector mate sides', () => {
     svc.enter('fastened');
     svc.handleClick('w1', { type: 'connector', index: 0 } as any, WORLD_BODY_ID);
     svc.handleClick('w2', { type: 'connector', index: 0 } as any, WORLD_BODY_ID);
-    expect(panelText('message')).toMatch(/two assembly connectors/);
+    expect(panelText(container, 'message')).toMatch(/two assembly connectors/);
 
     // The payload the dialog reads must carry `connectors` — a copy that
     // drops the field made every world pick unresolvable.
@@ -148,7 +148,7 @@ describe('assembly connector mate sides', () => {
     rows[1].click();
     expect(container.querySelector('[data-role="connector-pick-menu"]')).toBeNull();
     expect(container.querySelector('[data-role="body"]')!.textContent).toContain('Assembly · origin');
-    expect(panelText('message')).toBe('');
+    expect(panelText(container, 'message')).toBe('');
   });
 
   it('a lone candidate never opens the popover, and Escape dismisses an open one', () => {
@@ -191,6 +191,6 @@ describe('assembly connector mate sides', () => {
     svc.exit();
     svc.enter('tangent');
     svc.pickWorldConnector('w1');
-    expect(panelText('message')).toMatch(/Tangent mates take exposed faces\/edges/);
+    expect(panelText(container, 'message')).toMatch(/Tangent mates take exposed faces\/edges/);
   });
 });

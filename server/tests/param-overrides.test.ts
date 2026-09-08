@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { FluidCadServer } from '../src/fluidcad-server.ts';
 import type { SceneHost } from '../src/host/scene-host.ts';
+import { createManager, getSceneManager } from '../../lib/dist/scene-manager.js';
 import param from '../../lib/dist/core/param.js';
+import part from '../../lib/dist/core/part.js';
 
 // Params-panel overrides live on the server, on top of whatever the file's
 // `param()` calls declare. They have to survive ordinary editing — you drag a
@@ -12,9 +14,14 @@ import param from '../../lib/dist/core/param.js';
 const FILE = '/ws/model.fluid.js';
 
 /**
- * Stands in for the Vite host: "running" a module means calling `param()` for
- * every `param("label", <number>)` in the buffer, which is the only part of
- * user code this behavior depends on.
+ * Stands in for the Vite host: "running" a module means declaring every
+ * `param("label", <number>)` in the buffer, which is the only part of user
+ * code this behavior depends on. A parameter only lives inside a part body,
+ * so the module is one part whose body makes those calls — and since the
+ * fake scene manager below never materializes anything, the host runs that
+ * body itself on the lib's own scene, the way an entry render would. (The
+ * server and this test share the built lib; the global setup initialises the
+ * source lib, so the built one gets its manager here, without an engine.)
  */
 class FakeHost implements SceneHost {
   buffers = new Map<string, string>();
@@ -25,9 +32,13 @@ class FakeHost implements SceneHost {
   async loadModule(filePath: string): Promise<Record<string, any>> {
     this.moduleRuns++;
     const code = this.buffers.get(filePath) ?? '';
-    for (const m of code.matchAll(/param\("([^"]+)",\s*([\d.]+)\)/g)) {
-      param(m[1], Number(m[2]));
-    }
+    const scene = (getSceneManager() ?? createManager('')).startScene();
+    part('Model', () => {
+      for (const m of code.matchAll(/param\("([^"]+)",\s*([\d.]+)\)/g)) {
+        param(m[1], Number(m[2]));
+      }
+    });
+    scene.materializeLeftoverDefinitions();
     return {};
   }
 

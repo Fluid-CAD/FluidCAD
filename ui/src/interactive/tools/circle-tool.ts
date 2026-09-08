@@ -229,7 +229,7 @@ export class CircleTool extends SketchTool {
       if (typed) {
         constraints.push({ kind: 'diameter', targets: [{ newIndex: 0 }], valueExpr: expression });
       }
-      const centerText = this.formatPoint(center.relative ? roundPoint(center.value) : center);
+      const centerText = this.formatPoint(center);
       const variables = [...center.newVariables, ...(newVariable ? [newVariable] : [])];
       void this.solvedCtx.emit({
         geometry: [{ kind: 'circle', text: `circle(${centerText}, ${expression})` }],

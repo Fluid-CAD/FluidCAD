@@ -4,6 +4,7 @@ import { bottomRightRow, BOTTOM_RIGHT_ORDER, BOTTOM_RIGHT_ROW_REF } from '../src
 import { GridScaleBar } from '../src/ui/grid-scale-bar';
 import { MeasureStatusBar } from '../src/ui/measure/measure-status-bar';
 import { SelectionInfoOverlay } from '../src/ui/selection-info-overlay';
+import { PointInput } from '../src/ui/point-input';
 
 describe('bottomRightRow', () => {
   let container: HTMLElement;
@@ -30,8 +31,12 @@ describe('bottomRightRow', () => {
     new GridScaleBar(container, () => {});
     new MeasureStatusBar(container, () => {}, null);
     new SelectionInfoOverlay(container, {} as any);
+    new PointInput(container);
 
     const row = bottomRightRow(container);
+    const pill = row.querySelector<HTMLElement>('.point-wrapper')!.parentElement!;
+    expect(pill.parentElement).toBe(row);
+    expect(pill.classList.contains(BOTTOM_RIGHT_ORDER.pointInput)).toBe(true);
     const grid = row.querySelector<HTMLElement>('[data-ref="grid-scale"]')!;
     const unit = row.querySelector<HTMLElement>('[data-ref="document-unit"]')!;
     expect(grid.parentElement).toBe(row);
@@ -46,6 +51,7 @@ describe('bottomRightRow', () => {
       return Number(cls.slice('order-'.length));
     });
     expect(new Set(orders).size).toBe(row.children.length);
+    expect(Math.min(...orders)).toBe(Number(BOTTOM_RIGHT_ORDER.pointInput.slice('order-'.length)));
     expect(Math.max(...orders)).toBe(Number(BOTTOM_RIGHT_ORDER.unit.slice('order-'.length)));
   });
 });

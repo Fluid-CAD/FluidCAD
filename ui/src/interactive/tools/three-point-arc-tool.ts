@@ -397,8 +397,8 @@ export class ThreePointArcTool extends SketchTool {
     const cwSuffix = ccw ? '' : '.cw()';
 
     if (this.solvedCtx) {
-      const startText = this.formatPoint(start.relative ? roundPoint(start.value) : start);
-      const endText = this.formatPoint(end.relative ? roundPoint(end.value) : end);
+      const startText = this.formatPoint(start);
+      const endText = this.formatPoint(end);
       // Snap provenance on the two anchor clicks → coincidents (the
       // Auto-constraints toggle gates the inference; Ctrl suppressed the
       // capture per pick).

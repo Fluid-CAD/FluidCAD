@@ -397,8 +397,8 @@ export class CenterArcTool extends SketchTool {
     const cwSuffix = ccw ? '' : '.cw()';
 
     if (this.solvedCtx) {
-      const startText = this.formatPoint(start.relative ? roundPoint(start.value) : start);
-      const centerText = this.formatPoint(center.relative ? roundPoint(center.value) : center);
+      const startText = this.formatPoint(start);
+      const centerText = this.formatPoint(center);
       // Snap provenance on the picks → coincidents (the Auto-constraints
       // toggle gates the inference; Ctrl suppressed each capture).
       const constraints: SolvedConstraintParam[] = [];

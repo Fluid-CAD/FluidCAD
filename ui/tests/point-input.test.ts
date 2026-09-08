@@ -35,7 +35,6 @@ afterEach(() => {
 
 function mount(opts: {
   value?: [number, number];
-  origin?: [number, number] | null;
   variables?: VariableInfo[];
   numericOnly?: boolean;
 } = {}): Harness {
@@ -46,7 +45,6 @@ function mount(opts: {
   input.show({
     value: opts.value ?? [10, 20],
     variables: opts.variables ?? VARS,
-    origin: opts.origin,
     numericOnly: opts.numericOnly,
     onCommit: (r) => commits.push(r),
   });
@@ -244,80 +242,6 @@ describe('PointInput variables', () => {
     expect(h.commits).toHaveLength(0);
     expect(h.container.querySelector('.point-error')!.textContent)
       .toContain('numeric');
-  });
-});
-
-describe('PointInput relative mode', () => {
-  it('stays absolute without an origin to measure from', () => {
-    const h = mount({ origin: null });
-    h.input.setRelative(true);
-    // The labels are the only state indicator now, so they must not claim
-    // relative when there is nothing to be relative to.
-    expect(h.container.querySelector('.point-label-x')!.textContent).toBe('X');
-    expect(h.input.resolvePick([1, 2]).relative).toBeUndefined();
-  });
-
-  it('shows offsets from the origin and commits them as a delta', () => {
-    const h = mount({ value: [130, 45], origin: [100, 40] });
-    h.input.setRelative(true);
-
-    expect(h.x.value).toBe('30');
-    expect(h.y.value).toBe('5');
-    expect(h.container.querySelector('.point-label-x')!.textContent).toBe('ΔX');
-
-    type(h.x, '20');
-    key(h.x, 'Tab');
-    type(h.y, '5');
-    key(h.y, 'Enter');
-
-    const pick = h.commits[0];
-    expect(pick.relative).toEqual({ dx: '20', dy: '5' });
-    // The absolute position still resolves, for the geometry preview.
-    expect(pick.value).toEqual([120, 45]);
-  });
-
-  it('opens already relative when the viewport toggle is on', () => {
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    const input = new PointInput(container);
-    input.show({
-      value: [130, 45], variables: [], origin: [100, 40], relative: true, onCommit: () => {},
-    });
-    expect(container.querySelector<HTMLInputElement>('.point-input-x')!.value).toBe('30');
-  });
-
-  // The pill is docked, so its own buttons are reachable again — this is the
-  // whole reason it stopped following the cursor.
-  it('toggles from its own button and reports the change', () => {
-    const h = mount({ value: [130, 45], origin: [100, 40] });
-    const reported: boolean[] = [];
-    h.input.onRelativeToggle = (r) => reported.push(r);
-
-    const relBtn = h.container.querySelector<HTMLButtonElement>('.point-rel-btn')!;
-    expect(h.container.querySelector('.point-rel-wrap')!.classList).not.toContain('hidden');
-
-    relBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-    expect(reported).toEqual([true]);
-    expect(h.x.value).toBe('30');
-
-    relBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-    expect(reported).toEqual([true, false]);
-    expect(h.x.value).toBe('130');
-  });
-
-  it('hides its own button when there is no origin', () => {
-    const h = mount({ origin: null });
-    expect(h.container.querySelector('.point-rel-wrap')!.classList).toContain('hidden');
-  });
-
-  it('clears pinned axes when the frame of reference flips', () => {
-    const h = mount({ value: [130, 45], origin: [100, 40] });
-    type(h.x, '120');
-    key(h.x, 'Tab');
-    expect(h.input.getLocks().x).toBe(120);
-
-    h.input.setRelative(true);
-    expect(h.input.getLocks().x).toBeNull();
   });
 });
 

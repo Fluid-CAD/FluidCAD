@@ -2,22 +2,23 @@ import {
   applyVariableName, classifyCommit, declaredVariableName, filterSuggestions,
   resolveExpressionValue, suggestionItemHtml, trailingIdentifier, Suggestion, VariableInfo,
 } from './expression-core';
+import { bottomRightRow, BOTTOM_RIGHT_ORDER } from './bottom-right-row';
 import { isEditableTarget } from '../keyboard-bridge';
 import { viewportChrome } from './viewport-chrome';
 
 export type { VariableInfo };
 
 /**
- * Parked at the bottom of the viewport, just left of the shape-properties
- * button. It used to follow the cursor, which made its own Δ and P buttons
- * impossible to click — they moved away as you reached for them — and made
- * the numbers jitter while being read. The locked-point marker in the scene
- * is what ties it back to where the geometry will land.
+ * Parked in the viewport's bottom-right status row, leftmost, so it never
+ * covers the unit, grid and measure chips that share the corner. It used to
+ * follow the cursor, which made its own P button impossible to click — it
+ * moved away as you reached for it — and made the numbers jitter while
+ * being read. The locked-point marker in the scene is what ties it back to
+ * where the geometry will land.
  */
-// right-[72px] keeps the pill left of the shape-properties button; on the
-// phone layout that spot is behind the bottom sheet the pill rides above
-// (see syncDock), so it hugs the right edge instead.
-const DOCK = 'absolute bottom-6 right-2 sm:right-[72px] z-[1000] pointer-events-auto';
+// `relative` so syncDock can lift the pill above a phone bottom sheet with an
+// inline `bottom` without leaving the row's flow.
+const DOCK = `relative z-[1000] pointer-events-auto ${BOTTOM_RIGHT_ORDER.pointInput}`;
 
 /**
  * Keys that never open the pill: Space cycles the polyline mode, and the
@@ -61,11 +62,6 @@ export type PointCommit = {
   newVariables: NewVariable[];
   /** Whether any axis was typed rather than taken from the cursor. */
   typed: boolean;
-  /**
-   * Set in relative mode: the offset the user entered. Takes precedence over
-   * `xExpr`/`yExpr`, which still carry the resolved absolute position.
-   */
-  relative?: { dx: string; dy: string };
 };
 
 export type PointInputOptions = {
@@ -73,15 +69,8 @@ export type PointInputOptions = {
   value: [number, number];
   variables: VariableInfo[];
   onCommit: (result: PointCommit) => void;
-  /**
-   * The relative-mode reference — the kernel's current pen position. Omitted
-   * (or null) hides the Δ toggle.
-   */
-  origin?: [number, number] | null;
   /** Numbers only: no variables, no declarations, no param toggle. */
   numericOnly?: boolean;
-  /** Open showing offsets from `origin` rather than absolute coordinates. */
-  relative?: boolean;
   /**
    * Focus the X field straight away. For an explicit "edit this point"
    * gesture; the drawing tools leave it unfocused so the pill reads as a
@@ -136,14 +125,10 @@ export class PointInput {
   private dropdown: HTMLDivElement;
   private errorEl: HTMLDivElement;
   private paramBtn: HTMLButtonElement;
-  private relBtn: HTMLButtonElement;
-  private relWrap: HTMLSpanElement;
   private paramWrap: HTMLSpanElement;
 
   private axes: Record<AxisId, Axis> = { x: new Axis(), y: new Axis() };
   private activeField: AxisId | null = null;
-  private relative = false;
-  private origin: [number, number] | null = null;
   private paramMode = false;
   private paramAvailable = false;
   private variables: VariableInfo[] = [];
@@ -157,9 +142,6 @@ export class PointInput {
   private readonly unsubscribeChrome: () => void;
 
   onSpaceOverride: (() => void) | null = null;
-  /** Reports a Δ click so the host can keep the mode across tool changes. */
-  onRelativeToggle: ((relative: boolean) => void) | null = null;
-
   constructor(private readonly container: HTMLElement) {
     ensureTipStyle();
     this.el = document.createElement('div');
@@ -173,14 +155,9 @@ export class PointInput {
       <div class="mb-1 panel-bg border border-base-content/10 rounded-md shadow-lg max-h-[150px] overflow-y-auto hidden point-dropdown"></div>
       <div class="point-wrapper flex items-center gap-1.5 panel-bg border border-base-content/10 rounded-md px-2 py-1 shadow-lg">
         <span class="text-xs text-base-content/50 select-none point-label-x">X</span>
-        <input type="text" class="bg-transparent border-none outline-none text-sm text-base-content w-20 font-mono point-input-x" />
+        <input type="text" class="bg-transparent border-none outline-none text-sm text-base-content w-14 font-mono point-input-x" />
         <span class="text-xs text-base-content/50 select-none point-label-y">Y</span>
-        <input type="text" class="bg-transparent border-none outline-none text-sm text-base-content w-20 font-mono point-input-y" />
-        <span class="tooltip tooltip-top point-tip inline-flex items-center shrink-0 hidden point-rel-wrap"
-          data-tip="Relative to the current position">
-          <button type="button" tabindex="-1"
-            class="w-5 h-5 rounded text-xs font-mono font-semibold border cursor-pointer select-none point-rel-btn">Δ</button>
-        </span>
+        <input type="text" class="bg-transparent border-none outline-none text-sm text-base-content w-14 font-mono point-input-y" />
         <span class="tooltip tooltip-top point-tip inline-flex items-center shrink-0 hidden point-param-wrap"
           data-tip="Declare as a parameter">
           <button type="button" tabindex="-1"
@@ -189,14 +166,12 @@ export class PointInput {
       </div>
     `;
 
-    container.appendChild(this.el);
+    bottomRightRow(container).appendChild(this.el);
 
     this.wrapperEl = this.el.querySelector('.point-wrapper')!;
     this.dropdown = this.el.querySelector('.point-dropdown')!;
     this.errorEl = this.el.querySelector('.point-error')!;
     this.paramBtn = this.el.querySelector('.point-param-btn')!;
-    this.relBtn = this.el.querySelector('.point-rel-btn')!;
-    this.relWrap = this.el.querySelector('.point-rel-wrap')!;
     this.paramWrap = this.el.querySelector('.point-param-wrap')!;
 
     this.axes.x.input = this.el.querySelector('.point-input-x')!;
@@ -205,13 +180,6 @@ export class PointInput {
     this.axes.y.labelEl = this.el.querySelector('.point-label-y')!;
 
     // mousedown would blur the focused field; toggle without stealing focus.
-    this.relBtn.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      this.setRelative(!this.relative);
-      this.onRelativeToggle?.(this.relative);
-    });
-
     this.paramBtn.addEventListener('mousedown', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -235,7 +203,7 @@ export class PointInput {
    * (DIALOG_DOCK_CLASS) sharing the pill's bottom-of-viewport dock — lift the
    * pill just above the tallest open sheet. From `sm:` up (Tailwind's 40rem)
    * dialogs float top-right, clear of the pill, and the inline style resets so
-   * the DOCK class's bottom-6 applies.
+   * the pill sits back on the row's baseline.
    */
   private syncDock(): void {
     let lift = 0;
@@ -265,10 +233,8 @@ export class PointInput {
     this.onCommit = opts.onCommit;
     this.variables = opts.variables;
     this.numericOnly = opts.numericOnly ?? false;
-    this.origin = opts.origin ?? null;
     this.visible = true;
     this.activeField = null;
-    this.relative = (opts.relative ?? false) && this.origin !== null;
     this.paramMode = false;
     this.selectedIndex = -1;
     this.axes.x.reset();
@@ -361,12 +327,6 @@ export class PointInput {
     this.updateParamAvailability();
   }
 
-  /** The relative-mode reference — the kernel pen, refreshed every render. */
-  setOrigin(origin: [number, number] | null): void {
-    this.origin = origin;
-    this.renderChrome();
-  }
-
   // ------------------------------------------------------------------ trigger
 
   /**
@@ -436,10 +396,7 @@ export class PointInput {
       if (!axis.isPinned || axis.lockedValue === null) {
         return null;
       }
-      if (!this.relative || !this.origin) {
-        return axis.lockedValue;
-      }
-      return this.origin[id === 'x' ? 0 : 1] + axis.lockedValue;
+      return axis.lockedValue;
     };
     return { x: resolve('x'), y: resolve('y') };
   }
@@ -455,22 +412,6 @@ export class PointInput {
       (v): v is NewVariable => v !== null,
     );
     const typed = x.isPinned || y.isPinned;
-
-    if (this.relative && this.origin) {
-      const dxVal = x.lockedValue ?? round2(live[0] - this.origin[0]);
-      const dyVal = y.lockedValue ?? round2(live[1] - this.origin[1]);
-      const dx = x.locked ?? String(dxVal);
-      const dy = y.locked ?? String(dyVal);
-      const value: [number, number] = [this.origin[0] + dxVal, this.origin[1] + dyVal];
-      return {
-        value,
-        xExpr: String(round2(value[0])),
-        yExpr: String(round2(value[1])),
-        newVariables,
-        typed,
-        relative: { dx, dy },
-      };
-    }
 
     const xVal = x.lockedValue ?? round2(live[0]);
     const yVal = y.lockedValue ?? round2(live[1]);
@@ -643,40 +584,12 @@ export class PointInput {
 
   // ------------------------------------------------------------------ display
 
-  /** What an axis shows for a live cursor position, honouring relative mode. */
+  /** What an axis shows for a live cursor position. */
   private displayValue(id: AxisId, point: [number, number]): number {
-    const index = id === 'x' ? 0 : 1;
-    if (this.relative && this.origin) {
-      return round2(point[index] - this.origin[index]);
-    }
-    return round2(point[index]);
-  }
-
-  /**
-   * Switch between absolute coordinates and offsets from the cursor. Driven
-   * by the viewport's Δ button, since the pill itself follows the mouse.
-   */
-  setRelative(relative: boolean): void {
-    if (this.relative === relative) {
-      return;
-    }
-    this.relative = relative;
-    if (!this.visible) {
-      return;
-    }
-    // The pinned expressions were entered in the old frame of reference and no
-    // longer mean what they say, so a mode flip starts the point over.
-    this.axes.x.reset();
-    this.axes.y.reset();
-    this.updateValue(this.live);
-    this.renderChrome();
+    return round2(point[id === 'x' ? 0 : 1]);
   }
 
   private renderChrome(): void {
-    const relLabel = this.relative && this.origin ? 'Δ' : '';
-    this.axes.x.labelEl.textContent = `${relLabel}X`;
-    this.axes.y.labelEl.textContent = `${relLabel}Y`;
-
     for (const id of ['x', 'y'] as AxisId[]) {
       const axis = this.axes[id];
       axis.input.classList.toggle('text-primary', axis.isPinned);
@@ -684,13 +597,6 @@ export class PointInput {
       axis.labelEl.classList.toggle('text-primary/70', axis.isPinned);
       axis.labelEl.classList.toggle('text-base-content/50', !axis.isPinned);
     }
-
-    this.relWrap.classList.toggle('hidden', this.origin === null);
-    this.relBtn.classList.toggle('bg-primary/20', this.relative);
-    this.relBtn.classList.toggle('text-primary', this.relative);
-    this.relBtn.classList.toggle('border-primary/40', this.relative);
-    this.relBtn.classList.toggle('text-base-content/40', !this.relative);
-    this.relBtn.classList.toggle('border-base-content/20', !this.relative);
 
     this.renderParamButton();
   }

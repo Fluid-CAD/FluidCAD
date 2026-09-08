@@ -392,7 +392,7 @@ export class LineTool extends SketchTool {
         kind: 'line',
         // A relative pick's axis expressions are offsets, not coordinates —
         // only the resolved value is a valid solved-mode literal.
-        text: `line(${this.formatPoint(start.relative ? roundPoint(start.value) : start)}, ${this.formatPoint(end)})`,
+        text: `line(${this.formatPoint(start)}, ${this.formatPoint(end)})`,
       }],
       constraints: all,
       ...(start.newVariables.length + newVariables.length > 0

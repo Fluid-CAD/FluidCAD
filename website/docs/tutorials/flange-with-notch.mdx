@@ -12,239 +12,199 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={flangeWithNotchFinal} entry="flange-with-notch.fluid.js" />
 
-In this tutorial, you'll build a flange with a notch from scratch, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=4XeLNQvhoyw). It covers tangent constraints, guide geometry, mirror symmetry, reusable sketch geometry, offset reference planes, and counter bores.
+In this tutorial, you'll build a flange with a notch, based on the [original design by Too Tall Toby](https://www.youtube.com/watch?v=4XeLNQvhoyw). You build it entirely from the FluidCAD workspace: the toolbar, the sketch tools, the constraint bar and the feature dialogs. Every dialog writes a line of code into your file as you apply it, so the [full code](#full-code) at the end is what the UI produced, not something you type.
 
-Create a new file called `flange-with-notch.fluid.js` in your project.
+It covers a tangent outline built from a rough sketch and a handful of constraints (Tangent, Concentric, Symmetric and a typed radius), the 2D Mirror tool, sketching on faces the model already has, the centered Rectangle tool, and shallow cuts for a notch and two counterbores.
 
-## Setup
+The drawing gives everything you need: a Ø70 flange with a Ø42 bore, two Ø10 holes 100 apart with R16 tabs around them, a pipe 46 tall, a 30-wide notch 8 deep, and Ø20 counterbores 4 deep.
 
-Start with imports. This model uses solved constraint sketches: geometry statements place rough shapes, and constraint statements pin them down.
+## Before you start
 
-```js
-import { arc, circle, cut, extrude, line, mirror, plane, remove,
-    sketch, xAxis } from "fluidcad/core";
-import { coincident, concentric, diameter, distance, equal, fix,
-    horizontal, symmetric, tangent, vertical } from "fluidcad/constraints";
-```
+Open a workspace and create a new part file: click **+** in the top bar and type `flange-with-notch.fluid.js`. The new tab opens on an empty scene. The screenshots use the light theme; the sun/moon button at the top right switches it.
 
-- **`fluidcad/core`** — all the modeling operations (sketch, primitives, extrude, cut, etc.) plus the `xAxis()` sketch datum
-- **`fluidcad/constraints`** — the constraint statements that drive the solver
+A few UI habits you will use throughout:
 
-Every sketch in this model passes `true` as the third argument to `sketch()` — that turns on constraint mode, where the solver adjusts the drawn geometry to satisfy the constraints.
+- **Ctrl+click** adds an entity to the current selection. A plain click replaces it.
+- The **constraint bar** appears under the toolbar while you sketch. Its buttons are icons; hover one for its name. A button lights up only when the current selection makes sense for it.
+- **Dimension** is one button. What it writes depends on what you picked: a circle gives a diameter, an arc a radius, a point and an axis a distance.
+- The **DOF pill** at the bottom of the viewport counts the degrees of freedom left in a sketch and turns into *Fully constrained* when you are done. Every sketch in this tutorial ends there.
+- Every feature dialog shows the **statement** it is about to write, just under the dialog. **Apply** (or <kbd>Enter</kbd>) writes it; **Exit** / **Cancel** (or <kbd>Escape</kbd>) discards it.
+- Picking a point that sits under a dimension label picks the label instead. Zoom in with the wheel until the label clears, pick, and zoom back out.
 
-## Step 1: Base profile circles
+## Step 1: The flange profile
 
-The flange profile starts with two concentric circles and a smaller bolt hole circle placed to the side.
+### Start a sketch on the XY plane
 
-### Main circles
+Click **Sketch** in the toolbar. The dialog asks for a face or a plane, and the three origin planes appear in the viewport.
 
-```js
-const baseSketch = sketch("xy", () => {
-    const c1 = circle([0, 0], 42).reusable();
-    const c2 = circle([0, 0], 70).reusable();
-```
+![Sketch tool armed, waiting for a plane](/img/docs/tutorials/flange-with-notch-ui-01-sketch-pick-plane.png)
 
-`circle([0, 0], 42)` draws the inner bore circle at the origin, and `circle([0, 0], 70)` the outer flange circle. In a constraint sketch every primitive is fully specified — a center and a diameter — and those numbers act as *guesses* that the constraints later confirm or adjust.
+Click the **XY** plane. The camera locks onto it, the sketch toolbar replaces the feature toolbar, and the constraint bar appears above the viewport.
 
-Both circles are marked `.reusable()`. Normally an `extrude()` consumes every shape in the sketch, but a reusable shape sticks around so a later feature can pick it up again. We'll use that in Step 4 to build the middle pipe without redrawing anything. We also keep a reference to the whole sketch as `baseSketch` so we can clean it up afterwards.
+![An empty sketch on the XY plane](/img/docs/tutorials/flange-with-notch-ui-02-sketch-xy.png)
 
-Further down in the sketch, constraints lock the circles in place:
+### Three circles
 
-```js
-    fix(c1.center(), [0, 0]);
-    concentric(c1, c2);
-    diameter(c1, 42);
-    diameter(c2, 70);
-```
+Pick **Circle**, click the **origin**, type `70` and press <kbd>Enter</kbd>. Clicking the origin snaps the centre to it, so the circle arrives with a `coincident` to the origin and its `diameter`: *Fully constrained* straight away. Do it again for the bore: click the origin, type `42`.
 
-`fix()` anchors the bore center at the origin, `concentric()` keeps the two circles sharing a center, and the `diameter()` dimensions pin their sizes.
+Now the bolt hole. Click a point on the **horizontal axis** to the right of the circles and type `10`. Snapping to the axis writes `coincident(hole.center(), xAxis())`, which leaves one degree of freedom: where along the axis. Click the hole's **centre**, **Ctrl+click** the **vertical axis**, click **Dimension** and type `50`.
 
-![Base circles](/img/docs/tutorials/flange-with-notch-step1.png)
+![Three circles: Ø70, Ø42 and the Ø10 hole 50 mm out](/img/docs/tutorials/flange-with-notch-ui-03-circles.png)
 
-### Bolt hole and guide circle
+### Rough out one tab
 
-```js
-    const c3 = circle([50, 0], 10);
-    const c4 = circle([50, 0], 32).guide();
-```
+The tab around the hole is two flanks tangent to the outer circle and an R16 cap concentric with the hole. Draw it roughly and let the constraints place it: pick **Line** and draw a flank from the upper part of the outer circle out to the upper right of the hole. Draw a second **Line** below the axis, mirrored by eye. Then pick **3-Pt Arc**, click the **end of the lower line**, the **end of the upper line**, and a third point out past the hole for the bulge. Snapping the arc onto the two line ends writes the two coincidents for free.
 
-`circle([50, 0], 10)` draws the bolt hole 50 units to the right. `circle([50, 0], 32).guide()` places a larger construction circle around it — visible for reference, but never part of the solid. This guide circle defines the tangent boundary for the connecting geometry between the flange and the bolt tabs.
+Do not try to be accurate. These are guesses; only the shape of the loop matters.
 
-Their constraints mirror the main pair:
+![The rough tab: two lines and an arc, 9 DOF left](/img/docs/tutorials/flange-with-notch-ui-04-rough-outline.png)
 
-```js
-    fix(c3.center(), [50, 0]);
-    concentric(c3, c4);
-    diameter(c3, 10);
-    diameter(c4, 32);
-```
+### Say what the tab is
 
-![Guide geometry](/img/docs/tutorials/flange-with-notch-step1-guides.png)
+Now the constraint bar, one relation at a time. Watch the DOF pill count down.
 
-## Step 2: Tangent line and arc
+1. Click the **upper flank**, **Ctrl+click** the **outer circle**, click **Tangent**. The line swings onto the circle.
+2. Click the upper flank's **start point**, **Ctrl+click** the **outer circle**, click **Coincident**. The line now starts exactly at the tangency point.
+3. Click the **arc**, **Ctrl+click** the **hole** (pick the hole on its right side, away from its Ø10 label), click **Concentric**.
+4. Click the **arc** alone, click **Dimension**, type `16`. On an arc, Dimension writes a `radius`.
+5. Click the **upper flank**, **Ctrl+click** the **arc**, click **Tangent**.
+6. Click the upper flank's **start point**, **Ctrl+click** the lower flank's **start point**, **Ctrl+click** the **horizontal axis**, click **Symmetric**.
+7. Click the **lower flank**, **Ctrl+click** the **arc**, click **Tangent**.
 
-Now we connect the outer flange circle to the guide circle with a tangent line and a closing arc.
+The pill reads *Fully constrained* with nothing redundant. No coordinates were typed for the tab at all: the outer circle, the hole and the R16 decide where the flanks touch down.
 
-### Tangent line
+![The tab fully constrained: two tangent flanks and the R16 cap](/img/docs/tutorials/flange-with-notch-ui-05-tab-constrained.png)
 
-```js
-    const l1 = line([13.3, 32.374527], [56.08, 14.799784]);
-```
+A line tangent to two curves could sit on either side of them. The guess decides: the solver keeps each flank on the side you drew it, so drawing it roughly in the right place *is* the choice.
 
-with its constraints:
+### Mirror the tab
 
-```js
-    tangent(l1, c2);
-    tangent(l1, c4);
-    coincident(l1.start(), c2);
-    coincident(l1.end(), c4);
-```
+Pick the **Mirror** tool from the sketch toolbar. Click the **upper flank**, the **arc**, the **lower flank** and the **hole** for **Geometry**, then click the **Mirror line** slot and click the **vertical axis**. The blue outline is the mirrored copy and the statement reads `mirror(yAxis(), upper, cap, lower, hole)`.
 
-The two `tangent()` constraints make the line touch both circles; the two `coincident()` constraints put its endpoints *on* the circles, so the segment runs exactly between the tangency points.
+![The 2D Mirror tool with the mirrored tab preview](/img/docs/tutorials/flange-with-notch-ui-06-mirror-ghost.png)
 
-A line can be tangent to two circles in four different ways — outside both, crossing between them, and so on. The solver picks the solution nearest the guess, so the start and end coordinates you draw choose the branch: here both points sit on the upper-outside of their circles, which lands the outer tangent. (The numbers are the exact tangency points, but nearby guesses solve to the same spot.)
+Click **Apply**. The profile is complete and still fully constrained; the mirrored half follows the original.
 
-```js
-    const m = mirror("x", l1);
-```
+![The complete flange profile](/img/docs/tutorials/flange-with-notch-ui-07-profile-complete.png)
 
-`mirror("x", l1)` creates the matching tangent line below the axis, forming a symmetric pair. Mirror is a *derived* operation — it stamps a copy of already-solved geometry, so it sits after the constraints in the sketch.
+### Extrude the flange
 
-![Tangent lines](/img/docs/tutorials/flange-with-notch-step2-tangent.png)
+Click **Finish Sketch ▾** and choose **Extrude**. Set **Distance** to `12`. The green ghost is the live preview, and the statement reads `extrude(12)`. The two inner loops, the bore and the holes, become holes on their own because **Drill holes** is on.
 
-### Closing arc
+![Extrude dialog with the 12 mm ghost preview](/img/docs/tutorials/flange-with-notch-ui-08-extrude-ghost.png)
 
-```js
-    const a = arc([56.08, -14.799784], [56.08, 14.799784], [50, 0]);
-```
+Click **Apply**.
 
-```js
-    concentric(a, c4);
-    equal(a, c4);
-    coincident(a.end(), l1.end());
-    symmetric(a.start(), l1.end(), xAxis());
-```
+![The extruded flange](/img/docs/tutorials/flange-with-notch-ui-09-flange.png)
 
-The cap around the bolt tab is an arc of the guide circle itself: `concentric()` and `equal()` make the arc share `c4`'s center and radius, so it rides the guide circle. `coincident(a.end(), l1.end())` joins it to the tangent line, and `symmetric(..., xAxis())` places its start point as the mirror image of that junction — exactly where the mirrored line ends. Because the arc is tangent-continuous with both lines, the tab outline is smooth.
+## Step 2: The pipe
 
-![Tangent arc](/img/docs/tutorials/flange-with-notch-step2-arc.png)
+### Sketch on the flange's top face
 
-## Step 3: Complete profile and extrude
+Click **Sketch** and this time click the **top face of the flange**. The chip reads *Face — Extrude*: FluidCAD remembered which operation produced that face, so the sketch follows the flange if you change it later. The section view shows the flange in grey with the origin at the bore's centre.
 
-### Mirror the profile
+![A sketch opened on the flange top face](/img/docs/tutorials/flange-with-notch-ui-10-sketch-face.png)
 
-```js
-    mirror("y", l1, m, a, c3);
-})
-```
+### Two circles on the origin
 
-`mirror("y", l1, m, a, c3)` mirrors the tangent lines, the arc, and the bolt hole circle across the Y axis. This creates the second bolt tab on the opposite side, completing the symmetric flange profile.
+Pick **Circle**, click the **origin**, type `70`. Click the origin again and type `42`. Both snap to the origin, so the ring is fully constrained the moment it is drawn.
 
-![Complete sketch](/img/docs/tutorials/flange-with-notch-step3-sketch.png)
+![The Ø70 / Ø42 ring on the flange top](/img/docs/tutorials/flange-with-notch-ui-11-ring-sketch.png)
 
-### Extrude the base
+### Extrude the ring
 
-```js
-const base = extrude(12)
-```
+**Finish Sketch ▾ → Extrude**, **Distance** `34`. The flange is 12 tall and the pipe tops out at 46, so the ring grows by 34 from the face it sits on.
 
-`extrude(12)` pushes the profile 12 units to create the solid flange base. We store the result as `base` to reference its faces later for the counter bores.
+![Extrude dialog with the 34 mm pipe ghost](/img/docs/tutorials/flange-with-notch-ui-12-pipe-ghost.png)
 
-The non-reusable geometry (tangent lines, arc, bolt holes) is consumed by this extrude. The two `.reusable()` circles stay behind on the sketch, ready for the next step.
+Click **Apply**. The tube fuses onto the flange, sharing its bore.
 
-![Extruded base](/img/docs/tutorials/flange-with-notch-step3.png)
+![The pipe on the flange](/img/docs/tutorials/flange-with-notch-ui-13-pipe.png)
 
-## Step 4: Middle pipe
+## Step 3: The notch
 
-```js
-extrude(46);
-remove(baseSketch);
-```
+### Sketch on the pipe's top face
 
-`extrude(46)` picks up the two reusable circles left on the base sketch — the inner 42 and the outer 70 — and extrudes the ring between them to 46 units. That gives us the middle pipe at its full height, sharing the same bore as the flange, with no need to redraw the profile.
+Tilt the view so you look down on the pipe, click **Sketch**, and click the **top rim of the pipe**. The datum planes also sit in the pick set, so if the chip says *XZ plane* rather than *Face — Extrude*, clear it with **✕** and click the rim from a steeper angle.
 
-Once the pipe is built, `remove(baseSketch)` disposes of the sketch so its leftover reusable geometry doesn't accidentally get picked up by later operations. It also cleans up the view, making it easier to select the top face of the pipe for the notch.
+![A sketch opened on the pipe top](/img/docs/tutorials/flange-with-notch-ui-14-sketch-pipe-top.png)
 
-![Middle pipe](/img/docs/tutorials/flange-with-notch-step4.png)
+### A centered rectangle
 
-## Step 5: Notch
+The notch is 30 wide and runs right across the pipe, so it is a 30 × 70 rectangle centered on the origin. Click **Rectangle** and switch on **Centered** in its option menu; the rectangle then grows from its middle instead of from a corner.
 
-### Sketch the notch rectangle
+![The Rectangle tool's option menu with Centered on](/img/docs/tutorials/flange-with-notch-ui-15-rectangle-options.png)
 
-```js
-sketch(plane("xy", 46), () => {
-    const nb = line([-15, -35], [15, -35]);
-    const nr = line([15, -35], [15, 35]);
-    const nt = line([15, 35], [-15, 35]);
-    const nl = line([-15, 35], [-15, -35]);
+Click the **origin**. A **W** readout follows the mouse; type `30` and press <kbd>Enter</kbd>. The readout switches to **H**; type `70` and press <kbd>Enter</kbd>.
 
-    coincident(nb.end(), nr.start());
-    coincident(nr.end(), nt.start());
-    coincident(nt.end(), nl.start());
-    coincident(nl.end(), nb.start());
-    horizontal(nb);
-    vertical(nr);
-    horizontal(nt);
-    vertical(nl);
-    fix(nb.start(), [-15, -35]);
-    distance(nb.start(), nb.end(), 30);
-    distance(nr.start(), nr.end(), 70);
-})
-```
+![Rectangle tool: the width is typed, the height comes next](/img/docs/tutorials/flange-with-notch-ui-16-rectangle-size.png)
 
-`plane("xy", 46)` creates a reference plane at the top of the pipe (46 units up). The rectangle is four lines closed by `coincident()` corner constraints, squared up by `horizontal()`/`vertical()`, anchored with `fix()`, and dimensioned 30 x 70 by the two `distance()` constraints. Its corners straddle the origin, so it sits centered over the pipe wall.
+One gesture writes four lines, their corner coincidents, two horizontals, two verticals, the 30 and 70 dimensions, and, because you clicked the origin, a `midpoint` tying the rectangle's centre to it. *Fully constrained*.
 
-![Notch sketch](/img/docs/tutorials/flange-with-notch-step5-sketch.png)
+![The 30 × 70 rectangle centered on the pipe](/img/docs/tutorials/flange-with-notch-ui-17-notch-sketch.png)
 
-### Cut the notch
+### Cut it 8 deep
 
-```js
-cut(8)
-```
+**Finish Sketch ▾ → Extrude**, switch to the **Remove** tab, **Depth** `8`. The red ghost shows the material about to go; the statement reads `cut(8)`.
 
-`cut(8)` removes 8 units of material downward from the rectangle, creating a notch in the top of the pipe.
+![Extrude dialog on the Remove tab with the 8 mm notch ghost](/img/docs/tutorials/flange-with-notch-ui-18-notch-cut-ghost.png)
 
-![Notch cut](/img/docs/tutorials/flange-with-notch-step5.png)
+Click **Apply**. The rectangle only meets solid where it crosses the pipe wall, so one cut makes both sides of the notch.
 
-## Step 6: Counter bores
+![The notched pipe](/img/docs/tutorials/flange-with-notch-ui-19-notch.png)
 
-### Sketch the counter bore circles
+## Step 4: Counterbores
 
-```js
-sketch(base.endFaces(), () => {
-    circle([50, 0], 20);
-    mirror("y")
-  });
-```
+### Back to the flange top
 
-`base.endFaces()` gives us the top face of the flange base. `circle([50, 0], 20)` draws a larger circle over the bolt hole center for the counter bore, and `mirror("y")` mirrors it to the other bolt tab.
+Click **Sketch** and click the **flange's top face** again, out on one of the tabs. The chip says *Face — Cut* now, because the last feature to touch the body was the notch, but the statement still names the flange's own end face.
 
-![Counter bore sketch](/img/docs/tutorials/flange-with-notch-step6-sketch.png)
+![A sketch on the flange top for the counterbores](/img/docs/tutorials/flange-with-notch-ui-20-sketch-flange-top.png)
 
-### Cut the counter bores
+### One Ø20 circle over the hole
 
-```js
-cut(4)
-```
+Pick **Circle**, click the **centre of the right bolt hole** (the snap finds it), type `20`. The snap only placed the centre, it did not constrain it, so the pill still counts 2 DOF. Zoom in on the hole so its Ø20 label clears the centre, then click the circle's **centre**, **Ctrl+click** the **vertical axis**, **Dimension**, `50`; and again the centre, **Ctrl+click** the **horizontal axis**, **Coincident**. *Fully constrained*.
 
-`cut(4)` removes 4 units of material, creating shallow recesses for bolt heads.
+![The Ø20 counterbore circle, fully constrained](/img/docs/tutorials/flange-with-notch-ui-21-counterbore-circle.png)
 
-![Finished flange with notch](/img/docs/tutorials/flange-with-notch-final.png)
+### Mirror it
+
+Pick **Mirror**, click the **circle**, click the **Mirror line** slot and click the **vertical axis**.
+
+![The 2D Mirror tool with the mirrored circle preview](/img/docs/tutorials/flange-with-notch-ui-22-counterbore-mirror.png)
+
+Click **Apply**. Two counterbores from one constrained circle.
+
+![Both counterbore circles](/img/docs/tutorials/flange-with-notch-ui-23-counterbore-sketch.png)
+
+### Cut them 4 deep
+
+**Finish Sketch ▾ → Extrude**, **Remove** tab, **Depth** `4`. The statement reads `cut(4)`.
+
+![Extrude dialog with the 4 mm counterbore ghost](/img/docs/tutorials/flange-with-notch-ui-24-counterbore-cut-ghost.png)
+
+Click **Apply**. That is the flange.
+
+![The finished flange with notch](/img/docs/tutorials/flange-with-notch-ui-25-final.png)
 
 ## Full code
 
-<OpenInViewer code={flangeWithNotchFinal} entry="flange-with-notch.fluid.js" />
+Everything above was written into `flange-with-notch.fluid.js` by the dialogs. Open the code editor with the `</>` button on the left rail or <kbd>Ctrl</kbd>+<kbd>B</kbd> to read it. The listing below is the same model with tidier names; the coordinates you clicked will differ, but the constraints make the geometry identical.
 
-<CodeBlock language="js">{flangeWithNotchFinal}</CodeBlock>
+<details>
+  <summary>Show the full code</summary>
+
+  <CodeBlock language="js">{flangeWithNotchFinal}</CodeBlock>
+
+</details>
+
+<OpenInViewer code={flangeWithNotchFinal} entry="flange-with-notch.fluid.js" />
 
 ## What you practiced
 
-- **`circle().guide()`** — placing construction geometry that guides tangency but isn't part of the solid
-- **`tangent()` + `coincident()`** — pinning a line between the tangency points of two circles, with guess placement choosing among the tangent solutions
-- **`concentric()` + `equal()`** — making an arc ride an existing circle to cap a tab
-- **`symmetric()` with `xAxis()`** — locating a point as a mirror image across a sketch datum
-- **`mirror()` in sketches** — mirroring solved geometry to create symmetric profiles
-- **`.reusable()`** — keeping sketch geometry alive across multiple features
-- **`remove()`** — disposing of a reusable sketch once you're done with it
-- **`plane()`** — creating offset reference planes for sketching
-- **`.endFaces()`** — referencing the top face of an extrusion for follow-up sketches
+- **Circle** snapped to the origin or an axis, and **Dimension** against the sketch's own axes instead of typed coordinates
+- A **rough outline** (Line, Line, 3-Pt Arc) turned into an exact one by **Tangent**, **Concentric**, a typed **radius** and **Symmetric**, with the DOF pill as the check that nothing is left loose
+- The 2D **Mirror** tool, twice, for the second tab and the second counterbore
+- **Sketching on a face** an operation produced, and reading the *Face — Extrude* / *Face — Cut* chip
+- **Rectangle** with its **Centered** option, one gesture for a fully constrained notch profile
+- **Extrude** on the **Remove** tab with a typed depth, for cuts that stop part way through

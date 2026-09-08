@@ -59,3 +59,13 @@ sketch(pipe.endFaces(), () => {
   distance(right.start(), right.end(), 70);
   midpoint(origin(), bottom.start(), top.start());
 });
+
+cut(8);
+
+sketch(flange.endFaces(), () => {
+  const recess = circle([50, 0], 20);
+  diameter(recess, 20);
+  distance(recess.center(), yAxis(), 50);
+  coincident(recess.center(), xAxis());
+  mirror(yAxis(), recess);
+});

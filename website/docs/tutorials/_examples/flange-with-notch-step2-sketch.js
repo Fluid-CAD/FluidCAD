@@ -39,23 +39,3 @@ sketch(flange.endFaces(), () => {
   coincident(inner.center(), origin());
   diameter(inner, 42);
 });
-
-const pipe = extrude(34);
-
-sketch(pipe.endFaces(), () => {
-  const bottom = line([-15, -35], [15, -35]);
-  const right = line([15, -35], [15, 35]);
-  const top = line([15, 35], [-15, 35]);
-  const left = line([-15, 35], [-15, -35]);
-  coincident(bottom.end(), right.start());
-  coincident(right.end(), top.start());
-  coincident(top.end(), left.start());
-  coincident(left.end(), bottom.start());
-  horizontal(bottom);
-  horizontal(top);
-  vertical(right);
-  vertical(left);
-  distance(bottom.start(), bottom.end(), 30);
-  distance(right.start(), right.end(), 70);
-  midpoint(origin(), bottom.start(), top.start());
-});

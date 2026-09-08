@@ -3,15 +3,45 @@ sidebar_position: 2
 title: "Polygon"
 ---
 
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import compoundPolygon from '!!raw-loader!../_examples/compound-polygon.js';
+import compoundPolygonInscribed from '!!raw-loader!../_examples/compound-polygon-inscribed.js';
+
 # Polygon
 
-:::caution[Work in progress]
-The Polygon tool is being finished. This page will be completed once it lands; the notes below describe what is in place today.
-:::
+A regular polygon in one gesture: hex bosses, nut pockets, octagonal bodies. The tool writes one line per side around a guide circle, plus the constraints that keep the sides equal and the shape regular — and one dimension, the circle's diameter, resizes the whole polygon.
 
-The **Polygon** tool draws a regular polygon in one gesture: click the centre, set the size, then the number of sides (both can be typed in the pill). The tool's menu picks how the size is read against the guide circle:
+## In the viewport
 
-- **Circumscribed** — the sides are tangent to the circle (the circle is the inscribed circle: across-flats sizing).
-- **Inscribed** — the vertices lie on the circle (across-corners sizing).
+1. Click **Polygon** on the sketch toolbar. The button opens a menu with the sizing mode: **Circumscribed** (the default) draws the sides tangent to the guide circle, so the size is measured across the flats; **Inscribed** puts the vertices on the circle, so the size is measured across the corners.
+2. Click the centre. The **X / Y** pill places it exactly; a centre that snaps onto a vertex or the origin gets a coincident written for the guide circle's centre.
+3. Move out to size the polygon and click — or type the **⌀** diameter and press <kbd>Enter</kbd>.
+4. The pill switches to **N**. Moving the mouse away from the centre adds sides to the preview; type the count and press <kbd>Enter</kbd>. Between 3 and 24 sides.
 
-The statement written is not a polygon: it is one [line](/docs/sketching/primitives/line) per side, a guide [circle](/docs/sketching/primitives/circle), and the constraints that keep it regular — `coincident` at every corner, `equal` across the sides, and the vertices (or sides) held on the guide circle, whose centre is pinned by a coincident when the anchor snapped. The guide circle's diameter is what you dimension to resize the whole polygon.
+A typed diameter becomes a `diameter` dimension on the guide circle; a clicked size stays a guess.
+
+![A hexagon 60 across the flats, centred on the origin](/img/docs/sketching/compound-polygon.png)
+
+<ExplainedCode code={compoundPolygon} fileName="boss.part.js" />
+
+The tool leaves one degree of freedom: the polygon can spin about its centre. Select a side and click **Horizontal** or **Vertical** on the constraint bar to settle it, as the example does.
+
+## Circumscribed and inscribed
+
+Both modes write the same lines, the same `coincident` chain and the same `.guide()` circle; they differ in how the sides are tied to the circle.
+
+<ModeTable columns={[
+  {title: 'Circumscribed', code: 'tangent(side, guide)', image: '/img/docs/sketching/compound-polygon.png', description: 'Every side is tangent to the guide circle. The diameter is the across-flats size — what a wrench or a nut pocket measures.'},
+  {title: 'Inscribed', code: 'coincident(vertex, guide)', image: '/img/docs/sketching/compound-polygon-inscribed.png', description: 'Every vertex lies on the guide circle. The diameter is the across-corners size — what a round bar must be to turn the polygon from.'},
+]} />
+
+<ExplainedCode code={compoundPolygonInscribed} fileName="boss.part.js" />
+
+One `equal` runs across the sides. For a circumscribed polygon with an even number of sides the last side is left out of it — the tangents already force it equal, and listing it would only add a redundant row — and one corner `angle` (360° divided by the side count) pins the shape instead.
+
+## By hand
+
+There is no `polygon()` statement. Write the sides as [lines](/docs/sketching/primitives/line), a [`circle(...).guide()`](/docs/sketching/tools/guides) for the size, and the constraints from the example: a `coincident` at each corner, one variadic `equal` across the sides, then either `tangent(side, guide)` per side or `coincident(vertex, guide)` per vertex. Dimension the guide circle's `diameter` to size the polygon.
+
+The guide circle is construction geometry: it stays out of the profile when the sketch is extruded, and it is the entity to pick when you want the polygon's centre — `coincident(c1.center(), origin())`, or `concentric` with a bore.

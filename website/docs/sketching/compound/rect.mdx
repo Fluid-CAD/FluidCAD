@@ -3,17 +3,89 @@ sidebar_position: 1
 title: "Rectangle"
 ---
 
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import compoundRect from '!!raw-loader!../_examples/compound-rect.js';
+import compoundRectRounded from '!!raw-loader!../_examples/compound-rect-rounded.js';
+
 # Rectangle
 
-:::caution[Work in progress]
-The Rectangle tool is being finished. This page will be completed once it lands; the notes below describe what is in place today.
+A rectangle in one gesture: plates, pockets, bosses and the outline most parts start from. The tool writes four lines and the constraints that keep them a rectangle, so every side and corner stays editable afterwards.
+
+## In the viewport
+
+1. Click **Rectangle** on the sketch toolbar. The button opens a small menu with two toggles: **Rounded** adds a corner-radius step to the gesture, **Centered** grows the rectangle from its middle instead of from a corner.
+2. Click the first corner (or the centre, with **Centered** on). The **X / Y** pill places it exactly.
+3. Move to the opposite corner and click — or type the **W** width, press <kbd>Enter</kbd>, type the **H** height and press <kbd>Enter</kbd>. Where the mouse sits relative to the first corner picks which way a typed size grows.
+4. With **Rounded** on, the pill switches to **R**: type the corner radius or click to set it.
+
+Typed sizes become dimensions in the sketch; a size set by clicking stays a guess you can drag. A first corner that snaps onto a vertex or the origin gets a coincident written for it, and so does an opposite corner that snaps onto one (both under **Auto-constraints**; hold <kbd>Ctrl</kbd> to skip one).
+
+![An 80 × 50 rectangle with one corner on the origin](/img/docs/sketching/compound-rect.png)
+
+<ExplainedCode code={compoundRect} fileName="plate.part.js" />
+
+What the tool writes is ordinary geometry: four [lines](/docs/sketching/primitives/line), a `coincident` at each corner, `horizontal` on the top and bottom, `vertical` on the two sides, and a `distance` for each typed size. Nothing is special about the result — drag a side, dimension a corner to something else, or delete a constraint and the shape follows.
+
+## Centered
+
+With **Centered** on, the first click is the centre. No vertex of the rectangle sits there, so a snapped centre cannot become a coincident. The tool writes a `midpoint` instead: the snapped point is held halfway between two diagonally opposite corners, which pins the centre just as firmly.
+
+```js
+midpoint(origin(), b.start(), t.start());   // the centre stays on the origin
+```
+
+## Rounded
+
+With **Rounded** on, the gesture ends with a radius, and the outline arrives as four lines and four corner [arcs](/docs/sketching/primitives/arc): `coincident` and `tangent` at each of the eight junctions, `horizontal` / `vertical` on the sides, one `radius` dimension on the first arc with the other three `equal` to it. The typed width and height are written as distances between opposite sides, since the sharp corners no longer exist.
+
+![A 120 × 66 rounded rectangle, R13, centred on the origin](/img/docs/sketching/compound-rect-rounded.png)
+
+<ExplainedCode code={compoundRectRounded} fileName="plate.part.js" />
+
+A rounded rectangle is what the sketch [Fillet](/docs/sketching/tools/fillet) tool would produce from a plain one — the same arcs and constraints, in one gesture.
+
+## By hand
+
+Writing the four [lines](/docs/sketching/primitives/line) out yourself is fine — the first example above is the complete recipe: a `coincident` at each corner, `horizontal` on two opposite sides, `vertical` on the other two, two `distance` constraints for the size and one pinned corner. For hand-written models there is also a shorter form, `rect()` from `fluidcad/shapes`:
+
+```js
+import { rect } from 'fluidcad/shapes';
+
+rect([0, 0], 80, 50)               // bottom-left corner, width, height
+rect([0, 0], 30)                   // a square — the height defaults to the width
+rect([40, 25], 80, 50).centered()  // the position is the centre
+rect([0, 0], 80, 50).radius(10)    // rounded corners, one shared radius
+```
+
+A `rect()` is one statement and one timeline row. Its corner, horizontal and vertical rules are internal to the shape: there are no constraint statements to read, and none to delete by accident. What you constrain from outside are its edges and their points, through the accessors below.
+
+```js
+const r = rect([0, 0], 80, 50);
+coincident(r.bottom().start(), origin());   // pin the position corner
+distance(r.left(), r.right(), 80);          // width
+distance(r.bottom(), r.top(), 50);          // height — now fully constrained
+```
+
+:::caution[Every argument is a guess]
+`rect([0, 0], 80, 50)` has four degrees of freedom: position, width and height are starting values, not dimensions, exactly like the coordinates of a `line()`. Pin the position with a `coincident` or `fix` on a corner point and size it with two `distance` constraints. `.radius(10)` adds a fifth degree of freedom rather than locking anything — put a `radius()` dimension on a corner arc to fix it.
 :::
 
-The **Rectangle** tool draws a rectangle in one gesture and writes it out as primitives and constraints — there is no `rect()` statement in a sketch. The tool's menu holds two toggles:
+### Accessors
 
-- **Rounded** — the corners become tangent arcs (the Rounded Rectangle variant).
-- **Centered** — the first click is the centre instead of a corner; the gesture grows outward.
+| Accessor | Meaning |
+|---|---|
+| `r.bottom()` | The side leaving the position corner, then `r.right()`, `r.top()`, `r.left()` counter-clockwise |
+| `r.bottom().start()` / `.end()` | The endpoints of a side |
+| `r.corner(i)` | Corner arc `i` of a rounded rect: 0 at the position corner, counter-clockwise |
+| `r.corner(i).center()` | The centre of that corner arc |
 
-What lands in the file is four [lines](/docs/sketching/primitives/line) (plus four [arcs](/docs/sketching/primitives/arc) for the rounded variant) and the constraints that hold the shape: `coincident` at every corner, `horizontal` / `vertical` on the sides, `equal` and `tangent` on the corner arcs with one `radius` dimension, and — when the anchor snapped onto a vertex or the origin — a `midpoint` that pins the centre across a diagonal so it stays put when the sketch re-solves. Width and height arrive as `distance` dimensions when typed in the pill.
+The sides accept the same constraints as any line — `distance` between two opposite sides sizes the shape, `coincident(r.left().start(), origin())` places it. The corner arcs take `radius`, `equal` and `tangent`.
 
-Because the result is ordinary geometry, every side and corner can be constrained, dimensioned and dragged like anything drawn by hand.
+### Modifiers
+
+```js
+rect([0, 0], 80, 50).guide()          // construction geometry — see Guides
+rect([0, 0], 80, 50).name('plate')    // name it for the timeline
+```
+
+`.centered()` and `.radius()` chain in any order, once each.

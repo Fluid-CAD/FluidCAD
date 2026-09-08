@@ -3,12 +3,43 @@ sidebar_position: 3
 title: "Slot"
 ---
 
+import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import compoundSlot from '!!raw-loader!../_examples/compound-slot.js';
+import compoundSlotCentered from '!!raw-loader!../_examples/compound-slot-centered.js';
+
 # Slot
 
-:::caution[Work in progress]
-The Slot tool is being finished. This page will be completed once it lands; the notes below describe what is in place today.
+A stadium — two parallel lines closed by two semicircular caps — in one gesture: adjustment slots, keyways, open notches. The tool writes two lines and two arcs with the constraints of a slot, so the length, the width and the position all stay editable.
+
+## In the viewport
+
+1. Click **Slot** on the sketch toolbar. The button opens a menu with one toggle, **Centered**: anchor the slot at its midpoint instead of at its first cap centre.
+2. Click the first cap centre (or the midpoint, with **Centered** on). The **X / Y** pill places it exactly; a click that snaps onto a vertex or the origin gets a constraint written for it.
+3. Move in the direction of the slot. A drag close to the horizontal or the vertical snaps onto the axis; hold <kbd>Ctrl</kbd> to keep the exact angle. Click the second cap centre — or type the **D** centre distance and press <kbd>Enter</kbd>.
+4. The pill switches to **R**. Move to set the cap radius and click, or type it and press <kbd>Enter</kbd>.
+
+Typed values become dimensions: the length is a `distance` between the two cap centres, the width a `radius` on the first cap. Clicked values stay guesses.
+
+![A 40 mm slot, R8, from the origin along the X axis](/img/docs/sketching/compound-slot.png)
+
+<ExplainedCode code={compoundSlot} fileName="bracket.part.js" />
+
+What the tool writes: two [lines](/docs/sketching/primitives/line) and two half-circle [arcs](/docs/sketching/primitives/arc), `coincident` and `tangent` at each of the four junctions, and `equal` across the two caps. The parallel sides follow from the tangents, so no `parallel` is needed.
+
+:::note[The axis snap is not a constraint]
+Snapping the drag onto the horizontal only draws the slot straight. Its orientation stays a free degree of freedom unless a cap centre snapped onto something — in the example both did, the origin and the X axis, which is what holds it. Otherwise select a side and click **Horizontal** or **Vertical**, or dimension both cap centres.
 :::
 
-The **Slot** tool draws a stadium — two parallel lines closed by two semicircular caps — in one gesture: click the start point, then set the length and the cap radius (typed or dragged). Near-horizontal and near-vertical slots snap to the axis; hold <kbd>Ctrl</kbd> for a free angle. The **Centered** toggle anchors the slot at its centre instead of its first cap.
+## Centered
 
-The file receives two [lines](/docs/sketching/primitives/line) and two [arcs](/docs/sketching/primitives/arc) with the constraints of a slot: `coincident` where the lines meet the caps, `tangent` at each junction, `parallel` and `equal` lines, `equal` cap arcs with one `radius` dimension, and a `midpoint` pinning the centre when the anchor snapped. The length is a `distance` between the two cap centres.
+With **Centered** on, the first click is the slot's midpoint and the caps grow out in both directions. No vertex sits on the midpoint, so a snapped anchor is written as a `midpoint` between the two cap centres rather than a coincident:
+
+![A 50 mm slot centred on the origin](/img/docs/sketching/compound-slot-centered.png)
+
+<ExplainedCode code={compoundSlotCentered} fileName="bracket.part.js" />
+
+## By hand
+
+There is no `slot()` statement. Write the two lines and two arcs from the example with their coincidents, tangents and the `equal` on the caps; dimension the `distance` between the cap centres for the length and a `radius` on one cap for the width. Position it through the cap centres — `coincident(left.center(), origin())`, or a `distance` from a sketch axis — and orient it with `horizontal` / `vertical` on a side.
+
+A slot cut through material is the usual way to make an open notch: let one cap hang outside the part and the cut leaves the mouth open. The [upper alignment clamp](/docs/tutorials/upper-alignment-clamp) tutorial does exactly that.

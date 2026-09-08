@@ -75,7 +75,7 @@ export const frame = assembly('frame', () => {
 
 (The [Param](./param) page builds the real profile.)
 
-The wrap-in-a-function pattern from older FluidCAD versions (`export function createPart(diameter) { return part(...) }`) still works, but `param()` is what the Insert dialog and the Parameters panel understand.
+Declare every adjustable value with `param()`: it is what the Insert dialog and the Parameters panel read.
 
 ## Units
 

@@ -42,8 +42,16 @@ export class ThinFaceMaker {
       // BRepOffsetAPI_MakeOffset can choke on wires whose corners are split
       // into multiple same-curve segments (e.g. wires returned by `offset()`
       // over a drafted body's filleted bottom).
-      const wire = this.unifyWireEdges(rawWire);
-      const isClosed = wire.isClosed();
+      const unified = this.unifyWireEdges(rawWire);
+      const isClosed = unified.isClosed();
+      // A closed profile is built as a region — outer wire plus a reversed
+      // inner wire — which only holds when the outer wire runs
+      // counter-clockwise around the plane normal. Profiles arrive in either
+      // direction (a projected hole loop is clockwise), so normalize here;
+      // the offset sign is already direction-independent for closed wires.
+      const wire = isClosed && unified.isCW(plane.normal)
+        ? WireOps.reverseWire(unified)
+        : unified;
 
       if (offset2 !== undefined) {
         const result = this.makeDualOffsetFace(wire, isClosed, plane, offset1, offset2);

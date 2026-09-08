@@ -42,9 +42,18 @@ export class WireOps {
    *
    * For open wires a negative distance offsets to the *opposite* side — the
    * face-based offset does not flip sides on a sign change by itself, so the
-   * wire is reversed, offset by the magnitude, then reversed back. For closed
-   * wires the plane-less offset is tried first (the path circles rely on, where
-   * the sign selects inward/outward) and the face-based offset is the fallback.
+   * wire is reversed, offset by the magnitude, then reversed back.
+   *
+   * For closed wires the sign means outward (+) / inward (-) regardless of
+   * the wire's own direction. BRepOffsetAPI_MakeOffset offsets relative to
+   * the direction of travel, so a clockwise wire — a projected hole loop, a
+   * hand-drawn clockwise polyline — would otherwise swap sides and every
+   * consumer that reads the sign as inward/outward (the thin-profile ring
+   * builder picks its outer/inner wire from it) would build an inverted
+   * region. The wire is normalized to counter-clockwise around the plane
+   * normal for the offset and the result is handed back in the caller's
+   * direction. The plane-less offset is tried first (the path circles rely
+   * on) and the face-based offset is the fallback.
    */
   static offsetWireOnPlane(wire: Wire, distance: number, isClosed: boolean, plane: Plane): Wire {
     if (!isClosed) {
@@ -56,11 +65,15 @@ export class WireOps {
       return WireOps.offsetWire(wire, distance, true, plane);
     }
 
+    const clockwise = WireOps.isCW(wire, plane.normal);
+    const source = clockwise ? WireOps.reverseWire(wire) : wire;
+    let result: Wire;
     try {
-      return WireOps.offsetWire(wire, distance, false);
+      result = WireOps.offsetWire(source, distance, false);
     } catch {
-      return WireOps.offsetWire(wire, distance, false, plane);
+      result = WireOps.offsetWire(source, distance, false, plane);
     }
+    return clockwise ? WireOps.reverseWire(result) : result;
   }
 
   static isCWRaw(wire: TopoDS_Wire, normal: Vector3d): boolean {

@@ -45,9 +45,6 @@ export type SketchOpDialog = {
   readonly isActive: boolean;
   readonly isEditing: boolean;
   readonly isAwaitingSketch: boolean;
-  /** True for a draw-options dialog: the classic drawing tool owns the
-   * viewport while the dialog shows only its hint and options (slot). */
-  readonly isDrawDialog: boolean;
   enter(): void;
   exit(): void;
   refresh(): void;
@@ -118,8 +115,7 @@ export type SketchOpSelection = {
 
 /** The per-operation dressing of the shared 2D op dialog. */
 export type SketchOpConfig = {
-  /** 'slot' is draw-only: its dialog never sends an apply-feature request. */
-  feature: SketchOpFeature | 'slot';
+  feature: SketchOpFeature;
   title: string;
   pickHint: string;
   /**
@@ -140,16 +136,6 @@ export type SketchOpConfig = {
    * leaves a closed offset nothing to cap to (the kernel throws on the pair).
    */
   toggles?: { key: SketchOpToggleKey; label: string; title: string; defaultChecked?: boolean }[];
-  /**
-   * Draw-options dialog (slot): the classic drawing tool owns the viewport
-   * while the dialog shows only a hint and (optionally) one option toggle.
-   * No pick body, no value row, no Apply — draw dialogs are create-only.
-   */
-  draw?: {
-    hint: string;
-    /** An option toggle shown in the draw pane (slot's Centered). */
-    toggle?: { label: string; title: string };
-  };
 };
 
 /** An `offset()` or 2D `fillet()` statement as the parse route reads it. */
@@ -165,7 +151,7 @@ type ParsedSketchOp = Extract<ParsedFeatureStatement, { feature: 'offset' } | { 
  * row is editable (expression transparency) with verified alternatives.
  *
  * The same dialog edits an existing statement in place ({@link enterEdit},
- * offset and fillet today — slot lost its edit mode): the timeline double-click's breakpoint pauses the build
+ * offset and fillet today): the timeline double-click's breakpoint pauses the build
  * just BEFORE that statement, so the sketch on screen is the one its
  * arguments see — the statement's own result absent, a removed original
  * visible again — its options seed the fields, its targets seed the
@@ -178,12 +164,6 @@ export class SketchOpService {
    * dialog while this one is open and restore it after.
    */
   onVisibilityChange?: (visible: boolean) => void;
-
-  /**
-   * Fired when the draw pane's option toggle flips. The toolbar service
-   * re-arms the drawing tool so the new option takes effect immediately.
-   */
-  onDrawToggleChange?: (checked: boolean) => void;
 
   private readonly panel: HTMLDivElement;
   private readonly valueInput: HTMLInputElement | null;
@@ -206,8 +186,6 @@ export class SketchOpService {
    * change hook, which refreshes this dialog again. */
   private syncingCenter = false;
   private readonly toggles = new Map<SketchOpToggleKey, HTMLInputElement>();
-  /** The draw pane's option toggle (slot's Centered); null without one. */
-  private readonly drawToggle: HTMLInputElement | null;
 
   private active = false;
   private previewTimer: number | null = null;
@@ -273,21 +251,11 @@ export class SketchOpService {
           <div data-role="pick-slot"></div>`;
     const hintRow = `
           <div data-role="hint" class="hidden text-base-content/50"></div>`;
-    // A draw dialog shows only its hint pane; it can carry one option
-    // toggle of its own (slot's Centered) — it configures the armed drawing
-    // tool, so it lives outside the pick-pane toggles map.
-    const drawToggleRow = config.draw?.toggle ? `
-          <label data-role="draw-toggle-row" class="flex items-center justify-between cursor-pointer" title="${config.draw.toggle.title}">
-            <span class="text-base-content/70">${config.draw.toggle.label}</span>
-            <input data-role="draw-toggle" type="checkbox" class="toggle toggle-sm toggle-primary" />
-          </label>` : '';
-    const drawRow = config.draw ? `
-          <div data-role="draw-hint" class="text-base-content/50">${config.draw.hint}</div>${drawToggleRow}` : '';
     this.panel.innerHTML = `
       <div data-role="column" class="${DIALOG_COLUMN_CLASS}">
         ${PanelShell.frameHtml({
           header: `<span data-role="title" class="font-medium text-sm">${config.title}</span>`,
-          body: `${drawRow}
+          body: `
           <div data-role="pick-body" class="flex flex-col items-stretch gap-3.5">${pickSlotHost}${centerSlotHost}${hintRow}${valueRow}${toggleRows}</div>`,
           footer: `
             <button data-role="apply" class="btn btn-primary btn-sm flex-1" disabled>Apply</button>
@@ -302,16 +270,9 @@ export class SketchOpService {
     this.title = this.panel.querySelector('[data-role="title"]')!;
     this.hint = this.panel.querySelector('[data-role="hint"]')!;
     this.applyBtn = this.panel.querySelector('[data-role="apply"]')!;
-    // A draw dialog has no pick body and no Apply — the drawing tool commits.
-    if (config.draw) {
-      this.panel.querySelector('[data-role="pick-body"]')?.classList.add('hidden');
-      this.applyBtn.classList.add('hidden');
-    }
     for (const toggle of config.toggles ?? []) {
       this.toggles.set(toggle.key, this.panel.querySelector(`[data-role="toggle-${toggle.key}"]`)!);
     }
-    this.drawToggle = this.panel.querySelector('[data-role="draw-toggle"]');
-    this.drawToggle?.addEventListener('change', () => this.onDrawToggleChange?.(this.drawToggle!.checked));
     this.pickSlot = new PickSlot(this.panel.querySelector('[data-role="pick-slot"]')!, { label: 'Selection', multiple: true });
     // Picking is live the whole time the dialog is up — the slot always
     // wears the pick-target styling (matches ModifyPanel).
@@ -386,16 +347,6 @@ export class SketchOpService {
 
   get isActive(): boolean {
     return this.active;
-  }
-
-  /** Whether this is a draw-options dialog (see {@link SketchOpConfig}). */
-  get isDrawDialog(): boolean {
-    return this.config.draw !== undefined;
-  }
-
-  /** The draw pane's option toggle state; false for dialogs without one. */
-  get drawToggleChecked(): boolean {
-    return this.drawToggle?.checked ?? false;
   }
 
   /** True while the dialog rewrites an existing statement instead of writing one. */
@@ -884,7 +835,7 @@ export class SketchOpService {
   }
 
   private schedulePreview(): void {
-    if (!this.active || this.isDrawDialog) {
+    if (!this.active) {
       return;
     }
     if (this.previewTimer !== null) {
@@ -1078,9 +1029,7 @@ export class SketchOpService {
       }
       return applyOffsetEdit(this.editTarget, { ...this.offsetOptions()!, ...editOptions });
     }
-    // Draw dialogs (slot) never reach send() — their Apply is hidden and
-    // previews are suppressed — so the cast never lies at runtime.
-    return applySketchOp(this.config.feature as SketchOpFeature, options.value, entities, {
+    return applySketchOp(this.config.feature, options.value, entities, {
       offset: this.offsetOptions(),
       rotate2d: this.rotateOptions(),
       selectorOverride: options.selectorOverride,
@@ -1091,7 +1040,7 @@ export class SketchOpService {
   }
 
   private async apply(): Promise<void> {
-    if (this.applying || !this.active || this.isDrawDialog || this.incompleteReason() !== null) {
+    if (this.applying || !this.active || this.incompleteReason() !== null) {
       return;
     }
     const read = this.readValue();

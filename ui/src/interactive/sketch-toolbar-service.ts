@@ -81,7 +81,6 @@ export class SketchToolbarService {
   private filletOp!: SketchOpService;
   private offsetOp!: SketchOpService;
   private rotateOp!: SketchOpService;
-  private slotOp!: SketchOpService;
   private copyOp!: SketchCopyService;
   private mirrorOp!: SketchMirrorService;
   private toolbar: SketchToolbar;
@@ -246,38 +245,16 @@ export class SketchToolbarService {
       picks: () => this.activeHoverSelectHandler?.getSolvedPicks() ?? [],
       deselect: (pick) => this.activeHoverSelectHandler?.deselectSolvedPick(pick),
     });
-    this.slotOp = opService({
-      feature: 'slot', title: 'Slot', pickHint: '',
-      draw: {
-        hint: 'Draw the slot in the sketch: click the start point, then set the length and the cap radius. '
-          + 'Near-horizontal and near-vertical slots snap to the axis — hold Ctrl for a free angle.',
-        toggle: {
-          label: 'Centered',
-          title: 'Anchor the slot at its center instead of its first cap',
-        },
-      },
-    });
     this.opServices = {
       fillet: this.filletOp,
       copy: this.copyOp,
       mirror: this.mirrorOp,
       offset: this.offsetOp,
       rotate: this.rotateOp,
-      slot: this.slotOp,
     };
     for (const service of Object.values(this.opServices)) {
       service.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
     }
-    // Centered flips re-arm the drawing tool so the new anchor mode takes
-    // effect immediately (the rectangle's toggle reselects the same way).
-    this.slotOp.onDrawToggleChange = () => {
-      if (this.activeDrawingTool) {
-        this.activeDrawingTool.deactivate();
-        this.activeDrawingTool = null;
-        this.armSlotDrawTool();
-      }
-    };
-
     this.solvedToolbar = new SolvedConstraintToolbarService(
       container,
       viewer.sceneContext,
@@ -547,10 +524,6 @@ export class SketchToolbarService {
         }
         // A re-render may have pruned selected edges — keep the preview honest.
         this.activeOpService()?.refresh();
-      } else if (this.activeOpService()?.isDrawDialog) {
-        // The slot dialog owns the viewport through the classic drawing
-        // tool — restore it, not the pick handlers.
-        this.armSlotDrawTool();
       } else if (!this.toolbar.activeTool || this.activeOpService()) {
         // The op dialogs pick with the drag/hover handlers — an armed one
         // (or one that just regained its sketch) gets them back.
@@ -786,7 +759,7 @@ export class SketchToolbarService {
       case 'rounded-rect':
         return applySolvedContext(new RoundedRectTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.rectCenteredChecked));
       case 'slot':
-        return applySolvedContext(new SlotTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.slotOp.drawToggleChecked));
+        return applySolvedContext(new SlotTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container, fetchVars, this.toolbar.slotCenteredChecked));
       case 'text': {
         const tool = new TextTool(this.viewer.sceneContext, plane, snapCtrl, doInsertGeometry, this.container,
           () => this.handleToolSelect(null));
@@ -975,17 +948,11 @@ export class SketchToolbarService {
     }
 
     // The op dialogs (fillet, offset) keep the drag/hover handlers active —
-    // picking IS the input. The slot dialog is a draw-options dialog: the
-    // classic drawing tool owns the viewport instead.
+    // picking IS the input.
     const opService = this.opServices[toolId];
     if (opService) {
-      if (opService.isDrawDialog) {
-        opService.enter();
-        this.armSlotDrawTool();
-      } else {
-        this.activateDragHandler();
-        opService.enter();
-      }
+      this.activateDragHandler();
+      opService.enter();
       return;
     }
 
@@ -1008,30 +975,6 @@ export class SketchToolbarService {
       return;
     }
 
-    tool.setRelativeMode(this.relativeCoords);
-    tool.onRelativeModeChange = (relative) => { this.relativeCoords = relative; };
-    tool.activate();
-    this.activeDrawingTool = tool;
-  }
-
-  /**
-   * Hand the viewport to the slot dialog's drawing tool (the dialog keeps
-   * showing its hint and options).
-   */
-  private armSlotDrawTool(): void {
-    if (!this.activeSketchInfo) {
-      return;
-    }
-    this.deactivateDragHandler();
-    if (this.activeDrawingTool) {
-      return;
-    }
-    const tool = this.createTool(
-      'slot', this.activeSketchInfo.plane, this.viewer.currentSceneObjects, this.activeSketchInfo.sketchObj.id!,
-    );
-    if (!tool) {
-      return;
-    }
     tool.setRelativeMode(this.relativeCoords);
     tool.onRelativeModeChange = (relative) => { this.relativeCoords = relative; };
     tool.activate();

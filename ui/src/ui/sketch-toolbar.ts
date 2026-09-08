@@ -91,6 +91,7 @@ export class SketchToolbar {
   private boundKeyDown: (e: KeyboardEvent) => void;
   private boundCloseRectMenu: (e: MouseEvent) => void;
   private boundClosePolygonMenu: (e: MouseEvent) => void;
+  private boundCloseSlotMenu: (e: MouseEvent) => void;
 
   // Rectangle-button options; session-only state (deliberately not persisted).
   private rectMenu: HTMLDivElement | null = null;
@@ -103,6 +104,11 @@ export class SketchToolbar {
   private polygonMenu: HTMLDivElement | null = null;
   private polygonModeState: 'circumscribed' | 'inscribed' = 'circumscribed';
   private polygonTooltip: HTMLDivElement | null = null;
+
+  // Slot-button options; session-only state (deliberately not persisted).
+  private slotMenu: HTMLDivElement | null = null;
+  private slotCenteredState = false;
+  private slotTooltip: HTMLDivElement | null = null;
 
   /**
    * Guide mode: a latch, not a tool — it rides alongside whatever tool is
@@ -139,6 +145,7 @@ export class SketchToolbar {
     this.boundKeyDown = this.handleKeyDown.bind(this);
     this.boundCloseRectMenu = this.handleCloseRectMenu.bind(this);
     this.boundClosePolygonMenu = this.handleClosePolygonMenu.bind(this);
+    this.boundCloseSlotMenu = this.handleCloseSlotMenu.bind(this);
 
     this.shortcutManager = new ShortcutManager({ timeout: 200 });
     for (const [toolId, keys] of Object.entries(TOOL_SHORTCUTS)) {
@@ -159,6 +166,7 @@ export class SketchToolbar {
     this.setGroupVisible(false);
     this.closeRectMenu();
     this.closePolygonMenu();
+    this.closeSlotMenu();
     window.removeEventListener('keydown', this.boundKeyDown);
     this.shortcutManager.disable();
     if (this.activeToolId) {
@@ -187,6 +195,9 @@ export class SketchToolbar {
     if (toolId !== 'polygon') {
       this.closePolygonMenu();
     }
+    if (toolId !== 'slot') {
+      this.closeSlotMenu();
+    }
     this.syncButtonStates();
   }
 
@@ -200,6 +211,10 @@ export class SketchToolbar {
 
   get polygonModeChecked(): 'circumscribed' | 'inscribed' {
     return this.polygonModeState;
+  }
+
+  get slotCenteredChecked(): boolean {
+    return this.slotCenteredState;
   }
 
   get guideModeChecked(): boolean {
@@ -398,6 +413,60 @@ export class SketchToolbar {
     }
   }
 
+  // Dropdown on the Slot button: one session-only toggle picking the anchor
+  // mode (Centered anchors the gesture at the slot midpoint instead of its
+  // first cap centre) — the same shape as the Rectangle menu. Toggling while
+  // the tool is active reselects it so the new option takes effect immediately.
+  private openSlotMenu(anchor: HTMLElement): void {
+    this.closeSlotMenu();
+
+    const menu = SketchToolbar.createDropdownMenu('left-1/2 -translate-x-1/2');
+
+    menu.appendChild(SketchToolbar.buildMenuToggle('Centered', this.slotCenteredState, (checked) => {
+      this.slotCenteredState = checked;
+      if (this.activeToolId === 'slot') {
+        this.onToolSelect('slot');
+      }
+    }));
+
+    anchor.appendChild(menu);
+    this.slotMenu = menu;
+    // The hover tooltip occupies the same spot below the button; keep it out
+    // of the way while the menu is open.
+    if (this.slotTooltip) {
+      this.slotTooltip.style.display = 'none';
+    }
+
+    setTimeout(() => document.addEventListener('click', this.boundCloseSlotMenu), 0);
+  }
+
+  private closeSlotMenu(): void {
+    if (this.slotMenu) {
+      this.slotMenu.remove();
+      this.slotMenu = null;
+      document.removeEventListener('click', this.boundCloseSlotMenu);
+      if (this.slotTooltip) {
+        this.slotTooltip.style.display = '';
+      }
+    }
+  }
+
+  private handleCloseSlotMenu(e: MouseEvent): void {
+    if (this.slotMenu && !this.slotMenu.contains(e.target as Node) && !this.slotMenu.parentElement?.contains(e.target as Node)) {
+      this.closeSlotMenu();
+    }
+  }
+
+  private handleSlotButtonClick(anchor: HTMLElement): void {
+    if (this.activeToolId === 'slot') {
+      this.onToolSelect(null);
+      this.closeSlotMenu();
+    } else {
+      this.onToolSelect('slot');
+      this.openSlotMenu(anchor);
+    }
+  }
+
   private updateRectButtonDisplay(): void {
     if (this.rectButtonImg) {
       this.rectButtonImg.src = `/icons/${this.rectRoundedState ? 'rounded-rect' : 'rect'}.png`;
@@ -472,6 +541,8 @@ export class SketchToolbar {
       btn.addEventListener('click', () => this.handleRectButtonClick(wrapper));
     } else if (tool.id === 'polygon') {
       btn.addEventListener('click', () => this.handlePolygonButtonClick(wrapper));
+    } else if (tool.id === 'slot') {
+      btn.addEventListener('click', () => this.handleSlotButtonClick(wrapper));
     } else {
       btn.addEventListener('click', () => this.handleToolClick(tool.id));
     }
@@ -493,6 +564,9 @@ export class SketchToolbar {
     }
     if (tool.id === 'polygon') {
       this.polygonTooltip = tip;
+    }
+    if (tool.id === 'slot') {
+      this.slotTooltip = tip;
     }
     return wrapper;
   }

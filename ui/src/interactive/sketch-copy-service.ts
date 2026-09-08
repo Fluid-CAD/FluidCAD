@@ -126,11 +126,6 @@ export class SketchCopyService {
     return this.active;
   }
 
-  /** The copy dialog runs the regular pick body (SketchOpDialog contract). */
-  get isDrawDialog(): boolean {
-    return false;
-  }
-
   /** True while the dialog rewrites an existing statement instead of writing one. */
   get isEditing(): boolean {
     return this.editTarget !== null;

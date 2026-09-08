@@ -2,6 +2,8 @@
 
 Guide for adding new tutorials to the FluidCAD documentation website.
 
+Tutorials are **UI-first** since 2026-09-08 (`desk-organizer.mdx` is the model): the reader builds the part in the FluidCAD workspace and every step is a short click-level instruction with a full-workspace screenshot of that moment — the tool armed, the picks, the ghost preview when the operation has one, the result. The code the dialogs wrote appears once, at the end, inside a `<details>` accordion. The older code-per-step pages remain until converted.
+
 ## Directory Structure
 
 ```
@@ -20,7 +22,10 @@ website/docs/tutorials/
 
 Screenshots are stored at:
 ```
-website/static/img/docs/tutorials/<name>-step1.png
+website/static/img/docs/tutorials/<name>-ui-01-<moment>.png     # UI-first pages: one per moment, numbered in reading order
+website/static/img/docs/tutorials/<name>-ui-02-<moment>.png
+...
+website/static/img/docs/tutorials/<name>-step1.png              # legacy code-first pages (canvas only)
 website/static/img/docs/tutorials/<name>-final.png
 ```
 
@@ -53,7 +58,86 @@ All files go in `website/docs/tutorials/_examples/`.
 
 ### 3. Create the tutorial MDX page
 
-Create `website/docs/tutorials/<tutorial-name>.mdx`. Follow this template:
+Create `website/docs/tutorials/<tutorial-name>.mdx`. Follow the UI-first template:
+
+```mdx
+---
+sidebar_position: <next number>
+title: "<Tutorial Title>"
+---
+
+import CodeBlock from '@theme/CodeBlock';
+import finalCode from '!!raw-loader!./_examples/<name>-final.js';
+import {OpenInViewer} from '@site/src/components/docs/OpenInViewer';
+import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
+
+# Building a <Tutorial Title>
+
+<ViewerEmbed code={finalCode} entry="<name>.fluid.js" />
+
+In this tutorial, you'll build ... based on the [original design by <Author>](<url>). You build it entirely from the FluidCAD workspace ... the [full code](#full-code) at the end is what the UI produced.
+
+## Before you start
+
+Open a workspace and create `<name>.fluid.js` with **+** in the top bar. Then the UI habits used throughout:
+- **Ctrl+click** adds to a selection; a plain click replaces it.
+- The **constraint bar** appears while sketching; hover a button for its name.
+- The **DOF pill** counts what is left; *Fully constrained* when done.
+- Each dialog shows the **statement** it will write; **Apply** / <kbd>Enter</kbd> writes it, **Exit** / <kbd>Escape</kbd> discards it.
+
+## Step 1: <Title>
+
+### <Sub-moment, e.g. Start a sketch on the XY plane>
+
+Click **Sketch** ... Click the **XY** plane.
+
+![<what the reader sees>](/img/docs/tutorials/<name>-ui-01-<moment>.png)
+
+### <Next moment: the tool, the picks, the typed value>
+
+Pick the **Polygon** tool ... type `140`, press <kbd>Enter</kbd> ...
+
+![...](/img/docs/tutorials/<name>-ui-02-<moment>.png)
+
+### <The operation with its ghost preview>
+
+Click **Finish Sketch ▾** and choose **Extrude**. Set **Distance** to `110`. The green ghost is the live preview; the statement reads `extrude(110)`.
+
+![...](/img/docs/tutorials/<name>-ui-03-<moment>.png)
+
+Click **Apply**.
+
+![...](/img/docs/tutorials/<name>-ui-04-<moment>.png)
+
+...
+
+## Full code
+
+Everything above was written into `<name>.fluid.js` by the dialogs ...
+
+<details>
+  <summary>Show the full code</summary>
+
+  <CodeBlock language="js">{finalCode}</CodeBlock>
+
+</details>
+
+<OpenInViewer code={finalCode} entry="<name>.fluid.js" />
+
+## What you practiced
+
+- **Tool or dialog** — what it did and what it wrote
+- ...
+```
+
+**Writing style (UI-first):**
+- One image per moment: tool armed → picks → ghost preview → result. Capture the ghost whenever the operation has one (extrude, revolve, rib, repeat, plane, chamfer, fillet, 2D offset); shell and sketch have none, so show the highlighted pick.
+- Name controls exactly as the UI labels them (`Finish Sketch ▾`, `3-Pt Arc`, `Extend to walls`, `Total Count`).
+- Use the dedicated tool for a shape (Polygon, Rectangle, Slot, sketch Fillet, Offset), never primitives drawn one by one.
+- Quote the statement the dialog previews (`chamfer(8, e.startEdges())`) so the reader connects clicks to code.
+- Screenshots come from the headless UI capture described in `.claude/skills/create-tutorial/ui-capture.md` (browse skill at 1440×900 @2x, light theme), quantized with `magick … -dither None -colors 255 png8:`. Not from `generate-screenshots.mjs`, which captures the canvas only.
+
+The legacy code-first template, kept for pages not yet converted:
 
 ```mdx
 ---
@@ -146,9 +230,9 @@ Edit `website/docs/tutorials/index.mdx` — add a `<TutorialCard>`:
 
 Edit `website/sidebars.ts` — add `'tutorials/<name>'` to the tutorials items array.
 
-### 6. Generate screenshots
+### 6. Generate screenshots (legacy code-first pages)
 
-The screenshot script lives at `website/scripts/generate-screenshots.mjs`. It discovers all `_examples/*.js` files automatically.
+UI-first pages use the headless UI capture (see step 3). The canvas-only script below serves the older pages and the guides. It lives at `website/scripts/generate-screenshots.mjs`. It discovers all `_examples/*.js` files automatically.
 
 ```bash
 # List discovered examples (dry run)
@@ -199,5 +283,5 @@ The Docusaurus build will fail if any referenced image doesn't exist, so always 
 - [ ] YouTube credit link included (if applicable)
 - [ ] `index.mdx` updated with `TutorialCard`
 - [ ] `sidebars.ts` updated with tutorial ID
-- [ ] Screenshots generated and verified visually
-- [ ] `npm run build` passes
+- [ ] Screenshots generated and verified visually (UI-first: one per moment, ghost previews included, reviewed by eye)
+- [ ] `npm run build` passes (a `JSON parse error: Unexpected end of JSON` from an unrelated module is the stale bundler cache — `npm run clear`, rebuild)

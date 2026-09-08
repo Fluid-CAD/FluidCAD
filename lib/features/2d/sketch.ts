@@ -22,11 +22,6 @@ export class Sketch extends SceneObject implements Extrudable {
     this._solver = new SketchSolverContext();
   }
 
-  /** Always true since P7 — kept for callers that still branch on it. */
-  isSolvedMode(): boolean {
-    return true;
-  }
-
   solver(): SketchSolverContext | null {
     return this._solver;
   }

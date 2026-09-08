@@ -44,7 +44,7 @@ export class SceneCompare {
       // structurally and is cached as one unit, or none of it is — a
       // sketch cached without its rebuilding children would never re-run
       // the solve those children read from.
-      if (newObj instanceof Sketch && newObj.isSolvedMode()) {
+      if (newObj instanceof Sketch) {
         const newRun = SceneCompare.subtreeRun(newScene, i);
         const oldRun = SceneCompare.subtreeRun(oldScene, i);
         if (!SceneCompare.runsMatch(oldRun, newRun)) {

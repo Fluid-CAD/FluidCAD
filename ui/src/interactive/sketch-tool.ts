@@ -313,10 +313,6 @@ export abstract class SketchTool {
     this.solvedCtx = ctx;
   }
 
-  protected isSolvedMode(): boolean {
-    return this.solvedCtx !== null;
-  }
-
   /** The sketch dialog's Auto-constraints toggle — whether snap/ortho
    * constraint inference is on. Legacy sketches (no solved context) have no
    * constraints to infer, so the answer there is moot. */

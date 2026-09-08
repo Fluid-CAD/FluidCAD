@@ -90,12 +90,10 @@ export class Offset extends ExtrudableGeometryBase {
       wires.push(...WireOps.makeChainWires(group, connectTolerance));
     }
 
-    let lastOffsetWire: Wire = null;
     const plane = this.getPlane();
 
     for (const wire of wires) {
       const offsetWire = WireOps.offsetWireOnPlane(wire, this.distance, wire.isClosed(), plane);
-      lastOffsetWire = offsetWire;
       const edges = offsetWire.getEdges();
 
       for (const edge of edges) {
@@ -116,16 +114,6 @@ export class Offset extends ExtrudableGeometryBase {
         this.addShape(closeEnd);
         this.addShape(closeStart);
       }
-    }
-
-    // Pen state is a legacy concept — writing it in a solved sketch would
-    // hand getPositionAt a phantom cursor at the offset's end.
-    if (lastOffsetWire && !this.sketch?.isSolvedMode()) {
-      const localStart = plane.worldToLocal(lastOffsetWire.getFirstVertex().toPoint());
-      const localEnd = plane.worldToLocal(lastOffsetWire.getLastVertex().toPoint());
-
-      this.setState('start', Vertex.fromPoint2D(localStart));
-      this.setState('end', Vertex.fromPoint2D(localEnd));
     }
   }
 

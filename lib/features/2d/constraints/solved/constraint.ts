@@ -41,7 +41,7 @@ export class SolvedConstraint extends SceneObject {
   register(sk: Sketch | null, specFn: () => ConstraintSpec, deps: SceneObject[]): void {
     this._deps = deps;
 
-    if (!sk || !sk.isSolvedMode()) {
+    if (!sk) {
       this._registrationError =
         `${this.kind}() must be written inside a sketch(plane, callback) body`;
       return;
@@ -72,7 +72,7 @@ export class SolvedConstraint extends SceneObject {
   ): void {
     this._deps = deps;
 
-    if (!sk || !sk.isSolvedMode()) {
+    if (!sk) {
       this._registrationError =
         `${this.kind}() must be written inside a sketch(plane, callback) body`;
       return;

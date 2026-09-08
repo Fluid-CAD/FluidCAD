@@ -50,7 +50,7 @@ export class Ellipse extends ExtrudableGeometryBase {
     super.validate();
     // The pen form draws at the sketch cursor — a legacy concept with no
     // meaning in a constraint sketch.
-    if (this.enclosingSketch()?.isSolvedMode() && !this.centerOverride && !this.targetPlane) {
+    if (this.enclosingSketch() && !this.centerOverride && !this.targetPlane) {
       throw new BuildError(
         "ellipse(rx, ry) draws at the sketch cursor, which does not exist in a constraint sketch.",
         "Pass an explicit center: ellipse([x, y], rx, ry).",

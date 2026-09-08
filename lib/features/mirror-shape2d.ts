@@ -6,10 +6,7 @@ import { Matrix4 } from "../math/matrix4.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
-import { Edge } from "../common/edge.js";
-import { Wire } from "../common/wire.js";
 import { LazyVertex } from "./lazy-vertex.js";
-import { Vertex } from "../common/vertex.js";
 import { collectSourceEntities, sourceEntitiesPayload } from "./2d/solved/source-entities.js";
 
 export class MirrorShape2D extends GeometrySceneObject {
@@ -31,7 +28,6 @@ export class MirrorShape2D extends GeometrySceneObject {
     let sketch: Sketch  = this.sketch;
     let axis: Axis;
     const objects = sketch.getPreviousSiblings(this);
-    const lastObj = context.getLastObject() as GeometrySceneObject;
 
     if (this.targetObjects && this.targetObjects.length > 0) {
       targetObjects = objects.filter(obj => this.targetObjects.includes(obj));
@@ -49,9 +45,7 @@ export class MirrorShape2D extends GeometrySceneObject {
 
     // Duplicates follow their sources AND the mirror line — the viewport
     // tints them constrained only when all of those are.
-    if (sketch.isSolvedMode()) {
-      this.setState('source-entities', collectSourceEntities(targetObjects, { axes: [this.axis] }));
-    }
+    this.setState('source-entities', collectSourceEntities(targetObjects, { axes: [this.axis] }));
 
     this.axis.removeShapes(this)
 
@@ -68,35 +62,6 @@ export class MirrorShape2D extends GeometrySceneObject {
       for (const shape of shapes) {
         const transformed = ShapeOps.transform(shape, matrix);
         transformedShapes.push(transformed);
-      }
-    }
-
-    // Pen state stays a legacy concept — never written in a solved sketch.
-    if (!sketch.isSolvedMode()) {
-      const firstShape = transformedShapes.find(shape => !shape.isMetaShape() && !shape.isGuideShape()) as Edge | Wire;
-      const lastShape = transformedShapes.toReversed().find(shape => !shape.isMetaShape() && !shape.isGuideShape()) as Edge | Wire;
-      if (firstShape) {
-        const start = firstShape.getFirstVertex();
-        if (start) {
-          const localStart = plane.worldToLocal(start.toPoint());
-          this.setState('start', Vertex.fromPoint2D(localStart));
-        }
-      }
-
-      if (lastShape) {
-        const end = lastShape.getLastVertex();
-        if (end) {
-          const localEnd = plane.worldToLocal(end.toPoint());
-          this.setState('end', Vertex.fromPoint2D(localEnd));
-        }
-      }
-
-      if (lastObj) {
-        const lastTangent = lastObj.getTangent();
-        if (lastTangent) {
-          const transformedTangent = lastTangent.transform(matrix)
-          this.setTangent(transformedTangent);
-        }
       }
     }
 

@@ -21,7 +21,7 @@ function build(context: SceneParserContext): PointFunction {
     context.addSceneObject(obj);
 
     const activeSketch = context.getActiveSketch();
-    if (activeSketch && activeSketch.isSolvedMode()) {
+    if (activeSketch) {
       obj.register(activeSketch);
     }
     return obj;

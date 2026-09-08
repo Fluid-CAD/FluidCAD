@@ -133,15 +133,13 @@ export abstract class Copy2DBase extends GeometrySceneObject {
   }
 
   /**
-   * Record the solver entities the duplicates derive from (build-time,
-   * solved sketches only) — the viewport tints them with their sources'
+   * Record the solver entities the duplicates derive from (build-time) —
+   * the viewport tints them with their sources'
    * constrained verdict. State for the same cached-reuse reason as
    * `copy-instances` above.
    */
   protected recordSourceEntities(objects: SceneObject[], inputs?: TransformInputs): void {
-    if (this.sketch.isSolvedMode()) {
-      this.setState('source-entities', collectSourceEntities(objects, inputs));
-    }
+    this.setState('source-entities', collectSourceEntities(objects, inputs));
   }
 
   protected sourceEntitiesPayload(): Record<string, unknown> {
@@ -160,7 +158,7 @@ export abstract class Copy2DBase extends GeometrySceneObject {
    * existing non-solver behavior.
    */
   registerSolverDuplicates(sk: Sketch | null): void {
-    if (!sk || !sk.isSolvedMode()) {
+    if (!sk) {
       return;
     }
     const ctx = sk.solver();

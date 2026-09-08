@@ -1,10 +1,8 @@
 import { BuildSceneObjectContext, SceneObject } from "../../common/scene-object.js";
 import { BuildError } from "../../common/build-error.js";
 import { Edge } from "../../common/edge.js";
-import { Vertex } from "../../common/vertex.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { SectionOps } from "../../oc/section-ops.js";
-import { WireOps } from "../../oc/wire-ops.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { LazySelectionSceneObject } from "../lazy-scene-object.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
@@ -68,7 +66,7 @@ export class Intersect extends ExtrudableGeometryBase {
       this._prepared = { edges: uniqueEdges };
       this.setState('reference-edge-count', uniqueEdges.length);
 
-      const solver = this.sketch?.isSolvedMode() ? this.sketch.solver() : null;
+      const solver = this.sketch?.solver() ?? null;
       if (solver) {
         this.setState('reference-entities', registerReferenceEntities(this, solver, plane, uniqueEdges));
       }
@@ -95,20 +93,13 @@ export class Intersect extends ExtrudableGeometryBase {
     return new ReferencePointRef(this, null, 'center');
   }
 
-  /** In a solved sketch, the single sectioned entity's start point; the
-   * legacy chain-endpoint accessor otherwise. */
+  /** The single sectioned entity's start point. */
   override start(): LazyVertex {
-    if (this.sketch?.isSolvedMode()) {
-      return new ReferencePointRef(this, null, 'start');
-    }
-    return super.start();
+    return new ReferencePointRef(this, null, 'start');
   }
 
   override end(): LazyVertex {
-    if (this.sketch?.isSolvedMode()) {
-      return new ReferencePointRef(this, null, 'end');
-    }
-    return super.end();
+    return new ReferencePointRef(this, null, 'end');
   }
 
   build(_context?: BuildSceneObjectContext) {
@@ -116,28 +107,10 @@ export class Intersect extends ExtrudableGeometryBase {
     if (this._prepareError) {
       throw new BuildError(this._prepareError);
     }
-    const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
     const allEdges = this._prepared!.edges;
     this.addShapes(allEdges);
     for (const center of centerMetaVertices(allEdges)) {
       this.addShape(center);
-    }
-
-    // Section across multiple source faces yields an unordered edge set that
-    // may form one connected chain, several disjoint chains, or closed loops.
-    // Take the first connected group and use its actual chain endpoints —
-    // not an arbitrary edge's vertices, which can land on interior junctions.
-    if (allEdges.length > 0 && !this.sketch?.isSolvedMode()) {
-      // Pen state stays a legacy concept — never written in a solved sketch.
-      const groups = WireOps.groupConnectedEdges(allEdges);
-      const endpoints = WireOps.findChainEndpoints(groups[0]);
-      if (endpoints) {
-        const localStart = plane.worldToLocal(endpoints.start.toPoint());
-        const localEnd = plane.worldToLocal(endpoints.end.toPoint());
-
-        this.setState('start', Vertex.fromPoint2D(localStart));
-        this.setState('end', Vertex.fromPoint2D(localEnd));
-      }
     }
 
     for (const obj of this.sourceObjects) {
@@ -213,12 +186,10 @@ export class Intersect extends ExtrudableGeometryBase {
     const base: Record<string, unknown> = {
       objectIds: this.sourceObjects.map(o => o.id),
     };
-    if (this.sketch?.isSolvedMode()) {
-      base.entities = this.referenceEntities().map(r => ({
-        entityId: r.entityId, kind: r.kind, edgeIndex: r.edgeIndex,
-      }));
-      base.edgeCount = this.referenceEdgeCount();
-    }
+    base.entities = this.referenceEntities().map(r => ({
+      entityId: r.entityId, kind: r.kind, edgeIndex: r.edgeIndex,
+    }));
+    base.edgeCount = this.referenceEdgeCount();
     return base;
   }
 }

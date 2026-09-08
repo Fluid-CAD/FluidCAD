@@ -2,9 +2,7 @@ import { BuildSceneObjectContext, SceneObject } from "../../common/scene-object.
 import { BuildError } from "../../common/build-error.js";
 import { Face } from "../../common/face.js";
 import { Edge } from "../../common/edge.js";
-import { Vertex } from "../../common/vertex.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
-import { WireOps } from "../../oc/wire-ops.js";
 import { ProjectionOps } from "../../oc/intersection.js";
 import { Wire } from "../../common/wire.js";
 import { PlaneObjectBase } from "../plane-renderable-base.js";
@@ -23,7 +21,7 @@ export class Projection extends ExtrudableGeometryBase {
   // the sketch's reference pre-pass (solved sketches, before the solve) or
   // lazily from build(). Errors cache too: the render loop clearError()s the
   // object before its own build slot, so build() re-throws from here.
-  private _prepared: { edges: Edge[]; endpoints: { start: Vertex, end: Vertex } | null } | null = null;
+  private _prepared: { edges: Edge[] } | null = null;
   private _prepareError: string | null = null;
   // The registered fixed-entity records and the emitted edge count live in
   // STATE, not on the instance: a cached re-render (the editor's
@@ -70,17 +68,7 @@ export class Projection extends ExtrudableGeometryBase {
         allWires.push(...wires);
       }
 
-      // Capture the sketch-cursor endpoints BEFORE dedup. unifyCoincident
-      // may split/drop edges and the wire structure is discarded anyway, but
-      // the chain endpoints of the first connected group are still the right
-      // anchor for the sketch's current position. When multiple disjoint
-      // pieces are projected, the first is a stable convention.
       const allEdges: Edge[] = allWires.flatMap(w => w.getEdges());
-      let endpoints: { start: Vertex, end: Vertex } | null = null;
-      if (allEdges.length > 0) {
-        const groups = WireOps.groupConnectedEdges(allEdges);
-        endpoints = WireOps.findChainEndpoints(groups[0]);
-      }
 
       // Normal projection emits approximated B-splines even for straight
       // results (and the fuse may keep that representation of a coincident
@@ -91,10 +79,10 @@ export class Projection extends ExtrudableGeometryBase {
       for (const edge of uniqueEdges) {
         edge.setProvenance('projected');
       }
-      this._prepared = { edges: uniqueEdges, endpoints };
+      this._prepared = { edges: uniqueEdges };
       this.setState('reference-edge-count', uniqueEdges.length);
 
-      const solver = this.sketch?.isSolvedMode() ? this.sketch.solver() : null;
+      const solver = this.sketch?.solver() ?? null;
       if (solver) {
         this.setState('reference-entities', registerReferenceEntities(this, solver, plane, uniqueEdges));
       }
@@ -121,20 +109,13 @@ export class Projection extends ExtrudableGeometryBase {
     return new ReferencePointRef(this, null, 'center');
   }
 
-  /** In a solved sketch, the single projected entity's start point; the
-   * legacy chain-endpoint accessor otherwise. */
+  /** The single projected entity's start point. */
   override start(): LazyVertex {
-    if (this.sketch?.isSolvedMode()) {
-      return new ReferencePointRef(this, null, 'start');
-    }
-    return super.start();
+    return new ReferencePointRef(this, null, 'start');
   }
 
   override end(): LazyVertex {
-    if (this.sketch?.isSolvedMode()) {
-      return new ReferencePointRef(this, null, 'end');
-    }
-    return super.end();
+    return new ReferencePointRef(this, null, 'end');
   }
 
   build(_context?: BuildSceneObjectContext) {
@@ -142,21 +123,10 @@ export class Projection extends ExtrudableGeometryBase {
     if (this._prepareError) {
       throw new BuildError(this._prepareError);
     }
-    const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
     const uniqueEdges = this._prepared!.edges;
     this.addShapes(uniqueEdges);
     for (const center of centerMetaVertices(uniqueEdges)) {
       this.addShape(center);
-    }
-
-    // Pen state stays a legacy concept — never written in a solved sketch.
-    const endpoints = this._prepared!.endpoints;
-    if (endpoints && !this.sketch?.isSolvedMode()) {
-      const localStart = plane.worldToLocal(endpoints.start.toPoint());
-      const localEnd = plane.worldToLocal(endpoints.end.toPoint());
-
-      this.setState('start', Vertex.fromPoint2D(localStart));
-      this.setState('end', Vertex.fromPoint2D(localEnd));
     }
 
     for (const obj of this.sourceObjects) {
@@ -238,16 +208,14 @@ export class Projection extends ExtrudableGeometryBase {
     const base: Record<string, unknown> = {
       objectIds: this.sourceObjects.map(o => o.id),
     };
-    if (this.sketch?.isSolvedMode()) {
-      // Fixed reference entities (P6): the UI joins these on entityId with
-      // the sketch snapshot (which carries the locked params) for pick-only
-      // constraint targeting; edgeIndex is the `.ref(i)` address emission
-      // renders.
-      base.entities = this.referenceEntities().map(r => ({
-        entityId: r.entityId, kind: r.kind, edgeIndex: r.edgeIndex,
-      }));
-      base.edgeCount = this.referenceEdgeCount();
-    }
+    // Fixed reference entities (P6): the UI joins these on entityId with
+    // the sketch snapshot (which carries the locked params) for pick-only
+    // constraint targeting; edgeIndex is the `.ref(i)` address emission
+    // renders.
+    base.entities = this.referenceEntities().map(r => ({
+      entityId: r.entityId, kind: r.kind, edgeIndex: r.edgeIndex,
+    }));
+    base.edgeCount = this.referenceEdgeCount();
     return base;
   }
 }

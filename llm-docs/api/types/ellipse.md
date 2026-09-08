@@ -30,6 +30,6 @@ Returns a lazy-evaluated vertex at the ellipse's center.
 
 ## Inherited
 
-From [[api/types/geometry]]: `guide()`, `edge()`, `start()`, `end()`, `tangent()`
+From [[api/types/geometry]]: `guide()`, `edge()`, `start()`, `end()`
 
 From [[api/types/scene-object]]: `name()`, `reusable()`

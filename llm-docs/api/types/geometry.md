@@ -1,7 +1,7 @@
 ---
 id: api/types/geometry
 title: Geometry
-summary: "The Geometry type. Extends SceneObject; adds 5 methods."
+summary: "The Geometry type. Extends SceneObject; adds 4 methods."
 tags: [api, type, interface]
 symbols: [Geometry, IGeometry]
 seeAlso: [api/types/scene-object]
@@ -14,7 +14,6 @@ interface Geometry extends SceneObject {
   edge(roleOrIndex: string | number, roleIndex?: number): ISelection;
   start(): Vertex;
   end(): Vertex;
-  tangent(): Vertex;
 }
 ```
 
@@ -52,13 +51,6 @@ Returns a lazy-evaluated vertex at the start point of this geometry element.
 ### `end()`
 
 Returns a lazy-evaluated vertex at the end point of this geometry element.
-
-**Returns**: [[api/types/vertex]].
-
-### `tangent()`
-
-Returns a lazy-evaluated vertex representing the tangent direction at the end
-of this geometry. Used to determine the direction of subsequent geometry elements.
 
 **Returns**: [[api/types/vertex]].
 

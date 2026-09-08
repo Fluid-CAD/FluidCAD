@@ -152,6 +152,6 @@ text wraps around. Only applies to text following a path.
 
 ## Inherited
 
-From [[api/types/geometry]]: `guide()`, `edge()`, `start()`, `end()`, `tangent()`
+From [[api/types/geometry]]: `guide()`, `edge()`, `start()`, `end()`
 
 From [[api/types/scene-object]]: `name()`, `reusable()`

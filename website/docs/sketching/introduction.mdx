@@ -64,7 +64,7 @@ sketch(e.endFaces(), () => {
 })
 ```
 
-Coordinates inside a face sketch are the face's own 2D coordinates, with the origin at the face's centre. To place geometry against the existing shape, [project](/docs/sketching/tools/project) its edges into the sketch and constrain against them — a projected outline is fixed reference geometry the solver never moves.
+Coordinates inside a face sketch are 2D coordinates on the face's plane. The origin is the world origin projected onto that plane, so `[0, 0]` only lands on the face when the face sits over the world origin. To place geometry against the existing shape, [project](/docs/sketching/tools/project) its edges into the sketch and constrain against them — a projected outline is fixed reference geometry the solver never moves.
 
 The face keeps working as a sketch plane even if a later feature reshapes or removes it: the plane's position and orientation are remembered.
 

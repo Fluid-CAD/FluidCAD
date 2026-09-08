@@ -8,29 +8,116 @@ import partParam from '!!raw-loader!./_examples/part-param.js';
 
 # param()
 
-`param()` declares a named value with a control, at the top of a `part()` body. When the part's file is open it shows up in the **Parameters** panel under that part; inserted into an assembly it is the interface `insert(def, { … })` overrides per instance.
+`param()` declares a named value with a control, at the top of a `part()` body. The part's file shows it in the **Parameters** panel; an assembly sets it per instance. The return value is a plain number, string, boolean or array, so the rest of the body reads it like any variable: in a sketch guess, a dimension, an extrude distance, an `if`, a loop bound.
 
-## In the viewport
+A mounting plate with five parameters — two sizes, a thickness slider, a screw-size select and a checkbox that turns the chamfer on or off:
 
-1. Open the **Parameters** panel from the left rail. Every `param()` of the part is one control: a number field, a slider, a text field, a select, a checkbox or a colour swatch.
-2. Change a value. The model re-renders and the new value is written back to the `param()` statement's default.
-3. The **Add to** dropdown at the top of the panel names a part: the timeline's active part by default, or any other part of the file. The panel lists that part's parameters, and a new parameter is declared in its body. Click **+** to add a parameter. The dialog opens on that part (its own **Part** field can still change it) and asks for **Label**, **Type**, and, per type, **Min / Max / Step**, the select **options** and how they are **Shown as**, plus a **Group** and **Description**. It writes the `param()` call at the top of that part's body, below any `param()` calls already there. Edit or delete a parameter from its row's menu.
-4. Reset restores every parameter to its default.
+![Parametric mounting plate](/img/docs/part/part-param.png)
 
-Every numeric field in a feature dialog accepts an expression, and an expression can name a parameter: type `Length / 2` in an Extrude's Distance field and the statement is written with that expression. The dropdown under the field offers the parameters of the part the statement is in, never another part's. Type `wall = 3` in a field, or in the sketcher's dimension input, and the value becomes a new `param('wall', 3)`, written at the top of the part's body below the parameters already there. The **P** toggle beside the field decides that: it is on by default, and switching it off (for a plain `const`) or back on is remembered by every expression input for the rest of the session.
+<ExplainedCode code={partParam} fileName="plate.part.js" />
 
-![Parametric extrusion](/img/docs/part/part-param.png)
+## How to create parameters
 
-<ExplainedCode code={partParam} fileName="extrusion.part.js" />
+There are three ways to declare a parameter, and they all write the same statement into the part body.
 
-## Signature
+### From the Parameters panel
+
+<img src="/img/docs/part/param-panel.png" alt="The Parameters panel listing the plate's five controls" width="320" style={{float: 'right', marginLeft: '1.5rem'}} />
+
+1. Open the **Parameters** panel from the left rail.
+2. **Add to** names the part the new parameter goes into: the timeline's active part by default, or any other part of the file.
+3. Click **+**. The dialog asks for **Label**, **Type** and, per type, **Min / Max / Step**, the select **options** and how they are **Shown as**, plus a **Group** and a **Description**.
+4. Apply. The `param()` call is written at the top of that part's body, below the parameters already there, and its control appears in the panel. Edit or delete a parameter later from its row's menu.
+
+<div style={{clear: 'both'}} />
+
+### In code
+
+Call `param()` at the top of the part body, before the geometry that reads it, and keep the returned value:
+
+```js
+export const plate = part('Plate', () => {
+    const width = param('Width', 80, 'number', { min: 40, max: 200, step: 5 });
+    const chamfered = param('Chamfer top edges', true);
+    // … geometry that uses width and chamfered
+});
+```
 
 ```ts
 param(label, defaultValue)                    // control inferred from the default
 param(label, defaultValue, type, options?)    // explicit control
 ```
 
-The return value is the resolved value — a plain number, string, boolean or array — so the rest of the body uses it like any variable. The **label** is the key: what the panel shows and what an assembly override names.
+The **label** is the key: what the panel shows and what an assembly override names. Without a `type`, the control follows the default value: a boolean is a checkbox, a number a number field, a string a text field. The controls and their options are listed under [Types and options](#types-and-options).
+
+### From an expression input
+
+Every numeric field in a feature dialog, and every value the sketcher asks for (a dimension, a typed tool readout, the coordinate pill) is an **expression input**. Type a name and a value where you would type a number:
+
+![The sketcher's dimension input declaring a new parameter](/img/docs/part/param-expression-sketch.png)
+
+Here the distance between two hole centres is typed as `pitch = 64`. The commit writes `const pitch = param("pitch", 64);` at the top of the part body, below the parameters already there, adds the `param` import if it is missing, and uses `pitch` in the statement: `distance(a.center(), b.center(), pitch)`. The panel gains a **pitch** control.
+
+- `pitch = 64` declares `pitch` with the default 64. A fresh name on its own, `pitch`, declares it with the field's current number as the default; the dropdown offers this as a **new** row.
+- **The P toggle** beside the field decides what is declared. On, the declaration is a `param()` as above. Off, it is a plain `const pitch = 64` placed just before the statement (at the top of the sketch body for a sketch dimension) — a named value with no control. The toggle is on by default, and a flip is remembered by every expression input for the rest of the session.
+- **Names** follow JavaScript: letters, digits, `_` and `$`, no leading digit, no keyword. A name that already exists is refused (`'pitch' is already defined`) rather than declared twice.
+- A parameter declared this way has no options. Add `min`, `max`, a `group` or a `description` from the panel row's menu, or in the source.
+
+## Using parameters
+
+### In the Parameters panel
+
+Every `param()` of the part is one control: a number field, a slider, a text field, a select, a checkbox or a colour swatch. Parameters with the same `group` fold together; a `description` is the control's help text. Change a value and the model re-renders; the new value is written back into the `param()` statement as its default, so the panel edits the source. The arrow at the top resets every parameter to its default.
+
+### In code
+
+The value is a plain number, string, boolean or array. Use it wherever a literal would go, and let it drive structure too:
+
+```js
+const holes = param('Holes', 4, 'select', { options: [{ label: '2', value: 2 }, { label: '4', value: 4 }] });
+sketch('xy', () => {
+    // …
+    distance(b.start(), b.end(), width);          // a parametric dimension
+    for (let i = 0; i < holes; i++) { /* … */ }   // a parametric count
+});
+if (chamfered) {                                  // a parametric feature
+    chamfer(1, e.endEdges());
+}
+```
+
+A parameter used in a sketch dimension re-solves the sketch on every change: `distance(a, b, width)` is the parametric form of a dimension.
+
+### In an expression input
+
+The same input that declares a parameter also references one. What you type is written into the statement as source:
+
+| You type | The statement gets | Meaning |
+|----------|--------------------|---------|
+| `25` | `25` | A plain number. |
+| `thickness` | `thickness` | The parameter's variable. Type the first letters and pick it from the dropdown. |
+| `width / 2 - 8` | `width / 2 - 8` | Arithmetic over variables: `+ - * / %` and parentheses. |
+| `Math.min(width, depth) / 4` | `Math.min(width, depth) / 4` | Any JavaScript expression, written verbatim. |
+| `pitch = 64` | `pitch` | Declares a new parameter and uses it — see [above](#from-an-expression-input). |
+
+![The Extrude dialog's Distance field with the parameter dropdown open](/img/docs/part/param-expression-dialog.png)
+
+- **The dropdown** opens while you type a name. It lists the variables the statement can see: exact matches first, then prefix matches, each with its initializer as a hint. <kbd>↑</kbd> <kbd>↓</kbd> move, <kbd>Tab</kbd> or <kbd>Enter</kbd> fill in the highlighted name, <kbd>Enter</kbd> again commits.
+- **The ghost preview** evaluates plain arithmetic over known variables as you type. An expression it cannot evaluate, a `Math.` call for instance, keeps the last value until the re-render lands; the statement is still written verbatim.
+- **Editing** a statement shows its source expression, not the resolved number. Committing it unchanged leaves the source alone, so re-opening a dialog never re-declares anything.
+
+### From an assembly
+
+Inserted into an assembly, the part's parameters are its interface: the Insert dialog shows a form per instance, **Edit parameters…** re-opens it, and in code the values go in `insert(plate, { Width: 120 })`. See [Part parameters](/docs/assembly/parameters).
+
+## Scope
+
+Where a `param()` may be called, and who can see it:
+
+- **Inside a `part()` body** (or an [`assembly()` body](/docs/assembly/parameters#assembly-parameters)). Called at a file's top level it is an error — `param('Width') must be declared inside a part() body` — because a file has no parameters of its own. Declare parameters at the top of the body, before the geometry that reads them: a declaration deeper down still belongs to the part, but the code above it cannot use it.
+- **The part owns it.** The panel lists a part's parameters under that part, and a parameter declared through the UI lands in the part chosen in **Add to**. Two parts in one file have two independent lists; the same label may appear in both, but must be unique within one part.
+- **The expression dropdown is part-scoped.** A dialog's field offers the declarations the statement can see: the part body's own (its `param()`s first), the file's top-level declarations above the part, and, inside a sketch, the sketch body's variables. Another part's parameters are never offered. Feature results (`const e = extrude(…)`) are hidden; only values and expressions are.
+- **The value depends on who is building.** When the file itself renders, the value is the default, or whatever the panel last wrote back. When an assembly inserts the part, the value comes from that `insert()`'s overrides, and the default fills in for every label the insert does not name. The consuming file's panel never shows an inserted part's parameters — they are the part's interface, not the assembly's controls.
+- **Read it inside the callback.** A `part()` definition is lazy and may build several variants, so the body must read parameters through `param()` at run time — not from a variable computed outside the callback, which every variant would share.
 
 ## Types and options
 
@@ -45,8 +132,6 @@ The return value is the resolved value — a plain number, string, boolean or ar
 
 Every type also takes `group` (parameters with the same group fold together in the panel) and `description` (shown as the control's help text).
 
-Without a `type`, the control follows the default value: a boolean is a checkbox, a number a number field, a string a text field.
-
 ```js
 const teeth = param('Teeth', 24, 'number', { min: 8, max: 120, step: 1, group: 'Gear' });
 const tint = param('Body colour', '#4a90d9', 'color');
@@ -57,19 +142,9 @@ const finish = param('Finish', ['deburr'], 'select', {
 });
 ```
 
-## Overrides from an assembly
-
-Inside a `part()` body the declaration is collected as the definition's parameter interface instead of registering in the file's panel. An assembly then supplies values per instance:
-
-```js
-insert(extrusion, { Length: 380, Series: 30 });
-```
-
-The Insert dialog builds this object for you — one page of controls per queued instance — and the Parts panel's **Edit parameters…** re-opens it on an existing instance. Only the labels you change travel into the statement; an override the part never reads is reported as a warning. Values are read in the **part file's unit**.
-
 ## Rules
 
-- A `param()` is only valid inside a `part()` (or `assembly()`) body. Called at the file's top level it is an error — a file has no parameters of its own.
-- Declare parameters at the top of the part body, before the geometry that uses them.
+- A `param()` is only valid inside a `part()` or `assembly()` body.
+- Declare parameters at the top of the body, before the geometry that uses them.
 - Labels are unique within a part.
-- A parameter used in a sketch dimension re-solves the sketch on every change: `distance(a, b, width)` is the parametric form of a dimension.
+- Setting parameters from an assembly is covered in [Part parameters](/docs/assembly/parameters).

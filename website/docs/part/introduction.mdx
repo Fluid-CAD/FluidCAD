@@ -39,7 +39,7 @@ Shapes inside `"base"` fuse with each other, shapes inside `"pillar"` fuse with 
 | Statement | Role | Read back as |
 |-----------|------|--------------|
 | [`part()`](/docs/part/part-definition) | The container and its name; exported, it is a lazy definition an assembly inserts | `insert(def)` |
-| [`param()`](./param) | The part's parameter interface — every value an assembly can override per instance | `insert(def, { Width: 120 })` |
+| [`param()`](./param) | The part's parameter interface — every value an assembly can [override per instance](/docs/assembly/parameters) | `insert(def, { Width: 120 })` |
 | [`connector()`](./connector) | A mate frame attached to real geometry; the part's mating interface | `instance.connectors.name` |
 | [`expose()`](./expose) | Published geometry another part builds on, or a tangent mate touches | `def.features.name`, `instance.features.name` |
 

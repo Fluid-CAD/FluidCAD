@@ -11,6 +11,7 @@ import {
   type SolvedEmissionRole,
 } from './sketch-solved-edit.ts';
 import type { SolvedEntityKind } from './sketch-symbols.ts';
+import type { NewVariableDecl } from './code-editor.ts';
 
 export type SketchConstraintTarget = {
   /** 1-indexed line of the entity statement… */
@@ -54,6 +55,10 @@ export type SketchConstraintEditSpec = {
   axis?: 'x' | 'y';
   /** distance only: far-side circle/arc measurement — renders `.max()`. */
   tangency?: 'max';
+  /** `const name = init;` declarations riding the commit — a `param(…)`
+   * initializer lands at the top of the enclosing part body, a plain value
+   * at the top of the sketch body; `valueExpr` then names the variable. */
+  newVariables?: NewVariableDecl[];
 };
 
 export async function applySketchConstraint(
@@ -70,6 +75,7 @@ export async function applySketchConstraint(
       ...(spec.axis !== undefined ? { axis: spec.axis } : {}),
       ...(spec.tangency !== undefined ? { tangency: spec.tangency } : {}),
     }],
+    ...(spec.newVariables !== undefined ? { newVariables: spec.newVariables } : {}),
   });
   return { newCode: result.newCode, ...(result.error !== undefined ? { error: result.error } : {}) };
 }

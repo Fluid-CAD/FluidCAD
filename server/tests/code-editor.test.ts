@@ -29,6 +29,7 @@ import {
   importLocalName,
   collectBoundNames,
   getJavaScriptParser,
+  declareParamStatementsFor,
 } from '../src/code-editor.ts';
 
 describe('addBreakpoint', () => {
@@ -1464,5 +1465,29 @@ describe('ensureSymbolImport with an alias', () => {
     expect(await ensureSymbolImport(code, 'plate', './plate.fluid.js', 'plate')).toBe(
       `import { insert } from 'fluidcad/core';\nimport { plate } from './plate.fluid.js';\n`,
     );
+  });
+});
+
+describe('declareParamStatementsFor', () => {
+  it('lands after the leading param() block, not after a sketch that merely contains a param() call', async () => {
+    // An inline `param()` deep inside the sketch body (a dimension written
+    // before declarations rode the commit) must not make the sketch look
+    // like a leading declaration — a const spliced after it would be read
+    // before it is initialized.
+    const code = [
+      `import { part, param, sketch, line } from "fluidcad/core";`,
+      `import { distance } from "fluidcad/constraints";`,
+      ``,
+      `export const plate = part('Plate', () => {`,
+      `  const width = param('Width', 80);`,
+      `  sketch('xy', () => {`,
+      `    const a = line([0, 0], [width, 0]);`,
+      `    distance(a.start(), a.end(), param("pitch", 64));`,
+      `  });`,
+      `});`,
+    ].join('\n');
+    const out = await declareParamStatementsFor(code, 6, ['const span = param("span", 80);']);
+    expect(out).toContain(`  const width = param('Width', 80);\n  const span = param("span", 80);\n  sketch('xy', () => {`);
+    expect(out).not.toContain(`});\n  const span`);
   });
 });

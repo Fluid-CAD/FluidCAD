@@ -40,7 +40,7 @@ Everything the Insert wizard and the mate dialog write goes inside that callback
 
 1. Open the `.assembly.js` file — the toolbar switches to the assembly tools and the left rail shows **Parts**, **Connectors** and **Joints**.
 2. Click **Insert**. The dialog lists every exported part and sub-assembly in the workspace, one tile each with a thumbnail and its file name. Click a tile to queue one instance; click again for another; hover a tile to remove one.
-3. If a queued part declares [parameters](/docs/part/param), the next page shows one form per instance — two queued extrusions can get two lengths.
+3. If a queued part declares [parameters](/docs/part/param), the next page shows one form per instance — two queued extrusions can get two lengths. See [Part parameters](./parameters).
 4. Click **Insert N**. Every instance is written as one `insert()` statement and the import line is added for you; the new parts appear in the viewport.
 
 Each `insert()` returns a handle. Chain a starting pose and a name on it:
@@ -52,7 +52,7 @@ Each `insert()` returns a handle. Chain a starting pose and a name on it:
 | `.grounded()` | Pin it. See [Grounded](./grounded). |
 | `.name('…')` | The label in the Parts panel and the STEP export. |
 
-Parameter overrides go in the second argument: `insert(plate, { Width: 120 })`.
+Parameter overrides go in the second argument: `insert(plate, { Width: 120 })`. See [Part parameters](./parameters).
 
 ## Moving instances
 

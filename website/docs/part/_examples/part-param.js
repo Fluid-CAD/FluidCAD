@@ -1,38 +1,37 @@
-import { part, param, sketch, line, circle, extrude, fillet } from 'fluidcad/core';
+import { part, param, sketch, line, circle, extrude, chamfer } from 'fluidcad/core';
 import { coincident, distance, fix, horizontal, vertical } from 'fluidcad/constraints';
 
-// A parametric aluminium extrusion: a square profile with rounded corners
-// and a central bore, extruded to length. Every param() shows up in the
-// Parameters panel; an assembly overrides them per instance —
-// insert(extrusion, { Length: 380 }).
-export const extrusion = part('Extrusion', () => {
+// A parametric mounting plate: a rectangle with a clearance hole near each
+// corner, extruded to a thickness. Every param() is a control in the
+// Parameters panel; an assembly sets them per instance —
+// insert(plate, { Width: 120, Hole: 6.6 }).
+export const plate = part('Plate', () => {
     // highlight-start
-    // A select with fixed choices: the profile series. The value is the
-    // option's `value`, here the side length in mm.
-    const size = param('Series', 20, 'select', {
-        options: [
-            { label: '20 × 20', value: 20 },
-            { label: '30 × 30', value: 30 },
-            { label: '40 × 40', value: 40 },
-        ],
-        group: 'Profile',
-    });
+    // Number fields with bounds. The label is the key an override uses.
+    const width = param('Width', 80, 'number', { min: 40, max: 200, step: 5, group: 'Size' });
+    const depth = param('Depth', 50, 'number', { min: 30, max: 150, step: 5, group: 'Size' });
     // A slider — the panel shows a range control instead of a field.
-    const bore = param('Bore', 4.2, 'slider', { min: 3, max: 8, step: 0.1, group: 'Profile' });
-    // A number field with bounds. The label is the key an override uses.
-    const length = param('Length', 80, 'number', { min: 20, max: 2000, step: 10 });
-    // A checkbox drives a feature on or off.
-    const rounded = param('Rounded corners', true, 'checkbox', {
-        description: 'Round the four outer corners with a 2 mm radius',
+    const thickness = param('Thickness', 6, 'slider', { min: 3, max: 15, step: 0.5, group: 'Size' });
+    // A select with fixed choices: the value is the option's `value`, here
+    // the clearance diameter of the screw.
+    const hole = param('Hole', 5.5, 'select', {
+        options: [
+            { label: 'M4', value: 4.5 },
+            { label: 'M5', value: 5.5 },
+            { label: 'M6', value: 6.6 },
+        ],
+        description: 'Clearance hole for the mounting screw',
     });
+    // A checkbox turns a feature on or off.
+    const chamfered = param('Chamfer top edges', true, 'checkbox');
     // highlight-end
 
     sketch('xy', () => {
-        // The square's guesses use the parameter directly …
-        const b = line([-size / 2, -size / 2], [size / 2, -size / 2]);
-        const r = line([size / 2, -size / 2], [size / 2, size / 2]);
-        const t = line([size / 2, size / 2], [-size / 2, size / 2]);
-        const l = line([-size / 2, size / 2], [-size / 2, -size / 2]);
+        // The outline's guesses use the parameters directly …
+        const b = line([-width / 2, -depth / 2], [width / 2, -depth / 2]);
+        const r = line([width / 2, -depth / 2], [width / 2, depth / 2]);
+        const t = line([width / 2, depth / 2], [-width / 2, depth / 2]);
+        const l = line([-width / 2, depth / 2], [-width / 2, -depth / 2]);
         coincident(b.end(), r.start());
         coincident(r.end(), t.start());
         coincident(t.end(), l.start());
@@ -41,16 +40,21 @@ export const extrusion = part('Extrusion', () => {
         horizontal(t);
         vertical(r);
         vertical(l);
-        fix(b.start(), [-size / 2, -size / 2]);
-        // … and so do the dimensions: change Series in the panel and the
-        // solver re-sizes the profile.
-        distance(b.start(), b.end(), size);
-        distance(r.start(), r.end(), size);
-        if (rounded) {
-            fillet(2, b, r, t, l);
+        fix(b.start(), [-width / 2, -depth / 2]);
+        // … and so do the dimensions: change Width in the panel and the
+        // solver re-sizes the outline.
+        distance(b.start(), b.end(), width);
+        distance(r.start(), r.end(), depth);
+        // One hole inset 8 mm from each corner.
+        const inset = 8;
+        for (const sx of [-1, 1]) {
+            for (const sy of [-1, 1]) {
+                circle([sx * (width / 2 - inset), sy * (depth / 2 - inset)], hole / 2);
+            }
         }
-        // The central bore for a self-tapping screw.
-        circle([0, 0], bore);
     });
-    extrude(length);
+    const e = extrude(thickness);
+    if (chamfered) {
+        chamfer(1, e.endEdges());
+    }
 });

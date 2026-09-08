@@ -216,6 +216,36 @@ describe('applySketchConstraint', () => {
     });
     expect(result.error).toContain('no sketch statement at line 2');
   });
+
+  it('declares a param() newVariable at the top of the part body and names it in the statement', async () => {
+    // A dimension typed as `pitch = 64` with the P toggle on: the statement
+    // references the variable and the declaration joins the part's leading
+    // param() block — never inline in the constraint, never after the sketch.
+    const inPart = [
+      `import { part, param, sketch, line } from "fluidcad/core";`,
+      ``,
+      `export const plate = part('Plate', () => {`,
+      `  const width = param('Width', 80);`,
+      `  sketch('xy', () => {`,
+      `    const a = line([0, 0], [width, 0]);`,
+      `    const b = line([width, 0], [width, 50]);`,
+      `  });`,
+      `});`,
+    ].join('\n');
+    const result = await applySketchConstraint(inPart, {
+      sketchLine: 5,
+      kind: 'distance',
+      targets: [{ line: 6, role: 'start' }, { line: 7, role: 'end' }],
+      valueExpr: 'pitch',
+      newVariables: [{ name: 'pitch', initializer: 'param("pitch", 64)' }],
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.newCode).toContain(
+      `  const width = param('Width', 80);\n  const pitch = param("pitch", 64);\n  sketch('xy', () => {`,
+    );
+    expect(result.newCode).toContain(`    distance(a.start(), b.end(), pitch);\n  });`);
+    expect(result.newCode).not.toContain(`});\n  const pitch`);
+  });
 });
 
 // Loop-instance constraint targeting: entities created in a user loop share

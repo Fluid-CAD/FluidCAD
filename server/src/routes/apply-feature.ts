@@ -7140,6 +7140,14 @@ export function createApplyFeatureRouter(
       res.status(400).json({ error: 'Invalid request body' });
       return;
     }
+    // A dimension typed as `name = value` (or a fresh name over the measured
+    // value) declares that variable on the same commit — the same rail the
+    // dialogs' expression fields ride.
+    const nvResult = validateNewVariables(req.body?.newVariables);
+    if ('error' in nvResult) {
+      res.status(400).json({ error: nvResult.error });
+      return;
+    }
     const validRoles = new Set(['start', 'end', 'center', 'mid']);
     // 'copy' rides the entity domain so a stray copy pick with no
     // instanceIndex reaches the transform's honest refusal instead of a 400.
@@ -7224,6 +7232,7 @@ export function createApplyFeatureRouter(
         ...(valueExpr !== undefined ? { valueExpr } : {}),
         ...(axis !== undefined ? { axis } : {}),
         ...(tangency !== undefined ? { tangency } : {}),
+        ...(nvResult.newVariables !== undefined ? { newVariables: nvResult.newVariables } : {}),
       },
     };
     await dispatcher.dispatch(res, spec, { success: true });

@@ -2076,20 +2076,33 @@ export function findPartAt(tree: TSTree, lines: string[], partLine: number): Par
 
 /** A `const x = param(…)` / `param(…);` statement — one of a body's leading declaration block. */
 function isParamDeclarationStatement(node: TSNode): boolean {
-  if (node.type !== 'lexical_declaration' && node.type !== 'variable_declaration'
-    && node.type !== 'expression_statement') {
+  // Only a statement whose OWN value is the `param()` call counts — a
+  // `const x = param(…)` or a bare `param(…)`. A statement that merely
+  // contains one deeper down (a sketch body with an inline `param()` in a
+  // dimension) is geometry, and a declaration spliced after it would be
+  // read before it is initialized.
+  if (node.type === 'expression_statement') {
+    const expr = node.namedChildren[0];
+    return expr !== undefined && isParamCall(expr);
+  }
+  if (node.type !== 'lexical_declaration' && node.type !== 'variable_declaration') {
     return false;
   }
-  for (const inner of walkTree(node)) {
-    if (inner.type !== 'call_expression') {
-      continue;
+  return node.namedChildren.some((child) => {
+    if (child.type !== 'variable_declarator') {
+      return false;
     }
-    const fn = inner.childForFieldName('function');
-    if (fn?.type === 'identifier' && fn.text === 'param') {
-      return true;
-    }
+    const value = child.childForFieldName('value');
+    return value !== null && isParamCall(value);
+  });
+}
+
+function isParamCall(node: TSNode): boolean {
+  if (node.type !== 'call_expression') {
+    return false;
   }
-  return false;
+  const fn = node.childForFieldName('function');
+  return fn?.type === 'identifier' && fn.text === 'param';
 }
 
 /**

@@ -821,11 +821,12 @@ export class SolvedConstraintToolbarService {
         const sectorNow = this.pendingDimension?.sector ?? angleSector;
         this.valueInput.hide();
         this.setDimensionArmed(false);
-        // add-constraint has no variable-declaration plumbing yet (P8):
-        // a P-toggled commit falls back to its numeric initializer so the
-        // emitted statement is always valid.
+        // A declaring commit (`pitch = 64`, or a fresh name over the
+        // measured value) names the variable in the statement and rides
+        // the declaration along — a `param()` initializer lands at the top
+        // of the part body, exactly as the dialogs' fields do.
         const finalExpr = newVariable
-          ? newVariable.initializer
+          ? newVariable.name
           : isNumeric ? String(Math.round(num * 100) / 100) : expression;
         const kind = form.kind === 'angle' ? 'angle' : form.kind;
         // The sector orders the arguments and orients each line ('start'
@@ -837,6 +838,7 @@ export class SolvedConstraintToolbarService {
         void this.emit(
           kind as ConstraintButtonId, emitPicks, finalExpr, axis,
           tangency === 'max' ? 'max' : undefined,
+          newVariable ? [newVariable] : undefined,
         );
       },
     });
@@ -996,6 +998,7 @@ export class SolvedConstraintToolbarService {
     valueExpr: string | undefined,
     axis: 'x' | 'y' | undefined,
     tangency?: 'max',
+    newVariables?: { name: string; initializer: string }[],
   ): Promise<void> {
     const info = this.sketchInfo;
     if (!info) {
@@ -1017,6 +1020,7 @@ export class SolvedConstraintToolbarService {
       ...(valueExpr !== undefined ? { valueExpr } : {}),
       ...(axis !== undefined ? { axis } : {}),
       ...(tangency !== undefined ? { tangency } : {}),
+      ...(newVariables !== undefined ? { newVariables } : {}),
     });
     this.busy = false;
     this.view.setBusy(false);

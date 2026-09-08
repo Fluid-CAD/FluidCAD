@@ -1618,6 +1618,9 @@ export async function applySketchConstraint(options: {
   axis?: 'x' | 'y';
   /** distance only: far-side circle/arc measurement — renders `.max()`. */
   tangency?: 'max';
+  /** Declarations riding the commit (`name = value` typed in the value
+   * input): a `param()` initializer lands at the top of the part body. */
+  newVariables?: { name: string; initializer: string }[];
 }): Promise<{ success: boolean; reason?: string }> {
   try {
     const res = await fetch('/api/sketch/add-constraint', {

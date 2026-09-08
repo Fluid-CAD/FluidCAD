@@ -73,7 +73,7 @@ The tool picked the edges by where they are: the vertical edges of the plate tha
 The knuckle is a tube along the pin axis. It is sketched on the **front** plane (XZ) as a circle and extruded along Y, both ways from the plane, so the tube is centred on the middle of the leaf like the outline is.
 
 1. Click **Sketch**, then click the **XZ** origin plane.
-2. **Circle**: centre `0`, `4` (the axis sits 4 mm above the leaf, so the tube rests on the plate's edge), diameter `8`. Typing the centre in the coordinate pill writes a `fix` on it. **Finish sketch**.
+2. **Circle**: centre `0`, `4` (the axis sits 4 mm above the leaf, so the tube rests on the plate's edge), diameter `8`. Typing the centre in the coordinate pill writes those coordinates into the statement; the centre stays free until you constrain it. **Finish sketch**.
 3. **Extrude**, Add tab, **Direction** *Symmetric*, **Distance** `12`. The ghost shows the tube growing 6 mm to each side of the front plane. **Apply**.
 
 <ViewerEmbed packageId={viewerPackages["step3e-knuckle"].id} poster="/img/docs/getting-started/hinge-step3e-knuckle.png" alt="The first knuckle" />

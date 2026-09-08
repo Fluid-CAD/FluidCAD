@@ -2,7 +2,7 @@
 import { yAxis, origin, circle, breakpoint, plane, sketch, extrude, fillet, chamfer, repeat, rotate, arc, shell, offset, rib, revolve, line, xAxis } from 'fluidcad/core';
 import { tangent, diameter, angle, coincident, distance, equal, fix, horizontal, radius, vertical } from "fluidcad/constraints";
 
-sketch("top", () => {
+sketch('xy', () => {
     const l1 = line([75.77, 0], [53.58, 53.58]);
     const l2 = line([53.58, 53.58], [0, 75.77]);
     const l3 = line([0, 75.77], [-53.58, 53.58]);
@@ -81,7 +81,7 @@ chamfer(8, outer.startEdges())
 
 shell(-5, outer.endFaces())
 
-sketch("top", () => {
+sketch('xy', () => {
     const sg1 = line([-25, -25], [25, -25]);
     const sg2 = line([25, -25], [25, 25]);
     const sg3 = line([25, 25], [-25, 25]);

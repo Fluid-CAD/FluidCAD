@@ -12,217 +12,224 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={deskOrganizerFinal} entry="desk-organizer.fluid.js" />
 
-In this tutorial, you'll build a four-compartment octagonal desk organizer with a square inner pocket, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=6pThupmIU0c). It covers constraint sketches (regular polygons from lines with `equal`, angled lines dimensioned from a datum axis), sketch-level rotate and fillet, chamfering and shelling by extrude faces, multi-loop sketches via `offset`, ribs on a rotated reference plane, circular patterning, and a thin revolve cut for trimming.
+In this tutorial, you'll build a four-compartment octagonal desk organizer with a square inner pocket, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=6pThupmIU0c). You build it entirely from the FluidCAD workspace: the toolbar, the sketch tools, the constraint bar and the feature dialogs. Every dialog writes a line of code into your file as you apply it, so the [full code](#full-code) at the end is what the UI produced, not something you type.
 
-Create a new file called `desk-organizer.fluid.js` in your project.
+It covers sketching a regular octagon with the Polygon tool, rounding its corners with the sketch Fillet tool, extruding, chamfering and shelling a body, drawing a dimensioned rectangle and offsetting it, making a rotated construction plane, building a rib and patterning it around an axis, and trimming with a thin revolve cut.
 
-## Setup
+## Before you start
 
-Two import lines cover every operation used in this model: the geometry and 3D operations from `fluidcad/core`, and the constraint statements from `fluidcad/constraints`.
+Open a workspace and create a new part file: click **+** in the top bar and type `desk-organizer.fluid.js`. The new tab opens on an empty scene. The screenshots use the light theme; the sun/moon button at the top right switches it.
 
-```js
-import { plane, sketch, extrude, fillet, chamfer, repeat, rotate, arc, shell, offset, rib, revolve, line, xAxis } from 'fluidcad/core';
-import { angle, coincident, distance, equal, fix, horizontal, radius, vertical } from "fluidcad/constraints";
-```
+A few UI habits you will use throughout:
 
-No filters are needed. Selections in this model use the extrude handle (`outer.startEdges()`, `outer.endFaces()`) instead of plane-based filters.
+- **Ctrl+click** adds an entity to the current selection. A plain click replaces it.
+- The **constraint bar** appears under the toolbar while you sketch. Its buttons are icons; hover one for its name. A button lights up only when the current selection makes sense for it.
+- The **DOF pill** at the bottom of the viewport counts the degrees of freedom left in a sketch and turns into *Fully constrained* when you are done.
+- Every feature dialog shows the **statement** it is about to write, just under the dialog. **Apply** (or <kbd>Enter</kbd>) writes it; **Exit** (or <kbd>Escape</kbd>) discards it.
 
 ## Step 1: Octagonal base
 
-### Sketch the footprint
+### Start a sketch on the XY plane
 
-```js
-sketch("top", () => {
-    const s1 = line([75.767454, 0], [53.575681, 53.575681]);
-    const s2 = line([53.575681, 53.575681], [0, 75.767454]);
-    const s3 = line([0, 75.767454], [-53.575681, 53.575681]);
-    const s4 = line([-53.575681, 53.575681], [-75.767454, 0]);
-    const s5 = line([-75.767454, 0], [-53.575681, -53.575681]);
-    const s6 = line([-53.575681, -53.575681], [0, -75.767454]);
-    const s7 = line([0, -75.767454], [53.575681, -53.575681]);
-    const s8 = line([53.575681, -53.575681], [75.767454, 0]);
-    coincident(s1.end(), s2.start());
-    coincident(s2.end(), s3.start());
-    coincident(s3.end(), s4.start());
-    coincident(s4.end(), s5.start());
-    coincident(s5.end(), s6.start());
-    coincident(s6.end(), s7.start());
-    coincident(s7.end(), s8.start());
-    coincident(s8.end(), s1.start());
-    equal(s1, s2);
-    equal(s1, s3);
-    equal(s1, s4);
-    equal(s1, s5);
-    equal(s1, s6);
-    equal(s1, s7);
-    equal(s1, s8);
-    rotate(45 / 2, [0, 0]);
-    fillet(20, s1, s2, s3, s4, s5, s6, s7, s8);
-});
-```
+Click **Sketch** in the toolbar. The Sketch dialog asks for a face or a plane, and the three origin planes appear in the viewport.
 
-The octagon is built from eight `line` statements — a constraint sketch (note the `true` argument to `sketch`), so each line is a fully-specified guess and the constraint statements carry the design intent. The vertices sit on a circle of radius 70 / cos(22.5°) ≈ 75.77, which makes the octagon **circumscribed** around a circle of diameter 140: the flats — not the corners — land on the 140 mark, so the body measures 140 across the flats.
+![Sketch tool armed, waiting for a plane](/img/docs/tutorials/desk-organizer-ui-01-sketch-pick-plane.png)
 
-The `coincident` chain welds each line's end to the next line's start (and the last back to the first), closing the loop, and the `equal` run keeps all eight sides the same length — together they say "regular octagon" while the guess coordinates say which one.
+Click the **XY** plane. The camera locks onto it, the sketch toolbar replaces the feature toolbar, and the constraint bar appears above the viewport. The dialog now lists the sketch options: section view, camera lock, snapping, automatic constraint inference while drawing, and which constraint badges to display. Leave them all on.
 
-`rotate(45 / 2, [0, 0])` spins the profile by 22.5° about the sketch origin — in a constraint sketch the rotation center is always explicit — so a flat face, not a vertex, sits on the X axis. That orientation matters in step 4: it lines up the inner square's diagonals with four of the octagon's flats.
+![An empty sketch on the XY plane](/img/docs/tutorials/desk-organizer-ui-02-sketch-xy.png)
 
-`fillet(20, s1, ..., s8)` rounds each corner shared by the listed lines with a 20-unit radius, softening what would otherwise be sharp vertical edges on the body.
+### Draw the octagon with the Polygon tool
 
-![Octagon sketch with fillets](/img/docs/tutorials/desk-organizer-step1-sketch.png)
+Pick the **Polygon** tool. Its button carries a small option menu for *circumscribed* or *inscribed*; leave it on circumscribed, so the size you type is measured across the flats rather than across the corners.
 
-### Extrude upward
+Click the origin for the center. A ⌀ readout follows the mouse; type `140` and press <kbd>Enter</kbd>.
 
-```js
-const outer = extrude(110);
-```
+![Polygon tool: the center is placed and the diameter is being typed](/img/docs/tutorials/desk-organizer-ui-03-polygon-diameter.png)
 
-`extrude(110)` pushes the octagon 110 units along the top plane's normal (upward), creating a tall octagonal prism. Storing the result as `outer` gives us a handle for selecting the start/end edges and faces of this extrude in the next steps.
+The readout switches to **N**, the number of sides. Moving the mouse previews the polygon; type `8` and press <kbd>Enter</kbd>.
 
-![Octagonal prism](/img/docs/tutorials/desk-organizer-step1.png)
+![Polygon tool: choosing the number of sides](/img/docs/tutorials/desk-organizer-ui-04-polygon-sides.png)
+
+One tool, and the octagon arrives fully described: eight lines joined corner to corner, a dash-dot **guide circle** of diameter 140 centered on the origin, every side tangent to it, all sides equal, and a 45° angle between two neighbors. The badges around the profile are those constraints. The DOF pill reads *1 DOF remaining*: the octagon can still spin about its center.
+
+![The octagon as the Polygon tool emits it, one degree of freedom left](/img/docs/tutorials/desk-organizer-ui-05-polygon-result.png)
+
+Click the top side, away from its midpoint where the guide circle touches it, and click **Horizontal** on the constraint bar. A flat now faces the X axis instead of a corner, and the pill reads *Fully constrained*. That orientation matters later: it lines up the inner square's diagonals with four of the flats.
+
+![The octagon with a horizontal side, fully constrained](/img/docs/tutorials/desk-organizer-ui-06-polygon-horizontal.png)
+
+### Round the corners with the Fillet tool
+
+Pick **Fillet** in the sketch toolbar. Click each of the eight sides, near a corner so the pick does not land on the guide circle; the dialog counts them and reports *8 corners will be filleted*. Set **Radius** to `20`. The thin blue arcs at the corners are the preview.
+
+![Fillet dialog with the eight sides picked and the 20 mm corner preview](/img/docs/tutorials/desk-organizer-ui-07-fillet-preview.png)
+
+Click **Apply**. Each corner is replaced by an arc that is tangent to both of its sides, one arc carries the R20 dimension and the other seven are equal to it. The pill still reads *Fully constrained*.
+
+![The finished octagon with eight tangent arcs](/img/docs/tutorials/desk-organizer-ui-08-fillet-result.png)
+
+### Extrude the body
+
+Click **Finish Sketch ▾**. The menu offers the operations that take a sketch as input.
+
+![The Finish Sketch menu](/img/docs/tutorials/desk-organizer-ui-09-finish-sketch-menu.png)
+
+Choose **Extrude**. The Extrude dialog opens with the sketch already in its Sketch slot. Set **Distance** to `110`. The green ghost is a live preview of the solid the extrude will add, and the statement under the dialog reads `extrude(110)`.
+
+![Extrude dialog with the 110 mm ghost preview](/img/docs/tutorials/desk-organizer-ui-10-extrude-preview.png)
+
+Click **Apply**. The prism appears, an *Extrude* row joins the History panel, and the Shapes panel lists the new solid.
+
+![The extruded octagonal prism](/img/docs/tutorials/desk-organizer-ui-11-extrude-result.png)
 
 ## Step 2: Chamfer the bottom and shell from the top
 
-```js
-chamfer(8, outer.startEdges())
+### Chamfer the bottom edges
 
-shell(-5, outer.endFaces())
-```
+Click **Chamfer** in the toolbar. The dialog asks you to pick edges. Click one edge of the bottom rim, then **double-click** it: a double-click expands the pick to the whole classified group the edge belongs to, here all sixteen edges of the bottom rim. Set **Distance** to `8`.
 
-`outer.startEdges()` returns the edges around the **start** of the extrude — the bottom of the prism, where the sketch lived. `chamfer(8, ...)` bevels them with an 8-unit chamfer, giving the body a clean foot.
+The red band is the chamfer preview. The statement reads `chamfer(8, e.startEdges())`: FluidCAD recognised the rim as the start edges of the extrude and wrote the selection that way, so it survives edits to the sketch.
 
-`outer.endFaces()` returns the **end** face of the extrude — the top of the prism. `shell(-5, ...)` hollows the body inward with 5-unit walls and removes the top face, opening the prism into a cup with a 5-thick floor and walls.
+![Chamfer dialog with all sixteen bottom edges picked and the 8 mm preview](/img/docs/tutorials/desk-organizer-ui-12-chamfer-preview.png)
 
-![Chamfered and shelled body](/img/docs/tutorials/desk-organizer-step2.png)
+Click **Apply**.
+
+![The chamfered foot](/img/docs/tutorials/desk-organizer-ui-13-chamfer-result.png)
+
+### Shell from the top
+
+Click **Shell**. Click the top face of the prism; it highlights and lands in the Selection slot. Set **Thickness** to `-5`. A negative thickness hollows the body inward, keeping the outside dimensions; the picked face is the one that gets removed. The statement reads `shell(-5, e.endFaces())`.
+
+![Shell dialog with the top face picked](/img/docs/tutorials/desk-organizer-ui-14-shell-pick.png)
+
+Click **Apply**. The prism is now a cup with 5 mm walls and a 5 mm floor.
+
+![The shelled cup](/img/docs/tutorials/desk-organizer-ui-15-shell-result.png)
 
 ## Step 3: Inner square pocket
 
-### Sketch a square ring
+### Sketch a 50 × 50 square
 
-```js
-sketch("top", () => {
-    const sg1 = line([-25, -25], [25, -25]);
-    const sg2 = line([25, -25], [25, 25]);
-    const sg3 = line([25, 25], [-25, 25]);
-    const sg4 = line([-25, 25], [-25, -25]);
-    coincident(sg1.end(), sg2.start());
-    coincident(sg2.end(), sg3.start());
-    coincident(sg3.end(), sg4.start());
-    coincident(sg4.end(), sg1.start());
-    horizontal(sg1);
-    vertical(sg2);
-    horizontal(sg3);
-    vertical(sg4);
-    fix(sg1.start(), [-25, -25]);
-    distance(sg1.start(), sg1.end(), 50);
-    distance(sg2.start(), sg2.end(), 50);
-    offset(-5);
-});
-```
+Click **Sketch** and pick the **XY** plane again. Because the sketch plane cuts through the cup, *Section view* clips the walls away so you see the floor as a flat outline.
 
-The four lines form a 50×50 square centered on the origin: `coincident` closes the loop, `horizontal`/`vertical` square it up, `fix` anchors the bottom-left corner at (−25, −25), and the two `distance` dimensions set the side lengths — a fully constrained square. `offset(-5)` then adds an inset profile 5 units inside the square, leaving both loops in the sketch — outer 50×50 and inner 40×40. A sketch with a closed inner loop inside a closed outer loop extrudes as an annular profile (a frame), not a solid block.
+Pick the **Rectangle** tool. Click the first corner at (-25, -25), then type `50` for the width, press <kbd>Enter</kbd>, type `50` for the height and press <kbd>Enter</kbd> again. Typed sizes become dimensions in the sketch rather than guesses.
 
-![Square ring sketch](/img/docs/tutorials/desk-organizer-step3-sketch.png)
+![Rectangle tool: the width is typed, the height comes next](/img/docs/tutorials/desk-organizer-ui-16-rectangle-tool.png)
 
-### Extrude the inner column
+The rectangle arrives as four lines with horizontal, vertical and coincident constraints and the two 50 mm dimensions. It can still slide around as a whole, so click its bottom-left corner point and click **Fix** on the constraint bar. The pill reads *Fully constrained*.
 
-```js
-extrude(160);
-```
+![The 50 × 50 square with its corner fixed](/img/docs/tutorials/desk-organizer-ui-17-square-fixed.png)
 
-`extrude(160)` pushes the square ring 160 units upward — taller than the outer prism's 110, so it pokes up above the open top. With no `.new()` call, the new solid auto-fuses with the existing body, fusing through the floor of the cup so the inner square wall stands as a continuous part of the organizer.
+### Offset an inner loop
 
-![Inner square column added](/img/docs/tutorials/desk-organizer-step3.png)
+Pick **Offset** in the sketch toolbar. Click one side of the square and **Ctrl+click** the other three. Set **Distance** to `-5`; the negative value offsets inward. The blue outline is the preview of the second loop.
+
+![Offset dialog with the four sides picked and the -5 mm inner loop preview](/img/docs/tutorials/desk-organizer-ui-18-offset-preview.png)
+
+Click **Apply**. The sketch now holds a closed outer loop and a closed inner loop, which extrudes as a square tube rather than a solid block.
+
+### Extrude the column
+
+Click **Finish Sketch ▾** and choose **Extrude**. Set **Distance** to `160`, taller than the 110 mm cup so the column will stand above the rim. The ghost shows the tube rising from the floor and through the open top.
+
+![Extrude dialog with the 160 mm column preview](/img/docs/tutorials/desk-organizer-ui-19-column-extrude-preview.png)
+
+Click **Apply**. With the **Add** tab selected the new solid fuses with the cup, so the column and the floor become one body.
+
+![The inner square column fused to the cup](/img/docs/tutorials/desk-organizer-ui-20-column-result.png)
 
 ## Step 4: Add a rib and pattern it around
 
-### Build a rotated reference plane
+### Make a rotated construction plane
 
-```js
-const p = plane("front", { rotateY: 45 })
-```
+The ribs run diagonally from the column's corners to the outer wall. To sketch one you need a plane on that diagonal. Click **Plane** in the toolbar, then click the **XZ** origin plane in the viewport to use it as the base. Set **Offset** to `0` and the middle **Rotation** field, the rotation about Y, to `45`.
 
-`plane("front", { rotateY: 45 })` takes the front plane (XZ) and rotates it 45° around the Y axis. Inside this rotated plane, drawing along the X axis traces a path running diagonally between the inner square corners and the surrounding octagon — exactly where we want the first rib to sit.
+The yellow quad previews the plane, and the statement reads `plane('xz', { rotateY: 45 })`.
+
+![Plane dialog with the XZ plane rotated 45° about Y](/img/docs/tutorials/desk-organizer-ui-21-plane-preview.png)
+
+Click **Apply**. A *Plane* row is added to History.
 
 ### Sketch the rib spine
 
-```js
-sketch(p, () => {
-    const l = line([(-140 / 2) + 5, 110], [-50.857864, 124.142136]);
-    fix(l.start(), [(-140 / 2) + 5, 110]);
-    angle(xAxis(), l, 45);
-    distance(l.start(), l.end(), 20);
-});
-```
+Click **Sketch** and click the new plane (either its quad in the viewport or its row in the History panel). Section view now slices the model along the diagonal, so you see the column and the outer wall in cross-section.
 
-The line starts at x=−65 (just inside the octagon's left flat) and y=110 (the height of the outer body's open top) — `fix` pins that start point in place. `angle(xAxis(), l, 45)` dimensions the line to 45° counterclockwise from the sketch's X axis datum, and `distance(..., 20)` sets its length — a short seed for the rib. The end-point guess (−50.86, 124.14) already satisfies both dimensions, so the solve leaves the line exactly where it was drawn. The line itself doesn't need to span the full gap; `.extend()` will stretch it to the surrounding solids.
+Pick the **Line** tool and draw a short line just inside the outer wall, near the top of the cup, angled up and to the right. Then dimension it with the constraint bar:
 
-![Rib spine on rotated plane](/img/docs/tutorials/desk-organizer-step4-sketch.png)
+1. Click the line and click **Dimension**, type `20` for its length.
+2. Click the line's start point, **Ctrl+click** the horizontal axis and click **Dimension**, type `115`. That puts the spine 5 mm above the 110 mm rim.
+3. Click the start point, **Ctrl+click** the vertical axis, **Dimension**, type `60`.
+4. Click the line, **Ctrl+click** the horizontal axis and click **Angle**, type `45`.
 
-### Build and pattern the rib
+![The rib spine: a 20 mm line dimensioned from the sketch axes](/img/docs/tutorials/desk-organizer-ui-22-rib-sketch.png)
 
-```js
-rib(5).parallel().extend();
+The spine does not need to reach either wall. The rib will be extended to meet them.
 
-repeat("circular", "z", {
-    count: 4,
-    angle: 360
-})
-```
+### Build the rib
 
-`rib(5)` builds a 5-thick rib from the spine. The chained calls do the heavy lifting:
+Click **Finish Sketch ▾** and choose **Rib**. Set **Thickness** to `5`, and switch on **Parallel to sketch plane** and **Extend to walls**. *Parallel* grows the rib in the sketch plane, so it stands as a wall rather than being pushed out normal to the plane; *Extend* stretches the spine until it meets the surrounding solids. The green ghost shows the wall between the column and the outer shell, and the statement reads `rib(5).parallel().extend()`.
 
-- **`.parallel()`** — extrudes the rib *in-plane* (perpendicular to the spine within the rotated plane) instead of normal to the sketch, so the rib stands up as a wall connecting the inner square to the outer shell.
-- **`.extend()`** — stretches the spine endpoints outward until they meet surrounding solids: the inner square wall on one side, the outer octagon's inside wall on the other.
+![Rib dialog with the parallel, extended rib preview](/img/docs/tutorials/desk-organizer-ui-23-rib-preview.png)
 
-`repeat("circular", "z", { count: 4, angle: 360 })` rotates the most recent operation — the rib — around the Z axis four times for a full revolution, producing four rib walls 90° apart that divide the cavity into four compartments.
+Click **Apply**.
 
-![Four ribs added](/img/docs/tutorials/desk-organizer-step4.png)
+### Pattern it around the Z axis
+
+Click **Repeat** in the toolbar and set **Type** to **Circular**. Repeat takes its targets from the History panel: click the **Rib** row, and it lands in the Features slot. The axis defaults to *World Z axis*, which is what you want. Set **Total Count** to `4` and leave the angle at a total of `360`. The ghost shows the three extra ribs.
+
+![Repeat dialog with the four-rib circular preview](/img/docs/tutorials/desk-organizer-ui-24-repeat-preview.png)
+
+Click **Apply**. Four rib walls now divide the cup into four compartments.
+
+![Four ribs around the column](/img/docs/tutorials/desk-organizer-ui-25-repeat-result.png)
 
 ## Step 5: Trim the top with a thin revolve cut
 
 ### Sketch the trim arc
 
-```js
-sketch("front", () => {
-    const a = arc([140, 0], [0, 140], [0, 0]);
-    fix(a.center(), [0, 0]);
-    radius(a, 140);
-});
-```
+The column and the ribs poke above the rim. You will dome them off by revolving a quarter arc into a hemispherical shell and subtracting it.
 
-`arc(start, end, center)` draws a quarter arc on the front plane, sweeping counterclockwise from (140, 0) up to (0, 140) around the origin. `fix(a.center(), [0, 0])` pins the center on the revolve axis and `radius(a, 140)` dimensions it. Because the arc is centered on the Z axis, revolving it around Z sweeps every point on the arc through a full circle, generating a **hemispherical surface** of radius 140 sitting on top of the model. That's the surface that will dome off the inner column and trim everything above it.
+Click **Sketch** and pick the **XZ** plane. Pick the **Center Arc** tool: click the origin for the center, click a point on the horizontal axis to the right for the start, and sweep up to the vertical axis for the end. Constrain it:
 
-![Trim arc sketch](/img/docs/tutorials/desk-organizer-step5-sketch.png)
+1. Click the arc's center point and click **Fix**, so it stays on the revolve axis.
+2. Click the arc, click **Dimension** and type `140` for the radius.
+3. Click the arc's start point, **Ctrl+click** the horizontal axis and click **Coincident**. Do the same for the end point and the vertical axis.
 
-### Revolve as a thin cut
+![A quarter arc of radius 140 on the XZ plane](/img/docs/tutorials/desk-organizer-ui-26-trim-arc-sketch.png)
 
-```js
-revolve("z").thin(30).remove()
-```
+### Revolve it as a thin cut
 
-`revolve("z")` revolves around the Z axis to build that hemisphere. `.thin(30)` turns the open arc into a 30-thick shell rather than a closed solid — without it, the open arc couldn't define a watertight body to revolve. `.remove()` subtracts the revolved shell from the model.
+Click **Finish Sketch ▾** and choose **Revolve**. Select the **Remove** tab so the revolved shape is subtracted. The axis defaults to *World Z axis*. Switch on **Thin walls** and set **Thickness** to `30`: an open arc cannot enclose a solid on its own, so the thin option turns it into a 30 mm thick hemispherical shell. The red ghost is the shell that will be removed; the 30 mm is deliberately generous so it consumes everything above the dome.
 
-The result is a hemispherical trim surface that domes the top of the inner square column — clipping the four corners of the column down to a smooth spherical cap — and slices any material that pokes above the hemisphere off the outer rim. The 30 thickness is intentionally exaggerated; it just needs to be thick enough to fully consume the excess material from the inner extrude.
+![Revolve dialog with the thin, removed hemisphere preview](/img/docs/tutorials/desk-organizer-ui-27-revolve-preview.png)
 
-![Finished desk organizer](/img/docs/tutorials/desk-organizer-final.png)
+Click **Apply**. The column's corners are trimmed to a spherical cap and the rib tops follow the same curve.
+
+![The finished desk organizer](/img/docs/tutorials/desk-organizer-ui-28-final.png)
 
 ## Full code
 
-<OpenInViewer code={deskOrganizerFinal} entry="desk-organizer.fluid.js" />
+Everything above was written into `desk-organizer.fluid.js` by the dialogs. Open the code editor with the `</>` button on the left rail or <kbd>Ctrl</kbd>+<kbd>B</kbd> to read it. The listing below is the same model with tidier names; the coordinates you clicked will differ, but the constraints make the geometry identical.
 
-<CodeBlock language="js">{deskOrganizerFinal}</CodeBlock>
+<details>
+  <summary>Show the full code</summary>
+
+  <CodeBlock language="js">{deskOrganizerFinal}</CodeBlock>
+
+</details>
+
+<OpenInViewer code={deskOrganizerFinal} entry="desk-organizer.fluid.js" />
 
 ## What you practiced
 
-- **Regular polygons from constraints** — a closed `coincident` loop plus an `equal` run over exact-guess lines
-- **`rotate(angle, center)` and `fillet(radius, ...lines)` inside a sketch** — orienting and rounding a sketch profile before extruding (the rotation center is explicit in a constraint sketch)
-- **`angle(xAxis(), l, deg)`** — dimensioning a line's direction against a sketch datum axis
-- **Extrude handles (`startEdges`, `endFaces`)** — selecting bottom edges and top face of an extrude without plane filters
-- **`chamfer()`** — beveling edges by an absolute distance
-- **`shell()` with a face selection** — hollowing a body and removing one face to open it
-- **A constrained square + `offset()` for an annular sketch** — keeping both loops in the sketch to extrude a frame instead of a block
-- **`plane("front", { rotateY: ... })`** — rotating a reference plane to angle a rib path diagonally
-- **`rib().parallel().extend()`** — building a stiffening wall from a short seed line that extends to surrounding solids
-- **`repeat("circular", "z", ...)`** — circular-patterning the previous operation around an axis
-- **`revolve().thin().remove()`** — using a thin-walled revolve as a trim cut to clean up a profile
+- **Starting a sketch** from the Sketch tool and an origin plane, with section view slicing the model at the sketch plane
+- **Polygon** with a typed diameter and side count, and what it emits: a guide circle, tangent and equal sides, and an angle between neighbors
+- **Horizontal, Fix, Dimension, Angle and Coincident** from the constraint bar, and reading the DOF pill until a sketch is fully constrained
+- **Sketch Fillet** on a run of sides, which swaps every corner for a tangent arc with one shared radius
+- **Finish Sketch ▾** as the way into Extrude, Rib and Revolve, and the live ghost preview in each dialog
+- **Chamfer** with a double-click to pick a whole edge group, and **Shell** with a negative thickness and a picked face to open
+- **Rectangle** with typed sizes and **Fix** to pin a corner, then **Offset** for an inner loop
+- **Plane** with a rotation about an axis, and dimensioning a sketch against its own axes
+- **Rib** with parallel and extend, and **Repeat** picking its targets from the History panel
+- **Revolve** on the Remove tab with Thin walls, as a trim cut

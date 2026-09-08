@@ -2,7 +2,6 @@ import type { Font } from "fontkit";
 import { Sketch } from "./sketch.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
-import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 import { IText } from "../../core/interfaces.js";
 import { FontRegistry } from "../../io/font-registry.js";
@@ -206,8 +205,8 @@ export class Text extends ExtrudableGeometryBase implements IText {
   private _anchor: Point2D | null = null;
   private anchors = new StatementAnchors();
 
-  constructor(public text: string, targetPlane: PlaneObjectBase = null, private path: SceneObject = null) {
-    super(targetPlane);
+  constructor(public text: string, private path: SceneObject = null) {
+    super();
   }
 
   /**
@@ -263,9 +262,7 @@ export class Text extends ExtrudableGeometryBase implements IText {
       );
     }
 
-    const plane = this.targetPlane
-      ? this.targetPlane.getPlane()
-      : (this.getParent() as Sketch).getPlane();
+    const plane = (this.getParent() as Sketch).getPlane();
     // No pen exists since P7 — the anchored form draws at the plane origin
     // unless `.at([x, y])` places it. Inside a sketch the anchor is a solver
     // point entity: read the solved position (constraints may have moved it
@@ -290,10 +287,6 @@ export class Text extends ExtrudableGeometryBase implements IText {
     );
 
     this.addShapes(edges);
-
-    if (this.targetPlane) {
-      this.targetPlane.removeShapes(this);
-    }
   }
 
   private buildAlongPath(): void {
@@ -396,9 +389,6 @@ export class Text extends ExtrudableGeometryBase implements IText {
 
   override getDependencies(): SceneObject[] {
     const deps: SceneObject[] = [];
-    if (this.targetPlane) {
-      deps.push(this.targetPlane);
-    }
     if (this.path) {
       deps.push(this.path);
     }
@@ -406,13 +396,10 @@ export class Text extends ExtrudableGeometryBase implements IText {
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const targetPlane = this.targetPlane
-      ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane)
-      : null;
     const path = this.path
       ? (remap.get(this.path) || this.path)
       : null;
-    const copy = new Text(this.text, targetPlane, path);
+    const copy = new Text(this.text, path);
     copy._size = this._size;
     copy._font = this._font;
     copy._weight = this._weight;
@@ -433,12 +420,6 @@ export class Text extends ExtrudableGeometryBase implements IText {
       return false;
     }
     if (!super.compareTo(other)) {
-      return false;
-    }
-    if (this.targetPlane?.constructor !== other.targetPlane?.constructor) {
-      return false;
-    }
-    if (this.targetPlane && other.targetPlane && !this.targetPlane.compareTo(other.targetPlane)) {
       return false;
     }
     if (this.path?.constructor !== other.path?.constructor) {

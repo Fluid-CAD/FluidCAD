@@ -1,7 +1,6 @@
 import { WireOps } from "../../oc/wire-ops.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { SceneObject } from "../../common/scene-object.js";
-import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { Edge } from "../../common/edge.js";
 import { Face } from "../../common/face.js";
 import { Plane } from "../../math/plane.js";
@@ -19,9 +18,8 @@ export class Offset extends ExtrudableGeometryBase {
   constructor(
     private distance: number,
     private sourceGeometries: EdgeTargetArg[] = null,
-    targetPlane: PlaneObjectBase = null,
   ) {
-    super(targetPlane);
+    super();
   }
 
   close(): this {
@@ -73,8 +71,6 @@ export class Offset extends ExtrudableGeometryBase {
         this.consumeSelectionTargets();
         return;
       }
-
-      this.targetPlane?.removeShapes(this);
     }
 
     const allEdges = Array.from(sourceObjects.keys());
@@ -181,20 +177,14 @@ export class Offset extends ExtrudableGeometryBase {
   }
 
   override getDependencies(): SceneObject[] {
-    const deps: SceneObject[] = [];
-    if (this.targetPlane) {
-      deps.push(this.targetPlane);
-    }
-    deps.push(...GeometrySceneObject.sceneObjectTargets(this.sourceGeometries));
-    return deps;
+    return GeometrySceneObject.sceneObjectTargets(this.sourceGeometries);
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
     const geometriesClone = this.sourceGeometries
       ? GeometrySceneObject.remapEdgeTargets(this.sourceGeometries, remap)
       : null;
-    const copy = new Offset(this.distance, geometriesClone, targetPlane);
+    const copy = new Offset(this.distance, geometriesClone);
     if (this._close) {
       copy._close = true;
     }
@@ -207,14 +197,6 @@ export class Offset extends ExtrudableGeometryBase {
     }
 
     if (!super.compareTo(other)) {
-      return false;
-    }
-
-    if (this.targetPlane?.constructor !== other.targetPlane?.constructor) {
-      return false;
-    }
-
-    if (this.targetPlane && other.targetPlane && !this.targetPlane.compareTo(other.targetPlane)) {
       return false;
     }
 

@@ -1,5 +1,4 @@
 import { Point2D } from "../../../math/point.js";
-import { Vertex } from "../../../common/vertex.js";
 import { SceneObject } from "../../../common/scene-object.js";
 import { Geometry } from "../../../oc/geometry.js";
 import { SketchSolverContext } from "./solver-context.js";
@@ -48,9 +47,6 @@ export class SolvedLine extends SolvedGeometryBase {
     const segment = Geometry.makeSegment(plane.localToWorld(start), plane.localToWorld(end));
     this.addShape(Geometry.makeEdge(segment));
 
-    this.setState('start', Vertex.fromPoint2D(start));
-    this.setState('end', Vertex.fromPoint2D(end));
-    this.setTangent(end.subtract(start).normalize());
     this.setState('solved', { start: { x: sx, y: sy }, end: { x: ex, y: ey } });
   }
 

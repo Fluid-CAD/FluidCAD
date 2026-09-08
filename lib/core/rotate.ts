@@ -14,29 +14,12 @@ import { type NumberParam, type BooleanParam, isBooleanParam, resolveParam } fro
 
 interface RotateFunction {
   /**
-   * [2D] Rotates geometry by an angle inside a sketch, about the sketch
-   * cursor (legacy sketches only — constraint sketches require an explicit
-   * center).
-   * @param angle - The rotation angle in degrees
-   * @param targets - The geometries to rotate (defaults to last object)
-   */
-  (angle: NumberParam, ...targets: ISceneObject[]): IRotate;
-  /**
    * [2D] Rotates geometry by an angle about an explicit center point.
    * @param angle - The rotation angle in degrees
    * @param center - The rotation center in sketch coordinates
    * @param targets - The geometries to rotate (defaults to last object)
    */
   (angle: NumberParam, center: Point2DLike, ...targets: ISceneObject[]): IRotate;
-  /**
-   * [2D] Rotates geometry by an angle inside a sketch, optionally making a
-   * copy (legacy sketches only — constraint sketches require an explicit
-   * center).
-   * @param angle - The rotation angle in degrees
-   * @param copy - Whether to copy instead of move
-   * @param targets - The geometries to rotate (defaults to last object)
-   */
-  (angle: NumberParam, copy: BooleanParam, ...targets: ISceneObject[]): IRotate;
   /**
    * [2D] Rotates geometry by an angle about an explicit center point,
    * optionally making a copy.
@@ -85,6 +68,9 @@ function build(context: SceneParserContext): RotateFunction {
 
     // 2D: rotate(angle, center?, copy?, ...targets) — inside a sketch the
     // second argument is a rotation center, never an axis.
+    // A centre-less rotate(angle, ...) is no longer a typed form; at runtime
+    // it still lands as a per-statement build error (Rotate2D refuses a
+    // null center) so the rest of the sketch renders.
     if (activeSketch && (args.length === 1 || args.length === 2)) {
       const angle = resolveParam(args[0] as NumberParam);
       const center = args.length === 2 ? normalizePoint2D(args[1] as Point2DLike) : null;

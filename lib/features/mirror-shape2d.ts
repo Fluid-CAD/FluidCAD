@@ -6,7 +6,6 @@ import { Matrix4 } from "../math/matrix4.js";
 import { ShapeOps } from "../oc/shape-ops.js";
 import { GeometrySceneObject } from "./2d/geometry.js";
 import { AxisObjectBase } from "./axis-renderable-base.js";
-import { LazyVertex } from "./lazy-vertex.js";
 import { collectSourceEntities, sourceEntitiesPayload } from "./2d/solved/source-entities.js";
 
 export class MirrorShape2D extends GeometrySceneObject {
@@ -73,14 +72,6 @@ export class MirrorShape2D extends GeometrySceneObject {
     }
 
     this.addShapes(transformedShapes);
-  }
-
-  start(): LazyVertex {
-    return new LazyVertex(this.generateUniqueName('start-vertex'), () => [this.getState('start')]);
-  }
-
-  end(): LazyVertex {
-    return new LazyVertex(this.generateUniqueName('end-vertex'), () => [this.getState('end')]);
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {

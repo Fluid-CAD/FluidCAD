@@ -28,7 +28,7 @@ function build(context: SceneParserContext): EllipseFunction {
     const center = normalizePoint2D(arguments[0]);
     const rx = resolveParam(arguments[1] as NumberParam);
     const ry = resolveParam(arguments[2] as NumberParam);
-    const e = new Ellipse(rx, ry, null, center.asPoint2D());
+    const e = new Ellipse(rx, ry, center.asPoint2D());
     context.addSceneObject(e);
     const activeSketch = context.getActiveSketch();
     if (activeSketch) {

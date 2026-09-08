@@ -269,12 +269,6 @@ export interface IGeometry extends ISceneObject {
    * Returns a lazy-evaluated vertex at the end point of this geometry element.
    */
   end(): LazyVertex;
-
-  /**
-   * Returns a lazy-evaluated vertex representing the tangent direction at the end
-   * of this geometry. Used to determine the direction of subsequent geometry elements.
-   */
-  tangent(): LazyVertex;
 }
 
 export interface IExtrudableGeometry extends IGeometry {}

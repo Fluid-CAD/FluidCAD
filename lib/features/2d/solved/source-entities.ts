@@ -9,7 +9,7 @@
 //
 // `allSolved` goes false when any shape-bearing source (or an
 // unidentifiable transform input) carries no solver identity — an offset
-// output, a nested copy, legacy geometry. No verdict there: never green.
+// output, a nested copy. No verdict there: never green.
 
 import { SceneObject } from "../../../common/scene-object.js";
 import { Axis } from "../../../math/axis.js";
@@ -124,8 +124,7 @@ export function collectSourceEntities(
   return { ids: [...ids].sort((a, b) => a - b), allSolved };
 }
 
-/** The serialize() fragment for a recorded join; empty when none recorded
- * (legacy sketches never record). */
+/** The serialize() fragment for a recorded join; empty when none recorded. */
 export function sourceEntitiesPayload(
   record: SourceEntitiesRecord | undefined,
 ): Record<string, unknown> {

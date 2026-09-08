@@ -314,7 +314,8 @@ describe("derived ops on solved sketches (P6 audit)", () => {
       sketch('xy', () => {
         const c = circle([30, 0], 20);
         fix(c.center(), [30, 0]);
-        rotate(90, true, c);
+        // Not a typed overload any more; a JS file can still write it.
+        (rotate as unknown as (...args: unknown[]) => unknown)(90, true, c);
       });
       const scene = render();
 

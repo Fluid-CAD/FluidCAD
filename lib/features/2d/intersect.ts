@@ -3,7 +3,6 @@ import { BuildError } from "../../common/build-error.js";
 import { Edge } from "../../common/edge.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { SectionOps } from "../../oc/section-ops.js";
-import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { LazySelectionSceneObject } from "../lazy-scene-object.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 import { SelectSceneObject } from "../select.js";
@@ -27,8 +26,8 @@ export class Intersect extends ExtrudableGeometryBase {
   // and SceneCompare transfers state — the UI keys the constrained (green)
   // tint on the serialized entities, so an instance-only copy went blue.
 
-  constructor(private sourceObjects: SceneObject[], targetPlane: PlaneObjectBase = null) {
-    super(targetPlane);
+  constructor(private sourceObjects: SceneObject[]) {
+    super();
   }
 
   /** Idempotent OCCT compute + fixed-entity registration (P6). */
@@ -37,7 +36,7 @@ export class Intersect extends ExtrudableGeometryBase {
       return;
     }
     try {
-      const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
+      const plane = this.sketch.getPlane();
       // The pre-pass runs before the render loop reaches lazy accessor
       // sources (`e.endFaces()` lives inside the sketch body) — resolve them
       // early; their build latch makes the loop's own slot a no-op.
@@ -118,24 +117,15 @@ export class Intersect extends ExtrudableGeometryBase {
         obj.removeShapes(this);
       }
     }
-
-    if (this.targetPlane) {
-      this.targetPlane.removeShapes(this);
-    }
   }
 
   override getDependencies(): SceneObject[] {
-    const deps: SceneObject[] = [...this.sourceObjects];
-    if (this.targetPlane) {
-      deps.push(this.targetPlane);
-    }
-    return deps;
+    return [...this.sourceObjects];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
     const objects = this.sourceObjects.map(obj => remap.get(obj) || obj);
-    const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
-    const copy = new Intersect(objects, targetPlane);
+    const copy = new Intersect(objects);
     // Clones of a solved sketch never re-solve — carry the prepared compute
     // and the registered fixed-entity records (P2 clone rule).
     copy._prepared = this._prepared;
@@ -151,14 +141,6 @@ export class Intersect extends ExtrudableGeometryBase {
     }
 
     if (!super.compareTo(other)) {
-      return false;
-    }
-
-    if (this.targetPlane?.constructor !== other.targetPlane?.constructor) {
-      return false;
-    }
-
-    if (this.targetPlane && other.targetPlane && !this.targetPlane.compareTo(other.targetPlane)) {
       return false;
     }
 

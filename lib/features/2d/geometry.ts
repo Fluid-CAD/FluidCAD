@@ -1,13 +1,10 @@
-import { Point2D } from "../../math/point.js";
 import { Sketch } from "./sketch.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { LazyVertex } from "../lazy-vertex.js";
 import { LazySelectionSceneObject } from "../lazy-scene-object.js";
-import { Vertex } from "../../common/vertex.js";
 import { Edge } from "../../common/edge.js";
 import { Wire } from "../../common/wire.js";
 import { Shape } from "../../common/shape.js";
-import { Plane } from "../../math/plane.js";
 import { EdgeOps } from "../../oc/edge-ops.js";
 import { EdgeQuery } from "../../oc/edge-query.js";
 import { FilterBuilderBase } from "../../filters/filter-builder-base.js";
@@ -46,10 +43,6 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
       parent = parent.getParent();
     }
     return parent instanceof Sketch ? parent : null;
-  }
-
-  protected setTangent(point: Point2D) {
-    this.setState('tangent', point);
   }
 
   // Default role stamp: any real sketch edge added without an explicit role
@@ -284,29 +277,6 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
     return 'selectable';
   }
 
-  protected applyEdgeResults(plane: Plane, edges: Edge[]) {
-    for (let i = 0; i < edges.length; i++) {
-      this.setState(`edge-${i}`, edges[i]);
-    }
-
-    if (edges.length > 0) {
-      const lastEdge = edges[edges.length - 1];
-      const localStart = plane.worldToLocal(lastEdge.getFirstVertex().toPoint());
-      const localEnd = plane.worldToLocal(lastEdge.getLastVertex().toPoint());
-
-      this.setState('start', Vertex.fromPoint2D(localStart));
-      this.setState('end', Vertex.fromPoint2D(localEnd));
-
-      this.setTangent(localEnd.subtract(localStart).normalize());
-    }
-
-    this.addShapes(edges);
-  }
-
-  getTangent(): Point2D {
-    return this.getState('tangent');
-  }
-
   start(): LazyVertex {
     return new LazyVertex(this.generateUniqueName('start-vertex'), () => {
       const start = this.getState('start');
@@ -322,16 +292,6 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
       const end = this.getState('end');
       if (end) {
         return [end];
-      }
-      return [];
-    });
-  }
-
-  tangent(): LazyVertex {
-    return new LazyVertex(this.generateUniqueName('tangent'), () => {
-      const tangent = this.getTangent();
-      if (tangent) {
-        return [Vertex.fromPoint2D(tangent)];
       }
       return [];
     });

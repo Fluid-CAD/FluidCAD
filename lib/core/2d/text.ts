@@ -6,7 +6,7 @@ import { IText, ISceneObject } from "../interfaces.js";
 interface TextFunction {
   /**
    * Renders a text string as extrudable outline geometry inside the current
-   * sketch, at the sketch cursor.
+   * sketch, anchored at the plane origin unless `.at([x, y])` places it.
    * @param text - The string to render.
    */
   (text: string): IText;
@@ -35,7 +35,7 @@ function build(context: SceneParserContext): TextFunction {
       if (typeof first !== "string") {
         throw new Error("text: when following a path, the first argument must be the text string.");
       }
-      const obj = new Text(first, null, second);
+      const obj = new Text(first, second);
       context.addSceneObject(obj);
       return obj;
     }

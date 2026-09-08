@@ -37,8 +37,6 @@ export class SolvedPoint extends SolvedGeometryBase {
     const vertex = Vertex.fromPoint(plane.localToWorld(local));
     this.addShape(vertex);
 
-    this.setState('start', Vertex.fromPoint2D(local));
-    this.setState('end', Vertex.fromPoint2D(local));
     this.setState('solved', { x, y });
   }
 

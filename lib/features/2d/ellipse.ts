@@ -1,9 +1,7 @@
 import { Geometry } from "../../oc/geometry.js";
-import { BuildError } from "../../common/build-error.js";
 import { Vertex } from "../../common/vertex.js";
 import { SceneObject } from "../../common/scene-object.js";
 import { Point2D } from "../../math/point.js";
-import { PlaneObjectBase } from "../plane-renderable-base.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 import type { Sketch } from "./sketch.js";
 import { StatementAnchors, AnchorPointRef } from "./solved/anchors.js";
@@ -15,10 +13,9 @@ export class Ellipse extends ExtrudableGeometryBase {
   constructor(
     public rx: number,
     public ry: number,
-    targetPlane: PlaneObjectBase = null,
     private centerOverride: Point2D | null = null,
   ) {
-    super(targetPlane);
+    super();
   }
 
   /** Called by the command factory right after addSceneObject: the center
@@ -46,24 +43,12 @@ export class Ellipse extends ExtrudableGeometryBase {
     return 'ellipse';
   }
 
-  override validate(): void {
-    super.validate();
-    // The pen form draws at the sketch cursor — a legacy concept with no
-    // meaning in a constraint sketch.
-    if (this.enclosingSketch() && !this.centerOverride && !this.targetPlane) {
-      throw new BuildError(
-        "ellipse(rx, ry) draws at the sketch cursor, which does not exist in a constraint sketch.",
-        "Pass an explicit center: ellipse([x, y], rx, ry).",
-      );
-    }
-  }
-
   build() {
     if (this.rx <= 0 || this.ry <= 0) {
       throw new Error(`Ellipse radii must be positive (rx=${this.rx}, ry=${this.ry})`);
     }
 
-    const plane = this.targetPlane?.getPlane() || this.sketch.getPlane();
+    const plane = this.sketch.getPlane();
     // The center is a solver point entity when the ellipse lives in a
     // sketch — read the solved position. The literal-center fallback
     // survives for ellipses built outside a sketch; with neither, the
@@ -91,19 +76,14 @@ export class Ellipse extends ExtrudableGeometryBase {
     const centerVertex = Vertex.fromPoint(plane.localToWorld(center));
     centerVertex.markAsMetaShape();
     this.addShape(centerVertex);
-
-    if (this.targetPlane) {
-      this.targetPlane.removeShapes(this);
-    }
   }
 
   override getDependencies(): SceneObject[] {
-    return this.targetPlane ? [this.targetPlane] : [];
+    return [];
   }
 
   override createCopy(remap: Map<SceneObject, SceneObject>): SceneObject {
-    const targetPlane = this.targetPlane ? (remap.get(this.targetPlane) as PlaneObjectBase || this.targetPlane) : null;
-    const copy = new Ellipse(this.rx, this.ry, targetPlane, this.centerOverride);
+    const copy = new Ellipse(this.rx, this.ry, this.centerOverride);
     this.anchors.copyTo(copy.anchors);
     return copy;
   }
@@ -114,14 +94,6 @@ export class Ellipse extends ExtrudableGeometryBase {
     }
 
     if (!super.compareTo(other)) {
-      return false;
-    }
-
-    if (this.targetPlane?.constructor !== other.targetPlane?.constructor) {
-      return false;
-    }
-
-    if (this.targetPlane && other.targetPlane && !this.targetPlane.compareTo(other.targetPlane)) {
       return false;
     }
 

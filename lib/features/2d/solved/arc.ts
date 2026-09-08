@@ -74,9 +74,6 @@ export class SolvedArc extends SolvedGeometryBase {
     this.addShape(centerVertex);
     this.addShape(edge);
 
-    this.setState('start', Vertex.fromPoint2D(start));
-    this.setState('end', Vertex.fromPoint2D(end));
-    this.setTangent(endTangent);
     this.setState('solved', {
       center: { x: cx, y: cy },
       radius: r,

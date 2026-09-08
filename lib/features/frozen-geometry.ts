@@ -8,7 +8,7 @@ import { TransformablePrimitive } from "../common/transformable-primitive.js";
  *
  * Such geometry cannot be rebuilt during the clone: a 2D curve resolves its
  * plane by walking up to its owning `Sketch` (see GeometrySceneObject.sketch),
- * and its pen position depends on sibling curves that are not part of the
+ * and its solve depends on sibling statements that are not part of the
  * clone. Cloning it out of its sketch leaves it parented under the repeat
  * container with no sketch ancestor, so `this.sketch` is `null` and build
  * throws "Cannot read properties of null (reading 'getPlane')".

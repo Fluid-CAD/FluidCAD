@@ -7,6 +7,12 @@ import { SceneObject } from "../../common/scene-object.js";
 import { synthesizeSketchApplyFeature } from "../../selection/sketch-apply.js";
 import { setLocation } from "./pick-helpers.js";
 import { testRect } from "../helpers/profiles.js";
+import extrude from "../../core/extrude.js";
+import shell from "../../core/shell.js";
+import select from "../../core/select.js";
+import { project } from "../../core/2d/index.js";
+import { edge } from "../../filters/index.js";
+import type { Extrude } from "../../features/extrude.js";
 
 // Stage 3 (plans/sketch-edge-selection): the 2D branch of the selection
 // kernel — {shapeId} picks resolve through the sketch edge index and
@@ -215,6 +221,144 @@ describe("sketch apply-feature synthesis", () => {
   // The 2D copy is owner-level like the booleans: targets are whole
   // geometries as bare variables; an edge-picked direction resolves its
   // single-line owner, referenced as `axis(<var>)` by the route.
+  // A `.guide()` primitive is a real statement whose edges the builds read
+  // when named directly (offset's guide-the-source pattern, a mirror's
+  // targets, every `r.edge(…)` accessor). The pick index used to drop
+  // guides, so a guide pick failed as "does not resolve to a sketch edge" —
+  // as if the scene were stale — while the emitted code would have worked.
+  describe("guide picks", () => {
+    const guideEdgesOf = (obj: SceneObject): Edge[] =>
+      obj.getShapes({ excludeGuide: false }).filter((s): s is Edge => s instanceof Edge);
+
+    it("offsets a picked .guide() primitive through its bare variable", () => {
+      let c: SceneObject;
+      sketch("xy", () => {
+        c = circle([0, 0], 40).guide() as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(c!, 3);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(guideEdgesOf(c!)[0])], 'offset', 2,
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.args).toBe('c');
+      expect(result.spec.producers).toEqual([
+        { line: 3, column: 0, featureType: 'circle', nameHint: 'c', bind: true },
+      ]);
+      expect(result.spec.parts).toEqual([
+        { producer: 0, accessor: '', indices: null, filterArgs: null },
+      ]);
+    });
+
+    it("addresses one picked edge of a guided primitive through its accessor", () => {
+      let l: SceneObject;
+      sketch("xy", () => {
+        l = line([0, 0], [30, 0]).guide() as unknown as SceneObject;
+        line([0, 20], [40, 20]);
+      });
+      const scene = render();
+      setLocation(l!, 3);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(guideEdgesOf(l!)[0])], 'offset', 2,
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      // The bare form wins (the pick covers the whole primitive); the index
+      // accessor is the verified runner-up.
+      expect(result.args).toBe('l');
+      expect(result.alternatives).toContain('l.edge(0)');
+    });
+
+    it("refuses a guide target for the 2D transforms by name, not as a stale scene", () => {
+      let c: SceneObject;
+      let axis: SceneObject;
+      sketch("xy", () => {
+        c = circle([20, 0], 10).guide() as unknown as SceneObject;
+        axis = line([0, -50], [0, 50]) as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(c!, 3);
+      setLocation(axis!, 4);
+
+      // Copies stamp real geometry only and mirror targets stay profile
+      // geometry (see the mirror operands) — the refusal says so.
+      for (const feature of ['copy', 'mirror', 'rotate2d'] as const) {
+        const result = synthesizeSketchApplyFeature(
+          scene, [refFor(guideEdgesOf(c!)[0])], feature, feature === 'rotate2d' ? 45 : undefined,
+          feature === 'mirror' ? { axisRefs: [refFor(edgesOf(axis!)[0])] }
+            : feature === 'rotate2d' ? { rotate2d: { center: [0, 0], copy: false } } : {},
+        );
+        expect(result, feature).toMatchObject({
+          ok: false,
+          reason: expect.stringMatching(/construction geometry/),
+        });
+      }
+    });
+
+    it("offsets a picked projected .guide() edge on a face sketch (user regression)", () => {
+      // The reported scene: a shelled disc, the inner rim projected as a
+      // guide onto the top face, then the Offset tool picking that ring.
+      let p: SceneObject;
+      sketch("xy", () => {
+        circle([0, 0], 30);
+      });
+      const e = extrude(20) as Extrude;
+      shell(-2, e.endFaces());
+      const sel = select(edge().onPlane(e.endFaces()).circle(26));
+      sketch(e.endFaces(), () => {
+        p = project(sel).guide() as unknown as SceneObject;
+      });
+      const scene = render();
+      setLocation(p!, 16);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(guideEdgesOf(p!)[0])], 'offset', 2,
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) {
+        return;
+      }
+      expect(result.spec.producers).toEqual([
+        { line: 16, column: 0, featureType: 'projection', nameHint: 'pj', bind: true },
+      ]);
+      expect(result.spec.parts).toEqual([
+        { producer: 0, accessor: '', indices: null, filterArgs: null },
+      ]);
+    });
+
+    it("refuses a guide pick a filter would have to express, naming the guide", () => {
+      let g1: SceneObject;
+      let g2: SceneObject;
+      sketch("xy", () => {
+        g1 = line([0, 0], [30, 0]).guide() as unknown as SceneObject;
+        g2 = line([0, 20], [40, 20]).guide() as unknown as SceneObject;
+      });
+      const scene = render();
+      // Same call site: no variable can bind the picked line, and edge
+      // filters never see guides.
+      setLocation(g1!, 4);
+      setLocation(g2!, 4);
+
+      const result = synthesizeSketchApplyFeature(
+        scene, [refFor(guideEdgesOf(g1!)[0])], 'offset', 2,
+      );
+      expect(result).toMatchObject({
+        ok: false,
+        reason: expect.stringMatching(/construction geometry/),
+      });
+    });
+  });
+
   describe("2D copy operands", () => {
     it("resolves targets to bare-variable producers and reports copySlots", () => {
       let l: SceneObject;

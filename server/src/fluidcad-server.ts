@@ -176,7 +176,7 @@ type SceneManager = {
   // Optional: the manager comes from the workspace's fluidcad install, which
   // may predate the 2D target resolver (offset edit seeding). The options
   // arg (text-path seeding needs guides) is ignored by kernels predating it.
-  resolveSketchStatementTargets?(scene: any, descriptors: unknown[], options?: { includeGuides?: boolean }): any;
+  resolveSketchStatementTargets?(scene: any, descriptors: unknown[]): any;
   // Optional: predates the text dialogs' path-layout glyph preview. The
   // path-only options (offset/startAt/flip) are ignored by kernels
   // predating them.
@@ -1752,7 +1752,7 @@ export class FluidCadServer {
    * Resolve a 2D statement's parsed target arguments onto the active
    * sketch's edges — the offset edit dialog's seed/highlight.
    */
-  resolveSketchStatementTargets(descriptors: unknown[], options?: { includeGuides?: boolean }): any {
+  resolveSketchStatementTargets(descriptors: unknown[]): any {
     if (!this.sceneManager?.resolveSketchStatementTargets) {
       return null;
     }
@@ -1760,7 +1760,7 @@ export class FluidCadServer {
     if (!scene) {
       return null;
     }
-    return this.sceneManager.resolveSketchStatementTargets(scene, descriptors, options);
+    return this.sceneManager.resolveSketchStatementTargets(scene, descriptors);
   }
 
   /**

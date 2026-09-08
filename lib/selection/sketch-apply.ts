@@ -114,7 +114,11 @@ export function synthesizeSketchApplyFeature(
     return synthesizeSketchTextPath(scene, refs, options);
   }
 
-  const resolution = resolvePicks(scene, refs);
+  // Offset and fillet resolve their direct targets through
+  // resolveEdgeTargets, which reads a named `.guide()` object's edges (the
+  // P7 offset pattern: guide the source, offset it) — so guide picks resolve
+  // here too. Only owner-bound forms can express them; see the filter pool.
+  const resolution = resolvePicks(scene, refs, { includeGuides: true });
   if ('reason' in resolution) {
     return { ok: false, reason: resolution.reason };
   }
@@ -596,9 +600,9 @@ function synthesizeSketchTransformOperands(
   }
 
   // Targets resolve through the profile index (the build's own view of the
-  // sketch); an axis line may be a `.guide()` — construction geometry is
-  // the classic mirror line — so its picks widen to guides. Both must land
-  // in ONE sketch.
+  // sketch) — a guide pick is refused as construction geometry; an axis line
+  // may be a `.guide()` — construction geometry is the classic mirror line —
+  // so its picks widen to guides. Both must land in ONE sketch.
   let targetPicks: ResolvedSketchPick[] = [];
   let pickedSketch: Sketch | null = null;
   if (refs.length > 0) {
@@ -716,7 +720,14 @@ function synthesizeSketchTransformOperands(
   };
 }
 
-/** Resolve every `{shapeId}` pick to its edge and owner in ONE sketch. */
+/**
+ * Resolve every `{shapeId}` pick to its edge and owner in ONE sketch.
+ *
+ * The index always covers construction geometry, so a `.guide()` pick is
+ * recognised as such: consumers whose build reads named guide objects pass
+ * `includeGuides` and take it; the others refuse it with the reason (rather
+ * than the generic "does not resolve", which reads as a stale scene).
+ */
 function resolvePicks(
   scene: SelectionScene,
   refs: SketchPickRef[],
@@ -725,11 +736,10 @@ function resolvePicks(
   const sketches = scene.getAllSceneObjects()
     .filter((o): o is Sketch => o instanceof Sketch);
 
-  const filter = options.includeGuides ? { excludeGuide: false } : undefined;
   const indexBySketch = new Map<Sketch, Map<string, { edge: Edge; owner: SceneObject }>>();
   for (const sketch of sketches) {
     const byId = new Map<string, { edge: Edge; owner: SceneObject }>();
-    for (const [edge, owner] of sketch.getEdgesWithOwner(filter)) {
+    for (const [edge, owner] of sketch.getEdgesWithOwner({ excludeGuide: false })) {
       byId.set(edge.id, { edge, owner });
     }
     indexBySketch.set(sketch, byId);
@@ -755,6 +765,9 @@ function resolvePicks(
     }
     if (!resolved) {
       return { reason: 'a pick does not resolve to a sketch edge in the current scene' };
+    }
+    if (!options.includeGuides && resolved.edge.isGuideShape()) {
+      return { reason: 'a picked edge is construction geometry (.guide()) — this operation reads only real sketch edges' };
     }
     if (pickedSketch && resolved.sketch !== pickedSketch) {
       return { reason: 'the picked edges live in different sketches — apply the operation per sketch' };
@@ -789,24 +802,23 @@ export type SketchTargetDescriptor =
  * All-or-nothing: one unresolvable argument yields a refusal, never a
  * silently smaller highlight.
  *
- * `includeGuides` widens the index to construction geometry — a text
- * statement's path is classically a `.guide()` curve; the op targets it
- * seeds by default stay real-edge-only, matching the applies.
+ * Guides follow the builds' own rule: a named object (owner or accessor
+ * argument) resolves its `.guide()` edges — a text path is classically a
+ * guide curve, and offset's guide-the-source pattern names one — while an
+ * edge filter evaluates over the sketch's real edges only.
  */
 export function resolveSketchStatementTargets(
   scene: SelectionScene,
   descriptors: SketchTargetDescriptor[],
-  options: { includeGuides?: boolean } = {},
 ): { ok: true; shapeIds: string[] } | { ok: false; reason: string } {
   const sketches = scene.getAllSceneObjects().filter((o): o is Sketch => o instanceof Sketch);
   const sketch = sketches[sketches.length - 1];
   if (!sketch) {
     return { ok: false, reason: 'no sketch is active' };
   }
-  const filter = options.includeGuides ? { excludeGuide: false } : undefined;
-  const index = sketch.getEdgesWithOwner(filter);
-  const universe = [...index.keys()];
-  const knownIds = new Set(universe.map(e => e.id));
+  const index = sketch.getEdgesWithOwner({ excludeGuide: false });
+  const universe = [...index.keys()].filter(e => !e.isGuideShape());
+  const knownIds = new Set([...index.keys()].map(e => e.id));
 
   const ownerAt = (line: number): SceneObject | { reason: string } => {
     const owners = [...new Set(index.values())]
@@ -834,7 +846,7 @@ export function resolveSketchStatementTargets(
       if ('reason' in owner) {
         return { ok: false, reason: owner.reason };
       }
-      const ownerEdges = owner.getShapes(filter).filter((s): s is Edge => s instanceof Edge);
+      const ownerEdges = owner.getShapes({ excludeGuide: false }).filter((s): s is Edge => s instanceof Edge);
       if (descriptor.kind === 'owner') {
         edges = ownerEdges;
       } else if (typeof descriptor.args[0] === 'string') {
@@ -881,9 +893,13 @@ export function checkSketchBindable(scene: SelectionScene, owner: SceneObject): 
   return null;
 }
 
-/** The owner's real (non-meta, non-guide) edges in build order. */
+/**
+ * The owner's real (non-meta) edges in build order, guides included — the
+ * set the owner's own accessors (`r.edge('top')`, `r.edge(1)`) and its bare
+ * variable resolve over, guided or not.
+ */
 function ownerRealEdges(owner: SceneObject): Edge[] {
-  return owner.getShapes().filter((s): s is Edge => s instanceof Edge);
+  return owner.getShapes({ excludeGuide: false }).filter((s): s is Edge => s instanceof Edge);
 }
 
 /**
@@ -894,8 +910,7 @@ function ownerRealEdges(owner: SceneObject): Edge[] {
  * widens the selection.
  */
 function ownerAsBuiltEdges(owner: SceneObject): Edge[] {
-  return owner.getAddedShapes().filter((s): s is Edge =>
-    s instanceof Edge && !s.isMetaShape() && !s.isGuideShape());
+  return owner.getAddedShapes().filter((s): s is Edge => s instanceof Edge && !s.isMetaShape());
 }
 
 /**
@@ -1127,6 +1142,15 @@ export function formatDim(value: number): string {
 /** Honest failure message for picks no simple 2D filter can separate. */
 function sketchFilterFailureReason(scene: SelectionScene, pool: ResolvedSketchPick[]): string {
   const owner = pool[0].owner;
+  // Edge filters evaluate over the sketch's real edges only (the build's
+  // own rule), so a guide pick that found no owner-bound form is
+  // unreachable by any filter.
+  if (pool.some(p => p.edge.isGuideShape())) {
+    const bindFailure = checkSketchBindable(scene, owner);
+    return bindFailure
+      ? `${bindFailure}, and construction geometry (.guide()) cannot be selected by an edge filter — select it in code directly`
+      : 'construction geometry (.guide()) can only be targeted through its own statement — bind it to a variable and pick it through that';
+  }
   const bindFailure = checkSketchBindable(scene, owner);
   if (bindFailure) {
     return `${bindFailure}, and no edge filter distinguishes the picked edges — select them in code directly`;

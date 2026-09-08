@@ -70,10 +70,11 @@ export abstract class GeometrySceneObject extends SceneObject implements IGeomet
       // Resolve against the live shape list; when a consumer (extrude) has
       // removed every live shape, fall back to what the build added — a late
       // resolution (e.g. a connector on a consumed profile) still needs the
-      // edge the build produced.
-      let edges = parent.getShapes().filter((s): s is Edge => s instanceof Edge);
+      // edge the build produced. Guides count: naming an edge of a
+      // `.guide()` primitive is as intentional as naming the primitive.
+      let edges = parent.getShapes({ excludeGuide: false }).filter((s): s is Edge => s instanceof Edge);
       if (edges.length === 0) {
-        edges = parent.getAddedShapes().filter((s): s is Edge => s instanceof Edge);
+        edges = parent.getAddedShapes().filter((s): s is Edge => s instanceof Edge && !s.isMetaShape());
       }
       if (typeof roleOrIndex === 'number') {
         const indexed = edges[roleOrIndex];

@@ -201,6 +201,22 @@ describe("offset", () => {
     });
 
 
+    it("offsets a .guide() primitive's edge named through its accessor", () => {
+      // `l.edge(0)` on a guided line must resolve like the bare `l` does —
+      // the accessor used to read the guide-excluding shape list and
+      // silently selected nothing.
+      let o: Offset;
+      const s = sketch("xy", () => {
+        const l = line([0, 0], [40, 0]).guide();
+        o = offset(5, l.edge(0)) as unknown as Offset;
+      }) as Sketch;
+
+      render();
+
+      expect(o!.getGeometries()).toHaveLength(1);
+      expect(s.getEdges()).toHaveLength(1);
+    });
+
     it("always keeps the original edges", () => {
       const s = sketch("xy", () => {
         const c = circle([0, 0], 40);

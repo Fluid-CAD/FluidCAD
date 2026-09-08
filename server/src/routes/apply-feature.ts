@@ -7121,10 +7121,7 @@ export function createApplyFeatureRouter(
         res.json({ ok: true, shapeIds: [] });
         return;
       }
-      // A text statement's path is classically a `.guide()` curve — widen
-      // the resolution to construction geometry for that feature alone.
-      const result = fluidCadServer.resolveSketchStatementTargets(
-        parsed.descriptors, { includeGuides: parsed.feature === 'text' });
+      const result = fluidCadServer.resolveSketchStatementTargets(parsed.descriptors);
       if (!result) {
         res.status(404).json({ error: 'No rendered scene' });
         return;

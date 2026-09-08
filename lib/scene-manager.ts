@@ -432,9 +432,8 @@ class SceneManager {
   resolveSketchStatementTargets(
     scene: Scene,
     descriptors: SketchTargetDescriptor[],
-    options: { includeGuides?: boolean } = {},
   ): { ok: true; shapeIds: string[] } | { ok: false; reason: string } {
-    return resolveSketchStatementTargets(scene, descriptors, options);
+    return resolveSketchStatementTargets(scene, descriptors);
   }
 
   hitTest(

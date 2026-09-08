@@ -4,7 +4,6 @@ import { SceneObject } from "../../common/scene-object.js";
 import { Edge } from "../../common/edge.js";
 import { Face } from "../../common/face.js";
 import { Plane } from "../../math/plane.js";
-import { Vertex } from "../../common/vertex.js";
 import { Wire } from "../../common/wire.js";
 import { ExtrudableGeometryBase } from "./extrudable-base.js";
 import { EdgeTargetArg, GeometrySceneObject } from "./geometry.js";
@@ -146,23 +145,14 @@ export class Offset extends ExtrudableGeometryBase {
     }
     this.setState('plane', plane);
 
-    let lastWire: Wire = null;
     for (const face of faces) {
       const offsetWires = WireOps.offsetFaceOutline(face.getShape(), this.distance);
       for (const wire of offsetWires) {
-        lastWire = wire;
         for (const edge of wire.getEdges()) {
           edge.setProvenance('offset-of');
           this.addShape(edge);
         }
       }
-    }
-
-    if (lastWire) {
-      const localStart = plane.worldToLocal(lastWire.getFirstVertex().toPoint());
-      const localEnd = plane.worldToLocal(lastWire.getLastVertex().toPoint());
-      this.setState('start', Vertex.fromPoint2D(localStart));
-      this.setState('end', Vertex.fromPoint2D(localEnd));
     }
   }
 

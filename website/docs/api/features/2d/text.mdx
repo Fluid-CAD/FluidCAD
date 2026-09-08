@@ -1,7 +1,7 @@
 ---
 sidebar_position: 9
 title: "text"
-description: "Renders a text string as extrudable outline geometry inside the current sketch, at the sketch cursor."
+description: "Renders a text string as extrudable outline geometry inside the current sketch, anchored at the plane origin unless `.at([x, y])` places it."
 ---
 
 import text_alignExample from '!!raw-loader!../../_examples/text-align.js';
@@ -13,7 +13,7 @@ import CodeBlock from '@theme/CodeBlock';
 # text()
 
 Renders a text string as extrudable outline geometry inside the current
-sketch, at the sketch cursor.
+sketch, anchored at the plane origin unless `.at([x, y])` places it.
 
 **Returns**: [**`Text`**](/docs/api/types/text)
 
@@ -28,7 +28,7 @@ text(text: string): Text
 ```
 
 Renders a text string as extrudable outline geometry inside the current
-sketch, at the sketch cursor.
+sketch, anchored at the plane origin unless `.at([x, y])` places it.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|

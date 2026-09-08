@@ -1,15 +1,14 @@
 // P6 derived-op audit: every edge-consuming derived op runs against SOLVED
 // (constraint-mode) sketches. They consume built edges, not pen state, so
 // they should be inert to the mode — these tests pin that, plus the
-// solved-mode guards (no pen-state writes, explicit rotate center,
-// pen-anchored text/ellipse rejections).
+// solved-mode guards (no pen-state writes, pen-anchored text/ellipse
+// rejections).
 import { describe, it, expect } from "vitest";
 import { setupOC, render } from "../../setup.js";
 import sketch from "../../../core/sketch.js";
 import extrude from "../../../core/extrude.js";
 import mirror from "../../../core/mirror.js";
 import copy from "../../../core/copy.js";
-import rotate from "../../../core/rotate.js";
 import fillet from "../../../core/fillet.js";
 import { line, circle, offset, text, ellipse, xAxis } from "../../../core/2d/index.js";
 import { coincident, horizontal, vertical, fix, distance, radius } from "../../../core/constraints/index.js";
@@ -253,74 +252,6 @@ describe("derived ops on solved sketches (P6 audit)", () => {
       const m = payloadOf(scene, 'mirror-shape-2d');
       expect(m.sourcesSolved).toBe(true);
       expect(m.sourceEntities).toEqual([axisId, circleId].sort((a, b) => a - b));
-    });
-
-    it("rotate counts an entity-backed center among its sources", () => {
-      let pivot: ISolvedCircle;
-      sketch('xy', () => {
-        pivot = circle([0, 0], 10);
-        fix(pivot.center(), [0, 0]);
-        const l = line([20, 0], [40, 0]);
-        fix(l.start(), [20, 0]);
-        fix(l.end(), [40, 0]);
-        rotate(90, pivot.center(), true, l);
-      });
-      const scene = render();
-
-      const circleId = payloadOf(scene, 'solved-circle').entityId!;
-      const lineId = (payloadOf(scene, 'solved-line') as { entityId: number }).entityId;
-      const rot = payloadOf(scene, 'rotate-shape-2d');
-      expect(rot.sourcesSolved).toBe(true);
-      expect(rot.sourceEntities).toEqual([circleId, lineId].sort((a, b) => a - b));
-    });
-
-  });
-
-  describe("rotate2d", () => {
-    it("rotates a copy about an explicit center", () => {
-      let rot: { getAddedShapes(): unknown[] };
-      sketch('xy', () => {
-        const c = circle([30, 0], 20);
-        fix(c.center(), [30, 0]);
-        rot = rotate(90, [0, 0], true, c) as unknown as { getAddedShapes(): unknown[] };
-      });
-      const scene = render();
-
-      expect(renderedErrors(scene).size).toBe(0);
-      expect(rot!.getAddedShapes().length).toBeGreaterThan(0);
-    });
-
-    it("keeps an accessor center out of the target list without a copy flag", () => {
-      // rotate(45, l.start(), c): the LazyVertex center must not be eaten
-      // by the trailing-targets extraction — it is the center argument.
-      let rot: { getAddedShapes(): unknown[]; targetObjects: unknown[] | null };
-      let c: ISolvedCircle;
-      sketch('xy', () => {
-        c = circle([80, 80], 20);
-        const l = line([30, 40], [70, 20]);
-        rot = rotate(45, l.start(), c) as unknown as {
-          getAddedShapes(): unknown[]; targetObjects: unknown[] | null;
-        };
-      });
-      const scene = render();
-
-      expect(renderedErrors(scene).size).toBe(0);
-      expect(rot!.targetObjects).toHaveLength(1);
-      expect(rot!.targetObjects![0]).toBe(c!);
-      expect(rot!.getAddedShapes().length).toBeGreaterThan(0);
-    });
-
-    it("refuses the pen-centered form per statement", () => {
-      sketch('xy', () => {
-        const c = circle([30, 0], 20);
-        fix(c.center(), [30, 0]);
-        // Not a typed overload any more; a JS file can still write it.
-        (rotate as unknown as (...args: unknown[]) => unknown)(90, true, c);
-      });
-      const scene = render();
-
-      const errors = renderedErrors(scene);
-      expect(errors.get('rotate-shape-2d')).toMatch(/needs an explicit center/);
     });
   });
 

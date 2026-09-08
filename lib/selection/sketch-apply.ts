@@ -12,8 +12,6 @@ import {
   ApplyFeatureEditSpec,
   ApplyFeatureSynthesis,
   OffsetEditOptions,
-  Rotate2DCenterRef,
-  Rotate2DEditOptions,
   SelectionScene,
   SynthesizeOptions,
   nameHintFor,
@@ -22,29 +20,13 @@ import {
 /** A sketch edge pick: 1 shapeId = 1 edge (the Stage 0 emission invariant). */
 export type SketchPickRef = { shapeId: string };
 
-export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'text' | 'copy' | 'mirror' | 'rotate2d';
-
-/**
- * The rotate dialog's payload as the route hands it in: the center is a
- * literal point or a picked-point reference (P8) still addressed by source
- * line — synthesis resolves the reference to a bound producer + accessor.
- */
-export type SketchRotate2DOptions = {
-  center: [number | string, number | string] | Rotate2DCenterRef;
-  copy: boolean;
-};
+export type SketchApplyFeatureKind = 'fillet' | 'offset' | 'text' | 'copy' | 'mirror';
 
 export type SketchSynthesizeOptions = SynthesizeOptions & {
   /**
    * Offset only: the dialog's `.close()` toggle.
    */
   offset?: OffsetEditOptions;
-  /**
-   * Slot-from-edge only: the dialog's Remove-original toggle — the call's
-   * `deleteSource` argument, whose kernel default is true.
-   */
-  /** In-sketch rotate only: the dialog's center point and copy toggle. */
-  rotate2d?: SketchRotate2DOptions;
   /**
    * 2D copy: one pick per edge-picked direction, in direction order. 2D
    * mirror: the single mirror-line pick. Each resolves to its producing
@@ -104,10 +86,6 @@ export function synthesizeSketchApplyFeature(
 
   if (feature === 'copy' || feature === 'mirror') {
     return synthesizeSketchTransformOperands(scene, refs, feature, options);
-  }
-
-  if (feature === 'rotate2d') {
-    return synthesizeSketchRotate(scene, refs, value, options);
   }
 
   if (feature === 'text') {
@@ -397,181 +375,6 @@ function synthesizeSketchTextPath(
     preview: `text("…", ${args})`,
     args,
     alternatives: [],
-  };
-}
-
-/** A resolved center reference: the owning statement + point accessor. */
-type ResolvedRotateCenter = {
-  owner: SceneObject;
-  accessor: 'start' | 'end' | 'center' | 'anchor' | 'point';
-  pointIndex?: number;
-};
-
-/**
- * Resolve a picked rotation center (a wire ref addressing the point's
- * statement by source line) to its owning statement and the accessor the
- * emitted argument renders — `l.end()`, `c.center()`, `p.start()`,
- * `el.center()`, `t.anchor()`, `bz.point(i)`. Points the statement grammar
- * cannot name (reference outputs, copy duplicates) are refused honestly.
- */
-function resolveRotateCenter(
-  scene: SelectionScene,
-  ref: Rotate2DCenterRef,
-  filePath: string,
-): ResolvedRotateCenter | { reason: string } {
-  const matches = scene.getAllSceneObjects().filter(o => {
-    const loc = o.getSourceLocation();
-    return loc != null && loc.line === ref.line && loc.filePath === filePath
-      && (ref.featureType === undefined || o.getType() === ref.featureType);
-  });
-  if (matches.length !== 1) {
-    return { reason: `the rotation center's statement at line ${ref.line} does not resolve to one sketch primitive` };
-  }
-  const owner = matches[0];
-  const bindFailure = checkSketchBindable(scene, owner);
-  if (bindFailure) {
-    return { reason: bindFailure };
-  }
-  const type = owner.getType();
-  if (type === 'ellipse') {
-    return { owner, accessor: 'center' };
-  }
-  if (type === 'text') {
-    return { owner, accessor: 'anchor' };
-  }
-  if (type === 'bezier') {
-    if (!Number.isInteger(ref.pointIndex) || ref.pointIndex! < 0) {
-      return { reason: 'a bezier rotation center needs its control-point index' };
-    }
-    return { owner, accessor: 'point', pointIndex: ref.pointIndex };
-  }
-  if (type === 'point') {
-    return { owner, accessor: 'start' };
-  }
-  if (ref.role === 'start' || ref.role === 'end' || ref.role === 'center') {
-    return { owner, accessor: ref.role };
-  }
-  return { reason: 'this point cannot anchor a rotation — pick an endpoint, a center point, a point, or the origin' };
-}
-
-/** The center argument's rendered expression for a resolved reference. */
-function renderRotateCenterExpr(center: ResolvedRotateCenter, name: string): string {
-  return `${name}.${center.accessor}(${center.accessor === 'point' ? center.pointIndex : ''})`;
-}
-
-/**
- * The in-sketch rotate is owner-level like the 2D copy: its targets are
- * whole geometries, so any picked edge stands for its producing primitive
- * and the emitted target args are bare variables — `rotate(45, [x, y],
- * r, c)`. The angle and center come from the dialog (options.rotate2d),
- * not the picks; a picked center (P8) resolves to a bound producer's point
- * accessor — `rotate(45, l.end(), r, c)` — riding the same binding rail as
- * the targets. Owners that cannot bind to a variable (clones, loops) are
- * refused honestly.
- */
-function synthesizeSketchRotate(
-  scene: SelectionScene,
-  refs: SketchPickRef[],
-  value: number | string | undefined,
-  options: SketchSynthesizeOptions,
-): ApplyFeatureSynthesis {
-  const resolution = resolvePicks(scene, refs);
-  if ('reason' in resolution) {
-    return { ok: false, reason: resolution.reason };
-  }
-
-  const owners: SceneObject[] = [];
-  for (const pick of resolution.picks) {
-    if (!owners.includes(pick.owner)) {
-      owners.push(pick.owner);
-    }
-  }
-  for (const owner of owners) {
-    const bindFailure = checkSketchBindable(scene, owner);
-    if (bindFailure) {
-      return { ok: false, reason: bindFailure };
-    }
-  }
-
-  const filePaths = new Set(owners.map(o => o.getSourceLocation()!.filePath));
-  if (filePaths.size > 1) {
-    return { ok: false, reason: 'the picked edges come from statements in different files' };
-  }
-  const filePath = filePaths.values().next().value!;
-
-  const rt = options.rotate2d;
-  let center: ResolvedRotateCenter | null = null;
-  if (rt && !Array.isArray(rt.center)) {
-    const resolved = resolveRotateCenter(scene, rt.center, filePath);
-    if ('reason' in resolved) {
-      return { ok: false, reason: resolved.reason };
-    }
-    center = resolved;
-  }
-
-  // The center's statement binds like a target's — one producer list, the
-  // center owner appended when it is not already a target.
-  const producers = [...owners];
-  if (center && !producers.includes(center.owner)) {
-    producers.push(center.owner);
-  }
-
-  const names = allocateNames(producers, options.namer);
-  const parts = owners.map(owner => part(owner, '', null, null, 0));
-  const args = parts.map(p => renderPartArgs(p, names)).join(', ');
-  const centerExpr = rt === undefined
-    ? undefined
-    : center
-      ? renderRotateCenterExpr(center, names.get(center.owner)!)
-      : `[${(rt.center as [number | string, number | string])[0]}, ${(rt.center as [number | string, number | string])[1]}]`;
-
-  const rotate2d: Rotate2DEditOptions | undefined = rt === undefined
-    ? undefined
-    : {
-      copy: rt.copy,
-      center: center
-        ? {
-          producer: producers.indexOf(center.owner),
-          accessor: center.accessor,
-          ...(center.pointIndex !== undefined ? { pointIndex: center.pointIndex } : {}),
-        }
-        : rt.center as [number | string, number | string],
-    };
-
-  const spec: ApplyFeatureEditSpec = {
-    feature: 'rotate2d',
-    // The transform validates a nonzero angle — a spec without it is refused
-    // wholesale, so the value must ride here, not just the route's preview.
-    value,
-    filePath,
-    producers: producers.map(owner => {
-      const loc = owner.getSourceLocation()!;
-      return {
-        line: loc.line,
-        column: loc.column,
-        featureType: owner.getType(),
-        nameHint: nameHintFor(owner.getType()),
-        bind: true,
-      };
-    }),
-    parts: parts.map(p => ({
-      producer: producers.indexOf(p.producer!),
-      accessor: p.accessor,
-      indices: p.indices,
-      filterArgs: p.filterArgs,
-    })),
-    imports: [],
-    rotate2d,
-  };
-
-  const preview = `rotate(<angle>, ${centerExpr ?? '[0, 0]'}${rt?.copy ? ', true' : ''}, ${args})`;
-  return {
-    ok: true,
-    spec,
-    preview,
-    args,
-    alternatives: [],
-    ...(centerExpr !== undefined ? { centerExpr } : {}),
   };
 }
 

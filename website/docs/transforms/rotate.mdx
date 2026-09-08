@@ -52,4 +52,4 @@ The axis is anything axis-like: `"x"` / `"y"` / `"z"`, an `axis()` feature (offs
 
 ## Inside a sketch
 
-Called inside `sketch(...)`, `rotate()` turns **sketch geometry** in the plane about an explicit centre point: `rotate(30, [0, 0], c)`. See [Rotate](/docs/sketching/tools/rotate) in the sketch tools.
+`rotate()` works on solids only. Sketch geometry is oriented with constraints instead — [`angle()`](/docs/sketching/constraints/dimensional/angle), [`horizontal()`](/docs/sketching/constraints/positional/horizontal) and [`vertical()`](/docs/sketching/constraints/positional/vertical) pin a line's direction, and the solver turns the rest of the profile with it. Calling `rotate()` inside `sketch(...)` is an error.

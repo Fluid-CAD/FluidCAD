@@ -31,11 +31,11 @@ const PASSTHROUGH_CALLEES = new Set([
   "tangent", "equal", "concentric", "collinear", "midpoint", "symmetric",
   "distance", "angle", "radius", "diameter", "fix",
   "point", "origin", "xAxis", "yAxis", "project", "intersect", "select",
-  "guide", "mirror2d", "copy2d", "rotate2d", "fillet2d", "testRect",
+  "guide", "mirror2d", "copy2d", "fillet2d", "testRect",
 ]);
 // Derived ops that survive P7: pass through, but conservatively lose the
 // static pen (their legacy forms could touch it).
-const DERIVED_CALLEES = new Set(["offset", "fillet", "mirror", "copy", "rotate"]);
+const DERIVED_CALLEES = new Set(["offset", "fillet", "mirror", "copy"]);
 const LEGACY_IMPORT_NAMES = new Set([
   "move", "hMove", "vMove", "pMove", "rMove", "back", "center",
   "hLine", "vLine", "tLine", "aLine", "tArc", "tCircle", "connect",

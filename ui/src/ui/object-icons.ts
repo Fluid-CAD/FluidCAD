@@ -57,7 +57,6 @@ export const UNIQUE_TYPE_ICONS: Record<string, string> = {
   'repeat-linear': 'repeat-linear',
   'repeat-matrix': 'repeat-linear',
   'rotate-shape': 'rotate',
-  'rotate-shape-2d': 'rotate2d',
   'slot-from-edge': 'slot',
   'tarc-radius-to-point': 'tarc',
   'tarc-to-point': 'tarc',

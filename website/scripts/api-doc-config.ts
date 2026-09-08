@@ -111,7 +111,7 @@ export const features: FeatureEntry[] = [
 
   // Transforms
   { name: 'translate', displayName: 'translate', category: 'transforms', sourceFile: 'core/translate.ts', interfaceName: 'TranslateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/transforms/introduction', sidebarPosition: 1 },
-  { name: 'rotate', displayName: 'rotate', category: ['2d', 'transforms'], sourceFile: 'core/rotate.ts', interfaceName: 'RotateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/transforms/introduction', sidebarPosition: 2, sidebarPositions: { '2d': 27 } },
+  { name: 'rotate', displayName: 'rotate', category: ['transforms'], sourceFile: 'core/rotate.ts', interfaceName: 'RotateFunction', returnType: 'ISceneObject', relatedGuide: '/docs/transforms/introduction', sidebarPosition: 2 },
   { name: 'mirror', displayName: 'mirror', category: ['2d', 'transforms'], sourceFile: 'core/mirror.ts', interfaceName: 'MirrorFunction', returnType: 'IMirror', relatedGuide: '/docs/transforms/introduction', sidebarPosition: 3, sidebarPositions: { '2d': 28 } },
   { name: 'copy', displayName: 'copy', category: ['2d', 'transforms'], sourceFile: 'core/copy.ts', interfaceName: 'CopyFunction', returnType: 'ICopy', relatedGuide: '/docs/patterns/copy', sidebarPosition: 4, sidebarPositions: { '2d': 29 } },
   { name: 'repeat', displayName: 'repeat', category: 'transforms', sourceFile: 'core/repeat.ts', interfaceName: 'RepeatFunction', returnType: 'ISceneObject', relatedGuide: '/docs/patterns/repeat', sidebarPosition: 5 },

@@ -1,8 +1,7 @@
 import {
   applyFillet2DEdit, applyOffsetEdit, applySketchOp, clearBreakpoints,
-  fetchFeatureGhost, fetchSketchFeatureSources, gotoSource, FeatureEditTarget, Fillet2DGhostRequest, GhostSolid,
+  fetchFeatureGhost, fetchSketchFeatureSources, FeatureEditTarget, Fillet2DGhostRequest, GhostSolid,
   NewVariable, OffsetGhostRequest, OffsetOptionValues, ParsedFeatureStatement,
-  Rotate2DCenterRefParam, Rotate2DOptionValues,
   SketchApplyEntity, SketchOpFeature, ValueExpr,
 } from '../api';
 import type { SolvedSketchModel } from '../sketch-solver-client/model';
@@ -23,7 +22,7 @@ import { viewportChrome } from '../ui/viewport-chrome';
 const PREVIEW_DEBOUNCE_MS = 250;
 
 /** The statement options a 2D op carries beyond its picks. */
-export type SketchOpToggleKey = 'close' | 'copy'; // copy: rotate
+export type SketchOpToggleKey = 'close';
 
 /** What a picked sketch shape shows as a chip: its entity's name and line. */
 export type SketchPickDescription = {
@@ -74,31 +73,6 @@ export type SolvedPickRail = {
   deselect(pick: SolvedPick): void;
 };
 
-/**
- * The rotate dialog's window onto the solved picks (P8): the picked points
- * its Center slot consumes, and the eviction hook that keeps exactly one
- * of them selected in the viewport.
- */
-export type SolvedCenterRail = SolvedPickRail;
-
-/** Whether a solved pick can anchor a rotation center: a vertex click (a
- * point role, a point entity, an anchor point) or the origin datum — never
- * an edge pick, a reference output, or a copy duplicate. */
-function isCenterCandidate(pick: SolvedPick): boolean {
-  if (pick.datum !== undefined) {
-    return pick.datum === 'origin';
-  }
-  if (pick.reference !== undefined || pick.copyInstance !== undefined) {
-    return false;
-  }
-  return pick.role !== undefined;
-}
-
-/** Stable identity of a center candidate across renders. */
-function centerPickKey(pick: SolvedPick): string {
-  return pick.datum !== undefined ? `d:${pick.datum}` : `v:${pick.entityId}:${pick.role ?? 'point'}`;
-}
-
 /** The dialog's window onto the sketch selection the hover handler owns. */
 export type SketchOpSelection = {
   /** The picked shape ids, in pick order. */
@@ -123,12 +97,6 @@ export type SketchOpConfig = {
    * 'positive' forbids ≤0, 'nonzero' allows negative (offset).
    */
   value?: { label: string; defaultValue: string; sign: 'positive' | 'nonzero' };
-  /**
-   * A single-point pick slot (the rotate dialog's Center): vertex clicks —
-   * endpoints, centers, points, anchors, the origin — land here while edge
-   * clicks keep collecting targets. Needs a {@link SolvedCenterRail}.
-   */
-  centerSlot?: { label: string; prompt: string };
   /**
    * Boolean statement options — offset's `removeOriginal` argument and its
    * `.close()` chain, or slot's `deleteSource`. Multiple toggles are mutually
@@ -175,16 +143,6 @@ export class SketchOpService {
   private readonly expression: ExpressionRow;
   /** The picked-edge chips. */
   private readonly pickSlot: PickSlot;
-  /** The single-point center slot (config.centerSlot), or null. */
-  private readonly centerSlot: PickSlot | null;
-  /** The center slot's current pick, mirrored from the solved selection. */
-  private centerPick: SolvedPick | null = null;
-  /** The server-rendered center expression from the last preview
-   * (`l.end()`, `[0, 0]`) — the expression row's prefix shows it. */
-  private centerExpr: string | null = null;
-  /** Re-entrancy guard: evicting stale center picks fires the selection
-   * change hook, which refreshes this dialog again. */
-  private syncingCenter = false;
   private readonly toggles = new Map<SketchOpToggleKey, HTMLInputElement>();
 
   private active = false;
@@ -223,8 +181,6 @@ export class SketchOpService {
     private readonly ghost?: FeatureGhostOverlay,
     /** Constraint-native fillet rail (P8) — fillet dialog only. */
     private readonly solvedFillet?: SolvedFilletRail,
-    /** Solved point picks for the Center slot — rotate dialog only. */
-    private readonly solvedCenter?: SolvedCenterRail,
   ) {
     this.panel = document.createElement('div');
     this.panel.id = `fluidcad-sketch-${config.feature}-panel`;
@@ -238,8 +194,6 @@ export class SketchOpService {
               class="input input-sm input-bordered w-full font-mono text-xs" />
           </label>`
       : '';
-    const centerSlotHost = config.centerSlot ? `
-          <div data-role="center-slot"></div>` : '';
     const toggleRows = (config.toggles ?? []).map(toggle => `
           <label class="flex items-center justify-between cursor-pointer" title="${toggle.title}">
             <span class="text-base-content/70">${toggle.label}</span>
@@ -256,7 +210,7 @@ export class SketchOpService {
         ${PanelShell.frameHtml({
           header: `<span data-role="title" class="font-medium text-sm">${config.title}</span>`,
           body: `
-          <div data-role="pick-body" class="flex flex-col items-stretch gap-3.5">${pickSlotHost}${centerSlotHost}${hintRow}${valueRow}${toggleRows}</div>`,
+          <div data-role="pick-body" class="flex flex-col items-stretch gap-3.5">${pickSlotHost}${hintRow}${valueRow}${toggleRows}</div>`,
           footer: `
             <button data-role="apply" class="btn btn-primary btn-sm flex-1" disabled>Apply</button>
             <button data-role="cancel" class="btn btn-ghost btn-sm">Cancel</button>`,
@@ -283,27 +237,6 @@ export class SketchOpService {
         this.selection.deselect(shapeId);
       }
     };
-
-    const centerHost = this.panel.querySelector<HTMLElement>('[data-role="center-slot"]');
-    this.centerSlot = config.centerSlot && centerHost
-      ? new PickSlot(centerHost, { label: config.centerSlot.label, multiple: false })
-      : null;
-    if (this.centerSlot) {
-      // Picking is type-directed, not slot-directed: point clicks land here
-      // while edge clicks keep collecting targets — both slots stay armed.
-      this.centerSlot.setArmed(true);
-      this.centerSlot.onRemove = () => {
-        const pick = this.centerPick;
-        this.centerPick = null;
-        this.centerExpr = null;
-        if (pick && this.solvedCenter) {
-          // Fires the selection-change hook, which refreshes this dialog.
-          this.solvedCenter.deselect(pick);
-        } else {
-          this.refresh();
-        }
-      };
-    }
 
     // The expression row and the error message dock under the dialog body,
     // matching the 3D dialogs (see ModifyPanel).
@@ -437,7 +370,6 @@ export class SketchOpService {
     // becomes a fresh statement, so the breakpoint it opened with goes too.
     this.exit();
     this.active = true;
-    this.syncCenterPick();
     this.syncPickSlot();
     this.title.textContent = this.config.title;
     this.setToggles(this.defaultToggleValues());
@@ -533,62 +465,11 @@ export class SketchOpService {
     };
   }
 
-  /** Rotate's center + copy flag, or undefined until a center is picked.
-   * The origin datum bakes a `[0, 0]` literal (the `origin()` handle is a
-   * constraint target, not a point value); everything else travels as a
-   * statement-addressed point reference the server renders as an accessor. */
-  private rotateOptions(): Rotate2DOptionValues | undefined {
-    if (this.config.feature !== 'rotate2d') {
-      return undefined;
-    }
-    const pick = this.centerPick;
-    if (!pick) {
-      return undefined;
-    }
-    const copy = this.toggles.get('copy')?.checked === true;
-    if (pick.datum === 'origin') {
-      return { center: [0, 0], copy };
-    }
-    const line = pick.sourceLocation?.line;
-    if (line === undefined) {
-      return undefined;
-    }
-    const occurrence = pick.sourceLocation?.occurrence !== undefined
-      ? { occurrence: pick.sourceLocation.occurrence }
-      : {};
-    if (pick.anchor !== undefined) {
-      return {
-        centerRef: {
-          line,
-          ...occurrence,
-          featureType: pick.anchor.owner,
-          ...(pick.anchor.owner === 'bezier' ? { pointIndex: pick.anchor.pointIndex } : {}),
-        },
-        copy,
-      };
-    }
-    const centerRef: Rotate2DCenterRefParam = {
-      line,
-      ...occurrence,
-      ...(pick.role !== null && pick.role !== undefined ? { role: pick.role } : {}),
-      featureType: pick.kind as Rotate2DCenterRefParam['featureType'],
-    };
-    return { centerRef, copy };
-  }
-
   /**
    * The static text around the editable args — `offset(2, ` … `).close()`
    * for the toggled form, `fillet(4, ` … `)` for the rest.
    */
   private syncExpressionPrefix(value: ValueExpr | undefined): void {
-    if (this.config.feature === 'rotate2d') {
-      const rt = this.rotateOptions();
-      const center = this.centerExpr
-        ?? (rt?.center ? `[${rt.center[0]}, ${rt.center[1]}]` : '…');
-      this.expression.setPrefix(`rotate(${value}, ${center}${rt?.copy ? ', true' : ''}, `);
-      this.expression.setSuffix(')');
-      return;
-    }
     const offset = this.offsetOptions();
     this.expression.setPrefix(value === undefined
       ? `${this.config.feature}(`
@@ -674,8 +555,6 @@ export class SketchOpService {
     this.expectedStatement = undefined;
     this.awaitingEditSketch = false;
     this.seedSignature = null;
-    this.centerPick = null;
-    this.centerExpr = null;
     this.panel.classList.add('hidden');
     viewportChrome.setDialogOpen(this.panel.id, false);
     this.cancelPreview();
@@ -694,69 +573,9 @@ export class SketchOpService {
   /** The selected set or the scene changed — refresh the chips and preview. */
   refresh(): void {
     if (this.active) {
-      this.syncCenterPick();
       this.syncPickSlot();
       this.schedulePreview();
     }
-  }
-
-  /**
-   * Mirror the newest picked point into the Center slot — vertex clicks
-   * (endpoints, centers, points, anchors) and the origin datum qualify;
-   * edge clicks stay targets. Older point picks are evicted from the
-   * viewport selection so exactly one center ring stands.
-   */
-  private syncCenterPick(): void {
-    if (!this.centerSlot || !this.solvedCenter || this.syncingCenter) {
-      return;
-    }
-    const candidates = this.solvedCenter.picks().filter(isCenterCandidate);
-    const next = candidates.length > 0 ? candidates[candidates.length - 1] : null;
-    if (candidates.length > 1) {
-      this.syncingCenter = true;
-      try {
-        for (const pick of candidates) {
-          if (pick !== next) {
-            this.solvedCenter.deselect(pick);
-          }
-        }
-      } finally {
-        this.syncingCenter = false;
-      }
-    }
-    const prevKey = this.centerPick ? centerPickKey(this.centerPick) : null;
-    this.centerPick = next;
-    if (next === null || centerPickKey(next) !== prevKey) {
-      // The rendered accessor belongs to the old pick — the next preview
-      // round trip supplies the new one.
-      this.centerExpr = null;
-    }
-    if (next) {
-      this.centerSlot.setChips([{
-        label: this.centerPickLabel(next),
-        removable: true,
-        line: next.sourceLocation?.line,
-        onGoto: next.sourceLocation ? () => gotoSource(next.sourceLocation!) : undefined,
-      }]);
-      this.centerSlot.setPrompt(null);
-    } else {
-      this.centerSlot.setChips([]);
-      this.centerSlot.setPrompt(this.config.centerSlot!.prompt);
-    }
-  }
-
-  /** The center chip's text: what point was picked, in sketch terms. */
-  private centerPickLabel(pick: SolvedPick): string {
-    if (pick.datum === 'origin') {
-      return 'Origin';
-    }
-    if (pick.anchor !== undefined) {
-      return pick.anchor.owner === 'ellipse' ? 'Ellipse center'
-        : pick.anchor.owner === 'text' ? 'Text anchor'
-          : `Bezier point ${pick.anchor.pointIndex}`;
-    }
-    const kind = pick.kind.charAt(0).toUpperCase() + pick.kind.slice(1);
-    return pick.role ? `${kind} ${pick.role}` : kind;
   }
 
   /**
@@ -821,11 +640,6 @@ export class SketchOpService {
     // an empty selection is complete — it just changes nothing about them.
     if (!this.editTarget && this.selection.ids().length === 0) {
       return { kind: 'picks', message: this.config.pickHint };
-    }
-    // The center slot's own prompt asks for the point, so this stays a
-    // picks-kind gap (no hint line) — it just holds Apply and the preview.
-    if (this.config.feature === 'rotate2d' && this.rotateOptions() === undefined) {
-      return { kind: 'picks', message: this.config.centerSlot?.prompt ?? 'Pick the rotation center' };
     }
     const read = this.readValue();
     if (read && 'error' in read) {
@@ -909,9 +723,6 @@ export class SketchOpService {
       // own target list stands, and the row keeps showing it.
       const args = result.args ?? (this.editTarget ? this.editArgsText : undefined);
       if (result.success && args !== undefined) {
-        if (result.centerExpr !== undefined) {
-          this.centerExpr = result.centerExpr;
-        }
         this.setHint(null);
         this.setError(null);
         this.syncExpressionPrefix(value);
@@ -1031,7 +842,6 @@ export class SketchOpService {
     }
     return applySketchOp(this.config.feature, options.value, entities, {
       offset: this.offsetOptions(),
-      rotate2d: this.rotateOptions(),
       selectorOverride: options.selectorOverride,
       newVariables: options.newVariables,
       preview: options.preview,

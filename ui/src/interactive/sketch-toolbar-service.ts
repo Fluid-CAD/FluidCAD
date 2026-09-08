@@ -80,7 +80,6 @@ export class SketchToolbarService {
   /** Typed handles for the dialogs with members beyond the shared surface. */
   private filletOp!: SketchOpService;
   private offsetOp!: SketchOpService;
-  private rotateOp!: SketchOpService;
   private copyOp!: SketchCopyService;
   private mirrorOp!: SketchMirrorService;
   private toolbar: SketchToolbar;
@@ -204,7 +203,7 @@ export class SketchToolbarService {
     }, opSelection, opVars, opDone, opGhost, filletRail);
     // A copy direction or the mirror line may be one of the sketch's datum
     // axes — a solved pick, not an edge id — so both dialogs read the solved
-    // rail like rotate's Center slot does.
+    // rail.
     const datumRail: SolvedPickRail = {
       picks: () => this.activeHoverSelectHandler?.getSolvedPicks() ?? [],
       deselect: (pick) => this.activeHoverSelectHandler?.deselectSolvedPick(pick),
@@ -223,32 +222,11 @@ export class SketchToolbarService {
         },
       ],
     });
-    // The rotate dialog's center comes from a picked sketch point — vertex
-    // clicks land in its Center slot while edge clicks collect targets.
-    this.rotateOp = new SketchOpService(container, {
-      feature: 'rotate2d', title: 'Rotate', pickHint: 'Pick edges of the geometries to rotate',
-      value: { label: 'Angle', defaultValue: '45', sign: 'nonzero' },
-      centerSlot: {
-        label: 'Center',
-        prompt: 'Pick the center point — an endpoint, a center, or the origin',
-      },
-      toggles: [
-        {
-          key: 'copy',
-          label: 'Copy',
-          title: 'Keep the originals and add rotated copies',
-        },
-      ],
-    }, opSelection, opVars, opDone, opGhost, undefined, {
-      picks: () => this.activeHoverSelectHandler?.getSolvedPicks() ?? [],
-      deselect: (pick) => this.activeHoverSelectHandler?.deselectSolvedPick(pick),
-    });
     this.opServices = {
       fillet: this.filletOp,
       copy: this.copyOp,
       mirror: this.mirrorOp,
       offset: this.offsetOp,
-      rotate: this.rotateOp,
     };
     for (const service of Object.values(this.opServices)) {
       service.onVisibilityChange = (open) => this.onOpDialogToggle?.(open);
@@ -806,16 +784,15 @@ export class SketchToolbarService {
       this.viewer.sceneContext,
       this.activeSketchInfo.plane,
       () => this.activeSolvedDragHandler?.isResizing ?? false,
-      // The copy, mirror, fillet and rotate dialogs' picks accumulate like
-      // the 3D dialogs': every click toggles a target in or out and an
-      // empty-space click keeps the list — a multi-pick dialog's set must not
-      // vanish under a stray click (a fillet routinely wants several edges,
-      // and rotate's center vertex click must not clear its targets). The
+      // The copy, mirror and fillet dialogs' picks accumulate like the 3D
+      // dialogs': every click toggles a target in or out and an empty-space
+      // click keeps the list — a multi-pick dialog's set must not vanish
+      // under a stray click (a fillet routinely wants several edges). The
       // armed two-pick dimension tool accumulates the same way (its second
       // plain click must not replace the first pick). The remaining
       // single-value ops keep the classic replace-and-clear rails.
       () => (this.toolbar.activeTool === 'copy' || this.toolbar.activeTool === 'mirror'
-        || this.toolbar.activeTool === 'fillet' || this.toolbar.activeTool === 'rotate'
+        || this.toolbar.activeTool === 'fillet'
         || this.solvedToolbar.isDimensionArmed
         ? 'toggle' : 'replace'),
     );

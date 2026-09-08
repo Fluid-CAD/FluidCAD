@@ -291,11 +291,10 @@ describe("sketch apply-feature synthesis", () => {
 
       // Copies stamp real geometry only and mirror targets stay profile
       // geometry (see the mirror operands) — the refusal says so.
-      for (const feature of ['copy', 'mirror', 'rotate2d'] as const) {
+      for (const feature of ['copy', 'mirror'] as const) {
         const result = synthesizeSketchApplyFeature(
-          scene, [refFor(guideEdgesOf(c!)[0])], feature, feature === 'rotate2d' ? 45 : undefined,
-          feature === 'mirror' ? { axisRefs: [refFor(edgesOf(axis!)[0])] }
-            : feature === 'rotate2d' ? { rotate2d: { center: [0, 0], copy: false } } : {},
+          scene, [refFor(guideEdgesOf(c!)[0])], feature, undefined,
+          feature === 'mirror' ? { axisRefs: [refFor(edgesOf(axis!)[0])] } : {},
         );
         expect(result, feature).toMatchObject({
           ok: false,
@@ -630,120 +629,6 @@ describe("sketch apply-feature synthesis", () => {
       expect(result).toMatchObject({
         ok: false,
         reason: expect.stringMatching(/exactly one line/),
-      });
-    });
-  });
-
-  describe("rotate2d center references", () => {
-    it("resolves a picked line endpoint to a bound accessor center", () => {
-      let l: SceneObject;
-      let c: SceneObject;
-      sketch("xy", () => {
-        l = line([0, 60], [80, 60]) as unknown as SceneObject;
-        c = circle([100, 0], 10) as unknown as SceneObject;
-      });
-      const scene = render();
-      setLocation(l!, 3);
-      setLocation(c!, 5);
-
-      const result = synthesizeSketchApplyFeature(
-        scene, [refFor(edgesOf(c!)[0])], 'rotate2d', 45,
-        { rotate2d: { center: { line: 3, role: 'end', featureType: 'line' }, copy: false } },
-      );
-
-      expect(result.ok).toBe(true);
-      if (!result.ok) {
-        return;
-      }
-      expect(result.args).toBe('c');
-      expect(result.centerExpr).toBe('l.end()');
-      // The transform refuses a rotate spec without its nonzero angle — the
-      // value must ride the spec, not just the route's preview render.
-      expect(result.spec.value).toBe(45);
-      expect(result.spec.producers).toEqual([
-        { line: 5, column: 0, featureType: 'circle', nameHint: 'c', bind: true },
-        { line: 3, column: 0, featureType: 'line', nameHint: 'l', bind: true },
-      ]);
-      expect(result.spec.parts).toEqual([
-        { producer: 0, accessor: '', indices: null, filterArgs: null },
-      ]);
-      expect(result.spec.rotate2d).toEqual({
-        center: { producer: 1, accessor: 'end' },
-        copy: false,
-      });
-      expect(result.preview).toBe('rotate(<angle>, l.end(), c)');
-    });
-
-    it("reuses the target's own producer when the center sits on it", () => {
-      let c: SceneObject;
-      sketch("xy", () => {
-        c = circle([40, 30], 20) as unknown as SceneObject;
-      });
-      const scene = render();
-      setLocation(c!, 3);
-
-      const result = synthesizeSketchApplyFeature(
-        scene, [refFor(edgesOf(c!)[0])], 'rotate2d', 45,
-        { rotate2d: { center: { line: 3, role: 'center', featureType: 'circle' }, copy: true } },
-      );
-
-      expect(result.ok).toBe(true);
-      if (!result.ok) {
-        return;
-      }
-      expect(result.centerExpr).toBe('c.center()');
-      expect(result.spec.producers).toHaveLength(1);
-      expect(result.spec.rotate2d).toEqual({
-        center: { producer: 0, accessor: 'center' },
-        copy: true,
-      });
-      expect(result.preview).toBe('rotate(<angle>, c.center(), true, c)');
-    });
-
-    it("passes a literal center through untouched", () => {
-      let c: SceneObject;
-      sketch("xy", () => {
-        c = circle([40, 30], 20) as unknown as SceneObject;
-      });
-      const scene = render();
-      setLocation(c!, 3);
-
-      const result = synthesizeSketchApplyFeature(
-        scene, [refFor(edgesOf(c!)[0])], 'rotate2d', 45,
-        { rotate2d: { center: [10, 'h / 2'], copy: false } },
-      );
-
-      expect(result.ok).toBe(true);
-      if (!result.ok) {
-        return;
-      }
-      expect(result.centerExpr).toBe('[10, h / 2]');
-      expect(result.spec.rotate2d).toEqual({ center: [10, 'h / 2'], copy: false });
-    });
-
-    it("refuses a center whose statement shares its call site", () => {
-      let l1: SceneObject;
-      let l2: SceneObject;
-      let c: SceneObject;
-      sketch("xy", () => {
-        l1 = line([0, 0], [30, 0]) as unknown as SceneObject;
-        l2 = line([0, 20], [40, 20]) as unknown as SceneObject;
-        c = circle([100, 0], 10) as unknown as SceneObject;
-      });
-      const scene = render();
-      // Same call site: a loop or helper executed the statement twice.
-      setLocation(l1!, 4);
-      setLocation(l2!, 4);
-      setLocation(c!, 7);
-
-      const result = synthesizeSketchApplyFeature(
-        scene, [refFor(edgesOf(c!)[0])], 'rotate2d', 45,
-        { rotate2d: { center: { line: 4, role: 'end', featureType: 'line' }, copy: false } },
-      );
-
-      expect(result).toMatchObject({
-        ok: false,
-        reason: expect.stringMatching(/does not resolve to one sketch primitive/),
       });
     });
   });

@@ -1209,12 +1209,7 @@ function wireTimelinePanel(panel: TimelinePanel): void {
   // flag its internal objects leaves that row out of the timeline entirely.)
   panel.isFeatureEditable = (obj) =>
     obj.type != null && EDITABLE_ROW_TYPES.has(obj.type) && obj.sourceLocation != null
-    && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects))
-    // The in-sketch rotate shares `type: 'rotate'` with the 3D form but has
-    // no edit dialog — its leading angle would be misread as the 3D axis.
-    // (The in-sketch mirror shares `type: 'mirror'` the same way but edits
-    // on the sketch rails — see openFeatureEditor.)
-    && obj.uniqueType !== 'rotate-shape-2d';
+    && (obj.type !== 'plane' || isPlaneStatementRow(obj, viewer.currentSceneObjects));
   // A 2D offset row's edit pauses the build BEFORE its statement (see
   // openFeatureEditor), so its double-click defers the generic breakpoint.
   panel.managesOwnBreakpoint = (obj) =>
@@ -1374,9 +1369,8 @@ async function openFeatureEditor(obj: SceneObjectRender, index: number): Promise
       mirrorService.enterEdit(target, parsed, info);
     }
   } else if (parsed.feature === 'rotate') {
-    // Only 3D `rotate()` rows reach here — isFeatureEditable filters the
-    // in-sketch form (rotate-shape-2d) out, and `repeat('rotate', …)` rows
-    // parse as feature 'repeat' above.
+    // `repeat('rotate', …)` rows parse as feature 'repeat' above, so only
+    // `rotate()` rows reach here.
     rotateService.enterEdit(target, parsed, info);
   } else if (parsed.feature === 'boolean') {
     booleanService.enterEdit(target, parsed, info);

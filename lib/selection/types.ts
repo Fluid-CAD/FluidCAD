@@ -140,7 +140,7 @@ export type ExplainResult = {
   picks: PickExplanation[];
 };
 
-export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'text' | 'copy' | 'mirror' | 'rotate2d' | 'connector' | 'expose';
+export type ApplyFeatureKind = 'fillet' | 'chamfer' | 'shell' | 'sketch' | 'extrude' | 'sweep' | 'loft' | 'plane' | 'revolve' | 'wrap' | 'helix' | 'project' | 'offset' | 'text' | 'copy' | 'mirror' | 'connector' | 'expose';
 
 /**
  * A tangent chain from the "Select with tangents" gesture: the pick the user
@@ -173,45 +173,6 @@ export type SlotEditOptions = {
   removeOriginal: boolean;
 };
 
-/**
- * A picked rotation center as the wire carries it (P8): a solved-sketch
- * point addressed by its statement's source line, the way constraint
- * targets travel. `role` names a line/arc/circle point accessor;
- * `featureType` sanity-checks the statement (and selects the anchor
- * accessor for ellipse/text/bezier); `pointIndex` rides bezier only.
- */
-export type Rotate2DCenterRef = {
-  line: number;
-  occurrence?: number;
-  role?: 'start' | 'end' | 'center' | null;
-  featureType?: string;
-  pointIndex?: number;
-};
-
-/**
- * A resolved rotation-center reference in the edit spec: the producer's
- * bound variable plus the point accessor rendered on it —
- * `l.end()`, `c.center()`, `p.start()`, `el.center()`, `t.anchor()`,
- * `bz.point(2)`.
- */
-export type Rotate2DCenterProducerRef = {
-  producer: number;
-  accessor: 'start' | 'end' | 'center' | 'anchor' | 'point';
-  /** `point` accessor only: the bezier control-point index. */
-  pointIndex?: number;
-};
-
-/**
- * The in-sketch rotate's payload (P6): the rotation center — a literal
- * point (sketch coordinates, expressions welcome) or a resolved point
- * reference on a bound producer (P8) — and whether the statement copies
- * instead of moving.
- */
-export type Rotate2DEditOptions = {
-  center: [number | string, number | string] | Rotate2DCenterProducerRef;
-  copy: boolean;
-};
-
 export type ApplyFeatureEditSpec = {
   feature: ApplyFeatureKind;
   /** Numeric parameter (radius/distance/thickness); absent for sketch. */
@@ -220,8 +181,6 @@ export type ApplyFeatureEditSpec = {
   offset?: OffsetEditOptions;
   /** Slot-from-edge payload; renders the trailing `deleteSource` argument. */
   slot?: SlotEditOptions;
-  /** In-sketch rotate payload: the center literal and the copy flag. */
-  rotate2d?: Rotate2DEditOptions;
   /**
    * Connector-only payload: the name the statement registers, plus the call
    * site of the `part(...)` block whose callback body receives the statement
@@ -313,13 +272,6 @@ export type ApplyFeatureSynthesis =
      * kernel predating the kind.
      */
     copySlots?: { targets: number[]; axisParts: number[] };
-    /**
-     * In-sketch rotate only: the rendered center expression (`l.end()`,
-     * `[0, 0]`) using the same allocated names as `args`. Its absence on a
-     * 'rotate2d' synthesis with a center reference marks a kernel predating
-     * picked centers.
-     */
-    centerExpr?: string;
   }
   | { ok: false; reason: string; pick?: PickRef };
 

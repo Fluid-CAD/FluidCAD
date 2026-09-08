@@ -1,9 +1,9 @@
 // Solver identity behind derived-op sources (post-P6 color cleanup): the
-// 2D copies, mirror and rotate stamp RIGID duplicates of their sources'
+// 2D copies and mirror stamp RIGID duplicates of their sources'
 // shapes, so a duplicate is exactly as constrained as the entities it
 // derives from — including the entities that define the TRANSFORM itself
-// (a mirror across a free line moves with it; a rotation about c.center()
-// follows that center). Each op records this join at build time (state, so
+// (a mirror across a free line moves with it; a circular copy about
+// c.center() follows that center). Each op records this join at build time (state, so
 // SceneCompare-cached renders keep serving it) and ships it on the payload;
 // the viewport tints duplicates with their sources' constrained verdict.
 //
@@ -26,7 +26,7 @@ import type { ReferenceEntityRecord } from "./reference.js";
 export type SourceEntitiesRecord = { ids: number[]; allSolved: boolean };
 
 export type TransformInputs = {
-  /** rotate / circular-copy center — a SolvedPointRef ties the stamped
+  /** circular-copy center — a SolvedPointRef ties the stamped
    * geometry to the ref's owner entity; a literal center is a constant. */
   center?: LazyVertex | null;
   /** mirror axis / linear-copy axes — an AxisFromEdge over a solved line

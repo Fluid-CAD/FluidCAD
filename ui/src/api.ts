@@ -1039,9 +1039,6 @@ export type ApplyFeatureResponse = {
   args?: string;
   /** Verified alternative renderings of the argument list (preview requests). */
   alternatives?: string[];
-  /** In-sketch rotate previews: the rendered center expression (`l.end()`,
-   * `[0, 0]`) using the same names as `args`. */
-  centerExpr?: string;
   reason?: string;
 };
 
@@ -1287,7 +1284,7 @@ export async function applyProjectEdit(
 export type SketchApplyEntity = { shapeId: string };
 
 /** The 2D operations the sketch-branch apply supports. */
-export type SketchOpFeature = 'fillet' | 'offset' | 'rotate2d';
+export type SketchOpFeature = 'fillet' | 'offset';
 
 /**
  * The offset dialog's toggle: `close` chains `.close()` to cap an open
@@ -1295,33 +1292,6 @@ export type SketchOpFeature = 'fillet' | 'offset' | 'rotate2d';
  */
 export type OffsetOptionValues = {
   close: boolean;
-};
-
-/**
- * A picked rotation center on the wire: the point's statement addressed by
- * source line, the way constraint targets travel. The server renders the
- * point accessor (`l.end()`, `c.center()`, `el.center()`, `bz.point(i)`)
- * on the statement's bound variable.
- */
-export type Rotate2DCenterRefParam = {
-  line: number;
-  occurrence?: number;
-  role?: 'start' | 'end' | 'center';
-  featureType?: 'line' | 'arc' | 'circle' | 'point' | 'ellipse' | 'text' | 'bezier';
-  pointIndex?: number;
-};
-
-/**
- * The rotate dialog's payload: the rotation center — a literal point
- * (`center`, sketch coordinates; the origin pick bakes `[0, 0]`) or a
- * picked sketch point (`centerRef`), exactly one of the two — and whether
- * the statement copies instead of moving — `rotate(45, [x, y], true, r, c)`
- * / `rotate(45, l.end(), r, c)`.
- */
-export type Rotate2DOptionValues = {
-  center?: [ValueExpr, ValueExpr];
-  centerRef?: Rotate2DCenterRefParam;
-  copy: boolean;
 };
 
 /**
@@ -1336,7 +1306,6 @@ export async function applySketchOp(
   entities: SketchApplyEntity[],
   options: {
     offset?: OffsetOptionValues;
-    rotate2d?: Rotate2DOptionValues;
     selectorOverride?: string;
     newVariables?: NewVariable[];
     preview?: boolean;
@@ -1348,7 +1317,6 @@ export async function applySketchOp(
     value,
     sketchEntities: entities,
     close: options.offset?.close,
-    rotate2d: options.rotate2d,
     selectorOverride: options.selectorOverride,
     newVariables: options.newVariables,
     preview: options.preview,

@@ -199,7 +199,7 @@ type SceneManager = {
   synthesizeSketchApplyFeature?(
     scene: any,
     refs: { shapeId: string }[],
-    feature: 'fillet' | 'offset' | 'text' | 'copy' | 'mirror' | 'rotate2d',
+    feature: 'fillet' | 'offset' | 'text' | 'copy' | 'mirror',
     value: number | string | undefined,
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
@@ -216,12 +216,6 @@ type SceneManager = {
       offset?: { close: boolean };
       /** Slot only: the dialog's Remove-original toggle (`deleteSource`). */
       slot?: { removeOriginal: boolean };
-      /** In-sketch rotate only: the center point and the copy flag. */
-      rotate2d?: {
-        center: [number | string, number | string]
-          | { line: number; occurrence?: number; role?: 'start' | 'end' | 'center' | null; featureType?: string; pointIndex?: number };
-        copy: boolean;
-      };
     },
   ): any;
   expandTangentChain(
@@ -1718,7 +1712,7 @@ export class FluidCadServer {
   /** 2D branch: synthesize a sketch-body statement for picked sketch edges. */
   synthesizeSketchApplyFeature(
     refs: { shapeId: string }[],
-    feature: 'fillet' | 'offset' | 'text' | 'copy' | 'mirror' | 'rotate2d',
+    feature: 'fillet' | 'offset' | 'text' | 'copy' | 'mirror',
     value: number | string | undefined,
     options?: {
       namer?: (producers: { line: number; nameHint: string }[]) => (string | null)[];
@@ -1730,12 +1724,6 @@ export class FluidCadServer {
       offset?: { close: boolean };
       /** Slot only: the dialog's Remove-original toggle (`deleteSource`). */
       slot?: { removeOriginal: boolean };
-      /** In-sketch rotate only: the center point and the copy flag. */
-      rotate2d?: {
-        center: [number | string, number | string]
-          | { line: number; occurrence?: number; role?: 'start' | 'end' | 'center' | null; featureType?: string; pointIndex?: number };
-        copy: boolean;
-      };
     },
   ): any {
     if (!this.sceneManager?.synthesizeSketchApplyFeature) {

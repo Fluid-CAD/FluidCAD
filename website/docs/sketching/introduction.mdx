@@ -101,7 +101,7 @@ The **Auto-constraints** group belongs to the constraints story — what gets in
 
 ![The sketch toolbar](/img/docs/ui/sketch-toolbar.png)
 
-The sketch toolbar holds the drawing tools ([Line, Polyline, Bezier, Circle, Polygon, Rectangle, arcs, Slot, Text](/docs/sketching/primitives/line)) and the [tools that work on drawn geometry](/docs/sketching/tools/offset) (Fillet, Offset, Project, Copy, Rotate). A few conventions apply to all of them:
+The sketch toolbar holds the drawing tools ([Line, Polyline, Bezier, Circle, Polygon, Rectangle, arcs, Slot, Text](/docs/sketching/primitives/line)) and the [tools that work on drawn geometry](/docs/sketching/tools/offset) (Fillet, Offset, Project, Copy, Mirror). A few conventions apply to all of them:
 
 - **Coordinate pill.** Every tool's anchor point shows an **X / Y** pill. Type a value to place the point exactly, <kbd>Tab</kbd> between the fields; expressions and `param()` names are accepted. A typed coordinate is written literally into the statement and does not constrain the point — add a `fix` or a dimension if it must stay there. A body point carries the shape's own dimension instead (a circle's diameter, a line's length); only a typed value becomes a dimension constraint, a click merely places it.
 - **Guide latch.** With the **Guide** button latched, everything you draw gets `.guide()` — construction geometry that is excluded from the profile. See [Guides](/docs/sketching/tools/guides).

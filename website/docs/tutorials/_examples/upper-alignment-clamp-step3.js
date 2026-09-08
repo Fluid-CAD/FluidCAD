@@ -1,70 +1,92 @@
 // @screenshot waitForInput
-import { arc, circle, cut, extrude, fillet, line, mirror, plane, project,
-    repeat, sketch, xAxis } from "fluidcad/core";
-import { coincident, collinear, concentric, diameter, distance, equal, fix,
-    horizontal, radius, tangent, vertical } from "fluidcad/constraints";
+import { arc, circle, cut, extrude, line, mirror, origin, plane, project, repeat,
+    sketch, xAxis, yAxis } from "fluidcad/core";
+import { coincident, concentric, diameter, distance, equal, horizontal, midpoint,
+    radius, tangent, vertical } from "fluidcad/constraints";
 import { edge } from "fluidcad/filters";
 
-sketch("top", () => {
-    const bottom = line([-60, -33], [60, -33]);
-    const right = line([60, -33], [60, 33]);
-    const top = line([60, 33], [-60, 33]);
-    const left = line([-60, 33], [-60, -33]);
-
-    coincident(bottom.end(), right.start());
-    coincident(right.end(), top.start());
-    coincident(top.end(), left.start());
-    coincident(left.end(), bottom.start());
-    horizontal(bottom);
-    vertical(right);
-    horizontal(top);
-    vertical(left);
-    fix(bottom.start(), [-60, -33]);
-    distance(bottom.start(), bottom.end(), 120);
-    distance(right.start(), right.end(), 66);
-
-    fillet(13, bottom, right, top, left);
-})
-let e = extrude(13)
-
-sketch(e.endFaces(), () => {
-    const lower = line([60, -7], [50, -7]);
-    const cap = arc([50, -7], [50, 7], [50, 0]).cw();
-    const upper = line([50, 7], [60, 7]);
-    const mouth = line([60, 7], [60, -7]);
-
-    coincident(lower.end(), cap.start());
-    coincident(cap.end(), upper.start());
-    coincident(upper.end(), mouth.start());
-    coincident(mouth.end(), lower.start());
-    horizontal(lower);
-    horizontal(upper);
-    vertical(mouth);
-    tangent(lower, cap);
-    tangent(cap, upper);
-    fix(cap.center(), [50, 0]);
-    radius(cap, 7);
-    distance(lower.start(), lower.end(), 10);
+sketch('xy', () => {
+  const bottom = line([-47, -33], [47, -33]);
+  const br = arc([47, -33], [60, -20], [47, -20]);
+  const right = line([60, -20], [60, 20]);
+  const tr = arc([60, 20], [47, 33], [47, 20]);
+  const top = line([47, 33], [-47, 33]);
+  const tl = arc([-47, 33], [-60, 20], [-47, 20]);
+  const left = line([-60, 20], [-60, -20]);
+  const bl = arc([-60, -20], [-47, -33], [-47, -20]);
+  coincident(bottom.end(), br.start());
+  coincident(br.end(), right.start());
+  coincident(right.end(), tr.start());
+  coincident(tr.end(), top.start());
+  coincident(top.end(), tl.start());
+  coincident(tl.end(), left.start());
+  coincident(left.end(), bl.start());
+  coincident(bl.end(), bottom.start());
+  tangent(bottom, br);
+  tangent(br, right);
+  tangent(right, tr);
+  tangent(tr, top);
+  tangent(top, tl);
+  tangent(tl, left);
+  tangent(left, bl);
+  tangent(bl, bottom);
+  horizontal(bottom);
+  horizontal(top);
+  vertical(right);
+  vertical(left);
+  equal(br, tr);
+  equal(br, tl);
+  equal(br, bl);
+  distance(left, right, 120);
+  distance(bottom, top, 66);
+  radius(br, 13);
+  midpoint(origin(), bl.center(), tr.center());
 });
 
-const notch = cut()
+const plate = extrude(13);
 
-repeat("mirror", "yz", notch);
-
-sketch("front", () => {
-    const dome = arc([31, 0], [-31, 0], [0, 0]);
-    const flat = line([-31, 0], [31, 0]);
-
-    coincident(dome.end(), flat.start());
-    coincident(flat.end(), dome.start());
-    collinear(xAxis(), flat);
-    fix(dome.center(), [0, 0]);
-    radius(dome, 31);
+sketch(plate.endFaces(), () => {
+  const lower = line([50, -7], [70, -7]);
+  const outer = arc([70, -7], [70, 7], [70, 0]);
+  const upper = line([70, 7], [50, 7]);
+  const cap = arc([50, 7], [50, -7], [50, 0]);
+  coincident(lower.end(), outer.start());
+  coincident(outer.end(), upper.start());
+  coincident(upper.end(), cap.start());
+  coincident(cap.end(), lower.start());
+  tangent(lower, outer);
+  tangent(outer, upper);
+  tangent(upper, cap);
+  tangent(cap, lower);
+  equal(outer, cap);
+  distance(cap.center(), outer.center(), 20);
+  radius(outer, 7);
+  coincident(cap.center(), xAxis());
+  coincident(outer.center(), xAxis());
+  distance(cap.center(), yAxis(), 50);
 });
 
-const circleExtrude = extrude(66).symmetric();
-cut(66, sketch("front", () => {
-    const bore = circle([0, 0], 36);
-    fix(bore.center(), [0, 0]);
-    diameter(bore, 36);
-})).symmetric();
+const notch = cut();
+
+repeat('mirror', 'yz', notch);
+
+sketch('xz', () => {
+  const dome = arc([31, 0], [-31, 0], [0, 0]);
+  const flat = line([-31, 0], [31, 0]);
+  coincident(dome.center(), origin());
+  coincident(dome.start(), xAxis());
+  radius(dome, 31);
+  coincident(flat.start(), dome.end());
+  coincident(flat.end(), dome.start());
+  horizontal(flat);
+});
+
+const barrel = extrude(66).symmetric();
+
+sketch('xz', () => {
+  const bore = circle([0, 0], 36);
+  coincident(bore.center(), origin());
+  diameter(bore, 36);
+});
+
+cut(66).symmetric();

@@ -12,323 +12,309 @@ import {ViewerEmbed} from '@site/src/components/docs/ViewerEmbed';
 
 <ViewerEmbed code={upperAlignmentClampFinal} entry="upper-alignment-clamp.fluid.js" />
 
-In this tutorial, you'll build an upper alignment clamp from scratch, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=PP4bR1Kz5FQ). It covers constraint sketches, tangent-arc profiles, sketch datums, projecting reference geometry onto face and offset planes, symmetric extrusions, drilling, 2D mirrors, and mirror repeats.
+In this tutorial, you'll build an upper alignment clamp, based on the [original design by TooTallToby](https://www.youtube.com/watch?v=PP4bR1Kz5FQ). You build it entirely from the FluidCAD workspace: the toolbar, the sketch tools, the constraint bar and the feature dialogs. Every dialog writes a line of code into your file as you apply it, so the [full code](#full-code) at the end is what the UI produced, not something you type.
 
-Create a new file called `upper-alignment-clamp.fluid.js` in your project.
+It covers the rounded Rectangle and Slot tools, sketching on a face an operation produced, section views, dimensioning against the sketch axes, a symmetric extrusion and a symmetric cut, projecting a model edge in as a fixed reference, a tangent web built from four `Tangent` picks, construction planes at an offset, the 2D Mirror tool, and mirroring both solids and whole features.
 
-## Setup
+## Before you start
 
-Start with imports. This model uses three import sources — core operations, geometric constraints, and selection filters.
+Open a workspace and create a new part file: click **+** in the top bar and type `upper-alignment-clamp.fluid.js`. The new tab opens on an empty scene. The screenshots use the light theme; the sun/moon button at the top right switches it.
 
-```js
-import { arc, circle, cut, extrude, fillet, line, mirror, plane, project,
-    repeat, sketch, xAxis } from "fluidcad/core";
-import { coincident, collinear, concentric, diameter, distance, equal, fix,
-    horizontal, radius, tangent, vertical } from "fluidcad/constraints";
-import { edge } from "fluidcad/filters";
-```
+A few UI habits you will use throughout:
 
-- **`fluidcad/core`** — the modeling operations (sketch, extrude, cut, etc.), the geometry primitives, and the `xAxis` sketch datum
-- **`fluidcad/constraints`** — the constraint statements that pin sketch geometry down
-- **`fluidcad/filters`** — selection filters for edges and faces
+- **Ctrl+click** adds an entity to the current selection. A plain click replaces it.
+- The **constraint bar** appears under the toolbar while you sketch. Its buttons are icons; hover one for its name. A button lights up only when the current selection makes sense for it.
+- **Dimension** is one button. What it writes depends on what you picked: an arc alone gives a radius, a circle a diameter, a point and an axis a distance.
+- The **DOF pill** at the bottom of the viewport counts the degrees of freedom left in a sketch and turns into *Fully constrained* when you are done.
+- Every feature dialog shows the **statement** it is about to write, just under the dialog. **Apply** (or <kbd>Enter</kbd>) writes it; **Exit** / **Cancel** (or <kbd>Escape</kbd>) discards it.
+- Inside a sketch, <kbd>N</kbd> looks straight down the sketch plane.
 
-Every sketch in this model is a **constraint sketch** — `sketch(plane, callback)`. In a constraint sketch the coordinates you type are *guesses*: you draw the geometry roughly where it belongs, then state the relationships that define it — this corner touches that one, this line is tangent to that arc, this radius is 13 — and the solver moves the geometry to satisfy them. Most constraints follow the same two-pick thinking as an interactive sketcher: pick two things, state how they relate.
+## Step 1: The base plate
 
-## Step 1: The base body
+### Start a sketch on the XY plane
 
-The clamp starts as a rounded rectangular block: four lines closed into a 120 × 66 rectangle, with every corner rounded.
+Click **Sketch** in the toolbar. The dialog asks for a face or a plane, and the three origin planes appear in the viewport.
 
-```js
-sketch("top", () => {
-    const bottom = line([-60, -33], [60, -33]);
-    const right = line([60, -33], [60, 33]);
-    const top = line([60, 33], [-60, 33]);
-    const left = line([-60, 33], [-60, -33]);
+![Sketch tool armed, waiting for a plane](/img/docs/tutorials/upper-alignment-clamp-ui-01-sketch-pick-plane.png)
 
-    coincident(bottom.end(), right.start());
-    coincident(right.end(), top.start());
-    coincident(top.end(), left.start());
-    coincident(left.end(), bottom.start());
-    horizontal(bottom);
-    vertical(right);
-    horizontal(top);
-    vertical(left);
-    fix(bottom.start(), [-60, -33]);
-    distance(bottom.start(), bottom.end(), 120);
-    distance(right.start(), right.end(), 66);
+Click the **XY** plane. The camera locks onto it, the sketch toolbar replaces the feature toolbar, and the constraint bar appears above the viewport. Leave the sketch options as they are.
 
-    fillet(13, bottom, right, top, left);
-})
-let e = extrude(13)
-```
+![An empty sketch on the XY plane](/img/docs/tutorials/upper-alignment-clamp-ui-02-sketch-xy.png)
 
-The four `coincident` constraints chain the lines end-to-start into a closed loop, and `horizontal`/`vertical` square it up. That fixes the *shape* but not the *size or place*, so three more statements finish the job: `fix` anchors one corner at `[-60, -33]`, and the two `distance` dimensions set the side lengths to 120 and 66 — centering the rectangle on the origin.
+### Draw the plate with the rounded Rectangle tool
 
-`fillet(13, bottom, right, top, left)` rounds every corner shared by the four lines with a 13-unit arc. Finally `extrude(13)` pushes the plate up 13 units. We store the result in `e` to reference its faces later.
+The plate is a 120 × 66 rectangle with R13 corners. That is one tool, not four lines and four fillets.
 
-![Base body](/img/docs/tutorials/upper-alignment-clamp-step1.png)
+Click **Rectangle**. The button opens a small option menu; switch on **Rounded** and **Centered**. Rounded adds a corner-radius step to the gesture, and Centered grows the rectangle from its middle instead of from a corner.
+
+![The Rectangle tool's option menu with Rounded and Centered on](/img/docs/tutorials/upper-alignment-clamp-ui-03-rectangle-options.png)
+
+Click the **origin** for the centre. A **W** readout follows the mouse; type `120` and press <kbd>Enter</kbd>. The readout switches to **H**; type `66` and press <kbd>Enter</kbd>.
+
+![Rectangle tool: the width is set, the height comes next](/img/docs/tutorials/upper-alignment-clamp-ui-04-rectangle-size.png)
+
+The readout switches once more, to **R**. Type `13` and press <kbd>Enter</kbd>.
+
+![Rectangle tool: the corner radius](/img/docs/tutorials/upper-alignment-clamp-ui-05-rectangle-radius.png)
+
+One gesture, and the outline arrives fully described: four lines and four corner arcs, tangent at every junction, the horizontals and verticals called out, the arcs all equal, the two 120 and 66 dimensions, one R13, and — because you clicked the origin — a `midpoint` tying the centre of the rectangle to it. The DOF pill reads *Fully constrained*.
+
+![The 120 × 66 outline with R13 corners, fully constrained](/img/docs/tutorials/upper-alignment-clamp-ui-06-plate-sketch.png)
+
+### Extrude the plate
+
+Click **Finish Sketch ▾** and choose **Extrude**. The dialog opens with the sketch already in its Sketch slot. Set **Distance** to `13`. The green ghost is a live preview of the solid, and the statement under the dialog reads `extrude(13)`.
+
+![Extrude dialog with the 13 mm ghost preview](/img/docs/tutorials/upper-alignment-clamp-ui-07-plate-extrude.png)
+
+Click **Apply**. The plate appears, an *Extrude* row joins the History panel, and the Shapes panel lists the new solid.
+
+![The extruded plate](/img/docs/tutorials/upper-alignment-clamp-ui-08-plate.png)
 
 ## Step 2: Cut the side notches
 
-Each side of the clamp has a slot-shaped notch cut into it. We'll draw one — two straight flanks blending into a rounded end — and mirror the cut.
+Each end of the clamp has a 14-wide notch cut 10 deep into it. A notch like that is a slot — so use the Slot tool and let half of it hang outside the material.
 
-### Sketch the notch profile
+### Sketch on the top face
 
-```js
-sketch(e.endFaces(), () => {
-    const lower = line([60, -7], [50, -7]);
-    const cap = arc([50, -7], [50, 7], [50, 0]).cw();
-    const upper = line([50, 7], [60, 7]);
-    const mouth = line([60, 7], [60, -7]);
+Click **Sketch** again, but this time click the **top face of the plate** instead of a datum plane. The chip reads *Face — Extrude*: FluidCAD remembered which operation produced that face, so the sketch follows the plate if you change it later.
 
-    coincident(lower.end(), cap.start());
-    coincident(cap.end(), upper.start());
-    coincident(upper.end(), mouth.start());
-    coincident(mouth.end(), lower.start());
-    horizontal(lower);
-    horizontal(upper);
-    vertical(mouth);
-    tangent(lower, cap);
-    tangent(cap, upper);
-    fix(cap.center(), [50, 0]);
-    radius(cap, 7);
-    distance(lower.start(), lower.end(), 10);
-});
-```
+![A sketch opened on the top face of the plate](/img/docs/tutorials/upper-alignment-clamp-ui-09-sketch-face.png)
 
-`e.endFaces()` gives us the top face of the base, and the sketch opens directly on it. The profile is two horizontal flank lines, a semicircular `cap` arc, and a vertical `mouth` line sitting on the base's right edge. `arc(start, end, center)` takes fully-specified guesses; `.cw()` picks the clockwise sweep from start to end, so the cap bulges *into* the plate instead of out of it.
+### Draw the slot
 
-This is the first tangent-arc joint in the model: `tangent(lower, cap)` and `tangent(cap, upper)` make each flank flow smoothly into the cap at their shared (coincident) endpoint — the two-pick equivalent of drawing with a tangent-arc tool. The dimensions pin it down: the cap's center is fixed 10 units in from the right edge, `radius(cap, 7)` makes the notch 14 wide, and the `distance` gives the flanks their 10-unit run out to the edge.
+Pick the **Slot** tool. Click a point on the horizontal axis about 10 mm in from the right edge for the first cap centre, then move right along the axis. A **D** readout gives the distance between the two cap centres; type `20` and press <kbd>Enter</kbd>.
 
-![Notch profile sketch](/img/docs/tutorials/upper-alignment-clamp-step2-sketch.png)
+![Slot tool: the centre distance is typed](/img/docs/tutorials/upper-alignment-clamp-ui-10-slot-length.png)
 
-### Cut and mirror
+The readout switches to **R**. Type `7` and press <kbd>Enter</kbd>.
 
-```js
-const notch = cut()
+![Slot tool: the cap radius](/img/docs/tutorials/upper-alignment-clamp-ui-11-slot-radius.png)
 
-repeat("mirror", "yz", notch);
-```
+The slot arrives as two lines and two cap arcs, tangent at every junction, with equal radii, the 20 mm centre distance and the R7 dimension. Both cap centres landed on the horizontal axis while you drew, so the tool wrote those coincidents too — one degree of freedom is left, sliding along the axis.
 
-`cut()` removes the sketched material all the way through. `repeat("mirror", "yz", notch)` mirrors the notch across the YZ plane, creating a matching notch on the opposite side.
+Click the left cap's **centre point**, **Ctrl+click** the **vertical axis**, and click **Dimension**. Type `50`. The notch bottoms out 10 mm in from the 60 mm edge, and the pill reads *Fully constrained*.
 
-![Side notches](/img/docs/tutorials/upper-alignment-clamp-step2.png)
+![The slot dimensioned 50 mm from the vertical axis](/img/docs/tutorials/upper-alignment-clamp-ui-12-slot-constrained.png)
 
-## Step 3: The cylindrical bore
+Notice that the right-hand half of the slot sticks out past the edge of the plate. That is deliberate: there is no material there to remove, so the cut leaves exactly the open notch you want and you never have to draw the mouth of it.
 
-A large cylindrical dome runs through the center of the clamp body, and gets bored out.
+### Cut it, then mirror the cut
 
-### Sketch the semicircle
+Click **Finish Sketch ▾** and choose **Extrude**. Select the **Remove** tab and switch on **Through all**. The red ghost is the material about to disappear, and the statement is simply `cut()`.
 
-```js
-sketch("front", () => {
-    const dome = arc([31, 0], [-31, 0], [0, 0]);
-    const flat = line([-31, 0], [31, 0]);
+![Extrude dialog on the Remove tab with Through all](/img/docs/tutorials/upper-alignment-clamp-ui-13-notch-cut.png)
 
-    coincident(dome.end(), flat.start());
-    coincident(flat.end(), dome.start());
-    collinear(xAxis(), flat);
-    fix(dome.center(), [0, 0]);
-    radius(dome, 31);
-});
-```
+Click **Apply**.
 
-The profile is a half-disc: an upper semicircular arc closed by a flat line along its diameter. The two `coincident` constraints close the loop, `fix` plants the arc's center at the origin, and `radius(dome, 31)` sizes it.
+![One notch cut](/img/docs/tutorials/upper-alignment-clamp-ui-14-notch.png)
 
-`collinear(xAxis(), flat)` is new: `xAxis()` is the sketch's built-in horizontal datum axis, and the constraint lays the closing line exactly along it. With both endpoints on the axis and both on the radius-31 circle, the flat is forced to be the full diameter — no extra dimension needed. The arc's guess (start at `[31, 0]`, end at `[-31, 0]`, counterclockwise) puts the dome on the upper side.
+Click **Repeat** in the toolbar and set **Type** to **Mirror**. Repeat takes its targets from the History panel: click the **Cut** row, and it lands in the Features slot. Then click the **YZ** plane in the viewport for the mirror plane. The ghost shows the second notch, and the statement reads `repeat('mirror', 'yz', f)`.
 
-![Semicircle sketch](/img/docs/tutorials/upper-alignment-clamp-step3-sketch.png)
+![Repeat dialog mirroring the notch across the YZ plane](/img/docs/tutorials/upper-alignment-clamp-ui-15-notch-mirror.png)
 
-### Extrude and bore
+Click **Apply**. Repeat mirrors the *operation*, not the solid — the notch is cut again on the other side.
 
-```js
-const circleExtrude = extrude(66).symmetric();
-cut(66, sketch("front", () => {
-    const bore = circle([0, 0], 36);
-    fix(bore.center(), [0, 0]);
-    diameter(bore, 36);
-})).symmetric();
-```
+![Both notches](/img/docs/tutorials/upper-alignment-clamp-ui-16-notches.png)
 
-`extrude(66).symmetric()` extrudes the half-disc 33 units in both directions (66 total, centered). We store it as `circleExtrude` because we'll project its end edge in the next step. The `cut(66, ...)` then bores a 36-diameter hole through the center, also symmetric: `circle([center], d)` takes a center and a *diameter*, and `fix` plus `diameter` make the little bore sketch fully constrained.
+## Step 3: The barrel and its bore
 
-![Cylindrical bore](/img/docs/tutorials/upper-alignment-clamp-step3.png)
+A half-cylinder runs across the plate and gets bored through.
 
-## Step 4: The pipe mount
+### Sketch a half-disc on the XZ plane
 
-The pipe mount is the most complex step — a smooth tangent web connecting the bore dome to a pipe boss. This is where the two-pick constraint style really pays off: every joint of the outline is a `tangent` pick, and the two arcs inherit their size from reference geometry instead of repeating numbers.
+Click **Sketch** and pick the **XZ** plane. Because the plane cuts through the plate, *Section view* clips the near half away and you see the plate in cross-section.
 
-### Create the sketch plane
+![An empty sketch on the XZ plane, the plate in section](/img/docs/tutorials/upper-alignment-clamp-ui-17-sketch-xz.png)
 
-```js
-const p = plane("front", { offset: 20 })
-```
+Pick **Center Arc**. Click the **origin** for the centre, click a point out along the horizontal axis for the start, then sweep up and over to the left. While you sweep, the readout gives the included angle — type `180` and press <kbd>Enter</kbd> for exactly half a circle.
 
-`plane("front", { offset: 20 })` creates a plane 20 units in front of the front plane.
+![Center Arc: sweeping the arc, with the angle readout](/img/docs/tutorials/upper-alignment-clamp-ui-18-dome-arc.png)
 
-### Build the profile with tangent geometry
+Click the arc and click **Dimension**; type `31` for the radius. Then pick the **Line** tool and draw the closing line from one end of the arc to the other — snap to both endpoints and it arrives with the two coincidents and a horizontal already on it. That is the last degree of freedom: *Fully constrained*.
 
-```js
-sketch(p, () => {
-    const bore = project(circleExtrude.endEdges(edge().arc())).guide()
-    const pipe = circle([0, 45], 16).guide()
-    const l1 = line([26.644954, 15.844444], [6.876117, 49.088889]);
-    const cap = arc([6.876117, 49.088889], [-6.876117, 49.088889], [0, 45]);
-    const l2 = line([-6.876117, 49.088889], [-26.644954, 15.844444]);
-    const bridge = arc([-26.644954, 15.844444], [26.644954, 15.844444], [0, 0]).cw();
+![The closed half-disc, R31](/img/docs/tutorials/upper-alignment-clamp-ui-19-dome-sketch.png)
 
-    fix(pipe.center(), [0, 45]);
-    diameter(pipe, 16);
-    coincident(l1.end(), cap.start());
-    coincident(cap.end(), l2.start());
-    coincident(l2.end(), bridge.start());
-    coincident(bridge.end(), l1.start());
-    tangent(l1, cap);
-    tangent(cap, l2);
-    tangent(l2, bridge);
-    tangent(bridge, l1);
-    concentric(cap, pipe);
-    equal(cap, pipe);
-    concentric(bridge, bore);
-    equal(bridge, bore);
-});
-```
+### Extrude it symmetrically
 
-Two pieces of reference geometry set the stage:
+Click **Finish Sketch ▾** and choose **Extrude**. Set **Direction** to **Symmetric** and **Total distance** to `66`. Symmetric splits the distance evenly across the sketch plane, so 33 mm goes each way and the barrel matches the 66 mm depth of the plate exactly. The statement reads `extrude(66).symmetric()`.
 
-- `project(circleExtrude.endEdges(edge().arc())).guide()` projects the dome's end edge — the radius-31 arc — onto the sketch plane. Projected geometry comes in **fixed**: it adds no freedom to the sketch, and constraints can lean on it. `.guide()` keeps it out of the profile.
-- `circle([0, 45], 16).guide()` is a guide circle marking the pipe: 16 in diameter, fixed 45 above the bore center. It won't be part of the profile either — it exists so the outline can borrow its position and size.
+![Extrude dialog with the symmetric 66 mm ghost](/img/docs/tutorials/upper-alignment-clamp-ui-20-dome-extrude.png)
 
-The outline itself is four pieces: two flank lines (`l1`, `l2`) and two arcs — a small `cap` over the pipe and a `bridge` dipping across the dome. The `coincident` chain closes the loop, and the four `tangent` constraints make every joint smooth, so the profile flows line → cap → line → bridge with no kinks.
+Click **Apply**. With the **Add** tab selected the new solid fuses with the plate.
 
-Then the arcs take their geometry from the references: `concentric(cap, pipe)` + `equal(cap, pipe)` snap the cap onto the pipe guide circle, and `concentric(bridge, bore)` + `equal(bridge, bore)` lay the bridge exactly on the projected bore arc. With both arcs locked to their carriers, the tangency alone decides where the flank lines touch down.
+![The barrel fused to the plate](/img/docs/tutorials/upper-alignment-clamp-ui-21-dome.png)
 
-One thing to notice: nothing in the constraints says *which* tangent lines these are — a line tangent to two circles could sit on either side. The **guesses** decide. `l1` is drawn on the right, `l2` on the left, and the solver keeps each line on the side of its guess — placing the guess on the side you mean *is* the choice. Likewise `.cw()` on the bridge picks the short sweep across the top of the dome rather than the long way around the bottom.
+### Bore it through
 
-![Pipe mount profile sketch](/img/docs/tutorials/upper-alignment-clamp-step4-sketch.png)
+Click **Sketch**, pick the **XZ** plane again, and pick the **Circle** tool. Click the origin for the centre, type `36` and press <kbd>Enter</kbd> — the circle readout is a *diameter*. Then click the centre point, **Ctrl+click** the origin and click **Coincident** if the click did not already snap there.
 
-### Extrude the mount
+![A 36 mm circle on the barrel axis](/img/docs/tutorials/upper-alignment-clamp-ui-22-bore-circle.png)
 
-```js
-extrude(11)
-```
+**Finish Sketch ▾ → Extrude**, **Remove** tab, **Symmetric**, `66` again: `cut(66).symmetric()`.
 
-This pushes the profile 11 units to create the solid pipe mount.
+![The symmetric bore cut](/img/docs/tutorials/upper-alignment-clamp-ui-23-bore-cut.png)
 
-![Pipe mount](/img/docs/tutorials/upper-alignment-clamp-step4.png)
+Click **Apply**.
 
-## Step 5: The pipe through-hole and mirror
+![The bored barrel](/img/docs/tutorials/upper-alignment-clamp-ui-24-bore.png)
 
-Now we add the pipe itself with a through-hole, then mirror the entire mount to the other side.
+## Step 4: The pipe mount web
 
-### Sketch the pipe profile
+This is the interesting step. The web that carries the pipe boss is a smooth outline: two flanks running tangentially from the barrel up to a cap over the pipe. Nothing about its size is typed twice — the two arcs borrow their radius and centre from reference geometry.
 
-```js
-sketch(plane("front", { offset: 35 }), () => {
-    const outer = circle([0, 45], 16);
-    const inner = circle([0, 45], 10);
+### A plane 20 mm in front
 
-    fix(outer.center(), [0, 45]);
-    concentric(inner, outer);
-    diameter(outer, 16);
-    diameter(inner, 10);
-});
-```
+Click **Plane** in the toolbar, click the **XZ** origin plane as the base, and set **Offset** to `20`. The yellow quad previews the new plane and the statement reads `plane('xz', 20)`.
 
-On a plane 35 units from the front, two circles are drawn at the pipe center: a 16-diameter outer wall and a 10-diameter bore. `fix` places the outer circle, and `concentric(inner, outer)` ties the bore to it — one anchor, one relationship, instead of two hardcoded centers.
+![Plane dialog, XZ offset by 20 mm](/img/docs/tutorials/upper-alignment-clamp-ui-25-web-plane.png)
 
-![Pipe profile sketch](/img/docs/tutorials/upper-alignment-clamp-step5-sketch.png)
+Click **Apply**, then click **Sketch** and pick the new plane.
 
-### Extrude and drill
+### Project the barrel's edge in
 
-```js
-const pipeLength = -35 + 20;
-const e2 = extrude(pipeLength).drill(false);
+Pick the **Project** tool. It suspends sketch editing so you can pick in the free 3D view; click the **R31 arc** where the barrel meets the plate. The statement reads `project(e2.startEdges(edge().arc()))` — FluidCAD wrote the selection as a *rule* rather than a fixed index, so it survives edits.
 
-cut(-pipeLength, sketch(e2.startFaces(), () => {
-    const rim = project(e2.startFaces()).guide();
-    const bore = circle([0, 45], 10);
+![Project tool with the barrel's arc edge picked](/img/docs/tutorials/upper-alignment-clamp-ui-26-project-pick.png)
 
-    concentric(bore, rim.ref(0));
-    diameter(bore, 10);
-}));
+Click **Apply**. Projected geometry comes in **fixed**: it adds no freedom to the sketch, and other constraints can lean on it. Select it and click **Guide** to turn it into construction geometry so it stays out of the profile.
 
-mirror("front")
-```
+Now the pipe. Click **Guide** with nothing selected to latch construction mode on, pick **Circle**, click a point on the vertical axis and type `16`. Click its centre, **Ctrl+click** the **horizontal axis**, **Dimension**, `45`.
 
-`extrude(pipeLength)` extends the pipe backward (negative direction) toward the mount. `.drill(false)` makes it a hollow extrusion — the inner circle becomes a hole — with `false` meaning it doesn't drill into the geometry behind it.
+![The two guides: the projected barrel arc and the 16 mm pipe circle](/img/docs/tutorials/upper-alignment-clamp-ui-27-guides.png)
 
-The follow-up `cut` finishes the through-hole, and shows the projection-anchoring pattern on a face: the sketch opens on `e2.startFaces()`, whose local origin isn't guaranteed to be the pipe center — so we don't hardcode it. `project(e2.startFaces()).guide()` brings the face's outline in as a fixed reference; both of its edges are circles on the pipe's centerline, so `concentric(bore, rim.ref(0))` locks the cutting circle onto it exactly, wherever the face sits. (`ref(i)` picks one edge of a multi-edge reference.) The cut runs 15 deep, boring through the mount web.
+Those two dash-dot curves are the whole plan for this sketch. Everything else will be constrained to them.
 
-`mirror("front")` then mirrors the pipe mount and through-hole across the front plane, creating a symmetric clamp with pipe mounts on both sides.
+### The tangent outline
 
-![Pipe through-hole and mirror](/img/docs/tutorials/upper-alignment-clamp-step5.png)
+Click **Guide** again to unlatch it, then rough out the closed outline: **Line** from the barrel up to the right of the pipe, **3-Pt Arc** over the top of the pipe, **Line** back down to the left, and a second **3-Pt Arc** across the barrel to close the loop. Snap each start point to the previous end point and the four coincidents come for free. Do not try to be accurate — these are guesses.
 
-## Step 6: Mounting holes and counterbores
+Now state what the shape actually is, with the constraint bar:
 
-The final step adds four mounting holes with counterbores in the corners of the base.
+1. Click a flank, **Ctrl+click** the arc next to it, click **Tangent**. Four times, once per junction.
+2. Click the cap arc, **Ctrl+click** the pipe guide circle, click **Concentric**, then **Equal**.
+3. Click the bridge arc, **Ctrl+click** the projected barrel arc, click **Concentric**, then **Equal**.
 
-### Through-holes
+The pill reads *Fully constrained*. The cap now lies exactly on the pipe circle, the bridge exactly on the barrel, and the tangency alone decides where the flanks touch down.
 
-```js
-sketch(e.endFaces(), () => {
-    const bolt = circle([47, -20], 7);
+![The tangent web profile, fully constrained](/img/docs/tutorials/upper-alignment-clamp-ui-28-web-profile.png)
 
-    fix(bolt.center(), [47, -20]);
-    diameter(bolt, 7);
+Nothing here says *which* tangent line you meant — a line tangent to two circles could sit on either side. The guesses decide: the solver keeps each line on the side you drew it, so drawing it roughly in the right place *is* the choice.
 
-    const m = mirror("x", bolt);
-    mirror("y", bolt, m);
-}).name('Hole Sketch');
+### Extrude the web
 
-cut().name('Hole')
-```
+**Finish Sketch ▾ → Extrude**, **Distance** `11`.
 
-One 7-diameter circle is constrained 13 units inset from a corner of the base (`[60 - 13, -33 + 13]`). Then the sketch-level mirrors multiply it: `mirror("x", bolt)` reflects it across the horizontal axis, and `mirror("y", bolt, m)` reflects both the original and that copy across the vertical axis — four fully-placed holes from one constrained circle. `cut()` removes material all the way through. `.name()` labels the operations in the model tree.
+![Extrude dialog with the 11 mm web ghost](/img/docs/tutorials/upper-alignment-clamp-ui-29-web-extrude.png)
 
-![Mounting holes sketch](/img/docs/tutorials/upper-alignment-clamp-step6-sketch.png)
+Click **Apply**.
 
-### Counterbores
+![The web standing on the barrel](/img/docs/tutorials/upper-alignment-clamp-ui-30-web.png)
 
-```js
-sketch(e.endFaces(), () => {
-    const bore = circle([47, -20], 15);
+## Step 5: The pipe boss, then mirror it
 
-    fix(bore.center(), [47, -20]);
-    diameter(bore, 15);
+### Sketch the pipe on a second plane
 
-    const m = mirror("x", bore);
-    mirror("y", bore, m);
-}).name('Counterbore Sketch');
+Click **Plane**, pick **XZ** again and set **Offset** to `35` — the far end of the pipe. Apply, then **Sketch** on it.
 
-cut(4).name('Counterbore')
-```
+Pick **Circle**, click on the vertical axis and type `16`; dimension its centre `45` from the horizontal axis, as before. Then pick **Circle** again and click the **first circle's centre point** — snapping there writes the coincident that makes the two circles concentric — and type `10`.
 
-Larger 15-diameter circles at the same positions create the counterbores — wider, shallow recesses for bolt heads. `cut(4)` removes only 4 units of depth.
+![Two concentric circles, 16 and 10, on the second plane](/img/docs/tutorials/upper-alignment-clamp-ui-31-pipe-sketch.png)
 
-![Finished upper alignment clamp](/img/docs/tutorials/upper-alignment-clamp-final.png)
+### Extrude it back toward the web
+
+**Finish Sketch ▾ → Extrude**, **Distance** `-15`. A negative distance runs the other way along the plane's normal, back from y = 35 to the web at y = 20. The ring profile extrudes as a tube.
+
+![Extrude dialog with the -15 mm pipe ghost](/img/docs/tutorials/upper-alignment-clamp-ui-32-pipe-extrude.png)
+
+Click **Apply**.
+
+![The pipe boss fused to the web](/img/docs/tutorials/upper-alignment-clamp-ui-33-pipe.png)
+
+### Mirror the whole mount
+
+The clamp carries the same mount on both sides. Click **Mirror** in the toolbar, click the **body** in the viewport for the Solids slot, then click the **XZ** plane. The green ghost is the mirrored copy and the statement reads `mirror('xz', f2)`.
+
+Unlike the Repeat you used for the notch, this mirrors the *solid*: the whole clamp is reflected and fused, which brings the mount across without repeating any of its features.
+
+![Mirror dialog with the mirrored body ghost](/img/docs/tutorials/upper-alignment-clamp-ui-34-mount-mirror.png)
+
+Click **Apply**. The plate and barrel are symmetric about XZ already, so only the mount actually changes.
+
+![Both pipe mounts](/img/docs/tutorials/upper-alignment-clamp-ui-35-mounts.png)
+
+## Step 6: Holes last
+
+Four counterbored mounting holes in the corners, and the bore through both pipes.
+
+### Two bolt holes and a 2D mirror
+
+Click **Sketch** and pick the **top face** of the plate again. Pick **Circle**, click near one corner and type `7`. Dimension its centre `47` from the vertical axis and `20` from the horizontal axis.
+
+Then pick the **Mirror** tool from the sketch toolbar. Click the circle for **Geometry**, click the **Mirror line** slot and click the **vertical axis**. The blue outline is the mirrored copy.
+
+![The 2D Mirror tool with the mirrored circle preview](/img/docs/tutorials/upper-alignment-clamp-ui-36-bolt-mirror.png)
+
+Click **Apply**. Two fully-placed holes from one constrained circle.
+
+![Two 7 mm circles, fully constrained](/img/docs/tutorials/upper-alignment-clamp-ui-37-bolt-sketch.png)
+
+**Finish Sketch ▾ → Extrude**, **Remove**, **Through all**, **Apply**.
+
+### The counterbores
+
+Do the same again with a bigger circle: **Sketch** on the top face, **Circle** ⌀`15` on the same 47 / 20 dimensions, **Mirror** across the vertical axis.
+
+![Two 15 mm circles over the bolt holes](/img/docs/tutorials/upper-alignment-clamp-ui-38-counterbore-sketch.png)
+
+**Finish Sketch ▾ → Extrude**, **Remove** tab, **Depth** `4` — a shallow recess for the bolt head rather than a through hole.
+
+![Extrude dialog with the 4 mm counterbore ghost](/img/docs/tutorials/upper-alignment-clamp-ui-39-counterbore-cut.png)
+
+Click **Apply**.
+
+### Mirror both cuts to the other side
+
+Click **Repeat**, set **Type** to **Mirror**, and click **both Cut rows** in the History panel — a repeat can carry more than one feature. Pick the **XZ** plane, and both the holes and their counterbores appear on the near side.
+
+![Repeat mirroring both cuts across the XZ plane](/img/docs/tutorials/upper-alignment-clamp-ui-40-holes-mirror.png)
+
+Click **Apply**.
+
+### Bore the pipes through
+
+One cut finishes both mounts at once. Click **Sketch**, pick the **XZ** plane, draw a **Circle** on the vertical axis, type `10`, and dimension its centre `45` from the horizontal axis — the same place the pipe sits.
+
+**Finish Sketch ▾ → Extrude**, **Remove** tab, **Symmetric**, **Through all**. Symmetric runs the cut both ways from the XZ plane, so one feature drills both pipes and the web behind each of them.
+
+![The symmetric through-bore for both pipes](/img/docs/tutorials/upper-alignment-clamp-ui-41-pipe-bore-cut.png)
+
+Click **Apply**. That is the clamp.
+
+![The finished upper alignment clamp](/img/docs/tutorials/upper-alignment-clamp-ui-42-final.png)
 
 ## Full code
 
-<OpenInViewer code={upperAlignmentClampFinal} entry="upper-alignment-clamp.fluid.js" />
+Everything above was written into `upper-alignment-clamp.fluid.js` by the dialogs. Open the code editor with the `</>` button on the left rail or <kbd>Ctrl</kbd>+<kbd>B</kbd> to read it. The listing below is the same model with tidier names; the coordinates you clicked will differ, but the constraints make the geometry identical.
 
-<CodeBlock language="js">{upperAlignmentClampFinal}</CodeBlock>
+<details>
+  <summary>Show the full code</summary>
+
+  <CodeBlock language="js">{upperAlignmentClampFinal}</CodeBlock>
+
+</details>
+
+<OpenInViewer code={upperAlignmentClampFinal} entry="upper-alignment-clamp.fluid.js" />
 
 ## What you practiced
 
-- **`sketch(plane, callback)`** — constraint sketches: geometry statements are guesses, constraint statements decide where everything lands
-- **`coincident` chains + `horizontal`/`vertical` + `fix` + `distance`** — closing an outline and pinning its shape, size, and place
-- **`fillet(radius, ...lines)`** — rounding the shared corners of a constrained outline
-- **`tangent(a, b)`** — smooth joints between coincident lines and arcs, and guesses choosing *which* tangent solution you get where the old qualifiers used to
-- **`arc(start, end, center).cw()`** — choosing an arc's sweep side explicitly
-- **`collinear(xAxis(), line)`** — constraining against the sketch's built-in datum axes
-- **`project(...).guide()`** — projecting model edges and faces in as fixed references, on both offset planes and faces
-- **`concentric` + `equal` against references** — sizing and placing profile arcs from reference geometry instead of repeated numbers
-- **`.ref(i)`** — picking one edge out of a multi-edge reference
-- **`.endFaces()` / `.startFaces()`** — sketching directly on the faces an operation produced
-- **`.symmetric()`** — extruding or cutting in both directions from the sketch plane
-- **`extrude().drill()`** — creating hollow extrusions
-- **`cut()` + `repeat("mirror")`** — cutting and mirroring geometry across a plane
-- **`mirror("front")`** — mirroring 3D geometry across a standard plane
-- **`mirror("x", ...)` / `mirror("y", ...)` in sketches** — mirroring constrained sketch geometry into symmetric patterns
-- **`.name()`** — labeling operations in the model tree
+- **Rectangle** with its Rounded and Centered options, and **Slot** with typed length and radius — one gesture each for a shape that would otherwise be a dozen statements
+- **Sketching on a face** an operation produced, and reading the *Face — Extrude* chip that keeps the reference alive through edits
+- **Section view**, which clips the model at the sketch plane so you can draw inside a solid
+- **Dimension** against the sketch's own **X and Y axes** instead of hard-coded coordinates, and the DOF pill as the check that you are done
+- **Center Arc** with a typed included angle, and closing a profile by snapping a **Line** onto both arc ends
+- **Symmetric** extrusions and cuts, which split the distance evenly across the sketch plane
+- **Plane** at an offset, twice, as scaffolding for geometry that does not sit on an origin plane
+- **Project** to bring a model edge into a sketch as fixed reference geometry, and **Guide** to keep reference curves out of the profile
+- **Tangent**, **Concentric** and **Equal** to build a smooth outline whose arcs inherit their size and position from reference geometry
+- The 2D **Mirror** tool for sketch geometry, the 3D **Mirror** tool for a whole solid, and **Repeat → Mirror** for whole features — three different things that all say "the other side"

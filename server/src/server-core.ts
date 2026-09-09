@@ -59,8 +59,13 @@ export interface ServerCore {
   setDisconnectHandler(handler: (sessionId: string) => void): void;
 }
 
-export function createServerCore(httpServer: import('http').Server): ServerCore {
-  const wss = new WebSocketServer({ server: httpServer });
+export interface ServerCoreOptions {
+  /** Gate on WebSocket upgrades — the host guard, so a rebound page cannot open the scene stream either. */
+  verifyClient?: (info: { req: import('http').IncomingMessage }) => boolean;
+}
+
+export function createServerCore(httpServer: import('http').Server, options: ServerCoreOptions = {}): ServerCore {
+  const wss = new WebSocketServer({ server: httpServer, verifyClient: options.verifyClient });
   const uiClients = new Set<UIClient>();
 
   let lastSceneMessage: string | null = null;

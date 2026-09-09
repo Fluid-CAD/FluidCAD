@@ -5,6 +5,7 @@ import express from 'express';
 import { FluidCadServer, sceneUnitFields } from './fluidcad-server.ts';
 import type { SceneRenderedData } from './fluidcad-server.ts';
 import { createServerCore } from './server-core.ts';
+import { createHostGuard, createHostGuardVerifyClient } from './host-guard.ts';
 import { createPropertiesRouter } from './routes/properties.ts';
 import { createParamsRouter } from './routes/params.ts';
 import { createHitTestRouter } from './routes/hit-test.ts';
@@ -62,6 +63,10 @@ import { extractSourceLocation, describeOcException } from '../../lib/dist/index
 process.setSourceMapsEnabled(true);
 
 const PORT = parseInt(process.env.FLUIDCAD_SERVER_PORT || '3100', 10);
+// Loopback only: the server has no authentication, so the network boundary
+// is the security boundary (host-guard.ts). Set FLUIDCAD_SERVER_HOST to
+// expose it deliberately, which also lifts the Host header check.
+const HOST = process.env.FLUIDCAD_SERVER_HOST || '127.0.0.1';
 const WORKSPACE_PATH = normalizePath(process.env.FLUIDCAD_WORKSPACE_PATH || '');
 const UI_DIST = path.resolve(import.meta.dirname, '../../ui/dist');
 
@@ -122,6 +127,7 @@ const fluidCadServer = new FluidCadServer();
 const dirtyBufferState = new DirtyBufferState();
 
 const app = express();
+app.use(createHostGuard(HOST));
 app.use(express.json({ limit: '50mb' }));
 
 // ---------------------------------------------------------------------------
@@ -129,7 +135,7 @@ app.use(express.json({ limit: '50mb' }));
 // ---------------------------------------------------------------------------
 
 const httpServer = http.createServer(app);
-const core = createServerCore(httpServer);
+const core = createServerCore(httpServer, { verifyClient: createHostGuardVerifyClient(HOST) });
 const broadcastToUI = core.broadcastToUI;
 const requestScreenshot = core.requestScreenshot;
 const getLastCameraState = core.getLastCameraState;
@@ -603,7 +609,7 @@ process.on('message', (msg: any) => {
 // Start
 // ---------------------------------------------------------------------------
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, HOST, () => {
   const url = `http://localhost:${PORT}`;
   // Name the engine that is actually running, not just the port. A project can
   // pin a version (P0-4) and the whole point of the pin is that which kernel

@@ -4,7 +4,7 @@ import { coincident, tangent, horizontal, fix, radius, distance } from "fluidcad
 
 sketch("xy", () => {
     const l = line([0, 0], [48, 2]);
-    const a = arc([48, 2], [70, 25], [50, 22]);
+    const a = arc([48, 2], [55.5, 20], [30, 20]);
     coincident(l.end(), a.start());
     tangent(l, a);
     horizontal(l);

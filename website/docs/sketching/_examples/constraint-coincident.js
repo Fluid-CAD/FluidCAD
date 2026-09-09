@@ -6,11 +6,11 @@ sketch("xy", () => {
     // An L-bracket outline drawn as six loose lines — the corners do
     // not meet yet.
     const base = line([0, 0], [70, 0]);
-    const toe = line([72, 3], [69, 12]);
-    const inner = line([68, 12], [14, 10]);
-    const rise = line([12, 12], [10, 60]);
-    const top = line([10, 60], [-2, 58]);
-    const back = line([0, 60], [1, -2]);
+    const toe = line([76, 6], [72, 16]);
+    const inner = line([66, 11], [16, 9]);
+    const rise = line([10, 15], [8, 62]);
+    const top = line([13, 66], [-5, 63]);
+    const back = line([-2, 57], [3, -6]);
     // highlight-start
     coincident(base.end(), toe.start());    // point ↔ point: close each corner
     coincident(toe.end(), inner.start());
@@ -35,7 +35,7 @@ sketch("xy", () => {
     const centreline = line([6, 20], [6, 50]).guide();
     vertical(centreline);
     distance(back, centreline, 6);
-    const hole = circle([6, 40], 5);
+    const hole = circle([10, 40], 5);
     // highlight-next-line
     coincident(hole.center(), centreline);        // point ↔ line
     diameter(hole, 5);

@@ -4,6 +4,8 @@ title: "Parallel"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import constraintParallel from '!!raw-loader!../../_examples/constraint-parallel.js';
 
 # Parallel
@@ -15,7 +17,17 @@ import constraintParallel from '!!raw-loader!../../_examples/constraint-parallel
 1. Click two or more distinct lines. The first click is the reference.
 2. Click **Parallel**. Each following line gets a `∥` badge.
 
-![A tilted channel whose two flanks stay parallel](/img/docs/sketching/constraint-parallel.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-parallel.png"
+  alt="The constraint bar with two lines picked and the Parallel button highlighted"
+  rings={[{x: 20.6, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="Two lines picked: Parallel is enabled. The first pick is the reference."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/constraint-parallel-before.png', description: 'The two flanks lean at different angles.'},
+  {title: 'After', code: 'parallel(leftFlank, rightFlank)', image: '/img/docs/sketching/constraint-parallel.png', description: 'The right flank turns to match the left one\'s lean.'},
+]} />
 
 <ExplainedCode code={constraintParallel} fileName="channel.part.js">
 The left flank's lean comes from `angle(xAxis(), leftFlank, 110)`; `parallel(leftFlank, rightFlank)` removes 1 DOF from the right flank so it follows. Change the angle and the channel leans as one, keeping its width.

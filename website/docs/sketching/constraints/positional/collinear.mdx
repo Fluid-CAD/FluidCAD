@@ -4,6 +4,8 @@ title: "Collinear"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import constraintCollinear from '!!raw-loader!../../_examples/constraint-collinear.js';
 
 # Collinear
@@ -15,7 +17,17 @@ import constraintCollinear from '!!raw-loader!../../_examples/constraint-colline
 1. Click two lines. A datum axis counts as a line.
 2. Click **Collinear**. The second line gets a `≡` badge.
 
-![A stepped shaft profile: lands on one line, bottom edge on the revolve axis](/img/docs/sketching/constraint-collinear.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-collinear.png"
+  alt="The constraint bar with two lines picked and the Collinear button highlighted"
+  rings={[{x: 51.5, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="Two lines picked: Collinear is enabled, next to the other two-line constraints Parallel, Perpendicular, Equal and Angle."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/constraint-collinear-before.png', description: 'The two lands are drawn at different heights, and the bottom edge sits just off the X axis.'},
+  {title: 'After', code: 'collinear(leftLand, rightLand)', image: '/img/docs/sketching/constraint-collinear.png', description: 'Both lands share one line, and the bottom edge lies exactly on the revolve axis.'},
+]} />
 
 <ExplainedCode code={constraintCollinear} fileName="shaft.part.js">
 A half-profile to be revolved. `collinear(leftLand, rightLand)` removes 2 DOF from the right land so both lands share one surface across the snap-ring groove — one shaft diameter, dimensioned once. `collinear(xAxis(), bottom)` puts the profile's bottom edge exactly on the revolve axis: `horizontal` alone would only make it parallel.

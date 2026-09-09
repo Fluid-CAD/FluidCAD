@@ -4,6 +4,8 @@ title: "Diameter"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import dimensionDiameter from '!!raw-loader!../../_examples/dimension-diameter.js';
 
 # Diameter
@@ -17,7 +19,17 @@ import dimensionDiameter from '!!raw-loader!../../_examples/dimension-diameter.j
 
 Double-clicking a circle's edge opens its diameter directly. Double-click the label later to change it.
 
-![A flange bore and a bolt hole sized by diameter](/img/docs/sketching/dimension-diameter.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-diameter.png"
+  alt="The constraint bar with one circle picked and the Dimension button highlighted"
+  rings={[{x: 77.5, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="One circle picked: Dimension writes a diameter."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/dimension-diameter-before.png', description: 'The bore is drawn at ⌀20 and the bolt hole at ⌀14.'},
+  {title: 'After', code: 'diameter(bore, 30)', image: '/img/docs/sketching/dimension-diameter.png', description: 'The bore held at ⌀30 and the bolt hole at ⌀9.'},
+]} />
 
 <ExplainedCode code={dimensionDiameter} fileName="flange.part.js">
 Two `diameter` statements size the bore and the bolt hole (1 DOF each); the bolt hole's position on the pitch circle comes from `horizontal` and a center-to-center `distance`.

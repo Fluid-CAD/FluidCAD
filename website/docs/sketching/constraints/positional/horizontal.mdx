@@ -4,6 +4,8 @@ title: "Horizontal"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import constraintHorizontal from '!!raw-loader!../../_examples/constraint-horizontal.js';
 
 # Horizontal
@@ -17,7 +19,17 @@ import constraintHorizontal from '!!raw-loader!../../_examples/constraint-horizo
 
 Drawing a line close to horizontal with **Infer while drawing** on writes this constraint automatically.
 
-![A plate squared up, with a row of holes aligned](/img/docs/sketching/constraint-horizontal.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-horizontal.png"
+  alt="The constraint bar with three circle centers picked and the Horizontal button highlighted"
+  rings={[{x: 8.2, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="Three circle centers picked: Horizontal is enabled (Vertical would stack them instead)."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/constraint-horizontal-before.png', description: 'The plate\'s top and bottom edges are drawn askew, and the three holes sit at three different heights.'},
+  {title: 'After', code: 'horizontal(h1.center(), h2.center(), h3.center())', image: '/img/docs/sketching/constraint-horizontal.png', description: 'The edges are horizontal and the three centers line up.'},
+]} />
 
 <ExplainedCode code={constraintHorizontal} fileName="plate.part.js">
 `horizontal(bottom)` and `horizontal(top)` are the line form — with `vertical` on the sides they square the plate. `horizontal(h1.center(), h2.center(), h3.center())` is the point form: the second and third centers take the first one's y (1 DOF per follower), so positioning the first hole positions the whole row.

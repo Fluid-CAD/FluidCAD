@@ -4,6 +4,8 @@ title: "Radius"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import dimensionRadius from '!!raw-loader!../../_examples/dimension-radius.js';
 import dimensionRadial from '!!raw-loader!../../_examples/dimension-radial.js';
 
@@ -18,7 +20,17 @@ import dimensionRadial from '!!raw-loader!../../_examples/dimension-radial.js';
 
 Double-clicking an arc opens its radius directly.
 
-![A plate corner rounded and sized by radius](/img/docs/sketching/dimension-radius.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-radius.png"
+  alt="The constraint bar with one arc picked and the Dimension button highlighted"
+  rings={[{x: 77.5, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="One arc picked: Dimension writes a radius."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/dimension-radius-before.png', description: 'The corner arc is drawn with a radius of about 12.'},
+  {title: 'After', code: 'radius(corner, 25)', image: '/img/docs/sketching/dimension-radius.png', description: 'The round grows to R25; the tangents keep it attached to both edges.'},
+]} />
 
 <ExplainedCode code={dimensionRadius} fileName="corner.part.js">
 Two `coincident` statements attach the arc to its neighbours and two `tangent` statements remove the kinks; `radius(corner, 25)` is the one number left to choose (1 DOF).

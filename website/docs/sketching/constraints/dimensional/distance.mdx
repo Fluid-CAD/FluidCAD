@@ -4,6 +4,8 @@ title: "Distance"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import dimensionLinear from '!!raw-loader!../../_examples/dimension-linear.js';
 import dimensionFarSide from '!!raw-loader!../../_examples/dimension-far-side.js';
 
@@ -19,10 +21,20 @@ import dimensionFarSide from '!!raw-loader!../../_examples/dimension-far-side.js
 
 Shortcuts: double-click a line to dimension its length; double-click a dimension label to edit its value in place. Dimension labels can be hidden with the sketch dialog's **Show constraints → Dimensional** toggle.
 
-![Dimensioned L-profile](/img/docs/sketching/dimension-linear.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-distance.png"
+  alt="The constraint bar with a line picked and the Dimension button highlighted"
+  rings={[{x: 77.5, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="A line picked: Dimension is enabled. It is the one button that is always available; with nothing picked it arms and waits for two picks."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/dimension-linear-before.png', description: 'The base is drawn 70 long and the rise 25 tall, with no dimensions.'},
+  {title: 'After', code: 'distance(base.start(), base.end(), 100)', image: '/img/docs/sketching/dimension-linear.png', description: 'Stretched to 100 × 45 by the two dimensions, whose labels stay on screen.'},
+]} />
 
 <ExplainedCode code={dimensionLinear} fileName="l-profile.part.js">
-The guesses draw the base 90 long and the rise 40 tall; the two `distance` statements stretch them to 100 and 45. Combined with `horizontal` / `vertical`, a point-pair distance acts as a width or height.
+The guesses draw the base 70 long and the rise 25 tall; the two `distance` statements stretch them to 100 and 45. Combined with `horizontal` / `vertical`, a point-pair distance acts as a width or height.
 </ExplainedCode>
 
 ## In code

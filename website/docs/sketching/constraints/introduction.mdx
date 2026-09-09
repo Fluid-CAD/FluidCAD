@@ -4,6 +4,7 @@ title: "Introduction"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import constraintRectangle from '!!raw-loader!../_examples/constraint-rectangle.js';
 import constraintDatums from '!!raw-loader!../_examples/constraint-datums.js';
 
@@ -22,6 +23,29 @@ There are two kinds:
 2. The **constraint toolbar** appears under the sketch toolbar: **Coincident**, **Horizontal**, **Vertical**, **Parallel**, **Perpendicular**, **Tangent**, **Equal**, **Concentric**, **Collinear**, **Midpoint**, **Symmetric**, **Fix**, **Dimension**, **Angle**. Only the buttons that make sense for the selection are enabled; hovering a disabled one says what it needs ("pick two lines", "pick a point and a line, or three points").
 3. Hover a button to preview the solve as a ghost; click it to apply. The statement is written into the sketch body after the geometry, the solver re-solves, and a **badge** appears on the constrained entity — `H` for horizontal, `V` vertical, `T` tangent, `∥` parallel, `⊥` perpendicular, `=` equal, `◎` concentric, `≡` collinear, `M` midpoint, `S` symmetric, `F` fix. Coincident points share one dot; a point held on a line or circle shows `⊙`.
 4. Drag any geometry that is still free. The solver re-solves live, keeping every constraint.
+
+<UiFigure
+  src="/img/docs/ui/constraint-bar-overview.png"
+  alt="The constraint bar: fourteen constraint buttons and a delete button, greyed out until a selection fits them"
+  markers={[
+    {n: 1, x: 5.5, y: 78, label: 'Coincident', description: 'two points, or a point and a line / arc / circle'},
+    {n: 2, x: 11.7, y: 78, label: 'Horizontal', description: 'one line, or two or more points'},
+    {n: 3, x: 17.9, y: 78, label: 'Vertical', description: 'one line, or two or more points'},
+    {n: 4, x: 24.1, y: 78, label: 'Parallel', description: 'two or more lines'},
+    {n: 5, x: 30.2, y: 78, label: 'Perpendicular', description: 'two lines'},
+    {n: 6, x: 36.4, y: 78, label: 'Tangent', description: 'a line and an arc / circle, or two arcs / circles'},
+    {n: 7, x: 42.6, y: 78, label: 'Equal', description: 'two or more lines, or two or more arcs / circles'},
+    {n: 8, x: 48.8, y: 78, label: 'Concentric', description: 'two arcs / circles'},
+    {n: 9, x: 55.0, y: 78, label: 'Collinear', description: 'two lines'},
+    {n: 10, x: 61.2, y: 78, label: 'Midpoint', description: 'a point and a line, or three points'},
+    {n: 11, x: 67.4, y: 78, label: 'Symmetric', description: 'two points and the mirror line'},
+    {n: 12, x: 73.5, y: 78, label: 'Fix', description: 'one point'},
+    {n: 13, x: 80.9, y: 78, label: 'Dimension', description: 'two points or entities, one line, or one circle / arc. Always enabled: with nothing picked it arms and waits for the picks'},
+    {n: 14, x: 87.1, y: 78, label: 'Angle', description: 'two lines'},
+    {n: 15, x: 94.5, y: 78, label: 'Delete constraint', description: 'a constraint badge picked in the viewport'},
+  ]}
+  caption="The constraint bar with nothing picked. Each button lists what it needs; every constraint page shows the bar with its button lit."
+/>
 
 Right-click a badge or a dimension label for its row menu; a constraint row in the timeline (the sketch's *N constraints* group) can be removed there.
 

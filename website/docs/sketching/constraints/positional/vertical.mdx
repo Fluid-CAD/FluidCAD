@@ -4,6 +4,8 @@ title: "Vertical"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import constraintVertical from '!!raw-loader!../../_examples/constraint-vertical.js';
 
 # Vertical
@@ -17,7 +19,17 @@ import constraintVertical from '!!raw-loader!../../_examples/constraint-vertical
 
 Drawing a line close to vertical with **Infer while drawing** on writes this constraint automatically.
 
-![A tall plate stood upright, with a column of holes](/img/docs/sketching/constraint-vertical.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-vertical.png"
+  alt="The constraint bar with three circle centers picked and the Vertical button highlighted"
+  rings={[{x: 14.4, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="Three circle centers picked: Vertical is enabled (Horizontal would put them in a row instead)."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/constraint-vertical-before.png', description: 'The plate\'s sides lean, and the three holes sit at three different x positions.'},
+  {title: 'After', code: 'vertical(h1.center(), h2.center(), h3.center())', image: '/img/docs/sketching/constraint-vertical.png', description: 'The sides stand upright and the three centers stack on one line.'},
+]} />
 
 <ExplainedCode code={constraintVertical} fileName="plate.part.js">
 `vertical(left)` and `vertical(right)` are the line form — the leaning sides stand up. `vertical(h1.center(), h2.center(), h3.center())` stacks the hole centers on one x, 1 DOF per follower.

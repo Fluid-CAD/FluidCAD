@@ -4,6 +4,8 @@ title: "Concentric"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import constraintConcentric from '!!raw-loader!../../_examples/constraint-concentric.js';
 
 # Concentric
@@ -15,7 +17,17 @@ import constraintConcentric from '!!raw-loader!../../_examples/constraint-concen
 1. Click two circles / arcs.
 2. Click **Concentric**. Both get a `◎` badge at the shared center.
 
-![A washer: outer circle centred on the bore](/img/docs/sketching/constraint-concentric.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-concentric.png"
+  alt="The constraint bar with two circles picked and the Concentric button highlighted"
+  rings={[{x: 45.4, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="Two circles picked: Concentric is enabled, beside Tangent and Equal."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/constraint-concentric-before.png', description: 'The outer circle is drawn off-center from the bore.'},
+  {title: 'After', code: 'concentric(outer, bore)', image: '/img/docs/sketching/constraint-concentric.png', description: 'Both circles share the bore\'s center: a round washer.'},
+]} />
 
 <ExplainedCode code={constraintConcentric} fileName="washer.part.js">
 The bore sits on the origin; the outer circle is drawn off-center. `concentric(outer, bore)` moves its center onto the bore's (2 DOF), and the two `diameter` dimensions do the rest.

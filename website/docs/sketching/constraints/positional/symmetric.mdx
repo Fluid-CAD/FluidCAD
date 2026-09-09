@@ -4,6 +4,8 @@ title: "Symmetric"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import constraintSymmetric from '!!raw-loader!../../_examples/constraint-symmetric.js';
 
 # Symmetric
@@ -15,7 +17,17 @@ import constraintSymmetric from '!!raw-loader!../../_examples/constraint-symmetr
 1. Click the two points, then the mirror line — a datum axis, or any sketched line (a `.guide()` centreline is the usual choice).
 2. Click **Symmetric**. Both points get an `S` badge.
 
-![A keyway centred on a bore by two symmetric pairs](/img/docs/sketching/constraint-symmetric.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-symmetric.png"
+  alt="The constraint bar with two points and a line picked and the Symmetric button highlighted"
+  rings={[{x: 63.9, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="Two points and the mirror line picked: Symmetric is enabled."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/constraint-symmetric-before.png', description: 'The keyway\'s walls sit at unequal distances from the centreline.'},
+  {title: 'After', code: 'symmetric(a, b, yAxis())', image: '/img/docs/sketching/constraint-symmetric.png', description: 'Both walls mirrored across the Y axis: the keyway is centred on the bore.'},
+]} />
 
 <ExplainedCode code={constraintSymmetric} fileName="hub.part.js">
 The keyway's walls are drawn at unequal distances from the bore's centreline. Two `symmetric` statements mirror the right wall's endpoints from the left wall's across `yAxis()` (2 DOF each), so the keyway is centred on the bore whatever width the `distance` sets. Only the left wall needs `vertical`; the right one follows.

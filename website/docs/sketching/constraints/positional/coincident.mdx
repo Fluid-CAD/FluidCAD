@@ -4,6 +4,8 @@ title: "Coincident"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import constraintCoincident from '!!raw-loader!../../_examples/constraint-coincident.js';
 
 # Coincident
@@ -17,7 +19,17 @@ import constraintCoincident from '!!raw-loader!../../_examples/constraint-coinci
 
 With **Auto-constraints → Infer while drawing** on, snapping a new segment's end onto an existing vertex writes this statement for you — most corners never need the button.
 
-![L-bracket outline closed, with a hole held on its centreline](/img/docs/sketching/constraint-coincident.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-coincident.png"
+  alt="The constraint bar with two line ends picked and the Coincident button highlighted"
+  rings={[{x: 2.1, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="Two line ends picked: Coincident lights up on the constraint bar, with Horizontal and Vertical for the same pair of points."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/constraint-coincident-before.png', description: 'Six loose lines. The corners are drawn near each other, but nothing joins them, and the hole floats beside the centreline.'},
+  {title: 'After', code: 'coincident(base.end(), toe.start()) …', image: '/img/docs/sketching/constraint-coincident.png', description: 'Every corner closed into one shared dot, and the hole\'s center held on the centreline.'},
+]} />
 
 <ExplainedCode code={constraintCoincident} fileName="bracket.part.js">
 Six `coincident` statements close the bracket's corners (2 DOF each); without them the outline is six loose segments. The last one holds the fixing hole's center on a guide centreline — the point-on-entity form removes 1 DOF, so the hole can still slide up and down the upright.

@@ -6,10 +6,10 @@ sketch("xy", () => {
     // Half-profile of a shaft with a snap-ring groove, drawn to be
     // revolved about the X axis. The two lands either side of the groove
     // must share one surface.
-    const bottom = line([0, 0], [90, 1]);
-    const leftEnd = line([90, 1], [90, 20]);
-    const rightLand = line([90, 20], [46, 21]);
-    const grooveOut = line([46, 21], [46, 15]);
+    const bottom = line([0, -3], [90, 2]);
+    const leftEnd = line([90, 1], [90, 26]);
+    const rightLand = line([90, 26], [46, 24]);
+    const grooveOut = line([46, 24], [46, 15]);
     const grooveFloor = line([46, 15], [40, 15]);
     const grooveIn = line([40, 15], [40, 19]);
     const leftLand = line([40, 19], [0, 19]);

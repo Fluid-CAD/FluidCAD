@@ -4,6 +4,8 @@ title: "Angle"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import dimensionAngle from '!!raw-loader!../../_examples/dimension-angle.js';
 
 # Angle
@@ -16,7 +18,17 @@ import dimensionAngle from '!!raw-loader!../../_examples/dimension-angle.js';
 2. Click **Angle**. An arc appears in the sector between the lines; move the cursor to choose which of the four sectors to dimension, then click.
 3. Type the value in degrees and press <kbd>Enter</kbd>.
 
-![30° ramp dimension](/img/docs/sketching/dimension-angle.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-angle.png"
+  alt="The constraint bar with two lines picked and the Angle button highlighted"
+  rings={[{x: 83.7, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="Two lines picked: Angle is enabled."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/dimension-angle-before.png', description: 'The ramp is drawn at 45° to the flat.'},
+  {title: 'After', code: 'angle(flat, ramp, 30)', image: '/img/docs/sketching/dimension-angle.png', description: 'The ramp held at 30° from the flat.'},
+]} />
 
 <ExplainedCode code={dimensionAngle} fileName="ramp.part.js">
 `angle(flat, ramp, 30)` measures counter-clockwise from `flat` to `ramp` (1 DOF). The `distance` on the ramp sets its length; the two share a start through `coincident`.

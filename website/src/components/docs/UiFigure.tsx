@@ -14,10 +14,23 @@ export type UiMarker = {
   description?: ReactNode;
 };
 
+export type UiRing = {
+  /** Left edge in percent of the image width. */
+  x: number;
+  /** Top edge in percent of the image height. */
+  y: number;
+  /** Width in percent of the image width. */
+  w: number;
+  /** Height in percent of the image height. */
+  h: number;
+};
+
 type UiFigureProps = {
   src: string;
   alt: string;
   markers?: UiMarker[];
+  /** Rings drawn around a control — the "this button" callout. */
+  rings?: UiRing[];
   /** Optional caption under the image. */
   caption?: ReactNode;
 };
@@ -28,11 +41,19 @@ type UiFigureProps = {
  * repeats the numbers — the figure reads on its own even when the image is
  * unavailable.
  */
-export function UiFigure({src, alt, markers = [], caption}: UiFigureProps) {
+export function UiFigure({src, alt, markers = [], rings = [], caption}: UiFigureProps) {
   return (
     <figure className={styles.figure}>
       <div className={styles.frame}>
         <img src={src} alt={alt} loading="lazy" />
+        {rings.map((r, i) => (
+          <span
+            key={i}
+            className={styles.ring}
+            style={{left: `${r.x}%`, top: `${r.y}%`, width: `${r.w}%`, height: `${r.h}%`}}
+            aria-hidden
+          />
+        ))}
         {markers.map((m) => (
           <span
             key={m.n}

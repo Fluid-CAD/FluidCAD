@@ -4,6 +4,8 @@ title: "Midpoint"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import constraintMidpoint from '!!raw-loader!../../_examples/constraint-midpoint.js';
 
 # Midpoint
@@ -15,7 +17,17 @@ import constraintMidpoint from '!!raw-loader!../../_examples/constraint-midpoint
 1. Click a point and a line — or click three points.
 2. Click **Midpoint**. The constrained point gets an `M` badge. With three points, the one nearest the middle of the other two becomes the midpoint; pick order does not matter.
 
-![A tab with its hole held at the center and an anchor at the top edge's middle](/img/docs/sketching/constraint-midpoint.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-midpoint.png"
+  alt="The constraint bar with a point and a line picked and the Midpoint button highlighted"
+  rings={[{x: 57.7, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="A point and a line picked: Midpoint is enabled."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/constraint-midpoint-before.png', description: 'The hole is drawn off-center, and the anchor point sits away from the middle of the top edge.'},
+  {title: 'After', code: 'midpoint(hole.center(), bottom.start(), top.start())', image: '/img/docs/sketching/constraint-midpoint.png', description: 'The hole at the tab\'s center, the anchor at the middle of the top edge.'},
+]} />
 
 <ExplainedCode code={constraintMidpoint} fileName="tab.part.js">
 `midpoint(hole.center(), bottom.start(), top.start())` is the three-point form: halfway between two diagonal corners is the tab's center, so the hole stays centred when the tab is resized — no numbers involved. `midpoint(anchor, top)` is the point–line form. Both remove 2 DOF.

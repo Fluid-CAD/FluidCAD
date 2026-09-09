@@ -4,6 +4,8 @@ title: "Fixed"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import constraintFixed from '!!raw-loader!../../_examples/constraint-fixed.js';
 
 # Fixed
@@ -17,7 +19,17 @@ import constraintFixed from '!!raw-loader!../../_examples/constraint-fixed.js';
 
 The button takes exactly one point. It is disabled for a datum (the origin is already fixed).
 
-![Mounting plate pinned at its datum corner](/img/docs/sketching/constraint-fixed.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-fix.png"
+  alt="The constraint bar with one point picked and the Fix button highlighted"
+  rings={[{x: 70.1, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="One point picked: Fix is enabled."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/constraint-fixed-before.png', description: 'Shape and size are set, but the plate can still slide anywhere on the plane, so nothing is green yet.'},
+  {title: 'After', code: 'fix(bottom.start(), [0, 0])', image: '/img/docs/sketching/constraint-fixed.png', description: 'The corner pinned at the origin: zero degrees of freedom, and the sketch turns green.'},
+]} />
 
 <ExplainedCode code={constraintFixed} fileName="plate.part.js">
 The shape (`coincident`, `horizontal`, `vertical`) and the size (two `distance` dimensions) leave two degrees of freedom — the whole plate could still translate. `fix` on the bottom-left corner takes them away, and the mounting hole is then dimensioned from that corner.

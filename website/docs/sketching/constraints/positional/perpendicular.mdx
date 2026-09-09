@@ -4,6 +4,8 @@ title: "Perpendicular"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import constraintPerpendicular from '!!raw-loader!../../_examples/constraint-perpendicular.js';
 
 # Perpendicular
@@ -15,7 +17,17 @@ import constraintPerpendicular from '!!raw-loader!../../_examples/constraint-per
 1. Click two lines.
 2. Click **Perpendicular**. The pair gets a `⊥` badge at their junction (or on the second line when they do not meet).
 
-![An L-bracket on a 20° incline with square corners](/img/docs/sketching/constraint-perpendicular.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-perpendicular.png"
+  alt="The constraint bar with two lines picked and the Perpendicular button highlighted"
+  rings={[{x: 26.8, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="Two lines picked: Perpendicular is enabled."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/constraint-perpendicular-before.png', description: 'The bracket\'s corners are drawn roughly; none of them is square.'},
+  {title: 'After', code: 'perpendicular(foot, upright) …', image: '/img/docs/sketching/constraint-perpendicular.png', description: 'Every corner square to the foot and the upright, on the 20° incline.'},
+]} />
 
 <ExplainedCode code={constraintPerpendicular} fileName="bracket.part.js">
 The foot is held at 20° by an `angle` against the X axis. Five `perpendicular` statements (1 DOF each) square every corner of the bracket to the foot and the upright rather than to the sketch axes; two line–line `distance` dimensions set the leg thickness. Change the incline and the whole bracket rotates, still square.

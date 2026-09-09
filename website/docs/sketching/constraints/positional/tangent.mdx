@@ -4,6 +4,8 @@ title: "Tangent"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import constraintTangentJunction from '!!raw-loader!../../_examples/constraint-tangent-junction.js';
 import constraintBranch from '!!raw-loader!../../_examples/constraint-branch.js';
 import constraintBelt from '!!raw-loader!../../_examples/constraint-belt.js';
@@ -23,7 +25,17 @@ The 2D [Fillet](/docs/sketching/tools/fillet) tool writes `coincident` + `tangen
 
 A line running into an arc: `coincident` joins them, `tangent` removes the kink.
 
-![Line–arc junction tangency](/img/docs/sketching/constraint-tangent-junction.png)
+<UiFigure
+  src="/img/docs/ui/constraint-bar-tangent.png"
+  alt="The constraint bar with a line and an arc picked and the Tangent button highlighted"
+  rings={[{x: 33.0, y: 11.6, w: 6.9, h: 44.2}]}
+  caption="A line and an arc picked: Tangent is enabled."
+/>
+
+<ModeTable columns={[
+  {title: 'Before', image: '/img/docs/sketching/constraint-tangent-junction-before.png', description: 'The arc is joined to the line by coincident, but meets it at a corner.'},
+  {title: 'After', code: 'tangent(l, a)', image: '/img/docs/sketching/constraint-tangent-junction.png', description: 'The arc leaves the line without a kink.'},
+]} />
 
 <ExplainedCode code={constraintTangentJunction} fileName="hook.part.js">
 `coincident(l.end(), a.start())` joins the profile; `tangent(l, a)` forces the arc to leave the line without a corner (1 DOF). The `radius` then sizes the arc.

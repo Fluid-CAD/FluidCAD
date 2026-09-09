@@ -52,6 +52,22 @@ export function resolveWorkspaceUnit(
   return fallback;
 }
 
+/**
+ * Duck-typed check for a fluidcad `assembly()` definition, mirroring the
+ * server's scene-host.ts: `getType() === 'assembly'` plus a `run()`.
+ */
+function isAssemblyDefinition(value: unknown): value is { run: () => unknown } {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const obj = value as { getType?: () => string; run?: () => unknown };
+  try {
+    return typeof obj.getType === "function" && obj.getType() === "assembly" && typeof obj.run === "function";
+  } catch {
+    return false;
+  }
+}
+
 /** Mirrors the server's detectKind (file-kind.ts): the suffix names the scene kind. */
 export function detectSceneKind(entryPath: string): BrowserSceneKind {
   return entryPath.endsWith(".assembly.js") ? "assembly" : "part";
@@ -178,6 +194,14 @@ export class BrowserEngineHost {
         }
         if (result instanceof PartDefinition) {
           result.materializeInto(scene);
+        }
+        // assembly() definitions are lazy — an exported definition (or a
+        // factory returning one) creates no scene records until run. The
+        // entry file's own definition runs at root scope, exactly as the
+        // desktop's LocalSceneHost does, so `.grounded()` applies natively
+        // and a sub-assembly file renders standalone.
+        if (isAssemblyDefinition(result)) {
+          result.run();
         }
       }
       // part() is lazy — definitions nothing exported still render standalone

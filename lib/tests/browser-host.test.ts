@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { BrowserEngineHost, engineShimModuleSource, VIEWER_PROTOCOL_VERSION } from "../browser/index.js";
-import { param } from "../core/index.js";
+import { param, assembly } from "../core/index.js";
 import sketch from "../core/sketch.js";
 import extrude from "../core/extrude.js";
 import fillet from "../core/fillet.js";
@@ -149,6 +149,43 @@ describe("BrowserEngineHost", () => {
     const cached = (outcome.result as RenderedObject[]).filter((o) => o.fromCache);
     expect(cached.length).toBe(0);
     host.dispose();
+  });
+
+  it("runs an exported assembly() definition at root scope — a sub-assembly file renders standalone", async () => {
+    host.unloadModel();
+    host.setWorkspace({ "piston.assembly.js": "unused" }, "piston.assembly.js");
+    const defineParts = () => ({
+      base: part("Base", () => {
+        sketch("xy", () => { testRect(60, 40, { at: [-30, -20] }); });
+        extrude(10);
+      }),
+      post: part("Post", () => {
+        sketch("xy", () => { testRect(10, 10, { at: [-5, -5] }); });
+        extrude(30);
+      }),
+    });
+    host.setModuleEvaluator(async () => {
+      const { base, post } = defineParts();
+      // `export const piston = assembly('piston', () => {...})` — a lazy
+      // definition the desktop renders standalone when it is the open file.
+      return { piston: assembly("piston", () => { insert(base).grounded(); insert(post).translate(100, 0, 0); }) };
+    });
+    const outcome = await host.render();
+    expect(outcome.compileError).toBeNull();
+    expect(outcome.sceneKind).toBe("assembly");
+    expect(outcome.assembly?.instances.map((i) => i.partName)).toEqual(["Base", "Post"]);
+    expect(outcome.assembly?.instances[0].grounded).toBe(true);
+
+    // A bare, unexported definition is still the "never rendered" error.
+    host.unloadModel();
+    host.setWorkspace({ "piston.assembly.js": "unused" }, "piston.assembly.js");
+    host.setModuleEvaluator(async () => {
+      const { base } = defineParts();
+      assembly("piston", () => { insert(base).grounded(); });
+      return {};
+    });
+    const dangling = await host.render();
+    expect(dangling.compileError?.message).toMatch(/defined but never rendered/);
   });
 
   it("renders an .assembly.js entry as an assembly scene with its payload", async () => {

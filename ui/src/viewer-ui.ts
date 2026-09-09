@@ -22,7 +22,7 @@ export type { AccordionSectionOptions } from './ui/accordion-section';
 export { ShapesPanel } from './ui/shapes-panel';
 export { ParamsPanel } from './ui/params-panel';
 export { ShapePropertiesModal } from './ui/shape-properties-modal';
-export { ExportDialog } from './ui/export-dialog';
+export { ExportDialog, exportBaseName } from './ui/export-dialog';
 export { ErrorBanner } from './ui/error-banner';
 export { LoadingOverlay } from './ui/loading-overlay';
 export { TopBar } from './ui/top-bar';

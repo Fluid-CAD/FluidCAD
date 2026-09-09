@@ -12,6 +12,23 @@ import { orientCameraForView, resolveView, type ScreenshotView } from './screens
 import { findGeometryRoot } from './scene/scene-geometry-bounds';
 import { runFrameHooks } from './meshes/frame-hooks';
 import { withSketchConstraintVisibility } from './meshes/containers/sketch-constraint-visibility';
+import {
+  MultiViewLayout,
+  ScreenshotAnnotationPlan,
+  ScreenshotHighlightOverlay,
+  ScreenshotPainter,
+  ScreenshotVisibility,
+  type ScreenshotAnnotation,
+  type ScreenshotHighlightRef,
+} from './screenshot-overlays';
+
+export type { ScreenshotAnnotation, ScreenshotHighlightRef } from './screenshot-overlays';
+
+/**
+ * Padding on a highlight-fitted frame: looser than a whole-model fit so a
+ * single face or edge keeps enough of its surroundings to be located.
+ */
+const HIGHLIGHT_FIT_PADDING = 1.6;
 
 export interface ScreenshotOptions {
   width: number;
@@ -59,6 +76,22 @@ export interface ScreenshotOptions {
    * high-DPI screen would.
    */
   pixelRatio: number;
+  /**
+   * Faces/edges drawn highlighted through everything that occludes them
+   * (translucent fill, thick edge line) — a bore or a far-side face is the
+   * case that matters. Already resolved to index refs by the server.
+   */
+  highlight: ScreenshotHighlightRef[];
+  /** Shape or instance ids left out of the render entirely. */
+  hide: string[];
+  /** Shape or instance ids kept as they are while everything else is ghosted in place. */
+  focus: string[];
+  /** Labelled point-to-point lines in document units, painted in screen space over the capture. */
+  annotations: ScreenshotAnnotation[];
+  /** `'highlight'` frames the highlighted entities (and annotation points) instead of the model. */
+  fitTo: 'highlight' | null;
+  /** Multi captures: the cells' views, 2-6, laid out two per row. */
+  views: ScreenshotView[];
 }
 
 const DEFAULTS: ScreenshotOptions = {
@@ -76,6 +109,12 @@ const DEFAULTS: ScreenshotOptions = {
   showPositional: true,
   framePlanes: false,
   pixelRatio: 1,
+  highlight: [],
+  hide: [],
+  focus: [],
+  annotations: [],
+  fitTo: null,
+  views: MultiViewLayout.DEFAULT_VIEWS,
 };
 
 /** Render the current scene to a PNG blob with the given options. */
@@ -86,28 +125,23 @@ export function captureScreenshot(sceneCtx: SceneContext, opts: Partial<Screensh
 }
 
 /**
- * Render four sub-images (front, top, right, iso-ftr) into a single 2×2
- * composite PNG. `width`/`height` is the *total* output size; each tile is
- * rendered at half that.
+ * Render one cell per requested view (default: iso-ftr, its opposite
+ * iso-bbl, top and front — two opposed isometrics show every face in at
+ * least one cell) into a single composite PNG, two cells per row, each with
+ * its view label burned into the corner. `width`/`height` is the *total*
+ * output size; the overlay options apply to every cell.
  */
 export function captureScreenshotMulti(
   sceneCtx: SceneContext,
   opts: Partial<ScreenshotOptions> = {},
 ): Promise<Blob> {
   const merged: ScreenshotOptions = { ...DEFAULTS, ...opts };
-  const tileW = Math.max(1, Math.floor(merged.width / 2));
-  const tileH = Math.max(1, Math.floor(merged.height / 2));
-
-  const tiles: Array<{ x: number; y: number; view: ScreenshotView }> = [
-    { x: 0,     y: 0,     view: { kind: 'named', name: 'front' } },
-    { x: tileW, y: 0,     view: { kind: 'named', name: 'top' } },
-    { x: 0,     y: tileH, view: { kind: 'named', name: 'right' } },
-    { x: tileW, y: tileH, view: { kind: 'named', name: 'iso-ftr' } },
-  ];
+  const views = merged.views.length > 0 ? merged.views : MultiViewLayout.DEFAULT_VIEWS;
+  const layout = MultiViewLayout.cells(views.length, merged.width, merged.height);
 
   const composite = document.createElement('canvas');
-  composite.width = tileW * 2;
-  composite.height = tileH * 2;
+  composite.width = layout.width;
+  composite.height = layout.height;
   const ctx2d = composite.getContext('2d');
   if (!ctx2d) {
     return Promise.reject(new Error('Failed to get composite 2d context.'));
@@ -117,18 +151,20 @@ export function captureScreenshotMulti(
     ctx2d.fillRect(0, 0, composite.width, composite.height);
   }
 
-  for (const tile of tiles) {
-    const tileCanvas = renderToCanvas(sceneCtx, {
+  views.forEach((view, i) => {
+    const cell = layout.cells[i];
+    const cellCanvas = renderToCanvas(sceneCtx, {
       ...merged,
-      width: tileW,
-      height: tileH,
-      view: tile.view,
-      // Disable autoCrop per-tile so tiles align on the grid.
+      width: cell.width,
+      height: cell.height,
+      view,
+      // Disable autoCrop per-cell so cells align on the grid.
       autoCrop: false,
       fitToModel: true,
     });
-    ctx2d.drawImage(tileCanvas, tile.x, tile.y);
-  }
+    ScreenshotPainter.paintViewLabel(cellCanvas, MultiViewLayout.labelFor(view), merged.pixelRatio);
+    ctx2d.drawImage(cellCanvas, cell.x, cell.y);
+  });
 
   return canvasToPng(composite);
 }
@@ -140,7 +176,7 @@ export function captureScreenshotMulti(
 function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTMLCanvasElement {
   const {
     width, height, showGrid, showAxes, transparent, autoCrop, fitToModel, margin, view, solidsOnly,
-    showDimensions, showPositional, framePlanes, pixelRatio,
+    showDimensions, showPositional, framePlanes, pixelRatio, highlight, hide, focus, annotations, fitTo,
   } = options;
 
   const scene = sceneCtx.scene;
@@ -155,6 +191,12 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
     dimensions: showDimensions,
     positional: showPositional,
   });
+  // Hide/focus before the highlight overlay is built: the overlay's own
+  // materials are never ghosted, and a highlight on a hidden shape simply
+  // has nothing to show.
+  const restoreVisibility = ScreenshotVisibility.apply(scene, hide, focus);
+  const overlay = ScreenshotHighlightOverlay.build(scene, highlight);
+  const fitBox = fitTo === 'highlight' ? ScreenshotFraming.highlightBox(overlay, annotations) : null;
 
   const gridObj = scene.getObjectByName('grid');
   const defaultAxes = scene.getObjectByName('defaultAxesHelper');
@@ -198,7 +240,7 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   // --- Apply requested view (if any) ---
   // Stateless: we mutate the camera directly and restore it below. The user's
   // CameraControls are never moved, so the interactive view is preserved.
-  const resolved = resolveSceneViewport(sceneCtx, framePlanes);
+  const resolved = ScreenshotFraming.frameFor(sceneCtx, framePlanes, fitBox);
   if (view.kind !== 'current') {
     const target = resolveView(view, resolved.center, resolved.diameter, savedCamPos, savedCamTarget);
     if (target) {
@@ -220,31 +262,23 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
       }
       cam.updateProjectionMatrix();
     }
-  } else if (autoCrop || fitToModel) {
-    // Original behavior: keep the user's viewing direction, just refit.
-    const root = geometryRoot(sceneCtx);
-    if (root) {
-      root.updateWorldMatrix(true, true);
-      const box = new Box3();
-      expandBounds(box, root, framePlanes);
-      if (!box.isEmpty()) {
-        const center = box.getCenter(new Vector3());
-        const diameter = box.getSize(new Vector3()).length() * FIT_PADDING;
+  } else if (autoCrop || fitToModel || fitBox) {
+    // Original behavior: keep the user's viewing direction, just refit — to
+    // the highlight when the capture asked for that, else to the model.
+    const frame = fitBox ? ScreenshotFraming.frameOf(fitBox, HIGHLIGHT_FIT_PADDING) : ScreenshotFraming.modelFrame(sceneCtx, framePlanes);
+    if (frame && frame.diameter > 0) {
+      const { center, diameter } = frame;
+      const dir = new Vector3();
+      camera.getWorldDirection(dir);
+      camera.position.copy(center).sub(dir.clone().multiplyScalar(1000));
+      camera.lookAt(center);
 
-        if (diameter > 0) {
-          const dir = new Vector3();
-          camera.getWorldDirection(dir);
-          camera.position.copy(center).sub(dir.clone().multiplyScalar(1000));
-          camera.lookAt(center);
-
-          if (cam.isOrthographicCamera) {
-            const frustumW = cam.right - cam.left;
-            const frustumH = cam.top - cam.bottom;
-            cam.zoom = Math.min(frustumW / diameter, frustumH / diameter);
-          }
-          cam.updateProjectionMatrix();
-        }
+      if (cam.isOrthographicCamera) {
+        const frustumW = cam.right - cam.left;
+        const frustumH = cam.top - cam.bottom;
+        cam.zoom = Math.min(frustumW / diameter, frustumH / diameter);
       }
+      cam.updateProjectionMatrix();
     }
   }
 
@@ -280,13 +314,18 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   // the screen.
   runFrameHooks(tmpRenderer, camera);
   tmpRenderer.render(scene, camera);
+  // Project while the camera is still posed for the capture; painted below.
+  const plannedAnnotations = ScreenshotAnnotationPlan.project(annotations, camera, width, height);
 
   // --- Optional auto-crop ---
   let exportCanvas: HTMLCanvasElement = tmpRenderer.domElement;
+  const cropOffset = { x: 0, y: 0 };
 
   if (autoCrop) {
     const cropRect = computeCropRect(sceneCtx, width, height, margin, framePlanes);
     if (cropRect) {
+      cropOffset.x = cropRect.x;
+      cropOffset.y = cropRect.y;
       const cropped = document.createElement('canvas');
       cropped.width = cropRect.w;
       cropped.height = cropRect.h;
@@ -300,7 +339,7 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
   // read its pixels (drawImage is synchronous, so this is fine for the
   // composite path too).
   const finalCanvas = detachCanvas(exportCanvas, width, height);
-
+  ScreenshotPainter.paintAnnotations(finalCanvas, plannedAnnotations, ratio, cropOffset);
 
   // --- Restore state ---
   if (gridObj) { gridObj.visible = savedGrid!; }
@@ -329,6 +368,8 @@ function renderToCanvas(sceneCtx: SceneContext, options: ScreenshotOptions): HTM
     false,
   );
 
+  overlay.dispose();
+  restoreVisibility();
   restoreConstraintVisibility();
   restoreSolidsOnly?.();
 
@@ -424,19 +465,54 @@ function detachCanvas(src: HTMLCanvasElement, w: number, h: number): HTMLCanvasE
   return out;
 }
 
-function resolveSceneViewport(sceneCtx: SceneContext, framePlanes: boolean): { center: Vector3; diameter: number } {
-  const box = new Box3();
-  const root = geometryRoot(sceneCtx);
-  if (root) {
-    root.updateWorldMatrix(true, true);
-    expandBounds(box, root, framePlanes);
+/**
+ * What a capture frames: the whole model (a named view, `fitToModel`), or
+ * the highlighted entities when the capture asks for `fitTo: "highlight"` —
+ * the same centre-plus-bounding-diameter that `screenshot_shape` frames one
+ * shape with, so every view kind fits the same way.
+ */
+class ScreenshotFraming {
+
+  /** The frame a view is resolved against: the highlight box when one is given and non-empty, else the model. */
+  static frameFor(sceneCtx: SceneContext, framePlanes: boolean, fitBox: Box3 | null): { center: Vector3; diameter: number } {
+    if (fitBox && !fitBox.isEmpty()) {
+      return ScreenshotFraming.frameOf(fitBox, HIGHLIGHT_FIT_PADDING);
+    }
+    return ScreenshotFraming.modelFrame(sceneCtx, framePlanes) ?? { center: new Vector3(), diameter: 100 };
   }
-  if (box.isEmpty()) {
-    return { center: new Vector3(), diameter: 100 };
+
+  /** The model's frame, or null when the scene has no geometry to frame. */
+  static modelFrame(sceneCtx: SceneContext, framePlanes: boolean): { center: Vector3; diameter: number } | null {
+    const box = new Box3();
+    const root = geometryRoot(sceneCtx);
+    if (root) {
+      root.updateWorldMatrix(true, true);
+      expandBounds(box, root, framePlanes);
+    }
+    if (box.isEmpty()) {
+      return null;
+    }
+    return ScreenshotFraming.frameOf(box, FIT_PADDING);
   }
-  const center = box.getCenter(new Vector3());
-  const diameter = box.getSize(new Vector3()).length() * FIT_PADDING;
-  return { center, diameter };
+
+  static frameOf(box: Box3, padding: number): { center: Vector3; diameter: number } {
+    const center = box.getCenter(new Vector3());
+    const diameter = box.getSize(new Vector3()).length() * padding;
+    return { center, diameter };
+  }
+
+  /**
+   * The box a highlight fit frames: the overlay meshes plus every annotation
+   * endpoint (a measurement's realizing points sit on the entities, but an
+   * arbitrary annotation may reach outside them). Empty when nothing matched.
+   */
+  static highlightBox(overlay: ScreenshotHighlightOverlay, annotations: ScreenshotAnnotation[]): Box3 {
+    const box = overlay.bounds.clone();
+    for (const point of ScreenshotAnnotationPlan.points(annotations)) {
+      box.expandByPoint(point);
+    }
+    return box;
+  }
 }
 
 /**

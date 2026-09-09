@@ -60,6 +60,10 @@ import { expandBucket, expandTangentChain, ExpandBucketResult, ExpandTangentsRes
 import { listSelectionGroups, SelectionGroupsResult } from "./selection/selection-groups.js";
 import { resolveFeatureSources, FeatureSourcesResult } from "./selection/feature-sources.js";
 import { resolveScopedScene } from "./selection/types.js";
+import { SelectionResolver } from "./selection/resolve-selection.js";
+import type { ResolveSelectionRequest, ResolveSelectionResult } from "./selection/resolve-selection.js";
+import { SceneValidator } from "./validation/scene-validator.js";
+import type { ValidateSceneRequest, SceneValidationOutcome } from "./validation/scene-validator.js";
 import type {
   ApplyFeatureKind, ApplyFeatureSynthesis, ExplainResult, PickChain, PickRef,
   SelectionBoundary, SelectionScene, SynthesizeOptions,
@@ -282,6 +286,23 @@ class SceneManager {
         dispose();
       }
     }
+  }
+
+  /**
+   * Evaluate a filter expression against the scene with the candidate set a
+   * `select()` statement sees at the given scope — see SelectionResolver.
+   */
+  resolveSelection(scene: Scene, request: ResolveSelectionRequest): ResolveSelectionResult {
+    return SelectionResolver.resolve(scene, request);
+  }
+
+  /**
+   * Kernel soundness of the shapes the scene renders (topology, shell
+   * closure, per-solid volume sign) — see SceneValidator. A successful
+   * render says nothing about closure or orientation; this does.
+   */
+  validate(scene: Scene, request: ValidateSceneRequest = {}): SceneValidationOutcome {
+    return SceneValidator.validate(scene, request);
   }
 
   exportShapes(scene: Scene, shapeIds: string[], options: ExportOptions): { data: string | Uint8Array; fileName: string } {

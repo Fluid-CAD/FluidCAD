@@ -9,6 +9,9 @@ import { findByWorkspace, listLiveInstances } from '../discovery.ts';
 import { FluidCadClient, HttpError } from '../client.ts';
 import { err, ok, type ToolResult } from '../types.ts';
 import type { RegistryEntry } from '../types.ts';
+import { MeasureImage, type MeasureImageInput } from './measure-image.ts';
+import { ScreenshotRequest, type ImageBlock } from './screenshot-request.ts';
+import { ScreenshotViews } from './screenshot-views.ts';
 
 export type WorkspaceArg = { workspace?: string };
 
@@ -182,24 +185,173 @@ export async function hitTest(input: HitTestInput) {
   return callWithClient(input, (client) => client.postJson<unknown>('/api/hit-test', body));
 }
 
-export type MeasureEntityInput = { shapeId: string; kind: 'face' | 'edge'; index: number; instanceId?: string };
-export type MeasureInput = WorkspaceArg & { entities: MeasureEntityInput[] };
+/** Where a filter expression is evaluated — a scene object, a part, or an assembly instance. */
+export type SelectionScopeInput = { sceneObjectId: string } | { part: string } | { instanceId: string };
+
+/**
+ * Input checks shared by `resolve_selection` and the filter form of
+ * `measure` entities: the server validates again, but a malformed scope is
+ * cheaper to refuse here with the exact field named.
+ */
+class SelectionInputs {
+  static expressionError(expression: unknown, label = '`expression`'): string | null {
+    if (typeof expression !== 'string' || expression.trim().length === 0) {
+      return `${label} must be a non-empty string of FluidCAD filter syntax, e.g. face().onPlane("xy", 10).`;
+    }
+    return null;
+  }
+
+  static scopeError(scope: unknown, label = '`scope`'): string | null {
+    if (scope === undefined) {
+      return null;
+    }
+    if (typeof scope !== 'object' || scope === null || Array.isArray(scope)) {
+      return `${label} must be one of { sceneObjectId }, { part } or { instanceId }.`;
+    }
+    const keys = Object.keys(scope);
+    const given = keys.filter((k) => k === 'sceneObjectId' || k === 'part' || k === 'instanceId');
+    if (given.length !== 1 || keys.length !== 1) {
+      return `${label} needs exactly one of sceneObjectId, part or instanceId.`;
+    }
+    const value = (scope as Record<string, unknown>)[given[0]];
+    if (typeof value !== 'string' || value.length === 0) {
+      return `${label}.${given[0]} must be a non-empty string.`;
+    }
+    return null;
+  }
+}
+
+export type ResolveSelectionInput = WorkspaceArg & { expression: string; scope?: SelectionScopeInput };
+export async function resolveSelection(input: ResolveSelectionInput) {
+  const expressionError = SelectionInputs.expressionError(input?.expression);
+  if (expressionError) {
+    return err('invalid-input', expressionError);
+  }
+  const scopeError = SelectionInputs.scopeError(input?.scope);
+  if (scopeError) {
+    return err('invalid-input', scopeError);
+  }
+  const body = { expression: input.expression, ...(input.scope ? { scope: input.scope } : {}) };
+  return callWithClient(input, (client) => client.postJson<unknown>('/api/resolve-selection', body));
+}
+
+export type ValidateInput = WorkspaceArg & { shapeIds?: string[]; instanceId?: string };
+
+/**
+ * Input checks for `validate`: the server validates again, but a malformed
+ * list is cheaper to refuse here with the exact field named.
+ */
+class ValidateInputs {
+  static readonly MAX_SHAPE_IDS = 500;
+
+  static error(input: ValidateInput | undefined): string | null {
+    const shapeIds = input?.shapeIds;
+    if (shapeIds !== undefined) {
+      if (!Array.isArray(shapeIds) || shapeIds.length === 0 || shapeIds.length > ValidateInputs.MAX_SHAPE_IDS) {
+        return `\`shapeIds\` must be an array of 1-${ValidateInputs.MAX_SHAPE_IDS} shape ids when given; omit it to check every solid the scene renders.`;
+      }
+      if (!shapeIds.every((id) => typeof id === 'string' && id.length > 0)) {
+        return '`shapeIds` entries must be non-empty strings (ids from list_shapes or get_scene_summary).';
+      }
+    }
+    const instanceId = input?.instanceId;
+    if (instanceId !== undefined && (typeof instanceId !== 'string' || instanceId.length === 0)) {
+      return '`instanceId` must be a non-empty string when given (ids from get_scene_summary in an assembly file).';
+    }
+    return null;
+  }
+}
+
+export async function validate(input: ValidateInput) {
+  const error = ValidateInputs.error(input);
+  if (error) {
+    return err('invalid-input', error);
+  }
+  const body = {
+    ...(input?.shapeIds ? { shapeIds: input.shapeIds } : {}),
+    ...(input?.instanceId !== undefined ? { instanceId: input.instanceId } : {}),
+  };
+  return callWithClient(input ?? {}, (client) => client.postJson<unknown>('/api/validate', body));
+}
+
+export type MeasureIndexEntityInput = { shapeId: string; kind: 'face' | 'edge'; index: number; instanceId?: string };
+export type MeasureFilterEntityInput = { expression: string; scope?: SelectionScopeInput };
+export type MeasureEntityInput = MeasureIndexEntityInput | MeasureFilterEntityInput;
+
+/**
+ * Input checks for an entity list in the `measure` union — index refs or
+ * filter expressions — shared by `measure` and the screenshot tools'
+ * `highlight`.
+ */
+export class MeasureEntityInputs {
+
+  static error(entities: unknown, bounds: { min: number; max: number; label: string }): string | null {
+    const { min, max, label } = bounds;
+    if (!Array.isArray(entities) || entities.length < min || entities.length > max) {
+      return `\`${label}\` must be an array of ${min}-${max} face/edge references or filter expressions.`;
+    }
+    for (let i = 0; i < entities.length; i++) {
+      const entity = entities[i] as Partial<MeasureIndexEntityInput & MeasureFilterEntityInput> | null;
+      if (entity && typeof entity === 'object' && 'expression' in entity) {
+        const problem = SelectionInputs.expressionError(entity.expression, `\`${label}[${i}].expression\``)
+          ?? SelectionInputs.scopeError(entity.scope, `\`${label}[${i}].scope\``);
+        if (problem) {
+          return problem;
+        }
+        continue;
+      }
+      const validKind = entity?.kind === 'face' || entity?.kind === 'edge';
+      const validIndex = typeof entity?.index === 'number' && Number.isInteger(entity.index) && entity.index >= 0;
+      if (!entity || typeof entity.shapeId !== 'string' || !entity.shapeId || !validKind || !validIndex) {
+        return `Each \`${label}\` entry needs a \`shapeId\`, a \`kind\` (face|edge) and a non-negative \`index\`, or an \`expression\` (with optional \`scope\`).`;
+      }
+      if (entity.instanceId !== undefined && (typeof entity.instanceId !== 'string' || !entity.instanceId)) {
+        return `\`${label}[${i}].instanceId\` must be a non-empty string when given.`;
+      }
+    }
+    return null;
+  }
+}
+
+export type MeasureInput = WorkspaceArg & { entities: MeasureEntityInput[]; image?: MeasureImageInput };
+
+/**
+ * Measure, and — when `image` is given — also capture the measured entities
+ * highlighted with the primary value drawn between its realizing points.
+ * The result then carries `image` beside the measurement, which `toMcp`
+ * renders as a text block followed by an image block.
+ */
 export async function measure(input: MeasureInput) {
   const entities = input?.entities;
-  if (!Array.isArray(entities) || entities.length < 1 || entities.length > 8) {
-    return err('invalid-input', '`entities` must be an array of 1-8 face/edge references.');
+  const problem = MeasureEntityInputs.error(entities, { min: 1, max: 8, label: 'entities' });
+  if (problem) {
+    return err('invalid-input', problem);
   }
-  for (const entity of entities) {
-    const validKind = entity?.kind === 'face' || entity?.kind === 'edge';
-    const validIndex = typeof entity?.index === 'number' && Number.isInteger(entity.index) && entity.index >= 0;
-    if (!entity || typeof entity.shapeId !== 'string' || !entity.shapeId || !validKind || !validIndex) {
-      return err('invalid-input', 'Each entity needs a `shapeId`, a `kind` (face|edge) and a non-negative `index`.');
-    }
-    if (entity.instanceId !== undefined && (typeof entity.instanceId !== 'string' || !entity.instanceId)) {
-      return err('invalid-input', '`instanceId` must be a non-empty string when given.');
-    }
+  const image = MeasureImage.validate(input?.image, (view) => ScreenshotViews.validate(view));
+  if (image.ok === false) {
+    return image as ToolResult<unknown>;
   }
-  return callWithClient(input, (client) => client.postJson<unknown>('/api/measure', { entities }));
+  const resolved = resolveClient(input);
+  if (resolved.ok === false) {
+    return resolved as ToolResult<unknown>;
+  }
+  const { client } = resolved.data;
+  try {
+    const measured = await client.postJson<Record<string, any>>('/api/measure', { entities });
+    if (input.image === undefined) {
+      return ok<unknown>(measured);
+    }
+    const shot = await ScreenshotRequest.post(client, MeasureImage.screenshotBody(measured, image.data));
+    if (shot.ok === false) {
+      return err(shot.code, `measured, but the image failed: ${shot.message}`, { ...(shot.details as object ?? {}), measured });
+    }
+    const withImage: Record<string, unknown> = { ...measured, image: shot.data.image satisfies ImageBlock };
+    return ok<unknown>(withImage);
+  } catch (e: any) {
+    return ScreenshotRequest.wrapError<unknown>(e);
+  } finally {
+    await client.close().catch(() => {});
+  }
 }
 
 function isVec3(value: unknown): value is [number, number, number] {

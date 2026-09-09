@@ -532,6 +532,25 @@ export type ScreenshotView =
   | { kind: 'orbit-from-current'; azimuthDeg: number; elevationDeg: number }
   | { kind: 'look-from'; eye: [number, number, number]; target?: [number, number, number] };
 
+/**
+ * A face or edge a capture draws highlighted, addressed the way `measure`
+ * addresses entities. The server resolves filter expressions to these before
+ * the request reaches the page.
+ */
+export type ScreenshotHighlightRef = {
+  shapeId: string;
+  kind: 'face' | 'edge';
+  index: number;
+  instanceId?: string;
+};
+
+/** A labelled point-to-point line in document units, painted over the capture. */
+export type ScreenshotAnnotation = {
+  from: [number, number, number];
+  to: [number, number, number];
+  label?: string;
+};
+
 
 export type UITakeScreenshotMessage = {
   type: 'take-screenshot';
@@ -559,6 +578,18 @@ export type UITakeScreenshotMessage = {
      * `width / pixelRatio` CSS-pixel canvas, so a 2× export shown at half
      * size carries on-screen-sized annotations. */
     pixelRatio?: number;
+    /** Faces/edges drawn highlighted through occluders (translucent fill, thick edge line). */
+    highlight?: ScreenshotHighlightRef[];
+    /** Shape or instance ids left out of the render. Exclusive with `focus`. */
+    hide?: string[];
+    /** Shape or instance ids kept as they are while everything else is ghosted in place. */
+    focus?: string[];
+    /** Labelled lines painted in screen space over the capture. */
+    annotations?: ScreenshotAnnotation[];
+    /** Frame the highlighted entities instead of the model. */
+    fitTo?: 'highlight';
+    /** `multi` captures: the cells' views (2-6), two per row, each labelled. */
+    views?: ScreenshotView[];
   };
 };
 

@@ -13,6 +13,9 @@ import type { ClassifiedEntity } from "./classify.js";
 import { maxDistanceBetween, sampleEntityPoints } from "./sampling.js";
 import type { SamplingOptions } from "./sampling.js";
 import { acuteAngleDeg, add, areParallel, dist, dot, projectPointOnLine, scale, sub } from "./vec.js";
+import { EntitySummaryBuilder } from "./entity-summary.js";
+import { getActiveUnit } from "../../units/registry.js";
+import type { LengthUnit } from "../../units/units.js";
 
 export interface MeasureInput {
   ref: MeasureEntityRef;
@@ -38,8 +41,12 @@ function mkDist(from: MeasureVec, to: MeasureVec): MeasureDistanceValue {
   return { value: dist(from, to), from, to };
 }
 
-function entityInfo(entity: ClassifiedEntity, ref: MeasureEntityRef): MeasureEntityInfo {
-  const info: MeasureEntityInfo = { ref, geomType: entity.form };
+function entityInfo(entity: ClassifiedEntity, ref: MeasureEntityRef, unit: LengthUnit): MeasureEntityInfo {
+  const info: MeasureEntityInfo = {
+    ref,
+    geomType: entity.form,
+    summary: EntitySummaryBuilder.fromClassified(entity, unit),
+  };
   if (entity.kind === 'face') {
     info.area = entity.area;
   } else {
@@ -205,8 +212,9 @@ export class MeasureOps {
       input.ref.kind === 'face' ? classifyFace(input.shape) : classifyEdge(input.shape),
     );
 
+    const unit = sampling.unit ?? getActiveUnit();
     const result: MeasureResult = {
-      entities: classified.map((entity, i) => entityInfo(entity, inputs[i].ref)),
+      entities: classified.map((entity, i) => entityInfo(entity, inputs[i].ref, unit)),
       primary: 'minDist',
       primaryLabel: PRIMARY_LABELS.minDist,
     };

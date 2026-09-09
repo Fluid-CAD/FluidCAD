@@ -47,7 +47,11 @@ export type { HealthInfo } from './routes/health.ts';
 export { createSceneRouter } from './routes/scene.ts';
 export type { CameraStateGetter } from './routes/scene.ts';
 export { createHitTestRouter } from './routes/hit-test.ts';
+export { createResolveSelectionRouter } from './routes/resolve-selection.ts';
+export { createValidateRouter, ValidateRequests } from './routes/validate.ts';
 export { createScreenshotRouter } from './routes/screenshot.ts';
+export { ScreenshotRequests } from './routes/screenshot-overlays.ts';
+export type { ScreenshotOverlayOptions, ScreenshotSelectionResolver } from './routes/screenshot-overlays.ts';
 export { createPreferencesRouter } from './routes/preferences.ts';
 
 // --- Wire protocol (types only) --------------------------------------------

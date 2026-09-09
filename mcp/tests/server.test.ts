@@ -139,6 +139,8 @@ describe('MCP server', () => {
       const result = await client.callTool({ name: 'list_workspaces', arguments: {} });
       expect(result.isError).not.toBe(true);
       const text = (result.content as any[])[0].text as string;
+      // Results ship compact: pretty-printing was a third of every payload.
+      expect(text).not.toContain('\n');
       const payload = JSON.parse(text);
       const byPath = new Map<string, any>(payload.workspaces.map((w: any) => [w.workspacePath, w]));
       expect(byPath.get('/tmp/ws-reachable')?.reachable).toBe(true);

@@ -27,6 +27,8 @@ import {
   hitTest,
   listShapes,
   measure,
+  resolveSelection,
+  validate,
 } from './tools/inspection.ts';
 import {
   getCameraState,
@@ -327,39 +329,90 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
       toMcp(await getEdgeProperties({ workspace, shapeId, edgeIndex })),
   );
 
-  const measureEntityArg = z.object({
-    shapeId: shapeIdArg,
-    kind: z.enum(['face', 'edge']).describe('Whether the index refers to a face or an edge of the shape.'),
-    index: z.number().int().nonnegative().describe('Zero-based face/edge index inside the shape.'),
-    instanceId: z
-      .string()
-      .min(1)
-      .optional()
-      .describe(
-        'Assembly files only: the inserted instance the entity belongs to (instance ids come from get_scene_summary). ' +
-        'Instances of one part share a shapeId, and the entity is measured where the instance sits per its insert() ' +
-        'statement (translate/rotate) — mate-solved or dragged poses seen in the viewport are not applied.',
-      ),
-  });
+  const selectionScopeArg = z
+    .union([
+      z.object({ sceneObjectId: z.string().min(1).describe('A scene object id from get_scene_summary; the scope is that object\'s enclosing part.') }),
+      z.object({ part: z.string().min(1).describe('A part name (or a part\'s scene object id).') }),
+      z.object({ instanceId: z.string().min(1).describe('Assembly files: an inserted instance id from get_scene_summary.') }),
+    ])
+    .optional()
+    .describe(
+      'Where the expression is evaluated. Omitted: root scope — the whole scene, as a root-level select() sees it. ' +
+      '{ sceneObjectId } or { part }: only that part\'s own geometry, exactly what a select() inside part("name", ...) sees ' +
+      '(a filter scoped to part "base" never matches faces of part "pillar"). { instanceId }: that instance\'s part build, ' +
+      'matches carrying instanceId and the statement pose so they feed measure unchanged.',
+    );
+
+  const expressionArg = z
+    .string()
+    .min(1)
+    .describe(
+      'FluidCAD filter syntax, the same text you would write inside select(...): face().onPlane("xy", 10), ' +
+      'edge().circle(5), face().cylinder().withTangents(). Only face, edge and $obj are in scope. $obj maps scene object ids ' +
+      '(from get_scene_summary) to the objects, so face().from($obj["<id>"]) selects one feature\'s faces across part scopes ' +
+      'and $obj["<id>"].endFaces() / .startEdges() accessors work; when you write the expression into the file, swap $obj["<id>"] ' +
+      'for the variable that holds that feature. Plain JavaScript otherwise: no module, host or scene-manager access.',
+    );
 
   server.registerTool(
-    'measure',
+    'resolve_selection',
     {
-      title: 'Measure distances and angles between faces/edges',
+      title: 'Resolve a filter expression to the faces/edges it selects',
       description:
-        'Measures the selected faces/edges like a CAD measure tool. One entity returns its area/length; two entities ' +
-        'return min/max distance with their realizing points, plus parallel/center/axis distance and angle when the ' +
-        'geometry relation supports them. `primary` names the headline value. Lengths are in the document unit (returned as `unit`), angles in degrees.',
+        'Evaluates a filter expression against the live scene with exactly the candidate set a select() statement would see at the ' +
+        'given scope, and returns every matched face/edge with its shapeId/kind/index (usable in measure and hit_test), owning ' +
+        'sceneObjectId and part, and a compact summary: form (plane/cylinder/cone/sphere/torus/surface or line/circle/arc/ellipse/curve), ' +
+        'center [x,y,z], normal or axis, area or length, diameter for cylinders/spheres/circles. Lengths are in the document unit ' +
+        '(returned as `unit`), rounded to its meaningful precision. Zero matches is a normal result with count 0 — check it before ' +
+        'writing a fillet/chamfer/color on that filter, which would silently do nothing. Verify the expression here, then write the ' +
+        'same expression into the source: indices renumber after every feature, filters survive edits. An expression that fails to ' +
+        'evaluate, an unknown scope, or a part name shared by several variants is an error naming the problem.',
       inputSchema: {
         ...workspaceArg,
-        entities: z
-          .array(measureEntityArg)
-          .min(1)
-          .max(8)
-          .describe('Faces/edges to measure (1-8). Pairwise measurements are computed when exactly 2 are given.'),
+        expression: expressionArg,
+        scope: selectionScopeArg,
       },
     },
-    async ({ workspace, entities }) => toMcp(await measure({ workspace, entities })),
+    async ({ workspace, expression, scope }) =>
+      toMcp(await resolveSelection({ workspace, expression, scope: scope as any })),
+  );
+
+  server.registerTool(
+    'validate',
+    {
+      title: 'Check the rendered geometry is sound (closed, oriented, valid topology)',
+      description:
+        'Kernel soundness checks on the solids the scene renders. `render.state === "rendered"` is not a geometry claim: an open ' +
+        'five-face box and an inside-out solid both render and screenshot fine. Run this on every new solid before measuring or ' +
+        'screenshotting it. Each finding names the shapeId, the owning sceneObjectId and part, the instance ids it applies to in an ' +
+        'assembly, a `kind` and a short message. Kinds: `invalidTopology` (BRepCheck_Analyzer found a defect: a wire that does not ' +
+        'close, pcurves off their surface, an edge without faces); `openShell` (a shell with a free edge, so no enclosed volume); ' +
+        '`nonPositiveVolume` (signed volume <= 0 — inversion is caught by the volume sign ONLY, because the analyzer accepts a ' +
+        'reversed solid as valid; measured per solid, never summed, so +1000 and -1000 cannot cancel); `noSolid` (the shape holds ' +
+        'no solid at all). Self-intersection is NOT checked: this kernel build exposes neither BRepAlgoAPI_Check nor ' +
+        'BOPAlgo_ArgumentAnalyzer, and the result says so under `notChecked`; do not claim it. Result: `ok` (true only with zero ' +
+        'findings), `checked` (shapes examined), `findings`, `shapes` (per shape: faces, edges, solids, signed `volume` in the ' +
+        'document unit cubed, finding kinds), `skipped` (shapes that could not be examined, with why), `checks` (what ran), `unit`. ' +
+        'Default is every solid the scene renders (a solid a later cut consumed is not rendered, so not checked). `shapeIds` ' +
+        'narrows to those shapes — and lets you name a non-solid shape, which reports `noSolid`. In an assembly, instances of one ' +
+        'part share its prototype: each shape is checked once and `instanceIds` lists every instance showing it; `instanceId` ' +
+        'narrows to that instance\'s part. An unknown shape or instance, or no rendered scene, is an error naming the problem.',
+      inputSchema: {
+        ...workspaceArg,
+        shapeIds: z
+          .array(z.string().min(1))
+          .min(1)
+          .optional()
+          .describe('Only these shape ids (from list_shapes or get_scene_summary). Omit to check every solid the scene renders.'),
+        instanceId: z
+          .string()
+          .min(1)
+          .optional()
+          .describe('Assembly files: only the shapes of this instance\'s part prototype (instance ids from get_scene_summary).'),
+      },
+    },
+    async ({ workspace, shapeIds, instanceId }) =>
+      toMcp(await validate({ workspace, shapeIds, instanceId })),
   );
 
   const namedViewArg = z.enum([
@@ -385,6 +438,28 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     ])
     .describe('Stateless camera view for this screenshot. Does not move the user\'s interactive camera.');
 
+  const measureIndexEntityArg = z.object({
+    shapeId: shapeIdArg,
+    kind: z.enum(['face', 'edge']).describe('Whether the index refers to a face or an edge of the shape.'),
+    index: z.number().int().nonnegative().describe('Zero-based face/edge index inside the shape.'),
+    instanceId: z
+      .string()
+      .min(1)
+      .optional()
+      .describe(
+        'Assembly files only: the inserted instance the entity belongs to (instance ids come from get_scene_summary). ' +
+        'Instances of one part share a shapeId, and the entity is measured where the instance sits per its insert() ' +
+        'statement (translate/rotate) — mate-solved or dragged poses seen in the viewport are not applied.',
+      ),
+  });
+
+  const measureFilterEntityArg = z.object({
+    expression: expressionArg,
+    scope: selectionScopeArg,
+  });
+
+  const measureEntityArg = z.union([measureIndexEntityArg, measureFilterEntityArg]);
+
   const widthArg = z
     .number()
     .int()
@@ -401,12 +476,83 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     .describe('Output height in pixels (default 800).');
   const marginArg = z.number().nonnegative().optional();
 
+  const idListArg = z.array(z.string().min(1)).min(1).max(64);
+  const screenshotOverlayArgs = {
+    highlight: z
+      .array(measureEntityArg)
+      .min(1)
+      .max(64)
+      .optional()
+      .describe(
+        'Faces/edges to draw highlighted — translucent fill on faces, thick line on edges — visible through whatever occludes them, ' +
+        'so a bore or a far-side face shows. Each entry is an index ref { shapeId, kind, index, instanceId? } or a filter { expression, scope? } ' +
+        'as in measure; a filter highlights every entity it matches (ambiguity is fine here), one matching nothing is an error.',
+      ),
+    hide: idListArg.optional().describe('Shape ids (from get_scene_summary) or assembly instance ids left out of the render. Exclusive with focus.'),
+    focus: idListArg.optional().describe('Shape ids or instance ids kept as they are while everything else is ghosted in place (faint, silhouettes kept) so the context stays. Exclusive with hide.'),
+    annotations: z
+      .array(z.object({
+        from: vec3.describe('Line start, document units.'),
+        to: vec3.describe('Line end, document units.'),
+        label: z.string().max(200).optional().describe('Text drawn beside the line\'s midpoint.'),
+      }))
+      .min(1)
+      .max(32)
+      .optional()
+      .describe('Point-to-point lines with end markers and a text label, painted in screen space over the capture.'),
+    fitTo: z
+      .literal('highlight')
+      .optional()
+      .describe('Frame the highlighted entities\' combined bounding box (plus annotation points) instead of the whole model, the way screenshot_shape frames one shape. Needs highlight.'),
+  };
+
+  const measureImageArg = z
+    .object({
+      view: screenshotViewArg.optional().describe('Defaults to the iso-ftr named view.'),
+      width: widthArg,
+      height: heightArg,
+      pixelRatio: z.number().min(1).max(4).optional(),
+    })
+    .optional()
+    .describe(
+      'When given, the result also carries a PNG (returned as an image block after the JSON) showing the measured entities highlighted, ' +
+      'the two realizing points of the primary value joined by a line labelled with that value and the unit, framed to the entities. ' +
+      'Ask for it when the numbers alone leave doubt about which geometry was measured.',
+    );
+
+  server.registerTool(
+    'measure',
+    {
+      title: 'Measure distances and angles between faces/edges',
+      description:
+        'Measures the selected faces/edges like a CAD measure tool. One entity returns its area/length; two entities ' +
+        'return min/max distance with their realizing points, plus parallel/center/axis distance and angle when the ' +
+        'geometry relation supports them. `primary` names the headline value. Lengths are in the document unit (returned as `unit`), angles in degrees. ' +
+        'Each entity is either an index reference { shapeId, kind, index, instanceId? } or a filter { expression, scope? } as in ' +
+        'resolve_selection; a filter must resolve to exactly one face/edge — several matches are refused with the candidates listed, ' +
+        'none is an error — and the measured entity reports the expression, sceneObjectId and part it resolved to. Every measured entity ' +
+        'carries the same compact `summary` (form, center, normal/axis, area/length, diameter) resolve_selection returns. ' +
+        'Pass `image` to get a picture of the measurement as well.',
+      inputSchema: {
+        ...workspaceArg,
+        entities: z
+          .array(measureEntityArg)
+          .min(1)
+          .max(8)
+          .describe('Faces/edges to measure (1-8), by index or by filter expression. Pairwise measurements are computed when exactly 2 are given.'),
+        image: measureImageArg,
+      },
+    },
+    async ({ workspace, entities, image }) => toMcp(await measure({ workspace, entities: entities as any, image: image as any })),
+  );
+
   server.registerTool(
     'screenshot',
     {
       title: 'Capture a PNG of the current scene from a stateless view',
       description:
-        'Renders the current FluidCAD scene to a PNG using a stateless camera view. The user\'s interactive camera is never moved. `view` defaults to the agent\'s last seen camera state — pass a `named` view (e.g. {kind:"named", name:"iso-ftr"}) for "show me from the front-top-right" or `look-from` for a precise vantage. Returns an MCP image content block.',
+        'Renders the current FluidCAD scene to a PNG using a stateless camera view. The user\'s interactive camera is never moved. `view` defaults to the agent\'s last seen camera state — pass a `named` view (e.g. {kind:"named", name:"iso-ftr"}) for "show me from the front-top-right" or `look-from` for a precise vantage. ' +
+        '`highlight` draws faces/edges (by index or filter expression) through occluders, `hide`/`focus` drop or ghost other shapes, `annotations` add labelled lines, and `fitTo: "highlight"` frames the highlighted geometry. Returns an MCP image content block.',
       inputSchema: {
         ...workspaceArg,
         view: screenshotViewArg.optional(),
@@ -423,6 +569,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         showPositional: z.boolean().optional().describe('Show sketch positional-constraint badges and coincidence dots. Default true.'),
         framePlanes: z.boolean().optional().describe('Include construction-plane quads (plane(…) features) in the bounds that fitting and auto-crop frame. Default false: a plane quad is 200 mm square whatever the model, so it is left out unless the picture is about the planes.'),
         pixelRatio: z.number().min(1).max(4).optional().describe('Device-pixel ratio of the export (default 1). Overlays such as constraint badges and dimension readouts are sized for a width/pixelRatio CSS-pixel canvas, so a 2× export viewed at half size shows them at on-screen size.'),
+        ...screenshotOverlayArgs,
       },
     },
     async (args) => toMcp(await screenshot(args as any)),
@@ -431,17 +578,27 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
   server.registerTool(
     'screenshot_multi',
     {
-      title: 'Capture a 2×2 composite of front/top/right/iso views',
+      title: 'Capture a labelled grid of several views in one PNG',
       description:
-        'Renders a single PNG showing four canonical views (front, top, right, iso-ftr) as a 2×2 grid. Use this when the agent needs to "see all sides at once" without four separate tool calls. The user\'s interactive camera is never moved.',
+        'Renders one PNG with 2-6 views laid out two per row, each cell labelled with its view in the corner. Default views: iso-ftr, its opposite iso-bbl ' +
+        '(two opposed isometrics show every face in at least one cell), top and front. Pass `views` for other vantages (named, look-from, orbit-from-current). ' +
+        'Use this to "see all sides at once" without several tool calls; the overlay options (highlight, hide, focus, annotations, fitTo) apply to every cell. The user\'s interactive camera is never moved.',
       inputSchema: {
         ...workspaceArg,
+        views: z
+          .array(screenshotViewArg)
+          .min(2)
+          .max(6)
+          .optional()
+          .describe('The cells\' views, 2-6, row-major two per row. Default: iso-ftr, iso-bbl, top, front.'),
         width: widthArg,
         height: heightArg,
         showGrid: z.boolean().optional(),
         showAxes: z.boolean().optional(),
         transparent: z.boolean().optional(),
         margin: marginArg,
+        pixelRatio: z.number().min(1).max(4).optional().describe('Device-pixel ratio of the export (default 1); cell labels and annotations scale with it.'),
+        ...screenshotOverlayArgs,
       },
     },
     async (args) => toMcp(await screenshotMulti(args as any)),
@@ -452,7 +609,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
     {
       title: 'Capture a framed iso view of a single shape',
       description:
-        'Fetches the shape\'s bounding box and renders a PNG from an iso vantage point that frames it with a small margin. Useful for "show me this specific feature" requests.',
+        'Fetches the shape\'s bounding box and renders a PNG from an iso vantage point that frames it with a small margin. Useful for "show me this specific feature" requests. Takes the same highlight/hide/focus/annotations/fitTo overlays as screenshot.',
       inputSchema: {
         ...workspaceArg,
         shapeId: shapeIdArg,
@@ -466,6 +623,7 @@ export function buildServer(options: BuildServerOptions = {}): McpServer {
         showGrid: z.boolean().optional(),
         showAxes: z.boolean().optional(),
         transparent: z.boolean().optional(),
+        ...screenshotOverlayArgs,
       },
     },
     async (args) => toMcp(await screenshotShape(args as any)),
@@ -781,6 +939,9 @@ export async function runStdio(): Promise<void> {
  * Render a tool result into the MCP `CallToolResult` shape. Success: a JSON
  * text block. Failure: also a text block, but with `isError: true` so MCP
  * clients render it as a tool-error rather than a normal response.
+ *
+ * Payloads are serialized compact: indentation was a third of every result
+ * and the agent never reads whitespace.
  */
 function toMcp<T>(result: ToolResult<T>) {
   if (result.ok === true) {
@@ -788,19 +949,28 @@ function toMcp<T>(result: ToolResult<T>) {
     // Image results are rendered as MCP `image` blocks so multimodal clients
     // can display the PNG inline without burning the agent's text budget.
     if (data && typeof data === 'object' && data.image && typeof data.image.base64 === 'string') {
+      const { image, ...rest } = data;
+      const imageBlock = {
+        type: 'image' as const,
+        data: image.base64,
+        mimeType: image.mimeType ?? 'image/png',
+      };
+      // A result that is only a picture (the screenshot tools) is one image
+      // block; one that carries a picture beside data (measure with `image`)
+      // is the data first, then the picture.
+      if (Object.keys(rest).length === 0) {
+        return { content: [imageBlock] };
+      }
       return {
         content: [
-          {
-            type: 'image' as const,
-            data: data.image.base64,
-            mimeType: data.image.mimeType ?? 'image/png',
-          },
+          { type: 'text' as const, text: JSON.stringify(rest) },
+          imageBlock,
         ],
       };
     }
     return {
       content: [
-        { type: 'text' as const, text: JSON.stringify(result.data, null, 2) },
+        { type: 'text' as const, text: JSON.stringify(result.data) },
       ],
     };
   }
@@ -810,11 +980,7 @@ function toMcp<T>(result: ToolResult<T>) {
     content: [
       {
         type: 'text' as const,
-        text: JSON.stringify(
-          { code: failure.code, message: failure.message, details: failure.details },
-          null,
-          2,
-        ),
+        text: JSON.stringify({ code: failure.code, message: failure.message, details: failure.details }),
       },
     ],
   };

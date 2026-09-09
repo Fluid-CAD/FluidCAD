@@ -165,6 +165,15 @@ export { setAssetProvider } from './io/file-import.js';
 export type { AssetProvider, ImportMeta, ImportFileResult } from './io/file-import.js';
 export type { StepFileUnits } from './oc/step-units.js';
 export type { ImportReport, AssemblyExportOutcome } from './scene-manager.js';
+export type {
+  ResolveSelectionRequest, ResolveSelectionResult, ResolvedSelectionMatch, ResolvedSelectionScope, SelectionScopeInput,
+} from './selection/resolve-selection.js';
+export type { EntitySummary } from './oc/measure/entity-summary.js';
+export type {
+  ValidateSceneRequest, SceneValidationOutcome, SceneValidationReport, SceneValidationFinding, SceneValidationRefusalCode,
+  ValidatedShape, SkippedShape,
+} from './validation/scene-validator.js';
+export type { ShapeFindingKind, ShapeFinding, ShapeValidation } from './oc/shape-validator.js';
 export type { AssemblyExportPose } from './io/assembly-export/index.js';
 export { getSceneManager } from './scene-manager.js';
 export { describeOcException } from './oc/errors.js';

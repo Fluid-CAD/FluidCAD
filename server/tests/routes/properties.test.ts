@@ -27,6 +27,11 @@ describe('properties + measure routes — unit field', () => {
         lastMeasureRefs = refs;
         return { entities: [], primary: 'totalArea', primaryLabel: 'Area', totalArea: 5 };
       },
+      // The route measures through the entity resolver (index refs pass
+      // straight through; filter entities are covered in resolve-selection.test.ts).
+      measureEntities(entities: unknown[]) {
+        return { ok: true, result: this.measure(entities) };
+      },
     } as unknown as FluidCadServer;
 
     const app = express();

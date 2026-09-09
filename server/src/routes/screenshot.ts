@@ -1,14 +1,16 @@
 import { Router } from 'express';
-import type { NamedView, ScreenshotView } from '../ws-protocol.ts';
+import { ScreenshotRequests, type ScreenshotSelectionResolver } from './screenshot-overlays.ts';
 
-const NAMED_VIEWS: ReadonlySet<NamedView> = new Set([
-  'front', 'back', 'left', 'right', 'top', 'bottom',
-  'iso-ftr', 'iso-fbr', 'iso-ftl', 'iso-fbl',
-  'iso-btr', 'iso-bbr', 'iso-btl', 'iso-bbl',
-]);
-
+/**
+ * POST /screenshot — validate the capture options and forward them to the
+ * page over the `take-screenshot` message. Overlay fields (`highlight`,
+ * `hide`, `focus`, `annotations`, `fitTo`, `views`) are checked by
+ * {@link ScreenshotRequests}; highlight expressions resolve through
+ * `resolveSelection` here so the page only receives index refs.
+ */
 export function createScreenshotRouter(
   requestScreenshot: (options: Record<string, unknown>) => Promise<Buffer>,
+  resolveSelection?: ScreenshotSelectionResolver,
 ): Router {
   const router = Router();
 
@@ -132,7 +134,7 @@ export function createScreenshotRouter(
     }
 
     if (view !== undefined) {
-      const validated = validateView(view);
+      const validated = ScreenshotRequests.view(view);
       if (typeof validated === 'string') {
         res.status(400).json({ error: validated });
         return;
@@ -140,6 +142,16 @@ export function createScreenshotRouter(
       options.view = validated;
     }
 
+    const overlays = ScreenshotRequests.overlays(req.body ?? {}, resolveSelection);
+    if (overlays.ok === false) {
+      res.status(overlays.status).json({
+        error: overlays.error,
+        ...(overlays.code ? { code: overlays.code } : {}),
+        ...(overlays.candidates ? { candidates: overlays.candidates } : {}),
+      });
+      return;
+    }
+    Object.assign(options, overlays.options);
 
     try {
       const png = await requestScreenshot(options);
@@ -154,55 +166,4 @@ export function createScreenshotRouter(
   });
 
   return router;
-}
-
-/** Validate the `view` payload. Returns the parsed view on success or an
- *  error-message string on failure. */
-function validateView(raw: unknown): ScreenshotView | string {
-  if (raw === null || typeof raw !== 'object') {
-    return 'view must be an object.';
-  }
-  const v = raw as Record<string, unknown>;
-  switch (v.kind) {
-    case 'current':
-      return { kind: 'current' };
-    case 'named': {
-      if (typeof v.name !== 'string' || !NAMED_VIEWS.has(v.name as NamedView)) {
-        return `view.name must be one of: ${Array.from(NAMED_VIEWS).join(', ')}.`;
-      }
-      return { kind: 'named', name: v.name as NamedView };
-    }
-    case 'orbit-from-current': {
-      if (typeof v.azimuthDeg !== 'number' || !Number.isFinite(v.azimuthDeg)) {
-        return 'view.azimuthDeg must be a finite number.';
-      }
-      if (typeof v.elevationDeg !== 'number' || !Number.isFinite(v.elevationDeg)) {
-        return 'view.elevationDeg must be a finite number.';
-      }
-      return { kind: 'orbit-from-current', azimuthDeg: v.azimuthDeg, elevationDeg: v.elevationDeg };
-    }
-    case 'look-from': {
-      if (!isVec3(v.eye)) {
-        return 'view.eye must be a 3-element array of finite numbers.';
-      }
-      if (v.target !== undefined && !isVec3(v.target)) {
-        return 'view.target must be a 3-element array of finite numbers when provided.';
-      }
-      return {
-        kind: 'look-from',
-        eye: v.eye as [number, number, number],
-        target: v.target as [number, number, number] | undefined,
-      };
-    }
-    default:
-      return `view.kind must be one of: current, named, orbit-from-current, look-from.`;
-  }
-}
-
-function isVec3(value: unknown): value is [number, number, number] {
-  return (
-    Array.isArray(value) &&
-    value.length === 3 &&
-    value.every((n) => typeof n === 'number' && Number.isFinite(n))
-  );
 }

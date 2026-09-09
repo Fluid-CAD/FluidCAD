@@ -17,6 +17,8 @@ import {
   listShapes,
   measure,
   resolveClient,
+  resolveSelection,
+  validate,
 } from '../src/tools/inspection.ts';
 import type { RegistryEntry } from '../src/types.ts';
 
@@ -180,9 +182,206 @@ describe('inspection tools (unit)', () => {
       '/api/face-properties': () => ({ status: 200, body: { areaMm2: 5000, unit: 'in' } }),
       '/api/edge-properties': () => ({ status: 200, body: { length: 100, unit: 'in' } }),
       '/api/hit-test': () => ({ status: 200, body: { type: 'face', index: 3 } }),
-      '/api/measure': () => ({ status: 200, body: { primary: 'totalArea', totalArea: 12.5, unit: 'in' } }),
+      '/api/measure': (_req, body) => {
+        const entities = JSON.parse(body).entities as any[];
+        if (entities.some((e) => typeof e.expression === 'string' && e.expression.includes('parallelTo'))) {
+          return {
+            status: 409,
+            body: {
+              error: 'entities[0]: face().parallelTo("yz") matches 2 entities in part "base"; narrow the filter to one (candidates listed)',
+              code: 'ambiguous-match',
+              candidates: [{ shapeId: 'sh-2', kind: 'face', index: 0 }, { shapeId: 'sh-2', kind: 'face', index: 1 }],
+            },
+          };
+        }
+        return { status: 200, body: { primary: 'totalArea', totalArea: 12.5, unit: 'in' } };
+      },
+      '/api/resolve-selection': (_req, body) => {
+        const request = JSON.parse(body);
+        if (request.scope?.part === 'nope') {
+          return { status: 404, body: { error: 'No part "nope" in the scene', code: 'unknown-scope' } };
+        }
+        return {
+          status: 200,
+          body: {
+            ok: true,
+            matches: [{
+              shapeId: 'sh-2', kind: 'face', index: 5, sceneObjectId: 'obj-13', sceneObjectName: 'extrude', part: 'base',
+              summary: { form: 'plane', center: [20, 20, 10], normal: [0, 0, 1], area: 1600 },
+            }],
+            count: 1,
+            scope: request.scope ? { kind: 'part', partId: 'obj-1', part: 'base' } : { kind: 'root' },
+            unit: 'in',
+          },
+        };
+      },
+      '/api/validate': (_req, body) => {
+        const request = body ? JSON.parse(body) : {};
+        if (request.instanceId === 'nope') {
+          return { status: 404, body: { error: 'No instance "nope" in the assembly (instance ids come from get_scene_summary).', code: 'unknown-instance' } };
+        }
+        const broken = !request.shapeIds || request.shapeIds.includes('sh-3');
+        return {
+          status: 200,
+          body: {
+            ok: !broken,
+            checked: broken ? 2 : 1,
+            findings: broken
+              ? [{ kind: 'nonPositiveVolume', shapeId: 'sh-3', sceneObjectId: 'obj-14', part: 'pillar', message: 'the solid has volume -3000: reversed orientation (inside-out); BRepCheck_Analyzer does not catch this' }]
+              : [],
+            shapes: [{ shapeId: 'sh-2', sceneObjectId: 'obj-13', sceneObjectName: 'extrude', part: 'base', faces: 6, edges: 12, solids: 1, volume: 16000, findings: [] }],
+            skipped: [],
+            checks: ['invalidTopology', 'openShell', 'nonPositiveVolume', 'noSolid'],
+            notChecked: { selfIntersecting: 'not checked: this ocjs build exposes neither BRepAlgoAPI_Check nor BOPAlgo_ArgumentAnalyzer' },
+            unit: 'in',
+          },
+        };
+      },
     });
     writeRegistry([entry()]);
+  });
+
+  it('validate posts an empty body for the whole scene and returns the report', async () => {
+    const result = await validate({});
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(lastRequest?.method).toBe('POST');
+    expect(lastRequest?.url).toBe('/api/validate');
+    expect(JSON.parse(lastRequest!.body)).toEqual({});
+    const data = result.data as any;
+    expect(data.ok).toBe(false);
+    expect(data.checked).toBe(2);
+    expect(data.findings[0]).toMatchObject({ kind: 'nonPositiveVolume', shapeId: 'sh-3', part: 'pillar' });
+    expect(data.checks).toContain('openShell');
+    expect(data.notChecked.selfIntersecting).toContain('not checked');
+    expect(data.unit).toBe('in');
+  });
+
+  it('validate forwards shapeIds and instanceId and omits the keys it was not given', async () => {
+    const scoped = await validate({ shapeIds: ['sh-2'] });
+    expect(scoped.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({ shapeIds: ['sh-2'] });
+    expect((scoped.ok && (scoped.data as any).ok)).toBe(true);
+
+    await validate({ instanceId: 'inst-1' });
+    expect(JSON.parse(lastRequest!.body)).toEqual({ instanceId: 'inst-1' });
+  });
+
+  it('validate rejects an empty shapeIds list and a blank instanceId before calling the server', async () => {
+    lastRequest = null;
+    const empty = await validate({ shapeIds: [] });
+    expect(empty.ok).toBe(false);
+    if (!empty.ok) {
+      expect(empty.code).toBe('invalid-input');
+      expect(empty.message).toContain('shapeIds');
+    }
+    const blankEntry = await validate({ shapeIds: ['sh-2', ''] });
+    expect(blankEntry.ok).toBe(false);
+    const blankInstance = await validate({ instanceId: '' });
+    expect(blankInstance.ok).toBe(false);
+    if (!blankInstance.ok) {
+      expect(blankInstance.message).toContain('instanceId');
+    }
+    expect(lastRequest).toBeNull();
+  });
+
+  it('validate surfaces an unknown instance as the server\'s 404 with its code', async () => {
+    const result = await validate({ instanceId: 'nope' });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe('http-error');
+    expect(result.message).toContain('unknown-instance');
+    expect((result.details as any).statusCode).toBe(404);
+  });
+
+  it('resolve_selection posts the expression and scope and returns the matches', async () => {
+    const result = await resolveSelection({ expression: 'face().onPlane("xy", 10)', scope: { part: 'base' } });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(lastRequest?.method).toBe('POST');
+    expect(lastRequest?.url).toBe('/api/resolve-selection');
+    expect(JSON.parse(lastRequest!.body)).toEqual({ expression: 'face().onPlane("xy", 10)', scope: { part: 'base' } });
+    const data = result.data as any;
+    expect(data.count).toBe(1);
+    expect(data.matches[0].summary.form).toBe('plane');
+    expect(data.scope).toEqual({ kind: 'part', partId: 'obj-1', part: 'base' });
+    expect(data.unit).toBe('in');
+  });
+
+  it('resolve_selection omits the scope key when none is given', async () => {
+    const result = await resolveSelection({ expression: 'edge().circle(5)' });
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({ expression: 'edge().circle(5)' });
+  });
+
+  it('resolve_selection rejects an empty expression and a malformed scope before calling the server', async () => {
+    lastRequest = null;
+    const empty = await resolveSelection({ expression: '  ' });
+    expect(empty.ok).toBe(false);
+    if (!empty.ok) {
+      expect(empty.code).toBe('invalid-input');
+    }
+    const twoKeys = await resolveSelection({ expression: 'face()', scope: { part: 'a', instanceId: 'b' } as any });
+    expect(twoKeys.ok).toBe(false);
+    if (!twoKeys.ok) {
+      expect(twoKeys.code).toBe('invalid-input');
+      expect(twoKeys.message).toContain('exactly one of');
+    }
+    const emptyId = await resolveSelection({ expression: 'face()', scope: { sceneObjectId: '' } });
+    expect(emptyId.ok).toBe(false);
+    expect(lastRequest).toBeNull();
+  });
+
+  it('resolve_selection surfaces an unknown scope as the server\'s 4xx', async () => {
+    const result = await resolveSelection({ expression: 'face()', scope: { part: 'nope' } });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe('http-error');
+    expect(result.message).toContain('nope');
+    expect(result.message).toContain('unknown-scope');
+    expect((result.details as any).statusCode).toBe(404);
+  });
+
+  it('measure forwards filter entities beside index entities', async () => {
+    const entities = [
+      { expression: 'face().onPlane("xy", 10)', scope: { part: 'base' } },
+      { shapeId: 'sh-2', kind: 'edge' as const, index: 3 },
+    ];
+    const result = await measure({ entities });
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({ entities });
+  });
+
+  it('measure refuses a filter that matches several entities with the candidates, never taking the first', async () => {
+    const result = await measure({ entities: [{ expression: 'face().parallelTo("yz")', scope: { part: 'base' } }] });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe('http-error');
+    expect((result.details as any).statusCode).toBe(409);
+    expect(result.message).toContain('matches 2 entities');
+  });
+
+  it('measure validates filter entities locally', async () => {
+    lastRequest = null;
+    const empty = await measure({ entities: [{ expression: '' }] });
+    expect(empty.ok).toBe(false);
+    if (!empty.ok) {
+      expect(empty.code).toBe('invalid-input');
+      expect(empty.message).toContain('entities[0].expression');
+    }
+    const badScope = await measure({ entities: [{ expression: 'face()', scope: { part: '' } }] });
+    expect(badScope.ok).toBe(false);
+    expect(lastRequest).toBeNull();
   });
 
   it('get_scene_summary resolves the workspace and returns the payload', async () => {
@@ -310,13 +509,38 @@ describe('inspection tools (over MCP)', () => {
         'get_face_properties',
         'get_edge_properties',
         'hit_test',
+        'resolve_selection',
+        'validate',
       ]) {
         expect(names.has(expected)).toBe(true);
       }
+      // validate must tell the agent what a render does not prove, what each
+      // finding means, that inversion is caught by the volume sign alone, and
+      // that self-intersection is not checked in this build.
+      const validateTool = tools.tools.find((t) => t.name === 'validate')!;
+      expect(validateTool.description).toContain('not a geometry claim');
+      for (const kind of ['invalidTopology', 'openShell', 'nonPositiveVolume', 'noSolid']) {
+        expect(validateTool.description).toContain(`\`${kind}\``);
+      }
+      expect(validateTool.description).toContain('volume sign ONLY');
+      expect(validateTool.description).toContain('Self-intersection is NOT checked');
+      expect(validateTool.description).not.toContain('selfIntersection:');
+      expect(JSON.stringify(validateTool.inputSchema)).not.toContain('selfIntersection');
       // The descriptions must not promise mm: lengths are in the document unit.
       const byName = new Map(tools.tools.map((t) => [t.name, t.description ?? '']));
       expect(byName.get('measure')).toContain('document unit');
       expect(byName.get('measure')).not.toContain('All lengths are mm');
+      // The agent must learn the scoping rule and the $obj binding from the
+      // tool surface alone, and that a filter entity must resolve to one.
+      const resolve = tools.tools.find((t) => t.name === 'resolve_selection')!;
+      expect(resolve.description).toContain('select()');
+      expect(resolve.description).toContain('count 0');
+      const resolveSchema = JSON.stringify(resolve.inputSchema);
+      expect(resolveSchema).toContain('$obj');
+      expect(resolveSchema).toContain('never matches faces of part');
+      expect(resolveSchema).toContain('instanceId');
+      expect(byName.get('measure')).toContain('exactly one face/edge');
+      expect(byName.get('measure')).toContain('`summary`');
       for (const name of ['get_scene_summary', 'get_shape_properties', 'get_face_properties', 'get_edge_properties']) {
         expect(byName.get(name)).toContain('`unit`');
       }

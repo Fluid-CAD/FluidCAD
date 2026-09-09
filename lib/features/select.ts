@@ -25,13 +25,15 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
 
   constructor(private filters: FilterBuilderBase<Shape>[]) {
     super();
+    this.type = SelectSceneObject.shapeTypeOf(filters);
+  }
 
+  /** Face selection when every builder is a face filter, else edge. */
+  static shapeTypeOf(filters: FilterBuilderBase<Shape>[]): ShapeType {
     if (filters.every(f => f instanceof FaceFilterBuilder)) {
-      this.type = "face";
+      return "face";
     }
-    else {
-      this.type = "edge";
-    }
+    return "edge";
   }
 
   override isSelection(): boolean {
@@ -110,9 +112,40 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
       }
     }
 
+    let filteredShapes = SelectSceneObject.evaluateFilters(filters, sceneObjects, excludedObjects);
+    if (filteredShapes.length === 0 && narrowedToCloneGroup) {
+      // Nothing matched within the cloned group: the original selection
+      // resolved to geometry outside the repeated objects (e.g. a wrap
+      // target face on a base solid). Reuse that resolution — re-running
+      // the transformed filters against base geometry cannot match.
+      const source = this.getCloneSource();
+      if (source instanceof SelectSceneObject) {
+        filteredShapes = source.getAddedShapes();
+      }
+    }
+    this.addShapes(filteredShapes);
+  }
+
+  /**
+   * The candidate set and match a `select(filters)` statement resolves over
+   * `sceneObjects` (the objects its part scope exposes to it), as one shared
+   * step: objects named by `.from(...)` join the universe so cross-part
+   * selection works, edge filters get their belongsTo-face scope injected,
+   * `.from` filters get their membership sets, and the filters run over
+   * every solid's faces or edges minus `excludedShapes`. Shared with the
+   * scene-level evaluator (`SelectionResolver`) so a tool that evaluates a
+   * filter expression sees exactly what the statement would.
+   */
+  static evaluateFilters(
+    filters: FilterBuilderBase<Shape>[],
+    sceneObjects: SceneObject[],
+    excludedShapes: Shape[] = [],
+  ): Shape[] {
+    const type = SelectSceneObject.shapeTypeOf(filters);
+
     // Objects passed explicitly via `from(...)` bypass the part scope so that
     // cross-part selection works (e.g. select(face().from(p1)) from inside p2).
-    const fromObjects = this.collectFromSceneObjects(filters);
+    const fromObjects = SelectSceneObject.collectFromSceneObjects(filters);
     if (fromObjects.length > 0) {
       sceneObjects = sceneObjects.slice();
       for (const obj of fromObjects) {
@@ -122,25 +155,14 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
       }
     }
 
-    const allShapes = this.getAllShapes(sceneObjects, excludedObjects);
+    const allShapes = SelectSceneObject.getAllShapes(type, sceneObjects, excludedShapes);
     let scopeHasher: ShapeHasher | null = null;
-    if (this.type === "edge") {
-      scopeHasher = this.injectScopeFaces(filters, sceneObjects);
+    if (type === "edge") {
+      scopeHasher = SelectSceneObject.injectScopeFaces(filters, sceneObjects);
     }
-    const fromFilters = this.injectFromMembershipSets(filters);
+    const fromFilters = SelectSceneObject.injectFromMembershipSets(filters);
     try {
-      let filteredShapes = this.applyFilters(allShapes, filters);
-      if (filteredShapes.length === 0 && narrowedToCloneGroup) {
-        // Nothing matched within the cloned group: the original selection
-        // resolved to geometry outside the repeated objects (e.g. a wrap
-        // target face on a base solid). Reuse that resolution — re-running
-        // the transformed filters against base geometry cannot match.
-        const source = this.getCloneSource();
-        if (source instanceof SelectSceneObject) {
-          filteredShapes = source.getAddedShapes();
-        }
-      }
-      this.addShapes(filteredShapes);
+      return SelectSceneObject.applyFilters(allShapes, filters);
     } finally {
       for (const { filter, set } of fromFilters) {
         filter.setMembershipSet(null);
@@ -188,9 +210,9 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
       }
     }
 
-    const fromFilters = this.injectFromMembershipSets(filters);
+    const fromFilters = SelectSceneObject.injectFromMembershipSets(filters);
     try {
-      this.addShapes(this.applyFilters(universe, filters));
+      this.addShapes(SelectSceneObject.applyFilters(universe, filters));
     } finally {
       for (const { filter, set } of fromFilters) {
         filter.setMembershipSet(null);
@@ -199,7 +221,7 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     }
   }
 
-  private injectFromMembershipSets(filters: FilterBuilderBase<Shape>[]): { filter: FromSceneObjectFilter<Shape>; set: TopTools_MapOfShape }[] {
+  private static injectFromMembershipSets(filters: FilterBuilderBase<Shape>[]): { filter: FromSceneObjectFilter<Shape>; set: TopTools_MapOfShape }[] {
     const allocated: { filter: FromSceneObjectFilter<Shape>; set: TopTools_MapOfShape }[] = [];
     for (const builder of filters) {
       for (const filter of builder.getFilters()) {
@@ -222,7 +244,7 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     return allocated;
   }
 
-  private collectFromSceneObjects(filters: FilterBuilderBase<Shape>[]): SceneObject[] {
+  private static collectFromSceneObjects(filters: FilterBuilderBase<Shape>[]): SceneObject[] {
     const objects: SceneObject[] = [];
     for (const builder of filters) {
       for (const filter of builder.getFilters()) {
@@ -238,9 +260,9 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     return objects;
   }
 
-  private getAllShapes(scope: SceneObject[], exludedShapes: Shape[]) {
-    const scopeShapes = scope.flatMap(obj => obj.getShapes({}, 'solid').map(s => s.getSubShapes(this.type)).flat());
-    const flatExcluded = exludedShapes.flatMap(s => s.getSubShapes(this.type));
+  private static getAllShapes(type: ShapeType, scope: SceneObject[], exludedShapes: Shape[]) {
+    const scopeShapes = scope.flatMap(obj => obj.getShapes({}, 'solid').map(s => s.getSubShapes(type)).flat());
+    const flatExcluded = exludedShapes.flatMap(s => s.getSubShapes(type));
     if (flatExcluded.length === 0) {
       return scopeShapes;
     }
@@ -255,7 +277,7 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
 
   override getDependencies(): SceneObject[] {
     const deps: SceneObject[] = [];
-    for (const obj of this.collectFromSceneObjects(this.filters)) {
+    for (const obj of SelectSceneObject.collectFromSceneObjects(this.filters)) {
       if (!deps.includes(obj)) {
         deps.push(obj);
       }
@@ -288,14 +310,14 @@ export class SelectSceneObject extends AnchorableSelection implements ISelect {
     return new SelectSceneObject(mirroredFilters);
   }
 
-  private injectScopeFaces(filters: FilterBuilderBase<Shape>[], sceneObjects: SceneObject[]): ShapeHasher | null {
+  private static injectScopeFaces(filters: FilterBuilderBase<Shape>[], sceneObjects: SceneObject[]): ShapeHasher | null {
     return injectBelongsToFaceScope(filters, () => ({
       solids: sceneObjects.flatMap(obj => obj.getShapes({}, 'solid')) as Solid[],
       extraFaces: [],
     }));
   }
 
-  applyFilters(shapes: Shape[], filters: FilterBuilderBase<Shape>[]): Shape[] {
+  static applyFilters(shapes: Shape[], filters: FilterBuilderBase<Shape>[]): Shape[] {
     const shapeFilter = new ShapeFilter(shapes, ...filters);
     return shapeFilter.apply();
   }

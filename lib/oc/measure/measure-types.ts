@@ -1,3 +1,5 @@
+import type { EntitySummary } from "./entity-summary.js";
+
 export interface MeasureVec {
   x: number;
   y: number;
@@ -43,6 +45,8 @@ export interface MeasureEntityInfo {
   area?: number;
   length?: number;
   radius?: number;
+  /** The compact description `resolve_selection` matches carry — rounded, in the document unit. */
+  summary: EntitySummary;
 }
 
 export type MeasurePrimaryKey =

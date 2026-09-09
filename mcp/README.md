@@ -123,12 +123,23 @@ Install the companion skills so agents follow the FluidCAD workflow:
 npx skills add Fluid-CAD/FluidCAD
 ```
 
-Two skills ship with the repo:
+Three skills ship with the repo, under `mcp/skills/`:
 
-- **FluidCAD** — the core modeling loop: read the docs, write the file, check
-  the render, verify visually.
+- **FluidCAD** — the core modeling loop: read the docs, plan, write the file,
+  check the render, resolve filters before writing them, verify with
+  screenshots and measurements. Its `references/` folder holds task-specific
+  guidance the agent loads on demand (traps, repair loop, verification and
+  report, modifying an existing model, sketching, handoff).
 - **FluidCAD-from-drawing** — layered on top, for building a part from a 2D
-  engineering drawing, blueprint, or dimension sheet.
+  engineering drawing, blueprint, dimension sheet, or an image without
+  dimensions.
+- **FluidCAD-assembly** — layered on top, for multi-part models: `.part.js`
+  files with `param()` / `connector()` / `expose()`, `.assembly.js` files with
+  `insert()` / `mate()` / `replicate()`, STEP parts, units, and assembly export.
+
+`mcp/tests/skills.test.ts` checks that every tool name a skill mentions is
+registered by the server and that the `mcp__FluidCAD__*` prefix in each skill's
+frontmatter matches the server name registered above.
 
 ---
 
@@ -248,7 +259,7 @@ You should see two JSON-RPC responses on stdout: the `initialize` reply and a
 | --------------- | --------------------------------------------------------------------- |
 | Discovery       | `list_workspaces`                                                     |
 | Docs            | `list_docs`, `read_doc`, `search_docs`, `get_api_signature`, `get_type_definition` |
-| Inspection      | `get_scene_summary`, `list_shapes`, `get_shape_properties`, `get_face_properties`, `get_edge_properties`, `get_compile_error`, `hit_test` |
+| Inspection      | `get_scene_summary`, `list_shapes`, `get_shape_properties`, `get_face_properties`, `get_edge_properties`, `get_compile_error`, `hit_test`, `resolve_selection`, `measure`, `validate` |
 | Visual          | `screenshot`, `screenshot_multi`, `screenshot_shape`, `get_camera_state` |
 | Coordination    | `wait_for_idle`                                                       |
 | Source editing  | `list_fluid_files`, `read_file`, `write_file`, `edit_range`           |

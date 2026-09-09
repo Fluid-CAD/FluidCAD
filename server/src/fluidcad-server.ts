@@ -12,7 +12,12 @@ import { BreakpointHit } from '../../lib/dist/common/breakpoint-hit.js';
 import { createParamRegistry, getParamRegistry } from '../../lib/dist/index.js';
 import { scanFileForParts } from './part-catalog/scan.ts';
 import type { PartScanResult } from './part-catalog/scan.ts';
-import type { AssemblyExportOutcome, AssemblyExportPose, ImportReport, ParamDefinition, ParamRegistry, ParamVal } from '../../lib/dist/index.js';
+import type {
+  AssemblyExportOutcome, AssemblyExportPose, ImportReport, ParamDefinition, ParamRegistry, ParamVal,
+  ResolveSelectionRequest, ResolveSelectionResult, SceneValidationOutcome, ValidateSceneRequest,
+} from '../../lib/dist/index.js';
+import { MeasureEntityResolver } from './measure-entities.ts';
+import type { MeasureEntitiesFailure, MeasureEntity } from './measure-entities.ts';
 import type { CompileError } from './ws-protocol.ts';
 import { readProjectConfig } from './project-config.ts';
 import type { LengthUnit } from './project-config.ts';
@@ -25,6 +30,16 @@ export type MeasureRef = {
   instanceId?: string;
   pose?: { position: { x: number; y: number; z: number }; quaternion: { x: number; y: number; z: number; w: number } };
 };
+
+/** Why a selection could not be resolved before the lib's own resolver ran. */
+export type ResolveSelectionUnavailable = { ok: false; code: 'no-scene' | 'unsupported'; reason: string };
+
+/** Why a validation could not run before the lib's own validator ran; the same shape as its refusals. */
+export type ValidateUnavailable = { kind: 'refused'; code: 'no-scene' | 'unsupported'; reason: string };
+
+export type MeasureEntitiesOutcome =
+  | { ok: true; result: any }
+  | MeasureEntitiesFailure;
 
 export type SerializedAssembly = {
   instances: Array<{
@@ -130,6 +145,11 @@ type SceneManager = {
   getFaceProperties(scene: any, shapeId: string, faceIndex: number): any;
   getEdgeProperties(scene: any, shapeId: string, edgeIndex: number): any;
   measure(scene: any, refs: MeasureRef[]): any;
+  // Optional: the manager comes from the workspace's fluidcad install, which
+  // may predate filter-expression resolution.
+  resolveSelection?(scene: any, request: ResolveSelectionRequest): ResolveSelectionResult;
+  // Optional: may predate geometry validation.
+  validate?(scene: any, request: ValidateSceneRequest): SceneValidationOutcome;
   explainSelection(
     scene: any,
     refs: { shapeId: string; sub: { type: 'edge' | 'face'; index: number } }[],
@@ -1553,6 +1573,70 @@ export class FluidCadServer {
       return null;
     }
     return this.sceneManager.measure(scene, refs);
+  }
+
+  /**
+   * Measure entities named by index refs or by filter expressions, mixed.
+   * Filter entities resolve through `resolveSelection` first — one match
+   * each, or a refusal listing the candidates — and the measured entity
+   * carries where it came from (`expression`, `sceneObjectId`, `part`).
+   */
+  measureEntities(entities: MeasureEntity[]): MeasureEntitiesOutcome {
+    const resolved = MeasureEntityResolver.resolve(entities, request => this.resolveSelection(request));
+    if (resolved.ok === false) {
+      return resolved;
+    }
+    const result = this.measure(resolved.refs);
+    if (!result) {
+      return { ok: false, code: 'no-match', error: 'Entity not found' };
+    }
+    const measured = Array.isArray(result.entities) ? result.entities : [];
+    for (let i = 0; i < measured.length; i++) {
+      const provenance = resolved.provenance[i];
+      if (provenance) {
+        Object.assign(measured[i], provenance);
+      }
+    }
+    return { ok: true, result };
+  }
+
+  /**
+   * Evaluate a filter expression against the current scene at the requested
+   * scope — the lib's SelectionResolver owns the scoping rule. `no-scene`
+   * before the first render, `unsupported` on a workspace engine that
+   * predates the resolver.
+   */
+  resolveSelection(request: ResolveSelectionRequest): ResolveSelectionResult | ResolveSelectionUnavailable {
+    if (!this.sceneManager) {
+      return { ok: false, code: 'no-scene', reason: this.describeMissingEngine() ?? 'No engine loaded' };
+    }
+    if (!this.sceneManager.resolveSelection) {
+      return { ok: false, code: 'unsupported', reason: 'This workspace engine predates filter-expression resolution; update its fluidcad install.' };
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return { ok: false, code: 'no-scene', reason: 'No rendered scene — open and render a file first.' };
+    }
+    return this.sceneManager.resolveSelection(scene, request);
+  }
+
+  /**
+   * Kernel soundness of the shapes the current scene renders — the lib's
+   * SceneValidator owns the checks and the addressing. `no-scene` before
+   * the first render, `unsupported` on a workspace engine that predates it.
+   */
+  validate(request: ValidateSceneRequest): SceneValidationOutcome | ValidateUnavailable {
+    if (!this.sceneManager) {
+      return { kind: 'refused', code: 'no-scene', reason: this.describeMissingEngine() ?? 'No engine loaded' };
+    }
+    if (!this.sceneManager.validate) {
+      return { kind: 'refused', code: 'unsupported', reason: 'This workspace engine predates geometry validation; update its fluidcad install.' };
+    }
+    const scene = this.previousScenes.get(this.currentFileName);
+    if (!scene) {
+      return { kind: 'refused', code: 'no-scene', reason: 'No rendered scene — open and render a file first.' };
+    }
+    return this.sceneManager.validate(scene, request);
   }
 
   explainSelection(

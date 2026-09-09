@@ -13,6 +13,8 @@ import {
   screenshotMulti,
   screenshotShape,
 } from '../src/tools/screenshot.ts';
+import { measure } from '../src/tools/inspection.ts';
+import { MeasureImage } from '../src/tools/measure-image.ts';
 import type { RegistryEntry } from '../src/types.ts';
 
 // Smallest valid PNG: 1×1 transparent pixel.
@@ -300,6 +302,294 @@ describe('screenshot tools (over MCP)', () => {
       for (const expected of ['screenshot', 'screenshot_multi', 'screenshot_shape', 'get_camera_state']) {
         expect(names.has(expected)).toBe(true);
       }
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+});
+
+describe('screenshot overlays', () => {
+  const BBOX = { boundingBox: { min: [0, 0, 0], max: [10, 10, 10] } };
+
+  function pngServer(): Promise<number> {
+    return startFakeServer({
+      '/api/screenshot': () => ({ status: 200, contentType: 'image/png', body: ONE_PIXEL_PNG }),
+      '/api/shape-properties': () => ({ status: 200, contentType: 'application/json', body: JSON.stringify(BBOX) }),
+    });
+  }
+
+  it('screenshot posts highlight, hide, annotations and fitTo through to the server', async () => {
+    fakePort = await pngServer();
+    writeRegistry([entry()]);
+    const highlight = [
+      { expression: 'face().cylinder()', scope: { part: 'base' } },
+      { shapeId: 'sh-1', kind: 'edge' as const, index: 2, instanceId: 'inst-1' },
+    ];
+    const annotations = [{ from: [0, 0, 0] as [number, number, number], to: [5, 0, 0] as [number, number, number], label: '5 mm' }];
+    const result = await screenshot({ highlight, hide: ['sh-7'], annotations, fitTo: 'highlight', view: { kind: 'named', name: 'top' } });
+    expect(result.ok).toBe(true);
+    expect(JSON.parse(lastRequest!.body)).toEqual({
+      view: { kind: 'named', name: 'top' },
+      highlight,
+      hide: ['sh-7'],
+      annotations,
+      fitTo: 'highlight',
+    });
+  });
+
+  it('screenshot_shape carries the overlays beside its framing view', async () => {
+    fakePort = await pngServer();
+    writeRegistry([entry()]);
+    const result = await screenshotShape({ shapeId: 'sh-1', focus: ['sh-1'], highlight: [{ shapeId: 'sh-1', kind: 'face', index: 0 }] });
+    expect(result.ok).toBe(true);
+    const body = JSON.parse(lastRequest!.body);
+    expect(body.view.kind).toBe('look-from');
+    expect(body.focus).toEqual(['sh-1']);
+    expect(body.highlight).toEqual([{ shapeId: 'sh-1', kind: 'face', index: 0 }]);
+  });
+
+  it('rejects hide together with focus without contacting the server', async () => {
+    fakePort = await pngServer();
+    writeRegistry([entry()]);
+    const result = await screenshot({ hide: ['a'], focus: ['b'] });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe('invalid-input');
+    expect(result.message).toContain('exclusive');
+    expect(lastRequest).toBeNull();
+  });
+
+  it('rejects malformed annotations, empty id lists, fitTo without highlight, and a bad highlight entry', async () => {
+    fakePort = await pngServer();
+    writeRegistry([entry()]);
+    const cases: Array<[Record<string, unknown>, string]> = [
+      [{ annotations: [{ from: [0, 0], to: [1, 1, 1] }] }, 'annotations[0].from'],
+      [{ annotations: [{ from: [0, 0, 0], to: [1, 1, 1], label: 7 }] }, 'annotations[0].label'],
+      [{ hide: [] }, '`hide`'],
+      [{ focus: ['ok', ''] }, '`focus`'],
+      [{ fitTo: 'highlight' }, 'needs a non-empty `highlight`'],
+      [{ highlight: [{ shapeId: 'sh-1', kind: 'face', index: 0 }], fitTo: 'model' }, '`fitTo`'],
+      [{ highlight: [{ shapeId: 'sh-1', kind: 'vertex', index: 0 }] }, '`highlight`'],
+      [{ highlight: [{ expression: 'face()', scope: { part: '' } }] }, 'highlight[0].scope'],
+    ];
+    for (const [input, expected] of cases) {
+      const result = await screenshot(input as any);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe('invalid-input');
+        expect(result.message).toContain(expected);
+      }
+    }
+    expect(lastRequest).toBeNull();
+  });
+
+  it('screenshot_multi posts views and applies the overlays to the whole grid', async () => {
+    fakePort = await pngServer();
+    writeRegistry([entry()]);
+    const views = [
+      { kind: 'named' as const, name: 'iso-ftr' as const },
+      { kind: 'look-from' as const, eye: [100, -100, 50] as [number, number, number] },
+      { kind: 'orbit-from-current' as const, azimuthDeg: 30, elevationDeg: -10 },
+    ];
+    const result = await screenshotMulti({ views, highlight: [{ shapeId: 'sh-1', kind: 'face', index: 4 }], fitTo: 'highlight' });
+    expect(result.ok).toBe(true);
+    const body = JSON.parse(lastRequest!.body);
+    expect(body.multi).toBe(true);
+    expect(body.views).toEqual(views);
+    expect(body.view).toBeUndefined();
+    expect(body.highlight).toEqual([{ shapeId: 'sh-1', kind: 'face', index: 4 }]);
+    expect(body.fitTo).toBe('highlight');
+  });
+
+  it('screenshot_multi refuses fewer than 2 or more than 6 views, or an invalid one', async () => {
+    fakePort = await pngServer();
+    writeRegistry([entry()]);
+    const iso = { kind: 'named' as const, name: 'iso-ftr' as const };
+    const one = await screenshotMulti({ views: [iso] });
+    expect(one.ok).toBe(false);
+    if (!one.ok) {
+      expect(one.code).toBe('invalid-input');
+      expect(one.message).toContain('2-6');
+    }
+    const seven = await screenshotMulti({ views: Array(7).fill(iso) });
+    expect(seven.ok).toBe(false);
+    const bad = await screenshotMulti({ views: [iso, { kind: 'named', name: 'sideways' } as any] });
+    expect(bad.ok).toBe(false);
+    if (!bad.ok) {
+      expect(bad.message).toContain('views[1].name');
+    }
+    expect(lastRequest).toBeNull();
+  });
+});
+
+describe('measure with image', () => {
+  const MEASURED = {
+    entities: [
+      { ref: { shapeId: 'sh-1', kind: 'face', index: 5 }, geomType: 'plane', summary: { form: 'plane', center: [0, 0, 10] } },
+      { ref: { shapeId: 'sh-1', kind: 'face', index: 4, instanceId: 'inst-1', pose: { position: { x: 0, y: 0, z: 0 }, quaternion: { x: 0, y: 0, z: 0, w: 1 } } }, geomType: 'plane', summary: { form: 'plane', center: [0, 0, 0] } },
+    ],
+    primary: 'parallelDist',
+    primaryLabel: 'Parallel distance',
+    parallelDist: { value: 10.00004, from: { x: 1, y: 2, z: 0 }, to: { x: 1, y: 2, z: 10 } },
+    minDist: { value: 10, from: { x: 0, y: 0, z: 0 }, to: { x: 0, y: 0, z: 10 } },
+    unit: 'mm',
+  };
+
+  function measureServer(): Promise<number> {
+    return startFakeServer({
+      '/api/measure': () => ({ status: 200, contentType: 'application/json', body: JSON.stringify(MEASURED) }),
+      '/api/screenshot': () => ({ status: 200, contentType: 'image/png', body: ONE_PIXEL_PNG }),
+    });
+  }
+
+  it('MeasureImage builds a highlight of the measured refs, one labelled line, and a highlight fit', () => {
+    const body = MeasureImage.screenshotBody(MEASURED, { width: 600, pixelRatio: 2 });
+    expect(body).toEqual({
+      view: { kind: 'named', name: 'iso-ftr' },
+      fitTo: 'highlight',
+      highlight: [
+        { shapeId: 'sh-1', kind: 'face', index: 5 },
+        { shapeId: 'sh-1', kind: 'face', index: 4, instanceId: 'inst-1' },
+      ],
+      annotations: [{ from: [1, 2, 0], to: [1, 2, 10], label: '10 mm' }],
+      width: 600,
+      pixelRatio: 2,
+    });
+  });
+
+  it('MeasureImage labels an angle with degrees on the minimum-distance line, and draws no line for one entity', () => {
+    const angle = { ...MEASURED, primary: 'angle', angleDeg: 45.004, parallelDist: undefined };
+    expect(MeasureImage.annotation(angle, 2)).toEqual({ from: [0, 0, 0], to: [0, 0, 10], label: '45°' });
+    expect(MeasureImage.annotation({ entities: [MEASURED.entities[0]], primary: 'totalArea', totalArea: 12 }, 1)).toBeNull();
+    expect(MeasureImage.screenshotBody({ entities: [], primary: 'totalArea' }, {}).fitTo).toBeUndefined();
+  });
+
+  it('MeasureImage validates the image options', () => {
+    const view = (v: unknown) => (typeof v === 'object' && v && (v as any).kind === 'named' ? v as any : '`view.kind` must be one of: named.');
+    expect(MeasureImage.validate(undefined, view).ok).toBe(true);
+    expect(MeasureImage.validate({ width: 0 }, view).ok).toBe(false);
+    expect(MeasureImage.validate({ pixelRatio: 9 }, view).ok).toBe(false);
+    const badView = MeasureImage.validate({ view: { kind: 'nope' } }, view);
+    expect(badView.ok).toBe(false);
+    if (!badView.ok) {
+      expect(badView.message).toContain('`image.view.kind`');
+    }
+    expect(MeasureImage.validate({ view: { kind: 'named', name: 'top' }, width: 320, height: 240, pixelRatio: 2 }, view)).toEqual({
+      ok: true,
+      data: { view: { kind: 'named', name: 'top' }, width: 320, height: 240, pixelRatio: 2 },
+    });
+  });
+
+  it('measure without image posts once and returns the measurement alone', async () => {
+    fakePort = await measureServer();
+    writeRegistry([entry()]);
+    const result = await measure({ entities: [{ shapeId: 'sh-1', kind: 'face', index: 5 }, { shapeId: 'sh-1', kind: 'face', index: 4 }] });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect((result.data as any).image).toBeUndefined();
+    }
+    expect(lastRequest?.url).toBe('/api/measure');
+  });
+
+  it('measure with image measures, then requests the annotated screenshot, and carries the image beside the data', async () => {
+    fakePort = await measureServer();
+    writeRegistry([entry()]);
+    const result = await measure({
+      entities: [{ shapeId: 'sh-1', kind: 'face', index: 5 }, { expression: 'face().onPlane("xy", 0)' }],
+      image: { view: { kind: 'named', name: 'front' }, width: 500, height: 400 },
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    const data = result.data as any;
+    expect(data.primary).toBe('parallelDist');
+    expect(data.image.base64).toBe(ONE_PIXEL_PNG.toString('base64'));
+    expect(lastRequest?.url).toBe('/api/screenshot');
+    expect(JSON.parse(lastRequest!.body)).toEqual({
+      view: { kind: 'named', name: 'front' },
+      fitTo: 'highlight',
+      highlight: [
+        { shapeId: 'sh-1', kind: 'face', index: 5 },
+        { shapeId: 'sh-1', kind: 'face', index: 4, instanceId: 'inst-1' },
+      ],
+      annotations: [{ from: [1, 2, 0], to: [1, 2, 10], label: '10 mm' }],
+      width: 500,
+      height: 400,
+    });
+  });
+
+  it('measure with image reports a failed capture as the tool error, keeping the measurement in the details', async () => {
+    fakePort = await startFakeServer({
+      '/api/measure': () => ({ status: 200, contentType: 'application/json', body: JSON.stringify(MEASURED) }),
+      '/api/screenshot': () => ({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: 'No UI client connected.' }) }),
+    });
+    writeRegistry([entry()]);
+    const result = await measure({ entities: [{ shapeId: 'sh-1', kind: 'face', index: 5 }], image: {} });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+    expect(result.code).toBe('http-error');
+    expect(result.message).toContain('measured, but the image failed');
+    expect((result.details as any).measured.primary).toBe('parallelDist');
+  });
+
+  it('over MCP, measure with image returns the JSON text block first, then the image block', async () => {
+    fakePort = await measureServer();
+    writeRegistry([entry()]);
+
+    const server = buildServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await client.connect(clientTransport);
+    try {
+      const result = await client.callTool({
+        name: 'measure',
+        arguments: {
+          entities: [{ shapeId: 'sh-1', kind: 'face', index: 5 }, { shapeId: 'sh-1', kind: 'face', index: 4 }],
+          image: { view: { kind: 'named', name: 'iso-ftr' } },
+        },
+      });
+      const content = (result as any).content;
+      expect(content).toHaveLength(2);
+      expect(content[0].type).toBe('text');
+      const parsed = JSON.parse(content[0].text);
+      expect(parsed.primary).toBe('parallelDist');
+      expect(parsed.image).toBeUndefined();
+      expect(content[1]).toEqual({ type: 'image', data: ONE_PIXEL_PNG.toString('base64'), mimeType: 'image/png' });
+
+      const plain = await client.callTool({ name: 'screenshot', arguments: { view: { kind: 'named', name: 'top' } } });
+      expect((plain as any).content).toHaveLength(1);
+      expect((plain as any).content[0].type).toBe('image');
+    } finally {
+      await client.close();
+      await server.close();
+    }
+  });
+
+  it('the measure and screenshot tool schemas expose image, the overlays and views', async () => {
+    const server = buildServer();
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: 'test', version: '0.0.0' });
+    await client.connect(clientTransport);
+    try {
+      const { tools } = await client.listTools();
+      const byName = new Map(tools.map((t) => [t.name, t]));
+      const props = (name: string) => Object.keys((byName.get(name)!.inputSchema as any).properties ?? {});
+      expect(props('measure')).toContain('image');
+      for (const tool of ['screenshot', 'screenshot_multi', 'screenshot_shape']) {
+        for (const key of ['highlight', 'hide', 'focus', 'annotations', 'fitTo']) {
+          expect(props(tool)).toContain(key);
+        }
+      }
+      expect(props('screenshot_multi')).toContain('views');
+      expect(byName.get('screenshot_multi')!.description).toContain('iso-bbl');
     } finally {
       await client.close();
       await server.close();

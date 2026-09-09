@@ -1,7 +1,9 @@
 ---
 name: FluidCAD-from-drawing
-description: Turning a 2D engineering drawing into a parametric FluidCAD model. Use this skill whenever the user supplies a drawing, blueprint, dimension sheet, hand sketch, screenshot, PDF, or photo of a part and wants it modeled — "model this", "build this part", "make this in CAD", "here's the drawing". Trigger it alongside the FluidCAD skill any time the FluidCAD MCP tools (`mcp__fluidcad__*`) are available and the geometry is being read off a drawing rather than described in conversation.
+description: Turning a 2D engineering drawing into a parametric FluidCAD model. Use this skill whenever the user supplies a drawing, blueprint, dimension sheet, hand sketch, screenshot, PDF, or photo of a part and wants it modeled — "model this", "build this part", "make this in CAD", "here's the drawing". Trigger it alongside the FluidCAD skill any time the FluidCAD MCP tools (`mcp__FluidCAD__*`) are available and the geometry is being read off a drawing rather than described in conversation.
 ---
+
+Provenance: maintained in the FluidCAD repo (`https://github.com/Fluid-CAD/FluidCAD`), under `mcp/skills/`. The installed local skill files are the runtime source of truth.
 
 # Modeling a part from a drawing
 
@@ -154,6 +156,15 @@ From there, work down the plan's steps at the cadence the FluidCAD skill sets: o
 - **A rounded corner in a 2D view is ambiguous**: a rounded outline is usually a sketch-level fillet, an edge break is usually a 3D fillet or chamfer. They produce different geometry and different edge sets. If the view does not settle it, ask.
 - **A dimension that seems missing is implicit, not absent.** Drawings under-dimension deliberately: centerlines, symmetry marks, tangency, concentricity, and equal-spacing notes carry exact dimensional meaning. Read them as constraints and derive the value (§4 rung 2) — never conclude the sheet forgot a number, and never ask for one the geometry already fixes.
 - **Depth callouts (`↧`) meet the sign convention trap.** `extrude` takes positive along the sketch normal; `cut` takes positive *into* the material. Transcribing a depth straight from the sheet into the wrong one silently produces a feature going the wrong way.
+
+## Images without dimensions
+
+A photo, a render, a catalog picture or a sketch with no numbers is not a drawing, and the transcription contract does not apply to it. Settle two things before modeling:
+
+- **Reproduction or inspiration.** Ask once, in the same batch as any other question: does the user want this object reproduced (shape and proportions matter, a real part exists) or a part in this style (the image sets intent, the dimensions come from their use)? With no user available, treat it as inspiration, say so in the report, and keep the proportions of the image.
+- **Scale.** An image has no unit. Take the scale from one stated dimension ("it is 120 mm long") or from one known object in frame (a standard fastener, a coin, a ruler, a common connector) and derive every other length from it by proportion. Write the scale source as a single `// ASSUMPTION:` at the top of the file and every derived length as a `const` computed from it, so a corrected scale changes one number. Never read a dimension as a pixel count.
+
+Model the proportions, not the pixels: round to sensible values (a 3 mm wall, a 5 mm hole, an R2 corner), keep the plan and the increments the core skill sets, and take one comparison shot from the reference's own viewpoint: `screenshot` with a `look-from` view whose eye is on the side the photo was taken from, laid next to the image. Silhouette agreement is the check; a proportion that reads wrong there goes into a `measure` before it is changed.
 
 ## When the drawing cannot be modeled as drawn
 

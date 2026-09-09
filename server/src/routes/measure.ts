@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import type { FluidCadServer } from '../fluidcad-server.ts';
+import { MeasureEntityResolver } from '../measure-entities.ts';
+import { SelectionRequests } from './selection-requests.ts';
 
 const MAX_ENTITIES = 8;
 
@@ -28,12 +30,24 @@ export function createMeasureRouter(fluidCadServer: FluidCadServer): Router {
       res.status(400).json({ error: `entities must be an array of 1-${MAX_ENTITIES} face/edge references` });
       return;
     }
-    for (const entity of entities) {
-      const validKind = entity?.kind === 'face' || entity?.kind === 'edge';
-      const validIndex = Number.isInteger(entity?.index) && entity.index >= 0;
-      if (!entity || typeof entity.shapeId !== 'string' || !entity.shapeId || !validKind || !validIndex) {
-        res.status(400).json({ error: 'Each entity needs a shapeId, a kind (face|edge) and a non-negative index' });
-        return;
+    for (let i = 0; i < entities.length; i++) {
+      const entity = entities[i];
+      // Filter form: { expression, scope? } resolves to one face/edge before
+      // measuring; pose applies to it as to an index entity.
+      if (MeasureEntityResolver.isFilterEntity(entity)) {
+        const problem = SelectionRequests.expressionError(entity.expression, `entities[${i}].expression`)
+          ?? SelectionRequests.scopeError(entity.scope, `entities[${i}].scope`);
+        if (problem) {
+          res.status(400).json({ error: problem });
+          return;
+        }
+      } else {
+        const validKind = entity?.kind === 'face' || entity?.kind === 'edge';
+        const validIndex = Number.isInteger(entity?.index) && entity.index >= 0;
+        if (!entity || typeof entity.shapeId !== 'string' || !entity.shapeId || !validKind || !validIndex) {
+          res.status(400).json({ error: 'Each entity needs a shapeId, a kind (face|edge) and a non-negative index, or an expression (with optional scope)' });
+          return;
+        }
       }
       // Assembly entities: the owning instance, and optionally the live
       // world pose the browser-side solver put it at (else the engine
@@ -49,15 +63,19 @@ export function createMeasureRouter(fluidCadServer: FluidCadServer): Router {
     }
 
     try {
-      const result = fluidCadServer.measure(entities);
-      if (!result) {
-        res.status(404).json({ error: 'Entity not found' });
+      const outcome = fluidCadServer.measureEntities(entities);
+      if (outcome.ok === false) {
+        res.status(SelectionRequests.statusFor(outcome.code)).json({
+          error: outcome.error,
+          code: outcome.code,
+          ...(outcome.candidates ? { candidates: outcome.candidates } : {}),
+        });
         return;
       }
       // Every length in the result is in the document's unit — the kernel
       // runs in it — so the response names that unit rather than the
       // caller assuming mm.
-      res.json({ ...result, unit: fluidCadServer.getSceneUnit() });
+      res.json({ ...outcome.result, unit: fluidCadServer.getSceneUnit() });
     } catch (err: any) {
       res.status(500).json({ error: err?.message ?? String(err) });
     }

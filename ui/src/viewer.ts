@@ -23,6 +23,7 @@ import { StandardAxes, StandardAxisId } from './scene/standard-axes';
 import { SectionClipper } from './scene/section-clipper';
 import { collectPickCandidates } from './interactive/pick-candidates';
 import { captureScreenshot } from './screenshot';
+import { EntityGeometry } from './meshes/entity-geometry';
 import { findActiveObject, isSceneEmpty } from './helpers/scene-utils';
 import { expandBoxExcludingMeta, sceneGeometryBounds } from './scene/scene-geometry-bounds';
 import { filterToReferencedParts } from './scene/referenced-parts';
@@ -1560,57 +1561,12 @@ export class Viewer {
 
   private applyFaceHighlight(shapeId: string, faceIndex: number, instanceId: string | null = null): void {
     const scope = this.resolveScope(instanceId);
-    if (!scope) return;
-    scope.traverse((obj) => {
-      if (!(obj as Mesh).isMesh) {
-        return;
-      }
-      const mapping: number[] | undefined = obj.userData.faceMapping;
-      if (!mapping) {
-        return;
-      }
-
-      let belongsToShape = false;
-      let cur: Object3D | null = obj;
-      while (cur) {
-        if (cur.userData.shapeId === shapeId && !cur.userData.isMetaShape) {
-          belongsToShape = true;
-          break;
-        }
-        cur = cur.parent;
-      }
-      if (!belongsToShape) {
-        return;
-      }
-
-      const mesh = obj as Mesh;
-      const geo = mesh.geometry as BufferGeometry;
-      const indexAttr = geo.index;
-      if (!indexAttr) {
-        return;
-      }
-
-      const indices = indexAttr.array;
-      const positions = (geo.getAttribute('position').array) as Float32Array;
-      const newPositions: number[] = [];
-
-      for (let tri = 0; tri < mapping.length; tri++) {
-        if (mapping[tri] === faceIndex) {
-          const i0 = (indices[tri * 3] as number) * 3;
-          const i1 = (indices[tri * 3 + 1] as number) * 3;
-          const i2 = (indices[tri * 3 + 2] as number) * 3;
-          newPositions.push(positions[i0], positions[i0 + 1], positions[i0 + 2]);
-          newPositions.push(positions[i1], positions[i1 + 1], positions[i1 + 2]);
-          newPositions.push(positions[i2], positions[i2 + 1], positions[i2 + 2]);
-        }
-      }
-
-      if (newPositions.length === 0) {
-        return;
-      }
-
+    if (!scope) {
+      return;
+    }
+    for (const { mesh, positions } of EntityGeometry.faceTriangles(scope, shapeId, faceIndex)) {
       const overlayGeo = new BufferGeometry();
-      overlayGeo.setAttribute('position', new BufferAttribute(new Float32Array(newPositions), 3));
+      overlayGeo.setAttribute('position', new BufferAttribute(positions, 3));
 
       // No depth write, and slotted between solid faces (renderOrder 1) and
       // edge lines (renderOrder 2): edges depth-test against the pushed-back
@@ -1628,42 +1584,24 @@ export class Viewer {
       overlayMesh.renderOrder = 1.5;
       (mesh.parent ?? this.ctx.scene).add(overlayMesh);
       this.faceHighlightMeshes.push(overlayMesh);
-    });
+    }
   }
 
   private applyEdgeHighlight(shapeId: string, edgeIndex: number, instanceId: string | null = null): void {
     const scope = this.resolveScope(instanceId);
-    if (!scope) return;
-    scope.traverse((obj) => {
-      if (!(obj as LineSegments).isLine && !obj.userData.isEdgeLine) {
-        return;
-      }
-      if (obj.userData.edgeIndex !== edgeIndex) {
-        return;
-      }
-
-      let belongsToShape = false;
-      let cur: Object3D | null = obj;
-      while (cur) {
-        if (cur.userData.shapeId === shapeId && !cur.userData.isMetaShape) {
-          belongsToShape = true;
-          break;
-        }
-        cur = cur.parent;
-      }
-      if (!belongsToShape) {
-        return;
-      }
-
+    if (!scope) {
+      return;
+    }
+    for (const obj of EntityGeometry.edgeLines(scope, shapeId, edgeIndex)) {
       // Skip if already highlighted, so the saved original color isn't overwritten.
       if (obj.userData.originalColor !== undefined) {
-        return;
+        continue;
       }
       obj.userData.originalColor = (obj as any).material.color.getHex();
       (obj as any).material.color.set(themeColors.highlightColor);
       obj.userData.originalLineWidth = (obj as any).material.linewidth;
       (obj as any).material.linewidth = HIGHLIGHT_EDGE_LINE_WIDTH;
-    });
+    }
   }
 
   /**

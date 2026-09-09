@@ -16,6 +16,7 @@ import { ErrorBanner } from './ui/error-banner';
 import { LoadingOverlay } from './ui/loading-overlay';
 import { FileImporter } from './ui/file-importer';
 import { TopBar } from './ui/top-bar';
+import { ShareDialog } from './ui/share-dialog';
 import { PanelRail } from './ui/panel-rail';
 import { Navbar } from './ui/navbar';
 import { AssemblyToolbar } from './ui/assembly-toolbar';
@@ -61,7 +62,7 @@ import { ConnectorPropsEditor } from './interactive/assembly-mate/connector-prop
 import { AssemblyConnectorService } from './interactive/assembly-connector/connector-service';
 import { TextEditService } from './interactive/create-feature/text-edit-service';
 import type { ConnectorData, SceneObjectRender } from './types';
-import { ICON_LIST_TREE, ICON_TRASH } from './ui/icons';
+import { ICON_LIST_TREE, ICON_SHARE, ICON_TRASH } from './ui/icons';
 import { escapeHtml } from './ui/expression-core';
 import { applyPreferences } from './scene/viewer-settings';
 import { sceneUnit } from './units/scene-unit';
@@ -703,6 +704,16 @@ const topBar = new TopBar(container, {
     captureAssemblyThumbnail: () => viewer.captureSceneThumbnail(),
   },
   onImport: () => fileImporter.openPicker(),
+});
+
+// Share: the rendered model opens in the public viewer as a link that
+// carries its source — after the user confirms it goes public.
+const shareDialog = new ShareDialog(container);
+topBar.addAction({
+  icon: ICON_SHARE,
+  title: 'Share this model in the FluidCAD viewer',
+  label: 'Share',
+  onClick: () => shareDialog.show(currentSceneAbsPath),
 });
 
 // The panel rail on the window's left edge: one latch button per surface it

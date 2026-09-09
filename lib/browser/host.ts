@@ -9,6 +9,7 @@ import { Scene } from "../rendering/scene.js";
 import type { ExportOptions } from "../io/file-export.js";
 import type { MeasureEntityRef } from "../oc/measure/measure-types.js";
 import { installEngineNamespaces } from "./linking.js";
+import { DEFAULT_LENGTH_UNIT, parseLengthUnit, type LengthUnit } from "../units/units.js";
 import {
   VIEWER_PROTOCOL_VERSION,
   type BrowserObjectBuildError,
@@ -18,6 +19,38 @@ import {
 } from "./types.js";
 
 type SceneManagerInstance = ReturnType<typeof createManager>;
+
+/** The project descriptor the desktop reads at a workspace root; a share link ships `{ "unit" }` of it. */
+const PROJECT_CONFIG_FILENAME = "fluidcad.json";
+
+/**
+ * The project unit for one workspace install — see {@link BrowserEngineHost.setWorkspace}.
+ * Exported for tests; hosts go through setWorkspace().
+ */
+export function resolveWorkspaceUnit(
+  explicit: string | null | undefined,
+  projectConfig: Uint8Array | undefined,
+  fallback: LengthUnit,
+): LengthUnit {
+  if (explicit !== undefined && explicit !== null) {
+    try {
+      return parseLengthUnit(explicit);
+    } catch {
+      return fallback;
+    }
+  }
+  if (projectConfig) {
+    try {
+      const parsed = JSON.parse(new TextDecoder().decode(projectConfig)) as { unit?: unknown };
+      if (parsed && typeof parsed === "object" && parsed.unit !== undefined && parsed.unit !== null) {
+        return parseLengthUnit(parsed.unit);
+      }
+    } catch {
+      // Not JSON, or not a length unit: the desktop warns and uses mm; here the boot unit stands in.
+    }
+  }
+  return fallback;
+}
 
 /** Mirrors the server's detectKind (file-kind.ts): the suffix names the scene kind. */
 export function detectSceneKind(entryPath: string): BrowserSceneKind {
@@ -51,6 +84,8 @@ export class BrowserEngineHost {
   private lastBreakpointHit = false;
   private lastRollbackStop = -1;
   private entryPath = "/model.fluid.js";
+  /** The project unit init() booted with — what a workspace without its own `fluidcad.json` follows. */
+  private bootUnit: LengthUnit = DEFAULT_LENGTH_UNIT;
 
   static engineInfo(): EngineInfo {
     const version = (globalThis as { __FLUIDCAD_VERSION__?: string }).__FLUIDCAD_VERSION__;
@@ -59,24 +94,36 @@ export class BrowserEngineHost {
 
   /**
    * Boot the kernel (OCJS + fonts + scene manager) and expose the linking
-   * namespaces. A hub host seeds `options.unit` from the package manifest's
-   * `unit` (schemaVersion 3; absent on older packages → mm): the browser has
-   * no `fluidcad.json` to read, so this is the only way the project unit
-   * reaches the engine, and `BrowserRenderResult.unit` then reports what the
+   * namespaces. `options.unit` is the project unit a workspace without its
+   * own `fluidcad.json` follows (a hub host seeds it from the package
+   * manifest); absent → mm. Each {@link setWorkspace} may refine it from the
+   * workspace itself, and `BrowserRenderResult.unit` then reports what the
    * viewer should display in.
    */
   async init(options?: FluidCADOptions): Promise<EngineInfo> {
     installEngineNamespaces();
     this.manager = await init(options);
+    this.bootUnit = this.manager.projectUnit;
     return BrowserEngineHost.engineInfo();
   }
 
   /**
    * Install the model's workspace: asset bytes served through the existing
-   * AssetProvider hook (imports, workspace fonts), and the entry path used
-   * for setCurrentFile. Text values are encoded as UTF-8.
+   * AssetProvider hook (imports, workspace fonts), the entry path used for
+   * setCurrentFile, and the project unit — what a file without a `unit()`
+   * statement, and every assembly, is measured in. Resolved the way the
+   * desktop resolves it, without a filesystem: `options.unit` (a package
+   * manifest's unit) wins, else the workspace's own `fluidcad.json`
+   * (`{ "unit": "in" }`, as a share link carries it), else the unit init()
+   * booted with, which is mm unless the host said otherwise. A
+   * `fluidcad.json` whose unit is not a length unit is ignored, matching the
+   * desktop's "use mm" fallback. Text values are encoded as UTF-8.
    */
-  setWorkspace(files: Record<string, string | Uint8Array>, entryPath: string): void {
+  setWorkspace(
+    files: Record<string, string | Uint8Array>,
+    entryPath: string,
+    options?: { unit?: string | null },
+  ): void {
     this.entryPath = entryPath.startsWith("/") ? entryPath : "/" + entryPath;
     const encoder = new TextEncoder();
     const bytes = new Map<string, Uint8Array>();
@@ -85,6 +132,9 @@ export class BrowserEngineHost {
       bytes.set(key, typeof content === "string" ? encoder.encode(content) : content);
     }
     setAssetProvider((relPath) => bytes.get(relPath) ?? null);
+    if (this.manager) {
+      this.manager.projectUnit = resolveWorkspaceUnit(options?.unit, bytes.get(PROJECT_CONFIG_FILENAME), this.bootUnit);
+    }
   }
 
   /** Swap in a newly compiled model module. The next render() evaluates it. */

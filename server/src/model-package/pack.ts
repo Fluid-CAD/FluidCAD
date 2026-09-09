@@ -1,11 +1,11 @@
-import { build, type Plugin } from 'esbuild';
+import { build } from 'esbuild';
 import { readFile, readdir, stat } from 'fs/promises';
 import { existsSync } from 'fs';
 import { basename, extname, join, relative } from 'path';
 import JSZip from 'jszip';
 import ignoreFactory, { type Ignore } from 'ignore';
 import { normalizePath } from '../normalize-path.ts';
-import { getBlockedNodeModule } from '../host/blocked-imports.ts';
+import { blockNodeBuiltinsPlugin } from './esbuild-plugins.ts';
 import { isScriptPath, readDeclaredUnit } from '../file-unit.ts';
 import { readProjectConfig, type LengthUnit } from '../project-config.ts';
 import type { ParamDefinition } from '../../../lib/dist/index.js';
@@ -53,27 +53,6 @@ export interface PackResult {
  * defence the LocalSceneHost applies at SSR transform time; here it runs
  * at pack time so the produced bundle is verified before it ships.
  */
-function blockNodeBuiltinsPlugin(): Plugin {
-  return {
-    name: 'block-node-builtins',
-    setup(b) {
-      b.onResolve({ filter: /.*/ }, (args) => {
-        const blocked = getBlockedNodeModule(args.path);
-        if (!blocked) return null;
-        return {
-          errors: [
-            {
-              text:
-                `Module "${args.path}" is not allowed in FluidCAD scripts. ` +
-                `Access to Node.js "${blocked}" module is restricted for security.`,
-            },
-          ],
-        };
-      });
-    },
-  };
-}
-
 /**
  * Bundle the model into a single ES module via a virtual wrapper. When
  * `init.js` exists it runs FIRST (its side effects set up the engine) and

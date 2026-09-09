@@ -353,6 +353,27 @@ export type TextPreviewRequest = {
 };
 
 /** Sorted system font family names, or [] when the lookup fails. */
+/** The rendered model's source tree for a viewer link — see the server's share route. */
+export interface ShareFiles {
+  fluidcadVersion: string;
+  entry: string;
+  files: Record<string, string>;
+}
+
+/**
+ * The currently rendered model as a viewer link carries it. Throws with the
+ * server's reason when the model cannot travel by link (no scene, an npm
+ * import, a file outside the workspace) — the share dialog shows it.
+ */
+export async function getShareFiles(): Promise<ShareFiles> {
+  const res = await fetch('/api/share-files');
+  const body = (await res.json().catch(() => null)) as (ShareFiles & { error?: string }) | null;
+  if (!res.ok || !body) {
+    throw new Error(body?.error ?? `Share failed (${res.status})`);
+  }
+  return body;
+}
+
 export async function getFontFamilies(): Promise<string[]> {
   const data = await getJson<{ families: string[] }>('/api/fonts');
   return data?.families ?? [];

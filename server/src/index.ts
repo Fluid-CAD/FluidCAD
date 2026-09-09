@@ -22,6 +22,7 @@ import { createEditorRouter, DirtyBufferState } from './routes/editor.ts';
 import { createRenderRouter, type RenderOutcome } from './routes/render.ts';
 import { createLintRouter } from './routes/lint.ts';
 import { createPackRouter } from './routes/pack.ts';
+import { createShareRouter } from './routes/share.ts';
 import { createPartCatalogRouter } from './routes/part-catalog.ts';
 import { createInstancePoseRouter } from './routes/instance-pose.ts';
 import { createAssemblyMateRouter } from './routes/assembly-mate.ts';
@@ -154,6 +155,7 @@ app.use('/api', createTimelineRouter(fluidCadServer, sendToHost, broadcastToUI, 
 app.use('/api', createSketchEditsRouter(fluidCadServer, sendToHost, WORKSPACE_PATH, editDispatcher));
 app.use('/api', createApplyFeatureRouter(fluidCadServer, sendToHost, { dispatcher: editDispatcher }));
 app.use('/api', createExportRouter(fluidCadServer, WORKSPACE_PATH));
+app.use('/api', createShareRouter(fluidCadServer, WORKSPACE_PATH, PACKAGE_VERSION));
 app.use('/api', createScreenshotRouter(requestScreenshot));
 app.use('/api', createPreferencesRouter());
 app.use('/api', createSceneRouter(fluidCadServer, getLastCameraState));

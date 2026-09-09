@@ -3,6 +3,7 @@
 
 import { describe, it, expect } from "vitest";
 import { BrowserEngineHost, ENGINE_NAMESPACE_SPECIFIERS, engineShimModuleSource } from "../../browser/index.js";
+import { resolveWorkspaceUnit } from "../../browser/host.js";
 import { unit, sketch, extrude } from "../../core/index.js";
 import { testRect } from "../helpers/profiles.js";
 
@@ -36,6 +37,37 @@ describe("BrowserEngineHost unit field", () => {
     expect(rolled?.unit).toBe("mm");
     expect(rolled?.declaredUnit).toBeNull();
     expect(rolled?.projectUnit).toBe("mm");
+  });
+
+  it("follows the workspace's fluidcad.json when it names a unit", async () => {
+    host.setWorkspace({ "model.fluid.js": "", "fluidcad.json": '{ "unit": "in" }' }, "model.fluid.js");
+    host.setModuleEvaluator(async () => {
+      sketch("xy", () => { testRect(1, 1); });
+      extrude(0.5);
+      return {};
+    });
+    const outcome = await host.render();
+    expect(outcome.compileError).toBeNull();
+    expect(outcome.projectUnit).toBe("in");
+    expect(outcome.declaredUnit).toBeNull();
+    expect(outcome.unit).toBe("in");
+    expect((outcome.result[0] as { unit?: string }).unit).toBe("in");
+
+    // The next workspace without a descriptor goes back to the boot unit.
+    host.setWorkspace({ "model.fluid.js": "" }, "model.fluid.js");
+    expect((await host.render()).projectUnit).toBe("mm");
+  });
+
+  it("resolves the project unit: explicit option, then fluidcad.json, then the boot unit", () => {
+    const enc = (text: string) => new TextEncoder().encode(text);
+    expect(resolveWorkspaceUnit("cm", enc('{ "unit": "in" }'), "mm")).toBe("cm");
+    expect(resolveWorkspaceUnit("inches", undefined, "mm")).toBe("in");
+    expect(resolveWorkspaceUnit(undefined, enc('{ "unit": "ft", "engine": "0.0.42" }'), "mm")).toBe("ft");
+    expect(resolveWorkspaceUnit(null, enc('{ "engine": "0.0.42" }'), "cm")).toBe("cm");
+    expect(resolveWorkspaceUnit(undefined, enc('{ "unit": "furlong" }'), "mm")).toBe("mm");
+    expect(resolveWorkspaceUnit(undefined, enc("not json"), "mm")).toBe("mm");
+    expect(resolveWorkspaceUnit("furlong", undefined, "mm")).toBe("mm");
+    expect(resolveWorkspaceUnit(undefined, undefined, "m")).toBe("m");
   });
 
   it("carries the unit on the compile-error path", async () => {

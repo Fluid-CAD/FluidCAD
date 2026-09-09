@@ -1,11 +1,17 @@
 import {IconCube} from '@tabler/icons-react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
-import {useViewerLink} from './viewer-link';
+import {useViewerLink, type ViewerFiles} from './viewer-link';
 import styles from './OpenInViewer.module.css';
 
 type OpenInViewerProps = {
   /** Raw .fluid.js source, typically imported via `!!raw-loader!`. */
   code?: string;
+  /**
+   * A multi-file model: file name (path inside the source tree) → source,
+   * names preserved in the link so imports between files resolve. Wins over
+   * `code`; `entry` names the file to render first.
+   */
+  files?: ViewerFiles;
   /** Filename shown in the viewer's timeline; the tutorial's suggested name. */
   entry?: string;
   /** Id of a package in the viewer's package store (`/m/<id>`); wins over `code`. */
@@ -14,13 +20,13 @@ type OpenInViewerProps = {
   label?: string;
 };
 
-export function OpenInViewer({code, entry, packageId, label}: OpenInViewerProps) {
+export function OpenInViewer({code, files, entry, packageId, label}: OpenInViewerProps) {
   const {siteConfig} = useDocusaurusContext();
   const {fluidcadViewerUrl} = siteConfig.customFields as {
     fluidcadViewerUrl: string;
   };
-  const codeHref = useViewerLink(code ?? '', entry);
-  const href = packageId ? `${fluidcadViewerUrl}/m/${packageId}` : code ? codeHref : null;
+  const codeHref = useViewerLink(files ?? code ?? '', entry);
+  const href = packageId ? `${fluidcadViewerUrl}/m/${packageId}` : files || code ? codeHref : null;
 
   return (
     <a

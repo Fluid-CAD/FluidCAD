@@ -2,12 +2,18 @@ import {useEffect, useRef, useState} from 'react';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import {IconPlayerPlayFilled} from '@tabler/icons-react';
-import {useViewerLink} from './viewer-link';
+import {useViewerLink, type ViewerFiles} from './viewer-link';
 import styles from './ViewerEmbed.module.css';
 
 type ViewerEmbedProps = {
   /** Raw .fluid.js source, typically imported via `!!raw-loader!`. */
   code?: string;
+  /**
+   * A multi-file model: file name (path inside the source tree) → source,
+   * names preserved in the link so imports between files resolve. Wins over
+   * `code`; `entry` names the file to render first.
+   */
+  files?: ViewerFiles;
   /** Filename shown in the viewer's timeline; the tutorial's suggested name. */
   entry?: string;
   /**
@@ -38,13 +44,13 @@ type ViewerEmbedProps = {
  * (e.g. Safari, which lacks COEP: credentialless), the facade stays static
  * and play opens the viewer in a new tab.
  */
-export function ViewerEmbed({code, entry, packageId, poster, alt}: ViewerEmbedProps) {
+export function ViewerEmbed({code, files, entry, packageId, poster, alt}: ViewerEmbedProps) {
   const {siteConfig} = useDocusaurusContext();
   const {fluidcadViewerUrl} = siteConfig.customFields as {
     fluidcadViewerUrl: string;
   };
-  const codeHref = useViewerLink(code ?? '', entry);
-  const href = packageId ? `${fluidcadViewerUrl}/m/${packageId}` : code ? codeHref : null;
+  const codeHref = useViewerLink(files ?? code ?? '', entry);
+  const href = packageId ? `${fluidcadViewerUrl}/m/${packageId}` : files || code ? codeHref : null;
   const posterUrl = useBaseUrl(poster ?? '');
   const frameRef = useRef<HTMLIFrameElement>(null);
   const [isolated, setIsolated] = useState(false);

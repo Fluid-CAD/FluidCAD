@@ -4,6 +4,9 @@ title: "Chamfer"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import chamferBefore from '!!raw-loader!./_examples/chamfer-before.js';
 import chamferBasic from '!!raw-loader!./_examples/chamfer-basic.js';
 import chamferAsymmetric from '!!raw-loader!./_examples/chamfer-asymmetric.js';
 
@@ -13,13 +16,32 @@ Chamfer bevels edges with a flat cut — the angled transition machinists put on
 
 ## In the viewport
 
-1. Click **Chamfer** on the toolbar. A small panel opens with one field, **Distance** (default 1).
-2. Click the edges in the viewport. <kbd>Ctrl</kbd> / <kbd>Shift</kbd> adds edges; right-click a pick for the multi-select menu (tangent chain, same-type edges, the feature's buckets such as *Extrude End Edges*, *Select other*).
-3. Type the distance. The statement is written with the resolved selection.
+1. Click **Chamfer** on the toolbar. A small panel opens beside the model.
+2. Click the edges to bevel. <kbd>Ctrl</kbd> / <kbd>Shift</kbd> adds edges, a double-click takes the whole bucket an edge belongs to, and a right-click opens the multi-select menu (tangent chain, same-type edges, the feature's buckets such as *Extrude End Edges*, *Select other*).
+3. Type the distance and click **Apply**.
 
-![Basic chamfer](/img/docs/3d-operations/chamfer-basic.png)
+<UiFigure
+  src="/img/docs/ui/chamfer-dialog.png"
+  alt="The Chamfer panel with four edges picked and a distance of 3"
+  markers={[
+    {n: 1, x: 5, y: 15, label: 'Selection', description: 'The edges to bevel. The count beside the label is how many you have picked; the ✕ on a chip drops that pick, and clicking a picked edge again drops it too.'},
+    {n: 2, x: 5, y: 35, label: 'The chips', description: 'One per edge, in pick order. A whole bucket of one feature is written as an accessor like e.endEdges(); anything else becomes a select() with an edge filter. Picking a face instead bevels every edge of that face.'},
+    {n: 3, x: 5, y: 64, label: 'Chamfer type', description: 'Equal distance cuts the same amount on both faces. Two distances takes one value per face, and Distance + angle takes a distance and the angle to cut it at.'},
+    {n: 4, x: 5, y: 79, label: 'Distance', description: 'How far back the bevel cuts, measured on the face. A number, an expression, or a parameter name.'},
+    {n: 5, x: 5, y: 92, label: 'Apply', description: 'Writes the statement and adds the timeline row; Exit writes nothing.'},
+  ]}
+/>
 
-<ExplainedCode code={chamferBasic} fileName="box.part.js" />
+## From sharp to bevelled
+
+<ModeTable columns={[
+  {title: 'Before', code: 'extrude(30)', image: '/img/docs/3d-operations/chamfer-before.png', description: 'A 100 × 60 × 30 plate straight out of the extrude, every edge sharp.'},
+  {title: 'After', code: 'chamfer(3, …)', image: '/img/docs/3d-operations/chamfer-basic.png', description: 'A 3 × 3 flat cut around the four top edges — the bevel a machinist would break the edge with.'},
+]} />
+
+<ExplainedCode code={chamferBefore} fileName="box.part.js" title="The plate" />
+
+<ExplainedCode code={chamferBasic} title="The complete file" />
 
 ## Asymmetric chamfer
 

@@ -4,6 +4,9 @@ title: "Rib"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import ribBefore from '!!raw-loader!./_examples/rib-before.js';
 import ribBasic from '!!raw-loader!./_examples/rib-basic.js';
 import ribExtend from '!!raw-loader!./_examples/rib-extend.js';
 import ribParallel from '!!raw-loader!./_examples/rib-parallel.js';
@@ -20,16 +23,36 @@ Rib turns an open sketch line (the spine) into a wall of a given thickness that 
 ## In the viewport
 
 1. Sketch the spine — an open line or chain, usually on the face the rib should stand on, or on a plane through the cavity — and click **Rib** on the toolbar.
-2. The Rib dialog:
-   - **Spine sketch**, filled with the last sketch.
-   - The wall **thickness**, centred on the spine.
-   - **Parallel** (grow in the sketch plane instead of normal to it), **Extend** (push the spine's ends out to the surrounding walls) and **Draft** angle.
-   - **Scope** — which solids the rib conforms to and fuses with.
+2. Fill in the dialog. A green ghost shows the wall while you type.
 3. Click **Apply**.
 
-![Basic rib](/img/docs/3d-operations/rib-basic.png)
+<UiFigure
+  src="/img/docs/ui/rib-dialog.png"
+  alt="The Rib dialog with a spine sketch, a thickness of 5 and a 2° draft"
+  markers={[
+    {n: 1, x: 5, y: 14, label: 'Add / Remove / New', description: 'Add fuses the rib with the solid it grows into — the usual choice. New keeps it separate; pair that with a Scope so the rib still has walls to conform to.'},
+    {n: 2, x: 5, y: 27, label: 'Spine sketch', description: 'The open line or chain the wall is built on, filled with the last sketch. One line is enough — the rib finds the surrounding walls by itself.'},
+    {n: 3, x: 5, y: 40, label: 'Thickness', description: 'The wall thickness, centred on the spine. The sign picks the growth direction: positive grows opposite the sketch normal (into the cavity when the sketch sits on a top face), negative grows along it.'},
+    {n: 4, x: 5, y: 47, label: 'Parallel to sketch plane', description: 'Flips the growth from "perpendicular to the sketch plane" to "in the plane, perpendicular to the spine" — the natural way to draw a rib from its side profile.'},
+    {n: 5, x: 5, y: 53, label: 'Extend to walls', description: 'Pushes both ends of the spine outward until they blend into the surrounding walls, so a short line still gives a rib that terminates cleanly.'},
+    {n: 6, x: 5, y: 65, label: 'Draft angle', description: 'Tapers the rib — positive narrows it toward its tip. Only the long wall faces taper; the caps at the spine ends stay vertical.'},
+    {n: 7, x: 5, y: 81, label: 'Scope', description: 'Which solids the rib conforms to and fuses with. All considers every solid in the scene.'},
+    {n: 8, x: 5, y: 93, label: 'Apply', description: 'Writes the statement and adds the timeline row; Exit writes nothing.'},
+  ]}
+/>
 
-<ExplainedCode code={ribBasic} fileName="tray.part.js" />
+## From one line to a wall
+
+The rib is the only feature that takes an open sketch and works out its own extent:
+
+<ModeTable columns={[
+  {title: 'Before', code: 'a spine line', image: '/img/docs/3d-operations/rib-before.png', description: 'A shelled housing and a single 30 mm line drawn on its top face, from the wall inward. That line is the whole input.'},
+  {title: 'After', code: 'rib(5).draft(2)', image: '/img/docs/3d-operations/rib-basic.png', description: 'A 5-thick wall centred on the line, grown down into the cavity until it meets the floor and the side wall, with a 2° draft.'},
+]} />
+
+<ExplainedCode code={ribBefore} fileName="tray.part.js" title="The housing and the spine" />
+
+<ExplainedCode code={ribBasic} title="The complete file" />
 
 The first argument is the wall thickness. The rib is centred on the spine, extruded perpendicular to the sketch plane, and trimmed to the surrounding cavity.
 

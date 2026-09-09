@@ -5,6 +5,8 @@ title: "Extrude"
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
 import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import extrudeBasicBefore from '!!raw-loader!./_examples/extrude-basic-before.js';
 import extrudeBasic from '!!raw-loader!./_examples/extrude-basic.js';
 import extrudeSymmetric from '!!raw-loader!./_examples/extrude-symmetric.js';
 import extrudeDraft from '!!raw-loader!./_examples/extrude-draft.js';
@@ -12,13 +14,13 @@ import extrudeRegionPick from '!!raw-loader!./_examples/extrude-region-pick.js';
 import extrudeToFace from '!!raw-loader!./_examples/extrude-to-face.js';
 import extrudeToFaceBlend from '!!raw-loader!./_examples/extrude-to-face-blend.js';
 import extrudeToFirstFace from '!!raw-loader!./_examples/extrude-to-first-face.js';
-import extrudeToFirstFaceCylindrical from '!!raw-loader!./_examples/extrude-to-first-face-cylindrical.js';
 import extrudeThin from '!!raw-loader!./_examples/extrude-thin.js';
 import extrudeThinDual from '!!raw-loader!./_examples/extrude-thin-dual.js';
 import extrudeThinOpen from '!!raw-loader!./_examples/extrude-thin-open.js';
 import extrudeThinOpenDual from '!!raw-loader!./_examples/extrude-thin-open-dual.js';
 import cutBasic from '!!raw-loader!./_examples/cut-basic.js';
 import cutThrough from '!!raw-loader!./_examples/cut-through.js';
+import extrudeScopeBefore from '!!raw-loader!./_examples/extrude-scope-before.js';
 import extrudeScopeAdd from '!!raw-loader!./_examples/extrude-scope-add.js';
 import extrudeThinAdd from '!!raw-loader!./_examples/extrude-thin-add.js';
 
@@ -29,17 +31,37 @@ Extrude pulls a closed sketch profile along the sketch plane's normal into a sol
 ## In the viewport
 
 1. Finish a sketch (or select an existing sketch row in the timeline) and click **Extrude** on the toolbar. Finishing a sketch also offers Extrude directly from the green **Finish sketch** button.
-2. The Extrude dialog docks on the right:
-   - **Add / Remove / New** tabs choose what the new material does to the model (see [Add, New and Remove](#add-new-and-remove)).
-   - **Profile** is the sketch being extruded. It is filled with the last sketch; click another sketch in the timeline, or its wires in the viewport, to change it.
-   - **Direction**: **One direction**, **Symmetric**, **Two distances**, or **Up to face** (a picked face, the *first face* or the *last face* the extrusion meets).
-   - **Distance** (or **Depth** on the Remove tab, where **Through all** is also offered) takes a number, an expression, or a parameter name. You can also drag the ghost in the viewport to set it.
-   - **Draft** angle, end **Offset**, the **Drill holes** toggle (nested profiles become holes), and **Thin** with its wall thickness.
-3. A translucent ghost previews the result while you edit. Click **Apply**: the timeline gains an Extrude row and the statement is written to the file.
+2. Fill in the dialog. A translucent ghost previews the result while you edit, and the statement being written shows under the dialog.
+3. Click **Apply**: the timeline gains an Extrude row and the statement is written to the file.
 
-![Basic extrude](/img/docs/3d-operations/extrude-basic.png)
+<UiFigure
+  src="/img/docs/ui/extrude-dialog.png"
+  alt="The Extrude dialog on the Add tab with a sketch picked and a distance of 30"
+  markers={[
+    {n: 1, x: 5, y: 11, label: 'Add / Remove / New', description: 'What the new material does to the solids already in the scene. Add fuses, New keeps it separate, Remove cuts it away — see Add, New and Remove below.'},
+    {n: 2, x: 5, y: 21, label: 'Sketch', description: 'The profile being extruded, filled with the last sketch. Click another sketch in the timeline, or its wires in the viewport, to change it. The grey number is the line the sketch was made on; the arrow jumps there.'},
+    {n: 3, x: 5, y: 32, label: 'Direction', description: 'One direction, Symmetric, Two distances, or Up to face — a picked face, the first face or the last face the extrusion meets.'},
+    {n: 4, x: 5, y: 42, label: 'Distance', description: 'A number, an expression, or a parameter name. Dragging the ghost in the viewport sets it too. On the Remove tab this becomes Depth, with a Through all toggle beside it.'},
+    {n: 5, x: 5, y: 52, label: 'Draft angle', description: 'Tapers the walls as the extrusion rises. Positive angles pull them inward, negative angles flare them out.'},
+    {n: 6, x: 5, y: 62, label: 'End offset', description: 'Shifts the end face further along the extrusion direction — handy when the distance comes from a face or a parameter and you need a little more.'},
+    {n: 7, x: 5, y: 70, label: 'Drill holes / Thin walls', description: 'Drill holes (on by default) treats profiles nested inside others as holes. Thin walls replaces the filled profile with a wall of the thickness you then type.'},
+    {n: 8, x: 5, y: 85, label: 'Scope', description: 'Which solids the Add or Remove applies to. Left as All it touches everything it meets; pick solids to narrow it.'},
+    {n: 9, x: 5, y: 94, label: 'Apply', description: 'Writes the statement and adds the timeline row. Exit closes the dialog and writes nothing.'},
+  ]}
+/>
 
-<ExplainedCode code={extrudeBasic} fileName="box.part.js" />
+## From sketch to solid
+
+A rectangle on the ground plane, pulled up 30:
+
+<ModeTable columns={[
+  {title: 'Before', code: 'the sketch', image: '/img/docs/3d-operations/extrude-basic-before.png', description: 'A closed, fully constrained 100 × 60 rectangle. Nothing solid yet.'},
+  {title: 'After', code: 'extrude(30)', image: '/img/docs/3d-operations/extrude-basic.png', description: 'The same profile pulled 30 along the plane normal (+Z for the top plane) — a 100 × 60 × 30 plate.'},
+]} />
+
+<ExplainedCode code={extrudeBasicBefore} fileName="box.part.js" title="The sketch" />
+
+<ExplainedCode code={extrudeBasic} title="The complete file" />
 
 Everything the dialog can do is a chained method on the statement it writes. The sections below go through the dialog controls one by one and show the code each one produces.
 
@@ -65,33 +87,38 @@ Type an angle in the **Draft** field. Positive angles taper the walls inward as 
 
 Choose **Up to face** under **Direction** and click the face the extrusion should stop at. The **Distance** field is replaced by a face pick slot.
 
-![Extrude to face](/img/docs/3d-operations/extrude-to-face.png)
+The extrusion always travels along the sketch plane's normal, so the face has to be on that side of the sketch. The front plane's normal points along −Y, for example, so a boss sketched on it runs toward negative Y and can only reach faces that lie that way.
 
-<ExplainedCode code={extrudeToFace}>
-The face is written as a `select()` with a face filter, so the reference survives re-renders. The extrusion stops exactly where it meets that face.
+![Extrude up to a picked face](/img/docs/3d-operations/extrude-to-face.png)
+
+<ExplainedCode code={extrudeToFace} fileName="boss.part.js">
+The face is written as a `select()` with a face filter, so the reference survives re-renders. The boss stops exactly where it meets that face — change the wall's position and the boss follows.
 </ExplainedCode>
 
 ### Blending with non-planar faces
 
-When the target face is angled or curved (a drafted wall, a cylinder), the end of the extrusion takes the shape of the face:
+When the target face is curved, the end of the extrusion takes the shape of that surface instead of staying flat. A square bracket run into a round pipe comes out saddled around it:
 
-![Extrude to face with blending](/img/docs/3d-operations/extrude-to-face-blend.png)
+<ModeTable columns={[
+  {title: 'Before', code: 'a flat rectangle', image: '/img/docs/3d-operations/extrude-to-face-blend-before.png', description: 'A Ø80 pipe, and a flat 60 × 80 rectangle sketched on the front plane facing it.'},
+  {title: 'After', code: 'extrude(pipeWall)', image: '/img/docs/3d-operations/extrude-to-face-blend.png', description: 'The bracket runs up to the pipe and its end face becomes a slice of the pipe\'s cylinder, so the two blend instead of clipping through each other.'},
+]} />
 
-<ExplainedCode code={extrudeToFaceBlend} />
+<ExplainedCode code={extrudeToFaceBlend} fileName="bracket.part.js" />
 
 ### First and last face
 
-**Up to face** also offers **first face** and **last face**: the nearest or the farthest face the extrusion runs into along its direction, without picking anything.
+**Up to face** also offers **first face** and **last face**: the nearest or the farthest face the extrusion runs into along its direction, with nothing to pick. Both walk along the sketch normal, so the same sketch gives two different lengths depending on which you choose:
 
-![Extrude to first face](/img/docs/3d-operations/extrude-to-first-face.png)
+<ModeTable columns={[
+  {title: 'Before', code: 'two walls', image: '/img/docs/3d-operations/extrude-to-first-face-before.png', description: 'Two walls, 80 mm and 180 mm in front of the origin, and a Ø40 rod profile on the front plane pointing at them.'},
+  {title: 'First face', code: "extrude('first-face')", image: '/img/docs/3d-operations/extrude-to-first-face.png', description: 'The rod stops at the near wall — the first face it meets.'},
+  {title: 'Last face', code: "extrude('last-face')", image: '/img/docs/3d-operations/extrude-to-last-face.png', description: 'The rod runs through the near wall, crosses the gap and ends at the back of the far wall — the last face it meets.'},
+]} />
 
-<ExplainedCode code={extrudeToFirstFace} />
-
-With a cylindrical target the end blends to the curved surface:
-
-![Extrude to first face — cylindrical](/img/docs/3d-operations/extrude-to-first-face-cylindrical.png)
-
-<ExplainedCode code={extrudeToFirstFaceCylindrical} />
+<ExplainedCode code={extrudeToFirstFace} fileName="rod.part.js" title="The first-face column's code">
+The last-face column changes only the highlighted line, to `extrude('last-face')`.
+</ExplainedCode>
 
 :::note
 Up to face, first face and last face currently work with **planar and cylindrical** target faces only.
@@ -99,20 +126,27 @@ Up to face, first face and last face currently work with **planar and cylindrica
 
 ## Add, New and Remove
 
-The three tabs at the top of the dialog decide how the extrusion meets the solids already in the scene. The pictures below use the same mounting plate and the same Ø30 circle on its top face; only the tab changes.
+The three tabs at the top of the dialog decide how the extrusion meets the solids already in the scene. The pictures below all start from the same place — a 60 mm cube with a Ø50 circle sketched on its right-hand face:
+
+![A cube with a Ø50 circle sketched on its right-hand face](/img/docs/3d-operations/extrude-scope-before.png)
+
+<ExplainedCode code={extrudeScopeBefore} fileName="cube.part.js" title="The starting point" />
+
+Only the tab changes between the three results:
 
 <ModeTable columns={[
-  {title: 'Add', code: 'extrude(8)', image: '/img/docs/3d-operations/extrude-scope-add.png', description: 'The default. A locating boss fused with the plate — one body.'},
-  {title: 'New', code: 'extrude(8).new()', image: '/img/docs/3d-operations/extrude-scope-new.png', description: 'A spacer resting on the plate as a separate body. It looks the same, but the Shapes panel lists two solids and later features on the plate leave it alone.'},
-  {title: 'Remove', code: 'cut(8)', image: '/img/docs/3d-operations/extrude-scope-remove.png', description: 'A round pocket cut into the plate. The Distance field becomes a Depth, and the extrusion goes into the solid rather than away from it.'},
+  {title: 'Add', code: 'extrude(40)', image: '/img/docs/3d-operations/extrude-scope-add.png', description: 'A Ø50 rod grows out of the face and fuses with the cube — one body, no seam where they meet.'},
+  {title: 'New', code: 'extrude(40).new()', image: '/img/docs/3d-operations/extrude-scope-new.png', description: 'The same rod, kept separate. It looks alike, but the Shapes panel lists two solids and later features on the cube leave the rod alone.'},
+  {title: 'Remove', code: 'cut(40)', image: '/img/docs/3d-operations/extrude-scope-remove.png', description: 'The rod\'s volume is bored out of the cube instead — a Ø50 hole, 40 deep.'},
 ]} />
 
 <ExplainedCode code={extrudeScopeAdd} title="The Add column's code">
-The New column ends the highlighted line with `.new()`; the Remove column replaces it with `cut(8)`. Everything above the highlighted line is identical in the three files.
+The New column ends the highlighted line with `.new()`; the Remove column replaces it with `cut(40)`. Everything above the highlighted line is identical in the three files.
 </ExplainedCode>
 
-Two things to know about the Remove tab:
+Three things to know about the Remove tab:
 
+- It cuts **into** the material — the depth runs opposite the sketch plane's normal, the way a drill entering the face you sketched on does. Add and New go the other way, out along the normal.
 - The dialog writes `cut()`. It is the same feature as `extrude().remove()`, and both accept every modifier on this page (symmetric, draft, thin, up to face, region picking).
 - **Through all** replaces the depth with "as far as the solid goes" — `cut()` with no argument.
 
@@ -153,12 +187,12 @@ extrude(30).thin(-5)   // 5 units inward
 
 ### Thin in the three modes
 
-Thin combines with every tab. Same plate, same circle, **Thin** on with a thickness of 3:
+Thin combines with every tab. Same cube, same circle on its right-hand face, **Thin** on with a thickness of 3:
 
 <ModeTable columns={[
-  {title: 'Add', code: 'extrude(8).thin(3)', image: '/img/docs/3d-operations/extrude-thin-add.png', description: 'A ring wall — a locating collar — rises from the circle and fuses with the plate.'},
-  {title: 'New', code: 'extrude(8).thin(3).new()', image: '/img/docs/3d-operations/extrude-thin-new.png', description: 'The same ring as a body of its own — a spacer ring.'},
-  {title: 'Remove', code: 'cut(8).thin(3)', image: '/img/docs/3d-operations/extrude-thin-remove.png', description: 'A seal groove, 3 wide and 8 deep, along the circle.'},
+  {title: 'Add', code: 'extrude(40).thin(3)', image: '/img/docs/3d-operations/extrude-thin-add.png', description: 'A tube instead of a rod — a spigot fused with the cube.'},
+  {title: 'New', code: 'extrude(40).thin(3).new()', image: '/img/docs/3d-operations/extrude-thin-new.png', description: 'The same tube as a body of its own.'},
+  {title: 'Remove', code: 'cut(40).thin(3)', image: '/img/docs/3d-operations/extrude-thin-remove.png', description: 'Only the wall is cut — a 3-wide ring groove 40 deep, with the core left standing.'},
 ]} />
 
 <ExplainedCode code={extrudeThinAdd} title="The Add column's code" />

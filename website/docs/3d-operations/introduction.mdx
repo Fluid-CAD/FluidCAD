@@ -32,11 +32,11 @@ Every material-making dialog starts with the same three tabs. They decide how th
 |-----|------|--------|
 | **Add** | `extrude(30)` (default, or `.add()`) | Fuses with every solid it touches. A boss on a plate becomes one body. |
 | **New** | `extrude(30).new()` | Stays a separate body, even where it overlaps another. The Shapes panel lists it on its own row. |
-| **Remove** | `cut(30)` / `revolve(...).remove()` | Subtracts its volume from every solid it intersects — pockets, grooves, tunnels. |
+| **Remove** | `cut(30)` / `revolve(...).remove()` | Subtracts its volume from every solid it intersects — pockets, grooves, tunnels. The depth runs *into* the material, opposite the sketch normal, the way a drill entering the face you sketched on does. |
 
 A fourth control, **Scope**, narrows Add or Remove to particular solids: `cut().remove().scope(box)` cuts only from `box`. For extrude the Remove tab writes `cut()`, which is the same feature as `extrude().remove()`.
 
-Each operation's page shows one base part in the three tabs side by side, and again with thin walls on: [extrude](/docs/3d-operations/extrude#add-new-and-remove), [revolve](/docs/3d-operations/revolve#add-new-and-remove), [sweep](/docs/3d-operations/sweep#add-new-and-remove), [loft](/docs/3d-operations/loft#add-new-and-remove).
+Each operation's page walks through its dialog control by control, shows the sketch and the solid it becomes side by side, and puts the same base part through the three tabs — plain and again with thin walls on: [extrude](/docs/3d-operations/extrude#add-new-and-remove), [revolve](/docs/3d-operations/revolve#add-new-and-remove), [sweep](/docs/3d-operations/sweep#add-new-and-remove), [loft](/docs/3d-operations/loft#add-new-and-remove).
 
 Auto-fusion is the Add tab: touching solids merge unless you say otherwise. The [Boolean operations](/docs/booleans/introduction) section covers fusing, subtracting and intersecting solids that already exist, and [Part](/docs/part/introduction) covers the isolation boundary that keeps separate components from fusing.
 

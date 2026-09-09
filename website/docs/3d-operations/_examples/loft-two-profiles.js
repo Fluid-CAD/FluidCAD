@@ -1,18 +1,13 @@
-import { sketch, loft, plane } from 'fluidcad/core';
-import { circle, line } from 'fluidcad/core';
-import { coincident, distance, fix, horizontal, vertical } from "fluidcad/constraints";
+// @screenshot view iso-ftr
+import { sketch, plane, loft, circle, line } from 'fluidcad/core';
+import { coincident, diameter, distance, fix, horizontal, vertical } from "fluidcad/constraints";
 
-// First profile: a Ø100 circle on the top plane.
-const s1 = sketch("xy", () => {
-    circle([0, 0], 100);
-  })
-
-// Second profile: an 80 x 80 square on a plane 100 above the first.
-const s2 = sketch(plane("xy", { offset: 100 }), () => {
-    const sg1 = line([-40, -40], [40, -40]);
-    const sg2 = line([40, -40], [40, 40]);
-    const sg3 = line([40, 40], [-40, 40]);
-    const sg4 = line([-40, 40], [-40, -40]);
+// Bottom section: a 120 x 70 rectangular duct mouth on the ground plane.
+const bottom = sketch("xy", () => {
+    const sg1 = line([-60, -35], [60, -35]);
+    const sg2 = line([60, -35], [60, 35]);
+    const sg3 = line([60, 35], [-60, 35]);
+    const sg4 = line([-60, 35], [-60, -35]);
     coincident(sg1.end(), sg2.start());
     coincident(sg2.end(), sg3.start());
     coincident(sg3.end(), sg4.start());
@@ -21,10 +16,18 @@ const s2 = sketch(plane("xy", { offset: 100 }), () => {
     vertical(sg2);
     horizontal(sg3);
     vertical(sg4);
-    fix(sg1.start(), [-40, -40]);
-    distance(sg1.start(), sg1.end(), 80);
-    distance(sg2.start(), sg2.end(), 80);
+    fix(sg1.start(), [-60, -35]);
+    distance(sg1.start(), sg1.end(), 120);
+    distance(sg2.start(), sg2.end(), 70);
   })
 
-// Blend the circle into the square, in the order the sketches are listed.
-loft(s1, s2)
+// Top section: a Ø70 round outlet on a plane 110 above the first.
+const top = sketch(plane("xy", { offset: 110 }), () => {
+    const c = circle([0, 0], 70);
+    fix(c.center(), [0, 0]);
+    diameter(c, 70);
+  })
+
+// Blend the rectangle into the circle, in the order the sketches are listed.
+// highlight-next-line
+loft(bottom, top);

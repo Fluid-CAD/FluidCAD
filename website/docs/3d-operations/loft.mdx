@@ -5,6 +5,8 @@ title: "Loft"
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
 import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import loftBefore from '!!raw-loader!./_examples/loft-before.js';
 import loftTwo from '!!raw-loader!./_examples/loft-two-profiles.js';
 import loftThree from '!!raw-loader!./_examples/loft-three-profiles.js';
 import loftThin from '!!raw-loader!./_examples/loft-thin.js';
@@ -15,32 +17,53 @@ import loftThinAdd from '!!raw-loader!./_examples/loft-thin-add.js';
 
 # Loft
 
-Loft blends two or more sketch profiles on different planes into one smooth solid. Reach for it when the cross-section changes along the length — a funnel, a bottle neck, a duct from round to square.
+Loft blends two or more sketch profiles on different planes into one smooth solid. Reach for it when the cross-section changes along the length — a duct that goes from rectangular to round, a transition piece, a hopper.
 
 ## In the viewport
 
-1. Sketch each profile on its own plane (a standard plane, an [offset plane](/docs/datums/planes), or a face). Click **Loft** on the toolbar.
-2. The Loft dialog:
-   - **Add / Remove / New** tabs (see [Add, New and Remove](#add-new-and-remove)).
-   - **Sketches — in loft order**: click each profile in the timeline or the viewport; the chips can be dragged into the order the surface should pass through them.
-   - **Guides — optional, up to 2**: open curves the surface must follow (see [Guide curves](#guide-curves)).
-   - Start and end **condition** (none / normal / tangent) with a magnitude.
-   - **Thin** with a wall thickness.
+1. Sketch each section on its own plane (a standard plane, an [offset plane](/docs/datums/planes), or a face). Click **Loft** on the toolbar.
+2. Click each profile in the timeline or the viewport. They stack up in the **Sketches** slot in the order you pick them, and that order is the order the surface passes through them — drag the chips to change it.
 3. Click **Apply**.
 
-![Loft from circle to square](/img/docs/3d-operations/loft-two-profiles.png)
+<UiFigure
+  src="/img/docs/ui/loft-dialog.png"
+  alt="The Loft dialog with two sketches picked in loft order"
+  markers={[
+    {n: 1, x: 5, y: 12, label: 'Add / Remove / New', description: 'What the lofted solid does to the model — fuse, cut, or stand alone. See Add, New and Remove below.'},
+    {n: 2, x: 5, y: 27, label: 'Sketches — in loft order', description: 'Two or more sections, numbered in pick order. The surface runs through them in that order, so a wrong order gives a twisted or self-crossing solid; drag a chip by its handle to reorder.'},
+    {n: 3, x: 5, y: 43, label: 'Guides', description: 'Up to two open curves the surface must follow along its sides. Each guide has to pass through every profile. Optional — see Guide curves below.'},
+    {n: 4, x: 5, y: 54, label: 'Start condition', description: 'How the surface leaves the first profile: None, Normal (perpendicular to the profile plane) or Tangent (bulging out inside the plane), with a magnitude.'},
+    {n: 5, x: 5, y: 65, label: 'End condition', description: 'The same for the last profile. The two ends are set independently.'},
+    {n: 6, x: 5, y: 71, label: 'Thin walls', description: 'Lofts a wall of the thickness you type instead of a filled solid. Cannot be combined with guides.'},
+    {n: 7, x: 5, y: 84, label: 'Scope', description: 'Which solids the Add or Remove applies to.'},
+    {n: 8, x: 5, y: 94, label: 'Apply', description: 'Writes the statement and adds the timeline row; Exit writes nothing.'},
+  ]}
+/>
 
-<ExplainedCode code={loftTwo} fileName="funnel.part.js" />
+## From sections to a solid
+
+A rectangular duct mouth and a round outlet 110 mm above it — the transition piece between them is one loft:
+
+<ModeTable columns={[
+  {title: 'Before', code: 'two sections', image: '/img/docs/3d-operations/loft-before.png', description: 'The two closed profiles, seen from above: a 120 × 70 rectangle on the ground plane and a Ø70 circle on a plane 110 above it.'},
+  {title: 'After', code: 'loft(bottom, top)', image: '/img/docs/3d-operations/loft-two-profiles.png', description: 'One solid whose section changes from rectangle to circle over its height — the adapter you would weld between a rectangular duct and a round pipe.'},
+]} />
+
+<ExplainedCode code={loftBefore} fileName="adapter.part.js" title="The two sketches" />
+
+<ExplainedCode code={loftTwo} title="The complete file" />
 
 ## Multiple profiles
 
-Add more sketches to the list to loft through them in order:
+Add more sketches to the list and the surface runs through all of them, in order. A third section is what lets a loft change direction as well as shape — here the middle circle carries the duct sideways as it rises:
 
-![Three-profile loft](/img/docs/3d-operations/loft-three-profiles.png)
+![Offset transition duct lofted through three sections](/img/docs/3d-operations/loft-three-profiles.png)
 
-<ExplainedCode code={loftThree} />
+<ExplainedCode code={loftThree} fileName="offset-duct.part.js">
+Take the middle section away and the loft would run straight from the rectangle to the outlet; it is the third profile, and its position, that bends the duct over.
+</ExplainedCode>
 
-The profiles must be on different planes, typically parallel planes at different offsets.
+The profiles must be on different planes — typically parallel planes at different offsets.
 
 ## Guide curves
 

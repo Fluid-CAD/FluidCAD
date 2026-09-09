@@ -4,8 +4,10 @@ title: "Fillet"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import filletBefore from '!!raw-loader!./_examples/fillet-before.js';
 import filletBasic from '!!raw-loader!./_examples/fillet-basic.js';
-import fillet2d from '!!raw-loader!./_examples/fillet-2d.js';
 
 # Fillet
 
@@ -13,13 +15,33 @@ Fillet rounds edges with a given radius, replacing the sharp edge with a smooth 
 
 ## In the viewport
 
-1. Click **Fillet** on the toolbar. A small panel opens with one field, **Radius** (default 1).
-2. Click the edges to round in the viewport. Hold <kbd>Ctrl</kbd> or <kbd>Shift</kbd> to add edges one by one, or right-click a pick for the multi-select menu: the **tangent chain** the edge belongs to, edges of the **same type** or equal length, the producing feature's buckets (*Extrude End Edges*, *Side Edges* …) and *Select other*. Hovering a menu item previews what it would select.
-3. Type the radius. The statement is written with the selection the picks resolved to — an accessor like `e.endEdges()` when the picks match a whole bucket, a `select()` with an edge filter otherwise.
+1. Click **Fillet** on the toolbar. A small panel opens beside the model.
+2. Click the edges to round. Hold <kbd>Ctrl</kbd> or <kbd>Shift</kbd> to add edges one by one, double-click an edge to take the whole bucket it belongs to, or right-click a pick for the multi-select menu: the **tangent chain** the edge belongs to, edges of the **same type** or equal length, the producing feature's buckets (*Extrude End Edges*, *Side Edges* …) and *Select other*. Hovering a menu item previews what it would select.
+3. Type the radius and click **Apply**.
 
-![Filleted box edges](/img/docs/3d-operations/fillet-basic.png)
+<UiFigure
+  src="/img/docs/ui/fillet-dialog.png"
+  alt="The Fillet panel with four edges picked and a radius of 5"
+  markers={[
+    {n: 1, x: 5, y: 17, label: 'Selection', description: 'The edges to round, numbered in pick order. The count beside the label is how many you have; the ✕ on a chip drops that pick, and clicking a picked edge again drops it too.'},
+    {n: 2, x: 5, y: 41, label: 'The chips', description: 'One per edge. What gets written depends on what they add up to: a whole bucket of one feature becomes an accessor like e.endEdges(), a subset becomes e.endEdges(0, 2), and anything else becomes a select() with an edge filter.'},
+    {n: 3, x: 5, y: 75, label: 'Radius', description: 'The rounding radius, as a number, an expression or a parameter name. Too large a radius for the surrounding faces makes the feature fail — the timeline row reports it.'},
+    {n: 4, x: 5, y: 90, label: 'Apply', description: 'Writes the statement and adds the timeline row; Exit writes nothing.'},
+  ]}
+/>
 
-<ExplainedCode code={filletBasic} fileName="box.part.js" />
+## From sharp to rounded
+
+The same plate before and after two fillets:
+
+<ModeTable columns={[
+  {title: 'Before', code: 'extrude(30)', image: '/img/docs/3d-operations/fillet-before.png', description: 'A 100 × 60 × 30 plate straight out of the extrude. Every edge is sharp.'},
+  {title: 'After', code: 'fillet(5, …)', image: '/img/docs/3d-operations/fillet-basic.png', description: 'Radius 5 on the four top edges and radius 3 on the four bottom ones — two fillet statements, each aimed at one bucket of the extrude.'},
+]} />
+
+<ExplainedCode code={filletBefore} fileName="box.part.js" title="The plate" />
+
+<ExplainedCode code={filletBasic} title="The complete file" />
 
 ## Targeting edges in code
 
@@ -43,12 +65,6 @@ fillet(5)                      // fillets the selected vertical edges
 
 See [Selection and filters](/docs/3d-operations/selection-and-filters) for the filters.
 
-## 2D fillet
-
-Inside a sketch, the sketch toolbar's **Fillet** tool rounds the corner between two lines: click the two lines (or the corner) and type the radius. It trims both lines and inserts a tangent arc, with the constraints that keep it tangent:
-
-![2D fillet on a pentagon](/img/docs/3d-operations/fillet-2d.png)
-
-<ExplainedCode code={fillet2d} />
-
-The [sketch Fillet tool](/docs/sketching/tools/fillet) page covers the 2D form in detail.
+:::tip[Rounding a sketch corner instead]
+This page is about rounding the edges of a solid. To round a corner *inside* a sketch — trimming two lines and inserting a tangent arc before anything is extruded — use the sketcher's own tool, described on the [sketch Fillet tool](/docs/sketching/tools/fillet) page.
+:::

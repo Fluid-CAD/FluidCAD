@@ -4,6 +4,8 @@ title: "Helix"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
 import helixBasic from '!!raw-loader!./_examples/helix-basic.js';
 import helixSpring from '!!raw-loader!./_examples/helix-spring.js';
 import helixFace from '!!raw-loader!./_examples/helix-face.js';
@@ -18,15 +20,33 @@ Helix creates a helical wire — the curve that springs, threads and coils are b
 ## In the viewport
 
 1. Click **Helix** on the toolbar.
-2. The Helix dialog:
-   - Source: **From axis** (click a world axis shown in the viewport, an `axis()` feature, or a straight edge) or **From face** (click a cylindrical or conical face — its axis, radius and height are read from the geometry).
-   - **Radius**, **Pitch**, **Turns** and **height** — any two of pitch, turns and height determine the third.
-   - **end radius** for a tapered helix, **start offset / end offset** to run the ends past the source.
-3. Click **Apply**. The wire appears in the viewport and the timeline; a sweep can pick it as its path.
+2. Fill in the dialog. The wire previews as you type.
+3. Click **Apply**. The wire appears in the viewport and the timeline; a sweep can then pick it as its path.
 
-![Basic helix](/img/docs/3d-operations/helix-basic.png)
+<UiFigure
+  src="/img/docs/ui/helix-dialog.png"
+  alt="The Helix dialog with the world Z axis, a radius, a pitch and a turn count"
+  markers={[
+    {n: 1, x: 5, y: 14, label: 'From axis / From face', description: 'Where the coil gets its frame. From axis takes an axis you click — a world axis in the viewport, an axis() feature, or a straight edge. From face reads the axis, radius and height off a cylindrical or conical face instead.'},
+    {n: 2, x: 5, y: 26, label: 'Axis', description: 'The line the helix winds around. It opens on world Z; click another axis or a straight edge to change it.'},
+    {n: 3, x: 5, y: 39, label: 'Radius / End radius', description: 'The radius of the coil, and — if you fill in End radius — the radius it tapers to, which makes a conical helix. Both are ignored when the source is a face or a circular edge, where the geometry sets them.'},
+    {n: 4, x: 5, y: 55, label: 'Coil by', description: 'Turns or Pitch: which of the two you type. Turns is the number of revolutions, Pitch the axial rise per revolution.'},
+    {n: 5, x: 5, y: 70, label: 'Height', description: 'Total axial extent. Any two of pitch, turns and height determine the third, so leaving this on auto lets the other two set it.'},
+    {n: 6, x: 5, y: 82, label: 'Start / end offset', description: 'Run the ends past the source along the axis, in axial units — how a real thread runs off the end of its stock instead of stopping flush.'},
+    {n: 7, x: 5, y: 93, label: 'Apply', description: 'Writes the statement and adds the timeline row; Exit writes nothing.'},
+  ]}
+/>
 
-<ExplainedCode code={helixBasic} fileName="coil.part.js" />
+## The wire, and what it is for
+
+On its own a helix is just a curve. It becomes material when a [sweep](/docs/3d-operations/sweep) carries a profile along it:
+
+<ModeTable columns={[
+  {title: 'The helix', code: 'helix("z")', image: '/img/docs/3d-operations/helix-basic.png', description: 'A wire coiling around the Z axis. Nothing solid — no faces, no volume.'},
+  {title: 'Swept', code: 'sweep(h, profile)', image: '/img/docs/3d-operations/helix-spring.png', description: 'A small circle swept along that wire: a spring. The profile is placed at the path start automatically.'},
+]} />
+
+<ExplainedCode code={helixBasic} fileName="coil.part.js" title="The helix" />
 
 The argument is the axis to coil around — a named axis like `"z"`, anything axis-like, or an existing scene object (see [deriving from geometry](#deriving-from-geometry)).
 
@@ -51,11 +71,9 @@ Winding is clockwise (left-handed) by default; `.ccw()` gives a right-handed hel
 
 ## Springs
 
-Sweep a small profile along the helix to get a spring. The profile is positioned at the path start automatically:
+The spring above is the whole recipe: a helix for the path, a small circle for the wire section, and a sweep to join them.
 
-![Helical spring](/img/docs/3d-operations/helix-spring.png)
-
-<ExplainedCode code={helixSpring} />
+<ExplainedCode code={helixSpring} fileName="spring.part.js" />
 
 ## Deriving from geometry
 

@@ -5,6 +5,8 @@ title: "Sweep"
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
 import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import sweepBefore from '!!raw-loader!./_examples/sweep-before.js';
 import sweepBasic from '!!raw-loader!./_examples/sweep-basic.js';
 import sweepExtend from '!!raw-loader!./_examples/sweep-extend.js';
 import sweepThin from '!!raw-loader!./_examples/sweep-thin.js';
@@ -19,16 +21,34 @@ Sweep moves a profile along a path to make a solid: pipes, rails, handles, cable
 ## In the viewport
 
 1. Draw the path as a sketch (an open chain of lines and arcs, or a [helix](/docs/3d-operations/helix)) and the profile as a second sketch on a plane that crosses the path, usually at its start. Then click **Sweep** on the toolbar.
-2. The Sweep dialog:
-   - **Add / Remove / New** tabs (see [Add, New and Remove](#add-new-and-remove)).
-   - **Profile** — a single sketch chip; click a sketch row in the timeline or its wires in the viewport.
-   - **Path** — a sketch, a helix, or edges picked in the viewport. Edge picking is live the whole time the dialog is armed: clicking an edge re-sources the path to edges, clicking a sketch switches it back.
-   - **Thin** with a wall thickness.
+2. Fill in the dialog — both slots are usually filled for you from the two most recent sketches.
 3. Click **Apply**.
 
-![Sweep along a curved path](/img/docs/3d-operations/sweep-basic.png)
+<UiFigure
+  src="/img/docs/ui/sweep-dialog.png"
+  alt="The Sweep dialog with a profile sketch and a path sketch picked"
+  markers={[
+    {n: 1, x: 5, y: 16, label: 'Add / Remove / New', description: 'What the swept solid does to the model — fuse, cut, or stand alone. See Add, New and Remove below.'},
+    {n: 2, x: 5, y: 33, label: 'Sketch', description: 'The profile that travels along the path. One sketch; click a sketch row in the timeline or its wires in the viewport to change it.'},
+    {n: 3, x: 5, y: 50, label: 'Path', description: 'The curve to follow — a sketch, a helix, or edges picked in the viewport. Edge picking stays live while the dialog is open: clicking an edge re-sources the path to edges, clicking a sketch switches it back.'},
+    {n: 4, x: 5, y: 60, label: 'Thin walls', description: 'Sweeps a wall of the thickness you type instead of the filled profile — a pipe rather than a rod.'},
+    {n: 5, x: 5, y: 78, label: 'Scope', description: 'Which solids the Add or Remove applies to.'},
+    {n: 6, x: 5, y: 92, label: 'Apply', description: 'Writes the statement and adds the timeline row; Exit writes nothing.'},
+  ]}
+/>
 
-<ExplainedCode code={sweepBasic} fileName="pipe.part.js" />
+## From two sketches to a pipe
+
+A ring profile and a bent path, and the solid they make between them:
+
+<ModeTable columns={[
+  {title: 'Before', code: 'path + profile', image: '/img/docs/3d-operations/sweep-before.png', description: 'Seen square to the front plane: the path — a line and two arcs, tangent where they join — with the ring profile edge-on at its start, the short line at the bottom.'},
+  {title: 'After', code: 'sweep(spine, profile)', image: '/img/docs/3d-operations/sweep-basic.png', description: 'The ring carried along the path, staying square to it the whole way. The hole in the profile becomes the bore.'},
+]} />
+
+<ExplainedCode code={sweepBefore} fileName="pipe.part.js" title="The two sketches" />
+
+<ExplainedCode code={sweepBasic} title="The complete file" />
 
 The first argument of `sweep()` is the path (spine), the second the profile.
 

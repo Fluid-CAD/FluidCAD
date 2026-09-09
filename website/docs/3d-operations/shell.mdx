@@ -4,6 +4,9 @@ title: "Shell"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import shellBefore from '!!raw-loader!./_examples/shell-before.js';
 import shellBasic from '!!raw-loader!./_examples/shell-basic.js';
 
 # Shell
@@ -12,13 +15,33 @@ Shell hollows a solid into walls of a given thickness. You pick the faces to rem
 
 ## In the viewport
 
-1. Click **Shell** on the toolbar. A small panel opens with one field, **Thickness** (default -2).
+1. Click **Shell** on the toolbar. A small panel opens beside the model.
 2. Click the face (or faces) to open in the viewport. Right-click a pick for the multi-select menu — same-type faces, the producing feature's other buckets (*Extrude End Faces* …), *Select other*.
-3. Type the thickness. A negative value shells inward and keeps the outer shape; a positive value shells outward and keeps the inner cavity. The statement is written as soon as the pick is complete.
+3. Type the thickness. The statement is written as soon as the pick is complete.
 
-![Shelled cylinder](/img/docs/3d-operations/shell-basic.png)
+<UiFigure
+  src="/img/docs/ui/shell-dialog.png"
+  alt="The Shell panel with one face picked and a thickness of −5"
+  markers={[
+    {n: 1, x: 5, y: 30, label: 'Selection', description: 'The faces to remove — they become the openings. Each pick is a numbered chip; the ✕ drops one, and clicking a picked face again drops it too. Leave it empty and nothing happens: Shell always needs at least one face.'},
+    {n: 2, x: 5, y: 52, label: 'Thickness', description: 'How thick the walls end up. Negative shells inward and keeps the outer shape; positive shells outward and keeps the inner cavity.'},
+    {n: 3, x: 5, y: 71, label: 'Join type', description: 'How the offset walls meet at a corner: Arc rounds the join, Intersection runs both walls on until they cross, Tangent extends them tangentially. Arc is the safe default.'},
+    {n: 4, x: 5, y: 89, label: 'Apply', description: 'Writes the statement and adds the timeline row; Exit writes nothing.'},
+  ]}
+/>
 
-<ExplainedCode code={shellBasic} fileName="cup.part.js" />
+## From solid to walls
+
+A cylinder with both flat faces removed becomes a tube:
+
+<ModeTable columns={[
+  {title: 'Before', code: 'cylinder(50, 100)', image: '/img/docs/3d-operations/shell-before.png', description: 'A Ø50 cylinder, 100 tall, solid all the way through.'},
+  {title: 'After', code: 'shell(-5)', image: '/img/docs/3d-operations/shell-basic.png', description: 'The top and bottom faces are gone and what is left is a 5-thick wall. The outside is still Ø50 — a negative thickness grows the wall inward.'},
+]} />
+
+<ExplainedCode code={shellBefore} fileName="cup.part.js" title="The solid" />
+
+<ExplainedCode code={shellBasic} title="The complete file" />
 
 ## Thickness direction
 

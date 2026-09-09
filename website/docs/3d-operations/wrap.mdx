@@ -4,6 +4,9 @@ title: "Wrap"
 ---
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
+import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import wrapBefore from '!!raw-loader!./_examples/wrap-before.js';
 import wrapBasic from '!!raw-loader!./_examples/wrap-basic.js';
 import wrapText from '!!raw-loader!./_examples/wrap-text.js';
 import wrapEngrave from '!!raw-loader!./_examples/wrap-engrave.js';
@@ -17,16 +20,31 @@ Wrap takes a flat sketch and bends it onto a cylindrical or conical face — lik
 ## In the viewport
 
 1. Sketch the decal on a plane tangent to (or parallel to) the target face, then click **Wrap** on the toolbar.
-2. The Wrap dialog:
-   - **Add / Remove / New** tabs — emboss, engrave, or keep the pad as its own body.
-   - The sketch slot, filled with the last sketch.
-   - **Cylindrical face** — click the face to wrap onto (a cylinder or a cone).
-   - The pad **thickness**, measured along the surface normal.
+2. Fill in the dialog and click the face to wrap onto.
 3. Click **Apply**.
 
-![Basic wrap](/img/docs/3d-operations/wrap-basic.png)
+<UiFigure
+  src="/img/docs/ui/wrap-dialog.png"
+  alt="The Wrap dialog with a sketch, a picked cylindrical face and a thickness of 2"
+  markers={[
+    {n: 1, x: 5, y: 20, label: 'Add / Remove / New', description: 'Add embosses the decal on the surface, Remove engraves it into the surface, New keeps the wrapped pad as a body of its own.'},
+    {n: 2, x: 5, y: 38, label: 'Sketch', description: 'The flat artwork to bend onto the surface, filled with the last sketch. Its plane decides where the decal lands — see the placement rules below.'},
+    {n: 3, x: 5, y: 56, label: 'Target face', description: 'The face to wrap onto. It has to be cylindrical or conical; clicking any other face leaves the slot empty.'},
+    {n: 4, x: 5, y: 74, label: 'Thickness', description: 'How far the decal stands off the surface, measured along the surface normal. On the Remove tab it is the engraving depth instead.'},
+    {n: 5, x: 5, y: 90, label: 'Apply', description: 'Writes the statement and adds the timeline row; Exit writes nothing.'},
+  ]}
+/>
 
-<ExplainedCode code={wrapBasic} fileName="label.part.js" />
+## From flat sketch to curved decal
+
+<ModeTable columns={[
+  {title: 'Before', code: 'a flat rectangle', image: '/img/docs/3d-operations/wrap-before.png', description: 'A Ø25 bottle and a flat 30 × 14 rectangle on a plane tangent to it — the artwork as drawn.'},
+  {title: 'After', code: 'wrap(2, decal, target)', image: '/img/docs/3d-operations/wrap-basic.png', description: 'The rectangle bent around the bottle and raised 2 off the surface. It is still 30 mm wide — measured along the curve now, not across the chord.'},
+]} />
+
+<ExplainedCode code={wrapBefore} fileName="label.part.js" title="The bottle and the decal" />
+
+<ExplainedCode code={wrapBasic} title="The complete file" />
 
 In code the arguments are the thickness, the sketch and the target face:
 

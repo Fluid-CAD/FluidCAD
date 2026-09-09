@@ -5,6 +5,8 @@ title: "Revolve"
 
 import {ExplainedCode} from '@site/src/components/docs/ExplainedCode';
 import {ModeTable} from '@site/src/components/docs/ModeTable';
+import {UiFigure} from '@site/src/components/docs/UiFigure';
+import revolveBefore from '!!raw-loader!./_examples/revolve-before.js';
 import revolvePartial from '!!raw-loader!./_examples/revolve-partial.js';
 import revolveFull from '!!raw-loader!./_examples/revolve-full.js';
 import revolveThin from '!!raw-loader!./_examples/revolve-thin.js';
@@ -19,17 +21,36 @@ Revolve turns a sketch profile around an axis into a solid of revolution — a s
 ## In the viewport
 
 1. Finish a sketch on a plane that contains the axis you want to turn around (the front or right plane for a vertical axis) and click **Revolve** on the toolbar.
-2. The Revolve dialog:
-   - **Add / Remove / New** tabs — how the revolved solid meets the model (see [Add, New and Remove](#add-new-and-remove)).
-   - **Profile** — the sketch to revolve, filled with the last sketch.
-   - **Axis** — click one of the world axes shown in the viewport (X red, Y green, Z blue), an `axis()` feature, or a straight edge. The slot opens on world Z. One slot is armed at a time (the highlighted border); viewport picks go to the armed slot.
-   - **Angle** in degrees; 360 is a full turn.
-   - **Thin** with a wall thickness.
+2. Fill in the dialog. A ghost previews the turned solid as you type.
 3. Click **Apply**.
 
-![275° revolve](/img/docs/3d-operations/revolve-partial.png)
+<UiFigure
+  src="/img/docs/ui/revolve-dialog.png"
+  alt="The Revolve dialog with a profile picked, the world Z axis and an angle of 275°"
+  markers={[
+    {n: 1, x: 5, y: 14, label: 'Add / Remove / New', description: 'How the turned solid meets the model — fuse with it, cut it away, or stay a separate body. See Add, New and Remove below.'},
+    {n: 2, x: 5, y: 27, label: 'Sketch', description: 'The profile to revolve, filled with the last sketch. It has to lie in a plane that contains the axis, and it must not cross it.'},
+    {n: 3, x: 5, y: 40, label: 'Axis', description: 'What the profile turns around. The slot opens on world Z; click one of the world axes shown in the viewport (X red, Y green, Z blue), an axis() feature, or a straight edge to change it.'},
+    {n: 4, x: 5, y: 53, label: 'Angle', description: 'Degrees of turn. 360 — the default — is a full revolution; anything less leaves the two flat end faces the picture below shows.'},
+    {n: 5, x: 5, y: 60, label: 'Symmetric', description: 'Splits the angle either side of the sketch plane instead of running it all one way.'},
+    {n: 6, x: 5, y: 66, label: 'Thin walls', description: 'Revolves a wall of the thickness you then type rather than the filled profile — a hollow body from a closed profile, a shell from an open one.'},
+    {n: 7, x: 5, y: 81, label: 'Scope', description: 'Which solids the Add or Remove applies to. All means every solid the revolve meets.'},
+    {n: 8, x: 5, y: 93, label: 'Apply', description: 'Writes the statement and adds the timeline row; Exit writes nothing.'},
+  ]}
+/>
 
-<ExplainedCode code={revolvePartial} fileName="ring.part.js" />
+## From profile to solid of revolution
+
+A circle 80 mm off the Z axis, turned 275°:
+
+<ModeTable columns={[
+  {title: 'Before', code: 'the profile', image: '/img/docs/3d-operations/revolve-before.png', description: 'A Ø40 circle on the front plane, its centre 80 from the axis. The plane contains the Z axis, which is what makes it revolvable.'},
+  {title: 'After', code: 'revolve("z", 275)', image: '/img/docs/3d-operations/revolve-partial.png', description: 'The circle swept 275° around Z — a ring with a wedge missing, so you can see the two end faces the partial turn leaves.'},
+]} />
+
+<ExplainedCode code={revolveBefore} fileName="ring.part.js" title="The sketch" />
+
+<ExplainedCode code={revolvePartial} title="The complete file" />
 
 ## Full revolution
 
